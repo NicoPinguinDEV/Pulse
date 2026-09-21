@@ -6,7 +6,6 @@ from discord.ext import commands
 
 DATA_FILE = "abmeldungen.json"
 
-# Hilfsfunktionen zum Laden und Speichern der Abmeldungen
 def load_abmeldungen():
     if not os.path.exists(DATA_FILE):
         return []
@@ -121,13 +120,11 @@ class AbmeldungAdminView(discord.ui.View):
 
         await interaction.message.edit(embed=embed)
 
-        # In die Liste für den /list Befehl eintragen
         user_name = embed.author.name
         zeitraum = embed.fields[1].value
         grund = embed.fields[2].value
 
         data = load_abmeldungen()
-        # Falls der User schon drin steht, alten Eintrag aktualisieren
         data = [entry for entry in data if entry.get("user") != user_name]
         data.append({
             "user": user_name,
@@ -215,7 +212,6 @@ class Abmeldung(commands.Cog):
 
         embed.set_footer(text="Pulse Team-System • Nur für dich sichtbar")
 
-        # Private Nachricht senden (nur für den Ausführenden sichtbar)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
