@@ -3,8 +3,8 @@ import asyncio
 import discord
 from discord.ext import commands
 
-# --- TRAGE HIER DEINE SERVER-ID EIN ---
-GUILD_ID = discord.Object(id=1541206148785373276) # Beispiel-ID durch deine ersetzen!
+# --- DEINE SERVER-ID ---
+GUILD_ID = discord.Object(id=1541206148785373276)
 
 class DiscordBot(commands.Bot):
     def __init__(self):
