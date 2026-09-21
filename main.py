@@ -3,6 +3,9 @@ import asyncio
 import discord
 from discord.ext import commands
 
+# --- DEINE SERVER-ID ---
+GUILD_ID = discord.Object(id=1541206148785373276)
+
 class DiscordBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -16,8 +19,10 @@ class DiscordBot(commands.Bot):
                     await self.load_extension(f'cogs.{filename[:-3]}')
                     print(f'[INFO] Cog geladen: {filename[:-3]}')
 
-        synced = await self.tree.sync()
-        print(f'[INFO] {len(synced)} Slash-Commands registriert.')
+        # Kopiert alle Befehle direkt auf deinen Server (Sofort-Sync)
+        self.tree.copy_global_to(guild=GUILD_ID)
+        synced = await self.tree.sync(guild=GUILD_ID)
+        print(f'[INFO] {len(synced)} Slash-Commands SOFORT auf dem Server registriert.')
 
     async def on_ready(self):
         print(f'[READY] Eingeloggt als {self.user} (ID: {self.user.id})')
