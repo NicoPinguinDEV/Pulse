@@ -1,8 +1,27 @@
+import os
+import json
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-# --- FORMULAR FÜR TEAM-ABMELDUNG ---
+DATA_FILE = "abmeldungen.json"
+
+# Hilfsfunktionen zum Laden und Speichern der Abmeldungen
+def load_abmeldungen():
+    if not os.path.exists(DATA_FILE):
+        return []
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def save_abmeldungen(data):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+
+# --- FORMULAR FÜR TEAM-ABMELDUNG (OHNE VERTRETUNG) ---
 class AbmeldungModal(discord.ui.Modal, title="Team-Abmeldung einreichen"):
     von_datum = discord.ui.TextInput(
         label="Abgemeldet von (Datum)", 
@@ -22,12 +41,6 @@ class AbmeldungModal(discord.ui.Modal, title="Team-Abmeldung einreichen"):
         style=discord.TextStyle.paragraph, 
         required=True,
         max_length=500
-    )
-    vertretung = discord.ui.TextInput(
-        label="Vertretung (Optional)", 
-        placeholder="Wer übernimmt deine Aufgaben?", 
-        required=False,
-        max_length=100
     )
 
     def __init__(self, target_channel: discord.TextChannel):
@@ -50,10 +63,6 @@ class AbmeldungModal(discord.ui.Modal, title="Team-Abmeldung einreichen"):
             inline=False
         )
         embed.add_field(name="📝 Grund", value=self.grund.value, inline=False)
-
-        if self.vertretung.value:
-            embed.add_field(name="🔄 Vertretung", value=self.vertretung.value, inline=False)
-
         embed.add_field(name="📌 Status", value="⏳ **Ausstehend / In Bearbeitung**", inline=False)
         embed.set_footer(text=f"User-ID: {user.id}")
 
@@ -64,7 +73,7 @@ class AbmeldungModal(discord.ui.Modal, title="Team-Abmeldung einreichen"):
         )
 
 
-# --- BUTTON FÜR DAS PERMANENTE PANEL ---
+# --- BUTTON FÜR DAS PANEL ---
 class PanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -81,7 +90,7 @@ class PanelView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
 
-# --- ADMIN BUTTONS ZUR GENEHMIGUNG ---
+# --- ADMIN BUTTONS (GENEHMIGEN / ABLEHNEN) ---
 class AbmeldungAdminView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -111,7 +120,23 @@ class AbmeldungAdminView(discord.ui.View):
                 break
 
         await interaction.message.edit(embed=embed)
-        await interaction.response.send_message("✅ Abmeldung als genehmigt markiert.", ephemeral=True)
+
+        # In die Liste für den /list Befehl eintragen
+        user_name = embed.author.name
+        zeitraum = embed.fields[1].value
+        grund = embed.fields[2].value
+
+        data = load_abmeldungen()
+        # Falls der User schon drin steht, alten Eintrag aktualisieren
+        data = [entry for entry in data if entry.get("user") != user_name]
+        data.append({
+            "user": user_name,
+            "zeitraum": zeitraum.replace("**", ""),
+            "grund": grund
+        })
+        save_abmeldungen(data)
+
+        await interaction.response.send_message("✅ Abmeldung genehmigt und in die /list eingetragen.", ephemeral=True)
 
     @discord.ui.button(
         label="Ablehnen", 
@@ -150,11 +175,6 @@ class Abmeldung(commands.Cog):
         self.bot.add_view(AbmeldungAdminView())
         self.bot.add_view(PanelView())
 
-    @app_commands.command(name="abmelden", description="Reiche eine Team-Abmeldung ein")
-    async def abmelden(self, interaction: discord.Interaction):
-        modal = AbmeldungModal(target_channel=interaction.channel)
-        await interaction.response.send_modal(modal)
-
     @app_commands.command(name="panel", description="Sendet das Team-Abmeldungs-Panel in diesen Kanal")
     @app_commands.default_permissions(administrator=True)
     async def panel(self, interaction: discord.Interaction):
@@ -171,6 +191,32 @@ class Abmeldung(commands.Cog):
 
         await interaction.channel.send(embed=embed, view=PanelView())
         await interaction.response.send_message("✅ Abmeldungs-Panel wurde gesendet!", ephemeral=True)
+
+    @app_commands.command(name="list", description="Zeigt alle genehmigten Abmeldungen (nur für dich sichtbar)")
+    async def list_abmeldungen(self, interaction: discord.Interaction):
+        data = load_abmeldungen()
+
+        if not data:
+            await interaction.response.send_message("ℹ️ Aktuell liegen keine genehmigten Abmeldungen vor.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="📜 Übersicht der abgemeldeten Teammitglieder",
+            color=discord.Color.blue(),
+            timestamp=interaction.created_at
+        )
+
+        for entry in data:
+            embed.add_field(
+                name=f"👤 {entry['user']}",
+                value=f"📅 {entry['zeitraum']}\n📝 **Grund:** {entry['grund']}",
+                inline=False
+            )
+
+        embed.set_footer(text="Pulse Team-System • Nur für dich sichtbar")
+
+        # Private Nachricht senden (nur für den Ausführenden sichtbar)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
