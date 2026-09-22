@@ -68,23 +68,28 @@ class AbmeldungCog(commands.Cog):
         rows = cursor.fetchall()
         conn.close()
 
+        # Rotes Embed mit Zeitstempel
         embed = discord.Embed(
-            title="📋 Aktuelle Abmeldungen",
-            color=discord.Color.blue()
+            title="📌 AKTUELLE ABMELDUNGEN",
+            color=discord.Color.red(),
+            timestamp=datetime.now()
         )
 
         if not rows:
-            embed.description = "*Aktuell ist niemand abgemeldet.*"
+            embed.description = ">>> *Aktuell liegen keine Abmeldungen vor.*"
         else:
-            embed.description = f"Insgesamt abgemeldet: **{len(rows)}**\n───────────────"
+            embed.description = f"Anzahl der Abmeldungen: **{len(rows)}**\n───────────────"
             for user_id, user_name, grund, bis in rows:
                 embed.add_field(
                     name=f"👤 {user_name}",
-                    value=f"**Grund:** {grund}\n**Bis:** {bis}",
+                    value=(
+                        f"┣ 📝 **Grund:** {grund}\n"
+                        f"┗ 📅 **Bis:** {bis}\n"
+                    ),
                     inline=False
                 )
 
-        embed.set_footer(text="Automatisch aktualisiert")
+        embed.set_footer(text="Zuletzt aktualisiert")
 
         try:
             message = await channel.fetch_message(message_id)
@@ -98,10 +103,12 @@ class AbmeldungCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def setup_liste(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="📋 Aktuelle Abmeldungen",
-            description="*Aktuell ist niemand abgemeldet.*",
-            color=discord.Color.blue()
+            title="📌 AKTUELLE ABMELDUNGEN",
+            description=">>> *Aktuell liegen keine Abmeldungen vor.*",
+            color=discord.Color.red(),
+            timestamp=datetime.now()
         )
+        embed.set_footer(text="Zuletzt aktualisiert")
         
         await interaction.response.send_message("Liste wird erstellt...", ephemeral=True)
         msg = await interaction.channel.send(embed=embed)
@@ -183,6 +190,5 @@ class AbmeldungCog(commands.Cog):
             ephemeral=True
         )
 
-# Cog beim Bot registrieren
 async def setup(bot: commands.Bot):
     await bot.add_cog(AbmeldungCog(bot))
