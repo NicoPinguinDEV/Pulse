@@ -207,6 +207,15 @@ async def abmeldung_entfernen(interaction: discord.Interaction, mitglied: discor
         await interaction.response.send_message(f"{mitglied.display_name} war nicht abgemeldet.", ephemeral=True)
 
 
+# 5. /list (Dummy-Befehl um Log-Fehler durch Discord-Cache zu verhindern)
+@bot.tree.command(name="list", description="Zeigt die Abmeldungsliste an")
+async def old_list(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        "ℹ️ Der Befehl `/list` wird nicht mehr benötigt! Die Liste wird jetzt automatisch im festgelegten Kanal aktualisiert.",
+        ephemeral=True
+    )
+
+
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ FEHLER: Kein DISCORD_TOKEN in der .env-Datei gefunden!")
