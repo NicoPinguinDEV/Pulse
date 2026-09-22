@@ -13,7 +13,7 @@ class RPStopModal(discord.ui.Modal, title="RP Stop - Nächster RP Start"):
 
     async def on_submit(self, interaction: discord.Interaction):
         msg_content = (
-            "#  :minus:   RP Stop  :minus:  \n\n"
+            "#  :minus:   RP Start  :minus:  \n\n"
             "> **Das RP wird hiermit offiziell gestopt!**\n"
             "> ***Informationen zu dem folgenden Tag***\n"
             f"> **:RPStart: Geplanter RP-Start: {self.uhrzeit.value}** \n"
@@ -92,7 +92,7 @@ class RPVerwaltungCog(commands.Cog):
         embed = discord.Embed(
             title="💻 Roleplay Verwaltung",
             description="Nutze das Menü unten, um das RP offiziell zu starten oder zu beenden.",
-            color=discord.Color.blue()
+            color=discord.Color.red()
         )
         
         if interaction.guild.icon:
