@@ -7,7 +7,7 @@ from discord.ext import commands
 
 DB_NAME = "flaggenquiz.db"
 
-# --- FLAGGEN DATENBANK (Beliebig erweiterbar) ---
+# --- FLAGGEN DATENBANK ---
 FLAGS = [
     {"name": "Deutschland", "answers": ["deutschland"], "url": "https://flagcdn.com/w640/de.png"},
     {"name": "Frankreich", "answers": ["frankreich"], "url": "https://flagcdn.com/w640/fr.png"},
@@ -111,46 +111,80 @@ def get_top_scores(guild_id: int, limit: int = 10):
     return rows
 
 
+# --- BUTTON VIEW (Skip & Hinweis) ---
+class QuizView(discord.ui.View):
+    def __init__(self, cog):
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    # Blauer Knopf für den ersten Buchstaben
+    @discord.ui.button(label="Erster Buchstabe", style=discord.ButtonStyle.blurple, custom_id="quiz_hint", emoji="💡")
+    async def hint_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        current_flag = self.cog.active_games.get(interaction.channel_id)
+        if not current_flag:
+            await interaction.response.send_message("Keine aktive Runde!", ephemeral=True)
+            return
+
+        first_letter = current_flag["name"][0].upper()
+        # Nur für den Spieler sichtbar (ephemeral=True)
+        await interaction.response.send_message(
+            f"💡 Der erste Buchstabe des Landes ist: **{first_letter}**",
+            ephemeral=True
+        )
+
+    # Roter Knopf zum Überspringen
+    @discord.ui.button(label="Überspringen", style=discord.ButtonStyle.red, custom_id="quiz_skip", emoji="⏭️")
+    async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        current_flag = self.cog.active_games.get(interaction.channel_id)
+        if not current_flag:
+            await interaction.response.send_message("Keine aktive Runde!", ephemeral=True)
+            return
+
+        skipped_country_name = current_flag["name"]
+        await interaction.response.send_message(
+            f"⏭️ {interaction.user.mention} hat die Flagge übersprungen! Gesucht war: **{skipped_country_name}**"
+        )
+        await asyncio.sleep(1.5)
+        await self.cog.start_new_round(interaction.channel, skipped_country=skipped_country_name)
+
+
 class FlaggenQuizCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         init_db()
-        # Speichert das aktuelle Land pro Kanal im Arbeitsspeicher
         self.active_games = {}  # {channel_id: flag_object}
 
-    # Erstellt das Standard-Quiz-Embed
-    def create_quiz_embed(self, guild: discord.Guild, flag_data: dict, last_winner: discord.Member = None, last_country: str = None) -> discord.Embed:
+    def create_quiz_embed(self, guild: discord.Guild, flag_data: dict, last_winner: discord.Member = None, last_country: str = None, skipped_country: str = None) -> discord.Embed:
         embed = discord.Embed(
             title=f"🚩 Flaggen-Raten | {guild.name.upper()}",
-            description="Welches Land gehört zu dieser Flagge?\nSchreibe den **vollständigen Namen** einfach in den Chat!",
+            description="Welches Land gehört zu dieser Flagge?\nSchreibe den **vollständigen Namen** in den Chat!",
             color=discord.Color.red()
         )
         embed.set_image(url=flag_data["url"])
 
-        if last_winner and last_country:
+        if skipped_country:
+            embed.set_footer(text=f"⏭️ Die letzte Flagge ({skipped_country}) wurde übersprungen.")
+        elif last_winner and last_country:
             embed.set_footer(text=f"⚡ Letzte Flagge ({last_country}) richtig erraten von: {last_winner.display_name}")
         else:
             embed.set_footer(text="Viel Erfolg beim Erraten! ⚡")
 
         return embed
 
-    # Startet / Erneuert eine Runde
-    async def start_new_round(self, channel: discord.TextChannel, last_winner: discord.Member = None, last_country: str = None):
-        # Zufällige Flagge auswählen
+    async def start_new_round(self, channel: discord.TextChannel, last_winner: discord.Member = None, last_country: str = None, skipped_country: str = None):
         new_flag = random.choice(FLAGS)
         self.active_games[channel.id] = new_flag
 
-        # Nachrichten im Kanal leeren
+        # Nachrichten im Kanal clearen
         try:
             await channel.purge(limit=100)
         except Exception:
             pass
 
-        # Neues Embed senden
-        embed = self.create_quiz_embed(channel.guild, new_flag, last_winner, last_country)
-        await channel.send(embed=embed)
+        embed = self.create_quiz_embed(channel.guild, new_flag, last_winner, last_country, skipped_country)
+        view = QuizView(self)
+        await channel.send(embed=embed, view=view)
 
-    # EVENT: Überprüft Chatnachrichten im Quiz-Kanal
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
@@ -166,19 +200,14 @@ class FlaggenQuizCog(commands.Cog):
 
         user_input = message.content.strip().lower()
 
-        # Prüfen, ob die Antwort korrekt ist
         if user_input in current_flag["answers"]:
-            # Punkt für den User speichern
             add_point(message.guild.id, message.author.id)
-
             last_country_name = current_flag["name"]
             winner = message.author
 
-            # Kurze Verzögerung, damit man sieht, dass es richtig war, dann Nachricht löschen & neu starten
             await asyncio.sleep(0.5)
             await self.start_new_round(message.channel, last_winner=winner, last_country=last_country_name)
 
-    # COMMAND: Quiz-Kanal einrichten
     @app_commands.command(name="setup_flaggenquiz", description="[Admin] Richtet den Kanal für das Flaggen-Raten ein")
     @app_commands.checks.has_permissions(administrator=True)
     async def setup_quiz(self, interaction: discord.Interaction, kanal: discord.TextChannel):
@@ -190,7 +219,6 @@ class FlaggenQuizCog(commands.Cog):
         )
         await self.start_new_round(kanal)
 
-    # COMMAND: Private Bestenliste (Nur für den ausführenden Spieler sichtbar)
     @app_commands.command(name="flaggen_bestenliste", description="Zeigt deine Statistiken & die Server-Bestenliste an (Nur für dich sichtbar)")
     async def leaderboard(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -220,7 +248,6 @@ class FlaggenQuizCog(commands.Cog):
         if interaction.user.display_avatar:
             embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
-        # ephemeral=True sorgt dafür, dass NUR der Spieler die Nachricht sieht!
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
