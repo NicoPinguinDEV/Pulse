@@ -8,25 +8,6 @@ from discord.ext import commands, tasks
 DB_NAME = "activity_check.db"
 BERLIN_TZ = zoneinfo.ZoneInfo("Europe/Berlin")
 
-# --- GRÜNER BUTTON FÜR TEAMLER ---
-class ActivityCheckView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)  # Überlebt Bot-Neustarts
-
-    @discord.ui.button(
-        label="Aktivität bestätigen",
-        style=discord.ButtonStyle.green,
-        emoji="✅",
-        custom_id="activity_check_confirm_btn"
-    )
-    async def confirm_activity(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Antwortet dem Teamler anonym / nur für ihn sichtbar
-        await interaction.response.send_message(
-            "✅ **Deine Aktivität für heute wurde erfolgreich erfasst!** Vielen Dank für deinen Einsatz.",
-            ephemeral=True
-        )
-
-# --- COG ---
 class ActivityCheckCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -64,10 +45,6 @@ class ActivityCheckCog(commands.Cog):
         conn.close()
         return row[0] if row else None
 
-    async def cog_load(self):
-        # Registriert die View für den Button beim Start
-        self.bot.add_view(ActivityCheckView())
-
     # --- NACHRICHT ERSTELLEN & SENDEN ---
     async def send_check_message(self, channel: discord.TextChannel, role: discord.Role = None):
         msg_text = (
@@ -79,7 +56,6 @@ class ActivityCheckCog(commands.Cog):
             "      ━━━━⟡━━━━━━◇━━━━━━⟡━━━━\n\n"
             "⟡ Teilnahme:\n\n"
             "┃ ⟢ Reaktion setzen (✅)\n"
-            "┃ ⟢ Grünen Button drücken\n"
             "┃ ⟢ Aktiv bleiben\n\n"
             "      ━━━━⟡━━━━━━◇━━━━━━⟡━━━━\n"
             "              ✔ Ziel: 35 Member\n"
@@ -92,14 +68,13 @@ class ActivityCheckCog(commands.Cog):
         role_ping = role.mention if role else ""
         content = f"{role_ping}\n\n{msg_text}" if role_ping else msg_text
 
-        # Sendet die Nachricht mit dem grünen Button
+        # Sendet die reine Nachricht ohne Buttons
         msg = await channel.send(
             content=content,
-            view=ActivityCheckView(),
             allowed_mentions=discord.AllowedMentions(roles=True, everyone=True)
         )
         
-        # Fügt zusätzlich die ✅-Reaktion hinzu
+        # Fügt die ✅-Reaktion hinzu
         try:
             await msg.add_reaction("✅")
         except Exception:
@@ -132,7 +107,6 @@ class ActivityCheckCog(commands.Cog):
 
     # --- COMMANDS ---
 
-    # 1. Setup-Befehl (Kanal & Team-Rolle festlegen)
     @app_commands.command(name="setup_activitycheck", description="[Admin] Stellt Kanal und Team-Rolle für den täglichen 6-Uhr Check ein")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(
@@ -154,7 +128,6 @@ class ActivityCheckCog(commands.Cog):
                 ephemeral=True
             )
 
-    # 2. Test-Befehl zum sofortigen Ausprobieren
     @app_commands.command(name="test_activitycheck", description="[Admin] Sendet den Activity Check zum Testen sofort ab")
     @app_commands.checks.has_permissions(administrator=True)
     async def test_activitycheck(self, interaction: discord.Interaction):
