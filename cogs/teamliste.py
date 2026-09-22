@@ -5,7 +5,7 @@ from discord.ext import commands, tasks
 
 DB_NAME = "teamliste.db"
 
-# --- CONFIG: ROLLEN-REIHENFOLGE (Namen oder IDs eintragen) ---
+# --- CONFIG: ROLLEN-REIHENFOLGE ---
 HIGHTEAM_ROLES = [
     "Founder",
     "BORP メ Inhaber",
@@ -66,6 +66,12 @@ def init_db():
             value INTEGER
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            msg_id INTEGER
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -85,6 +91,45 @@ def get_config(key: str):
     row = cursor.fetchone()
     conn.close()
     return row[0] if row else None
+
+def get_saved_message_ids():
+    init_db()
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT msg_id FROM messages ORDER BY id ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+def save_message_ids(msg_ids: list[int]):
+    init_db()
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM messages")
+    for m_id in msg_ids:
+        cursor.execute("INSERT INTO messages (msg_id) VALUES (?)", (m_id,))
+    conn.commit()
+    conn.close()
+
+
+# --- HELFER ZUM ZERLEGEN VON TEXTEN (unter 2000 Zeichen) ---
+def chunk_text(text: str, limit: int = 1850) -> list[str]:
+    lines = text.split("\n")
+    chunks = []
+    current_chunk = ""
+
+    for line in lines:
+        if len(current_chunk) + len(line) + 1 > limit:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+            current_chunk = line + "\n"
+        else:
+            current_chunk += line + "\n"
+
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+
+    return chunks
 
 
 class TeamlisteCog(commands.Cog):
@@ -112,7 +157,6 @@ class TeamlisteCog(commands.Cog):
         lines = [f"**{title} | {guild.name.upper()}**\n"]
 
         for role_identifier in role_names:
-            # Suche Rolle nach ID oder Name
             role = None
             if isinstance(role_identifier, int) or str(role_identifier).isdigit():
                 role = guild.get_role(int(role_identifier))
@@ -129,16 +173,13 @@ class TeamlisteCog(commands.Cog):
             else:
                 lines.append(f"Kein Mitglied des Servers hat die @{role_name_display} Rolle.")
             
-            lines.append("")  # Leerzeile
+            lines.append("")
 
         return "\n".join(lines)
 
-    # Aktualisiert beide Teamlisten-Nachrichten
+    # Aktualisiert alle Nachrichten im Kanal
     async def update_teamlist(self, guild: discord.Guild):
         channel_id = get_config("teamlist_channel_id")
-        highteam_msg_id = get_config("highteam_msg_id")
-        team_msg_id = get_config("team_msg_id")
-
         if not channel_id:
             return
 
@@ -149,29 +190,38 @@ class TeamlisteCog(commands.Cog):
         highteam_text = self.generate_list_text(guild, "𝐇𝐢𝐠𝐡𝐓𝐞𝐚𝐦-𝐋𝐢𝐬𝐭𝐞", HIGHTEAM_ROLES)
         team_text = self.generate_list_text(guild, "𝐓𝐞𝐚𝐦𝐥𝐢𝐬𝐭𝐞", TEAM_ROLES)
 
-        # HighTeam-Nachricht bearbeiten
-        if highteam_msg_id:
-            try:
-                msg = await channel.fetch_message(highteam_msg_id)
-                await msg.edit(content=highteam_text)
-            except discord.NotFound:
-                new_msg = await channel.send(content=highteam_text)
-                set_config("highteam_msg_id", new_msg.id)
-        else:
-            new_msg = await channel.send(content=highteam_text)
-            set_config("highteam_msg_id", new_msg.id)
+        # In Teilen von max. 1850 Zeichen aufteilen
+        all_chunks = chunk_text(highteam_text) + chunk_text(team_text)
 
-        # Teamliste-Nachricht bearbeiten
-        if team_msg_id:
-            try:
-                msg = await channel.fetch_message(team_msg_id)
-                await msg.edit(content=team_text)
-            except discord.NotFound:
-                new_msg = await channel.send(content=team_text)
-                set_config("team_msg_id", new_msg.id)
-        else:
-            new_msg = await channel.send(content=team_text)
-            set_config("team_msg_id", new_msg.id)
+        old_msg_ids = get_saved_message_ids()
+        new_msg_ids = []
+
+        for idx, chunk in enumerate(all_chunks):
+            msg = None
+            if idx < len(old_msg_ids):
+                try:
+                    msg = await channel.fetch_message(old_msg_ids[idx])
+                    await msg.edit(content=chunk)
+                except discord.NotFound:
+                    msg = await channel.send(content=chunk)
+                except Exception:
+                    msg = await channel.send(content=chunk)
+            else:
+                msg = await channel.send(content=chunk)
+
+            if msg:
+                new_msg_ids.append(msg.id)
+
+        # Überflüssige alte Nachrichten löschen, falls die Liste kürzer wurde
+        if len(old_msg_ids) > len(all_chunks):
+            for old_id in old_msg_ids[len(all_chunks):]:
+                try:
+                    msg_to_del = await channel.fetch_message(old_id)
+                    await msg_to_del.delete()
+                except Exception:
+                    pass
+
+        save_message_ids(new_msg_ids)
 
     # AUTOMATISCHER REFRESH (Alle 2 Minuten)
     @tasks.loop(minutes=2)
@@ -183,7 +233,7 @@ class TeamlisteCog(commands.Cog):
             if channel and channel.guild:
                 await self.update_teamlist(channel.guild)
 
-    # EVENT-TRIGGER: Aktualisiert sofort, wenn sich Rollen oder der Status von Mitgliedern ändern
+    # EVENT-TRIGGER
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         if before.roles != after.roles or before.status != after.status:
@@ -195,8 +245,7 @@ class TeamlisteCog(commands.Cog):
     @app_commands.describe(kanal="Der Textkanal, in dem die Teamlisten gesendet & aktualisiert werden")
     async def setup_teamliste(self, interaction: discord.Interaction, kanal: discord.TextChannel):
         set_config("teamlist_channel_id", kanal.id)
-        set_config("highteam_msg_id", 0)
-        set_config("team_msg_id", 0)
+        save_message_ids([])  # Nachrichten-Liste zurücksetzen
 
         await interaction.response.send_message(
             f"✅ Teamliste eingerichtet im Kanal {kanal.mention}! Nachrichten werden jetzt generiert...",
