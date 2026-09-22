@@ -153,7 +153,7 @@ class TeamlisteCog(commands.Cog):
         embed.set_footer(text="Powered by TeamBot ⚡")
         return embed
 
-    # Aktualisiert die Embed-Nachrichten
+    # Aktualisiert die 3 Embed-Nachrichten
     async def update_teamlist(self, guild: discord.Guild):
         channel_id = get_config("teamlist_channel_id")
         if not channel_id:
@@ -163,34 +163,27 @@ class TeamlisteCog(commands.Cog):
         if not channel:
             return
 
-        highteam_embed = self.create_team_embed(guild, "HighTeam-Liste", "highteam")
-        team_embed = self.create_team_embed(guild, "Teamliste", "team")
+        # 3 Embeds generieren
+        categories = [
+            ("fuehrungsebene", "Führungsebenen-Liste"),
+            ("highteam", "HighTeam-Liste"),
+            ("lowteam", "LowTeam-Liste")
+        ]
 
-        # HighTeam-Embed
-        ht_msg_id = get_msg_id("highteam")
-        if ht_msg_id:
-            try:
-                msg = await channel.fetch_message(ht_msg_id)
-                await msg.edit(embed=highteam_embed)
-            except discord.NotFound:
-                new_msg = await channel.send(embed=highteam_embed)
-                set_msg_id("highteam", new_msg.id)
-        else:
-            new_msg = await channel.send(embed=highteam_embed)
-            set_msg_id("highteam", new_msg.id)
+        for key, title in categories:
+            embed = self.create_team_embed(guild, title, key)
+            msg_id = get_msg_id(key)
 
-        # Teamliste-Embed
-        t_msg_id = get_msg_id("team")
-        if t_msg_id:
-            try:
-                msg = await channel.fetch_message(t_msg_id)
-                await msg.edit(embed=team_embed)
-            except discord.NotFound:
-                new_msg = await channel.send(embed=team_embed)
-                set_msg_id("team", new_msg.id)
-        else:
-            new_msg = await channel.send(embed=team_embed)
-            set_msg_id("team", new_msg.id)
+            if msg_id:
+                try:
+                    msg = await channel.fetch_message(msg_id)
+                    await msg.edit(embed=embed)
+                except discord.NotFound:
+                    new_msg = await channel.send(embed=embed)
+                    set_msg_id(key, new_msg.id)
+            else:
+                new_msg = await channel.send(embed=embed)
+                set_msg_id(key, new_msg.id)
 
     # LOOP (Alle 2 Minuten)
     @tasks.loop(minutes=2)
@@ -213,8 +206,9 @@ class TeamlisteCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def setup_teamliste(self, interaction: discord.Interaction, kanal: discord.TextChannel):
         set_config("teamlist_channel_id", kanal.id)
+        set_msg_id("fuehrungsebene", 0)
         set_msg_id("highteam", 0)
-        set_msg_id("team", 0)
+        set_msg_id("lowteam", 0)
 
         await interaction.response.send_message(
             f"✅ Teamliste-Kanal auf {kanal.mention} gesetzt! Generiere Embeds...",
@@ -225,8 +219,9 @@ class TeamlisteCog(commands.Cog):
     @app_commands.command(name="teamrolle_hinzufuegen", description="[Admin] Fügt eine Rolle zur Teamliste hinzu")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.choices(liste=[
+        app_commands.Choice(name="Führungsebenen-Liste", value="fuehrungsebene"),
         app_commands.Choice(name="HighTeam-Liste", value="highteam"),
-        app_commands.Choice(name="Teamliste", value="team")
+        app_commands.Choice(name="LowTeam-Liste", value="lowteam")
     ])
     async def add_role(self, interaction: discord.Interaction, liste: app_commands.Choice[str], rolle: discord.Role):
         add_role_to_db(rolle.id, liste.value)
