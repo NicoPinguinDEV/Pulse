@@ -1,4 +1,5 @@
 import sqlite3
+import re
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -66,6 +67,14 @@ def remove_role_from_db(role_id: int):
     conn.commit()
     conn.close()
 
+def clear_category_from_db(category: str):
+    init_db()
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM roles WHERE category = ?", (category,))
+    conn.commit()
+    conn.close()
+
 def get_roles_by_category(category: str) -> list[int]:
     init_db()
     conn = sqlite3.connect(DB_NAME)
@@ -120,7 +129,7 @@ class TeamlisteCog(commands.Cog):
         lines = []
 
         if not role_ids:
-            lines.append(f"*Keine Rollen für {title} konfiguriert. Nutze `/teamrolle_hinzufuegen`.*")
+            lines.append(f"*Keine Rollen für {title} konfiguriert. Nutze `/teamrollen_hinzufuegen`.*")
         else:
             for role_id in role_ids:
                 role = guild.get_role(role_id)
@@ -163,7 +172,6 @@ class TeamlisteCog(commands.Cog):
         if not channel:
             return
 
-        # 3 Embeds generieren
         categories = [
             ("fuehrungsebene", "Führungsebenen-Liste"),
             ("highteam", "HighTeam-Liste"),
@@ -216,27 +224,71 @@ class TeamlisteCog(commands.Cog):
         )
         await self.update_teamlist(interaction.guild)
 
-    @app_commands.command(name="teamrolle_hinzufuegen", description="[Admin] Fügt eine Rolle zur Teamliste hinzu")
+    @app_commands.command(name="teamrollen_hinzufuegen", description="[Admin] Fügt mehrere Rollen gleichzeitig zur Teamliste hinzu")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.choices(liste=[
         app_commands.Choice(name="Führungsebenen-Liste", value="fuehrungsebene"),
         app_commands.Choice(name="HighTeam-Liste", value="highteam"),
         app_commands.Choice(name="LowTeam-Liste", value="lowteam")
     ])
-    async def add_role(self, interaction: discord.Interaction, liste: app_commands.Choice[str], rolle: discord.Role):
-        add_role_to_db(rolle.id, liste.value)
-        await interaction.response.send_message(
-            f"✅ Rolle {rolle.mention} wurde zur **{liste.name}** hinzugefügt!",
-            ephemeral=True
-        )
-        await self.update_teamlist(interaction.guild)
+    @app_commands.describe(rollen="Markiere alle Rollen mit @ (z. B. @Founder @Inhaber @Owner)")
+    async def add_roles(self, interaction: discord.Interaction, liste: app_commands.Choice[str], rollen: str):
+        # Alle Zahlen / Rollen-IDs aus der Eingabe herausfiltern
+        role_ids = re.findall(r'\d+', rollen)
+        
+        added_roles = []
+        for r_id in role_ids:
+            role = interaction.guild.get_role(int(r_id))
+            if role:
+                add_role_to_db(role.id, liste.value)
+                added_roles.append(role.mention)
 
-    @app_commands.command(name="teamrolle_entfernen", description="[Admin] Entfernt eine Rolle aus der Teamliste")
+        if added_roles:
+            await interaction.response.send_message(
+                f"✅ **{len(added_roles)} Rollen** wurden zur **{liste.name}** hinzugefügt:\n" + ", ".join(added_roles),
+                ephemeral=True
+            )
+            await self.update_teamlist(interaction.guild)
+        else:
+            await interaction.response.send_message(
+                "❌ Keine gültigen Rollen erkannt! Bitte markiere die Rollen direkt im Textfeld mit `@Rolle1 @Rolle2`.",
+                ephemeral=True
+            )
+
+    @app_commands.command(name="teamrolle_entfernen", description="[Admin] Entfernt eine oder mehrere Rollen aus der Teamliste")
     @app_commands.checks.has_permissions(administrator=True)
-    async def remove_role(self, interaction: discord.Interaction, rolle: discord.Role):
-        remove_role_from_db(rolle.id)
+    @app_commands.describe(rollen="Markiere alle zu entfernenden Rollen mit @")
+    async def remove_roles(self, interaction: discord.Interaction, rollen: str):
+        role_ids = re.findall(r'\d+', rollen)
+        removed_count = 0
+
+        for r_id in role_ids:
+            remove_role_from_db(int(r_id))
+            removed_count += 1
+
+        if removed_count > 0:
+            await interaction.response.send_message(
+                f"🗑️ Es wurden **{removed_count} Rolle(n)** aus den Teamlisten entfernt!",
+                ephemeral=True
+            )
+            await self.update_teamlist(interaction.guild)
+        else:
+            await interaction.response.send_message(
+                "❌ Keine gültigen Rollen zum Entfernen gefunden.",
+                ephemeral=True
+            )
+
+    @app_commands.command(name="teamliste_leeren", description="[Admin] Löscht alle Rollen aus einer bestimmten Liste")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.choices(liste=[
+        app_commands.Choice(name="Führungsebenen-Liste", value="fuehrungsebene"),
+        app_commands.Choice(name="HighTeam-Liste", value="highteam"),
+        app_commands.Choice(name="LowTeam-Liste", value="lowteam")
+    ])
+    async def clear_roles(self, interaction: discord.Interaction, liste: app_commands.Choice[str]):
+        clear_category_from_db(liste.value)
         await interaction.response.send_message(
-            f"🗑️ Rolle {rolle.mention} wurde entfernt!",
+            f"🧹 Alle Rollen aus der **{liste.name}** wurden gelöscht!",
             ephemeral=True
         )
         await self.update_teamlist(interaction.guild)
