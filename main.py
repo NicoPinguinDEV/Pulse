@@ -10,8 +10,9 @@ class CustomBot(commands.Bot):
     def __init__(self):
         # Intents definieren und Privileged Intents aktivieren
         intents = discord.Intents.default()
-        intents.members = True     # Für Rollenänderungen & Teamler-Erkennung
-        intents.presences = True   # Für den Online/Offline/Abwesend Status
+        intents.members = True          # Für Rollenänderungen & Teamler-Erkennung
+        intents.presences = True        # Für den Online/Offline/Abwesend Status
+        intents.message_content = True  # NÖTIG: Für das Flaggen-Quiz zum Lesen der Chatnachrichten!
 
         super().__init__(command_prefix="!", intents=intents)
 
