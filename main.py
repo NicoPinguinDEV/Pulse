@@ -8,7 +8,11 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 
 class CustomBot(commands.Bot):
     def __init__(self):
+        # Intents definieren und Privileged Intents aktivieren
         intents = discord.Intents.default()
+        intents.members = True     # Für Rollenänderungen & Teamler-Erkennung
+        intents.presences = True   # Für den Online/Offline/Abwesend Status
+
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
