@@ -92,15 +92,6 @@ def add_point(guild_id: int, user_id: int):
     conn.commit()
     conn.close()
 
-def get_user_points(guild_id: int, user_id: int) -> int:
-    init_db()
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT points FROM quiz_scores WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else 0
-
 def get_top_scores(guild_id: int, limit: int = 10):
     init_db()
     conn = sqlite3.connect(DB_NAME)
@@ -126,7 +117,6 @@ class QuizView(discord.ui.View):
             return
 
         first_letter = current_flag["name"][0].upper()
-        # Nur für den Spieler sichtbar (ephemeral=True)
         await interaction.response.send_message(
             f"💡 Der erste Buchstabe des Landes ist: **{first_letter}**",
             ephemeral=True
@@ -154,14 +144,40 @@ class FlaggenQuizCog(commands.Cog):
         init_db()
         self.active_games = {}  # {channel_id: flag_object}
 
+    # Erstellt das Embed mit Bestenliste OBEN und Rätsel DARUNTER
     def create_quiz_embed(self, guild: discord.Guild, flag_data: dict, last_winner: discord.Member = None, last_country: str = None, skipped_country: str = None) -> discord.Embed:
+        top_scores = get_top_scores(guild.id, limit=10)
+
+        # 1. Bestenliste aufbauen
+        leaderboard_lines = ["🏆 **TOP 10 BESTENLISTE**"]
+        if not top_scores:
+            leaderboard_lines.append("*Bisher hat noch niemand eine Flagge erraten!*")
+        else:
+            for idx, (u_id, pts) in enumerate(top_scores, start=1):
+                member = guild.get_member(u_id)
+                member_name = member.display_name if member else f"User ID: {u_id}"
+                medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else f"`#{idx}`"
+                leaderboard_lines.append(f"{medal} **{member_name}** — `{pts}` Punkte")
+
+        leaderboard_text = "\n".join(leaderboard_lines)
+
+        # 2. Embed-Beschreibung zusammensetzen
+        description_text = (
+            f"{leaderboard_text}\n\n"
+            f"───────────────────────────────\n\n"
+            f"🎮 **AKTUELLES RÄTSEL**\n"
+            f"Welches Land gehört zu dieser Flagge?\n"
+            f"Schreibe den **vollständigen Namen** einfach in den Chat!"
+        )
+
         embed = discord.Embed(
             title=f"🚩 Flaggen-Raten | {guild.name.upper()}",
-            description="Welches Land gehört zu dieser Flagge?\nSchreibe den **vollständigen Namen** in den Chat!",
+            description=description_text,
             color=discord.Color.red()
         )
         embed.set_image(url=flag_data["url"])
 
+        # Footer-Nachricht
         if skipped_country:
             embed.set_footer(text=f"⏭️ Die letzte Flagge ({skipped_country}) wurde übersprungen.")
         elif last_winner and last_country:
@@ -181,6 +197,7 @@ class FlaggenQuizCog(commands.Cog):
         except Exception:
             pass
 
+        # Embed wird hier inklusive der frisch abgefragten Bestenliste erstellt
         embed = self.create_quiz_embed(channel.guild, new_flag, last_winner, last_country, skipped_country)
         view = QuizView(self)
         await channel.send(embed=embed, view=view)
@@ -201,11 +218,13 @@ class FlaggenQuizCog(commands.Cog):
         user_input = message.content.strip().lower()
 
         if user_input in current_flag["answers"]:
+            # Punkt hinzufügen
             add_point(message.guild.id, message.author.id)
             last_country_name = current_flag["name"]
             winner = message.author
 
             await asyncio.sleep(0.5)
+            # Startet neue Runde, cleart den Kanal und aktualisiert die Bestenliste
             await self.start_new_round(message.channel, last_winner=winner, last_country=last_country_name)
 
     @app_commands.command(name="setup_flaggenquiz", description="[Admin] Richtet den Kanal für das Flaggen-Raten ein")
@@ -218,37 +237,6 @@ class FlaggenQuizCog(commands.Cog):
             ephemeral=True
         )
         await self.start_new_round(kanal)
-
-    @app_commands.command(name="flaggen_bestenliste", description="Zeigt deine Statistiken & die Server-Bestenliste an (Nur für dich sichtbar)")
-    async def leaderboard(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        user_points = get_user_points(guild.id, interaction.user.id)
-        top_scores = get_top_scores(guild.id, limit=10)
-
-        description_lines = [
-            f"👤 **Deine Punkte:** `{user_points}` Erratene Flaggen\n",
-            "🏆 **TOP 10 SPIELER:**"
-        ]
-
-        if not top_scores:
-            description_lines.append("*Bisher hat noch niemand eine Flagge erraten!*")
-        else:
-            for idx, (u_id, pts) in enumerate(top_scores, start=1):
-                member = guild.get_member(u_id)
-                member_name = member.display_name if member else f"User ID: {u_id}"
-                
-                medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else f"`#{idx}`"
-                description_lines.append(f"{medal} **{member_name}** — `{pts}` Punkte")
-
-        embed = discord.Embed(
-            title=f"📊 Bestenliste — {guild.name}",
-            description="\n".join(description_lines),
-            color=discord.Color.gold()
-        )
-        if interaction.user.display_avatar:
-            embed.set_thumbnail(url=interaction.user.display_avatar.url)
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
