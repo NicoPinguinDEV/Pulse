@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from datetime import datetime
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -15,7 +16,6 @@ def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Tabelle für Abmeldungen
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS abmeldungen (
             user_id INTEGER PRIMARY KEY,
@@ -25,7 +25,6 @@ def init_db():
         )
     """)
     
-    # Tabelle für Bot-Einstellungen (Kanal- & Nachrichten-ID der Liste)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS config (
             key TEXT PRIMARY KEY,
@@ -38,7 +37,6 @@ def init_db():
 
 init_db()
 
-# Hilfsfunktionen für Config
 def set_config(key: str, value: int):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -55,13 +53,13 @@ def get_config(key: str):
     return row[0] if row else None
 
 
-# --- HELFER-FUNKTION: LISTE LIVE AKTUALISIEREN ---
+# --- LIVE-LISTE AKTUALISIEREN ---
 async def update_live_list(bot_instance: commands.Bot):
     channel_id = get_config("list_channel_id")
     message_id = get_config("list_message_id")
 
     if not channel_id or not message_id:
-        return  # Liste wurde noch nicht mit /setup_liste eingerichtet
+        return
 
     channel = bot_instance.get_channel(channel_id)
     if not channel:
@@ -70,14 +68,12 @@ async def update_live_list(bot_instance: commands.Bot):
         except Exception:
             return
 
-    # Daten aus Datenbank laden
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT user_id, user_name, grund, bis FROM abmeldungen")
     rows = cursor.fetchall()
     conn.close()
 
-    # Embed aufbauen
     embed = discord.Embed(
         title="📋 Aktuelle Abmeldungen",
         color=discord.Color.blue()
@@ -96,7 +92,6 @@ async def update_live_list(bot_instance: commands.Bot):
 
     embed.set_footer(text="Automatisch aktualisiert")
 
-    # Nachricht bearbeiten
     try:
         message = await channel.fetch_message(message_id)
         await message.edit(embed=embed)
@@ -114,7 +109,6 @@ async def on_ready():
     try:
         synced = await bot.tree.sync()
         print(f"🔄 {len(synced)} Slash Commands synchronisiert!")
-        # Beim Start Liste einmalig auffrischen
         await update_live_list(bot)
     except Exception as e:
         print(f"❌ Fehler: {e}")
@@ -122,7 +116,7 @@ async def on_ready():
 
 # --- COMMANDS ---
 
-# 1. Admin-Befehl: Erstellt die Nachricht, die ab jetzt immer aktualisiert wird
+# 1. Admin-Setup
 @bot.tree.command(name="setup_liste", description="[Admin] Erstellt die automatische Abmeldungsliste im aktuellen Kanal")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_liste(interaction: discord.Interaction):
@@ -132,24 +126,33 @@ async def setup_liste(interaction: discord.Interaction):
         color=discord.Color.blue()
     )
     
-    # Sendet die erste Nachricht
     await interaction.response.send_message("Liste wird erstellt...", ephemeral=True)
     msg = await interaction.channel.send(embed=embed)
     
-    # Speichert Kanal- und Nachrichten-ID
     set_config("list_channel_id", interaction.channel_id)
     set_config("list_message_id", msg.id)
     
     await update_live_list(bot)
 
 
-# 2. /abmeldung (Niemand sieht eine Nachricht im Chat, nur die Liste aktualisiert sich)
+# 2. /abmeldung (mit strenger Datumsprüfung)
 @bot.tree.command(name="abmeldung", description="Melde dich für einen bestimmten Zeitraum ab")
 @app_commands.describe(
     grund="Warum bist du abgemeldet?",
-    bis="Bis wann bist du abgemeldet? (z.B. 25.10. oder 2 Wochen)"
+    bis="Format: TT.MM.JJJJ (z.B. 25.09.2026)"
 )
 async def abmeldung(interaction: discord.Interaction, grund: str, bis: str):
+    # DATUMS-PRÜFUNG: Prüft ob die Eingabe genau dem Format TT.MM.JJJJ entspricht
+    try:
+        datum_obj = datetime.strptime(bis, "%d.%m.%Y")
+        bis_formatted = datum_obj.strftime("%d.%m.%Y")
+    except ValueError:
+        await interaction.response.send_message(
+            "❌ **Ungültiges Datumsformat!** Bitte benutze genau das Format `TT.MM.JJJJ` (z. B. `25.09.2026`).",
+            ephemeral=True
+        )
+        return
+
     user_id = interaction.user.id
     user_name = interaction.user.display_name
 
@@ -158,14 +161,11 @@ async def abmeldung(interaction: discord.Interaction, grund: str, bis: str):
     cursor.execute("""
         INSERT OR REPLACE INTO abmeldungen (user_id, user_name, grund, bis)
         VALUES (?, ?, ?, ?)
-    """, (user_id, user_name, grund, bis))
+    """, (user_id, user_name, grund, bis_formatted))
     conn.commit()
     conn.close()
 
-    # Nur für den User sichtbar (kein Spam im Chat)
-    await interaction.response.send_message("✅ Deine Abmeldung wurde eingetragen und die Liste aktualisiert.", ephemeral=True)
-    
-    # Feste Liste aktualisieren
+    await interaction.response.send_message(f"✅ Deine Abmeldung bis zum **{bis_formatted}** wurde eingetragen.", ephemeral=True)
     await update_live_list(bot)
 
 
