@@ -2,6 +2,29 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+# --- POP-UP FENSTER FÜR RP STOP (Uhrzeit abfragen) ---
+class RPStopModal(discord.ui.Modal, title="RP Stop - Nächster RP Start"):
+    uhrzeit = discord.ui.TextInput(
+        label="Geplanter RP-Start für morgen:",
+        placeholder="z.B. 14:30 Uhr oder Offen",
+        default="14:30 Uhr",
+        max_length=30
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        msg_content = (
+            "#  :minus:   RP Stop  :minus:  \n\n"
+            "> **Das RP wird hiermit offiziell gestopt!**\n"
+            "> ***Informationen zu dem folgenden Tag***\n"
+            f"> **:RPStart: Geplanter RP-Start: {self.uhrzeit.value}** \n"
+            "> # Kommt gerne morgen wieder auf den Server!\n"
+            "@everyone"
+        )
+        await interaction.response.send_message(
+            content=msg_content,
+            allowed_mentions=discord.AllowedMentions(everyone=True)
+        )
+
 # --- DROPDOWN MENÜ ---
 class RPSelect(discord.ui.Select):
     def __init__(self):
@@ -24,35 +47,34 @@ class RPSelect(discord.ui.Select):
             min_values=1,
             max_values=1,
             options=options,
-            custom_id="rp_verwaltung_select"  # Wichtig, damit das Menü nach Bot-Neustarts funktioniert
+            custom_id="rp_verwaltung_select"
         )
 
     async def callback(self, interaction: discord.Interaction):
-        # Wenn "RP Start" ausgewählt wird
+        # RP START ANKÜNDIGUNG
         if self.values[0] == "rp_start":
-            embed = discord.Embed(
-                title="🔥 ROLEPLAY GESTARTET",
-                description="Das Roleplay ist ab sofort offiziell eröffnet! Viel Spaß allen Beteiligten.",
-                color=discord.Color.green()
+            msg_content = (
+                "#  :check:  RP Start  :check:  \n\n"
+                "> **Das RP wird hiermit offiziell eröffnet!**\n"
+                "> ***Informationen zu dem folgenden Tag***\n"
+                "> **:RPStart: Geplanter RP-Stop: Offen** \n"
+                "> # Kommt gerne auf den Server!\n"
+                "@everyone"
             )
-            # Sendet eine öffentliche Ankündigung in den Kanal
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.send_message(
+                content=msg_content,
+                allowed_mentions=discord.AllowedMentions(everyone=True)
+            )
 
-        # Wenn "RP Stop" ausgewählt wird
+        # RP STOP ANKÜNDIGUNG (Öffnet Modal für Uhrzeit)
         elif self.values[0] == "rp_stop":
-            embed = discord.Embed(
-                title="🛑 ROLEPLAY BEENDET",
-                description="Das Roleplay wurde offiziell beendet. Vielen Dank fürs Mitspielen!",
-                color=discord.Color.red()
-            )
-            # Sendet eine öffentliche Ankündigung in den Kanal
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.send_modal(RPStopModal())
 
 
-# --- VIEW (BEHÄLTER FÜR DAS DROPDOWN) ---
+# --- VIEW ---
 class RPView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None)  # Dank timeout=None bleibt das Menü für immer aktiv
+        super().__init__(timeout=None)
         self.add_item(RPSelect())
 
 
@@ -62,7 +84,6 @@ class RPVerwaltungCog(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
-        # Registriert die View beim Bot-Start (überlebt Server-Neustarts)
         self.bot.add_view(RPView())
 
     @app_commands.command(name="setup_rp", description="[Admin] Erstellt das RP-Verwaltungs-Dashboard")
@@ -74,11 +95,9 @@ class RPVerwaltungCog(commands.Cog):
             color=discord.Color.blue()
         )
         
-        # Falls der Server ein Icon hat, wird es oben rechts als Thumbnail gezeigt
         if interaction.guild.icon:
             embed.set_thumbnail(url=interaction.guild.icon.url)
 
-        # Nachricht mit Embed und Dropdown im Kanal senden
         await interaction.channel.send(embed=embed, view=RPView())
         await interaction.response.send_message("✅ RP-Verwaltungs-Panel wurde erstellt!", ephemeral=True)
 
