@@ -1,6 +1,61 @@
+import sqlite3
 import discord
 from discord import app_commands
 from discord.ext import commands
+
+DB_NAME = "rp_verwaltung.db"
+
+# --- DATENBANK HELFER ---
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS config (
+            key TEXT PRIMARY KEY,
+            value INTEGER
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def set_config(key: str, value: int):
+    init_db()
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
+
+def get_config(key: str):
+    init_db()
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM config WHERE key = ?", (key,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+# --- HELFER ZUM SENDEN DER ANKÜNDIGUNG ---
+async def send_rp_announcement(interaction: discord.Interaction, content: str):
+    channel_id = get_config("announcement_channel_id")
+    target_channel = interaction.guild.get_channel(channel_id) if (channel_id and interaction.guild) else None
+
+    # Falls ein Ankündigungskanal eingestellt ist, dort hinsenden
+    if target_channel:
+        await target_channel.send(
+            content=content,
+            allowed_mentions=discord.AllowedMentions(everyone=True)
+        )
+        await interaction.response.send_message(
+            f"✅ RP-Ankündigung wurde erfolgreich in {target_channel.mention} gesendet!",
+            ephemeral=True
+        )
+    else:
+        # Fallback: In den aktuellen Kanal senden
+        await interaction.response.send_message(
+            content=content,
+            allowed_mentions=discord.AllowedMentions(everyone=True)
+        )
 
 # --- POP-UP FENSTER FÜR RP STOP (Uhrzeit abfragen) ---
 class RPStopModal(discord.ui.Modal, title="RP Stop - Nächster RP Start"):
@@ -20,10 +75,7 @@ class RPStopModal(discord.ui.Modal, title="RP Stop - Nächster RP Start"):
             "> # Kommt gerne morgen wieder auf den Server!\n"
             "@everyone"
         )
-        await interaction.response.send_message(
-            content=msg_content,
-            allowed_mentions=discord.AllowedMentions(everyone=True)
-        )
+        await send_rp_announcement(interaction, msg_content)
 
 # --- DROPDOWN MENÜ ---
 class RPSelect(discord.ui.Select):
@@ -61,15 +113,11 @@ class RPSelect(discord.ui.Select):
                 "> # Kommt gerne auf den Server!\n"
                 "@everyone"
             )
-            await interaction.response.send_message(
-                content=msg_content,
-                allowed_mentions=discord.AllowedMentions(everyone=True)
-            )
+            await send_rp_announcement(interaction, msg_content)
 
         # RP STOP ANKÜNDIGUNG (Öffnet Modal für Uhrzeit)
         elif self.values[0] == "rp_stop":
             await interaction.response.send_modal(RPStopModal())
-
 
 # --- VIEW ---
 class RPView(discord.ui.View):
@@ -77,18 +125,25 @@ class RPView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(RPSelect())
 
-
 # --- COG ---
 class RPVerwaltungCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        init_db()
 
     async def cog_load(self):
         self.bot.add_view(RPView())
 
     @app_commands.command(name="setup_rp", description="[Admin] Erstellt das RP-Verwaltungs-Dashboard")
     @app_commands.checks.has_permissions(administrator=True)
-    async def setup_rp(self, interaction: discord.Interaction):
+    @app_commands.describe(
+        ankündigungs_kanal="[Optional] Kanal, in den die Start/Stop Ankündigungen gesendet werden sollen"
+    )
+    async def setup_rp(self, interaction: discord.Interaction, ankündigungs_kanal: discord.TextChannel = None):
+        # Ankündigungskanal speichern (falls angegeben)
+        target_ch = ankündigungs_kanal or interaction.channel
+        set_config("announcement_channel_id", target_ch.id)
+
         embed = discord.Embed(
             title="💻 Roleplay Verwaltung",
             description="Nutze das Menü unten, um das RP offiziell zu starten oder zu beenden.",
@@ -99,8 +154,10 @@ class RPVerwaltungCog(commands.Cog):
             embed.set_thumbnail(url=interaction.guild.icon.url)
 
         await interaction.channel.send(embed=embed, view=RPView())
-        await interaction.response.send_message("✅ RP-Verwaltungs-Panel wurde erstellt!", ephemeral=True)
-
+        await interaction.response.send_message(
+            f"✅ RP-Verwaltungs-Panel wurde erstellt!\n📢 Ankündigungen werden in {target_ch.mention} gesendet.",
+            ephemeral=True
+        )
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(RPVerwaltungCog(bot))
