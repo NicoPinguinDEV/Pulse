@@ -18,9 +18,9 @@ def init_db():
     """)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS roles (
-            role_id INTEGER PRIMARY KEY,
-            category TEXT,
-            position INTEGER AUTOINCREMENT
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role_id INTEGER UNIQUE,
+            category TEXT
         )
     """)
     cursor.execute("""
@@ -70,7 +70,7 @@ def get_roles_by_category(category: str) -> list[int]:
     init_db()
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT role_id FROM roles WHERE category = ? ORDER BY rowid ASC", (category,))
+    cursor.execute("SELECT role_id FROM roles WHERE category = ? ORDER BY id ASC", (category,))
     rows = cursor.fetchall()
     conn.close()
     return [r[0] for r in rows]
@@ -103,7 +103,7 @@ class TeamlisteCog(commands.Cog):
     def cog_unload(self):
         self.update_list_loop.cancel()
 
-    # Formatiert den Online-Status mit bunten Punkte-Emojis
+    # Formatiert den Online-Status mit Status-Punkten
     def format_status(self, status: discord.Status) -> str:
         if status == discord.Status.online:
             return "🟢 Online"
@@ -136,7 +136,7 @@ class TeamlisteCog(commands.Cog):
                 else:
                     lines.append(f"Kein Mitglied des Servers hat die {role.mention} Rolle.")
                 
-                lines.append("")  # Leerzeile
+                lines.append("")
 
         description_text = "\n".join(lines)
         
