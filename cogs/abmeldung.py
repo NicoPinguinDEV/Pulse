@@ -26,6 +26,7 @@ class AbmeldungCog(commands.Cog):
                 user_id INTEGER PRIMARY KEY,
                 user_name TEXT NOT NULL,
                 grund TEXT NOT NULL,
+                von TEXT NOT NULL,
                 bis TEXT NOT NULL,
                 original_nick TEXT,
                 guild_id INTEGER
@@ -39,13 +40,17 @@ class AbmeldungCog(commands.Cog):
             )
         """)
         
-        # Automatische Datenbank-Migrationen (falls die Datei bereits existiert)
+        # Automatische Datenbank-Migrationen für bestehende Datenbanken
         try:
             cursor.execute("ALTER TABLE abmeldungen ADD COLUMN original_nick TEXT")
         except sqlite3.OperationalError:
             pass
         try:
             cursor.execute("ALTER TABLE abmeldungen ADD COLUMN guild_id INTEGER")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute("ALTER TABLE abmeldungen ADD COLUMN von TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
 
@@ -118,7 +123,6 @@ class AbmeldungCog(commands.Cog):
         for user_id, user_name, grund, bis_str, original_nick, guild_id in rows:
             try:
                 bis_date = datetime.strptime(bis_str, "%d.%m.%Y").date()
-                # Löschen, wenn das Enddatum überschritten ist
                 if today > bis_date:
                     expired_users.append((user_id, original_nick, guild_id))
             except ValueError:
@@ -152,7 +156,7 @@ class AbmeldungCog(commands.Cog):
 
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
-        cursor.execute("SELECT user_id, user_name, grund, bis FROM abmeldungen")
+        cursor.execute("SELECT user_id, user_name, grund, von, bis FROM abmeldungen")
         rows = cursor.fetchall()
         conn.close()
 
@@ -166,11 +170,13 @@ class AbmeldungCog(commands.Cog):
             embed.description = ">>> *Aktuell liegen keine Abmeldungen vor.*"
         else:
             embed.description = f"Anzahl der Abmeldungen: **{len(rows)}**\n───────────────"
-            for user_id, user_name, grund, bis in rows:
+            for user_id, user_name, grund, von, bis in rows:
+                von_text = von if von else "Sofort"
                 embed.add_field(
                     name=f"👤 {user_name}",
                     value=(
                         f"┣ 📝 **Grund:** {grund}\n"
+                        f"┣ 📅 **Von:** {von_text}\n"
                         f"┗ 📅 **Bis:** {bis}\n"
                     ),
                     inline=False
@@ -186,7 +192,6 @@ class AbmeldungCog(commands.Cog):
 
     # --- COMMANDS ---
 
-    # 1. Admin-Setup (Kanal & Optionale Abmeldungs-Rolle festlegen)
     @app_commands.command(name="setup_liste", description="[Admin] Erstellt die Abmeldungsliste und setzt optional die Rolle")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(
@@ -215,19 +220,42 @@ class AbmeldungCog(commands.Cog):
             
         await self.update_live_list()
 
-    # 2. /abmeldung
     @app_commands.command(name="abmeldung", description="Melde dich für einen bestimmten Zeitraum ab")
     @app_commands.describe(
         grund="Warum bist du abgemeldet?",
-        bis="Format: TT.MM.JJJJ (z.B. 25.09.2026)"
+        bis="Enddatum Format: TT.MM.JJJJ (z.B. 25.09.2026)",
+        von="[Optional] Startdatum Format: TT.MM.JJJJ (Standard: Heute)"
     )
-    async def abmeldung(self, interaction: discord.Interaction, grund: str, bis: str):
+    async def abmeldung(self, interaction: discord.Interaction, grund: str, bis: str, von: str = None):
+        # 1. Startdatum festlegen (falls leer -> Heute)
+        if not von:
+            von_formatted = datetime.now().strftime("%d.%m.%Y")
+        else:
+            try:
+                datum_von_obj = datetime.strptime(von, "%d.%m.%Y")
+                von_formatted = datum_von_obj.strftime("%d.%m.%Y")
+            except ValueError:
+                await interaction.response.send_message(
+                    "❌ **Ungültiges Startdatumsformat!** Bitte benutze genau das Format `TT.MM.JJJJ` (z. B. `20.09.2026`).",
+                    ephemeral=True
+                )
+                return
+
+        # 2. Enddatum prüfen
         try:
-            datum_obj = datetime.strptime(bis, "%d.%m.%Y")
-            bis_formatted = datum_obj.strftime("%d.%m.%Y")
+            datum_bis_obj = datetime.strptime(bis, "%d.%m.%Y")
+            bis_formatted = datum_bis_obj.strftime("%d.%m.%Y")
         except ValueError:
             await interaction.response.send_message(
-                "❌ **Ungültiges Datumsformat!** Bitte benutze genau das Format `TT.MM.JJJJ` (z. B. `25.09.2026`).",
+                "❌ **Ungültiges Enddatumsformat!** Bitte benutze genau das Format `TT.MM.JJJJ` (z. B. `25.09.2026`).",
+                ephemeral=True
+            )
+            return
+
+        # 3. Logik-Prüfung: Enddatum darf nicht vor Startdatum liegen
+        if datetime.strptime(bis_formatted, "%d.%m.%Y") < datetime.strptime(von_formatted, "%d.%m.%Y"):
+            await interaction.response.send_message(
+                "❌ **Ungültiger Zeitraum!** Das Enddatum darf nicht vor dem Startdatum liegen.",
                 ephemeral=True
             )
             return
@@ -235,13 +263,12 @@ class AbmeldungCog(commands.Cog):
         user_id = interaction.user.id
         base_name = interaction.user.display_name
 
-        # Falls der Name schon " | Abgemeldet" enthält, bereinigen
         if " | Abgemeldet" in base_name:
             base_name = base_name.replace(" | Abgemeldet", "").strip()
 
-        original_nick = interaction.user.nick  # Speichert den alten Spitznamen (oder None)
+        original_nick = interaction.user.nick
 
-        # 1. Namen auf Discord ändern (Maximal 32 Zeichen erlaubt)
+        # Namen auf Discord ändern
         new_nick = f"{base_name} | Abgemeldet"
         if len(new_nick) > 32:
             new_nick = f"{base_name[:18]}... | Abgemeldet"
@@ -249,9 +276,9 @@ class AbmeldungCog(commands.Cog):
         try:
             await interaction.user.edit(nick=new_nick)
         except discord.Forbidden:
-            print(f"⚠️ Bot konnte den Namen von {interaction.user.name} nicht ändern (fehlende Rechte / Owner).")
+            print(f"⚠️ Bot konnte den Namen von {interaction.user.name} nicht ändern.")
 
-        # 2. Rolle vergeben (falls konfiguriert)
+        # Rolle vergeben
         role_id = self.get_config("abgemeldet_role_id")
         if role_id:
             role = interaction.guild.get_role(role_id)
@@ -259,22 +286,24 @@ class AbmeldungCog(commands.Cog):
                 try:
                     await interaction.user.add_roles(role)
                 except discord.Forbidden:
-                    print("⚠️ Bot konnte die Rolle nicht vergeben (Rolle liegt in der Hierarchie über der Bot-Rolle).")
+                    print("⚠️ Bot konnte die Rolle nicht vergeben.")
 
-        # 3. In Datenbank speichern
+        # In Datenbank speichern
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT OR REPLACE INTO abmeldungen (user_id, user_name, grund, bis, original_nick, guild_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (user_id, base_name, grund, bis_formatted, original_nick, interaction.guild_id))
+            INSERT OR REPLACE INTO abmeldungen (user_id, user_name, grund, von, bis, original_nick, guild_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, base_name, grund, von_formatted, bis_formatted, original_nick, interaction.guild_id))
         conn.commit()
         conn.close()
 
-        await interaction.response.send_message(f"✅ Deine Abmeldung bis zum **{bis_formatted}** wurde eingetragen.", ephemeral=True)
+        await interaction.response.send_message(
+            f"✅ Deine Abmeldung vom **{von_formatted}** bis zum **{bis_formatted}** wurde eingetragen.", 
+            ephemeral=True
+        )
         await self.update_live_list()
 
-    # 3. /anmeldung
     @app_commands.command(name="anmeldung", description="Melde dich wieder zurück")
     async def anmeldung(self, interaction: discord.Interaction):
         user_id = interaction.user.id
@@ -290,7 +319,6 @@ class AbmeldungCog(commands.Cog):
             conn.commit()
             conn.close()
 
-            # Rolle entfernen & Namen zurücksetzen
             await self.reset_user_status(user_id, original_nick, guild_id or interaction.guild_id)
 
             await interaction.response.send_message("👋 Willkommen zurück! Du wurdest aus der Liste entfernt und dein Name wurde zurückgesetzt.", ephemeral=True)
@@ -299,7 +327,6 @@ class AbmeldungCog(commands.Cog):
             conn.close()
             await interaction.response.send_message("Du warst gar nicht abgemeldet!", ephemeral=True)
 
-    # 4. /abmeldung_entfernen (Admin Command)
     @app_commands.command(name="abmeldung_entfernen", description="[Admin] Entferne die Abmeldung eines Mitglieds")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(mitglied="Das Mitglied, dessen Abmeldung gelöscht werden soll")
