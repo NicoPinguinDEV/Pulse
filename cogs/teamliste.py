@@ -1,3 +1,4 @@
+import asyncio
 import sqlite3
 import discord
 from discord import app_commands
@@ -32,13 +33,17 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 def set_config(key: str, value: int):
     init_db()
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", (key, value))
+    cursor.execute(
+        "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", (key, value)
+    )
     conn.commit()
     conn.close()
+
 
 def get_config(key: str):
     init_db()
@@ -49,14 +54,19 @@ def get_config(key: str):
     conn.close()
     return row[0] if row else None
 
+
 # Rollen-Verwaltung in DB
 def add_role_to_db(role_id: int, category: str):
     init_db()
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO roles (role_id, category) VALUES (?, ?)", (role_id, category))
+    cursor.execute(
+        "INSERT OR REPLACE INTO roles (role_id, category) VALUES (?, ?)",
+        (role_id, category),
+    )
     conn.commit()
     conn.close()
+
 
 def remove_role_from_db(role_id: int):
     init_db()
@@ -66,6 +76,7 @@ def remove_role_from_db(role_id: int):
     conn.commit()
     conn.close()
 
+
 def clear_category_from_db(category: str):
     init_db()
     conn = sqlite3.connect(DB_NAME)
@@ -74,23 +85,32 @@ def clear_category_from_db(category: str):
     conn.commit()
     conn.close()
 
+
 def get_roles_by_category(category: str) -> list[int]:
     init_db()
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT role_id FROM roles WHERE category = ? ORDER BY id ASC", (category,))
+    cursor.execute(
+        "SELECT role_id FROM roles WHERE category = ? ORDER BY id ASC",
+        (category,),
+    )
     rows = cursor.fetchall()
     conn.close()
     return [r[0] for r in rows]
+
 
 # Nachricht-IDs speichern
 def set_msg_id(key: str, msg_id: int):
     init_db()
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO messages (key, msg_id) VALUES (?, ?)", (key, msg_id))
+    cursor.execute(
+        "INSERT OR REPLACE INTO messages (key, msg_id) VALUES (?, ?)",
+        (key, msg_id),
+    )
     conn.commit()
     conn.close()
+
 
 def get_msg_id(key: str):
     init_db()
@@ -103,6 +123,7 @@ def get_msg_id(key: str):
 
 
 class TeamlisteCog(commands.Cog):
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         init_db()
@@ -123,12 +144,16 @@ class TeamlisteCog(commands.Cog):
             return "⚪ Offline"
 
     # Erstellt das Embed im SCNX-Stil mit rotem Rand
-    def create_team_embed(self, guild: discord.Guild, title: str, category: str) -> discord.Embed:
+    def create_team_embed(
+        self, guild: discord.Guild, title: str, category: str
+    ) -> discord.Embed:
         role_ids = get_roles_by_category(category)
         lines = []
 
         if not role_ids:
-            lines.append(f"*Keine Rollen für {title} konfiguriert. Nutze `/teamrollen_hinzufuegen`.*")
+            lines.append(
+                f"*Keine Rollen für {title} konfiguriert. Nutze `/teamrollen_hinzufuegen`.*"
+            )
         else:
             for role_id in role_ids:
                 role = guild.get_role(role_id)
@@ -142,17 +167,19 @@ class TeamlisteCog(commands.Cog):
                         status_text = self.format_status(member.status)
                         lines.append(f"• {member.mention}:  {status_text}")
                 else:
-                    lines.append(f"Kein Mitglied des Servers hat die {role.mention} Rolle.")
-                
+                    lines.append(
+                        f"Kein Mitglied des Servers hat die {role.mention} Rolle."
+                    )
+
                 lines.append("")
 
         description_text = "\n".join(lines)
-        
+
         # Rot gefärbtes Embed
         embed = discord.Embed(
             title=f"{title} | {guild.name.upper()}",
             description=description_text[:4000],
-            color=discord.Color.red()
+            color=discord.Color.red(),
         )
 
         if guild.icon:
@@ -174,36 +201,45 @@ class TeamlisteCog(commands.Cog):
         categories = [
             ("fuehrungsebene", "Führungsebenen-Liste"),
             ("highteam", "HighTeam-Liste"),
-            ("lowteam", "LowTeam-Liste")
+            ("lowteam", "LowTeam-Liste"),
         ]
 
         for key, title in categories:
             embed = self.create_team_embed(guild, title, key)
             msg_id = get_msg_id(key)
 
-            if msg_id:
+            if msg_id and msg_id != 0:
                 try:
                     msg = await channel.fetch_message(msg_id)
                     await msg.edit(embed=embed)
 
+                # ZUERST NotFound abfangen (wenn Nachricht manuell gelöscht wurde)
+                except discord.NotFound:
+                    new_msg = await channel.send(embed=embed)
+                    set_msg_id(key, new_msg.id)
+
+                # DANACH allgemeine HTTP-Fehler abfangen
                 except discord.HTTPException as e:
-                    # Error Code 30046: Nachricht ist älter als 1h und Limit wurde erreicht
-                    if e.code == 30046:
+                    if e.status == 429:
+                        # Bei Rate-Limit kurz warten
+                        await asyncio.sleep(5)
+                    elif e.code == 30046:
                         try:
-                            await msg.delete()
+                            await channel.purge(limit=1, check=lambda m: m.id == msg_id)
                         except discord.HTTPException:
                             pass
                         new_msg = await channel.send(embed=embed)
                         set_msg_id(key, new_msg.id)
                     else:
-                        print(f"HTTP-Fehler beim Aktualisieren der Teamliste ({key}): {e}")
-
-                except discord.NotFound:
-                    new_msg = await channel.send(embed=embed)
-                    set_msg_id(key, new_msg.id)
+                        print(
+                            f"HTTP-Fehler beim Aktualisieren der Teamliste ({key}): {e}"
+                        )
             else:
                 new_msg = await channel.send(embed=embed)
                 set_msg_id(key, new_msg.id)
+
+            # 1 Sekunde Pause zwischen den 3 Embed-Updates gegen Rate Limits
+            await asyncio.sleep(1)
 
     # LOOP (Alle 2 Minuten)
     @tasks.loop(minutes=2)
@@ -217,16 +253,25 @@ class TeamlisteCog(commands.Cog):
 
     # EVENT-TRIGGER
     @commands.Cog.listener()
-    async def on_member_update(self, before: discord.Member, after: discord.Member):
-        # Nur noch bei Rollen- oder Namensänderungen aktualisieren.
-        # Der Online-Status wird vom Loop alle 2 Minuten übernommen.
-        if before.roles != after.roles or before.display_name != after.display_name:
+    async def on_member_update(
+        self, before: discord.Member, after: discord.Member
+    ):
+        # Nur bei Rollen- oder Namensänderungen aktualisieren
+        if (
+            before.roles != after.roles
+            or before.display_name != after.display_name
+        ):
             await self.update_teamlist(after.guild)
 
     # COMMANDS
-    @app_commands.command(name="setup_teamliste", description="[Admin] Richtet den Kanal für die Teamlisten ein")
+    @app_commands.command(
+        name="setup_teamliste",
+        description="[Admin] Richtet den Kanal für die Teamlisten ein",
+    )
     @app_commands.checks.has_permissions(administrator=True)
-    async def setup_teamliste(self, interaction: discord.Interaction, kanal: discord.TextChannel):
+    async def setup_teamliste(
+        self, interaction: discord.Interaction, kanal: discord.TextChannel
+    ):
         set_config("teamlist_channel_id", kanal.id)
         set_msg_id("fuehrungsebene", 0)
         set_msg_id("highteam", 0)
@@ -234,17 +279,24 @@ class TeamlisteCog(commands.Cog):
 
         await interaction.response.send_message(
             f"✅ Teamliste-Kanal auf {kanal.mention} gesetzt! Generiere Embeds...",
-            ephemeral=True
+            ephemeral=True,
         )
         await self.update_teamlist(interaction.guild)
 
-    @app_commands.command(name="teamrollen_hinzufuegen", description="[Admin] Fügt bis zu 10 Rollen gleichzeitig hinzu")
+    @app_commands.command(
+        name="teamrollen_hinzufuegen",
+        description="[Admin] Fügt bis zu 10 Rollen gleichzeitig hinzu",
+    )
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.choices(liste=[
-        app_commands.Choice(name="Führungsebenen-Liste", value="fuehrungsebene"),
-        app_commands.Choice(name="HighTeam-Liste", value="highteam"),
-        app_commands.Choice(name="LowTeam-Liste", value="lowteam")
-    ])
+    @app_commands.choices(
+        liste=[
+            app_commands.Choice(
+                name="Führungsebenen-Liste", value="fuehrungsebene"
+            ),
+            app_commands.Choice(name="HighTeam-Liste", value="highteam"),
+            app_commands.Choice(name="LowTeam-Liste", value="lowteam"),
+        ]
+    )
     async def add_roles(
         self,
         interaction: discord.Interaction,
@@ -258,52 +310,86 @@ class TeamlisteCog(commands.Cog):
         rolle7: discord.Role = None,
         rolle8: discord.Role = None,
         rolle9: discord.Role = None,
-        rolle10: discord.Role = None
+        rolle10: discord.Role = None,
     ):
-        input_roles = [r for r in [rolle1, rolle2, rolle3, rolle4, rolle5, rolle6, rolle7, rolle8, rolle9, rolle10] if r is not None]
-        
+        input_roles = [
+            r
+            for r in [
+                rolle1,
+                rolle2,
+                rolle3,
+                rolle4,
+                rolle5,
+                rolle6,
+                rolle7,
+                rolle8,
+                rolle9,
+                rolle10,
+            ]
+            if r is not None
+        ]
+
         added_mentions = []
         for role in input_roles:
             add_role_to_db(role.id, liste.value)
             added_mentions.append(role.mention)
 
         await interaction.response.send_message(
-            f"✅ **{len(added_mentions)} Rolle(n)** zur **{liste.name}** hinzugefügt:\n" + ", ".join(added_mentions),
-            ephemeral=True
+            f"✅ **{len(added_mentions)} Rolle(n)** zur **{liste.name}** hinzugefügt:\n"
+            + ", ".join(added_mentions),
+            ephemeral=True,
         )
         await self.update_teamlist(interaction.guild)
 
-    @app_commands.command(name="teamrolle_entfernen", description="[Admin] Entfernt eine Rolle aus der Teamliste")
+    @app_commands.command(
+        name="teamrolle_entfernen",
+        description="[Admin] Entfernt eine Rolle aus der Teamliste",
+    )
     @app_commands.checks.has_permissions(administrator=True)
-    async def remove_role(self, interaction: discord.Interaction, rolle: discord.Role):
+    async def remove_role(
+        self, interaction: discord.Interaction, rolle: discord.Role
+    ):
         remove_role_from_db(rolle.id)
         await interaction.response.send_message(
-            f"🗑️ Rolle {rolle.mention} wurde entfernt!",
-            ephemeral=True
+            f"🗑️ Rolle {rolle.mention} wurde entfernt!", ephemeral=True
         )
         await self.update_teamlist(interaction.guild)
 
-    @app_commands.command(name="teamliste_leeren", description="[Admin] Löscht alle Rollen aus einer bestimmten Liste")
+    @app_commands.command(
+        name="teamliste_leeren",
+        description="[Admin] Löscht alle Rollen aus einer bestimmten Liste",
+    )
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.choices(liste=[
-        app_commands.Choice(name="Führungsebenen-Liste", value="fuehrungsebene"),
-        app_commands.Choice(name="HighTeam-Liste", value="highteam"),
-        app_commands.Choice(name="LowTeam-Liste", value="lowteam")
-    ])
-    async def clear_roles(self, interaction: discord.Interaction, liste: app_commands.Choice[str]):
+    @app_commands.choices(
+        liste=[
+            app_commands.Choice(
+                name="Führungsebenen-Liste", value="fuehrungsebene"
+            ),
+            app_commands.Choice(name="HighTeam-Liste", value="highteam"),
+            app_commands.Choice(name="LowTeam-Liste", value="lowteam"),
+        ]
+    )
+    async def clear_roles(
+        self, interaction: discord.Interaction, liste: app_commands.Choice[str]
+    ):
         clear_category_from_db(liste.value)
         await interaction.response.send_message(
             f"🧹 Alle Rollen aus der **{liste.name}** wurden gelöscht!",
-            ephemeral=True
+            ephemeral=True,
         )
         await self.update_teamlist(interaction.guild)
 
-    @app_commands.command(name="update_teamliste", description="[Admin] Erzwingt eine sofortige Aktualisierung der Teamliste")
+    @app_commands.command(
+        name="update_teamliste",
+        description="[Admin] Erzwingt eine sofortige Aktualisierung der Teamliste",
+    )
     @app_commands.checks.has_permissions(administrator=True)
     async def force_update_teamliste(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         await self.update_teamlist(interaction.guild)
-        await interaction.followup.send("✅ Teamliste wurde manuell aktualisiert!", ephemeral=True)
+        await interaction.followup.send(
+            "✅ Teamliste wurde manuell aktualisiert!", ephemeral=True
+        )
 
 
 async def setup(bot: commands.Bot):
