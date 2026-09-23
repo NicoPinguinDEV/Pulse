@@ -171,12 +171,11 @@ class AbmeldungCog(commands.Cog):
         else:
             embed.description = f"Anzahl der Abmeldungen: **{len(rows)}**\n───────────────"
             for user_id, user_name, grund, von, bis in rows:
-                von_text = von if von else "Sofort"
                 embed.add_field(
                     name=f"👤 {user_name}",
                     value=(
                         f"┣ 📝 **Grund:** {grund}\n"
-                        f"┣ 📅 **Von:** {von_text}\n"
+                        f"┣ 📅 **Von:** {von}\n"
                         f"┗ 📅 **Bis:** {bis}\n"
                     ),
                     inline=False
@@ -223,23 +222,20 @@ class AbmeldungCog(commands.Cog):
     @app_commands.command(name="abmeldung", description="Melde dich für einen bestimmten Zeitraum ab")
     @app_commands.describe(
         grund="Warum bist du abgemeldet?",
-        bis="Enddatum Format: TT.MM.JJJJ (z.B. 25.09.2026)",
-        von="[Optional] Startdatum Format: TT.MM.JJJJ (Standard: Heute)"
+        von="Startdatum Format: TT.MM.JJJJ (z.B. 20.09.2026)",
+        bis="Enddatum Format: TT.MM.JJJJ (z.B. 25.09.2026)"
     )
-    async def abmeldung(self, interaction: discord.Interaction, grund: str, bis: str, von: str = None):
-        # 1. Startdatum festlegen (falls leer -> Heute)
-        if not von:
-            von_formatted = datetime.now().strftime("%d.%m.%Y")
-        else:
-            try:
-                datum_von_obj = datetime.strptime(von, "%d.%m.%Y")
-                von_formatted = datum_von_obj.strftime("%d.%m.%Y")
-            except ValueError:
-                await interaction.response.send_message(
-                    "❌ **Ungültiges Startdatumsformat!** Bitte benutze genau das Format `TT.MM.JJJJ` (z. B. `20.09.2026`).",
-                    ephemeral=True
-                )
-                return
+    async def abmeldung(self, interaction: discord.Interaction, grund: str, von: str, bis: str):
+        # 1. Startdatum prüfen
+        try:
+            datum_von_obj = datetime.strptime(von, "%d.%m.%Y")
+            von_formatted = datum_von_obj.strftime("%d.%m.%Y")
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ **Ungültiges Startdatumsformat!** Bitte benutze genau das Format `TT.MM.JJJJ` (z. B. `20.09.2026`).",
+                ephemeral=True
+            )
+            return
 
         # 2. Enddatum prüfen
         try:
@@ -253,7 +249,7 @@ class AbmeldungCog(commands.Cog):
             return
 
         # 3. Logik-Prüfung: Enddatum darf nicht vor Startdatum liegen
-        if datetime.strptime(bis_formatted, "%d.%m.%Y") < datetime.strptime(von_formatted, "%d.%m.%Y"):
+        if datum_bis_obj < datum_von_obj:
             await interaction.response.send_message(
                 "❌ **Ungültiger Zeitraum!** Das Enddatum darf nicht vor dem Startdatum liegen.",
                 ephemeral=True
