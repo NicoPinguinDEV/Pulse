@@ -185,6 +185,19 @@ class TeamlisteCog(commands.Cog):
                 try:
                     msg = await channel.fetch_message(msg_id)
                     await msg.edit(embed=embed)
+
+                except discord.HTTPException as e:
+                    # Error Code 30046: Nachricht ist älter als 1h und Limit wurde erreicht
+                    if e.code == 30046:
+                        try:
+                            await msg.delete()
+                        except discord.HTTPException:
+                            pass
+                        new_msg = await channel.send(embed=embed)
+                        set_msg_id(key, new_msg.id)
+                    else:
+                        print(f"HTTP-Fehler beim Aktualisieren der Teamliste ({key}): {e}")
+
                 except discord.NotFound:
                     new_msg = await channel.send(embed=embed)
                     set_msg_id(key, new_msg.id)
@@ -205,7 +218,9 @@ class TeamlisteCog(commands.Cog):
     # EVENT-TRIGGER
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
-        if before.roles != after.roles or before.status != after.status:
+        # Nur noch bei Rollen- oder Namensänderungen aktualisieren.
+        # Der Online-Status wird vom Loop alle 2 Minuten übernommen.
+        if before.roles != after.roles or before.display_name != after.display_name:
             await self.update_teamlist(after.guild)
 
     # COMMANDS
