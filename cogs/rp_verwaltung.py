@@ -42,6 +42,12 @@ async def send_rp_announcement(interaction: discord.Interaction, content: str):
 
     # Falls ein Ankündigungskanal eingestellt ist, dort hinsenden
     if target_channel:
+        # Alte Nachrichten im Kanal löschen
+        try:
+            await target_channel.purge(limit=10)
+        except Exception:
+            pass
+
         await target_channel.send(
             content=content,
             allowed_mentions=discord.AllowedMentions(everyone=True)
@@ -52,7 +58,12 @@ async def send_rp_announcement(interaction: discord.Interaction, content: str):
         )
     else:
         # Fallback: In den aktuellen Kanal senden
-        await interaction.response.send_message(
+        try:
+            await interaction.channel.purge(limit=10)
+        except Exception:
+            pass
+
+        await interaction.channel.send(
             content=content,
             allowed_mentions=discord.AllowedMentions(everyone=True)
         )
@@ -68,10 +79,10 @@ class RPStopModal(discord.ui.Modal, title="RP Stop - Nächster RP Start"):
 
     async def on_submit(self, interaction: discord.Interaction):
         msg_content = (
-            "#  :minus:   RP Start  :minus:  \n\n"
-            "> **Das RP wird hiermit offiziell gestopt!**\n"
+            "#  ⛔  RP Stop  ⛔  \n\n"
+            "> **Das RP wird hiermit offiziell gestoppt!**\n"
             "> ***Informationen zu dem folgenden Tag***\n"
-            f"> **:RPStart: Geplanter RP-Start: {self.uhrzeit.value}** \n"
+            f"> **⏰ Geplanter RP-Start: {self.uhrzeit.value}** \n"
             "> # Kommt gerne morgen wieder auf den Server!\n"
             "@everyone"
         )
@@ -91,7 +102,7 @@ class RPSelect(discord.ui.Select):
                 label="RP Stop",
                 value="rp_stop",
                 description="Beendet das aktuelle Roleplay",
-                emoji="🦆"
+                emoji="🛑"
             )
         ]
         super().__init__(
@@ -106,10 +117,10 @@ class RPSelect(discord.ui.Select):
         # RP START ANKÜNDIGUNG
         if self.values[0] == "rp_start":
             msg_content = (
-                "#  :check:  RP Start  :check:  \n\n"
+                "#  ✅  RP Start  ✅  \n\n"
                 "> **Das RP wird hiermit offiziell eröffnet!**\n"
                 "> ***Informationen zu dem folgenden Tag***\n"
-                "> **:RPStart: Geplanter RP-Stop: Offen** \n"
+                "> **⏰ Geplanter RP-Stop: Offen** \n"
                 "> # Kommt gerne auf den Server!\n"
                 "@everyone"
             )
