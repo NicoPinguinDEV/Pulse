@@ -177,6 +177,13 @@ def init_db():
             current_flag TEXT
         )
     """)
+
+  # Automatische Spalten-Erweiterung für alte Datenbanken
+  cursor.execute("PRAGMA table_info(quiz_config)")
+  columns = [column[1] for column in cursor.fetchall()]
+  if "current_flag" not in columns:
+    cursor.execute("ALTER TABLE quiz_config ADD COLUMN current_flag TEXT")
+
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS quiz_scores (
             guild_id INTEGER,
@@ -275,7 +282,6 @@ class QuizView(discord.ui.View):
   ):
     current_flag = self.cog.active_games.get(interaction.channel_id)
 
-    # Nach Neustart: Flagge aus der DB nachladen
     if not current_flag and interaction.guild:
       _, flag_name = get_quiz_config(interaction.guild.id)
       if flag_name:
@@ -304,7 +310,6 @@ class QuizView(discord.ui.View):
   async def skip_button(
       self, interaction: discord.Interaction, button: discord.ui.Button
   ):
-    # Verhindert den 3-Sekunden-Timeout!
     await interaction.response.defer()
 
     current_flag = self.cog.active_games.get(interaction.channel_id)
@@ -336,15 +341,13 @@ class FlaggenQuizCog(commands.Cog):
   def __init__(self, bot: commands.Bot):
     self.bot = bot
     init_db()
-    self.active_games = {}  # {channel_id: flag_object}
+    self.active_games = {}
 
   async def cog_load(self):
-    # Macht die Buttons dauerhaft auf Discord verfügbar
     self.bot.add_view(QuizView(self))
 
   @commands.Cog.listener()
   async def on_ready(self):
-    # Nach Neustart aktive Spiele aus der DB wiederherstellen
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT guild_id, channel_id, current_flag FROM quiz_config")
@@ -447,7 +450,6 @@ class FlaggenQuizCog(commands.Cog):
 
     current_flag = self.active_games.get(message.channel.id)
 
-    # Wenn der Bot neugestartet wurde, Aktionsdatenbank abfragen
     if not current_flag and current_flag_name:
       current_flag = next(
           (f for f in FLAGS if f["name"] == current_flag_name), None
