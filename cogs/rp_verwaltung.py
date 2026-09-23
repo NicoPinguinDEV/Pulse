@@ -37,35 +37,31 @@ def get_config(key: str):
 
 # --- HELFER ZUM SENDEN DER ANKÜNDIGUNG ---
 async def send_rp_announcement(interaction: discord.Interaction, content: str):
+    # 1. Sofort als verarbeitet markieren, um den 3-Sekunden-Timeout zu verhindern
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
+
     channel_id = get_config("announcement_channel_id")
     target_channel = interaction.guild.get_channel(channel_id) if (channel_id and interaction.guild) else None
+    ch = target_channel or interaction.channel
 
-    # Falls ein Ankündigungskanal eingestellt ist, dort hinsenden
-    if target_channel:
-        # Alte Nachrichten im Kanal löschen
+    if ch:
+        # 2. Alte Nachrichten im Zielkanal löschen
         try:
-            await target_channel.purge(limit=10)
+            await ch.purge(limit=10)
         except Exception:
             pass
 
-        await target_channel.send(
+        # 3. Neue Ankündigung senden
+        await ch.send(
             content=content,
             allowed_mentions=discord.AllowedMentions(everyone=True)
         )
-        await interaction.response.send_message(
-            f"✅ RP-Ankündigung wurde erfolgreich in {target_channel.mention} gesendet!",
+
+        # 4. Bestätigung via followup senden
+        await interaction.followup.send(
+            f"✅ RP-Ankündigung wurde erfolgreich in {ch.mention} gesendet!",
             ephemeral=True
-        )
-    else:
-        # Fallback: In den aktuellen Kanal senden
-        try:
-            await interaction.channel.purge(limit=10)
-        except Exception:
-            pass
-
-        await interaction.channel.send(
-            content=content,
-            allowed_mentions=discord.AllowedMentions(everyone=True)
         )
 
 # --- POP-UP FENSTER FÜR RP STOP (Uhrzeit abfragen) ---
