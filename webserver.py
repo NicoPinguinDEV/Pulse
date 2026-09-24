@@ -1324,7 +1324,7 @@ async def handle_action(
         save_json(DATA_FILE, team_db)
 
     elif action == "submit_loa" and user_id and guild:
-        # Datum von YYYY-MM-DD zu DD.MM.YYYY konvertieren (für Kompatibilität mit dem Bot)
+        # Datum von YYYY-MM-DD zu DD.MM.YYYY konvertieren
         try:
             von_formatted = datetime.strptime(loa_start, "%Y-%m-%d").strftime("%d.%m.%Y")
             bis_formatted = datetime.strptime(loa_end, "%Y-%m-%d").strftime("%d.%m.%Y")
@@ -1336,6 +1336,7 @@ async def handle_action(
         user_name = member.display_name if member else f"User {user_id}"
         original_nick = member.nick if member else None
 
+        # In SQLite-Datenbank speichern
         conn = sqlite3.connect(DB_ABMELDUNGEN)
         cursor = conn.cursor()
         cursor.execute("""
@@ -1344,6 +1345,35 @@ async def handle_action(
         """, (user_id, user_name, loa_reason, von_formatted, bis_formatted, original_nick, GUILD_ID))
         conn.commit()
         conn.close()
+
+        # --- NEU: Discord Benachrichtigung & Anpassung ---
+        if bot:
+            try:
+                import discord
+                # Sucht nach einem Kanal namens "abmeldungen" oder "loa"
+                loa_channel = discord.utils.get(guild.text_channels, name="abmeldungen") or discord.utils.get(guild.text_channels, name="loa")
+                
+                if loa_channel:
+                    embed = discord.Embed(
+                        title="🌴 Neue Abmeldung (Web-Dashboard)",
+                        description=f"**Mitglied:** {member.mention if member else user_name}\n"
+                                    f"**Zeitraum:** {von_formatted} bis {bis_formatted}\n"
+                                    f"**Grund:** {loa_reason}",
+                        color=discord.Color.orange()
+                    )
+                    embed.set_footer(text="Eingetragen über das Web-Panel")
+                    await loa_channel.send(embed=embed)
+                
+                # Optional: Nickname anpassen (falls der Bot die Rechte dazu hat)
+                if member:
+                    try:
+                        if not member.display_name.startswith("[Abgemeldet]"):
+                            await member.edit(nick=f"[Abgemeldet] {member.display_name}")
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"Fehler beim Senden der Discord-Benachrichtigung: {e}")
+        # ------------------------------------------------
 
         return RedirectResponse(url="/loa", status_code=303)
 
