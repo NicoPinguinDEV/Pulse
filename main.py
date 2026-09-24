@@ -19,9 +19,13 @@ class CustomBot(commands.Bot):
     async def setup_hook(self):
         # Alle Cogs aus dem Ordner /cogs laden
         for filename in os.listdir("./cogs"):
-            if filename.endswith(".py"):
-                await self.load_extension(f"cogs.{filename[:-3]}")
-                print(f"📦 Cog geladen: {filename[:-3]}")
+            # Ignoriert temporäre Dateien/Ordner wie __init__.py oder __pycache__
+            if filename.endswith(".py") and not filename.startswith("__"):
+                try:
+                    await self.load_extension(f"cogs.{filename[:-3]}")
+                    print(f"📦 Cog geladen: {filename[:-3]}")
+                except Exception as e:
+                    print(f"❌ Fehler beim Laden von {filename}: {e}")
 
         # Slash Commands mit Discord synchronisieren
         synced = await self.tree.sync()
