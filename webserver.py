@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -109,6 +110,9 @@ async def callback(code: str):
     return response
 
 
+# =============================================================
+# TEAMLICHT-ÜBERSICHT (HAUPTSEITE)
+# =============================================================
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     bot = getattr(request.app.state, "bot", None)
@@ -121,23 +125,18 @@ async def dashboard(request: Request):
 
     config = load_config()
     team_role_ids = config.get("team_role_ids", [])
-    team_db = load_data()
 
     team_members = []
     for member in guild.members:
         member_role_ids = [r.id for r in member.roles]
 
         if any(rid in member_role_ids for rid in team_role_ids):
-            user_id_str = str(member.id)
-            user_info = team_db.get(user_id_str, {"warns": 0, "notes": []})
-
             highest_team_role = None
             for rid in reversed(team_role_ids):
                 if rid in member_role_ids:
                     highest_team_role = guild.get_role(rid)
                     break
 
-            # Fallback falls keine Team-Rolle direkt matcht
             role_position = (
                 highest_team_role.position
                 if highest_team_role
@@ -160,23 +159,16 @@ async def dashboard(request: Request):
                     else "#6366f1"
                 ),
                 "role_position": role_position,
-                "warns": user_info.get("warns", 0),
-                "notes": user_info.get("notes", []),
             })
 
-    # AUTOMATISCHE SORTIERUNG: Höchster Discord-Rang zuerst
+    # Höchster Discord-Rang zuerst
     team_members.sort(key=lambda m: m["role_position"], reverse=True)
 
-    # Erzeugen der Zeilen für die Tabellenansicht
+    # Erzeugen der Zeilen (Nur Auge-Icon als Aktion)
     rows_html = ""
     for m in team_members:
-        notes_html = "".join([
-            f"<div class='text-[11px] bg-[#0b0e14] px-2 py-0.5 rounded border border-slate-800 text-slate-300'>• {n}</div>"
-            for n in m["notes"]
-        ])
-
         rows_html += f"""
-        <div class="bg-[#141824] hover:bg-[#1a2030] transition border border-slate-800/80 rounded-xl px-5 py-3.5 flex items-center justify-between shadow-md group">
+        <div class="bg-[#141824] hover:bg-[#1a2030] transition border border-slate-800/80 rounded-xl px-5 py-3.5 flex items-center justify-between shadow-md">
             <!-- Nutzer Info -->
             <div class="flex items-center gap-3.5 w-1/3">
                 <img src="{m['avatar']}" class="w-10 h-10 rounded-full border border-slate-700">
@@ -196,36 +188,11 @@ async def dashboard(request: Request):
                 </span>
             </div>
 
-            <!-- Aktionen / Details -->
-            <div class="w-1/3 flex items-center justify-end gap-2">
-                <form action="/action" method="post" class="flex items-center gap-1">
-                    <input type="hidden" name="user_id" value="{m['id']}">
-                    
-                    <button name="action" value="promote" title="Befördern" class="p-1.5 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs transition">⬆️</button>
-                    <button name="action" value="demote" title="Degradieren" class="p-1.5 hover:bg-orange-500/20 text-orange-400 rounded-lg text-xs transition">⬇️</button>
-                    <button name="action" value="warn" title="Verwarnen ({m['warns']})" class="p-1.5 hover:bg-amber-500/20 text-amber-400 rounded-lg text-xs transition flex items-center gap-1">
-                        ⚠️ <span class="text-[10px] bg-amber-500/20 px-1 rounded">{m['warns']}</span>
-                    </button>
-                    <button name="action" value="kick" title="Kicken" class="p-1.5 hover:bg-rose-500/20 text-rose-400 rounded-lg text-xs transition">🚪</button>
-                </form>
-
-                <details class="relative">
-                    <summary class="list-none p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer transition">
-                        👁️
-                    </summary>
-                    <div class="absolute right-0 top-8 z-50 w-64 bg-[#1a2030] border border-slate-700 p-3 rounded-xl shadow-2xl space-y-2">
-                        <div class="text-xs font-bold text-slate-300">Notizen:</div>
-                        <div class="space-y-1 max-h-32 overflow-y-auto">
-                            {notes_html or "<p class='text-[11px] text-slate-500 italic'>Keine Notizen vorhanden</p>"}
-                        </div>
-                        <form action="/action" method="post" class="flex gap-1 pt-1">
-                            <input type="hidden" name="user_id" value="{m['id']}">
-                            <input type="hidden" name="action" value="add_note">
-                            <input type="text" name="note_text" placeholder="Neue Notiz..." required class="bg-[#0b0e14] border border-slate-700 rounded px-2 py-1 text-xs w-full text-white">
-                            <button class="bg-indigo-600 hover:bg-indigo-500 px-2 py-1 rounded text-xs font-semibold text-white">+</button>
-                        </form>
-                    </div>
-                </details>
+            <!-- Aktion: Nur Auge-Icon zur Detail-Seite -->
+            <div class="w-1/3 flex items-center justify-end">
+                <a href="/member/{m['id']}" title="Profil ansehen" class="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition">
+                    👁️
+                </a>
             </div>
         </div>
         """
@@ -262,10 +229,8 @@ async def dashboard(request: Request):
     </head>
     <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
 
-        <!-- Sidebar Navigation -->
         <aside class="w-64 bg-[#141824] border-r border-slate-800/80 flex flex-col justify-between p-4 min-h-screen shrink-0">
             <div class="space-y-6">
-                <!-- Branding -->
                 <div class="flex items-center gap-3 px-2">
                     <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg">T</div>
                     <div>
@@ -274,7 +239,6 @@ async def dashboard(request: Request):
                     </div>
                 </div>
 
-                <!-- Server Selector -->
                 <div class="bg-[#0b0e14] border border-slate-800 rounded-xl p-2.5 flex items-center justify-between cursor-pointer">
                     <div class="flex items-center gap-2 truncate">
                         <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
@@ -283,7 +247,6 @@ async def dashboard(request: Request):
                     <span class="text-xs text-slate-500">▾</span>
                 </div>
 
-                <!-- Nav Menu -->
                 <nav class="space-y-1 text-xs">
                     <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 mb-2">Übersicht</div>
                     <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
@@ -297,7 +260,6 @@ async def dashboard(request: Request):
                 </nav>
             </div>
 
-            <!-- Footer User Info -->
             <div class="border-t border-slate-800/80 pt-3 px-1 flex items-center justify-between">
                 <div class="flex items-center gap-2.5">
                     <div class="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-white">B</div>
@@ -307,9 +269,7 @@ async def dashboard(request: Request):
             </div>
         </aside>
 
-        <!-- Main Content Area -->
         <main class="flex-1 p-8 overflow-y-auto">
-            <!-- Header -->
             <div class="flex justify-between items-center mb-6">
                 <div>
                     <div class="text-xs text-slate-500 flex items-center gap-1.5 mb-1">
@@ -341,16 +301,264 @@ async def dashboard(request: Request):
                 </details>
             </div>
 
-            <!-- Table Header -->
             <div class="px-5 py-2.5 text-xs font-semibold text-slate-500 flex items-center justify-between mb-2">
-                <div class="w-1/3 flex items-center gap-1">Nutzer ⇂⇞</div>
-                <div class="w-1/3 flex items-center gap-1">Rolle ⇂⇞</div>
+                <div class="w-1/3">Nutzer</div>
+                <div class="w-1/3">Rolle</div>
                 <div class="w-1/3 text-right">Aktionen</div>
             </div>
 
-            <!-- Table Rows -->
             <div class="space-y-2.5">
-                {rows_html or "<div class='text-center py-12 text-slate-500 text-sm bg-[#141824] border border-slate-800 rounded-2xl'>Keine Teammitglieder gefunden. Füge oben unter '⚙️ Team-Rollen verwalten' deine Server-Rollen hinzu.</div>"}
+                {rows_html or "<div class='text-center py-12 text-slate-500 text-sm bg-[#141824] border border-slate-800 rounded-2xl'>Keine Teammitglieder gefunden.</div>"}
+            </div>
+        </main>
+
+    </body>
+    </html>
+    """
+
+
+# =============================================================
+# DETAILSEITE FÜR EIN MITGLIED (KLICK AUF DAS AUGE 👁️)
+# =============================================================
+@app.get("/member/{user_id}", response_class=HTMLResponse)
+async def member_detail(request: Request, user_id: int):
+    bot = getattr(request.app.state, "bot", None)
+    if not bot:
+        return "<h3>Bot-Instanz noch nicht bereit!</h3>"
+
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        return f"<h3>Fehler: Server {GUILD_ID} nicht gefunden.</h3>"
+
+    member = guild.get_member(user_id)
+    if not member:
+        return f"<h3>Mitglied mit ID {user_id} wurde nicht gefunden.</h3>"
+
+    config = load_config()
+    team_role_ids = config.get("team_role_ids", [])
+    team_db = load_data()
+
+    user_key = str(user_id)
+    user_info = team_db.get(
+        user_key,
+        {
+            "warns": 0,
+            "notes": [],
+            "ticket_cases": 0,
+            "support_cases": 0,
+            "mod_cases": 0,
+        },
+    )
+
+    member_role_ids = [r.id for r in member.roles]
+    highest_team_role = None
+    for rid in reversed(team_role_ids):
+        if rid in member_role_ids:
+            highest_team_role = guild.get_role(rid)
+            break
+
+    top_role_name = (
+        highest_team_role.name if highest_team_role else member.top_role.name
+    )
+    top_role_color = (
+        f"#{highest_team_role.color.value:06x}"
+        if highest_team_role and highest_team_role.color.value
+        else "#6366f1"
+    )
+
+    joined_at_str = (
+        member.joined_at.strftime("%d.%m.%Y %H:%M")
+        if member.joined_at
+        else "Unbekannt"
+    )
+
+    notes_html = "".join([
+        f"<div class='text-xs bg-[#0b0e14] p-2 rounded-lg border border-slate-800 text-slate-300 flex justify-between items-center'><span>• {n}</span></div>"
+        for n in user_info.get("notes", [])
+    ])
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{member.display_name} - Details</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
+
+        <!-- Sidebar -->
+        <aside class="w-64 bg-[#141824] border-r border-slate-800/80 flex flex-col justify-between p-4 min-h-screen shrink-0">
+            <div class="space-y-6">
+                <div class="flex items-center gap-3 px-2">
+                    <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg">T</div>
+                    <div>
+                        <h2 class="font-bold text-white leading-none">Teams</h2>
+                        <span class="text-[10px] text-slate-500 font-mono">v1.0.0</span>
+                    </div>
+                </div>
+
+                <div class="bg-[#0b0e14] border border-slate-800 rounded-xl p-2.5 flex items-center justify-between cursor-pointer">
+                    <div class="flex items-center gap-2 truncate">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span class="text-xs font-semibold text-slate-200 truncate">{guild.name}</span>
+                    </div>
+                    <span class="text-xs text-slate-500">▾</span>
+                </div>
+
+                <nav class="space-y-1 text-xs">
+                    <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 mb-2">Übersicht</div>
+                    <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
+                        📊 <span>Dashboard</span>
+                    </a>
+                    
+                    <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 mt-4 mb-2">Team</div>
+                    <a href="/dashboard" class="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-indigo-600/10 text-indigo-400 font-semibold border border-indigo-500/20">
+                        👥 <span>Teamliste</span>
+                    </a>
+                </nav>
+            </div>
+
+            <div class="border-t border-slate-800/80 pt-3 px-1 flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-white">B</div>
+                    <span class="text-xs font-medium text-slate-300 truncate">Bot Host</span>
+                </div>
+                <a href="/" class="text-xs text-slate-500 hover:text-rose-400 transition">↤ Abmelden</a>
+            </div>
+        </aside>
+
+        <!-- Hauptbereich -->
+        <main class="flex-1 p-8 overflow-y-auto">
+            <!-- Header mit Zurück-Pfeil & User-Kopfdaten -->
+            <div class="flex items-center gap-4 mb-8">
+                <a href="/dashboard" class="bg-[#141824] border border-slate-800 hover:bg-slate-800 text-slate-300 p-2.5 rounded-xl transition flex items-center justify-center">
+                    ←
+                </a>
+                <img src="{member.display_avatar.url}" class="w-12 h-12 rounded-full border border-slate-700">
+                <div>
+                    <h1 class="text-xl font-bold text-white leading-tight">{member.display_name}</h1>
+                    <p class="text-xs text-slate-400 font-mono">@{member.name}</p>
+                </div>
+            </div>
+
+            <!-- Content Grid (Links Statistiken / Rechts Info-Karte) -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- Linke Spalte (2/3 Breite) -->
+                <div class="lg:col-span-2 space-y-6">
+                    
+                    <!-- Zeitspanne Anzeige -->
+                    <div class="bg-[#141824] border border-slate-800/80 rounded-xl px-4 py-2.5 text-xs text-slate-400 flex justify-between items-center font-mono">
+                        <span>📅 Zeitspanne: {datetime.now().strftime('%d.%m.%Y')} - Aktiv</span>
+                    </div>
+
+                    <!-- Case-Statistiken (Wie im Screenshot) -->
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-5 flex items-center justify-between shadow-md">
+                            <div>
+                                <div class="text-xs text-slate-400 font-semibold mb-1">Ticket-Cases</div>
+                                <div class="text-2xl font-bold text-white">{user_info.get('ticket_cases', 0)}</div>
+                            </div>
+                            <span class="text-2xl opacity-40">💳</span>
+                        </div>
+                        <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-5 flex items-center justify-between shadow-md">
+                            <div>
+                                <div class="text-xs text-slate-400 font-semibold mb-1">Support-Cases</div>
+                                <div class="text-2xl font-bold text-white">{user_info.get('support_cases', 0)}</div>
+                            </div>
+                            <span class="text-2xl opacity-40">🎧</span>
+                        </div>
+                        <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-5 flex items-center justify-between shadow-md">
+                            <div>
+                                <div class="text-xs text-slate-400 font-semibold mb-1">Mod-Cases</div>
+                                <div class="text-2xl font-bold text-white">{user_info.get('mod_cases', 0)}</div>
+                            </div>
+                            <span class="text-2xl opacity-40">🛡️</span>
+                        </div>
+                    </div>
+
+                    <!-- Team-Verwaltung & Notizen -->
+                    <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-6 space-y-4 shadow-md">
+                        <h3 class="text-sm font-bold text-white">Team-Aktionen</h3>
+                        <form action="/action" method="post" class="flex flex-wrap gap-2">
+                            <input type="hidden" name="user_id" value="{member.id}">
+                            <input type="hidden" name="redirect_to_member" value="1">
+
+                            <button name="action" value="promote" class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition">⬆️ Befördern</button>
+                            <button name="action" value="demote" class="bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 border border-orange-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition">⬇️ Degradieren</button>
+                            <button name="action" value="warn" class="bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition">⚠️ Verwarnung erteilen</button>
+                            <button name="action" value="kick" class="bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition">🚪 Vom Server kicken</button>
+                        </form>
+
+                        <hr class="border-slate-800 my-4">
+
+                        <h3 class="text-sm font-bold text-white">Notizen</h3>
+                        <div class="space-y-2 max-h-48 overflow-y-auto">
+                            {notes_html or "<p class='text-xs text-slate-500 italic'>Keine Notizen zu diesem Mitglied eingetragen.</p>"}
+                        </div>
+                        <form action="/action" method="post" class="flex gap-2 pt-2">
+                            <input type="hidden" name="user_id" value="{member.id}">
+                            <input type="hidden" name="action" value="add_note">
+                            <input type="hidden" name="redirect_to_member" value="1">
+                            <input type="text" name="note_text" placeholder="Neue Notiz hinzufügen..." required class="bg-[#0b0e14] border border-slate-700 rounded-lg px-3 py-2 text-xs w-full text-white">
+                            <button class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-lg text-xs font-semibold text-white transition">Hinzufügen</button>
+                        </form>
+                    </div>
+
+                </div>
+
+                <!-- Rechte Spalte (1/3 Breite) - Infokarte wie auf dem Bild -->
+                <div class="space-y-4">
+                    <!-- Riesiger Rollen-Schriftzug oben rechts -->
+                    <div class="text-right text-2xl font-extrabold uppercase tracking-widest opacity-90" style="color: {top_role_color};">
+                        » BORP ✕ {top_role_name}
+                    </div>
+
+                    <!-- Information-Box -->
+                    <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-6 space-y-4 shadow-md">
+                        <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                            <h3 class="text-sm font-bold text-white">Information</h3>
+                            <span class="text-slate-500 text-xs">🛈</span>
+                        </div>
+
+                        <div class="space-y-3 text-xs">
+                            <div>
+                                <div class="text-slate-500 font-medium mb-0.5">Nutzername</div>
+                                <div class="text-slate-200 font-medium flex items-center gap-1.5">
+                                    <span class="text-indigo-400 font-semibold">[{top_role_name}]</span> {member.display_name}
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="text-slate-500 font-medium mb-0.5">ID</div>
+                                <div class="text-slate-300 font-mono">{member.id}</div>
+                            </div>
+
+                            <div>
+                                <div class="text-slate-500 font-medium mb-0.5">Verwarnungen</div>
+                                <div class="text-slate-300 font-semibold">{user_info.get('warns', 0)} / 3</div>
+                            </div>
+
+                            <div>
+                                <div class="text-slate-500 font-medium mb-1">Rolle</div>
+                                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border" style="background-color: {top_role_color}15; color: {top_role_color}; border-color: {top_role_color}40;">
+                                    <span class="w-1.5 h-1.5 rounded-full" style="background-color: {top_role_color}"></span>
+                                    {top_role_name}
+                                </span>
+                            </div>
+
+                            <div>
+                                <div class="text-slate-500 font-medium mb-0.5">Im Team seit</div>
+                                <div class="bg-[#0b0e14] border border-slate-800 px-2.5 py-1 rounded text-slate-300 font-mono text-[11px] inline-block">
+                                    {joined_at_str}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </main>
 
@@ -366,6 +574,7 @@ async def handle_action(
     action: str = Form(...),
     note_text: str = Form(None),
     role_id: int = Form(None),
+    redirect_to_member: str = Form(None),
 ):
     bot = getattr(request.app.state, "bot", None)
     if not bot:
@@ -391,7 +600,13 @@ async def handle_action(
         user_key = str(user_id)
 
         if user_key not in team_db:
-            team_db[user_key] = {"warns": 0, "notes": []}
+            team_db[user_key] = {
+                "warns": 0,
+                "notes": [],
+                "ticket_cases": 0,
+                "support_cases": 0,
+                "mod_cases": 0,
+            }
 
         config = load_config()
         team_role_ids = config.get("team_role_ids", [])
@@ -449,5 +664,9 @@ async def handle_action(
                 if prev_role and old_role:
                     await member.remove_roles(old_role)
                     await member.add_roles(prev_role)
+
+    # Nach Aktion wieder auf Mitgliedsseite oder Dashboard leiten
+    if redirect_to_member and user_id:
+        return RedirectResponse(url=f"/member/{user_id}", status_code=303)
 
     return RedirectResponse(url="/dashboard", status_code=303)
