@@ -14,7 +14,7 @@ REDIRECT_URI = "http://fi4.bot-hosting.cloud:25095/callback"
 # =============================================================
 # EINSTELLUNGEN (HIER ANPASSEN!)
 # =============================================================
-GUILD_ID = 123456789012345678  # 👈 DEINE DISCORD SERVER-ID
+GUILD_ID = 1474514929351524616  # 👈 DEINE DISCORD SERVER-ID
 
 # Rollen in aufsteigender Reihenfolge eintragen (niedrigste -> höchste)
 # Befördern = nächste Rolle in der Liste / Degradieren = vorherige Rolle
