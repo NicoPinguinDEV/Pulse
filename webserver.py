@@ -137,6 +137,13 @@ async def dashboard(request: Request):
                     highest_team_role = guild.get_role(rid)
                     break
 
+            # Fallback falls keine Team-Rolle direkt matcht
+            role_position = (
+                highest_team_role.position
+                if highest_team_role
+                else member.top_role.position
+            )
+
             team_members.append({
                 "id": member.id,
                 "name": member.display_name,
@@ -152,9 +159,13 @@ async def dashboard(request: Request):
                     if highest_team_role and highest_team_role.color.value
                     else "#6366f1"
                 ),
+                "role_position": role_position,
                 "warns": user_info.get("warns", 0),
                 "notes": user_info.get("notes", []),
             })
+
+    # AUTOMATISCHE SORTIERUNG: Höchster Discord-Rang zuerst
+    team_members.sort(key=lambda m: m["role_position"], reverse=True)
 
     # Erzeugen der Zeilen für die Tabellenansicht
     rows_html = ""
@@ -187,7 +198,6 @@ async def dashboard(request: Request):
 
             <!-- Aktionen / Details -->
             <div class="w-1/3 flex items-center justify-end gap-2">
-                <!-- Schnellaktionen & Notizen Formular -->
                 <form action="/action" method="post" class="flex items-center gap-1">
                     <input type="hidden" name="user_id" value="{m['id']}">
                     
