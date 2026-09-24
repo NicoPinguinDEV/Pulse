@@ -58,6 +58,13 @@ def save_config(config):
         json.dump(config, f, indent=4, ensure_ascii=False)
 
 
+def get_sorted_team_roles(guild, config_role_ids):
+    """Sortiert die eingetragenen Team-Rollen automatisch nach ihrer echten Discord-Position (von unten nach oben)."""
+    roles = [guild.get_role(rid) for rid in config_role_ids if guild.get_role(rid)]
+    roles.sort(key=lambda r: r.position)
+    return roles
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home():
     return f"""
@@ -111,7 +118,7 @@ async def callback(code: str):
 
 
 # =============================================================
-# TEAMLICHT-ÜBERSICHT (HAUPTSEITE)
+# TEAMLISTE-ÜBERSICHT (HAUPTSEITE)
 # =============================================================
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
@@ -125,46 +132,34 @@ async def dashboard(request: Request):
 
     config = load_config()
     team_role_ids = config.get("team_role_ids", [])
+    sorted_team_roles = get_sorted_team_roles(guild, team_role_ids)
 
     team_members = []
     for member in guild.members:
-        member_role_ids = [r.id for r in member.roles]
+        # Filter alle Team-Rollen, die dieses Mitglied besitzt
+        member_team_roles = [r for r in member.roles if r.id in team_role_ids]
 
-        if any(rid in member_role_ids for rid in team_role_ids):
-            highest_team_role = None
-            for rid in reversed(team_role_ids):
-                if rid in member_role_ids:
-                    highest_team_role = guild.get_role(rid)
-                    break
-
-            role_position = (
-                highest_team_role.position
-                if highest_team_role
-                else member.top_role.position
-            )
+        if member_team_roles:
+            # Höchste Team-Rolle nach Discord-Hierarchie ermitteln
+            highest_role = max(member_team_roles, key=lambda r: r.position)
 
             team_members.append({
                 "id": member.id,
                 "name": member.display_name,
                 "username": member.name,
                 "avatar": member.display_avatar.url,
-                "top_role": (
-                    highest_team_role.name
-                    if highest_team_role
-                    else member.top_role.name
-                ),
+                "top_role": highest_role.name,
                 "top_role_color": (
-                    f"#{highest_team_role.color.value:06x}"
-                    if highest_team_role and highest_team_role.color.value
+                    f"#{highest_role.color.value:06x}"
+                    if highest_role.color.value
                     else "#6366f1"
                 ),
-                "role_position": role_position,
+                "role_position": highest_role.position,
             })
 
-    # Höchster Discord-Rang zuerst
+    # Automatisch nach höchster Discord-Rolle sortieren
     team_members.sort(key=lambda m: m["role_position"], reverse=True)
 
-    # Erzeugen der Zeilen (Nur Auge-Icon als Aktion)
     rows_html = ""
     for m in team_members:
         rows_html += f"""
@@ -188,7 +183,7 @@ async def dashboard(request: Request):
                 </span>
             </div>
 
-            <!-- Aktion: Nur Auge-Icon zur Detail-Seite -->
+            <!-- Aktion: Auge-Icon zur Detail-Seite -->
             <div class="w-1/3 flex items-center justify-end">
                 <a href="/member/{m['id']}" title="Profil ansehen" class="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition">
                     👁️
@@ -197,22 +192,19 @@ async def dashboard(request: Request):
         </div>
         """
 
-    # Rollen-Verwaltung Dropdown
     server_roles_options = ""
     for role in guild.roles:
         if not role.is_default() and role.id not in team_role_ids:
             server_roles_options += f'<option value="{role.id}">{role.name}</option>'
 
     roles_badge_html = ""
-    for idx, rid in enumerate(team_role_ids, 1):
-        role_obj = guild.get_role(rid)
-        r_name = role_obj.name if role_obj else f"ID: {rid}"
+    for idx, role_obj in enumerate(reversed(sorted_team_roles), 1):
         roles_badge_html += f"""
         <div class="flex items-center justify-between bg-[#0b0e14] border border-slate-800 px-3 py-1.5 rounded-lg text-xs">
-            <span class="text-slate-300"><strong class="text-indigo-400">Rang {idx}:</strong> {r_name}</span>
+            <span class="text-slate-300"><strong class="text-indigo-400">Rang {idx}:</strong> {role_obj.name}</span>
             <form action="/action" method="post" class="inline">
                 <input type="hidden" name="action" value="remove_role">
-                <input type="hidden" name="role_id" value="{rid}">
+                <input type="hidden" name="role_id" value="{role_obj.id}">
                 <button class="text-rose-400 hover:text-rose-300 ml-2 font-bold">✕</button>
             </form>
         </div>
@@ -318,7 +310,7 @@ async def dashboard(request: Request):
 
 
 # =============================================================
-# DETAILSEITE FÜR EIN MITGLIED (KLICK AUF DAS AUGE 👁️)
+# DETAILSEITE FÜR EIN MITGLIED
 # =============================================================
 @app.get("/member/{user_id}", response_class=HTMLResponse)
 async def member_detail(request: Request, user_id: int):
@@ -350,19 +342,17 @@ async def member_detail(request: Request, user_id: int):
         },
     )
 
-    member_role_ids = [r.id for r in member.roles]
-    highest_team_role = None
-    for rid in reversed(team_role_ids):
-        if rid in member_role_ids:
-            highest_team_role = guild.get_role(rid)
-            break
+    # Höchste Team-Rolle des Nutzers nach Discord-Position ermitteln
+    member_team_roles = [r for r in member.roles if r.id in team_role_ids]
+    if member_team_roles:
+        highest_role = max(member_team_roles, key=lambda r: r.position)
+    else:
+        highest_role = member.top_role
 
-    top_role_name = (
-        highest_team_role.name if highest_team_role else member.top_role.name
-    )
+    top_role_name = highest_role.name
     top_role_color = (
-        f"#{highest_team_role.color.value:06x}"
-        if highest_team_role and highest_team_role.color.value
+        f"#{highest_role.color.value:06x}"
+        if highest_role.color.value
         else "#6366f1"
     )
 
@@ -388,7 +378,6 @@ async def member_detail(request: Request, user_id: int):
     </head>
     <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
 
-        <!-- Sidebar -->
         <aside class="w-64 bg-[#141824] border-r border-slate-800/80 flex flex-col justify-between p-4 min-h-screen shrink-0">
             <div class="space-y-6">
                 <div class="flex items-center gap-3 px-2">
@@ -429,9 +418,7 @@ async def member_detail(request: Request, user_id: int):
             </div>
         </aside>
 
-        <!-- Hauptbereich -->
         <main class="flex-1 p-8 overflow-y-auto">
-            <!-- Header mit Zurück-Pfeil & User-Kopfdaten -->
             <div class="flex items-center gap-4 mb-8">
                 <a href="/dashboard" class="bg-[#141824] border border-slate-800 hover:bg-slate-800 text-slate-300 p-2.5 rounded-xl transition flex items-center justify-center">
                     ←
@@ -443,18 +430,13 @@ async def member_detail(request: Request, user_id: int):
                 </div>
             </div>
 
-            <!-- Content Grid (Links Statistiken / Rechts Info-Karte) -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
-                <!-- Linke Spalte (2/3 Breite) -->
                 <div class="lg:col-span-2 space-y-6">
-                    
-                    <!-- Zeitspanne Anzeige -->
                     <div class="bg-[#141824] border border-slate-800/80 rounded-xl px-4 py-2.5 text-xs text-slate-400 flex justify-between items-center font-mono">
                         <span>📅 Zeitspanne: {datetime.now().strftime('%d.%m.%Y')} - Aktiv</span>
                     </div>
 
-                    <!-- Case-Statistiken (Wie im Screenshot) -->
                     <div class="grid grid-cols-3 gap-4">
                         <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-5 flex items-center justify-between shadow-md">
                             <div>
@@ -479,7 +461,6 @@ async def member_detail(request: Request, user_id: int):
                         </div>
                     </div>
 
-                    <!-- Team-Verwaltung & Notizen -->
                     <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-6 space-y-4 shadow-md">
                         <h3 class="text-sm font-bold text-white">Team-Aktionen</h3>
                         <form action="/action" method="post" class="flex flex-wrap gap-2">
@@ -509,14 +490,11 @@ async def member_detail(request: Request, user_id: int):
 
                 </div>
 
-                <!-- Rechte Spalte (1/3 Breite) - Infokarte wie auf dem Bild -->
                 <div class="space-y-4">
-                    <!-- Riesiger Rollen-Schriftzug oben rechts -->
                     <div class="text-right text-2xl font-extrabold uppercase tracking-widest opacity-90" style="color: {top_role_color};">
                         » BORP ✕ {top_role_name}
                     </div>
 
-                    <!-- Information-Box -->
                     <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-6 space-y-4 shadow-md">
                         <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
                             <h3 class="text-sm font-bold text-white">Information</h3>
@@ -610,6 +588,7 @@ async def handle_action(
 
         config = load_config()
         team_role_ids = config.get("team_role_ids", [])
+        sorted_team_roles = get_sorted_team_roles(guild, team_role_ids)
 
         if action == "add_note" and note_text:
             team_db[user_key]["notes"].append(note_text)
@@ -633,39 +612,35 @@ async def handle_action(
                 print(f"Fehler beim Kicken: {e}")
 
         elif action == "promote" and member:
-            member_role_ids = [r.id for r in member.roles]
-            current_idx = -1
-            for idx, rid in enumerate(team_role_ids):
-                if rid in member_role_ids:
-                    current_idx = idx
+            # Höchste aktuelle Team-Rolle finden
+            member_team_roles = [r for r in member.roles if r.id in team_role_ids]
+            if member_team_roles:
+                current_highest = max(member_team_roles, key=lambda r: r.position)
+                current_idx = sorted_team_roles.index(current_highest)
+            else:
+                current_idx = -1
 
-            if current_idx + 1 < len(team_role_ids):
-                next_role_id = team_role_ids[current_idx + 1]
-                next_role = guild.get_role(next_role_id)
-                if next_role:
-                    if current_idx >= 0:
-                        old_role = guild.get_role(team_role_ids[current_idx])
-                        if old_role:
-                            await member.remove_roles(old_role)
-                    await member.add_roles(next_role)
+            if current_idx + 1 < len(sorted_team_roles):
+                next_role = sorted_team_roles[current_idx + 1]
+                if current_idx >= 0:
+                    old_role = sorted_team_roles[current_idx]
+                    await member.remove_roles(old_role)
+                await member.add_roles(next_role)
 
         elif action == "demote" and member:
-            member_role_ids = [r.id for r in member.roles]
-            current_idx = -1
-            for idx, rid in enumerate(team_role_ids):
-                if rid in member_role_ids:
-                    current_idx = idx
+            member_team_roles = [r for r in member.roles if r.id in team_role_ids]
+            if member_team_roles:
+                current_highest = max(member_team_roles, key=lambda r: r.position)
+                current_idx = sorted_team_roles.index(current_highest)
+            else:
+                current_idx = -1
 
             if current_idx > 0:
-                prev_role_id = team_role_ids[current_idx - 1]
-                prev_role = guild.get_role(prev_role_id)
-                old_role = guild.get_role(team_role_ids[current_idx])
+                prev_role = sorted_team_roles[current_idx - 1]
+                old_role = sorted_team_roles[current_idx]
+                await member.remove_roles(old_role)
+                await member.add_roles(prev_role)
 
-                if prev_role and old_role:
-                    await member.remove_roles(old_role)
-                    await member.add_roles(prev_role)
-
-    # Nach Aktion wieder auf Mitgliedsseite oder Dashboard leiten
     if redirect_to_member and user_id:
         return RedirectResponse(url=f"/member/{user_id}", status_code=303)
 
