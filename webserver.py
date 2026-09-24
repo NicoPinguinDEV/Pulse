@@ -8,7 +8,7 @@ load_dotenv()
 
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-REDIRECT_URI = "http://localhost:8000/callback"
+REDIRECT_URI = "http://fi4.bot-hosting.cloud:25095/callback"
 
 app = FastAPI()
 
