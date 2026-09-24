@@ -1,7 +1,7 @@
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -18,6 +18,8 @@ GUILD_ID = 1474514929351524616  # DEINE DISCORD SERVER-ID
 DATA_FILE = "team_data.json"
 CONFIG_FILE = "config.json"
 APPS_FILE = "applications.json"
+SHIFTS_FILE = "shifts.json"
+LOGS_FILE = "logs.json"
 
 app = FastAPI()
 
@@ -28,7 +30,7 @@ DISCORD_AUTH_URL = (
 
 
 # =============================================================
-# HELFER-FUNKTIONEN DATERBANK
+# HELFER-FUNKTIONEN
 # =============================================================
 def load_json(filepath, default):
     if os.path.exists(filepath):
@@ -66,19 +68,19 @@ def has_permission(member, guild, perm_key):
     return False
 
 
-def get_sidebar_html(guild_name, current_page="team"):
+def get_sidebar_html(guild_name, current_page="dashboard"):
     return f"""
     <aside class="w-64 bg-[#141824] border-r border-slate-800/80 flex flex-col justify-between p-4 min-h-screen shrink-0">
         <div class="space-y-6">
             <div class="flex items-center gap-3 px-2">
-                <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg">T</div>
+                <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg">B</div>
                 <div>
-                    <h2 class="font-bold text-white leading-none">Teams</h2>
-                    <span class="text-[10px] text-slate-500 font-mono">v2.0.0</span>
+                    <h2 class="font-bold text-white leading-none">Bochum RP</h2>
+                    <span class="text-[10px] text-slate-500 font-mono">v2.1.0 Panel</span>
                 </div>
             </div>
 
-            <div class="bg-[#0b0e14] border border-slate-800 rounded-xl p-2.5 flex items-center justify-between cursor-pointer">
+            <div class="bg-[#0b0e14] border border-slate-800 rounded-xl p-2.5 flex items-center justify-between">
                 <div class="flex items-center gap-2 truncate">
                     <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
                     <span class="text-xs font-semibold text-slate-200 truncate">{guild_name}</span>
@@ -87,8 +89,11 @@ def get_sidebar_html(guild_name, current_page="team"):
             </div>
 
             <nav class="space-y-1 text-xs">
-                <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 mb-2">Übersicht</div>
-                <a href="/dashboard" class="flex items-center gap-2.5 px-3 py-2 rounded-lg {'bg-indigo-600/10 text-indigo-400 font-semibold border border-indigo-500/20' if current_page == 'team' else 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'} transition">
+                <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 mb-2">Hauptmenü</div>
+                <a href="/dashboard" class="flex items-center gap-2.5 px-3 py-2 rounded-lg {'bg-indigo-600/10 text-indigo-400 font-semibold border border-indigo-500/20' if current_page == 'dashboard' else 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'} transition">
+                    ⚡ <span>Moderatoren-Panel</span>
+                </a>
+                <a href="/team" class="flex items-center gap-2.5 px-3 py-2 rounded-lg {'bg-indigo-600/10 text-indigo-400 font-semibold border border-indigo-500/20' if current_page == 'team' else 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'} transition">
                     👥 <span>Teamliste</span>
                 </a>
                 <a href="/loa" class="flex items-center gap-2.5 px-3 py-2 rounded-lg {'bg-indigo-600/10 text-indigo-400 font-semibold border border-indigo-500/20' if current_page == 'loa' else 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'} transition">
@@ -125,16 +130,16 @@ async def home():
     <!DOCTYPE html>
     <html lang="de">
     <head>
-        <meta charset="UTF-8"><title>Teams Login</title>
+        <meta charset="UTF-8"><title>Bochum RP Panel Login</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-[#0b0e14] text-white min-h-screen flex items-center justify-center p-4 font-sans">
         <div class="bg-[#141824] p-8 rounded-2xl shadow-2xl w-full max-w-md text-center border border-slate-800">
             <div class="flex justify-center items-center gap-2 mb-6">
                 <span class="text-3xl">🛡️</span>
-                <h1 class="text-2xl font-bold text-white tracking-wide">Teams Dashboard</h1>
+                <h1 class="text-2xl font-bold text-white tracking-wide">Bochum RP Panel</h1>
             </div>
-            <p class="text-slate-400 text-sm mb-6">Bitte melde dich an, um auf das Team-Dashboard zuzugreifen.</p>
+            <p class="text-slate-400 text-sm mb-6">Bitte melde dich mit Discord an, um auf das Moderatoren-Panel zuzugreifen.</p>
             <a href="{DISCORD_AUTH_URL}" class="inline-flex items-center justify-center gap-3 w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg">
                 Mit Discord anmelden
             </a>
@@ -175,10 +180,185 @@ async def callback(code: str):
 
 
 # =============================================================
-# ROUTE: DASHBOARD / TEAMLISTE
+# ROUTE 1: HAUPT-DASHBOARD (MELONLY MODERATION & SCHICHTEN)
 # =============================================================
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
+async def dashboard_main(request: Request):
+    bot = getattr(request.app.state, "bot", None)
+    guild = bot.get_guild(GUILD_ID) if bot else None
+    guild_name = guild.name if guild else "Bochum RP"
+
+    shifts_db = load_json(SHIFTS_FILE, {"active_shifts": {}, "history": []})
+    logs_db = load_json(LOGS_FILE, [])
+
+    active_shifts = shifts_db.get("active_shifts", {})
+    active_staff_count = len(
+        [
+            s
+            for s in active_shifts.values()
+            if s.get("status") in ["online", "break"]
+        ]
+    )
+
+    # Strafen / Logs Liste generieren (rechts)
+    logs_html = ""
+    for log in reversed(logs_db[-20:]):
+        type_colors = {
+            "Ban": "bg-rose-500/10 text-rose-400 border-rose-500/30",
+            "Kick": "bg-amber-500/10 text-amber-400 border-amber-500/30",
+            "Warn": "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
+            "Notiz": "bg-indigo-500/10 text-indigo-400 border-indigo-500/30",
+        }
+        badge_style = type_colors.get(
+            log.get("type"), "bg-slate-800 text-slate-300"
+        )
+
+        logs_html += f"""
+        <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-4 space-y-2 shadow-sm">
+            <div class="flex items-center justify-between border-b border-slate-800/60 pb-2">
+                <div class="flex items-center gap-2">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border {badge_style}">
+                        {log.get('type', 'Log')}
+                    </span>
+                    <span class="text-xs font-semibold text-white">{log.get('target_user')}</span>
+                </div>
+                <span class="text-[10px] text-slate-500 font-mono">{log.get('created_at')}</span>
+            </div>
+            
+            <div class="text-xs text-slate-300 space-y-1">
+                <div><span class="text-slate-500">Roblox ID:</span> <span class="font-mono text-slate-200">{log.get('roblox_id', 'N/A')}</span></div>
+                <div><span class="text-slate-500">Grund:</span> <span class="text-slate-200">{log.get('reason')}</span></div>
+            </div>
+
+            <div class="text-[10px] text-slate-500 pt-1 border-t border-slate-800/40 flex justify-between">
+                <span>Moderator: {log.get('moderator')}</span>
+            </div>
+        </div>
+        """
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8"><title>Moderatoren-Panel - {guild_name}</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
+        {get_sidebar_html(guild_name, 'dashboard')}
+
+        <main class="flex-1 p-8 overflow-y-auto">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                
+                <!-- SPALTE 1: SCHICHT-STEUERUNG & TOOLBOX (LINKS) -->
+                <div class="lg:col-span-4 space-y-6">
+                    
+                    <!-- Schichten Status Card -->
+                    <div class="bg-[#141824] border border-slate-800 rounded-2xl p-6 shadow-lg space-y-5">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h2 class="text-lg font-bold text-white">Schicht-Steuerung</h2>
+                                <p class="text-xs text-slate-400">Erfasse deine Arbeitszeit live</p>
+                            </div>
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                {active_staff_count} im Dienst
+                            </span>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <form action="/shift/action" method="post" class="grid grid-cols-2 gap-3">
+                            <button name="shift_action" value="start" class="col-span-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-4 rounded-xl transition shadow-lg shadow-emerald-900/20">
+                                ▶️ Schicht Starten
+                            </button>
+                            <button name="shift_action" value="break" class="bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30 font-semibold py-2.5 px-3 rounded-xl transition">
+                                ⏸️ Pause
+                            </button>
+                            <button name="shift_action" value="end" class="bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 font-semibold py-2.5 px-3 rounded-xl transition">
+                                ⏹️ Schicht Beenden
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Schnell-Aktionen / Toolbox -->
+                    <div class="bg-[#141824] border border-slate-800 rounded-2xl p-6 shadow-lg space-y-3">
+                        <h3 class="text-sm font-bold text-white mb-2">Toolbox</h3>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <a href="/loa" class="bg-[#0b0e14] hover:bg-slate-800 border border-slate-800 p-3 rounded-xl text-center font-semibold text-slate-300">
+                                🌴 LOA verwalten
+                            </a>
+                            <a href="/applications" class="bg-[#0b0e14] hover:bg-slate-800 border border-slate-800 p-3 rounded-xl text-center font-semibold text-slate-300">
+                                📋 Bewerbungen
+                            </a>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- SPALTE 2: CREATE NEW LOG (MITTE) -->
+                <div class="lg:col-span-4 space-y-6">
+                    <div class="bg-[#141824] border border-slate-800 rounded-2xl p-6 shadow-lg space-y-4">
+                        <div>
+                            <h2 class="text-lg font-bold text-white">Neuen Log eintragen</h2>
+                            <p class="text-xs text-slate-400">Strafe oder Notiz für Roblox-Spieler festhalten</p>
+                        </div>
+
+                        <form action="/log/create" method="post" class="space-y-4 text-xs">
+                            <div>
+                                <label class="block text-slate-400 mb-1 font-semibold">Roblox Username *</label>
+                                <input type="text" name="target_user" placeholder="z. B. Dein_Portugiese92" required class="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500">
+                            </div>
+
+                            <div>
+                                <label class="block text-slate-400 mb-1 font-semibold">Roblox Player ID (Optional)</label>
+                                <input type="text" name="roblox_id" placeholder="z. B. 11357080791" class="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500">
+                            </div>
+
+                            <div>
+                                <label class="block text-slate-400 mb-1 font-semibold">Typ der Strafe *</label>
+                                <select name="log_type" required class="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500">
+                                    <option value="Warn">⚠️ Verwarnung (Warn)</option>
+                                    <option value="Kick">🚪 Kick</option>
+                                    <option value="Ban">🚫 Ban</option>
+                                    <option value="Notiz">📝 Notiz / Hinweis</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-slate-400 mb-1 font-semibold">Begründung *</label>
+                                <textarea name="reason" placeholder="z. B. BombenRP / Trolling am Würfelpark..." required class="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-3 text-white h-24 focus:outline-none focus:border-indigo-500"></textarea>
+                            </div>
+
+                            <button class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-indigo-900/20">
+                                Log Speichern
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- SPALTE 3: PUNISHMENT LOGS (RECHTS) -->
+                <div class="lg:col-span-4 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-lg font-bold text-white">Protokoll (Punishment Logs)</h2>
+                        <span class="text-xs text-slate-500 font-mono">{len(logs_db)} Gesamt</span>
+                    </div>
+
+                    <div class="space-y-3 max-h-[calc(100vh-160px)] overflow-y-auto pr-1">
+                        {logs_html or "<div class='text-xs text-slate-500 italic bg-[#141824] p-6 rounded-2xl border border-slate-800 text-center'>Noch keine Logs eingetragen.</div>"}
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </body>
+    </html>
+    """
+
+
+# =============================================================
+# ROUTE 2: TEAMLISTE (ÜBERSICHT)
+# =============================================================
+@app.get("/team", response_class=HTMLResponse)
+async def team_list_page(request: Request):
     bot = getattr(request.app.state, "bot", None)
     if not bot:
         return "<h3>Bot-Instanz noch nicht bereit!</h3>"
@@ -266,7 +446,7 @@ async def dashboard(request: Request):
     <!DOCTYPE html>
     <html lang="de">
     <head>
-        <meta charset="UTF-8"><title>Teams - {guild.name}</title>
+        <meta charset="UTF-8"><title>Teamliste - {guild.name}</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
@@ -378,7 +558,7 @@ async def member_detail(request: Request, user_id: int):
         {get_sidebar_html(guild.name, 'team')}
         <main class="flex-1 p-8 overflow-y-auto">
             <div class="flex items-center gap-4 mb-8">
-                <a href="/dashboard" class="bg-[#141824] border border-slate-800 hover:bg-slate-800 text-slate-300 p-2.5 rounded-xl transition">←</a>
+                <a href="/team" class="bg-[#141824] border border-slate-800 hover:bg-slate-800 text-slate-300 p-2.5 rounded-xl transition">←</a>
                 <img src="{member.display_avatar.url}" class="w-12 h-12 rounded-full border border-slate-700">
                 <div>
                     <h1 class="text-xl font-bold text-white leading-tight">{member.display_name}</h1>
@@ -754,6 +934,58 @@ async def applications_page(request: Request):
     </body>
     </html>
     """
+
+
+# =============================================================
+# ACTION: ERSTELLEN VON ROBLOX LOGS
+# =============================================================
+@app.post("/log/create")
+async def create_log(
+    target_user: str = Form(...),
+    roblox_id: str = Form("N/A"),
+    log_type: str = Form(...),
+    reason: str = Form(...),
+):
+    logs_db = load_json(LOGS_FILE, [])
+
+    new_entry = {
+        "id": f"log_{uuid.uuid4().hex[:6]}",
+        "target_user": target_user,
+        "roblox_id": roblox_id if roblox_id else "N/A",
+        "type": log_type,
+        "reason": reason,
+        "moderator": "Dr.-Nico",
+        "created_at": datetime.now().strftime("%d.%m.%Y %H:%M"),
+    }
+
+    logs_db.append(new_entry)
+    save_json(LOGS_FILE, logs_db)
+
+    return RedirectResponse(url="/dashboard", status_code=303)
+
+
+# =============================================================
+# ACTION: SCHICHT-SYSTEM STEUERUNG
+# =============================================================
+@app.post("/shift/action")
+async def handle_shift_action(shift_action: str = Form(...)):
+    shifts_db = load_json(SHIFTS_FILE, {"active_shifts": {}, "history": []})
+    mod_id = "moderator_nico"
+
+    if shift_action == "start":
+        shifts_db["active_shifts"][mod_id] = {
+            "status": "online",
+            "started_at": datetime.now().strftime("%H:%M:%S"),
+        }
+    elif shift_action == "break":
+        if mod_id in shifts_db["active_shifts"]:
+            shifts_db["active_shifts"][mod_id]["status"] = "break"
+    elif shift_action == "end":
+        if mod_id in shifts_db["active_shifts"]:
+            del shifts_db["active_shifts"][mod_id]
+
+    save_json(SHIFTS_FILE, shifts_db)
+    return RedirectResponse(url="/dashboard", status_code=303)
 
 
 # =============================================================
