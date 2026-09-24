@@ -1,10 +1,12 @@
+import csv
+import io
 import json
 import os
 import uuid
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request, Cookie, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse
 import httpx
 
 load_dotenv()
@@ -20,6 +22,10 @@ CONFIG_FILE = "config.json"
 APPS_FILE = "applications.json"
 SHIFTS_FILE = "shifts.json"
 LOGS_FILE = "logs.json"
+BACKUP_DIR = "backups"
+
+if not os.path.exists(BACKUP_DIR):
+    os.makedirs(BACKUP_DIR)
 
 app = FastAPI()
 
@@ -81,7 +87,7 @@ def get_sidebar_html(guild_name, current_page="dashboard"):
                 <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg">B</div>
                 <div>
                     <h2 class="font-bold text-white leading-none">Bochum RP</h2>
-                    <span class="text-[10px] text-slate-500 font-mono">v2.1.0 Panel</span>
+                    <span class="text-[10px] text-slate-500 font-mono">v2.2.0 Panel</span>
                 </div>
             </div>
 
@@ -109,6 +115,9 @@ def get_sidebar_html(guild_name, current_page="dashboard"):
                 </a>
                 
                 <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 mt-4 mb-2">Verwaltung</div>
+                <a href="/backups" class="flex items-center gap-2.5 px-3 py-2 rounded-lg {'bg-indigo-600/10 text-indigo-400 font-semibold border border-indigo-500/20' if current_page == 'backups' else 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'} transition">
+                    💾 <span>Server Backups</span>
+                </a>
                 <a href="/settings" class="flex items-center gap-2.5 px-3 py-2 rounded-lg {'bg-indigo-600/10 text-indigo-400 font-semibold border border-indigo-500/20' if current_page == 'settings' else 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'} transition">
                     ⚙️ <span>Rechte & Einstellungen</span>
                 </a>
@@ -191,7 +200,7 @@ async def callback(code: str):
 
 
 # =============================================================
-# ROUTE 1: HAUPT-DASHBOARD (MODERATION & SCHICHTEN)
+# ROUTE 1: HAUPT-DASHBOARD (MODERATION, LEADERBOARD & LOGS)
 # =============================================================
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_main(request: Request, session: str = Cookie(None)):
@@ -207,6 +216,34 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
     active_staff_count = len(
         [s for s in active_shifts.values() if s.get("status") in ["online", "break"]]
     )
+
+    config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
+    team_role_ids = config.get("team_role_ids", [])
+    
+    leaderboard_data = []
+    if guild:
+        for member in guild.members:
+            if any(r.id in team_role_ids for r in member.roles):
+                hrs = calculate_weekly_hours(str(member.id), shifts_db.get("history", []))
+                try:
+                    float_hrs = float(hrs.replace("h", ""))
+                except:
+                    float_hrs = 0.0
+                leaderboard_data.append({"name": member.display_name, "hours": hrs, "val": float_hrs})
+        leaderboard_data.sort(key=lambda x: x["val"], reverse=True)
+
+    leaderboard_html = ""
+    for idx, user in enumerate(leaderboard_data[:3], 1):
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        leaderboard_html += f"""
+        <div class="flex items-center justify-between bg-[#0b0e14] px-3 py-2 rounded-xl border border-slate-800 text-xs">
+            <div class="flex items-center gap-2">
+                <span class="font-bold">{medals.get(idx, '•')}</span>
+                <span class="text-slate-200 font-medium truncate max-w-[120px]">{user['name']}</span>
+            </div>
+            <span class="text-indigo-400 font-mono font-bold">{user['hours']}</span>
+        </div>
+        """
 
     logs_html = ""
     for log in reversed(logs_db[-20:]):
@@ -229,12 +266,10 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
                 </div>
                 <span class="text-[10px] text-slate-500 font-mono">{log.get('created_at')}</span>
             </div>
-            
             <div class="text-xs text-slate-300 space-y-1">
                 <div><span class="text-slate-500">Roblox ID:</span> <span class="font-mono text-slate-200">{log.get('roblox_id', 'N/A')}</span></div>
                 <div><span class="text-slate-500">Grund:</span> <span class="text-slate-200">{log.get('reason')}</span></div>
             </div>
-
             <div class="text-[10px] text-slate-500 pt-1 border-t border-slate-800/40 flex justify-between">
                 <span>Moderator: {log.get('moderator')}</span>
             </div>
@@ -281,14 +316,9 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
                     </div>
 
                     <div class="bg-[#141824] border border-slate-800 rounded-2xl p-6 shadow-lg space-y-3">
-                        <h3 class="text-sm font-bold text-white mb-2">Toolbox</h3>
-                        <div class="grid grid-cols-2 gap-2 text-xs">
-                            <a href="/loa" class="bg-[#0b0e14] hover:bg-slate-800 border border-slate-800 p-3 rounded-xl text-center font-semibold text-slate-300">
-                                🌴 LOA verwalten
-                            </a>
-                            <a href="/applications" class="bg-[#0b0e14] hover:bg-slate-800 border border-slate-800 p-3 rounded-xl text-center font-semibold text-slate-300">
-                                📋 Bewerbungen
-                            </a>
+                        <h3 class="text-sm font-bold text-white mb-2">🏆 Wochen-Aktivität (Top 3)</h3>
+                        <div class="space-y-2">
+                            {leaderboard_html or "<div class='text-xs text-slate-500 italic'>Noch keine Daten vorhanden.</div>"}
                         </div>
                     </div>
                 </div>
@@ -352,7 +382,7 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
 
 
 # =============================================================
-# ROUTE 2: TEAMLISTE (ÜBERSICHT MIT WOCHENSTUNDEN)
+# ROUTE 2: TEAMLISTE (MIT SUCHFILTER & WOCHENSTUNDEN)
 # =============================================================
 @app.get("/team", response_class=HTMLResponse)
 async def team_list_page(request: Request, session: str = Cookie(None)):
@@ -408,7 +438,7 @@ async def team_list_page(request: Request, session: str = Cookie(None)):
     rows_html = ""
     for m in team_members:
         rows_html += f"""
-        <div class="bg-[#141824] hover:bg-[#1a2030] transition border border-slate-800/80 rounded-xl px-5 py-3.5 flex items-center justify-between shadow-md">
+        <div class="team-row bg-[#141824] hover:bg-[#1a2030] transition border border-slate-800/80 rounded-xl px-5 py-3.5 flex items-center justify-between shadow-md" data-name="{m['name'].lower()}" data-username="{m['username'].lower()}" data-role="{m['top_role'].lower()}">
             <div class="flex items-center gap-3.5 w-1/3">
                 <img src="{m['avatar']}" class="w-10 h-10 rounded-full border border-slate-700">
                 <div class="truncate">
@@ -444,6 +474,22 @@ async def team_list_page(request: Request, session: str = Cookie(None)):
     <head>
         <meta charset="UTF-8"><title>Teamliste - {guild_name}</title>
         <script src="https://cdn.tailwindcss.com"></script>
+        <script>
+            function filterTeam() {{
+                let input = document.getElementById('searchInput').value.toLowerCase();
+                let rows = document.getElementsByClassName('team-row');
+                for (let row of rows) {{
+                    let name = row.getAttribute('data-name');
+                    let uname = row.getAttribute('data-username');
+                    let role = row.getAttribute('data-role');
+                    if (name.includes(input) || uname.includes(input) || role.includes(input)) {{
+                        row.style.display = "";
+                    }} else {{
+                        row.style.display = "none";
+                    }}
+                }}
+            }}
+        </script>
     </head>
     <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
         {get_sidebar_html(guild_name, 'team')}
@@ -455,15 +501,152 @@ async def team_list_page(request: Request, session: str = Cookie(None)):
                     </div>
                     <h1 class="text-2xl font-bold text-white">Teamliste & Aktivität</h1>
                 </div>
+                <div>
+                    <input type="text" id="searchInput" onkeyup="filterTeam()" placeholder="Teammitglied suchen..." class="bg-[#141824] border border-slate-700 text-xs text-white rounded-xl px-4 py-2.5 w-64 focus:outline-none focus:border-indigo-500">
+                </div>
             </div>
 
-            <div class="space-y-2.5">
+            <div class="space-y-2.5" id="teamContainer">
                 {rows_html or "<div class='text-center py-12 text-slate-500 text-sm bg-[#141824] border border-slate-800 rounded-2xl'>Keine Teammitglieder gefunden.</div>"}
             </div>
         </main>
     </body>
     </html>
     """
+
+
+# =============================================================
+# ROUTE: DISCORD BACKUP SYSTEM
+# =============================================================
+@app.get("/backups", response_class=HTMLResponse)
+async def backups_page(request: Request, session: str = Cookie(None)):
+    await verify_session(session)
+    bot = getattr(request.app.state, "bot", None)
+    guild = bot.get_guild(GUILD_ID) if bot else None
+    guild_name = guild.name if guild else "Bochum RP"
+
+    backup_files = []
+    if os.path.exists(BACKUP_DIR):
+        backup_files = sorted([f for f in os.listdir(BACKUP_DIR) if f.endswith(".json")], reverse=True)
+
+    backups_html = ""
+    for filename in backup_files:
+        filepath = os.path.join(BACKUP_DIR, filename)
+        file_size = round(os.path.getsize(filepath) / 1024, 1)
+        backups_html += f"""
+        <div class="bg-[#141824] border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+            <div>
+                <div class="font-bold text-white text-sm font-mono">{filename}</div>
+                <div class="text-xs text-slate-400 mt-0.5">Größe: {file_size} KB</div>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="/backup/download/{filename}" class="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-1.5 rounded-lg text-slate-300">📥 Herunterladen</a>
+                <form action="/backup/delete" method="post" onsubmit="return confirm('Backup wirklich löschen?');">
+                    <input type="hidden" name="filename" value="{filename}">
+                    <button class="bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 text-xs px-3 py-1.5 rounded-lg">🗑️ Löschen</button>
+                </form>
+            </div>
+        </div>
+        """
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8"><title>Server Backups - {guild_name}</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
+        {get_sidebar_html(guild_name, 'backups')}
+        <main class="flex-1 p-8 overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h1 class="text-2xl font-bold text-white">Discord Server Backups</h1>
+                    <p class="text-xs text-slate-400">Erstelle Sicherheitskopien von Kanälen, Rollen und Einstellungen.</p>
+                </div>
+                <form action="/backup/create" method="post">
+                    <button class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-3 px-5 rounded-xl transition shadow-lg shadow-indigo-900/20">
+                        💾 Neues Backup erstellen
+                    </button>
+                </form>
+            </div>
+
+            <div class="space-y-3 max-w-3xl">
+                {backups_html or "<div class='text-xs text-slate-500 italic bg-[#141824] p-6 rounded-xl border border-slate-800 text-center'>Noch keine Backups vorhanden. Erstelle jetzt dein erstes Backup!</div>"}
+            </div>
+        </main>
+    </body>
+    </html>
+    """
+
+
+@app.post("/backup/create")
+async def create_backup(session: str = Cookie(None)):
+    await verify_session(session)
+    bot = getattr(app.state, "bot", None)
+    if not bot:
+        return RedirectResponse(url="/backups", status_code=303)
+    
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        return RedirectResponse(url="/backups", status_code=303)
+
+    backup_data = {
+        "guild_name": guild.name,
+        "guild_id": guild.id,
+        "created_at": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+        "roles": [],
+        "categories": [],
+        "channels": []
+    }
+
+    for role in guild.roles:
+        if role.is_default():
+            continue
+        backup_data["roles"].append({
+            "name": role.name,
+            "color": role.color.value,
+            "permissions": role.permissions.value,
+            "hoist": role.hoist,
+            "position": role.position
+        })
+
+    for category in guild.categories:
+        cat_channels = []
+        for ch in category.channels:
+            cat_channels.append({
+                "name": ch.name,
+                "type": str(ch.type),
+                "topic": getattr(ch, "topic", None)
+            })
+        backup_data["categories"].append({
+            "name": category.name,
+            "channels": cat_channels
+        })
+
+    filename = f"backup_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.json"
+    filepath = os.path.join(BACKUP_DIR, filename)
+    save_json(filepath, backup_data)
+
+    return RedirectResponse(url="/backups", status_code=303)
+
+
+@app.get("/backup/download/{filename}")
+async def download_backup(filename: str, session: str = Cookie(None)):
+    await verify_session(session)
+    filepath = os.path.join(BACKUP_DIR, filename)
+    if os.path.exists(filepath):
+        return FileResponse(filepath, media_type='application/json', filename=filename)
+    raise HTTPException(status_code=404, detail="Backup nicht gefunden.")
+
+
+@app.post("/backup/delete")
+async def delete_backup(filename: str = Form(...), session: str = Cookie(None)):
+    await verify_session(session)
+    filepath = os.path.join(BACKUP_DIR, filename)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+    return RedirectResponse(url="/backups", status_code=303)
 
 
 # =============================================================
@@ -945,7 +1128,6 @@ async def handle_shift_action(shift_action: str = Form(...), session: str = Cook
     await verify_session(session)
     shifts_db = load_json(SHIFTS_FILE, {"active_shifts": {}, "history": []})
     
-    # Platzhalter für die Moderator-ID (kann über Cookie/Session angepasst werden)
     mod_id = "moderator_nico"
     now_ts = datetime.now()
 
@@ -962,16 +1144,19 @@ async def handle_shift_action(shift_action: str = Form(...), session: str = Cook
     elif shift_action == "end":
         if mod_id in shifts_db["active_shifts"]:
             shift_data = shifts_db["active_shifts"][mod_id]
-            start_iso = shift_data.get("started_at_iso")
+            start_iso = shift_data.get("started_id_iso") or shift_data.get("started_at_iso")
             if start_iso:
-                start_dt = datetime.fromisoformat(start_iso)
-                duration = int((now_ts - start_dt).total_seconds())
-                
-                shifts_db["history"].append({
-                    "mod_id": mod_id,
-                    "date": shift_data.get("date"),
-                    "duration_seconds": duration
-                })
+                try:
+                    start_dt = datetime.fromisoformat(start_iso)
+                    duration = int((now_ts - start_dt).total_seconds())
+                    
+                    shifts_db["history"].append({
+                        "mod_id": mod_id,
+                        "date": shift_data.get("date"),
+                        "duration_seconds": duration
+                    })
+                except Exception:
+                    pass
             del shifts_db["active_shifts"][mod_id]
 
     save_json(SHIFTS_FILE, shifts_db)
@@ -1015,15 +1200,12 @@ async def handle_action(
     config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
     apps = load_json(APPS_FILE, {})
 
-    # 1. Moderations-Aktionen auf Member-Profil (Befördern, Degradieren, Kicken)
     if action in ["promote", "demote", "kick"] and user_id and guild:
         member = guild.get_member(user_id)
         if member:
             if action == "kick":
                 await member.kick(reason="Vom Dashboard aus gekickt.")
-            # Platzhalter für Rollen-Hierarchie-Logik bei Promote/Demote
 
-    # 2. Verwarnung mit Beweis-Link
     elif action == "warn_with_proof" and user_id:
         user_key = str(user_id)
         if user_key not in team_db:
@@ -1040,7 +1222,6 @@ async def handle_action(
         })
         save_json(DATA_FILE, team_db)
 
-    # 3. Notiz hinzufügen
     elif action == "add_note" and user_id and note_text:
         user_key = str(user_id)
         if user_key not in team_db:
@@ -1048,7 +1229,6 @@ async def handle_action(
         team_db[user_key]["notes"].append(note_text)
         save_json(DATA_FILE, team_db)
 
-    # 4. Abmeldung (LOA) eintragen / beenden
     elif action == "submit_loa" and user_id:
         user_key = str(user_id)
         if user_key not in team_db:
@@ -1068,7 +1248,6 @@ async def handle_action(
             save_json(DATA_FILE, team_db)
         return RedirectResponse(url="/loa", status_code=303)
 
-    # 5. Öffentliche Bewerbung einreichen
     elif action == "submit_application" and applicant_id:
         new_id = f"app_{uuid.uuid4().hex[:8]}"
         apps[new_id] = {
@@ -1084,7 +1263,6 @@ async def handle_action(
             "<body style='background:#0b0e14;color:white;font-family:sans-serif;text-align:center;padding-top:50px;'><h2>Deine Bewerbung wurde erfolgreich abgesendet!</h2><a href='/apply' style='color:#6366f1;'>Zurück</a></body>"
         )
 
-    # 6. Bewerbung abstimmen / entscheiden
     elif action == "decide_app" and app_id and decision and guild:
         if app_id in apps:
             apps[app_id]["status"] = decision
@@ -1099,10 +1277,9 @@ async def handle_action(
                         await target_member.add_roles(first_role)
         return RedirectResponse(url="/applications", status_code=303)
 
-    # 7. Voting für Bewerbungen
     elif action == "vote_app" and app_id and vote:
         if app_id in apps:
-            voter_id = "admin_user" # Platzhalter für User-ID
+            voter_id = "admin_user"
             if vote == "up":
                 if voter_id not in apps[app_id]["upvotes"]:
                     apps[app_id]["upvotes"].append(voter_id)
@@ -1116,7 +1293,6 @@ async def handle_action(
             save_json(APPS_FILE, apps)
         return RedirectResponse(url="/applications", status_code=303)
 
-    # 8. Rechte pro Rolle speichern
     elif action == "save_role_permissions" and role_id:
         if "permissions" not in config:
             config["permissions"] = {}
