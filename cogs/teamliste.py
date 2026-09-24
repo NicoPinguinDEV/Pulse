@@ -132,6 +132,20 @@ class TeamlisteCog(commands.Cog):
     def cog_unload(self):
         self.update_list_loop.cancel()
 
+    # Prüft in abmeldungen.db, ob der User derzeit abgemeldet ist
+    def get_abmeldung_info(self, user_id: int) -> str | None:
+        try:
+            conn = sqlite3.connect("abmeldungen.db")
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT bis FROM abmeldungen WHERE user_id = ?", (user_id,)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return row[0] if row else None
+        except sqlite3.Error:
+            return None
+
     # Formatiert den Online-Status mit Status-Punkten
     def format_status(self, status: discord.Status) -> str:
         if status == discord.Status.online:
@@ -164,7 +178,11 @@ class TeamlisteCog(commands.Cog):
 
                 if role.members:
                     for member in role.members:
-                        status_text = self.format_status(member.status)
+                        bis_datum = self.get_abmeldung_info(member.id)
+                        if bis_datum:
+                            status_text = f"🌴 Abgemeldet (bis {bis_datum})"
+                        else:
+                            status_text = self.format_status(member.status)
                         lines.append(f"• {member.mention}:  {status_text}")
                 else:
                     lines.append(
@@ -225,7 +243,9 @@ class TeamlisteCog(commands.Cog):
                         await asyncio.sleep(5)
                     elif e.code == 30046:
                         try:
-                            await channel.purge(limit=1, check=lambda m: m.id == msg_id)
+                            await channel.purge(
+                                limit=1, check=lambda m: m.id == msg_id
+                            )
                         except discord.HTTPException:
                             pass
                         new_msg = await channel.send(embed=embed)
@@ -256,10 +276,11 @@ class TeamlisteCog(commands.Cog):
     async def on_member_update(
         self, before: discord.Member, after: discord.Member
     ):
-        # Nur bei Rollen- oder Namensänderungen aktualisieren
+        # Nur bei Rollen-, Namens- oder Statusänderungen aktualisieren
         if (
             before.roles != after.roles
             or before.display_name != after.display_name
+            or before.status != after.status
         ):
             await self.update_teamlist(after.guild)
 
