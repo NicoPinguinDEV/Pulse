@@ -27,7 +27,6 @@ DISCORD_AUTH_URL = (
 )
 
 
-# Helper: Notizen & Verwarnungen
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
@@ -43,7 +42,6 @@ def save_data(data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 
-# Helper: Dynamische Server-Konfiguration (Team-Rollen)
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -65,14 +63,17 @@ async def home():
     <!DOCTYPE html>
     <html lang="de">
     <head>
-        <meta charset="UTF-8"><title>Team Dashboard - Login</title>
+        <meta charset="UTF-8"><title>Teams Login</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
-    <body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-4 font-sans">
-        <div class="bg-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-md text-center border border-slate-700">
-            <h1 class="text-2xl font-bold mb-2">Team-Verwaltung</h1>
-            <p class="text-slate-400 text-sm mb-6">Logge dich ein, um das Team-Dashboard aufzurufen.</p>
-            <a href="{DISCORD_AUTH_URL}" class="inline-flex items-center justify-center gap-3 w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 px-4 rounded-xl transition shadow-md">
+    <body class="bg-[#0b0e14] text-white min-h-screen flex items-center justify-center p-4 font-sans">
+        <div class="bg-[#141824] p-8 rounded-2xl shadow-2xl w-full max-w-md text-center border border-slate-800">
+            <div class="flex justify-center items-center gap-2 mb-6">
+                <span class="text-3xl">🛡️</span>
+                <h1 class="text-2xl font-bold text-white tracking-wide">Teams Dashboard</h1>
+            </div>
+            <p class="text-slate-400 text-sm mb-6">Bitte melde dich an, um auf die Teamliste zuzugreifen.</p>
+            <a href="{DISCORD_AUTH_URL}" class="inline-flex items-center justify-center gap-3 w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg">
                 Mit Discord anmelden
             </a>
         </div>
@@ -120,11 +121,9 @@ async def dashboard(request: Request):
 
     config = load_config()
     team_role_ids = config.get("team_role_ids", [])
-
     team_db = load_data()
-    team_members = []
 
-    # Teammitglieder ermitteln
+    team_members = []
     for member in guild.members:
         member_role_ids = [r.id for r in member.roles]
 
@@ -141,107 +140,106 @@ async def dashboard(request: Request):
             team_members.append({
                 "id": member.id,
                 "name": member.display_name,
+                "username": member.name,
                 "avatar": member.display_avatar.url,
                 "top_role": (
                     highest_team_role.name
                     if highest_team_role
                     else member.top_role.name
                 ),
+                "top_role_color": (
+                    f"#{highest_team_role.color.value:06x}"
+                    if highest_team_role and highest_team_role.color.value
+                    else "#6366f1"
+                ),
                 "warns": user_info.get("warns", 0),
                 "notes": user_info.get("notes", []),
             })
 
-    # UI-Karten für Mitglieder
-    cards_html = ""
+    # Erzeugen der Zeilen für die Tabellenansicht
+    rows_html = ""
     for m in team_members:
-        notes_list = "".join([
-            f"<li class='text-xs text-slate-300 bg-slate-900/40 p-1.5 rounded border border-slate-700/40'>• {n}</li>"
+        notes_html = "".join([
+            f"<div class='text-[11px] bg-[#0b0e14] px-2 py-0.5 rounded border border-slate-800 text-slate-300'>• {n}</div>"
             for n in m["notes"]
         ])
 
-        cards_html += f"""
-        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 flex flex-col justify-between shadow-xl">
-            <div>
-                <div class="flex items-center gap-4 mb-4">
-                    <img src="{m['avatar']}" class="w-14 h-14 rounded-full border-2 border-indigo-500 shadow-md">
-                    <div>
-                        <h3 class="font-bold text-lg text-white">{m['name']}</h3>
-                        <span class="text-xs bg-indigo-500/20 text-indigo-400 px-2.5 py-1 rounded-full font-semibold">{m['top_role']}</span>
+        rows_html += f"""
+        <div class="bg-[#141824] hover:bg-[#1a2030] transition border border-slate-800/80 rounded-xl px-5 py-3.5 flex items-center justify-between shadow-md group">
+            <!-- Nutzer Info -->
+            <div class="flex items-center gap-3.5 w-1/3">
+                <img src="{m['avatar']}" class="w-10 h-10 rounded-full border border-slate-700">
+                <div class="truncate">
+                    <div class="font-semibold text-sm text-white flex items-center gap-1.5">
+                        {m['name']}
                     </div>
-                </div>
-
-                <div class="bg-slate-900/60 p-3.5 rounded-xl mb-4 text-sm space-y-2 border border-slate-700/50">
-                    <div class="flex justify-between items-center">
-                        <span class="text-slate-400 text-xs">Verwarnungen:</span>
-                        <span class="font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded text-xs">{m['warns']}</span>
-                    </div>
-                    <div>
-                        <span class="text-slate-400 text-xs block mb-1">Notizen:</span>
-                        <ul class="space-y-1 max-h-24 overflow-y-auto">{notes_list or "<span class='text-xs text-slate-500 italic'>Keine Notizen</span>"}</ul>
-                    </div>
+                    <div class="text-xs text-slate-400 font-mono">@{m['username']}</div>
                 </div>
             </div>
 
-            <div class="space-y-2 pt-3 border-t border-slate-700/60">
-                <div class="grid grid-cols-2 gap-2">
-                    <form action="/action" method="post">
-                        <input type="hidden" name="user_id" value="{m['id']}">
-                        <input type="hidden" name="action" value="promote">
-                        <button class="w-full bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white py-1.5 rounded-lg text-xs font-semibold transition">⬆️ Befördern</button>
-                    </form>
-                    <form action="/action" method="post">
-                        <input type="hidden" name="user_id" value="{m['id']}">
-                        <input type="hidden" name="action" value="demote">
-                        <button class="w-full bg-orange-600/20 hover:bg-orange-600 text-orange-300 hover:text-white py-1.5 rounded-lg text-xs font-semibold transition">⬇️ Degradieren</button>
-                    </form>
-                </div>
+            <!-- Rolle Badge -->
+            <div class="w-1/3 flex justify-start">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border shadow-sm" style="background-color: {m['top_role_color']}15; color: {m['top_role_color']}; border-color: {m['top_role_color']}40;">
+                    <span class="w-1.5 h-1.5 rounded-full" style="background-color: {m['top_role_color']}"></span>
+                    {m['top_role']}
+                </span>
+            </div>
 
-                <div class="grid grid-cols-2 gap-2">
-                    <form action="/action" method="post">
-                        <input type="hidden" name="user_id" value="{m['id']}">
-                        <input type="hidden" name="action" value="warn">
-                        <button class="w-full bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white py-1.5 rounded-lg text-xs font-semibold transition">⚠️ Verwarnen</button>
-                    </form>
-                    <form action="/action" method="post">
-                        <input type="hidden" name="user_id" value="{m['id']}">
-                        <input type="hidden" name="action" value="kick">
-                        <button class="w-full bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white py-1.5 rounded-lg text-xs font-semibold transition">🚪 Kicken</button>
-                    </form>
-                </div>
-
-                <form action="/action" method="post" class="flex gap-2 pt-1">
+            <!-- Aktionen / Details -->
+            <div class="w-1/3 flex items-center justify-end gap-2">
+                <!-- Schnellaktionen & Notizen Formular -->
+                <form action="/action" method="post" class="flex items-center gap-1">
                     <input type="hidden" name="user_id" value="{m['id']}">
-                    <input type="hidden" name="action" value="add_note">
-                    <input type="text" name="note_text" placeholder="Notiz schreiben..." required class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs w-full focus:outline-none focus:border-indigo-500 text-white">
-                    <button class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded-lg text-xs font-semibold transition">+</button>
+                    
+                    <button name="action" value="promote" title="Befördern" class="p-1.5 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs transition">⬆️</button>
+                    <button name="action" value="demote" title="Degradieren" class="p-1.5 hover:bg-orange-500/20 text-orange-400 rounded-lg text-xs transition">⬇️</button>
+                    <button name="action" value="warn" title="Verwarnen ({m['warns']})" class="p-1.5 hover:bg-amber-500/20 text-amber-400 rounded-lg text-xs transition flex items-center gap-1">
+                        ⚠️ <span class="text-[10px] bg-amber-500/20 px-1 rounded">{m['warns']}</span>
+                    </button>
+                    <button name="action" value="kick" title="Kicken" class="p-1.5 hover:bg-rose-500/20 text-rose-400 rounded-lg text-xs transition">🚪</button>
                 </form>
+
+                <details class="relative">
+                    <summary class="list-none p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer transition">
+                        👁️
+                    </summary>
+                    <div class="absolute right-0 top-8 z-50 w-64 bg-[#1a2030] border border-slate-700 p-3 rounded-xl shadow-2xl space-y-2">
+                        <div class="text-xs font-bold text-slate-300">Notizen:</div>
+                        <div class="space-y-1 max-h-32 overflow-y-auto">
+                            {notes_html or "<p class='text-[11px] text-slate-500 italic'>Keine Notizen vorhanden</p>"}
+                        </div>
+                        <form action="/action" method="post" class="flex gap-1 pt-1">
+                            <input type="hidden" name="user_id" value="{m['id']}">
+                            <input type="hidden" name="action" value="add_note">
+                            <input type="text" name="note_text" placeholder="Neue Notiz..." required class="bg-[#0b0e14] border border-slate-700 rounded px-2 py-1 text-xs w-full text-white">
+                            <button class="bg-indigo-600 hover:bg-indigo-500 px-2 py-1 rounded text-xs font-semibold text-white">+</button>
+                        </form>
+                    </div>
+                </details>
             </div>
         </div>
         """
 
-    # UI für Rollen-Verwaltung
-    roles_list_html = ""
+    # Rollen-Verwaltung Dropdown
+    server_roles_options = ""
+    for role in guild.roles:
+        if not role.is_default() and role.id not in team_role_ids:
+            server_roles_options += f'<option value="{role.id}">{role.name}</option>'
+
+    roles_badge_html = ""
     for idx, rid in enumerate(team_role_ids, 1):
         role_obj = guild.get_role(rid)
-        role_name = role_obj.name if role_obj else f"Gelöschte Rolle ({rid})"
-        roles_list_html += f"""
-        <div class="flex justify-between items-center bg-slate-900/60 border border-slate-700 px-3 py-2 rounded-xl text-sm">
-            <span class="text-slate-300"><strong class="text-indigo-400">Rang {idx}:</strong> {role_name}</span>
+        r_name = role_obj.name if role_obj else f"ID: {rid}"
+        roles_badge_html += f"""
+        <div class="flex items-center justify-between bg-[#0b0e14] border border-slate-800 px-3 py-1.5 rounded-lg text-xs">
+            <span class="text-slate-300"><strong class="text-indigo-400">Rang {idx}:</strong> {r_name}</span>
             <form action="/action" method="post" class="inline">
                 <input type="hidden" name="action" value="remove_role">
                 <input type="hidden" name="role_id" value="{rid}">
-                <button class="text-rose-400 hover:text-rose-300 text-xs font-semibold px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 transition">Entfernen</button>
+                <button class="text-rose-400 hover:text-rose-300 ml-2 font-bold">✕</button>
             </form>
         </div>
         """
-
-    # Dropdown mit allen verfügbaren Serverrollen (außer @everyone)
-    server_roles_options = ""
-    for role in guild.roles:
-        if role.is_default():
-            continue
-        if role.id not in team_role_ids:
-            server_roles_options += f'<option value="{role.id}">{role.name}</option>'
 
     return f"""
     <!DOCTYPE html>
@@ -249,54 +247,103 @@ async def dashboard(request: Request):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Team Dashboard</title>
+        <title>Teams - {guild.name}</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
-    <body class="bg-slate-900 text-white min-h-screen p-6 font-sans">
-        <div class="max-w-7xl mx-auto space-y-8">
-            <div class="flex justify-between items-center border-b border-slate-800 pb-5">
-                <div>
-                    <h1 class="text-3xl font-bold">Team Dashboard</h1>
-                    <p class="text-slate-400 text-sm">Übersicht aller Teammitglieder und Verwaltungs-Tools</p>
+    <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
+
+        <!-- Sidebar Navigation -->
+        <aside class="w-64 bg-[#141824] border-r border-slate-800/80 flex flex-col justify-between p-4 min-h-screen shrink-0">
+            <div class="space-y-6">
+                <!-- Branding -->
+                <div class="flex items-center gap-3 px-2">
+                    <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg">T</div>
+                    <div>
+                        <h2 class="font-bold text-white leading-none">Teams</h2>
+                        <span class="text-[10px] text-slate-500 font-mono">v1.0.0</span>
+                    </div>
                 </div>
-                <a href="/" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl text-sm font-semibold transition">Abmelden</a>
+
+                <!-- Server Selector -->
+                <div class="bg-[#0b0e14] border border-slate-800 rounded-xl p-2.5 flex items-center justify-between cursor-pointer">
+                    <div class="flex items-center gap-2 truncate">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span class="text-xs font-semibold text-slate-200 truncate">{guild.name}</span>
+                    </div>
+                    <span class="text-xs text-slate-500">▾</span>
+                </div>
+
+                <!-- Nav Menu -->
+                <nav class="space-y-1 text-xs">
+                    <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 mb-2">Übersicht</div>
+                    <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition">
+                        📊 <span>Dashboard</span>
+                    </a>
+                    
+                    <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 mt-4 mb-2">Team</div>
+                    <a href="/dashboard" class="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-indigo-600/10 text-indigo-400 font-semibold border border-indigo-500/20">
+                        👥 <span>Teamliste</span>
+                    </a>
+                </nav>
             </div>
 
-            <!-- Rollen-Verwaltung Section -->
-            <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl">
-                <h2 class="text-xl font-bold mb-1 text-white">⚙️ Team-Rollen verwalten</h2>
-                <p class="text-xs text-slate-400 mb-4">Füge Rollen von unten nach oben hinzu (Rang 1 = Niedrigste Rolle, Rang 2 = Höhere Rolle, etc.).</p>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Aktuelle Rollen -->
-                    <div class="space-y-2">
-                        <h3 class="text-sm font-semibold text-slate-300 mb-2">Aktive Team-Rollen:</h3>
-                        {roles_list_html or "<p class='text-xs text-slate-500 italic'>Noch keine Team-Rollen hinzugefügt.</p>"}
-                    </div>
+            <!-- Footer User Info -->
+            <div class="border-t border-slate-800/80 pt-3 px-1 flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-white">B</div>
+                    <span class="text-xs font-medium text-slate-300 truncate">Bot Host</span>
+                </div>
+                <a href="/" class="text-xs text-slate-500 hover:text-rose-400 transition">↤ Abmelden</a>
+            </div>
+        </aside>
 
-                    <!-- Rolle Hinzufügen Formular -->
-                    <div class="bg-slate-900/40 p-4 rounded-xl border border-slate-700/50 h-fit">
-                        <h3 class="text-sm font-semibold text-slate-300 mb-3">Neue Rolle hinzufügen</h3>
-                        <form action="/action" method="post" class="space-y-3">
+        <!-- Main Content Area -->
+        <main class="flex-1 p-8 overflow-y-auto">
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <div class="text-xs text-slate-500 flex items-center gap-1.5 mb-1">
+                        <span>Team</span>
+                        <span>/</span>
+                        <span class="text-indigo-400 font-medium">Teamliste</span>
+                    </div>
+                    <h1 class="text-2xl font-bold text-white">Teamliste</h1>
+                </div>
+
+                <details class="relative">
+                    <summary class="bg-[#141824] border border-slate-800 hover:border-slate-700 text-xs px-3 py-2 rounded-xl text-slate-300 cursor-pointer transition flex items-center gap-2">
+                        <span>⚙️ Team-Rollen verwalten</span>
+                    </summary>
+                    <div class="absolute right-0 top-10 w-80 bg-[#141824] border border-slate-700 p-4 rounded-xl shadow-2xl z-50 space-y-4">
+                        <h3 class="text-xs font-bold text-white">Aktivierte Team-Rollen:</h3>
+                        <div class="space-y-1.5 max-h-40 overflow-y-auto">
+                            {roles_badge_html or "<p class='text-xs text-slate-500 italic'>Keine Rollen hinterlegt.</p>"}
+                        </div>
+                        <form action="/action" method="post" class="space-y-2 pt-2 border-t border-slate-800">
                             <input type="hidden" name="action" value="add_role">
-                            <select name="role_id" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
-                                <option value="" disabled selected>Server-Rolle auswählen...</option>
-                                {server_roles_options or "<option disabled>Alle Rollen bereits hinzugefügt</option>"}
+                            <select name="role_id" required class="w-full bg-[#0b0e14] border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
+                                <option value="" disabled selected>Rolle auswählen...</option>
+                                {server_roles_options or "<option disabled>Alle hinzugefügt</option>"}
                             </select>
-                            <button class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-lg text-sm font-semibold transition">Rolle hinzufügen</button>
+                            <button class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-1.5 rounded-lg text-xs font-semibold">Rolle hinzufügen</button>
                         </form>
                     </div>
-                </div>
+                </details>
             </div>
 
-            <!-- Teammitglieder Liste -->
-            <div>
-                <h2 class="text-2xl font-bold mb-4">👥 Teammitglieder</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {cards_html or "<p class='text-slate-500 col-span-3 text-center py-10'>Keine Teammitglieder gefunden.</p>"}
-                </div>
+            <!-- Table Header -->
+            <div class="px-5 py-2.5 text-xs font-semibold text-slate-500 flex items-center justify-between mb-2">
+                <div class="w-1/3 flex items-center gap-1">Nutzer ⇂⇞</div>
+                <div class="w-1/3 flex items-center gap-1">Rolle ⇂⇞</div>
+                <div class="w-1/3 text-right">Aktionen</div>
             </div>
-        </div>
+
+            <!-- Table Rows -->
+            <div class="space-y-2.5">
+                {rows_html or "<div class='text-center py-12 text-slate-500 text-sm bg-[#141824] border border-slate-800 rounded-2xl'>Keine Teammitglieder gefunden. Füge oben unter '⚙️ Team-Rollen verwalten' deine Server-Rollen hinzu.</div>"}
+            </div>
+        </main>
+
     </body>
     </html>
     """
@@ -316,21 +363,18 @@ async def handle_action(
 
     guild = bot.get_guild(GUILD_ID)
 
-    # 1. Rolle hinzufügen
     if action == "add_role" and role_id:
         config = load_config()
         if role_id not in config["team_role_ids"]:
             config["team_role_ids"].append(role_id)
             save_config(config)
 
-    # 2. Rolle entfernen
     elif action == "remove_role" and role_id:
         config = load_config()
         if role_id in config["team_role_ids"]:
             config["team_role_ids"].remove(role_id)
             save_config(config)
 
-    # Ab hier Aktionen, die einen Nutzer benötigen
     if user_id:
         member = guild.get_member(user_id) if guild else None
         team_db = load_data()
@@ -342,12 +386,10 @@ async def handle_action(
         config = load_config()
         team_role_ids = config.get("team_role_ids", [])
 
-        # 3. Notiz hinzufügen
         if action == "add_note" and note_text:
             team_db[user_key]["notes"].append(note_text)
             save_data(team_db)
 
-        # 4. Verwarnen
         elif action == "warn":
             team_db[user_key]["warns"] += 1
             save_data(team_db)
@@ -359,18 +401,15 @@ async def handle_action(
                 except Exception:
                     pass
 
-        # 5. Kicken
         elif action == "kick" and member:
             try:
                 await member.kick(reason="Gekickt über Team Dashboard")
             except Exception as e:
                 print(f"Fehler beim Kicken: {e}")
 
-        # 6. Befördern (Promote)
         elif action == "promote" and member:
             member_role_ids = [r.id for r in member.roles]
             current_idx = -1
-
             for idx, rid in enumerate(team_role_ids):
                 if rid in member_role_ids:
                     current_idx = idx
@@ -378,20 +417,16 @@ async def handle_action(
             if current_idx + 1 < len(team_role_ids):
                 next_role_id = team_role_ids[current_idx + 1]
                 next_role = guild.get_role(next_role_id)
-
                 if next_role:
                     if current_idx >= 0:
                         old_role = guild.get_role(team_role_ids[current_idx])
                         if old_role:
                             await member.remove_roles(old_role)
-
                     await member.add_roles(next_role)
 
-        # 7. Degradieren (Demote)
         elif action == "demote" and member:
             member_role_ids = [r.id for r in member.roles]
             current_idx = -1
-
             for idx, rid in enumerate(team_role_ids):
                 if rid in member_role_ids:
                     current_idx = idx
