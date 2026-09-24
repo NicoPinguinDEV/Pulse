@@ -3,7 +3,7 @@ import os
 import uuid
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, Cookie, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 
@@ -30,7 +30,7 @@ DISCORD_AUTH_URL = (
 
 
 # =============================================================
-# HELFER-FUNKTIONEN
+# HELFER-FUNKTIONEN & SICHERHEIT
 # =============================================================
 def load_json(filepath, default):
     if os.path.exists(filepath):
@@ -47,25 +47,30 @@ def save_json(filepath, data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 
-def get_sorted_team_roles(guild, config_role_ids):
-    roles = [guild.get_role(rid) for rid in config_role_ids if guild.get_role(rid)]
-    roles.sort(key=lambda r: r.position)
-    return roles
+async def verify_session(session: str = Cookie(None)):
+    """Prüft, ob der Nutzer eingeloggt ist."""
+    if session != "authenticated":
+        raise HTTPException(status_code=303, headers={"Location": "/"})
 
 
-def has_permission(member, guild, perm_key):
-    """Prüft, ob ein Nutzer ein bestimmtes Recht besitzt oder Server-Owner ist."""
-    if member.id == guild.owner_id:
-        return True
+def calculate_weekly_hours(mod_id_str, shifts_history):
+    """Berechnet die Arbeitsstunden der aktuellen Woche aus der Shift-Historie."""
+    total_seconds = 0
+    now = datetime.now()
+    start_of_week = now - timedelta(days=now.weekday())
+    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
-    perms = config.get("permissions", {})
-
-    for role in member.roles:
-        r_perm = perms.get(str(role.id), {})
-        if r_perm.get("full_access", False) or r_perm.get(perm_key, False):
-            return True
-    return False
+    for entry in shifts_history:
+        if entry.get("mod_id") == mod_id_str:
+            try:
+                entry_date = datetime.strptime(entry.get("date"), "%Y-%m-%d")
+                if entry_date >= start_of_week:
+                    total_seconds += entry.get("duration_seconds", 0)
+            except Exception:
+                pass
+    
+    hours = total_seconds / 3600
+    return f"{hours:.1f}h"
 
 
 def get_sidebar_html(guild_name, current_page="dashboard"):
@@ -105,7 +110,7 @@ def get_sidebar_html(guild_name, current_page="dashboard"):
                 
                 <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 mt-4 mb-2">Verwaltung</div>
                 <a href="/settings" class="flex items-center gap-2.5 px-3 py-2 rounded-lg {'bg-indigo-600/10 text-indigo-400 font-semibold border border-indigo-500/20' if current_page == 'settings' else 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'} transition">
-                    ⚙️ <span>Rechte & Rollen</span>
+                    ⚙️ <span>Rechte & Einstellungen</span>
                 </a>
             </nav>
         </div>
@@ -115,14 +120,14 @@ def get_sidebar_html(guild_name, current_page="dashboard"):
                 <div class="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-white">B</div>
                 <span class="text-xs font-medium text-slate-300 truncate">Bot Host</span>
             </div>
-            <a href="/" class="text-xs text-slate-500 hover:text-rose-400 transition">↤ Abmelden</a>
+            <a href="/logout" class="text-xs text-slate-500 hover:text-rose-400 transition">↤ Abmelden</a>
         </div>
     </aside>
     """
 
 
 # =============================================================
-# ROUTEN: LOGIN & CALLBACK
+# ROUTEN: LOGIN, LOGOUT & CALLBACK
 # =============================================================
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -151,6 +156,12 @@ async def home():
     </html>
     """
 
+@app.get("/logout")
+async def logout():
+    response = RedirectResponse(url="/", status_code=303)
+    response.delete_cookie(key="session")
+    return response
+
 
 @app.get("/callback")
 async def callback(code: str):
@@ -175,15 +186,16 @@ async def callback(code: str):
             )
 
     response = RedirectResponse(url="/dashboard", status_code=303)
-    response.set_cookie(key="session", value="authenticated")
+    response.set_cookie(key="session", value="authenticated", httponly=True)
     return response
 
 
 # =============================================================
-# ROUTE 1: HAUPT-DASHBOARD (MELONLY MODERATION & SCHICHTEN)
+# ROUTE 1: HAUPT-DASHBOARD (MODERATION & SCHICHTEN)
 # =============================================================
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_main(request: Request):
+async def dashboard_main(request: Request, session: str = Cookie(None)):
+    await verify_session(session)
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
     guild_name = guild.name if guild else "Bochum RP"
@@ -193,14 +205,9 @@ async def dashboard_main(request: Request):
 
     active_shifts = shifts_db.get("active_shifts", {})
     active_staff_count = len(
-        [
-            s
-            for s in active_shifts.values()
-            if s.get("status") in ["online", "break"]
-        ]
+        [s for s in active_shifts.values() if s.get("status") in ["online", "break"]]
     )
 
-    # Strafen / Logs Liste generieren (rechts)
     logs_html = ""
     for log in reversed(logs_db[-20:]):
         type_colors = {
@@ -209,9 +216,7 @@ async def dashboard_main(request: Request):
             "Warn": "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
             "Notiz": "bg-indigo-500/10 text-indigo-400 border-indigo-500/30",
         }
-        badge_style = type_colors.get(
-            log.get("type"), "bg-slate-800 text-slate-300"
-        )
+        badge_style = type_colors.get(log.get("type"), "bg-slate-800 text-slate-300")
 
         logs_html += f"""
         <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-4 space-y-2 shadow-sm">
@@ -249,10 +254,7 @@ async def dashboard_main(request: Request):
         <main class="flex-1 p-8 overflow-y-auto">
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 
-                <!-- SPALTE 1: SCHICHT-STEUERUNG & TOOLBOX (LINKS) -->
                 <div class="lg:col-span-4 space-y-6">
-                    
-                    <!-- Schichten Status Card -->
                     <div class="bg-[#141824] border border-slate-800 rounded-2xl p-6 shadow-lg space-y-5">
                         <div class="flex items-center justify-between">
                             <div>
@@ -265,7 +267,6 @@ async def dashboard_main(request: Request):
                             </span>
                         </div>
 
-                        <!-- Action Buttons -->
                         <form action="/shift/action" method="post" class="grid grid-cols-2 gap-3">
                             <button name="shift_action" value="start" class="col-span-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-4 rounded-xl transition shadow-lg shadow-emerald-900/20">
                                 ▶️ Schicht Starten
@@ -279,7 +280,6 @@ async def dashboard_main(request: Request):
                         </form>
                     </div>
 
-                    <!-- Schnell-Aktionen / Toolbox -->
                     <div class="bg-[#141824] border border-slate-800 rounded-2xl p-6 shadow-lg space-y-3">
                         <h3 class="text-sm font-bold text-white mb-2">Toolbox</h3>
                         <div class="grid grid-cols-2 gap-2 text-xs">
@@ -291,10 +291,8 @@ async def dashboard_main(request: Request):
                             </a>
                         </div>
                     </div>
-
                 </div>
 
-                <!-- SPALTE 2: CREATE NEW LOG (MITTE) -->
                 <div class="lg:col-span-4 space-y-6">
                     <div class="bg-[#141824] border border-slate-800 rounded-2xl p-6 shadow-lg space-y-4">
                         <div>
@@ -305,12 +303,12 @@ async def dashboard_main(request: Request):
                         <form action="/log/create" method="post" class="space-y-4 text-xs">
                             <div>
                                 <label class="block text-slate-400 mb-1 font-semibold">Roblox Username *</label>
-                                <input type="text" name="target_user" placeholder="z. B. Dein_Portugiese92" required class="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500">
+                                <input type="text" name="target_user" placeholder="z. B. Spieler123" required class="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500">
                             </div>
 
                             <div>
                                 <label class="block text-slate-400 mb-1 font-semibold">Roblox Player ID (Optional)</label>
-                                <input type="text" name="roblox_id" placeholder="z. B. 11357080791" class="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500">
+                                <input type="text" name="roblox_id" placeholder="z. B. 12345678" class="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500">
                             </div>
 
                             <div>
@@ -325,7 +323,7 @@ async def dashboard_main(request: Request):
 
                             <div>
                                 <label class="block text-slate-400 mb-1 font-semibold">Begründung *</label>
-                                <textarea name="reason" placeholder="z. B. BombenRP / Trolling am Würfelpark..." required class="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-3 text-white h-24 focus:outline-none focus:border-indigo-500"></textarea>
+                                <textarea name="reason" placeholder="Grund hier eingeben..." required class="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-3 text-white h-24 focus:outline-none focus:border-indigo-500"></textarea>
                             </div>
 
                             <button class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-indigo-900/20">
@@ -335,7 +333,6 @@ async def dashboard_main(request: Request):
                     </div>
                 </div>
 
-                <!-- SPALTE 3: PUNISHMENT LOGS (RECHTS) -->
                 <div class="lg:col-span-4 space-y-4">
                     <div class="flex items-center justify-between">
                         <h2 class="text-lg font-bold text-white">Protokoll (Punishment Logs)</h2>
@@ -355,10 +352,11 @@ async def dashboard_main(request: Request):
 
 
 # =============================================================
-# ROUTE 2: TEAMLISTE (ÜBERSICHT)
+# ROUTE 2: TEAMLISTE (ÜBERSICHT MIT WOCHENSTUNDEN)
 # =============================================================
 @app.get("/team", response_class=HTMLResponse)
-async def team_list_page(request: Request):
+async def team_list_page(request: Request, session: str = Cookie(None)):
+    await verify_session(session)
     bot = getattr(request.app.state, "bot", None)
     if not bot:
         return "<h3>Bot-Instanz noch nicht bereit!</h3>"
@@ -366,9 +364,12 @@ async def team_list_page(request: Request):
     guild = bot.get_guild(GUILD_ID)
     if not guild:
         return f"<h3>Fehler: Server {GUILD_ID} nicht gefunden.</h3>"
+    
+    guild_name = guild.name
 
     config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
     team_db = load_json(DATA_FILE, {})
+    shifts_db = load_json(SHIFTS_FILE, {"active_shifts": {}, "history": []})
     team_role_ids = config.get("team_role_ids", [])
 
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -383,17 +384,12 @@ async def team_list_page(request: Request):
             user_data = team_db.get(str(member.id), {})
             loa = user_data.get("loa", {})
 
-            # Prüfen, ob eine Abmeldung (LOA) aktiv ist
             loa_badge = ""
-            if (
-                loa.get("active")
-                and loa.get("end")
-                and loa.get("end") >= today_str
-            ):
-                end_formatted = datetime.strptime(
-                    loa["end"], "%Y-%m-%d"
-                ).strftime("%d.%m.")
+            if loa.get("active") and loa.get("end") and loa.get("end") >= today_str:
+                end_formatted = datetime.strptime(loa["end"], "%Y-%m-%d").strftime("%d.%m.")
                 loa_badge = f'<span class="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] px-2 py-0.5 rounded-full font-semibold">Abgemeldet bis {end_formatted}</span>'
+
+            weekly_hours = calculate_weekly_hours(str(member.id), shifts_db.get("history", []))
 
             team_members.append({
                 "id": member.id,
@@ -401,13 +397,10 @@ async def team_list_page(request: Request):
                 "username": member.name,
                 "avatar": member.display_avatar.url,
                 "top_role": highest_role.name,
-                "top_role_color": (
-                    f"#{highest_role.color.value:06x}"
-                    if highest_role.color.value
-                    else "#6366f1"
-                ),
+                "top_role_color": f"#{highest_role.color.value:06x}" if highest_role.color.value else "#6366f1",
                 "role_position": highest_role.position,
                 "loa_badge": loa_badge,
+                "weekly_hours": weekly_hours
             })
 
     team_members.sort(key=lambda m: m["role_position"], reverse=True)
@@ -427,16 +420,19 @@ async def team_list_page(request: Request):
                 </div>
             </div>
 
-            <div class="w-1/3 flex justify-start">
+            <div class="w-1/4 flex items-center gap-3">
                 <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border shadow-sm" style="background-color: {m['top_role_color']}15; color: {m['top_role_color']}; border-color: {m['top_role_color']}40;">
                     <span class="w-1.5 h-1.5 rounded-full" style="background-color: {m['top_role_color']}"></span>
                     {m['top_role']}
                 </span>
+                <span class="text-xs text-indigo-400 font-mono font-bold bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20" title="Wochenstunden">
+                    ⏱️ {m['weekly_hours']}
+                </span>
             </div>
 
-            <div class="w-1/3 flex items-center justify-end">
+            <div class="w-1/6 flex items-center justify-end">
                 <a href="/member/{m['id']}" title="Profil ansehen" class="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition">
-                    👁️
+                    👁️ Details
                 </a>
             </div>
         </div>
@@ -446,25 +442,19 @@ async def team_list_page(request: Request):
     <!DOCTYPE html>
     <html lang="de">
     <head>
-        <meta charset="UTF-8"><title>Teamliste - {guild.name}</title>
+        <meta charset="UTF-8"><title>Teamliste - {guild_name}</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
-        {get_sidebar_html(guild.name, 'team')}
+        {get_sidebar_html(guild_name, 'team')}
         <main class="flex-1 p-8 overflow-y-auto">
             <div class="flex justify-between items-center mb-6">
                 <div>
                     <div class="text-xs text-slate-500 flex items-center gap-1.5 mb-1">
                         <span>Team</span> / <span class="text-indigo-400 font-medium">Teamliste</span>
                     </div>
-                    <h1 class="text-2xl font-bold text-white">Teamliste</h1>
+                    <h1 class="text-2xl font-bold text-white">Teamliste & Aktivität</h1>
                 </div>
-            </div>
-
-            <div class="px-5 py-2.5 text-xs font-semibold text-slate-500 flex items-center justify-between mb-2">
-                <div class="w-1/3">Nutzer</div>
-                <div class="w-1/3">Rolle</div>
-                <div class="w-1/3 text-right">Aktionen</div>
             </div>
 
             <div class="space-y-2.5">
@@ -477,10 +467,11 @@ async def team_list_page(request: Request):
 
 
 # =============================================================
-# ROUTE: DETAILSEITE FÜR MITGLIED
+# ROUTE: MITGLIEDER-DETAILSEITE
 # =============================================================
 @app.get("/member/{user_id}", response_class=HTMLResponse)
-async def member_detail(request: Request, user_id: int):
+async def member_detail(request: Request, user_id: int, session: str = Cookie(None)):
+    await verify_session(session)
     bot = getattr(request.app.state, "bot", None)
     if not bot:
         return "<h3>Bot-Instanz noch nicht bereit!</h3>"
@@ -489,49 +480,34 @@ async def member_detail(request: Request, user_id: int):
     if not guild:
         return f"<h3>Fehler: Server {GUILD_ID} nicht gefunden.</h3>"
 
+    guild_name = guild.name
     member = guild.get_member(user_id)
     if not member:
         return f"<h3>Mitglied mit ID {user_id} wurde nicht gefunden.</h3>"
 
     config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
     team_db = load_json(DATA_FILE, {})
+    shifts_db = load_json(SHIFTS_FILE, {"active_shifts": {}, "history": []})
     team_role_ids = config.get("team_role_ids", [])
 
-    user_info = team_db.get(
-        str(user_id),
-        {
-            "warns": 0,
-            "warns_list": [],
-            "notes": [],
-            "ticket_cases": 0,
-            "support_cases": 0,
-            "mod_cases": 0,
-            "weekly_hours": "0h",
-        },
-    )
+    user_info = team_db.get(str(user_id), {
+        "warns_list": [],
+        "notes": [],
+        "ticket_cases": 0,
+        "support_cases": 0
+    })
+
+    weekly_hours = calculate_weekly_hours(str(user_id), shifts_db.get("history", []))
 
     member_team_roles = [r for r in member.roles if r.id in team_role_ids]
-    highest_role = (
-        max(member_team_roles, key=lambda r: r.position)
-        if member_team_roles
-        else member.top_role
-    )
+    highest_role = max(member_team_roles, key=lambda r: r.position) if member_team_roles else member.top_role
 
     top_role_name = highest_role.name
-    top_role_color = (
-        f"#{highest_role.color.value:06x}"
-        if highest_role.color.value
-        else "#6366f1"
-    )
+    top_role_color = f"#{highest_role.color.value:06x}" if highest_role.color.value else "#6366f1"
 
-    # Verwarnungen mit Beweis-Links HTML generieren
     warns_html = ""
     for w in user_info.get("warns_list", []):
-        proof_btn = (
-            f'<a href="{w["proof"]}" target="_blank" class="text-indigo-400 hover:underline ml-2">🔗 Beweis anzeigen</a>'
-            if w.get("proof")
-            else ""
-        )
+        proof_btn = f'<a href="{w["proof"]}" target="_blank" class="text-indigo-400 hover:underline ml-2">🔗 Beweis anzeigen</a>' if w.get("proof") else ""
         warns_html += f"""
         <div class="bg-[#0b0e14] p-3 rounded-lg border border-slate-800 text-xs space-y-1">
             <div class="flex justify-between text-slate-400 font-mono text-[10px]">
@@ -555,7 +531,7 @@ async def member_detail(request: Request, user_id: int):
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
-        {get_sidebar_html(guild.name, 'team')}
+        {get_sidebar_html(guild_name, 'team')}
         <main class="flex-1 p-8 overflow-y-auto">
             <div class="flex items-center gap-4 mb-8">
                 <a href="/team" class="bg-[#141824] border border-slate-800 hover:bg-slate-800 text-slate-300 p-2.5 rounded-xl transition">←</a>
@@ -569,7 +545,6 @@ async def member_detail(request: Request, user_id: int):
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-2 space-y-6">
                     
-                    <!-- Stats / Cases -->
                     <div class="grid grid-cols-3 gap-4">
                         <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-5 shadow-md">
                             <div class="text-xs text-slate-400 font-semibold mb-1">Ticket-Cases</div>
@@ -581,11 +556,10 @@ async def member_detail(request: Request, user_id: int):
                         </div>
                         <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-5 shadow-md">
                             <div class="text-xs text-slate-400 font-semibold mb-1">Wochenstunden</div>
-                            <div class="text-2xl font-bold text-indigo-400">{user_info.get('weekly_hours', '0h')}</div>
+                            <div class="text-2xl font-bold text-indigo-400">{weekly_hours}</div>
                         </div>
                     </div>
 
-                    <!-- Team-Aktionen -->
                     <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-6 space-y-4 shadow-md">
                         <h3 class="text-sm font-bold text-white">Team-Aktionen</h3>
                         <form action="/action" method="post" class="flex flex-wrap gap-2">
@@ -598,14 +572,13 @@ async def member_detail(request: Request, user_id: int):
 
                         <hr class="border-slate-800 my-4">
 
-                        <!-- Verwarnung mit Beweis ausstellen -->
                         <h3 class="text-sm font-bold text-white">Verwarnung ausstellen</h3>
                         <form action="/action" method="post" class="space-y-2">
                             <input type="hidden" name="user_id" value="{member.id}">
                             <input type="hidden" name="action" value="warn_with_proof">
                             <input type="hidden" name="redirect_to_member" value="1">
                             <input type="text" name="warn_reason" placeholder="Grund für die Verwarnung..." required class="bg-[#0b0e14] border border-slate-700 rounded-lg px-3 py-1.5 text-xs w-full text-white">
-                            <input type="url" name="warn_proof" placeholder="Beweis-Link (z. B. Screenshot / Video URL)..." class="bg-[#0b0e14] border border-slate-700 rounded-lg px-3 py-1.5 text-xs w-full text-white">
+                            <input type="url" name="warn_proof" placeholder="Beweis-Link (Screenshot / Video URL)..." class="bg-[#0b0e14] border border-slate-700 rounded-lg px-3 py-1.5 text-xs w-full text-white">
                             <button class="bg-amber-600 hover:bg-amber-500 px-3 py-1.5 rounded-lg text-xs font-semibold text-white">⚠️ Verwarnung eintragen</button>
                         </form>
 
@@ -624,7 +597,6 @@ async def member_detail(request: Request, user_id: int):
                         </form>
                     </div>
 
-                    <!-- Historie der Verwarnungen & Beweise -->
                     <div class="bg-[#141824] border border-slate-800/80 rounded-xl p-6 space-y-3 shadow-md">
                         <h3 class="text-sm font-bold text-white">Verwarnungs-Historie ({len(user_info.get('warns_list', []))})</h3>
                         <div class="space-y-2 max-h-48 overflow-y-auto">
@@ -634,7 +606,6 @@ async def member_detail(request: Request, user_id: int):
 
                 </div>
 
-                <!-- Info-Spalte rechts -->
                 <div class="space-y-4">
                     <div class="text-right text-2xl font-extrabold uppercase tracking-widest opacity-90" style="color: {top_role_color};">
                         » BORP ✕ {top_role_name}
@@ -652,7 +623,7 @@ async def member_detail(request: Request, user_id: int):
                         </div>
                         <div>
                             <div class="text-slate-500 mb-0.5">Verwarnungen insgesamt</div>
-                            <div class="text-amber-400 font-bold">{len(user_info.get('warns_list', []))} / 3</div>
+                            <div class="text-amber-400 font-bold">{len(user_info.get('warns_list', []))}</div>
                         </div>
                     </div>
                 </div>
@@ -668,9 +639,11 @@ async def member_detail(request: Request, user_id: int):
 # ROUTE: ABWESENHEITEN (LOA)
 # =============================================================
 @app.get("/loa", response_class=HTMLResponse)
-async def loa_page(request: Request):
+async def loa_page(request: Request, session: str = Cookie(None)):
+    await verify_session(session)
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
+    guild_name = guild.name if guild else "Bochum RP"
     team_db = load_json(DATA_FILE, {})
 
     loa_entries_html = ""
@@ -702,12 +675,11 @@ async def loa_page(request: Request):
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
-        {get_sidebar_html(guild.name if guild else '', 'loa')}
+        {get_sidebar_html(guild_name, 'loa')}
         <main class="flex-1 p-8 overflow-y-auto">
             <h1 class="text-2xl font-bold text-white mb-6">Abwesenheiten (LOA)</h1>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <!-- LOA Einreichen -->
                 <div class="bg-[#141824] border border-slate-800 rounded-xl p-6 space-y-4">
                     <h2 class="text-base font-bold text-white">Neue Abmeldung eintragen</h2>
                     <form action="/action" method="post" class="space-y-3 text-xs">
@@ -734,7 +706,6 @@ async def loa_page(request: Request):
                     </form>
                 </div>
 
-                <!-- Aktive LOAs -->
                 <div class="space-y-4">
                     <h2 class="text-base font-bold text-white">Aktuell Abgemeldet</h2>
                     <div class="space-y-3">
@@ -749,12 +720,14 @@ async def loa_page(request: Request):
 
 
 # =============================================================
-# ROUTE: RECHTE & RECHTE-SCHLÜSSEL SETTINGS
+# ROUTE: EINSTELLUNGEN & RECHTE
 # =============================================================
 @app.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request):
+async def settings_page(request: Request, session: str = Cookie(None)):
+    await verify_session(session)
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
+    guild_name = guild.name if guild else "Bochum RP"
 
     config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
     team_role_ids = config.get("team_role_ids", [])
@@ -794,10 +767,6 @@ async def settings_page(request: Request):
                         <input type="checkbox" name="can_add_notes" {'checked' if r_perm.get('can_add_notes') else ''} class="rounded bg-slate-900 border-slate-700">
                         <span>Notizen erstellen</span>
                     </label>
-                    <label class="flex items-center gap-2 cursor-pointer col-span-2 pt-2 border-t border-slate-800/60">
-                        <input type="checkbox" name="can_manage_settings" {'checked' if r_perm.get('can_manage_settings') else ''} class="rounded bg-slate-900 border-slate-700">
-                        <span class="text-amber-400 font-semibold">Einstellungen verwalten</span>
-                    </label>
 
                     <button class="col-span-2 mt-2 bg-indigo-600 hover:bg-indigo-500 py-1.5 rounded-lg text-white font-semibold">Rechte Speichern</button>
                 </form>
@@ -812,10 +781,10 @@ async def settings_page(request: Request):
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
-        {get_sidebar_html(guild.name if guild else '', 'settings')}
+        {get_sidebar_html(guild_name, 'settings')}
         <main class="flex-1 p-8 overflow-y-auto">
-            <h1 class="text-2xl font-bold text-white mb-2">Rollen-Berechtigungen</h1>
-            <p class="text-xs text-slate-400 mb-6">Der Server-Owner hat automatisch bei allen Modulen Vollzugriff.</p>
+            <h1 class="text-2xl font-bold text-white mb-2">Rollen-Berechtigungen & System-Status</h1>
+            <p class="text-xs text-slate-400 mb-6">Server-ID: <code class="text-indigo-400">{GUILD_ID}</code> | Redirect-URI: <code class="text-indigo-400">{REDIRECT_URI}</code></p>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {roles_settings_html or "<p class='text-xs text-slate-500 italic'>Keine Team-Rollen konfiguriert.</p>"}
@@ -855,7 +824,7 @@ async def public_apply_page():
                 </div>
                 <div>
                     <label class="block text-slate-400 mb-1">Warum möchtest du ins Team?</label>
-                    <textarea name="applicant_text" placeholder="Erzähle etwas über deine Erfahrung..." required class="w-full bg-[#0b0e14] border border-slate-700 rounded-lg p-2.5 text-white h-28"></textarea>
+                    <textarea name="applicant_text" placeholder="Erzähle etwas über dich..." required class="w-full bg-[#0b0e14] border border-slate-700 rounded-lg p-2.5 text-white h-28"></textarea>
                 </div>
                 <button class="w-full bg-emerald-600 hover:bg-emerald-500 font-semibold py-3 rounded-xl text-white">Bewerbung Absenden</button>
             </form>
@@ -869,9 +838,11 @@ async def public_apply_page():
 # ROUTE: BEWERBUNGEN ÜBERSICHT (DASHBOARD)
 # =============================================================
 @app.get("/applications", response_class=HTMLResponse)
-async def applications_page(request: Request):
+async def applications_page(request: Request, session: str = Cookie(None)):
+    await verify_session(session)
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
+    guild_name = guild.name if guild else "Bochum RP"
 
     apps = load_json(APPS_FILE, {})
 
@@ -924,7 +895,7 @@ async def applications_page(request: Request):
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-[#0b0e14] text-slate-200 font-sans min-h-screen flex">
-        {get_sidebar_html(guild.name if guild else '', 'apps')}
+        {get_sidebar_html(guild_name, 'apps')}
         <main class="flex-1 p-8 overflow-y-auto">
             <h1 class="text-2xl font-bold text-white mb-6">Offene Bewerbungen</h1>
             <div class="space-y-4 max-w-3xl">
@@ -945,7 +916,9 @@ async def create_log(
     roblox_id: str = Form("N/A"),
     log_type: str = Form(...),
     reason: str = Form(...),
+    session: str = Cookie(None)
 ):
+    await verify_session(session)
     logs_db = load_json(LOGS_FILE, [])
 
     new_entry = {
@@ -954,7 +927,7 @@ async def create_log(
         "roblox_id": roblox_id if roblox_id else "N/A",
         "type": log_type,
         "reason": reason,
-        "moderator": "Dr.-Nico",
+        "moderator": "Dashboard Admin",
         "created_at": datetime.now().strftime("%d.%m.%Y %H:%M"),
     }
 
@@ -965,23 +938,40 @@ async def create_log(
 
 
 # =============================================================
-# ACTION: SCHICHT-SYSTEM STEUERUNG
+# ACTION: SCHICHT-SYSTEM STEUERUNG (LIVE-ZEITEN)
 # =============================================================
 @app.post("/shift/action")
-async def handle_shift_action(shift_action: str = Form(...)):
+async def handle_shift_action(shift_action: str = Form(...), session: str = Cookie(None)):
+    await verify_session(session)
     shifts_db = load_json(SHIFTS_FILE, {"active_shifts": {}, "history": []})
+    
+    # Platzhalter für die Moderator-ID (kann über Cookie/Session angepasst werden)
     mod_id = "moderator_nico"
+    now_ts = datetime.now()
 
     if shift_action == "start":
         shifts_db["active_shifts"][mod_id] = {
             "status": "online",
-            "started_at": datetime.now().strftime("%H:%M:%S"),
+            "started_at_iso": now_ts.isoformat(),
+            "date": now_ts.strftime("%Y-%m-%d"),
+            "accumulated_seconds": 0
         }
     elif shift_action == "break":
         if mod_id in shifts_db["active_shifts"]:
             shifts_db["active_shifts"][mod_id]["status"] = "break"
     elif shift_action == "end":
         if mod_id in shifts_db["active_shifts"]:
+            shift_data = shifts_db["active_shifts"][mod_id]
+            start_iso = shift_data.get("started_at_iso")
+            if start_iso:
+                start_dt = datetime.fromisoformat(start_iso)
+                duration = int((now_ts - start_dt).total_seconds())
+                
+                shifts_db["history"].append({
+                    "mod_id": mod_id,
+                    "date": shift_data.get("date"),
+                    "duration_seconds": duration
+                })
             del shifts_db["active_shifts"][mod_id]
 
     save_json(SHIFTS_FILE, shifts_db)
@@ -989,7 +979,7 @@ async def handle_shift_action(shift_action: str = Form(...)):
 
 
 # =============================================================
-# ZENTRALER ACTION-HANDLER
+# ZENTRALER ACTION-HANDLER (PROFILES & SETTINGS)
 # =============================================================
 @app.post("/action")
 async def handle_action(
@@ -998,30 +988,26 @@ async def handle_action(
     user_id: int = Form(None),
     role_id: int = Form(None),
     redirect_to_member: str = Form(None),
-    # Verwarnung mit Beweis
     warn_reason: str = Form(None),
     warn_proof: str = Form(None),
-    # Notiz
     note_text: str = Form(None),
-    # LOA
     loa_start: str = Form(None),
     loa_end: str = Form(None),
     loa_reason: str = Form(None),
     target_user_id: str = Form(None),
-    # Bewerbung Form
     applicant_id: int = Form(None),
     applicant_name: str = Form(None),
     applicant_text: str = Form(None),
     app_id: str = Form(None),
     vote: str = Form(None),
     decision: str = Form(None),
-    # Rechte
     can_view_dashboard: bool = Form(False),
     can_warn: bool = Form(False),
     can_promote: bool = Form(False),
     can_add_notes: bool = Form(False),
-    can_manage_settings: bool = Form(False),
+    session: str = Cookie(None)
 ):
+    await verify_session(session)
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
 
@@ -1029,18 +1015,19 @@ async def handle_action(
     config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
     apps = load_json(APPS_FILE, {})
 
-    # 1. Verwarnung mit Beweis-Link
-    if action == "warn_with_proof" and user_id:
+    # 1. Moderations-Aktionen auf Member-Profil (Befördern, Degradieren, Kicken)
+    if action in ["promote", "demote", "kick"] and user_id and guild:
+        member = guild.get_member(user_id)
+        if member:
+            if action == "kick":
+                await member.kick(reason="Vom Dashboard aus gekickt.")
+            # Platzhalter für Rollen-Hierarchie-Logik bei Promote/Demote
+
+    # 2. Verwarnung mit Beweis-Link
+    elif action == "warn_with_proof" and user_id:
         user_key = str(user_id)
         if user_key not in team_db:
-            team_db[user_key] = {
-                "warns": 0,
-                "warns_list": [],
-                "notes": [],
-                "ticket_cases": 0,
-                "support_cases": 0,
-                "mod_cases": 0,
-            }
+            team_db[user_key] = {"warns_list": [], "notes": []}
 
         if "warns_list" not in team_db[user_key]:
             team_db[user_key]["warns_list"] = []
@@ -1053,7 +1040,7 @@ async def handle_action(
         })
         save_json(DATA_FILE, team_db)
 
-    # 2. Notiz hinzufügen
+    # 3. Notiz hinzufügen
     elif action == "add_note" and user_id and note_text:
         user_key = str(user_id)
         if user_key not in team_db:
@@ -1061,7 +1048,7 @@ async def handle_action(
         team_db[user_key]["notes"].append(note_text)
         save_json(DATA_FILE, team_db)
 
-    # 3. Abmeldung (LOA) eintragen / beenden
+    # 4. Abmeldung (LOA) eintragen / beenden
     elif action == "submit_loa" and user_id:
         user_key = str(user_id)
         if user_key not in team_db:
@@ -1081,7 +1068,7 @@ async def handle_action(
             save_json(DATA_FILE, team_db)
         return RedirectResponse(url="/loa", status_code=303)
 
-    # 4. Öffentliche Bewerbung einreichen
+    # 5. Öffentliche Bewerbung einreichen
     elif action == "submit_application" and applicant_id:
         new_id = f"app_{uuid.uuid4().hex[:8]}"
         apps[new_id] = {
@@ -1097,7 +1084,7 @@ async def handle_action(
             "<body style='background:#0b0e14;color:white;font-family:sans-serif;text-align:center;padding-top:50px;'><h2>Deine Bewerbung wurde erfolgreich abgesendet!</h2><a href='/apply' style='color:#6366f1;'>Zurück</a></body>"
         )
 
-    # 5. Bewerbung abstimmen / entscheiden
+    # 6. Bewerbung abstimmen / entscheiden
     elif action == "decide_app" and app_id and decision and guild:
         if app_id in apps:
             apps[app_id]["status"] = decision
@@ -1112,7 +1099,24 @@ async def handle_action(
                         await target_member.add_roles(first_role)
         return RedirectResponse(url="/applications", status_code=303)
 
-    # 6. Rechte pro Rolle speichern
+    # 7. Voting für Bewerbungen
+    elif action == "vote_app" and app_id and vote:
+        if app_id in apps:
+            voter_id = "admin_user" # Platzhalter für User-ID
+            if vote == "up":
+                if voter_id not in apps[app_id]["upvotes"]:
+                    apps[app_id]["upvotes"].append(voter_id)
+                if voter_id in apps[app_id]["downvotes"]:
+                    apps[app_id]["downvotes"].remove(voter_id)
+            elif vote == "down":
+                if voter_id not in apps[app_id]["downvotes"]:
+                    apps[app_id]["downvotes"].append(voter_id)
+                if voter_id in apps[app_id]["upvotes"]:
+                    apps[app_id]["upvotes"].remove(voter_id)
+            save_json(APPS_FILE, apps)
+        return RedirectResponse(url="/applications", status_code=303)
+
+    # 8. Rechte pro Rolle speichern
     elif action == "save_role_permissions" and role_id:
         if "permissions" not in config:
             config["permissions"] = {}
@@ -1121,12 +1125,10 @@ async def handle_action(
             "can_warn": can_warn,
             "can_promote": can_promote,
             "can_add_notes": can_add_notes,
-            "can_manage_settings": can_manage_settings,
         }
         save_json(CONFIG_FILE, config)
         return RedirectResponse(url="/settings", status_code=303)
 
-    # Weiterleitung
     if redirect_to_member and user_id:
         return RedirectResponse(url=f"/member/{user_id}", status_code=303)
 
