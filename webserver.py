@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import os
+import sqlite3
 import uuid
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -22,6 +23,7 @@ CONFIG_FILE = "config.json"
 APPS_FILE = "applications.json"
 SHIFTS_FILE = "shifts.json"
 LOGS_FILE = "logs.json"
+DB_ABMELDUNGEN = "abmeldungen.db"
 BACKUP_DIR = "backups"
 
 if not os.path.exists(BACKUP_DIR):
@@ -38,6 +40,8 @@ DISCORD_AUTH_URL = (
 # =============================================================
 # HELFER-FUNKTIONEN & DESIGN HEADER
 # =============================================================
+json_load = lambda filepath, default: json.load(open(filepath, "r", encoding="utf-8")) if os.path.exists(filepath) else default
+
 def load_json(filepath, default):
     if os.path.exists(filepath):
         try:
@@ -89,7 +93,6 @@ def get_head_html(title: str):
         tailwind.config = {{
             darkMode: 'class',
         }}
-        // Theme initialisieren vor dem Laden, um Flackern zu verhindern
         if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {{
             document.documentElement.classList.add('dark');
         }} else {{
@@ -154,7 +157,6 @@ def get_sidebar_html(guild_name, current_page="dashboard"):
         </div>
 
         <div class="border-t border-slate-200 dark:border-slate-800/80 pt-4 px-1 space-y-3">
-            <!-- Theme Toggle Button -->
             <button onclick="toggleTheme()" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium transition shadow-sm">
                 <span class="flex items-center gap-2">
                     <span class="dark:hidden">🌙 Dark Mode</span>
@@ -248,7 +250,7 @@ async def callback(code: str):
 
 
 # =============================================================
-# ROUTE 1: HAUPT-DASHBOARD (MODERATION, LEADERBOARD & LOGS)
+# ROUTE 1: HAUPT-DASHBOARD
 # =============================================================
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_main(request: Request, session: str = Cookie(None)):
@@ -432,7 +434,7 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
 
 
 # =============================================================
-# ROUTE 2: TEAMLISTE (MIT SUCHFILTER & WOCHENSTUNDEN)
+# ROUTE 2: TEAMLISTE (MIT SQLITE LOA ABGLEICH)
 # =============================================================
 @app.get("/team", response_class=HTMLResponse)
 async def team_list_page(request: Request, session: str = Cookie(None)):
@@ -452,7 +454,15 @@ async def team_list_page(request: Request, session: str = Cookie(None)):
     shifts_db = load_json(SHIFTS_FILE, {"active_shifts": {}, "history": []})
     team_role_ids = config.get("team_role_ids", [])
 
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    # Aktive Abmeldungen aus SQLite laden
+    active_loas = {}
+    if os.path.exists(DB_ABMELDUNGEN):
+        conn = sqlite3.connect(DB_ABMELDUNGEN)
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, bis FROM abmeldungen")
+        for row in cursor.fetchall():
+            active_loas[str(row[0])] = row[1]
+        conn.close()
 
     team_members = []
     for member in guild.members:
@@ -461,15 +471,13 @@ async def team_list_page(request: Request, session: str = Cookie(None)):
         if member_team_roles:
             highest_role = max(member_team_roles, key=lambda r: r.position)
 
-            user_data = team_db.get(str(member.id), {})
-            loa = user_data.get("loa", {})
-
             loa_badge = ""
-            if loa.get("active") and loa.get("end") and loa.get("end") >= today_str:
-                end_formatted = datetime.strptime(loa["end"], "%Y-%m-%d").strftime("%d.%m.")
-                loa_badge = f'<span class="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[10px] px-2.5 py-0.5 rounded-full font-semibold">Abgemeldet bis {end_formatted}</span>'
+            user_id_str = str(member.id)
+            if user_id_str in active_loas:
+                end_date_str = active_loas[user_id_str]
+                loa_badge = f'<span class="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[10px] px-2.5 py-0.5 rounded-full font-semibold">Abgemeldet bis {end_date_str}</span>'
 
-            weekly_hours = calculate_weekly_hours(str(member.id), shifts_db.get("history", []))
+            weekly_hours = calculate_weekly_hours(user_id_str, shifts_db.get("history", []))
 
             team_members.append({
                 "id": member.id,
@@ -866,7 +874,7 @@ async def member_detail(request: Request, user_id: int, session: str = Cookie(No
 
 
 # =============================================================
-# ROUTE: ABWESENHEITEN (LOA)
+# ROUTE: ABWESENHEITEN (LOA) ÜBER SQLITE DATENBANK
 # =============================================================
 @app.get("/loa", response_class=HTMLResponse)
 async def loa_page(request: Request, session: str = Cookie(None)):
@@ -874,24 +882,28 @@ async def loa_page(request: Request, session: str = Cookie(None)):
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
     guild_name = guild.name if guild else "Bochum RP"
-    team_db = load_json(DATA_FILE, {})
 
     loa_entries_html = ""
-    for user_id_str, udata in team_db.items():
-        loa = udata.get("loa", {})
-        if loa.get("active"):
-            member = guild.get_member(int(user_id_str)) if guild else None
-            name = member.display_name if member else f"ID: {user_id_str}"
+    if os.path.exists(DB_ABMELDUNGEN):
+        conn = sqlite3.connect(DB_ABMELDUNGEN)
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, user_name, grund, von, bis FROM abmeldungen")
+        rows = cursor.fetchall()
+        conn.close()
+
+        for user_id, user_name, grund, von, bis in rows:
+            member = guild.get_member(user_id) if guild else None
+            display_name = member.display_name if member else user_name
             loa_entries_html += f"""
             <div class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-2xl p-4.5 flex justify-between items-center shadow-sm">
                 <div>
-                    <div class="font-bold text-slate-900 dark:text-white text-sm">{name}</div>
-                    <div class="text-xs text-slate-400 mt-0.5">📅 {loa.get('start')} bis {loa.get('end')}</div>
-                    <div class="text-xs text-slate-600 dark:text-slate-300 mt-1.5"><strong>Grund:</strong> {loa.get('reason')}</div>
+                    <div class="font-bold text-slate-900 dark:text-white text-sm">{display_name}</div>
+                    <div class="text-xs text-slate-400 mt-0.5">📅 {von} bis {bis}</div>
+                    <div class="text-xs text-slate-600 dark:text-slate-300 mt-1.5"><strong>Grund:</strong> {grund}</div>
                 </div>
                 <form action="/action" method="post">
                     <input type="hidden" name="action" value="cancel_loa">
-                    <input type="hidden" name="target_user_id" value="{user_id_str}">
+                    <input type="hidden" name="target_user_id" value="{user_id}">
                     <button class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-2 rounded-xl font-medium transition">Beenden</button>
                 </form>
             </div>
@@ -1151,10 +1163,8 @@ async def export_logs(session: str = Cookie(None)):
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';')
     
-    # CSV-Header schreiben
     writer.writerow(["ID", "Datum", "Typ", "Ziel-Nutzer", "Roblox ID", "Moderator", "Grund"])
 
-    # Daten schreiben
     for log in logs_db:
         writer.writerow([
             log.get("id"),
@@ -1205,7 +1215,7 @@ async def create_log(
 
 
 # =============================================================
-# ACTION: SCHICHT-SYSTEM STEUERUNG (LIVE-ZEITEN)
+# ACTION: SCHICHT-SYSTEM STEUERUNG
 # =============================================================
 @app.post("/shift/action")
 async def handle_shift_action(shift_action: str = Form(...), session: str = Cookie(None)):
@@ -1248,7 +1258,7 @@ async def handle_shift_action(shift_action: str = Form(...), session: str = Cook
 
 
 # =============================================================
-# ZENTRALER ACTION-HANDLER (PROFILES & SETTINGS)
+# ZENTRALER ACTION-HANDLER (SQLITE LOA & PROFILES & SETTINGS)
 # =============================================================
 @app.post("/action")
 async def handle_action(
@@ -1313,23 +1323,36 @@ async def handle_action(
         team_db[user_key]["notes"].append(note_text)
         save_json(DATA_FILE, team_db)
 
-    elif action == "submit_loa" and user_id:
-        user_key = str(user_id)
-        if user_key not in team_db:
-            team_db[user_key] = {}
-        team_db[user_key]["loa"] = {
-            "active": True,
-            "start": loa_start,
-            "end": loa_end,
-            "reason": loa_reason,
-        }
-        save_json(DATA_FILE, team_db)
+    elif action == "submit_loa" and user_id and guild:
+        # Datum von YYYY-MM-DD zu DD.MM.YYYY konvertieren (für Kompatibilität mit dem Bot)
+        try:
+            von_formatted = datetime.strptime(loa_start, "%Y-%m-%d").strftime("%d.%m.%Y")
+            bis_formatted = datetime.strptime(loa_end, "%Y-%m-%d").strftime("%d.%m.%Y")
+        except Exception:
+            von_formatted = loa_start
+            bis_formatted = loa_end
+
+        member = guild.get_member(user_id)
+        user_name = member.display_name if member else f"User {user_id}"
+        original_nick = member.nick if member else None
+
+        conn = sqlite3.connect(DB_ABMELDUNGEN)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO abmeldungen (user_id, user_name, grund, von, bis, original_nick, guild_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, user_name, loa_reason, von_formatted, bis_formatted, original_nick, GUILD_ID))
+        conn.commit()
+        conn.close()
+
         return RedirectResponse(url="/loa", status_code=303)
 
     elif action == "cancel_loa" and target_user_id:
-        if target_user_id in team_db and "loa" in team_db[target_user_id]:
-            team_db[target_user_id]["loa"]["active"] = False
-            save_json(DATA_FILE, team_db)
+        conn = sqlite3.connect(DB_ABMELDUNGEN)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM abmeldungen WHERE user_id = ?", (int(target_user_id),))
+        conn.commit()
+        conn.close()
         return RedirectResponse(url="/loa", status_code=303)
 
     elif action == "submit_application" and applicant_id:
