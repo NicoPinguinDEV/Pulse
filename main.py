@@ -1,18 +1,31 @@
+import asyncio  # NEU: Für asynchrone Hintergrund-Tasks
 import os
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+import uvicorn  # NEU: Webserver-Runner
+
+# NEU: Deine FastAPI-Instanz aus der webserver.py importieren
+from webserver import app
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
+# NEU: Nutzt automatisch den Port 25095 von Bot-Hosting.net
+PORT = int(os.getenv("SERVER_PORT", 25095))
+
 
 class CustomBot(commands.Bot):
+
     def __init__(self):
         # Intents definieren und Privileged Intents aktivieren
         intents = discord.Intents.default()
-        intents.members = True          # Für Rollenänderungen & Teamler-Erkennung
-        intents.presences = True        # Für den Online/Offline/Abwesend Status
-        intents.message_content = True  # NÖTIG: Für das Flaggen-Quiz zum Lesen der Chatnachrichten!
+        intents.members = (
+            True  # Für Rollenänderungen & Teamler-Erkennung
+        )
+        intents.presences = True  # Für den Online/Offline/Abwesend Status
+        intents.message_content = (
+            True  # NÖTIG: Für das Flaggen-Quiz zum Lesen der Chatnachrichten!
+        )
 
         super().__init__(command_prefix="!", intents=intents)
 
@@ -31,8 +44,19 @@ class CustomBot(commands.Bot):
         synced = await self.tree.sync()
         print(f"🔄 {len(synced)} Slash Commands synchronisiert!")
 
+        # =============================================================
+        # NEU: Webserver im Hintergrund starten
+        # =============================================================
+        config = uvicorn.Config(
+            app=app, host="0.0.0.0", port=PORT, log_level="info"
+        )
+        server = uvicorn.Server(config)
+        asyncio.create_task(server.serve())
+        print(f"🌐 Webserver gestartet auf Port {PORT}")
+
     async def on_ready(self):
         print(f"✅ Bot ist online als {self.user} (ID: {self.user.id})")
+
 
 bot = CustomBot()
 
