@@ -1662,9 +1662,9 @@ async def handle_action(
                         await member.add_roles(new_role)
                         await send_dm_notification(member, f"🎉 **Herzlichen Glückwunsch!** Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert!")
                         await send_team_update_embed(
-                            guild, 
-                            "⬆️ Team-Update: Beförderung", 
-                            f"**Mitglied:** {member.mention} ({member.display_name})\n**Alte Rolle:** {guild.get_role(team_role_ids[current_idx]).name if current_idx >= 0 else 'Keine'}\n**Neue Rolle:** **{new_role.name}**\n**Durch:** {current_user.get('global_name')}", 
+                            guild,
+                            "📈 Team-Update: Beförderung",
+                            f"**Mitglied:** {member.mention} ({member.display_name})\n**Neuer Rang:** {new_role.name}\n**Durch:** {current_user.get('global_name')}",
                             discord.Color.green()
                         )
                         log_audit(current_user.get("global_name"), current_user.get("id"), "Beförderung", f"{member.display_name} -> {new_role.name}")
@@ -1689,310 +1689,433 @@ async def handle_action(
                     
                     if new_role:
                         await member.add_roles(new_role)
-                        await send_dm_notification(member, f"📉 **Information:** Du wurdest auf **{guild.name}** auf den Rang **{new_role.name}** degradiert.")
+                        await send_dm_notification(member, f"⚠️ Du wurdest auf **{guild.name}** zum **{new_role.name}** degradiert.")
                         await send_team_update_embed(
-                            guild, 
-                            "⬇️ Team-Update: Degradierung", 
-                            f"**Mitglied:** {member.mention} ({member.display_name})\n**Neue Rolle:** **{new_role.name}**\n**Durch:** {current_user.get('global_name')}", 
+                            guild,
+                            "📉 Team-Update: Degradierung",
+                            f"**Mitglied:** {member.mention} ({member.display_name})\n**Neuer Rang:** {new_role.name}\n**Durch:** {current_user.get('global_name')}",
                             discord.Color.orange()
                         )
                         log_audit(current_user.get("global_name"), current_user.get("id"), "Degradierung", f"{member.display_name} -> {new_role.name}")
 
     # ---------------------------------------------------------
-    # VERWARNUNGEN (Inkl. Auto-Degradierung bei 3. Warn)
+    # VERWARNUNGEN UND NOTIZEN
     # ---------------------------------------------------------
     elif action == "warn_with_proof" and user_id:
         user_key = str(user_id)
         if user_key not in team_db:
-            team_db[user_key] = {"warns_list": [], "notes": []}
-
-        if "warns_list" not in team_db[user_key]:
-            team_db[user_key]["warns_list"] = []
-
-        new_warn_id = uuid.uuid4().hex[:6]
-        team_db[user_key]["warns_list"].append({
-            "id": new_warn_id,
-            "reason": warn_reason,
-            "proof": warn_proof,
-            "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
-            "by": current_user.get("global_name", "Dashboard Admin"),
-        })
+            team_db[user_key] = {"warns_list": [], "notes": [], "ticket_cases": 0, "support_cases": 0}
+        
+        warn_entry = {
+            "id": f"warn_{uuid.uuid4().hex[:6]}",
+            "reason": warn_reason or "Kein Grund angegeben",
+            "proof": warn_proof or "",
+            "by": current_user.get("global_name", "Admin"),
+            "date": datetime.now().strftime("%d.%m.%Y %H:%M")
+        }
+        team_db[user_key]["warns_list"].append(warn_entry)
         save_json(DATA_FILE, team_db)
 
-        member = guild.get_member(user_id) if guild else None
-        total_warns = len(team_db[user_key]["warns_list"])
-
-        log_audit(current_user.get("global_name"), current_user.get("id"), "Warn Vergeben", f"An User ID {user_id} (Warn {total_warns}/3)")
-
-        if member:
-            await send_dm_notification(member, f"⚠️ **Verwarnung erhalten!**\n**Server:** {guild.name}\n**Warn-Stufe:** {total_warns}/3\n**Grund:** {warn_reason}\n**Ausgestellt von:** {current_user.get('global_name')}")
-
-            target_level = min(total_warns, 3)
-            for lvl, r_id in WARN_ROLE_IDS.items():
-                r_obj = guild.get_role(r_id)
-                if r_obj and r_obj in member.roles and lvl != target_level:
-                    try: await member.remove_roles(r_obj)
-                    except Exception: pass
-            
-            current_role_id = WARN_ROLE_IDS.get(target_level)
-            if current_role_id:
-                current_role = guild.get_role(current_role_id)
-                if current_role and current_role not in member.roles:
-                    try: await member.add_roles(current_role)
-                    except Exception: pass
-
-            # AUTOMATISCHES DEGRADIEREN BEI 3 WARNS
-            if total_warns >= 3:
-                team_role_ids = config.get("team_role_ids", [])
-                member_team_role_ids = [r.id for r in member.roles if r.id in team_role_ids]
-                if member_team_role_ids:
-                    indices = [team_role_ids.index(rid) for rid in member_team_role_ids if rid in team_role_ids]
-                    if indices and max(indices) > 0:
-                        new_idx = max(indices) - 1
-                        new_role = guild.get_role(team_role_ids[new_idx])
-                        for rid in member_team_role_ids:
-                            r_obj = guild.get_role(rid)
-                            if r_obj:
-                                try: await member.remove_roles(r_obj)
-                                except Exception: pass
-                        if new_role:
-                            await member.add_roles(new_role)
-                            await send_dm_notification(member, f"⚠️ **Automatisches Degradieren:** Aufgrund von 3 Verwarnungen wurdest du automatisch auf **{new_role.name}** degradiert.")
-                            await send_team_update_embed(
-                                guild,
-                                "⚠️ Automatisches Degradieren (3 Warns)",
-                                f"**Mitglied:** {member.mention} ({member.display_name})\n**Grund:** 3. Verwarnung erteilt.\n**Neue Rolle:** **{new_role.name}**",
-                                discord.Color.red()
-                            )
-                            log_audit("System", "0", "Auto-Degradierung", f"{member.display_name} wegen 3 Warns auf {new_role.name} degradiert.")
-
+        warn_count = len(team_db[user_key]["warns_list"])
         if guild:
-            proof_display = f"[Beweis öffnen]({warn_proof})" if warn_proof else "*Kein Beweis angegeben*"
-            embed = discord.Embed(
-                title="⚠️ Team-Update: Offizielle Verwarnung",
-                description="Einem Teammitglied wurde eine offizielle Verwarnung ausgestellt.",
-                color=discord.Color.gold()
-            )
-            embed.add_field(name="👤 Mitglied", value=member.mention if member else f"ID: {user_id}", inline=True)
-            embed.add_field(name="🔢 Warn-Stufe", value=f"**Warn {total_warns} / 3**", inline=True)
-            embed.add_field(name="🛡️ Ausgestellt von", value=current_user.get("global_name", "Admin"), inline=True)
-            embed.add_field(name="📝 Grund", value=warn_reason, inline=False)
-            embed.add_field(name="🔗 Beweis", value=proof_display, inline=False)
-            embed.set_footer(text=f"{guild.name} • Warn-ID: {new_warn_id}")
-            embed.timestamp = datetime.now()
+            member = guild.get_member(user_id)
+            if member:
+                role_id = WARN_ROLE_IDS.get(warn_count)
+                if role_id:
+                    role_obj = guild.get_role(role_id)
+                    if role_obj:
+                        try: await member.add_roles(role_obj)
+                        except Exception: pass
+                await send_dm_notification(member, f"⚠️ Du hast eine Verwarnung erhalten ({warn_count}. Verwarnung).\n**Grund:** {warn_reason}")
+                await send_team_update_embed(
+                    guild,
+                    "⚠️ Team-Update: Verwarnung",
+                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Anzahl:** {warn_count}. Verwarnung\n**Grund:** {warn_reason}\n**Von:** {current_user.get('global_name')}",
+                    discord.Color.gold()
+                )
 
-            channel = discord.utils.get(guild.text_channels, name=TEAM_UPDATE_CHANNEL_NAME)
-            if channel:
-                try: await channel.send(embed=embed)
-                except Exception: pass
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Verwarnung", f"User {user_id} verwarnt: {warn_reason}")
 
-    elif action == "remove_warn" and user_id:
+    elif action == "remove_warn" and user_id and warn_id:
         user_key = str(user_id)
         if user_key in team_db and "warns_list" in team_db[user_key]:
             team_db[user_key]["warns_list"] = [w for w in team_db[user_key]["warns_list"] if w.get("id") != warn_id]
             save_json(DATA_FILE, team_db)
-
-            log_audit(current_user.get("global_name"), current_user.get("id"), "Warn Gelöscht", f"Für User ID {user_id}")
-
-            member = guild.get_member(user_id) if guild else None
-            remaining_warns = len(team_db[user_key]["warns_list"])
-
-            if member:
-                for r_id in WARN_ROLE_IDS.values():
-                    r_obj = guild.get_role(r_id)
-                    if r_obj and r_obj in member.roles:
-                        try: await member.remove_roles(r_obj)
-                        except Exception: pass
-                
-                if remaining_warns > 0:
-                    new_level = min(remaining_warns, 3)
-                    new_role = guild.get_role(WARN_ROLE_IDS.get(new_level))
-                    if new_role:
-                        try: await member.add_roles(new_role)
-                        except Exception: pass
-
-            if guild:
-                embed = discord.Embed(
-                    title="✅ Team-Update: Warn zurückgezogen",
-                    description=f"Eine Verwarnung für {member.mention if member else user_id} wurde zurückgezogen.\nAktuelle Warns: **{remaining_warns} / 3**",
-                    color=discord.Color.brand_green()
-                )
-                embed.timestamp = datetime.now()
-                channel = discord.utils.get(guild.text_channels, name=TEAM_UPDATE_CHANNEL_NAME)
-                if channel:
-                    try: await channel.send(embed=embed)
-                    except Exception: pass
+            log_audit(current_user.get("global_name"), current_user.get("id"), "Warn Zurückgezogen", f"Warn {warn_id} für User {user_id} gelöscht.")
 
     elif action == "add_note" and user_id and note_text:
         user_key = str(user_id)
         if user_key not in team_db:
-            team_db[user_key] = {"notes": [], "warns_list": []}
-        team_db[user_key]["notes"].append(note_text)
+            team_db[user_key] = {"warns_list": [], "notes": [], "ticket_cases": 0, "support_cases": 0}
+        team_db[user_key]["notes"].append(f"{note_text} (von {current_user.get('global_name')})")
         save_json(DATA_FILE, team_db)
-        log_audit(current_user.get("global_name"), current_user.get("id"), "Notiz Hinzugefügt", f"Für User ID {user_id}: {note_text}")
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Notiz Hinzugefügt", f"Notiz für User {user_id}")
 
-    elif action == "submit_loa" and user_id and guild:
-        try:
-            von_formatted = datetime.strptime(loa_start, "%Y-%m-%d").strftime("%d.%m.%Y")
-            bis_formatted = datetime.strptime(loa_end, "%Y-%m-%d").strftime("%d.%m.%Y")
-        except Exception:
-            von_formatted = loa_start
-            bis_formatted = loa_end
-
-        member = guild.get_member(user_id)
-        user_name = member.display_name if member else f"User {user_id}"
-        original_nick = member.nick if member else None
-
+    # ---------------------------------------------------------
+    # ABMELDUNGEN (LOA)
+    # ---------------------------------------------------------
+    elif action == "submit_loa" and user_id and loa_start and loa_end and loa_reason:
+        member_name = "Unbekannt"
+        if guild:
+            member = guild.get_member(user_id)
+            if member:
+                member_name = member.display_name
+        
         conn = sqlite3.connect(DB_ABMELDUNGEN)
         cursor = conn.cursor()
         cursor.execute("""
             INSERT OR REPLACE INTO abmeldungen (user_id, user_name, grund, von, bis, original_nick, guild_id)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, user_name, loa_reason, von_formatted, bis_formatted, original_nick, GUILD_ID))
+        """, (user_id, member_name, loa_reason, loa_start, loa_end, member_name, GUILD_ID))
         conn.commit()
         conn.close()
 
-        if bot:
-            try:
-                loa_channel = discord.utils.get(guild.text_channels, name="abmeldungen") or discord.utils.get(guild.text_channels, name="loa")
-                if loa_channel:
-                    embed = discord.Embed(
-                        title="🌴 Neue Abmeldung (Web-Dashboard)",
-                        description=f"**Mitglied:** {member.mention if member else user_name}\n"
-                                    f"**Zeitraum:** {von_formatted} bis {bis_formatted}\n"
-                                    f"**Grund:** {loa_reason}",
-                        color=discord.Color.orange()
-                    )
-                    embed.set_footer(text="Eingetragen über das Web-Panel")
-                    await loa_channel.send(embed=embed)
-                
-                if member and not member.display_name.startswith("[Abgemeldet]"):
-                    try: await member.edit(nick=f"[Abgemeldet] {member.display_name}")
-                    except Exception: pass
-            except Exception as e:
-                print(f"Fehler beim Senden der Discord-Benachrichtigung: {e}")
+        if guild:
+            member = guild.get_member(user_id)
+            if member:
+                await send_team_update_embed(
+                    guild,
+                    "🌴 Team-Update: Abmeldung (LOA)",
+                    f"**Mitglied:** {member.mention}\n**Zeitraum:** {loa_start} bis {loa_end}\n**Grund:** {loa_reason}",
+                    discord.Color.teal()
+                )
 
+        log_audit(current_user.get("global_name"), current_user.get("id"), "LOA Eingetragen", f"LOA für {user_id} ({loa_start} - {loa_end})")
         return RedirectResponse(url="/loa", status_code=303)
 
     elif action == "cancel_loa" and target_user_id:
         conn = sqlite3.connect(DB_ABMELDUNGEN)
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM abmeldungen WHERE user_id = ?", (int(target_user_id),))
+        cursor.execute("DELETE FROM abmeldungen WHERE user_id = ?", (target_user_id,))
         conn.commit()
         conn.close()
+        log_audit(current_user.get("global_name"), current_user.get("id"), "LOA Beendet", f"LOA für {target_user_id} beendet.")
         return RedirectResponse(url="/loa", status_code=303)
 
-    elif action == "submit_application" and applicant_id:
-        new_id = f"app_{uuid.uuid4().hex[:8]}"
-        apps[new_id] = {
-            "user_id": applicant_id,
+    # ---------------------------------------------------------
+    # BEWERBUNGSSYSTEM
+    # ---------------------------------------------------------
+    elif action == "submit_application" and applicant_id and applicant_name and applicant_text:
+        app_id_new = f"app_{uuid.uuid4().hex[:6]}"
+        apps[app_id_new] = {
+            "user_id": str(applicant_id),
             "name": applicant_name,
             "text": applicant_text,
             "status": "pending",
             "upvotes": [],
             "downvotes": [],
+            "created_at": datetime.now().strftime("%d.%m.%Y %H:%M")
         }
         save_json(APPS_FILE, apps)
-        return HTMLResponse(
-            "<body style='background:#0b0e14;color:white;font-family:sans-serif;text-align:center;padding-top:50px;'><h2>Deine Bewerbung wurde erfolgreich abgesendet!</h2><a href='/apply' style='color:#6366f1;'>Zurück</a></body>"
-        )
+        return HTMLResponse("<h2>Bewerbung erfolgreich abgesendet!</h2><p>Vielen Dank für deine Bewerbung.</p><a href='/apply'>Zurück</a>")
 
-    elif action == "decide_app" and app_id and decision and guild:
-        if app_id in apps:
-            apps[app_id]["status"] = decision
-            save_json(APPS_FILE, apps)
-            applicant_user_id = apps[app_id]["user_id"]
+    elif action == "vote_app" and app_id and vote and app_id in apps:
+        voter_id = current_user.get("id")
+        upvotes = set(apps[app_id].get("upvotes", []))
+        downvotes = set(apps[app_id].get("downvotes", []))
 
-            log_audit(current_user.get("global_name"), current_user.get("id"), "Bewerbung Entscheiden", f"Bewerbung {app_id}: {decision}")
+        if vote == "up":
+            upvotes.add(voter_id)
+            downvotes.discard(voter_id)
+        elif vote == "down":
+            downvotes.add(voter_id)
+            upvotes.discard(voter_id)
 
-            if decision == "accept":
-                target_member = guild.get_member(applicant_user_id)
-                team_role_ids = config.get("team_role_ids", [])
-                if target_member and team_role_ids:
-                    first_role = guild.get_role(team_role_ids[0])
-                    if first_role:
-                        await target_member.add_roles(first_role)
-                        await send_team_update_embed(
-                            guild,
-                            "✨ Team-Update: Neueinstellung",
-                            f"**Neuer Teamler:** {target_member.mention} ({apps[app_id]['name']})\n**Zugewiesene Rolle:** {first_role.name}",
-                            discord.Color.brand_green()
-                        )
-                if bot:
-                    try:
-                        u_obj = await bot.fetch_user(applicant_user_id)
-                        await send_dm_notification(u_obj, f"🎉 **Herzlichen Glückwunsch!** Deine Bewerbung bei **{guild.name}** wurde **angenommen**!")
-                    except Exception: pass
-
-            elif decision == "reject" and bot:
-                try:
-                    u_obj = await bot.fetch_user(applicant_user_id)
-                    await send_dm_notification(u_obj, f"❌ **Bewerbungs-Update:** Deine Bewerbung bei **{guild.name}** wurde leider **abgelehnt**.")
-                except Exception: pass
-
+        apps[app_id]["upvotes"] = list(upvotes)
+        apps[app_id]["downvotes"] = list(downvotes)
+        save_json(APPS_FILE, apps)
         return RedirectResponse(url="/applications", status_code=303)
 
-    elif action == "vote_app" and app_id and vote:
-        if app_id in apps:
-            voter_id = current_user["id"]
-            if vote == "up":
-                if voter_id not in apps[app_id]["upvotes"]:
-                    apps[app_id]["upvotes"].append(voter_id)
-                if voter_id in apps[app_id]["downvotes"]:
-                    apps[app_id]["downvotes"].remove(voter_id)
-            elif vote == "down":
-                if voter_id not in apps[app_id]["downvotes"]:
-                    apps[app_id]["downvotes"].append(voter_id)
-                if voter_id in apps[app_id]["upvotes"]:
-                    apps[app_id]["upvotes"].remove(voter_id)
-            save_json(APPS_FILE, apps)
+    elif action == "decide_app" and app_id and decision and app_id in apps:
+        apps[app_id]["status"] = "accepted" if decision == "accept" else "rejected"
+        save_json(APPS_FILE, apps)
+        
+        app_user_id = int(apps[app_id].get("user_id", 0))
+        if guild and app_user_id:
+            member = guild.get_member(app_user_id)
+            if member:
+                status_str = "angenommen 🎉" if decision == "accept" else "abgelehnt ❌"
+                await send_dm_notification(member, f"Hallo {member.display_name}, deine Team-Bewerbung auf **{guild.name}** wurde {status_str}.")
+        
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Bewerbung Entscheiden", f"Bewerbung {app_id}: {decision}")
         return RedirectResponse(url="/applications", status_code=303)
 
     # ---------------------------------------------------------
-    # BESPRECHUNGS-TOOL ACTIONS
+    # BESPRECHUNGEN
     # ---------------------------------------------------------
     elif action == "meeting_rsvp" and rsvp_status:
-        m_data = load_json(MEETINGS_FILE, {"title": "", "date_time": "", "description": "", "rsvps": {}, "topics": []})
-        m_data["rsvps"][current_user["id"]] = {
+        meetings_data = load_json(MEETINGS_FILE, {"title": "Nächste Teambesprechung", "date_time": "Noch nicht angesetzt", "description": "", "rsvps": {}, "topics": []})
+        user_id_str = current_user.get("id")
+        meetings_data["rsvps"][user_id_str] = {
             "name": current_user.get("global_name"),
             "status": rsvp_status
         }
-        save_json(MEETINGS_FILE, m_data)
+        save_json(MEETINGS_FILE, meetings_data)
         return RedirectResponse(url="/meetings", status_code=303)
 
     elif action == "add_meeting_topic" and topic_title and topic_details:
-        m_data = load_json(MEETINGS_FILE, {"title": "", "date_time": "", "description": "", "rsvps": {}, "topics": []})
-        m_data["topics"].append({
+        meetings_data = load_json(MEETINGS_FILE, {"title": "Nächste Teambesprechung", "date_time": "Noch nicht angesetzt", "description": "", "rsvps": {}, "topics": []})
+        meetings_data.setdefault("topics", []).append({
             "title": topic_title,
             "details": topic_details,
             "by": current_user.get("global_name")
         })
-        save_json(MEETINGS_FILE, m_data)
+        save_json(MEETINGS_FILE, meetings_data)
         return RedirectResponse(url="/meetings", status_code=303)
 
     elif action == "set_meeting_info" and meeting_title and meeting_datetime:
-        m_data = load_json(MEETINGS_FILE, {"title": "", "date_time": "", "description": "", "rsvps": {}, "topics": []})
-        m_data["title"] = meeting_title
-        m_data["date_time"] = meeting_datetime
-        m_data["description"] = meeting_desc or ""
-        save_json(MEETINGS_FILE, m_data)
-        log_audit(current_user.get("global_name"), current_user.get("id"), "Besprechung Geändert", f"Titel: {meeting_title}")
+        meetings_data = load_json(MEETINGS_FILE, {"title": "", "date_time": "", "description": "", "rsvps": {}, "topics": []})
+        meetings_data["title"] = meeting_title
+        meetings_data["date_time"] = meeting_datetime
+        meetings_data["description"] = meeting_desc or ""
+        save_json(MEETINGS_FILE, meetings_data)
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Meeting Angesetzt", f"Titel: {meeting_title}")
         return RedirectResponse(url="/meetings", status_code=303)
 
+    # ---------------------------------------------------------
+    # EINSTELLUNGEN
+    # ---------------------------------------------------------
     elif action == "save_role_permissions" and role_id:
-        if "permissions" not in config:
-            config["permissions"] = {}
-        config["permissions"][str(role_id)] = {
+        perms = config.get("permissions", {})
+        perms[str(role_id)] = {
             "can_view_dashboard": can_view_dashboard,
             "can_warn": can_warn,
             "can_promote": can_promote,
-            "can_add_notes": can_add_notes,
+            "can_add_notes": can_add_notes
         }
+        config["permissions"] = perms
         save_json(CONFIG_FILE, config)
-        log_audit(current_user.get("global_name"), current_user.get("id"), "Rollenrechte Geändert", f"Rolle ID {role_id}")
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Rechte Gespeichert", f"Rolle {role_id}")
         return RedirectResponse(url="/settings", status_code=303)
 
     if redirect_to_member and user_id:
         return RedirectResponse(url=f"/member/{user_id}", status_code=303)
-
     return RedirectResponse(url="/dashboard", status_code=303)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=25095)
+    await send_dm_notification(member, f"🎉 Herzlichen Glückwunsch! Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert.")
+                        await send_team_update_embed(
+                            guild, 
+                            "⬆️ Team-Update: Beförderung", 
+                            f"**Mitglied:** {member.mention} ({member.display_name})\n**Neuer Rang:** {new_role.name}\n**Durchgeführt von:** {current_user.get('global_name')}", 
+                            discord.Color.green()
+                        )
+                        log_audit(current_user.get("global_name"), current_user.get("id"), "Beförderung", f"{member.display_name} -> {new_role.name}")
+
+            elif action == "demote":
+                current_idx = -1
+                if member_team_role_ids:
+                    indices = [team_role_ids.index(rid) for rid in member_team_role_ids if rid in team_role_ids]
+                    if indices:
+                        current_idx = min(indices)
+                
+                if current_idx > 0:
+                    new_idx = current_idx - 1
+                    new_role_id = team_role_ids[new_idx]
+                    new_role = guild.get_role(new_role_id)
+                    
+                    for rid in member_team_role_ids:
+                        r_obj = guild.get_role(rid)
+                        if r_obj:
+                            try: await member.remove_roles(r_obj)
+                            except Exception: pass
+                    
+                    if new_role:
+                        await member.add_roles(new_role)
+                        await send_dm_notification(member, f"⚠️ Du wurdest auf **{guild.name}** auf **{new_role.name}** degradiert.")
+                        await send_team_update_embed(
+                            guild, 
+                            "⬇️ Team-Update: Degradierung", 
+                            f"**Mitglied:** {member.mention} ({member.display_name})\n**Neuer Rang:** {new_role.name}\n**Durchgeführt von:** {current_user.get('global_name')}", 
+                            discord.Color.orange()
+                        )
+                        log_audit(current_user.get("global_name"), current_user.get("id"), "Degradierung", f"{member.display_name} -> {new_role.name}")
+
+    # ---------------------------------------------------------
+    # VERWARNUNGEN & NOTIZEN
+    # ---------------------------------------------------------
+    elif action == "warn_with_proof" and user_id:
+        user_id_str = str(user_id)
+        if user_id_str not in team_db:
+            team_db[user_id_str] = {"warns_list": [], "notes": [], "ticket_cases": 0, "support_cases": 0}
+        
+        warn_data = {
+            "id": f"warn_{uuid.uuid4().hex[:6]}",
+            "reason": warn_reason or "Kein Grund angegeben",
+            "proof": warn_proof or "",
+            "by": current_user.get("global_name", "System"),
+            "date": datetime.now().strftime("%d.%m.%Y %H:%M")
+        }
+        
+        team_db[user_id_str]["warns_list"].append(warn_data)
+        warn_count = len(team_db[user_id_str]["warns_list"])
+        save_json(DATA_FILE, team_db)
+
+        if guild and (member := guild.get_member(user_id)):
+            role_id = WARN_ROLE_IDS.get(warn_count)
+            if role_id:
+                warn_role = guild.get_role(role_id)
+                if warn_role:
+                    try: await member.add_roles(warn_role)
+                    except Exception: pass
+
+            await send_dm_notification(
+                member, 
+                f"⚠️ Du hast eine Verwarnung auf **{guild.name}** erhalten.\n**Grund:** {warn_reason}\n**Anzahl Verwarnungen:** {warn_count}/3"
+            )
+            await send_team_update_embed(
+                guild, 
+                "⚠️ Team-Update: Verwarnung", 
+                f"**Mitglied:** {member.mention} ({member.display_name})\n**Grund:** {warn_reason}\n**Warns Gesamt:** {warn_count}\n**Ausgestellt von:** {current_user.get('global_name')}", 
+                discord.Color.gold()
+            )
+
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Verwarnung", f"User {user_id} verwarnt: {warn_reason}")
+
+    elif action == "remove_warn" and user_id and warn_id:
+        user_id_str = str(user_id)
+        if user_id_str in team_db:
+            team_db[user_id_str]["warns_list"] = [w for w in team_db[user_id_str].get("warns_list", []) if w.get("id") != warn_id]
+            save_json(DATA_FILE, team_db)
+            log_audit(current_user.get("global_name"), current_user.get("id"), "Warn Zurückgezogen", f"Warn {warn_id} bei User {user_id} gelöscht.")
+
+    elif action == "add_note" and user_id and note_text:
+        user_id_str = str(user_id)
+        if user_id_str not in team_db:
+            team_db[user_id_str] = {"warns_list": [], "notes": [], "ticket_cases": 0, "support_cases": 0}
+        team_db[user_id_str]["notes"].append(note_text)
+        save_json(DATA_FILE, team_db)
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Notiz Erstellt", f"Notiz für User {user_id} hinzugefügt.")
+
+    # ---------------------------------------------------------
+    # ABMELDUNGEN (LOA)
+    # ---------------------------------------------------------
+    elif action == "submit_loa" and user_id and loa_start and loa_end:
+        user_name = "Unbekannt"
+        if guild and (member := guild.get_member(user_id)):
+            user_name = member.display_name
+
+        conn = sqlite3.connect(DB_ABMELDUNGEN)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO abmeldungen (user_id, user_name, grund, von, bis, guild_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, user_name, loa_reason or "Kein Grund", loa_start, loa_end, GUILD_ID)
+        )
+        conn.commit()
+        conn.close()
+
+        if guild and (member := guild.get_member(user_id)):
+            await send_team_update_embed(
+                guild, 
+                "🌴 Team-Update: Abmeldung (LOA)", 
+                f"**Mitglied:** {member.mention} ({user_name})\n**Zeitraum:** {loa_start} bis {loa_end}\n**Grund:** {loa_reason}", 
+                discord.Color.blue()
+            )
+
+        log_audit(current_user.get("global_name"), current_user.get("id"), "LOA Eingetragen", f"Abmeldung für {user_id} ({loa_start} - {loa_end})")
+
+    elif action == "cancel_loa" and target_user_id:
+        conn = sqlite3.connect(DB_ABMELDUNGEN)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM abmeldungen WHERE user_id = ?", (target_user_id,))
+        conn.commit()
+        conn.close()
+        log_audit(current_user.get("global_name"), current_user.get("id"), "LOA Beendet", f"Abmeldung für ID {target_user_id} aufgehoben.")
+
+    # ---------------------------------------------------------
+    # BEWERBUNGEN
+    # ---------------------------------------------------------
+    elif action == "submit_application" and applicant_id and applicant_name and applicant_text:
+        new_app_id = f"app_{uuid.uuid4().hex[:6]}"
+        apps[new_app_id] = {
+            "user_id": applicant_id,
+            "name": applicant_name,
+            "text": applicant_text,
+            "status": "pending",
+            "upvotes": [],
+            "downvotes": []
+        }
+        save_json(APPS_FILE, apps)
+        return RedirectResponse(url="/apply?success=1", status_code=303)
+
+    elif action == "vote_app" and app_id and vote and app_id in apps:
+        voter_id = current_user["id"]
+        app_data = apps[app_id]
+        if vote == "up":
+            if voter_id not in app_data["upvotes"]:
+                app_data["upvotes"].append(voter_id)
+            if voter_id in app_data["downvotes"]:
+                app_data["downvotes"].remove(voter_id)
+        elif vote == "down":
+            if voter_id not in app_data["downvotes"]:
+                app_data["downvotes"].append(voter_id)
+            if voter_id in app_data["upvotes"]:
+                app_data["upvotes"].remove(voter_id)
+        save_json(APPS_FILE, apps)
+
+    elif action == "decide_app" and app_id and decision and app_id in apps:
+        app_data = apps[app_id]
+        app_data["status"] = "accepted" if decision == "accept" else "rejected"
+        save_json(APPS_FILE, apps)
+
+        if guild and (member := guild.get_member(app_data["user_id"])):
+            status_txt = "angenommen 🎉" if decision == "accept" else "abgelehnt ❌"
+            await send_dm_notification(member, f"Deine Team-Bewerbung bei **{guild.name}** wurde {status_txt}.")
+
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Bewerbung Entscheiden", f"Bewerbung {app_id}: {decision}")
+
+    # ---------------------------------------------------------
+    # BESPRECHUNGS-TOOL
+    # ---------------------------------------------------------
+    elif action == "meeting_rsvp" and rsvp_status:
+        meetings_data = load_json(MEETINGS_FILE, {"title": "Nächste Teambesprechung", "date_time": "", "description": "", "rsvps": {}, "topics": []})
+        user_id_str = current_user["id"]
+        meetings_data["rsvps"][user_id_str] = {
+            "name": current_user.get("global_name"),
+            "status": rsvp_status
+        }
+        save_json(MEETINGS_FILE, meetings_data)
+
+    elif action == "add_meeting_topic" and topic_title:
+        meetings_data = load_json(MEETINGS_FILE, {"title": "Nächste Teambesprechung", "date_time": "", "description": "", "rsvps": {}, "topics": []})
+        meetings_data["topics"].append({
+            "title": topic_title,
+            "details": topic_details or "",
+            "by": current_user.get("global_name")
+        })
+        save_json(MEETINGS_FILE, meetings_data)
+
+    elif action == "set_meeting_info" and meeting_title and meeting_datetime:
+        meetings_data = load_json(MEETINGS_FILE, {"title": "Nächste Teambesprechung", "date_time": "", "description": "", "rsvps": {}, "topics": []})
+        meetings_data["title"] = meeting_title
+        meetings_data["date_time"] = meeting_datetime
+        meetings_data["description"] = meeting_desc or ""
+        meetings_data["rsvps"] = {}
+        meetings_data["topics"] = []
+        save_json(MEETINGS_FILE, meetings_data)
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Besprechung Geändert", f"Titel: {meeting_title}")
+
+    # ---------------------------------------------------------
+    # RECHTE / ROLLEN
+    # ---------------------------------------------------------
+    elif action == "save_role_permissions" and role_id:
+        role_id_str = str(role_id)
+        if "permissions" not in config:
+            config["permissions"] = {}
+        config["permissions"][role_id_str] = {
+            "can_view_dashboard": can_view_dashboard,
+            "can_warn": can_warn,
+            "can_promote": can_promote,
+            "can_add_notes": can_add_notes
+        }
+        save_json(CONFIG_FILE, config)
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Rechte Gespeichert", f"Rolle {role_id}")
+
+    if redirect_to_member and user_id:
+        return RedirectResponse(url=f"/member/{user_id}", status_code=303)
+    
+    referer = request.headers.get("referer", "/dashboard")
+    return RedirectResponse(url=referer, status_code=303)
