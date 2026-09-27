@@ -19,6 +19,13 @@ REDIRECT_URI = "http://fi4.bot-hosting.cloud:25095/callback"
 
 GUILD_ID = 1474514929351524616  # DEINE DISCORD SERVER-ID
 
+# Feste Warn-Rollen IDs nach Vorgabe
+WARN_ROLE_IDS = {
+    1: 1489221948348043395,
+    2: 1489222076370780232,
+    3: 1531760107971416135
+}
+
 DATA_FILE = "team_data.json"
 CONFIG_FILE = "config.json"
 APPS_FILE = "applications.json"
@@ -799,11 +806,18 @@ async def member_detail(request: Request, user_id: int, session: str = Cookie(No
     warns_html = ""
     for w in user_info.get("warns_list", []):
         proof_btn = f'<a href="{w["proof"]}" target="_blank" class="text-indigo-600 dark:text-indigo-400 hover:underline ml-2 font-medium">🔗 Beweis</a>' if w.get("proof") else ""
+        warn_id = w.get("id", "")
         warns_html += f"""
-        <div class="bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-1">
-            <div class="flex justify-between text-slate-400 font-mono text-[10px]">
-                <span>Datum: {w.get('date', 'N/A')}</span>
-                <span>Von: {w.get('by', 'System')}</span>
+        <div class="bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-2">
+            <div class="flex justify-between items-center text-slate-400 font-mono text-[10px]">
+                <span>Datum: {w.get('date', 'N/A')} | Von: {w.get('by', 'System')}</span>
+                <form action="/action" method="post" onsubmit="return confirm('Diesen Warn wirklich löschen/zurückziehen?');">
+                    <input type="hidden" name="action" value="remove_warn">
+                    <input type="hidden" name="user_id" value="{user_id}">
+                    <input type="hidden" name="warn_id" value="{warn_id}">
+                    <input type="hidden" name="redirect_to_member" value="1">
+                    <button class="text-rose-500 hover:underline font-semibold">🗑️ Zurückziehen</button>
+                </form>
             </div>
             <div class="text-slate-700 dark:text-slate-200"><strong>Grund:</strong> {w.get('reason', 'Kein Grund')} {proof_btn}</div>
         </div>
@@ -1321,6 +1335,7 @@ async def handle_action(
     redirect_to_member: str = Form(None),
     warn_reason: str = Form(None),
     warn_proof: str = Form(None),
+    warn_id: str = Form(None),
     note_text: str = Form(None),
     loa_start: str = Form(None),
     loa_end: str = Form(None),
@@ -1381,7 +1396,9 @@ async def handle_action(
         if "warns_list" not in team_db[user_key]:
             team_db[user_key]["warns_list"] = []
 
+        new_warn_id = uuid.uuid4().hex[:6]
         team_db[user_key]["warns_list"].append({
+            "id": new_warn_id,
             "reason": warn_reason,
             "proof": warn_proof,
             "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
@@ -1389,16 +1406,96 @@ async def handle_action(
         })
         save_json(DATA_FILE, team_db)
 
-        # Discord Embed für Team-Warn
+        member = guild.get_member(user_id) if guild else None
+        total_warns = len(team_db[user_key]["warns_list"])
+
+        # Automatische Rollenverwaltung mit deinen festen IDs
+        if member:
+            target_level = min(total_warns, 3)
+            # Alte/andere Warn-Rollen entfernen
+            for lvl, r_id in WARN_ROLE_IDS.items():
+                r_obj = guild.get_role(r_id)
+                if r_obj and r_obj in member.roles and lvl != target_level:
+                    try:
+                        await member.remove_roles(r_obj)
+                    except Exception:
+                        pass
+            
+            # Entsprechende Warn-Rolle hinzufügen
+            current_role_id = WARN_ROLE_IDS.get(target_level)
+            if current_role_id:
+                current_role = guild.get_role(current_role_id)
+                if current_role and current_role not in member.roles:
+                    try:
+                        await member.add_roles(current_role)
+                    except Exception:
+                        pass
+
+        # Schöneres Discord Embed für Team-Warn
         if guild:
-            member = guild.get_member(user_id)
-            proof_text = f"[Beweis öffnen]({warn_proof})" if warn_proof else "Kein Beweis angegeben"
-            await send_team_update_embed(
-                guild,
-                "⚠️ Team-Update: Team-Warn",
-                f"**Mitglied:** {member.mention if member else user_id}\n**Grund:** {warn_reason}\n**Beweis:** {proof_text}",
-                discord.Color.gold()
+            proof_display = f"[Beweis öffnen]({warn_proof})" if warn_proof else "*Kein Beweis angegeben*"
+            embed = discord.Embed(
+                title="⚠️ Team-Update: Offizielle Verwarnung",
+                description="Einem Teammitglied wurde eine offizielle Verwarnung ausgestellt.",
+                color=discord.Color.gold()
             )
+            embed.add_field(name="👤 Mitglied", value=member.mention if member else f"ID: {user_id}", inline=True)
+            embed.add_field(name="🔢 Warn-Stufe", value=f"**Warn {total_warns} / 3**", inline=True)
+            embed.add_field(name="🛡️ Ausgestellt von", value="Dashboard Admin", inline=True)
+            embed.add_field(name="📝 Grund", value=warn_reason, inline=False)
+            embed.add_field(name="🔗 Beweis", value=proof_display, inline=False)
+            embed.set_footer(text=f"Bochum RP • Warn-ID: {new_warn_id}")
+            embed.timestamp = datetime.now()
+
+            channel = discord.utils.get(guild.text_channels, name="╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
+            if channel:
+                try:
+                    await channel.send(embed=embed)
+                except Exception as e:
+                    print(f"Fehler beim Senden des Warn-Embeds: {e}")
+
+    elif action == "remove_warn" and user_id:
+        user_key = str(user_id)
+        if user_key in team_db and "warns_list" in team_db[user_key]:
+            team_db[user_key]["warns_list"] = [w for w in team_db[user_key]["warns_list"] if w.get("id") != warn_id]
+            save_json(DATA_FILE, team_db)
+
+            member = guild.get_member(user_id) if guild else None
+            remaining_warns = len(team_db[user_key]["warns_list"])
+
+            if member:
+                # Alle Warn-Rollen erst einmal entfernen
+                for r_id in WARN_ROLE_IDS.values():
+                    r_obj = guild.get_role(r_id)
+                    if r_obj and r_obj in member.roles:
+                        try:
+                            await member.remove_roles(r_obj)
+                        except Exception:
+                            pass
+                
+                # Falls noch Warns übrig sind, die passende Rolle setzen
+                if remaining_warns > 0:
+                    new_level = min(remaining_warns, 3)
+                    new_role = guild.get_role(WARN_ROLE_IDS.get(new_level))
+                    if new_role:
+                        try:
+                            await member.add_roles(new_role)
+                        except Exception:
+                            pass
+
+            if guild:
+                embed = discord.Embed(
+                    title="✅ Team-Update: Warn zurückgezogen",
+                    description=f"Eine Verwarnung für {member.mention if member else user_id} wurde erfolgreich zurückgezogen.\nAktuelle Warns: **{remaining_warns} / 3**",
+                    color=discord.Color.brand_green()
+                )
+                embed.timestamp = datetime.now()
+                channel = discord.utils.get(guild.text_channels, name="╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
+                if channel:
+                    try:
+                        await channel.send(embed=embed)
+                    except Exception:
+                        pass
 
     elif action == "add_note" and user_id and note_text:
         user_key = str(user_id)
