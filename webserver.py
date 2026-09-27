@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request, Cookie, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse
 import httpx
+import discord
 
 load_dotenv()
 
@@ -40,8 +41,6 @@ DISCORD_AUTH_URL = (
 # =============================================================
 # HELFER-FUNKTIONEN & DESIGN HEADER
 # =============================================================
-json_load = lambda filepath, default: json.load(open(filepath, "r", encoding="utf-8")) if os.path.exists(filepath) else default
-
 def load_json(filepath, default):
     if os.path.exists(filepath):
         try:
@@ -81,6 +80,21 @@ def calculate_weekly_hours(mod_id_str, shifts_history):
     
     hours = total_seconds / 3600
     return f"{hours:.1f}h"
+
+
+async def send_team_update_embed(guild, title, description, color=discord.Color.blue()):
+    """Sendet ein schönes Embed in den Kanal ╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬"""
+    if not guild:
+        return
+    channel = discord.utils.get(guild.text_channels, name="╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
+    if channel:
+        try:
+            embed = discord.Embed(title=title, description=description, color=color)
+            embed.set_footer(text="Bochum RP • Team-Updates System")
+            embed.timestamp = datetime.now()
+            await channel.send(embed=embed)
+        except Exception as e:
+            print(f"Fehler beim Senden des Team-Updates in Discord: {e}")
 
 
 def get_head_html(title: str):
@@ -250,7 +264,7 @@ async def callback(code: str):
 
 
 # =============================================================
-# ROUTE 1: HAUPT-DASHBOARD
+# ROUTE 1: HAUPT-DASHBOARD (Mit Live-Schicht-Timer)
 # =============================================================
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_main(request: Request, session: str = Cookie(None)):
@@ -266,6 +280,12 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
     active_staff_count = len(
         [s for s in active_shifts.values() if s.get("status") in ["online", "break"]]
     )
+
+    # Schicht-Timer Daten für moderator_nico ermitteln
+    mod_id = "moderator_nico"
+    current_shift = active_shifts.get(mod_id)
+    started_at_iso = current_shift.get("started_at_iso") if current_shift else ""
+    shift_status = current_shift.get("status") if current_shift else "offline"
 
     config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
     team_role_ids = config.get("team_role_ids", [])
@@ -331,6 +351,29 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
     <html lang="de">
     <head>
         {get_head_html(f"Moderatoren-Panel - {guild_name}")}
+        <script>
+            document.addEventListener("DOMContentLoaded", function() {{
+                const shiftStartTime = "{started_at_iso}";
+                const shiftStatus = "{shift_status}";
+                
+                if (shiftStartTime && shiftStatus !== "offline") {{
+                    const startDate = new Date(shiftStartTime);
+                    setInterval(() => {{
+                        const now = new Date();
+                        const diff = Math.floor((now - startDate) / 1000);
+                        if (diff >= 0) {{
+                            const hours = Math.floor(diff / 3600);
+                            const minutes = Math.floor((diff % 3600) / 60);
+                            const seconds = diff % 60;
+                            const timerEl = document.getElementById("liveShiftTimer");
+                            if (timerEl) {{
+                                timerEl.innerText = `${{hours}}h ${{minutes}}m ${{seconds}}s`;
+                            }}
+                        }}
+                    }}, 1000);
+                }}
+            }});
+        </script>
     </head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
         {get_sidebar_html(guild_name, 'dashboard')}
@@ -348,6 +391,17 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
                             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                                 <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                                 {active_staff_count} im Dienst
+                            </span>
+                        </div>
+
+                        <!-- Live Anzeige Analog zum Screenshot -->
+                        <div class="bg-slate-50 dark:bg-[#0b0e14] border border-slate-200 dark:border-slate-800 rounded-xl p-3 flex items-center justify-between text-xs">
+                            <span class="flex items-center gap-2 font-medium">
+                                <span class="w-2 h-2 rounded-full {'bg-emerald-500 animate-pulse' if shift_status != 'offline' else 'bg-slate-400'}"></span>
+                                {shift_status.upper() if shift_status != 'offline' else 'OFFLINE'}
+                            </span>
+                            <span id="liveShiftTimer" class="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                {('0h 0m 0s' if shift_status == 'offline' else 'Läuft...')}
                             </span>
                         </div>
 
@@ -434,7 +488,7 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
 
 
 # =============================================================
-# ROUTE 2: TEAMLISTE (MIT SQLITE LOA ABGLEICH)
+# ROUTE 2: TEAMLISTE
 # =============================================================
 @app.get("/team", response_class=HTMLResponse)
 async def team_list_page(request: Request, session: str = Cookie(None)):
@@ -450,11 +504,9 @@ async def team_list_page(request: Request, session: str = Cookie(None)):
     guild_name = guild.name
 
     config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
-    team_db = load_json(DATA_FILE, {})
     shifts_db = load_json(SHIFTS_FILE, {"active_shifts": {}, "history": []})
     team_role_ids = config.get("team_role_ids", [])
 
-    # Aktive Abmeldungen aus SQLite laden
     active_loas = {}
     if os.path.exists(DB_ABMELDUNGEN):
         conn = sqlite3.connect(DB_ABMELDUNGEN)
@@ -1238,7 +1290,7 @@ async def handle_shift_action(shift_action: str = Form(...), session: str = Cook
     elif shift_action == "end":
         if mod_id in shifts_db["active_shifts"]:
             shift_data = shifts_db["active_shifts"][mod_id]
-            start_iso = shift_data.get("started_id_iso") or shift_data.get("started_at_iso")
+            start_iso = shift_data.get("started_at_iso")
             if start_iso:
                 try:
                     start_dt = datetime.fromisoformat(start_iso)
@@ -1258,7 +1310,7 @@ async def handle_shift_action(shift_action: str = Form(...), session: str = Cook
 
 
 # =============================================================
-# ZENTRALER ACTION-HANDLER (SQLITE LOA & PROFILES & SETTINGS)
+# ZENTRALER ACTION-HANDLER (Mit automatischen Embeds für Team-Updates)
 # =============================================================
 @app.post("/action")
 async def handle_action(
@@ -1294,11 +1346,32 @@ async def handle_action(
     config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
     apps = load_json(APPS_FILE, {})
 
+    # Aktionen wie Befördern, Degradieren, Kicken
     if action in ["promote", "demote", "kick"] and user_id and guild:
         member = guild.get_member(user_id)
         if member:
             if action == "kick":
                 await member.kick(reason="Vom Dashboard aus gekickt.")
+                await send_team_update_embed(
+                    guild, 
+                    "🚪 Team-Update: Kick", 
+                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Aktion:** Wurde aus dem Team gekickt.", 
+                    discord.Color.red()
+                )
+            elif action == "promote":
+                await send_team_update_embed(
+                    guild, 
+                    "⬆️ Team-Update: Beförderung", 
+                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Aktion:** Wurde befördert.", 
+                    discord.Color.green()
+                )
+            elif action == "demote":
+                await send_team_update_embed(
+                    guild, 
+                    "⬇️ Team-Update: Degradierung", 
+                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Aktion:** Wurde degradiert.", 
+                    discord.Color.orange()
+                )
 
     elif action == "warn_with_proof" and user_id:
         user_key = str(user_id)
@@ -1316,6 +1389,17 @@ async def handle_action(
         })
         save_json(DATA_FILE, team_db)
 
+        # Discord Embed für Team-Warn
+        if guild:
+            member = guild.get_member(user_id)
+            proof_text = f"[Beweis öffnen]({warn_proof})" if warn_proof else "Kein Beweis angegeben"
+            await send_team_update_embed(
+                guild,
+                "⚠️ Team-Update: Team-Warn",
+                f"**Mitglied:** {member.mention if member else user_id}\n**Grund:** {warn_reason}\n**Beweis:** {proof_text}",
+                discord.Color.gold()
+            )
+
     elif action == "add_note" and user_id and note_text:
         user_key = str(user_id)
         if user_key not in team_db:
@@ -1324,7 +1408,6 @@ async def handle_action(
         save_json(DATA_FILE, team_db)
 
     elif action == "submit_loa" and user_id and guild:
-        # Datum von YYYY-MM-DD zu DD.MM.YYYY konvertieren
         try:
             von_formatted = datetime.strptime(loa_start, "%Y-%m-%d").strftime("%d.%m.%Y")
             bis_formatted = datetime.strptime(loa_end, "%Y-%m-%d").strftime("%d.%m.%Y")
@@ -1336,7 +1419,6 @@ async def handle_action(
         user_name = member.display_name if member else f"User {user_id}"
         original_nick = member.nick if member else None
 
-        # In SQLite-Datenbank speichern
         conn = sqlite3.connect(DB_ABMELDUNGEN)
         cursor = conn.cursor()
         cursor.execute("""
@@ -1346,13 +1428,9 @@ async def handle_action(
         conn.commit()
         conn.close()
 
-        # --- NEU: Discord Benachrichtigung & Anpassung ---
         if bot:
             try:
-                import discord
-                # Sucht nach einem Kanal namens "abmeldungen" oder "loa"
                 loa_channel = discord.utils.get(guild.text_channels, name="abmeldungen") or discord.utils.get(guild.text_channels, name="loa")
-                
                 if loa_channel:
                     embed = discord.Embed(
                         title="🌴 Neue Abmeldung (Web-Dashboard)",
@@ -1364,7 +1442,6 @@ async def handle_action(
                     embed.set_footer(text="Eingetragen über das Web-Panel")
                     await loa_channel.send(embed=embed)
                 
-                # Optional: Nickname anpassen (falls der Bot die Rechte dazu hat)
                 if member:
                     try:
                         if not member.display_name.startswith("[Abgemeldet]"):
@@ -1373,7 +1450,6 @@ async def handle_action(
                         pass
             except Exception as e:
                 print(f"Fehler beim Senden der Discord-Benachrichtigung: {e}")
-        # ------------------------------------------------
 
         return RedirectResponse(url="/loa", status_code=303)
 
@@ -1412,6 +1488,13 @@ async def handle_action(
                     first_role = guild.get_role(team_role_ids[0])
                     if first_role:
                         await target_member.add_roles(first_role)
+                        # Discord Embed für Neueinstellung
+                        await send_team_update_embed(
+                            guild,
+                            "✨ Team-Update: Neueinstellung",
+                            f"**Neuer Teamler:** {target_member.mention} ({apps[app_id]['name']})\n**Zugewiesene Rolle:** {first_role.name}",
+                            discord.Color.brand_green()
+                        )
         return RedirectResponse(url="/applications", status_code=303)
 
     elif action == "vote_app" and app_id and vote:
