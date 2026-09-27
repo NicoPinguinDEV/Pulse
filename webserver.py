@@ -13,17 +13,19 @@ import discord
 
 load_dotenv()
 
-CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
-CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-REDIRECT_URI = "http://fi4.bot-hosting.cloud:25095/callback"
+# =============================================================
+# KONFIGURATION & UMGEBUNGSVARIABELN
+# =============================================================
+CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "")
+CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "")
+REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "http://fi4.bot-hosting.cloud:25095/callback")
+GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616"))
+TEAM_UPDATE_CHANNEL_NAME = os.getenv("TEAM_UPDATE_CHANNEL_NAME", "╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
 
-GUILD_ID = 1474514929351524616  # DEINE DISCORD SERVER-ID
-
-# Feste Warn-Rollen IDs nach Vorgabe
 WARN_ROLE_IDS = {
-    1: 1489221948348043395,
-    2: 1489222076370780232,
-    3: 1531760107971416135
+    1: int(os.getenv("WARN_ROLE_1", "1489221948348043395")),
+    2: int(os.getenv("WARN_ROLE_2", "1489222076370780232")),
+    3: int(os.getenv("WARN_ROLE_3", "1531760107971416135"))
 }
 
 DATA_FILE = "team_data.json"
@@ -44,9 +46,30 @@ DISCORD_AUTH_URL = (
     f"&redirect_uri={REDIRECT_URI}&response_type=code&scope=identify%20guilds"
 )
 
+# =============================================================
+# DATENBANK-INITIALISIERUNG
+# =============================================================
+def init_db():
+    conn = sqlite3.connect(DB_ABMELDUNGEN)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS abmeldungen (
+            user_id INTEGER PRIMARY KEY,
+            user_name TEXT,
+            grund TEXT,
+            von TEXT,
+            bis TEXT,
+            original_nick TEXT,
+            guild_id INTEGER
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
 
 # =============================================================
-# HELFER-FUNKTIONEN & DESIGN HEADER
+# HELFER-FUNKTIONEN
 # =============================================================
 def load_json(filepath, default):
     if os.path.exists(filepath):
@@ -63,9 +86,13 @@ def save_json(filepath, data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 
-async def verify_session(session: str = Cookie(None)):
-    """Prüft, ob der Nutzer eingeloggt ist."""
-    if session != "authenticated":
+def get_current_user(user_session: str = Cookie(None)) -> dict:
+    """Liest die Session-Daten des angemeldeten Discord-Nutzers aus."""
+    if not user_session:
+        raise HTTPException(status_code=303, headers={"Location": "/"})
+    try:
+        return json.loads(user_session)
+    except Exception:
         raise HTTPException(status_code=303, headers={"Location": "/"})
 
 
@@ -77,7 +104,7 @@ def calculate_weekly_hours(mod_id_str, shifts_history):
     start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
 
     for entry in shifts_history:
-        if entry.get("mod_id") == mod_id_str:
+        if str(entry.get("mod_id")) == str(mod_id_str):
             try:
                 entry_date = datetime.strptime(entry.get("date"), "%Y-%m-%d")
                 if entry_date >= start_of_week:
@@ -90,14 +117,14 @@ def calculate_weekly_hours(mod_id_str, shifts_history):
 
 
 async def send_team_update_embed(guild, title, description, color=discord.Color.blue()):
-    """Sendet ein schönes Embed in den Kanal ╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬"""
+    """Sendet ein Embed in den eingestellten Team-Updates Kanal."""
     if not guild:
         return
-    channel = discord.utils.get(guild.text_channels, name="╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
+    channel = discord.utils.get(guild.text_channels, name=TEAM_UPDATE_CHANNEL_NAME)
     if channel:
         try:
             embed = discord.Embed(title=title, description=description, color=color)
-            embed.set_footer(text="Bochum RP • Team-Updates System")
+            embed.set_footer(text=f"{guild.name} • Team-Updates System")
             embed.timestamp = datetime.now()
             await channel.send(embed=embed)
         except Exception as e:
@@ -111,9 +138,7 @@ def get_head_html(title: str):
     <title>{title}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        tailwind.config = {{
-            darkMode: 'class',
-        }}
+        tailwind.config = {{ darkMode: 'class' }}
         if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {{
             document.documentElement.classList.add('dark');
         }} else {{
@@ -132,14 +157,23 @@ def get_head_html(title: str):
     """
 
 
-def get_sidebar_html(guild_name, current_page="dashboard"):
+def get_sidebar_html(guild_name, current_page="dashboard", current_user=None):
+    user_name = current_user.get("global_name", "Team Mitglied") if current_user else "Gast"
+    avatar_id = current_user.get("avatar") if current_user else None
+    user_id = current_user.get("id") if current_user else None
+    
+    if avatar_id and user_id:
+        avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_id}.png"
+    else:
+        avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
+
     return f"""
     <aside class="w-64 bg-white dark:bg-[#141824] border-r border-slate-200 dark:border-slate-800/80 flex flex-col justify-between p-4 min-h-screen shrink-0 transition-colors duration-200">
         <div class="space-y-6">
             <div class="flex items-center gap-3 px-2">
                 <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-600/20">B</div>
                 <div>
-                    <h2 class="font-bold text-slate-900 dark:text-white leading-none">Bochum RP</h2>
+                    <h2 class="font-bold text-slate-900 dark:text-white leading-none">{guild_name}</h2>
                     <span class="text-[10px] text-slate-500 dark:text-slate-400 font-mono">v2.3.0 Pro</span>
                 </div>
             </div>
@@ -187,9 +221,9 @@ def get_sidebar_html(guild_name, current_page="dashboard"):
             </button>
 
             <div class="flex items-center justify-between pt-1">
-                <div class="flex items-center gap-2.5">
-                    <div class="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-700 dark:text-white">B</div>
-                    <span class="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">Bot Host</span>
+                <div class="flex items-center gap-2.5 truncate">
+                    <img src="{avatar_url}" class="w-7 h-7 rounded-full border border-slate-200 dark:border-slate-700 object-cover">
+                    <span class="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">{user_name}</span>
                 </div>
                 <a href="/logout" class="text-xs text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 transition font-medium">↤ Abmelden</a>
             </div>
@@ -197,9 +231,8 @@ def get_sidebar_html(guild_name, current_page="dashboard"):
     </aside>
     """
 
-
 # =============================================================
-# ROUTEN: LOGIN, LOGOUT & CALLBACK
+# ROUTEN: LOGIN, LOGOUT & OAUTH CALLBACK
 # =============================================================
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -221,8 +254,8 @@ async def home():
             <div class="flex justify-center items-center gap-3 mb-4">
                 <div class="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-2xl shadow-lg shadow-indigo-600/30">🛡️</div>
             </div>
-            <h1 class="text-2xl font-bold tracking-tight mb-2">Bochum RP Panel</h1>
-            <p class="text-slate-500 dark:text-slate-400 text-xs mb-8">Bitte melde dich mit deinem Discord-Account an, um auf das Moderatoren-Panel zuzugreifen.</p>
+            <h1 class="text-2xl font-bold tracking-tight mb-2">Team Management Panel</h1>
+            <p class="text-slate-500 dark:text-slate-400 text-xs mb-8">Melde dich mit deinem Discord-Account an, um Zugriff zu erhalten.</p>
             
             <a href="{DISCORD_AUTH_URL}" class="inline-flex items-center justify-center gap-3 w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg shadow-[#5865F2]/20 text-sm">
                 Mit Discord anmelden
@@ -239,7 +272,7 @@ async def home():
 @app.get("/logout")
 async def logout():
     response = RedirectResponse(url="/", status_code=303)
-    response.delete_cookie(key="session")
+    response.delete_cookie(key="user_session")
     return response
 
 
@@ -261,21 +294,31 @@ async def callback(code: str):
         access_token = token_data.get("access_token")
 
         if not access_token:
-            return HTMLResponse(
-                "<h2>Login fehlgeschlagen.</h2><a href='/'>Erneut versuchen</a>"
-            )
+            return HTMLResponse("<h2>Login fehlgeschlagen.</h2><a href='/'>Erneut versuchen</a>")
+
+        user_res = await client.get(
+            "https://discord.com/api/v10/users/@me",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        user_data = user_res.json()
+
+    user_session = {
+        "id": str(user_data.get("id")),
+        "username": user_data.get("username"),
+        "global_name": user_data.get("global_name") or user_data.get("username"),
+        "avatar": user_data.get("avatar")
+    }
 
     response = RedirectResponse(url="/dashboard", status_code=303)
-    response.set_cookie(key="session", value="authenticated", httponly=True)
+    response.set_cookie(key="user_session", value=json.dumps(user_session), httponly=True)
     return response
 
-
 # =============================================================
-# ROUTE 1: HAUPT-DASHBOARD (Mit Live-Schicht-Timer)
+# ROUTE 1: HAUPT-DASHBOARD
 # =============================================================
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_main(request: Request, session: str = Cookie(None)):
-    await verify_session(session)
+async def dashboard_main(request: Request, user_session: str = Cookie(None)):
+    current_user = get_current_user(user_session)
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
     guild_name = guild.name if guild else "Bochum RP"
@@ -284,12 +327,9 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
     logs_db = load_json(LOGS_FILE, [])
 
     active_shifts = shifts_db.get("active_shifts", {})
-    active_staff_count = len(
-        [s for s in active_shifts.values() if s.get("status") in ["online", "break"]]
-    )
+    active_staff_count = len([s for s in active_shifts.values() if s.get("status") in ["online", "break"]])
 
-    # Schicht-Timer Daten für moderator_nico ermitteln
-    mod_id = "moderator_nico"
+    mod_id = current_user["id"]
     current_shift = active_shifts.get(mod_id)
     started_at_iso = current_shift.get("started_at_iso") if current_shift else ""
     shift_status = current_shift.get("status") if current_shift else "offline"
@@ -304,7 +344,7 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
                 hrs = calculate_weekly_hours(str(member.id), shifts_db.get("history", []))
                 try:
                     float_hrs = float(hrs.replace("h", ""))
-                except:
+                except Exception:
                     float_hrs = 0.0
                 leaderboard_data.append({"name": member.display_name, "hours": hrs, "val": float_hrs})
         leaderboard_data.sort(key=lambda x: x["val"], reverse=True)
@@ -383,7 +423,7 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
         </script>
     </head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
-        {get_sidebar_html(guild_name, 'dashboard')}
+        {get_sidebar_html(guild_name, 'dashboard', current_user)}
 
         <main class="flex-1 p-8 overflow-y-auto">
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -401,7 +441,6 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
                             </span>
                         </div>
 
-                        <!-- Live Anzeige Analog zum Screenshot -->
                         <div class="bg-slate-50 dark:bg-[#0b0e14] border border-slate-200 dark:border-slate-800 rounded-xl p-3 flex items-center justify-between text-xs">
                             <span class="flex items-center gap-2 font-medium">
                                 <span class="w-2 h-2 rounded-full {'bg-emerald-500 animate-pulse' if shift_status != 'offline' else 'bg-slate-400'}"></span>
@@ -493,13 +532,12 @@ async def dashboard_main(request: Request, session: str = Cookie(None)):
     </html>
     """
 
-
 # =============================================================
 # ROUTE 2: TEAMLISTE
 # =============================================================
 @app.get("/team", response_class=HTMLResponse)
-async def team_list_page(request: Request, session: str = Cookie(None)):
-    await verify_session(session)
+async def team_list_page(request: Request, user_session: str = Cookie(None)):
+    current_user = get_current_user(user_session)
     bot = getattr(request.app.state, "bot", None)
     if not bot:
         return "<h3>Bot-Instanz noch nicht bereit!</h3>"
@@ -608,7 +646,7 @@ async def team_list_page(request: Request, session: str = Cookie(None)):
         </script>
     </head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
-        {get_sidebar_html(guild_name, 'team')}
+        {get_sidebar_html(guild_name, 'team', current_user)}
         <main class="flex-1 p-8 overflow-y-auto">
             <div class="flex justify-between items-center mb-6">
                 <div>
@@ -630,13 +668,12 @@ async def team_list_page(request: Request, session: str = Cookie(None)):
     </html>
     """
 
-
 # =============================================================
 # ROUTE: DISCORD BACKUP SYSTEM
 # =============================================================
 @app.get("/backups", response_class=HTMLResponse)
-async def backups_page(request: Request, session: str = Cookie(None)):
-    await verify_session(session)
+async def backups_page(request: Request, user_session: str = Cookie(None)):
+    current_user = get_current_user(user_session)
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
     guild_name = guild.name if guild else "Bochum RP"
@@ -672,7 +709,7 @@ async def backups_page(request: Request, session: str = Cookie(None)):
         {get_head_html(f"Server Backups - {guild_name}")}
     </head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
-        {get_sidebar_html(guild_name, 'backups')}
+        {get_sidebar_html(guild_name, 'backups', current_user)}
         <main class="flex-1 p-8 overflow-y-auto">
             <div class="flex justify-between items-center mb-6">
                 <div>
@@ -696,8 +733,8 @@ async def backups_page(request: Request, session: str = Cookie(None)):
 
 
 @app.post("/backup/create")
-async def create_backup(session: str = Cookie(None)):
-    await verify_session(session)
+async def create_backup(user_session: str = Cookie(None)):
+    get_current_user(user_session)
     bot = getattr(app.state, "bot", None)
     if not bot:
         return RedirectResponse(url="/backups", status_code=303)
@@ -747,8 +784,8 @@ async def create_backup(session: str = Cookie(None)):
 
 
 @app.get("/backup/download/{filename}")
-async def download_backup(filename: str, session: str = Cookie(None)):
-    await verify_session(session)
+async def download_backup(filename: str, user_session: str = Cookie(None)):
+    get_current_user(user_session)
     filepath = os.path.join(BACKUP_DIR, filename)
     if os.path.exists(filepath):
         return FileResponse(filepath, media_type='application/json', filename=filename)
@@ -756,20 +793,19 @@ async def download_backup(filename: str, session: str = Cookie(None)):
 
 
 @app.post("/backup/delete")
-async def delete_backup(filename: str = Form(...), session: str = Cookie(None)):
-    await verify_session(session)
+async def delete_backup(filename: str = Form(...), user_session: str = Cookie(None)):
+    get_current_user(user_session)
     filepath = os.path.join(BACKUP_DIR, filename)
     if os.path.exists(filepath):
         os.remove(filepath)
     return RedirectResponse(url="/backups", status_code=303)
 
-
 # =============================================================
 # ROUTE: MITGLIEDER-DETAILSEITE
 # =============================================================
 @app.get("/member/{user_id}", response_class=HTMLResponse)
-async def member_detail(request: Request, user_id: int, session: str = Cookie(None)):
-    await verify_session(session)
+async def member_detail(request: Request, user_id: int, user_session: str = Cookie(None)):
+    current_user = get_current_user(user_session)
     bot = getattr(request.app.state, "bot", None)
     if not bot:
         return "<h3>Bot-Instanz noch nicht bereit!</h3>"
@@ -835,7 +871,7 @@ async def member_detail(request: Request, user_id: int, session: str = Cookie(No
         {get_head_html(f"{member.display_name} - Details")}
     </head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
-        {get_sidebar_html(guild_name, 'team')}
+        {get_sidebar_html(guild_name, 'team', current_user)}
         <main class="flex-1 p-8 overflow-y-auto">
             <div class="flex items-center gap-4 mb-8">
                 <a href="/team" class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 p-2.5 rounded-xl transition shadow-sm">←</a>
@@ -912,7 +948,7 @@ async def member_detail(request: Request, user_id: int, session: str = Cookie(No
 
                 <div class="space-y-4">
                     <div class="text-right text-xl font-extrabold uppercase tracking-widest opacity-90" style="color: {top_role_color};">
-                        » BORP ✕ {top_role_name}
+                        » {guild_name} ✕ {top_role_name}
                     </div>
 
                     <div class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800/80 rounded-2xl p-6 space-y-4 shadow-sm text-xs">
@@ -938,13 +974,12 @@ async def member_detail(request: Request, user_id: int, session: str = Cookie(No
     </html>
     """
 
-
 # =============================================================
 # ROUTE: ABWESENHEITEN (LOA) ÜBER SQLITE DATENBANK
 # =============================================================
 @app.get("/loa", response_class=HTMLResponse)
-async def loa_page(request: Request, session: str = Cookie(None)):
-    await verify_session(session)
+async def loa_page(request: Request, user_session: str = Cookie(None)):
+    current_user = get_current_user(user_session)
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
     guild_name = guild.name if guild else "Bochum RP"
@@ -982,7 +1017,7 @@ async def loa_page(request: Request, session: str = Cookie(None)):
         {get_head_html("Abmeldungen (LOA)")}
     </head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
-        {get_sidebar_html(guild_name, 'loa')}
+        {get_sidebar_html(guild_name, 'loa', current_user)}
         <main class="flex-1 p-8 overflow-y-auto">
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">Abwesenheiten (LOA)</h1>
 
@@ -1025,13 +1060,12 @@ async def loa_page(request: Request, session: str = Cookie(None)):
     </html>
     """
 
-
 # =============================================================
 # ROUTE: EINSTELLUNGEN & RECHTE
 # =============================================================
 @app.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request, session: str = Cookie(None)):
-    await verify_session(session)
+async def settings_page(request: Request, user_session: str = Cookie(None)):
+    current_user = get_current_user(user_session)
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
     guild_name = guild.name if guild else "Bochum RP"
@@ -1087,7 +1121,7 @@ async def settings_page(request: Request, session: str = Cookie(None)):
         {get_head_html("Einstellungen & Rechte")}
     </head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
-        {get_sidebar_html(guild_name, 'settings')}
+        {get_sidebar_html(guild_name, 'settings', current_user)}
         <main class="flex-1 p-8 overflow-y-auto">
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-2">Rollen-Berechtigungen & System-Status</h1>
             <p class="text-xs text-slate-500 dark:text-slate-400 mb-6">Server-ID: <code class="text-indigo-600 dark:text-indigo-400 font-mono">{GUILD_ID}</code> | Redirect-URI: <code class="text-indigo-600 dark:text-indigo-400 font-mono">{REDIRECT_URI}</code></p>
@@ -1099,7 +1133,6 @@ async def settings_page(request: Request, session: str = Cookie(None)):
     </body>
     </html>
     """
-
 
 # =============================================================
 # ROUTE: ÖFFENTLICHES BEWERBUNGSFORMULAR
@@ -1145,13 +1178,12 @@ async def public_apply_page():
     </html>
     """
 
-
 # =============================================================
-# ROUTE: BEWERBUNGEN ÜBERSICHT (DASHBOARD)
+# ROUTE: BEWERBUNGEN ÜBERSICHT
 # =============================================================
 @app.get("/applications", response_class=HTMLResponse)
-async def applications_page(request: Request, session: str = Cookie(None)):
-    await verify_session(session)
+async def applications_page(request: Request, user_session: str = Cookie(None)):
+    current_user = get_current_user(user_session)
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
     guild_name = guild.name if guild else "Bochum RP"
@@ -1206,7 +1238,7 @@ async def applications_page(request: Request, session: str = Cookie(None)):
         {get_head_html("Bewerbungen")}
     </head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
-        {get_sidebar_html(guild_name, 'apps')}
+        {get_sidebar_html(guild_name, 'apps', current_user)}
         <main class="flex-1 p-8 overflow-y-auto">
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">Offene Bewerbungen</h1>
             <div class="space-y-4 max-w-3xl">
@@ -1217,13 +1249,12 @@ async def applications_page(request: Request, session: str = Cookie(None)):
     </html>
     """
 
-
 # =============================================================
 # ROUTE: CSV-EXPORT FÜR LOGS
 # =============================================================
 @app.get("/export/logs")
-async def export_logs(session: str = Cookie(None)):
-    await verify_session(session)
+async def export_logs(user_session: str = Cookie(None)):
+    get_current_user(user_session)
     logs_db = load_json(LOGS_FILE, [])
 
     output = io.StringIO()
@@ -1249,7 +1280,6 @@ async def export_logs(session: str = Cookie(None)):
         headers={"Content-Disposition": "attachment; filename=punishment_logs.csv"}
     )
 
-
 # =============================================================
 # ACTION: ERSTELLEN VON ROBLOX LOGS
 # =============================================================
@@ -1259,9 +1289,9 @@ async def create_log(
     roblox_id: str = Form("N/A"),
     log_type: str = Form(...),
     reason: str = Form(...),
-    session: str = Cookie(None)
+    user_session: str = Cookie(None)
 ):
-    await verify_session(session)
+    current_user = get_current_user(user_session)
     logs_db = load_json(LOGS_FILE, [])
 
     new_entry = {
@@ -1270,7 +1300,7 @@ async def create_log(
         "roblox_id": roblox_id if roblox_id else "N/A",
         "type": log_type,
         "reason": reason,
-        "moderator": "Dashboard Admin",
+        "moderator": current_user.get("global_name", "Dashboard Admin"),
         "created_at": datetime.now().strftime("%d.%m.%Y %H:%M"),
     }
 
@@ -1279,16 +1309,15 @@ async def create_log(
 
     return RedirectResponse(url="/dashboard", status_code=303)
 
-
 # =============================================================
 # ACTION: SCHICHT-SYSTEM STEUERUNG
 # =============================================================
 @app.post("/shift/action")
-async def handle_shift_action(shift_action: str = Form(...), session: str = Cookie(None)):
-    await verify_session(session)
+async def handle_shift_action(shift_action: str = Form(...), user_session: str = Cookie(None)):
+    current_user = get_current_user(user_session)
     shifts_db = load_json(SHIFTS_FILE, {"active_shifts": {}, "history": []})
     
-    mod_id = "moderator_nico"
+    mod_id = current_user["id"]
     now_ts = datetime.now()
 
     if shift_action == "start":
@@ -1322,9 +1351,8 @@ async def handle_shift_action(shift_action: str = Form(...), session: str = Cook
     save_json(SHIFTS_FILE, shifts_db)
     return RedirectResponse(url="/dashboard", status_code=303)
 
-
 # =============================================================
-# ZENTRALER ACTION-HANDLER (Mit automatischen Embeds für Team-Updates)
+# ZENTRALER ACTION-HANDLER
 # =============================================================
 @app.post("/action")
 async def handle_action(
@@ -1351,9 +1379,9 @@ async def handle_action(
     can_warn: bool = Form(False),
     can_promote: bool = Form(False),
     can_add_notes: bool = Form(False),
-    session: str = Cookie(None)
+    user_session: str = Cookie(None)
 ):
-    await verify_session(session)
+    current_user = get_current_user(user_session) if action != "submit_application" else None
     bot = getattr(request.app.state, "bot", None)
     guild = bot.get_guild(GUILD_ID) if bot else None
 
@@ -1361,12 +1389,11 @@ async def handle_action(
     config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
     apps = load_json(APPS_FILE, {})
 
-    # Aktionen wie Befördern, Degradieren, Kicken
     if action in ["promote", "demote", "kick"] and user_id and guild:
         member = guild.get_member(user_id)
         if member:
             if action == "kick":
-                await member.kick(reason="Vom Dashboard aus gekickt.")
+                await member.kick(reason=f"Vom Dashboard aus gekickt durch {current_user.get('global_name')}.")
                 await send_team_update_embed(
                     guild, 
                     "🚪 Team-Update: Kick", 
@@ -1402,17 +1429,15 @@ async def handle_action(
             "reason": warn_reason,
             "proof": warn_proof,
             "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
-            "by": "Dashboard Admin",
+            "by": current_user.get("global_name", "Dashboard Admin"),
         })
         save_json(DATA_FILE, team_db)
 
         member = guild.get_member(user_id) if guild else None
         total_warns = len(team_db[user_key]["warns_list"])
 
-        # Automatische Rollenverwaltung mit deinen festen IDs
         if member:
             target_level = min(total_warns, 3)
-            # Alte/andere Warn-Rollen entfernen
             for lvl, r_id in WARN_ROLE_IDS.items():
                 r_obj = guild.get_role(r_id)
                 if r_obj and r_obj in member.roles and lvl != target_level:
@@ -1421,7 +1446,6 @@ async def handle_action(
                     except Exception:
                         pass
             
-            # Entsprechende Warn-Rolle hinzufügen
             current_role_id = WARN_ROLE_IDS.get(target_level)
             if current_role_id:
                 current_role = guild.get_role(current_role_id)
@@ -1431,7 +1455,6 @@ async def handle_action(
                     except Exception:
                         pass
 
-        # Schöneres Discord Embed für Team-Warn
         if guild:
             proof_display = f"[Beweis öffnen]({warn_proof})" if warn_proof else "*Kein Beweis angegeben*"
             embed = discord.Embed(
@@ -1441,13 +1464,13 @@ async def handle_action(
             )
             embed.add_field(name="👤 Mitglied", value=member.mention if member else f"ID: {user_id}", inline=True)
             embed.add_field(name="🔢 Warn-Stufe", value=f"**Warn {total_warns} / 3**", inline=True)
-            embed.add_field(name="🛡️ Ausgestellt von", value="Dashboard Admin", inline=True)
+            embed.add_field(name="🛡️ Ausgestellt von", value=current_user.get("global_name", "Admin"), inline=True)
             embed.add_field(name="📝 Grund", value=warn_reason, inline=False)
             embed.add_field(name="🔗 Beweis", value=proof_display, inline=False)
-            embed.set_footer(text=f"Bochum RP • Warn-ID: {new_warn_id}")
+            embed.set_footer(text=f"{guild.name} • Warn-ID: {new_warn_id}")
             embed.timestamp = datetime.now()
 
-            channel = discord.utils.get(guild.text_channels, name="╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
+            channel = discord.utils.get(guild.text_channels, name=TEAM_UPDATE_CHANNEL_NAME)
             if channel:
                 try:
                     await channel.send(embed=embed)
@@ -1464,7 +1487,6 @@ async def handle_action(
             remaining_warns = len(team_db[user_key]["warns_list"])
 
             if member:
-                # Alle Warn-Rollen erst einmal entfernen
                 for r_id in WARN_ROLE_IDS.values():
                     r_obj = guild.get_role(r_id)
                     if r_obj and r_obj in member.roles:
@@ -1473,7 +1495,6 @@ async def handle_action(
                         except Exception:
                             pass
                 
-                # Falls noch Warns übrig sind, die passende Rolle setzen
                 if remaining_warns > 0:
                     new_level = min(remaining_warns, 3)
                     new_role = guild.get_role(WARN_ROLE_IDS.get(new_level))
@@ -1486,11 +1507,11 @@ async def handle_action(
             if guild:
                 embed = discord.Embed(
                     title="✅ Team-Update: Warn zurückgezogen",
-                    description=f"Eine Verwarnung für {member.mention if member else user_id} wurde erfolgreich zurückgezogen.\nAktuelle Warns: **{remaining_warns} / 3**",
+                    description=f"Eine Verwarnung für {member.mention if member else user_id} wurde zurückgezogen.\nAktuelle Warns: **{remaining_warns} / 3**",
                     color=discord.Color.brand_green()
                 )
                 embed.timestamp = datetime.now()
-                channel = discord.utils.get(guild.text_channels, name="╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
+                channel = discord.utils.get(guild.text_channels, name=TEAM_UPDATE_CHANNEL_NAME)
                 if channel:
                     try:
                         await channel.send(embed=embed)
@@ -1539,10 +1560,9 @@ async def handle_action(
                     embed.set_footer(text="Eingetragen über das Web-Panel")
                     await loa_channel.send(embed=embed)
                 
-                if member:
+                if member and not member.display_name.startswith("[Abgemeldet]"):
                     try:
-                        if not member.display_name.startswith("[Abgemeldet]"):
-                            await member.edit(nick=f"[Abgemeldet] {member.display_name}")
+                        await member.edit(nick=f"[Abgemeldet] {member.display_name}")
                     except Exception:
                         pass
             except Exception as e:
@@ -1585,7 +1605,6 @@ async def handle_action(
                     first_role = guild.get_role(team_role_ids[0])
                     if first_role:
                         await target_member.add_roles(first_role)
-                        # Discord Embed für Neueinstellung
                         await send_team_update_embed(
                             guild,
                             "✨ Team-Update: Neueinstellung",
@@ -1596,7 +1615,7 @@ async def handle_action(
 
     elif action == "vote_app" and app_id and vote:
         if app_id in apps:
-            voter_id = "admin_user"
+            voter_id = current_user["id"]
             if vote == "up":
                 if voter_id not in apps[app_id]["upvotes"]:
                     apps[app_id]["upvotes"].append(voter_id)
