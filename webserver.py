@@ -33,6 +33,8 @@ CONFIG_FILE = "config.json"
 APPS_FILE = "applications.json"
 SHIFTS_FILE = "shifts.json"
 LOGS_FILE = "logs.json"
+AUDIT_FILE = "audit_logs.json"
+MEETINGS_FILE = "meetings.json"
 DB_ABMELDUNGEN = "abmeldungen.db"
 BACKUP_DIR = "backups"
 
@@ -86,6 +88,20 @@ def save_json(filepath, data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 
+def log_audit(actor_name: str, actor_id: str, action: str, details: str):
+    """Protokolliert Aktionen im Panel-Audit-Log."""
+    audit_data = load_json(AUDIT_FILE, [])
+    audit_data.append({
+        "id": f"audit_{uuid.uuid4().hex[:6]}",
+        "actor": actor_name,
+        "actor_id": str(actor_id),
+        "action": action,
+        "details": details,
+        "timestamp": datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    })
+    save_json(AUDIT_FILE, audit_data)
+
+
 def get_current_user(user_session: str = Cookie(None)) -> dict:
     """Liest die Session-Daten des angemeldeten Discord-Nutzers aus."""
     if not user_session:
@@ -114,6 +130,21 @@ def calculate_weekly_hours(mod_id_str, shifts_history):
     
     hours = total_seconds / 3600
     return f"{hours:.1f}h"
+
+
+async def send_dm_notification(user_or_member, message: str, embed: discord.Embed = None):
+    """Versendet eine automatische Direktnachricht per Discord Bot."""
+    if not user_or_member:
+        return False
+    try:
+        if embed:
+            await user_or_member.send(content=message, embed=embed)
+        else:
+            await user_or_member.send(content=message)
+        return True
+    except Exception as e:
+        print(f"DM konnte nicht gesendet werden an {user_or_member}: {e}")
+        return False
 
 
 async def send_team_update_embed(guild, title, description, color=discord.Color.blue()):
@@ -174,7 +205,7 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None):
                 <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-600/20">B</div>
                 <div>
                     <h2 class="font-bold text-slate-900 dark:text-white leading-none">{guild_name}</h2>
-                    <span class="text-[10px] text-slate-500 dark:text-slate-400 font-mono">v2.3.0 Pro</span>
+                    <span class="text-[10px] text-slate-500 dark:text-slate-400 font-mono">v2.4.0 Pro</span>
                 </div>
             </div>
 
@@ -194,6 +225,9 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None):
                 <a href="/team" class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl {'bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-500/20 shadow-sm' if current_page == 'team' else 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'} transition">
                     👥 <span>Teamliste</span>
                 </a>
+                <a href="/meetings" class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl {'bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-500/20 shadow-sm' if current_page == 'meetings' else 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'} transition">
+                    🎙️ <span>Teambesprechung</span>
+                </a>
                 <a href="/loa" class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl {'bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-500/20 shadow-sm' if current_page == 'loa' else 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'} transition">
                     🌴 <span>Abmeldungen (LOA)</span>
                 </a>
@@ -206,7 +240,7 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None):
                     💾 <span>Server Backups</span>
                 </a>
                 <a href="/settings" class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl {'bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-500/20 shadow-sm' if current_page == 'settings' else 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'} transition">
-                    ⚙️ <span>Rechte & Einstellungen</span>
+                    ⚙️ <span>Rechte & Audit-Log</span>
                 </a>
             </nav>
         </div>
@@ -314,7 +348,7 @@ async def callback(code: str):
     return response
 
 # =============================================================
-# ROUTE 1: HAUPT-DASHBOARD
+# ROUTE 1: HAUPT-DASHBOARD (Inkl. Live Logs-Filter)
 # =============================================================
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_main(request: Request, user_session: str = Cookie(None)):
@@ -363,7 +397,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
         """
 
     logs_html = ""
-    for log in reversed(logs_db[-20:]):
+    for log in reversed(logs_db[-30:]):
         type_colors = {
             "Ban": "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30",
             "Kick": "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30",
@@ -371,9 +405,10 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
             "Notiz": "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30",
         }
         badge_style = type_colors.get(log.get("type"), "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300")
+        search_data = f"{log.get('target_user','')} {log.get('roblox_id','')} {log.get('moderator','')} {log.get('type','')}".lower()
 
         logs_html += f"""
-        <div class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 space-y-2 shadow-sm transition-all hover:shadow">
+        <div class="log-card bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 space-y-2 shadow-sm transition-all hover:shadow" data-search="{search_data}">
             <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-2">
                 <div class="flex items-center gap-2">
                     <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border {badge_style}">
@@ -420,6 +455,19 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                     }}, 1000);
                 }}
             }});
+
+            function filterLogs() {{
+                let input = document.getElementById('logSearch').value.toLowerCase();
+                let cards = document.getElementsByClassName('log-card');
+                for (let card of cards) {{
+                    let search = card.getAttribute('data-search');
+                    if (search.includes(input)) {{
+                        card.style.display = "";
+                    }} else {{
+                        card.style.display = "none";
+                    }}
+                }}
+            }}
         </script>
     </head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
@@ -521,7 +569,9 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                         </div>
                     </div>
 
-                    <div class="space-y-3 max-h-[calc(100vh-160px)] overflow-y-auto pr-1">
+                    <input type="text" id="logSearch" onkeyup="filterLogs()" placeholder="🔎 Logs filtern nach Name, ID oder Mod..." class="w-full bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 shadow-sm mb-2">
+
+                    <div class="space-y-3 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
                         {logs_html or "<div class='text-xs text-slate-400 italic bg-white dark:bg-[#141824] p-6 rounded-2xl border border-slate-200 dark:border-slate-800 text-center shadow-sm'>Noch keine Logs eingetragen.</div>"}
                     </div>
                 </div>
@@ -533,7 +583,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
     """
 
 # =============================================================
-# ROUTE 2: TEAMLISTE
+# ROUTE 2: TEAMLISTE (Inkl. Wochenziel-Aktivität Farbkennzeichnung)
 # =============================================================
 @app.get("/team", response_class=HTMLResponse)
 async def team_list_page(request: Request, user_session: str = Cookie(None)):
@@ -548,7 +598,9 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     
     guild_name = guild.name
 
-    config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
+    config = load_json(CONFIG_FILE, {"team_role_ids": [], "weekly_goal_hours": 3.0, "permissions": {}})
+    weekly_goal = float(config.get("weekly_goal_hours", 3.0))
+
     shifts_db = load_json(SHIFTS_FILE, {"active_shifts": {}, "history": []})
     team_role_ids = config.get("team_role_ids", [])
 
@@ -574,7 +626,14 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                 end_date_str = active_loas[user_id_str]
                 loa_badge = f'<span class="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[10px] px-2.5 py-0.5 rounded-full font-semibold">Abgemeldet bis {end_date_str}</span>'
 
-            weekly_hours = calculate_weekly_hours(user_id_str, shifts_db.get("history", []))
+            weekly_hours_str = calculate_weekly_hours(user_id_str, shifts_db.get("history", []))
+            try:
+                hrs_val = float(weekly_hours_str.replace("h", ""))
+            except Exception:
+                hrs_val = 0.0
+
+            reached_goal = hrs_val >= weekly_goal
+            hours_badge_style = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" if reached_goal else "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
 
             team_members.append({
                 "id": member.id,
@@ -585,7 +644,9 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                 "top_role_color": f"#{highest_role.color.value:06x}" if highest_role.color.value else "#6366f1",
                 "role_position": highest_role.position,
                 "loa_badge": loa_badge,
-                "weekly_hours": weekly_hours
+                "weekly_hours": weekly_hours_str,
+                "hours_badge_style": hours_badge_style,
+                "reached_goal": reached_goal
             })
 
     team_members.sort(key=lambda m: m["role_position"], reverse=True)
@@ -605,13 +666,13 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                 </div>
             </div>
 
-            <div class="w-1/4 flex items-center gap-3">
+            <div class="w-1/3 flex items-center gap-3">
                 <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border shadow-sm" style="background-color: {m['top_role_color']}15; color: {m['top_role_color']}; border-color: {m['top_role_color']}40;">
                     <span class="w-1.5 h-1.5 rounded-full" style="background-color: {m['top_role_color']}"></span>
                     {m['top_role']}
                 </span>
-                <span class="text-xs text-indigo-600 dark:text-indigo-400 font-mono font-bold bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20" title="Wochenstunden">
-                    ⏱️ {m['weekly_hours']}
+                <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg border {m['hours_badge_style']}" title="Soll-Ziel: {weekly_goal}h/Woche">
+                    ⏱️ {m['weekly_hours']} / {weekly_goal}h
                 </span>
             </div>
 
@@ -653,7 +714,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                     <div class="text-xs text-slate-400 flex items-center gap-1.5 mb-1">
                         <span>Team</span> / <span class="text-indigo-600 dark:text-indigo-400 font-medium">Teamliste</span>
                     </div>
-                    <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Teamliste & Aktivität</h1>
+                    <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Teamliste & Wochenziel ({weekly_goal}h)</h1>
                 </div>
                 <div>
                     <input type="text" id="searchInput" onkeyup="filterTeam()" placeholder="Teammitglied suchen..." class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white rounded-xl px-4 py-2.5 w-64 focus:outline-none focus:border-indigo-500 shadow-sm">
@@ -662,6 +723,136 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
 
             <div class="space-y-3" id="teamContainer">
                 {rows_html or "<div class='text-center py-12 text-slate-400 text-sm bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm'>Keine Teammitglieder gefunden.</div>"}
+            </div>
+        </main>
+    </body>
+    </html>
+    """
+
+# =============================================================
+# ROUTE: TEAM-BESPRECHUNGS-TOOL
+# =============================================================
+@app.get("/meetings", response_class=HTMLResponse)
+async def meetings_page(request: Request, user_session: str = Cookie(None)):
+    current_user = get_current_user(user_session)
+    bot = getattr(request.app.state, "bot", None)
+    guild = bot.get_guild(GUILD_ID) if bot else None
+    guild_name = guild.name if guild else "Bochum RP"
+
+    meetings_data = load_json(MEETINGS_FILE, {
+        "title": "Nächste Teambesprechung",
+        "date_time": "Noch nicht angesetzt",
+        "description": "Hier können wichtige Punkte für die kommende Besprechung gesammelt werden.",
+        "rsvps": {},
+        "topics": []
+    })
+
+    user_id = current_user["id"]
+    user_status = meetings_data["rsvps"].get(user_id, {}).get("status", "none")
+
+    accepted_list = [v.get("name") for k, v in meetings_data["rsvps"].items() if v.get("status") == "accepted"]
+    declined_list = [v.get("name") for k, v in meetings_data["rsvps"].items() if v.get("status") == "declined"]
+
+    accepted_html = "".join([f"<li class='text-emerald-600 dark:text-emerald-400'>• {name}</li>" for name in accepted_list])
+    declined_html = "".join([f"<li class='text-rose-600 dark:text-rose-400'>• {name}</li>" for name in declined_list])
+
+    topics_html = ""
+    for topic in meetings_data.get("topics", []):
+        topics_html += f"""
+        <div class="bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-1">
+            <div class="flex justify-between font-semibold text-slate-900 dark:text-white">
+                <span>📌 {topic.get('title')}</span>
+                <span class="text-[10px] text-slate-400 font-mono">Von: {topic.get('by')}</span>
+            </div>
+            <p class="text-slate-600 dark:text-slate-300">{topic.get('details')}</p>
+        </div>
+        """
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        {get_head_html("Teambesprechung")}
+    </head>
+    <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
+        {get_sidebar_html(guild_name, 'meetings', current_user)}
+        <main class="flex-1 p-8 overflow-y-auto">
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">🎙️ Team-Besprechungs-Tool</h1>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <div class="lg:col-span-2 space-y-6">
+                    <div class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+                        <div class="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-4">
+                            <div>
+                                <h2 class="text-lg font-bold text-slate-900 dark:text-white">{meetings_data.get('title')}</h2>
+                                <p class="text-xs text-indigo-600 dark:text-indigo-400 font-mono mt-1">📅 Datum & Uhrzeit: {meetings_data.get('date_time')}</p>
+                            </div>
+                            <span class="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-xs px-3 py-1 rounded-full font-semibold">Anstehend</span>
+                        </div>
+                        <p class="text-xs text-slate-600 dark:text-slate-300">{meetings_data.get('description')}</p>
+
+                        <div class="pt-2">
+                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">Dein Status für die Besprechung:</label>
+                            <form action="/action" method="post" class="flex gap-3">
+                                <input type="hidden" name="action" value="meeting_rsvp">
+                                <button name="rsvp_status" value="accepted" class="{'bg-emerald-600 text-white font-bold' if user_status == 'accepted' else 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'} px-4 py-2 rounded-xl text-xs transition">✅ Zusage</button>
+                                <button name="rsvp_status" value="declined" class="{'bg-rose-600 text-white font-bold' if user_status == 'declined' else 'bg-rose-500/10 text-rose-600 border border-rose-500/30'} px-4 py-2 rounded-xl text-xs transition">❌ Absage</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+                        <h3 class="text-sm font-bold text-slate-900 dark:text-white">💡 Themenvorschläge einreichen</h3>
+                        <form action="/action" method="post" class="space-y-3 text-xs">
+                            <input type="hidden" name="action" value="add_meeting_topic">
+                            <input type="text" name="topic_title" placeholder="Thema / Titel..." required class="w-full bg-slate-50 dark:bg-[#0b0e14] border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500">
+                            <textarea name="topic_details" placeholder="Beschreibung / Details zum Thema..." required class="w-full bg-slate-50 dark:bg-[#0b0e14] border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-slate-900 dark:text-white h-20 focus:outline-none focus:border-indigo-500"></textarea>
+                            <button class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2.5 rounded-xl shadow-sm transition">Thema auf Tagesordnung setzen</button>
+                        </form>
+
+                        <div class="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                            <h4 class="text-xs font-bold text-slate-900 dark:text-white">Eingereichte Themenvorschläge ({len(meetings_data.get('topics', []))})</h4>
+                            <div class="space-y-2 max-h-56 overflow-y-auto">
+                                {topics_html or "<p class='text-xs text-slate-400 italic'>Noch keine Themenvorschläge eingereicht.</p>"}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    <div class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4 text-xs">
+                        <h3 class="text-sm font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-2">Teilnehmer-Übersicht</h3>
+                        
+                        <div>
+                            <div class="font-bold text-emerald-600 dark:text-emerald-400 mb-1">Zugesagt ({len(accepted_list)})</div>
+                            <ul class="space-y-1">
+                                {accepted_html or "<li class='text-slate-400 italic'>Niemand</li>"}
+                            </ul>
+                        </div>
+
+                        <hr class="border-slate-100 dark:border-slate-800">
+
+                        <div>
+                            <div class="font-bold text-rose-600 dark:text-rose-400 mb-1">Abgesagt ({len(declined_list)})</div>
+                            <ul class="space-y-1">
+                                {declined_html or "<li class='text-slate-400 italic'>Niemand</li>"}
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-3 text-xs">
+                        <h3 class="text-sm font-bold text-slate-900 dark:text-white">⚙️ Besprechung ansetzen (Admin)</h3>
+                        <form action="/action" method="post" class="space-y-3">
+                            <input type="hidden" name="action" value="set_meeting_info">
+                            <input type="text" name="meeting_title" placeholder="Titel..." required class="w-full bg-slate-50 dark:bg-[#0b0e14] border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 text-slate-900 dark:text-white">
+                            <input type="text" name="meeting_datetime" placeholder="z. B. Sonntag, 18:00 Uhr" required class="w-full bg-slate-50 dark:bg-[#0b0e14] border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 text-slate-900 dark:text-white">
+                            <textarea name="meeting_desc" placeholder="Kurze Beschreibung..." class="w-full bg-slate-50 dark:bg-[#0b0e14] border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 text-slate-900 dark:text-white h-16"></textarea>
+                            <button class="w-full bg-indigo-600 hover:bg-indigo-500 font-semibold py-2 rounded-xl text-white shadow-sm transition">Besprechung Aktualisieren</button>
+                        </form>
+                    </div>
+                </div>
+
             </div>
         </main>
     </body>
@@ -734,7 +925,7 @@ async def backups_page(request: Request, user_session: str = Cookie(None)):
 
 @app.post("/backup/create")
 async def create_backup(user_session: str = Cookie(None)):
-    get_current_user(user_session)
+    current_user = get_current_user(user_session)
     bot = getattr(app.state, "bot", None)
     if not bot:
         return RedirectResponse(url="/backups", status_code=303)
@@ -780,6 +971,7 @@ async def create_backup(user_session: str = Cookie(None)):
     filepath = os.path.join(BACKUP_DIR, filename)
     save_json(filepath, backup_data)
 
+    log_audit(current_user.get("global_name"), current_user.get("id"), "Backup Erstellt", f"Filename: {filename}")
     return RedirectResponse(url="/backups", status_code=303)
 
 
@@ -794,10 +986,11 @@ async def download_backup(filename: str, user_session: str = Cookie(None)):
 
 @app.post("/backup/delete")
 async def delete_backup(filename: str = Form(...), user_session: str = Cookie(None)):
-    get_current_user(user_session)
+    current_user = get_current_user(user_session)
     filepath = os.path.join(BACKUP_DIR, filename)
     if os.path.exists(filepath):
         os.remove(filepath)
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Backup Gelöscht", f"Filename: {filename}")
     return RedirectResponse(url="/backups", status_code=303)
 
 # =============================================================
@@ -1061,7 +1254,7 @@ async def loa_page(request: Request, user_session: str = Cookie(None)):
     """
 
 # =============================================================
-# ROUTE: EINSTELLUNGEN & RECHTE
+# ROUTE: EINSTELLUNGEN & AUDIT-LOG
 # =============================================================
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, user_session: str = Cookie(None)):
@@ -1070,9 +1263,10 @@ async def settings_page(request: Request, user_session: str = Cookie(None)):
     guild = bot.get_guild(GUILD_ID) if bot else None
     guild_name = guild.name if guild else "Bochum RP"
 
-    config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
+    config = load_json(CONFIG_FILE, {"team_role_ids": [], "weekly_goal_hours": 3.0, "permissions": {}})
     team_role_ids = config.get("team_role_ids", [])
     perms = config.get("permissions", {})
+    audit_data = load_json(AUDIT_FILE, [])
 
     roles_settings_html = ""
     if guild:
@@ -1114,6 +1308,19 @@ async def settings_page(request: Request, user_session: str = Cookie(None)):
             </div>
             """
 
+    audit_html = ""
+    for entry in reversed(audit_data[-20:]):
+        audit_html += f"""
+        <div class="bg-slate-50 dark:bg-[#0b0e14] border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs flex justify-between items-center">
+            <div>
+                <span class="font-bold text-slate-900 dark:text-white">{entry.get('actor')}</span>
+                <span class="text-indigo-600 dark:text-indigo-400 font-semibold px-2">[{entry.get('action')}]</span>
+                <span class="text-slate-600 dark:text-slate-300">{entry.get('details')}</span>
+            </div>
+            <span class="text-[10px] text-slate-400 font-mono">{entry.get('timestamp')}</span>
+        </div>
+        """
+
     return f"""
     <!DOCTYPE html>
     <html lang="de">
@@ -1123,11 +1330,23 @@ async def settings_page(request: Request, user_session: str = Cookie(None)):
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
         {get_sidebar_html(guild_name, 'settings', current_user)}
         <main class="flex-1 p-8 overflow-y-auto">
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-2">Rollen-Berechtigungen & System-Status</h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mb-6">Server-ID: <code class="text-indigo-600 dark:text-indigo-400 font-mono">{GUILD_ID}</code> | Redirect-URI: <code class="text-indigo-600 dark:text-indigo-400 font-mono">{REDIRECT_URI}</code></p>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-2">Einstellungen & Panel-Audit-Log</h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-6">Server-ID: <code class="text-indigo-600 dark:text-indigo-400 font-mono">{GUILD_ID}</code></p>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {roles_settings_html or "<p class='text-xs text-slate-400 italic'>Keine Team-Rollen konfiguriert.</p>"}
+            <div class="space-y-8">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-900 dark:text-white mb-4">Rollen-Berechtigungen</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {roles_settings_html or "<p class='text-xs text-slate-400 italic'>Keine Team-Rollen konfiguriert.</p>"}
+                    </div>
+                </div>
+
+                <div class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+                    <h2 class="text-lg font-bold text-slate-900 dark:text-white">📜 Panel-Audit-Log (Letzte 20 Aktionen)</h2>
+                    <div class="space-y-2 max-h-72 overflow-y-auto pr-1">
+                        {audit_html or "<p class='text-xs text-slate-400 italic'>Keine Audit-Einträge vorhanden.</p>"}
+                    </div>
+                </div>
             </div>
         </main>
     </body>
@@ -1307,20 +1526,26 @@ async def create_log(
     logs_db.append(new_entry)
     save_json(LOGS_FILE, logs_db)
 
+    log_audit(current_user.get("global_name"), current_user.get("id"), "Log Erstellt", f"Spieler: {target_user} ({log_type})")
     return RedirectResponse(url="/dashboard", status_code=303)
 
 # =============================================================
-# ACTION: SCHICHT-SYSTEM STEUERUNG
+# ACTION: SCHICHT-SYSTEM STEUERUNG (Inkl. Sperre bei 3 Warns)
 # =============================================================
 @app.post("/shift/action")
 async def handle_shift_action(shift_action: str = Form(...), user_session: str = Cookie(None)):
     current_user = get_current_user(user_session)
     shifts_db = load_json(SHIFTS_FILE, {"active_shifts": {}, "history": []})
+    team_db = load_json(DATA_FILE, {})
     
     mod_id = current_user["id"]
     now_ts = datetime.now()
 
     if shift_action == "start":
+        user_warns = team_db.get(str(mod_id), {}).get("warns_list", [])
+        if len(user_warns) >= 3:
+            raise HTTPException(status_code=400, detail="Schicht-Start gesperrt: Du hast 3 oder mehr aktive Verwarnungen!")
+
         shifts_db["active_shifts"][mod_id] = {
             "status": "online",
             "started_at_iso": now_ts.isoformat(),
@@ -1375,6 +1600,12 @@ async def handle_action(
     app_id: str = Form(None),
     vote: str = Form(None),
     decision: str = Form(None),
+    rsvp_status: str = Form(None),
+    topic_title: str = Form(None),
+    topic_details: str = Form(None),
+    meeting_title: str = Form(None),
+    meeting_datetime: str = Form(None),
+    meeting_desc: str = Form(None),
     can_view_dashboard: bool = Form(False),
     can_warn: bool = Form(False),
     can_promote: bool = Form(False),
@@ -1386,35 +1617,90 @@ async def handle_action(
     guild = bot.get_guild(GUILD_ID) if bot else None
 
     team_db = load_json(DATA_FILE, {})
-    config = load_json(CONFIG_FILE, {"team_role_ids": [], "permissions": {}})
+    config = load_json(CONFIG_FILE, {"team_role_ids": [], "weekly_goal_hours": 3.0, "permissions": {}})
     apps = load_json(APPS_FILE, {})
 
+    # ---------------------------------------------------------
+    # BEFÖRDERN, DEGRADIEREN & KICKEN (Index-basiert auf team_role_ids)
+    # ---------------------------------------------------------
     if action in ["promote", "demote", "kick"] and user_id and guild:
         member = guild.get_member(user_id)
         if member:
+            team_role_ids = config.get("team_role_ids", [])
+            member_team_role_ids = [r.id for r in member.roles if r.id in team_role_ids]
+
             if action == "kick":
+                await send_dm_notification(member, f"❌ Du wurdest von **{guild.name}** aus dem Team entfernt. Grund: Vom Dashboard aus gekickt durch {current_user.get('global_name')}.")
                 await member.kick(reason=f"Vom Dashboard aus gekickt durch {current_user.get('global_name')}.")
                 await send_team_update_embed(
                     guild, 
                     "🚪 Team-Update: Kick", 
-                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Aktion:** Wurde aus dem Team gekickt.", 
+                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Aktion:** Wurde aus dem Team gekickt durch {current_user.get('global_name')}.", 
                     discord.Color.red()
                 )
-            elif action == "promote":
-                await send_team_update_embed(
-                    guild, 
-                    "⬆️ Team-Update: Beförderung", 
-                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Aktion:** Wurde befördert.", 
-                    discord.Color.green()
-                )
-            elif action == "demote":
-                await send_team_update_embed(
-                    guild, 
-                    "⬇️ Team-Update: Degradierung", 
-                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Aktion:** Wurde degradiert.", 
-                    discord.Color.orange()
-                )
+                log_audit(current_user.get("global_name"), current_user.get("id"), "Kick", f"Mitglied {member.display_name} gekickt.")
 
+            elif action == "promote":
+                current_idx = -1
+                if member_team_role_ids:
+                    indices = [team_role_ids.index(rid) for rid in member_team_role_ids if rid in team_role_ids]
+                    if indices:
+                        current_idx = max(indices)
+                
+                if current_idx < len(team_role_ids) - 1:
+                    new_idx = current_idx + 1
+                    new_role_id = team_role_ids[new_idx]
+                    new_role = guild.get_role(new_role_id)
+                    
+                    for rid in member_team_role_ids:
+                        r_obj = guild.get_role(rid)
+                        if r_obj:
+                            try: await member.remove_roles(r_obj)
+                            except Exception: pass
+                    
+                    if new_role:
+                        await member.add_roles(new_role)
+                        await send_dm_notification(member, f"🎉 **Herzlichen Glückwunsch!** Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert!")
+                        await send_team_update_embed(
+                            guild, 
+                            "⬆️ Team-Update: Beförderung", 
+                            f"**Mitglied:** {member.mention} ({member.display_name})\n**Alte Rolle:** {guild.get_role(team_role_ids[current_idx]).name if current_idx >= 0 else 'Keine'}\n**Neue Rolle:** **{new_role.name}**\n**Durch:** {current_user.get('global_name')}", 
+                            discord.Color.green()
+                        )
+                        log_audit(current_user.get("global_name"), current_user.get("id"), "Beförderung", f"{member.display_name} -> {new_role.name}")
+
+            elif action == "demote":
+                current_idx = -1
+                if member_team_role_ids:
+                    indices = [team_role_ids.index(rid) for rid in member_team_role_ids if rid in team_role_ids]
+                    if indices:
+                        current_idx = max(indices)
+                
+                if current_idx > 0:
+                    new_idx = current_idx - 1
+                    new_role_id = team_role_ids[new_idx]
+                    new_role = guild.get_role(new_role_id)
+                    
+                    for rid in member_team_role_ids:
+                        r_obj = guild.get_role(rid)
+                        if r_obj:
+                            try: await member.remove_roles(r_obj)
+                            except Exception: pass
+                    
+                    if new_role:
+                        await member.add_roles(new_role)
+                        await send_dm_notification(member, f"📉 **Information:** Du wurdest auf **{guild.name}** auf den Rang **{new_role.name}** degradiert.")
+                        await send_team_update_embed(
+                            guild, 
+                            "⬇️ Team-Update: Degradierung", 
+                            f"**Mitglied:** {member.mention} ({member.display_name})\n**Neue Rolle:** **{new_role.name}**\n**Durch:** {current_user.get('global_name')}", 
+                            discord.Color.orange()
+                        )
+                        log_audit(current_user.get("global_name"), current_user.get("id"), "Degradierung", f"{member.display_name} -> {new_role.name}")
+
+    # ---------------------------------------------------------
+    # VERWARNUNGEN (Inkl. Auto-Degradierung bei 3. Warn)
+    # ---------------------------------------------------------
     elif action == "warn_with_proof" and user_id:
         user_key = str(user_id)
         if user_key not in team_db:
@@ -1436,24 +1722,49 @@ async def handle_action(
         member = guild.get_member(user_id) if guild else None
         total_warns = len(team_db[user_key]["warns_list"])
 
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Warn Vergeben", f"An User ID {user_id} (Warn {total_warns}/3)")
+
         if member:
+            await send_dm_notification(member, f"⚠️ **Verwarnung erhalten!**\n**Server:** {guild.name}\n**Warn-Stufe:** {total_warns}/3\n**Grund:** {warn_reason}\n**Ausgestellt von:** {current_user.get('global_name')}")
+
             target_level = min(total_warns, 3)
             for lvl, r_id in WARN_ROLE_IDS.items():
                 r_obj = guild.get_role(r_id)
                 if r_obj and r_obj in member.roles and lvl != target_level:
-                    try:
-                        await member.remove_roles(r_obj)
-                    except Exception:
-                        pass
+                    try: await member.remove_roles(r_obj)
+                    except Exception: pass
             
             current_role_id = WARN_ROLE_IDS.get(target_level)
             if current_role_id:
                 current_role = guild.get_role(current_role_id)
                 if current_role and current_role not in member.roles:
-                    try:
-                        await member.add_roles(current_role)
-                    except Exception:
-                        pass
+                    try: await member.add_roles(current_role)
+                    except Exception: pass
+
+            # AUTOMATISCHES DEGRADIEREN BEI 3 WARNS
+            if total_warns >= 3:
+                team_role_ids = config.get("team_role_ids", [])
+                member_team_role_ids = [r.id for r in member.roles if r.id in team_role_ids]
+                if member_team_role_ids:
+                    indices = [team_role_ids.index(rid) for rid in member_team_role_ids if rid in team_role_ids]
+                    if indices and max(indices) > 0:
+                        new_idx = max(indices) - 1
+                        new_role = guild.get_role(team_role_ids[new_idx])
+                        for rid in member_team_role_ids:
+                            r_obj = guild.get_role(rid)
+                            if r_obj:
+                                try: await member.remove_roles(r_obj)
+                                except Exception: pass
+                        if new_role:
+                            await member.add_roles(new_role)
+                            await send_dm_notification(member, f"⚠️ **Automatisches Degradieren:** Aufgrund von 3 Verwarnungen wurdest du automatisch auf **{new_role.name}** degradiert.")
+                            await send_team_update_embed(
+                                guild,
+                                "⚠️ Automatisches Degradieren (3 Warns)",
+                                f"**Mitglied:** {member.mention} ({member.display_name})\n**Grund:** 3. Verwarnung erteilt.\n**Neue Rolle:** **{new_role.name}**",
+                                discord.Color.red()
+                            )
+                            log_audit("System", "0", "Auto-Degradierung", f"{member.display_name} wegen 3 Warns auf {new_role.name} degradiert.")
 
         if guild:
             proof_display = f"[Beweis öffnen]({warn_proof})" if warn_proof else "*Kein Beweis angegeben*"
@@ -1472,16 +1783,16 @@ async def handle_action(
 
             channel = discord.utils.get(guild.text_channels, name=TEAM_UPDATE_CHANNEL_NAME)
             if channel:
-                try:
-                    await channel.send(embed=embed)
-                except Exception as e:
-                    print(f"Fehler beim Senden des Warn-Embeds: {e}")
+                try: await channel.send(embed=embed)
+                except Exception: pass
 
     elif action == "remove_warn" and user_id:
         user_key = str(user_id)
         if user_key in team_db and "warns_list" in team_db[user_key]:
             team_db[user_key]["warns_list"] = [w for w in team_db[user_key]["warns_list"] if w.get("id") != warn_id]
             save_json(DATA_FILE, team_db)
+
+            log_audit(current_user.get("global_name"), current_user.get("id"), "Warn Gelöscht", f"Für User ID {user_id}")
 
             member = guild.get_member(user_id) if guild else None
             remaining_warns = len(team_db[user_key]["warns_list"])
@@ -1490,19 +1801,15 @@ async def handle_action(
                 for r_id in WARN_ROLE_IDS.values():
                     r_obj = guild.get_role(r_id)
                     if r_obj and r_obj in member.roles:
-                        try:
-                            await member.remove_roles(r_obj)
-                        except Exception:
-                            pass
+                        try: await member.remove_roles(r_obj)
+                        except Exception: pass
                 
                 if remaining_warns > 0:
                     new_level = min(remaining_warns, 3)
                     new_role = guild.get_role(WARN_ROLE_IDS.get(new_level))
                     if new_role:
-                        try:
-                            await member.add_roles(new_role)
-                        except Exception:
-                            pass
+                        try: await member.add_roles(new_role)
+                        except Exception: pass
 
             if guild:
                 embed = discord.Embed(
@@ -1513,10 +1820,8 @@ async def handle_action(
                 embed.timestamp = datetime.now()
                 channel = discord.utils.get(guild.text_channels, name=TEAM_UPDATE_CHANNEL_NAME)
                 if channel:
-                    try:
-                        await channel.send(embed=embed)
-                    except Exception:
-                        pass
+                    try: await channel.send(embed=embed)
+                    except Exception: pass
 
     elif action == "add_note" and user_id and note_text:
         user_key = str(user_id)
@@ -1524,6 +1829,7 @@ async def handle_action(
             team_db[user_key] = {"notes": [], "warns_list": []}
         team_db[user_key]["notes"].append(note_text)
         save_json(DATA_FILE, team_db)
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Notiz Hinzugefügt", f"Für User ID {user_id}: {note_text}")
 
     elif action == "submit_loa" and user_id and guild:
         try:
@@ -1561,10 +1867,8 @@ async def handle_action(
                     await loa_channel.send(embed=embed)
                 
                 if member and not member.display_name.startswith("[Abgemeldet]"):
-                    try:
-                        await member.edit(nick=f"[Abgemeldet] {member.display_name}")
-                    except Exception:
-                        pass
+                    try: await member.edit(nick=f"[Abgemeldet] {member.display_name}")
+                    except Exception: pass
             except Exception as e:
                 print(f"Fehler beim Senden der Discord-Benachrichtigung: {e}")
 
@@ -1597,9 +1901,12 @@ async def handle_action(
         if app_id in apps:
             apps[app_id]["status"] = decision
             save_json(APPS_FILE, apps)
+            applicant_user_id = apps[app_id]["user_id"]
+
+            log_audit(current_user.get("global_name"), current_user.get("id"), "Bewerbung Entscheiden", f"Bewerbung {app_id}: {decision}")
 
             if decision == "accept":
-                target_member = guild.get_member(apps[app_id]["user_id"])
+                target_member = guild.get_member(applicant_user_id)
                 team_role_ids = config.get("team_role_ids", [])
                 if target_member and team_role_ids:
                     first_role = guild.get_role(team_role_ids[0])
@@ -1611,6 +1918,18 @@ async def handle_action(
                             f"**Neuer Teamler:** {target_member.mention} ({apps[app_id]['name']})\n**Zugewiesene Rolle:** {first_role.name}",
                             discord.Color.brand_green()
                         )
+                if bot:
+                    try:
+                        u_obj = await bot.fetch_user(applicant_user_id)
+                        await send_dm_notification(u_obj, f"🎉 **Herzlichen Glückwunsch!** Deine Bewerbung bei **{guild.name}** wurde **angenommen**!")
+                    except Exception: pass
+
+            elif decision == "reject" and bot:
+                try:
+                    u_obj = await bot.fetch_user(applicant_user_id)
+                    await send_dm_notification(u_obj, f"❌ **Bewerbungs-Update:** Deine Bewerbung bei **{guild.name}** wurde leider **abgelehnt**.")
+                except Exception: pass
+
         return RedirectResponse(url="/applications", status_code=303)
 
     elif action == "vote_app" and app_id and vote:
@@ -1629,6 +1948,37 @@ async def handle_action(
             save_json(APPS_FILE, apps)
         return RedirectResponse(url="/applications", status_code=303)
 
+    # ---------------------------------------------------------
+    # BESPRECHUNGS-TOOL ACTIONS
+    # ---------------------------------------------------------
+    elif action == "meeting_rsvp" and rsvp_status:
+        m_data = load_json(MEETINGS_FILE, {"title": "", "date_time": "", "description": "", "rsvps": {}, "topics": []})
+        m_data["rsvps"][current_user["id"]] = {
+            "name": current_user.get("global_name"),
+            "status": rsvp_status
+        }
+        save_json(MEETINGS_FILE, m_data)
+        return RedirectResponse(url="/meetings", status_code=303)
+
+    elif action == "add_meeting_topic" and topic_title and topic_details:
+        m_data = load_json(MEETINGS_FILE, {"title": "", "date_time": "", "description": "", "rsvps": {}, "topics": []})
+        m_data["topics"].append({
+            "title": topic_title,
+            "details": topic_details,
+            "by": current_user.get("global_name")
+        })
+        save_json(MEETINGS_FILE, m_data)
+        return RedirectResponse(url="/meetings", status_code=303)
+
+    elif action == "set_meeting_info" and meeting_title and meeting_datetime:
+        m_data = load_json(MEETINGS_FILE, {"title": "", "date_time": "", "description": "", "rsvps": {}, "topics": []})
+        m_data["title"] = meeting_title
+        m_data["date_time"] = meeting_datetime
+        m_data["description"] = meeting_desc or ""
+        save_json(MEETINGS_FILE, m_data)
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Besprechung Geändert", f"Titel: {meeting_title}")
+        return RedirectResponse(url="/meetings", status_code=303)
+
     elif action == "save_role_permissions" and role_id:
         if "permissions" not in config:
             config["permissions"] = {}
@@ -1639,6 +1989,7 @@ async def handle_action(
             "can_add_notes": can_add_notes,
         }
         save_json(CONFIG_FILE, config)
+        log_audit(current_user.get("global_name"), current_user.get("id"), "Rollenrechte Geändert", f"Rolle ID {role_id}")
         return RedirectResponse(url="/settings", status_code=303)
 
     if redirect_to_member and user_id:
