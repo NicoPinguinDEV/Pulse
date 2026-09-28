@@ -169,11 +169,14 @@ class TeamlisteCog(commands.Cog):
                 f"*Keine Rollen für {title} konfiguriert. Nutze `/teamrollen_hinzufuegen`.*"
             )
         else:
-            for role_id in role_ids:
-                role = guild.get_role(role_id)
-                if not role:
-                    continue
+            # 1. Rollen-Objekte laden
+            roles = [guild.get_role(rid) for rid in role_ids]
+            # 2. Ungültige/gelöschte Rollen herausfiltern
+            valid_roles = [r for r in roles if r is not None]
+            # 3. Nach der Server-Hierarchie (Position) absteigend sortieren
+            sorted_roles = sorted(valid_roles, key=lambda r: r.position, reverse=True)
 
+            for role in sorted_roles:
                 lines.append(f"❯ **{role.name}**")
 
                 if role.members:
