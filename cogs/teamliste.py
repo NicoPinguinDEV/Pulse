@@ -127,10 +127,94 @@ class TeamlisteCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         init_db()
+        self._is_updating = False  # Verhindert parallele Updates
         self.update_list_loop.start()
 
     def cog_unload(self):
         self.update_list_loop.cancel()
+
+    # ... (get_abmeldung_info, format_status, create_team_embed bleiben gleich) ...
+
+    # Aktualisiert die 3 Embed-Nachrichten
+    async def update_teamlist(self, guild: discord.Guild):
+        # Falls gerade bereits ein Update läuft, abbrechen
+        if self._is_updating:
+            return
+
+        self._is_updating = True
+        try:
+            channel_id = get_config("teamlist_channel_id")
+            if not channel_id:
+                return
+
+            channel = guild.get_channel(channel_id)
+            if not channel:
+                return
+
+            categories = [
+                ("fuehrungsebene", "Führungsebenen-Liste"),
+                ("highteam", "HighTeam-Liste"),
+                ("lowteam", "LowTeam-Liste"),
+            ]
+
+            for key, title in categories:
+                embed = self.create_team_embed(guild, title, key)
+                msg_id = get_msg_id(key)
+
+                if msg_id and msg_id != 0:
+                    try:
+                        msg = await channel.fetch_message(msg_id)
+                        await msg.edit(embed=embed)
+
+                    except discord.NotFound:
+                        new_msg = await channel.send(embed=embed)
+                        set_msg_id(key, new_msg.id)
+
+                    except discord.HTTPException as e:
+                        if e.status == 429:
+                            await asyncio.sleep(5)
+                        elif e.code == 30046:
+                            try:
+                                await channel.purge(
+                                    limit=1, check=lambda m: m.id == msg_id
+                                )
+                            except discord.HTTPException:
+                                pass
+                            new_msg = await channel.send(embed=embed)
+                            set_msg_id(key, new_msg.id)
+                        else:
+                            print(
+                                f"HTTP-Fehler beim Aktualisieren der Teamliste ({key}): {e}"
+                            )
+                else:
+                    new_msg = await channel.send(embed=embed)
+                    set_msg_id(key, new_msg.id)
+
+                # 2 Sekunden Pause zwischen Embeds zur Rate-Limit-Vermeidung
+                await asyncio.sleep(2)
+
+        finally:
+            self._is_updating = False
+
+    # LOOP (Alle 2 Minuten)
+    @tasks.loop(minutes=2)
+    async def update_list_loop(self):
+        await self.bot.wait_until_ready()
+        channel_id = get_config("teamlist_channel_id")
+        if channel_id:
+            channel = self.bot.get_channel(channel_id)
+            if channel and channel.guild:
+                await self.update_teamlist(channel.guild)
+
+    # EVENT-TRIGGER (Nur noch bei Rollen- oder Namensänderungen)
+    @commands.Cog.listener()
+    async def on_member_update(
+        self, before: discord.Member, after: discord.Member
+    ):
+        # Entfernt: before.status != after.status
+        # Status-Updates werden jetzt sauber über den 2-Minuten-Loop abgewickelt.
+        if before.roles != after.roles or before.display_name != after.display_name:
+            await self.update_teamlist(after.guild)
 
     # Prüft in abmeldungen.db, ob der User derzeit abgemeldet ist
     def get_abmeldung_info(self, user_id: int) -> str | None:
