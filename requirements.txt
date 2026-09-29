@@ -1,6 +1,0 @@
-discord.py
-fastapi
-uvicorn
-httpx
-python-dotenv
-python-multipart
