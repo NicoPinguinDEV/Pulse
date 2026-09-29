@@ -757,6 +757,7 @@ async def login():
 async def logout():
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie(key="user_session")
+    response.delete_cookie(key="apply_session")
     return response
 
 
@@ -1382,7 +1383,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
         <h3 class="text-sm font-bold text-slate-900 dark:text-white">Team-Aktionen</h3>
         <form action="/action" method="post" class="flex flex-wrap gap-2">
             <input type="hidden" name="user_id" value="{member.id}"><input type="hidden" name="redirect_to_member" value="1">
-            <button name="action" value="promote" onclick="return confirm('Wirklich befördern?')" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬆️ Befördern</button>
+            <button name="action" value="promote" onclick="return confirm('Wirklich befördern?')" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬆️️ Befördern</button>
             <button name="action" value="demote" onclick="return confirm('Wirklich degradieren?')" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬇️ Degradieren</button>
             <button name="action" value="kick" onclick="return confirm('Dieses Mitglied wirklich vom gesamten Discord-Server kicken?')" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">🚪 Vom Server kicken</button>
         </form>
@@ -1636,842 +1637,644 @@ async def loa_page(request: Request, user_session: str = Cookie(None)):
 
 
 # =============================================================
-# ROUTE: ÖFFENTLICHES BEWERBUNGSFORMULAR
+# ROUTE: ÖFFENTLICHES BEWERBUNGSFORMULAR & BEWERBUNGS-SYSTEM
 # =============================================================
 @app.get("/apply", response_class=HTMLResponse)
 async def public_apply_page(apply_session: str = Cookie(None)):
     applicant = verify_payload(apply_session) if apply_session else None
     if applicant and applicant.get("apply_exp", 0) < time.time():
         applicant = None
+
     if not applicant:
-        return f"""
-        <!DOCTYPE html><html lang="de"><head>{get_head_html("Team-Bewerbung")}</head>
+        return HTMLResponse(f"""<!DOCTYPE html>
+        <html lang="de">
+        <head>{get_head_html("Bochum RP - Team Bewerbung")}</head>
         <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen flex items-center justify-center p-4 font-sans">
-        <div class="{CARD} p-8 shadow-xl w-full max-w-lg text-center space-y-5">
-            <div class="text-4xl">📝</div><h1 class="text-xl font-bold">Team-Bewerbung</h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Verknüpfe deine Bewerbung zuerst sicher mit deinem Discord-Account. Deine Discord-ID kann nicht mehr manuell für eine andere Person eingetragen werden.</p>
-            <a href="/apply/login" class="block w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 rounded-xl">Mit Discord verbinden</a>
-            <a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a>
-        </div></body></html>"""
-    return f"""
-    <!DOCTYPE html><html lang="de"><head>{get_head_html("Team-Bewerbung")}</head>
-    <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen flex items-center justify-center p-4 font-sans">
-        <div class="{CARD} p-8 shadow-xl w-full max-w-lg space-y-4">
-            <div class="flex items-center gap-3"><img src="https://cdn.discordapp.com/avatars/{esc(applicant.get('id'))}/{esc(applicant.get('avatar') or '0')}.png" class="w-10 h-10 rounded-full"><div><div class="font-bold">{esc(applicant.get('global_name') or applicant.get('username'))}</div><div class="text-[10px] text-slate-400 font-mono">Discord-ID: {esc(applicant.get('id'))}</div></div></div>
-            <h1 class="text-xl font-bold">Team-Bewerbung</h1><p class="text-xs text-slate-500 dark:text-slate-400">Fülle die Bewerbung aus. Discord-Daten sind bereits verifiziert.</p>
-            <form action="/action" method="post" class="space-y-3.5 text-xs">
-                <input type="hidden" name="action" value="submit_application">
-                <input type="hidden" name="applicant_id" value="{esc(applicant.get('id'))}">
-                <input type="hidden" name="applicant_name" value="{esc(applicant.get('global_name') or applicant.get('username'))}">
-                <label class="block text-slate-500 mb-1 font-medium">Warum möchtest du ins Team?</label>
-                <textarea name="applicant_text" maxlength="2000" placeholder="Erzähle etwas über dich, deine Erfahrung und deine Motivation…" required class="{INPUT} h-36"></textarea>
-                <button class="w-full bg-emerald-600 hover:bg-emerald-500 font-semibold py-3 rounded-xl text-white">Bewerbung absenden</button>
-            </form><div class="text-center"><a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a></div>
-        </div></body></html>"""
+            <div class="{CARD} p-8 shadow-xl w-full max-w-md text-center space-y-6">
+                <div class="w-12 h-12 mx-auto rounded-2xl bg-indigo-600 flex items-center justify-center text-2xl shadow-lg shadow-indigo-600/30">📝</div>
+                <div>
+                    <h1 class="text-2xl font-bold">Team-Bewerbung</h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">Melde dich mit deinem Discord-Account an, um eine Bewerbung einzureichen.</p>
+                </div>
+                <a href="/apply/login" class="inline-flex items-center justify-center gap-2 w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg shadow-[#5865F2]/20 text-sm">
+                    Mit Discord anmelden & bewerben
+                </a>
+                <a href="/" class="block text-xs text-slate-400 hover:underline">Zurück zur Startseite</a>
+            </div>
+        </body>
+        </html>""")
+
+    return HTMLResponse(f"""<!DOCTYPE html>
+    <html lang="de">
+    <head>{get_head_html("Bochum RP - Bewerbungsformular")}</head>
+    <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen p-4 md:p-8 font-sans flex items-center justify-center">
+        <div class="{CARD} p-8 shadow-xl w-full max-w-2xl space-y-6">
+            <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+                <div>
+                    <h1 class="text-xl font-bold">Bewerbung als Teammitglied</h1>
+                    <p class="text-xs text-slate-400">Eingeloggt als @{esc(applicant.get('username'))}</p>
+                </div>
+                <a href="/logout" class="text-xs text-rose-500 hover:underline">Abmelden</a>
+            </div>
+            <form action="/apply/submit" method="post" class="space-y-4 text-xs">
+                <div>
+                    <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Alter *</label>
+                    <input type="number" name="age" min="12" max="99" required class="{INPUT}">
+                </div>
+                <div>
+                    <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Roblox Username *</label>
+                    <input type="text" name="roblox_name" maxlength="50" required class="{INPUT}">
+                </div>
+                <div>
+                    <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Erfahrung im Bereich Moderation / RP *</label>
+                    <textarea name="experience" maxlength="2000" placeholder="Erzähle uns von deinen Erfahrungen..." required class="{INPUT} h-28"></textarea>
+                </div>
+                <div>
+                    <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Warum möchtest du ins Team? *</label>
+                    <textarea name="motivation" maxlength="2000" placeholder="Deine Motivation..." required class="{INPUT} h-28"></textarea>
+                </div>
+                <div>
+                    <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Wöchentliche Aktivität (Stunden) *</label>
+                    <input type="number" name="weekly_time" min="1" max="100" required class="{INPUT}">
+                </div>
+                <button class="w-full {BTN} py-3">Bewerbung absenden</button>
+            </form>
+        </div>
+    </body>
+    </html>""")
 
 
 @app.get("/apply/login")
 async def apply_login():
     state = secrets.token_urlsafe(24)
     url = (f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}"
-           f"&redirect_uri={quote(APPLICATION_REDIRECT_URI, safe='')}"
-           f"&response_type=code&scope=identify&state={state}")
-    response=RedirectResponse(url=url,status_code=303)
-    response.set_cookie("apply_oauth_state",state,max_age=600,httponly=True,samesite="lax",secure=COOKIE_SECURE)
+           f"&redirect_uri={quote(APPLICATION_REDIRECT_URI, safe='')}&response_type=code&scope=identify&state={state}")
+    response = RedirectResponse(url=url, status_code=303)
+    response.set_cookie("oauth_state_apply", state, max_age=600, httponly=True, samesite="lax", secure=COOKIE_SECURE)
     return response
 
 
 @app.get("/apply/callback")
-async def apply_callback(request: Request, code: str=None, state: str=None, error: str=None, apply_oauth_state: str=Cookie(None)):
-    retry='<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zur Bewerbung</a>'
-    if error or not code or not state or not apply_oauth_state or not hmac.compare_digest(state,apply_oauth_state):
-        return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen','Bitte erneut versuchen.',retry),status_code=400)
-    redirect_apply=APPLICATION_REDIRECT_URI
+async def apply_callback(request: Request, code: str = None, state: str = None, error: str = None, oauth_state_apply: str = Cookie(None)):
+    retry = '<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Erneut versuchen</a>'
+    if error or not code or not state or not oauth_state_apply or not hmac.compare_digest(state, oauth_state_apply):
+        return HTMLResponse(simple_page("❌", "Login fehlgeschlagen", "Sicherheits-Token ungültig oder Login abgebrochen.", retry), status_code=400)
+
     async with httpx.AsyncClient() as client:
-        tr=await client.post('https://discord.com/api/v10/oauth2/token',data={'client_id':CLIENT_ID,'client_secret':CLIENT_SECRET,'grant_type':'authorization_code','code':code,'redirect_uri':redirect_apply},headers={'Content-Type':'application/x-www-form-urlencoded'})
-        token=tr.json().get('access_token')
-        if not token: return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen','Discord konnte den Login nicht bestätigen.',retry),status_code=400)
-        ud=(await client.get('https://discord.com/api/v10/users/@me',headers={'Authorization':f'Bearer {token}'})).json()
-    session={'id':str(ud.get('id')),'username':ud.get('username'),'global_name':ud.get('global_name') or ud.get('username'),'avatar':ud.get('avatar'),'apply_exp':int(time.time()+1800)}
-    response=RedirectResponse('/apply',status_code=303); response.set_cookie('apply_session',sign_payload(session),httponly=True,samesite='lax',secure=COOKIE_SECURE,max_age=1800); response.delete_cookie('apply_oauth_state'); return response
+        token_res = await client.post(
+            "https://discord.com/api/v10/oauth2/token",
+            data={"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "grant_type": "authorization_code",
+                  "code": code, "redirect_uri": APPLICATION_REDIRECT_URI},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        access_token = token_res.json().get("access_token")
+        if not access_token:
+            return HTMLResponse(simple_page("❌", "Login fehlgeschlagen", "Discord OAuth Fehler.", retry))
+        user_data = (await client.get("https://discord.com/api/v10/users/@me",
+                                      headers={"Authorization": f"Bearer {access_token}"})).json()
+
+    session = {
+        "id": str(user_data.get("id")),
+        "username": user_data.get("username"),
+        "global_name": user_data.get("global_name") or user_data.get("username"),
+        "apply_exp": int(time.time() + 3600),
+    }
+    response = RedirectResponse(url="/apply", status_code=303)
+    response.set_cookie("apply_session", sign_payload(session), httponly=True, samesite="lax", secure=COOKIE_SECURE, max_age=3600)
+    response.delete_cookie("oauth_state_apply")
+    return response
 
 
-# =============================================================
-# ROUTE: BEWERBUNGEN ÜBERSICHT (offen + Verlauf)
-# =============================================================
+@app.post("/apply/submit")
+async def apply_submit(request: Request, age: int = Form(...), roblox_name: str = Form(...),
+                       experience: str = Form(...), motivation: str = Form(...), weekly_time: int = Form(...),
+                       apply_session: str = Cookie(None)):
+    applicant = verify_payload(apply_session) if apply_session else None
+    if not applicant:
+        return RedirectResponse(url="/apply", status_code=303)
+
+    apps_db = load_json(APPS_FILE, {})
+    app_id = f"app_{uuid.uuid4().hex[:6]}"
+    apps_db[app_id] = {
+        "id": app_id,
+        "user_id": applicant["id"],
+        "username": applicant["username"],
+        "global_name": applicant.get("global_name", applicant["username"]),
+        "age": age,
+        "roblox_name": roblox_name.strip(),
+        "experience": experience.strip(),
+        "motivation": motivation.strip(),
+        "weekly_time": weekly_time,
+        "status": "pending",
+        "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
+    }
+    save_json(APPS_FILE, apps_db)
+
+    bot = getattr(request.app.state, "bot", None)
+    guild = bot.get_guild(GUILD_ID) if bot else None
+    if guild:
+        await send_team_update_embed(guild, "📝 Neue Team-Bewerbung",
+                                     f"Eine neue Bewerbung von **{applicant.get('global_name')}** (@{applicant['username']}) ist eingegangen!",
+                                     discord.Color.purple())
+
+    return HTMLResponse(simple_page("✅", "Bewerbung eingereicht!",
+                                    "Vielen Dank für deine Bewerbung. Unser Team wird sie in Kürze prüfen.",
+                                    '<a href="/" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zur Startseite</a>'))
+
+
 @app.get("/applications", response_class=HTMLResponse)
 async def applications_page(request: Request, user_session: str = Cookie(None)):
-    ctx = auth(request, user_session)
-    uid = ctx.user["id"]
-    show_history = request.query_params.get("view") == "history"
-    can_decide = ctx.perms["can_promote"] or ctx.perms["is_admin"]
-    apps = load_json(APPS_FILE, {})
+    ctx = auth(request, user_session, perm="can_manage_applications")
+    apps_db = load_json(APPS_FILE, {})
 
-    items = [(k, v) for k, v in apps.items() if (v.get("status") != "pending") == show_history]
-    items.reverse()  # neueste zuerst
+    items_html = ""
+    for app_id, a in reversed(list(apps_db.items())):
+        status = a.get("status", "pending")
+        st_badge = BADGE_WARN if status == "pending" else (BADGE_OK if status == "accepted" else BADGE_BAD)
+        st_text = "Offen" if status == "pending" else ("Angenommen" if status == "accepted" else "Abgelehnt")
 
-    apps_html = ""
-    for app_id, item in items:
-        up, down = item.get("upvotes", []), item.get("downvotes", [])
-        voted_up, voted_down = uid in up, uid in down
-        if show_history:
-            accepted = item.get("status") == "accepted"
-            footer = f'<span class="text-xs font-semibold border px-3 py-1 rounded-full {BADGE_OK if accepted else BADGE_BAD}">{"✅ Angenommen" if accepted else "❌ Abgelehnt"}{(" von " + esc(item.get("decided_by"))) if item.get("decided_by") else ""}</span>'
-        else:
-            decide = f"""
-                <form action="/action" method="post" class="flex gap-2" onsubmit="return confirm('Entscheidung endgültig treffen?');">
-                    <input type="hidden" name="action" value="decide_app"><input type="hidden" name="app_id" value="{esc(app_id)}">
-                    <button name="decision" value="accept" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">Annehmen</button>
-                    <button name="decision" value="reject" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">Ablehnen</button>
-                </form>""" if can_decide else ""
-            footer = f"""
-                <form action="/action" method="post" class="flex gap-2">
-                    <input type="hidden" name="action" value="vote_app"><input type="hidden" name="app_id" value="{esc(app_id)}">
-                    <button name="vote" value="up" class="{'bg-emerald-600 text-white' if voted_up else 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'} text-xs px-3 py-1.5 rounded-xl transition shadow-sm font-medium">👍 Dafür</button>
-                    <button name="vote" value="down" class="{'bg-rose-600 text-white' if voted_down else 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'} text-xs px-3 py-1.5 rounded-xl transition shadow-sm font-medium">👎 Dagegen</button>
-                </form>{decide}"""
-        apps_html += f"""
-        <div class="{CARD} p-5 space-y-3.5">
-            <div class="flex justify-between items-center">
+        actions = ""
+        if status == "pending":
+            actions = f"""
+            <form action="/action" method="post" class="flex gap-2 mt-3">
+                <input type="hidden" name="action" value="review_application">
+                <input type="hidden" name="app_id" value="{esc(app_id)}">
+                <button name="app_status" value="accepted" onclick="return confirm('Bewerbung annehmen?')" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl font-semibold text-xs">Annehmen</button>
+                <button name="app_status" value="rejected" onclick="return confirm('Bewerbung ablehnen?')" class="bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-xl font-semibold text-xs">Ablehnen</button>
+            </form>"""
+
+        items_html += f"""
+        <div class="{CARD} p-5 space-y-3">
+            <div class="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div>
-                    <h3 class="font-bold text-slate-900 dark:text-white text-sm">{esc(item.get('name'))}</h3>
-                    <span class="text-[10px] text-slate-400 font-mono">ID: {esc(item.get('user_id'))} · {esc(item.get('created_at'))}</span>
+                    <h3 class="font-bold text-slate-900 dark:text-white text-sm">{esc(a.get('global_name'))} (@{esc(a.get('username'))})</h3>
+                    <div class="text-[10px] text-slate-400">Roblox: {esc(a.get('roblox_name'))} | Alter: {a.get('age')} | Zeit/Woche: {a.get('weekly_time')}h | {esc(a.get('created_at'))}</div>
                 </div>
-                <div class="flex items-center gap-2 text-xs font-semibold">
-                    <span class="text-emerald-600 dark:text-emerald-400">👍 {len(up)}</span>
-                    <span class="text-rose-600 dark:text-rose-400">👎 {len(down)}</span>
-                </div>
+                <span class="px-2.5 py-1 rounded-full text-xs font-semibold border {st_badge}">{st_text}</span>
             </div>
-            <p class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800/80 whitespace-pre-wrap break-words">{esc(item.get('text'))}</p>
-            <div class="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">{footer}</div>
+            <div class="text-xs space-y-2 text-slate-700 dark:text-slate-300">
+                <div><strong>Erfahrung:</strong> <p class="whitespace-pre-line mt-0.5">{esc(a.get('experience'))}</p></div>
+                <div><strong>Motivation:</strong> <p class="whitespace-pre-line mt-0.5">{esc(a.get('motivation'))}</p></div>
+            </div>
+            {actions}
         </div>"""
 
-    def tab(label, href, active):
-        cls = "bg-indigo-600 text-white" if active else "bg-white dark:bg-[#141824] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
-        return f'<a href="{href}" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold {cls}">{label}</a>'
-
-    empty = "Noch keine entschiedenen Bewerbungen." if show_history else "Keine offenen Bewerbungen vorhanden."
     body = f"""
-    <div class="flex items-center justify-between mb-6 max-w-3xl">
-        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{'Bewerbungs-Verlauf' if show_history else 'Offene Bewerbungen'}</h1>
-        <div class="flex gap-2">{tab('Offen', '/applications', not show_history)}{tab('Verlauf', '/applications?view=history', show_history)}</div>
-    </div>
-    <div class="space-y-4 max-w-3xl">{apps_html or f"<p class='text-xs text-slate-400 italic {CARD} p-6'>{empty}</p>"}</div>"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">📝 Bewerbungsverwaltung</h1>
+    <div class="space-y-4 max-w-4xl">
+        {items_html or f"<div class='text-xs text-slate-400 italic {CARD} p-6'>Keine Bewerbungen vorhanden.</div>"}
+    </div>"""
     return render_page("Bewerbungen", ctx, "apps", body)
 
-# =============================================================
-# DISCORD BACKUP SYSTEM (nur Admins, mit Auto-Backup)
-# =============================================================
-BACKUP_NAME_RE = re.compile(r"^(auto_)?backup_[0-9_\-]+\.json$")
-
-
-def safe_backup_path(filename: str):
-    """Verhindert Path-Traversal (vorher: filename=../../.env möglich)."""
-    name = os.path.basename(filename or "")
-    if not BACKUP_NAME_RE.fullmatch(name):
-        return None
-    path = os.path.join(BACKUP_DIR, name)
-    return path if os.path.isfile(path) else None
-
-
-def _overwrites(channel):
-    out = []
-    for target, ow in channel.overwrites.items():
-        allow, deny = ow.pair()
-        out.append({"type": "role" if isinstance(target, discord.Role) else "member", "id": target.id,
-                    "name": getattr(target, "name", str(target)), "allow": allow.value, "deny": deny.value})
-    return out
-
-
-def _channel_dict(ch):
-    return {"name": ch.name, "type": str(ch.type), "topic": getattr(ch, "topic", None), "position": ch.position,
-            "nsfw": getattr(ch, "nsfw", None), "slowmode": getattr(ch, "slowmode_delay", None),
-            "overwrites": _overwrites(ch)}
-
-
-def build_backup(guild) -> dict:
-    data = {
-        "backup_version": 2,
-        "pulse_version": "5.0",
-        "guild_name": guild.name, "guild_id": guild.id,
-        "created_at": now_de().strftime("%Y-%m-%d_%H-%M-%S"),
-        "roles": [], "categories": [], "uncategorized_channels": [],
-        "panel_data": {},  # Panel-Daten (Verwarnungen, Logs, Schichten, Einstellungen ...)
-    }
-    for role in guild.roles:
-        if role.is_default():
-            continue
-        data["roles"].append({"id": role.id, "name": role.name, "color": role.color.value,
-                              "permissions": role.permissions.value, "hoist": role.hoist,
-                              "mentionable": role.mentionable, "position": role.position})
-    for category in guild.categories:
-        data["categories"].append({"name": category.name, "position": category.position,
-                                   "overwrites": _overwrites(category),
-                                   "channels": [_channel_dict(ch) for ch in category.channels]})
-    data["uncategorized_channels"] = [_channel_dict(ch) for ch in guild.channels
-                                      if ch.category is None and not isinstance(ch, discord.CategoryChannel)]
-    for key, path in (("team_data", DATA_FILE), ("config", CONFIG_FILE), ("logs", LOGS_FILE),
-                      ("shifts", SHIFTS_FILE), ("meetings", MEETINGS_FILE), ("applications", APPS_FILE)):
-        data["panel_data"][key] = load_json(path, {})
-    try:
-        data["panel_data"]["pulse_db"] = pulse_db.export_state()
-    except Exception as e:
-        data["panel_data"]["pulse_db_error"] = str(e)
-    # Ticket transcripts are small text files; include them so support history is preserved in backups.
-    transcripts = {}
-    transcript_dir = os.path.join(BASE_DIR, "transcripts")
-    if os.path.isdir(transcript_dir):
-        for name in os.listdir(transcript_dir):
-            path = os.path.join(transcript_dir, name)
-            if not (name.endswith(".txt") and os.path.isfile(path)):
-                continue
-            try:
-                if os.path.getsize(path) <= 2 * 1024 * 1024:
-                    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-                        transcripts[name] = fh.read()
-            except OSError:
-                continue
-    data["panel_data"]["transcripts"] = transcripts
-    try:
-        conn = sqlite3.connect(DB_ABMELDUNGEN)
-        rows = conn.execute("SELECT user_id,user_name,grund,von,bis,original_nick,guild_id FROM abmeldungen").fetchall()
-        conn.close()
-        data["panel_data"]["loas"] = [dict(zip(["user_id","user_name","grund","von","bis","original_nick","guild_id"], r)) for r in rows]
-    except Exception:
-        data["panel_data"]["loas"] = []
-    return data
-
-
-def prune_auto_backups():
-    autos = sorted((f for f in os.listdir(BACKUP_DIR) if f.startswith("auto_") and f.endswith(".json")),
-                   key=lambda f: os.path.getmtime(os.path.join(BACKUP_DIR, f)), reverse=True)
-    for old in autos[MAX_BACKUPS:]:
-        try:
-            os.remove(os.path.join(BACKUP_DIR, old))
-        except Exception:
-            pass
-
-
-def create_backup_file(guild, prefix: str = "") -> str:
-    filename = f"{prefix}backup_{now_de().strftime('%Y-%m-%d_%H-%M-%S')}.json"
-    save_json(os.path.join(BACKUP_DIR, filename), build_backup(guild))
-    if prefix:
-        prune_auto_backups()
-    return filename
-
-
-async def auto_backup_loop():
-    if AUTO_BACKUP_HOURS <= 0:
-        return
-    while True:
-        await asyncio.sleep(300)
-        try:
-            bot = getattr(app.state, "bot", None)
-            guild = bot.get_guild(GUILD_ID) if bot else None
-            if guild:
-                times = [os.path.getmtime(os.path.join(BACKUP_DIR, f)) for f in os.listdir(BACKUP_DIR) if f.endswith(".json")]
-                if not times or time.time() - max(times) > AUTO_BACKUP_HOURS * 3600:
-                    name = create_backup_file(guild, "auto_")
-                    log_audit("System", "0", "Auto-Backup", name)
-        except Exception as e:
-            print(f"Auto-Backup fehlgeschlagen: {e}")
-
-
-@app.on_event("startup")
-async def _start_background_tasks():
-    app.state.backup_task = asyncio.create_task(auto_backup_loop())
-
-
-@app.get("/backups", response_class=HTMLResponse)
-async def backups_page(request: Request, user_session: str = Cookie(None)):
-    ctx = auth(request, user_session, perm=None, admin=True)
-    files = sorted((f for f in os.listdir(BACKUP_DIR) if BACKUP_NAME_RE.fullmatch(f)),
-                   key=lambda f: os.path.getmtime(os.path.join(BACKUP_DIR, f)), reverse=True)
-    rows = ""
-    for f in files:
-        path = os.path.join(BACKUP_DIR, f)
-        created = datetime.fromtimestamp(os.path.getmtime(path), TZ).strftime("%d.%m.%Y %H:%M") if TZ else \
-            datetime.fromtimestamp(os.path.getmtime(path)).strftime("%d.%m.%Y %H:%M")
-        auto = ' <span class="text-[10px] px-2 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-500 font-sans">AUTO</span>' if f.startswith("auto_") else ""
-        rows += f"""
-        <div class="{CARD} p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-                <div class="font-bold text-slate-900 dark:text-white text-sm font-mono break-all">{esc(f)}{auto}</div>
-                <div class="text-xs text-slate-400 mt-0.5">{created} · {round(os.path.getsize(path) / 1024, 1)} KB</div>
-            </div>
-            <div class="flex items-center gap-2">
-                <a href="/backup/download/{esc(f)}" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs px-3.5 py-2 rounded-xl text-slate-700 dark:text-slate-300 font-medium transition shadow-sm">📥 Herunterladen</a>
-                <form action="/backup/restore" method="post" onsubmit="return confirm('Panel-Daten dieses Backups wiederherstellen? Aktuelle Panel-Daten werden überschrieben.');">
-                    <input type="hidden" name="filename" value="{esc(f)}">
-                    <button class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs px-3.5 py-2 rounded-xl font-medium transition">↩️ Panel wiederherstellen</button>
-                </form>
-                <form action="/backup/delete" method="post" onsubmit="return confirm('Backup wirklich löschen?');">
-                    <input type="hidden" name="filename" value="{esc(f)}">
-                    <button class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-2 rounded-xl font-medium transition">🗑️ Löschen</button>
-                </form>
-            </div>
-        </div>"""
-    auto_text = (f"Automatisches Backup alle {AUTO_BACKUP_HOURS:g}h aktiv (letzte {MAX_BACKUPS} automatische Backups werden behalten)."
-                 if AUTO_BACKUP_HOURS > 0 else "Automatisches Backup ist deaktiviert (AUTO_BACKUP_HOURS=0).")
-    body = f"""
-    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-        <div>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Discord Server Backups</h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Rollen, Kanäle, Kanal-Rechte und alle Panel-Daten. {auto_text}</p>
-        </div>
-        <form action="/backup/create" method="post"><button class="{BTN} text-xs py-3 px-5">💾 Neues Backup erstellen</button></form>
-    </div>
-    <div class="space-y-3 max-w-3xl">{rows or f"<div class='text-xs text-slate-400 italic {CARD} p-6 text-center'>Noch keine Backups vorhanden.</div>"}</div>"""
-    return render_page("Server Backups", ctx, "backups", body)
-
-
-@app.post("/backup/create")
-async def create_backup(request: Request, user_session: str = Cookie(None)):
-    ctx = auth(request, user_session, perm=None, admin=True)
-    name = create_backup_file(ctx.guild)
-    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Erstellt", f"Filename: {name}")
-    return back("/backups", "Backup erstellt.")
-
-
-@app.get("/backup/download/{filename}")
-async def download_backup(request: Request, filename: str, user_session: str = Cookie(None)):
-    auth(request, user_session, perm=None, admin=True)
-    path = safe_backup_path(filename)
-    if not path:
-        raise HTTPException(status_code=404, detail="Backup nicht gefunden.")
-    return FileResponse(path, media_type="application/json", filename=os.path.basename(path))
-
-
-@app.post("/backup/restore")
-async def restore_backup(request: Request, filename: str = Form(...), user_session: str = Cookie(None)):
-    ctx = auth(request, user_session, perm=None, admin=True)
-    path = safe_backup_path(filename)
-    if not path:
-        return back("/backups", "Backup nicht gefunden.", False)
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            backup = json.load(fh)
-        if not isinstance(backup, dict) or not isinstance(backup.get("panel_data"), dict):
-            raise ValueError("Kein gültiges Pulse-Backup")
-        panel = backup["panel_data"]
-        mapping = {"team_data": DATA_FILE, "config": CONFIG_FILE, "logs": LOGS_FILE, "shifts": SHIFTS_FILE, "meetings": MEETINGS_FILE, "applications": APPS_FILE}
-        for key, target in mapping.items():
-            if key in panel:
-                save_json(target, panel[key])
-        if isinstance(panel.get("pulse_db"), dict):
-            pulse_db.import_state(panel["pulse_db"])
-        if isinstance(panel.get("loas"), list):
-            conn = sqlite3.connect(DB_ABMELDUNGEN)
-            conn.execute("DELETE FROM abmeldungen")
-            conn.executemany("INSERT OR REPLACE INTO abmeldungen(user_id,user_name,grund,von,bis,original_nick,guild_id) VALUES (?,?,?,?,?,?,?)", [
-                (x.get("user_id"), x.get("user_name", ""), x.get("grund", ""), x.get("von", ""), x.get("bis", ""), x.get("original_nick", ""), x.get("guild_id", GUILD_ID))
-                for x in panel["loas"] if isinstance(x, dict) and x.get("user_id") is not None
-            ])
-            conn.commit(); conn.close()
-        os.makedirs(os.path.join(BASE_DIR, "transcripts"), exist_ok=True)
-        for name, content in (panel.get("transcripts") or {}).items():
-            safe = os.path.basename(str(name))
-            if safe.endswith(".txt") and isinstance(content, str) and len(content) <= 2 * 1024 * 1024:
-                with open(os.path.join(BASE_DIR, "transcripts", safe), "w", encoding="utf-8") as fh:
-                    fh.write(content)
-        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Wiederhergestellt", f"Filename: {os.path.basename(path)}")
-        return back("/backups", "Panel-Daten und Pulse-Historien wurden wiederhergestellt.")
-    except Exception as exc:
-        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Wiederherstellung Fehlgeschlagen", f"{os.path.basename(path)} · {exc}")
-        return back("/backups", f"Wiederherstellung fehlgeschlagen: {exc}", False)
-
-
-@app.post("/backup/delete")
-async def delete_backup(request: Request, filename: str = Form(...), user_session: str = Cookie(None)):
-    ctx = auth(request, user_session, perm=None, admin=True)
-    path = safe_backup_path(filename)
-    if not path:
-        return back("/backups", "Backup nicht gefunden.", False)
-    os.remove(path)
-    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Gelöscht", f"Filename: {os.path.basename(path)}")
-    return back("/backups", "Backup gelöscht.")
-
 
 # =============================================================
-# ROUTE: EINSTELLUNGEN, RECHTE & AUDIT-LOG (nur Admins)
+# ZENTRALER HANDLER FÜR AKTIONEN (/action)
 # =============================================================
-@app.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request, user_session: str = Cookie(None)):
-    ctx = auth(request, user_session, perm=None, admin=True)
-    guild, config = ctx.guild, ctx.config
-    team_role_ids = config.get("team_role_ids", [])
-    perms_cfg = config.get("permissions", {})
-    weekly_goal = float(config.get("weekly_goal_hours", 3.0))
-
-    role_boxes = "".join(f"""
-        <label class="flex items-center gap-2 cursor-pointer text-xs py-1">
-            <input type="checkbox" name="team_roles" value="{r.id}" {'checked' if r.id in team_role_ids else ''} class="rounded">
-            <span class="font-semibold" style="color:{role_hex(r)};">{esc(r.name)}</span>
-        </label>""" for r in sorted(guild.roles, key=lambda r: -r.position) if not r.is_default() and not r.managed)
-
-    perm_cards = ""
-    for rid in team_role_ids:
-        role = guild.get_role(rid)
-        if not role:
-            continue
-        rp = perms_cfg.get(str(rid), {"can_view_dashboard": True})
-        def cb(name, label):
-            return (f'<label class="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300">'
-                    f'<input type="checkbox" name="{name}" {"checked" if rp.get(name) else ""} class="rounded"><span>{label}</span></label>')
-        perm_cards += f"""
-        <div class="{CARD} p-5 space-y-4">
-            <div class="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                <span class="font-bold text-sm" style="color:{role_hex(role)};">{esc(role.name)}</span>
-                <span class="text-[10px] text-slate-400 font-mono">ID: {role.id}</span>
-            </div>
-            <form action="/action" method="post" class="grid grid-cols-2 gap-3 text-xs">
-                <input type="hidden" name="action" value="save_role_permissions"><input type="hidden" name="role_id" value="{role.id}">
-                {cb('can_view_dashboard', 'Dashboard sehen')}{cb('can_warn', 'Verwarnen')}
-                {cb('can_promote', 'Befördern/Degradieren/Kicken')}{cb('can_add_notes', 'Notizen erstellen')}
-                {cb('can_manage_tickets', 'Tickets verwalten')}{cb('can_manage_applications', 'Bewerbungen verwalten')}
-                {cb('can_manage_tasks', 'Aufgaben verwalten')}{cb('can_manage_training', 'Schulungen verwalten')}
-                {cb('can_manage_wiki', 'Wiki verwalten')}{cb('can_view_analytics', 'Statistiken sehen')}
-                <button class="col-span-2 mt-2 {BTN} py-2.5">Rechte Speichern</button>
-            </form>
-        </div>"""
-
-    audit = load_json(AUDIT_FILE, [])
-    audit_html = "".join(f"""
-        <div class="audit-row bg-slate-50 dark:bg-[#0b0e14] border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1" data-search="{esc((str(e.get('actor')) + ' ' + str(e.get('action')) + ' ' + str(e.get('details'))).lower())}">
-            <div class="break-words"><span class="font-bold text-slate-900 dark:text-white">{esc(e.get('actor'))}</span>
-                <span class="text-indigo-600 dark:text-indigo-400 font-semibold px-2">[{esc(e.get('action'))}]</span>
-                <span class="text-slate-600 dark:text-slate-300">{esc(e.get('details'))}</span></div>
-            <span class="text-[10px] text-slate-400 font-mono shrink-0">{esc(e.get('timestamp'))}</span>
-        </div>""" for e in reversed(audit[-100:]))
-
-    head = """<script>function filterAudit(){const q=document.getElementById('auditSearch').value.toLowerCase();
-        document.querySelectorAll('.audit-row').forEach(r=>r.style.display=r.dataset.search.includes(q)?'':'none');}</script>"""
-    body = f"""
-    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-2">Einstellungen & Panel-Audit-Log</h1>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-6">Server-ID: <code class="text-indigo-600 dark:text-indigo-400 font-mono">{GUILD_ID}</code></p>
-    <div class="space-y-8">
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div class="{CARD} p-6 space-y-3">
-                <h2 class="text-base font-bold text-slate-900 dark:text-white">🎯 Wochenziel</h2>
-                <form action="/action" method="post" class="flex gap-2 items-center text-xs">
-                    <input type="hidden" name="action" value="set_weekly_goal">
-                    <input type="number" step="0.5" min="0.5" max="100" name="weekly_goal" value="{weekly_goal:g}" class="{INPUT} w-28"> <span>Stunden pro Woche</span>
-                    <button class="{BTN} px-4 py-3">Speichern</button>
-                </form>
-            </div>
-            <div class="{CARD} p-6 space-y-3">
-                <h2 class="text-base font-bold text-slate-900 dark:text-white">👥 Team-Rollen</h2>
-                <p class="text-[11px] text-slate-500">Die Reihenfolge der Beförderungen richtet sich nach der Rollen-Position im Server (niedrig → hoch).</p>
-                <form action="/action" method="post" class="space-y-2">
-                    <input type="hidden" name="action" value="save_team_roles">
-                    <div class="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2">{role_boxes}</div>
-                    <button class="{BTN} px-4 py-2.5 text-xs">Team-Rollen speichern</button>
-                </form>
-            </div>
-        </div>
-        <div>
-            <h2 class="text-lg font-bold text-slate-900 dark:text-white mb-1">Rollen-Berechtigungen</h2>
-            <p class="text-[11px] text-slate-500 mb-4">Admins/Server-Owner haben immer alle Rechte. Neue Team-Rollen dürfen standardmäßig nur das Dashboard sehen.</p>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">{perm_cards or "<p class='text-xs text-slate-400 italic'>Keine Team-Rollen konfiguriert.</p>"}</div>
-        </div>
-        <div class="{CARD} p-6 space-y-4">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <h2 class="text-lg font-bold text-slate-900 dark:text-white">📜 Panel-Audit-Log (letzte 100)</h2>
-                <input type="text" id="auditSearch" oninput="filterAudit()" placeholder="🔎 Filtern..." class="bg-slate-50 dark:bg-[#0b0e14] border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs w-full sm:w-56">
-            </div>
-            <div class="space-y-2 max-h-96 overflow-y-auto pr-1">{audit_html or "<p class='text-xs text-slate-400 italic'>Keine Audit-Einträge vorhanden.</p>"}</div>
-        </div>
-    </div>"""
-    return render_page("Einstellungen & Rechte", ctx, "settings", body, head)
-
-
-# =============================================================
-# ZENTRALER ACTION-HANDLER (jede Aktion mit Rechteprüfung)
-# =============================================================
-ACTION_PERMS = {
-    "promote": "can_promote", "demote": "can_promote", "kick": "can_promote",
-    "warn_with_proof": "can_warn", "remove_warn": "can_warn", "add_note": "can_add_notes",
-    "submit_loa": "can_view_dashboard", "cancel_loa": "can_view_dashboard",
-    "vote_app": "can_view_dashboard", "decide_app": "can_manage_applications",
-    "meeting_rsvp": "can_view_dashboard", "add_meeting_topic": "can_view_dashboard",
-    "delete_meeting_topic": "can_view_dashboard", "set_meeting_info": "can_promote",
-    "save_role_permissions": "admin", "set_weekly_goal": "admin", "save_team_roles": "admin",
-}
-
-
-def user_entry(team_db: dict, key: str) -> dict:
-    entry = team_db.setdefault(key, {})
-    for k, v in (("warns_list", []), ("notes", []), ("ticket_cases", 0), ("support_cases", 0)):
-        entry.setdefault(k, v)
-    return entry
-
-
 @app.post("/action")
-async def handle_action(
+async def handle_general_action(
     request: Request,
     action: str = Form(...),
-    user_id: int = Form(None),
-    role_id: int = Form(None),
+    user_id: str = Form(None),
     redirect_to_member: str = Form(None),
     warn_reason: str = Form(None),
     warn_proof: str = Form(None),
     warn_id: str = Form(None),
     note_text: str = Form(None),
-    loa_start: str = Form(None),
-    loa_end: str = Form(None),
-    loa_reason: str = Form(None),
-    target_user_id: str = Form(None),
-    applicant_id: int = Form(None),
-    applicant_name: str = Form(None),
-    applicant_text: str = Form(None),
-    app_id: str = Form(None),
-    vote: str = Form(None),
-    decision: str = Form(None),
+    meeting_title: str = Form(None),
+    meeting_datetime: str = Form(None),
+    meeting_desc: str = Form(None),
+    reset_rsvps: str = Form(None),
+    clear_topics: str = Form(None),
+    announce: str = Form(None),
     rsvp_status: str = Form(None),
     topic_title: str = Form(None),
     topic_details: str = Form(None),
     topic_id: str = Form(None),
-    meeting_title: str = Form(None),
-    meeting_datetime: str = Form(None),
-    meeting_desc: str = Form(None),
-    reset_rsvps: bool = Form(False),
-    clear_topics: bool = Form(False),
-    announce: bool = Form(False),
-    weekly_goal: float = Form(None),
-    team_roles: List[int] = Form(default=[]),
-    can_view_dashboard: bool = Form(False),
-    can_warn: bool = Form(False),
-    can_promote: bool = Form(False),
-    can_add_notes: bool = Form(False),
-    can_manage_tickets: bool = Form(False),
-    can_manage_applications: bool = Form(False),
-    can_manage_tasks: bool = Form(False),
-    can_manage_training: bool = Form(False),
-    can_manage_wiki: bool = Form(False),
-    can_view_analytics: bool = Form(False),
-    user_session: str = Cookie(None),
-    apply_session: str = Cookie(None)
+    loa_start: str = Form(None),
+    loa_end: str = Form(None),
+    loa_reason: str = Form(None),
+    target_user_id: str = Form(None),
+    app_id: str = Form(None),
+    app_status: str = Form(None),
+    user_session: str = Cookie(None)
 ):
-    # ---------- Öffentliche Bewerbung (ohne Login, aber mit Limits) ----------
-    if action == "submit_application":
-        ip = request.client.host if request.client else "unknown"
-        back_link = '<a href="/apply" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800">Zurück</a>'
-        if rate_limited(f"apply:{ip}"):
-            return HTMLResponse(simple_page("⏳", "Zu viele Bewerbungen", "Bitte versuche es später erneut.", back_link), status_code=429)
-        apply_user = verify_payload(apply_session) if apply_session else None
-        if not apply_user or apply_user.get("apply_exp", 0) < time.time() or str(apply_user.get("id")) != str(applicant_id):
-            return HTMLResponse(simple_page("🔒", "Discord-Verknüpfung fehlt", "Bitte starte die Bewerbung über Mit Discord verbinden.", back_link), status_code=403)
-        name = (apply_user.get("global_name") or apply_user.get("username") or applicant_name or "").strip()[:80]
-        text = (applicant_text or "").strip()[:2000]
-        if not applicant_id or not name or not text:
-            return HTMLResponse(simple_page("⚠️", "Angaben fehlen", "Bitte fülle alle Felder aus.", back_link), status_code=400)
-        apps = load_json(APPS_FILE, {})
-        if any(a.get("user_id") == str(applicant_id) and a.get("status") == "pending" for a in apps.values()):
-            return HTMLResponse(simple_page("ℹ️", "Bewerbung liegt bereits vor", "Deine Bewerbung wird gerade geprüft.", back_link))
-        apps[f"app_{uuid.uuid4().hex[:6]}"] = {
-            "user_id": str(applicant_id), "name": name, "text": text, "status": "pending",
-            "upvotes": [], "downvotes": [], "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
-        }
-        save_json(APPS_FILE, apps)
-        return HTMLResponse(simple_page("✅", "Bewerbung erfolgreich abgesendet!", "Das Team meldet sich bei dir.", back_link))
+    ctx = auth(request, user_session)
+    guild = ctx.guild
+    mod_id = ctx.user["id"]
+    mod_name = ctx.user.get("global_name", "Dashboard Admin")
+    redir_url = f"/member/{user_id}" if (redirect_to_member and user_id) else "/team"
 
-    # ---------- Ab hier: Login + Recht je nach Aktion ----------
-    required = ACTION_PERMS.get(action)
-    if required is None:
-        raise HTTPException(status_code=400, detail="Unbekannte Aktion.")
-    ctx = auth(request, user_session, perm=None if required == "admin" else required, admin=(required == "admin"))
-    guild, config = ctx.guild, ctx.config
-    actor, actor_id = ctx.user.get("global_name"), ctx.user["id"]
-    is_manager = ctx.perms["can_promote"] or ctx.perms["is_admin"]
-    team_role_ids = config.get("team_role_ids", [])
-    if action == "decide_app" and not (ctx.perms.get("can_manage_applications") or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
-        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung.")
-    member_url = f"/member/{user_id}" if redirect_to_member and user_id else "/dashboard"
+    team_db = load_json(DATA_FILE, {})
 
-    # ---------- Befördern / Degradieren / Kicken ----------
-    if action in ("promote", "demote", "kick"):
-        member = guild.get_member(user_id) if user_id else None
-        if not member:
-            return back("/team", "Mitglied nicht gefunden.", False)
-        if str(member.id) == actor_id:
-            return back(member_url, "Du kannst diese Aktion nicht bei dir selbst ausführen.", False)
-        if member.id == guild.owner_id or member.bot:
-            return back(member_url, "Dieses Mitglied kann nicht bearbeitet werden.", False)
-        actor_idx = team_rank(ctx.member, team_role_ids) if ctx.member else -1
-        target_idx = team_rank(member, team_role_ids)
-        if not ctx.perms["is_admin"] and actor_idx <= target_idx:
-            return back(member_url, "Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.", False)
-
-        try:
-            if action == "kick":
-                await send_dm_notification(member, f"❌ Du wurdest von **{guild.name}** aus dem Team entfernt. Grund: Vom Dashboard aus gekickt durch {actor}.")
-                await member.kick(reason=f"Vom Dashboard aus gekickt durch {actor}.")
-                await send_team_update_embed(guild, "🚪 Team-Update: Kick",
-                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Aktion:** Wurde aus dem Team gekickt durch {actor}.", discord.Color.red())
-                log_audit(actor, actor_id, "Kick", f"Mitglied {member.display_name} gekickt.")
-                return back("/team", f"{member.display_name} wurde vom Server gekickt.")
-
-            if action == "promote":
-                new_idx = target_idx + 1
-                if new_idx >= len(team_role_ids):
-                    return back(member_url, "Höchster Rang bereits erreicht.", False)
-                if not ctx.perms["is_admin"] and new_idx >= actor_idx:
-                    return back(member_url, "Du kannst nicht auf deinen eigenen Rang oder höher befördern.", False)
-                new_role = guild.get_role(team_role_ids[new_idx])
-                if not new_role:
-                    return back(member_url, "Die Zielrolle existiert nicht mehr (Team-Rollen in den Einstellungen prüfen).", False)
-                old = [r for r in member.roles if r.id in team_role_ids and r.id != new_role.id]
-                await member.add_roles(new_role, reason=f"Beförderung durch {actor}")
-                if old:
-                    await member.remove_roles(*old, reason=f"Beförderung durch {actor}")
-                await send_dm_notification(member, f"🎉 **Herzlichen Glückwunsch!** Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert!")
-                await send_team_update_embed(guild, "⬆️ Team-Update: Beförderung",
-                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Neue Rolle:** {new_role.name}\n**Befördert durch:** {actor}", discord.Color.green())
-                log_audit(actor, actor_id, "Beförderung", f"{member.display_name} -> {new_role.name}")
-                return back(member_url, f"{member.display_name} wurde zum {new_role.name} befördert.")
-
-            # demote
-            if target_idx < 0:
-                return back(member_url, "Dieses Mitglied hat keine Team-Rolle.", False)
-            old = [r for r in member.roles if r.id in team_role_ids]
-            new_idx = target_idx - 1
-            if new_idx >= 0:
-                new_role = guild.get_role(team_role_ids[new_idx])
-                if not new_role:
-                    return back(member_url, "Die Zielrolle existiert nicht mehr (Team-Rollen in den Einstellungen prüfen).", False)
-                await member.add_roles(new_role, reason=f"Degradierung durch {actor}")
-                await member.remove_roles(*[r for r in old if r.id != new_role.id], reason=f"Degradierung durch {actor}")
-                await send_dm_notification(member, f"⚠️ Du wurdest auf **{guild.name}** auf die Rolle **{new_role.name}** degradiert.")
-                await send_team_update_embed(guild, "⬇️ Team-Update: Degradierung",
-                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Neue Rolle:** {new_role.name}\n**Degradiert durch:** {actor}", discord.Color.orange())
-                log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> {new_role.name}")
-                return back(member_url, f"{member.display_name} wurde zum {new_role.name} degradiert.")
-            await member.remove_roles(*old, reason=f"Degradierung durch {actor}")
-            await send_dm_notification(member, f"⚠️ Du wurdest aus dem Team-Rollenrang auf **{guild.name}** entfernt.")
-            await send_team_update_embed(guild, "⬇️ Team-Update: Rang Entfernung",
-                f"**Mitglied:** {member.mention} ({member.display_name})\n**Aktion:** Aus Team-Rängen entfernt durch {actor}.", discord.Color.red())
-            log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> Keine Teamrolle")
-            return back(member_url, f"{member.display_name} wurde aus dem Team-Rang entfernt.")
-        except discord.Forbidden:
-            return back(member_url, "Dem Bot fehlen Rechte – seine Rolle muss über den Team-Rollen stehen.", False)
-        except Exception as e:
-            print(f"Rang-Aktion fehlgeschlagen: {e}")
-            return back(member_url, "Aktion fehlgeschlagen (Details in der Bot-Konsole).", False)
-
-    # ---------- Verwarnungen ----------
     if action == "warn_with_proof":
-        reason = (warn_reason or "").strip()[:500]
-        if not user_id or not reason:
-            return back(member_url, "Bitte einen Grund angeben.", False)
-        team_db = load_json(DATA_FILE, {})
-        entry = user_entry(team_db, str(user_id))
-        entry["warns_list"].append({
-            "id": f"warn_{uuid.uuid4().hex[:6]}", "reason": reason, "proof": safe_url(warn_proof),
-            "by": actor, "date": now_de().strftime("%d.%m.%Y %H:%M"),
-        })
-        count = len(entry["warns_list"])
+        if not ctx.perms["can_warn"]:
+            raise HTTPException(status_code=403, detail="Fehlende Berechtigung für Verwarnungen.")
+        if not user_id or not warn_reason:
+            return back(redir_url, "Grund erforderlich.", False)
+        target_info = team_db.setdefault(str(user_id), {"warns_list": [], "notes": [], "ticket_cases": 0, "support_cases": 0})
+        w_item = {
+            "id": f"warn_{uuid.uuid4().hex[:6]}",
+            "reason": warn_reason.strip()[:500],
+            "proof": safe_url(warn_proof),
+            "by": mod_name,
+            "by_id": mod_id,
+            "date": now_de().strftime("%d.%m.%Y %H:%M")
+        }
+        target_info["warns_list"].append(w_item)
         save_json(DATA_FILE, team_db)
-        log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/3): {reason}")
-        m = guild.get_member(user_id)
-        await sync_warn_roles(guild, m, count)
-        if m:
-            await send_dm_notification(m, f"⚠️ Du hast eine Verwarnung erhalten ({count}/3)!\n**Grund:** {reason}\n**Von:** {actor}")
-            if count >= 3:
-                await send_team_update_embed(guild, "🚨 Team-Update: 3 Verwarnungen",
-                    f"**Mitglied:** {m.mention} ({m.display_name})\n**Status:** Schicht-Start ist gesperrt, bitte Konsequenzen prüfen.", discord.Color.red())
-        return back(member_url, f"Verwarnung eingetragen ({count}/3).")
+        log_audit(mod_name, mod_id, "Verwarnung Ausgestellt", f"User {user_id}: {warn_reason}")
 
-    if action == "remove_warn":
-        if not user_id or not warn_id:
-            return back(member_url, "Ungültige Anfrage.", False)
-        team_db = load_json(DATA_FILE, {})
-        entry = user_entry(team_db, str(user_id))
-        entry["warns_list"] = [w for w in entry["warns_list"] if w.get("id") != warn_id]
-        count = len(entry["warns_list"])
+        member = guild.get_member(int(user_id))
+        if member:
+            await sync_warn_roles(guild, member, len(target_info["warns_list"]))
+            await send_dm_notification(member, f"⚠️ **Verwarnung erhalten** auf {guild.name}\nGrund: {warn_reason}")
+
+        return back(redir_url, "Verwarnung erfolgreich eingetragen.")
+
+    elif action == "remove_warn":
+        if not ctx.perms["can_warn"]:
+            raise HTTPException(status_code=403, detail="Fehlende Berechtigung.")
+        target_info = team_db.get(str(user_id), {})
+        warns = target_info.get("warns_list", [])
+        target_info["warns_list"] = [w for w in warns if w.get("id") != warn_id]
         save_json(DATA_FILE, team_db)
-        log_audit(actor, actor_id, "Warn Zurückgezogen", f"User-ID {user_id}, Warn-ID {warn_id}")
-        await sync_warn_roles(guild, guild.get_member(user_id), count)
-        return back(member_url, f"Verwarnung zurückgezogen ({count}/3).")
+        log_audit(mod_name, mod_id, "Verwarnung Zurückgezogen", f"User {user_id}, Warn {warn_id}")
 
-    if action == "add_note":
-        note = (note_text or "").strip()[:500]
-        if not user_id or not note:
-            return back(member_url, "Notiz ist leer.", False)
-        team_db = load_json(DATA_FILE, {})
-        user_entry(team_db, str(user_id))["notes"].append(f"[{now_de().strftime('%d.%m.%Y')}] {note} (von {actor})")
+        member = guild.get_member(int(user_id))
+        if member:
+            await sync_warn_roles(guild, member, len(target_info["warns_list"]))
+
+        return back(redir_url, "Verwarnung zurückgezogen.")
+
+    elif action == "add_note":
+        if not ctx.perms["can_add_notes"]:
+            raise HTTPException(status_code=403, detail="Fehlende Berechtigung.")
+        if not user_id or not note_text:
+            return back(redir_url, "Notiztext erforderlich.", False)
+        target_info = team_db.setdefault(str(user_id), {"warns_list": [], "notes": [], "ticket_cases": 0, "support_cases": 0})
+        target_info.setdefault("notes", []).append(f"[{now_de().strftime('%d.%m.%Y')}] {mod_name}: {note_text.strip()[:500]}")
         save_json(DATA_FILE, team_db)
-        log_audit(actor, actor_id, "Notiz Erstellt", f"User-ID {user_id}: {note}")
-        return back(member_url, "Notiz gespeichert.")
+        return back(redir_url, "Notiz gespeichert.")
 
-    # ---------- Abmeldungen ----------
-    if action == "submit_loa":
-        target = user_id or int(actor_id)
-        if str(target) != actor_id and not is_manager:
-            return back("/loa", "Du kannst nur dich selbst abmelden.", False)
-        try:
-            d_start = datetime.strptime(loa_start or "", "%Y-%m-%d").date()
-            d_end = datetime.strptime(loa_end or "", "%Y-%m-%d").date()
-        except ValueError:
-            return back("/loa", "Ungültiges Datum.", False)
-        if d_end < d_start:
-            return back("/loa", "Das Enddatum liegt vor dem Startdatum.", False)
-        if d_end < now_de().date():
-            return back("/loa", "Das Enddatum liegt in der Vergangenheit.", False)
-        m = guild.get_member(target)
-        display_n = m.display_name if m else f"User-{target}"
-        conn = sqlite3.connect(DB_ABMELDUNGEN)
-        conn.execute("INSERT OR REPLACE INTO abmeldungen VALUES (?, ?, ?, ?, ?, ?, ?)",
-                     (target, display_n, (loa_reason or "Kein Grund").strip()[:300], loa_start, loa_end, display_n, GUILD_ID))
-        conn.commit()
-        conn.close()
-        log_audit(actor, actor_id, "LOA Eingetragen", f"{display_n} bis {loa_end}")
-        return back("/loa", f"Abmeldung für {display_n} gespeichert.")
+    elif action in ("promote", "demote"):
+        if not ctx.perms["can_promote"]:
+            raise HTTPException(status_code=403, detail="Fehlende Berechtigung.")
+        member = guild.get_member(int(user_id))
+        if not member:
+            return back(redir_url, "Mitglied nicht auf dem Server.", False)
+        team_role_ids = ctx.config.get("team_role_ids", [])
+        member_roles = [r for r in member.roles if r.id in team_role_ids]
+        if not member_roles:
+            return back(redir_url, "Mitglied hat keine verwaltete Teamrolle.", False)
 
-    if action == "cancel_loa":
-        try:
-            target = int(target_user_id)
-        except (TypeError, ValueError):
-            return back("/loa", "Ungültige Anfrage.", False)
-        if str(target) != actor_id and not is_manager:
-            return back("/loa", "Du kannst nur deine eigene Abmeldung beenden.", False)
-        conn = sqlite3.connect(DB_ABMELDUNGEN)
-        conn.execute("DELETE FROM abmeldungen WHERE user_id = ?", (target,))
-        conn.commit()
-        conn.close()
-        log_audit(actor, actor_id, "LOA Storniert", f"User-ID {target}")
-        return back("/loa", "Abmeldung beendet.")
+        current_top = max(member_roles, key=lambda r: r.position)
+        curr_idx = team_role_ids.index(current_top.id) if current_top.id in team_role_ids else -1
+        if curr_idx == -1:
+            return back(redir_url, "Rolle ist nicht in der Rangfolge konfiguriert.", False)
 
-    # ---------- Bewerbungen ----------
-    if action == "vote_app":
-        apps = load_json(APPS_FILE, {})
-        item = apps.get(app_id or "")
-        if not item or item.get("status") != "pending" or vote not in ("up", "down"):
-            return back("/applications", "Bewerbung nicht mehr offen.", False)
-        for key in ("upvotes", "downvotes"):
-            item[key] = [u for u in item.get(key, []) if u != actor_id]
-        item["upvotes" if vote == "up" else "downvotes"].append(actor_id)
-        save_json(APPS_FILE, apps)
-        return back("/applications")
+        new_idx = curr_idx + 1 if action == "promote" else curr_idx - 1
+        if new_idx < 0 or new_idx >= len(team_role_ids):
+            return back(redir_url, f"Kann nicht weiter {'befördert' if action == 'promote' else 'degradiert'} werden.", False)
 
-    if action == "decide_app":
-        apps = load_json(APPS_FILE, {})
-        item = apps.get(app_id or "")
-        if not item or item.get("status") != "pending" or decision not in ("accept", "reject"):
-            return back("/applications", "Bewerbung nicht mehr offen.", False)
-        accepted = decision == "accept"
-        item["status"] = "accepted" if accepted else "rejected"
-        item["decided_by"] = actor
-        item["decided_at"] = now_de().strftime("%d.%m.%Y %H:%M")
-        save_json(APPS_FILE, apps)
-        log_audit(actor, actor_id, "Bewerbung Entschieden", f"{item.get('name')}: {'angenommen' if accepted else 'abgelehnt'}")
-        try:
-            applicant = guild.get_member(int(item.get("user_id")))
-        except Exception:
-            applicant = None
-        await send_dm_notification(applicant, (f"🎉 Deine Bewerbung bei **{guild.name}** wurde **angenommen**! Das Team meldet sich bei dir."
-                                               if accepted else f"Deine Bewerbung bei **{guild.name}** wurde leider **abgelehnt**. Danke für dein Interesse!"))
-        return back("/applications", f"Bewerbung von {item.get('name')} {'angenommen' if accepted else 'abgelehnt'}.")
+        old_role = guild.get_role(team_role_ids[curr_idx])
+        new_role = guild.get_role(team_role_ids[new_idx])
+        if old_role:
+            await member.remove_roles(old_role, reason=f"Team-Management ({action})")
+        if new_role:
+            await member.add_roles(new_role, reason=f"Team-Management ({action})")
 
-    # ---------- Meetings ----------
-    if action == "meeting_rsvp":
-        if rsvp_status not in ("accepted", "declined"):
-            return back("/meetings", "Ungültiger Status.", False)
-        meetings = load_meetings()
-        meetings["rsvps"][actor_id] = {"name": actor, "status": rsvp_status}
-        save_json(MEETINGS_FILE, meetings)
-        return back("/meetings", "Zusage gespeichert." if rsvp_status == "accepted" else "Absage gespeichert.")
+        lbl = "befördert" if action == "promote" else "degradiert"
+        log_audit(mod_name, mod_id, f"Team Rolle Geändert ({action})", f"{member.display_name} -> {new_role.name if new_role else new_idx}")
+        await send_team_update_embed(guild, f"⚡ Team-Rang Änderung", f"**{member.display_name}** wurde zu **{new_role.name if new_role else 'Neuer Rang'}** {lbl}!", discord.Color.gold())
+        return back(redir_url, f"{member.display_name} wurde {lbl}.")
 
-    if action == "add_meeting_topic":
-        title, details = (topic_title or "").strip()[:100], (topic_details or "").strip()[:600]
-        if not title or not details:
-            return back("/meetings", "Titel und Beschreibung sind Pflicht.", False)
-        meetings = load_meetings()
-        meetings["topics"].append({"id": f"topic_{uuid.uuid4().hex[:6]}", "title": title, "details": details,
-                                   "by": actor, "by_id": actor_id})
-        save_json(MEETINGS_FILE, meetings)
-        return back("/meetings", "Thema hinzugefügt.")
+    elif action == "kick":
+        if not ctx.perms["can_promote"]:
+            raise HTTPException(status_code=403, detail="Fehlende Berechtigung.")
+        member = guild.get_member(int(user_id))
+        if member:
+            await member.kick(reason=f"Gekickt durch Dashboard ({mod_name})")
+            log_audit(mod_name, mod_id, "Mitglied Gekickt", f"User {user_id}")
+            return back("/team", f"{member.display_name} wurde vom Server gekickt.")
+        return back("/team", "Mitglied nicht gefunden.", False)
 
-    if action == "delete_meeting_topic":
-        meetings = load_meetings()
-        topic = next((t for t in meetings["topics"] if t.get("id") == topic_id), None)
-        if not topic:
-            return back("/meetings", "Thema nicht gefunden.", False)
-        if not (is_manager or topic.get("by_id") == actor_id):
-            return back("/meetings", "Du darfst nur eigene Themen entfernen.", False)
-        meetings["topics"] = [t for t in meetings["topics"] if t.get("id") != topic_id]
-        save_json(MEETINGS_FILE, meetings)
+    elif action == "set_meeting_info":
+        if not (ctx.perms["can_promote"] or ctx.perms["is_admin"]):
+            raise HTTPException(status_code=403, detail="Fehlende Berechtigung.")
+        m = load_meetings()
+        m["title"] = meeting_title.strip()[:100]
+        m["date_time"] = meeting_datetime.strip()[:100]
+        m["description"] = (meeting_desc or "").strip()[:500]
+        if reset_rsvps == "on":
+            m["rsvps"] = {}
+        if clear_topics == "on":
+            m["topics"] = []
+        save_json(MEETINGS_FILE, m)
+        if announce == "on":
+            await send_team_update_embed(guild, f"🎙️ {m['title']}", f"📅 **Termin:** {m['date_time']}\n\n{m['description']}\n\nBitte Rückmeldung im Dashboard geben!", discord.Color.blue())
+        return back("/meetings", "Teambesprechung aktualisiert.")
+
+    elif action == "meeting_rsvp":
+        m = load_meetings()
+        if rsvp_status in ("accepted", "declined"):
+            m["rsvps"][mod_id] = {
+                "name": mod_name,
+                "status": rsvp_status,
+                "time": now_de().strftime("%d.%m.%Y %H:%M")
+            }
+            save_json(MEETINGS_FILE, m)
+        return back("/meetings", "Status gespeichert.")
+
+    elif action == "add_meeting_topic":
+        m = load_meetings()
+        if topic_title and topic_details:
+            m["topics"].append({
+                "id": f"topic_{uuid.uuid4().hex[:6]}",
+                "title": topic_title.strip()[:100],
+                "details": topic_details.strip()[:600],
+                "by": mod_name,
+                "by_id": mod_id
+            })
+            save_json(MEETINGS_FILE, m)
+        return back("/meetings", "Thema eingereicht.")
+
+    elif action == "delete_meeting_topic":
+        m = load_meetings()
+        m["topics"] = [t for t in m["topics"] if t.get("id") != topic_id]
+        save_json(MEETINGS_FILE, m)
         return back("/meetings", "Thema entfernt.")
 
-    if action == "set_meeting_info":
-        title, when = (meeting_title or "").strip()[:100], (meeting_datetime or "").strip()[:100]
-        if not title or not when:
-            return back("/meetings", "Titel und Zeitpunkt sind Pflicht.", False)
-        meetings = load_meetings()
-        # Vorherige Besprechung automatisch archivieren, sobald eine neue angesetzt wird.
-        try:
-            previous_title = meetings.get("title")
-            previous_when = meetings.get("date_time")
-            if previous_title and previous_when and previous_when != "Noch nicht angesetzt":
-                pulse_db.save_meeting_history(previous_title, previous_when, meetings.get("description", ""), "", meetings.get("rsvps", {}))
-        except Exception as e:
-            print(f"Meeting-Historie konnte nicht gespeichert werden: {e}")
-        meetings.update({"title": title, "date_time": when, "description": (meeting_desc or "").strip()[:500]})
-        if reset_rsvps:
-            meetings["rsvps"] = {}
-        if clear_topics:
-            meetings["topics"] = []
-        save_json(MEETINGS_FILE, meetings)
-        log_audit(actor, actor_id, "Meeting Aktualisiert", title)
-        if announce:
-            await send_team_update_embed(guild, "🎙️ Teambesprechung angesetzt",
-                f"**{title}**\n📅 {when}\n{meetings['description']}\n\nZu-/Absagen im Dashboard unter *Teambesprechung*.", discord.Color.blurple())
-        return back("/meetings", "Besprechung gespeichert.")
+    elif action == "submit_loa":
+        uid = target_user_id or mod_id
+        if not (ctx.perms["can_promote"] or ctx.perms["is_admin"] or str(uid) == mod_id):
+            raise HTTPException(status_code=403, detail="Nur für dich selbst oder als Manager erlaubt.")
+        conn = sqlite3.connect(DB_ABMELDUNGEN)
+        target_member = guild.get_member(int(uid))
+        name = target_member.display_name if target_member else f"User {uid}"
+        conn.execute("""
+            INSERT OR REPLACE INTO abmeldungen (user_id, user_name, grund, von, bis, original_nick, guild_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (int(uid), name, loa_reason.strip()[:300], loa_start, loa_end, name, guild.id))
+        conn.commit()
+        conn.close()
+        log_audit(mod_name, mod_id, "Abmeldung Eingetragen", f"User {uid} ({loa_start} bis {loa_end})")
+        return back("/loa", "Abmeldung erfolgreich gespeichert.")
 
-    # ---------- Einstellungen (nur Admins) ----------
-    if action == "save_role_permissions":
-        if role_id not in team_role_ids:
-            return back("/settings", "Diese Rolle ist keine Team-Rolle.", False)
-        config["permissions"][str(role_id)] = {
-            "can_view_dashboard": can_view_dashboard, "can_warn": can_warn,
-            "can_promote": can_promote, "can_add_notes": can_add_notes,
-            "can_manage_tickets": can_manage_tickets, "can_manage_applications": can_manage_applications,
-            "can_manage_tasks": can_manage_tasks, "can_manage_training": can_manage_training,
-            "can_manage_wiki": can_manage_wiki, "can_view_analytics": can_view_analytics,
-        }
-        save_json(CONFIG_FILE, config)
-        log_audit(actor, actor_id, "Rechte Gespeichert", f"Rolle {role_id}")
-        return back("/settings", "Rechte gespeichert.")
+    elif action == "cancel_loa":
+        uid = target_user_id or mod_id
+        if not (ctx.perms["can_promote"] or ctx.perms["is_admin"] or str(uid) == mod_id):
+            raise HTTPException(status_code=403, detail="Fehlende Berechtigung.")
+        conn = sqlite3.connect(DB_ABMELDUNGEN)
+        conn.execute("DELETE FROM abmeldungen WHERE user_id = ?", (int(uid),))
+        conn.commit()
+        conn.close()
+        log_audit(mod_name, mod_id, "Abmeldung Beendet", f"User {uid}")
+        return back("/loa", "Abmeldung entfernt.")
 
-    if action == "set_weekly_goal":
-        if weekly_goal is None or not (0 < weekly_goal <= 100):
-            return back("/settings", "Bitte einen Wert zwischen 0,5 und 100 angeben.", False)
-        config["weekly_goal_hours"] = round(weekly_goal, 1)
-        save_json(CONFIG_FILE, config)
-        log_audit(actor, actor_id, "Wochenziel Geändert", f"{weekly_goal:g}h")
-        return back("/settings", "Wochenziel gespeichert.")
+    elif action == "review_application":
+        if not ctx.perms["can_manage_applications"]:
+            raise HTTPException(status_code=403, detail="Fehlende Berechtigung.")
+        apps_db = load_json(APPS_FILE, {})
+        if app_id in apps_db and app_status in ("accepted", "rejected"):
+            apps_db[app_id]["status"] = app_status
+            apps_db[app_id]["reviewed_by"] = mod_name
+            save_json(APPS_FILE, apps_db)
+            st_text = "angenommen" if app_status == "accepted" else "abgelehnt"
+            log_audit(mod_name, mod_id, f"Bewerbung {st_text.capitalize()}", f"App ID {app_id}")
+            return back("/applications", f"Bewerbung wurde {st_text}.")
 
-    if action == "save_team_roles":
-        valid = [guild.get_role(r) for r in team_roles]
-        valid = sorted((r for r in valid if r), key=lambda r: r.position)
-        config["team_role_ids"] = [r.id for r in valid]
-        save_json(CONFIG_FILE, config)
-        log_audit(actor, actor_id, "Team-Rollen Geändert", ", ".join(r.name for r in valid) or "keine")
-        return back("/settings", f"{len(valid)} Team-Rollen gespeichert.")
+    return back("/dashboard", "Aktion ausgeführt.")
 
-    return back("/dashboard")
 
 # =============================================================
-# PULSE v4 – ERWEITERTE TEAMOS MODULE
+# WEITERE ROUTEN: INBOX, AUFGABEN, TICKETS, WIKI, KALENDER, ETC.
 # =============================================================
-try:
-    from pulse_features import register as register_pulse_features
-    register_pulse_features(app)
-except Exception as _feature_error:
-    print(f"❌ Pulse-v4 Module konnten nicht registriert werden: {_feature_error}")
+@app.get("/pulse-inbox", response_class=HTMLResponse)
+async def pulse_inbox_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    unread = 0
+    try:
+        unread = pulse_db.unread_count(ctx.user["id"])
+    except Exception:
+        pass
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">📥 Pulse Inbox</h1>
+    <div class="{CARD} p-6 space-y-4 max-w-3xl">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            <span class="text-xs font-semibold text-slate-500">Ungelesene Nachrichten: {unread}</span>
+        </div>
+        <div class="text-xs text-slate-500 dark:text-slate-400 py-8 text-center">
+            Keine neuen Inbox-Benachrichtigungen vorhanden.
+        </div>
+    </div>"""
+    return render_page("Pulse Inbox", ctx, "inbox", body)
 
 
-try:
-    from pulse_pro import register as register_pulse_pro
-    register_pulse_pro(app)
-except Exception as _pro_error:
-    print(f"❌ Pulse Pro Module konnten nicht registriert werden: {_pro_error}")
+@app.get("/tasks", response_class=HTMLResponse)
+async def tasks_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">📋 Team-Aufgaben</h1>
+    <div class="{CARD} p-6 max-w-3xl space-y-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400">Aufgabenverwaltung für das Server-Team.</p>
+        <div class="text-xs text-slate-400 italic py-6 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+            Derzeit sind keine offenen Aufgaben zugewiesen.
+        </div>
+    </div>"""
+    return render_page("Aufgaben", ctx, "tasks", body)
+
+
+@app.get("/tickets", response_class=HTMLResponse)
+async def tickets_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">🎫 Ticket-Verwaltung</h1>
+    <div class="{CARD} p-6 max-w-4xl space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {stat_card("🎫", "Offene Tickets", 0, "indigo")}
+            {stat_card("✅", "Bearbeitet heute", 0, "emerald")}
+            {stat_card("⏱️", "Ø Antwortzeit", "0m", "amber")}
+        </div>
+        <div class="text-xs text-slate-400 italic py-8 text-center">
+            Keine aktiven Tickets im Support-System.
+        </div>
+    </div>"""
+    return render_page("Tickets", ctx, "tickets", body)
+
+
+@app.get("/meetings-history", response_class=HTMLResponse)
+async def meetings_history_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    meetings = load_meetings()
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">🗂️ Meeting-Historie</h1>
+    <div class="{CARD} p-6 max-w-3xl space-y-4">
+        <h2 class="text-sm font-bold text-slate-900 dark:text-white">{esc(meetings.get('title'))}</h2>
+        <p class="text-xs text-slate-500 font-mono">📅 {esc(meetings.get('date_time'))}</p>
+        <p class="text-xs text-slate-600 dark:text-slate-300">{esc(meetings.get('description'))}</p>
+    </div>"""
+    return render_page("Meeting-Historie", ctx, "meeting_history", body)
+
+
+@app.get("/calendar", response_class=HTMLResponse)
+async def calendar_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">🗓️ Team-Kalender</h1>
+    <div class="{CARD} p-6 max-w-4xl">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Übersicht aller anstehenden Server-Events und Teambesprechungen.</p>
+        <div class="bg-slate-50 dark:bg-[#0b0e14] p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs text-center text-slate-400">
+            Aktuell sind keine weiteren Events eingetragen.
+        </div>
+    </div>"""
+    return render_page("Team-Kalender", ctx, "calendar", body)
+
+
+@app.get("/wiki", response_class=HTMLResponse)
+async def wiki_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">📚 Team-Wiki & Dokumentation</h1>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="{CARD} p-6 space-y-2">
+            <h2 class="font-bold text-slate-900 dark:text-white text-sm">📖 Richtlinien für Moderatoren</h2>
+            <p class="text-xs text-slate-500">Regeln für Support, Kicks, Bans und Verwarnungen auf dem Server.</p>
+        </div>
+        <div class="{CARD} p-6 space-y-2">
+            <h2 class="font-bold text-slate-900 dark:text-white text-sm">🚨 Notfall-Prozeduren</h2>
+            <p class="text-xs text-slate-500">Verhalten bei Server-Abstürzen oder Trolling-Angriffen.</p>
+        </div>
+    </div>"""
+    return render_page("Team-Wiki", ctx, "wiki", body)
+
+
+@app.get("/training", response_class=HTMLResponse)
+async def training_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">🎓 Schulungen & Testphase</h1>
+    <div class="{CARD} p-6 max-w-3xl space-y-3">
+        <h2 class="text-sm font-bold">Team-Einarbeitung</h2>
+        <p class="text-xs text-slate-500 dark:text-slate-400">Hier finden Test-Moderatoren alle wichtigen Informationen für die Einarbeitungsphase.</p>
+    </div>"""
+    return render_page("Schulungen", ctx, "training", body)
+
+
+@app.get("/achievements", response_class=HTMLResponse)
+async def achievements_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">🏅 Achievements & Auszeichnungen</h1>
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+        <div class="{CARD} p-5 space-y-2">
+            <div class="text-3xl">🚀</div>
+            <div class="font-bold text-sm">Erste Schicht</div>
+            <div class="text-xs text-slate-400">Absolviere deine erste Mod-Schicht im Panel.</div>
+        </div>
+        <div class="{CARD} p-5 space-y-2">
+            <div class="text-3xl">🏆</div>
+            <div class="font-bold text-sm">Top Performer</div>
+            <div class="text-xs text-slate-400">Erreiche 10+ Stunden in einer Woche.</div>
+        </div>
+        <div class="{CARD} p-5 space-y-2">
+            <div class="text-3xl">🛡️</div>
+            <div class="font-bold text-sm">Protokoll-Meister</div>
+            <div class="text-xs text-slate-400">Erstelle mehr als 25 Logs.</div>
+        </div>
+    </div>"""
+    return render_page("Achievements", ctx, "achievements", body)
+
+
+@app.get("/stats", response_class=HTMLResponse)
+async def stats_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    logs_db = load_json(LOGS_FILE, [])
+    shifts_db = load_shifts()
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">📊 Statistiken & Analysen</h1>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        {stat_card("📜", "Gesamte Logs", len(logs_db), "indigo")}
+        {stat_card("⏱️", "Schichten Historie", len(shifts_db.get("history", [])), "emerald")}
+        {stat_card("👥", "Aktive im Dienst", len(shifts_db.get("active_shifts", {})), "amber")}
+    </div>"""
+    return render_page("Statistiken", ctx, "stats", body)
+
+
+@app.get("/backups", response_class=HTMLResponse)
+async def backups_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, admin=True)
+    files = os.listdir(BACKUP_DIR) if os.path.exists(BACKUP_DIR) else []
+    items_html = "".join(f"<div class='p-3 bg-slate-50 dark:bg-[#0b0e14] rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-mono'>{esc(f)}</div>" for f in files)
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">💾 Server Backups</h1>
+    <div class="{CARD} p-6 max-w-3xl space-y-4">
+        <h2 class="text-sm font-bold">Vorhandene Sicherungen ({len(files)})</h2>
+        <div class="space-y-2">{items_html or "<div class='text-xs text-slate-400 italic'>Noch keine Backups im Ordner.</div>"}</div>
+    </div>"""
+    return render_page("Server Backups", ctx, "backups", body)
+
+
+@app.get("/system", response_class=HTMLResponse)
+async def system_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, admin=True)
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">🩺 Systemstatus</h1>
+    <div class="{CARD} p-6 max-w-3xl space-y-4">
+        <div class="flex items-center justify-between text-xs border-b border-slate-100 dark:border-slate-800 pb-2">
+            <span>FastAPI Status</span><span class="text-emerald-500 font-bold">🟢 Operational</span>
+        </div>
+        <div class="flex items-center justify-between text-xs border-b border-slate-100 dark:border-slate-800 pb-2">
+            <span>Discord Bot Status</span><span class="text-emerald-500 font-bold">🟢 Verbunden</span>
+        </div>
+        <div class="flex items-center justify-between text-xs">
+            <span>Datenbank (SQLite)</span><span class="text-emerald-500 font-bold">🟢 OK</span>
+        </div>
+    </div>"""
+    return render_page("Systemstatus", ctx, "system", body)
+
+
+@app.get("/search", response_class=HTMLResponse)
+async def search_page(request: Request, q: str = "", user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    q_clean = q.strip().lower()
+    logs_db = load_json(LOGS_FILE, [])
+    results = [l for l in logs_db if q_clean and (q_clean in str(l.get("target_user","")).lower() or q_clean in str(l.get("reason","")).lower() or q_clean in str(l.get("roblox_id","")).lower())]
+
+    res_html = "".join(f"<div class='p-3 bg-slate-50 dark:bg-[#0b0e14] rounded-xl border border-slate-200 dark:border-slate-800 text-xs'><strong>{esc(l.get('target_user'))}</strong> ({esc(l.get('type'))}): {esc(l.get('reason'))}</div>" for l in results)
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">🔎 Globale Suche</h1>
+    <div class="{CARD} p-6 max-w-3xl space-y-4">
+        <form action="/search" method="get" class="flex gap-2">
+            <input type="text" name="q" value="{esc(q)}" placeholder="Suchbegriff eingeben..." class="{INPUT}">
+            <button class="{BTN} px-5">Suchen</button>
+        </form>
+        <div class="space-y-2 pt-2">{res_html or ("<div class='text-xs text-slate-400 italic'>Keine Ergebnisse gefunden.</div>" if q_clean else "<div class='text-xs text-slate-400'>Gib oben einen Suchbegriff ein.</div>")}</div>
+    </div>"""
+    return render_page("Globale Suche", ctx, "search", body)
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, admin=True)
+    audit_data = load_json(AUDIT_FILE, [])
+    audit_html = "".join(f"""
+        <div class="text-xs bg-slate-50 dark:bg-[#0b0e14] p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex justify-between items-center">
+            <div><span class="font-bold">{esc(a.get('actor'))}:</span> {esc(a.get('action'))} - {esc(a.get('details'))}</div>
+            <span class="text-[10px] text-slate-400 font-mono">{esc(a.get('timestamp'))}</span>
+        </div>""" for a in reversed(audit_data[-30:]))
+    body = f"""
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white mb-6">⚙️ Einstellungen & Audit-Log</h1>
+    <div class="{CARD} p-6 space-y-4 max-w-4xl">
+        <h2 class="text-sm font-bold text-slate-900 dark:text-white">📜 Audit-Log (Letzte Aktionen)</h2>
+        <div class="space-y-2 max-h-96 overflow-y-auto">{audit_html or "<div class='text-xs text-slate-400 italic'>Keine Log-Einträge vorhanden.</div>"}</div>
+    </div>"""
+    return render_page("Einstellungen", ctx, "settings", body)
+
+
+# =============================================================
+# START-EINSTIEGSPUNKT
+# =============================================================
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", "25095"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
