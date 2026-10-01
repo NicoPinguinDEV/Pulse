@@ -1091,7 +1091,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
         </div>
 
         <div class="lg:col-span-4 space-y-6">
-            <div class="{CARD} p-6 space-y-4">
+            <div id="playerlog" class="{CARD} p-6 space-y-4">
                 <div>
                     <h2 class="text-lg font-bold text-slate-900 dark:text-white">🛡️ Melonly – Spielerakte</h2>
                     <p class="text-xs text-slate-500 dark:text-slate-400">Roblox-Spieler suchen, ID automatisch übernehmen und Vorgang protokollieren.</p>
@@ -1099,7 +1099,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                 <form action="/log/create" method="post" class="space-y-4 text-xs">
                     <div>
                         <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Roblox Username *</label>
-                        <input type="text" name="target_user" maxlength="50" oninput="lookupRobloxUser(this.value)" placeholder="z. B. Spieler123" required class="{INPUT}">
+                        <input type="text" name="target_user" maxlength="50" list="robloxUserSuggestions" oninput="lookupRobloxUser(this.value)" placeholder="z. B. Spieler123" required class="{INPUT}">
                     <datalist id="robloxUserSuggestions"></datalist>
                     </div>
                     <div id="robloxUserPreview" class="hidden"></div>
@@ -1144,6 +1144,16 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
     </div>"""
     return render_page("Moderatoren-Panel", ctx, "dashboard", body, DASHBOARD_HEAD)
 
+
+# =============================================================
+# MELOONLY ALIAS – öffnet das Moderationscenter im Dashboard
+# =============================================================
+@app.get("/melonly")
+async def melonly_alias(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    if not (ctx.perms.get("can_warn") or ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung.")
+    return RedirectResponse(url="/dashboard#playerlog", status_code=303)
 
 # =============================================================
 # ACTION: SCHICHT-SYSTEM (Start / Pause / Fortsetzen / Ende)
