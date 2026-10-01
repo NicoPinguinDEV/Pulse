@@ -73,10 +73,11 @@ LOGS_FILE = "logs.json"
 AUDIT_FILE = "audit_logs.json"
 MEETINGS_FILE = "meetings.json"
 DB_ABMELDUNGEN = "abmeldungen.db"
+ACTIVITY_DB = "activity_check.db"
 BACKUP_DIR = "backups"
 SECRET_FILE = ".session_secret"
 
-VALID_LOG_TYPES = ("Warn", "Kick", "Ban", "Notiz")
+VALID_LOG_TYPES = ("Warn", "Kick", "Ban", "Notiz", "Ban BOLO")
 PERM_KEYS = (
     "can_view_dashboard", "can_warn", "can_promote", "can_add_notes",
     "can_manage_tickets", "can_manage_applications", "can_manage_tasks",
@@ -709,6 +710,26 @@ async def roblox_user_lookup(username: str, user_session: str = Cookie(None)):
 
 
 # =============================================================
+# API: ROBLOX SUCHVORSCHLÄGE FÜR MELOONLY
+# =============================================================
+@app.get("/api/roblox-search")
+async def roblox_search(query: str, user_session: str = Cookie(None)):
+    get_current_user(user_session)
+    clean = (query or "").strip().lstrip("@")
+    if not re.fullmatch(r"[A-Za-z0-9_]{2,20}", clean):
+        return JSONResponse({"success": True, "users": []})
+    async with httpx.AsyncClient() as client:
+        try:
+            res = await client.get("https://users.roblox.com/v1/users/search", params={"keyword": clean, "limit": 8}, timeout=5.0)
+            data = res.json()
+            users = []
+            for u in data.get("data", [])[:8]:
+                users.append({"id": str(u.get("id", "")), "name": u.get("name", ""), "displayName": u.get("displayName", "")})
+            return JSONResponse({"success": True, "users": users})
+        except Exception:
+            return JSONResponse({"success": False, "users": [], "message": "Roblox ist gerade nicht erreichbar"})
+
+# =============================================================
 # ROUTEN: LOGIN, LOGOUT & OAUTH CALLBACK
 # =============================================================
 @app.get("/", response_class=HTMLResponse)
@@ -836,6 +857,7 @@ LOG_TYPE_STYLE = {
     "Kick": "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30",
     "Warn": "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/30",
     "Notiz": "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30",
+    "Ban BOLO": "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/30",
 }
 
 DASHBOARD_HEAD = """
@@ -880,8 +902,26 @@ DASHBOARD_HEAD = """
     // PWA
     if("serviceWorker" in navigator){ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }
 
+    let robloxSearchTimeout = null;
+    function searchRobloxUsers(val) {
+        clearTimeout(robloxSearchTimeout);
+        const input = String(val || "").trim().replace(/^@+/, "");
+        const list = document.getElementById("robloxUserSuggestions");
+        if (!list || input.length < 2) { if (list) list.innerHTML = ""; return; }
+        robloxSearchTimeout = setTimeout(() => {
+            fetch("/api/roblox-search?query=" + encodeURIComponent(input), {cache: "no-store"})
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) { list.innerHTML = ""; return; }
+                    list.innerHTML = (data.users || []).map(u => "<option value=\"" + escapeHtml(u.name) + "\">" + escapeHtml(u.displayName || u.name) + " · ID " + escapeHtml(u.id) + "</option>").join("");
+                })
+                .catch(() => { list.innerHTML = ""; });
+        }, 250);
+    }
     let lookupTimeout = null;
     function lookupRobloxUser(val) {
+        val = String(val || "").trim().replace(/^@+/, "");
+        searchRobloxUsers(val);
         clearTimeout(lookupTimeout);
         const infoDiv = document.getElementById("robloxUserPreview");
         const idInput = document.getElementById("robloxIdInput");
@@ -1008,7 +1048,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
 
     chips = "".join(
         f'<button type="button" data-type="{t}" onclick="setTypeFilter(\'{t}\')" class="type-chip {"active" if t == "all" else ""} px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#141824] text-slate-600 dark:text-slate-300">{label}</button>'
-        for t, label in [("all", "Alle"), ("Warn", "⚠️ Warn"), ("Kick", "🚪 Kick"), ("Ban", "🚫 Ban"), ("Notiz", "📝 Notiz")])
+        for t, label in [("all", "Alle"), ("Warn", "⚠️ Warn"), ("Kick", "🚪 Kick"), ("Ban", "🚫 Ban"), ("Ban BOLO", "🚨 Ban BOLO"), ("Notiz", "📝 Notiz")])
 
     body = f"""
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -1053,13 +1093,14 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
         <div class="lg:col-span-4 space-y-6">
             <div class="{CARD} p-6 space-y-4">
                 <div>
-                    <h2 class="text-lg font-bold text-slate-900 dark:text-white">Neuen Log eintragen</h2>
-                    <p class="text-xs text-slate-500 dark:text-slate-400">Automatische Roblox-Abfrage inkl. Vorstrafen-Check</p>
+                    <h2 class="text-lg font-bold text-slate-900 dark:text-white">🛡️ Melonly – Spielerakte</h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Roblox-Spieler suchen, ID automatisch übernehmen und Vorgang protokollieren.</p>
                 </div>
                 <form action="/log/create" method="post" class="space-y-4 text-xs">
                     <div>
                         <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Roblox Username *</label>
                         <input type="text" name="target_user" maxlength="50" oninput="lookupRobloxUser(this.value)" placeholder="z. B. Spieler123" required class="{INPUT}">
+                    <datalist id="robloxUserSuggestions"></datalist>
                     </div>
                     <div id="robloxUserPreview" class="hidden"></div>
                     <div>
@@ -1072,6 +1113,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                             <option value="Warn">⚠️ Verwarnung (Warn)</option>
                             <option value="Kick">🚪 Kick</option>
                             <option value="Ban">🚫 Ban</option>
+                            <option value="Ban BOLO">🚨 Ban BOLO</option>
                             <option value="Notiz">📝 Notiz / Hinweis</option>
                         </select>
                     </div>
@@ -1171,6 +1213,10 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
     roblox_id = roblox_id.strip()
     if log_type not in VALID_LOG_TYPES or not target_user or not reason:
         return back("/dashboard", "Ungültige Eingabe.", False)
+    if log_type in ("Warn", "Kick", "Ban", "Ban BOLO") and not (ctx.perms.get("can_warn") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Strafmaßnahmen.")
+    if log_type == "Notiz" and not (ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Notizen.")
     if not re.fullmatch(r"\d{1,15}", roblox_id):
         roblox_id = "N/A"
 
@@ -1228,6 +1274,35 @@ async def export_logs(request: Request, user_session: str = Cookie(None)):
 
 
 # =============================================================
+# ACTIVITY CHECK: STATUS DIREKT IN DER TEAMLISTE
+# =============================================================
+def get_activity_today(guild_id: int):
+    today = now_de().date().isoformat()
+    if not os.path.exists(ACTIVITY_DB):
+        return {"check_id": None, "check_date": today, "confirmed": set()}
+    try:
+        with sqlite3.connect(ACTIVITY_DB) as conn:
+            row = conn.execute("SELECT id FROM checks WHERE guild_id=? AND check_date=?", (guild_id, today)).fetchone()
+            if not row:
+                return {"check_id": None, "check_date": today, "confirmed": set()}
+            confirmed = {int(x[0]) for x in conn.execute("SELECT user_id FROM responses WHERE check_id=?", (row[0],)).fetchall()}
+            return {"check_id": int(row[0]), "check_date": today, "confirmed": confirmed}
+    except sqlite3.Error:
+        return {"check_id": None, "check_date": today, "confirmed": set()}
+
+
+@app.get("/api/team/activity")
+async def team_activity_api(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    activity = get_activity_today(ctx.guild.id)
+    role_ids = ctx.config.get("team_role_ids", [])
+    members = [m for m in ctx.guild.members if not m.bot and any(r.id in role_ids for r in m.roles)]
+    statuses = {}
+    for m in members:
+        statuses[str(m.id)] = "confirmed" if activity["check_id"] and m.id in activity["confirmed"] else ("open" if activity["check_id"] else "none")
+    return JSONResponse({"ok": True, "check_id": activity["check_id"], "date": activity["check_date"], "confirmed": sum(1 for v in statuses.values() if v=="confirmed"), "open": sum(1 for v in statuses.values() if v=="open"), "team_total": len(members), "statuses": statuses})
+
+# =============================================================
 # ROUTE 2: TEAMLISTE (Wochenziel mit Fortschrittsbalken)
 # =============================================================
 @app.get("/team", response_class=HTMLResponse)
@@ -1239,6 +1314,9 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     shifts_db = load_shifts()
     active = shifts_db["active_shifts"]
     loas = get_loas()
+    activity = get_activity_today(guild.id)
+    activity_exists = bool(activity["check_id"])
+    activity_confirmed = activity["confirmed"]
 
     members = []
     for member in guild.members:
@@ -1257,12 +1335,16 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             "hrs": hrs, "reached": hrs >= weekly_goal, "on_loa": on_loa,
             "loa_until": fmt_date(loa["bis"]) if on_loa else "",
             "duty": active.get(str(member.id), {}).get("status"),
+            "activity": ("confirmed" if member.id in activity_confirmed else ("open" if activity_exists else "none")),
         })
     members.sort(key=lambda m: (-m["pos"], m["name"].lower()))
 
     below = len([m for m in members if not m["reached"] and not m["on_loa"]])
+    activity_confirmed_count = sum(1 for m in members if m["activity"] == "confirmed")
+    activity_open_count = sum(1 for m in members if m["activity"] == "open")
+    activity_summary = (f"✅ {activity_confirmed_count} bestätigt · ⏳ {activity_open_count} offen" if activity_exists else "⚪ Heute noch kein Activity Check")
     summary = (f"{len(members)} Mitglieder · ✅ {len([m for m in members if m['reached']])} Ziel erreicht · "
-               f"⚠️ {below} unter Ziel · 🟢 {len([m for m in members if m['duty']])} im Dienst · 🌴 {len([m for m in members if m['on_loa']])} abgemeldet")
+               f"⚠️ {below} unter Ziel · 🟢 {len([m for m in members if m['duty']])} im Dienst · 🌴 {len([m for m in members if m['on_loa']])} abgemeldet · Activity: {activity_summary}")
 
     rows_html = ""
     for m in members:
@@ -1281,7 +1363,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             <div class="flex items-center gap-3.5 md:w-1/3 min-w-0">
                 <img src="{esc(m['avatar'])}" alt="" class="w-11 h-11 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
                 <div class="truncate">
-                    <div class="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap"><span>{esc(m['name'])}</span>{loa_badge}{duty_badge}</div>
+                    <div class="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap"><span>{esc(m['name'])}</span>{loa_badge}{duty_badge}<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border {BADGE_OK if m['activity'] == 'confirmed' else (BADGE_BAD if m['activity'] == 'open' else "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700')}">{"✅ Aktiv bestätigt" if m['activity'] == 'confirmed' else ("⏳ Nicht bestätigt" if m['activity'] == 'open' else "⚪ Kein Check")}</span></div>
                     <div class="text-xs text-slate-400 font-mono">@{esc(m['username'])}</div>
                 </div>
             </div>
@@ -1315,6 +1397,10 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             <div class="text-xs text-slate-400 mb-1">Team / <span class="text-indigo-600 dark:text-indigo-400 font-medium">Teamliste</span></div>
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Teamliste & Wochenziel ({weekly_goal:g}h)</h1>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">{summary}</p>
+            <div class="mt-2 inline-flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+                <span class="px-3 py-1.5 rounded-xl border {BADGE_OK if activity_exists else "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700"}">{"✅ Activity Check ausgewertet" if activity_exists else "⚪ Kein Activity Check heute"}</span>
+                <a href="/team" class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-indigo-600 hover:text-white transition">🔄 Aktualisieren</a>
+            </div>
         </div>
         <div class="flex items-center gap-3">
             <label class="text-xs flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300"><input type="checkbox" id="onlyBelow" onchange="filterTeam()" class="rounded"> Nur unter Ziel</label>
