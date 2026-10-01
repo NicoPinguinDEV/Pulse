@@ -1382,13 +1382,15 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
         if m["duty"]:
             duty_badge = (f'<span class="border {BADGE_WARN if m["duty"] == "break" else BADGE_OK} text-[10px] px-2.5 py-0.5 rounded-full font-semibold">'
                           f'{"☕ Pause" if m["duty"] == "break" else "🟢 Im Dienst"}</span>')
+        activity_badge_class = BADGE_OK if m["activity"] == "confirmed" else (BADGE_BAD if m["activity"] == "open" else "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700")
+        activity_badge_text = "✅ Aktiv bestätigt" if m["activity"] == "confirmed" else ("⏳ Nicht bestätigt" if m["activity"] == "open" else "⚪ Kein Check")
         rows_html += f"""
         <div class="team-row {CARD} hover:bg-slate-50 dark:hover:bg-[#1a2030] transition px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
              data-search="{esc((m['name'] + ' ' + m['username'] + ' ' + m['role']).lower())}" data-below="{1 if (not m['reached'] and not m['on_loa']) else 0}">
             <div class="flex items-center gap-3.5 md:w-1/3 min-w-0">
                 <img src="{esc(m['avatar'])}" alt="" class="w-11 h-11 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
                 <div class="truncate">
-                    <div class="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap"><span>{esc(m['name'])}</span>{loa_badge}{duty_badge}<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border {BADGE_OK if m['activity'] == 'confirmed' else (BADGE_BAD if m['activity'] == 'open' else "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700')}">{"✅ Aktiv bestätigt" if m['activity'] == 'confirmed' else ("⏳ Nicht bestätigt" if m['activity'] == 'open' else "⚪ Kein Check")}</span></div>
+                    <div class="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap"><span>{esc(m['name'])}</span>{loa_badge}{duty_badge}<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border {activity_badge_class}">{activity_badge_text}</span></div>
                     <div class="text-xs text-slate-400 font-mono">@{esc(m['username'])}</div>
                 </div>
             </div>
