@@ -1346,6 +1346,21 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     summary = (f"{len(members)} Mitglieder · ✅ {len([m for m in members if m['reached']])} Ziel erreicht · "
                f"⚠️ {below} unter Ziel · 🟢 {len([m for m in members if m['duty']])} im Dienst · 🌴 {len([m for m in members if m['on_loa']])} abgemeldet · Activity: {activity_summary}")
 
+    confirmed_names = [m["name"] for m in members if m["activity"] == "confirmed"]
+    open_names = [m["name"] for m in members if m["activity"] == "open"]
+    activity_panel = f"""
+    <section id="activity" class="{CARD} p-5 mb-5">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div><h2 class="text-base font-bold text-slate-900 dark:text-white">✅ Activity Check – Teamübersicht</h2>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">{activity["check_date"]} · direkt aus dem Bot-Activity-Check</p></div>
+            <div class="flex gap-2 text-[11px] font-semibold"><span class="px-3 py-1.5 rounded-xl border {BADGE_OK}">✅ {activity_confirmed_count} bestätigt</span><span class="px-3 py-1.5 rounded-xl border {BADGE_BAD}">⏳ {activity_open_count} offen</span></div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-4 mt-4">
+            <div class="rounded-xl bg-emerald-500/5 border border-emerald-500/20 p-3"><div class="text-[10px] font-bold uppercase tracking-wider text-emerald-600 mb-2">Bestätigt</div><div class="text-xs leading-6">{esc(", ".join(confirmed_names) or "Noch niemand bestätigt.")}</div></div>
+            <div class="rounded-xl bg-rose-500/5 border border-rose-500/20 p-3"><div class="text-[10px] font-bold uppercase tracking-wider text-rose-600 mb-2">Noch offen</div><div class="text-xs leading-6">{esc(", ".join(open_names) or ("Niemand offen." if activity_exists else "Heute wurde noch kein Check gesendet."))}</div></div>
+        </div>
+    </section>"""
+
     rows_html = ""
     for m in members:
         style = BADGE_WARN if m["on_loa"] else (BADGE_OK if m["reached"] else BADGE_BAD)
