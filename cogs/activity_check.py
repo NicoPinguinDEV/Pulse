@@ -23,6 +23,15 @@ def init_db():
         created_at TEXT NOT NULL,
         UNIQUE(guild_id, check_date)
     );
+    CREATE TABLE IF NOT EXISTS check_members (
+        check_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        user_name TEXT NOT NULL,
+        role_name TEXT DEFAULT "",
+        added_at TEXT NOT NULL,
+        PRIMARY KEY(check_id,user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_check_members_check ON check_members(check_id);
     CREATE TABLE IF NOT EXISTS responses (
         check_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
@@ -52,11 +61,31 @@ class ActivityView(discord.ui.View):
         if not check_id:
             await interaction.response.send_message("⚠️ Dieser Activity Check ist nicht mehr aktiv.",ephemeral=True); return
         with sqlite3.connect(DB_NAME) as c:
+            has_snapshot = c.execute("SELECT 1 FROM check_members WHERE check_id=? LIMIT 1", (check_id,)).fetchone()
+            if has_snapshot:
+                member_row = c.execute("SELECT 1 FROM check_members WHERE check_id=? AND user_id=?", (check_id, interaction.user.id)).fetchone()
+                if not member_row:
+                    await interaction.response.send_message("⚠️ Du warst bei diesem Activity Check nicht als Teammitglied erfasst.", ephemeral=True)
+                    return
             c.execute("INSERT OR REPLACE INTO responses(check_id,user_id,reacted_at) VALUES(?,?,?)",(check_id,interaction.user.id,datetime.now(BERLIN_TZ).isoformat()))
-        await interaction.response.send_message("✅ Aktivität bestätigt.",ephemeral=True)
+        await interaction.response.send_message("✅ Aktivität für diesen Activity Check bestätigt.",ephemeral=True)
 
 
 class ActivityCheckCog(commands.Cog):
+    def eligible_members(self, guild, role=None):
+        """Erstellt den festen Team-Snapshot für jeden einzelnen Activity Check."""
+        if role:
+            return [m for m in role.members if not m.bot]
+        try:
+            import json
+            with open("config.json", "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            role_ids = {int(x) for x in cfg.get("team_role_ids", [])}
+        except Exception:
+            role_ids = set()
+        return [m for m in guild.members if not m.bot and any(r.id in role_ids for r in m.roles)]
+
+
     def __init__(self, bot):
         self.bot=bot; init_db(); self.daily_activity_check.start(); self.bot.add_view(ActivityView(self))
 
@@ -71,12 +100,23 @@ class ActivityCheckCog(commands.Cog):
         with sqlite3.connect(DB_NAME) as c:
             existing=c.execute("SELECT id FROM checks WHERE guild_id=? AND check_date=?",(channel.guild.id,today)).fetchone()
             if existing: return None
+        eligible = self.eligible_members(channel.guild, role)
         role_ping=role.mention if role else ""
         embed=discord.Embed(title="⟡ Activity Check",description=("Bitte bestätige deine Aktivität über den Button.\n\n" "🕐 Tagescheck · ✅ Bestätigung · 📊 Auswertung im Bot\n\n" "Nicht reagiert = wird im Bericht als offen geführt."),color=discord.Color.blurple())
         embed.set_footer(text=f"{channel.guild.name} • {today}")
         msg=await channel.send(content=role_ping,embed=embed,view=ActivityView(self),allowed_mentions=discord.AllowedMentions(roles=bool(role)))
         with sqlite3.connect(DB_NAME) as c:
-            c.execute("INSERT INTO checks(guild_id,channel_id,message_id,check_date,created_at) VALUES(?,?,?,?,?)",(channel.guild.id,channel.id,msg.id,today,datetime.now(BERLIN_TZ).isoformat()))
+            cur = c.execute(
+                "INSERT INTO checks(guild_id,channel_id,message_id,check_date,created_at) VALUES(?,?,?,?,?)",
+                (channel.guild.id,channel.id,msg.id,today,datetime.now(BERLIN_TZ).isoformat()),
+            )
+            check_id = cur.lastrowid
+            created_at = datetime.now(BERLIN_TZ).isoformat()
+            for member in eligible:
+                c.execute(
+                    "INSERT OR REPLACE INTO check_members(check_id,user_id,user_name,role_name,added_at) VALUES(?,?,?,?,?)",
+                    (check_id, member.id, member.display_name, member.top_role.name if member.top_role else "", created_at),
+                )
         return msg
 
     @tasks.loop(time=time(hour=6,minute=0,tzinfo=BERLIN_TZ))
