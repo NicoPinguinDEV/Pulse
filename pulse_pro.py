@@ -157,6 +157,7 @@ def make_shell_helpers(ws):
                 ("inbox","/pulse-inbox","◈","Inbox",True,False),
                 ("team-status","/team-status","◉","Teamstatus",perms.get("can_view_team_status",True),False),
                 ("activity-check","/activity-check","✓","Activity Check",perms.get("can_manage_checkins") or perms.get("is_admin"),False),
+                ("melonly","/melonly","🛡️","Melonly",perms.get("can_warn") or perms.get("can_add_notes") or perms.get("is_admin"),False),
                 ("team","/team","◌","Teamliste",True,False),
             ]),
             ("Workflow", [
@@ -223,7 +224,7 @@ def make_shell_helpers(ws):
 
 def build_command_modal(ws):
     items = [
-        ("⌂", "Dashboard öffnen", "/dashboard"), ("◌", "Teamstatus", "/team-status"), ("✓", "Activity Check", "/activity-check"), ("▣", "Tickets", "/tickets"),
+        ("⌂", "Dashboard öffnen", "/dashboard"), ("◌", "Teamstatus", "/team-status"), ("✓", "Activity Check", "/activity-check"), ("🛡️", "Melonly", "/melonly"), ("▣", "Tickets", "/tickets"),
         ("□", "Aufgaben", "/tasks"), ("✓", "Freigaben", "/approvals"), ("↪", "Übergabe", "/handover"),
         ("✦", "Ankündigungen", "/announcements"), ("▤", "Meeting-Historie", "/meetings-history"), ("◇", "Schulungen", "/training"), ("▤", "Team-Wiki", "/wiki"),
         ("◒", "Analytics", "/stats"), ("◆", "Achievements", "/achievements"), ("⚙", "Einstellungen", "/settings"),
@@ -364,99 +365,96 @@ def register(app):
 
     # ---------------- Team status ----------------
     async def activity_check_page(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session,perm='can_manage_checkins')
-        today=datetime.now().date().isoformat()
-        selected_date=(request.query_params.get('date') or today).strip()
+        c=cctx(request,user_session,perm="can_manage_checkins")
+        today=ws.now_de().date().isoformat()
+        selected_date=(request.query_params.get("date") or today).strip()
+        try: selected_date=datetime.fromisoformat(selected_date).date().isoformat()
+        except Exception: selected_date=today
+        check=None; responded={}; snapshot=[]; legacy=False
         try:
-            selected_date=datetime.fromisoformat(selected_date).date().isoformat()
-        except Exception:
-            selected_date=today
-        check=None; responded=set(); check_exists=False
-        try:
-            with sqlite3.connect('activity_check.db') as ax:
+            with sqlite3.connect("activity_check.db") as ax:
                 ax.row_factory=sqlite3.Row
                 check=ax.execute("SELECT * FROM checks WHERE guild_id=? AND check_date=?",(c.guild.id,selected_date)).fetchone()
                 if check:
-                    check_exists=True
-                    rows=ax.execute("SELECT user_id FROM responses WHERE check_id=?",(check['id'],)).fetchall()
-                    responded={int(r['user_id']) for r in rows}
-        except Exception:
-            check=None
-
-        activity_role_id=None
+                    responded={int(r["user_id"]):r["reacted_at"] for r in ax.execute("SELECT user_id,reacted_at FROM responses WHERE check_id=?",(check["id"],)).fetchall()}
+                    try: snapshot=[dict(r) for r in ax.execute("SELECT user_id,user_name,role_name FROM check_members WHERE check_id=? ORDER BY user_name COLLATE NOCASE",(check["id"],)).fetchall()]
+                    except sqlite3.Error: snapshot=[]
+        except Exception: check=None
+        if check and not snapshot:
+            legacy=True
+            role=None
+            try:
+                with sqlite3.connect("activity_check.db") as ax:
+                    rr=ax.execute("SELECT value FROM config WHERE key='activity_role_id'").fetchone()
+                    if rr and rr[0]: role=c.guild.get_role(int(rr[0]))
+            except Exception: pass
+            members=[m for m in (role.members if role else team(c.guild,c.config.get("team_role_ids",[]))) if not m.bot] if role else team(c.guild,c.config.get("team_role_ids",[]))
+            snapshot=[{"user_id":m.id,"user_name":m.display_name,"role_name":member_role(m,c.config.get("team_role_ids",[]))} for m in members]
+        history=[]
         try:
-            with sqlite3.connect('activity_check.db') as ax:
-                row=ax.execute("SELECT value FROM config WHERE key='activity_role_id'").fetchone()
-                activity_role_id=int(row[0]) if row and row[0] else None
-        except Exception:
-            activity_role_id=None
-
-        history_dates=[]
-        try:
-            with sqlite3.connect('activity_check.db') as hx:
-                history_dates=[r[0] for r in hx.execute("SELECT check_date FROM checks WHERE guild_id=? ORDER BY check_date DESC LIMIT 31",(c.guild.id,)).fetchall()]
-        except Exception:
-            history_dates=[]
-
-        members=[]
-        if activity_role_id:
-            role=c.guild.get_role(activity_role_id)
-            if role:
-                members=[m for m in role.members if not m.bot]
-        if not members:
-            members=team(c.guild,c.config.get('team_role_ids',[]))
-
-        confirmed=sorted([m for m in members if m.id in responded],key=lambda m:m.display_name.lower())
-        open_members=sorted([m for m in members if m.id not in responded],key=lambda m:m.display_name.lower())
-        total=len(members); done=len(confirmed); open_n=len(open_members); pct=round(done/total*100) if total else 0
-
-        def person_rows(items, state, empty):
-            if not items:
-                return '<div class="pulse-empty">'+e(empty)+'</div>'
-            kind='good' if state=='confirmed' else 'warn'
-            icon='✓' if state=='confirmed' else '⏳'
-            label='Bestätigt' if state=='confirmed' else 'Offen'
-            return ''.join(
-                f'<div class="pulse-row"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(m.display_name))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(m.display_name)}</div><div class="pulse-row-meta">{e(member_role(m,c.config.get("team_role_ids",[])))}</div></div></div>{pill(icon+" "+label,kind)}</div>'
-                for m in items
-            )
-
-        check_state=pill('✅ Check wurde gesendet','good') if check_exists else pill('⚪ Heute noch nicht gesendet','warn')
-        body = (
-            f'<section class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Tagesauswertung · {selected_date}</div>'
-            f'<div class="pulse-title">Activity Check</div><div class="pulse-sub">Hier siehst du eindeutig, wer den heutigen Check bestätigt hat und bei wem die Rückmeldung noch offen ist.</div>'
-            f'</div><div class="pulse-hero-box"><div class="label">RÜCKMELDUNG</div><div class="value">{done} / {total}</div>'
-            f'<div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{pct}%;background:white"></span></div>'
-            f'<div class="text-[10px] mt-2 opacity-75">{pct}% bestätigt</div></div></div></section>'
-            f'<div class="flex flex-wrap items-center gap-2 mb-4"><form method="get" action="/activity-check" class="flex flex-wrap gap-2 items-center"><select name="date" class="pulse-input" style="width:auto;min-width:180px">{"".join(f'<option value="{d}" {"selected" if d==selected_date else ""}>{d}{" · heute" if d==today else ""}</option>' for d in history_dates or [selected_date])}</select><button class="pulse-btn ghost">Datum öffnen</button></form><a href="/activity-check" class="pulse-btn ghost">Heute</a></div><div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">👥</div><div class="label">Team gesamt</div><div class="value">{total}</div></div>'
-            f'<div class="pulse-stat"><div class="icon">✅</div><div class="label">Bestätigt</div><div class="value">{done}</div></div>'
-            f'<div class="pulse-stat"><div class="icon">⏳</div><div class="label">Noch offen</div><div class="value">{open_n}</div></div>'
-            f'<div class="pulse-stat"><div class="icon">◷</div><div class="label">Stand</div><div class="value">{selected_date}</div></div></div>'
-            f'<div class="pulse-grid"><div>{card('✅ Aktiv bestätigt',person_rows(confirmed,'confirmed','Noch niemand hat den Check bestätigt.'),'✓')}</div>'
-            f'<div>{card('⏳ Noch offen',person_rows(open_members,'open','Alle Teammitglieder haben bereits bestätigt.'),'⏳')}</div></div>'
-            f'<div class="mt-4">{card('Status',f'<div class=\"flex flex-wrap items-center gap-2\">{check_state}<a href=\"/team-status\" class=\"pulse-btn ghost\">◉ Live-Teamstatus öffnen</a></div><div class=\"text-[11px] text-slate-500 mt-3\">„Offen“ bedeutet: Für den ausgewählten Activity Check liegt noch keine Bestätigung vor. Der separate Live-Teamstatus zeigt, wer gerade im Dienst oder anderweitig verfügbar ist.</div>','i')}</div>'
+            with sqlite3.connect("activity_check.db") as hx:
+                hx.row_factory=sqlite3.Row
+                history=[dict(r) for r in hx.execute("SELECT id,check_date,created_at,message_id FROM checks WHERE guild_id=? ORDER BY check_date DESC LIMIT 60",(c.guild.id,)).fetchall()]
+                for h in history:
+                    h["responses"]=int(hx.execute("SELECT COUNT(*) FROM responses WHERE check_id=?",(h["id"],)).fetchone()[0])
+                    h["members"]=int(hx.execute("SELECT COUNT(*) FROM check_members WHERE check_id=?",(h["id"],)).fetchone()[0])
+        except Exception: history=[]
+        confirmed=[]; open_members=[]
+        for p in snapshot:
+            q=dict(p); q["reacted_at"]=responded.get(int(p["user_id"])); (confirmed if q["reacted_at"] else open_members).append(q)
+        confirmed.sort(key=lambda x:str(x.get("user_name","")).lower()); open_members.sort(key=lambda x:str(x.get("user_name","")).lower())
+        total=len(snapshot); done=len(confirmed); open_n=len(open_members); pct=round(done*100/total) if total else 0
+        def person_rows(items, state):
+            if not items: return '<div class="pulse-empty">Keine Einträge.</div>'
+            kind="good" if state=="confirmed" else "warn"; icon="✓" if state=="confirmed" else "⏳"; label="Bestätigt" if state=="confirmed" else "Offen"
+            out=[]
+            for p in items:
+                name=p.get("user_name") or "Unbekannt"; when=(" · bestätigt um "+e(fmt_dt(p.get("reacted_at")))) if p.get("reacted_at") else " · wartet auf Bestätigung"
+                out.append(f'<div class="pulse-row"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(name))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(name)}</div><div class="pulse-row-meta">{e(p.get("role_name") or "Team")}{when}</div></div></div>{pill(icon+" "+label,kind)}</div>')
+            return "".join(out)
+        history_options="".join(f'<option value="{e(h["check_date"])}" {"selected" if h["check_date"]==selected_date else ""}>{e(h["check_date"])} · {h["responses"]} Antworten · {h["members"]} Team-Snapshot</option>' for h in history) or f'<option value="{e(selected_date)}">{e(selected_date)}</option>'
+        state_note=pill("Snapshot pro Check gespeichert","good") if check and not legacy else (pill("Alter Check ohne Snapshot","warn") if legacy else pill("Kein Check für dieses Datum","warn"))
+        body=(
+            f'<div class="pulse-topbar"><div><div class="pulse-section-title">✓ Activity Check</div><div class="pulse-section-sub">Jeder Check wird separat gespeichert. Antworten gehören exakt zu diesem Check.</div></div>{state_note}</div>'
+            f'<section class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Tagesauswertung · {e(selected_date)}</div><div class="pulse-title">{done} von {total} bestätigt</div><div class="pulse-sub">Der Teilnehmer-Snapshot wird beim Erstellen des Checks gespeichert. Spätere Rollenänderungen verändern vergangene Auswertungen nicht.</div></div><div class="pulse-hero-box"><div class="label">BESTÄTIGUNGSQUOTE</div><div class="value">{pct}%</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{pct}%;background:white"></span></div></div></div></section>'
+            f'<div class="flex flex-wrap items-center gap-2 mb-4"><form method="get" action="/activity-check" class="flex flex-wrap gap-2"><select name="date" class="pulse-input" style="width:auto;min-width:310px">{history_options}</select><button class="pulse-btn ghost">Check öffnen</button></form><a href="/team#activity" class="pulse-btn ghost">↩ Teamliste</a></div>'
+            f'<div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">👥</div><div class="label">Snapshot</div><div class="value">{total}</div></div><div class="pulse-stat"><div class="icon">✅</div><div class="label">Bestätigt</div><div class="value">{done}</div></div><div class="pulse-stat"><div class="icon">⏳</div><div class="label">Offen</div><div class="value">{open_n}</div></div><div class="pulse-stat"><div class="icon">◷</div><div class="label">Erstellt</div><div class="value">{e(fmt_dt(check["created_at"]) if check else "—")}</div></div></div>'
+            f'<div class="pulse-grid"><div>{card("✅ Bestätigt",person_rows(confirmed,"confirmed"),"✓")}</div><div>{card("⏳ Noch offen",person_rows(open_members,"open"),"⏳")}</div></div>'
+            f'<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">🗂 Check-Historie</div><div class="pulse-section-sub">Jeder Tag ist ein eigener Datensatz.</div></div></div><div class="pulse-card-b space-y-2">{"".join(f'<a href="/activity-check?date={e(h["check_date"])}" class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(h["check_date"])}</div><div class="pulse-row-meta">{e(fmt_dt(h["created_at"]))} · {h["responses"]} Antworten · {h["members"]} Snapshot-Mitglieder · Nachricht {e(h["message_id"])}</div></div>{pill("Aktuell","good") if h["check_date"]==selected_date else pill("Öffnen")}</a>' for h in history)}</div></section>'
         )
-        return render_pro_page(ws,'Activity Check',c,'activity-check',body)
-
+        return render_pro_page(ws,"Activity Check",c,"activity-check",body)
     async def team_status_page(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session,perm='can_view_team_status')
-        ids=c.config.get('team_role_ids',[]); members=team(c.guild,ids)
-        shifts=ws.load_shifts().get('active_shifts',{})
-        manual={x['user_id']:x for x in db.list_team_status()}
+        c=cctx(request,user_session,perm="can_view_team_status")
+        ids=c.config.get("team_role_ids",[]); members=team(c.guild,ids); shifts=ws.load_shifts().get("active_shifts",{})
+        def discord_meta(m):
+            raw=str(getattr(m,"status",discord.Status.offline))
+            return {"online":("🟢","Online","good"),"idle":("🟡","Abwesend / AFK","warn"),"dnd":("🔴","Nicht stören","bad"),"offline":("⚪","Offline","")}.get(raw,("⚪","Offline",""))
+        def activity_name(m):
+            for a in (getattr(m,"activities",[]) or []):
+                value=getattr(a,"name",None) or getattr(a,"state",None)
+                if value: return str(value)
+            return ""
         def one(m):
-            sh=shifts.get(str(m.id)); ms=manual.get(str(m.id)); st=ms.get('status','available') if ms else 'available'; msg=ms.get('message','') if ms else ''
-            if sh: st='away' if sh.get('status')=='break' else 'available'; msg='Pause' if sh.get('status')=='break' else 'Im Dienst'
-            ico,lab,kind=status_meta(st)
-            shift_extra = f"<div class=\"pulse-row-meta pulse-time mt-1\">{ws.fmt_duration(ws.shift_elapsed(sh))}</div>" if sh else ""
-            return f'<div class="pulse-row"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(m.display_name))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(m.display_name)}</div><div class="pulse-row-meta">{e(member_role(m,ids))} · {e(msg)}</div></div></div><div class="text-right">{pill(ico+" "+lab,kind)}{shift_extra}</div></div>'
-        my=manual.get(str(c.user['id']),{}); current_status=my.get('status','available')
-        team_html=''.join(one(m) for m in members) or '<div class="pulse-empty">Keine Teamrollen konfiguriert.</div>'
-        status_form = f'<form action="/team-status/set" method="post" class="space-y-3"><select name="status" class="pulse-input"><option value="available" {"selected" if current_status=="available" else ""}>🟢 Verfügbar</option><option value="busy" {"selected" if current_status=="busy" else ""}>🟠 Beschäftigt</option><option value="away" {"selected" if current_status=="away" else ""}>🟡 Kurz abwesend</option><option value="dnd" {"selected" if current_status=="dnd" else ""}>🔴 Nicht stören</option></select><input name="message" maxlength="160" value="{e(my.get("message", ""))}" class="pulse-input" placeholder="z. B. Ticketarbeit / Gespräch…"><button class="pulse-btn primary w-full">Status speichern</button></form>'
-        status_card=card('Meinen Status setzen',status_form,'◉')
-        legend=card('Status-Legende',pill('🟢 Verfügbar','good')+pill('🟠 Beschäftigt','warn')+pill('🟡 Abwesend','warn')+pill('🔴 Nicht stören','bad'),'i')
-        body=f'<div class="pulse-topbar"><div><div class="pulse-section-title">◉ Teamstatus</div><div class="pulse-section-sub">Wer ist verfügbar, beschäftigt oder gerade im Dienst?</div></div><span class="pulse-pill good">{len([m for m in members if shifts.get(str(m.id))])} im Dienst</span></div><div class="pulse-grid"><div>{card("Aktuelles Team",team_html,"◉")}</div><div class="space-y-4">{status_card}{legend}</div></div>'
-        return render_pro_page(ws,'Teamstatus',c,'team-status',body)
-
+            ico,lab,kind=discord_meta(m); act=activity_name(m); sh=shifts.get(str(m.id))
+            act_html=f' · {e(act)}' if act else ''
+            duty=pill("Pause","warn") if sh and sh.get("status")=="break" else (pill("Im Dienst","good") if sh else pill("Keine Schicht"))
+            return f'<div class="pulse-row" data-discord-user="{m.id}"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(m.display_name))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(m.display_name)}</div><div class="pulse-row-meta">{e(member_role(m,ids))} · <span data-status-label="{m.id}">{e(lab)}</span>{act_html}</div></div></div><div class="text-right"><div data-status-pill="{m.id}">{pill(ico+" "+lab,kind)}</div><div class="mt-1">{duty}</div></div></div>'
+        team_html="".join(one(m) for m in members) or '<div class="pulse-empty">Keine Teamrollen konfiguriert.</div>'
+        body=f'<div class="pulse-topbar"><div><div class="pulse-section-title">◉ Teamstatus</div><div class="pulse-section-sub">Online-Status kommt direkt aus Discord. Die Schicht wird separat angezeigt.</div></div><span class="pulse-pill good">Live · Aktualisierung alle 10s</span></div><div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Online</div><div id="countOnline" class="value">—</div></div><div class="pulse-stat"><div class="icon">🟡</div><div class="label">AFK</div><div id="countIdle" class="value">—</div></div><div class="pulse-stat"><div class="icon">🔴</div><div class="label">DND</div><div id="countDnd" class="value">—</div></div><div class="pulse-stat"><div class="icon">⚪</div><div class="label">Offline</div><div id="countOffline" class="value">—</div></div></div>{card("Discord-Teamstatus",team_html,"◉")}'+
+        '<script>async function refreshDiscordStatuses(){try{const r=await fetch("/api/team/discord-status",{credentials:"same-origin",cache:"no-store"});const d=await r.json();if(!d.ok)return;const c={online:0,idle:0,dnd:0,offline:0};for(const x of d.members){c[x.status]=(c[x.status]||0)+1;const p=document.querySelector("[data-status-pill=\""+x.id+"\"]");const l=document.querySelector("[data-status-label=\""+x.id+"\"]");if(p)p.innerHTML=x.pill;if(l)l.textContent=x.label;}document.getElementById("countOnline").textContent=c.online;document.getElementById("countIdle").textContent=c.idle;document.getElementById("countDnd").textContent=c.dnd;document.getElementById("countOffline").textContent=c.offline;}catch(e){}}refreshDiscordStatuses();setInterval(refreshDiscordStatuses,10000);</script>'
+        return render_pro_page(ws,"Teamstatus",c,"team-status",body)
+    async def discord_status_api(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm="can_view_team_status")
+        ids=c.config.get("team_role_ids",[]); members=team(c.guild,ids)
+        mapping={"online":("🟢","Online","good"),"idle":("🟡","Abwesend / AFK","warn"),"dnd":("🔴","Nicht stören","bad"),"offline":("⚪","Offline","")}
+        out=[]
+        for m in members:
+            st=str(getattr(m,"status",discord.Status.offline)); ico,lab,kind=mapping.get(st,("⚪","Offline","")); act=""
+            for a in (getattr(m,"activities",[]) or []):
+                act=str(getattr(a,"name",None) or getattr(a,"state",None) or "")
+                if act: break
+            out.append({"id":m.id,"status":st,"label":lab,"activity":act,"pill":pill(ico+" "+lab,kind)})
+        return JSONResponse({"ok":True,"members":out,"updated_at":ws.now_de().isoformat()})
 
     async def set_team_status(request: Request, status: str=Form(...), message: str=Form(""), user_session: str=Cookie(None)):
         c=cctx(request,user_session); db.set_team_status(c.user['id'],c.user.get('global_name') or c.user.get('username') or 'Team',status,message.strip()[:160]); db.record_event('status_changed','user',c.user['id'],c.user['id'],c.user.get('global_name') or 'Team',{'status':status,'message':message.strip()[:160]}); return ws.back('/team-status','Status gespeichert.')
@@ -850,6 +848,7 @@ def register(app):
     remove_and_add(app,'/achievements',{'GET'},achievements_v5,response_class=HTMLResponse)
     remove_and_add(app,'/meetings-history',{'GET'},meetings_history_v5,response_class=HTMLResponse)
     app.get('/team-status',response_class=HTMLResponse)(team_status_page)
+    remove_and_add(app,'/api/team/discord-status',{'GET'},discord_status_api,response_class=JSONResponse)
     app.post('/team-status/set')(set_team_status)
     app.get('/activity-check',response_class=HTMLResponse)(activity_check_page)
     app.get('/handover',response_class=HTMLResponse)(handover_page)
