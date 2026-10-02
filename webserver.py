@@ -51,7 +51,7 @@ if not APPLICATION_REDIRECT_URI:
     APPLICATION_REDIRECT_URI = (REDIRECT_URI.rsplit("/", 1)[0] + "/apply/callback") if "/" in REDIRECT_URI else REDIRECT_URI.rstrip("/") + "/apply/callback"
 GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616"))
 TEAM_UPDATE_CHANNEL_NAME = os.getenv("TEAM_UPDATE_CHANNEL_NAME", "╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
-TEAM_UPDATE_CHANNEL_ID = int(os.getenv("TEAM_UPDATE_CHANNEL_ID", "0") or 0)  # optional, robuster als der Name
+TEAM_UPDATE_CHANNEL_ID = int(os.getenv("TEAM_UPDATE_CHANNEL_ID", "1531132354272170115") or 1531132354272170115)  # Team-Updates
 
 WARN_ROLE_IDS = {
     1: int(os.getenv("WARN_ROLE_1", "1489221948348043395")),
@@ -434,21 +434,53 @@ async def send_dm_notification(user_or_member, message: str, embed: discord.Embe
         return False
 
 
-async def send_team_update_embed(guild, title, description, color=None):
+async def send_team_update_embed(guild, title, description, color=None, *, fields=None,
+                                 actor=None, target=None, action=None, thumbnail=None):
+    """Einheitliches professionelles Embed für alle Team-Updates."""
     if not guild:
-        return
-    color = color or discord.Color.blue()
+        return None
+    color = color or discord.Color.blurple()
     channel = guild.get_channel(TEAM_UPDATE_CHANNEL_ID) if TEAM_UPDATE_CHANNEL_ID else None
     if not channel:
         channel = discord.utils.get(guild.text_channels, name=TEAM_UPDATE_CHANNEL_NAME)
-    if channel:
-        try:
-            embed = discord.Embed(title=title, description=description, color=color)
-            embed.set_footer(text=f"{guild.name} • Team-Updates System")
-            embed.timestamp = datetime.now()
-            await channel.send(embed=embed)
-        except Exception as e:
-            print(f"Fehler beim Senden des Team-Updates in Discord: {e}")
+    if not channel:
+        print(f"Team-Updates-Kanal nicht gefunden: {TEAM_UPDATE_CHANNEL_ID or TEAM_UPDATE_CHANNEL_NAME}")
+        return None
+    try:
+        embed = discord.Embed(
+            title=title[:256],
+            description=description[:4096],
+            color=color,
+            timestamp=discord.utils.utcnow(),
+        )
+        if target:
+            embed.add_field(name="👤 Betroffen", value=str(target)[:1024], inline=True)
+        if action:
+            embed.add_field(name="📌 Vorgang", value=str(action)[:1024], inline=True)
+        if actor:
+            embed.add_field(name="🛡️ Bearbeitet von", value=str(actor)[:1024], inline=True)
+        for field in (fields or []):
+            if isinstance(field, (tuple, list)) and len(field) >= 2:
+                embed.add_field(
+                    name=str(field[0])[:256],
+                    value=str(field[1])[:1024] or "—",
+                    inline=bool(field[2]) if len(field) > 2 else False,
+                )
+        if thumbnail:
+            try:
+                embed.set_thumbnail(url=thumbnail)
+            except Exception:
+                pass
+        if guild.icon:
+            try:
+                embed.set_author(name=guild.name, icon_url=guild.icon.url)
+            except Exception:
+                pass
+        embed.set_footer(text="Pulse TeamOS • Team-Updates")
+        return await channel.send(embed=embed)
+    except Exception as e:
+        print(f"Fehler beim Senden des Team-Updates in Discord: {e}")
+        return None
 
 
 async def sync_warn_roles(guild, member, count: int):
@@ -1242,6 +1274,23 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
         "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
     })
     save_json(LOGS_FILE, logs_db)
+    actor_name = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+    action_label = {"Warn":"Verwarnung","Kick":"Kick","Ban":"Ban","Ban BOLO":"Ban BOLO","Notiz":"Notiz"}.get(log_type, log_type)
+    color = {"Warn":discord.Color.orange(),"Kick":discord.Color.red(),"Ban":discord.Color.red(),
+             "Ban BOLO":discord.Color.dark_red(),"Notiz":discord.Color.blurple()}.get(log_type,discord.Color.blurple())
+    await send_team_update_embed(
+        ctx.guild,
+        f"⚠️ Team-Update: {action_label}" if log_type == "Warn" else f"📋 Team-Update: {action_label}",
+        f"Ein neuer {action_label.lower()}-Vorgang wurde im Pulse-System dokumentiert.",
+        color,
+        target=f"{target_user}\nRoblox ID: {roblox_id}",
+        action=action_label,
+        actor=actor_name,
+        fields=[
+            ("Grund / Notiz", reason, False),
+            ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True),
+        ],
+    )
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Log Erstellt", f"Spieler: {target_user} ({log_type})")
     return back("/dashboard", f"{log_type}-Log für {target_user} gespeichert.")
 
