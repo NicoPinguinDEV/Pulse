@@ -1881,9 +1881,13 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
             footer = f'<span class="text-xs font-semibold border px-3 py-1 rounded-full {BADGE_OK if accepted else BADGE_BAD}">{"✅ Angenommen" if accepted else "❌ Abgelehnt"}{(" von " + esc(item.get("decided_by"))) if item.get("decided_by") else ""}</span>'
         else:
             decide = f"""
-                <form action="/action" method="post" class="flex gap-2" onsubmit="return confirm('Entscheidung endgültig treffen?');">
+                <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Entscheidung endgültig treffen?');">
                     <input type="hidden" name="action" value="decide_app"><input type="hidden" name="app_id" value="{esc(app_id)}">
-                    <button name="decision" value="accept" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">Annehmen</button>
+                    <select name="hire_role_id" class="{INPUT} py-1.5 text-[11px] w-auto min-w-44">
+                        <option value="">Einstiegsrolle wählen…</option>
+                        {''.join(f'<option value="{r.id}">{esc(r.name)}</option>' for r in sorted((ctx.guild.get_role(x) for x in ctx.config.get("team_role_ids", [])), key=lambda z: z.position if z else -1) if r)}
+                    </select>
+                    <button name="decision" value="accept" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">✅ Einstellen</button>
                     <button name="decision" value="reject" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">Ablehnen</button>
                 </form>""" if can_decide else ""
             footer = f"""
@@ -2289,6 +2293,7 @@ async def handle_action(
     app_id: str = Form(None),
     vote: str = Form(None),
     decision: str = Form(None),
+    hire_role_id: int = Form(None),
     rsvp_status: str = Form(None),
     topic_title: str = Form(None),
     topic_details: str = Form(None),
@@ -2583,20 +2588,70 @@ async def handle_action(
         item = apps.get(app_id or "")
         if not item or item.get("status") != "pending" or decision not in ("accept", "reject"):
             return back("/applications", "Bewerbung nicht mehr offen.", False)
-        accepted = decision == "accept"
-        item["status"] = "accepted" if accepted else "rejected"
-        item["decided_by"] = actor
-        item["decided_at"] = now_de().strftime("%d.%m.%Y %H:%M")
-        save_json(APPS_FILE, apps)
-        log_audit(actor, actor_id, "Bewerbung Entschieden", f"{item.get('name')}: {'angenommen' if accepted else 'abgelehnt'}")
+
+        applicant = None
         try:
             applicant = guild.get_member(int(item.get("user_id")))
         except Exception:
             applicant = None
-        await send_dm_notification(applicant, (f"🎉 Deine Bewerbung bei **{guild.name}** wurde **angenommen**! Das Team meldet sich bei dir."
-                                               if accepted else f"Deine Bewerbung bei **{guild.name}** wurde leider **abgelehnt**. Danke für dein Interesse!"))
-        return back("/applications", f"Bewerbung von {item.get('name')} {'angenommen' if accepted else 'abgelehnt'}.")
 
+        if decision == "accept":
+            if not applicant:
+                return back("/applications", "Der Bewerber ist nicht mehr auf dem Discord-Server.", False)
+            configured_roles = [guild.get_role(rid) for rid in team_role_ids]
+            configured_roles = [r for r in configured_roles if r and not r.managed]
+            role = guild.get_role(hire_role_id) if hire_role_id else (min(configured_roles, key=lambda r: r.position) if configured_roles else None)
+            if role is None or role.id not in team_role_ids:
+                return back("/applications", "Bitte eine gültige Team-Einstiegsrolle konfigurieren/auswählen.", False)
+            if guild.me and guild.me.top_role.position <= role.position:
+                return back("/applications", "Der Bot steht nicht über der Einstiegsrolle.", False)
+            old_team_roles = [r for r in applicant.roles if r.id in team_role_ids and r.id != role.id]
+            try:
+                if old_team_roles:
+                    await applicant.remove_roles(*old_team_roles, reason=f"Einstellung durch {actor}")
+                await applicant.add_roles(role, reason=f"Einstellung durch {actor}")
+            except discord.Forbidden:
+                return back("/applications", "Discord hat die Rollenänderung verweigert. Bot-Rolle höher setzen.", False)
+
+            item["status"] = "accepted"
+            item["hired_role_id"] = role.id
+            item["hired_role"] = role.name
+            item["decided_by"] = actor
+            item["decided_at"] = now_de().strftime("%d.%m.%Y %H:%M")
+            save_json(APPS_FILE, apps)
+            await send_dm_notification(applicant, f"🎉 Deine Bewerbung bei **{guild.name}** wurde angenommen. Du wurdest als **{role.name}** in das Team aufgenommen.")
+            await send_team_update_embed(
+                guild,
+                "🎉 Team-Update: Einstellung",
+                f"{applicant.mention} wurde erfolgreich in das Team aufgenommen.",
+                discord.Color.green(),
+                target=applicant.mention,
+                action="Einstellung",
+                actor=actor,
+                fields=[("Einstiegsrolle", role.mention, True), ("Bewerbung", app_id or "—", True), ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True)],
+                thumbnail=applicant.display_avatar.url,
+            )
+            log_audit(actor, actor_id, "Einstellung", f"{applicant.display_name} -> {role.name}")
+            return back("/applications", f"{applicant.display_name} wurde als {role.name} eingestellt.")
+
+        item["status"] = "rejected"
+        item["decided_by"] = actor
+        item["decided_at"] = now_de().strftime("%d.%m.%Y %H:%M")
+        save_json(APPS_FILE, apps)
+        if applicant:
+            await send_dm_notification(applicant, f"Deine Bewerbung bei **{guild.name}** wurde leider abgelehnt. Danke für dein Interesse!")
+        await send_team_update_embed(
+            guild,
+            "📄 Team-Update: Bewerbung abgelehnt",
+            f"Die Bewerbung von **{item.get('name','Unbekannt')}** wurde abgelehnt.",
+            discord.Color.red(),
+            target=item.get("name","Unbekannt"),
+            action="Bewerbung abgelehnt",
+            actor=actor,
+            fields=[("Bewerbung", app_id or "—", True), ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True)],
+        )
+        log_audit(actor, actor_id, "Bewerbung Entschieden", f"{item.get('name')}: abgelehnt")
+        return back("/applications", f"Bewerbung von {item.get('name')} abgelehnt.")
     # ---------- Meetings ----------
     if action == "meeting_rsvp":
         if rsvp_status not in ("accepted", "declined"):
