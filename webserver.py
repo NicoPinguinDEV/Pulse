@@ -2368,8 +2368,17 @@ async def handle_action(
             if action == "kick":
                 await send_dm_notification(member, f"❌ Du wurdest von **{guild.name}** aus dem Team entfernt. Grund: Vom Dashboard aus gekickt durch {actor}.")
                 await member.kick(reason=f"Vom Dashboard aus gekickt durch {actor}.")
-                await send_team_update_embed(guild, "🚪 Team-Update: Kick",
-                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Aktion:** Wurde aus dem Team gekickt durch {actor}.", discord.Color.red())
+                await send_team_update_embed(
+                    guild,
+                    "🚪 Team-Update: Kick",
+                    f"{member.mention} wurde vom Discord-Server gekickt.",
+                    discord.Color.red(),
+                    target=member.mention,
+                    action="Server-Kick",
+                    actor=actor,
+                    fields=[("Grund","Vom Dashboard aus gekickt.",False)],
+                    thumbnail=member.display_avatar.url,
+                )
                 log_audit(actor, actor_id, "Kick", f"Mitglied {member.display_name} gekickt.")
                 return back("/team", f"{member.display_name} wurde vom Server gekickt.")
 
@@ -2387,8 +2396,17 @@ async def handle_action(
                 if old:
                     await member.remove_roles(*old, reason=f"Beförderung durch {actor}")
                 await send_dm_notification(member, f"🎉 **Herzlichen Glückwunsch!** Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert!")
-                await send_team_update_embed(guild, "⬆️ Team-Update: Beförderung",
-                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Neue Rolle:** {new_role.name}\n**Befördert durch:** {actor}", discord.Color.green())
+                await send_team_update_embed(
+                    guild,
+                    "⬆️ Team-Update: Beförderung",
+                    f"{member.mention} wurde befördert.",
+                    discord.Color.green(),
+                    target=member.mention,
+                    action="Beförderung",
+                    actor=actor,
+                    fields=[("Vorherige Rolle", old[0].mention if old else "Keine", True), ("Neue Rolle", new_role.mention, True)],
+                    thumbnail=member.display_avatar.url,
+                )
                 log_audit(actor, actor_id, "Beförderung", f"{member.display_name} -> {new_role.name}")
                 return back(member_url, f"{member.display_name} wurde zum {new_role.name} befördert.")
 
@@ -2404,14 +2422,31 @@ async def handle_action(
                 await member.add_roles(new_role, reason=f"Degradierung durch {actor}")
                 await member.remove_roles(*[r for r in old if r.id != new_role.id], reason=f"Degradierung durch {actor}")
                 await send_dm_notification(member, f"⚠️ Du wurdest auf **{guild.name}** auf die Rolle **{new_role.name}** degradiert.")
-                await send_team_update_embed(guild, "⬇️ Team-Update: Degradierung",
-                    f"**Mitglied:** {member.mention} ({member.display_name})\n**Neue Rolle:** {new_role.name}\n**Degradiert durch:** {actor}", discord.Color.orange())
+                await send_team_update_embed(
+                    guild,
+                    "⬇️ Team-Update: Degradierung",
+                    f"{member.mention} wurde degradiert.",
+                    discord.Color.orange(),
+                    target=member.mention,
+                    action="Degradierung",
+                    actor=actor,
+                    fields=[("Vorherige Rolle", old[0].mention if old else "Unbekannt", True), ("Neue Rolle", new_role.mention, True)],
+                    thumbnail=member.display_avatar.url,
+                )
                 log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> {new_role.name}")
                 return back(member_url, f"{member.display_name} wurde zum {new_role.name} degradiert.")
             await member.remove_roles(*old, reason=f"Degradierung durch {actor}")
             await send_dm_notification(member, f"⚠️ Du wurdest aus dem Team-Rollenrang auf **{guild.name}** entfernt.")
-            await send_team_update_embed(guild, "⬇️ Team-Update: Rang Entfernung",
-                f"**Mitglied:** {member.mention} ({member.display_name})\n**Aktion:** Aus Team-Rängen entfernt durch {actor}.", discord.Color.red())
+            await send_team_update_embed(
+                guild,
+                "⬇️ Team-Update: Teamrolle entfernt",
+                f"{member.mention} hat keine Teamrolle mehr.",
+                discord.Color.red(),
+                target=member.mention,
+                action="Teamrolle entfernt",
+                actor=actor,
+                thumbnail=member.display_avatar.url,
+            )
             log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> Keine Teamrolle")
             return back(member_url, f"{member.display_name} wurde aus dem Team-Rang entfernt.")
         except discord.Forbidden:
