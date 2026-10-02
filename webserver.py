@@ -2435,6 +2435,21 @@ async def handle_action(
         save_json(DATA_FILE, team_db)
         log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/3): {reason}")
         m = guild.get_member(user_id)
+        if m:
+            await send_team_update_embed(
+                guild,
+                "⚠️ Team-Update: Verwarnung",
+                f"{m.mention} hat eine neue Verwarnung erhalten.",
+                discord.Color.orange(),
+                target=f"{m.mention}\nWarn-Stufe: {count}/3",
+                action=f"Verwarnung {count}/3",
+                actor=actor,
+                fields=[
+                    ("Grund", reason, False),
+                    ("Beweis", safe_url(warn_proof) or "Kein Beweis-Link", False),
+                ],
+                thumbnail=m.display_avatar.url,
+            )
         await sync_warn_roles(guild, m, count)
         if m:
             await send_dm_notification(m, f"⚠️ Du hast eine Verwarnung erhalten ({count}/3)!\n**Grund:** {reason}\n**Von:** {actor}")
@@ -2451,8 +2466,21 @@ async def handle_action(
         entry["warns_list"] = [w for w in entry["warns_list"] if w.get("id") != warn_id]
         count = len(entry["warns_list"])
         save_json(DATA_FILE, team_db)
+        m = guild.get_member(user_id)
+        if m:
+            await send_team_update_embed(
+                guild,
+                "✅ Team-Update: Verwarnung zurückgezogen",
+                f"Eine Verwarnung von {m.mention} wurde aus dem Pulse-System entfernt.",
+                discord.Color.green(),
+                target=m.mention,
+                action="Warn zurückgezogen",
+                actor=actor,
+                fields=[("Warn-ID", warn_id, True), ("Aktive Warnungen", f"{count}/3", True)],
+                thumbnail=m.display_avatar.url,
+            )
         log_audit(actor, actor_id, "Warn Zurückgezogen", f"User-ID {user_id}, Warn-ID {warn_id}")
-        await sync_warn_roles(guild, guild.get_member(user_id), count)
+        await sync_warn_roles(guild, m, count)
         return back(member_url, f"Verwarnung zurückgezogen ({count}/3).")
 
     if action == "add_note":
