@@ -596,24 +596,47 @@ def register(app):
         return render_pro_page(ws,"Activity Check",c,"activity-check",body)
     async def team_status_page(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm="can_view_team_status")
-        ids=c.config.get("team_role_ids",[]); members=team(c.guild,ids); shifts=ws.load_shifts().get("active_shifts",{})
+        ids=c.config.get("team_role_ids",[])
+        members=team(c.guild,ids)
+        shifts=ws.load_shifts().get("active_shifts",{})
+
         def discord_meta(m):
             raw=str(getattr(m,"status",discord.Status.offline))
             return {"online":("🟢","Online","good"),"idle":("🟡","Abwesend / AFK","warn"),"dnd":("🔴","Nicht stören","bad"),"offline":("⚪","Offline","")}.get(raw,("⚪","Offline",""))
+
         def activity_name(m):
             for a in (getattr(m,"activities",[]) or []):
                 value=getattr(a,"name",None) or getattr(a,"state",None)
                 if value: return str(value)
             return ""
-        def one(m):
-            ico,lab,kind=discord_meta(m); act=activity_name(m); sh=shifts.get(str(m.id))
-            act_html=f' · {e(act)}' if act else ''
+
+        status_counts={"online":0,"idle":0,"dnd":0,"offline":0}
+        rows=[]
+        for m in members:
+            raw=str(getattr(m,"status",discord.Status.offline))
+            if raw not in status_counts: raw="offline"
+            status_counts[raw]+=1
+            ico,lab,kind=discord_meta(m)
+            act=activity_name(m)
+            sh=shifts.get(str(m.id))
+            act_html=f" · {e(act)}" if act else ""
             duty=pill("Pause","warn") if sh and sh.get("status")=="break" else (pill("Im Dienst","good") if sh else pill("Keine Schicht"))
-            return f'<div class="pulse-row" data-discord-user="{m.id}"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(m.display_name))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(m.display_name)}</div><div class="pulse-row-meta">{e(member_role(m,ids))} · <span data-status-label="{m.id}">{e(lab)}</span>{act_html}</div></div></div><div class="text-right"><div data-status-pill="{m.id}">{pill(ico+" "+lab,kind)}</div><div class="mt-1">{duty}</div></div></div>'
-        team_html="".join(one(m) for m in members) or '<div class="pulse-empty">Keine Teamrollen konfiguriert.</div>'
-        body=f'<div class="pulse-topbar"><div><div class="pulse-section-title">◉ Teamstatus</div><div class="pulse-section-sub">Online-Status kommt direkt aus Discord. Die Schicht wird separat angezeigt.</div></div><span class="pulse-pill good">Live · Aktualisierung alle 10s</span></div><div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Online</div><div id="countOnline" class="value">—</div></div><div class="pulse-stat"><div class="icon">🟡</div><div class="label">AFK</div><div id="countIdle" class="value">—</div></div><div class="pulse-stat"><div class="icon">🔴</div><div class="label">DND</div><div id="countDnd" class="value">—</div></div><div class="pulse-stat"><div class="icon">⚪</div><div class="label">Offline</div><div id="countOffline" class="value">—</div></div></div>{card("Discord-Teamstatus",team_html,"◉")}'+
-        '<script>async function refreshDiscordStatuses(){try{const r=await fetch("/api/team/discord-status",{credentials:"same-origin",cache:"no-store"});const d=await r.json();if(!d.ok)return;const c={online:0,idle:0,dnd:0,offline:0};for(const x of d.members){c[x.status]=(c[x.status]||0)+1;const p=document.querySelector("[data-status-pill=\""+x.id+"\"]");const l=document.querySelector("[data-status-label=\""+x.id+"\"]");if(p)p.innerHTML=x.pill;if(l)l.textContent=x.label;}document.getElementById("countOnline").textContent=c.online;document.getElementById("countIdle").textContent=c.idle;document.getElementById("countDnd").textContent=c.dnd;document.getElementById("countOffline").textContent=c.offline;}catch(e){}}refreshDiscordStatuses();setInterval(refreshDiscordStatuses,10000);</script>'
-        return render_pro_page(ws,"Teamstatus",c,"team-status",body)
+            rows.append(f'<div class="pulse-row" data-discord-user="{m.id}"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(m.display_name))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(m.display_name)}</div><div class="pulse-row-meta">{e(member_role(m,ids))} · <span data-status-label="{m.id}">{e(lab)}</span>{act_html}</div></div></div><div class="text-right"><div data-status-pill="{m.id}">{pill(ico+" "+lab,kind)}</div><div class="mt-1">{duty}</div></div></div>')
+
+        team_html="".join(rows) or '<div class="pulse-empty">Keine Teamrollen konfiguriert.</div>'
+        body=f"""
+        <div class="pulse-topbar"><div><div class="pulse-section-title">◉ Teamstatus</div><div class="pulse-section-sub">Der Status wird direkt aus der Discord-Presence des jeweiligen Mitglieds gelesen. Die Schicht wird separat angezeigt.</div></div><span class="pulse-pill good">Live · 10s</span></div>
+        <div class="pulse-stat-grid">
+          <div class="pulse-stat"><div class="icon">🟢</div><div class="label">Online</div><div id="countOnline" class="value">{status_counts["online"]}</div></div>
+          <div class="pulse-stat"><div class="icon">🟡</div><div class="label">AFK</div><div id="countIdle" class="value">{status_counts["idle"]}</div></div>
+          <div class="pulse-stat"><div class="icon">🔴</div><div class="label">Nicht stören</div><div id="countDnd" class="value">{status_counts["dnd"]}</div></div>
+          <div class="pulse-stat"><div class="icon">⚪</div><div class="label">Offline</div><div id="countOffline" class="value">{status_counts["offline"]}</div></div>
+        </div>
+        {card("Discord-Teamstatus",team_html,"◉")}
+        """
+        head="<script>\nasync function refreshDiscordStatuses(){try{const r=await fetch('/api/team/discord-status',{credentials:'same-origin',cache:'no-store'});const d=await r.json();if(!d.ok)return;const counts={online:0,idle:0,dnd:0,offline:0};for(const x of d.members){counts[x.status]=(counts[x.status]||0)+1;const p=document.querySelector('[data-status-pill=\"'+x.id+'\"]');const l=document.querySelector('[data-status-label=\"'+x.id+'\"]');if(p)p.innerHTML=x.pill;if(l)l.textContent=x.label;}['online','idle','dnd','offline'].forEach(k=>{const el=document.getElementById('count'+k.charAt(0).toUpperCase()+k.slice(1));if(el)el.textContent=counts[k]||0;});}catch(e){}}\nrefreshDiscordStatuses();setInterval(refreshDiscordStatuses,10000);\n</script>"
+        return render_pro_page(ws,"Teamstatus",c,"team-status",body,head)
+
     async def discord_status_api(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm="can_view_team_status")
         ids=c.config.get("team_role_ids",[]); members=team(c.guild,ids)
