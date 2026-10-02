@@ -312,6 +312,173 @@ def register(app):
         msg=await channel.send(embed=embed)
         return msg
 
+    # ---------------- Melonly / Roblox Moderation ----------------
+    async def melonly_page(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session)
+        if not (c.perms.get("can_warn") or c.perms.get("can_add_notes") or c.perms.get("is_admin")):
+            raise HTTPException(403,"Dafür fehlt dir die Berechtigung für Melonly.")
+
+        logs=ws.load_json(ws.LOGS_FILE,[])
+        relevant=[x for x in reversed(logs) if x.get("type") in ("Ban","Kick","Notiz","Ban BOLO")][:120]
+        items=[]
+        for x in relevant:
+            lt=x.get("type","Log")
+            kind={"Ban":"bad","Kick":"warn","Notiz":"","Ban BOLO":"bad"}.get(lt,"")
+            items.append(
+                f'<article class="pulse-row"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(x.get("target_user") or "?"))}</div><div class="pulse-row-main"><div class="pulse-row-title"><span class="pulse-pill {kind}">{e(lt)}</span> {e(x.get("target_user"))}</div><div class="pulse-row-meta">Roblox ID: {e(x.get("roblox_id","N/A"))} · {e(x.get("created_at"))}</div><div class="pulse-row-meta">{e(x.get("reason"))}</div></div></div><div class="text-[10px] text-slate-400">von {e(x.get("moderator"))}</div></article>'
+            )
+        history="".join(items) or '<div class="pulse-empty">Noch keine Spieler-Vorgänge eingetragen.</div>'
+
+        form_html=f'''
+        <form action="/log/create" method="post" id="melonlyForm" class="space-y-4">
+          <div class="relative">
+            <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Roblox Username</label>
+            <input id="melonlyName" name="target_user" required maxlength="50" autocomplete="off" class="pulse-input mt-1" placeholder="@Username">
+            <div id="melonlySuggestions" class="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl overflow-hidden bg-[var(--surface)] border border-slate-200 dark:border-slate-700 shadow-xl hidden"></div>
+          </div>
+          <div id="melonlyPreview" class="hidden"></div>
+          <div>
+            <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Roblox Player ID</label>
+            <input id="melonlyId" name="roblox_id" required inputmode="numeric" pattern="[0-9]+" class="pulse-input mt-1" placeholder="Wird automatisch eingetragen">
+          </div>
+          <div>
+            <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Aktion</label>
+            <select name="log_type" required class="pulse-input mt-1">
+              <option value="Ban">🚫 Ban</option>
+              <option value="Kick">🚪 Kick</option>
+              <option value="Notiz">📝 Notiz</option>
+              <option value="Ban BOLO">🚨 Ban BOLO</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Grund</label>
+            <textarea name="reason" required maxlength="1000" class="pulse-input pulse-textarea mt-1" placeholder="Begründung / Notiz…"></textarea>
+          </div>
+          <button class="pulse-btn primary w-full">✓ Spieler-Vorgang eintragen</button>
+        </form>
+        <div class="text-[10px] text-slate-400 mt-4">
+          Der Eintrag wird im Pulse-Moderationsprotokoll gespeichert. Ban/Kick sind hier Protokoll-Aktionen und keine automatische Roblox-API-Sperre.
+        </div>'''
+
+        body=f'''
+        <div class="pulse-topbar">
+          <div><div class="pulse-section-title">🛡️ Melonly</div><div class="pulse-section-sub">Roblox-Spieler direkt suchen, ID übernehmen und Moderationsvorgänge sauber dokumentieren.</div></div>
+          <a href="/dashboard" class="pulse-btn ghost">← Übersicht</a>
+        </div>
+        <div class="pulse-stat-grid">
+          <div class="pulse-stat"><div class="icon">🚫</div><div class="label">Bans / BOLOs</div><div class="value">{sum(1 for x in relevant if x.get("type") in ("Ban","Ban BOLO"))}</div></div>
+          <div class="pulse-stat"><div class="icon">🚪</div><div class="label">Kicks</div><div class="value">{sum(1 for x in relevant if x.get("type")=="Kick")}</div></div>
+          <div class="pulse-stat"><div class="icon">📝</div><div class="label">Notizen</div><div class="value">{sum(1 for x in relevant if x.get("type")=="Notiz")}</div></div>
+          <div class="pulse-stat"><div class="icon">📚</div><div class="label">Letzte Einträge</div><div class="value">{len(relevant)}</div></div>
+        </div>
+        <div class="pulse-grid">
+          <div>{card("Spieler eintragen",form_html,"🛡️")}</div>
+          <div>{card("Letzte Spieler-Vorgänge",history,"▣")}</div>
+        </div>
+        <script>
+        (function(){
+          const name=document.getElementById("melonlyName");
+          const id=document.getElementById("melonlyId");
+          const box=document.getElementById("melonlySuggestions");
+          const preview=document.getElementById("melonlyPreview");
+          let searchTimer=null, exactTimer=null;
+
+          function norm(v){ return String(v || "").trim().replace(/^@+/, ""); }
+
+          function hideSuggestions(){
+            if(!box) return;
+            box.classList.add("hidden");
+            box.innerHTML="";
+          }
+
+          function pickUser(u){
+            name.value=u.name || "";
+            id.value=u.id || "";
+            hideSuggestions();
+            loadExact(u.name || "");
+          }
+
+          function showSuggestions(users){
+            box.innerHTML="";
+            if(!users || !users.length){ hideSuggestions(); return; }
+            users.forEach(function(u){
+              const b=document.createElement("button");
+              b.type="button";
+              b.className="w-full text-left px-3 py-2.5 hover:bg-slate-100 dark:hover:bg-slate-800";
+              const title=document.createElement("div");
+              title.className="text-xs font-bold text-slate-900 dark:text-white";
+              title.textContent=u.displayName || u.name;
+              const sub=document.createElement("div");
+              sub.className="text-[10px] text-slate-400";
+              sub.textContent="@"+(u.name||"")+" · ID "+(u.id||"");
+              b.appendChild(title);
+              b.appendChild(sub);
+              b.addEventListener("click",function(){pickUser(u);});
+              box.appendChild(b);
+            });
+            box.classList.remove("hidden");
+          }
+
+          function searchUsers(v){
+            clearTimeout(searchTimer);
+            const q=norm(v);
+            if(q.length<2){hideSuggestions();return;}
+            searchTimer=setTimeout(function(){
+              fetch("/api/roblox-search?query="+encodeURIComponent(q),{cache:"no-store"})
+                .then(function(r){return r.json();})
+                .then(function(d){showSuggestions(d.success ? d.users : []);})
+                .catch(hideSuggestions);
+            },220);
+          }
+
+          function loadExact(v){
+            clearTimeout(exactTimer);
+            const q=norm(v);
+            if(q.length<3){if(preview){preview.classList.add("hidden");preview.innerHTML="";}return;}
+            exactTimer=setTimeout(function(){
+              fetch("/api/roblox-user?username="+encodeURIComponent(q),{cache:"no-store"})
+                .then(function(r){return r.json();})
+                .then(function(d){
+                  if(!d.success) return;
+                  id.value=d.id || "";
+                  if(preview){
+                    preview.innerHTML="";
+                    const row=document.createElement("div");
+                    row.className="pulse-row";
+                    const img=document.createElement("img");
+                    img.src=d.avatarUrl || "";
+                    img.className="w-9 h-9 rounded-full";
+                    const wrap=document.createElement("div");
+                    wrap.className="min-w-0";
+                    const title=document.createElement("div");
+                    title.className="text-xs font-bold";
+                    title.textContent=d.displayName || d.username;
+                    const sub=document.createElement("div");
+                    sub.className="text-[10px] text-slate-400";
+                    sub.textContent="@"+(d.username||q)+" · ID "+(d.id||"");
+                    const old=document.createElement("div");
+                    old.className="text-[10px] text-amber-500 mt-1";
+                    if((d.previous_total||0)>0) old.textContent="⚠️ "+d.previous_total+" frühere Vorgänge";
+                    wrap.appendChild(title);wrap.appendChild(sub);if(old.textContent)wrap.appendChild(old);
+                    row.appendChild(img);row.appendChild(wrap);preview.appendChild(row);preview.classList.remove("hidden");
+                  }
+                })
+                .catch(function(){});
+            },300);
+          }
+
+          name.addEventListener("input",function(){
+            const q=norm(name.value);
+            if(name.value!==q) name.value=q;
+            searchUsers(q);
+            loadExact(q);
+          });
+          name.addEventListener("blur",function(){setTimeout(hideSuggestions,180);});
+        })();
+        </script>
+        '''
+        return render_pro_page(ws,"Melonly",c,"melonly",body)
+
     # ---------------- Dashboard ----------------
     async def dashboard_v5(request: Request, user_session: str = Cookie(None)):
         c=cctx(request,user_session); s=work_stats(c); goal=float(c.config.get("weekly_goal_hours",3.0)); pct=min(100,round(s["weekly"]/(goal*3600)*100)) if goal else 100
@@ -848,6 +1015,7 @@ def register(app):
     remove_and_add(app,'/achievements',{'GET'},achievements_v5,response_class=HTMLResponse)
     remove_and_add(app,'/meetings-history',{'GET'},meetings_history_v5,response_class=HTMLResponse)
     app.get('/team-status',response_class=HTMLResponse)(team_status_page)
+    remove_and_add(app,'/melonly',{'GET'},melonly_page,response_class=HTMLResponse)
     remove_and_add(app,'/api/team/discord-status',{'GET'},discord_status_api,response_class=JSONResponse)
     app.post('/team-status/set')(set_team_status)
     app.get('/activity-check',response_class=HTMLResponse)(activity_check_page)
