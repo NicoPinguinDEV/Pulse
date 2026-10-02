@@ -1502,6 +1502,9 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
     team_db = load_json(DATA_FILE, {})
     shifts_db = load_shifts()
     info = team_db.get(str(user_id), {"warns_list": [], "notes": [], "ticket_cases": 0, "support_cases": 0})
+    if normalize_warns(info):
+        team_db[str(user_id)] = info
+        save_json(DATA_FILE, team_db)
     warns = info.get("warns_list", [])
     weekly = calculate_weekly_seconds(str(user_id), shifts_db["history"], shifts_db["active_shifts"]) / 3600
 
@@ -2265,10 +2268,47 @@ ACTION_PERMS = {
 }
 
 
+def normalize_warns(entry: dict) -> bool:
+    """Normalisiert alte Warn-Einträge, damit auch historische Warns zurückgezogen werden können."""
+    raw = entry.get("warns_list", [])
+    if not isinstance(raw, list):
+        raw = []
+    normalized = []
+    changed = not isinstance(entry.get("warns_list"), list)
+
+    for warn in raw:
+        if isinstance(warn, dict):
+            item = dict(warn)
+        else:
+            item = {
+                "reason": str(warn),
+                "proof": "",
+                "by": "Altsystem",
+                "date": "N/A",
+            }
+            changed = True
+
+        if not item.get("id"):
+            item["id"] = f"warn_{uuid.uuid4().hex[:10]}"
+            changed = True
+        item.setdefault("reason", "Kein Grund")
+        item.setdefault("proof", "")
+        item.setdefault("by", "System")
+        item.setdefault("date", "N/A")
+        normalized.append(item)
+
+    if normalized != entry.get("warns_list"):
+        entry["warns_list"] = normalized
+        changed = True
+
+    return changed
+
+
 def user_entry(team_db: dict, key: str) -> dict:
     entry = team_db.setdefault(key, {})
     for k, v in (("warns_list", []), ("notes", []), ("ticket_cases", 0), ("support_cases", 0)):
         entry.setdefault(k, v)
+    normalize_warns(entry)
     return entry
 
 
@@ -2501,25 +2541,53 @@ async def handle_action(
     if action == "remove_warn":
         if not user_id or not warn_id:
             return back(member_url, "Ungültige Anfrage.", False)
+
         team_db = load_json(DATA_FILE, {})
         entry = user_entry(team_db, str(user_id))
-        entry["warns_list"] = [w for w in entry["warns_list"] if w.get("id") != warn_id]
+        m = guild.get_member(user_id)
+        if not m:
+            return back(member_url, "Mitglied nicht gefunden.", False)
+
+        # Warn anhand der eindeutigen ID suchen. Dadurch wird nicht versehentlich
+        # eine andere Warnung gelöscht und ein alter/ungültiger Button meldet sauber einen Fehler.
+        removed = next((w for w in entry["warns_list"] if str(w.get("id")) == str(warn_id)), None)
+        if removed is None:
+            return back(
+                member_url,
+                "Diese Verwarnung wurde bereits zurückgezogen oder ist nicht mehr vorhanden. Bitte die Seite aktualisieren.",
+                False,
+            )
+
+        entry["warns_list"] = [w for w in entry["warns_list"] if str(w.get("id")) != str(warn_id)]
         count = len(entry["warns_list"])
         save_json(DATA_FILE, team_db)
-        m = guild.get_member(user_id)
-        if m:
-            await send_team_update_embed(
-                guild,
-                "✅ Team-Update: Verwarnung zurückgezogen",
-                f"Eine Verwarnung von {m.mention} wurde aus dem Pulse-System entfernt.",
-                discord.Color.green(),
-                target=m.mention,
-                action="Warn zurückgezogen",
-                actor=actor,
-                fields=[("Warn-ID", warn_id, True), ("Aktive Warnungen", f"{count}/3", True)],
-                thumbnail=m.display_avatar.url,
-            )
-        log_audit(actor, actor_id, "Warn Zurückgezogen", f"User-ID {user_id}, Warn-ID {warn_id}")
+
+        original_reason = str(removed.get("reason") or "Kein Grund")
+        original_by = str(removed.get("by") or "System")
+        original_date = str(removed.get("date") or "N/A")
+
+        await send_team_update_embed(
+            guild,
+            "✅ Team-Update: Verwarnung zurückgezogen",
+            f"Die Verwarnung von {m.mention} wurde durch das Team-Dashboard zurückgezogen.",
+            discord.Color.green(),
+            target=f"{m.mention}\nAktive Warnungen: {count}/3",
+            action="Warn zurückgezogen",
+            actor=actor,
+            fields=[
+                ("Ursprünglicher Grund", original_reason, False),
+                ("Ausgestellt von", original_by, True),
+                ("Ausgestellt am", original_date, True),
+                ("Warn-ID", warn_id, True),
+            ],
+            thumbnail=m.display_avatar.url,
+        )
+        log_audit(
+            actor,
+            actor_id,
+            "Warn Zurückgezogen",
+            f"User-ID {user_id}, Warn-ID {warn_id}, Grund: {original_reason}",
+        )
         await sync_warn_roles(guild, m, count)
         return back(member_url, f"Verwarnung zurückgezogen ({count}/3).")
 
