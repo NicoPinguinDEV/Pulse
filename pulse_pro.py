@@ -375,7 +375,9 @@ def register(app):
           <div>{card("Spieler eintragen",form_html,"🛡️")}</div>
           <div>{card("Letzte Spieler-Vorgänge",history,"▣")}</div>
         </div>
-        <script>
+        '''
+
+        head=r'''<script>
         (function(){
           const name=document.getElementById("melonlyName");
           const id=document.getElementById("melonlyId");
@@ -384,20 +386,17 @@ def register(app):
           let searchTimer=null, exactTimer=null;
 
           function norm(v){ return String(v || "").trim().replace(/^@+/, ""); }
-
           function hideSuggestions(){
             if(!box) return;
             box.classList.add("hidden");
             box.innerHTML="";
           }
-
           function pickUser(u){
             name.value=u.name || "";
             id.value=u.id || "";
             hideSuggestions();
             loadExact(u.name || "");
           }
-
           function showSuggestions(users){
             box.innerHTML="";
             if(!users || !users.length){ hideSuggestions(); return; }
@@ -418,7 +417,6 @@ def register(app):
             });
             box.classList.remove("hidden");
           }
-
           function searchUsers(v){
             clearTimeout(searchTimer);
             const q=norm(v);
@@ -430,16 +428,18 @@ def register(app):
                 .catch(hideSuggestions);
             },220);
           }
-
           function loadExact(v){
             clearTimeout(exactTimer);
             const q=norm(v);
-            if(q.length<3){if(preview){preview.classList.add("hidden");preview.innerHTML="";}return;}
+            if(q.length<3){
+              if(preview){preview.classList.add("hidden");preview.innerHTML="";}
+              return;
+            }
             exactTimer=setTimeout(function(){
               fetch("/api/roblox-user?username="+encodeURIComponent(q),{cache:"no-store"})
                 .then(function(r){return r.json();})
                 .then(function(d){
-                  if(!d.success) return;
+                  if(!d.success)return;
                   id.value=d.id || "";
                   if(preview){
                     preview.innerHTML="";
@@ -458,26 +458,30 @@ def register(app):
                     sub.textContent="@"+(d.username||q)+" · ID "+(d.id||"");
                     const old=document.createElement("div");
                     old.className="text-[10px] text-amber-500 mt-1";
-                    if((d.previous_total||0)>0) old.textContent="⚠️ "+d.previous_total+" frühere Vorgänge";
-                    wrap.appendChild(title);wrap.appendChild(sub);if(old.textContent)wrap.appendChild(old);
-                    row.appendChild(img);row.appendChild(wrap);preview.appendChild(row);preview.classList.remove("hidden");
+                    if((d.previous_total||0)>0)old.textContent="⚠️ "+d.previous_total+" frühere Vorgänge";
+                    wrap.appendChild(title);
+                    wrap.appendChild(sub);
+                    if(old.textContent)wrap.appendChild(old);
+                    row.appendChild(img);
+                    row.appendChild(wrap);
+                    preview.appendChild(row);
+                    preview.classList.remove("hidden");
                   }
                 })
                 .catch(function(){});
             },300);
           }
-
           name.addEventListener("input",function(){
             const q=norm(name.value);
-            if(name.value!==q) name.value=q;
+            if(name.value!==q)name.value=q;
             searchUsers(q);
             loadExact(q);
           });
           name.addEventListener("blur",function(){setTimeout(hideSuggestions,180);});
         })();
-        </script>
-        '''
-        return render_pro_page(ws,"Melonly",c,"melonly",body)
+        </script>''';
+
+        return render_pro_page(ws,"Melonly",c,"melonly",body,head)
 
     # ---------------- Dashboard ----------------
     async def dashboard_v5(request: Request, user_session: str = Cookie(None)):
