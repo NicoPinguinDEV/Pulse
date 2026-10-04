@@ -603,6 +603,30 @@ def sync_warn_roles(guild, member, count: int, config: dict | None = None):
         report.update(ok=False, message=f"Technischer Fehler bei der Warn-Rolle: {exc}")
         return report
 
+async def reconcile_warning_roles(guild, config: dict | None = None) -> dict:
+    """Bringt alle Teammitglieder auf den korrekten Warnrollen-Stand."""
+    result = {"checked": 0, "updated": 0, "failed": 0, "errors": []}
+    if not guild:
+        result["errors"].append("Guild nicht verfügbar")
+        return result
+    team_role_ids = (config or load_config()).get("team_role_ids", [])
+    for member in guild.members:
+        if member.bot or not any(r.id in team_role_ids for r in member.roles):
+            continue
+        team_db = load_json(DATA_FILE, {})
+        entry = team_db.get(str(member.id), {})
+        count = len(active_warns(entry)) if isinstance(entry, dict) else 0
+        report = await sync_warn_roles(guild, member, count, config)
+        result["checked"] += 1
+        if report.get("ok"):
+            result["updated"] += 1
+        else:
+            result["failed"] += 1
+            if len(result["errors"]) < 10:
+                result["errors"].append(f"{member.display_name}: {report.get('message')}")
+    return result
+
+
 def team_rank(member, team_role_ids) -> int:
     idx = [team_role_ids.index(r.id) for r in member.roles if r.id in team_role_ids]
     return max(idx) if idx else -1
