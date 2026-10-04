@@ -2702,6 +2702,24 @@ async def handle_action(
             )
             await send_dm_notification(m, f"⚠️ Du hast eine Verwarnung erhalten ({count}/3)!\n**Grund:** {reason}\n**Von:** {actor}")
             if count >= 3:
+                # Führungskräfte erhalten zusätzlich eine Pulse-Inbox-Meldung.
+                for manager in guild.members:
+                    if manager.bot or manager.id == m.id:
+                        continue
+                    manager_perms, _ = compute_perms(guild, manager.id, config)
+                    if manager_perms.get("can_promote") or manager_perms.get("is_admin"):
+                        try:
+                            pulse_db.notify(
+                                manager.id,
+                                "🚨 3/3 Team-Warnungen",
+                                f"{m.display_name} hat 3 aktive Verwarnungen. Bitte Fall prüfen.",
+                                "warning",
+                                "/warns",
+                                f"warn-escalation:{m.id}:{count}",
+                                86400,
+                            )
+                        except Exception as exc:
+                            print(f"Warn-Eskalationsbenachrichtigung fehlgeschlagen: {exc}")
                 await send_team_update_embed(
                     guild,
                     "🚨 Team-Update: 3 Verwarnungen",
