@@ -47,7 +47,7 @@ def main() -> None:
     }
     assert constants.get("TEAM_UPDATE_CHANNEL_ID") == 1531132354272170115
     assert "async def remove_warn" not in web  # action is intentionally centralized
-    assert "if action == " + repr("remove_warn") + ":" in web
+    assert 'if action == "remove_warn":' in web
     assert "active_warns(entry)" in web
     assert "revoked_at" in web
     assert "async def reconcile_warning_roles" in web
