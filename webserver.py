@@ -481,7 +481,7 @@ async def send_team_update_embed(guild, title, description, color=None, *, field
         return None
 
 
-async def get_warn_role_ids(config: dict | None = None) -> dict:
+def get_warn_role_ids(config: dict | None = None) -> dict:
     """Lädt die drei Warn-Rollen. Dashboard-Konfiguration hat Vorrang vor ENV-Defaults."""
     configured = (config or {}).get("warn_role_ids", {})
     out = {}
