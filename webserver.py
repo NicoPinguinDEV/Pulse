@@ -1305,7 +1305,7 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), u
     if shift_action == "start":
         if shift:
             return back("/dashboard", "Du hast bereits eine laufende Schicht.", False)
-        if len(team_db.get(mod_id, {}).get("warns_list", [])) >= 3:
+        if len(active_warns(user_entry(team_db, mod_id))) >= 3:
             return back("/dashboard", "Schicht-Start gesperrt: Du hast 3 oder mehr aktive Verwarnungen!", False)
         loa = get_loas().get(mod_id)
         if loa and loa["active"]:
@@ -2412,6 +2412,22 @@ def user_entry(team_db: dict, key: str) -> dict:
         entry.setdefault(k, v)
     normalize_warns(entry)
     return entry
+
+
+def migrate_warning_data():
+    """Normalisiert bestehende Warn-Datensätze einmalig beim Start."""
+    team_db = load_json(DATA_FILE, {})
+    if not isinstance(team_db, dict):
+        return
+    changed = False
+    for entry in team_db.values():
+        if isinstance(entry, dict):
+            changed = normalize_warns(entry) or changed
+    if changed:
+        save_json(DATA_FILE, team_db)
+
+
+migrate_warning_data()
 
 
 @app.post("/action")
