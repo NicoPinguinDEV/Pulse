@@ -984,7 +984,7 @@ def register(app):
 
         q=e((request.query_params.get('q') or '').strip().lower())
         only_active=request.query_params.get('view','active')!='history'
-        selected=[x for x in rows if only_active else history]
+        selected = rows if only_active else history
         if q:
             selected=[x for x in selected if q in f'{x[0].display_name} {x[0].name} {x[1].get("reason","")} {x[1].get("by","")} {x[1].get("id","")}'.lower()]
 
