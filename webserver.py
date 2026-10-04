@@ -1463,6 +1463,21 @@ async def team_activity_api(request: Request, user_session: str = Cookie(None)):
         statuses[str(m.id)] = "confirmed" if activity["check_id"] and m.id in activity["confirmed"] else ("open" if activity["check_id"] else "none")
     return JSONResponse({"ok": True, "check_id": activity["check_id"], "date": activity["check_date"], "confirmed": sum(1 for v in statuses.values() if v=="confirmed"), "open": sum(1 for v in statuses.values() if v=="open"), "team_total": len(members), "statuses": statuses})
 
+@app.get("/api/team/warn-roles")
+async def warn_roles_api(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm="can_warn")
+    rows = warning_role_health(ctx.guild, ctx.config)
+    return JSONResponse({
+        "ok": all(x["ok"] for x in rows),
+        "sync_enabled": SYNC_WARN_ROLES,
+        "roles": [
+            {"level": x["level"], "id": x["id"], "name": x["role"].name if x["role"] else None,
+             "ok": x["ok"], "detail": x["detail"]}
+            for x in rows
+        ],
+    })
+
+
 # =============================================================
 # ROUTE 2: TEAMLISTE (Wochenziel mit Fortschrittsbalken)
 # =============================================================
@@ -1607,7 +1622,9 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
     if normalize_warns(info):
         team_db[str(user_id)] = info
         save_json(DATA_FILE, team_db)
+    normalize_warns(info)
     warns = info.get("warns_list", [])
+    active_warn_count = len(active_warns(info))
     weekly = calculate_weekly_seconds(str(user_id), shifts_db["history"], shifts_db["active_shifts"]) / 3600
 
     roles = [r for r in member.roles if r.id in team_role_ids]
@@ -1672,7 +1689,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
             <button class="{BTN} px-4">Hinzufügen</button>
         </form>""" if ctx.perms["can_add_notes"] else ""
 
-    warn_color = "text-rose-500" if len(warns) >= 3 else "text-amber-500"
+    warn_color = "text-rose-500" if active_warn_count >= 3 else "text-amber-500"
     body = f"""
     <div class="flex items-center gap-4 mb-8">
         <a href="/team" class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 p-2.5 rounded-xl transition shadow-sm">←</a>
@@ -1697,7 +1714,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
                 {note_form}
             </div>
             <div class="{CARD} p-6 space-y-3">
-                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Verwarnungs-Historie ({len(warns)})</h3>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Verwarnungs-Historie ({active_warn_count} aktiv / {len(warns)} gesamt)</h3>
                 <div class="space-y-2 max-h-64 overflow-y-auto">{warns_html or "<p class='text-xs text-slate-400 italic'>Keine Verwarnungen vorhanden.</p>"}</div>
             </div>
         </div>
@@ -2440,6 +2457,7 @@ async def handle_action(
     warn_reason: str = Form(None),
     warn_proof: str = Form(None),
     warn_id: str = Form(None),
+    warn_revoke_reason: str = Form(None),
     note_text: str = Form(None),
     loa_start: str = Form(None),
     loa_end: str = Form(None),
@@ -2628,11 +2646,13 @@ async def handle_action(
         entry["warns_list"].append({
             "id": f"warn_{uuid.uuid4().hex[:6]}", "reason": reason, "proof": safe_url(warn_proof),
             "by": actor, "date": now_de().strftime("%d.%m.%Y %H:%M"),
+            "active": True, "revoked_at": None, "revoked_by": None, "revoked_reason": "",
         })
-        count = len(entry["warns_list"])
+        count = len(active_warns(entry))
         save_json(DATA_FILE, team_db)
         log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/3): {reason}")
         m = guild.get_member(user_id)
+        role_report = await sync_warn_roles(guild, m, count, config) if m else {"ok": False, "message": "Mitglied nicht gefunden.", "role": None}
         if m:
             await send_team_update_embed(
                 guild,
@@ -2645,44 +2665,52 @@ async def handle_action(
                 fields=[
                     ("Grund", reason, False),
                     ("Beweis", safe_url(warn_proof) or "Kein Beweis-Link", False),
+                    ("Discord-Warnrolle", f"✅ {role_report.get('role').mention}" if role_report.get("ok") and role_report.get("role") else (f"✅ keine Warnrolle bei 0" if count == 0 else f"❌ {role_report.get('message')}"), False),
                 ],
                 thumbnail=m.display_avatar.url,
             )
-        await sync_warn_roles(guild, m, count)
-        if m:
             await send_dm_notification(m, f"⚠️ Du hast eine Verwarnung erhalten ({count}/3)!\n**Grund:** {reason}\n**Von:** {actor}")
             if count >= 3:
-                await send_team_update_embed(guild, "🚨 Team-Update: 3 Verwarnungen",
-                    f"**Mitglied:** {m.mention} ({m.display_name})\n**Status:** Schicht-Start ist gesperrt, bitte Konsequenzen prüfen.", discord.Color.red())
-        return back(member_url, f"Verwarnung eingetragen ({count}/3).")
+                await send_team_update_embed(
+                    guild,
+                    "🚨 Team-Update: 3 Verwarnungen",
+                    f"**Mitglied:** {m.mention} ({m.display_name})\n**Status:** Schicht-Start ist gesperrt, bitte Konsequenzen prüfen.",
+                    discord.Color.red(),
+                    target=m.mention,
+                    action="Warn-Schwelle 3/3",
+                    actor=actor,
+                    fields=[("Warnrollen-Sync", "✅ Erfolgreich" if role_report.get("ok") else f"❌ {role_report.get('message')}")],
+                    thumbnail=m.display_avatar.url,
+                )
+        if role_report.get("ok"):
+            return back(member_url, f"Verwarnung eingetragen ({count}/3).")
+        return back(member_url, f"Verwarnung eingetragen ({count}/3), aber Discord-Warnrolle konnte nicht synchronisiert werden: {role_report.get('message')}", False)
 
     if action == "remove_warn":
         if not user_id or not warn_id:
             return back(member_url, "Ungültige Anfrage.", False)
-
         team_db = load_json(DATA_FILE, {})
         entry = user_entry(team_db, str(user_id))
         m = guild.get_member(user_id)
         if not m:
             return back(member_url, "Mitglied nicht gefunden.", False)
 
-        # Warn anhand der eindeutigen ID suchen. Dadurch wird nicht versehentlich
-        # eine andere Warnung gelöscht und ein alter/ungültiger Button meldet sauber einen Fehler.
-        removed = next((w for w in entry["warns_list"] if str(w.get("id")) == str(warn_id)), None)
-        if removed is None:
-            return back(
-                member_url,
-                "Diese Verwarnung wurde bereits zurückgezogen oder ist nicht mehr vorhanden. Bitte die Seite aktualisieren.",
-                False,
-            )
+        target = next((w for w in entry["warns_list"] if str(w.get("id")) == str(warn_id)), None)
+        if target is None or not target.get("active", True) or target.get("revoked_at"):
+            return back(member_url, "Diese Verwarnung wurde bereits zurückgezogen oder ist nicht mehr vorhanden. Bitte die Seite aktualisieren.", False)
 
-        entry["warns_list"] = [w for w in entry["warns_list"] if str(w.get("id")) != str(warn_id)]
-        count = len(entry["warns_list"])
+        revoke_reason = (warn_revoke_reason or "").strip()[:300] or "Kein Grund angegeben"
+        target["active"] = False
+        target["revoked_at"] = now_de().strftime("%d.%m.%Y %H:%M")
+        target["revoked_by"] = actor
+        target["revoked_reason"] = revoke_reason
+        count = len(active_warns(entry))
         save_json(DATA_FILE, team_db)
 
-        original_reason = str(removed.get("reason") or "Kein Grund")
-        original_by = str(removed.get("by") or "System")
-        original_date = str(removed.get("date") or "N/A")
+        original_reason = str(target.get("reason") or "Kein Grund")
+        original_by = str(target.get("by") or "System")
+        original_date = str(target.get("date") or "N/A")
+        role_report = await sync_warn_roles(guild, m, count, config)
 
         await send_team_update_embed(
             guild,
@@ -2696,18 +2724,18 @@ async def handle_action(
                 ("Ursprünglicher Grund", original_reason, False),
                 ("Ausgestellt von", original_by, True),
                 ("Ausgestellt am", original_date, True),
+                ("Rücknahmegrund", revoke_reason, False),
                 ("Warn-ID", warn_id, True),
+                ("Discord-Warnrolle", "✅ Synchronisiert" if role_report.get("ok") else f"❌ {role_report.get('message')}"),
             ],
             thumbnail=m.display_avatar.url,
         )
-        log_audit(
-            actor,
-            actor_id,
-            "Warn Zurückgezogen",
-            f"User-ID {user_id}, Warn-ID {warn_id}, Grund: {original_reason}",
-        )
-        await sync_warn_roles(guild, m, count)
-        return back(member_url, f"Verwarnung zurückgezogen ({count}/3).")
+        log_audit(actor, actor_id, "Warn Zurückgezogen",
+                  f"User-ID {user_id}, Warn-ID {warn_id}, Grund: {original_reason}, Rücknahme: {revoke_reason}")
+        if role_report.get("ok"):
+            return back(member_url, f"Verwarnung zurückgezogen ({count}/3).")
+        return back(member_url, f"Verwarnung zurückgezogen ({count}/3), aber Discord-Warnrolle konnte nicht synchronisiert werden: {role_report.get('message')}", False)
+
 
     if action == "add_note":
         note = (note_text or "").strip()[:500]
