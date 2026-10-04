@@ -56,6 +56,19 @@ class CustomBot(commands.Bot):
 
     async def on_ready(self):
         print(f"✅ Bot ist online als {self.user} (ID: {self.user.id})")
+        try:
+            from webserver import load_config, reconcile_warning_roles
+            guild = self.get_guild(int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616")))
+            report = await reconcile_warning_roles(guild, load_config())
+            print(
+                f"🛡️ Warnrollen abgeglichen: {report['checked']} geprüft, "
+                f"{report['updated']} synchron, {report['failed']} Fehler."
+            )
+            if report["errors"]:
+                for err in report["errors"]:
+                    print(f"   ⚠️ {err}")
+        except Exception as exc:
+            print(f"⚠️ Warnrollen-Startup-Abgleich fehlgeschlagen: {exc}")
 
 
 bot = CustomBot()
