@@ -208,13 +208,17 @@ class PulsePro(commands.Cog):
         active = webserver.load_shifts().get("active_shifts", {})
         lines = []
         for m in sorted(members, key=lambda x: x.display_name.lower()):
-            sh = active.get(str(m.id)); manual = db.get_team_status(m.id) or {}
-            if sh and sh.get("status") == "online": state = "🟢 Im Dienst"
-            elif sh and sh.get("status") == "break": state = "🟡 Pause"
-            else:
-                state = {"available":"🟢 Verfügbar","busy":"🟠 Beschäftigt","away":"🟡 Abwesend","dnd":"🔴 Nicht stören","offline":"⚪ Offline"}.get(manual.get("status"), "⚪ Offline")
-            message = f" — {manual.get('message')}" if manual.get('message') else ""
-            lines.append(f"{state} · **{m.display_name}**{message}")
+            sh = active.get(str(m.id))
+            discord_status = str(getattr(m, "status", discord.Status.offline))
+            presence = {"online":"🟢 Online","idle":"🟡 AFK","dnd":"🔴 Nicht stören","offline":"⚪ Offline"}.get(discord_status, "⚪ Offline")
+            shift_state = " · 🟢 Im Dienst" if sh and sh.get("status") == "online" else (" · ☕ Pause" if sh and sh.get("status") == "break" else "")
+            activity = ""
+            for a in (getattr(m, "activities", []) or []):
+                value = getattr(a, "name", None) or getattr(a, "state", None)
+                if value:
+                    activity = f" · {str(value)[:60]}"
+                    break
+            lines.append(f"{presence}{shift_state} · **{m.display_name}**{activity}")
         text = "\n".join(lines[:40]) or "Keine Teammitglieder gefunden."
         embed = discord.Embed(title="◉ Pulse Teamstatus", description=text, color=discord.Color.blurple())
         await interaction.response.send_message(embed=embed, ephemeral=True)
