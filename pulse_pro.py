@@ -158,6 +158,7 @@ def make_shell_helpers(ws):
                 ("team-status","/team-status","◉","Teamstatus",perms.get("can_view_team_status",True),False),
                 ("activity-check","/activity-check","✓","Activity Check",perms.get("can_manage_checkins") or perms.get("is_admin"),False),
                 ("melonly","/melonly","🛡️","Melonly",perms.get("can_warn") or perms.get("can_add_notes") or perms.get("is_admin"),False),
+                ("warns","/warns","⚠","Verwarnungszentrale",perms.get("can_warn") or perms.get("is_admin"),False),
                 ("team","/team","◌","Teamliste",True,False),
             ]),
             ("Workflow", [
@@ -858,22 +859,65 @@ def register(app):
     async def member_v5(request: Request, user_id: int, user_session: str=Cookie(None)):
         c=cctx(request,user_session)
         target=c.guild.get_member(user_id)
-        if not target or target.bot: raise HTTPException(404,'Teammitglied nicht gefunden.')
+        if not target or target.bot:
+            raise HTTPException(404,'Teammitglied nicht gefunden.')
         ids=c.config.get('team_role_ids',[])
         if ids and not any(r.id in ids for r in target.roles) and target.id != c.user['id']:
             raise HTTPException(404,'Teammitglied nicht gefunden.')
+
         teamdb=ws.load_json(ws.DATA_FILE,{})
-        entry=teamdb.get(str(target.id),{}) if isinstance(teamdb,dict) else {}
-        warns=entry.get('warns_list',[]) or []; notes=entry.get('notes',[]) or []
-        shifts=ws.load_shifts(); hist=[h for h in shifts.get('history',[]) if str(h.get('mod_id'))==str(target.id)]
-        active=shifts.get('active_shifts',{}).get(str(target.id)); weekly=ws.calculate_weekly_seconds(str(target.id),shifts.get('history',[]),shifts.get('active_shifts',{}))
+        entry=teamdb.setdefault(str(target.id),{})
+        ws.user_entry(teamdb,str(target.id))
+        ws.normalize_warns(entry)
+        if not isinstance(teamdb.get(str(target.id)),dict):
+            teamdb[str(target.id)]={}
+            entry=teamdb[str(target.id)]
+        warns=entry.get('warns_list',[]) or []
+        active_warns=ws.active_warns(entry)
+        revoked_warns=[w for w in warns if w not in active_warns]
+
+        shifts=ws.load_shifts()
+        hist=[h for h in shifts.get('history',[]) if str(h.get('mod_id'))==str(target.id)]
+        active=shifts.get('active_shifts',{}).get(str(target.id))
+        weekly=ws.calculate_weekly_seconds(str(target.id),shifts.get('history',[]),shifts.get('active_shifts',{}))
+
         tickets=[t for t in db.list_tickets(limit=2000) if str(t.get('user_id'))==str(target.id) or str(t.get('claimed_by_id'))==str(target.id)]
         tasks=[t for t in db.list_tasks(limit=2000,include_archived=True) if str(t.get('assignee_id'))==str(target.id) or str(t.get('creator_id'))==str(target.id)]
         evs=[x for x in db.events(limit=2000) if str(x.get('actor_id'))==str(target.id) or (x.get('target_type')=='user' and str(x.get('target_id'))==str(target.id))][:40]
-        role=member_role(target,ids); role_color=f'#{max([r for r in target.roles if r.id in ids],key=lambda r:r.position).color.value:06x}' if any(r.id in ids for r in target.roles) else '#5b5cf0'
+        role=member_role(target,ids)
+        role_color=f'#{max([r for r in target.roles if r.id in ids],key=lambda r:r.position).color.value:06x}' if any(r.id in ids for r in target.roles) else '#5b5cf0'
         avatar=f'https://cdn.discordapp.com/avatars/{target.id}/{target.avatar.key}.png' if target.avatar else 'https://cdn.discordapp.com/embed/avatars/0.png'
-        warn_html=''.join(f'<div class="pulse-row"><div class="pulse-avatar">⚠</div><div class="pulse-row-main"><div class="pulse-row-title">{e(w.get("reason") or w.get("grund") or "Verwarnung")}</div><div class="pulse-row-meta">{e(w.get("date") or w.get("timestamp") or "—")} · {e(w.get("by") or w.get("moderator") or "Team")}</div></div></div>' for w in warns[-12:][::-1])
-        note_html=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="text-[11px] whitespace-pre-wrap">{e(str(n))}</div></div></div>' for n in notes[-8:][::-1])
+
+        def warning_row(w, active=True):
+            proof=ws.safe_url(w.get('proof')) if active else ws.safe_url(w.get('proof'))
+            proof_html=f'<a href="{e(proof)}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-indigo-500 hover:underline">🔗 Beweis</a>' if proof else ''
+            state=pill('Aktiv','warn') if active else pill('Zurückgezogen','good')
+            action_html=''
+            if active and (c.perms.get('can_warn') or c.perms.get('is_admin')):
+                action_html=f'''<form action="/action" method="post" class="mt-2 flex flex-wrap gap-2" onsubmit="return confirm('Diese Verwarnung wirklich zurückziehen?');">
+                    <input type="hidden" name="action" value="remove_warn">
+                    <input type="hidden" name="user_id" value="{target.id}">
+                    <input type="hidden" name="warn_id" value="{e(w.get('id'))}">
+                    <input type="hidden" name="redirect_to_member" value="1">
+                    <input name="warn_revoke_reason" maxlength="300" class="pulse-input flex-1 min-w-[180px]" placeholder="Rücknahmegrund (optional)">
+                    <button class="pulse-btn bad">↩ Zurückziehen</button>
+                </form>'''
+            revoked_meta=''
+            if not active:
+                revoked_meta=f'<div class="text-[10px] text-slate-400 mt-2">↩ {e(w.get("revoked_at") or "N/A")} · von {e(w.get("revoked_by") or "Team")} · {e(w.get("revoked_reason") or "Kein Grund")}</div>'
+            return f'''<article class="pulse-row items-start"><div class="pulse-avatar">⚠</div><div class="pulse-row-main"><div class="flex items-center gap-2 flex-wrap"><div class="pulse-row-title">{e(w.get("reason") or w.get("grund") or "Verwarnung")}</div>{state}</div><div class="pulse-row-meta">{e(w.get("date") or "—")} · ausgestellt von {e(w.get("by") or "Team")} · ID {e(w.get("id") or "—")}</div>{proof_html}{revoked_meta}{action_html}</div></article>'''
+
+        active_html=''.join(warning_row(w,True) for w in reversed(active_warns))
+        revoked_html=''.join(warning_row(w,False) for w in reversed(revoked_warns[-12:]))
+
+        role_health=ws.warning_role_health(c.guild,c.config)
+        role_bad=sum(1 for x in role_health if not x['ok'])
+        role_pills=''.join(
+            f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">Warn {x["level"]} · {e(x["role"].name if x["role"] else "Nicht gefunden")}</div><div class="pulse-row-meta">ID {x["id"]} · {e(x["detail"])}</div></div>{pill("Bereit","good") if x["ok"] else pill("Prüfen","bad")}</div>'
+            for x in role_health
+        )
+
+        note_html=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="text-[11px] whitespace-pre-wrap">{e(str(n))}</div></div></div>' for n in entry.get('notes',[])[-8:][::-1])
         task_html=''.join(f'<a href="/tasks" class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(t["title"])}</div><div class="pulse-row-meta">{e(t.get("status"))} · {e(t.get("assignee_name") or "Niemand")}</div></div>{pill(t.get("priority","normal"))}</a>' for t in tasks[:10])
         priority_labels={'urgent':'Dringend','high':'Hoch','normal':'Normal','low':'Niedrig'}
         ticket_rows=[]
@@ -883,14 +927,77 @@ def register(app):
             ticket_rows.append(f'<a href="/ticket/{tid}" class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{tid} · {category}</div><div class="pulse-row-meta">{status_txt} · {opened}</div></div>{pill(prio_text,prio_kind)}</a>')
         ticket_html=''.join(ticket_rows)
         event_html=''.join(f'<div class="pulse-row"><div class="pulse-avatar">↯</div><div class="pulse-row-main"><div class="pulse-row-title">{e(x.get("event_type"))}</div><div class="pulse-row-meta">{e(x.get("actor_name") or "System")} · {e(fmt_dt(x.get("created_at")))}</div></div></div>' for x in evs)
+
         quick=''
         if c.perms.get('can_warn') or c.perms.get('is_admin'):
-            quick += f'<form action="/action" method="post" class="pulse-card p-4 space-y-2"><input type="hidden" name="action" value="warn_with_proof"><input type="hidden" name="user_id" value="{target.id}"><input type="hidden" name="redirect_to_member" value="/member/{target.id}"><input name="warn_reason" required maxlength="300" class="pulse-input" placeholder="Warn-Grund"><input name="warn_proof" maxlength="1000" class="pulse-input" placeholder="Beweis / Link (optional)"><button class="pulse-btn bad w-full">⚠ Verwarnung ausstellen</button></form>'
+            quick += f'''<form action="/action" method="post" class="pulse-card p-4 space-y-2">
+                <div class="pulse-section-title">⚠ Neue Verwarnung</div>
+                <input type="hidden" name="action" value="warn_with_proof"><input type="hidden" name="user_id" value="{target.id}"><input type="hidden" name="redirect_to_member" value="1">
+                <input name="warn_reason" required maxlength="500" class="pulse-input" placeholder="Warn-Grund">
+                <input name="warn_proof" maxlength="1000" class="pulse-input" placeholder="Beweis / Link (optional)">
+                <button class="pulse-btn bad w-full">Verwarnung ausstellen</button>
+            </form>'''
         if c.perms.get('can_add_notes') or c.perms.get('is_admin'):
-            quick += f'<form action="/action" method="post" class="pulse-card p-4 space-y-2"><input type="hidden" name="action" value="add_note"><input type="hidden" name="user_id" value="{target.id}"><input type="hidden" name="redirect_to_member" value="/member/{target.id}"><textarea name="note_text" required maxlength="1000" class="pulse-input pulse-textarea" placeholder="Interne Teamnotiz…"></textarea><button class="pulse-btn ghost w-full">📝 Notiz speichern</button></form>'
+            quick += f'''<form action="/action" method="post" class="pulse-card p-4 space-y-2">
+                <div class="pulse-section-title">📝 Teamnotiz</div>
+                <input type="hidden" name="action" value="add_note"><input type="hidden" name="user_id" value="{target.id}"><input type="hidden" name="redirect_to_member" value="1">
+                <textarea name="note_text" required maxlength="1000" class="pulse-input pulse-textarea" placeholder="Interne Teamnotiz…"></textarea>
+                <button class="pulse-btn ghost w-full">Notiz speichern</button>
+            </form>'''
+
         status='Im Dienst' if active and active.get('status')=='online' else 'Pause' if active else 'Offline'
-        body=f'<div class="pulse-topbar"><div><a href="/team" class="pulse-btn ghost">← Team</a></div><div class="flex items-center gap-2">{pill(status,"good" if active and active.get("status")=="online" else "warn" if active else "")}</div></div><section class="pulse-hero"><div class="flex flex-col md:flex-row md:items-center gap-5"><img src="{avatar}" class="w-16 h-16 rounded-2xl border border-white/20" alt=""><div class="flex-1"><div class="pulse-kicker">Teamakte</div><div class="pulse-title">{e(target.display_name)}</div><div class="pulse-sub">{e(role)} · Discord ID {e(target.id)}</div></div><div class="pulse-hero-box min-w-[220px]"><div class="label">WOCHENAKTIVITÄT</div><div class="value">{ws.fmt_duration(weekly)}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{min(100,round(weekly/(max(0.5,float(c.config.get('weekly_goal_hours',3)))*3600)*100))}%;background:white"></span></div></div></div></section><div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Warnungen</div><div class="value">{len(warns)}</div></div><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Schichten</div><div class="value">{len(hist)}</div></div><div class="pulse-stat"><div class="icon">🎫</div><div class="label">Tickets</div><div class="value">{len(tickets)}</div></div><div class="pulse-stat"><div class="icon">□</div><div class="label">Aufgaben</div><div class="value">{len(tasks)}</div></div></div><div class="pulse-grid"><div class="space-y-4">{card("Verwarnungen",warn_html or '<div class=\"pulse-empty\">Keine aktiven Warnungen / Einträge.</div>','⚠')}{card("Notizen",note_html or '<div class=\"pulse-empty\">Keine Notizen.</div>','📝')}{card("Aktivität",event_html or '<div class=\"pulse-empty\">Noch keine zentralen Events.</div>','↯')}</div><div class="space-y-4">{card("Aufgaben",task_html or '<div class=\"pulse-empty\">Keine Aufgaben.</div>','□')}{card("Tickets",ticket_html or '<div class=\"pulse-empty\">Keine Tickets.</div>','🎫')}{quick}</div></div>'
+        status_kind='good' if active and active.get('status')=='online' else 'warn' if active else ''
+        body=f'''<div class="pulse-topbar"><div><a href="/team" class="pulse-btn ghost">← Team</a><a href="/warns" class="pulse-btn ghost ml-2">⚠ Warnzentrale</a></div><div class="flex items-center gap-2">{pill(status,status_kind)}</div></div>
+        <section class="pulse-hero"><div class="flex flex-col md:flex-row md:items-center gap-5"><img src="{avatar}" class="w-16 h-16 rounded-2xl border border-white/20" alt=""><div class="flex-1"><div class="pulse-kicker">Teamakte</div><div class="pulse-title">{e(target.display_name)}</div><div class="pulse-sub">{e(role)} · Discord ID {e(target.id)}</div></div><div class="pulse-hero-box min-w-[220px]"><div class="label">WOCHENAKTIVITÄT</div><div class="value">{ws.fmt_duration(weekly)}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{min(100,round(weekly/(max(0.5,float(c.config.get('weekly_goal_hours',3)))*3600)*100))}%;background:white"></span></div></div></div></section>
+        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{len(active_warns)}/3</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Zurückgezogen</div><div class="value">{len(revoked_warns)}</div></div><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Schichten</div><div class="value">{len(hist)}</div></div><div class="pulse-stat"><div class="icon">🎫</div><div class="label">Tickets</div><div class="value">{len(tickets)}</div></div></div>
+        <div class="pulse-grid"><div class="space-y-4">{card("Aktive Verwarnungen",active_html or '<div class="pulse-empty">Keine aktiven Verwarnungen.</div>','⚠')}{card("Warn-Historie",revoked_html or '<div class="pulse-empty">Keine zurückgezogenen Warnungen.</div>','↩')}{card("Notizen",note_html or '<div class="pulse-empty">Keine Notizen.</div>','📝')}{card("Aktivität",event_html or '<div class="pulse-empty">Noch keine zentralen Events.</div>','↯')}</div><div class="space-y-4">{card("Warnrollen-Status",role_pills,'⚙')}{card("Aufgaben",task_html or '<div class="pulse-empty">Keine Aufgaben.</div>','□')}{card("Tickets",ticket_html or '<div class="pulse-empty">Keine Tickets.</div>','🎫')}{quick}</div></div>'''
         return render_pro_page(ws,f'Teamakte · {target.display_name}',c,'team',body)
+
+
+    async def warns_v5(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None)
+        if not (c.perms.get('can_warn') or c.perms.get('is_admin')):
+            raise HTTPException(403,'Dafür fehlt dir die Berechtigung für die Verwarnungszentrale.')
+
+        teamdb=ws.load_json(ws.DATA_FILE,{})
+        rows=[]; history=[]
+        for m in sorted(team(c.guild,c.config.get('team_role_ids',[])), key=lambda x:x.display_name.lower()):
+            entry=teamdb.setdefault(str(m.id),{})
+            ws.user_entry(teamdb,str(m.id))
+            active=ws.active_warns(entry)
+            all_warns=entry.get('warns_list',[]) or []
+            for w in active:
+                rows.append((m,w))
+            for w in all_warns:
+                if not w.get('active',True) or w.get('revoked_at'):
+                    history.append((m,w))
+        active_total=len(rows); history_total=len(history); critical=sum(1 for m,w in rows if len(ws.active_warns(teamdb.get(str(m.id),{})))>=3)
+
+        q=e((request.query_params.get('q') or '').strip().lower())
+        only_active=request.query_params.get('view','active')!='history'
+        selected=[x for x in rows if only_active else history]
+        if q:
+            selected=[x for x in selected if q in f'{x[0].display_name} {x[0].name} {x[1].get("reason","")} {x[1].get("by","")} {x[1].get("id","")}'.lower()]
+
+        def row(m,w,is_active):
+            proof=ws.safe_url(w.get('proof'))
+            proof_html=f'<a href="{e(proof)}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-indigo-500 hover:underline">🔗 Beweis</a>' if proof else ''
+            action_html=f'''<form action="/action" method="post" class="mt-2 flex flex-wrap gap-2" onsubmit="return confirm('Diese Verwarnung wirklich zurückziehen?');">
+                <input type="hidden" name="action" value="remove_warn"><input type="hidden" name="user_id" value="{m.id}"><input type="hidden" name="warn_id" value="{e(w.get('id'))}"><input type="hidden" name="redirect_to_member" value="">
+                <input name="warn_revoke_reason" maxlength="300" class="pulse-input flex-1 min-w-[180px]" placeholder="Rücknahmegrund (optional)">
+                <button class="pulse-btn bad">↩ Zurückziehen</button></form>''' if is_active and (c.perms.get('can_warn') or c.perms.get('is_admin')) else ''
+            revoked=f'<div class="text-[10px] text-slate-400 mt-2">↩ {e(w.get("revoked_at") or "N/A")} · {e(w.get("revoked_by") or "Team")} · {e(w.get("revoked_reason") or "Kein Grund")}</div>' if not is_active else ''
+            return f'''<article class="pulse-row items-start"><div class="pulse-avatar">⚠</div><div class="pulse-row-main"><div class="flex items-center gap-2 flex-wrap"><a href="/member/{m.id}" class="pulse-row-title hover:underline">{e(m.display_name)}</a>{pill("Aktiv","warn") if is_active else pill("Zurückgezogen","good")}</div><div class="pulse-row-meta">{e(w.get("date") or "—")} · von {e(w.get("by") or "Team")} · Warn-ID {e(w.get("id") or "—")}</div><div class="text-[11px] mt-2 whitespace-pre-wrap">{e(w.get("reason") or "Kein Grund")}</div>{proof_html}{revoked}{action_html}</div><span class="pulse-pill {'warn' if is_active else 'good'}">{'Warnung' if is_active else 'Archiv'}</span></article>'''
+
+        items=''.join(row(m,w,only_active) for m,w in sorted(selected,key=lambda x:(-len(x[1].get('date','')),x[0].display_name.lower())))
+        role_health=ws.warning_role_health(c.guild,c.config)
+        role_html=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">Warn {x["level"]} · {e(x["role"].name if x["role"] else "Nicht gefunden")}</div><div class="pulse-row-meta">ID {x["id"]} · {e(x["detail"])}</div></div>{pill("OK","good") if x["ok"] else pill("FEHLER","bad")}</div>' for x in role_health)
+        view_active='bg-indigo-600 text-white' if only_active else 'bg-slate-100 dark:bg-slate-800'
+        view_hist='bg-indigo-600 text-white' if not only_active else 'bg-slate-100 dark:bg-slate-800'
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚠ Verwarnungszentrale</div><div class="pulse-section-sub">Alle aktiven Team-Warnungen, Rücknahmen und Rollen-Synchronisierung an einem Ort.</div></div>{pill("System OK","good") if all(x["ok"] for x in role_health) else pill("Rollen prüfen","bad")}</div>
+        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{active_total}</div></div><div class="pulse-stat"><div class="icon">🚨</div><div class="label">3/3 Fälle</div><div class="value">{critical}</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Rücknahmen</div><div class="value">{history_total}</div></div><div class="pulse-stat"><div class="icon">👥</div><div class="label">Betroffene Teamler</div><div class="value">{len({m.id for m,w in rows})}</div></div></div>
+        <div class="pulse-grid"><div><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">{'Aktive Verwarnungen' if only_active else 'Warn-Historie'}</div><div class="pulse-section-sub">Suche nach Name, Warn-Grund, Aussteller oder Warn-ID.</div></div><div class="flex gap-2"><a href="/warns?view=active" class="pulse-btn {view_active}">Aktiv</a><a href="/warns?view=history" class="pulse-btn {view_hist}">Historie</a></div></div><div class="pulse-card-b"><form method="get" class="pulse-search mb-4" style="max-width:none"><input type="hidden" name="view" value="{'active' if only_active else 'history'}"><span>⌕</span><input name="q" value="{e(q)}" placeholder="Teammitglied, Grund, Warn-ID…"><button class="pulse-btn primary">Suchen</button></form><div class="space-y-2">{items or '<div class="pulse-empty">Keine passenden Verwarnungen gefunden.</div>'}</div></div></section></div><div>{card("⚙ Warnrollen",role_html,'⚙')}<div class="mt-4"><section class="pulse-alert"><strong>Hinweis</strong><div class="text-slate-400 mt-1">Eine zurückgezogene Warnung wird nicht gelöscht. Sie bleibt für Audit und Historie erhalten und zählt nicht mehr gegen die 3-Warn-Schwelle.</div></section></div></div></div>'''
+        return render_pro_page(ws,'Verwarnungszentrale',c,'warns',body)
 
     async def ticket_detail_v5(request: Request, ticket_id: str, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm='can_manage_tickets'); t=db.get_ticket(ticket_id=ticket_id)
@@ -942,9 +1049,12 @@ def register(app):
             rp=cfg.get(str(rid),{})
             fields=''.join(f'<label class="flex items-center gap-2 text-[11px] p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50"><input type="checkbox" name="{k}" {"checked" if rp.get(k) else ""}><span>{e(label)}</span></label>' for k,label in permission_fields)
             cards.append(f'<section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title" style="color:#{role.color.value:06x}">{e(role.name)}</div><span class="text-[9px] text-slate-400 font-mono">{rid}</span></div><div class="pulse-card-b"><form action="/settings/pro-save" method="post"><input type="hidden" name="role_id" value="{rid}"><div class="grid grid-cols-2 gap-1">{fields}</div><button class="pulse-btn primary mt-3 w-full">Rechte speichern</button></form></div></section>')
+        warn_ids=ws.get_warn_role_ids(c.config)
+        role_options=lambda selected: ''.join(f'<option value="{r.id}" {"selected" if r.id==selected else ""}>{e(r.name)} · ID {r.id}</option>' for r in roles)
+        warn_role_card=f'''<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">⚠ Warn-Rollen</div><div class="pulse-section-sub">Discord-Rollen für Warnstufe 1, 2 und 3. Pulse prüft automatisch die Bot-Hierarchie.</div></div></div><div class="pulse-card-b"><form action="/settings/pro-warn-roles" method="post" class="grid md:grid-cols-3 gap-3"><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 1<select name="warn_1" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[1])}</select></label><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 2<select name="warn_2" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[2])}</select></label><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 3<select name="warn_3" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[3])}</select></label><button class="pulse-btn primary md:col-span-3">Warn-Rollen speichern & prüfen</button></form></div></section>
         team_boxes=''.join(f'<label class="flex items-center gap-2 p-2 rounded-lg text-xs"><input type="checkbox" name="team_roles" value="{r.id}" {"checked" if r.id in role_ids else ""}><span style="color:#{r.color.value:06x}">{e(r.name)}</span></label>' for r in sorted(roles,key=lambda r:-r.position))
         audit=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(a.get("actor"))} · {e(a.get("action"))}</div><div class="pulse-row-meta">{e(a.get("details"))}</div></div><div class="pulse-row-meta">{e(a.get("timestamp"))}</div></div>' for a in reversed(ws.load_json(ws.AUDIT_FILE,[])[-120:]))
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div><div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div><section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div><div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
         return render_pro_page(ws,'Einstellungen',c,'settings',body)
 
     async def settings_save(request: Request, role_id: int=Form(...), user_session: str=Cookie(None)):
@@ -964,6 +1074,25 @@ def register(app):
             except ValueError: pass
         vals=sorted(set(vals),key=lambda rid:c.guild.get_role(rid).position); c.config['team_role_ids']=vals; ws.save_json(ws.CONFIG_FILE,c.config); ws.log_audit(c.user.get('global_name'),c.user['id'],'Team-Rollen Geändert',','.join(str(x) for x in vals)); return ws.back('/settings','Teamrollen gespeichert.')
 
+    async def settings_warn_roles(request: Request, warn_1: str=Form(""), warn_2: str=Form(""), warn_3: str=Form(""), user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None,admin=True)
+        selected={}
+        for level,value in ((1,warn_1),(2,warn_2),(3,warn_3)):
+            if value.strip().isdigit():
+                rid=int(value)
+                role=c.guild.get_role(rid)
+                if role and not role.managed and not role.is_default():
+                    selected[str(level)]=rid
+        current=ws.get_warn_role_ids(c.config)
+        for level in (1,2,3):
+            selected.setdefault(str(level),current[level])
+        c.config['warn_role_ids']=selected
+        ws.save_json(ws.CONFIG_FILE,c.config)
+        health=ws.warning_role_health(c.guild,c.config)
+        ok=all(x['ok'] for x in health)
+        ws.log_audit(c.user.get('global_name'),c.user['id'],'Warn-Rollen Geändert',','.join(str(selected[str(i)]) for i in (1,2,3)))
+        return ws.back('/settings','Warn-Rollen gespeichert und geprüft.' if ok else 'Warn-Rollen gespeichert. Mindestens eine Warn-Rolle muss noch geprüft werden.',ok)
+
     async def settings_goal(request: Request, weekly_goal: float=Form(...), user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True); weekly_goal=max(.5,min(100,float(weekly_goal))); c.config['weekly_goal_hours']=round(weekly_goal,1); ws.save_json(ws.CONFIG_FILE,c.config); ws.log_audit(c.user.get('global_name'),c.user['id'],'Wochenziel Geändert',f'{weekly_goal:g}h'); return ws.back('/settings','Wochenziel gespeichert.')
 
@@ -978,6 +1107,10 @@ def register(app):
         checks.append(('OAuth',bool(ws.CLIENT_ID and ws.CLIENT_SECRET),'Discord OAuth'))
         checks.append(('Session Secret',bool(os.getenv('SESSION_SECRET') or os.path.exists(ws.SECRET_FILE)),'Cookie-Signing'))
         checks.append(('Teamrollen',bool(c.config.get('team_role_ids')),'Konfiguration'))
+        team_channel=c.guild.get_channel(ws.TEAM_UPDATE_CHANNEL_ID)
+        checks.append(('Team-Updates-Kanal',bool(team_channel),'ID 1531132354272170115'))
+        for wr in ws.warning_role_health(c.guild,c.config):
+            checks.append((f'Warn-Rolle {wr["level"]}',wr["ok"],f'{wr["role"].name if wr["role"] else "nicht gefunden"} · {wr["detail"]}'))
         checks.append(('Backups',os.path.isdir(ws.BACKUP_DIR),'Backup-Verzeichnis'))
         expected=set()
         try: expected={n[:-3] for n in os.listdir(os.path.join(ws.BASE_DIR,'cogs')) if n.endswith('.py') and n!='__init__.py'}
@@ -1036,6 +1169,7 @@ def register(app):
     remove_and_add(app,'/sw.js',{'GET'},service_worker)
     remove_and_add(app,'/system',{'GET'},system_v5,response_class=HTMLResponse)
     remove_and_add(app,'/member/{user_id}',{'GET'},member_v5,response_class=HTMLResponse)
+    app.get('/warns',response_class=HTMLResponse)(warns_v5)
     remove_and_add(app,'/ticket/{ticket_id}',{'GET'},ticket_detail_v5,response_class=HTMLResponse)
     remove_and_add(app,'/export/team.csv',{'GET'},team_export)
     app.get('/api/pulse/live')(api_live)
@@ -1058,6 +1192,7 @@ def register(app):
     app.post('/settings/pro-save')(settings_save)
     app.post('/settings/pro-roles')(settings_roles)
     app.post('/settings/pro-goal')(settings_goal)
+    app.post('/settings/pro-warn-roles')(settings_warn_roles)
     # Ensure the robust v5 backup restore handler is the only active route.
     remove_and_add(app,'/backup/restore',{'POST'},ws.restore_backup)
 
