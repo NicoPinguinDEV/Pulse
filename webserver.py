@@ -51,7 +51,7 @@ if not APPLICATION_REDIRECT_URI:
     APPLICATION_REDIRECT_URI = (REDIRECT_URI.rsplit("/", 1)[0] + "/apply/callback") if "/" in REDIRECT_URI else REDIRECT_URI.rstrip("/") + "/apply/callback"
 GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616"))
 TEAM_UPDATE_CHANNEL_NAME = os.getenv("TEAM_UPDATE_CHANNEL_NAME", "╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
-TEAM_UPDATE_CHANNEL_ID = int(os.getenv("TEAM_UPDATE_CHANNEL_ID", "1531132354272170115") or 1531132354272170115)  # Team-Updates
+TEAM_UPDATE_CHANNEL_ID = 1531132354272170115  # zentraler Team-Updates-Kanal
 
 WARN_ROLE_IDS = {
     1: int(os.getenv("WARN_ROLE_1", "1489221948348043395")),
