@@ -303,15 +303,17 @@ def register(app):
 
     async def team_update(guild, title, content, color=None):
         color = color or discord.Color.blurple()
-        channel = guild.get_channel(ws.TEAM_UPDATE_CHANNEL_ID) if ws.TEAM_UPDATE_CHANNEL_ID else None
+        channel = guild.get_channel(ws.TEAM_UPDATE_CHANNEL_ID)
         if not channel:
-            channel = discord.utils.get(guild.text_channels, name=ws.TEAM_UPDATE_CHANNEL_NAME)
-        if not channel:
+            print(f"Team-Updates-Kanal nicht erreichbar: {ws.TEAM_UPDATE_CHANNEL_ID}")
             return None
-        embed=discord.Embed(title=title,description=content,color=color,timestamp=datetime.now())
+        embed=discord.Embed(title=title,description=content,color=color,timestamp=discord.utils.utcnow())
         embed.set_footer(text=f"{guild.name} · Pulse TeamOS")
-        msg=await channel.send(embed=embed)
-        return msg
+        try:
+            return await channel.send(embed=embed)
+        except Exception as exc:
+            print(f"Team-Update konnte nicht gesendet werden: {exc}")
+            return None
 
     # ---------------- Melonly / Roblox Moderation ----------------
     async def melonly_page(request: Request, user_session: str=Cookie(None)):
@@ -1058,7 +1060,7 @@ def register(app):
             cards.append(f'<section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title" style="color:#{role.color.value:06x}">{e(role.name)}</div><span class="text-[9px] text-slate-400 font-mono">{rid}</span></div><div class="pulse-card-b"><form action="/settings/pro-save" method="post"><input type="hidden" name="role_id" value="{rid}"><div class="grid grid-cols-2 gap-1">{fields}</div><button class="pulse-btn primary mt-3 w-full">Rechte speichern</button></form></div></section>')
         warn_ids=ws.get_warn_role_ids(c.config)
         role_options=lambda selected: ''.join(f'<option value="{r.id}" {"selected" if r.id==selected else ""}>{e(r.name)} · ID {r.id}</option>' for r in roles)
-        warn_role_card=f'''<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">⚠ Warn-Rollen</div><div class="pulse-section-sub">Discord-Rollen für Warnstufe 1, 2 und 3. Pulse prüft automatisch die Bot-Hierarchie.</div></div></div><div class="pulse-card-b"><form action="/settings/pro-warn-roles" method="post" class="grid md:grid-cols-3 gap-3"><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 1<select name="warn_1" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[1])}</select></label><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 2<select name="warn_2" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[2])}</select></label><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 3<select name="warn_3" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[3])}</select></label><button class="pulse-btn primary md:col-span-3">Warn-Rollen speichern & prüfen</button></form></div></section>
+        warn_role_card=f'''<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">⚠ Warn-Rollen</div><div class="pulse-section-sub">Discord-Rollen für Warnstufe 1, 2 und 3. Pulse prüft automatisch die Bot-Hierarchie.</div></div></div><div class="pulse-card-b"><form action="/settings/pro-warn-roles" method="post" class="grid md:grid-cols-3 gap-3"><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 1<select name="warn_1" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[1])}</select></label><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 2<select name="warn_2" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[2])}</select></label><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 3<select name="warn_3" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[3])}</select></label><button class="pulse-btn primary md:col-span-3">Warn-Rollen speichern & prüfen</button></form><form action="/settings/pro-warn-sync" method="post" class="mt-3"><button class="pulse-btn ghost w-full">↻ Alle Teamler jetzt mit Warn-Rollen abgleichen</button></form></div></section>
         team_boxes=''.join(f'<label class="flex items-center gap-2 p-2 rounded-lg text-xs"><input type="checkbox" name="team_roles" value="{r.id}" {"checked" if r.id in role_ids else ""}><span style="color:#{r.color.value:06x}">{e(r.name)}</span></label>' for r in sorted(roles,key=lambda r:-r.position))
         audit=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(a.get("actor"))} · {e(a.get("action"))}</div><div class="pulse-row-meta">{e(a.get("details"))}</div></div><div class="pulse-row-meta">{e(a.get("timestamp"))}</div></div>' for a in reversed(ws.load_json(ws.AUDIT_FILE,[])[-120:]))
         body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div><div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
@@ -1100,6 +1102,13 @@ def register(app):
         ws.log_audit(c.user.get('global_name'),c.user['id'],'Warn-Rollen Geändert',','.join(str(selected[str(i)]) for i in (1,2,3)))
         return ws.back('/settings','Warn-Rollen gespeichert und geprüft.' if ok else 'Warn-Rollen gespeichert. Mindestens eine Warn-Rolle muss noch geprüft werden.',ok)
 
+    async def settings_warn_sync(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None,admin=True)
+        report=await ws.reconcile_warning_roles(c.guild,c.config)
+        msg=f"Warn-Rollen abgeglichen: {report['updated']}/{report['checked']} synchron."
+        if report.get('failed'):
+            msg += f" {report['failed']} Fehler – Systemstatus/Verwarnungszentrale prüfen."
+        return ws.back('/settings',msg,not report.get('failed'))
     async def settings_goal(request: Request, weekly_goal: float=Form(...), user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True); weekly_goal=max(.5,min(100,float(weekly_goal))); c.config['weekly_goal_hours']=round(weekly_goal,1); ws.save_json(ws.CONFIG_FILE,c.config); ws.log_audit(c.user.get('global_name'),c.user['id'],'Wochenziel Geändert',f'{weekly_goal:g}h'); return ws.back('/settings','Wochenziel gespeichert.')
 
@@ -1200,6 +1209,7 @@ def register(app):
     app.post('/settings/pro-roles')(settings_roles)
     app.post('/settings/pro-goal')(settings_goal)
     app.post('/settings/pro-warn-roles')(settings_warn_roles)
+    app.post('/settings/pro-warn-sync')(settings_warn_sync)
     # Ensure the robust v5 backup restore handler is the only active route.
     remove_and_add(app,'/backup/restore',{'POST'},ws.restore_backup)
 
