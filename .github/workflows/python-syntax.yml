@@ -19,3 +19,7 @@ jobs:
       - name: Python-Syntax prüfen
         run: |
           python -m compileall -q .
+      - name: Feature-Regressionstests
+        run: |
+          python tests/feature_smoke.py
+          python tests/smoke_test.py
