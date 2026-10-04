@@ -558,7 +558,7 @@ def warning_role_health(guild, config: dict | None = None) -> list[dict]:
     return rows
 
 
-def sync_warn_roles(guild, member, count: int, config: dict | None = None):
+async def sync_warn_roles(guild, member, count: int, config: dict | None = None):
     """Synchronisiert exakt eine Warn-Rolle 1/2/3 und gibt einen Diagnosebericht zurück."""
     report = {"ok": True, "count": max(0, min(int(count or 0), 3)), "role": None, "message": "Warn-Rollen synchronisiert."}
     if not (SYNC_WARN_ROLES and guild and member):
@@ -604,6 +604,9 @@ def sync_warn_roles(guild, member, count: int, config: dict | None = None):
 async def reconcile_warning_roles(guild, config: dict | None = None) -> dict:
     """Bringt alle Teammitglieder auf den korrekten Warnrollen-Stand."""
     result = {"checked": 0, "updated": 0, "failed": 0, "errors": []}
+    if not SYNC_WARN_ROLES:
+        result["message"] = "Warn-Rollen-Synchronisierung ist deaktiviert."
+        return result
     if not guild:
         result["errors"].append("Guild nicht verfügbar")
         return result
