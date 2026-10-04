@@ -1517,6 +1517,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     shifts_db = load_shifts()
     active = shifts_db["active_shifts"]
     loas = get_loas()
+    team_db = load_json(DATA_FILE, {})
     activity = get_activity_today(guild.id)
     activity_exists = bool(activity["check_id"])
     activity_confirmed = activity["confirmed"]
@@ -1535,6 +1536,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             "id": member.id, "name": member.display_name, "username": member.name,
             "avatar": member.display_avatar.url, "role": top.name, "pos": top.position,
             "color": role_hex(top),
+            "warns": len(active_warns(user_entry(team_db, str(member.id)))) if isinstance(team_db, dict) else 0,
             "hrs": hrs, "reached": hrs >= weekly_goal, "on_loa": on_loa,
             "loa_until": fmt_date(loa["bis"]) if on_loa else "",
             "duty": active.get(str(member.id), {}).get("status"),
@@ -1577,13 +1579,15 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                           f'{"☕ Pause" if m["duty"] == "break" else "🟢 Im Dienst"}</span>')
         activity_badge_class = BADGE_OK if m["activity"] == "confirmed" else (BADGE_BAD if m["activity"] == "open" else "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700")
         activity_badge_text = "✅ Aktiv bestätigt" if m["activity"] == "confirmed" else ("⏳ Nicht bestätigt" if m["activity"] == "open" else "⚪ Kein Check")
+        warn_badge = (f'<span class="border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">🚨 {m["warns"]}/3 Warnungen</span>' if m["warns"] >= 3 else
+                      f'<span class="border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">⚠ {m["warns"]}/3 Warnungen</span>' if m["warns"] else '')
         rows_html += f"""
         <div class="team-row {CARD} hover:bg-slate-50 dark:hover:bg-[#1a2030] transition px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
              data-search="{esc((m['name'] + ' ' + m['username'] + ' ' + m['role']).lower())}" data-below="{1 if (not m['reached'] and not m['on_loa']) else 0}">
             <div class="flex items-center gap-3.5 md:w-1/3 min-w-0">
                 <img src="{esc(m['avatar'])}" alt="" class="w-11 h-11 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
                 <div class="truncate">
-                    <div class="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap"><span>{esc(m['name'])}</span>{loa_badge}{duty_badge}<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border {activity_badge_class}">{activity_badge_text}</span></div>
+                    <div class="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap"><span>{esc(m['name'])}</span>{loa_badge}{duty_badge}{warn_badge}<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border {activity_badge_class}">{activity_badge_text}</span></div>
                     <div class="text-xs text-slate-400 font-mono">@{esc(m['username'])}</div>
                 </div>
             </div>
