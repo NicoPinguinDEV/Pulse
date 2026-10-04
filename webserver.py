@@ -440,11 +440,9 @@ async def send_team_update_embed(guild, title, description, color=None, *, field
     if not guild:
         return None
     color = color or discord.Color.blurple()
-    channel = guild.get_channel(TEAM_UPDATE_CHANNEL_ID) if TEAM_UPDATE_CHANNEL_ID else None
+    channel = guild.get_channel(TEAM_UPDATE_CHANNEL_ID)
     if not channel:
-        channel = discord.utils.get(guild.text_channels, name=TEAM_UPDATE_CHANNEL_NAME)
-    if not channel:
-        print(f"Team-Updates-Kanal nicht gefunden: {TEAM_UPDATE_CHANNEL_ID or TEAM_UPDATE_CHANNEL_NAME}")
+        print(f"Team-Updates-Kanal nicht gefunden oder Bot hat keinen Zugriff: {TEAM_UPDATE_CHANNEL_ID}")
         return None
     try:
         embed = discord.Embed(
@@ -610,10 +608,10 @@ async def reconcile_warning_roles(guild, config: dict | None = None) -> dict:
         result["errors"].append("Guild nicht verfügbar")
         return result
     team_role_ids = (config or load_config()).get("team_role_ids", [])
+    team_db = load_json(DATA_FILE, {})
     for member in guild.members:
         if member.bot or not any(r.id in team_role_ids for r in member.roles):
             continue
-        team_db = load_json(DATA_FILE, {})
         entry = team_db.get(str(member.id), {})
         count = len(active_warns(entry)) if isinstance(entry, dict) else 0
         report = await sync_warn_roles(guild, member, count, config)
