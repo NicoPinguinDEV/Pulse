@@ -544,9 +544,15 @@ def warning_role_health(guild, config: dict | None = None) -> list[dict]:
     ids = get_warn_role_ids(config)
     me = getattr(guild, "me", None) if guild else None
     rows = []
+    seen = {}
     for level in (1, 2, 3):
         rid = ids[level]
         role = guild.get_role(rid) if guild else None
+        if rid in seen and rid:
+            rows.append({"level": level, "id": rid, "role": role, "ok": False, "detail": f"Diese Rolle ist bereits als Warn {seen[rid]} konfiguriert"})
+            continue
+        if rid:
+            seen[rid] = level
         if not role:
             rows.append({"level": level, "id": rid, "role": None, "ok": False, "detail": "Rolle nicht gefunden"})
         elif role.is_default() or role.managed:
@@ -2672,6 +2678,16 @@ async def handle_action(
         reason = (warn_reason or "").strip()[:500]
         if not user_id or not reason:
             return back(member_url, "Bitte einen Grund angeben.", False)
+        m = guild.get_member(user_id)
+        if not m:
+            return back(member_url, "Mitglied nicht gefunden.", False)
+        if m.bot:
+            return back(member_url, "Bots können keine Team-Verwarnung erhalten.", False)
+        if str(m.id) == actor_id:
+            return back(member_url, "Du kannst dir selbst keine Team-Verwarnung geben.", False)
+        if team_role_ids and not any(r.id in team_role_ids for r in m.roles):
+            return back(member_url, "Team-Verwarnungen können nur an Teammitglieder vergeben werden.", False)
+
         team_db = load_json(DATA_FILE, {})
         entry = user_entry(team_db, str(user_id))
         entry["warns_list"].append({
@@ -2682,8 +2698,7 @@ async def handle_action(
         count = len(active_warns(entry))
         save_json(DATA_FILE, team_db)
         log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/3): {reason}")
-        m = guild.get_member(user_id)
-        role_report = await sync_warn_roles(guild, m, count, config) if m else {"ok": False, "message": "Mitglied nicht gefunden.", "role": None}
+        role_report = await sync_warn_roles(guild, m, count, config)
         if m:
             await send_team_update_embed(
                 guild,
