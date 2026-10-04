@@ -1098,9 +1098,18 @@ def register(app):
         c.config['warn_role_ids']=selected
         ws.save_json(ws.CONFIG_FILE,c.config)
         health=ws.warning_role_health(c.guild,c.config)
-        ok=all(x['ok'] for x in health)
-        ws.log_audit(c.user.get('global_name'),c.user['id'],'Warn-Rollen Geändert',','.join(str(selected[str(i)]) for i in (1,2,3)))
-        return ws.back('/settings','Warn-Rollen gespeichert und geprüft.' if ok else 'Warn-Rollen gespeichert. Mindestens eine Warn-Rolle muss noch geprüft werden.',ok)
+        sync_report=await ws.reconcile_warning_roles(c.guild,c.config)
+        ok=all(x['ok'] for x in health) and not sync_report.get('failed')
+        ws.log_audit(
+            c.user.get('global_name'),c.user['id'],'Warn-Rollen Geändert',
+            ','.join(str(selected[str(i)]) for i in (1,2,3))
+        )
+        msg='Warn-Rollen gespeichert und Teamrollen synchronisiert.'
+        if sync_report.get('failed'):
+            msg += f" {sync_report['failed']} Teamler konnten nicht synchronisiert werden."
+        elif not all(x['ok'] for x in health):
+            msg += ' Mindestens eine Warn-Rolle muss noch geprüft werden.'
+        return ws.back('/settings',msg,ok)
 
     async def settings_warn_sync(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True)
