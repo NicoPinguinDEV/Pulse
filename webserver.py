@@ -551,6 +551,8 @@ def warning_role_health(guild, config: dict | None = None) -> list[dict]:
             rows.append({"level": level, "id": rid, "role": None, "ok": False, "detail": "Rolle nicht gefunden"})
         elif role.is_default() or role.managed:
             rows.append({"level": level, "id": rid, "role": role, "ok": False, "detail": "Rolle ist nicht verwaltbar"})
+        elif me and not me.guild_permissions.manage_roles:
+            rows.append({"level": level, "id": rid, "role": role, "ok": False, "detail": "Bot hat keine 'Rollen verwalten'-Berechtigung"})
         elif me and me.top_role.position <= role.position:
             rows.append({"level": level, "id": rid, "role": role, "ok": False, "detail": "Bot-Rolle steht nicht darüber"})
         else:
