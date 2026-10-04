@@ -483,23 +483,125 @@ async def send_team_update_embed(guild, title, description, color=None, *, field
         return None
 
 
-async def sync_warn_roles(guild, member, count: int):
-    """Vergibt Warn-Rolle 1/2/3 passend zur Anzahl der Verwarnungen (die Rollen-IDs waren vorher ungenutzt)."""
-    if not (SYNC_WARN_ROLES and guild and member):
-        return
-    target = WARN_ROLE_IDS.get(min(count, 3)) if count > 0 else None
-    for rid in WARN_ROLE_IDS.values():
-        role = guild.get_role(rid)
-        if not role:
-            continue
+async def get_warn_role_ids(config: dict | None = None) -> dict:
+    """Lädt die drei Warn-Rollen. Dashboard-Konfiguration hat Vorrang vor ENV-Defaults."""
+    configured = (config or {}).get("warn_role_ids", {})
+    out = {}
+    for level, fallback in WARN_ROLE_IDS.items():
+        value = fallback
+        if isinstance(configured, dict):
+            value = configured.get(str(level), configured.get(level, fallback))
+        elif isinstance(configured, (list, tuple)) and len(configured) >= level:
+            value = configured[level - 1]
         try:
-            if rid == target and role not in member.roles:
-                await member.add_roles(role, reason="Warn-System (Dashboard)")
-            elif rid != target and role in member.roles:
-                await member.remove_roles(role, reason="Warn-System (Dashboard)")
-        except Exception as e:
-            print(f"Warn-Rolle konnte nicht angepasst werden: {e}")
+            out[level] = int(value)
+        except (TypeError, ValueError):
+            out[level] = int(fallback)
+    return out
 
+
+def normalize_warns(entry: dict) -> bool:
+    """Migriert Warns zu einem stabilen Format mit Status statt hartem Löschen."""
+    raw = entry.get("warns_list", [])
+    if not isinstance(raw, list):
+        raw = []
+    normalized = []
+    changed = not isinstance(entry.get("warns_list"), list)
+
+    for warn in raw:
+        if isinstance(warn, dict):
+            item = dict(warn)
+        else:
+            item = {"reason": str(warn), "proof": "", "by": "Altsystem", "date": "N/A"}
+            changed = True
+        if not item.get("id"):
+            item["id"] = f"warn_{uuid.uuid4().hex[:10]}"
+            changed = True
+        if "active" not in item:
+            item["active"] = True
+            changed = True
+        item.setdefault("reason", "Kein Grund")
+        item.setdefault("proof", "")
+        item.setdefault("by", "System")
+        item.setdefault("date", "N/A")
+        item.setdefault("revoked_at", None)
+        item.setdefault("revoked_by", None)
+        item.setdefault("revoked_reason", "")
+        normalized.append(item)
+
+    if normalized != entry.get("warns_list"):
+        entry["warns_list"] = normalized
+        changed = True
+    return changed
+
+
+def active_warns(entry: dict) -> list[dict]:
+    """Nur aktive Warns zählen; zurückgezogene Warns bleiben als Historie erhalten."""
+    normalize_warns(entry)
+    return [w for w in entry.get("warns_list", []) if isinstance(w, dict) and w.get("active", True) and not w.get("revoked_at")]
+
+
+def warning_role_health(guild, config: dict | None = None) -> list[dict]:
+    """Prüft Existenz und Bot-Hierarchie der drei Warn-Rollen."""
+    ids = get_warn_role_ids(config)
+    me = getattr(guild, "me", None) if guild else None
+    rows = []
+    for level in (1, 2, 3):
+        rid = ids[level]
+        role = guild.get_role(rid) if guild else None
+        if not role:
+            rows.append({"level": level, "id": rid, "role": None, "ok": False, "detail": "Rolle nicht gefunden"})
+        elif role.is_default() or role.managed:
+            rows.append({"level": level, "id": rid, "role": role, "ok": False, "detail": "Rolle ist nicht verwaltbar"})
+        elif me and me.top_role.position <= role.position:
+            rows.append({"level": level, "id": rid, "role": role, "ok": False, "detail": "Bot-Rolle steht nicht darüber"})
+        else:
+            rows.append({"level": level, "id": rid, "role": role, "ok": True, "detail": "Bereit"})
+    return rows
+
+
+def sync_warn_roles(guild, member, count: int, config: dict | None = None):
+    """Synchronisiert exakt eine Warn-Rolle 1/2/3 und gibt einen Diagnosebericht zurück."""
+    report = {"ok": True, "count": max(0, min(int(count or 0), 3)), "role": None, "message": "Warn-Rollen synchronisiert."}
+    if not (SYNC_WARN_ROLES and guild and member):
+        report["message"] = "Warn-Rollen-Synchronisierung deaktiviert."
+        return report
+
+    ids = get_warn_role_ids(config)
+    target_level = report["count"] if report["count"] > 0 else None
+    target_role = guild.get_role(ids[target_level]) if target_level else None
+    if target_level and not target_role:
+        report.update(ok=False, message=f"Warn-Rolle {target_level} ({ids[target_level]}) wurde nicht gefunden.")
+        return report
+
+    health = warning_role_health(guild, config)
+    current = next((x for x in health if x["level"] == target_level), None) if target_level else None
+    if current and not current["ok"]:
+        report.update(ok=False, message=f"Warn-Rolle {target_level}: {current['detail']}.")
+        return report
+
+    try:
+        for level in (1, 2, 3):
+            role = guild.get_role(ids[level])
+            if not role:
+                continue
+            if level == target_level:
+                if role not in member.roles:
+                    await member.add_roles(role, reason=f"Warn-System (Dashboard) · Stufe {level}")
+                report["role"] = role
+            elif role in member.roles:
+                if guild.me and guild.me.top_role.position <= role.position:
+                    report.update(ok=False, message=f"Warn-Rolle {level}: Bot-Rolle steht nicht darüber.")
+                    return report
+                await member.remove_roles(role, reason="Warn-System (Dashboard) · alte Stufe entfernen")
+        return report
+    except discord.Forbidden:
+        report.update(ok=False, message="Discord verweigert die Rollenänderung. Prüfe Bot-Rolle und Manage-Roles-Recht.")
+        return report
+    except Exception as exc:
+        print(f"Warn-Rolle konnte nicht angepasst werden: {exc}")
+        report.update(ok=False, message=f"Technischer Fehler bei der Warn-Rolle: {exc}")
+        return report
 
 def team_rank(member, team_role_ids) -> int:
     idx = [team_role_ids.index(r.id) for r in member.roles if r.id in team_role_ids]
