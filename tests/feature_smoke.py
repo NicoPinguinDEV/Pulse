@@ -36,7 +36,16 @@ def main() -> None:
     pro = read("pulse_pro.py")
     main = read("main.py")
 
-    assert "TEAM_UPDATE_CHANNEL_ID = 1531132354272170115" in web
+    tree = parse("webserver.py")
+    constants = {
+        node.targets[0].id: node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and isinstance(node.value, ast.Constant)
+    }
+    assert constants.get("TEAM_UPDATE_CHANNEL_ID") == 1531132354272170115
     assert "async def remove_warn" not in web  # action is intentionally centralized
     assert "if action == " + repr("remove_warn") + ":" in web
     assert "active_warns(entry)" in web
