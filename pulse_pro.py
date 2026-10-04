@@ -506,6 +506,13 @@ def register(app):
         if s["promos"]: urgent += f'<a href="/approvals" class="pulse-alert"><strong>✓ {len(s["promos"])} Beförderungsanträge</strong><div class="text-slate-400 mt-1">Warten auf Entscheidung.</div></a>'
         if s["apps"]: urgent += f'<a href="/applications" class="pulse-alert"><strong>✎ {s["apps"]} offene Bewerbungen</strong><div class="text-slate-400 mt-1">Bitte zeitnah bearbeiten.</div></a>'
         if overdue: urgent += f'<a href="/tasks" class="pulse-alert"><strong>! {len(overdue)} überfällige Aufgaben</strong><div class="text-slate-400 mt-1">Fristen prüfen und Status aktualisieren.</div></a>'
+        teamdb=ws.load_json(ws.DATA_FILE,{})
+        active_warn_total=sum(len(ws.active_warns(v)) for v in teamdb.values() if isinstance(v,dict))
+        critical_warn_people=sum(1 for v in teamdb.values() if isinstance(v,dict) and len(ws.active_warns(v))>=3)
+        if critical_warn_people:
+            urgent += f'<a href="/warns" class="pulse-alert"><strong>🚨 {critical_warn_people} Teamler bei 3/3 Warnungen</strong><div class="text-slate-400 mt-1">Verwarnungen und Konsequenzen prüfen.</div></a>'
+        elif active_warn_total:
+            urgent += f'<a href="/warns" class="pulse-alert"><strong>⚠ {active_warn_total} aktive Team-Warnungen</strong><div class="text-slate-400 mt-1">Zur Verwarnungszentrale.</div></a>'
         if open_t: urgent += f'<a href="/tickets" class="pulse-alert"><strong>▣ {len(open_t)} offene Tickets</strong><div class="text-slate-400 mt-1">Dringende Tickets zuerst übernehmen.</div></a>'
         if not urgent: urgent='<div class="pulse-empty">Alles ruhig. Aktuell keine kritischen Vorgänge.</div>'
         n_html="".join(f'<a href="{e(n.get("url") or "/pulse-inbox")}" class="pulse-row"><div class="pulse-avatar">{e((n.get("title") or "?")[:1])}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(n.get("title"))}</div><div class="pulse-row-meta">{e(n.get("body"))}</div></div></a>' for n in notices) or '<div class="pulse-empty">Keine neuen Benachrichtigungen.</div>'
@@ -1128,7 +1135,7 @@ def register(app):
         c=cctx(request,user_session,perm='can_view_analytics'); buf=io.StringIO(); w=csv.writer(buf); w.writerow(['Discord ID','Name','Rolle','Wochenstunden','Aktueller Status','Warnungen'])
         shifts=ws.load_shifts(); teamdb=ws.load_json(ws.DATA_FILE,{}); ids=c.config.get('team_role_ids',[])
         for m in team(c.guild,ids):
-            sec=ws.calculate_weekly_seconds(str(m.id),shifts.get('history',[]),shifts.get('active_shifts',{})); warns=len(teamdb.get(str(m.id),{}).get('warns_list',[])); st='Im Dienst' if str(m.id) in shifts.get('active_shifts',{}) else 'Offline'; w.writerow([m.id,m.display_name,member_role(m,ids),f'{sec/3600:.2f}',st,warns])
+            sec=ws.calculate_weekly_seconds(str(m.id),shifts.get('history',[]),shifts.get('active_shifts',{})); warns=len(ws.active_warns(teamdb.get(str(m.id),{}))); st='Im Dienst' if str(m.id) in shifts.get('active_shifts',{}) else 'Offline'; w.writerow([m.id,m.display_name,member_role(m,ids),f'{sec/3600:.2f}',st,warns])
         data=buf.getvalue().encode('utf-8-sig'); path=os.path.join(ws.BACKUP_DIR,'pulse_team_export.csv'); open(path,'wb').write(data); return FileResponse(path,media_type='text/csv',filename='pulse_team_export.csv')
 
     async def api_live(request: Request, user_session: str=Cookie(None)):
@@ -1149,7 +1156,7 @@ def register(app):
         return JSONResponse({'name':'Pulse TeamOS','short_name':'Pulse','description':'Professionelles Team-Management für Discord','start_url':'/dashboard','scope':'/','display':'standalone','background_color':'#080b12','theme_color':'#5b5cf0','lang':'de','categories':['productivity','business']})
 
     async def service_worker():
-        return HTMLResponse("""const CACHE='pulse-v5-11';self.addEventListener('install',e=>e.waitUntil(self.skipWaiting()));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('pulse-v5')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>clients.claim())));self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||e.request.url.includes('/api/'))return;if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).catch(()=>new Response('<!doctype html><title>Pulse offline</title><body style=\"font-family:system-ui;padding:40px\"><h1>Pulse ist gerade offline.</h1><p>Bitte prüfe deine Verbindung und lade die Seite erneut.</p></body>',{headers:{'content-type':'text/html;charset=utf-8'},status:503})));}});""",media_type='application/javascript')
+        return HTMLResponse("""const CACHE='pulse-v5-12';self.addEventListener('install',e=>e.waitUntil(self.skipWaiting()));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('pulse-v5')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>clients.claim())));self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||e.request.url.includes('/api/'))return;if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).catch(()=>new Response('<!doctype html><title>Pulse offline</title><body style=\"font-family:system-ui;padding:40px\"><h1>Pulse ist gerade offline.</h1><p>Bitte prüfe deine Verbindung und lade die Seite erneut.</p></body>',{headers:{'content-type':'text/html;charset=utf-8'},status:503})));}});""",media_type='application/javascript')
 
     # Re-register selected pages on top of the v4 versions.
     remove_and_add(app,'/dashboard',{'GET'},dashboard_v5,response_class=HTMLResponse)
