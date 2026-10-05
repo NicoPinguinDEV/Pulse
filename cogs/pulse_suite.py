@@ -709,7 +709,43 @@ class PulseSuite(commands.Cog):
         web=__import__("webserver")
         if not allowed(i,"warn",web) or locked() or not self.safe_target(i,member) or member not in members(i.guild,web):return await i.response.send_message("❌ Warnung nicht erlaubt.",ephemeral=True)
         async def do(x):
-            td=web.load_json(web.DATA_FILE,{});e=web.user_entry(td,str(member.id));w={"id":"warn_"+uuid.uuid4().hex[:10],"reason":grund[:1000],"proof":"","by":i.user.display_name,"date":now().strftime("%d.%m.%Y %H:%M"),"active":True,"revoked_at":None,"revoked_by":None,"revoked_reason":""};e.setdefault("warns_list",[]).append(w);web.save_json(web.DATA_FILE,td);await web.sync_warn_roles(i.guild,member,len(web.active_warns(e)),web.load_config());await web.send_team_update_embed(i.guild,"⚠️ Team-Warnung",f"{member.mention} erhielt eine Warnung.",discord.Color.orange(),actor=i.user,target=member,action="Warnung",fields=[("Grund",grund),("Warn-ID",w["id"])]);audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"warning_created",w["id"]+" · "+grund);await x.response.edit_message(content="✅ Warnung "+w["id"]+" erstellt.",embed=None,view=None)
+            td=web.load_json(web.DATA_FILE,{})
+            e=web.user_entry(td,str(member.id))
+            w={
+                "id":"warn_"+uuid.uuid4().hex[:10],
+                "reason":grund[:1000],
+                "proof":"",
+                "by":i.user.display_name,
+                "date":now().strftime("%d.%m.%Y %H:%M"),
+                "active":True,
+                "revoked_at":None,
+                "revoked_by":None,
+                "revoked_reason":"",
+            }
+            e.setdefault("warns_list",[]).append(w)
+            web.save_json(web.DATA_FILE,td)
+            count=len(web.active_warns(e))
+            role_report=await web.sync_warn_roles(i.guild,member,count,web.load_config())
+            await web.send_team_update_embed(
+                i.guild,
+                "⚠️ Team-Warnung",
+                f"{member.mention} erhielt eine Warnung.",
+                discord.Color.orange(),
+                actor=i.user,
+                target=member,
+                action="Warnung",
+                fields=[
+                    ("Grund",grund),
+                    ("Warn-ID",w["id"]),
+                    ("Warn-Stufe",f"{count}/3"),
+                    ("Discord-Warnrolle","✅ Synchronisiert" if role_report.get("ok") else f"❌ {role_report.get('message')}"),
+                ],
+            )
+            audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"warning_created",w["id"]+" · "+grund)
+            result_text="✅ Warnung "+w["id"]+" erstellt ("+str(count)+"/3)."
+            if not role_report.get("ok"):
+                result_text += "\n⚠️ Warnrolle konnte nicht synchronisiert werden: "+str(role_report.get("message"))
+            await x.response.edit_message(content=result_text,embed=None,view=None)
         await i.response.send_message(f"⚠️ {member.display_name}\n{grund}\n\nWirklich verwarnen?",view=Confirm(i.user.id,do),ephemeral=True)
 
     @app_commands.command(name="warns",description="Zeigt aktive Warnungen eines Teammitglieds.")
@@ -723,7 +759,23 @@ class PulseSuite(commands.Cog):
         web=__import__("webserver");td=web.load_json(web.DATA_FILE,{});e=web.user_entry(td,str(member.id));w=next((x for x in e.get("warns_list",[]) if x.get("id")==warn_id and x.get("active",True)),None)
         if not allowed(i,"warn-remove",web) or locked() or not w:return await i.response.send_message("❌ Warnung nicht gefunden / keine Berechtigung.",ephemeral=True)
         async def do(x):
-            td=web.load_json(web.DATA_FILE,{});e=web.user_entry(td,str(member.id));w=next((z for z in e.get("warns_list",[]) if z.get("id")==warn_id),None);w["active"]=False;w["revoked_at"]=iso();w["revoked_by"]=i.user.display_name;w["revoked_reason"]=grund[:1000];web.save_json(web.DATA_FILE,td);await web.sync_warn_roles(i.guild,member,len(web.active_warns(e)),web.load_config());audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"warning_withdrawn",warn_id+" · "+grund);await x.response.edit_message(content="✅ "+warn_id+" zurückgezogen.",embed=None,view=None)
+            td=web.load_json(web.DATA_FILE,{})
+            e=web.user_entry(td,str(member.id))
+            w=next((z for z in e.get("warns_list",[]) if z.get("id")==warn_id),None)
+            if not w:
+                raise ValueError("Warnung wurde nicht gefunden.")
+            w["active"]=False
+            w["revoked_at"]=iso()
+            w["revoked_by"]=i.user.display_name
+            w["revoked_reason"]=grund[:1000]
+            web.save_json(web.DATA_FILE,td)
+            count=len(web.active_warns(e))
+            role_report=await web.sync_warn_roles(i.guild,member,count,web.load_config())
+            audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"warning_withdrawn",warn_id+" · "+grund)
+            result_text="✅ "+warn_id+" zurückgezogen ("+str(count)+"/3 aktiv)."
+            if not role_report.get("ok"):
+                result_text += "\n⚠️ Warnrolle konnte nicht synchronisiert werden: "+str(role_report.get("message"))
+            await x.response.edit_message(content=result_text,embed=None,view=None)
         await i.response.send_message(f"Warnung {warn_id} von {member.display_name} wirklich zurückziehen?",view=Confirm(i.user.id,do),ephemeral=True)
 
     @app_commands.command(name="server-exit",description="Kritische Server-Aktion mit Zweitfreigabe.")

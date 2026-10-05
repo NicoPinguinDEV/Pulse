@@ -152,17 +152,31 @@ class ActivityCheckCog(commands.Cog):
                 await interaction.response.send_message("Heute wurde noch kein Activity Check gesendet. Im Pulse-Dashboard findest du die Auswertung unter **Activity Check**.",ephemeral=True); return
             check_id=row['id']
             responded={int(r['user_id']) for r in c.execute("SELECT user_id FROM responses WHERE check_id=?",(check_id,)).fetchall()}
+            snapshot={int(r['user_id']) for r in c.execute("SELECT user_id FROM check_members WHERE check_id=?",(check_id,)).fetchall()}
             role_id=get_config('activity_role_id')
+
         role=interaction.guild.get_role(int(role_id)) if role_id and str(role_id).isdigit() else None
-        members=[m for m in (role.members if role else interaction.guild.members) if not m.bot]
+        if snapshot:
+            members=[interaction.guild.get_member(uid) for uid in snapshot]
+            members=[m for m in members if m and not m.bot]
+        else:
+            # Legacy-Checks ohne Snapshot: bestehendes Verhalten beibehalten.
+            members=[m for m in (role.members if role else interaction.guild.members) if not m.bot]
+
         confirmed=sorted([m for m in members if m.id in responded],key=lambda m:m.display_name.lower())
         open_members=sorted([m for m in members if m.id not in responded],key=lambda m:m.display_name.lower())
+
         def names(items):
             text=', '.join(m.display_name for m in items) or '—'
             return text if len(text)<=1000 else text[:997]+'…'
+
         embed=discord.Embed(title=f'📊 Activity Check · {today}',color=discord.Color.blurple())
         embed.add_field(name=f'✅ Bestätigt · {len(confirmed)}',value=names(confirmed),inline=False)
         embed.add_field(name=f'⏳ Noch offen · {len(open_members)}',value=names(open_members),inline=False)
+        if snapshot:
+            changed_out = len(snapshot - {m.id for m in members})
+            if changed_out:
+                embed.add_field(name='ℹ️ Nicht mehr im Team',value=f'{changed_out} damalige Teilnehmer sind aktuell nicht mehr auf dem Server/Team.',inline=False)
         embed.set_footer(text='Für die vollständige Liste: Pulse Dashboard → Activity Check')
         await interaction.response.send_message(embed=embed,ephemeral=True)
 
