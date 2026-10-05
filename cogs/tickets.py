@@ -5,7 +5,8 @@ import os
 import re
 
 import discord
-from discord.ext import commands
+from discord import app_commands
+from discord.ext import commands, tasks
 from discord.ui import Button, Modal, Select, TextInput, View
 
 from pulse_db import (
@@ -17,17 +18,21 @@ from pulse_db import (
     record_event,
     unclaim_ticket,
     update_ticket_priority,
+    get_setting,
+    set_setting,
 )
 
 os.makedirs("transcripts", exist_ok=True)
 
+TICKET_PARENT_NAME = "🎫・Tickets"
+TEAM_UPDATE_CHANNEL_ID = 1531132354272170115
+
 CATEGORY_META = {
-    "support": ("Support", "Hilfe bei Fragen oder Problemen", "🛠️"),
-    "bewerbung": ("Bewerbung", "Fragen rund um deine Bewerbung", "📝"),
-    "beschwerde": ("Beschwerde", "Melde einen Vorfall oder eine Beschwerde", "⚠️"),
-    "admin": ("Leitung", "Wichtige Angelegenheiten für die Leitung", "🚨"),
-    "technik": ("Technik", "Technische Probleme mit Pulse oder dem Server", "💻"),
-    "rp": ("RP", "Fragen und Hilfe rund um das RP", "🎮"),
+    "support": ("Allgemeiner Support", "Fragen, Hilfe und allgemeine Anliegen", "🎫", 10, "team"),
+    "bug": ("Bug melden", "Technische Fehler oder Server-Bugs melden", "⚙️", 5, "team"),
+    "unban": ("Entbannungsantrag", "Antrag auf Überprüfung einer Sanktion", "📩", 5, "team"),
+    "highteam": ("Highteam Ticket", "Vertrauliche Angelegenheiten für das Highteam", "💢", 3, "highteam"),
+    "leadership": ("Führungsebene Ticket", "Vertrauliche Angelegenheiten für die Führungsebene", "🐬", 3, "leadership"),
 }
 
 PRIORITIES = ["low", "normal", "high", "urgent"]
@@ -42,6 +47,94 @@ def web_cfg():
 def team_roles(guild):
     ids = set(web_cfg().get("team_role_ids", []))
     return [r for r in guild.roles if r.id in ids]
+
+
+def ticket_config() -> dict:
+    return get_setting("ticket_system_config", {}) or {}
+
+
+def save_ticket_config(config: dict):
+    set_setting("ticket_system_config", config)
+
+
+def configured_role_ids(guild, group: str):
+    config = ticket_config()
+    key = f"{group}_role_ids"
+    values = config.get(key, [])
+    roles = []
+    for raw in values if isinstance(values, list) else []:
+        try:
+            role = guild.get_role(int(raw))
+        except (TypeError, ValueError):
+            role = None
+        if role and not role.managed:
+            roles.append(role)
+    if roles:
+        return roles
+    return team_roles(guild)
+
+
+def category_open_count(key: str) -> int:
+    return sum(
+        1 for ticket in list_tickets(limit=2000)
+        if ticket.get("category") == key and ticket.get("status") != "closed"
+    )
+
+
+def category_meta(key: str):
+    meta = CATEGORY_META.get(key)
+    if not meta:
+        return ("Ticket", "Allgemeines Anliegen", "🎫", 10, "team")
+    return meta
+
+
+def category_roles(guild, key: str):
+    return configured_role_ids(guild, category_meta(key)[4])
+
+
+def can_manage_ticket(member, ticket) -> bool:
+    if member.guild_permissions.administrator:
+        return True
+    key = str(ticket.get("category", "support"))
+    return any(role.id in {r.id for r in category_roles(member.guild, key)} for role in member.roles)
+
+
+def build_panel_embed(guild) -> discord.Embed:
+    lines = [
+        "<:ticket:1360768000235409559> **Ticket-Support**",
+        "",
+        "Brauchst du Hilfe oder möchtest etwas melden? Unser Team hilft dir schnell und zuverlässig weiter.",
+        "",
+        "## 📂 Verfügbare Tickets",
+        "",
+        "🎫 **Allgemeiner Support**",
+        "⚙️ **Bug melden**",
+        "📩 **Entbannungsantrag**",
+        "💢 **Highteam Ticket**",
+        "🐬 **Führungsebene Ticket**",
+        "",
+        "«Wähle unten einfach die passende Kategorie aus und erstelle dein Ticket.»",
+        "",
+        "💙 Dein ©𝑩𝑶𝑪𝑯𝑼𝑴 𝑹𝑷 | 𝑽𝟏 Team",
+        "",
+        "### <:chartsimple:1492541035497128132> Ticket Auslastung",
+        "",
+        "Hier siehst du die aktuelle Auslastung unserer Tickets. Bei einer höheren Auslastung kann es zu längeren Bearbeitungszeiten kommen. Ein Ticket kannst du jedoch jederzeit eröffnen, unabhängig von der Auslastung.",
+        "",
+    ]
+    for key, meta in CATEGORY_META.items():
+        current = category_open_count(key)
+        maximum = meta[3]
+        percent = int((current / maximum) * 100) if maximum else 0
+        lines.append(f"- <:ut_low:1360768000239769621> **{meta[0]}:** Verfügbar `{current}/{maximum}` ({percent}%)")
+    embed = discord.Embed(title="<:ticket:1360768000235409559> Ticket-Support", description="\n".join(lines), color=discord.Color.blurple())
+    embed.add_field(name="🔐 Privat & sicher", value="Tickets sind nur für den Ersteller und die zuständigen Bearbeiter sichtbar.", inline=True)
+    embed.add_field(name="⚡ Schnelle Bearbeitung", value="Tickets können übernommen, priorisiert und strukturiert abgeschlossen werden.", inline=True)
+    embed.set_footer(text="Pulse Ticket-System • Bochum RP")
+    embed.timestamp = discord.utils.utcnow()
+    if guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+    return embed
 
 
 def is_team(member) -> bool:
@@ -74,11 +167,13 @@ async def transcript(channel):
 
 
 async def refresh_ticket_embed(channel, ticket: dict, control_view=None):
-    label, _, emoji = CATEGORY_META.get(ticket.get("category"), (ticket.get("category", "Ticket"), "", "🎫"))
+    label, _, emoji, _, _ = category_meta(ticket.get("category"))
     embed = discord.Embed(
         title=f"{emoji} {label} – Ticket",
         description=f"Ticket-ID: `{ticket['id']}`\nAnliegen: **{ticket['user_name']}**",
-        color=discord.Color.red() if ticket.get("priority") == "urgent" else discord.Color.blurple(),
+        color=discord.Color.red() if ticket.get("priority") == "urgent" else (
+            CATEGORY_META.get(ticket.get("category"), CATEGORY_META["support"])[3] and discord.Color.blurple()
+        ),
     )
     status = "✅ Geschlossen" if ticket.get("status") == "closed" else "🔵 In Bearbeitung" if ticket.get("claimed_by_id") else "🟢 Offen"
     claimed = ticket.get("claimed_by_name") or "Niemand"
@@ -147,51 +242,148 @@ class TicketCloseModal(Modal, title="Ticket schließen"):
 
 class TicketSelect(Select):
     def __init__(self):
-        options = [discord.SelectOption(label=v[0], description=v[1], emoji=v[2], value=k) for k, v in CATEGORY_META.items()]
-        super().__init__(placeholder="Wähle eine Kategorie…", min_values=1, max_values=1, options=options, custom_id="pulse_ticket_category")
+        options = [
+            discord.SelectOption(
+                label=meta[0],
+                description=f"{meta[1]} · {category_open_count(key)}/{meta[3]} offen",
+                emoji=meta[2],
+                value=key,
+            )
+            for key, meta in CATEGORY_META.items()
+        ]
+        super().__init__(
+            placeholder="Wähle die passende Ticket-Kategorie …",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="pulse_ticket_category_v3",
+        )
 
     async def callback(self, interaction: discord.Interaction):
         guild = interaction.guild
         if not guild:
-            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True)
+            await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
             return
-        category = discord.utils.get(guild.categories, name="Tickets")
-        if not category:
-            category = await guild.create_category("Tickets", reason="Pulse Ticket-System")
-        existing = []
-        for c in category.text_channels:
-            if c.topic and f"user:{interaction.user.id}" in c.topic:
-                t = get_ticket(channel_id=c.id)
-                if t and t.get("status") != "closed":
-                    existing.append(c)
+
+        key = self.values[0]
+        label, desc, emoji, maximum, group = category_meta(key)
+
+        existing = None
+        for ticket in list_tickets(limit=2000):
+            if (
+                str(ticket.get("guild_id")) == str(guild.id)
+                and str(ticket.get("user_id")) == str(interaction.user.id)
+                and ticket.get("status") != "closed"
+            ):
+                existing = ticket
+                break
+
         if existing:
-            await interaction.response.send_message(f"Du hast bereits ein offenes Ticket: {existing[0].mention}", ephemeral=True)
+            channel = guild.get_channel(int(existing["channel_id"])) if existing.get("channel_id") else None
+            if channel:
+                await interaction.response.send_message(
+                    f"🎫 Du hast bereits ein offenes Ticket: {channel.mention}",
+                    ephemeral=True,
+                )
+                return
+            close_ticket(existing["id"], "Verwaistes Ticket automatisch archiviert.", "", interaction.user.id, interaction.user.display_name)
+
+        parent = discord.utils.get(guild.categories, name=TICKET_PARENT_NAME)
+        if not parent:
+            parent = await guild.create_category(TICKET_PARENT_NAME, reason="Pulse Ticket-System")
+
+        roles = category_roles(guild, key)
+        if key in ("highteam", "leadership") and not ticket_config().get(f"{group}_role_ids"):
+            await interaction.response.send_message(
+                f"⚠️ **{label}** ist noch nicht vollständig eingerichtet. Eine zuständige Rolle muss zuerst durch einen Administrator konfiguriert werden.",
+                ephemeral=True,
+            )
             return
-        roles = team_roles(guild)
+
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, attach_files=True),
-            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True, manage_messages=True),
+            interaction.user: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True,
+            ),
+            guild.me: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_channels=True,
+                manage_messages=True,
+                manage_permissions=True,
+                attach_files=True,
+                embed_links=True,
+            ),
         }
+
         for role in roles:
-            overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_messages=True, attach_files=True)
-        key = self.values[0]
-        label = CATEGORY_META[key][0]
-        channel = await guild.create_text_channel(f"ticket-{key}-{safe_channel_name(interaction.user.display_name)}", category=category, overwrites=overwrites, topic=f"Pulse Ticket | user:{interaction.user.id} | category:{key}")
+            overwrites[role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+                attach_files=True,
+                embed_links=True,
+            )
+
+        channel = await guild.create_text_channel(
+            f"ticket-{key}-{safe_channel_name(interaction.user.display_name)}",
+            category=parent,
+            overwrites=overwrites,
+            topic=f"Pulse Ticket | user:{interaction.user.id} | category:{key}",
+            reason=f"Pulse Ticket erstellt von {interaction.user}",
+        )
         tid = create_ticket(channel.id, guild.id, interaction.user.id, interaction.user.display_name, key)
-        embed = discord.Embed(title=f"{CATEGORY_META[key][2]} {label} – Ticket", description=f"Willkommen {interaction.user.mention}!\n\nEin Teammitglied kann das Ticket übernehmen.\n**Ticket:** `{tid}`", color=discord.Color.blurple())
-        embed.add_field(name="Status", value="🟢 Offen", inline=True)
-        embed.add_field(name="Priorität", value="🟢 Normal", inline=True)
-        embed.add_field(name="Kategorie", value=label, inline=True)
-        embed.set_footer(text="Pulse Ticket-System")
+
+        embed = discord.Embed(
+            title=f"{emoji} {label}",
+            description=(
+                f"Willkommen {interaction.user.mention}!\n\n"
+                f"Beschreibe dein Anliegen bitte möglichst vollständig.\n"
+                f"Ein zuständiges Teammitglied wird sich um dein Anliegen kümmern.\n\n"
+                f"**Ticket-ID:** `{tid}`\n"
+                f"**Kategorie:** {label}\n"
+                f"**Status:** 🟢 Offen\n"
+                f"**Priorität:** 🟢 Normal\n"
+                f"**Bearbeiter:** Noch nicht übernommen"
+            ),
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(
+            name="📋 Vorgehen",
+            value="1. Anliegen erklären\n2. Rückfragen beantworten\n3. Lösung bestätigen\n4. Ticket über **Schließen** beenden",
+            inline=False,
+        )
+        embed.add_field(
+            name="🛡️ Hinweise",
+            value="Keine unnötigen Pings. Sensible Daten nur an zuständige Teammitglieder weitergeben.",
+            inline=False,
+        )
+        embed.set_footer(text="Pulse Ticket-System • Ticket-Steuerung")
+        embed.timestamp = discord.utils.utcnow()
         await channel.send(embed=embed, view=TicketControlView())
-        for role in roles:
-            try:
-                await channel.send(f"{role.mention} Neues {label}-Ticket von {interaction.user.mention}.", allowed_mentions=discord.AllowedMentions(roles=True, users=True))
-                break
-            except Exception:
-                continue
-        await interaction.response.send_message(f"✅ Ticket erstellt: {channel.mention}", ephemeral=True)
+
+        mentions = " ".join(role.mention for role in roles[:10])
+        if mentions:
+            await channel.send(
+                f"📣 {mentions}\nNeues **{label}** von {interaction.user.mention}.",
+                allowed_mentions=discord.AllowedMentions(roles=True, users=True),
+            )
+
+        record_event(
+            "ticket_created",
+            "ticket",
+            tid,
+            interaction.user.id,
+            interaction.user.display_name,
+            {"category": key, "channel_id": channel.id},
+        )
+        await interaction.response.send_message(f"✅ Dein Ticket wurde erstellt: {channel.mention}", ephemeral=True)
 
 
 class TicketView(View):
@@ -280,38 +472,124 @@ class TicketControlView(View):
 class Tickets(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.panel_refresh.start()
+
+    def cog_unload(self):
+        self.panel_refresh.cancel()
 
     async def cog_load(self):
         self.bot.add_view(TicketView())
         self.bot.add_view(TicketControlView())
 
+    @tasks.loop(minutes=5)
+    async def panel_refresh(self):
+        await self.bot.wait_until_ready()
+        settings = ticket_config()
+        channel_id = settings.get("panel_channel_id")
+        message_id = settings.get("panel_message_id")
+        if not channel_id or not message_id:
+            return
+        for guild in self.bot.guilds:
+            try:
+                channel = guild.get_channel(int(channel_id))
+                if not channel:
+                    continue
+                message = await channel.fetch_message(int(message_id))
+                await message.edit(embed=build_panel_embed(guild), view=TicketView())
+            except Exception as exc:
+                print(f"Ticket-Panel konnte nicht aktualisiert werden: {exc}")
+
+    @panel_refresh.before_loop
+    async def before_panel_refresh(self):
+        await self.bot.wait_until_ready()
+
+    @app_commands.command(name="ticketpanel", description="Richtet das professionelle Ticket-Panel ein.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ticketpanel(self, interaction: discord.Interaction):
+        if not interaction.guild or not interaction.channel:
+            await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        message = await interaction.channel.send(embed=build_panel_embed(interaction.guild), view=TicketView())
+        settings = ticket_config()
+        settings.update({"panel_channel_id": interaction.channel.id, "panel_message_id": message.id})
+        save_ticket_config(settings)
+        await interaction.followup.send("✅ Professionelles Ticket-Panel eingerichtet. Die Auslastung wird automatisch aktualisiert.", ephemeral=True)
+
+    @app_commands.command(name="ticketrole", description="Setzt die zuständige Rolle für Highteam oder Führungsebene.")
+    @app_commands.describe(bereich="Geschützter Ticketbereich", rolle="Rolle, die Zugriff erhält")
+    @app_commands.choices(bereich=[
+        app_commands.Choice(name="Highteam Ticket", value="highteam"),
+        app_commands.Choice(name="Führungsebene Ticket", value="leadership"),
+    ])
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ticketrole(self, interaction: discord.Interaction, bereich: app_commands.Choice[str], rolle: discord.Role):
+        settings = ticket_config()
+        settings[f"{bereich.value}_role_ids"] = [rolle.id]
+        save_ticket_config(settings)
+        await interaction.response.send_message(
+            f"✅ {rolle.mention} ist jetzt für **{CATEGORY_META[bereich.value][0]}** zuständig.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="ticketlog", description="Setzt den Kanal für Ticket-Protokolle.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ticketlog(self, interaction: discord.Interaction, kanal: discord.TextChannel):
+        settings = ticket_config()
+        settings["log_channel_id"] = kanal.id
+        save_ticket_config(settings)
+        await interaction.response.send_message(f"✅ Ticket-Protokolle gehen ab jetzt in {kanal.mention}.", ephemeral=True)
+
+    @app_commands.command(name="ticketstats", description="Zeigt Ticket-Auslastung und Bearbeitungsstatistik.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ticketstats_slash(self, interaction: discord.Interaction):
+        items = list_tickets(limit=2000)
+        open_items = [ticket for ticket in items if ticket.get("status") != "closed"]
+        closed_items = [ticket for ticket in items if ticket.get("status") == "closed"]
+        ratings = [int(ticket["rating"]) for ticket in closed_items if ticket.get("rating")]
+        average = sum(ratings) / len(ratings) if ratings else 0
+
+        lines = []
+        for key, meta in CATEGORY_META.items():
+            current = sum(1 for ticket in open_items if ticket.get("category") == key)
+            percent = int(current / meta[3] * 100) if meta[3] else 0
+            lines.append(f"{meta[2]} **{meta[0]}** · `{current}/{meta[3]}` · {percent}%")
+
+        embed = discord.Embed(
+            title="📊 Pulse Ticket-Auslastung",
+            description="\n".join(lines),
+            color=discord.Color.blurple(),
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="🎫 Gesamt", value=str(len(items)), inline=True)
+        embed.add_field(name="🟢 Offen", value=str(len(open_items)), inline=True)
+        embed.add_field(name="✅ Geschlossen", value=str(len(closed_items)), inline=True)
+        embed.add_field(name="⭐ Durchschnitt", value=f"{average:.1f}/5" if ratings else "Noch keine Bewertungen", inline=True)
+        embed.set_footer(text="Pulse Ticket-System • Statistik")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="ticketsetup", description="Legacy-Setup: erstellt das Ticket-Panel im aktuellen Kanal.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ticketsetup_slash(self, interaction: discord.Interaction):
+        await self.ticketpanel.callback(self.ticketpanel, interaction)
+
     @commands.command(name="ticketsetup")
     @commands.has_permissions(administrator=True)
-    async def ticketsetup(self, ctx):
-        embed = discord.Embed(title="🎫 Pulse Support-Tickets", description="Wähle eine Kategorie. Tickets sind privat und können vom Team übernommen werden.", color=discord.Color.blurple())
-        embed.add_field(name="🛠️ Support", value="Fragen und Probleme", inline=True)
-        embed.add_field(name="📝 Bewerbung", value="Bewerbungsfragen", inline=True)
-        embed.add_field(name="🚨 Leitung", value="Wichtige Angelegenheiten", inline=True)
-        embed.set_footer(text="Pulse Pro · Ticket-System")
-        await ctx.send(embed=embed, view=TicketView())
+    async def legacy_ticketsetup(self, ctx):
+        message = await ctx.send(embed=build_panel_embed(ctx.guild), view=TicketView())
+        settings = ticket_config()
+        settings.update({"panel_channel_id": ctx.channel.id, "panel_message_id": message.id})
+        save_ticket_config(settings)
 
     @commands.command(name="ticketstats")
     @commands.has_permissions(administrator=True)
-    async def ticketstats(self, ctx):
+    async def legacy_ticketstats(self, ctx):
         items = list_tickets(limit=2000)
-        closed = [t for t in items if t["status"] == "closed"]
-        open_items = [t for t in items if t["status"] != "closed"]
-        rated = [int(t["rating"]) for t in closed if t.get("rating")]
-        avg = sum(rated) / len(rated) if rated else 0
-        urgent = sum(1 for t in open_items if t.get("priority") == "urgent")
-        e = discord.Embed(title="🎫 Pulse Ticket-Statistik", color=discord.Color.blurple())
-        e.add_field(name="Gesamt", value=str(len(items)), inline=True)
-        e.add_field(name="Offen", value=str(len(open_items)), inline=True)
-        e.add_field(name="Dringend", value=str(urgent), inline=True)
-        e.add_field(name="Geschlossen", value=str(len(closed)), inline=True)
-        e.add_field(name="Bewertungen", value=f"{avg:.1f} ⭐" if rated else "Keine", inline=True)
-        e.add_field(name="Bearbeitungsquote", value=f"{len(closed)/len(items)*100:.0f}%" if items else "0%", inline=True)
-        await ctx.send(embed=e)
+        closed = sum(1 for ticket in items if ticket.get("status") == "closed")
+        open_count = len(items) - closed
+        await ctx.send(
+            f"📊 **Pulse Ticket-System** · Gesamt `{len(items)}` · Offen `{open_count}` · Geschlossen `{closed}`"
+        )
 
 
 async def setup(bot):
