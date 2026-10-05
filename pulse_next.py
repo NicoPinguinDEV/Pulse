@@ -331,7 +331,7 @@ def progress(current, target):
 def next_page(ctx, active, title, subtitle, body, search=True):
     extra = """
     <div class="pulse-mobile-actions">
-      <a href="/ultimate">⚡</a><a href="/ultimate/search">🔎</a><a href="/ultimate/team">👥</a><a href="/ultimate/tasks">📋</a><a href="/ultimate/approvals">✅</a>
+      <a href="/ultimate">⚡</a><a href="/ultimate/search">🔎</a><a href="/ultimate/team">👥</a><a href="/tasks">📋</a><a href="/ultimate/approvals">✅</a>
     </div>
     <style>.pulse-mobile-actions{display:none}@media(max-width:800px){.pulse-mobile-actions{display:flex;position:fixed;left:10px;right:10px;bottom:10px;z-index:20;justify-content:space-around;background:#0b1320f5;border:1px solid #ffffff15;border-radius:15px;padding:8px;backdrop-filter:blur(12px)}.pulse-mobile-actions a{font-size:20px;padding:6px 14px}}</style>
     """
@@ -465,7 +465,7 @@ def get_search_results(ctx, q):
     except Exception: pass
     return result
 
-def promote_now(ctx, row):
+async def promote_now(ctx, row):
     import webserver
     guild = ctx.guild
     member = guild.get_member(int(row["user_id"]))
@@ -798,7 +798,7 @@ def register(app):
         ctx=ctx_auth(request,user_session); require_perm(ctx,"can_manage_announcements")
         if priority not in {"normal","important","critical"}: priority="normal"
         with cx() as c:
-            c.execute("INSERT INTO next_announcements VALUES(?,?,?,?,?,?,?,?,?)",(u.uid("news"),title[:180],body[:8000],priority,"team",1 if pinned else 0,expires_at[:80] or None,actor_id(ctx),actor_name(ctx),iso()))
+            c.execute("INSERT INTO next_announcements VALUES(?,?,?,?,?,?,?,?,?,?)",(u.uid("news"),title[:180],body[:8000],priority,"team",1 if pinned else 0,expires_at[:80] or None,actor_id(ctx),actor_name(ctx),iso()))
         save_audit(ctx,"Team-News veröffentlicht","",title)
         for m in members(ctx.guild):
             db.notify(m.id,"📢 "+title,body[:300],"critical" if priority=="critical" else "info","/ultimate/announcements")
@@ -864,7 +864,7 @@ def register(app):
     async def goals_create(request:Request,title:str=Form(...),description:str=Form(""),target:float=Form(100),unit:str=Form("%"),due_at:str=Form(""),user_session:str=Cookie(None)):
         ctx=ctx_auth(request,user_session); require_perm(ctx,"can_manage_goals")
         with cx() as c:
-            c.execute("INSERT INTO next_goals VALUES(?,?,?,?,?,?,?,?,?,?,?)",(u.uid("goal"),title[:180],description[:3000],"team","",max(0,target),0,unit[:20],due_at[:80] or None,"active",actor_id(ctx),actor_name(ctx),iso()))
+            c.execute("INSERT INTO next_goals VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",(u.uid("goal"),title[:180],description[:3000],"team","",max(0,target),0,unit[:20],due_at[:80] or None,"active",actor_id(ctx),actor_name(ctx),iso()))
         save_audit(ctx,"Team-Ziel erstellt","",title)
         return RedirectResponse("/ultimate/goals",status_code=303)
 
@@ -876,7 +876,7 @@ def register(app):
             if not row: raise HTTPException(404,"Ziel nicht gefunden.")
             status="done" if float(value)>=float(row["target"]) else "active"
             c.execute("UPDATE next_goals SET current=?,status=? WHERE id=?",(float(value),status,goal_id))
-            c.execute("INSERT INTO next_goal_updates VALUES(?,?,?,?,?,?)",(u.uid("gu"),goal_id,float(value),note[:1000],actor_id(ctx),actor_name(ctx),iso()))
+            c.execute("INSERT INTO next_goal_updates VALUES(?,?,?,?,?,?,?)",(u.uid("gu"),goal_id,float(value),note[:1000],actor_id(ctx),actor_name(ctx),iso()))
         return RedirectResponse("/ultimate/goals",status_code=303)
 
     @app.get("/ultimate/achievements", response_class=HTMLResponse)
