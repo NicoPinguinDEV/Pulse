@@ -369,9 +369,13 @@ def audit(ctx, action: str, target_id: str = "", target_name: str = "", details:
 
 def case_number() -> str:
     year = utcnow().year
+    prefix = f"PX-{year}-%"
     with cx() as c:
-        row = c.execute("SELECT COUNT(*) FROM ultimate_cases").fetchone()
-        n = int(row[0]) + 1
+        row = c.execute(
+            "SELECT COALESCE(MAX(CAST(SUBSTR(case_no, 9) AS INTEGER)), 0) FROM ultimate_cases WHERE case_no LIKE ?",
+            (prefix,),
+        ).fetchone()
+        n = int(row[0] or 0) + 1
     return f"PX-{year}-{n:04d}"
 
 
@@ -382,8 +386,8 @@ def ensure_profile(member) -> None:
         exists = c.execute("SELECT 1 FROM ultimate_profiles WHERE user_id=?", (str(member.id),)).fetchone()
         if exists:
             c.execute(
-                "UPDATE ultimate_profiles SET display_name=?,archived_at=NULL,updated_at=? WHERE user_id=?",
-                (member.display_name, now_s, str(member.id)),
+                "UPDATE ultimate_profiles SET display_name=?,archived_at=NULL WHERE user_id=?",
+                (member.display_name, str(member.id)),
             )
         else:
             c.execute(
@@ -1668,6 +1672,16 @@ async def _run_automation(bot, automation: dict):
     if not guild:
         return "guild unavailable"
 
+    if action == "notify_user":
+        target_id = str(payload.get("user_id") or "")
+        target = guild.get_member(int(target_id)) if target_id.isdigit() else None
+        if not target:
+            return "target unavailable"
+        title = str(payload.get("title") or automation["name"])[:160]
+        body = str(payload.get("body") or "Automatische Pulse-Benachrichtigung.")[:1000]
+        db.notify(target.id, title, body, "warning" if payload.get("urgent") else "info", payload.get("url") or "/ultimate")
+        return f"notification {target.id}"
+
     if action in {"notify_managers", "notify_team"}:
         target_members = team_members(guild)
         if action == "notify_managers":
@@ -1699,7 +1713,10 @@ async def _run_automation(bot, automation: dict):
         case_id = uid("case")
         with cx() as c:
             c.execute(
-                "INSERT INTO ultimate_cases VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                """INSERT INTO ultimate_cases
+                (id,case_no,title,category,priority,status,subject_type,subject_id,subject_name,description,
+                 assignee_id,assignee_name,created_by_id,created_by_name,created_at,updated_at,closed_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (case_id, case_number(), title, str(payload.get("category") or "automation")[:40],
                  str(payload.get("priority") or "normal"), "open", "automation", str(payload.get("subject_id") or ""),
                  str(payload.get("subject_name") or ""), str(payload.get("description") or "")[:5000],
