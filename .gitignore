@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+.session_secret
+
+# Runtime databases and state
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.json.tmp
+
+# Runtime exports / generated files
+backups/
+transcripts/
+
+# Local tooling
+.vscode/
+.idea/
+.DS_Store
