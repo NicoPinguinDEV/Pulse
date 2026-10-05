@@ -44,11 +44,30 @@ load_dotenv(BASE_DIR / ".env")
 # =============================================================
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "")
-REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "http://localhost:25095/callback")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
-APPLICATION_REDIRECT_URI = os.getenv("DISCORD_APPLICATION_REDIRECT_URI", "")
-if not APPLICATION_REDIRECT_URI:
-    APPLICATION_REDIRECT_URI = (REDIRECT_URI.rsplit("/", 1)[0] + "/apply/callback") if "/" in REDIRECT_URI else REDIRECT_URI.rstrip("/") + "/apply/callback"
+REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "").strip()
+APPLICATION_REDIRECT_URI = os.getenv("DISCORD_APPLICATION_REDIRECT_URI", "").strip()
+
+def request_origin(request: Request) -> str:
+    """Ermittelt die öffentliche Dashboard-URL hinter einem Reverse Proxy."""
+    if PUBLIC_BASE_URL:
+        return PUBLIC_BASE_URL.rstrip("/")
+    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_host:
+        scheme = (forwarded_proto.split(",")[0].strip() if forwarded_proto else request.url.scheme)
+        return f"{scheme}://{forwarded_host}".rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+def oauth_redirect_uri(request: Request, application: bool = False) -> str:
+    """Nutzt immer die konfigurierte oder öffentlich aufgerufene Callback-URL."""
+    configured = APPLICATION_REDIRECT_URI if application else REDIRECT_URI
+    if configured:
+        return configured.rstrip("/")
+    return f"{request_origin(request)}/{ 'apply/callback' if application else 'callback' }"
+
+def oauth_cookie_secure(request: Request) -> bool:
+    return oauth_redirect_uri(request).startswith("https://") or oauth_redirect_uri(request, application=True).startswith("https://")
 GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616"))
 TEAM_UPDATE_CHANNEL_NAME = os.getenv("TEAM_UPDATE_CHANNEL_NAME", "╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
 TEAM_UPDATE_CHANNEL_ID = 1531132354272170115  # zentraler Team-Updates-Kanal
@@ -63,7 +82,7 @@ SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
 MAX_SHIFT_HOURS = float(os.getenv("MAX_SHIFT_HOURS", "12"))     # vergessene Schichten werden danach beendet
 AUTO_BACKUP_HOURS = float(os.getenv("AUTO_BACKUP_HOURS", "24")) # 0 = aus
 MAX_BACKUPS = int(os.getenv("MAX_BACKUPS", "30"))
-COOKIE_SECURE = (PUBLIC_BASE_URL or REDIRECT_URI).startswith("https://")
+COOKIE_SECURE = bool(PUBLIC_BASE_URL and PUBLIC_BASE_URL.startswith("https://"))
 
 DATA_FILE = "team_data.json"
 CONFIG_FILE = "config.json"
@@ -932,12 +951,14 @@ async def home(user_session: str = Cookie(None)):
 
 
 @app.get("/login")
-async def login():
+async def login(request: Request):
     state = secrets.token_urlsafe(24)  # CSRF-Schutz für den OAuth-Ablauf
+    redirect_uri = oauth_redirect_uri(request)
     url = (f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}"
-           f"&redirect_uri={quote(REDIRECT_URI, safe='')}&response_type=code&scope=identify&state={state}")
+           f"&redirect_uri={quote(redirect_uri, safe='')}&response_type=code&scope=identify&state={state}")
     response = RedirectResponse(url=url, status_code=303)
-    response.set_cookie("oauth_state", state, max_age=600, httponly=True, samesite="lax", secure=COOKIE_SECURE)
+    response.set_cookie("oauth_state", state, max_age=600, httponly=True, samesite="lax",
+                        secure=oauth_cookie_secure(request))
     return response
 
 
@@ -958,10 +979,11 @@ async def callback(request: Request, code: str = None, state: str = None, error:
         return HTMLResponse(simple_page("❌", "Login fehlgeschlagen", "Ungültiger Sicherheits-Token. Bitte erneut anmelden.", retry), status_code=400)
 
     async with httpx.AsyncClient() as client:
+        redirect_uri = oauth_redirect_uri(request)
         token_res = await client.post(
             "https://discord.com/api/v10/oauth2/token",
             data={"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "grant_type": "authorization_code",
-                  "code": code, "redirect_uri": REDIRECT_URI},
+                  "code": code, "redirect_uri": redirect_uri},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
         access_token = token_res.json().get("access_token")
@@ -1992,13 +2014,14 @@ async def public_apply_page(apply_session: str = Cookie(None)):
 
 
 @app.get("/apply/login")
-async def apply_login():
+async def apply_login(request: Request):
     state = secrets.token_urlsafe(24)
+    redirect_apply = oauth_redirect_uri(request, application=True)
     url = (f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}"
-           f"&redirect_uri={quote(APPLICATION_REDIRECT_URI, safe='')}"
+           f"&redirect_uri={quote(redirect_apply, safe='')}"
            f"&response_type=code&scope=identify&state={state}")
     response=RedirectResponse(url=url,status_code=303)
-    response.set_cookie("apply_oauth_state",state,max_age=600,httponly=True,samesite="lax",secure=COOKIE_SECURE)
+    response.set_cookie("apply_oauth_state",state,max_age=600,httponly=True,samesite="lax",secure=oauth_cookie_secure(request))
     return response
 
 
@@ -2007,14 +2030,14 @@ async def apply_callback(request: Request, code: str=None, state: str=None, erro
     retry='<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zur Bewerbung</a>'
     if error or not code or not state or not apply_oauth_state or not hmac.compare_digest(state,apply_oauth_state):
         return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen','Bitte erneut versuchen.',retry),status_code=400)
-    redirect_apply=APPLICATION_REDIRECT_URI
+    redirect_apply=oauth_redirect_uri(request, application=True)
     async with httpx.AsyncClient() as client:
         tr=await client.post('https://discord.com/api/v10/oauth2/token',data={'client_id':CLIENT_ID,'client_secret':CLIENT_SECRET,'grant_type':'authorization_code','code':code,'redirect_uri':redirect_apply},headers={'Content-Type':'application/x-www-form-urlencoded'})
         token=tr.json().get('access_token')
         if not token: return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen','Discord konnte den Login nicht bestätigen.',retry),status_code=400)
         ud=(await client.get('https://discord.com/api/v10/users/@me',headers={'Authorization':f'Bearer {token}'})).json()
     session={'id':str(ud.get('id')),'username':ud.get('username'),'global_name':ud.get('global_name') or ud.get('username'),'avatar':ud.get('avatar'),'apply_exp':int(time.time()+1800)}
-    response=RedirectResponse('/apply',status_code=303); response.set_cookie('apply_session',sign_payload(session),httponly=True,samesite='lax',secure=COOKIE_SECURE,max_age=1800); response.delete_cookie('apply_oauth_state'); return response
+    response=RedirectResponse('/apply',status_code=303); response.set_cookie('apply_session',sign_payload(session),httponly=True,samesite='lax',secure=oauth_cookie_secure(request),max_age=1800); response.delete_cookie('apply_oauth_state'); return response
 
 
 # =============================================================
