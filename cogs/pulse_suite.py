@@ -555,7 +555,7 @@ class PulseSuite(commands.Cog):
         g=self.guild()
         if not g:return
         try:
-            await self.sync_members(g);await self.warn_sync(g);await self.reminders(g);await self.activity_reminder(g);await self.inactivity(g);await self.reports(g);await self.shift_reminders(g);await self.update_presence(g)
+            await self.sync_members(g);await self.warn_sync(g);await self.reminders(g);await self.activity_reminder(g);await self.long_shift_check(g);await self.inactivity(g);await self.reports(g);await self.shift_reminders(g);await self.update_presence(g)
         except Exception as e:print("⚠️ Pulse Suite:",e)
 
     @auto.before_loop
@@ -600,6 +600,16 @@ class PulseSuite(commands.Cog):
                 for m in managers(g,__import__("webserver")):db.notify(m.id,"🚨 Activity Check Abschluss",f"Noch {len(opened)} Teamler offen.","warning","/dashboard",f"activity-report:{x['id']}",21600)
                 set_setting("activity_report:"+str(x["id"]),True)
         except Exception:pass
+
+    async def long_shift_check(self,g):
+        web=__import__("webserver")
+        sh=web.load_shifts()
+        for uid,s in sh.get("active_shifts",{}).items():
+            elapsed=web.shift_elapsed(s)
+            if elapsed>=8*3600 and not setting("long_shift:"+str(uid)+":"+str(s.get("date")),False):
+                for m in managers(g,web):
+                    db.notify(m.id,"⏱ Ungewöhnlich lange Schicht",f"{s.get('mod_name',uid)} ist seit {secfmt(elapsed)} im Dienst. Prüfe bei Bedarf die Schicht.","warning","/suite/member/"+str(uid),f"longshift:{uid}:{s.get('date')}",86400)
+                set_setting("long_shift:"+str(uid)+":"+str(s.get("date")),True)
 
     async def inactivity(self,g):
         web=__import__("webserver");n=now();loas=web.get_loas()
