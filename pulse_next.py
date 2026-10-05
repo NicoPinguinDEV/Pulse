@@ -256,7 +256,9 @@ def actor_id(ctx) -> str:
 
 def ctx_auth(request: Request, session: str, manager: bool = False, perm: Optional[str] = "can_view_dashboard"):
     ctx = u.ctx_auth(request, session, manager=manager, perm=perm)
-    touch_member(actor_id(ctx), "dashboard")
+    # GET only displays data; POST actions count as meaningful Pulse activity.
+    if request.method != "GET":
+        touch_member(actor_id(ctx), "action")
     return ctx
 
 def has_perm(ctx, perm: str) -> bool:
@@ -765,7 +767,7 @@ def register(app):
 
     @app.post("/ultimate/approvals/{approval_id}/decide")
     async def approval_decide(request: Request,approval_id:str,decision:str=Form(...),note:str=Form(""),user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_approve")
+        ctx=ctx_auth(request,user_session,manager=False,perm="can_view_dashboard"); require_perm(ctx,"can_approve")
         with cx() as c:
             appr=c.execute("SELECT * FROM next_approvals WHERE id=? AND status='pending'",(approval_id,)).fetchone()
         if not appr: raise HTTPException(404,"Freigabe nicht gefunden.")
