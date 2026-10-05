@@ -62,6 +62,8 @@ def main() -> None:
     assert "/settings/pro-warn-roles" in pro
     assert "/settings/pro-warn-sync" in pro
     assert "Warn-Rollen" in pro
+    assert "PULSE_VERSION" in web
+    assert '"/healthz"' in web
 
     assert "reconcile_warning_roles" in main
 
