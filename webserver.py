@@ -110,7 +110,24 @@ try:
 except Exception:
     TZ = None
 
-app = FastAPI()
+PULSE_VERSION = "5.2.0"
+app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Setzt sichere Standard-Header ohne das bestehende Inline-UI/CSS zu brechen."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if request.url.path not in {"/sw.js", "/manifest.json"}:
+        response.headers.setdefault("Cache-Control", "no-store")
+    if oauth_redirect_uri(request).startswith("https://") or oauth_redirect_uri(request, application=True).startswith("https://"):
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
 
 # =============================================================
 # ZEIT-HELFER (alles in deutscher Zeit, unabhängig vom Server)
@@ -949,6 +966,33 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
             return JSONResponse({"success": True, "users": users})
         except Exception:
             return JSONResponse({"success": False, "users": [], "message": "Roblox ist gerade nicht erreichbar"})
+
+# =============================================================
+# HEALTH CHECK
+# =============================================================
+@app.get("/healthz")
+async def healthz(request: Request):
+    bot = getattr(request.app.state, "bot", None)
+    guild = bot.get_guild(GUILD_ID) if bot else None
+    db_ok = True
+    try:
+        with pulse_db.connect() as db:
+            db.execute("SELECT 1")
+    except Exception:
+        db_ok = False
+
+    ready = bool(bot and bot.is_ready() and guild and db_ok)
+    return JSONResponse(
+        {
+            "ok": ready,
+            "version": PULSE_VERSION,
+            "bot_ready": bool(bot and bot.is_ready()),
+            "guild_ready": bool(guild),
+            "database_ok": db_ok,
+        },
+        status_code=200 if ready else 503,
+    )
+
 
 # =============================================================
 # ROUTEN: LOGIN, LOGOUT & OAUTH CALLBACK
