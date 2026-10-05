@@ -6,11 +6,15 @@ from discord.ext import commands
 from dotenv import load_dotenv
 import uvicorn
 
-from webserver import app
-
 BASE_DIR = Path(__file__).resolve().parent
 os.chdir(BASE_DIR)
+
+# .env muss vor dem Import von webserver/pulse_db geladen sein, da diese
+# Module ihre Konfiguration beim Import lesen.
 load_dotenv(BASE_DIR / ".env")
+
+from webserver import app
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 PORT = int(os.getenv("SERVER_PORT", 25095))
 
@@ -45,6 +49,14 @@ class CustomBot(commands.Bot):
             print(f"🔄 {len(synced)} Slash Commands synchronisiert!")
         except Exception as e:
             print(f"❌ Fehler beim Sync: {e}")
+
+        # Pulse Ultimate Automation Engine starten
+        try:
+            from pulse_ultimate import start_automation
+            await start_automation(self)
+            print("🤖 Pulse Ultimate Automation Engine gestartet.")
+        except Exception as e:
+            print(f"⚠️ Pulse Ultimate Automation Engine konnte nicht gestartet werden: {e}")
 
         # Webserver im Hintergrund starten
         config = uvicorn.Config(

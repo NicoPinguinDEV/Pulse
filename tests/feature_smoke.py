@@ -29,12 +29,13 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py"):
         parse(name)
 
     web = read("webserver.py")
     pro = read("pulse_pro.py")
     main = read("main.py")
+    ultimate = read("pulse_ultimate.py")
 
     tree = parse("webserver.py")
     constants = {
@@ -68,6 +69,14 @@ def main() -> None:
     assert "reconcile_warning_roles" in main
 
     assert_function_is_async("webserver.py", "sync_warn_roles")
+    assert "def register(app)" in ultimate
+    assert '"/ultimate"' in ultimate
+    assert '"/ultimate/team"' in ultimate
+    assert '"/ultimate/cases"' in ultimate
+    assert '"/ultimate/roblox"' in ultimate
+    assert '"/ultimate/automations"' in ultimate
+    assert '"/ultimate/api/v2/team"' in ultimate
+    assert 'ultimate_automation' in ultimate
     assert "frozen" in web.lower() or "eingefroren" in web.lower()
 
     print("Pulse feature smoke test: OK")

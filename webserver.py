@@ -3196,3 +3196,10 @@ try:
     register_pulse_pro(app)
 except Exception as _pro_error:
     print(f"❌ Pulse Pro Module konnten nicht registriert werden: {_pro_error}")
+
+
+try:
+    from pulse_ultimate import register as register_pulse_ultimate
+    register_pulse_ultimate(app)
+except Exception as _ultimate_error:
+    print(f"❌ Pulse Ultimate Module konnten nicht registriert werden: {_ultimate_error}")
