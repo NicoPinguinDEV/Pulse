@@ -624,7 +624,63 @@ def register(app) -> None:
             elif s["activity_pct"] < 50:
                 warnings.append(f'⚠️ <b>{esc(m.display_name)}</b> liegt bei nur {s["activity_pct"]}% Wochenziel.')
         alerts = card("<h2 style='margin-top:0'>🚨 Aufmerksamkeit</h2>" + "".join(f"<div class='row'>{x}</div>" for x in warnings[:8]) if warnings else "<h2 style='margin-top:0'>🚨 Aufmerksamkeit</h2><div class='tiny'>Aktuell keine kritischen Hinweise.</div>")
-        body = f'<div class="grid g4">{metrics}</div><div class="grid g2" style="margin-top:13px">{alerts}{card(f"<h2 style=\'margin-top:0\'>📊 Team-Score</h2><div class=\'metric\'>{avg_score}/100</div><p class=\'tiny\'>Durchschnittlicher Performance-Score aus Aktivität, Zuverlässigkeit, Support, Disziplin und Training.</p><div class=\'progress\'><div style=\'width:{avg_score}%\'></div></div>")}</div><div class="grid g3" style="margin-top:13px">{card(f"<h3 style=\'margin-top:0\'>🏢 Abteilungen</h3><div class=\'metric\'>{departments}</div><a class=\'btn primary\' href=\'/ultimate/departments\'>Verwalten</a>")}{card("<h3 style=\'margin-top:0\'>🤖 Automationen</h3><div class=\'metric\'>"+str(automations)+"</div><a class=\'btn primary\' href=\'/ultimate/automations\'>Regeln öffnen</a>")}{card("<h3 style=\'margin-top:0\'>🧩 Module</h3><div class=\'tiny\'>Cases · Roblox · Feedback · Polls · Kalender · Awards · Zertifikate · Dateien · API</div>")}</div>'
+        try:
+            import pulse_next
+            with pulse_next.cx() as nc:
+                pending_approvals_count = nc.execute(
+                    "SELECT COUNT(*) FROM next_approvals WHERE status='pending' AND requester_id!=?",
+                    (str(ctx.user["id"]),),
+                ).fetchone()[0]
+                unread_news_count = nc.execute(
+                    """SELECT COUNT(*) FROM next_announcements a
+                       WHERE NOT EXISTS(
+                         SELECT 1 FROM next_announcement_reads r
+                         WHERE r.announcement_id=a.id AND r.user_id=?
+                       )""",
+                    (str(ctx.user["id"]),),
+                ).fetchone()[0]
+                due_goals_count = nc.execute(
+                    """SELECT COUNT(*) FROM next_goals
+                       WHERE status='active' AND due_at IS NOT NULL AND due_at<=?""",
+                    ((datetime.now(timezone.utc)+timedelta(days=3)).isoformat(),),
+                ).fetchone()[0]
+            overdue_tasks_count = 0
+            for task in db.list_tasks(limit=1000, include_archived=False):
+                if str(task.get("status") or "") in {"done","archived"}:
+                    continue
+                due = str(task.get("due_date") or task.get("deadline") or "")
+                if due:
+                    try:
+                        if datetime.fromisoformat(due.replace("Z","+00:00")) < datetime.now(timezone.utc):
+                            overdue_tasks_count += 1
+                    except Exception:
+                        pass
+            overdue_ticket_count = 0
+            for ticket in db.list_tickets(limit=5000):
+                if ticket.get("status") == "closed":
+                    continue
+                try:
+                    opened = datetime.fromisoformat(str(ticket.get("opened_at","")).replace("Z","+00:00"))
+                    sla = {"urgent":30,"high":240,"normal":1440}.get(str(ticket.get("priority") or "normal"),1440)
+                    if (datetime.now(timezone.utc)-opened).total_seconds() >= sla*60:
+                        overdue_ticket_count += 1
+                except Exception:
+                    pass
+        except Exception:
+            pending_approvals_count = unread_news_count = due_goals_count = overdue_tasks_count = overdue_ticket_count = 0
+        today_actions = "".join(
+            f"<a class='row' href='{href}'><span>{icon} <b>{esc(label)}</b></span><span class='pill'>{count}</span></a>"
+            for icon,label,count,href in (
+                ("✅","Offene Freigaben",pending_approvals_count,"/ultimate/approvals"),
+                ("📢","Ungelesene Team-News",unread_news_count,"/ultimate/announcements"),
+                ("🎯","Ziele mit naher Frist",due_goals_count,"/ultimate/goals"),
+                ("📋","Überfällige Aufgaben",overdue_tasks_count,"/ultimate/tasks"),
+                ("🎫","SLA-überfällige Tickets",overdue_ticket_count,"/ultimate/support"),
+            )
+            if count
+        ) or "<div class='tiny'>Für heute stehen aktuell keine dringenden Pulse-Aufgaben an.</div>"
+        ops = card("<h2 style='margin-top:0'>🧭 Heute erledigen</h2>"+today_actions)
+        body = ops + f'<div class="grid g4">{metrics}</div><div class="grid g2" style="margin-top:13px">{alerts}{card(f"<h2 style=\'margin-top:0\'>📊 Team-Score</h2><div class=\'metric\'>{avg_score}/100</div><p class=\'tiny\'>Durchschnittlicher Performance-Score aus Aktivität, Zuverlässigkeit, Support, Disziplin und Training.</p><div class=\'progress\'><div style=\'width:{avg_score}%\'></div></div>")}</div><div class="grid g3" style="margin-top:13px">{card(f"<h3 style=\'margin-top:0\'>🏢 Abteilungen</h3><div class=\'metric\'>{departments}</div><a class=\'btn primary\' href=\'/ultimate/departments\'>Verwalten</a>")}{card("<h3 style=\'margin-top:0\'>🤖 Automationen</h3><div class=\'metric\'>"+str(automations)+"</div><a class=\'btn primary\' href=\'/ultimate/automations\'>Regeln öffnen</a>")}{card("<h3 style=\'margin-top:0\'>🧩 Module</h3><div class=\'tiny\'>Cases · Roblox · Feedback · Polls · Kalender · Awards · Zertifikate · Dateien · API</div>")}</div>'
         return page(ctx, "ultimate", "Pulse Ultimate Command Center", "Zentrale Leitstelle für Team, Fälle, Automationen und Leistung.", body)
 
     @app.get("/ultimate/team", response_class=HTMLResponse)
