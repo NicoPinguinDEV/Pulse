@@ -366,7 +366,15 @@ class PulsePro(commands.Cog):
         embed.add_field(name="Bot", value="🟢 Online" if bot_ready else "🔴 Offline", inline=True)
         embed.add_field(name="Datenbank", value="🟢 OK" if db_ok else "🔴 Fehler", inline=True)
         embed.add_field(name="Cogs", value=str(len(self.bot.extensions)), inline=True)
-        embed.add_field(name="Version", value="Pulse Pro 5.1", inline=True)
+        version = getattr(webserver, "PULSE_VERSION", "unknown")
+        embed.add_field(name="Version", value=f"Pulse {version}", inline=True)
+        try:
+            role_rows = webserver.warning_role_health(interaction.guild, cfg)
+            ok_roles = sum(1 for row in role_rows if row.get("ok"))
+            embed.add_field(name="Warnrollen", value=f"{ok_roles}/3 bereit", inline=True)
+        except Exception:
+            embed.add_field(name="Warnrollen", value="⚠️ Nicht prüfbar", inline=True)
+        embed.add_field(name="Health-Endpunkt", value="[/healthz]".replace("[/", "[") + f" {webserver.PULSE_VERSION}", inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
