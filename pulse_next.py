@@ -1067,4 +1067,123 @@ def register(app):
         body=u.card("<h3>🩺 Detaillierter Systemcheck</h3>"+"".join(f"<div class=row><span>{icon} {esc(name)}</span><span class=pill>{esc(val)}</span></div>" for icon,name,val in checks))
         return next_page(ctx,"system","Health Center","Live-Prüfung von Bot, Guild, Datenbank und Dateisystem.",body)
 
+
+    @app.get("/ultimate/scoreboard", response_class=HTMLResponse)
+    async def scoreboard(request: Request, user_session: str=Cookie(None)):
+        ctx=ctx_auth(request,user_session,perm="can_view_analytics")
+        stats=all_stats(ctx.guild)
+        stats.sort(key=lambda x:x[1]["score"], reverse=True)
+        rows=[]
+        for i,(m,s) in enumerate(stats,1):
+            cls,icon=team_score_class(s["score"])
+            rows.append(f"<div class='row'><span><b>#{i} {esc(m.display_name)}</b><div class='tiny'>{esc(cls)} · {s['activity_pct']}% Aktivität · {s['closed_tickets']} Tickets</div></span><span class='pill'>{icon} {s['score']}/100</span></div>")
+        body=u.card("<h3>🏆 Team-Score Leaderboard</h3>"+"".join(rows) or "<div class=tiny>Keine Teamdaten.</div>")
+        return next_page(ctx,"analytics","Team-Score","Bewertung, Rangliste und Leistungsentwicklung.",body)
+
+    @app.get("/ultimate/support", response_class=HTMLResponse)
+    async def support(request: Request, user_session: str=Cookie(None)):
+        ctx=ctx_auth(request,user_session,perm="can_view_analytics")
+        import webserver
+        tickets=db.list_tickets(limit=5000)
+        now_dt=now()
+        overdue=[]
+        waiting=[]
+        durations={}
+        for t in tickets:
+            if t.get("status")=="closed":
+                continue
+            try:
+                opened=datetime.fromisoformat(str(t.get("opened_at","")).replace("Z","+00:00"))
+                age=(now_dt-opened).total_seconds()/60
+                sla={"urgent":30,"high":240,"normal":1440}.get(str(t.get("priority") or "normal"),1440)
+                (overdue if age>=sla else waiting).append((t,age,sla))
+            except Exception:
+                continue
+        perf={}
+        for t in tickets:
+            if t.get("status")=="closed" and t.get("claimed_by_id"):
+                uid_s=str(t.get("claimed_by_id"))
+                perf[uid_s]=perf.get(uid_s,0)+1
+        names={str(m.id):m.display_name for m in members(ctx.guild)}
+        leaders=sorted(perf.items(),key=lambda x:x[1],reverse=True)[:10]
+        rows="".join(f"<div class=row><span>{esc(names.get(uid_s,uid_s))}</span><span class=pill>{n} abgeschlossen</span></div>" for uid_s,n in leaders)
+        body=u.card(f"<div class='grid g3'><div><div class=metric>{len(tickets)}</div><div class=tiny>Tickets gesamt</div></div><div><div class=metric>{len(waiting)}</div><div class=tiny>innerhalb SLA</div></div><div><div class=metric>{len(overdue)}</div><div class=tiny>über SLA</div></div></div>")+u.card("<h3>🚨 SLA-Ausreißer</h3>"+"".join(f"<div class=row><span><b>{esc(str(t.get('title') or t.get('id')))}</b><div class=tiny>{round(age)} min offen · SLA {sla:g} min</div></span><span class=pill>überfällig</span></div>" for t,age,sla in sorted(overdue,key=lambda x:x[1],reverse=True)[:20]) or "<div class=tiny>Keine SLA-Verstöße.</div>")+u.card("<h3>🎫 Support-Leaderboard</h3>"+(rows or "<div class=tiny>Keine abgeschlossenen Tickets.</div>"))
+        return next_page(ctx,"analytics","Support & SLA","Ticket-Wartezeiten, SLA und Support-Leistung.",body)
+
+    @app.get("/ultimate/tasks", response_class=HTMLResponse)
+    async def taskboard(request: Request,user_session: str=Cookie(None)):
+        ctx=ctx_auth(request,user_session)
+        tasks=db.list_tasks(limit=1000,include_archived=False)
+        today=now()
+        overdue=[]
+        open_rows=[]
+        for t in tasks:
+            status=str(t.get("status") or "")
+            due=str(t.get("due_date") or t.get("deadline") or "")
+            if status in {"done","archived"}:
+                continue
+            is_overdue=False
+            if due:
+                try:
+                    dd=datetime.fromisoformat(due.replace("Z","+00:00"))
+                    is_overdue=dd < today
+                except Exception:
+                    is_overdue=False
+            (overdue if is_overdue else open_rows).append(t)
+        def task_row(t, danger=False):
+            title=str(t.get("title") or t.get("id") or "Aufgabe")
+            assignee=str(t.get("assignee_name") or t.get("assigned_to_name") or "Nicht zugewiesen")
+            priority=str(t.get("priority") or "normal")
+            due=str(t.get("due_date") or t.get("deadline") or "keine")
+            return f"<div class='row'><span><b>{esc(title)}</b><div class='tiny'>{esc(assignee)} · {esc(priority)} · {esc(due)}</div></span><span class='pill'>{'🔴 überfällig' if danger else esc(str(t.get('status') or 'offen'))}</span></div>"
+        body=u.card(f"<div class='grid g3'><div><div class=metric>{len(tasks)}</div><div class=tiny>aktive Aufgaben</div></div><div><div class=metric>{len(overdue)}</div><div class=tiny>überfällig</div></div><div><div class=metric>{sum(str(t.get('status'))=='done' for t in tasks)}</div><div class=tiny>heute im Bestand erledigt</div></div></div>")+u.card("<h3>🔴 Überfällige Aufgaben</h3>"+("".join(task_row(t,True) for t in overdue[:30]) or "<div class=tiny>Keine überfälligen Aufgaben.</div>"))+u.card("<h3>📋 Offene Aufgaben</h3>"+("".join(task_row(t) for t in open_rows[:50]) or "<div class=tiny>Keine offenen Aufgaben.</div>"))
+        return next_page(ctx,"team","Aufgaben 2.0","Zentrale Übersicht für Deadlines, Prioritäten und Verantwortlichkeiten.",body)
+
+    @app.get("/ultimate/team-trends", response_class=HTMLResponse)
+    async def team_trends(request: Request,user_session: str=Cookie(None)):
+        ctx=ctx_auth(request,user_session,perm="can_view_analytics")
+        stats=all_stats(ctx.guild)
+        with cx() as c:
+            days=[dict(r) for r in c.execute(
+                """SELECT substr(recorded_at,1,10) AS day,ROUND(AVG(score),1) AS avg_score,
+                          ROUND(AVG(activity_pct),1) AS activity
+                   FROM next_score_snapshots GROUP BY day ORDER BY day DESC LIMIT 30"""
+            ).fetchall()]
+        days=list(reversed(days))
+        bars="".join(f"<div style='display:inline-block;width:12px;height:{max(8,int(d['avg_score'] or 0))}px;background:var(--pulse-accent);margin:0 2px;border-radius:4px' title='{esc(d['day'])}: {d['avg_score']}'></div>" for d in days)
+        lowest=sorted(stats,key=lambda x:x[1]["score"])[:5]
+        body=u.card(f"<h3>📈 Team-Score-Trend</h3><div style='height:140px;display:flex;align-items:end'>{bars or '<span class=tiny>Noch keine täglichen Snapshots.</span>'}</div><div class=tiny>Gespeicherte Tagesschnitte</div>")+u.card("<h3>⚠️ Aktueller Verbesserungsbedarf</h3>"+"".join(f"<div class=row><span>{esc(m.display_name)}</span><span class=pill>{s['score']}/100</span></div>" for m,s in lowest) or "<div class=tiny>Keine Daten.</div>")
+        return next_page(ctx,"analytics","Team-Trends","Entwicklung des Teams und mögliche Problemfelder.",body)
+
+    @app.get("/ultimate/export.json")
+    async def export_json(request:Request,user_session:str=Cookie(None)):
+        ctx=ctx_auth(request,user_session,perm="can_view_analytics")
+        payload={"generated_at":iso(),"team":[],"goals":[],"ideas":[],"announcements":[]}
+        for m in members(ctx.guild):
+            s=u.member_stats(m)
+            payload["team"].append({"id":m.id,"name":m.display_name,"status":str(m.status),"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/3600,2),"total_hours":round(s["total_seconds"]/3600,2),"tickets_closed":s["closed_tickets"],"warnings":s["warnings"],"training_passed":s["training_passed"]})
+        with cx() as c:
+            payload["goals"]=[dict(r) for r in c.execute("SELECT * FROM next_goals ORDER BY created_at DESC").fetchall()]
+            payload["ideas"]=[dict(r) for r in c.execute("SELECT * FROM next_ideas ORDER BY created_at DESC").fetchall()]
+            payload["announcements"]=[dict(r) for r in c.execute("SELECT * FROM next_announcements ORDER BY created_at DESC").fetchall()]
+        raw=json.dumps(payload,ensure_ascii=False,indent=2)
+        return HTMLResponse(raw,headers={"Content-Type":"application/json; charset=utf-8","Content-Disposition":"attachment; filename=pulse_export.json"})
+
+    @app.get("/ultimate/security", response_class=HTMLResponse)
+    async def security_center(request:Request,user_session:str=Cookie(None)):
+        ctx=ctx_auth(request,user_session,manager=True)
+        import webserver
+        checks=[]
+        bot=getattr(request.app.state,"bot",None)
+        guild=ctx.guild
+        me=guild.me if guild else None
+        checks.append(("🔐","HTTPS","aktiv" if str(request.url).startswith("https://") or webserver.PUBLIC_BASE_URL.startswith("https://") else "Reverse Proxy prüfen"))
+        checks.append(("🛡️","Manage Roles","OK" if me and me.guild_permissions.manage_roles else "FEHLT"))
+        checks.append(("👥","Members Intent","aktiv" if bot and bot.intents.members else "FEHLT"))
+        checks.append(("🟣","Presence Intent","aktiv" if bot and bot.intents.presences else "FEHLT"))
+        checks.append(("🔑","API Keys","hash-basiert gespeichert"))
+        checks.append(("📜","Audit","Legacy + Pulse Events"))
+        body=u.card("<h3>🛡️ Security Center</h3>"+"".join(f"<div class=row><span>{icon} {esc(name)}</span><span class=pill>{esc(val)}</span></div>" for icon,name,val in checks))+u.card("<p class=tiny>Für besonders sensible Aktionen empfiehlt Pulse das 4-Augen-Prinzip. API-Schlüssel werden nicht im Klartext gespeichert.</p>")
+        return next_page(ctx,"system","Security Center","Berechtigungen, Sessions, API und kritische Voraussetzungen.",body)
+
     app.state.pulse_next_registered=True
