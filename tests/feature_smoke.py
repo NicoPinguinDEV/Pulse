@@ -52,6 +52,11 @@ def main() -> None:
     assert "revoked_at" in web
     assert "async def reconcile_warning_roles" in web
     assert "/api/team/warn-roles" in web
+    assert web.count("def normalize_warns(entry: dict) -> bool:") == 1
+    assert 'SELECT user_id FROM check_members WHERE check_id=?' in web
+    assert '"not_in_snapshot"' in web
+    assert 'member.status' in web
+    assert 'rate_limited(client_key' in web
 
     assert "/warns" in pro
     assert "/settings/pro-warn-roles" in pro
@@ -61,6 +66,7 @@ def main() -> None:
     assert "reconcile_warning_roles" in main
 
     assert_function_is_async("webserver.py", "sync_warn_roles")
+    assert "frozen" in web.lower() or "eingefroren" in web.lower()
 
     print("Pulse feature smoke test: OK")
 
