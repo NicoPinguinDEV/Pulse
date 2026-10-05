@@ -571,7 +571,15 @@ class Tickets(commands.Cog):
     @app_commands.command(name="ticketsetup", description="Legacy-Setup: erstellt das Ticket-Panel im aktuellen Kanal.")
     @app_commands.checks.has_permissions(administrator=True)
     async def ticketsetup_slash(self, interaction: discord.Interaction):
-        await self.ticketpanel.callback(self.ticketpanel, interaction)
+        if not interaction.guild or not interaction.channel:
+            await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        message = await interaction.channel.send(embed=build_panel_embed(interaction.guild), view=TicketView())
+        settings = ticket_config()
+        settings.update({"panel_channel_id": interaction.channel.id, "panel_message_id": message.id})
+        save_ticket_config(settings)
+        await interaction.followup.send("✅ Ticket-Panel eingerichtet und mit dem Auto-Refresh verbunden.", ephemeral=True)
 
     @commands.command(name="ticketsetup")
     @commands.has_permissions(administrator=True)
