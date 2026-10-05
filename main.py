@@ -6,11 +6,15 @@ from discord.ext import commands
 from dotenv import load_dotenv
 import uvicorn
 
-from webserver import app
-
 BASE_DIR = Path(__file__).resolve().parent
 os.chdir(BASE_DIR)
+
+# .env muss vor dem Import von webserver/pulse_db geladen sein, da diese
+# Module ihre Konfiguration beim Import lesen.
 load_dotenv(BASE_DIR / ".env")
+
+from webserver import app
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 PORT = int(os.getenv("SERVER_PORT", 25095))
 
