@@ -520,6 +520,11 @@ def create_backup():
     ts = now().strftime("%Y%m%d_%H%M%S")
     target = BACKUP_DIR / f"pulse_backup_{ts}.zip"
     db_path = Path(u.ULTIMATE_DB)
+    try:
+        with u.cx() as c:
+            c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        pass
     files = [
         db_path,
         BASE/"team_data.json", BASE/"config.json", BASE/"applications.json",
