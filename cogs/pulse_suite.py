@@ -169,7 +169,7 @@ def action_record(kind,payload,actor):
 
 def nav(active):
     items=[("suite","/suite","⚡ Führung"),("team","/suite/team","👥 Teamakten"),("time","/suite/time","⏱ Dienstzeit"),("schedule","/suite/schedule","🗓 Dienstplan"),("myschedule","/suite/my-schedule","👤 Mein Dienstplan"),("calendar","/suite/calendar","📅 Kalender"),("apps","/suite/applications","📝 Recruiting"),("interviews","/suite/interviews","🎤 Gespräche"),("training","/suite/training","🎓 Schulungen"),("tasks","/suite/tasks","📋 Aufgaben"),("news","/suite/news","📢 Team-News"),("audit","/suite/audit","🛡 Audit"),("search","/suite/search","⌕ Suche"),("cases","/suite/cases","🚨 Meldungen"),("ach","/suite/achievements","🏆 Erfolge")]
-    return "".join(f'<a class="{"active" if k==active else ""}" href="{p}">{label}</a>' for k,p,label in items)
+    return "".join('<a class="{}" href="{}">{}</a>'.format("active" if k==active else "",p,label) for k,p,label in items)
 
 def page(ctx,active,title,subtitle,body,js=""):
     u=esc(ctx.user.get("global_name") or ctx.user.get("username") or ctx.user.get("id"))
@@ -178,8 +178,7 @@ def page(ctx,active,title,subtitle,body,js=""):
 <main class=main><div class=top><div><h1>{esc(title)}</h1><div class=muted>{esc(subtitle)}</div></div><div><a class=btn href=/dashboard>Altes Dashboard</a> <a class="btn primary" href=/suite>Führung</a></div></div>{body}</main></div>
 <div id=search class=search><div><input id=sq class=input placeholder="Teamler, ID, Warn-ID, Ticket, Aufgabe, Bewerbung, Audit, Roblox …" oninput=doSearch(this.value)><div id=sr style="margin-top:8px"></div></div></div>
 <script>
-    return "".join('<a class="{}" href="{}">{}</a>'.format("active" if k==active else "",p,label) for k,p,label in items)
-document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()=='k'){e.preventDefault();openSearch()}if(e.key=='Escape')closeSearch()})
+function openSearch(){document.getElementById('search').style.display='flex';document.getElementById('sq').focus()}function closeSearch(){document.getElementById('search').style.display='none'}document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()=='k'){e.preventDefault();openSearch()}if(e.key=='Escape')closeSearch()})
 document.getElementById('search').addEventListener('click',e=>{if(e.target.id=='search')closeSearch()})
 async function doSearch(q){if(q.trim().length<2){sr.innerHTML='';return}sr.innerHTML='<div class="card">Suche…</div>';let d=await (await fetch('/suite/api/search?q='+encodeURIComponent(q))).json();sr.innerHTML=(d.results||[]).map(x=>'<a class=result href="'+x.url+'"><b>'+x.title+'</b><div class=tiny>'+x.type+' · '+(x.meta||'')+'</div></a>').join('')||'<div class=card>Keine Treffer.</div>'}
 function accent(){let x=localStorage.getItem('pulse-accent')||'indigo';x=x==='indigo'?'cyan':x==='cyan'?'emerald':'indigo';localStorage.setItem('pulse-accent',x);location.reload()}
