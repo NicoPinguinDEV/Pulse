@@ -46,6 +46,14 @@ class CustomBot(commands.Bot):
         except Exception as e:
             print(f"❌ Fehler beim Sync: {e}")
 
+        # Pulse Ultimate Automation Engine starten
+        try:
+            from pulse_ultimate import start_automation
+            await start_automation(self)
+            print("🤖 Pulse Ultimate Automation Engine gestartet.")
+        except Exception as e:
+            print(f"⚠️ Pulse Ultimate Automation Engine konnte nicht gestartet werden: {e}")
+
         # Webserver im Hintergrund starten
         config = uvicorn.Config(
             app=app, host="0.0.0.0", port=PORT, log_level="info"
