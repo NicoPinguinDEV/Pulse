@@ -3203,3 +3203,9 @@ try:
     register_pulse_ultimate(app)
 except Exception as _ultimate_error:
     print(f"❌ Pulse Ultimate Module konnten nicht registriert werden: {_ultimate_error}")
+
+try:
+    from pulse_next import register as register_pulse_next
+    register_pulse_next(app)
+except Exception as _next_error:
+    print(f"❌ Pulse TeamOS 2.0 Module konnten nicht registriert werden: {_next_error}")
