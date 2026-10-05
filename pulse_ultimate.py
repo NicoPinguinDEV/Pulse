@@ -515,6 +515,10 @@ def page(ctx, active: str, title: str, subtitle: str, body: str, extra_js: str =
         ("automations", "/ultimate/automations", "🤖 Automationen"),
         ("analytics", "/ultimate/analytics", "📊 Analytics"),
         ("awards", "/ultimate/awards", "🏆 Awards"),
+        ("legacy_tasks", "/tasks", "📋 Aufgaben"),
+        ("legacy_training", "/training", "🎓 Schulungen"),
+        ("legacy_tickets", "/tickets", "🎫 Tickets"),
+        ("legacy_apps", "/applications", "📝 Bewerbungen"),
         ("system", "/ultimate/system", "🩺 System"),
     ]
     links = "".join(
@@ -789,7 +793,7 @@ def register(app) -> None:
         if not case:
             raise HTTPException(404, "Fall nicht gefunden.")
         ev = "".join(f"<div class='row'><div><b>{esc(x['event_type'])}</b><div class='tiny'>{esc(x['details'])}</div></div><span class='tiny'>{esc(x['created_at'])}</span></div>" for x in events)
-        att = "".join(f"<div class='row'><span>📎 {esc(x['original_name'])}</span><span class='tiny'>{x['size_bytes']} B · {esc(x['sha256'][:12])}</span></div>" for x in attachments) or "<div class='tiny'>Keine Beweise/Dateien.</div>"
+        att = "".join(f"<div class='row'><a href='/ultimate/cases/{esc(case_id)}/attachments/{x['id']}'>📎 {esc(x['original_name'])}</a><span class='tiny'>{x['size_bytes']} B · {esc(x['sha256'][:12])}</span></div>" for x in attachments) or "<div class='tiny'>Keine Beweise/Dateien.</div>"
         pls = "".join(f"<div class='row'><span>🎮 {esc(x['display_name'])} (@{esc(x['username'])})</span><span class='pill'>{esc(x['status'])}</span></div>" for x in players) or "<div class='tiny'>Keine Roblox-Spieler verknüpft.</div>"
         body = f"""<div class="grid g2">
           {card(f"<div class=row><b>{esc(case['case_no'])}</b>{status_badge(case['status'])}</div><h2>{esc(case['title'])}</h2><p class=tiny>{esc(case['description'])}</p><div class=tiny>Priorität: {esc(case['priority'])} · Bearbeiter: {esc(case['assignee_name'] or 'Niemand')}</div>")}
@@ -1179,7 +1183,9 @@ def register(app) -> None:
                 "SELECT * FROM ultimate_feedback ORDER BY created_at DESC LIMIT 200"
             ).fetchall()] if can_manage else []
         list_html = "".join(
-            card(f"<div class=row><div><b>{esc(x['title'])}</b><div class='tiny'>{esc(x['category'])} · {esc(x['author_name'] or 'Anonym')}</div></div><span class='pill'>{esc(x['status'])}</span></div><p class='tiny'>{esc(x['content'][:500])}</p>")
+            card(f"""<div class=row><div><b>{esc(x['title'])}</b><div class='tiny'>{esc(x['category'])} · {esc(x['author_name'] or 'Anonym')}</div></div><span class='pill'>{esc(x['status'])}</span></div>
+            <p class='tiny'>{esc(x['content'][:500])}</p>
+            {f"<form method='post' action='/ultimate/api/feedback/{x['id']}' class='form'><select class='select' name='status'>{''.join(f"<option {'selected' if s==x['status'] else ''}>{s}</option>" for s in _FEEDBACK_STATUS)}</select><input class='input' name='manager_note' value='{esc(x['manager_note'])}' placeholder='Interne Antwort / Notiz'><button class='btn primary span2'>Status speichern</button></form>" if can_manage else ""}""")
             for x in rows
         )
         body = f"""<div class="card"><h3>💬 Feedback senden</h3><form class="form" method="post" action="/ultimate/feedback/create">
@@ -1294,7 +1300,7 @@ def register(app) -> None:
         ctx = ctx_auth(request, user_session, manager=True)
         with cx() as c:
             rows = [dict(r) for r in c.execute("SELECT * FROM ultimate_automations ORDER BY enabled DESC,next_run_at").fetchall()]
-        opts = ["notify_managers", "notify_team", "create_case", "create_task", "team_report", "notify_user"]
+        opts = ["notify_managers", "notify_team", "create_case", "create_task", "team_report", "notify_user", "ticket_sla_alert", "inactivity_report", "probation_report"]
         cards = "".join(
             card(f"<div class=row><b>{esc(x['name'])}</b><span class='pill'>{'✅' if x['enabled'] else '⏸'}</span></div><div class='tiny'>{esc(x['trigger_type'])} · alle {x['interval_minutes']}min · nächster Lauf {esc(x['next_run_at'])}</div>")
             for x in rows
@@ -1349,9 +1355,49 @@ def register(app) -> None:
             checks.append(("🟡", "Warnrollen", "nicht prüfbar"))
         body = "<div class='grid g2'>" + "".join(card(f"<div class=row><b>{esc(n)}</b><span>{i} {esc(d)}</span></div>") for i,n,d in checks) + "</div>"
         body += card(f"<h3>🎨 Branding</h3><form method='post' action='/ultimate/system/branding' class='form'><input class='input' name='name' value='{esc((setting('branding',{}) or {}).get('name','Pulse TeamOS'))}'><input class='input' name='accent' value='{esc((setting('branding',{}) or {}).get('accent','#6366f1'))}'><input class='input span2' name='logo_url' value='{esc((setting('branding',{}) or {}).get('logo_url',''))}' placeholder='Logo URL'><button class='btn primary span2'>Branding speichern</button></form>")
-        body += card("<h3>🔑 API-Zugriff</h3><form method='post' action='/ultimate/system/api-key' class='form'><input class='input span2' name='name' placeholder='z.B. Mobile App / externe Website' required><button class='btn primary span2'>API-Key erstellen</button></form><div class='tiny' style='margin-top:8px'>Die v2-Endpunkte nutzen den Header X-Pulse-API-Key. Schlüssel werden nur einmal angezeigt.</div>")
+        body += card("<h3>🔑 API-Zugriff</h3><form method='post' action='/ultimate/system/api-key' class='form'><input class='input span2' name='name' placeholder='z.B. Mobile App / externe Website' required><button class='btn primary span2'>API-Key erstellen</button></form><div class='tiny' style='margin-top:8px'>Die v2-Endpunkte nutzen den Header X-Pulse-API-Key. Schlüssel werden nur einmal angezeigt.</div><div style='margin-top:8px'><a class='btn' href='/ultimate/system/api-keys'>🔑 Schlüssel verwalten</a></div>")
         body += card("<h3>🛡 Sicherheitsmaßnahmen</h3><div class='tiny'>Rate Limits, signierte Sessions, Sicherheitsheader, Warnrollen-Healthcheck, Audit-Logs, Backups und Health-Endpunkt sind aktiv.</div>")
         return page(ctx, "system", "System & Branding", "Diagnose, Feature Flags und visuelle Serveranpassungen.", body)
+
+    @app.get("/ultimate/system/api-keys", response_class=HTMLResponse)
+    async def ultimate_api_keys(request: Request, user_session: str = Cookie(None)):
+        ctx = ctx_auth(request, user_session, manager=True)
+        with cx() as c:
+            keys = [dict(r) for r in c.execute(
+                "SELECT id,name,created_at,revoked_at FROM ultimate_api_keys ORDER BY created_at DESC"
+            ).fetchall()]
+        rows = "".join(
+            card(f"<div class=row><div><b>{esc(k['name'])}</b><div class='tiny'>{esc(k['created_at'])}</div></div><span class='pill'>{'widerrufen' if k['revoked_at'] else 'aktiv'}</span></div>{'' if k['revoked_at'] else f"<form method='post' action='/ultimate/system/api-key/{k['id']}/revoke'><button class='btn danger'>Widerrufen</button></form>"}")
+            for k in keys
+        ) or card("<div class='tiny'>Keine API-Keys.</div>")
+        body = f"<div class='grid g2'>{rows}</div><div style='margin-top:13px'><a class='btn primary' href='/ultimate/system'>← System</a></div>"
+        return page(ctx, "system", "API-Keys", "Verwaltung externer Pulse-Integrationen.", body)
+
+    @app.post("/ultimate/system/api-key/{key_id}/revoke")
+    async def ultimate_api_key_revoke(request: Request, key_id: str, user_session: str = Cookie(None)):
+        ctx = ctx_auth(request, user_session, manager=True)
+        with cx() as c:
+            c.execute("UPDATE ultimate_api_keys SET revoked_at=? WHERE id=? AND revoked_at IS NULL", (iso(), key_id))
+        audit(ctx, "API-Key widerrufen", key_id)
+        return RedirectResponse("/ultimate/system/api-keys", status_code=303)
+
+    @app.get("/ultimate/cases/{case_id}/attachments/{attachment_id}")
+    async def ultimate_attachment_download(
+        request: Request, case_id: str, attachment_id: str, user_session: str = Cookie(None)
+    ):
+        ctx = ctx_auth(request, user_session, manager=True)
+        from fastapi.responses import FileResponse
+        with cx() as c:
+            row = c.execute(
+                "SELECT * FROM ultimate_attachments WHERE id=? AND owner_type='case' AND owner_id=?",
+                (attachment_id, case_id),
+            ).fetchone()
+        if not row:
+            raise HTTPException(404, "Datei nicht gefunden.")
+        path = ATTACHMENTS_DIR / row["stored_name"]
+        if not path.exists():
+            raise HTTPException(404, "Datei fehlt auf dem Datenträger.")
+        return FileResponse(path, filename=row["original_name"], media_type=row["content_type"] or "application/octet-stream")
 
     @app.post("/ultimate/system/branding")
     async def ultimate_branding(
@@ -1603,6 +1649,22 @@ async def _run_automation(bot, automation: dict):
     action = automation["action_type"]
     payload = json.loads(automation["action_payload"] or "{}")
     guild = bot.get_guild(webserver.GUILD_ID)
+    condition = payload.get("condition") if isinstance(payload, dict) else None
+
+    if condition:
+        team = team_members(guild) if guild else []
+        open_cases_count = sum(x["status"] not in ("closed","resolved") for x in case_rows(500))
+        open_tickets_count = sum(x.get("status") != "closed" for x in db.list_tickets(limit=5000))
+        cond_type = str(condition.get("type","always"))
+        threshold = float(condition.get("value",0) or 0)
+        current = {
+            "open_cases_gte": open_cases_count,
+            "open_tickets_gte": open_tickets_count,
+            "team_online_gte": sum(str(m.status) in {"online","idle","dnd"} for m in team),
+            "team_size_gte": len(team),
+        }.get(cond_type, 1)
+        if cond_type != "always" and float(current) < threshold:
+            return "condition_not_met"
     if not guild:
         return "guild unavailable"
 
@@ -1655,6 +1717,68 @@ async def _run_automation(bot, automation: dict):
             embed = discord.Embed(title="📊 Pulse Team-Report", description=desc, color=discord.Color.blurple())
             await channel.send(embed=embed)
         return f"report {len(top)}"
+
+    if action == "ticket_sla_alert":
+        import webserver
+        minutes = max(5, min(1440, int(payload.get("minutes", 30))))
+        overdue = []
+        now_dt = utcnow()
+        for ticket in db.list_tickets(limit=5000):
+            if ticket.get("status") == "closed":
+                continue
+            try:
+                opened = datetime.fromisoformat(str(ticket["opened_at"]).replace("Z","+00:00"))
+                if (now_dt - opened).total_seconds() >= minutes * 60:
+                    overdue.append(ticket)
+            except Exception:
+                continue
+        managers = []
+        for m in team_members(guild):
+            perms, _ = webserver.compute_perms(guild, m.id, webserver.load_config())
+            if perms.get("can_promote") or perms.get("is_admin"):
+                managers.append(m)
+        for m in managers:
+            db.notify(m.id, "🚨 Ticket-SLA überschritten", f"{len(overdue)} Tickets warten länger als {minutes} Minuten.", "warning", "/tickets", f"sla:{minutes}:{len(overdue)}", 3600)
+        return f"sla {len(overdue)}"
+
+    if action == "inactivity_report":
+        import webserver
+        threshold_days = max(1, min(365, int(payload.get("days", 14))))
+        warnings = []
+        now_dt = utcnow()
+        for m in team_members(guild):
+            profile = get_profile(str(m.id)) or {}
+            seen = profile.get("updated_at") or ""
+            try:
+                days = (now_dt - datetime.fromisoformat(seen.replace("Z","+00:00"))).days
+            except Exception:
+                continue
+            if days >= threshold_days:
+                warnings.append((m, days))
+        for m in team_members(guild):
+            perms, _ = webserver.compute_perms(guild, m.id, webserver.load_config())
+            if perms.get("can_promote") or perms.get("is_admin"):
+                for target, days in warnings:
+                    db.notify(m.id, "⚠️ Inaktivität", f"{target.display_name} ist seit ca. {days} Tagen ohne Pulse-Aktivität.", "warning", f"/ultimate/team/{target.id}", f"inactive-report:{target.id}:{days}", 86400)
+        return f"inactive {len(warnings)}"
+
+    if action == "probation_report":
+        due = []
+        now_dt = utcnow()
+        for m in team_members(guild):
+            p = get_profile(str(m.id)) or {}
+            try:
+                end = datetime.fromisoformat(str(p.get("probation_end","")).replace("Z","+00:00"))
+                if now_dt <= end <= now_dt + timedelta(days=int(payload.get("days",7) or 7)):
+                    due.append((m,end))
+            except Exception:
+                continue
+        for manager in team_members(guild):
+            perms, _ = webserver.compute_perms(guild, manager.id, webserver.load_config())
+            if perms.get("can_promote") or perms.get("is_admin"):
+                for target,end in due:
+                    db.notify(manager.id, "🎯 Probezeit endet bald", f"{target.display_name}: {end.strftime('%d.%m.%Y')}", "info", f"/ultimate/team/{target.id}", f"probation-report:{target.id}:{end.isoformat()}", 86400)
+        return f"probation {len(due)}"
 
     return "unsupported action"
 
