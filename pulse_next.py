@@ -984,7 +984,12 @@ def register(app):
         with u.cx() as c:
             deps=[dict(r) for r in c.execute("SELECT * FROM ultimate_departments WHERE active=1 ORDER BY name").fetchall()]
             memrows=[dict(r) for r in c.execute("SELECT * FROM ultimate_department_members").fetchall()]
-        team_html=u.card("<h3>👑 Führung</h3>"+"".join(f"<div class=row><b>{esc(m.display_name)}</b><span class=pill>{esc(', '.join(role_names(m))[-80:])}</span></div>" for m in members(ctx.guild) if any(x.name.lower() in {'owner','admin','leitung'} for x in m.roles)) or u.card("<div class=tiny>Führung über Discord-Rollen ermittelt.</div>")
+        leaders = [m for m in members(ctx.guild) if any(x.name.lower() in {"owner","admin","leitung"} for x in m.roles)]
+        leader_html = "".join(
+            f"<div class=row><b>{esc(m.display_name)}</b><span class=pill>{esc(', '.join(role_names(m))[-80:])}</span></div>"
+            for m in leaders
+        ) or "<div class=tiny>Führung über Discord-Rollen ermittelt.</div>"
+        team_html = u.card("<h3>👑 Führung</h3>" + leader_html)
         blocks=[]
         bydep={}
         for x in memrows: bydep.setdefault(x["department_id"],[]).append(x)
