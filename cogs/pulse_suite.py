@@ -178,7 +178,7 @@ def page(ctx,active,title,subtitle,body,js=""):
 <main class=main><div class=top><div><h1>{esc(title)}</h1><div class=muted>{esc(subtitle)}</div></div><div><a class=btn href=/dashboard>Altes Dashboard</a> <a class="btn primary" href=/suite>Führung</a></div></div>{body}</main></div>
 <div id=search class=search><div><input id=sq class=input placeholder="Teamler, ID, Warn-ID, Ticket, Aufgabe, Bewerbung, Audit, Roblox …" oninput=doSearch(this.value)><div id=sr style="margin-top:8px"></div></div></div>
 <script>
-function openSearch(){document.getElementById('search').style.display='flex';document.getElementById('sq').focus()}function closeSearch(){document.getElementById('search').style.display='none'}
+    return "".join('<a class="{}" href="{}">{}</a>'.format("active" if k==active else "",p,label) for k,p,label in items)
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()=='k'){e.preventDefault();openSearch()}if(e.key=='Escape')closeSearch()})
 document.getElementById('search').addEventListener('click',e=>{if(e.target.id=='search')closeSearch()})
 async function doSearch(q){if(q.trim().length<2){sr.innerHTML='';return}sr.innerHTML='<div class="card">Suche…</div>';let d=await (await fetch('/suite/api/search?q='+encodeURIComponent(q))).json();sr.innerHTML=(d.results||[]).map(x=>'<a class=result href="'+x.url+'"><b>'+x.title+'</b><div class=tiny>'+x.type+' · '+(x.meta||'')+'</div></a>').join('')||'<div class=card>Keine Treffer.</div>'}
