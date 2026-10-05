@@ -841,7 +841,17 @@ class PulseSuite(commands.Cog):
                 if m.id!=after.id:db.notify(m.id,"👋 Neues Teammitglied",f"{after.display_name} wurde automatisch eingerichtet.","info",f"/suite/member/{after.id}",f"newteam:{after.id}",86400)
         elif bt and not at:
             with cx() as c:c.execute("UPDATE suite_members SET archived_at=?,last_seen=? WHERE user_id=?",(iso(),iso(),str(after.id)))
-            for m in managers(after.guild,web):db.notify(m.id,"🚪 Offboarding",f"{after.display_name} hat das Team verlassen. Aufgaben und Tickets prüfen.","warning","/suite/team",f"offboard:{after.id}",86400)
+            ms=managers(after.guild,web);replacement=ms[0] if ms else None
+            if replacement:
+                for t in db.list_tickets(limit=3000):
+                    if str(t.get("claimed_by_id"))==str(after.id) and t.get("status")!="closed":
+                        db.claim_ticket(t["id"],replacement.id,replacement.display_name)
+            sh=web.load_shifts()
+            live=sh.get("active_shifts",{}).pop(str(after.id),None)
+            if live:
+                live["duration_seconds"]=web.shift_elapsed(live);live["auto_closed"]=True
+                sh.setdefault("history",[]).append(live);web.save_json(web.SHIFTS_FILE,sh)
+            for m in ms:db.notify(m.id,"🚪 Offboarding",f"{after.display_name} hat das Team verlassen. Offene Tickets wurden übertragen und die laufende Schicht beendet.","warning","/suite/team",f"offboard:{after.id}",86400)
 
     @commands.Cog.listener()
     async def on_member_remove(self,member):
