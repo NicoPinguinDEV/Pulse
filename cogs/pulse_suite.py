@@ -168,7 +168,7 @@ def action_record(kind,payload,actor):
     return aid
 
 def nav(active):
-    items=[("suite","/suite","⚡ Führung"),("team","/suite/team","👥 Teamakten"),("time","/suite/time","⏱ Dienstzeit"),("schedule","/suite/schedule","🗓 Dienstplan"),("calendar","/suite/calendar","📅 Kalender"),("apps","/suite/applications","📝 Recruiting"),("interviews","/suite/interviews","🎤 Gespräche"),("training","/suite/training","🎓 Schulungen"),("tasks","/suite/tasks","📋 Aufgaben"),("news","/suite/news","📢 Team-News"),("audit","/suite/audit","🛡 Audit"),("search","/suite/search","⌕ Suche"),("cases","/suite/cases","🚨 Meldungen"),("ach","/suite/achievements","🏆 Erfolge")]
+    items=[("suite","/suite","⚡ Führung"),("team","/suite/team","👥 Teamakten"),("time","/suite/time","⏱ Dienstzeit"),("schedule","/suite/schedule","🗓 Dienstplan"),("myschedule","/suite/my-schedule","👤 Mein Dienstplan"),("calendar","/suite/calendar","📅 Kalender"),("apps","/suite/applications","📝 Recruiting"),("interviews","/suite/interviews","🎤 Gespräche"),("training","/suite/training","🎓 Schulungen"),("tasks","/suite/tasks","📋 Aufgaben"),("news","/suite/news","📢 Team-News"),("audit","/suite/audit","🛡 Audit"),("search","/suite/search","⌕ Suche"),("cases","/suite/cases","🚨 Meldungen"),("ach","/suite/achievements","🏆 Erfolge")]
     return "".join(f'<a class="{"active" if k==active else ""}" href="{p}">{label}</a>' for k,p,label in items)
 
 def page(ctx,active,title,subtitle,body,js=""):
@@ -238,6 +238,14 @@ def register_routes():
         forms='<form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=start><button class="btn primary">▶ Start</button></form> <form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=break><button class=btn>☕ Pause</button></form> <form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=resume><button class=btn>↻ Fortsetzen</button></form> <form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=end><button class="btn danger">■ Ende</button></form>'
         rows=''.join(f'<tr><td>{i}</td><td><a href=/suite/member/{m.id}><b>{esc(m.display_name)}</b></a></td><td>{secfmt(weekly(m,web))}</td><td>{secfmt(total_time(m,web))}</td><td>{secfmt(max(0,weekly(m,web)-int(float(setting("weekly_goal_hours",3))*3600)))}</td></tr>' for i,m in enumerate(sorted(ms,key=lambda x:weekly(x,web),reverse=True),1))
         return page(ctx,"time","Dienstzeit 2.0","Start → Pause → Fortsetzen → Ende · Tag / Woche / Monat",f'<div class=card>{forms}</div><div class="grid g4" style="margin-top:13px"><div class=card><div class=tiny>Heute</div><div class=metric>{secfmt(day)}</div></div><div class=card><div class=tiny>Aktive Schichten</div><div class=metric>{sum(x.get("status") in {"online","break"} for x in sh.get("active_shifts",{}).values())}</div></div><div class=card><div class=tiny>Wochenziel</div><div class=metric>{float(setting("weekly_goal_hours",3)):.1f}h</div></div><div class=card><div class=tiny>Monat</div><div class=metric>{secfmt(monthsec)}</div></div></div><div class=card style="margin-top:13px"><h3>🏆 Wochenrangliste · Überstunden</h3><div class=scroll><table class=table><tr><th>#</th><th>Teamler</th><th>Woche</th><th>Gesamt</th><th>Überstunden</th></tr>{rows}</table></div></div>')
+
+    @app.get("/suite/my-schedule",response_class=HTMLResponse)
+    async def my_schedule(request:Request,user_session:str=Cookie(None)):
+        ctx=auth(request,user_session)
+        with cx() as c:
+            rows=[dict(x) for x in c.execute("SELECT * FROM suite_schedule WHERE guild_id=? AND assignee_id=? ORDER BY date,start_time",(ctx.guild.id,str(ctx.user["id"]))).fetchall()]
+        cards="".join(f'<div class=card><div class=row><span><b>{esc(x["date"])}</b> · {esc(x["shift_name"])}<div class=tiny>{esc(x["start_time"])}–{esc(x["end_time"])}</div></span></div></div>' for x in rows)
+        return page(ctx,"myschedule","Mein Dienstplan","Deine persönlichen Schichten und automatische 30-Minuten-Erinnerungen",cards or "<div class=card>Keine Schichten eingetragen.</div>")
 
     @app.get("/suite/schedule",response_class=HTMLResponse)
     async def schedule_page(request:Request,user_session:str=Cookie(None)):
