@@ -610,11 +610,26 @@ async def sync_warn_roles(guild, member, count: int, config: dict | None = None)
         report.update(ok=False, message=f"Warn-Rolle {target_level} ({ids[target_level]}) wurde nicht gefunden.")
         return report
 
-    health = warning_role_health(guild, config)
-    current = next((x for x in health if x["level"] == target_level), None) if target_level else None
-    if current and not current["ok"]:
-        report.update(ok=False, message=f"Warn-Rolle {target_level}: {current['detail']}.")
-        return report
+    health = {row["level"]: row for row in warning_role_health(guild, config)}
+
+    # Erst alle betroffenen Rollen prüfen, dann erst Discord verändern.
+    # So entsteht bei einer falsch positionierten alten Warnrolle kein Zwischenzustand
+    # mit zwei Warnstufen gleichzeitig.
+    if target_level:
+        target_health = health.get(target_level)
+        if not target_health or not target_health["ok"]:
+            detail = target_health["detail"] if target_health else "Warnrolle nicht konfiguriert"
+            report.update(ok=False, message=f"Warn-Rolle {target_level}: {detail}.")
+            return report
+
+    for level in (1, 2, 3):
+        role = guild.get_role(ids[level])
+        if role and role in member.roles and level != target_level:
+            current_health = health.get(level)
+            if not current_health or not current_health["ok"]:
+                detail = current_health["detail"] if current_health else "Warnrolle nicht verwaltbar"
+                report.update(ok=False, message=f"Warn-Rolle {level}: {detail}.")
+                return report
 
     try:
         for level in (1, 2, 3):
@@ -626,9 +641,6 @@ async def sync_warn_roles(guild, member, count: int, config: dict | None = None)
                     await member.add_roles(role, reason=f"Warn-System (Dashboard) · Stufe {level}")
                 report["role"] = role
             elif role in member.roles:
-                if guild.me and guild.me.top_role.position <= role.position:
-                    report.update(ok=False, message=f"Warn-Rolle {level}: Bot-Rolle steht nicht darüber.")
-                    return report
                 await member.remove_roles(role, reason="Warn-System (Dashboard) · alte Stufe entfernen")
         return report
     except discord.Forbidden:
