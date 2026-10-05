@@ -110,7 +110,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "5.2.0"
+PULSE_VERSION = "6.0.0"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -3203,3 +3203,9 @@ try:
     register_pulse_ultimate(app)
 except Exception as _ultimate_error:
     print(f"❌ Pulse Ultimate Module konnten nicht registriert werden: {_ultimate_error}")
+
+try:
+    from pulse_next import register as register_pulse_next
+    register_pulse_next(app)
+except Exception as _next_error:
+    print(f"❌ Pulse TeamOS 2.0 Module konnten nicht registriert werden: {_next_error}")
