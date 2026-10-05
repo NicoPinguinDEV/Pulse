@@ -546,6 +546,19 @@ def page(ctx, active: str, title: str, subtitle: str, body: str, extra_js: str =
     return HTMLResponse(body_html)
 
 
+def validate_api_key(token: str) -> bool:
+    setup()
+    if not token or len(token) > 200:
+        return False
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    with cx() as c:
+        row = c.execute(
+            "SELECT 1 FROM ultimate_api_keys WHERE token_hash=? AND revoked_at IS NULL",
+            (digest,),
+        ).fetchone()
+    return bool(row)
+
+
 def register(app) -> None:
     setup()
     if getattr(app.state, "pulse_ultimate_registered", False):
@@ -1336,6 +1349,163 @@ def register(app) -> None:
             )
         audit(ctx, "Feedback bearbeitet", feedback_id, "", f"{status}: {manager_note[:300]}")
         return RedirectResponse("/ultimate/feedback", status_code=303)
+
+    @app.get("/ultimate/analytics", response_class=HTMLResponse)
+    async def ultimate_analytics(request: Request, user_session: str = Cookie(None)):
+        ctx = ctx_auth(request, user_session, perm="can_view_analytics")
+        import webserver
+        members = team_members(ctx.guild)
+        stats = [(m, member_stats(m)) for m in members]
+        stats.sort(key=lambda x: (-x[1]["score"], x[0].display_name.lower()))
+        avg_score = round(sum(s["score"] for _, s in stats) / len(stats)) if stats else 0
+        total_hours = round(sum(s["total_seconds"] for _, s in stats) / 3600, 1)
+        tickets = len(db.list_tickets(limit=5000))
+        closed_tickets = sum(1 for t in db.list_tickets(limit=5000) if t.get("status") == "closed")
+        apps = webserver.load_json(webserver.APPS_FILE, {})
+        active_apps = sum(str(a.get("status")) in {"pending","in_review","interview"} for a in apps.values())
+        top = "".join(
+            f"<div class='row'><b>#{i} {esc(m.display_name)}</b><span>{s['score']}/100 · {s['total_seconds']//3600}h</span></div>"
+            for i,(m,s) in enumerate(stats[:10],1)
+        ) or "<div class='tiny'>Keine Teamdaten.</div>"
+        body = f"""<div class='grid g4'>
+          {card(f"<div class='tiny'>Team-Score</div><div class='metric'>{avg_score}/100</div>")}
+          {card(f"<div class='tiny'>Gesamtdienstzeit</div><div class='metric'>{total_hours}h</div>")}
+          {card(f"<div class='tiny'>Tickets</div><div class='metric'>{tickets}</div>")}
+          {card(f"<div class='tiny'>Bewerbungen offen</div><div class='metric'>{active_apps}</div>")}
+        </div>
+        <div class='grid g2' style='margin-top:13px'>
+          {card("<h3 style='margin-top:0'>🏆 Team-Leaderboard</h3>"+top)}
+          {card(f"<h3 style='margin-top:0'>🎫 Ticket-Leistung</h3><div class='metric'>{closed_tickets}</div><div class='tiny'>geschlossene Tickets im aktuellen Datenbestand</div><div class='progress' style='margin-top:10px'><div style='width:{round(closed_tickets/max(1,tickets)*100)}%'></div></div>")}
+        </div>"""
+        return page(ctx, "system", "Analytics", "Leistung, Support, Dienstzeit und Team-Trends.", body)
+
+    @app.post("/ultimate/team/status")
+    async def ultimate_team_status(
+        request: Request,
+        internal_status: str = Form(...),
+        internal_message: str = Form(""),
+        user_session: str = Cookie(None),
+    ):
+        ctx = ctx_auth(request, user_session)
+        allowed_status = {"available","service","break","training","admin","unavailable"}
+        if internal_status not in allowed_status:
+            raise HTTPException(400, "Ungültiger Status.")
+        ensure_profile(ctx.guild.get_member(int(ctx.user["id"])))
+        with cx() as c:
+            c.execute(
+                "UPDATE ultimate_profiles SET internal_status=?,internal_message=?,updated_at=? WHERE user_id=?",
+                (internal_status, internal_message[:300], iso(), str(ctx.user["id"])),
+            )
+        audit(ctx, "Eigener Teamstatus geändert", str(ctx.user["id"]), "", internal_status)
+        return RedirectResponse("/ultimate/team", status_code=303)
+
+    @app.post("/ultimate/certificates/create")
+    async def ultimate_certificate_create(
+        request: Request,
+        user_id: str = Form(...),
+        title: str = Form(...),
+        score: int = Form(0),
+        valid_until: str = Form(""),
+        user_session: str = Cookie(None),
+    ):
+        ctx = ctx_auth(request, user_session, manager=True)
+        with cx() as c:
+            c.execute(
+                "INSERT INTO ultimate_certificates VALUES(?,?,?,?,?,?,?)",
+                (uid("cert"), str(user_id), title.strip()[:160], max(0,min(100,score)),
+                 str(ctx.user["id"]), ctx.user.get("global_name") or ctx.user.get("username") or "Team",
+                 iso(), valid_until.strip()[:80] or None),
+            )
+        db.notify(user_id, "🎓 Neues Zertifikat", title.strip(), "success", f"/ultimate/team/{user_id}")
+        audit(ctx, "Zertifikat vergeben", user_id, title.strip(), f"{score}%")
+        return RedirectResponse(f"/ultimate/team/{user_id}", status_code=303)
+
+    @app.get("/ultimate/status")
+    async def ultimate_public_status(request: Request):
+        import webserver
+        bot = getattr(request.app.state, "bot", None)
+        guild = bot.get_guild(webserver.GUILD_ID) if bot else None
+        db_ok = True
+        try:
+            db.init_db()
+            with db.connect() as c:
+                c.execute("SELECT 1")
+        except Exception:
+            db_ok = False
+        return JSONResponse({
+            "service": "Pulse TeamOS",
+            "version": getattr(webserver, "PULSE_VERSION", "unknown"),
+            "status": "operational" if guild and db_ok else "degraded",
+            "bot_ready": bool(bot and bot.is_ready()),
+            "guild_ready": bool(guild),
+            "database": "ok" if db_ok else "error",
+        })
+
+    @app.post("/ultimate/system/api-key")
+    async def ultimate_api_key_create(
+        request: Request,
+        name: str = Form(...),
+        user_session: str = Cookie(None),
+    ):
+        ctx = ctx_auth(request, user_session, manager=True)
+        raw = "pulse_" + secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw.encode()).hexdigest()
+        with cx() as c:
+            c.execute(
+                "INSERT INTO ultimate_api_keys VALUES(?,?,?,?,?,?)",
+                (uid("key"), name.strip()[:100], token_hash, str(ctx.user["id"]), iso(), None),
+            )
+        # Token is returned exactly once.
+        return HTMLResponse(
+            f"<html><body style='font-family:system-ui;padding:30px;background:#070b12;color:#fff'>"
+            f"<h2>API-Key erstellt</h2><p>Speichere diesen Schlüssel jetzt sicher:</p>"
+            f"<code style='display:block;padding:15px;background:#111b2a;border-radius:10px'>{esc(raw)}</code>"
+            f"<p>Der Token wird danach nicht erneut angezeigt.</p><a href='/ultimate/system'>Zurück</a></body></html>"
+        )
+
+    @app.get("/ultimate/api/v2/overview")
+    async def ultimate_api_v2_overview(request: Request):
+        api_key = request.headers.get("X-Pulse-API-Key", "")
+        if not validate_api_key(api_key):
+            raise HTTPException(401, "Ungültiger API-Key.")
+        import webserver
+        guild = getattr(request.app.state, "bot", None).get_guild(webserver.GUILD_ID) if getattr(request.app.state, "bot", None) else None
+        if not guild:
+            raise HTTPException(503, "Discord nicht bereit.")
+        members = team_members(guild)
+        cases = case_rows(500)
+        with cx() as c:
+            feedback = c.execute("SELECT COUNT(*) FROM ultimate_feedback WHERE status IN ('new','reviewing')").fetchone()[0]
+            polls = c.execute("SELECT COUNT(*) FROM ultimate_polls WHERE active=1").fetchone()[0]
+        return JSONResponse({
+            "version": getattr(webserver, "PULSE_VERSION", "unknown"),
+            "team_total": len(members),
+            "online": sum(str(m.status) in {"online","idle","dnd"} for m in members),
+            "in_service": len(webserver.load_shifts().get("active_shifts", {})),
+            "open_cases": sum(x["status"] not in ("closed","resolved") for x in cases),
+            "open_feedback": feedback,
+            "active_polls": polls,
+        })
+
+    @app.get("/ultimate/api/v2/team")
+    async def ultimate_api_v2_team(request: Request):
+        api_key = request.headers.get("X-Pulse-API-Key", "")
+        if not validate_api_key(api_key):
+            raise HTTPException(401, "Ungültiger API-Key.")
+        import webserver
+        bot = getattr(request.app.state, "bot", None)
+        guild = bot.get_guild(webserver.GUILD_ID) if bot else None
+        if not guild:
+            raise HTTPException(503, "Discord nicht bereit.")
+        rows = []
+        for m in team_members(guild):
+            s = member_stats(m)
+            rows.append({
+                "id": m.id, "name": m.display_name, "status": str(m.status),
+                "score": s["score"], "weekly_hours": round(s["weekly_seconds"]/3600, 2),
+                "warnings": s["warnings"], "activity_pct": s["activity_pct"],
+            })
+        return JSONResponse({"ok": True, "members": rows})
 
     @app.get("/ultimate/metrics")
     async def ultimate_metrics(request: Request, user_session: str = Cookie(None)):
