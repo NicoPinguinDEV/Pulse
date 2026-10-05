@@ -264,6 +264,13 @@ def ctx_auth(request: Request, session: str, manager: bool = False, perm: Option
 def has_perm(ctx, perm: str) -> bool:
     if ctx.perms.get("is_admin") or ctx.perms.get(perm):
         return True
+    # Leadership inherits the operational Pulse 2.0 management permissions.
+    leadership_perms = {
+        "can_approve", "can_manage_goals",
+        "can_manage_announcements", "can_manage_workflows",
+    }
+    if ctx.perms.get("can_promote") and perm in leadership_perms:
+        return True
     setup_next()
     with cx() as c:
         row = c.execute(
