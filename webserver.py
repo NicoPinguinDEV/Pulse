@@ -366,13 +366,24 @@ _rate_hits = {}
 
 
 def rate_limited(key: str, limit: int = 3, window: int = 3600) -> bool:
+    """Ein kleiner In-Memory-Rate-Limiter mit periodischer Bereinigung alter Keys."""
     now = time.time()
+    window = max(1, int(window))
     hits = [t for t in _rate_hits.get(key, []) if now - t < window]
     if len(hits) >= limit:
         _rate_hits[key] = hits
         return True
+
     hits.append(now)
     _rate_hits[key] = hits
+
+    # Verhindert unbegrenztes Wachstum bei vielen Clients/IPs.
+    if len(_rate_hits) > 5000:
+        cutoff = now - window
+        stale = [k for k, values in _rate_hits.items() if not any(ts >= cutoff for ts in values)]
+        for stale_key in stale[:2500]:
+            _rate_hits.pop(stale_key, None)
+
     return False
 
 # =============================================================
@@ -637,13 +648,19 @@ async def reconcile_warning_roles(guild, config: dict | None = None) -> dict:
     if not guild:
         result["errors"].append("Guild nicht verfügbar")
         return result
-    team_role_ids = (config or load_config()).get("team_role_ids", [])
+    team_role_ids = {int(x) for x in (config or load_config()).get("team_role_ids", [])}
+    warn_role_ids = set(get_warn_role_ids(config).values())
     team_db = load_json(DATA_FILE, {})
     for member in guild.members:
-        if member.bot or not any(r.id in team_role_ids for r in member.roles):
+        if member.bot:
             continue
+        is_team = any(r.id in team_role_ids for r in member.roles)
+        has_warn_role = any(r.id in warn_role_ids for r in member.roles)
+        if not is_team and not has_warn_role:
+            continue
+
         entry = team_db.get(str(member.id), {})
-        count = len(active_warns(entry)) if isinstance(entry, dict) else 0
+        count = len(active_warns(entry)) if is_team and isinstance(entry, dict) else 0
         report = await sync_warn_roles(guild, member, count, config)
         result["checked"] += 1
         if report.get("ok"):
@@ -849,8 +866,11 @@ _roblox_cache = {}
 
 
 @app.get("/api/roblox-user")
-async def roblox_user_lookup(username: str, user_session: str = Cookie(None)):
-    get_current_user(user_session)
+async def roblox_user_lookup(request: Request, username: str, user_session: str = Cookie(None)):
+    user = get_current_user(user_session)
+    client_key = f"roblox-lookup:{user.get('id')}:{request.client.host if request.client else 'unknown'}"
+    if rate_limited(client_key, limit=60, window=60):
+        return JSONResponse({"success": False, "message": "Zu viele Roblox-Abfragen. Bitte kurz warten."}, status_code=429)
     name = (username or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", name):
         return JSONResponse({"success": False, "message": "Ungültiger Roblox-Name (3-20 Zeichen, A-Z, 0-9, _)"})
@@ -899,8 +919,11 @@ async def roblox_user_lookup(username: str, user_session: str = Cookie(None)):
 # API: ROBLOX SUCHVORSCHLÄGE FÜR MELOONLY
 # =============================================================
 @app.get("/api/roblox-search")
-async def roblox_search(query: str, user_session: str = Cookie(None)):
-    get_current_user(user_session)
+async def roblox_search(request: Request, query: str, user_session: str = Cookie(None)):
+    user = get_current_user(user_session)
+    client_key = f"roblox-search:{user.get('id')}:{request.client.host if request.client else 'unknown'}"
+    if rate_limited(client_key, limit=120, window=60):
+        return JSONResponse({"success": False, "users": [], "message": "Zu viele Roblox-Suchanfragen. Bitte kurz warten."}, status_code=429)
     clean = (query or "").strip().lstrip("@")
     if not re.fullmatch(r"[A-Za-z0-9_]{2,20}", clean):
         return JSONResponse({"success": True, "users": []})
@@ -1010,8 +1033,14 @@ async def callback(request: Request, code: str = None, state: str = None, error:
         "exp": int(time.time() + SESSION_DAYS * 86400),
     }
     response = RedirectResponse(url="/dashboard", status_code=303)
-    response.set_cookie("user_session", sign_payload(session), httponly=True, samesite="lax",
-                        secure=COOKIE_SECURE, max_age=SESSION_DAYS * 86400)
+    response.set_cookie(
+        "user_session",
+        sign_payload(session),
+        httponly=True,
+        samesite="lax",
+        secure=oauth_cookie_secure(request),
+        max_age=SESSION_DAYS * 86400,
+    )
     response.delete_cookie("oauth_state")
     return response
 
@@ -1493,18 +1522,41 @@ async def export_logs(request: Request, user_session: str = Cookie(None)):
 # ACTIVITY CHECK: STATUS DIREKT IN DER TEAMLISTE
 # =============================================================
 def get_activity_today(guild_id: int):
+    """Lädt den heutigen Activity Check inklusive des eingefrorenen Teilnehmer-Snapshots."""
     today = now_de().date().isoformat()
+    empty = {"check_id": None, "check_date": today, "confirmed": set(), "eligible": None}
     if not os.path.exists(ACTIVITY_DB):
-        return {"check_id": None, "check_date": today, "confirmed": set()}
+        return empty
     try:
         with sqlite3.connect(ACTIVITY_DB) as conn:
-            row = conn.execute("SELECT id FROM checks WHERE guild_id=? AND check_date=?", (guild_id, today)).fetchone()
+            row = conn.execute(
+                "SELECT id FROM checks WHERE guild_id=? AND check_date=?",
+                (guild_id, today),
+            ).fetchone()
             if not row:
-                return {"check_id": None, "check_date": today, "confirmed": set()}
-            confirmed = {int(x[0]) for x in conn.execute("SELECT user_id FROM responses WHERE check_id=?", (row[0],)).fetchall()}
-            return {"check_id": int(row[0]), "check_date": today, "confirmed": confirmed}
+                return empty
+
+            check_id = int(row[0])
+            confirmed = {
+                int(x[0])
+                for x in conn.execute(
+                    "SELECT user_id FROM responses WHERE check_id=?",
+                    (check_id,),
+                ).fetchall()
+            }
+            snapshot_rows = conn.execute(
+                "SELECT user_id FROM check_members WHERE check_id=?",
+                (check_id,),
+            ).fetchall()
+            eligible = {int(x[0]) for x in snapshot_rows} if snapshot_rows else None
+            return {
+                "check_id": check_id,
+                "check_date": today,
+                "confirmed": confirmed,
+                "eligible": eligible,
+            }
     except sqlite3.Error:
-        return {"check_id": None, "check_date": today, "confirmed": set()}
+        return empty
 
 
 @app.get("/api/team/activity")
@@ -1512,11 +1564,36 @@ async def team_activity_api(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
     activity = get_activity_today(ctx.guild.id)
     role_ids = ctx.config.get("team_role_ids", [])
-    members = [m for m in ctx.guild.members if not m.bot and any(r.id in role_ids for r in m.roles)]
+    members = [
+        m for m in ctx.guild.members
+        if not m.bot and any(r.id in role_ids for r in m.roles)
+    ]
+    current_ids = {m.id for m in members}
+    eligible = activity.get("eligible")
     statuses = {}
     for m in members:
-        statuses[str(m.id)] = "confirmed" if activity["check_id"] and m.id in activity["confirmed"] else ("open" if activity["check_id"] else "none")
-    return JSONResponse({"ok": True, "check_id": activity["check_id"], "date": activity["check_date"], "confirmed": sum(1 for v in statuses.values() if v=="confirmed"), "open": sum(1 for v in statuses.values() if v=="open"), "team_total": len(members), "statuses": statuses})
+        if not activity["check_id"]:
+            statuses[str(m.id)] = "none"
+        elif eligible is not None and m.id not in eligible:
+            statuses[str(m.id)] = "not_in_snapshot"
+        else:
+            statuses[str(m.id)] = "confirmed" if m.id in activity["confirmed"] else "open"
+
+    confirmed = sum(1 for m in members if statuses.get(str(m.id)) == "confirmed")
+    open_count = (
+        sum(1 for uid in (eligible or current_ids) if uid in current_ids and uid not in activity["confirmed"])
+        if activity["check_id"] else 0
+    )
+    return JSONResponse({
+        "ok": True,
+        "check_id": activity["check_id"],
+        "date": activity["check_date"],
+        "confirmed": confirmed,
+        "open": open_count,
+        "team_total": len(members),
+        "snapshot_total": len(eligible) if eligible is not None else len(members),
+        "statuses": statuses,
+    })
 
 @app.get("/api/team/warn-roles")
 async def warn_roles_api(request: Request, user_session: str = Cookie(None)):
@@ -1568,19 +1645,42 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             "hrs": hrs, "reached": hrs >= weekly_goal, "on_loa": on_loa,
             "loa_until": fmt_date(loa["bis"]) if on_loa else "",
             "duty": active.get(str(member.id), {}).get("status"),
-            "activity": ("confirmed" if member.id in activity_confirmed else ("open" if activity_exists else "none")),
+            "activity": (
+                "confirmed"
+                if activity_exists and (activity["eligible"] is None or member.id in activity["eligible"]) and member.id in activity_confirmed
+                else "open"
+                if activity_exists and (activity["eligible"] is None or member.id in activity["eligible"])
+                else "not_in_snapshot"
+                if activity_exists
+                else "none"
+            ),
+            "discord_status": str(member.status),
+            "discord_activity": next(
+                (
+                    getattr(a, "name", None) or getattr(a, "state", None)
+                    for a in (member.activities or [])
+                    if getattr(a, "name", None) or getattr(a, "state", None)
+                ),
+                None,
+            ),
         })
     members.sort(key=lambda m: (-m["pos"], m["name"].lower()))
 
     below = len([m for m in members if not m["reached"] and not m["on_loa"]])
     activity_confirmed_count = sum(1 for m in members if m["activity"] == "confirmed")
     activity_open_count = sum(1 for m in members if m["activity"] == "open")
-    activity_summary = (f"✅ {activity_confirmed_count} bestätigt · ⏳ {activity_open_count} offen" if activity_exists else "⚪ Heute noch kein Activity Check")
+    activity_outside_snapshot_count = sum(1 for m in members if m["activity"] == "not_in_snapshot")
+    activity_summary = (
+        f"✅ {activity_confirmed_count} bestätigt · ⏳ {activity_open_count} offen"
+        + (f" · ⚪ {activity_outside_snapshot_count} nicht im Check" if activity_outside_snapshot_count else "")
+        if activity_exists else "⚪ Heute noch kein Activity Check"
+    )
     summary = (f"{len(members)} Mitglieder · ✅ {len([m for m in members if m['reached']])} Ziel erreicht · "
                f"⚠️ {below} unter Ziel · 🟢 {len([m for m in members if m['duty']])} im Dienst · 🌴 {len([m for m in members if m['on_loa']])} abgemeldet · Activity: {activity_summary}")
 
     confirmed_names = [m["name"] for m in members if m["activity"] == "confirmed"]
     open_names = [m["name"] for m in members if m["activity"] == "open"]
+    not_in_snapshot_names = [m["name"] for m in members if m["activity"] == "not_in_snapshot"]
     activity_panel = f"""
     <section id="activity" class="{CARD} p-5 mb-5">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -1591,6 +1691,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
         <div class="grid md:grid-cols-2 gap-4 mt-4">
             <div class="rounded-xl bg-emerald-500/5 border border-emerald-500/20 p-3"><div class="text-[10px] font-bold uppercase tracking-wider text-emerald-600 mb-2">Bestätigt</div><div class="text-xs leading-6">{esc(", ".join(confirmed_names) or "Noch niemand bestätigt.")}</div></div>
             <div class="rounded-xl bg-rose-500/5 border border-rose-500/20 p-3"><div class="text-[10px] font-bold uppercase tracking-wider text-rose-600 mb-2">Noch offen</div><div class="text-xs leading-6">{esc(", ".join(open_names) or ("Niemand offen." if activity_exists else "Heute wurde noch kein Check gesendet."))}</div></div>
+            <div class="rounded-xl bg-slate-500/5 border border-slate-500/20 p-3 md:col-span-2"><div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Nicht Teil dieses Checks</div><div class="text-xs leading-6">{esc(", ".join(not_in_snapshot_names) or "Niemand.")}</div></div>
         </div>
     </section>"""
 
@@ -1605,8 +1706,26 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
         if m["duty"]:
             duty_badge = (f'<span class="border {BADGE_WARN if m["duty"] == "break" else BADGE_OK} text-[10px] px-2.5 py-0.5 rounded-full font-semibold">'
                           f'{"☕ Pause" if m["duty"] == "break" else "🟢 Im Dienst"}</span>')
-        activity_badge_class = BADGE_OK if m["activity"] == "confirmed" else (BADGE_BAD if m["activity"] == "open" else "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700")
-        activity_badge_text = "✅ Aktiv bestätigt" if m["activity"] == "confirmed" else ("⏳ Nicht bestätigt" if m["activity"] == "open" else "⚪ Kein Check")
+        presence_labels = {
+            "online": "🟢 Online",
+            "idle": "🟡 Abwesend",
+            "dnd": "🔴 Bitte nicht stören",
+            "offline": "⚪ Offline",
+        }
+        presence_text = presence_labels.get(m["discord_status"], "⚪ Offline")
+        presence_badge = f'<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border bg-slate-50 dark:bg-slate-900/50 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700">{presence_text}</span>'
+        activity_badge_class = (
+            BADGE_OK if m["activity"] == "confirmed"
+            else BADGE_BAD if m["activity"] == "open"
+            else "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700"
+        )
+        activity_badge_text = (
+            "✅ Aktiv bestätigt" if m["activity"] == "confirmed"
+            else "⏳ Nicht bestätigt" if m["activity"] == "open"
+            else "⚪ Nicht Teil dieses Checks" if m["activity"] == "not_in_snapshot"
+            else "⚪ Kein Check"
+        )
+        activity_name = f'<span class="text-[10px] text-slate-400 truncate max-w-[220px]" title="{esc(m["discord_activity"])}">🎮 {esc(m["discord_activity"])}</span>' if m["discord_activity"] else ""
         warn_badge = (f'<span class="border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">🚨 {m["warns"]}/3 Warnungen</span>' if m["warns"] >= 3 else
                       f'<span class="border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">⚠ {m["warns"]}/3 Warnungen</span>' if m["warns"] else '')
         rows_html += f"""
@@ -1615,7 +1734,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             <div class="flex items-center gap-3.5 md:w-1/3 min-w-0">
                 <img src="{esc(m['avatar'])}" alt="" class="w-11 h-11 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
                 <div class="truncate">
-                    <div class="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap"><span>{esc(m['name'])}</span>{loa_badge}{duty_badge}{warn_badge}<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border {activity_badge_class}">{activity_badge_text}</span></div>
+                    <div class="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap"><span>{esc(m['name'])}</span>{presence_badge}{loa_badge}{duty_badge}{warn_badge}<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border {activity_badge_class}">{activity_badge_text}</span>{activity_name}</div>
                     <div class="text-xs text-slate-400 font-mono">@{esc(m['username'])}</div>
                 </div>
             </div>
@@ -2446,41 +2565,6 @@ ACTION_PERMS = {
     "save_role_permissions": "admin", "set_weekly_goal": "admin", "save_team_roles": "admin",
 }
 
-
-def normalize_warns(entry: dict) -> bool:
-    """Normalisiert alte Warn-Einträge, damit auch historische Warns zurückgezogen werden können."""
-    raw = entry.get("warns_list", [])
-    if not isinstance(raw, list):
-        raw = []
-    normalized = []
-    changed = not isinstance(entry.get("warns_list"), list)
-
-    for warn in raw:
-        if isinstance(warn, dict):
-            item = dict(warn)
-        else:
-            item = {
-                "reason": str(warn),
-                "proof": "",
-                "by": "Altsystem",
-                "date": "N/A",
-            }
-            changed = True
-
-        if not item.get("id"):
-            item["id"] = f"warn_{uuid.uuid4().hex[:10]}"
-            changed = True
-        item.setdefault("reason", "Kein Grund")
-        item.setdefault("proof", "")
-        item.setdefault("by", "System")
-        item.setdefault("date", "N/A")
-        normalized.append(item)
-
-    if normalized != entry.get("warns_list"):
-        entry["warns_list"] = normalized
-        changed = True
-
-    return changed
 
 
 def user_entry(team_db: dict, key: str) -> dict:
