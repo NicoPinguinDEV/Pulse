@@ -374,7 +374,7 @@ class PulsePro(commands.Cog):
             embed.add_field(name="Warnrollen", value=f"{ok_roles}/3 bereit", inline=True)
         except Exception:
             embed.add_field(name="Warnrollen", value="⚠️ Nicht prüfbar", inline=True)
-        embed.add_field(name="Health-Endpunkt", value="[/healthz]".replace("[/", "[") + f" {webserver.PULSE_VERSION}", inline=True)
+        embed.add_field(name="Health-Endpunkt", value="/healthz", inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
