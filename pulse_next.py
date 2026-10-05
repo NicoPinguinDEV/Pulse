@@ -785,7 +785,13 @@ def register(app):
         for a in rows:
             read=bool(next((x for x in [1] if True),False))
             with cx() as c: read=bool(c.execute("SELECT 1 FROM next_announcement_reads WHERE announcement_id=? AND user_id=?",(a["id"],actor_id(ctx))).fetchone())
-            cards.append(u.card(f"<div class=row><div><b>{'📌 ' if a['pinned'] else ''}{esc(a['title'])}</b><div class=tiny>{esc(a['priority'])} · {fmt_dt(a['created_at'])}</div></div><span class=pill>{'gelesen' if read else 'ungelesen'}</span></div><p>{esc(a['body'])}</p>{'' if read else f\"<form method=post action='/ultimate/announcements/{a['id']}/read'><button class='btn primary'>Als gelesen markieren</button></form>\"}"))
+            read_button = "" if read else f"<form method='post' action='/ultimate/announcements/{a['id']}/read'><button class='btn primary'>Als gelesen markieren</button></form>"
+            cards.append(u.card(
+                f"<div class=row><div><b>{'📌 ' if a['pinned'] else ''}{esc(a['title'])}</b>"
+                f"<div class=tiny>{esc(a['priority'])} · {fmt_dt(a['created_at'])}</div></div>"
+                f"<span class=pill>{'gelesen' if read else 'ungelesen'}</span></div>"
+                f"<p>{esc(a['body'])}</p>{read_button}"
+            ))
         create = ""
         if has_perm(ctx,"can_manage_announcements"):
             create=u.card("""<h3 style='margin-top:0'>📢 News erstellen</h3><form method=post action='/ultimate/announcements/create' class=form>
