@@ -513,6 +513,7 @@ def page(ctx, active: str, title: str, subtitle: str, body: str, extra_js: str =
         ("feedback", "/ultimate/feedback", "💬 Feedback"),
         ("handover", "/ultimate/handovers", "🧭 Übergaben"),
         ("automations", "/ultimate/automations", "🤖 Automationen"),
+        ("analytics", "/ultimate/analytics", "📊 Analytics"),
         ("awards", "/ultimate/awards", "🏆 Awards"),
         ("system", "/ultimate/system", "🩺 System"),
     ]
@@ -622,7 +623,18 @@ def register(app) -> None:
                 f'<div style="margin-top:10px"><div class="progress"><div style="width:{s["activity_pct"]}%"></div></div></div>'
                 f'<div style="margin-top:10px"><a class="btn primary" href="/ultimate/team/{m.id}">Teamakte</a></div></div>'
             )
-        body = f'<div class="grid g3">{"".join(rows) or card("<div class=tiny>Keine Teammitglieder.</div>")}</div>'
+        own = get_profile(str(ctx.user["id"])) or {}
+        own_form = f"""<div class="card" style="margin-bottom:13px">
+          <h3>🟢 Mein Teamstatus</h3>
+          <form method="post" action="/ultimate/team/status" class="form">
+            <select class="select" name="internal_status">
+              {''.join(f"<option {'selected' if s==own.get('internal_status','available') else ''}>{s}</option>" for s in ('available','service','break','training','admin','unavailable'))}
+            </select>
+            <input class="input" name="internal_message" maxlength="300" value="{esc(own.get('internal_message',''))}" placeholder="Kurze interne Info">
+            <button class="btn primary">Status speichern</button>
+          </form>
+        </div>"""
+        body = own_form + f'<div class="grid g3">{"".join(rows) or card("<div class=tiny>Keine Teammitglieder.</div>")}</div>'
         return page(ctx, "team", "Teamakten", "Leistung, Disziplin, Probezeit, Status, Abteilungen und Historie.", body)
 
     @app.get("/ultimate/team/{user_id}", response_class=HTMLResponse)
@@ -655,6 +667,13 @@ def register(app) -> None:
         awards_html = "".join(f"<div class='row'>{esc(a['icon'])} <b>{esc(a['title'])}</b><span class='tiny'>{esc(a['period'])}</span></div>" for a in awards) or "<div class='tiny'>Noch keine Awards.</div>"
         cert_html = "".join(f"<div class='row'>🎓 <b>{esc(c['title'])}</b><span>{int(c['score'])}%</span></div>" for c in certs) or "<div class='tiny'>Keine Zertifikate.</div>"
         can_edit = ctx.perms.get("can_promote") or ctx.perms.get("is_admin")
+        cert_form = f"""<div class="card"><h3>🎓 Zertifikat ausstellen</h3><form class="form" method="post" action="/ultimate/certificates/create">
+          <input class="input span2" name="title" placeholder="z.B. Support-Grundausbildung" required>
+          <input class="input" type="number" name="score" min="0" max="100" value="100">
+          <input class="input" name="valid_until" placeholder="optional: 2027-10-05">
+          <input type="hidden" name="user_id" value="{member.id}">
+          <button class="btn primary span2">Zertifikat ausstellen</button>
+        </form></div>""" if can_edit else ""
         form = f"""<div class="card"><h3>Profil bearbeiten</h3><form class="form" method="post" action="/ultimate/team/{member.id}/update">
             <div><label>Status</label><select class="select" name="internal_status"><option>available</option><option>service</option><option>break</option><option>training</option><option>admin</option><option>unavailable</option></select></div>
             <div><label>Interne Bewertung (0-100)</label><input class="input" type="number" name="rating" min="0" max="100" value="{int(p.get('rating',80))}"></div>
@@ -671,7 +690,7 @@ def register(app) -> None:
           {card(f"<h3>🎯 Probezeit</h3><div class=tiny>{esc(p.get('probation_end') or 'Nicht gesetzt')}</div><div class=metric>{esc(p.get('internal_status','available'))}</div>")}
           {card(f"<h3>🏆 Awards</h3>{awards_html}")}
           {card(f"<h3>🎓 Zertifikate</h3>{cert_html}")}
-        </div>{form}"""
+        </div>{cert_form}{form}"""
         return page(ctx, "team", f"Teamakte · {member.display_name}", "Digitale Personalakte mit Leistungs- und Karrieredaten.", body)
 
     @app.post("/ultimate/team/{user_id}/update")
@@ -774,7 +793,12 @@ def register(app) -> None:
         pls = "".join(f"<div class='row'><span>🎮 {esc(x['display_name'])} (@{esc(x['username'])})</span><span class='pill'>{esc(x['status'])}</span></div>" for x in players) or "<div class='tiny'>Keine Roblox-Spieler verknüpft.</div>"
         body = f"""<div class="grid g2">
           {card(f"<div class=row><b>{esc(case['case_no'])}</b>{status_badge(case['status'])}</div><h2>{esc(case['title'])}</h2><p class=tiny>{esc(case['description'])}</p><div class=tiny>Priorität: {esc(case['priority'])} · Bearbeiter: {esc(case['assignee_name'] or 'Niemand')}</div>")}
-          {card(f"<h3>🎮 Roblox-Akte</h3>{pls}")}
+          {card(f"""<h3>🎮 Roblox-Akte</h3>{pls}
+            <form method="post" action="/ultimate/cases/{esc(case_id)}/players/add" class="form" style="margin-top:10px">
+              <input class="input" name="roblox_id" placeholder="Roblox-ID" required>
+              <select class="select" name="relation"><option>subject</option><option>witness</option><option>reporter</option></select>
+              <button class="btn primary">Verknüpfen</button>
+            </form>""")}
         </div>
         <div class="grid g2" style="margin-top:13px">
           {card(f"<h3>🕵 Timeline</h3>{ev or '<div class=tiny>Keine Ereignisse.</div>'}")}
@@ -889,6 +913,33 @@ def register(app) -> None:
         audit(ctx, "Roblox-Akte aktualisiert", clean_id, username.strip(), f"Status={status}")
         return RedirectResponse("/ultimate/roblox", status_code=303)
 
+    @app.post("/ultimate/cases/{case_id}/players/add")
+    async def ultimate_case_player_add(
+        request: Request, case_id: str, roblox_id: str = Form(...),
+        relation: str = Form("subject"), user_session: str = Cookie(None),
+    ):
+        ctx = ctx_auth(request, user_session, manager=True)
+        rid = roblox_id.strip()
+        with cx() as c:
+            case = c.execute("SELECT 1 FROM ultimate_cases WHERE id=?", (case_id,)).fetchone()
+            profile = c.execute("SELECT 1 FROM ultimate_roblox_profiles WHERE roblox_id=?", (rid,)).fetchone()
+        if not case:
+            raise HTTPException(404, "Fall nicht gefunden.")
+        if not rid.isdigit():
+            raise HTTPException(400, "Roblox-ID muss numerisch sein.")
+        if not profile:
+            raise HTTPException(404, "Roblox-Spielerakte zuerst unter Roblox anlegen.")
+        if relation not in {"subject","witness","reporter"}:
+            relation = "subject"
+        with cx() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO ultimate_case_players VALUES(?,?,?,?)",
+                (case_id, rid, relation, iso()),
+            )
+        add_case_event(case_id, ctx, "player_linked", f"Roblox {rid} · {relation}")
+        audit(ctx, "Roblox-Spieler mit Fall verknüpft", case_id, rid, relation)
+        return RedirectResponse(f"/ultimate/cases/{case_id}", status_code=303)
+
     @app.get("/ultimate/departments", response_class=HTMLResponse)
     async def ultimate_departments(request: Request, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session, manager=True)
@@ -943,7 +994,7 @@ def register(app) -> None:
             raise HTTPException(404, "Abteilung nicht gefunden.")
         member_map = {str(m.id): m for m in team_members(ctx.guild)}
         people = "".join(
-            f"<div class='row'><b>{esc(member_map.get(str(x['user_id'])).display_name if member_map.get(str(x['user_id'])) else x['user_id'])}</b><span class='pill'>{esc(x['role'])}</span></div>"
+            f"<div class='row'><b>{esc(member_map.get(str(x['user_id'])).display_name if member_map.get(str(x['user_id'])) else x['user_id'])}</b><span class='pill'>{esc(x['role'])}</span><form method='post' action='/ultimate/departments/{esc(department_id)}/remove'><input type='hidden' name='user_id' value='{esc(x['user_id'])}'><button class='btn danger'>Entfernen</button></form></div>"
             for x in rows
         )
         opts = "".join(f"<option value='{m.id}'>{esc(m.display_name)}</option>" for m in team_members(ctx.guild))
@@ -969,6 +1020,20 @@ def register(app) -> None:
                 (department_id, str(user_id), role, iso()),
             )
         audit(ctx, "Abteilungsmitglied hinzugefügt", user_id, "", f"{department_id}/{role}")
+        return RedirectResponse(f"/ultimate/departments/{department_id}", status_code=303)
+
+    @app.post("/ultimate/departments/{department_id}/remove")
+    async def ultimate_department_remove(
+        request: Request, department_id: str, user_id: str = Form(...),
+        user_session: str = Cookie(None),
+    ):
+        ctx = ctx_auth(request, user_session, manager=True)
+        with cx() as c:
+            c.execute(
+                "DELETE FROM ultimate_department_members WHERE department_id=? AND user_id=?",
+                (department_id, str(user_id)),
+            )
+        audit(ctx, "Abteilungsmitglied entfernt", user_id, "", department_id)
         return RedirectResponse(f"/ultimate/departments/{department_id}", status_code=303)
 
     @app.get("/ultimate/calendar", response_class=HTMLResponse)
@@ -1006,7 +1071,7 @@ def register(app) -> None:
             raise HTTPException(400, "Ungültiges Startdatum.")
         with cx() as c:
             c.execute(
-                "INSERT INTO ultimate_calendar VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO ultimate_calendar VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (uid("cal"), title.strip()[:160], kind[:40], start_at.strip()[:80],
                  end_at.strip()[:80] or None, description[:2000], location[:300],
                  None, str(ctx.user["id"]),
@@ -1027,6 +1092,10 @@ def register(app) -> None:
     async def ultimate_polls(request: Request, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session)
         with cx() as c:
+            c.execute(
+                "UPDATE ultimate_polls SET active=0 WHERE active=1 AND ends_at IS NOT NULL AND ends_at != '' AND ends_at <= ?",
+                (iso(),),
+            )
             polls = [dict(r) for r in c.execute(
                 "SELECT * FROM ultimate_polls WHERE active=1 ORDER BY created_at DESC LIMIT 100"
             ).fetchall()]
@@ -1077,6 +1146,14 @@ def register(app) -> None:
             p = c.execute("SELECT * FROM ultimate_polls WHERE id=? AND active=1", (poll_id,)).fetchone()
         if not p:
             raise HTTPException(404, "Abstimmung nicht gefunden.")
+        if p["ends_at"]:
+            try:
+                if datetime.fromisoformat(str(p["ends_at"]).replace("Z","+00:00")) <= utcnow():
+                    with cx() as c:
+                        c.execute("UPDATE ultimate_polls SET active=0 WHERE id=?", (poll_id,))
+                    raise HTTPException(410, "Diese Abstimmung ist bereits beendet.")
+            except ValueError:
+                pass
         options = json.loads(p["options_json"])
         selected = sorted({int(x) for x in choices if str(x).isdigit() and int(x) < len(options)})
         if not selected:
@@ -1217,7 +1294,7 @@ def register(app) -> None:
         ctx = ctx_auth(request, user_session, manager=True)
         with cx() as c:
             rows = [dict(r) for r in c.execute("SELECT * FROM ultimate_automations ORDER BY enabled DESC,next_run_at").fetchall()]
-        opts = ["notify_managers", "notify_team", "create_case", "create_task", "team_report"]
+        opts = ["notify_managers", "notify_team", "create_case", "create_task", "team_report", "notify_user"]
         cards = "".join(
             card(f"<div class=row><b>{esc(x['name'])}</b><span class='pill'>{'✅' if x['enabled'] else '⏸'}</span></div><div class='tiny'>{esc(x['trigger_type'])} · alle {x['interval_minutes']}min · nächster Lauf {esc(x['next_run_at'])}</div>")
             for x in rows
@@ -1247,7 +1324,7 @@ def register(app) -> None:
         next_run = utcnow() + timedelta(minutes=max(5, min(10080, interval_minutes)))
         with cx() as c:
             c.execute(
-                "INSERT INTO ultimate_automations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO ultimate_automations VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (uid("auto"), name.strip()[:160], trigger_type[:40], max(5, min(10080, interval_minutes)),
                  action_type[:60], json.dumps(obj, ensure_ascii=False), 1, iso(next_run), None,
                  str(ctx.user["id"]), ctx.user.get("global_name") or ctx.user.get("username") or "Team", iso()),
@@ -1272,6 +1349,7 @@ def register(app) -> None:
             checks.append(("🟡", "Warnrollen", "nicht prüfbar"))
         body = "<div class='grid g2'>" + "".join(card(f"<div class=row><b>{esc(n)}</b><span>{i} {esc(d)}</span></div>") for i,n,d in checks) + "</div>"
         body += card(f"<h3>🎨 Branding</h3><form method='post' action='/ultimate/system/branding' class='form'><input class='input' name='name' value='{esc((setting('branding',{}) or {}).get('name','Pulse TeamOS'))}'><input class='input' name='accent' value='{esc((setting('branding',{}) or {}).get('accent','#6366f1'))}'><input class='input span2' name='logo_url' value='{esc((setting('branding',{}) or {}).get('logo_url',''))}' placeholder='Logo URL'><button class='btn primary span2'>Branding speichern</button></form>")
+        body += card("<h3>🔑 API-Zugriff</h3><form method='post' action='/ultimate/system/api-key' class='form'><input class='input span2' name='name' placeholder='z.B. Mobile App / externe Website' required><button class='btn primary span2'>API-Key erstellen</button></form><div class='tiny' style='margin-top:8px'>Die v2-Endpunkte nutzen den Header X-Pulse-API-Key. Schlüssel werden nur einmal angezeigt.</div>")
         body += card("<h3>🛡 Sicherheitsmaßnahmen</h3><div class='tiny'>Rate Limits, signierte Sessions, Sicherheitsheader, Warnrollen-Healthcheck, Audit-Logs, Backups und Health-Endpunkt sind aktiv.</div>")
         return page(ctx, "system", "System & Branding", "Diagnose, Feature Flags und visuelle Serveranpassungen.", body)
 
@@ -1377,7 +1455,7 @@ def register(app) -> None:
           {card("<h3 style='margin-top:0'>🏆 Team-Leaderboard</h3>"+top)}
           {card(f"<h3 style='margin-top:0'>🎫 Ticket-Leistung</h3><div class='metric'>{closed_tickets}</div><div class='tiny'>geschlossene Tickets im aktuellen Datenbestand</div><div class='progress' style='margin-top:10px'><div style='width:{round(closed_tickets/max(1,tickets)*100)}%'></div></div>")}
         </div>"""
-        return page(ctx, "system", "Analytics", "Leistung, Support, Dienstzeit und Team-Trends.", body)
+        return page(ctx, "analytics", "Analytics", "Leistung, Support, Dienstzeit und Team-Trends.", body)
 
     @app.post("/ultimate/team/status")
     async def ultimate_team_status(
