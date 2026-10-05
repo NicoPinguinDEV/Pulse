@@ -832,6 +832,10 @@ class PulseSuite(commands.Cog):
             if ts:
                 with cx() as c:
                     if not c.execute("SELECT 1 FROM suite_training_assignments WHERE training_id=? AND user_id=?",(ts[0]["id"],str(after.id))).fetchone():c.execute("INSERT INTO suite_training_assignments VALUES(?,?,?,?,?,?,?,?)",(f"asg_{uuid.uuid4().hex[:10]}",ts[0]["id"],str(after.id),after.display_name,"assigned","0","Pulse Onboarding",iso()))
+            try:
+                db.create_task("Pulse-Onboarding · "+after.display_name,"Profil prüfen, Rollen/Channels prüfen, erste Schulung abschließen und Teamregeln bestätigen.",str(after.id),after.display_name,"0","Pulse Onboarding")
+            except Exception:
+                pass
             db.notify(after.id,"🎉 Willkommen im Team",f"Dein Pulse-Onboarding für {after.guild.name} wurde eingerichtet.","info",f"/suite/member/{after.id}",f"onboard:{after.id}",86400)
             for m in managers(after.guild,web):
                 if m.id!=after.id:db.notify(m.id,"👋 Neues Teammitglied",f"{after.display_name} wurde automatisch eingerichtet.","info",f"/suite/member/{after.id}",f"newteam:{after.id}",86400)
