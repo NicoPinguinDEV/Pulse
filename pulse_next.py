@@ -411,7 +411,7 @@ def record_score(member):
         ).fetchone()
         if not exists:
             c.execute(
-                """INSERT INTO next_score_snapshots VALUES(?,?,?,?,?,?,?,?)""",
+                """INSERT INTO next_score_snapshots VALUES(?,?,?,?,?,?,?,?,?)""",
                 (u.uid("score"),str(member.id),s["score"],s["activity_pct"],s["reliability_pct"],
                  s["support_pct"],s["discipline_pct"],s["training_pct"],iso()),
             )
