@@ -113,9 +113,19 @@ class PulseNextEvents(commands.Cog):
     @commands.Cog.listener()
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
         if not after.bot and self._is_team(after):
-            # Telemetry is intentionally throttled in pulse_next.
+            # Presence events can fire often; persist at most once per 5 minutes.
+            import datetime
             activity = pulse_next.get_activity(str(after.id))
-            if not activity or activity.get("last_kind") != "discord_presence":
+            should_write = True
+            if activity:
+                try:
+                    last = datetime.datetime.fromisoformat(
+                        str(activity["last_seen_at"]).replace("Z", "+00:00")
+                    )
+                    should_write = (datetime.datetime.now(datetime.timezone.utc) - last).total_seconds() >= 300
+                except Exception:
+                    pass
+            if should_write:
                 pulse_next.touch_member(str(after.id), "discord_presence")
 
 
