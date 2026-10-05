@@ -173,16 +173,34 @@ def nav(active):
 
 def page(ctx,active,title,subtitle,body,js=""):
     u=esc(ctx.user.get("global_name") or ctx.user.get("username") or ctx.user.get("id"))
-    html=f"""<!doctype html><html lang=de><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>{esc(title)} · Pulse</title><style>{CSS}</style></head>
-<body><div class=shell><aside class=side><div class=brand>⚡ Pulse <span style="color:var(--a)">TeamOS</span><small>Operations Suite</small></div><nav class=nav>{nav(active)}</nav><div class=tiny style="margin-top:18px">Angemeldet als <b>{u}</b><br><button class=btn onclick=openSearch()>Ctrl+K Suche</button><button class=btn onclick=accent()>Akzent</button></div></aside>
-<main class=main><div class=top><div><h1>{esc(title)}</h1><div class=muted>{esc(subtitle)}</div></div><div><a class=btn href=/dashboard>Altes Dashboard</a> <a class="btn primary" href=/suite>Führung</a></div></div>{body}</main></div>
+    html = (
+        """<!doctype html><html lang=de><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>"""
+        + esc(title)
+        + """ · Pulse</title><style>"""
+        + CSS
+        + """</style></head><body><div class=shell><aside class=side><div class=brand>⚡ Pulse <span style="color:var(--a)">TeamOS</span><small>Operations Suite</small></div><nav class=nav>"""
+        + nav(active)
+        + """</nav><div class=tiny style="margin-top:18px">Angemeldet als <b>"""
+        + u
+        + """</b><br><button class=btn onclick=openSearch()>Ctrl+K Suche</button><button class=btn onclick=accent()>Akzent</button></div></aside>
+<main class=main><div class=top><div><h1>"""
+        + esc(title)
+        + """</h1><div class=muted>"""
+        + esc(subtitle)
+        + """</div></div><div><a class=btn href=/dashboard>Altes Dashboard</a> <a class="btn primary" href=/suite>Führung</a></div></div>"""
+        + body
+        + """</main></div>
 <div id=search class=search><div><input id=sq class=input placeholder="Teamler, ID, Warn-ID, Ticket, Aufgabe, Bewerbung, Audit, Roblox …" oninput=doSearch(this.value)><div id=sr style="margin-top:8px"></div></div></div>
 <script>
-function openSearch(){document.getElementById('search').style.display='flex';document.getElementById('sq').focus()}function closeSearch(){document.getElementById('search').style.display='none'}document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()=='k'){e.preventDefault();openSearch()}if(e.key=='Escape')closeSearch()})
+function openSearch(){document.getElementById('search').style.display='flex';document.getElementById('sq').focus()}function closeSearch(){document.getElementById('search').style.display='none'}
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()=='k'){e.preventDefault();openSearch()}if(e.key=='Escape')closeSearch()})
 document.getElementById('search').addEventListener('click',e=>{if(e.target.id=='search')closeSearch()})
-async function doSearch(q){if(q.trim().length<2){sr.innerHTML='';return}sr.innerHTML='<div class="card">Suche…</div>';let d=await (await fetch('/suite/api/search?q='+encodeURIComponent(q))).json();sr.innerHTML=(d.results||[]).map(x=>'<a class=result href="'+x.url+'"><b>'+x.title+'</b><div class=tiny>'+x.type+' · '+(x.meta||'')+'</div></a>').join('')||'<div class=card>Keine Treffer.</div>'}
+async function doSearch(q){if(q.trim().length<2){document.getElementById('sr').innerHTML='';return}document.getElementById('sr').innerHTML='<div class="card">Suche…</div>';let d=await (await fetch('/suite/api/search?q='+encodeURIComponent(q))).json();document.getElementById('sr').innerHTML=(d.results||[]).map(x=>'<a class=result href="'+x.url+'"><b>'+x.title+'</b><div class=tiny>'+x.type+' · '+(x.meta||'')+'</div></a>').join('')||'<div class=card>Keine Treffer.</div>'}
 function accent(){let x=localStorage.getItem('pulse-accent')||'indigo';x=x==='indigo'?'cyan':x==='cyan'?'emerald':'indigo';localStorage.setItem('pulse-accent',x);location.reload()}
-(function(){let x=localStorage.getItem('pulse-accent'),m={cyan:'#06b6d4',indigo:'#6366f1',emerald:'#10b981'};if(x&&m[x])document.documentElement.style.setProperty('--a',m[x])})();{js}</script></body></html>"""
+(function(){let x=localStorage.getItem('pulse-accent'),m={cyan:'#06b6d4',indigo:'#6366f1',emerald:'#10b981'};if(x&&m[x])document.documentElement.style.setProperty('--a',m[x])})();"""
+        + js
+        + """</script></body></html>"""
+    )
     return HTMLResponse(html)
 
 _ROUTES=False
