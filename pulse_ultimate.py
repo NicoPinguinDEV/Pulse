@@ -554,6 +554,7 @@ def register(app) -> None:
     @app.get("/ultimate", response_class=HTMLResponse)
     async def ultimate_home(request: Request, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session)
+        import webserver
         guild = ctx.guild
         members = team_members(guild)
         for m in members:
