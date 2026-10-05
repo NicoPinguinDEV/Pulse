@@ -110,7 +110,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "5.2.0"
+PULSE_VERSION = "6.0.0"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
