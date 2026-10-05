@@ -532,6 +532,17 @@ def create_backup():
         for p in files:
             if p.exists() and p.is_file():
                 z.write(p,arcname=p.name)
+        # Include attachments up to a safe total size so normal backups remain practical.
+        total = 0
+        if u.ATTACHMENTS_DIR.exists():
+            for p in u.ATTACHMENTS_DIR.rglob("*"):
+                if not p.is_file():
+                    continue
+                size = p.stat().st_size
+                if total + size > 250 * 1024 * 1024:
+                    continue
+                z.write(p,arcname=f"attachments/{p.relative_to(u.ATTACHMENTS_DIR)}")
+                total += size
     return target
 
 def safe_backup_file(name):
@@ -553,6 +564,27 @@ def restore_backup(path):
         with cx() as c:
             c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         os.replace(tmp,u.ULTIMATE_DB)
+        # Restore the small JSON runtime stores that were captured with the DB.
+        json_names = {"team_data.json","config.json","applications.json","shifts.json","logs.json","audit_logs.json","meetings.json"}
+        for name in json_names:
+            if name not in names:
+                continue
+            tmp_json = BASE / f"{name}.restore.tmp"
+            with z.open(name) as src, open(tmp_json,"wb") as dst:
+                shutil.copyfileobj(src,dst)
+            os.replace(tmp_json, BASE / name)
+        # Restore attachments if present in the archive.
+        prefix = "attachments/"
+        for name in names:
+            if not name.startswith(prefix) or name.endswith("/"):
+                continue
+            rel = Path(name[len(prefix):])
+            if ".." in rel.parts or rel.is_absolute():
+                continue
+            target_file = u.ATTACHMENTS_DIR / rel
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            with z.open(name) as src, open(target_file,"wb") as dst:
+                shutil.copyfileobj(src,dst)
     # Cached initialization is invalid after replacing the DB.
     u._INIT = False
     setup_next()
