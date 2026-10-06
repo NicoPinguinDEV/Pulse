@@ -64,6 +64,7 @@ class PulseNextEvents(commands.Cog):
     async def on_member_join(self, member: discord.Member):
         if member.bot or not self._is_team(member):
             return
+        self._record_team_since(member)
         pulse_next.seed_profile_for_member(member)
         pulse_next.event(
             str(member.id),
