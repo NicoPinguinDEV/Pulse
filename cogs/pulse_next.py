@@ -49,6 +49,17 @@ class PulseNextEvents(commands.Cog):
         except Exception:
             return False
 
+    def _record_team_since(self, member: discord.Member) -> None:
+        """Speichert den Beginn der aktuellen Teamzugehörigkeit."""
+        try:
+            import webserver
+            team_db = webserver.load_json(webserver.DATA_FILE, {})
+            entry = webserver.user_entry(team_db, str(member.id))
+            entry["team_since"] = webserver.now_de().isoformat(timespec="seconds")
+            webserver.save_json(webserver.DATA_FILE, team_db)
+        except Exception as exc:
+            print(f"Team-Eintritt konnte nicht gespeichert werden: {exc}")
+
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         if member.bot or not self._is_team(member):
@@ -86,6 +97,7 @@ class PulseNextEvents(commands.Cog):
         was_team = self._is_team(before)
         is_team = self._is_team(after)
         if not was_team and is_team:
+            self._record_team_since(after)
             pulse_next.seed_profile_for_member(after)
             pulse_next.event(
                 str(after.id),
