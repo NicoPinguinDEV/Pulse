@@ -914,13 +914,23 @@ class PulseSuite(commands.Cog):
         for m in managers(i.guild,web):db.notify(m.id,"🚨 Neuer Meldefall",f"{aid} · {kategorie}","warning","/suite/cases",f"case:{aid}",86400)
         audit(i.guild.id,i.user.id,i.user.display_name,aid,aid,"case_created",f"{kategorie} · {prioritaet}");await i.response.send_message("✅ Meldung wurde intern an die Führung übergeben.",ephemeral=True)
 
+    @app_commands.command(name="pulse-home",description="Öffnet das Pulse TeamOS Command Center.")
+    async def pulse_home(self,i):
+        web=__import__("webserver")
+        if not allowed(i,"pulse-suite",web):
+            return await i.response.send_message("❌ Kein Zugriff.",ephemeral=True)
+        url=(PUBLIC_BASE_URL+"/ultimate") if PUBLIC_BASE_URL else "/ultimate"
+        v=discord.ui.View(timeout=120)
+        v.add_item(discord.ui.Button(label="Command Center öffnen",style=discord.ButtonStyle.link,emoji="⚡",url=url))
+        await i.response.send_message("⚡ Pulse TeamOS Command Center",view=v,ephemeral=True)
+
     @app_commands.command(name="pulse-panel",description="Zeigt das Pulse TeamOS Discord-Control-Panel.")
     async def pulse_panel(self,i):
         web=__import__("webserver")
         if not allowed(i,"pulse-panel",web):return await i.response.send_message("❌ Kein Zugriff.",ephemeral=True)
         if not PUBLIC_BASE_URL:return await i.response.send_message("⚠️ PUBLIC_BASE_URL fehlt. Setze die öffentliche Dashboard-URL für Discord-Linkbuttons.",ephemeral=True)
         v=discord.ui.View(timeout=None)
-        for label,path,em in [("Führung","/suite","⚡"),("Team","/suite/team","👥"),("Warnungen","/warns","⚠️"),("Tickets","/tickets","🎫"),("Aufgaben","/suite/tasks","📋"),("Bewerbungen","/suite/applications","📝"),("Audit","/suite/audit","🛡")]:v.add_item(discord.ui.Button(label=label,style=discord.ButtonStyle.link,emoji=em,url=PUBLIC_BASE_URL+path))
+        for label,path,em in [("Command Center","/ultimate","⚡"),("Führung","/suite","🎯"),("Team","/suite/team","👥"),("Warnungen","/warns","⚠️"),("Tickets","/tickets","🎫"),("Aufgaben","/suite/tasks","📋"),("Bewerbungen","/suite/applications","📝"),("Audit","/suite/audit","🛡")]:v.add_item(discord.ui.Button(label=label,style=discord.ButtonStyle.link,emoji=em,url=PUBLIC_BASE_URL+path))
         await i.response.send_message("⚡ Pulse TeamOS Control Panel",view=v,ephemeral=True)
 
     @app_commands.command(name="pulse-lock",description="Sperrt kritische Pulse-Teamaktionen.")
