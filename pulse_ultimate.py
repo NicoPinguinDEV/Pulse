@@ -1424,7 +1424,7 @@ def register(app) -> None:
         checks.append(("🟢" if guild.me and guild.me.guild_permissions.manage_roles else "🔴", "Manage Roles", "bereit" if guild.me and guild.me.guild_permissions.manage_roles else "fehlt"))
         try:
             wh = webserver.warning_role_health(guild, webserver.load_config())
-            checks.append(("🟢" if all(x["ok"] for x in wh) else "🔴", "Warnrollen", f"{sum(x['ok'] for x in wh)}/3 bereit"))
+            checks.append(("🟢" if all(x["ok"] for x in wh) else "🔴", "Warnrollen", f"{sum(x['ok'] for x in wh)}/5 bereit"))
         except Exception:
             checks.append(("🟡", "Warnrollen", "nicht prüfbar"))
         body = "<div class='grid g2'>" + "".join(card(f"<div class=row><b>{esc(n)}</b><span>{i} {esc(d)}</span></div>") for i,n,d in checks) + "</div>"
