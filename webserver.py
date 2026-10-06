@@ -714,9 +714,9 @@ CARD = "bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800
 INPUT = ("w-full bg-slate-50 dark:bg-[#0b0e14] border border-slate-300 dark:border-slate-700 rounded-xl "
          "p-3 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500")
 BTN = "bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl transition shadow-md shadow-indigo-600/20"
-BADGE_OK = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/50"
-BADGE_BAD = "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/50"
-BADGE_WARN = "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/50"
+BADGE_OK = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+BADGE_BAD = "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+BADGE_WARN = "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
 
 HEAD_SCRIPT = """
 <script src="https://cdn.tailwindcss.com"></script>
@@ -1042,7 +1042,7 @@ async def home(user_session: str = Cookie(None)):
         </div>
         <div class="{CARD} p-8 shadow-xl w-full max-w-md text-center">
             <div class="flex justify-center mb-4">
-                <div class="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-2xl shadow-lg shadow-indigo-600/50">🛡️</div>
+                <div class="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-2xl shadow-lg shadow-indigo-600/30">🛡️</div>
             </div>
             <h1 class="text-2xl font-bold tracking-tight mb-2">Team Management Panel</h1>
             <p class="text-slate-500 dark:text-slate-400 text-xs mb-8">Melde dich mit deinem Discord-Account an, um Zugriff zu erhalten.</p>
@@ -1156,11 +1156,11 @@ def stat_card(icon, label, value, tint):
 
 
 LOG_TYPE_STYLE = {
-    "Ban": "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/50",
-    "Kick": "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/50",
-    "Warn": "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/50",
-    "Notiz": "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/50",
-    "Ban BOLO": "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/50",
+    "Ban": "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30",
+    "Kick": "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30",
+    "Warn": "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/30",
+    "Notiz": "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30",
+    "Ban BOLO": "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/30",
 }
 
 DASHBOARD_HEAD = """
@@ -1306,10 +1306,10 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
     if shift_status == "offline":
         shift_buttons = '<button name="shift_action" value="start" class="col-span-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-4 rounded-xl transition shadow-md shadow-emerald-900/10 text-xs">▶️ Schicht Starten</button>'
     else:
-        middle = ('<button name="shift_action" value="break" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/50 font-semibold py-2.5 px-3 rounded-xl transition text-xs">⏸️ Pause</button>'
+        middle = ('<button name="shift_action" value="break" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-semibold py-2.5 px-3 rounded-xl transition text-xs">⏸️ Pause</button>'
                   if shift_status == "online" else
-                  '<button name="shift_action" value="resume" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/50 font-semibold py-2.5 px-3 rounded-xl transition text-xs">▶️ Fortsetzen</button>')
-        shift_buttons = middle + '<button name="shift_action" value="end" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/50 font-semibold py-2.5 px-3 rounded-xl transition text-xs">⏹️ Beenden</button>'
+                  '<button name="shift_action" value="resume" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold py-2.5 px-3 rounded-xl transition text-xs">▶️ Fortsetzen</button>')
+        shift_buttons = middle + '<button name="shift_action" value="end" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-semibold py-2.5 px-3 rounded-xl transition text-xs">⏹️ Beenden</button>'
 
     # Wochen-Rangliste (inkl. laufender Schichten)
     board = []
@@ -1645,7 +1645,7 @@ async def ultimate_dashboard(request: Request, user_session: str = Cookie(None))
                 <p class="text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-3xl">Die wichtigsten Team-, Dienst- und Moderationsdaten an einem Ort. Änderungen kommen direkt aus Discord und Pulse.</p>
                 <div class="flex flex-wrap gap-2 mt-5">{action_html}{manager_link}</div>
             </div>
-            <div class="shrink-0 rounded-2xl border border-white/50 dark:border-slate-700/50 bg-white/40 dark:bg-slate-900/50 p-4 min-w-[190px]">
+            <div class="shrink-0 rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/40 dark:bg-slate-900/30 p-4 min-w-[190px]">
                 <div class="text-[10px] uppercase tracking-widest font-black text-slate-400 mb-1">Lokale Zeit</div>
                 <div id="pulseLiveClock" class="text-3xl font-black font-mono text-slate-900 dark:text-white">{now_de().strftime("%H:%M:%S")}</div>
                 <div class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">{now_de().strftime("%d.%m.%Y")} · Europe/Berlin</div>
@@ -1669,8 +1669,8 @@ async def ultimate_dashboard(request: Request, user_session: str = Cookie(None))
             <section class="pulse-glass rounded-3xl p-5 md:p-6">
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5"><div><div class="text-[10px] uppercase tracking-widest font-black text-indigo-500">Dein Dienst</div><h2 class="text-lg font-black text-slate-900 dark:text-white">Persönlicher Überblick</h2></div><span class="text-[11px] font-bold px-3 py-1.5 rounded-full border {("bg-emerald-500/10 text-emerald-600 border-emerald-500/20" if shift_status=="online" else "bg-amber-500/10 text-amber-600 border-amber-500/20" if shift_status=="break" else "bg-slate-500/10 text-slate-500 border-slate-500/20")}">{"🟢 IM DIENST" if shift_status=="online" else "☕ PAUSE" if shift_status=="break" else "⚪ OFFLINE"}</span></div>
                 <div class="grid md:grid-cols-3 gap-4">
-                    <div class="rounded-2xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800 p-4"><div class="text-[10px] text-slate-400 uppercase tracking-widest font-black">Aktuelle Schicht</div><div class="text-2xl font-black mt-1" id="ultimateShiftTimer">{fmt_duration(current_elapsed)}</div><div class="text-[10px] text-slate-500 mt-1">Pausen werden nicht gutgeschrieben</div></div>
-                    <div class="md:col-span-2 rounded-2xl bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800 p-4"><div class="flex justify-between text-[10px] uppercase tracking-widest font-black text-slate-400"><span>Wochenziel</span><span>{weekly_hours:.1f}h / {weekly_goal:g}h</span></div><div class="mt-3 h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-all" style="width:{weekly_pct}%"></div></div><div class="flex justify-between mt-2 text-[10px] text-slate-500"><span>{weekly_pct}% erreicht</span><span>⏱ {fmt_duration(weekly_seconds)}</span></div></div>
+                    <div class="rounded-2xl bg-slate-50/80 dark:bg-slate-950/30 border border-slate-200/70 dark:border-slate-800 p-4"><div class="text-[10px] text-slate-400 uppercase tracking-widest font-black">Aktuelle Schicht</div><div class="text-2xl font-black mt-1" id="ultimateShiftTimer">{fmt_duration(current_elapsed)}</div><div class="text-[10px] text-slate-500 mt-1">Pausen werden nicht gutgeschrieben</div></div>
+                    <div class="md:col-span-2 rounded-2xl bg-slate-50/80 dark:bg-slate-950/30 border border-slate-200/70 dark:border-slate-800 p-4"><div class="flex justify-between text-[10px] uppercase tracking-widest font-black text-slate-400"><span>Wochenziel</span><span>{weekly_hours:.1f}h / {weekly_goal:g}h</span></div><div class="mt-3 h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-all" style="width:{weekly_pct}%"></div></div><div class="flex justify-between mt-2 text-[10px] text-slate-500"><span>{weekly_pct}% erreicht</span><span>⏱ {fmt_duration(weekly_seconds)}</span></div></div>
                 </div>
                 <form action="/shift/action" method="post" class="flex flex-col sm:flex-row gap-2 mt-4">{shift_action_html}</form>
             </section>
@@ -1692,7 +1692,7 @@ async def ultimate_dashboard(request: Request, user_session: str = Cookie(None))
     (function(){{
         const base={int(current_elapsed)}; const running={"true" if shift_status=="online" else "false"}; const started=Date.now();
         const el=document.getElementById("ultimateShiftTimer");
-        function tick(){{ if(!el)return; const s=base+(running?Math.floor((Date.now()-started)/1000):0); el.textContent=Math.floor(s/5600)+"h "+Math.floor((s%3600)/60)+"m "+(s%60)+"s"; }}
+        function tick(){{ if(!el)return; const s=base+(running?Math.floor((Date.now()-started)/1000):0); el.textContent=Math.floor(s/3600)+"h "+Math.floor((s%3600)/60)+"m "+(s%60)+"s"; }}
         tick(); if(running)setInterval(tick,1000);
     }})();
     </script>'''
@@ -2086,7 +2086,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             "offline": "⚪ Offline",
         }
         presence_text = presence_labels.get(m["discord_status"], "⚪ Offline")
-        presence_badge = f'<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border bg-slate-50 dark:bg-slate-900/50 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700">{presence_text}</span>'
+        presence_badge = f'<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border bg-slate-50 dark:bg-slate-900/30 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700">{presence_text}</span>'
         activity_badge_class = (
             BADGE_OK if m["activity"] == "confirmed"
             else BADGE_BAD if m["activity"] == "open"
@@ -2099,8 +2099,8 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             else "⚪ Kein Check"
         )
         activity_name = f'<span class="text-[10px] text-slate-400 truncate max-w-[220px]" title="{esc(m["discord_activity"])}">🎮 {esc(m["discord_activity"])}</span>' if m["discord_activity"] else ""
-        warn_badge = (f'<span class="border border-rose-500/50 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">🚨 {m["warns"]}/5 Warnungen</span>' if m["warns"] >= 5 else
-                      f'<span class="border border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">⚠ {m["warns"]}/5 Warnungen</span>' if m["warns"] else '')
+        warn_badge = (f'<span class="border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">🚨 {m["warns"]}/5 Warnungen</span>' if m["warns"] >= 5 else
+                      f'<span class="border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">⚠ {m["warns"]}/5 Warnungen</span>' if m["warns"] else '')
         rows_html += f"""
         <div class="team-row {CARD} hover:bg-slate-50 dark:hover:bg-[#1a2030] transition px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
              data-search="{esc((m['name'] + ' ' + m['username'] + ' ' + m['role']).lower())}" data-below="{1 if (not m['reached'] and not m['on_loa']) else 0}">
@@ -2217,9 +2217,9 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
         <h3 class="text-sm font-bold text-slate-900 dark:text-white">Team-Aktionen</h3>
         <form action="/action" method="post" class="flex flex-wrap gap-2">
             <input type="hidden" name="user_id" value="{member.id}"><input type="hidden" name="redirect_to_member" value="1">
-            <button name="action" value="promote" onclick="return confirm('Wirklich befördern?')" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/50 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬆️ Befördern</button>
-            <button name="action" value="demote" onclick="return confirm('Wirklich degradieren?')" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/50 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬇️ Degradieren</button>
-            <button name="action" value="kick" onclick="return confirm('Dieses Mitglied wirklich vom gesamten Discord-Server kicken?')" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/50 px-3.5 py-2 rounded-xl text-xs font-semibold transition">🚪 Vom Server kicken</button>
+            <button name="action" value="promote" onclick="return confirm('Wirklich befördern?')" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬆️ Befördern</button>
+            <button name="action" value="demote" onclick="return confirm('Wirklich degradieren?')" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬇️ Degradieren</button>
+            <button name="action" value="kick" onclick="return confirm('Dieses Mitglied wirklich vom gesamten Discord-Server kicken?')" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">🚪 Vom Server kicken</button>
         </form>
         <hr class="border-slate-100 dark:border-slate-800 my-4">"""
 
@@ -2361,8 +2361,8 @@ async def meetings_page(request: Request, user_session: str = Cookie(None)):
                     <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">Dein Status für die Besprechung:</label>
                     <form action="/action" method="post" class="flex gap-3">
                         <input type="hidden" name="action" value="meeting_rsvp">
-                        {rsvp_btn("accepted", "✅ Zusage", "bg-emerald-600 text-white font-bold", "bg-emerald-500/10 text-emerald-600 border border-emerald-500/50")}
-                        {rsvp_btn("declined", "❌ Absage", "bg-rose-600 text-white font-bold", "bg-rose-500/10 text-rose-600 border border-rose-500/50")}
+                        {rsvp_btn("accepted", "✅ Zusage", "bg-emerald-600 text-white font-bold", "bg-emerald-500/10 text-emerald-600 border border-emerald-500/30")}
+                        {rsvp_btn("declined", "❌ Absage", "bg-rose-600 text-white font-bold", "bg-rose-500/10 text-rose-600 border border-rose-500/30")}
                     </form>
                 </div>
             </div>
@@ -2420,7 +2420,7 @@ async def loa_page(request: Request, user_session: str = Cookie(None)):
         btn = f"""
             <form action="/action" method="post" onsubmit="return confirm('Abmeldung wirklich beenden?');">
                 <input type="hidden" name="action" value="cancel_loa"><input type="hidden" name="target_user_id" value="{l['user_id']}">
-                <button class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/50 text-xs px-3.5 py-2 rounded-xl font-medium transition">{'Beenden' if l['active'] else 'Entfernen'}</button>
+                <button class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-2 rounded-xl font-medium transition">{'Beenden' if l['active'] else 'Entfernen'}</button>
             </form>""" if can_cancel else ""
         entries_html += f"""
         <div class="{CARD} p-4 flex justify-between items-center gap-3 {'' if l['active'] else 'opacity-60'}">
@@ -2561,8 +2561,8 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                         <option value="">Einstiegsrolle wählen…</option>
                         {''.join(f'<option value="{r.id}">{esc(r.name)}</option>' for r in sorted((ctx.guild.get_role(x) for x in ctx.config.get("team_role_ids", [])), key=lambda z: z.position if z else -1) if r)}
                     </select>
-                    <button name="decision" value="accept" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/50 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">✅ Einstellen</button>
-                    <button name="decision" value="reject" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/50 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">Ablehnen</button>
+                    <button name="decision" value="accept" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">✅ Einstellen</button>
+                    <button name="decision" value="reject" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">Ablehnen</button>
                 </form>""" if can_decide else ""
             footer = f"""
                 <form action="/action" method="post" class="flex gap-2">
@@ -2732,7 +2732,7 @@ async def backups_page(request: Request, user_session: str = Cookie(None)):
         path = os.path.join(BACKUP_DIR, f)
         created = datetime.fromtimestamp(os.path.getmtime(path), TZ).strftime("%d.%m.%Y %H:%M") if TZ else \
             datetime.fromtimestamp(os.path.getmtime(path)).strftime("%d.%m.%Y %H:%M")
-        auto = ' <span class="text-[10px] px-2 py-0.5 rounded-full border border-indigo-500/50 bg-indigo-500/10 text-indigo-500 font-sans">AUTO</span>' if f.startswith("auto_") else ""
+        auto = ' <span class="text-[10px] px-2 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-500 font-sans">AUTO</span>' if f.startswith("auto_") else ""
         rows += f"""
         <div class="{CARD} p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
@@ -2743,11 +2743,11 @@ async def backups_page(request: Request, user_session: str = Cookie(None)):
                 <a href="/backup/download/{esc(f)}" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs px-3.5 py-2 rounded-xl text-slate-700 dark:text-slate-300 font-medium transition shadow-sm">📥 Herunterladen</a>
                 <form action="/backup/restore" method="post" onsubmit="return confirm('Panel-Daten dieses Backups wiederherstellen? Aktuelle Panel-Daten werden überschrieben.');">
                     <input type="hidden" name="filename" value="{esc(f)}">
-                    <button class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/50 text-xs px-3.5 py-2 rounded-xl font-medium transition">↩️ Panel wiederherstellen</button>
+                    <button class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs px-3.5 py-2 rounded-xl font-medium transition">↩️ Panel wiederherstellen</button>
                 </form>
                 <form action="/backup/delete" method="post" onsubmit="return confirm('Backup wirklich löschen?');">
                     <input type="hidden" name="filename" value="{esc(f)}">
-                    <button class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/50 text-xs px-3.5 py-2 rounded-xl font-medium transition">🗑️ Löschen</button>
+                    <button class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-2 rounded-xl font-medium transition">🗑️ Löschen</button>
                 </form>
             </div>
         </div>"""
@@ -3199,7 +3199,7 @@ async def handle_action(
                 thumbnail=m.display_avatar.url,
             )
             await send_dm_notification(m, f"⚠️ Du hast eine Verwarnung erhalten ({count}/5)!\n**Grund:** {reason}\n**Von:** {actor}")
-            if count >= 3:
+            if count >= 5:
                 # Führungskräfte erhalten zusätzlich eine Pulse-Inbox-Meldung.
                 for manager in guild.members:
                     if manager.bot or manager.id == m.id:
@@ -3209,8 +3209,8 @@ async def handle_action(
                         try:
                             pulse_db.notify(
                                 manager.id,
-                                "🚨 3/5 Team-Warnungen",
-                                f"{m.display_name} hat 3 aktive Verwarnungen. Bitte Fall prüfen.",
+                                "🚨 5/5 Team-Warnungen",
+                                f"{m.display_name} hat 5 aktive Verwarnungen. Bitte Fall prüfen.",
                                 "warning",
                                 "/warns",
                                 f"warn-escalation:{m.id}:{count}",
@@ -3224,7 +3224,7 @@ async def handle_action(
                     f"**Mitglied:** {m.mention} ({m.display_name})\n**Status:** Schicht-Start ist gesperrt, bitte Konsequenzen prüfen.",
                     discord.Color.red(),
                     target=m.mention,
-                    action="Warn-Schwelle 3/5",
+                    action="Warn-Schwelle 5/5",
                     actor=actor,
                     fields=[("Warnrollen-Sync", "✅ Erfolgreich" if role_report.get("ok") else f"❌ {role_report.get('message')}")],
                     thumbnail=m.display_avatar.url,
