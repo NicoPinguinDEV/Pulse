@@ -68,12 +68,12 @@ def main() -> None:
         "1556344484198088814",
     ):
         assert role_id in web
-    assert '5: int(os.getenv("WARN_ROLE_5"' in web
+    assert "5: 1556344484198088814" in web
     assert '"count": max(0, min(int(count or 0), 5))' in web
     assert "current_count >= 5" in web
     assert "for level in sorted(ids):" in web
     assert "warning_5" in web
-    assert '"/5"' not in web or "/5" in web  # warning UI remains five-based
+    assert "/3 Warnungen" not in web
 
     # Melonly stays internal and is editable/deletable.
     web_tree = parse("webserver.py")
@@ -88,6 +88,10 @@ def main() -> None:
     assert "users_map = {}" in web
 
     assert "/warns" in pro
+    assert "critical=sum" in pro
+    assert ">=5" in pro
+    assert 'name="warn_4"' in pro
+    assert 'name="warn_5"' in pro
     assert "/settings/pro-warn-roles" in pro
     assert "/settings/pro-warn-sync" in pro
     assert "Warn-Rollen" in pro
