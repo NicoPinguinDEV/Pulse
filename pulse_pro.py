@@ -980,7 +980,7 @@ def register(app):
             for w in all_warns:
                 if not w.get('active',True) or w.get('revoked_at'):
                     history.append((m,w))
-        active_total=len(rows); history_total=len(history); critical=sum(1 for m,w in rows if len(ws.active_warns(teamdb.get(str(m.id),{})))>=3)
+        active_total=len(rows); history_total=len(history); critical=sum(1 for m,w in rows if len(ws.active_warns(teamdb.get(str(m.id),{})))>=5)
 
         q=e((request.query_params.get('q') or '').strip().lower())
         only_active=request.query_params.get('view','active')!='history'
