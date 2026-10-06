@@ -102,6 +102,10 @@ def main() -> None:
     assert "def team_since_for(member, entry=None)" in web
     assert 'href="/team/{member.id}/roles"' in web
     assert 'name="action_reason"' in web
+    assert 'action == "kick"' in web
+    assert "guild.me.guild_permissions.kick_members" in web
+    assert "def _record_team_since" in read("cogs/pulse_next.py")
+    assert 'entry["team_since"]' in read("cogs/pulse_next.py")
     # Required reasons for personnel actions.
     assert 'name="action_reason"' in web
     assert 'action_reason: str = Form(None)' in web
