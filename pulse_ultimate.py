@@ -66,10 +66,9 @@ def uid(prefix: str) -> str:
 
 
 def cx():
-    c = sqlite3.connect(ULTIMATE_DB, timeout=15)
+    c = sqlite3.connect(ULTIMATE_DB, timeout=3)
     c.row_factory = sqlite3.Row
-    c.execute("PRAGMA busy_timeout=15000")
-    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=3000")
     return c
 
 
@@ -78,6 +77,8 @@ def init_db() -> None:
     if _INIT:
         return
     with cx() as c:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
         c.executescript(
             """
             CREATE TABLE IF NOT EXISTS ultimate_profiles(
