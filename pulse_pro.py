@@ -510,9 +510,9 @@ def register(app):
         if overdue: urgent += f'<a href="/tasks" class="pulse-alert"><strong>! {len(overdue)} überfällige Aufgaben</strong><div class="text-slate-400 mt-1">Fristen prüfen und Status aktualisieren.</div></a>'
         teamdb=ws.load_json(ws.DATA_FILE,{})
         active_warn_total=sum(len(ws.active_warns(v)) for v in teamdb.values() if isinstance(v,dict))
-        critical_warn_people=sum(1 for v in teamdb.values() if isinstance(v,dict) and len(ws.active_warns(v))>=3)
+        critical_warn_people=sum(1 for v in teamdb.values() if isinstance(v,dict) and len(ws.active_warns(v)) >=5)
         if critical_warn_people:
-            urgent += f'<a href="/warns" class="pulse-alert"><strong>🚨 {critical_warn_people} Teamler bei 3/3 Warnungen</strong><div class="text-slate-400 mt-1">Verwarnungen und Konsequenzen prüfen.</div></a>'
+            urgent += f'<a href="/warns" class="pulse-alert"><strong>🚨 {critical_warn_people} Teamler bei 5/5 Warnungen</strong><div class="text-slate-400 mt-1">Verwarnungen und Konsequenzen prüfen.</div></a>'
         elif active_warn_total:
             urgent += f'<a href="/warns" class="pulse-alert"><strong>⚠ {active_warn_total} aktive Team-Warnungen</strong><div class="text-slate-400 mt-1">Zur Verwarnungszentrale.</div></a>'
         if open_t: urgent += f'<a href="/tickets" class="pulse-alert"><strong>▣ {len(open_t)} offene Tickets</strong><div class="text-slate-400 mt-1">Dringende Tickets zuerst übernehmen.</div></a>'
@@ -958,7 +958,7 @@ def register(app):
         status_kind='good' if active and active.get('status')=='online' else 'warn' if active else ''
         body=f'''<div class="pulse-topbar"><div><a href="/team" class="pulse-btn ghost">← Team</a><a href="/warns" class="pulse-btn ghost ml-2">⚠ Warnzentrale</a></div><div class="flex items-center gap-2">{pill(status,status_kind)}</div></div>
         <section class="pulse-hero"><div class="flex flex-col md:flex-row md:items-center gap-5"><img src="{avatar}" class="w-16 h-16 rounded-2xl border border-white/20" alt=""><div class="flex-1"><div class="pulse-kicker">Teamakte</div><div class="pulse-title">{e(target.display_name)}</div><div class="pulse-sub">{e(role)} · Discord ID {e(target.id)}</div></div><div class="pulse-hero-box min-w-[220px]"><div class="label">WOCHENAKTIVITÄT</div><div class="value">{ws.fmt_duration(weekly)}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{min(100,round(weekly/(max(0.5,float(c.config.get('weekly_goal_hours',3)))*3600)*100))}%;background:white"></span></div></div></div></section>
-        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{len(active_warns)}/3</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Zurückgezogen</div><div class="value">{len(revoked_warns)}</div></div><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Schichten</div><div class="value">{len(hist)}</div></div><div class="pulse-stat"><div class="icon">🎫</div><div class="label">Tickets</div><div class="value">{len(tickets)}</div></div></div>
+        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{len(active_warns)}/5</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Zurückgezogen</div><div class="value">{len(revoked_warns)}</div></div><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Schichten</div><div class="value">{len(hist)}</div></div><div class="pulse-stat"><div class="icon">🎫</div><div class="label">Tickets</div><div class="value">{len(tickets)}</div></div></div>
         <div class="pulse-grid"><div class="space-y-4">{card("Aktive Verwarnungen",active_html or '<div class="pulse-empty">Keine aktiven Verwarnungen.</div>','⚠')}{card("Warn-Historie",revoked_html or '<div class="pulse-empty">Keine zurückgezogenen Warnungen.</div>','↩')}{card("Notizen",note_html or '<div class="pulse-empty">Keine Notizen.</div>','📝')}{card("Aktivität",event_html or '<div class="pulse-empty">Noch keine zentralen Events.</div>','↯')}</div><div class="space-y-4">{card("Warnrollen-Status",role_pills,'⚙')}{card("Aufgaben",task_html or '<div class="pulse-empty">Keine Aufgaben.</div>','□')}{card("Tickets",ticket_html or '<div class="pulse-empty">Keine Tickets.</div>','🎫')}{quick}</div></div>'''
         return render_pro_page(ws,f'Teamakte · {target.display_name}',c,'team',body)
 
@@ -980,7 +980,7 @@ def register(app):
             for w in all_warns:
                 if not w.get('active',True) or w.get('revoked_at'):
                     history.append((m,w))
-        active_total=len(rows); history_total=len(history); critical=sum(1 for m,w in rows if len(ws.active_warns(teamdb.get(str(m.id),{})))>=3)
+        active_total=len(rows); history_total=len(history); critical=sum(1 for m,w in rows if len(ws.active_warns(teamdb.get(str(m.id),{})))>=5)
 
         q=e((request.query_params.get('q') or '').strip().lower())
         only_active=request.query_params.get('view','active')!='history'
@@ -1004,8 +1004,8 @@ def register(app):
         view_active='bg-indigo-600 text-white' if only_active else 'bg-slate-100 dark:bg-slate-800'
         view_hist='bg-indigo-600 text-white' if not only_active else 'bg-slate-100 dark:bg-slate-800'
         body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚠ Verwarnungszentrale</div><div class="pulse-section-sub">Alle aktiven Team-Warnungen, Rücknahmen und Rollen-Synchronisierung an einem Ort.</div></div>{pill("System OK","good") if all(x["ok"] for x in role_health) else pill("Rollen prüfen","bad")}</div>
-        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{active_total}</div></div><div class="pulse-stat"><div class="icon">🚨</div><div class="label">3/3 Fälle</div><div class="value">{critical}</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Rücknahmen</div><div class="value">{history_total}</div></div><div class="pulse-stat"><div class="icon">👥</div><div class="label">Betroffene Teamler</div><div class="value">{len({m.id for m,w in rows})}</div></div></div>
-        <div class="pulse-grid"><div><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">{'Aktive Verwarnungen' if only_active else 'Warn-Historie'}</div><div class="pulse-section-sub">Suche nach Name, Warn-Grund, Aussteller oder Warn-ID.</div></div><div class="flex gap-2"><a href="/warns?view=active" class="pulse-btn {view_active}">Aktiv</a><a href="/warns?view=history" class="pulse-btn {view_hist}">Historie</a></div></div><div class="pulse-card-b"><form method="get" class="pulse-search mb-4" style="max-width:none"><input type="hidden" name="view" value="{'active' if only_active else 'history'}"><span>⌕</span><input name="q" value="{e(q)}" placeholder="Teammitglied, Grund, Warn-ID…"><button class="pulse-btn primary">Suchen</button></form><div class="space-y-2">{items or '<div class="pulse-empty">Keine passenden Verwarnungen gefunden.</div>'}</div></div></section></div><div>{card("⚙ Warnrollen",role_html,'⚙')}<div class="mt-4"><section class="pulse-alert"><strong>Hinweis</strong><div class="text-slate-400 mt-1">Eine zurückgezogene Warnung wird nicht gelöscht. Sie bleibt für Audit und Historie erhalten und zählt nicht mehr gegen die 3-Warn-Schwelle.</div></section></div></div></div>'''
+        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{active_total}</div></div><div class="pulse-stat"><div class="icon">🚨</div><div class="label">5/5 Fälle</div><div class="value">{critical}</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Rücknahmen</div><div class="value">{history_total}</div></div><div class="pulse-stat"><div class="icon">👥</div><div class="label">Betroffene Teamler</div><div class="value">{len({m.id for m,w in rows})}</div></div></div>
+        <div class="pulse-grid"><div><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">{'Aktive Verwarnungen' if only_active else 'Warn-Historie'}</div><div class="pulse-section-sub">Suche nach Name, Warn-Grund, Aussteller oder Warn-ID.</div></div><div class="flex gap-2"><a href="/warns?view=active" class="pulse-btn {view_active}">Aktiv</a><a href="/warns?view=history" class="pulse-btn {view_hist}">Historie</a></div></div><div class="pulse-card-b"><form method="get" class="pulse-search mb-4" style="max-width:none"><input type="hidden" name="view" value="{'active' if only_active else 'history'}"><span>⌕</span><input name="q" value="{e(q)}" placeholder="Teammitglied, Grund, Warn-ID…"><button class="pulse-btn primary">Suchen</button></form><div class="space-y-2">{items or '<div class="pulse-empty">Keine passenden Verwarnungen gefunden.</div>'}</div></div></section></div><div>{card("⚙ Warnrollen",role_html,'⚙')}<div class="mt-4"><section class="pulse-alert"><strong>Hinweis</strong><div class="text-slate-400 mt-1">Eine zurückgezogene Warnung wird nicht gelöscht. Sie bleibt für Audit und Historie erhalten und zählt nicht mehr gegen die 5-Warn-Schwelle.</div></section></div></div></div>'''
         return render_pro_page(ws,'Verwarnungszentrale',c,'warns',body)
 
     async def ticket_detail_v5(request: Request, ticket_id: str, user_session: str=Cookie(None)):
@@ -1059,8 +1059,13 @@ def register(app):
             fields=''.join(f'<label class="flex items-center gap-2 text-[11px] p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50"><input type="checkbox" name="{k}" {"checked" if rp.get(k) else ""}><span>{e(label)}</span></label>' for k,label in permission_fields)
             cards.append(f'<section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title" style="color:#{role.color.value:06x}">{e(role.name)}</div><span class="text-[9px] text-slate-400 font-mono">{rid}</span></div><div class="pulse-card-b"><form action="/settings/pro-save" method="post"><input type="hidden" name="role_id" value="{rid}"><div class="grid grid-cols-2 gap-1">{fields}</div><button class="pulse-btn primary mt-3 w-full">Rechte speichern</button></form></div></section>')
         warn_ids=ws.get_warn_role_ids(c.config)
-        role_options=lambda selected: ''.join(f'<option value="{r.id}" {"selected" if r.id==selected else ""}>{e(r.name)} · ID {r.id}</option>' for r in roles)
-        warn_role_card=f'''<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">⚠ Warn-Rollen</div><div class="pulse-section-sub">Discord-Rollen für Warnstufe 1, 2 und 3. Pulse prüft automatisch die Bot-Hierarchie.</div></div></div><div class="pulse-card-b"><form action="/settings/pro-warn-roles" method="post" class="grid md:grid-cols-3 gap-3"><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 1<select name="warn_1" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[1])}</select></label><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 2<select name="warn_2" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[2])}</select></label><label class="text-[10px] uppercase text-slate-400 font-bold">Warn 3<select name="warn_3" class="pulse-input mt-1"><option value="">Nicht gesetzt</option>{role_options(warn_ids[3])}</select></label><button class="pulse-btn primary md:col-span-3">Warn-Rollen speichern & prüfen</button></form><form action="/settings/pro-warn-sync" method="post" class="mt-3"><button class="pulse-btn ghost w-full">↻ Alle Teamler jetzt mit Warn-Rollen abgleichen</button></form></div></section>'''
+        warn_rows=[]
+        for level in range(1,6):
+            role=c.guild.get_role(warn_ids[level])
+            status=pill("OK","good") if role else pill("NICHT GEFUNDEN","bad")
+            warn_rows.append(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">Warn {level} · {e(role.name if role else "Nicht gefunden")}</div><div class="pulse-row-meta">Feste ID {warn_ids[level]}</div></div>{status}</div>')
+        # Fünf Warnstufen sind serverweit verbindlich und werden nicht mehr durch Legacy-Konfiguration ersetzt.
+        warn_role_card=f'''<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">⚠ Warn-Rollen 1–5</div><div class="pulse-section-sub">Die fünf Discord-Warnrollen sind fest für Pulse hinterlegt und werden automatisch auf die aktive Warnstufe synchronisiert.</div></div></div><div class="pulse-card-b">{"".join(warn_rows)}<form action="/settings/pro-warn-roles" method="post" class="mt-3"><button class="pulse-btn primary w-full">↻ Fünf Warnrollen prüfen & synchronisieren</button></form></div></section>'''
         team_boxes=''.join(f'<label class="flex items-center gap-2 p-2 rounded-lg text-xs"><input type="checkbox" name="team_roles" value="{r.id}" {"checked" if r.id in role_ids else ""}><span style="color:#{r.color.value:06x}">{e(r.name)}</span></label>' for r in sorted(roles,key=lambda r:-r.position))
         audit=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(a.get("actor"))} · {e(a.get("action"))}</div><div class="pulse-row-meta">{e(a.get("details"))}</div></div><div class="pulse-row-meta">{e(a.get("timestamp"))}</div></div>' for a in reversed(ws.load_json(ws.AUDIT_FILE,[])[-120:]))
         body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div><div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
@@ -1083,31 +1088,22 @@ def register(app):
             except ValueError: pass
         vals=sorted(set(vals),key=lambda rid:c.guild.get_role(rid).position); c.config['team_role_ids']=vals; ws.save_json(ws.CONFIG_FILE,c.config); ws.log_audit(c.user.get('global_name'),c.user['id'],'Team-Rollen Geändert',','.join(str(x) for x in vals)); return ws.back('/settings','Teamrollen gespeichert.')
 
-    async def settings_warn_roles(request: Request, warn_1: str=Form(""), warn_2: str=Form(""), warn_3: str=Form(""), user_session: str=Cookie(None)):
+    async def settings_warn_roles(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True)
-        selected={}
-        for level,value in ((1,warn_1),(2,warn_2),(3,warn_3)):
-            if value.strip().isdigit():
-                rid=int(value)
-                role=c.guild.get_role(rid)
-                if role and not role.managed and not role.is_default():
-                    selected[str(level)]=rid
-        current=ws.get_warn_role_ids(c.config)
-        for level in (1,2,3):
-            selected.setdefault(str(level),current[level])
+        selected={str(level):ws.WARN_ROLE_IDS[level] for level in range(1,6)}
         c.config['warn_role_ids']=selected
         ws.save_json(ws.CONFIG_FILE,c.config)
         health=ws.warning_role_health(c.guild,c.config)
         sync_report=await ws.reconcile_warning_roles(c.guild,c.config)
         ok=all(x['ok'] for x in health) and not sync_report.get('failed')
         ws.log_audit(
-            c.user.get('global_name'),c.user['id'],'Warn-Rollen Geändert',
-            ','.join(str(selected[str(i)]) for i in (1,2,3))
+            c.user.get('global_name'),c.user['id'],'Warn-Rollen Synchronisiert',
+            ','.join(str(selected[str(i)]) for i in range(1,6))
         )
-        msg='Warn-Rollen gespeichert und Teamrollen synchronisiert.'
+        msg='Die fünf festgelegten Warnrollen wurden geprüft und Teamrollen synchronisiert.'
         if sync_report.get('failed'):
             msg += f" {sync_report['failed']} Teamler konnten nicht synchronisiert werden."
-        elif not all(x['ok'] for x in health):
+        elif not ok:
             msg += ' Mindestens eine Warn-Rolle muss noch geprüft werden.'
         return ws.back('/settings',msg,ok)
 

@@ -73,9 +73,11 @@ TEAM_UPDATE_CHANNEL_NAME = os.getenv("TEAM_UPDATE_CHANNEL_NAME", "╚『⚡』�
 TEAM_UPDATE_CHANNEL_ID = 1531132354272170115  # zentraler Team-Updates-Kanal
 
 WARN_ROLE_IDS = {
-    1: int(os.getenv("WARN_ROLE_1", "1489221948348043395")),
-    2: int(os.getenv("WARN_ROLE_2", "1489222076370780232")),
-    3: int(os.getenv("WARN_ROLE_3", "1531760107971416135"))
+    1: 1489221948348043395,
+    2: 1489222076370780232,
+    3: 1531760107971416135,
+    4: 1556344459422081045,
+    5: 1556344484198088814,
 }
 SYNC_WARN_ROLES = os.getenv("SYNC_WARN_ROLES", "1") == "1"      # Warn-Rollen automatisch vergeben
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
@@ -529,21 +531,12 @@ async def send_team_update_embed(guild, title, description, color=None, *, field
 
 
 def get_warn_role_ids(config: dict | None = None) -> dict:
-    """Lädt die drei Warn-Rollen. Dashboard-Konfiguration hat Vorrang vor ENV-Defaults."""
-    configured = (config or {}).get("warn_role_ids", {})
-    out = {}
-    for level, fallback in WARN_ROLE_IDS.items():
-        value = fallback
-        if isinstance(configured, dict):
-            value = configured.get(str(level), configured.get(level, fallback))
-        elif isinstance(configured, (list, tuple)) and len(configured) >= level:
-            value = configured[level - 1]
-        try:
-            out[level] = int(value)
-        except (TypeError, ValueError):
-            out[level] = int(fallback)
-    return out
-
+    """Gibt die festgelegten fünf Pulse-Team-Warnrollen zurück.
+    
+    Legacy-Konfigurationen und alte ENV-Werte werden absichtlich ignoriert,
+    damit das Warnsystem im Live-Betrieb immer dieselben fünf Rollen verwendet.
+    """
+    return dict(WARN_ROLE_IDS)
 
 def normalize_warns(entry: dict) -> bool:
     """Migriert Warns zu einem stabilen Format mit Status statt hartem Löschen."""
@@ -587,12 +580,12 @@ def active_warns(entry: dict) -> list[dict]:
 
 
 def warning_role_health(guild, config: dict | None = None) -> list[dict]:
-    """Prüft Existenz und Bot-Hierarchie der drei Warn-Rollen."""
+    """Prüft Existenz und Bot-Hierarchie aller fünf Warn-Rollen."""
     ids = get_warn_role_ids(config)
     me = getattr(guild, "me", None) if guild else None
     rows = []
     seen = {}
-    for level in (1, 2, 3):
+    for level in sorted(ids):
         rid = ids[level]
         role = guild.get_role(rid) if guild else None
         if rid in seen and rid:
@@ -614,8 +607,8 @@ def warning_role_health(guild, config: dict | None = None) -> list[dict]:
 
 
 async def sync_warn_roles(guild, member, count: int, config: dict | None = None):
-    """Synchronisiert exakt eine Warn-Rolle 1/2/3 und gibt einen Diagnosebericht zurück."""
-    report = {"ok": True, "count": max(0, min(int(count or 0), 3)), "role": None, "message": "Warn-Rollen synchronisiert."}
+    """Synchronisiert exakt eine Warn-Rolle 1-5 und gibt einen Diagnosebericht zurück."""
+    report = {"ok": True, "count": max(0, min(int(count or 0), 5)), "role": None, "message": "Warn-Rollen synchronisiert."}
     if not (SYNC_WARN_ROLES and guild and member):
         report["message"] = "Warn-Rollen-Synchronisierung deaktiviert."
         return report
@@ -639,7 +632,7 @@ async def sync_warn_roles(guild, member, count: int, config: dict | None = None)
             report.update(ok=False, message=f"Warn-Rolle {target_level}: {detail}.")
             return report
 
-    for level in (1, 2, 3):
+    for level in sorted(ids):
         role = guild.get_role(ids[level])
         if role and role in member.roles and level != target_level:
             current_health = health.get(level)
@@ -649,7 +642,7 @@ async def sync_warn_roles(guild, member, count: int, config: dict | None = None)
                 return report
 
     try:
-        for level in (1, 2, 3):
+        for level in sorted(ids):
             role = guild.get_role(ids[level])
             if not role:
                 continue
@@ -957,16 +950,42 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
     clean = (query or "").strip().lstrip("@")
     if not re.fullmatch(r"[A-Za-z0-9_]{2,20}", clean):
         return JSONResponse({"success": True, "users": []})
-    async with httpx.AsyncClient() as client:
-        try:
-            res = await client.get("https://users.roblox.com/v1/users/search", params={"keyword": clean, "limit": 8}, timeout=5.0)
+
+    # Bereits im Melonly-Panel verwendete Namen dienen als lokale Fallback-Vorschläge.
+    # Damit bleiben Autocomplete-Einträge sichtbar, selbst wenn Roblox kurz nicht erreichbar ist.
+    users_map = {}
+    for entry in reversed(load_json(LOGS_FILE, [])[-5000:]):
+        saved_name = str(entry.get("target_user") or "").strip()
+        saved_id = str(entry.get("roblox_id") or "")
+        if not saved_name or clean.lower() not in saved_name.lower():
+            continue
+        users_map.setdefault(saved_name.lower(), {
+            "id": saved_id,
+            "name": saved_name,
+            "displayName": saved_name,
+        })
+
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(
+                "https://users.roblox.com/v1/users/search",
+                params={"keyword": clean, "limit": 8},
+                timeout=5.0,
+            )
             data = res.json()
-            users = []
             for u in data.get("data", [])[:8]:
-                users.append({"id": str(u.get("id", "")), "name": u.get("name", ""), "displayName": u.get("displayName", "")})
-            return JSONResponse({"success": True, "users": users})
-        except Exception:
-            return JSONResponse({"success": False, "users": [], "message": "Roblox ist gerade nicht erreichbar"})
+                name = str(u.get("name") or "")
+                if not name:
+                    continue
+                users_map[name.lower()] = {
+                    "id": str(u.get("id", "")),
+                    "name": name,
+                    "displayName": str(u.get("displayName") or name),
+                }
+    except Exception:
+        pass
+
+    return JSONResponse({"success": True, "users": list(users_map.values())[:8]})
 
 # =============================================================
 # HEALTH CHECK
@@ -1309,19 +1328,43 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
             <span class="font-mono text-slate-500">{'☕ ' if on_break else ''}{fmt_duration(shift_elapsed(s))}</span>
         </div>"""
 
-    # Logs
+    # Logs / Melonly
     logs_html = ""
+    edit_log_id = str(request.query_params.get("edit_log") or "")
     is_manager = ctx.perms["can_promote"] or ctx.perms["is_admin"]
+    type_labels = {"Warn":"⚠️ Warn","Kick":"🚪 Kick","Ban":"🚫 Ban","Ban BOLO":"🚨 Ban BOLO","Notiz":"📝 Notiz"}
     for log in reversed(logs_db[-50:]):
         ltype = log.get("type", "Log")
         badge = LOG_TYPE_STYLE.get(ltype, "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300")
         search = f"{log.get('target_user','')} {log.get('roblox_id','')} {log.get('moderator','')} {ltype} {log.get('reason','')}".lower()
-        can_delete = is_manager or (log.get("moderator_id") and log.get("moderator_id") == mod_id)
+        can_edit = is_manager or (log.get("moderator_id") and log.get("moderator_id") == mod_id)
+        edit_button = (
+            f'<a href="/dashboard?edit_log={quote(str(log.get("id") or ""))}" class="text-indigo-500 hover:underline font-semibold">✏️ Bearbeiten</a>'
+            if can_edit else ""
+        )
         delete_form = f"""
                 <form action="/log/delete" method="post" onsubmit="return confirm('Diesen Log-Eintrag wirklich löschen?');">
                     <input type="hidden" name="log_id" value="{esc(log.get('id'))}">
                     <button class="text-rose-500 hover:underline font-semibold">🗑️ Löschen</button>
-                </form>""" if can_delete else ""
+                </form>""" if can_edit else ""
+        edit_form = ""
+        if edit_log_id == str(log.get("id")) and can_edit:
+            edit_options = "".join(
+                f'<option value="{esc(key)}" {"selected" if ltype == key else ""}>{esc(label)}</option>'
+                for key, label in type_labels.items()
+            )
+            edit_form = f"""
+            <form action="/log/edit" method="post" class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/60 space-y-2.5">
+                <input type="hidden" name="log_id" value="{esc(log.get('id'))}">
+                <input class="{INPUT}" name="target_user" maxlength="50" value="{esc(log.get('target_user'))}" required>
+                <input class="{INPUT}" name="roblox_id" maxlength="15" value="{esc(log.get('roblox_id','N/A'))}" placeholder="Roblox ID">
+                <select class="{INPUT}" name="log_type">{edit_options}</select>
+                <textarea class="{INPUT} h-24" name="reason" maxlength="1000" required>{esc(log.get('reason'))}</textarea>
+                <div class="flex gap-2">
+                    <button class="{BTN} px-4 py-2 text-xs">💾 Änderungen speichern</button>
+                    <a href="/dashboard#playerlog" class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold">Abbrechen</a>
+                </div>
+            </form>"""
         logs_html += f"""
         <div class="log-card {CARD} p-4 space-y-2 hover:shadow transition-all" data-type="{esc(ltype)}" data-search="{esc(search)}">
             <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-2">
@@ -1335,9 +1378,11 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                 <div><span class="text-slate-400">Roblox ID:</span> <span class="font-mono text-slate-800 dark:text-slate-200">{esc(log.get('roblox_id', 'N/A'))}</span></div>
                 <div><span class="text-slate-400">Grund:</span> <span class="text-slate-700 dark:text-slate-200 break-words">{esc(log.get('reason'))}</span></div>
             </div>
-            <div class="text-[10px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/40 flex justify-between items-center">
-                <span>Moderator: {esc(log.get('moderator'))}</span>{delete_form}
+            <div class="text-[10px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/40 flex justify-between items-center gap-3">
+                <span>Moderator: {esc(log.get('moderator'))}</span>
+                <span class="flex items-center gap-3">{edit_button}{delete_form}</span>
             </div>
+            {edit_form}
         </div>"""
 
     chips = "".join(
@@ -1388,7 +1433,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
             <div id="playerlog" class="{CARD} p-6 space-y-4">
                 <div>
                     <h2 class="text-lg font-bold text-slate-900 dark:text-white">🛡️ Melonly – Spielerakte</h2>
-                    <p class="text-xs text-slate-500 dark:text-slate-400">Roblox-Spieler suchen, ID automatisch übernehmen und Vorgang protokollieren.</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Roblox-Spieler suchen, ID automatisch übernehmen und Vorgang protokollieren. <span class="font-semibold text-indigo-500">Nur im Panel – keine Team-Updates.</span></p>
                 </div>
                 <form action="/log/create" method="post" class="space-y-4 text-xs">
                     <div>
@@ -1495,10 +1540,10 @@ async def ultimate_dashboard(request: Request, user_session: str = Cookie(None))
     active_loas = sum(1 for x in loas.values() if x.get("active"))
 
     team_db = load_json(DATA_FILE, {})
-    warning_3 = 0
+    warning_5 = 0
     for m in members:
         try:
-            if len(active_warns(user_entry(team_db, str(m.id)))) >= 3: warning_3 += 1
+            if len(active_warns(user_entry(team_db, str(m.id)))) >= 5: warning_5 += 1
         except Exception: pass
 
     presence_counts = {
@@ -1513,7 +1558,7 @@ async def ultimate_dashboard(request: Request, user_session: str = Cookie(None))
 
     health_rows = warning_role_health(guild, ctx.config) if (ctx.perms.get("is_admin") or ctx.perms.get("can_warn")) else []
     health_ok = not health_rows or all(r.get("ok") for r in health_rows)
-    critical = bool(warning_3 or urgent_tickets or overdue_tasks or not health_ok)
+    critical = bool(warning_5 or urgent_tickets or overdue_tasks or not health_ok)
     attention = bool(pending_apps or open_tickets or active_loas or activity_open)
     state_text, state_cls, state_icon = (
         ("Sofort handeln", "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20", "🔴") if critical else
@@ -1563,7 +1608,7 @@ async def ultimate_dashboard(request: Request, user_session: str = Cookie(None))
     action_html = "".join(f'<a href="{href}" class="pulse-glass pulse-hover rounded-2xl p-4 text-center"><div class="text-2xl mb-1">{icon}</div><div class="text-[11px] font-bold text-slate-700 dark:text-slate-200">{label}</div></a>' for href,icon,label in action_links)
 
     attention_items = []
-    if warning_3: attention_items.append(f'<a href="/team" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-rose-500/5 border border-rose-500/15"><span class="text-xs text-rose-700 dark:text-rose-300">🚨 {warning_3} Teammitglied(er) bei 3/3 Warnungen</span><span class="text-[10px] font-bold">Prüfen →</span></a>')
+    if warning_5: attention_items.append(f'<a href="/team" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-rose-500/5 border border-rose-500/15"><span class="text-xs text-rose-700 dark:text-rose-300">🚨 {warning_5} Teammitglied(er) bei 5/5 Warnungen</span><span class="text-[10px] font-bold">Prüfen →</span></a>')
     if urgent_tickets: attention_items.append(f'<a href="/tickets" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-rose-500/5 border border-rose-500/15"><span class="text-xs text-rose-700 dark:text-rose-300">🚨 {len(urgent_tickets)} dringende Tickets offen</span><span class="text-[10px] font-bold">Öffnen →</span></a>')
     if overdue_tasks: attention_items.append(f'<a href="/tasks" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-500/5 border border-amber-500/15"><span class="text-xs text-amber-700 dark:text-amber-300">⏰ {len(overdue_tasks)} Aufgaben überfällig</span><span class="text-[10px] font-bold">Prüfen →</span></a>')
     if activity_open: attention_items.append(f'<a href="/team#activity" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-indigo-500/5 border border-indigo-500/15"><span class="text-xs text-indigo-700 dark:text-indigo-300">✅ {activity_open} Activity-Check-Antwort(en) fehlen</span><span class="text-[10px] font-bold">Ansehen →</span></a>')
@@ -1671,8 +1716,8 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), u
     if shift_action == "start":
         if shift:
             return back("/dashboard", "Du hast bereits eine laufende Schicht.", False)
-        if len(active_warns(user_entry(team_db, mod_id))) >= 3:
-            return back("/dashboard", "Schicht-Start gesperrt: Du hast 3 oder mehr aktive Verwarnungen!", False)
+        if len(active_warns(user_entry(team_db, mod_id))) >= 5:
+            return back("/dashboard", "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!", False)
         loa = get_loas().get(mod_id)
         if loa and loa["active"]:
             return back("/dashboard", f"Du bist bis {fmt_date(loa['bis'])} abgemeldet – beende erst deine Abmeldung.", False)
@@ -1742,25 +1787,62 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
         "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
     })
     save_json(LOGS_FILE, logs_db)
-    actor_name = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
-    action_label = {"Warn":"Verwarnung","Kick":"Kick","Ban":"Ban","Ban BOLO":"Ban BOLO","Notiz":"Notiz"}.get(log_type, log_type)
-    color = {"Warn":discord.Color.orange(),"Kick":discord.Color.red(),"Ban":discord.Color.red(),
-             "Ban BOLO":discord.Color.dark_red(),"Notiz":discord.Color.blurple()}.get(log_type,discord.Color.blurple())
-    await send_team_update_embed(
-        ctx.guild,
-        f"⚠️ Team-Update: {action_label}" if log_type == "Warn" else f"📋 Team-Update: {action_label}",
-        f"Ein neuer {action_label.lower()}-Vorgang wurde im Pulse-System dokumentiert.",
-        color,
-        target=f"{target_user}\nRoblox ID: {roblox_id}",
-        action=action_label,
-        actor=actor_name,
-        fields=[
-            ("Grund / Notiz", reason, False),
-            ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True),
-        ],
+    # Melonly bleibt ausschließlich im Panel. Es gibt dafür bewusst kein Discord-Team-Update.
+    log_audit(
+        ctx.user.get("global_name"),
+        ctx.user["id"],
+        "Melonly-Eintrag erstellt",
+        f"Spieler: {target_user} ({log_type})",
     )
-    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Log Erstellt", f"Spieler: {target_user} ({log_type})")
     return back("/dashboard", f"{log_type}-Log für {target_user} gespeichert.")
+
+
+@app.post("/log/edit")
+async def edit_log(
+    request: Request,
+    log_id: str = Form(...),
+    target_user: str = Form(...),
+    roblox_id: str = Form("N/A"),
+    log_type: str = Form(...),
+    reason: str = Form(...),
+    user_session: str = Cookie(None),
+):
+    ctx = auth(request, user_session)
+    logs_db = load_json(LOGS_FILE, [])
+    entry = next((l for l in logs_db if l.get("id") == log_id), None)
+    if not entry:
+        return back("/dashboard", "Log nicht gefunden.", False)
+
+    own = entry.get("moderator_id") and str(entry.get("moderator_id")) == str(ctx.user["id"])
+    if not (own or ctx.perms["can_promote"] or ctx.perms["is_admin"]):
+        raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
+
+    target_user = target_user.strip()[:50]
+    reason = reason.strip()[:1000]
+    roblox_id = roblox_id.strip()
+    if log_type not in VALID_LOG_TYPES or not target_user or not reason:
+        return back("/dashboard", "Ungültige Eingabe.", False)
+    if not re.fullmatch(r"\d{1,15}", roblox_id):
+        roblox_id = "N/A"
+
+    old_target = str(entry.get("target_user") or "")
+    old_type = str(entry.get("type") or "Log")
+    entry.update({
+        "target_user": target_user,
+        "roblox_id": roblox_id,
+        "type": log_type,
+        "reason": reason,
+        "edited_at": now_de().strftime("%d.%m.%Y %H:%M"),
+        "edited_by": ctx.user.get("global_name") or ctx.user.get("username") or "Team",
+    })
+    save_json(LOGS_FILE, logs_db)
+    log_audit(
+        ctx.user.get("global_name"),
+        ctx.user["id"],
+        "Melonly-Eintrag bearbeitet",
+        f"{log_id}: {old_target} ({old_type}) -> {target_user} ({log_type})",
+    )
+    return back("/dashboard", "Melonly-Eintrag wurde bearbeitet.")
 
 
 @app.post("/log/delete")
@@ -1995,7 +2077,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             "offline": "⚪ Offline",
         }
         presence_text = presence_labels.get(m["discord_status"], "⚪ Offline")
-        presence_badge = f'<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border bg-slate-50 dark:bg-slate-900/50 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700">{presence_text}</span>'
+        presence_badge = f'<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border bg-slate-50 dark:bg-slate-900/30 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700">{presence_text}</span>'
         activity_badge_class = (
             BADGE_OK if m["activity"] == "confirmed"
             else BADGE_BAD if m["activity"] == "open"
@@ -2008,19 +2090,19 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             else "⚪ Kein Check"
         )
         activity_name = f'<span class="text-[10px] text-slate-400 truncate max-w-[220px]" title="{esc(m["discord_activity"])}">🎮 {esc(m["discord_activity"])}</span>' if m["discord_activity"] else ""
-        warn_badge = (f'<span class="border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">🚨 {m["warns"]}/3 Warnungen</span>' if m["warns"] >= 3 else
-                      f'<span class="border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">⚠ {m["warns"]}/3 Warnungen</span>' if m["warns"] else '')
+        warn_badge = (f'<span class="border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">🚨 {m["warns"]}/5 Warnungen</span>' if m["warns"] >= 5 else
+                      f'<span class="border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">⚠ {m["warns"]}/5 Warnungen</span>' if m["warns"] else '')
         rows_html += f"""
         <div class="team-row {CARD} hover:bg-slate-50 dark:hover:bg-[#1a2030] transition px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
              data-search="{esc((m['name'] + ' ' + m['username'] + ' ' + m['role']).lower())}" data-below="{1 if (not m['reached'] and not m['on_loa']) else 0}">
-            <div class="flex items-center gap-3.5 md:w-1/3 min-w-0">
+            <div class="flex items-center gap-3.5 md:w-1/5 min-w-0">
                 <img src="{esc(m['avatar'])}" alt="" class="w-11 h-11 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
                 <div class="truncate">
                     <div class="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap"><span>{esc(m['name'])}</span>{presence_badge}{loa_badge}{duty_badge}{warn_badge}<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold border {activity_badge_class}">{activity_badge_text}</span>{activity_name}</div>
                     <div class="text-xs text-slate-400 font-mono">@{esc(m['username'])}</div>
                 </div>
             </div>
-            <div class="md:w-1/3 space-y-1.5">
+            <div class="md:w-1/5 space-y-1.5">
                 <div class="flex items-center gap-3 flex-wrap">
                     <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border" style="background-color:{m['color']}15;color:{m['color']};border-color:{m['color']}40;">
                         <span class="w-1.5 h-1.5 rounded-full" style="background-color:{m['color']}"></span>{esc(m['role'])}
@@ -2149,7 +2231,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
             <button class="{BTN} px-4">Hinzufügen</button>
         </form>""" if ctx.perms["can_add_notes"] else ""
 
-    warn_color = "text-rose-500" if active_warn_count >= 3 else "text-amber-500"
+    warn_color = "text-rose-500" if active_warn_count >= 5 else "text-amber-500"
     body = f"""
     <div class="flex items-center gap-4 mb-8">
         <a href="/team" class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 p-2.5 rounded-xl transition shadow-sm">←</a>
@@ -2165,7 +2247,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
                 <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Ticket-Cases</div><div class="text-2xl font-bold">{info.get('ticket_cases', 0)}</div></div>
                 <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Support-Cases</div><div class="text-2xl font-bold">{info.get('support_cases', 0)}</div></div>
                 <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Wochenstunden</div><div class="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{weekly:.1f}h</div></div>
-                <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Verwarnungen</div><div class="text-2xl font-bold {warn_color}">{len(warns)}/3</div></div>
+                <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Verwarnungen</div><div class="text-2xl font-bold {warn_color}">{len(warns)}/5</div></div>
             </div>
             <div class="{CARD} p-6 space-y-4">
                 {actions_html}{warn_form}
@@ -3079,6 +3161,9 @@ async def handle_action(
 
         team_db = load_json(DATA_FILE, {})
         entry = user_entry(team_db, str(user_id))
+        current_count = len(active_warns(entry))
+        if current_count >= 5:
+            return back(member_url, "Dieses Teammitglied hat bereits die maximale Anzahl von 5 aktiven Verwarnungen.", False)
         entry["warns_list"].append({
             "id": f"warn_{uuid.uuid4().hex[:6]}", "reason": reason, "proof": safe_url(warn_proof),
             "by": actor, "date": now_de().strftime("%d.%m.%Y %H:%M"),
@@ -3086,7 +3171,7 @@ async def handle_action(
         })
         count = len(active_warns(entry))
         save_json(DATA_FILE, team_db)
-        log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/3): {reason}")
+        log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/5): {reason}")
         role_report = await sync_warn_roles(guild, m, count, config)
         if m:
             await send_team_update_embed(
@@ -3094,8 +3179,8 @@ async def handle_action(
                 "⚠️ Team-Update: Verwarnung",
                 f"{m.mention} hat eine neue Verwarnung erhalten.",
                 discord.Color.orange(),
-                target=f"{m.mention}\nWarn-Stufe: {count}/3",
-                action=f"Verwarnung {count}/3",
+                target=f"{m.mention}\nWarn-Stufe: {count}/5",
+                action=f"Verwarnung {count}/5",
                 actor=actor,
                 fields=[
                     ("Grund", reason, False),
@@ -3104,8 +3189,8 @@ async def handle_action(
                 ],
                 thumbnail=m.display_avatar.url,
             )
-            await send_dm_notification(m, f"⚠️ Du hast eine Verwarnung erhalten ({count}/3)!\n**Grund:** {reason}\n**Von:** {actor}")
-            if count >= 3:
+            await send_dm_notification(m, f"⚠️ Du hast eine Verwarnung erhalten ({count}/5)!\n**Grund:** {reason}\n**Von:** {actor}")
+            if count >= 5:
                 # Führungskräfte erhalten zusätzlich eine Pulse-Inbox-Meldung.
                 for manager in guild.members:
                     if manager.bot or manager.id == m.id:
@@ -3115,8 +3200,8 @@ async def handle_action(
                         try:
                             pulse_db.notify(
                                 manager.id,
-                                "🚨 3/3 Team-Warnungen",
-                                f"{m.display_name} hat 3 aktive Verwarnungen. Bitte Fall prüfen.",
+                                "🚨 5/5 Team-Warnungen",
+                                f"{m.display_name} hat 5 aktive Verwarnungen. Bitte Fall prüfen.",
                                 "warning",
                                 "/warns",
                                 f"warn-escalation:{m.id}:{count}",
@@ -3130,14 +3215,14 @@ async def handle_action(
                     f"**Mitglied:** {m.mention} ({m.display_name})\n**Status:** Schicht-Start ist gesperrt, bitte Konsequenzen prüfen.",
                     discord.Color.red(),
                     target=m.mention,
-                    action="Warn-Schwelle 3/3",
+                    action="Warn-Schwelle 5/5",
                     actor=actor,
                     fields=[("Warnrollen-Sync", "✅ Erfolgreich" if role_report.get("ok") else f"❌ {role_report.get('message')}")],
                     thumbnail=m.display_avatar.url,
                 )
         if role_report.get("ok"):
-            return back(member_url, f"Verwarnung eingetragen ({count}/3).")
-        return back(member_url, f"Verwarnung eingetragen ({count}/3), aber Discord-Warnrolle konnte nicht synchronisiert werden: {role_report.get('message')}", False)
+            return back(member_url, f"Verwarnung eingetragen ({count}/5).")
+        return back(member_url, f"Verwarnung eingetragen ({count}/5), aber Discord-Warnrolle konnte nicht synchronisiert werden: {role_report.get('message')}", False)
 
     if action == "remove_warn":
         if not user_id or not warn_id:
@@ -3170,7 +3255,7 @@ async def handle_action(
             "✅ Team-Update: Verwarnung zurückgezogen",
             f"Die Verwarnung von {m.mention} wurde durch das Team-Dashboard zurückgezogen.",
             discord.Color.green(),
-            target=f"{m.mention}\nAktive Warnungen: {count}/3",
+            target=f"{m.mention}\nAktive Warnungen: {count}/5",
             action="Warn zurückgezogen",
             actor=actor,
             fields=[
@@ -3186,8 +3271,8 @@ async def handle_action(
         log_audit(actor, actor_id, "Warn Zurückgezogen",
                   f"User-ID {user_id}, Warn-ID {warn_id}, Grund: {original_reason}, Rücknahme: {revoke_reason}")
         if role_report.get("ok"):
-            return back(member_url, f"Verwarnung zurückgezogen ({count}/3).")
-        return back(member_url, f"Verwarnung zurückgezogen ({count}/3), aber Discord-Warnrolle konnte nicht synchronisiert werden: {role_report.get('message')}", False)
+            return back(member_url, f"Verwarnung zurückgezogen ({count}/5).")
+        return back(member_url, f"Verwarnung zurückgezogen ({count}/5), aber Discord-Warnrolle konnte nicht synchronisiert werden: {role_report.get('message')}", False)
 
 
     if action == "add_note":

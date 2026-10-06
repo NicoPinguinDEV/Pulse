@@ -7,7 +7,7 @@ Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstz
 - Discord-OAuth-Dashboard mit signierten Sessions
 - Teamliste mit Wochenstunden, Dienststatus, LOA, Warnungen und aktuellem Discord-Presence-Status
 - Activity Check mit eingefrorenem Teilnehmer-Snapshot
-- Warnsystem 1/2/3 inklusive Discord-Warnrollen und Rücknahme-Historie
+- Warnsystem 1/2/3/4/5 inklusive Discord-Warnrollen und Rücknahme-Historie
 - Roblox-Spielersuche mit ID-Autovervollständigung
 - Tickets mit Kategorien, Zuständigkeiten, Prioritäten und Transkripten
 - Bewerbungen, Einstellungen, Besprechungen und Team-News

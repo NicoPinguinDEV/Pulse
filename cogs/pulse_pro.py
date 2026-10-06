@@ -371,7 +371,7 @@ class PulsePro(commands.Cog):
         try:
             role_rows = webserver.warning_role_health(interaction.guild, cfg)
             ok_roles = sum(1 for row in role_rows if row.get("ok"))
-            embed.add_field(name="Warnrollen", value=f"{ok_roles}/3 bereit", inline=True)
+            embed.add_field(name="Warnrollen", value=f"{ok_roles}/5 bereit", inline=True)
         except Exception:
             embed.add_field(name="Warnrollen", value="⚠️ Nicht prüfbar", inline=True)
         embed.add_field(name="Health-Endpunkt", value="/healthz", inline=True)

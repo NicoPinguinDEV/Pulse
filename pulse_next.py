@@ -709,7 +709,7 @@ def register(app):
           {u.card(f"<div class=tiny>Score</div><div class=metric>{stats['score']}/100</div><span class=pill>{icon} {cls}</span>")}
           {u.card(f"<div class=tiny>Dienstzeit gesamt</div><div class=metric>{stats['total_seconds']//3600}h</div><div class=tiny>{stats['shifts']} Schichten</div>")}
           {u.card(f"<div class=tiny>Tickets</div><div class=metric>{stats['closed_tickets']}</div><div class=tiny>abgeschlossen</div>")}
-          {u.card(f"<div class=tiny>Warnungen</div><div class=metric>{stats['warnings']}/3</div>")}
+          {u.card(f"<div class=tiny>Warnungen</div><div class=metric>{stats['warnings']}/5</div>")}
         </div>
         <div class='grid g2' style='margin-top:13px'>
           {u.card(f"<h3 style='margin-top:0'>👤 Teamprofil</h3><div class=row><b>{esc(member.display_name)}</b><span class=pill>{esc(str(member.status))}</span></div><div class=tiny>Rollen</div><p>{esc(roles)}</p><div class=tiny>Aktuelle Aktivität</div><p>{esc((get_activity(str(member.id)) or {}).get('last_kind','unbekannt'))}</p><a class='btn' href='/ultimate/person/{member.id}/export'>Profil exportieren</a>")}
