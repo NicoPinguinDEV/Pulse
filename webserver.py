@@ -75,7 +75,9 @@ TEAM_UPDATE_CHANNEL_ID = 1531132354272170115  # zentraler Team-Updates-Kanal
 WARN_ROLE_IDS = {
     1: int(os.getenv("WARN_ROLE_1", "1489221948348043395")),
     2: int(os.getenv("WARN_ROLE_2", "1489222076370780232")),
-    3: int(os.getenv("WARN_ROLE_3", "1531760107971416135"))
+    3: int(os.getenv("WARN_ROLE_3", "1531760107971416135")),
+    4: int(os.getenv("WARN_ROLE_4", "1556344459422081045")),
+    5: int(os.getenv("WARN_ROLE_5", "1556344484198088814")),
 }
 SYNC_WARN_ROLES = os.getenv("SYNC_WARN_ROLES", "1") == "1"      # Warn-Rollen automatisch vergeben
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
