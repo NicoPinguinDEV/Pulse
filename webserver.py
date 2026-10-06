@@ -765,7 +765,8 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
 
     inbox_label = "Pulse Inbox" + (f" <span class='ml-auto text-[9px] rounded-full bg-rose-500 text-white px-1.5 py-0.5'>{unread}</span>" if unread else "")
     main_items = [
-        ("dashboard", "/dashboard", "⚡", "Moderatoren-Panel"),
+        ("ultimate", "/ultimate", "⚡", "Command Center"),
+        ("dashboard", "/dashboard", "🛡️", "Moderatoren-Panel"),
         ("team", "/team", "👥", "Teamliste"),
         ("inbox", "/pulse-inbox", "📥", inbox_label),
         ("tasks", "/tasks", "📋", "Aufgaben"),
@@ -809,7 +810,7 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
                 <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-600/20">B</div>
                 <div>
                     <h2 class="font-bold text-slate-900 dark:text-white leading-none">{esc(guild_name)}</h2>
-                    <span class="text-[10px] text-slate-500 dark:text-slate-400 font-mono">Pulse v4 TeamOS</span>
+                    <span class="text-[10px] text-slate-500 dark:text-slate-400 font-mono">Pulse v7 TeamOS</span>
                 </div>
             </div>
             <div class="bg-slate-100 dark:bg-[#0b0e14] border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 flex items-center gap-2 shadow-inner">
@@ -1138,6 +1139,18 @@ DASHBOARD_HEAD = """
 <style>
     .type-chip { cursor:pointer; transition:.15s; }
     .type-chip.active { background:#4f46e5 !important; color:#fff !important; border-color:#4f46e5 !important; }
+    .pulse-glass{background:linear-gradient(135deg,rgba(255,255,255,.82),rgba(248,250,252,.68));backdrop-filter:blur(18px);border:1px solid rgba(148,163,184,.20)}
+    .dark .pulse-glass{background:linear-gradient(135deg,rgba(20,24,36,.88),rgba(11,14,20,.78));border-color:rgba(148,163,184,.12)}
+    .pulse-hero{background:radial-gradient(700px 260px at 0% 0%,rgba(99,102,241,.22),transparent 60%),radial-gradient(500px 240px at 100% 100%,rgba(6,182,212,.14),transparent 60%),linear-gradient(135deg,rgba(99,102,241,.08),rgba(6,182,212,.05))}
+    .dark .pulse-hero{background:radial-gradient(700px 260px at 0% 0%,rgba(99,102,241,.28),transparent 60%),radial-gradient(500px 240px at 100% 100%,rgba(6,182,212,.16),transparent 60%),linear-gradient(135deg,rgba(15,23,42,.92),rgba(8,15,27,.96))}
+    .pulse-hover{transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+    .pulse-hover:hover{transform:translateY(-2px);box-shadow:0 16px 40px rgba(15,23,42,.10)}
+    .dark .pulse-hover:hover{box-shadow:0 18px 44px rgba(0,0,0,.28)}
+    .pulse-ring{box-shadow:0 0 0 1px rgba(99,102,241,.10),0 12px 32px rgba(99,102,241,.10)}
+    .pulse-dot{box-shadow:0 0 0 4px rgba(16,185,129,.08)}
+    @keyframes pulseFloat{from{transform:translateY(0)}to{transform:translateY(-3px)}}
+    .pulse-float{animation:pulseFloat 2.8s ease-in-out infinite alternate}
+    @media(max-width:800px){.pulse-hide-mobile{display:none}.pulse-grid-mobile{grid-template-columns:1fr}}
 </style>
 <script>
     document.addEventListener("DOMContentLoaded", function () {
@@ -1171,8 +1184,15 @@ DASHBOARD_HEAD = """
 
     // Pulse Command Palette (Ctrl/Cmd+K)
     document.addEventListener("keydown", function(e){
-        if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();const q=prompt("Pulse Suche – Name, Ticket, Aufgabe oder Wiki:");if(q) window.location.href="/search?q="+encodeURIComponent(q);}
+        if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();const q=prompt("Pulse Suche – Name, Ticket, Aufgabe, Bewerbung oder Wiki:");if(q) window.location.href="/search?q="+encodeURIComponent(q);}
     });
+    function pulseClock(){
+        const el=document.getElementById("pulseLiveClock");
+        if(!el) return;
+        const d=new Date();
+        el.textContent=d.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+    }
+    pulseClock(); setInterval(pulseClock,1000);
     // PWA
     if("serviceWorker" in navigator){ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }
 
@@ -1417,6 +1437,212 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
         </div>
     </div>"""
     return render_page("Moderatoren-Panel", ctx, "dashboard", body, DASHBOARD_HEAD)
+
+
+# =============================================================
+# ROUTE: PULSE COMMAND CENTER / ULTIMATE
+# =============================================================
+@app.get("/ultimate", response_class=HTMLResponse)
+async def ultimate_dashboard(request: Request, user_session: str = Cookie(None)):
+    """Modernes Pulse Command Center: Team, Dienstzeit, Activity, Tickets und Handlungsbedarf auf einer Seite."""
+    ctx = auth(request, user_session)
+    guild = ctx.guild
+    uid = str(ctx.user["id"])
+    team_role_ids = ctx.config.get("team_role_ids", [])
+    shifts_db = load_shifts()
+    active_shifts = shifts_db.get("active_shifts", {})
+    logs_db = load_json(LOGS_FILE, [])
+    apps_db = load_json(APPS_FILE, {})
+    loas = get_loas()
+
+    members = [m for m in guild.members if not m.bot and any(r.id in team_role_ids for r in m.roles)]
+    members.sort(key=lambda m: m.display_name.lower())
+
+    current_shift = active_shifts.get(uid)
+    shift_status = current_shift.get("status") if current_shift else "offline"
+    current_elapsed = shift_elapsed(current_shift) if current_shift else 0
+    weekly_goal = max(0.0, float(ctx.config.get("weekly_goal_hours", 3.0) or 0))
+    weekly_seconds = calculate_weekly_seconds(uid, shifts_db.get("history", []), active_shifts)
+    weekly_hours = weekly_seconds / 3600
+    weekly_pct = min(100, int((weekly_hours / weekly_goal) * 100)) if weekly_goal > 0 else 100
+
+    activity = get_activity_today(guild.id)
+    eligible = activity.get("eligible")
+    confirmed = activity.get("confirmed", set())
+    activity_confirmed = sum(1 for m in members if activity.get("check_id") and (eligible is None or m.id in eligible) and m.id in confirmed)
+    activity_open = sum(1 for m in members if activity.get("check_id") and (eligible is None or m.id in eligible) and m.id not in confirmed)
+
+    try: tickets = pulse_db.list_tickets(limit=3000)
+    except Exception: tickets = []
+    open_tickets = [t for t in tickets if t.get("status") != "closed"]
+    urgent_tickets = [t for t in open_tickets if t.get("priority") == "urgent"]
+
+    try: tasks = pulse_db.list_tasks(limit=3000)
+    except Exception: tasks = []
+    open_tasks = [t for t in tasks if t.get("status") not in {"done", "archived"}]
+
+    def is_overdue(t):
+        raw = t.get("due_at")
+        if not raw: return False
+        try:
+            due = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if due.tzinfo is None: due = due.replace(tzinfo=now_de().tzinfo)
+            return due <= now_de()
+        except Exception: return False
+
+    overdue_tasks = [t for t in open_tasks if is_overdue(t)]
+    pending_apps = sum(1 for a in apps_db.values() if str(a.get("status", "")).lower() in {"pending", "new", "in_review", "in prüfung", "review"})
+    active_loas = sum(1 for x in loas.values() if x.get("active"))
+
+    team_db = load_json(DATA_FILE, {})
+    warning_3 = 0
+    for m in members:
+        try:
+            if len(active_warns(user_entry(team_db, str(m.id)))) >= 3: warning_3 += 1
+        except Exception: pass
+
+    presence_counts = {
+        "online": sum(str(m.status) == "online" for m in members),
+        "idle": sum(str(m.status) == "idle" for m in members),
+        "dnd": sum(str(m.status) == "dnd" for m in members),
+        "offline": sum(str(m.status) == "offline" for m in members),
+    }
+    duty_count = sum(1 for x in active_shifts.values() if x.get("status") in {"online", "break"})
+    try: unread = pulse_db.unread_count(ctx.user["id"])
+    except Exception: unread = 0
+
+    health_rows = warning_role_health(guild, ctx.config) if (ctx.perms.get("is_admin") or ctx.perms.get("can_warn")) else []
+    health_ok = not health_rows or all(r.get("ok") for r in health_rows)
+    critical = bool(warning_3 or urgent_tickets or overdue_tasks or not health_ok)
+    attention = bool(pending_apps or open_tickets or active_loas or activity_open)
+    state_text, state_cls, state_icon = (
+        ("Sofort handeln", "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20", "🔴") if critical else
+        ("Aufmerksamkeit", "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20", "🟡") if attention else
+        ("Alles normal", "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20", "🟢")
+    )
+
+    def person_card(m):
+        duty = active_shifts.get(str(m.id))
+        duty_label = "🟢 Im Dienst" if duty and duty.get("status") == "online" else "☕ Pause" if duty and duty.get("status") == "break" else ""
+        presence = {"online": ("Online", "bg-emerald-500"), "idle": ("Abwesend", "bg-amber-500"), "dnd": ("Bitte nicht stören", "bg-rose-500"), "offline": ("Offline", "bg-slate-400")}.get(str(m.status), ("Offline", "bg-slate-400"))
+        roles = [r for r in m.roles if r.id in team_role_ids]
+        top = max(roles, key=lambda r: r.position) if roles else m.top_role
+        warns_count = 0
+        try: warns_count = len(active_warns(user_entry(team_db, str(m.id))))
+        except Exception: pass
+        return f'''
+        <a href="/member/{m.id}" class="pulse-glass pulse-hover rounded-2xl p-4 flex items-center gap-3 group">
+            <div class="relative shrink-0">
+                <img src="{esc(m.display_avatar.url)}" alt="" class="w-11 h-11 rounded-full border border-slate-200/60 dark:border-slate-700 shadow-sm object-cover">
+                <span class="absolute -right-0.5 -bottom-0.5 w-3.5 h-3.5 rounded-full {presence[1]} border-2 border-white dark:border-[#0b0e14] pulse-dot"></span>
+            </div>
+            <div class="min-w-0 flex-1">
+                <div class="font-semibold text-sm text-slate-900 dark:text-white truncate">{esc(m.display_name)}</div>
+                <div class="text-[10px] text-slate-500 dark:text-slate-400 truncate">{esc(top.name)} · {presence[0]}{(" · " + duty_label) if duty_label else ""}</div>
+            </div>
+            <div class="flex items-center gap-1.5">
+                {f'<span class="text-[10px] px-2 py-1 rounded-full border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">⚠ {warns_count}</span>' if warns_count else ''}
+                <span class="text-slate-400 group-hover:text-indigo-500 transition">›</span>
+            </div>
+        </a>'''
+
+    team_preview = "".join(person_card(m) for m in members[:10]) or '<div class="text-xs text-slate-400 py-8 text-center">Noch keine Teammitglieder konfiguriert.</div>'
+
+    if shift_status == "offline":
+        shift_action_html = '<button name="shift_action" value="start" class="w-full rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white py-3.5 font-bold shadow-lg shadow-emerald-900/10 transition">▶️ Schicht starten</button>'
+    else:
+        shift_action_html = (
+            '<button name="shift_action" value="break" class="flex-1 rounded-2xl border border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/15 text-amber-600 dark:text-amber-400 py-3 font-bold transition">⏸ Pause</button>'
+            if shift_status == "online" else
+            '<button name="shift_action" value="resume" class="flex-1 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 py-3 font-bold transition">▶️ Fortsetzen</button>'
+        )
+        shift_action_html += '<button name="shift_action" value="end" class="flex-1 rounded-2xl border border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/15 text-rose-600 dark:text-rose-400 py-3 font-bold transition">⏹ Beenden</button>'
+
+    manager_link = '<a href="/suite" class="inline-flex items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 text-xs font-bold transition">Führungs-Suite öffnen</a>' if (ctx.perms.get("can_promote") or ctx.perms.get("is_admin")) else ""
+    action_links = [('/team', '👥', 'Teamliste'),('/tickets', '🎫', 'Tickets'),('/applications', '📝', 'Bewerbungen'),('/meetings', '🎙️', 'Meeting'),('/wiki', '📚', 'Wiki')]
+    action_html = "".join(f'<a href="{href}" class="pulse-glass pulse-hover rounded-2xl p-4 text-center"><div class="text-2xl mb-1">{icon}</div><div class="text-[11px] font-bold text-slate-700 dark:text-slate-200">{label}</div></a>' for href,icon,label in action_links)
+
+    attention_items = []
+    if warning_3: attention_items.append(f'<a href="/team" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-rose-500/5 border border-rose-500/15"><span class="text-xs text-rose-700 dark:text-rose-300">🚨 {warning_3} Teammitglied(er) bei 3/3 Warnungen</span><span class="text-[10px] font-bold">Prüfen →</span></a>')
+    if urgent_tickets: attention_items.append(f'<a href="/tickets" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-rose-500/5 border border-rose-500/15"><span class="text-xs text-rose-700 dark:text-rose-300">🚨 {len(urgent_tickets)} dringende Tickets offen</span><span class="text-[10px] font-bold">Öffnen →</span></a>')
+    if overdue_tasks: attention_items.append(f'<a href="/tasks" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-500/5 border border-amber-500/15"><span class="text-xs text-amber-700 dark:text-amber-300">⏰ {len(overdue_tasks)} Aufgaben überfällig</span><span class="text-[10px] font-bold">Prüfen →</span></a>')
+    if activity_open: attention_items.append(f'<a href="/team#activity" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-indigo-500/5 border border-indigo-500/15"><span class="text-xs text-indigo-700 dark:text-indigo-300">✅ {activity_open} Activity-Check-Antwort(en) fehlen</span><span class="text-[10px] font-bold">Ansehen →</span></a>')
+    if not health_ok: attention_items.append('<a href="/settings" class="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-500/5 border border-amber-500/15"><span class="text-xs text-amber-700 dark:text-amber-300">🛡️ Warnrollen-Konfiguration prüfen</span><span class="text-[10px] font-bold">Settings →</span></a>')
+    attention_html = "".join(attention_items) or '<div class="text-xs text-slate-400 py-5 text-center">Keine offenen Handlungsfelder. Gute Arbeit.</div>'
+
+    recent_events = []
+    try:
+        for ev in pulse_db.events(limit=6):
+            label, actor, when = esc(ev.get("event_type") or "Ereignis"), esc(ev.get("actor_name") or "System"), esc(ev.get("created_at") or "")
+            recent_events.append(f'<div class="flex items-start gap-3 py-2.5 border-b border-slate-200/60 dark:border-slate-800 last:border-0"><span class="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-500 grid place-items-center shrink-0">•</span><div class="min-w-0"><div class="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{label}</div><div class="text-[10px] text-slate-400 truncate">{actor} · {when}</div></div></div>')
+    except Exception: recent_events=[]
+    events_html="".join(recent_events) or '<div class="text-xs text-slate-400 py-5">Noch keine zentralen Events vorhanden.</div>'
+
+    hero = f'''
+    <section class="pulse-glass pulse-hero pulse-ring rounded-3xl p-6 md:p-8 mb-6 overflow-hidden relative">
+        <div class="absolute -right-14 -top-16 w-44 h-44 rounded-full bg-indigo-500/10 blur-2xl"></div>
+        <div class="relative flex flex-col xl:flex-row xl:items-center xl:justify-between gap-6">
+            <div class="min-w-0">
+                <div class="text-[11px] uppercase tracking-[.18em] font-black text-indigo-500 dark:text-indigo-400 mb-2">Pulse Command Center</div>
+                <div class="flex flex-wrap items-center gap-3">
+                    <h1 class="text-2xl md:text-3xl font-black text-slate-900 dark:text-white">Hallo, {esc(ctx.user.get("global_name") or ctx.user.get("username") or "Team")} 👋</h1>
+                    <span class="inline-flex items-center gap-2 text-[11px] font-bold px-3 py-1.5 rounded-full border {state_cls}">{state_icon} {state_text}</span>
+                </div>
+                <p class="text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-3xl">Die wichtigsten Team-, Dienst- und Moderationsdaten an einem Ort. Änderungen kommen direkt aus Discord und Pulse.</p>
+                <div class="flex flex-wrap gap-2 mt-5">{action_html}{manager_link}</div>
+            </div>
+            <div class="shrink-0 rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/40 dark:bg-slate-900/30 p-4 min-w-[190px]">
+                <div class="text-[10px] uppercase tracking-widest font-black text-slate-400 mb-1">Lokale Zeit</div>
+                <div id="pulseLiveClock" class="text-3xl font-black font-mono text-slate-900 dark:text-white">{now_de().strftime("%H:%M:%S")}</div>
+                <div class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">{now_de().strftime("%d.%m.%Y")} · Europe/Berlin</div>
+                <div class="mt-3 text-[10px] text-slate-400">📥 {unread} ungelesene Pulse-Nachrichten</div>
+            </div>
+        </div>
+    </section>'''
+
+    stats_html=f'''
+    <div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        <div class="pulse-glass pulse-hover rounded-2xl p-5"><div class="text-[10px] uppercase tracking-widest font-black text-slate-400">Team online</div><div class="text-3xl font-black mt-1">{presence_counts["online"]}</div><div class="text-[10px] text-slate-500 mt-1">{presence_counts["idle"]} abwesend · {presence_counts["dnd"]} DND</div></div>
+        <div class="pulse-glass pulse-hover rounded-2xl p-5"><div class="text-[10px] uppercase tracking-widest font-black text-slate-400">Im Dienst</div><div class="text-3xl font-black mt-1">{duty_count}</div><div class="text-[10px] text-slate-500 mt-1">Schichtsystem</div></div>
+        <div class="pulse-glass pulse-hover rounded-2xl p-5"><div class="text-[10px] uppercase tracking-widest font-black text-slate-400">Offene Tickets</div><div class="text-3xl font-black mt-1">{len(open_tickets)}</div><div class="text-[10px] text-slate-500 mt-1">{len(urgent_tickets)} dringend</div></div>
+        <div class="pulse-glass pulse-hover rounded-2xl p-5"><div class="text-[10px] uppercase tracking-widest font-black text-slate-400">Bewerbungen</div><div class="text-3xl font-black mt-1">{pending_apps}</div><div class="text-[10px] text-slate-500 mt-1">wartend auf Prüfung</div></div>
+    </div>'''
+
+    body=f'''
+    {hero}{stats_html}
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        <div class="xl:col-span-8 space-y-6">
+            <section class="pulse-glass rounded-3xl p-5 md:p-6">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5"><div><div class="text-[10px] uppercase tracking-widest font-black text-indigo-500">Dein Dienst</div><h2 class="text-lg font-black text-slate-900 dark:text-white">Persönlicher Überblick</h2></div><span class="text-[11px] font-bold px-3 py-1.5 rounded-full border {("bg-emerald-500/10 text-emerald-600 border-emerald-500/20" if shift_status=="online" else "bg-amber-500/10 text-amber-600 border-amber-500/20" if shift_status=="break" else "bg-slate-500/10 text-slate-500 border-slate-500/20")}">{"🟢 IM DIENST" if shift_status=="online" else "☕ PAUSE" if shift_status=="break" else "⚪ OFFLINE"}</span></div>
+                <div class="grid md:grid-cols-3 gap-4">
+                    <div class="rounded-2xl bg-slate-50/80 dark:bg-slate-950/30 border border-slate-200/70 dark:border-slate-800 p-4"><div class="text-[10px] text-slate-400 uppercase tracking-widest font-black">Aktuelle Schicht</div><div class="text-2xl font-black mt-1" id="ultimateShiftTimer">{fmt_duration(current_elapsed)}</div><div class="text-[10px] text-slate-500 mt-1">Pausen werden nicht gutgeschrieben</div></div>
+                    <div class="md:col-span-2 rounded-2xl bg-slate-50/80 dark:bg-slate-950/30 border border-slate-200/70 dark:border-slate-800 p-4"><div class="flex justify-between text-[10px] uppercase tracking-widest font-black text-slate-400"><span>Wochenziel</span><span>{weekly_hours:.1f}h / {weekly_goal:g}h</span></div><div class="mt-3 h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-all" style="width:{weekly_pct}%"></div></div><div class="flex justify-between mt-2 text-[10px] text-slate-500"><span>{weekly_pct}% erreicht</span><span>⏱ {fmt_duration(weekly_seconds)}</span></div></div>
+                </div>
+                <form action="/shift/action" method="post" class="flex flex-col sm:flex-row gap-2 mt-4">{shift_action_html}</form>
+            </section>
+            <section class="pulse-glass rounded-3xl p-5 md:p-6">
+                <div class="flex items-center justify-between gap-3 mb-5"><div><div class="text-[10px] uppercase tracking-widest font-black text-indigo-500">Live Team</div><h2 class="text-lg font-black text-slate-900 dark:text-white">Wer ist gerade da?</h2></div><a href="/team" class="text-xs font-bold text-indigo-500 hover:underline">Gesamte Teamliste →</a></div>
+                <div class="grid md:grid-cols-2 gap-3">{team_preview}</div>
+                {f'<div class="text-[10px] text-slate-400 mt-4 text-center">+ {len(members)-10} weitere Teammitglieder</div>' if len(members)>10 else ''}
+            </section>
+        </div>
+        <div class="xl:col-span-4 space-y-6">
+            <section class="pulse-glass rounded-3xl p-5"><div class="flex items-center justify-between"><div><div class="text-[10px] uppercase tracking-widest font-black text-rose-500">Priorität</div><h2 class="text-lg font-black text-slate-900 dark:text-white">Handlungsbedarf</h2></div><span class="text-xl">{state_icon}</span></div><div class="mt-4 space-y-2">{attention_html}</div></section>
+            <section class="pulse-glass rounded-3xl p-5"><div class="flex items-center justify-between mb-4"><div><div class="text-[10px] uppercase tracking-widest font-black text-indigo-500">Activity Check</div><h2 class="text-lg font-black text-slate-900 dark:text-white">Team-Rückmeldungen</h2></div><a href="/team#activity" class="text-xs font-bold text-indigo-500 hover:underline">Details →</a></div><div class="grid grid-cols-3 gap-2 text-center"><div class="rounded-2xl bg-emerald-500/5 border border-emerald-500/15 p-3"><div class="text-2xl font-black text-emerald-600">{activity_confirmed}</div><div class="text-[10px] text-slate-500">Bestätigt</div></div><div class="rounded-2xl bg-rose-500/5 border border-rose-500/15 p-3"><div class="text-2xl font-black text-rose-600">{activity_open}</div><div class="text-[10px] text-slate-500">Offen</div></div><div class="rounded-2xl bg-slate-500/5 border border-slate-500/15 p-3"><div class="text-2xl font-black">{len(members)}</div><div class="text-[10px] text-slate-500">Team</div></div></div><div class="mt-3 text-[10px] text-slate-500">{("Check vom " + esc(activity.get("check_date") or "")) if activity.get("check_id") else "Heute wurde noch kein Activity Check gestartet."}</div></section>
+            <section class="pulse-glass rounded-3xl p-5"><div class="flex items-center justify-between mb-4"><div><div class="text-[10px] uppercase tracking-widest font-black text-indigo-500">System</div><h2 class="text-lg font-black text-slate-900 dark:text-white">Letzte Ereignisse</h2></div><a href="/search" class="text-xs font-bold text-indigo-500 hover:underline">Suche →</a></div>{events_html}</section>
+        </div>
+    </div>'''
+
+    extra_js=f'''
+    <script>
+    (function(){{
+        const base={int(current_elapsed)}; const running={"true" if shift_status=="online" else "false"}; const started=Date.now();
+        const el=document.getElementById("ultimateShiftTimer");
+        function tick(){{ if(!el)return; const s=base+(running?Math.floor((Date.now()-started)/1000):0); el.textContent=Math.floor(s/3600)+"h "+Math.floor((s%3600)/60)+"m "+(s%60)+"s"; }}
+        tick(); if(running)setInterval(tick,1000);
+    }})();
+    </script>'''
+    return render_page("Pulse Command Center", ctx, "ultimate", body, DASHBOARD_HEAD + extra_js)
 
 
 # =============================================================
