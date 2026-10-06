@@ -2081,9 +2081,9 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                 promote_ok = target_rank + 1 < len(team_role_ids) and (ctx.perms.get("is_admin") or target_rank + 1 < actor_team_rank)
                 demote_ok = target_rank > -1 and (ctx.perms.get("is_admin") or target_rank < actor_team_rank)
                 if promote_ok:
-                    role_actions += f"""<form action="/action" method="post" class="inline" onsubmit="return confirm('Teammitglied wirklich hochstufen?');"><input type="hidden" name="action" value="promote"><input type="hidden" name="user_id" value="{m["id"]}"><input type="hidden" name="redirect_to_member" value=""><button class="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-semibold">⬆️ Hochstufen</button></form>"""
+                    role_actions += f"""<form action="/action" method="post" class="inline-flex items-center gap-1.5"><input type="hidden" name="action" value="promote"><input type="hidden" name="user_id" value="{m["id"]}"><input type="hidden" name="redirect_to_member" value=""><input type="text" name="action_reason" maxlength="500" placeholder="Grund..." required class="{INPUT} py-1.5 w-36 text-[11px]"><button class="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-semibold" onclick="return confirm('Teammitglied wirklich hochstufen?');">⬆️ Hochstufen</button></form>"""
                 if demote_ok:
-                    role_actions += f"""<form action="/action" method="post" class="inline" onsubmit="return confirm('Teammitglied wirklich runterstufen?');"><input type="hidden" name="action" value="demote"><input type="hidden" name="user_id" value="{m["id"]}"><input type="hidden" name="redirect_to_member" value=""><button class="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-semibold">⬇️ Runterstufen</button></form>"""
+                    role_actions += f"""<form action="/action" method="post" class="inline-flex items-center gap-1.5"><input type="hidden" name="action" value="demote"><input type="hidden" name="user_id" value="{m["id"]}"><input type="hidden" name="redirect_to_member" value=""><input type="text" name="action_reason" maxlength="500" placeholder="Grund..." required class="{INPUT} py-1.5 w-36 text-[11px]"><button class="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-semibold" onclick="return confirm('Teammitglied wirklich runterstufen?');">⬇️ Runterstufen</button></form>"""
         role_actions += f'<a href="/team/{m["id"]}/roles" class="px-3 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 text-xs font-semibold">⚙️ Rollen</a>' if (ctx.perms.get("can_promote") or ctx.perms.get("is_admin")) and m["id"] != int(ctx.user["id"]) and (ctx.perms.get("is_admin") or actor_team_rank > target_rank) else ""
         bar_color = "bg-amber-500" if m["on_loa"] else ("bg-emerald-500" if m["reached"] else "bg-rose-500")
         pct = min(100, int(m["hrs"] / weekly_goal * 100)) if weekly_goal > 0 else 100
@@ -2234,11 +2234,12 @@ async def team_role_manager(request: Request, user_id: int, user_session: str = 
     <form action="/team/{member.id}/roles" method="post" onsubmit="return confirm('Die ausgewählten Rollenänderungen wirklich anwenden?');">
         <div class="grid gap-3">{''.join(cards)}</div>
         <div class="{CARD} p-5 mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
+            <div class="flex-1">
                 <div class="font-bold text-sm">Änderung ausführen</div>
-                <div class="text-[11px] text-slate-500">Alle Änderungen werden gemeinsam durchgeführt und im Team-Updates-Kanal protokolliert.</div>
+                <div class="text-[11px] text-slate-500 mb-2">Alle Änderungen werden gemeinsam durchgeführt und im Team-Updates-Kanal protokolliert.</div>
+                <input type="text" name="action_reason" maxlength="500" placeholder="Pflichtangabe: Grund für die Rollenänderung..." required class="{INPUT}">
             </div>
-            <button class="{BTN} px-5 py-2.5 text-xs">💾 Rollen ändern</button>
+            <button class="{BTN} px-5 py-2.5 text-xs whitespace-nowrap">💾 Rollen ändern</button>
         </div>
     </form>
     """
@@ -2251,6 +2252,7 @@ async def team_role_manager_save(
     user_id: int,
     add_role_ids: List[int] = Form(default=[]),
     remove_role_ids: List[int] = Form(default=[]),
+    action_reason: str = Form(...),
     user_session: str = Cookie(None),
 ):
     ctx = auth(request, user_session, perm="can_promote")
@@ -2271,6 +2273,10 @@ async def team_role_manager_save(
     target_idx = team_rank(member, team_role_ids)
     if not ctx.perms.get("is_admin") and actor_idx <= target_idx:
         return back(f"/team/{user_id}/roles", "Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.", False)
+
+    action_reason = (action_reason or "").strip()[:500]
+    if not action_reason:
+        return back(f"/team/{user_id}/roles", "Bitte einen Grund für die Rollenänderung angeben.", False)
 
     all_ids = add_set | remove_set
     if not all_ids:
@@ -2293,9 +2299,9 @@ async def team_role_manager_save(
 
     try:
         if to_add:
-            await member.add_roles(*to_add, reason=f"Rollenänderung durch {ctx.user.get('global_name') or ctx.user.get('username') or 'Team'}")
+            await member.add_roles(*to_add, reason=f"Rollenänderung durch {ctx.user.get('global_name') or ctx.user.get('username') or 'Team'}: {action_reason}")
         if to_remove:
-            await member.remove_roles(*to_remove, reason=f"Rollenänderung durch {ctx.user.get('global_name') or ctx.user.get('username') or 'Team'}")
+            await member.remove_roles(*to_remove, reason=f"Rollenänderung durch {ctx.user.get('global_name') or ctx.user.get('username') or 'Team'}: {action_reason}")
 
         actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
         add_text = ", ".join(r.mention for r in to_add) or "Keine"
@@ -2311,10 +2317,11 @@ async def team_role_manager_save(
             fields=[
                 ("➕ Hinzugefügt", add_text, False),
                 ("➖ Entfernt", remove_text, False),
+                ("📝 Grund", action_reason, False),
             ],
             thumbnail=member.display_avatar.url,
         )
-        log_audit(actor, ctx.user["id"], "Rollenänderung", f"{member.display_name}: +{[r.name for r in to_add]} -{[r.name for r in to_remove]}")
+        log_audit(actor, ctx.user["id"], "Rollenänderung", f"{member.display_name}: +{[r.name for r in to_add]} -{[r.name for r in to_remove]} · Grund: {action_reason}")
         return back(f"/team/{user_id}/roles", "Rollenänderung erfolgreich gespeichert.")
     except discord.Forbidden:
         return back(f"/team/{user_id}/roles", "Discord verweigert die Rollenänderung. Prüfe Bot-Rolle und Rollenrechte.", False)
@@ -2355,6 +2362,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
                 <form action="/action" method="post" onsubmit="return confirm('Diesen Warn wirklich zurückziehen?');">
                     <input type="hidden" name="action" value="remove_warn"><input type="hidden" name="user_id" value="{user_id}">
                     <input type="hidden" name="warn_id" value="{esc(w.get('id'))}"><input type="hidden" name="redirect_to_member" value="1">
+                    <input type="text" name="warn_revoke_reason" maxlength="500" placeholder="Grund für die Rücknahme..." required class="{INPUT} py-1.5 w-56">
                     <button class="text-rose-500 hover:underline font-semibold">🗑️ Zurückziehen</button>
                 </form>""" if ctx.perms["can_warn"] else ""
         warns_html += f"""
@@ -2381,6 +2389,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
         <h3 class="text-sm font-bold text-slate-900 dark:text-white">Team-Aktionen</h3>
         <form action="/action" method="post" class="flex flex-wrap gap-2">
             <input type="hidden" name="user_id" value="{member.id}"><input type="hidden" name="redirect_to_member" value="1">
+            <input type="text" name="action_reason" maxlength="500" placeholder="Grund für Beförderung / Degradierung..." required class="{INPUT} min-w-64">
             <button name="action" value="promote" onclick="return confirm('Wirklich befördern?')" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬆️ Befördern</button>
             <button name="action" value="demote" onclick="return confirm('Wirklich degradieren?')" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬇️ Degradieren</button>
             <button name="action" value="kick" onclick="return confirm('Dieses Mitglied wirklich vom gesamten Discord-Server kicken?')" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">🚪 Vom Server kicken</button>
@@ -2725,6 +2734,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                         <option value="">Einstiegsrolle wählen…</option>
                         {''.join(f'<option value="{r.id}">{esc(r.name)}</option>' for r in sorted((ctx.guild.get_role(x) for x in ctx.config.get("team_role_ids", [])), key=lambda z: z.position if z else -1) if r)}
                     </select>
+                    <input type="text" name="action_reason" maxlength="500" placeholder="Grund für die Entscheidung..." required class="{INPUT} py-1.5 min-w-56">
                     <button name="decision" value="accept" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">✅ Einstellen</button>
                     <button name="decision" value="reject" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">Ablehnen</button>
                 </form>""" if can_decide else ""
@@ -3139,6 +3149,7 @@ async def handle_action(
     warn_proof: str = Form(None),
     warn_id: str = Form(None),
     warn_revoke_reason: str = Form(None),
+    action_reason: str = Form(None),
     note_text: str = Form(None),
     loa_start: str = Form(None),
     loa_end: str = Form(None),
@@ -3226,10 +3237,14 @@ async def handle_action(
         if not ctx.perms["is_admin"] and actor_idx <= target_idx:
             return back(member_url, "Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.", False)
 
+        action_reason = (action_reason or "").strip()[:500]
+        if action in ("promote", "demote", "kick") and not action_reason:
+            return back(member_url, "Bitte einen Grund für die Maßnahme angeben.", False)
+
         try:
             if action == "kick":
-                await send_dm_notification(member, f"❌ Du wurdest von **{guild.name}** aus dem Team entfernt. Grund: Vom Dashboard aus gekickt durch {actor}.")
-                await member.kick(reason=f"Vom Dashboard aus gekickt durch {actor}.")
+                await send_dm_notification(member, f"❌ Du wurdest von **{guild.name}** aus dem Team entfernt. Grund: {action_reason}")
+                await member.kick(reason=f"Vom Dashboard aus gekickt durch {actor}: {action_reason}")
                 await send_team_update_embed(
                     guild,
                     "🚪 Team-Update: Kick",
@@ -3238,10 +3253,10 @@ async def handle_action(
                     target=member.mention,
                     action="Server-Kick",
                     actor=actor,
-                    fields=[("Grund","Vom Dashboard aus gekickt.",False)],
+                    fields=[("Grund", action_reason, False)],
                     thumbnail=member.display_avatar.url,
                 )
-                log_audit(actor, actor_id, "Kick", f"Mitglied {member.display_name} gekickt.")
+                log_audit(actor, actor_id, "Kick", f"Mitglied {member.display_name} gekickt. · Grund: {action_reason}")
                 return back("/team", f"{member.display_name} wurde vom Server gekickt.")
 
             if action == "promote":
@@ -3254,9 +3269,9 @@ async def handle_action(
                 if not new_role:
                     return back(member_url, "Die Zielrolle existiert nicht mehr (Team-Rollen in den Einstellungen prüfen).", False)
                 old = [r for r in member.roles if r.id in team_role_ids and r.id != new_role.id]
-                await member.add_roles(new_role, reason=f"Beförderung durch {actor}")
+                await member.add_roles(new_role, reason=f"Beförderung durch {actor}: {action_reason}")
                 if old:
-                    await member.remove_roles(*old, reason=f"Beförderung durch {actor}")
+                    await member.remove_roles(*old, reason=f"Beförderung durch {actor}: {action_reason}")
                 await send_dm_notification(member, f"🎉 **Herzlichen Glückwunsch!** Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert!")
                 await send_team_update_embed(
                     guild,
@@ -3266,10 +3281,10 @@ async def handle_action(
                     target=member.mention,
                     action="Beförderung",
                     actor=actor,
-                    fields=[("Vorherige Rolle", old[0].mention if old else "Keine", True), ("Neue Rolle", new_role.mention, True)],
+                    fields=[("Vorherige Rolle", old[0].mention if old else "Keine", True), ("Neue Rolle", new_role.mention, True), ("Grund", action_reason, False)],
                     thumbnail=member.display_avatar.url,
                 )
-                log_audit(actor, actor_id, "Beförderung", f"{member.display_name} -> {new_role.name}")
+                log_audit(actor, actor_id, "Beförderung", f"{member.display_name} -> {new_role.name} · Grund: {action_reason}")
                 return back(member_url, f"{member.display_name} wurde zum {new_role.name} befördert.")
 
             # demote
@@ -3281,8 +3296,8 @@ async def handle_action(
                 new_role = guild.get_role(team_role_ids[new_idx])
                 if not new_role:
                     return back(member_url, "Die Zielrolle existiert nicht mehr (Team-Rollen in den Einstellungen prüfen).", False)
-                await member.add_roles(new_role, reason=f"Degradierung durch {actor}")
-                await member.remove_roles(*[r for r in old if r.id != new_role.id], reason=f"Degradierung durch {actor}")
+                await member.add_roles(new_role, reason=f"Degradierung durch {actor}: {action_reason}")
+                await member.remove_roles(*[r for r in old if r.id != new_role.id], reason=f"Degradierung durch {actor}: {action_reason}")
                 await send_dm_notification(member, f"⚠️ Du wurdest auf **{guild.name}** auf die Rolle **{new_role.name}** degradiert.")
                 await send_team_update_embed(
                     guild,
@@ -3292,10 +3307,10 @@ async def handle_action(
                     target=member.mention,
                     action="Degradierung",
                     actor=actor,
-                    fields=[("Vorherige Rolle", old[0].mention if old else "Unbekannt", True), ("Neue Rolle", new_role.mention, True)],
+                    fields=[("Vorherige Rolle", old[0].mention if old else "Unbekannt", True), ("Neue Rolle", new_role.mention, True), ("Grund", action_reason, False)],
                     thumbnail=member.display_avatar.url,
                 )
-                log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> {new_role.name}")
+                log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> {new_role.name} · Grund: {action_reason}")
                 return back(member_url, f"{member.display_name} wurde zum {new_role.name} degradiert.")
             await member.remove_roles(*old, reason=f"Degradierung durch {actor}")
             await send_dm_notification(member, f"⚠️ Du wurdest aus dem Team-Rollenrang auf **{guild.name}** entfernt.")
@@ -3307,9 +3322,10 @@ async def handle_action(
                 target=member.mention,
                 action="Teamrolle entfernt",
                 actor=actor,
+                fields=[("Grund", action_reason, False)],
                 thumbnail=member.display_avatar.url,
             )
-            log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> Keine Teamrolle")
+            log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> Keine Teamrolle · Grund: {action_reason}")
             return back(member_url, f"{member.display_name} wurde aus dem Team-Rang entfernt.")
         except discord.Forbidden:
             return back(member_url, "Dem Bot fehlen Rechte – seine Rolle muss über den Team-Rollen stehen.", False)
@@ -3410,7 +3426,9 @@ async def handle_action(
         if target is None or not target.get("active", True) or target.get("revoked_at"):
             return back(member_url, "Diese Verwarnung wurde bereits zurückgezogen oder ist nicht mehr vorhanden. Bitte die Seite aktualisieren.", False)
 
-        revoke_reason = (warn_revoke_reason or "").strip()[:300] or "Kein Grund angegeben"
+        revoke_reason = (warn_revoke_reason or "").strip()[:500]
+        if not revoke_reason:
+            return back(member_url, "Bitte einen Grund für die Rücknahme der Verwarnung angeben.", False)
         target["active"] = False
         target["revoked_at"] = now_de().strftime("%d.%m.%Y %H:%M")
         target["revoked_by"] = actor
@@ -3520,6 +3538,10 @@ async def handle_action(
         except Exception:
             applicant = None
 
+        action_reason = (action_reason or "").strip()[:500]
+        if not action_reason:
+            return back("/applications", "Bitte einen Grund für die Bewerbungsentscheidung angeben.", False)
+
         if decision == "accept":
             if not applicant:
                 return back("/applications", "Der Bewerber ist nicht mehr auf dem Discord-Server.", False)
@@ -3533,8 +3555,8 @@ async def handle_action(
             old_team_roles = [r for r in applicant.roles if r.id in team_role_ids and r.id != role.id]
             try:
                 if old_team_roles:
-                    await applicant.remove_roles(*old_team_roles, reason=f"Einstellung durch {actor}")
-                await applicant.add_roles(role, reason=f"Einstellung durch {actor}")
+                    await applicant.remove_roles(*old_team_roles, reason=f"Einstellung durch {actor}: {action_reason}")
+                await applicant.add_roles(role, reason=f"Einstellung durch {actor}: {action_reason}")
             except discord.Forbidden:
                 return back("/applications", "Discord hat die Rollenänderung verweigert. Bot-Rolle höher setzen.", False)
 
@@ -3553,10 +3575,10 @@ async def handle_action(
                 target=applicant.mention,
                 action="Einstellung",
                 actor=actor,
-                fields=[("Einstiegsrolle", role.mention, True), ("Bewerbung", app_id or "—", True), ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True)],
+                fields=[("Einstiegsrolle", role.mention, True), ("Bewerbung", app_id or "—", True), ("Grund", action_reason, False), ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True)],
                 thumbnail=applicant.display_avatar.url,
             )
-            log_audit(actor, actor_id, "Einstellung", f"{applicant.display_name} -> {role.name}")
+            log_audit(actor, actor_id, "Einstellung", f"{applicant.display_name} -> {role.name} · Grund: {action_reason}")
             return back("/applications", f"{applicant.display_name} wurde als {role.name} eingestellt.")
 
         item["status"] = "rejected"
@@ -3573,9 +3595,9 @@ async def handle_action(
             target=item.get("name","Unbekannt"),
             action="Bewerbung abgelehnt",
             actor=actor,
-            fields=[("Bewerbung", app_id or "—", True), ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True)],
+            fields=[("Bewerbung", app_id or "—", True), ("Grund", action_reason, False), ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True)],
         )
-        log_audit(actor, actor_id, "Bewerbung Entschieden", f"{item.get('name')}: abgelehnt")
+        log_audit(actor, actor_id, "Bewerbung Entschieden", f"{item.get('name')}: abgelehnt · Grund: {action_reason}")
         return back("/applications", f"Bewerbung von {item.get('name')} abgelehnt.")
     # ---------- Meetings ----------
     if action == "meeting_rsvp":
