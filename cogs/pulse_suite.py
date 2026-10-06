@@ -945,7 +945,9 @@ class PulseSuite(commands.Cog):
         web=__import__("webserver")
         if not allowed(i,"pulse-suite",web):
             return await i.response.send_message("❌ Kein Zugriff.",ephemeral=True)
-        url=(PUBLIC_BASE_URL+"/ultimate") if PUBLIC_BASE_URL else "/ultimate"
+        if not PUBLIC_BASE_URL:
+            return await i.response.send_message("⚠️ PUBLIC_BASE_URL fehlt. Setze die öffentliche Dashboard-URL für Discord-Linkbuttons.",ephemeral=True)
+        url=PUBLIC_BASE_URL+"/ultimate"
         v=discord.ui.View(timeout=120)
         v.add_item(discord.ui.Button(label="Command Center öffnen",style=discord.ButtonStyle.link,emoji="⚡",url=url))
         await i.response.send_message("⚡ Pulse TeamOS Command Center",view=v,ephemeral=True)
