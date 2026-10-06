@@ -2074,7 +2074,63 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     actor_team_rank = team_rank(ctx.member, team_role_ids) if ctx.member else -1
     for m in members:
         style = BADGE_WARN if m["on_loa"] else (BADGE_OK if m["reached"] else BADGE_BAD)
+        can_manage_target = bool(
+            not ctx.perms.get("is_admin")
+            and ctx.member
+            and team_rank(ctx.member, team_role_ids) > m["team_rank_idx"]
+        ) or bool(ctx.perms.get("is_admin"))
+        can_promote_target = bool(
+            can_manage_target
+            and m["team_rank_idx"] >= 0
+            and m["team_rank_idx"] + 1 < len(team_role_ids)
+            and (
+                ctx.perms.get("is_admin")
+                or (ctx.member and team_rank(ctx.member, team_role_ids) > m["team_rank_idx"] + 1)
+            )
+        )
+        can_demote_target = bool(can_manage_target and m["team_rank_idx"] >= 0)
         role_actions = ""
+        if can_manage_target:
+            promote_form = f'''
+                <form action="/action" method="post" class="inline" onsubmit="return fillActionReason(this, 'Beförderung');">
+                    <input type="hidden" name="action" value="promote">
+                    <input type="hidden" name="user_id" value="{m['id']}">
+                    <input type="hidden" name="redirect_to_member" value="">
+                    <input type="hidden" name="action_reason" value="">
+                    <button class="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" {'disabled title="Höchster Rang erreicht"' if not can_promote_target else ''}>⬆️ Befördern</button>
+                </form>''' if can_promote_target else ""
+            demote_form = f'''
+                <form action="/action" method="post" class="inline" onsubmit="return fillActionReason(this, 'Degradierung');">
+                    <input type="hidden" name="action" value="demote">
+                    <input type="hidden" name="user_id" value="{m['id']}">
+                    <input type="hidden" name="redirect_to_member" value="">
+                    <input type="hidden" name="action_reason" value="">
+                    <button class="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-amber-500/10 text-amber-600 dark:text-amber-400">⬇️ Degradieren</button>
+                </form>''' if can_demote_target else ""
+            kick_form = f'''
+                <form action="/action" method="post" class="inline" onsubmit="return fillActionReason(this, 'Kick') && confirm('Dieses Mitglied wirklich vom Discord-Server kicken?');">
+                    <input type="hidden" name="action" value="kick">
+                    <input type="hidden" name="user_id" value="{m['id']}">
+                    <input type="hidden" name="redirect_to_member" value="">
+                    <input type="hidden" name="action_reason" value="">
+                    <button class="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-rose-500/10 text-rose-600 dark:text-rose-400">🚪 Kicken</button>
+                </form>'''
+            role_actions = f'''
+                <details class="relative">
+                    <summary class="list-none cursor-pointer select-none inline-flex items-center gap-2 px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-600 hover:text-white rounded-xl text-indigo-600 dark:text-indigo-400 text-xs transition font-semibold shadow-sm">
+                        👁️ Aktionen
+                    </summary>
+                    <div class="absolute right-0 top-full mt-2 z-30 w-52 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#141824] shadow-2xl">
+                        <a href="/member/{m['id']}" class="block px-3 py-2 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800">👤 Teamakte öffnen</a>
+                        {promote_form}
+                        {demote_form}
+                        <a href="/team/{m['id']}/roles" class="block px-3 py-2 rounded-lg text-xs hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">⚙️ Rollen ändern</a>
+                        <div class="my-1 border-t border-slate-100 dark:border-slate-800"></div>
+                        {kick_form}
+                    </div>
+                </details>'''
+        else:
+            role_actions = f'<a href="/member/{m["id"]}" class="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-600 hover:text-white rounded-xl text-indigo-600 dark:text-indigo-400 text-xs transition font-semibold shadow-sm">👁️ Details</a>'
         bar_color = "bg-amber-500" if m["on_loa"] else ("bg-emerald-500" if m["reached"] else "bg-rose-500")
         pct = min(100, int(m["hrs"] / weekly_goal * 100)) if weekly_goal > 0 else 100
         loa_badge = (f'<span class="border {BADGE_WARN} text-[10px] px-2.5 py-0.5 rounded-full font-semibold">Abgemeldet bis {esc(m["loa_until"])}</span>'
@@ -2126,11 +2182,28 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                 <div class="h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"><div class="h-full {bar_color}" style="width:{pct}%"></div></div>
             </div>
             <div class="md:w-2/5 flex flex-wrap md:justify-end gap-2 items-center">
-                <a href="/member/{m['id']}" class="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-600 hover:text-white rounded-xl text-indigo-600 dark:text-indigo-400 text-xs transition font-semibold shadow-sm">👁️ Details</a>
+                {role_actions}
             </div>
         </div>"""
 
-    head = """<script>
+    head = """<style>
+        details > summary::-webkit-details-marker { display: none; }
+        details[open] > summary { background: rgba(79,70,229,.14); }
+        .team-row details[open] { z-index: 40; }
+    </style>
+    <script>
+        function fillActionReason(form, label) {
+            const reason = prompt("Bitte gib den Grund für " + label + " ein:");
+            if (reason === null) return false;
+            const clean = reason.trim().slice(0, 500);
+            if (!clean) {
+                alert("Ein Grund ist Pflicht.");
+                return false;
+            }
+            const field = form.querySelector('[name="action_reason"]');
+            if (field) field.value = clean;
+            return true;
+        }
         function filterTeam() {
             const q = document.getElementById('searchInput').value.toLowerCase();
             const onlyBelow = document.getElementById('onlyBelow').checked;
@@ -3287,8 +3360,12 @@ async def handle_action(
 
         try:
             if action == "kick":
-                if guild.me and not guild.me.guild_permissions.kick_members:
+                if not guild.me:
+                    return back(member_url, "Der Bot ist auf diesem Server noch nicht verfügbar.", False)
+                if not guild.me.guild_permissions.kick_members:
                     return back(member_url, "Der Bot hat keine Berechtigung 'Mitglieder kicken'.", False)
+                if member.top_role.position >= guild.me.top_role.position:
+                    return back(member_url, "Der Bot kann dieses Mitglied nicht kicken, weil dessen höchste Rolle auf oder über der Bot-Rolle liegt.", False)
                 await send_dm_notification(member, f"❌ Du wurdest von **{guild.name}** aus dem Team entfernt. Grund: {action_reason}")
                 await member.kick(reason=f"Vom Dashboard aus gekickt durch {actor}: {action_reason}")
                 await send_team_update_embed(
