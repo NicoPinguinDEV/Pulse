@@ -2255,6 +2255,7 @@ async def team_role_manager_save(
         return back(f"/team/{user_id}/roles", "Dieses Mitglied kann nicht bearbeitet werden.", False)
 
     add_set, remove_set = set(add_role_ids or []), set(remove_role_ids or [])
+    team_role_ids = config.get("team_role_ids", [])
     was_team_member = bool(team_role_ids and any(r.id in team_role_ids for r in member.roles))
     conflict = add_set & remove_set
     if conflict:
