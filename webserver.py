@@ -537,6 +537,48 @@ def get_warn_role_ids(config: dict | None = None) -> dict:
     damit das Warnsystem im Live-Betrieb immer dieselben fünf Rollen verwendet.
     """
     return dict(WARN_ROLE_IDS)
+
+def normalize_warns(entry: dict) -> bool:
+    """Migriert Warns zu einem stabilen Format mit Status statt hartem Löschen."""
+    raw = entry.get("warns_list", [])
+    if not isinstance(raw, list):
+        raw = []
+    normalized = []
+    changed = not isinstance(entry.get("warns_list"), list)
+
+    for warn in raw:
+        if isinstance(warn, dict):
+            item = dict(warn)
+        else:
+            item = {"reason": str(warn), "proof": "", "by": "Altsystem", "date": "N/A"}
+            changed = True
+        if not item.get("id"):
+            item["id"] = f"warn_{uuid.uuid4().hex[:10]}"
+            changed = True
+        if "active" not in item:
+            item["active"] = True
+            changed = True
+        item.setdefault("reason", "Kein Grund")
+        item.setdefault("proof", "")
+        item.setdefault("by", "System")
+        item.setdefault("date", "N/A")
+        item.setdefault("revoked_at", None)
+        item.setdefault("revoked_by", None)
+        item.setdefault("revoked_reason", "")
+        normalized.append(item)
+
+    if normalized != entry.get("warns_list"):
+        entry["warns_list"] = normalized
+        changed = True
+    return changed
+
+
+def active_warns(entry: dict) -> list[dict]:
+    """Nur aktive Warns zählen; zurückgezogene Warns bleiben als Historie erhalten."""
+    normalize_warns(entry)
+    return [w for w in entry.get("warns_list", []) if isinstance(w, dict) and w.get("active", True) and not w.get("revoked_at")]
+
+
 def warning_role_health(guild, config: dict | None = None) -> list[dict]:
     """Prüft Existenz und Bot-Hierarchie aller fünf Warn-Rollen."""
     ids = get_warn_role_ids(config)
