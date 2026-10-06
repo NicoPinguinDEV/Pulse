@@ -533,6 +533,14 @@ async def send_team_update_embed(guild, title, description, color=None, *, field
 def get_warn_role_ids(config: dict | None = None) -> dict:
     """Lädt die fünf Warn-Rollen. Dashboard-Konfiguration hat Vorrang vor ENV-Defaults."""
     configured = (config or {}).get("warn_role_ids", {})
+    # Alte Konfigurationen aus dem 3-Warn-System werden nicht weiterverwendet.
+    # Erst wenn alle fünf Stufen gespeichert sind, dürfen Panel-Werte die festen Defaults überschreiben.
+    has_all_five = (
+        isinstance(configured, dict)
+        and all((str(level) in configured or level in configured) for level in range(1, 6))
+    ) or (isinstance(configured, (list, tuple)) and len(configured) >= 5)
+    if not has_all_five:
+        configured = {}
     out = {}
     for level, fallback in WARN_ROLE_IDS.items():
         value = fallback
