@@ -1,6 +1,7 @@
 """Pulse TeamOS Suite: unified management, recruiting, time, planning, audit, automation and security."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
