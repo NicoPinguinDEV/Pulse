@@ -428,7 +428,7 @@ def member_stats(member) -> dict:
     activity_pct = min(100, round(weekly / 3600 / weekly_goal * 100))
     reliability_pct = 100 if not tasks else round(tasks_done / len(tasks) * 100)
     support_pct = min(100, closed_tickets * 5)
-    discipline_pct = max(0, 100 - warnings * 30)
+    discipline_pct = max(0, 100 - warnings * 20)
     training_pct = min(100, passed * 25)
     score = round(
         activity_pct * 0.30
@@ -620,8 +620,8 @@ def register(app) -> None:
         warnings = []
         for m in members:
             s = member_stats(m)
-            if s["warnings"] >= 3:
-                warnings.append(f'🚨 <b>{esc(m.display_name)}</b> hat {s["warnings"]}/3 Warnungen.')
+            if s["warnings"] >= 5:
+                warnings.append(f'🚨 <b>{esc(m.display_name)}</b> hat {s["warnings"]}/5 Warnungen.')
             elif s["activity_pct"] < 50:
                 warnings.append(f'⚠️ <b>{esc(m.display_name)}</b> liegt bei nur {s["activity_pct"]}% Wochenziel.')
         alerts = card("<h2 style='margin-top:0'>🚨 Aufmerksamkeit</h2>" + "".join(f"<div class='row'>{x}</div>" for x in warnings[:8]) if warnings else "<h2 style='margin-top:0'>🚨 Aufmerksamkeit</h2><div class='tiny'>Aktuell keine kritischen Hinweise.</div>")
@@ -697,7 +697,7 @@ def register(app) -> None:
             rows.append(
                 f'<div class="card"><div class="row"><div><b>{esc(m.display_name)}</b><div class="tiny">@{esc(m.name)}</div></div>'
                 f'<span class="pill">{esc(status)}</span></div><div class="tiny">Score</div><div class="metric">{s["score"]}/100</div>'
-                f'<div class="tiny">Woche: {s["weekly_seconds"]//3600}h {(s["weekly_seconds"]%3600)//60}m · Warnungen: {s["warnings"]}/3</div>'
+                f'<div class="tiny">Woche: {s["weekly_seconds"]//3600}h {(s["weekly_seconds"]%3600)//60}m · Warnungen: {s["warnings"]}/5</div>'
                 f'<div style="margin-top:10px"><div class="progress"><div style="width:{s["activity_pct"]}%"></div></div></div>'
                 f'<div style="margin-top:10px"><a class="btn primary" href="/ultimate/team/{m.id}">Teamakte</a></div></div>'
             )
@@ -760,7 +760,7 @@ def register(app) -> None:
         body = f"""<div class="grid g4">
             {card(f"<div class=tiny>Team-Score</div><div class=metric>{s['score']}/100</div>")}
             {card(f"<div class=tiny>Wochenzeit</div><div class=metric>{s['weekly_seconds']//3600}h {(s['weekly_seconds']%3600)//60}m</div>")}
-            {card(f"<div class=tiny>Warnungen</div><div class=metric>{s['warnings']}/3</div>")}
+            {card(f"<div class=tiny>Warnungen</div><div class=metric>{s['warnings']}/5</div>")}
             {card(f"<div class=tiny>Fälle</div><div class=metric>{case_count}</div>")}
         </div>
         <div class="grid g2" style="margin-top:13px">
