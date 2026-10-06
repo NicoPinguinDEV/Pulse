@@ -594,7 +594,7 @@ def warning_role_health(guild, config: dict | None = None) -> list[dict]:
     me = getattr(guild, "me", None) if guild else None
     rows = []
     seen = {}
-    for level in sorted(ids)
+    for level in sorted(ids):
         rid = ids[level]
         role = guild.get_role(rid) if guild else None
         if rid in seen and rid:
@@ -641,7 +641,7 @@ async def sync_warn_roles(guild, member, count: int, config: dict | None = None)
             report.update(ok=False, message=f"Warn-Rolle {target_level}: {detail}.")
             return report
 
-    for level in sorted(ids)
+    for level in sorted(ids):
         role = guild.get_role(ids[level])
         if role and role in member.roles and level != target_level:
             current_health = health.get(level)
@@ -651,7 +651,7 @@ async def sync_warn_roles(guild, member, count: int, config: dict | None = None)
                 return report
 
     try:
-        for level in sorted(ids)
+        for level in sorted(ids):
             role = guild.get_role(ids[level])
             if not role:
                 continue
