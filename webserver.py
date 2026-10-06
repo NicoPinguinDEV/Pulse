@@ -959,16 +959,42 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
     clean = (query or "").strip().lstrip("@")
     if not re.fullmatch(r"[A-Za-z0-9_]{2,20}", clean):
         return JSONResponse({"success": True, "users": []})
-    async with httpx.AsyncClient() as client:
-        try:
-            res = await client.get("https://users.roblox.com/v1/users/search", params={"keyword": clean, "limit": 8}, timeout=5.0)
+
+    # Bereits im Melonly-Panel verwendete Namen dienen als lokale Fallback-Vorschläge.
+    # Damit bleiben Autocomplete-Einträge sichtbar, selbst wenn Roblox kurz nicht erreichbar ist.
+    users_map = {}
+    for entry in reversed(load_json(LOGS_FILE, [])[-5000:]):
+        saved_name = str(entry.get("target_user") or "").strip()
+        saved_id = str(entry.get("roblox_id") or "")
+        if not saved_name or saved_id == "N/A" or clean.lower() not in saved_name.lower():
+            continue
+        users_map.setdefault(saved_name.lower(), {
+            "id": saved_id,
+            "name": saved_name,
+            "displayName": saved_name,
+        })
+
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(
+                "https://users.roblox.com/v1/users/search",
+                params={"keyword": clean, "limit": 8},
+                timeout=5.0,
+            )
             data = res.json()
-            users = []
             for u in data.get("data", [])[:8]:
-                users.append({"id": str(u.get("id", "")), "name": u.get("name", ""), "displayName": u.get("displayName", "")})
-            return JSONResponse({"success": True, "users": users})
-        except Exception:
-            return JSONResponse({"success": False, "users": [], "message": "Roblox ist gerade nicht erreichbar"})
+                name = str(u.get("name") or "")
+                if not name:
+                    continue
+                users_map[name.lower()] = {
+                    "id": str(u.get("id", "")),
+                    "name": name,
+                    "displayName": str(u.get("displayName") or name),
+                }
+    except Exception:
+        pass
+
+    return JSONResponse({"success": True, "users": list(users_map.values())[:8]})
 
 # =============================================================
 # HEALTH CHECK
