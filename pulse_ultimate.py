@@ -1874,6 +1874,16 @@ async def automation_loop(bot):
     setup()
     while True:
         try:
+            # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren
+            # auch nach einem Neustart zuverlässig automatisch enden.
+            try:
+                import webserver
+                guild = bot.get_guild(webserver.GUILD_ID) if bot else None
+                if guild:
+                    await webserver.cleanup_expired_warn_restrictions(guild, webserver.load_config())
+            except Exception as exc:
+                print(f"⚠️ Warn-Folgerollen konnten nicht bereinigt werden: {exc}")
+
             now = utcnow()
             with cx() as c:
                 rows = [dict(r) for r in c.execute(
