@@ -90,8 +90,8 @@ def main() -> None:
     assert "/warns" in pro
     assert "critical=sum" in pro
     assert ">=5" in pro
-    assert 'name="warn_4"' in pro
-    assert 'name="warn_5"' in pro
+    assert "Warn-Rollen 1–5" in pro
+    assert "range(1,6)" in pro
     assert "/settings/pro-warn-roles" in pro
     assert "/settings/pro-warn-sync" in pro
     assert "Warn-Rollen" in pro
