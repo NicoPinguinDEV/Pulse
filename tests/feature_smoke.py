@@ -87,6 +87,15 @@ def main() -> None:
     assert "edit_log_id" in web
     assert "users_map = {}" in web
 
+    # Team rank and bulk role-management regression checks.
+    assert '"/team/{user_id}/roles"' in web
+    assert "async def team_role_manager_save" in web
+    assert "Mehrfach-Rollenänderung" in web
+    assert "⚙️ Team-Update: Rollenänderung" in web
+    assert "⬆️ Hochstufen" in web
+    assert "⬇️ Runterstufen" in web
+    assert "1531132354272170115" in web
+
     assert "/warns" in pro
     assert "critical=sum" in pro
     assert ">=5" in pro

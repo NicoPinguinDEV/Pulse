@@ -2012,7 +2012,8 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
         on_loa = bool(loa and loa["active"])
         members.append({
             "id": member.id, "name": member.display_name, "username": member.name,
-            "avatar": member.display_avatar.url, "role": top.name, "pos": top.position,
+            "avatar": member.display_avatar.url, "role": top.name, "role_id": top.id,
+            "team_rank_idx": team_role_ids.index(top.id), "pos": top.position,
             "color": role_hex(top),
             "warns": len(active_warns(user_entry(team_db, str(member.id)))) if isinstance(team_db, dict) else 0,
             "hrs": hrs, "reached": hrs >= weekly_goal, "on_loa": on_loa,
@@ -2069,8 +2070,21 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     </section>"""
 
     rows_html = ""
+    actor_team_rank = team_rank(ctx.member, team_role_ids) if ctx.member else -1
     for m in members:
         style = BADGE_WARN if m["on_loa"] else (BADGE_OK if m["reached"] else BADGE_BAD)
+        role_actions = ""
+        target_rank = m["team_rank_idx"]
+        if ctx.perms.get("can_promote") or ctx.perms.get("is_admin"):
+            can_manage_target = ctx.perms.get("is_admin") or actor_team_rank > target_rank
+            if can_manage_target and m["id"] != int(ctx.user["id"]):
+                promote_ok = target_rank + 1 < len(team_role_ids) and (ctx.perms.get("is_admin") or target_rank + 1 < actor_team_rank)
+                demote_ok = target_rank > -1 and (ctx.perms.get("is_admin") or target_rank < actor_team_rank)
+                if promote_ok:
+                    role_actions += f"""<form action="/action" method="post" class="inline" onsubmit="return confirm('Teammitglied wirklich hochstufen?');"><input type="hidden" name="action" value="promote"><input type="hidden" name="user_id" value="{m["id"]}"><input type="hidden" name="redirect_to_member" value=""><button class="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-semibold">⬆️ Hochstufen</button></form>"""
+                if demote_ok:
+                    role_actions += f"""<form action="/action" method="post" class="inline" onsubmit="return confirm('Teammitglied wirklich runterstufen?');"><input type="hidden" name="action" value="demote"><input type="hidden" name="user_id" value="{m["id"]}"><input type="hidden" name="redirect_to_member" value=""><button class="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-semibold">⬇️ Runterstufen</button></form>"""
+        role_actions += f'<a href="/team/{m["id"]}/roles" class="px-3 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 text-xs font-semibold">⚙️ Rollen</a>' if (ctx.perms.get("can_promote") or ctx.perms.get("is_admin")) and m["id"] != int(ctx.user["id"]) and (ctx.perms.get("is_admin") or actor_team_rank > target_rank) else ""
         bar_color = "bg-amber-500" if m["on_loa"] else ("bg-emerald-500" if m["reached"] else "bg-rose-500")
         pct = min(100, int(m["hrs"] / weekly_goal * 100)) if weekly_goal > 0 else 100
         loa_badge = (f'<span class="border {BADGE_WARN} text-[10px] px-2.5 py-0.5 rounded-full font-semibold">Abgemeldet bis {esc(m["loa_until"])}</span>'
@@ -2120,7 +2134,8 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                 </div>
                 <div class="h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"><div class="h-full {bar_color}" style="width:{pct}%"></div></div>
             </div>
-            <div class="md:w-1/6 flex md:justify-end">
+            <div class="md:w-2/5 flex flex-wrap md:justify-end gap-2 items-center">
+                {role_actions}
                 <a href="/member/{m['id']}" class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-600 hover:text-white rounded-xl text-slate-600 dark:text-slate-300 text-xs transition font-medium shadow-sm">👁️ Details</a>
             </div>
         </div>"""
@@ -2158,6 +2173,155 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
 # =============================================================
 # ROUTE: MITGLIEDER-DETAILSEITE
 # =============================================================
+@app.get("/team/{user_id}/roles", response_class=HTMLResponse)
+async def team_role_manager(request: Request, user_id: int, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm="can_promote")
+    guild, config = ctx.guild, ctx.config
+    member = guild.get_member(user_id)
+    if not member:
+        raise HTTPException(status_code=404, detail="Mitglied nicht gefunden.")
+    if member.bot or member.id == guild.owner_id or member.id == int(ctx.user["id"]):
+        raise HTTPException(status_code=403, detail="Dieses Mitglied kann nicht über die Rollenverwaltung bearbeitet werden.")
+
+    team_role_ids = config.get("team_role_ids", [])
+    actor_idx = team_rank(ctx.member, team_role_ids) if ctx.member else -1
+    target_idx = team_rank(member, team_role_ids)
+    if not ctx.perms.get("is_admin") and actor_idx <= target_idx:
+        raise HTTPException(status_code=403, detail="Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.")
+
+    roles = sorted(
+        [r for r in guild.roles if not r.is_default() and not r.managed],
+        key=lambda r: -r.position,
+    )
+    bot_top = getattr(guild.me, "top_role", None)
+    cards = []
+    for role in roles:
+        current = role in member.roles
+        if role == guild.default_role:
+            continue
+        if bot_top and role.position >= bot_top.position:
+            state = '<span class="text-[10px] text-rose-500 font-semibold">Bot kann diese Rolle nicht verwalten</span>'
+            checkbox = ""
+        elif not ctx.perms.get("is_admin") and role.position >= ctx.member.top_role.position:
+            state = '<span class="text-[10px] text-amber-500 font-semibold">Über deiner Rolle</span>'
+            checkbox = ""
+        else:
+            state = '<span class="text-[10px] text-emerald-500 font-semibold">verwaltbar</span>'
+            checkbox = f'<input type="checkbox" name="add_role_ids" value="{role.id}" class="w-4 h-4" {"checked" if False else ""}>'
+        remove_checkbox = ""
+        if current and role not in team_role_ids and checkbox:
+            remove_checkbox = f'<input type="checkbox" name="remove_role_ids" value="{role.id}" class="w-4 h-4">'
+        elif current and role in team_role_ids and checkbox:
+            remove_checkbox = f'<input type="checkbox" name="remove_role_ids" value="{role.id}" class="w-4 h-4">'
+        cards.append(
+            f'<div class="{CARD} p-4 grid md:grid-cols-[1fr_auto_auto] gap-3 items-center">'
+            f'<div><div class="font-semibold text-sm">{esc(role.name)}</div>'
+            f'<div class="text-[10px] text-slate-400 font-mono">ID {role.id} · Position {role.position} · {"Aktiv" if current else "Nicht vergeben"}</div></div>'
+            f'<label class="text-xs flex items-center gap-2 text-emerald-600"><input type="checkbox" name="add_role_ids" value="{role.id}" {"disabled" if not checkbox else ""}> Hinzufügen</label>'
+            f'<label class="text-xs flex items-center gap-2 text-rose-600"><input type="checkbox" name="remove_role_ids" value="{role.id}" {"disabled" if not current or not checkbox else ""}> Entfernen</label>'
+            f'</div>'
+        )
+
+    body=f"""
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+        <div>
+            <div class="text-xs text-slate-400 mb-1">Team / Rollenverwaltung</div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">⚙ Rollen verwalten</h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">{esc(member.display_name)} · Mehrere Rollen gleichzeitig hinzufügen oder entfernen.</p>
+        </div>
+        <a href="/team" class="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold">← Zur Teamliste</a>
+    </div>
+    <form action="/team/{member.id}/roles" method="post" onsubmit="return confirm('Die ausgewählten Rollenänderungen wirklich anwenden?');">
+        <div class="grid gap-3">{''.join(cards)}</div>
+        <div class="{CARD} p-5 mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+                <div class="font-bold text-sm">Änderung ausführen</div>
+                <div class="text-[11px] text-slate-500">Alle Änderungen werden gemeinsam durchgeführt und im Team-Updates-Kanal protokolliert.</div>
+            </div>
+            <button class="{BTN} px-5 py-2.5 text-xs">💾 Rollen ändern</button>
+        </div>
+    </form>
+    """
+    return render_page(f"Rollenverwaltung · {member.display_name}", ctx, "team", body)
+
+
+@app.post("/team/{user_id}/roles")
+async def team_role_manager_save(
+    request: Request,
+    user_id: int,
+    add_role_ids: List[int] = Form(default=[]),
+    remove_role_ids: List[int] = Form(default=[]),
+    user_session: str = Cookie(None),
+):
+    ctx = auth(request, user_session, perm="can_promote")
+    guild, config = ctx.guild, ctx.config
+    member = guild.get_member(user_id)
+    if not member:
+        return back("/team", "Mitglied nicht gefunden.", False)
+    if member.bot or member.id == guild.owner_id or member.id == int(ctx.user["id"]):
+        return back(f"/team/{user_id}/roles", "Dieses Mitglied kann nicht bearbeitet werden.", False)
+
+    add_set, remove_set = set(add_role_ids or []), set(remove_role_ids or [])
+    conflict = add_set & remove_set
+    if conflict:
+        return back(f"/team/{user_id}/roles", "Eine Rolle darf nicht gleichzeitig hinzugefügt und entfernt werden.", False)
+
+    team_role_ids = config.get("team_role_ids", [])
+    actor_idx = team_rank(ctx.member, team_role_ids) if ctx.member else -1
+    target_idx = team_rank(member, team_role_ids)
+    if not ctx.perms.get("is_admin") and actor_idx <= target_idx:
+        return back(f"/team/{user_id}/roles", "Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.", False)
+
+    all_ids = add_set | remove_set
+    if not all_ids:
+        return back(f"/team/{user_id}/roles", "Keine Rollenänderung ausgewählt.", False)
+
+    selected = []
+    for rid in sorted(all_ids):
+        role = guild.get_role(rid)
+        if not role or role.is_default() or role.managed:
+            return back(f"/team/{user_id}/roles", f"Rolle {rid} ist nicht verwaltbar.", False)
+        if guild.me and role.position >= guild.me.top_role.position:
+            return back(f"/team/{user_id}/roles", f"Die Rolle **{role.name}** steht über der Bot-Rolle.", False)
+        if not ctx.perms.get("is_admin") and role.position >= ctx.member.top_role.position:
+            return back(f"/team/{user_id}/roles", f"Die Rolle **{role.name}** steht auf oder über deinem Rang.", False)
+        selected.append(role)
+
+    old_roles = [r for r in member.roles if r.id in all_ids]
+    to_add = [r for r in selected if r.id in add_set and r not in member.roles]
+    to_remove = [r for r in selected if r.id in remove_set and r in member.roles]
+
+    try:
+        if to_add:
+            await member.add_roles(*to_add, reason=f"Rollenänderung durch {ctx.user.get('global_name') or ctx.user.get('username') or 'Team'}")
+        if to_remove:
+            await member.remove_roles(*to_remove, reason=f"Rollenänderung durch {ctx.user.get('global_name') or ctx.user.get('username') or 'Team'}")
+
+        actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+        add_text = ", ".join(r.mention for r in to_add) or "Keine"
+        remove_text = ", ".join(r.mention for r in to_remove) or "Keine"
+        await send_team_update_embed(
+            guild,
+            "⚙️ Team-Update: Rollenänderung",
+            f"{member.mention} wurde über die Pulse-Rollenverwaltung geändert.",
+            discord.Color.blurple(),
+            target=member.mention,
+            action="Mehrfach-Rollenänderung",
+            actor=actor,
+            fields=[
+                ("➕ Hinzugefügt", add_text, False),
+                ("➖ Entfernt", remove_text, False),
+            ],
+            thumbnail=member.display_avatar.url,
+        )
+        log_audit(actor, ctx.user["id"], "Rollenänderung", f"{member.display_name}: +{[r.name for r in to_add]} -{[r.name for r in to_remove]}")
+        return back(f"/team/{user_id}/roles", "Rollenänderung erfolgreich gespeichert.")
+    except discord.Forbidden:
+        return back(f"/team/{user_id}/roles", "Discord verweigert die Rollenänderung. Prüfe Bot-Rolle und Rollenrechte.", False)
+    except Exception as exc:
+        print(f"Rollenverwaltung fehlgeschlagen: {exc}")
+        return back(f"/team/{user_id}/roles", "Rollenänderung fehlgeschlagen.", False)
+
 @app.get("/member/{user_id}", response_class=HTMLResponse)
 async def member_detail(request: Request, user_id: int, user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
