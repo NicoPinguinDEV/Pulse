@@ -205,7 +205,7 @@ def allowed(i,key,web):
     if not i.guild or not isinstance(i.user,discord.Member):return False
     p,_=web.compute_perms(i.guild,i.user.id,web.load_config())
     if p.get("is_admin"):return True
-    need={"warn":"can_warn","warn-remove":"can_warn","server-exit":"can_promote","team-exit":"can_promote","promote":"can_promote","demote":"can_promote","team-ping":"can_view_dashboard","pulse-ticket":"can_manage_tickets","melden":"can_view_dashboard","pulse-panel":"can_view_dashboard","pulse-lock":"is_admin","pulse-unlock":"is_admin","pulse-permission":"is_admin","activity-check":"can_view_dashboard","pulse-suite":"can_view_dashboard"}.get(key,"can_view_dashboard")
+    need={"warn":"can_warn","warn-remove":"can_warn","server-exit":"can_promote","team-exit":"can_promote","kick":"can_promote","team-kick":"can_promote","promote":"can_promote","demote":"can_promote","team-ping":"can_view_dashboard","pulse-ticket":"can_manage_tickets","melden":"can_view_dashboard","pulse-panel":"can_view_dashboard","pulse-lock":"is_admin","pulse-unlock":"is_admin","pulse-permission":"is_admin","activity-check":"can_view_dashboard","pulse-suite":"can_view_dashboard"}.get(key,"can_view_dashboard")
     rm=setting("command_roles",{}) or {};ids={int(x) for x in rm.get(key,[]) if str(x).isdigit()}
     return bool(p.get(need)) or any(r.id in ids for r in i.user.roles)
 
@@ -833,6 +833,32 @@ class PulseSuite(commands.Cog):
                 result_text += "\n⚠️ Warnrolle konnte nicht synchronisiert werden: "+str(role_report.get("message"))
             await x.response.edit_message(content=result_text,embed=None,view=None)
         await i.response.send_message(f"Warnung {warn_id} von {member.display_name} wirklich zurückziehen?",view=Confirm(i.user.id,do),ephemeral=True)
+
+    @app_commands.command(name="kick",description="Alias für den sicheren Server-Kick mit Zweitfreigabe.")
+    async def kick_cmd(self,i,member:discord.Member,grund:str=""):
+        web=__import__("webserver")
+        if not allowed(i,"kick",web) or locked() or not self.safe_target(i,member):
+            return await i.response.send_message("❌ Aktion nicht erlaubt.",ephemeral=True)
+        async def do(x):
+            aid=action_record("server-exit",{"target_id":member.id,"reason":grund},i.user)
+            for m in managers(i.guild,web):
+                if m.id!=i.user.id:
+                    db.notify(m.id,"🔐 Zweite Freigabe",f"Vorgang {aid} für {member.display_name} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
+            await x.response.edit_message(content="🔐 Vorgang "+aid+" angelegt. Zweite Führungskraft erforderlich.",embed=None,view=None)
+        await i.response.send_message(f"🚨 {member.display_name} soll aus dem Server entfernt werden.\n{grund}\n\nWirklich ausführen?",view=Confirm(i.user.id,do),ephemeral=True)
+
+    @app_commands.command(name="team-kick",description="Alias für das sichere Team-Offboarding mit Zweitfreigabe.")
+    async def team_kick_cmd(self,i,member:discord.Member,grund:str=""):
+        web=__import__("webserver")
+        if not allowed(i,"team-kick",web) or locked() or not self.safe_target(i,member):
+            return await i.response.send_message("❌ Aktion nicht erlaubt.",ephemeral=True)
+        async def do(x):
+            aid=action_record("team-exit",{"target_id":member.id,"reason":grund},i.user)
+            for m in managers(i.guild,web):
+                if m.id!=i.user.id:
+                    db.notify(m.id,"🔐 Zweite Freigabe",f"Team-Offboarding {aid} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
+            await x.response.edit_message(content="🔐 Vorgang "+aid+" angelegt. Zweite Führungskraft erforderlich.",embed=None,view=None)
+        await i.response.send_message(f"🚪 {member.display_name} soll das Team verlassen.\n{grund}\n\nWirklich ausführen?",view=Confirm(i.user.id,do),ephemeral=True)
 
     @app_commands.command(name="server-exit",description="Kritische Server-Aktion mit Zweitfreigabe.")
     async def server_exit(self,i,member:discord.Member,grund:str=""):
