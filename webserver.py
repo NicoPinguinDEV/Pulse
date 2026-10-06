@@ -73,11 +73,11 @@ TEAM_UPDATE_CHANNEL_NAME = os.getenv("TEAM_UPDATE_CHANNEL_NAME", "╚『⚡』�
 TEAM_UPDATE_CHANNEL_ID = 1531132354272170115  # zentraler Team-Updates-Kanal
 
 WARN_ROLE_IDS = {
-    1: int(os.getenv("WARN_ROLE_1", "1489221948348043395")),
-    2: int(os.getenv("WARN_ROLE_2", "1489222076370780232")),
-    3: int(os.getenv("WARN_ROLE_3", "1531760107971416135")),
-    4: int(os.getenv("WARN_ROLE_4", "1556344459422081045")),
-    5: int(os.getenv("WARN_ROLE_5", "1556344484198088814")),
+    1: 1489221948348043395,
+    2: 1489222076370780232,
+    3: 1531760107971416135,
+    4: 1556344459422081045,
+    5: 1556344484198088814,
 }
 SYNC_WARN_ROLES = os.getenv("SYNC_WARN_ROLES", "1") == "1"      # Warn-Rollen automatisch vergeben
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
@@ -531,71 +531,12 @@ async def send_team_update_embed(guild, title, description, color=None, *, field
 
 
 def get_warn_role_ids(config: dict | None = None) -> dict:
-    """Lädt die fünf Warn-Rollen. Dashboard-Konfiguration hat Vorrang vor ENV-Defaults."""
-    configured = (config or {}).get("warn_role_ids", {})
-    # Alte Konfigurationen aus dem 3-Warn-System werden nicht weiterverwendet.
-    # Erst wenn alle fünf Stufen gespeichert sind, dürfen Panel-Werte die festen Defaults überschreiben.
-    has_all_five = (
-        isinstance(configured, dict)
-        and all((str(level) in configured or level in configured) for level in range(1, 6))
-    ) or (isinstance(configured, (list, tuple)) and len(configured) >= 5)
-    if not has_all_five:
-        configured = {}
-    out = {}
-    for level, fallback in WARN_ROLE_IDS.items():
-        value = fallback
-        if isinstance(configured, dict):
-            value = configured.get(str(level), configured.get(level, fallback))
-        elif isinstance(configured, (list, tuple)) and len(configured) >= level:
-            value = configured[level - 1]
-        try:
-            out[level] = int(value)
-        except (TypeError, ValueError):
-            out[level] = int(fallback)
-    return out
-
-
-def normalize_warns(entry: dict) -> bool:
-    """Migriert Warns zu einem stabilen Format mit Status statt hartem Löschen."""
-    raw = entry.get("warns_list", [])
-    if not isinstance(raw, list):
-        raw = []
-    normalized = []
-    changed = not isinstance(entry.get("warns_list"), list)
-
-    for warn in raw:
-        if isinstance(warn, dict):
-            item = dict(warn)
-        else:
-            item = {"reason": str(warn), "proof": "", "by": "Altsystem", "date": "N/A"}
-            changed = True
-        if not item.get("id"):
-            item["id"] = f"warn_{uuid.uuid4().hex[:10]}"
-            changed = True
-        if "active" not in item:
-            item["active"] = True
-            changed = True
-        item.setdefault("reason", "Kein Grund")
-        item.setdefault("proof", "")
-        item.setdefault("by", "System")
-        item.setdefault("date", "N/A")
-        item.setdefault("revoked_at", None)
-        item.setdefault("revoked_by", None)
-        item.setdefault("revoked_reason", "")
-        normalized.append(item)
-
-    if normalized != entry.get("warns_list"):
-        entry["warns_list"] = normalized
-        changed = True
-    return changed
-
-
-def active_warns(entry: dict) -> list[dict]:
-    """Nur aktive Warns zählen; zurückgezogene Warns bleiben als Historie erhalten."""
-    normalize_warns(entry)
-    return [w for w in entry.get("warns_list", []) if isinstance(w, dict) and w.get("active", True) and not w.get("revoked_at")]
-
-
+    """Gibt die festgelegten fünf Pulse-Team-Warnrollen zurück.
+    
+    Legacy-Konfigurationen und alte ENV-Werte werden absichtlich ignoriert,
+    damit das Warnsystem im Live-Betrieb immer dieselben fünf Rollen verwendet.
+    """
+    return dict(WARN_ROLE_IDS)
 def warning_role_health(guild, config: dict | None = None) -> list[dict]:
     """Prüft Existenz und Bot-Hierarchie aller fünf Warn-Rollen."""
     ids = get_warn_role_ids(config)
