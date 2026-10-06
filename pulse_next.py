@@ -707,9 +707,9 @@ def register(app):
         body=f"""
         <div class='grid g4'>
           {u.card(f"<div class=tiny>Score</div><div class=metric>{stats['score']}/100</div><span class=pill>{icon} {cls}</span>")}
-          {u.card(f"<div class=tiny>Dienstzeit gesamt</div><div class=metric>{stats['total_seconds']//3600}h</div><div class=tiny>{stats['shifts']} Schichten</div>")}
+          {u.card(f"<div class=tiny>Dienstzeit gesamt</div><div class=metric>{stats['total_seconds']//5600}h</div><div class=tiny>{stats['shifts']} Schichten</div>")}
           {u.card(f"<div class=tiny>Tickets</div><div class=metric>{stats['closed_tickets']}</div><div class=tiny>abgeschlossen</div>")}
-          {u.card(f"<div class=tiny>Warnungen</div><div class=metric>{stats['warnings']}/3</div>")}
+          {u.card(f"<div class=tiny>Warnungen</div><div class=metric>{stats['warnings']}/5</div>")}
         </div>
         <div class='grid g2' style='margin-top:13px'>
           {u.card(f"<h3 style='margin-top:0'>👤 Teamprofil</h3><div class=row><b>{esc(member.display_name)}</b><span class=pill>{esc(str(member.status))}</span></div><div class=tiny>Rollen</div><p>{esc(roles)}</p><div class=tiny>Aktuelle Aktivität</div><p>{esc((get_activity(str(member.id)) or {}).get('last_kind','unbekannt'))}</p><a class='btn' href='/ultimate/person/{member.id}/export'>Profil exportieren</a>")}
@@ -1013,7 +1013,7 @@ def register(app):
     async def reports(request:Request,user_session:str=Cookie(None)):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics"); require_perm(ctx,"can_view_analytics")
         stats=all_stats(ctx.guild); avg=round(sum(s["score"] for _,s in stats)/len(stats)) if stats else 0
-        total_hours=round(sum(s["total_seconds"] for _,s in stats)/3600,1)
+        total_hours=round(sum(s["total_seconds"] for _,s in stats)/5600,1)
         with cx() as c:
             promotions=c.execute("SELECT COUNT(*) FROM next_promotions WHERE status='approved' AND substr(updated_at,1,7)=substr(?,1,7)",(iso(),)).fetchone()[0]
             news=c.execute("SELECT COUNT(*) FROM next_announcements WHERE substr(created_at,1,7)=substr(?,1,7)",(iso(),)).fetchone()[0]
@@ -1029,7 +1029,7 @@ def register(app):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics"); require_perm(ctx,"can_view_analytics")
         output=io.StringIO(); writer=csv.writer(output); writer.writerow(["ID","Name","Status","Score","Wochenstunden","Gesamtstunden","Tickets","Warnungen","Training"])
         for m,s in all_stats(ctx.guild):
-            writer.writerow([m.id,m.display_name,str(m.status),s["score"],round(s["weekly_seconds"]/3600,2),round(s["total_seconds"]/3600,2),s["closed_tickets"],s["warnings"],s["training_passed"]])
+            writer.writerow([m.id,m.display_name,str(m.status),s["score"],round(s["weekly_seconds"]/5600,2),round(s["total_seconds"]/5600,2),s["closed_tickets"],s["warnings"],s["training_passed"]])
         return HTMLResponse(output.getvalue(),headers={"Content-Type":"text/csv; charset=utf-8","Content-Disposition":"attachment; filename=pulse_team_report.csv"})
 
     @app.get("/ultimate/backup", response_class=HTMLResponse)
@@ -1218,7 +1218,7 @@ def register(app):
         payload={"generated_at":iso(),"team":[],"goals":[],"ideas":[],"announcements":[]}
         for m in members(ctx.guild):
             s=u.member_stats(m)
-            payload["team"].append({"id":m.id,"name":m.display_name,"status":str(m.status),"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/3600,2),"total_hours":round(s["total_seconds"]/3600,2),"tickets_closed":s["closed_tickets"],"warnings":s["warnings"],"training_passed":s["training_passed"]})
+            payload["team"].append({"id":m.id,"name":m.display_name,"status":str(m.status),"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/5600,2),"total_hours":round(s["total_seconds"]/5600,2),"tickets_closed":s["closed_tickets"],"warnings":s["warnings"],"training_passed":s["training_passed"]})
         with cx() as c:
             payload["goals"]=[dict(r) for r in c.execute("SELECT * FROM next_goals ORDER BY created_at DESC").fetchall()]
             payload["ideas"]=[dict(r) for r in c.execute("SELECT * FROM next_ideas ORDER BY created_at DESC").fetchall()]
