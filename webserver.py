@@ -110,7 +110,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "6.0.0"
+PULSE_VERSION = "7.0.0"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -1001,7 +1001,7 @@ async def healthz(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def home(user_session: str = Cookie(None)):
     if user_session and verify_payload(user_session):
-        return RedirectResponse(url="/dashboard", status_code=303)
+        return RedirectResponse(url="/ultimate", status_code=303)
     return f"""
     <!DOCTYPE html>
     <html lang="de">
@@ -1089,7 +1089,7 @@ async def callback(request: Request, code: str = None, state: str = None, error:
         "avatar": user_data.get("avatar"),
         "exp": int(time.time() + SESSION_DAYS * 86400),
     }
-    response = RedirectResponse(url="/dashboard", status_code=303)
+    response = RedirectResponse(url="/ultimate", status_code=303)
     response.set_cookie(
         "user_session",
         sign_payload(session),
