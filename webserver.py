@@ -79,6 +79,9 @@ WARN_ROLE_IDS = {
     4: 1556344459422081045,
     5: 1556344484198088814,
 }
+WARN_UPRANK_LOCK_ROLE_ID = 1506055179362107494
+WARN_IC_LOCK_ROLE_ID = 1506054747554189472
+WARN_TEMP_ROLE_DAYS = 7
 SYNC_WARN_ROLES = os.getenv("SYNC_WARN_ROLES", "1") == "1"      # Warn-Rollen automatisch vergeben
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
 MAX_SHIFT_HOURS = float(os.getenv("MAX_SHIFT_HOURS", "12"))     # vergessene Schichten werden danach beendet
@@ -606,6 +609,220 @@ def warning_role_health(guild, config: dict | None = None) -> list[dict]:
     return rows
 
 
+async def _add_temporary_warn_role(guild, member, role_id: int, warn: dict, label: str):
+    """Vergibt eine einwöchige Warn-Folgerolle und speichert ihr Ablaufdatum dauerhaft."""
+    result = {"ok": True, "role_id": role_id, "expires_at": None, "message": ""}
+    role = guild.get_role(role_id) if guild else None
+    if not role:
+        result.update(ok=False, message=f"{label}-Rolle {role_id} wurde nicht gefunden.")
+        return result
+    if role.is_default() or role.managed:
+        result.update(ok=False, message=f"{label}-Rolle ist nicht verwaltbar.")
+        return result
+    if guild.me and (not guild.me.guild_permissions.manage_roles or role.position >= guild.me.top_role.position):
+        result.update(ok=False, message=f"Bot kann die {label}-Rolle nicht verwalten.")
+        return result
+
+    expires_at = (now_de() + timedelta(days=WARN_TEMP_ROLE_DAYS)).isoformat(timespec="seconds")
+    try:
+        if role not in member.roles:
+            await member.add_roles(role, reason=f"Warn-Folge {label} · Warn {warn.get('id')}")
+        consequences = warn.setdefault("consequences", {})
+        temporary_roles = consequences.setdefault("temporary_roles", [])
+        temporary_roles = [
+            x for x in temporary_roles
+            if str(x.get("role_id")) != str(role_id)
+        ]
+        temporary_roles.append({
+            "role_id": role_id,
+            "label": label,
+            "expires_at": expires_at,
+            "active": True,
+        })
+        consequences["temporary_roles"] = temporary_roles
+        result["expires_at"] = expires_at
+        result["message"] = f"{label} bis {fmt_dt(expires_at)}"
+        return result
+    except discord.Forbidden:
+        result.update(ok=False, message=f"Discord verweigert die {label}-Rolle.")
+        return result
+    except Exception as exc:
+        result.update(ok=False, message=f"{label}-Rolle fehlgeschlagen: {exc}")
+        return result
+
+
+async def _apply_warn4_downrank(guild, member, warn: dict, team_role_ids: list[int]):
+    """Downrankt bei Warn 4 genau eine Team-Rangstufe."""
+    if warn.get("consequences", {}).get("downrank_applied"):
+        return {"ok": True, "message": "Downrank bereits ausgeführt.", "changed": False}
+
+    if not team_role_ids:
+        return {"ok": False, "message": "Keine Team-Rollen konfiguriert.", "changed": False}
+
+    target_idx = team_rank(member, team_role_ids)
+    if target_idx <= 0:
+        return {"ok": True, "message": "Bereits auf niedrigster Team-Rangstufe.", "changed": False}
+
+    new_role = guild.get_role(team_role_ids[target_idx - 1])
+    old_roles = [r for r in member.roles if r.id in team_role_ids]
+    if not new_role:
+        return {"ok": False, "message": "Zielrolle für den automatischen Downrank nicht gefunden.", "changed": False}
+    if guild.me and (not guild.me.guild_permissions.manage_roles or new_role.position >= guild.me.top_role.position):
+        return {"ok": False, "message": "Bot kann die Zielrolle für den automatischen Downrank nicht verwalten.", "changed": False}
+
+    actor = warn.get("by") or "Warn-System"
+    reason = warn.get("reason") or "Warn 4"
+    try:
+        await member.add_roles(new_role, reason=f"Automatischer Downrank durch {actor}: {reason}")
+        remove = [r for r in old_roles if r.id != new_role.id]
+        if remove:
+            await member.remove_roles(*remove, reason=f"Automatischer Downrank durch {actor}: {reason}")
+        consequences = warn.setdefault("consequences", {})
+        consequences["downrank_applied"] = True
+        consequences["downrank_to_role_id"] = new_role.id
+        return {"ok": True, "message": f"Automatisch auf {new_role.name} degradiert.", "changed": True}
+    except discord.Forbidden:
+        return {"ok": False, "message": "Discord verweigert den automatischen Downrank.", "changed": False}
+    except Exception as exc:
+        return {"ok": False, "message": f"Automatischer Downrank fehlgeschlagen: {exc}", "changed": False}
+
+
+async def _apply_warn5_team_kick(guild, member, warn: dict, team_role_ids: list[int]):
+    """Entfernt bei Warn 5 sämtliche konfigurierten Team-Rollen."""
+    if warn.get("consequences", {}).get("team_kick_applied"):
+        return {"ok": True, "message": "Team-Kick bereits ausgeführt.", "changed": False}
+
+    current_team_roles = [r for r in member.roles if r.id in team_role_ids]
+    consequences = warn.setdefault("consequences", {})
+    consequences["team_kick_applied"] = True
+
+    if not current_team_roles:
+        return {"ok": True, "message": "Mitglied hatte bereits keine Team-Rolle mehr.", "changed": False}
+
+    if guild.me and not guild.me.guild_permissions.manage_roles:
+        consequences["team_kick_applied"] = False
+        return {"ok": False, "message": "Bot hat keine 'Rollen verwalten'-Berechtigung für den Team-Kick.", "changed": False}
+
+    if guild.me and any(r.position >= guild.me.top_role.position for r in current_team_roles):
+        consequences["team_kick_applied"] = False
+        return {"ok": False, "message": "Mindestens eine Team-Rolle liegt auf oder über der Bot-Rolle.", "changed": False}
+
+    actor = warn.get("by") or "Warn-System"
+    reason = warn.get("reason") or "Warn 5"
+    try:
+        await member.remove_roles(*current_team_roles, reason=f"Automatischer Team-Kick durch {actor}: {reason}")
+        return {"ok": True, "message": "Alle Team-Rollen wurden automatisch entfernt.", "changed": True}
+    except discord.Forbidden:
+        consequences["team_kick_applied"] = False
+        return {"ok": False, "message": "Discord verweigert den automatischen Team-Kick.", "changed": False}
+    except Exception as exc:
+        consequences["team_kick_applied"] = False
+        return {"ok": False, "message": f"Automatischer Team-Kick fehlgeschlagen: {exc}", "changed": False}
+
+
+async def apply_warn_consequences(guild, member, warn: dict, count: int, config: dict | None = None):
+    """Wendet die automatische Eskalation der aktuellen Warnstufe an."""
+    result = {"level": int(count or 0), "actions": [], "ok": True}
+    team_role_ids = [int(x) for x in (config or load_config()).get("team_role_ids", [])]
+
+    if count == 2:
+        role = await _add_temporary_warn_role(guild, member, WARN_UPRANK_LOCK_ROLE_ID, warn, "Uprank-Sperre")
+        result["actions"].append(role["message"] if role["ok"] else role["message"])
+        result["ok"] = result["ok"] and role["ok"]
+
+    elif count == 3:
+        role = await _add_temporary_warn_role(guild, member, WARN_IC_LOCK_ROLE_ID, warn, "IC-Rechte-Sperre")
+        result["actions"].append(role["message"] if role["ok"] else role["message"])
+        result["ok"] = result["ok"] and role["ok"]
+
+    elif count == 4:
+        downrank = await _apply_warn4_downrank(guild, member, warn, team_role_ids)
+        result["actions"].append(downrank["message"])
+        result["ok"] = result["ok"] and downrank["ok"]
+
+    elif count == 5:
+        team_kick = await _apply_warn5_team_kick(guild, member, warn, team_role_ids)
+        result["actions"].append(team_kick["message"])
+        result["ok"] = result["ok"] and team_kick["ok"]
+
+    return result
+
+
+async def cleanup_expired_warn_restrictions(guild, config: dict | None = None):
+    """Entfernt abgelaufene Warn-Folgerollen. Läuft auch nach Neustarts weiter."""
+    team_db = load_json(DATA_FILE, {})
+    if not isinstance(team_db, dict):
+        return {"checked": 0, "removed": 0, "failed": 0}
+
+    result = {"checked": 0, "removed": 0, "failed": 0}
+    changed = False
+    current = now_de()
+
+    for user_id, entry in team_db.items():
+        if not isinstance(entry, dict):
+            continue
+        warns_changed = False
+        for warn in entry.get("warns_list", []) or []:
+            if not isinstance(warn, dict):
+                continue
+            temp_roles = (warn.get("consequences") or {}).get("temporary_roles", [])
+            if not isinstance(temp_roles, list):
+                continue
+
+            keep = []
+            for restriction in temp_roles:
+                try:
+                    expires = parse_dt(str(restriction.get("expires_at") or ""))
+                except Exception:
+                    keep.append(restriction)
+                    continue
+
+                if current < expires:
+                    keep.append(restriction)
+                    continue
+
+                result["checked"] += 1
+                role_id = int(restriction.get("role_id", 0) or 0)
+                member = guild.get_member(int(user_id)) if guild else None
+                role = guild.get_role(role_id) if guild else None
+
+                if not member or not role:
+                    warns_changed = True
+                    result["removed"] += 1
+                    continue
+
+                if guild.me and (not guild.me.guild_permissions.manage_roles or role.position >= guild.me.top_role.position):
+                    keep.append(restriction)
+                    result["failed"] += 1
+                    continue
+
+                try:
+                    if role in member.roles:
+                        await member.remove_roles(
+                            role,
+                            reason=f"Warn-Folge abgelaufen · {restriction.get('label') or role.name}"
+                        )
+                    warns_changed = True
+                    result["removed"] += 1
+                except discord.Forbidden:
+                    keep.append(restriction)
+                    result["failed"] += 1
+                except Exception:
+                    keep.append(restriction)
+                    result["failed"] += 1
+
+            if warns_changed:
+                warn.setdefault("consequences", {})["temporary_roles"] = keep
+                changed = True
+
+        if entry.get("warns_list") is not None and warns_changed:
+            normalize_warns(entry)
+
+    if changed:
+        save_json(DATA_FILE, team_db)
+    return result
+
+
 async def sync_warn_roles(guild, member, count: int, config: dict | None = None):
     """Synchronisiert exakt eine Warn-Rolle 1-5 und gibt einen Diagnosebericht zurück."""
     report = {"ok": True, "count": max(0, min(int(count or 0), 5)), "role": None, "message": "Warn-Rollen synchronisiert."}
@@ -682,7 +899,9 @@ async def reconcile_warning_roles(guild, config: dict | None = None) -> dict:
             continue
 
         entry = team_db.get(str(member.id), {})
-        count = len(active_warns(entry)) if is_team and isinstance(entry, dict) else 0
+        # Warnrollen richten sich nach aktiven Warnungen, auch wenn Warn 5 bereits
+        # die Teamrollen entfernt hat. Dadurch bleibt die Warnstufe nachvollziehbar.
+        count = len(active_warns(entry)) if isinstance(entry, dict) else 0
         report = await sync_warn_roles(guild, member, count, config)
         result["checked"] += 1
         if report.get("ok"):
@@ -3485,6 +3704,7 @@ async def handle_action(
         save_json(DATA_FILE, team_db)
         log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/5): {reason}")
         role_report = await sync_warn_roles(guild, m, count, config)
+        consequence_report = await apply_warn_consequences(guild, m, entry["warns_list"][-1], count, config) if count >= 2 else {"level": count, "actions": [], "ok": True}
         if m:
             await send_team_update_embed(
                 guild,
@@ -3501,7 +3721,9 @@ async def handle_action(
                 ],
                 thumbnail=m.display_avatar.url,
             )
-            await send_dm_notification(m, f"⚠️ Du hast eine Verwarnung erhalten ({count}/5)!\n**Grund:** {reason}\n**Von:** {actor}")
+            consequence_text = "; ".join(x for x in consequence_report.get("actions", []) if x)
+            dm_suffix = f"\n**Automatische Folge:** {consequence_text}" if consequence_text else ""
+            await send_dm_notification(m, f"⚠️ Du hast eine Verwarnung erhalten ({count}/5)!\n**Grund:** {reason}\n**Von:** {actor}{dm_suffix}")
             if count >= 5:
                 # Führungskräfte erhalten zusätzlich eine Pulse-Inbox-Meldung.
                 for manager in guild.members:
@@ -3523,8 +3745,8 @@ async def handle_action(
                             print(f"Warn-Eskalationsbenachrichtigung fehlgeschlagen: {exc}")
                 await send_team_update_embed(
                     guild,
-                    "🚨 Team-Update: 3 Verwarnungen",
-                    f"**Mitglied:** {m.mention} ({m.display_name})\n**Status:** Schicht-Start ist gesperrt, bitte Konsequenzen prüfen.",
+                    "🚨 Team-Update: 5 Verwarnungen",
+                    f"**Mitglied:** {m.mention} ({m.display_name})\n**Status:** Automatisch aus dem Team entfernt.",
                     discord.Color.red(),
                     target=m.mention,
                     action="Warn-Schwelle 5/5",
@@ -3532,9 +3754,15 @@ async def handle_action(
                     fields=[("Warnrollen-Sync", "✅ Erfolgreich" if role_report.get("ok") else f"❌ {role_report.get('message')}")],
                     thumbnail=m.display_avatar.url,
                 )
-        if role_report.get("ok"):
-            return back(member_url, f"Verwarnung eingetragen ({count}/5).")
-        return back(member_url, f"Verwarnung eingetragen ({count}/5), aber Discord-Warnrolle konnte nicht synchronisiert werden: {role_report.get('message')}", False)
+        if role_report.get("ok") and consequence_report.get("ok"):
+            return back(member_url, f"Verwarnung eingetragen ({count}/5). Automatische Folge ausgeführt.")
+        problems = []
+        if not role_report.get("ok"):
+            problems.append(f"Warnrolle: {role_report.get('message')}")
+        if not consequence_report.get("ok"):
+            problems.extend(consequence_report.get("actions", []))
+        suffix = " · ".join(x for x in problems if x) or "Eine automatische Folge konnte nicht vollständig ausgeführt werden."
+        return back(member_url, f"Verwarnung eingetragen ({count}/5), aber: {suffix}", False)
 
     if action == "remove_warn":
         if not user_id or not warn_id:
@@ -3562,6 +3790,24 @@ async def handle_action(
         original_reason = str(target.get("reason") or "Kein Grund")
         original_by = str(target.get("by") or "System")
         original_date = str(target.get("date") or "N/A")
+        # Temporäre Folgen dieser konkreten Warnung beim Zurückziehen sofort entfernen.
+        temp_roles = (target.get("consequences") or {}).get("temporary_roles", [])
+        temp_remove_failed = False
+        for restriction in temp_roles:
+            role = guild.get_role(int(restriction.get("role_id", 0) or 0))
+            if not role:
+                continue
+            try:
+                if role in m.roles:
+                    if guild.me and (not guild.me.guild_permissions.manage_roles or role.position >= guild.me.top_role.position):
+                        temp_remove_failed = True
+                        continue
+                    await m.remove_roles(role, reason=f"Warn zurückgezogen · {revoke_reason}")
+            except discord.Forbidden:
+                temp_remove_failed = True
+            except Exception:
+                temp_remove_failed = True
+        target.setdefault("consequences", {})["temporary_roles"] = [] if not temp_remove_failed else temp_roles
         role_report = await sync_warn_roles(guild, m, count, config)
 
         await send_team_update_embed(
