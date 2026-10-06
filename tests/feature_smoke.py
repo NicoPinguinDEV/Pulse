@@ -95,6 +95,13 @@ def main() -> None:
     assert "⬆️ Hochstufen" in web
     assert "⬇️ Runterstufen" in web
     assert "1531132354272170115" in web
+    # Team list keeps member actions inside the Details/eye menu.
+    assert "details-only" not in web  # no stale marker should leak into UI
+    assert 'href="/member/{m["id"]}"' in web
+    assert "🗓️ Team seit" in web
+    assert "def team_since_for(member, entry=None)" in web
+    assert 'href="/team/{member.id}/roles"' in web
+    assert 'name="action_reason"' in web
     # Required reasons for personnel actions.
     assert 'name="action_reason"' in web
     assert 'action_reason: str = Form(None)' in web
