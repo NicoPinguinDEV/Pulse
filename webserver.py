@@ -1216,6 +1216,7 @@ DASHBOARD_HEAD = """
     if("serviceWorker" in navigator){ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }
 
     let robloxSearchTimeout = null;
+    let robloxSuggestionIds = {};
     function searchRobloxUsers(val) {
         clearTimeout(robloxSearchTimeout);
         const input = String(val || "").trim().replace(/^@+/, "");
@@ -1226,7 +1227,15 @@ DASHBOARD_HEAD = """
                 .then(r => r.json())
                 .then(data => {
                     if (!data.success) { list.innerHTML = ""; return; }
+                    robloxSuggestionIds = {};
+                    (data.users || []).forEach(u => {
+                        const name = String(u.name || "").trim();
+                        if (name) robloxSuggestionIds[name.toLowerCase()] = String(u.id || "");
+                    });
                     list.innerHTML = (data.users || []).map(u => "<option value=\"" + escapeHtml(u.name) + "\">" + escapeHtml(u.displayName || u.name) + " · ID " + escapeHtml(u.id) + "</option>").join("");
+                    const idInput = document.getElementById("robloxIdInput");
+                    const cachedId = robloxSuggestionIds[input.toLowerCase()];
+                    if (idInput && cachedId) idInput.value = cachedId;
                 })
                 .catch(() => { list.innerHTML = ""; });
         }, 250);
