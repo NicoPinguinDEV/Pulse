@@ -1337,19 +1337,43 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
             <span class="font-mono text-slate-500">{'☕ ' if on_break else ''}{fmt_duration(shift_elapsed(s))}</span>
         </div>"""
 
-    # Logs
+    # Logs / Melonly
     logs_html = ""
+    edit_log_id = str(request.query_params.get("edit_log") or "")
     is_manager = ctx.perms["can_promote"] or ctx.perms["is_admin"]
+    type_labels = {"Warn":"⚠️ Warn","Kick":"🚪 Kick","Ban":"🚫 Ban","Ban BOLO":"🚨 Ban BOLO","Notiz":"📝 Notiz"}
     for log in reversed(logs_db[-50:]):
         ltype = log.get("type", "Log")
         badge = LOG_TYPE_STYLE.get(ltype, "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300")
         search = f"{log.get('target_user','')} {log.get('roblox_id','')} {log.get('moderator','')} {ltype} {log.get('reason','')}".lower()
-        can_delete = is_manager or (log.get("moderator_id") and log.get("moderator_id") == mod_id)
+        can_edit = is_manager or (log.get("moderator_id") and log.get("moderator_id") == mod_id)
+        edit_button = (
+            f'<a href="/dashboard?edit_log={quote(str(log.get("id") or ""))}" class="text-indigo-500 hover:underline font-semibold">✏️ Bearbeiten</a>'
+            if can_edit else ""
+        )
         delete_form = f"""
                 <form action="/log/delete" method="post" onsubmit="return confirm('Diesen Log-Eintrag wirklich löschen?');">
                     <input type="hidden" name="log_id" value="{esc(log.get('id'))}">
                     <button class="text-rose-500 hover:underline font-semibold">🗑️ Löschen</button>
-                </form>""" if can_delete else ""
+                </form>""" if can_edit else ""
+        edit_form = ""
+        if edit_log_id == str(log.get("id")) and can_edit:
+            edit_options = "".join(
+                f'<option value="{esc(key)}" {"selected" if ltype == key else ""}>{esc(label)}</option>'
+                for key, label in type_labels.items()
+            )
+            edit_form = f"""
+            <form action="/log/edit" method="post" class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/60 space-y-2.5">
+                <input type="hidden" name="log_id" value="{esc(log.get('id'))}">
+                <input class="{INPUT}" name="target_user" maxlength="50" value="{esc(log.get('target_user'))}" required>
+                <input class="{INPUT}" name="roblox_id" maxlength="15" value="{esc(log.get('roblox_id','N/A'))}" placeholder="Roblox ID">
+                <select class="{INPUT}" name="log_type">{edit_options}</select>
+                <textarea class="{INPUT} h-24" name="reason" maxlength="1000" required>{esc(log.get('reason'))}</textarea>
+                <div class="flex gap-2">
+                    <button class="{BTN} px-4 py-2 text-xs">💾 Änderungen speichern</button>
+                    <a href="/dashboard#playerlog" class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold">Abbrechen</a>
+                </div>
+            </form>"""
         logs_html += f"""
         <div class="log-card {CARD} p-4 space-y-2 hover:shadow transition-all" data-type="{esc(ltype)}" data-search="{esc(search)}">
             <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-2">
@@ -1363,9 +1387,11 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                 <div><span class="text-slate-400">Roblox ID:</span> <span class="font-mono text-slate-800 dark:text-slate-200">{esc(log.get('roblox_id', 'N/A'))}</span></div>
                 <div><span class="text-slate-400">Grund:</span> <span class="text-slate-700 dark:text-slate-200 break-words">{esc(log.get('reason'))}</span></div>
             </div>
-            <div class="text-[10px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/40 flex justify-between items-center">
-                <span>Moderator: {esc(log.get('moderator'))}</span>{delete_form}
+            <div class="text-[10px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/40 flex justify-between items-center gap-3">
+                <span>Moderator: {esc(log.get('moderator'))}</span>
+                <span class="flex items-center gap-3">{edit_button}{delete_form}</span>
             </div>
+            {edit_form}
         </div>"""
 
     chips = "".join(
@@ -1416,7 +1442,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
             <div id="playerlog" class="{CARD} p-6 space-y-4">
                 <div>
                     <h2 class="text-lg font-bold text-slate-900 dark:text-white">🛡️ Melonly – Spielerakte</h2>
-                    <p class="text-xs text-slate-500 dark:text-slate-400">Roblox-Spieler suchen, ID automatisch übernehmen und Vorgang protokollieren.</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Roblox-Spieler suchen, ID automatisch übernehmen und Vorgang protokollieren. <span class="font-semibold text-indigo-500">Nur im Panel – keine Team-Updates.</span></p>
                 </div>
                 <form action="/log/create" method="post" class="space-y-4 text-xs">
                     <div>
