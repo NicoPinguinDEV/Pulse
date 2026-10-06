@@ -966,7 +966,7 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
     for entry in reversed(load_json(LOGS_FILE, [])[-5000:]):
         saved_name = str(entry.get("target_user") or "").strip()
         saved_id = str(entry.get("roblox_id") or "")
-        if not saved_name or saved_id == "N/A" or clean.lower() not in saved_name.lower():
+        if not saved_name or clean.lower() not in saved_name.lower():
             continue
         users_map.setdefault(saved_name.lower(), {
             "id": saved_id,
