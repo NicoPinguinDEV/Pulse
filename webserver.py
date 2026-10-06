@@ -2014,6 +2014,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             "id": member.id, "name": member.display_name, "username": member.name,
             "avatar": member.display_avatar.url, "role": top.name, "role_id": top.id,
             "team_rank_idx": team_role_ids.index(top.id), "pos": top.position,
+            "team_since": team_since_for(member, team_db.get(str(member.id)) if isinstance(team_db, dict) else None),
             "color": role_hex(top),
             "warns": len(active_warns(user_entry(team_db, str(member.id)))) if isinstance(team_db, dict) else 0,
             "hrs": hrs, "reached": hrs >= weekly_goal, "on_loa": on_loa,
@@ -2074,17 +2075,6 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     for m in members:
         style = BADGE_WARN if m["on_loa"] else (BADGE_OK if m["reached"] else BADGE_BAD)
         role_actions = ""
-        target_rank = m["team_rank_idx"]
-        if ctx.perms.get("can_promote") or ctx.perms.get("is_admin"):
-            can_manage_target = ctx.perms.get("is_admin") or actor_team_rank > target_rank
-            if can_manage_target and m["id"] != int(ctx.user["id"]):
-                promote_ok = target_rank + 1 < len(team_role_ids) and (ctx.perms.get("is_admin") or target_rank + 1 < actor_team_rank)
-                demote_ok = target_rank > -1 and (ctx.perms.get("is_admin") or target_rank < actor_team_rank)
-                if promote_ok:
-                    role_actions += f"""<form action="/action" method="post" class="inline-flex items-center gap-1.5"><input type="hidden" name="action" value="promote"><input type="hidden" name="user_id" value="{m["id"]}"><input type="hidden" name="redirect_to_member" value=""><input type="text" name="action_reason" maxlength="500" placeholder="Grund..." required class="{INPUT} py-1.5 w-36 text-[11px]"><button class="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-semibold" onclick="return confirm('Teammitglied wirklich hochstufen?');">⬆️ Hochstufen</button></form>"""
-                if demote_ok:
-                    role_actions += f"""<form action="/action" method="post" class="inline-flex items-center gap-1.5"><input type="hidden" name="action" value="demote"><input type="hidden" name="user_id" value="{m["id"]}"><input type="hidden" name="redirect_to_member" value=""><input type="text" name="action_reason" maxlength="500" placeholder="Grund..." required class="{INPUT} py-1.5 w-36 text-[11px]"><button class="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-semibold" onclick="return confirm('Teammitglied wirklich runterstufen?');">⬇️ Runterstufen</button></form>"""
-        role_actions += f'<a href="/team/{m["id"]}/roles" class="px-3 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 text-xs font-semibold">⚙️ Rollen</a>' if (ctx.perms.get("can_promote") or ctx.perms.get("is_admin")) and m["id"] != int(ctx.user["id"]) and (ctx.perms.get("is_admin") or actor_team_rank > target_rank) else ""
         bar_color = "bg-amber-500" if m["on_loa"] else ("bg-emerald-500" if m["reached"] else "bg-rose-500")
         pct = min(100, int(m["hrs"] / weekly_goal * 100)) if weekly_goal > 0 else 100
         loa_badge = (f'<span class="border {BADGE_WARN} text-[10px] px-2.5 py-0.5 rounded-full font-semibold">Abgemeldet bis {esc(m["loa_until"])}</span>'
@@ -2132,11 +2122,11 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                     </span>
                     <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg border {style}" title="Soll-Ziel: {weekly_goal}h/Woche">⏱️ {m['hrs']:.1f}h / {weekly_goal:g}h</span>
                 </div>
+                <div class="text-[10px] text-slate-400">🗓️ Team seit <span class="font-semibold text-slate-500 dark:text-slate-300">{esc(m['team_since'])}</span></div>
                 <div class="h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"><div class="h-full {bar_color}" style="width:{pct}%"></div></div>
             </div>
             <div class="md:w-2/5 flex flex-wrap md:justify-end gap-2 items-center">
-                {role_actions}
-                <a href="/member/{m['id']}" class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-600 hover:text-white rounded-xl text-slate-600 dark:text-slate-300 text-xs transition font-medium shadow-sm">👁️ Details</a>
+                <a href="/member/{m['id']}" class="px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-600 hover:text-white rounded-xl text-indigo-600 dark:text-indigo-400 text-xs transition font-semibold shadow-sm">👁️ Details</a>
             </div>
         </div>"""
 
@@ -2184,6 +2174,7 @@ async def team_role_manager(request: Request, user_id: int, user_session: str = 
         raise HTTPException(status_code=403, detail="Dieses Mitglied kann nicht über die Rollenverwaltung bearbeitet werden.")
 
     team_role_ids = config.get("team_role_ids", [])
+    was_team_member = bool(team_role_ids and any(r.id in team_role_ids for r in member.roles))
     actor_idx = team_rank(ctx.member, team_role_ids) if ctx.member else -1
     target_idx = team_rank(member, team_role_ids)
     if not ctx.perms.get("is_admin") and actor_idx <= target_idx:
@@ -2264,6 +2255,8 @@ async def team_role_manager_save(
         return back(f"/team/{user_id}/roles", "Dieses Mitglied kann nicht bearbeitet werden.", False)
 
     add_set, remove_set = set(add_role_ids or []), set(remove_role_ids or [])
+    team_role_ids = config.get("team_role_ids", [])
+    was_team_member = bool(team_role_ids and any(r.id in team_role_ids for r in member.roles))
     conflict = add_set & remove_set
     if conflict:
         return back(f"/team/{user_id}/roles", "Eine Rolle darf nicht gleichzeitig hinzugefügt und entfernt werden.", False)
@@ -2302,6 +2295,13 @@ async def team_role_manager_save(
             await member.add_roles(*to_add, reason=f"Rollenänderung durch {ctx.user.get('global_name') or ctx.user.get('username') or 'Team'}: {action_reason}")
         if to_remove:
             await member.remove_roles(*to_remove, reason=f"Rollenänderung durch {ctx.user.get('global_name') or ctx.user.get('username') or 'Team'}: {action_reason}")
+
+        is_team_member = bool(team_role_ids and any(r.id in team_role_ids for r in member.roles))
+        if not was_team_member and is_team_member:
+            team_db = load_json(DATA_FILE, {})
+            team_entry = user_entry(team_db, str(member.id))
+            team_entry["team_since"] = now_de().isoformat(timespec="seconds")
+            save_json(DATA_FILE, team_db)
 
         actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
         add_text = ", ".join(r.mention for r in to_add) or "Keine"
@@ -2385,17 +2385,31 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
 
     actions_html = ""
     if ctx.perms["can_promote"] and not is_self:
-        actions_html = f"""
-        <h3 class="text-sm font-bold text-slate-900 dark:text-white">Team-Aktionen</h3>
-        <form action="/action" method="post" class="flex flex-wrap gap-2">
-            <input type="hidden" name="user_id" value="{member.id}"><input type="hidden" name="redirect_to_member" value="1">
-            <input type="text" name="action_reason" maxlength="500" placeholder="Grund für Beförderung / Degradierung..." required class="{INPUT} min-w-64">
-            <button name="action" value="promote" onclick="return confirm('Wirklich befördern?')" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬆️ Befördern</button>
-            <button name="action" value="demote" onclick="return confirm('Wirklich degradieren?')" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬇️ Degradieren</button>
-            <button name="action" value="kick" onclick="return confirm('Dieses Mitglied wirklich vom gesamten Discord-Server kicken?')" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">🚪 Vom Server kicken</button>
-        </form>
-        <hr class="border-slate-100 dark:border-slate-800 my-4">"""
-
+        can_manage_target = ctx.perms.get("is_admin") or (
+            team_role_ids and team_rank(ctx.member, team_role_ids) > team_rank(member, team_role_ids)
+        )
+        if can_manage_target:
+            actions_html = f"""
+            <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#0b0e14]/50 p-4 space-y-4">
+                <div>
+                    <div class="text-xs font-bold text-slate-900 dark:text-white mb-2">Team-Rang ändern</div>
+                    <form action="/action" method="post" class="flex flex-wrap gap-2 items-center">
+                        <input type="hidden" name="user_id" value="{member.id}"><input type="hidden" name="redirect_to_member" value="1">
+                        <input type="text" name="action_reason" maxlength="500" placeholder="Pflicht: Grund für Beförderung / Degradierung..." required class="{INPUT} min-w-64">
+                        <button name="action" value="promote" onclick="return confirm('Wirklich befördern?')" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬆️ Befördern</button>
+                        <button name="action" value="demote" onclick="return confirm('Wirklich degradieren?')" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬇️ Degradieren</button>
+                    </form>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <a href="/team/{member.id}/roles" class="bg-indigo-500/10 hover:bg-indigo-600 hover:text-white text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⚙️ Rollen verwalten</a>
+                    <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Dieses Mitglied wirklich vom Discord-Server kicken?');">
+                        <input type="hidden" name="action" value="kick"><input type="hidden" name="user_id" value="{member.id}">
+                        <input type="text" name="action_reason" maxlength="500" placeholder="Pflicht: Grund für den Kick..." required class="{INPUT} w-64">
+                        <button class="bg-rose-500/10 hover:bg-rose-600 hover:text-white text-rose-600 dark:text-rose-400 border border-rose-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">🚪 Kicken</button>
+                    </form>
+                </div>
+            </div>
+            <hr class="border-slate-100 dark:border-slate-800 my-4">"""
     warn_form = f"""
         <h3 class="text-sm font-bold text-slate-900 dark:text-white">Verwarnung ausstellen</h3>
         <form action="/action" method="post" class="space-y-2.5 text-xs">
@@ -2448,6 +2462,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
                 <h3 class="text-sm font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-2">Information</h3>
                 <div><div class="text-slate-400 mb-0.5">Nutzername</div><div class="font-medium">[{esc(top.name)}] {esc(member.display_name)}</div></div>
                 <div><div class="text-slate-400 mb-0.5">ID</div><div class="text-slate-600 dark:text-slate-300 font-mono">{member.id}</div></div>
+                <div><div class="text-slate-400 mb-0.5">Team seit</div><div>{esc(team_since_for(member, info))}</div></div>
                 <div><div class="text-slate-400 mb-0.5">Auf dem Server seit</div><div>{member.joined_at.strftime('%d.%m.%Y') if member.joined_at else 'unbekannt'}</div></div>
             </div>
             <div class="{CARD} p-6 space-y-2">
@@ -3122,6 +3137,35 @@ def user_entry(team_db: dict, key: str) -> dict:
     return entry
 
 
+def team_since_for(member, entry=None) -> str:
+    """Bestmögliches Team-Eintrittsdatum aus Pulse-Historie bzw. Discord."""
+    entry = entry if isinstance(entry, dict) else {}
+    raw = str(entry.get("team_since") or "").strip()
+    if raw:
+        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z", "%d.%m.%Y %H:%M"):
+            try:
+                return datetime.strptime(raw, fmt).strftime("%d.%m.%Y")
+            except Exception:
+                pass
+
+    try:
+        apps = load_json(APPS_FILE, {})
+        candidates = []
+        for item in apps.values() if isinstance(apps, dict) else []:
+            if str(item.get("user_id")) != str(member.id) or str(item.get("status")) != "accepted":
+                continue
+            try:
+                candidates.append(datetime.strptime(str(item.get("decided_at") or ""), "%d.%m.%Y %H:%M"))
+            except Exception:
+                pass
+        if candidates:
+            return min(candidates).strftime("%d.%m.%Y")
+    except Exception:
+        pass
+
+    return member.joined_at.strftime("%d.%m.%Y") if member.joined_at else "unbekannt"
+
+
 def migrate_warning_data():
     """Normalisiert bestehende Warn-Datensätze einmalig beim Start."""
     team_db = load_json(DATA_FILE, {})
@@ -3243,6 +3287,8 @@ async def handle_action(
 
         try:
             if action == "kick":
+                if guild.me and not guild.me.guild_permissions.kick_members:
+                    return back(member_url, "Der Bot hat keine Berechtigung 'Mitglieder kicken'.", False)
                 await send_dm_notification(member, f"❌ Du wurdest von **{guild.name}** aus dem Team entfernt. Grund: {action_reason}")
                 await member.kick(reason=f"Vom Dashboard aus gekickt durch {actor}: {action_reason}")
                 await send_team_update_embed(
@@ -3565,6 +3611,10 @@ async def handle_action(
             item["hired_role"] = role.name
             item["decided_by"] = actor
             item["decided_at"] = now_de().strftime("%d.%m.%Y %H:%M")
+            team_db = load_json(DATA_FILE, {})
+            team_entry = user_entry(team_db, str(applicant.id))
+            team_entry["team_since"] = now_de().isoformat(timespec="seconds")
+            save_json(DATA_FILE, team_db)
             save_json(APPS_FILE, apps)
             await send_dm_notification(applicant, f"🎉 Deine Bewerbung bei **{guild.name}** wurde angenommen. Du wurdest als **{role.name}** in das Team aufgenommen.")
             await send_team_update_embed(
