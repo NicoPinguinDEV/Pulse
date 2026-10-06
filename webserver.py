@@ -2099,7 +2099,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             else "⚪ Kein Check"
         )
         activity_name = f'<span class="text-[10px] text-slate-400 truncate max-w-[220px]" title="{esc(m["discord_activity"])}">🎮 {esc(m["discord_activity"])}</span>' if m["discord_activity"] else ""
-        warn_badge = (f'<span class="border border-rose-500/50 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">🚨 {m["warns"]}/5 Warnungen</span>' if m["warns"] >= 3 else
+        warn_badge = (f'<span class="border border-rose-500/50 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">🚨 {m["warns"]}/5 Warnungen</span>' if m["warns"] >= 5 else
                       f'<span class="border border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-semibold">⚠ {m["warns"]}/5 Warnungen</span>' if m["warns"] else '')
         rows_html += f"""
         <div class="team-row {CARD} hover:bg-slate-50 dark:hover:bg-[#1a2030] transition px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
@@ -2240,7 +2240,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
             <button class="{BTN} px-4">Hinzufügen</button>
         </form>""" if ctx.perms["can_add_notes"] else ""
 
-    warn_color = "text-rose-500" if active_warn_count >= 3 else "text-amber-500"
+    warn_color = "text-rose-500" if active_warn_count >= 5 else "text-amber-500"
     body = f"""
     <div class="flex items-center gap-4 mb-8">
         <a href="/team" class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 p-2.5 rounded-xl transition shadow-sm">←</a>
