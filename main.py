@@ -69,6 +69,16 @@ class CustomBot(commands.Bot):
     async def on_ready(self):
         print(f"✅ Bot ist online als {self.user} (ID: {self.user.id})")
         try:
+            await self.change_presence(
+                activity=discord.Activity(
+                    type=discord.ActivityType.watching,
+                    name="Pulse TeamOS"
+                )
+            )
+            print("🎮 Discord Presence: Pulse TeamOS")
+        except Exception as exc:
+            print(f"⚠️ Discord Presence konnte nicht gesetzt werden: {exc}")
+        try:
             from webserver import load_config, reconcile_warning_roles
             guild = self.get_guild(int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616")))
             report = await reconcile_warning_roles(guild, load_config())
