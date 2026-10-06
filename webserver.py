@@ -3812,6 +3812,7 @@ async def handle_action(
             except Exception:
                 temp_remove_failed = True
         target.setdefault("consequences", {})["temporary_roles"] = [] if not temp_remove_failed else temp_roles
+        save_json(DATA_FILE, team_db)
         role_report = await sync_warn_roles(guild, m, count, config)
 
         await send_team_update_embed(
