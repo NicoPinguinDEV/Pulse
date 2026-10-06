@@ -95,6 +95,15 @@ def main() -> None:
     assert "⬆️ Hochstufen" in web
     assert "⬇️ Runterstufen" in web
     assert "1531132354272170115" in web
+    # Required reasons for personnel actions.
+    assert 'name="action_reason"' in web
+    assert 'action_reason: str = Form(None)' in web
+    assert "Bitte einen Grund für die Maßnahme angeben." in web
+    assert "Bitte einen Grund für die Rücknahme der Verwarnung angeben." in web
+    assert "Bitte einen Grund für die Rollenänderung angeben." in web
+    assert "Bitte einen Grund für die Bewerbungsentscheidung angeben." in web
+    assert '("Grund", action_reason, False)' in web
+    assert '("📝 Grund", action_reason, False)' in web
 
     assert "/warns" in pro
     assert "critical=sum" in pro
