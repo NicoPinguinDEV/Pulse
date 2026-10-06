@@ -34,12 +34,15 @@ a{color:inherit;text-decoration:none}.shell{display:flex;min-height:100vh}.side{
 """
 
 def cx():
-    c = sqlite3.connect(DB_PATH)
+    c = sqlite3.connect(DB_PATH, timeout=3)
     c.row_factory = sqlite3.Row
+    c.execute("PRAGMA busy_timeout=3000")
     return c
 
 def init_db():
     with cx() as c:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
         c.executescript("""
         CREATE TABLE IF NOT EXISTS suite_members(user_id TEXT PRIMARY KEY,joined_at TEXT,archived_at TEXT,last_seen TEXT,internal_rating INTEGER DEFAULT 80,notes TEXT DEFAULT '',probation_end TEXT);
         CREATE TABLE IF NOT EXISTS suite_promotions(id TEXT PRIMARY KEY,target_id TEXT,target_name TEXT,current_role TEXT,current_role_id TEXT,target_role TEXT,target_role_id TEXT,reason TEXT,performance TEXT,activity TEXT,warnings TEXT,score INTEGER DEFAULT 0,status TEXT DEFAULT 'pending',required_approvals INTEGER DEFAULT 1,approvals_json TEXT DEFAULT '[]',created_by_id TEXT,created_by_name TEXT,decision_note TEXT DEFAULT '',created_at TEXT,updated_at TEXT);
@@ -100,9 +103,34 @@ def member_row(uid):
     return dict(r) if r else None
 
 def upsert_member(m):
+    joined = iso()
     with cx() as c:
-        if c.execute("SELECT 1 FROM suite_members WHERE user_id=?",(str(m.id),)).fetchone():c.execute("UPDATE suite_members SET last_seen=?,archived_at=NULL WHERE user_id=?",(iso(),str(m.id)))
-        else:c.execute("INSERT INTO suite_members(user_id,joined_at,last_seen,internal_rating,notes,probation_end) VALUES(?,?,?,?,?,?)",(str(m.id),iso(),iso(),80,"",(now()+timedelta(days=PROBATION_DAYS)).isoformat(timespec="seconds")))
+        if c.execute("SELECT 1 FROM suite_members WHERE user_id=?", (str(m.id),)).fetchone():
+            c.execute("UPDATE suite_members SET last_seen=?,archived_at=NULL WHERE user_id=?", (joined, str(m.id)))
+        else:
+            c.execute(
+                "INSERT INTO suite_members(user_id,joined_at,last_seen,internal_rating,notes,probation_end) VALUES(?,?,?,?,?,?)",
+                (str(m.id), joined, joined, 80, "", (now()+timedelta(days=PROBATION_DAYS)).isoformat(timespec="seconds"))
+            )
+
+def upsert_members_batch(member_rows):
+    """Synchronisiert Teammitglieder in einer einzigen SQLite-Transaktion."""
+    if not member_rows:
+        return 0
+    with cx() as c:
+        for uid, joined_at, probation_end in member_rows:
+            row = c.execute("SELECT 1 FROM suite_members WHERE user_id=?", (str(uid),)).fetchone()
+            if row:
+                c.execute(
+                    "UPDATE suite_members SET last_seen=?,archived_at=NULL WHERE user_id=?",
+                    (joined_at, str(uid))
+                )
+            else:
+                c.execute(
+                    "INSERT INTO suite_members(user_id,joined_at,last_seen,internal_rating,notes,probation_end) VALUES(?,?,?,?,?,?)",
+                    (str(uid), joined_at, joined_at, 80, "", probation_end)
+                )
+    return len(member_rows)
 
 def warns(m,web):
     td=web.load_json(web.DATA_FILE,{})
@@ -580,8 +608,12 @@ class PulseSuite(commands.Cog):
 
     async def sync_members(self,g):
         web=__import__("webserver");ids={int(x) for x in web.load_config().get("team_role_ids",[])}
+        stamp=iso()
+        rows=[]
         for m in g.members:
-            if not m.bot and any(r.id in ids for r in m.roles):upsert_member(m)
+            if not m.bot and any(r.id in ids for r in m.roles):
+                rows.append((str(m.id), stamp, (now()+timedelta(days=PROBATION_DAYS)).isoformat(timespec="seconds")))
+        await asyncio.to_thread(upsert_members_batch, rows)
 
     async def warn_sync(self,g):
         web=__import__("webserver")
