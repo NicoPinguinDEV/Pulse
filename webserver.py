@@ -781,10 +781,14 @@ async def cleanup_expired_warn_restrictions(guild, config: dict | None = None):
                     keep.append(restriction)
                     continue
 
-                if current < expires:
+                warn_is_active = bool(warn.get("active", True)) and not warn.get("revoked_at")
+                if warn_is_active and current < expires:
                     keep.append(restriction)
                     continue
 
+                # Bei einer zurückgezogenen Warnung wird die Sperrrolle ebenfalls
+                # automatisch entfernt; bei fehlenden Rechten wird im nächsten
+                # Bereinigungszyklus erneut versucht.
                 result["checked"] += 1
                 role_id = int(restriction.get("role_id", 0) or 0)
                 member = guild.get_member(int(user_id)) if guild else None
