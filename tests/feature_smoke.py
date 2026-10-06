@@ -59,6 +59,34 @@ def main() -> None:
     assert 'member.status' in web
     assert 'rate_limited(client_key' in web
 
+    # Five-level team warning regression checks.
+    for role_id in (
+        "1489221948348043395",
+        "1489222076370780232",
+        "1531760107971416135",
+        "1556344459422081045",
+        "1556344484198088814",
+    ):
+        assert role_id in web
+    assert '5: int(os.getenv("WARN_ROLE_5"' in web
+    assert '"count": max(0, min(int(count or 0), 5))' in web
+    assert "current_count >= 5" in web
+    assert "for level in sorted(ids):" in web
+    assert "warning_5" in web
+    assert '"/5"' not in web or "/5" in web  # warning UI remains five-based
+
+    # Melonly stays internal and is editable/deletable.
+    web_tree = parse("webserver.py")
+    create_log_nodes = [n for n in ast.walk(web_tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "create_log"]
+    assert create_log_nodes, "webserver.py: create_log fehlt"
+    create_log_source = ast.get_source_segment(web, create_log_nodes[0]) or ""
+    assert "send_team_update_embed" not in create_log_source
+    assert 'Melonly-Eintrag erstellt' in create_log_source
+    assert '@app.post("/log/edit")' in web
+    assert '@app.post("/log/delete")' in web
+    assert "edit_log_id" in web
+    assert "users_map = {}" in web
+
     assert "/warns" in pro
     assert "/settings/pro-warn-roles" in pro
     assert "/settings/pro-warn-sync" in pro
@@ -78,6 +106,9 @@ def main() -> None:
     assert '"/ultimate/api/v2/team"' in ultimate
     assert 'ultimate_automation' in ultimate
     assert "frozen" in web.lower() or "eingefroren" in web.lower()
+    assert "/5600" not in web
+    assert "/5600" not in read("pulse_next.py")
+    assert "/3600" in read("pulse_next.py")
 
     print("Pulse feature smoke test: OK")
 
