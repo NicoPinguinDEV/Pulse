@@ -641,7 +641,11 @@ async def _add_temporary_warn_role(guild, member, role_id: int, warn: dict, labe
         })
         consequences["temporary_roles"] = temporary_roles
         result["expires_at"] = expires_at
-        result["message"] = f"{label} bis {fmt_dt(expires_at)}"
+        try:
+            expiry_text = datetime.fromisoformat(expires_at).strftime("%d.%m.%Y %H:%M")
+        except Exception:
+            expiry_text = expires_at
+        result["message"] = f"{label} bis {expiry_text}"
         return result
     except discord.Forbidden:
         result.update(ok=False, message=f"Discord verweigert die {label}-Rolle.")
