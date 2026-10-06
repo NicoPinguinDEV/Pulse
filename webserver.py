@@ -1744,25 +1744,62 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
         "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
     })
     save_json(LOGS_FILE, logs_db)
-    actor_name = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
-    action_label = {"Warn":"Verwarnung","Kick":"Kick","Ban":"Ban","Ban BOLO":"Ban BOLO","Notiz":"Notiz"}.get(log_type, log_type)
-    color = {"Warn":discord.Color.orange(),"Kick":discord.Color.red(),"Ban":discord.Color.red(),
-             "Ban BOLO":discord.Color.dark_red(),"Notiz":discord.Color.blurple()}.get(log_type,discord.Color.blurple())
-    await send_team_update_embed(
-        ctx.guild,
-        f"⚠️ Team-Update: {action_label}" if log_type == "Warn" else f"📋 Team-Update: {action_label}",
-        f"Ein neuer {action_label.lower()}-Vorgang wurde im Pulse-System dokumentiert.",
-        color,
-        target=f"{target_user}\nRoblox ID: {roblox_id}",
-        action=action_label,
-        actor=actor_name,
-        fields=[
-            ("Grund / Notiz", reason, False),
-            ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True),
-        ],
+    # Melonly bleibt ausschließlich im Panel. Es gibt dafür bewusst kein Discord-Team-Update.
+    log_audit(
+        ctx.user.get("global_name"),
+        ctx.user["id"],
+        "Melonly-Eintrag erstellt",
+        f"Spieler: {target_user} ({log_type})",
     )
-    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Log Erstellt", f"Spieler: {target_user} ({log_type})")
     return back("/dashboard", f"{log_type}-Log für {target_user} gespeichert.")
+
+
+@app.post("/log/edit")
+async def edit_log(
+    request: Request,
+    log_id: str = Form(...),
+    target_user: str = Form(...),
+    roblox_id: str = Form("N/A"),
+    log_type: str = Form(...),
+    reason: str = Form(...),
+    user_session: str = Cookie(None),
+):
+    ctx = auth(request, user_session)
+    logs_db = load_json(LOGS_FILE, [])
+    entry = next((l for l in logs_db if l.get("id") == log_id), None)
+    if not entry:
+        return back("/dashboard", "Log nicht gefunden.", False)
+
+    own = entry.get("moderator_id") and str(entry.get("moderator_id")) == str(ctx.user["id"])
+    if not (own or ctx.perms["can_promote"] or ctx.perms["is_admin"]):
+        raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
+
+    target_user = target_user.strip()[:50]
+    reason = reason.strip()[:1000]
+    roblox_id = roblox_id.strip()
+    if log_type not in VALID_LOG_TYPES or not target_user or not reason:
+        return back("/dashboard", "Ungültige Eingabe.", False)
+    if not re.fullmatch(r"\d{1,15}", roblox_id):
+        roblox_id = "N/A"
+
+    old_target = str(entry.get("target_user") or "")
+    old_type = str(entry.get("type") or "Log")
+    entry.update({
+        "target_user": target_user,
+        "roblox_id": roblox_id,
+        "type": log_type,
+        "reason": reason,
+        "edited_at": now_de().strftime("%d.%m.%Y %H:%M"),
+        "edited_by": ctx.user.get("global_name") or ctx.user.get("username") or "Team",
+    })
+    save_json(LOGS_FILE, logs_db)
+    log_audit(
+        ctx.user.get("global_name"),
+        ctx.user["id"],
+        "Melonly-Eintrag bearbeitet",
+        f"{log_id}: {old_target} ({old_type}) -> {target_user} ({log_type})",
+    )
+    return back("/dashboard", "Melonly-Eintrag wurde bearbeitet.")
 
 
 @app.post("/log/delete")
