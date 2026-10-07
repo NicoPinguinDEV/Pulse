@@ -2340,7 +2340,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                     <input type="hidden" name="user_id" value="{m['id']}">
                     <input type="hidden" name="redirect_to_member" value="">
                     <input type="hidden" name="action_reason" value="">
-                    <button class="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-rose-500/10 text-rose-600 dark:text-rose-400">🚪 Kicken</button>
+                    <button class="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-rose-500/10 text-rose-600 dark:text-rose-400">🚪 Team-Kick</button>
                 </form>'''
             role_actions = f'''
                 <details class="relative">
@@ -2702,7 +2702,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
                 </div>
                 <div class="flex flex-wrap gap-2">
                     <a href="/team/{member.id}/roles" class="bg-indigo-500/10 hover:bg-indigo-600 hover:text-white text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⚙️ Rollen verwalten</a>
-                    <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Dieses Mitglied wirklich vom Discord-Server kicken?');">
+                    <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Dieses Mitglied wirklich aus dem Team entfernen? Es bleibt auf dem Discord-Server.');">
                         <input type="hidden" name="action" value="kick"><input type="hidden" name="user_id" value="{member.id}">
                         <input type="text" name="action_reason" maxlength="500" placeholder="Pflicht: Grund für den Kick..." required class="{INPUT} w-64">
                         <button class="bg-rose-500/10 hover:bg-rose-600 hover:text-white text-rose-600 dark:text-rose-400 border border-rose-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">🚪 Kicken</button>
@@ -3589,25 +3589,28 @@ async def handle_action(
             if action == "kick":
                 if not guild.me:
                     return back(member_url, "Der Bot ist auf diesem Server noch nicht verfügbar.", False)
-                if not guild.me.guild_permissions.kick_members:
-                    return back(member_url, "Der Bot hat keine Berechtigung 'Mitglieder kicken'.", False)
-                if member.top_role.position >= guild.me.top_role.position:
-                    return back(member_url, "Der Bot kann dieses Mitglied nicht kicken, weil dessen höchste Rolle auf oder über der Bot-Rolle liegt.", False)
-                await send_dm_notification(member, f"❌ Du wurdest von **{guild.name}** aus dem Team entfernt. Grund: {action_reason}")
-                await member.kick(reason=f"Vom Dashboard aus gekickt durch {actor}: {action_reason}")
+                if not guild.me.guild_permissions.manage_roles:
+                    return back(member_url, "Der Bot hat keine Berechtigung 'Rollen verwalten'.", False)
+                team_roles = [r for r in member.roles if r.id in team_role_ids]
+                if not team_roles:
+                    return back(member_url, "Dieses Mitglied hat keine Teamrolle mehr.", False)
+                if any(r.position >= guild.me.top_role.position for r in team_roles):
+                    return back(member_url, "Der Bot kann mindestens eine Teamrolle dieses Mitglieds nicht entfernen, weil sie auf oder über der Bot-Rolle liegt.", False)
+                await member.remove_roles(*team_roles, reason=f"Team-Kick durch {actor}: {action_reason}")
+                await send_dm_notification(member, f"❌ Du wurdest aus dem Team von **{guild.name}** entfernt, bleibst aber auf dem Discord-Server. Grund: {action_reason}")
                 await send_team_update_embed(
                     guild,
-                    "🚪 Team-Update: Kick",
-                    f"{member.mention} wurde vom Discord-Server gekickt.",
+                    "🚪 Team-Update: Team-Kick",
+                    f"{member.mention} wurde aus dem Team entfernt, bleibt aber auf dem Discord-Server.",
                     discord.Color.red(),
                     target=member.mention,
-                    action="Server-Kick",
+                    action="Team-Kick",
                     actor=actor,
-                    fields=[("Grund", action_reason, False)],
+                    fields=[("Entfernte Teamrollen", ", ".join(r.mention for r in team_roles), False), ("Grund", action_reason, False)],
                     thumbnail=member.display_avatar.url,
                 )
-                log_audit(actor, actor_id, "Kick", f"Mitglied {member.display_name} gekickt. · Grund: {action_reason}")
-                return back("/team", f"{member.display_name} wurde vom Server gekickt.")
+                log_audit(actor, actor_id, "Team-Kick", f"{member.display_name}: Teamrollen entfernt · Grund: {action_reason}")
+                return back("/team", f"{member.display_name} wurde aus dem Team entfernt. Er bleibt auf dem Discord-Server.")
 
             if action == "promote":
                 new_idx = target_idx + 1
