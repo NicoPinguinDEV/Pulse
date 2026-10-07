@@ -37,6 +37,17 @@ def main() -> None:
     main = read("main.py")
     ultimate = read("pulse_ultimate.py")
 
+    # Pulse Pro /member route must expose the same management actions as the
+    # central dashboard action handler.
+    assert "⚙ Team-Aktionen" in pro
+    assert 'value="promote"' in pro
+    assert 'value="demote"' in pro
+    assert 'name="action" value="kick"' in pro
+    assert "Pflicht: Grund für Beförderung / Degradierung" in pro
+    assert "Pflicht: Grund für den Kick" in pro
+    assert "ws.team_since_for(target, entry)" in pro
+    assert 'placeholder="Pflicht: Rücknahmegrund"' in pro
+
     tree = parse("webserver.py")
     constants = {
         node.targets[0].id: node.value.value
