@@ -908,7 +908,7 @@ def register(app):
                     <input type="hidden" name="user_id" value="{target.id}">
                     <input type="hidden" name="warn_id" value="{e(w.get('id'))}">
                     <input type="hidden" name="redirect_to_member" value="1">
-                    <input name="warn_revoke_reason" maxlength="300" class="pulse-input flex-1 min-w-[180px]" placeholder="Rücknahmegrund (optional)">
+                    <input name="warn_revoke_reason" maxlength="500" required class="pulse-input flex-1 min-w-[180px]" placeholder="Pflicht: Rücknahmegrund">
                     <button class="pulse-btn bad">↩ Zurückziehen</button>
                 </form>'''
             revoked_meta=''
@@ -954,11 +954,48 @@ def register(app):
                 <button class="pulse-btn ghost w-full">Notiz speichern</button>
             </form>'''
 
+        actions_html = ''
+        if c.perms.get('can_promote') or c.perms.get('is_admin'):
+            actor_idx = ws.team_rank(c.member, ids) if c.member else -1
+            target_idx = ws.team_rank(target, ids)
+            can_manage_target = c.perms.get('is_admin') or actor_idx > target_idx
+            if can_manage_target and target.id != c.user['id'] and target.id != c.guild.owner_id:
+                actions_html = f'''
+        <section class="pulse-card mb-4">
+          <div class="pulse-card-h">
+            <div><div class="pulse-section-title">⚙ Team-Aktionen</div><div class="pulse-section-sub">Beförderung, Degradierung, Rollenverwaltung und Server-Kick.</div></div>
+            <span class="pulse-pill good">Führung</span>
+          </div>
+          <div class="pulse-card-b space-y-4">
+            <div>
+              <div class="pulse-section-sub" style="margin-bottom:7px">Team-Rang</div>
+              <form action="/action" method="post" class="flex flex-wrap gap-2 items-center">
+                <input type="hidden" name="user_id" value="{target.id}">
+                <input type="hidden" name="redirect_to_member" value="1">
+                <input type="text" name="action_reason" maxlength="500" required class="pulse-input flex-1 min-w-[260px]" placeholder="Pflicht: Grund für Beförderung / Degradierung">
+                <button name="action" value="promote" class="pulse-btn good" onclick="return confirm('Wirklich befördern?')">⬆️ Befördern</button>
+                <button name="action" value="demote" class="pulse-btn ghost" onclick="return confirm('Wirklich degradieren?')">⬇️ Degradieren</button>
+              </form>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <a href="/team/{target.id}/roles" class="pulse-btn primary">⚙️ Rollen ändern</a>
+              <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Dieses Mitglied wirklich vom Discord-Server kicken?')">
+                <input type="hidden" name="action" value="kick">
+                <input type="hidden" name="user_id" value="{target.id}">
+                <input type="hidden" name="redirect_to_member" value="0">
+                <input type="text" name="action_reason" maxlength="500" required class="pulse-input min-w-[260px]" placeholder="Pflicht: Grund für den Kick">
+                <button class="pulse-btn bad">🚪 Kicken</button>
+              </form>
+            </div>
+          </div>
+        </section>
+        '''
         status='Im Dienst' if active and active.get('status')=='online' else 'Pause' if active else 'Offline'
         status_kind='good' if active and active.get('status')=='online' else 'warn' if active else ''
         body=f'''<div class="pulse-topbar"><div><a href="/team" class="pulse-btn ghost">← Team</a><a href="/warns" class="pulse-btn ghost ml-2">⚠ Warnzentrale</a></div><div class="flex items-center gap-2">{pill(status,status_kind)}</div></div>
-        <section class="pulse-hero"><div class="flex flex-col md:flex-row md:items-center gap-5"><img src="{avatar}" class="w-16 h-16 rounded-2xl border border-white/20" alt=""><div class="flex-1"><div class="pulse-kicker">Teamakte</div><div class="pulse-title">{e(target.display_name)}</div><div class="pulse-sub">{e(role)} · Discord ID {e(target.id)}</div></div><div class="pulse-hero-box min-w-[220px]"><div class="label">WOCHENAKTIVITÄT</div><div class="value">{ws.fmt_duration(weekly)}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{min(100,round(weekly/(max(0.5,float(c.config.get('weekly_goal_hours',3)))*3600)*100))}%;background:white"></span></div></div></div></section>
+        <section class="pulse-hero"><div class="flex flex-col md:flex-row md:items-center gap-5"><img src="{avatar}" class="w-16 h-16 rounded-2xl border border-white/20" alt=""><div class="flex-1"><div class="pulse-kicker">Teamakte</div><div class="pulse-title">{e(target.display_name)}</div><div class="pulse-sub">{e(role)} · Discord ID {e(target.id)} · 🗓️ Team seit {e(ws.team_since_for(target, entry))}</div></div><div class="pulse-hero-box min-w-[220px]"><div class="label">WOCHENAKTIVITÄT</div><div class="value">{ws.fmt_duration(weekly)}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{min(100,round(weekly/(max(0.5,float(c.config.get('weekly_goal_hours',3)))*3600)*100))}%;background:white"></span></div></div></div></section>
         <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{len(active_warns)}/5</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Zurückgezogen</div><div class="value">{len(revoked_warns)}</div></div><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Schichten</div><div class="value">{len(hist)}</div></div><div class="pulse-stat"><div class="icon">🎫</div><div class="label">Tickets</div><div class="value">{len(tickets)}</div></div></div>
+        {actions_html}
         <div class="pulse-grid"><div class="space-y-4">{card("Aktive Verwarnungen",active_html or '<div class="pulse-empty">Keine aktiven Verwarnungen.</div>','⚠')}{card("Warn-Historie",revoked_html or '<div class="pulse-empty">Keine zurückgezogenen Warnungen.</div>','↩')}{card("Notizen",note_html or '<div class="pulse-empty">Keine Notizen.</div>','📝')}{card("Aktivität",event_html or '<div class="pulse-empty">Noch keine zentralen Events.</div>','↯')}</div><div class="space-y-4">{card("Warnrollen-Status",role_pills,'⚙')}{card("Aufgaben",task_html or '<div class="pulse-empty">Keine Aufgaben.</div>','□')}{card("Tickets",ticket_html or '<div class="pulse-empty">Keine Tickets.</div>','🎫')}{quick}</div></div>'''
         return render_pro_page(ws,f'Teamakte · {target.display_name}',c,'team',body)
 
