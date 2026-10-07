@@ -35,6 +35,13 @@ def main() -> None:
     web = read("webserver.py")
     pro = read("pulse_pro.py")
     main = read("main.py")
+    web = read("webserver.py")
+
+    # Team-Kick must only remove team roles, never call Discord member.kick().
+    assert "Team-Kick" in web
+    assert 'await member.remove_roles(*team_roles' in web
+    assert 'await member.kick(' not in web
+    assert "Mitglied bleibt auf dem Discord-Server" not in web or "bleibt aber auf dem Discord-Server" in web
     ultimate = read("pulse_ultimate.py")
 
     # Pulse Pro /member route must expose the same management actions as the
