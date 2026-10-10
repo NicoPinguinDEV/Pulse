@@ -29,6 +29,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import discord
 import pulse_db as pulse_db
+from pulse_melonly import (
+    RobloxLookupError,
+    RobloxUserNotFound,
+    normalize_username,
+    resolve_username as resolve_roblox_username,
+    lookup_user_id as lookup_roblox_user_id,
+    search_users as search_roblox_accounts,
+)
 
 try:
     from zoneinfo import ZoneInfo
@@ -1115,53 +1123,87 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 _roblox_cache = {}
 
 
+def _roblox_error_response(exc: RobloxLookupError):
+    return JSONResponse(
+        {"success": False, "message": str(exc)},
+        status_code=getattr(exc, "http_status", 502),
+    )
+
+
+def _roblox_id_matches(submitted_id: str, resolved_id: str) -> bool:
+    """A submitted ID may be empty/legacy N/A, otherwise it must match Roblox."""
+    raw = str(submitted_id or "").strip()
+    if not raw or raw.upper() == "N/A":
+        return True
+    return bool(re.fullmatch(r"\d{1,20}", raw)) and str(int(raw)) == str(resolved_id)
+
+
 @app.get("/api/roblox-user")
 async def roblox_user_lookup(request: Request, username: str, user_session: str = Cookie(None)):
     user = get_current_user(user_session)
     client_key = f"roblox-lookup:{user.get('id')}:{request.client.host if request.client else 'unknown'}"
     if rate_limited(client_key, limit=60, window=60):
-        return JSONResponse({"success": False, "message": "Zu viele Roblox-Abfragen. Bitte kurz warten."}, status_code=429)
-    name = (username or "").strip()
-    if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", name):
-        return JSONResponse({"success": False, "message": "Ungültiger Roblox-Name (3-20 Zeichen, A-Z, 0-9, _)"})
+        return JSONResponse(
+            {"success": False, "message": "Zu viele Roblox-Abfragen. Bitte kurz warten."},
+            status_code=429,
+        )
+    try:
+        name = normalize_username(username)
+    except RobloxLookupError as exc:
+        return _roblox_error_response(exc)
 
-    cached = _roblox_cache.get(name.lower())
+    cached = _roblox_cache.get(name.casefold())
     if cached and time.time() - cached[0] < 300:
         info = dict(cached[1])
     else:
-        async with httpx.AsyncClient() as client:
-            try:
-                res = await client.post(
-                    "https://users.roblox.com/v1/usernames/users",
-                    json={"usernames": [name], "excludeBannedUsers": False}, timeout=5.0)
-                data = res.json()
-                if not data.get("data"):
-                    return JSONResponse({"success": False, "message": "Nutzer auf Roblox nicht gefunden"})
-                u = data["data"][0]
-                avatar_url = "https://www.roblox.com/headshot-thumbnail/image"
-                try:
-                    thumb = await client.get(
-                        f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={u['id']}&size=150x150&format=Png&isCircular=true",
-                        timeout=5.0)
+        try:
+            account = await resolve_roblox_username(name)
+        except RobloxLookupError as exc:
+            return _roblox_error_response(exc)
+        avatar_url = "https://www.roblox.com/headshot-thumbnail/image"
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                thumb = await client.get(
+                    "https://thumbnails.roblox.com/v1/users/avatar-headshot",
+                    params={
+                        "userIds": account["id"],
+                        "size": "150x150",
+                        "format": "Png",
+                        "isCircular": "true",
+                    },
+                )
+                if 200 <= thumb.status_code < 300:
                     td = thumb.json()
                     if td.get("data"):
                         avatar_url = td["data"][0].get("imageUrl", avatar_url)
-                except Exception:
-                    pass
-                info = {"success": True, "id": str(u["id"]), "username": u["name"],
-                        "displayName": u.get("displayName", u["name"]), "avatarUrl": avatar_url}
-                _roblox_cache[name.lower()] = (time.time(), info)
-            except Exception:
-                return JSONResponse({"success": False, "message": "Roblox ist gerade nicht erreichbar"})
+        except Exception:
+            # Avatar thumbnails are decorative; the verified identity is authoritative.
+            pass
+        info = {
+            "success": True,
+            "id": account["id"],
+            "username": account["username"],
+            "displayName": account["displayName"],
+            "avatarUrl": avatar_url,
+        }
+        now = time.time()
+        _roblox_cache[name.casefold()] = (now, dict(info))
+        _roblox_cache[account["username"].casefold()] = (now, dict(info))
 
-    # Vorstrafen-Hinweis aus den eigenen Logs
-    previous = [l for l in load_json(LOGS_FILE, [])
-                if str(l.get("roblox_id")) == info["id"] or str(l.get("target_user", "")).lower() == info["username"].lower()]
+    previous = [
+        log for log in load_json(LOGS_FILE, [])
+        if isinstance(log, dict) and (
+            str(log.get("roblox_id") or "") == info["id"]
+            or str(log.get("roblox_username") or log.get("target_user") or "").casefold()
+            == info["username"].casefold()
+        )
+    ]
     counts = {}
-    for l in previous:
-        counts[l.get("type", "Log")] = counts.get(l.get("type", "Log"), 0) + 1
+    for log in previous:
+        kind = log.get("type", "Log")
+        counts[kind] = counts.get(kind, 0) + 1
     info["previous_total"] = len(previous)
-    info["previous_summary"] = ", ".join(f"{v}x {k}" for k, v in counts.items())
+    info["previous_summary"] = ", ".join(f"{count}x {kind}" for kind, count in counts.items())
     return JSONResponse(info)
 
 
@@ -1173,46 +1215,30 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
     user = get_current_user(user_session)
     client_key = f"roblox-search:{user.get('id')}:{request.client.host if request.client else 'unknown'}"
     if rate_limited(client_key, limit=120, window=60):
-        return JSONResponse({"success": False, "users": [], "message": "Zu viele Roblox-Suchanfragen. Bitte kurz warten."}, status_code=429)
-    clean = (query or "").strip().lstrip("@")
-    if not re.fullmatch(r"[A-Za-z0-9_]{2,20}", clean):
+        return JSONResponse(
+            {"success": False, "users": [], "message": "Zu viele Roblox-Suchanfragen. Bitte kurz warten."},
+            status_code=429,
+        )
+    clean = str(query or "").strip()
+    if clean.startswith("@"):
+        clean = clean[1:]
+    if len(clean) < 2:
         return JSONResponse({"success": True, "users": []})
-
-    # Bereits im Melonly-Panel verwendete Namen dienen als lokale Fallback-Vorschläge.
-    # Damit bleiben Autocomplete-Einträge sichtbar, selbst wenn Roblox kurz nicht erreichbar ist.
-    users_map = {}
-    for entry in reversed(load_json(LOGS_FILE, [])[-5000:]):
-        saved_name = str(entry.get("target_user") or "").strip()
-        saved_id = str(entry.get("roblox_id") or "")
-        if not saved_name or clean.lower() not in saved_name.lower():
-            continue
-        users_map.setdefault(saved_name.lower(), {
-            "id": saved_id,
-            "name": saved_name,
-            "displayName": saved_name,
-        })
-
     try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(
-                "https://users.roblox.com/v1/users/search",
-                params={"keyword": clean, "limit": 8},
-                timeout=5.0,
-            )
-            data = res.json()
-            for u in data.get("data", [])[:8]:
-                name = str(u.get("name") or "")
-                if not name:
-                    continue
-                users_map[name.lower()] = {
-                    "id": str(u.get("id", "")),
-                    "name": name,
-                    "displayName": str(u.get("displayName") or name),
-                }
-    except Exception:
-        pass
+        accounts = await search_roblox_accounts(clean)
+    except RobloxLookupError as exc:
+        return JSONResponse(
+            {"success": False, "users": [], "message": str(exc)},
+            status_code=getattr(exc, "http_status", 502),
+        )
+    return JSONResponse({
+        "success": True,
+        "users": [
+            {"id": account["id"], "name": account["username"], "displayName": account["displayName"]}
+            for account in accounts
+        ],
+    })
 
-    return JSONResponse({"success": True, "users": list(users_map.values())[:8]})
 
 # =============================================================
 # HEALTH CHECK
