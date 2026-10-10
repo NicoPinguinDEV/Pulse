@@ -2112,36 +2112,24 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
 
     target_user = account["username"]
     stamp = now_de().strftime("%d.%m.%Y %H:%M")
-    with _io_lock:
-        logs_db = load_json(LOGS_FILE, [])
-        if not isinstance(logs_db, list):
-            logs_db = []
-        # Prevent accidental double-submit duplicates while allowing distinct incidents
-        # and further logs for the same Roblox account.
-        duplicate = next((
-            log for log in logs_db
-            if isinstance(log, dict)
-            and str(log.get("roblox_id") or "") == account["id"]
-            and str(log.get("type") or "") == log_type
-            and str(log.get("reason") or "").strip().casefold() == reason.casefold()
-            and str(log.get("created_at") or "") == stamp
-        ), None)
-        if duplicate:
-            return back("/dashboard#playerlog", "Dieser identische Melonly-Eintrag wurde gerade bereits gespeichert.", False)
-        logs_db.append({
-            "id": f"log_{uuid.uuid4().hex}",
-            "target_user": target_user,
-            "roblox_username": account["username"],
-            "roblox_display_name": account["displayName"],
-            "roblox_id": account["id"],
-            "roblox_verified": True,
-            "type": log_type,
-            "reason": reason,
-            "moderator": ctx.user.get("global_name") or ctx.user.get("username") or "Dashboard Admin",
-            "moderator_id": str(ctx.user["id"]),
-            "created_at": stamp,
-        })
-        save_json(LOGS_FILE, logs_db)
+    entry_data = {
+        "id": f"log_{uuid.uuid4().hex}",
+        "target_user": target_user,
+        "roblox_username": account["username"],
+        "roblox_display_name": account["displayName"],
+        "roblox_id": account["id"],
+        "roblox_verified": True,
+        "type": log_type,
+        "reason": reason,
+        "moderator": ctx.user.get("global_name") or ctx.user.get("username") or "Dashboard Admin",
+        "moderator_id": str(ctx.user["id"]),
+        "created_at": stamp,
+    }
+    status, _saved_entry = MELOONLY_STORE.create(entry_data)
+    if status == "duplicate":
+        return back("/dashboard#playerlog", "Dieser identische Melonly-Eintrag wurde gerade bereits gespeichert.", False)
+    if status != "created":
+        return back("/dashboard#playerlog", "Melonly-Eintrag konnte nicht gespeichert werden.", False)
     # Melonly remains dashboard-only; no Discord Team Updates call belongs here.
     log_audit(
         ctx.user.get("global_name") or ctx.user.get("username"),
@@ -2248,19 +2236,9 @@ async def edit_log(
             return back("/dashboard#playerlog", "Der Eintrag wurde während der Bearbeitung geändert. Bitte lade die Seite neu.", False)
         if str(entry.get("roblox_id") or "").strip() != saved_id:
             return back("/dashboard#playerlog", "Der Eintrag wurde zwischenzeitlich geändert. Bitte lade die Seite neu.", False)
-        duplicate = next((
-            log for log in logs_db
-            if isinstance(log, dict) and str(log.get("id") or "") != log_id
-            and str(log.get("roblox_id") or "") == account["id"]
-            and str(log.get("type") or "") == log_type
-            and str(log.get("reason") or "").strip().casefold() == reason.casefold()
-            and str(log.get("created_at") or "") == stamp
-        ), None)
-        if duplicate:
-            return back("/dashboard#playerlog", "Ein identischer Eintrag wurde gerade bereits gespeichert.", False)
         old_target = str(entry.get("target_user") or "")
         old_type = str(entry.get("type") or "Log")
-        entry.update({
+        changes = {
             "target_user": target_user,
             "roblox_username": account["username"],
             "roblox_display_name": account["displayName"],
@@ -2270,8 +2248,18 @@ async def edit_log(
             "reason": reason,
             "edited_at": stamp,
             "edited_by": ctx.user.get("global_name") or ctx.user.get("username") or "Team",
-        })
-        save_json(LOGS_FILE, logs_db)
+        }
+        status, updated_entry = MELOONLY_STORE.update(
+            log_id, entry_snapshot, changes, reject_duplicate=True
+        )
+        if status == "missing":
+            return back("/dashboard#playerlog", "Log wurde zwischenzeitlich gelöscht.", False)
+        if status == "conflict":
+            return back("/dashboard#playerlog", "Der Eintrag wurde während der Bearbeitung geändert. Bitte lade die Seite neu.", False)
+        if status == "duplicate":
+            return back("/dashboard#playerlog", "Ein identischer Eintrag wurde gerade bereits gespeichert.", False)
+        if status != "updated" or not updated_entry:
+            return back("/dashboard#playerlog", "Änderungen konnten nicht gespeichert werden.", False)
     log_audit(
         ctx.user.get("global_name") or ctx.user.get("username"),
         ctx.user["id"],
@@ -2297,10 +2285,14 @@ async def delete_log(request: Request, log_id: str = Form(...), user_session: st
             raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs löschen.")
         if not _can_manage_log_type(ctx.perms, str(entry.get("type") or "")):
             raise HTTPException(status_code=403, detail="Für diesen Eintragstyp fehlt dir die Berechtigung.")
-        remaining = [log for log in logs_db if not (isinstance(log, dict) and str(log.get("id") or "") == log_id)]
-        if len(remaining) == len(logs_db):
+        status, removed_entry = MELOONLY_STORE.delete(log_id, expected_snapshot=dict(entry))
+        if status == "missing":
             return back("/dashboard#playerlog", "Log wurde zwischenzeitlich bereits gelöscht.", False)
-        save_json(LOGS_FILE, remaining)
+        if status == "conflict":
+            return back("/dashboard#playerlog", "Der Eintrag wurde geändert. Bitte lade die Seite neu.", False)
+        if status != "deleted" or not removed_entry:
+            return back("/dashboard#playerlog", "Log konnte nicht gelöscht werden.", False)
+        entry = removed_entry
     log_audit(
         ctx.user.get("global_name") or ctx.user.get("username"),
         ctx.user["id"],
