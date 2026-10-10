@@ -3615,10 +3615,9 @@ async def handle_action(
 
             if action == "server_kick":
                 actor_member = ctx.member
-                bot_member = guild.me
                 if not actor_member or not actor_member.guild_permissions.kick_members:
                     return back(member_url, "Dir fehlt die Discord-Berechtigung „Mitglieder kicken“.", False)
-                if not bot_member or not bot_member.guild_permissions.kick_members:
+                if not guild.me or not guild.me.guild_permissions.kick_members:
                     return back(member_url, "Der Bot hat keine Discord-Berechtigung „Mitglieder kicken“.", False)
                 try:
                     await send_dm_notification(
