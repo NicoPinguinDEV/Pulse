@@ -60,6 +60,8 @@ def main() -> None:
     assert 'ctx.member.guild_permissions.kick_members' in server_kick_source
     assert 'guild.me.guild_permissions.kick_members' in server_kick_source
     assert "bleibst aber auf dem Discord-Server" in web
+    assert "member.top_role >= bot_member.top_role" in server_kick_source
+    assert "ctx.member.top_role <= member.top_role" in server_kick_source
     ultimate = read("pulse_ultimate.py")
 
     # Pulse Pro /member route must expose the same management actions as the
@@ -146,6 +148,15 @@ def main() -> None:
     assert "guild.me.guild_permissions.kick_members" in web
     assert "def _record_team_since" in read("cogs/pulse_next.py")
     assert 'entry["team_since"]' in read("cogs/pulse_next.py")
+
+    # Team-list automation avoids needless PATCHes and obeys Discord Retry-After.
+    teamlist = read("cogs/teamliste.py")
+    assert "old_thumbnail == new_thumbnail" in teamlist
+    assert "old_footer == new_footer" in teamlist
+    assert 'e.response.headers.get("Retry-After", "")' in teamlist
+    assert "await msg.edit(embed=embed)" in teamlist
+    assert "keine weiteren Versuche in diesem Durchlauf" in teamlist
+
     # Required reasons for personnel actions.
     assert 'name="action_reason"' in web
     assert 'action_reason: str = Form(None)' in web
