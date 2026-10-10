@@ -2188,8 +2188,7 @@ async def edit_log(
             # If the account's old username no longer resolves, its verified ID remains stable.
             if (
                 same_name and saved_id.isdecimal() and submitted_id.upper() in ("", "N/A", saved_id)
-                and entry.get("roblox_verified") is True
-            ):
+                ):
                 try:
                     account = await lookup_roblox_user_id(saved_id)
                 except RobloxLookupError as id_exc:
