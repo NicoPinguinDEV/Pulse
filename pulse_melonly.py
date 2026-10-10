@@ -192,7 +192,7 @@ async def search_users(
     except Exception as exc:
         raise RobloxUnavailable("Roblox-Suche ist gerade nicht erreichbar. Bitte später erneut versuchen.") from exc
 
-    rows = payload.get("data", []) if isinstance(payload, dict) else []
+    rows = (payload.get("data", []) or []) if isinstance(payload, dict) else []
     users: list[dict[str, str]] = []
     seen_ids: set[str] = set()
     for row in rows:
