@@ -128,7 +128,7 @@ class RobloxIdentityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(account["displayName"], "New Display")
 
     async def test_search_suggestions_keep_username_separate_from_display_name(self):
-        _client, factory = factory_for(GET=FakeResponse({"data": [
+        client, factory = factory_for(GET=FakeResponse({"data": [
             {"id": 321, "name": "ActualName", "displayName": "Pretty Name"},
             {"id": 321, "name": "ActualName", "displayName": "Pretty Name"},
         ]}))
