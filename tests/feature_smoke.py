@@ -58,7 +58,7 @@ def main() -> None:
     assert 'await member.kick(' not in team_kick_source
     assert 'await member.kick(reason=' in server_kick_source
     assert 'ctx.member.guild_permissions.kick_members' in server_kick_source
-    assert 'guild.me.guild_permissions.kick_members' in server_kick_source
+    assert 'bot_member.guild_permissions.kick_members' in server_kick_source
     assert "bleibst aber auf dem Discord-Server" in web
     assert "member.top_role >= bot_member.top_role" in server_kick_source
     assert "ctx.member.top_role <= member.top_role" in server_kick_source
@@ -145,7 +145,7 @@ def main() -> None:
     assert 'href="/team/{member.id}/roles"' in web
     assert 'name="action_reason"' in web
     assert 'action == "kick"' in web
-    assert "guild.me.guild_permissions.kick_members" in web
+    assert "bot_member.guild_permissions.kick_members" in web
     assert "def _record_team_since" in read("cogs/pulse_next.py")
     assert 'entry["team_since"]' in read("cogs/pulse_next.py")
 
