@@ -10,7 +10,6 @@ import threading
 import time
 from typing import Any, Callable
 
-import httpx
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 _SEARCH_RE = re.compile(r"^[A-Za-z0-9_]{2,20}$")
@@ -94,7 +93,13 @@ def clear_cache() -> None:
 
 
 def _client(factory: Callable[..., Any] | None):
-    return (factory or httpx.AsyncClient)(timeout=5.0)
+    if factory is not None:
+        return factory(timeout=5.0)
+    try:
+        import httpx
+    except ImportError as exc:
+        raise RobloxUnavailable("Die HTTP-Abhängigkeit für Roblox-Abfragen fehlt.") from exc
+    return httpx.AsyncClient(timeout=5.0)
 
 
 async def resolve_username(
@@ -124,7 +129,7 @@ async def resolve_username(
     except Exception as exc:
         raise RobloxUnavailable("Roblox ist gerade nicht erreichbar. Bitte später erneut versuchen.") from exc
 
-    rows = payload.get("data", []) if isinstance(payload, dict) else []
+    rows = (payload.get("data", []) or []) if isinstance(payload, dict) else []
     # The endpoint is expected to resolve exact usernames. Refuse a surprising
     # different account rather than binding the input to the first returned row.
     matched = next(
