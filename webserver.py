@@ -2025,38 +2025,67 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), u
 async def create_log(request: Request, target_user: str = Form(...), roblox_id: str = Form("N/A"),
                      log_type: str = Form(...), reason: str = Form(...), user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
-    target_user = target_user.strip()[:50]
-    reason = reason.strip()[:1000]
-    roblox_id = roblox_id.strip()
+    target_user = str(target_user or "").strip()[:50]
+    reason = str(reason or "").strip()[:1000]
+    submitted_id = str(roblox_id or "").strip()
     if log_type not in VALID_LOG_TYPES or not target_user or not reason:
-        return back("/dashboard", "Ungültige Eingabe.", False)
+        return back("/dashboard#playerlog", "Username, Typ und Begründung sind Pflicht.", False)
     if log_type in ("Warn", "Kick", "Ban", "Ban BOLO") and not (ctx.perms.get("can_warn") or ctx.perms.get("is_admin")):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Strafmaßnahmen.")
     if log_type == "Notiz" and not (ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Notizen.")
-    if not re.fullmatch(r"\d{1,15}", roblox_id):
-        roblox_id = "N/A"
 
-    logs_db = load_json(LOGS_FILE, [])
-    logs_db.append({
-        "id": f"log_{uuid.uuid4().hex[:6]}",
-        "target_user": target_user,
-        "roblox_id": roblox_id,
-        "type": log_type,
-        "reason": reason,
-        "moderator": ctx.user.get("global_name", "Dashboard Admin"),
-        "moderator_id": ctx.user["id"],
-        "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
-    })
-    save_json(LOGS_FILE, logs_db)
-    # Melonly bleibt ausschließlich im Panel. Es gibt dafür bewusst kein Discord-Team-Update.
+    try:
+        account = await resolve_roblox_username(target_user)
+    except RobloxLookupError as exc:
+        return back("/dashboard#playerlog", str(exc), False)
+    if not _roblox_id_matches(submitted_id, account["id"]):
+        return back(
+            "/dashboard#playerlog",
+            "Die eingegebene Roblox-ID passt nicht zum Username. Bitte das Konto erneut auswählen.",
+            False,
+        )
+
+    target_user = account["username"]
+    stamp = now_de().strftime("%d.%m.%Y %H:%M")
+    with _io_lock:
+        logs_db = load_json(LOGS_FILE, [])
+        if not isinstance(logs_db, list):
+            logs_db = []
+        # Prevent accidental double-submit duplicates while allowing distinct incidents
+        # and further logs for the same Roblox account.
+        duplicate = next((
+            log for log in logs_db
+            if isinstance(log, dict)
+            and str(log.get("roblox_id") or "") == account["id"]
+            and str(log.get("type") or "") == log_type
+            and str(log.get("reason") or "").strip().casefold() == reason.casefold()
+            and str(log.get("created_at") or "") == stamp
+        ), None)
+        if duplicate:
+            return back("/dashboard#playerlog", "Dieser identische Melonly-Eintrag wurde gerade bereits gespeichert.", False)
+        logs_db.append({
+            "id": f"log_{uuid.uuid4().hex}",
+            "target_user": target_user,
+            "roblox_username": account["username"],
+            "roblox_display_name": account["displayName"],
+            "roblox_id": account["id"],
+            "roblox_verified": True,
+            "type": log_type,
+            "reason": reason,
+            "moderator": ctx.user.get("global_name") or ctx.user.get("username") or "Dashboard Admin",
+            "moderator_id": str(ctx.user["id"]),
+            "created_at": stamp,
+        })
+        save_json(LOGS_FILE, logs_db)
+    # Melonly remains dashboard-only; no Discord Team Updates call belongs here.
     log_audit(
-        ctx.user.get("global_name"),
+        ctx.user.get("global_name") or ctx.user.get("username"),
         ctx.user["id"],
         "Melonly-Eintrag erstellt",
-        f"Spieler: {target_user} ({log_type})",
+        f"Spieler: {target_user} ({log_type}) · Roblox-ID {account['id']}",
     )
-    return back("/dashboard", f"{log_type}-Log für {target_user} gespeichert.")
+    return back("/dashboard#playerlog", f"{log_type}-Log für {target_user} gespeichert.")
 
 
 @app.post("/log/edit")
@@ -2065,62 +2094,148 @@ async def edit_log(
     log_id: str = Form(...),
     target_user: str = Form(...),
     roblox_id: str = Form("N/A"),
+    original_roblox_id: str = Form(""),
     log_type: str = Form(...),
     reason: str = Form(...),
     user_session: str = Cookie(None),
 ):
     ctx = auth(request, user_session)
-    logs_db = load_json(LOGS_FILE, [])
-    entry = next((l for l in logs_db if l.get("id") == log_id), None)
-    if not entry:
-        return back("/dashboard", "Log nicht gefunden.", False)
-
-    own = entry.get("moderator_id") and str(entry.get("moderator_id")) == str(ctx.user["id"])
-    if not (own or ctx.perms["can_promote"] or ctx.perms["is_admin"]):
-        raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
-
-    target_user = target_user.strip()[:50]
-    reason = reason.strip()[:1000]
-    roblox_id = roblox_id.strip()
+    log_id = str(log_id or "").strip()
+    target_user = str(target_user or "").strip()[:50]
+    reason = str(reason or "").strip()[:1000]
+    submitted_id = str(roblox_id or "").strip()
     if log_type not in VALID_LOG_TYPES or not target_user or not reason:
-        return back("/dashboard", "Ungültige Eingabe.", False)
-    if not re.fullmatch(r"\d{1,15}", roblox_id):
-        roblox_id = "N/A"
+        return back("/dashboard#playerlog", "Username, Typ und Begründung sind Pflicht.", False)
+    if log_type in ("Warn", "Kick", "Ban", "Ban BOLO") and not (ctx.perms.get("can_warn") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Strafmaßnahmen.")
+    if log_type == "Notiz" and not (ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Notizen.")
 
-    old_target = str(entry.get("target_user") or "")
-    old_type = str(entry.get("type") or "Log")
-    entry.update({
-        "target_user": target_user,
-        "roblox_id": roblox_id,
-        "type": log_type,
-        "reason": reason,
-        "edited_at": now_de().strftime("%d.%m.%Y %H:%M"),
-        "edited_by": ctx.user.get("global_name") or ctx.user.get("username") or "Team",
-    })
-    save_json(LOGS_FILE, logs_db)
+    with _io_lock:
+        logs_db = load_json(LOGS_FILE, [])
+        if not isinstance(logs_db, list):
+            logs_db = []
+        entry = next((log for log in logs_db if isinstance(log, dict) and str(log.get("id") or "") == log_id), None)
+        if not entry:
+            return back("/dashboard#playerlog", "Log nicht gefunden.", False)
+        own = str(entry.get("moderator_id") or "") == str(ctx.user["id"])
+        if not (own or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
+            raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
+
+        saved_id = str(entry.get("roblox_id") or "").strip()
+        saved_name = str(entry.get("roblox_username") or entry.get("target_user") or "").strip()
+        current_original_id = str(original_roblox_id or "").strip()
+        if current_original_id and saved_id and current_original_id != saved_id:
+            return back("/dashboard#playerlog", "Der Eintrag wurde zwischenzeitlich geändert. Bitte lade die Seite neu.", False)
+
+        same_name = target_user.removeprefix("@").casefold() == saved_name.removeprefix("@").casefold()
+        id_unchanged = submitted_id.upper() in ("", "N/A") or submitted_id == saved_id
+        account = None
+        if entry.get("roblox_verified") is True and saved_id.isdecimal() and same_name and id_unchanged:
+            # Text-only edits must work during Roblox downtime and never lose the stable ID.
+            account = {
+                "id": str(int(saved_id)),
+                "username": saved_name,
+                "displayName": str(entry.get("roblox_display_name") or entry.get("displayName") or saved_name),
+            }
+
+    if account is None:
+        try:
+            account = await resolve_roblox_username(target_user)
+        except RobloxUserNotFound as exc:
+            # If the account's old username no longer resolves, its verified ID remains stable.
+            if (
+                same_name and saved_id.isdecimal() and submitted_id.upper() in ("", "N/A", saved_id)
+                and entry.get("roblox_verified") is True
+            ):
+                try:
+                    account = await lookup_roblox_user_id(saved_id)
+                except RobloxLookupError as id_exc:
+                    return back("/dashboard#playerlog", str(id_exc), False)
+            else:
+                return back("/dashboard#playerlog", str(exc), False)
+        except RobloxLookupError as exc:
+            return back("/dashboard#playerlog", str(exc), False)
+
+    if not _roblox_id_matches(submitted_id, account["id"]):
+        return back(
+            "/dashboard#playerlog",
+            "Die eingegebene Roblox-ID passt nicht zum Username. Bitte das Konto erneut auswählen.",
+            False,
+        )
+
+    target_user = account["username"]
+    stamp = now_de().strftime("%d.%m.%Y %H:%M")
+    with _io_lock:
+        logs_db = load_json(LOGS_FILE, [])
+        if not isinstance(logs_db, list):
+            logs_db = []
+        entry = next((log for log in logs_db if isinstance(log, dict) and str(log.get("id") or "") == log_id), None)
+        if not entry:
+            return back("/dashboard#playerlog", "Log wurde zwischenzeitlich gelöscht.", False)
+        own = str(entry.get("moderator_id") or "") == str(ctx.user["id"])
+        if not (own or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
+            raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
+        if str(entry.get("roblox_id") or "").strip() != saved_id:
+            return back("/dashboard#playerlog", "Der Eintrag wurde zwischenzeitlich geändert. Bitte lade die Seite neu.", False)
+        duplicate = next((
+            log for log in logs_db
+            if isinstance(log, dict) and str(log.get("id") or "") != log_id
+            and str(log.get("roblox_id") or "") == account["id"]
+            and str(log.get("type") or "") == log_type
+            and str(log.get("reason") or "").strip().casefold() == reason.casefold()
+            and str(log.get("created_at") or "") == stamp
+        ), None)
+        if duplicate:
+            return back("/dashboard#playerlog", "Ein identischer Eintrag wurde gerade bereits gespeichert.", False)
+        old_target = str(entry.get("target_user") or "")
+        old_type = str(entry.get("type") or "Log")
+        entry.update({
+            "target_user": target_user,
+            "roblox_username": account["username"],
+            "roblox_display_name": account["displayName"],
+            "roblox_id": account["id"],
+            "roblox_verified": True,
+            "type": log_type,
+            "reason": reason,
+            "edited_at": stamp,
+            "edited_by": ctx.user.get("global_name") or ctx.user.get("username") or "Team",
+        })
+        save_json(LOGS_FILE, logs_db)
     log_audit(
-        ctx.user.get("global_name"),
+        ctx.user.get("global_name") or ctx.user.get("username"),
         ctx.user["id"],
         "Melonly-Eintrag bearbeitet",
-        f"{log_id}: {old_target} ({old_type}) -> {target_user} ({log_type})",
+        f"{log_id}: {old_target} ({old_type}) -> {target_user} ({log_type}) · Roblox-ID {account['id']}",
     )
-    return back("/dashboard", "Melonly-Eintrag wurde bearbeitet.")
+    return back("/dashboard#playerlog", "Melonly-Eintrag wurde bearbeitet.")
 
 
 @app.post("/log/delete")
 async def delete_log(request: Request, log_id: str = Form(...), user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
-    logs_db = load_json(LOGS_FILE, [])
-    entry = next((l for l in logs_db if l.get("id") == log_id), None)
-    if not entry:
-        return back("/dashboard", "Log nicht gefunden.", False)
-    own = entry.get("moderator_id") and entry.get("moderator_id") == ctx.user["id"]
-    if not (own or ctx.perms["can_promote"] or ctx.perms["is_admin"]):
-        raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs löschen.")
-    save_json(LOGS_FILE, [l for l in logs_db if l.get("id") != log_id])
-    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Log Gelöscht",
-              f"{entry.get('target_user')} ({entry.get('type')}) – ID {log_id}")
-    return back("/dashboard", "Log gelöscht.")
+    log_id = str(log_id or "").strip()
+    with _io_lock:
+        logs_db = load_json(LOGS_FILE, [])
+        if not isinstance(logs_db, list):
+            logs_db = []
+        entry = next((log for log in logs_db if isinstance(log, dict) and str(log.get("id") or "") == log_id), None)
+        if not entry:
+            return back("/dashboard#playerlog", "Log nicht gefunden oder bereits gelöscht.", False)
+        own = str(entry.get("moderator_id") or "") == str(ctx.user["id"])
+        if not (own or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
+            raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs löschen.")
+        remaining = [log for log in logs_db if not (isinstance(log, dict) and str(log.get("id") or "") == log_id)]
+        if len(remaining) == len(logs_db):
+            return back("/dashboard#playerlog", "Log wurde zwischenzeitlich bereits gelöscht.", False)
+        save_json(LOGS_FILE, remaining)
+    log_audit(
+        ctx.user.get("global_name") or ctx.user.get("username"),
+        ctx.user["id"],
+        "Melonly-Eintrag gelöscht",
+        f"{entry.get('target_user')} ({entry.get('type')}) – ID {log_id}",
+    )
+    return back("/dashboard#playerlog", "Melonly-Eintrag wurde dauerhaft gelöscht.")
 
 
 def csv_safe(value) -> str:
