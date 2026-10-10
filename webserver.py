@@ -2183,6 +2183,7 @@ async def edit_log(
             raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
         if not _can_manage_log_type(ctx.perms, str(entry.get("type") or "")) or not _can_manage_log_type(ctx.perms, log_type):
             raise HTTPException(status_code=403, detail="Für diesen Eintragstyp fehlt dir die Berechtigung.")
+        entry_snapshot = dict(entry)
 
         saved_id = str(entry.get("roblox_id") or "").strip()
         saved_name = str(entry.get("roblox_username") or entry.get("target_user") or "").strip()
@@ -2239,6 +2240,8 @@ async def edit_log(
             raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
         if not _can_manage_log_type(ctx.perms, str(entry.get("type") or "")) or not _can_manage_log_type(ctx.perms, log_type):
             raise HTTPException(status_code=403, detail="Für diesen Eintragstyp fehlt dir die Berechtigung.")
+        if entry != entry_snapshot:
+            return back("/dashboard#playerlog", "Der Eintrag wurde während der Bearbeitung geändert. Bitte lade die Seite neu.", False)
         if str(entry.get("roblox_id") or "").strip() != saved_id:
             return back("/dashboard#playerlog", "Der Eintrag wurde zwischenzeitlich geändert. Bitte lade die Seite neu.", False)
         duplicate = next((
