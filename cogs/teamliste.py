@@ -236,6 +236,7 @@ class TeamlisteCog(commands.Cog):
                 msg_id = get_msg_id(key)
 
                 if msg_id and msg_id != 0:
+                    msg = None
                     try:
                         msg = await channel.fetch_message(msg_id)
 
@@ -277,9 +278,15 @@ class TeamlisteCog(commands.Cog):
                                 retry_after = 5.0
                             print(
                                 f"Discord-Rate-Limit bei Teamliste ({key}); "
-                                f"warte {retry_after:.2f}s und wiederhole einmal."
+                                f"warte {retry_after:.2f}s."
                             )
                             await asyncio.sleep(retry_after)
+                            if msg is None:
+                                print(
+                                    f"Teamliste ({key}) konnte wegen eines Rate-Limits beim "
+                                    "Abruf nicht aktualisiert werden; nächster regulärer Durchlauf."
+                                )
+                                break
                             try:
                                 await msg.edit(embed=embed)
                                 await asyncio.sleep(2)
