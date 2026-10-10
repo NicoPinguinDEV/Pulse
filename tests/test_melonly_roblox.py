@@ -1,9 +1,15 @@
 """Mock-based regression tests for verified Roblox identity resolution."""
 from __future__ import annotations
 
+import json
+import os
+import tempfile
+import threading
 import unittest
+from pathlib import Path
 
 from pulse_melonly import (
+    MelonlyStore,
     InvalidRobloxUsername,
     RobloxRateLimited,
     RobloxUnavailable,
@@ -131,6 +137,98 @@ class RobloxIdentityTests(unittest.IsolatedAsyncioTestCase):
         second = await resolve_username("@PLAYERABC", client_factory=factory)
         self.assertEqual(first["id"], second["id"])
         self.assertEqual(len(client.calls), 1)
+
+
+def read_json(path, default):
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        return default
+
+
+def write_json(path, value):
+    temporary = f"{path}.tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(value, handle, ensure_ascii=False, indent=2)
+    os.replace(temporary, path)
+
+
+class MelonlyPersistenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.path = str(Path(self.temp_dir.name) / "logs.json")
+        self.lock = threading.RLock()
+        self.store = MelonlyStore(self.path, read_json, write_json, self.lock)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    @staticmethod
+    def entry(entry_id="log-1"):
+        return {
+            "id": entry_id,
+            "target_user": "PlayerABC",
+            "roblox_username": "PlayerABC",
+            "roblox_display_name": "Player",
+            "roblox_id": "123456",
+            "roblox_verified": True,
+            "type": "Warn",
+            "reason": "Testgrund",
+            "moderator_id": "42",
+            "created_at": "10.10.2026 12:00",
+        }
+
+    def test_create_persists_and_rejects_identical_duplicate(self):
+        status, saved = self.store.create(self.entry())
+        self.assertEqual(status, "created")
+        self.assertEqual(saved["roblox_id"], "123456")
+
+        # Re-open the store to verify this is durable file persistence.
+        reopened = MelonlyStore(self.path, read_json, write_json, threading.RLock())
+        self.assertEqual(len(reopened.list()), 1)
+        self.assertEqual(reopened.get("log-1")["roblox_username"], "PlayerABC")
+
+        status, saved = reopened.create(self.entry("log-2"))
+        self.assertEqual(status, "duplicate")
+        self.assertIsNone(saved)
+        self.assertEqual(len(reopened.list()), 1)
+
+    def test_edit_persists_and_rejects_stale_snapshot(self):
+        self.assertEqual(self.store.create(self.entry())[0], "created")
+        snapshot = self.store.get("log-1")
+        status, updated = self.store.update(
+            "log-1", snapshot, {"reason": "Neuer Grund", "edited_at": "10.10.2026 12:05"}
+        )
+        self.assertEqual(status, "updated")
+        self.assertEqual(updated["reason"], "Neuer Grund")
+
+        reopened = MelonlyStore(self.path, read_json, write_json, threading.RLock())
+        self.assertEqual(reopened.get("log-1")["reason"], "Neuer Grund")
+        status, current = reopened.update("log-1", snapshot, {"reason": "Stale Überschreibung"})
+        self.assertEqual(status, "conflict")
+        self.assertEqual(current["reason"], "Neuer Grund")
+
+    def test_delete_is_durable_and_repeat_delete_is_safe(self):
+        self.assertEqual(self.store.create(self.entry())[0], "created")
+        snapshot = self.store.get("log-1")
+        status, removed = self.store.delete("log-1", expected_snapshot=snapshot)
+        self.assertEqual(status, "deleted")
+        self.assertEqual(removed["id"], "log-1")
+
+        reopened = MelonlyStore(self.path, read_json, write_json, threading.RLock())
+        self.assertIsNone(reopened.get("log-1"))
+        self.assertEqual(reopened.delete("log-1")[0], "missing")
+
+    def test_delete_refuses_to_remove_an_entry_changed_after_confirmation(self):
+        self.assertEqual(self.store.create(self.entry())[0], "created")
+        stale_snapshot = self.store.get("log-1")
+        current = self.store.get("log-1")
+        self.assertEqual(self.store.update("log-1", current, {"reason": "Anderer Grund"})[0], "updated")
+        status, _removed = self.store.delete("log-1", expected_snapshot=stale_snapshot)
+        self.assertEqual(status, "conflict")
+        self.assertEqual(self.store.get("log-1")["reason"], "Anderer Grund")
+
 
 
 if __name__ == "__main__":
