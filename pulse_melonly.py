@@ -53,11 +53,12 @@ def normalize_username(value: Any) -> str:
 
 
 def normalize_search_query(value: Any) -> str:
-    query = str(value or "").strip()
+    """Sanitize a search keyword; it may be a display name, never an identity."""
+    query = " ".join(str(value or "").strip().split())
     if query.startswith("@"):
         query = query[1:]
-    if not _SEARCH_RE.fullmatch(query):
-        raise InvalidRobloxUsername("Bitte gib mindestens 2 gültige Zeichen für die Roblox-Suche ein.")
+    if len(query) < 2 or len(query) > 50 or any(ord(char) < 32 for char in query):
+        raise InvalidRobloxUsername("Bitte gib 2–50 gültige Zeichen für die Roblox-Suche ein.")
     return query
 
 
