@@ -3614,21 +3614,30 @@ async def handle_action(
                 return back("/team", f"{member.display_name} wurde aus dem Team entfernt. Er bleibt auf dem Discord-Server.")
 
             if action == "server_kick":
-                if not ctx.member or not ctx.member.guild_permissions.kick_members:
+                actor_member = ctx.member
+                bot_member = guild.me
+                if not actor_member or not actor_member.guild_permissions.kick_members:
                     return back(member_url, "Dir fehlt die Discord-Berechtigung „Mitglieder kicken“.", False)
-                if not guild.me or not guild.me.guild_permissions.kick_members:
+                if not bot_member or not bot_member.guild_permissions.kick_members:
                     return back(member_url, "Der Bot hat keine Discord-Berechtigung „Mitglieder kicken“.", False)
+                if member.top_role >= bot_member.top_role:
+                    return back(member_url, "Der Bot kann dieses Mitglied wegen der Discord-Rollenhierarchie nicht kicken.", False)
+                if actor_member.id != guild.owner_id and actor_member.top_role <= member.top_role:
+                    return back(member_url, "Deine höchste Discord-Rolle muss über der höchsten Rolle des Zielmitglieds liegen.", False)
                 try:
-                    await send_dm_notification(
-                        member,
-                        f"🚪 Du wurdest vom Discord-Server **{guild.name}** entfernt. Grund: {action_reason}",
-                    )
                     await member.kick(reason=f"Discord-Server-Kick durch {actor}: {action_reason}")
                 except discord.Forbidden:
-                    return back(member_url, "Discord hat den Server-Kick verweigert. Bitte prüfe die Bot-Berechtigungen.", False)
+                    return back(member_url, "Discord hat den Server-Kick verweigert. Bitte prüfe Berechtigungen und Rollen-Hierarchie.", False)
                 except discord.HTTPException as exc:
                     print(f"Discord-Server-Kick für {member.id} fehlgeschlagen: {exc}")
                     return back(member_url, "Der Discord-Server-Kick ist fehlgeschlagen. Bitte Berechtigungen und Discord-Status prüfen.", False)
+
+                # Erst nach dem erfolgreichen Kick benachrichtigen, damit es keine
+                # falsche Erfolgsmeldung gibt, falls Discord die Aktion verweigert.
+                await send_dm_notification(
+                    member,
+                    f"🚪 Du wurdest vom Discord-Server **{guild.name}** entfernt. Grund: {action_reason}",
+                )
 
                 try:
                     await send_team_update_embed(
