@@ -245,12 +245,31 @@ class MelonlyStore:
             and str(left.get("created_at") or "") == str(right.get("created_at") or "")
         )
 
+    def list(self) -> list[dict[str, Any]]:
+        """Return a snapshot of well-formed entries without exposing mutable stored rows."""
+        with self.lock:
+            return [dict(row) for row in self._read_locked() if isinstance(row, dict)]
+
+    def get(self, entry_id: str) -> dict[str, Any] | None:
+        with self.lock:
+            row = next(
+                (item for item in self._read_locked()
+                 if isinstance(item, dict) and str(item.get("id") or "") == str(entry_id)),
+                None,
+            )
+            return dict(row) if row is not None else None
+
     def create(self, entry: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
-        """Persist a new entry, rejecting an identical incident submitted twice."""
+        """Persist a new entry, rejecting an ID collision or identical incident."""
         if not isinstance(entry, dict) or not str(entry.get("id") or "").strip():
             return "invalid", None
         with self.lock:
             rows = self._read_locked()
+            if any(
+                isinstance(row, dict) and str(row.get("id") or "") == str(entry["id"])
+                for row in rows
+            ):
+                return "duplicate", None
             if any(self._same_incident(row, entry) for row in rows):
                 return "duplicate", None
             saved = dict(entry)
