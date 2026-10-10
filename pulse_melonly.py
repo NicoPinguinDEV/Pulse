@@ -207,3 +207,107 @@ async def search_users(
         if len(users) >= 8:
             break
     return users
+
+
+class MelonlyStore:
+    """Thread-safe JSON-backed Melonly store using the app's shared atomic I/O hooks.
+
+    The lock must be the same re-entrant lock used by the rest of the application
+    for this file, so writers cannot race with dashboard mutations.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        loader: Callable[[str, Any], Any],
+        saver: Callable[[str, Any], Any],
+        lock: Any,
+    ):
+        self.path = path
+        self.loader = loader
+        self.saver = saver
+        self.lock = lock
+
+    def _read_locked(self) -> list:
+        rows = self.loader(self.path, [])
+        return rows if isinstance(rows, list) else []
+
+    @staticmethod
+    def _same_incident(left: Any, right: Any) -> bool:
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            return False
+        return (
+            str(left.get("id") or "") != str(right.get("id") or "")
+            and str(left.get("roblox_id") or "") == str(right.get("roblox_id") or "")
+            and str(left.get("type") or "") == str(right.get("type") or "")
+            and str(left.get("reason") or "").strip().casefold()
+            == str(right.get("reason") or "").strip().casefold()
+            and str(left.get("created_at") or "") == str(right.get("created_at") or "")
+        )
+
+    def create(self, entry: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+        """Persist a new entry, rejecting an identical incident submitted twice."""
+        if not isinstance(entry, dict) or not str(entry.get("id") or "").strip():
+            return "invalid", None
+        with self.lock:
+            rows = self._read_locked()
+            if any(self._same_incident(row, entry) for row in rows):
+                return "duplicate", None
+            saved = dict(entry)
+            rows.append(saved)
+            self.saver(self.path, rows)
+            return "created", dict(saved)
+
+    def update(
+        self,
+        entry_id: str,
+        expected_snapshot: dict[str, Any],
+        changes: dict[str, Any],
+        *,
+        reject_duplicate: bool = True,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Update one entry only when its current stored snapshot has not changed."""
+        with self.lock:
+            rows = self._read_locked()
+            current = next(
+                (row for row in rows if isinstance(row, dict) and str(row.get("id") or "") == str(entry_id)),
+                None,
+            )
+            if current is None:
+                return "missing", None
+            if current != expected_snapshot:
+                return "conflict", dict(current)
+            candidate = dict(current)
+            candidate.update(changes)
+            if reject_duplicate and any(
+                self._same_incident(row, candidate)
+                for row in rows
+                if isinstance(row, dict) and str(row.get("id") or "") != str(entry_id)
+            ):
+                return "duplicate", None
+            current.update(changes)
+            self.saver(self.path, rows)
+            return "updated", dict(current)
+
+    def delete(
+        self,
+        entry_id: str,
+        expected_snapshot: dict[str, Any] | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Permanently delete an entry; supports optimistic concurrency checks."""
+        with self.lock:
+            rows = self._read_locked()
+            index = next(
+                (i for i, row in enumerate(rows)
+                 if isinstance(row, dict) and str(row.get("id") or "") == str(entry_id)),
+                None,
+            )
+            if index is None:
+                return "missing", None
+            current = rows[index]
+            if expected_snapshot is not None and current != expected_snapshot:
+                return "conflict", dict(current)
+            removed = dict(current)
+            del rows[index]
+            self.saver(self.path, rows)
+            return "deleted", removed
