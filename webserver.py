@@ -36,6 +36,7 @@ from pulse_melonly import (
     resolve_username as resolve_roblox_username,
     lookup_user_id as lookup_roblox_user_id,
     search_users as search_roblox_accounts,
+    MelonlyStore,
 )
 
 try:
@@ -217,6 +218,9 @@ def save_json(filepath, data):
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         os.replace(tmp, filepath)  # verhindert kaputte Dateien bei Absturz
+
+
+MELOONLY_STORE = MelonlyStore(LOGS_FILE, load_json, save_json, _io_lock)
 
 
 def load_config() -> dict:
