@@ -1130,6 +1130,16 @@ def _roblox_error_response(exc: RobloxLookupError):
     )
 
 
+def _can_manage_log_type(perms: dict, log_type: str) -> bool:
+    if perms.get("is_admin") or perms.get("can_promote"):
+        return True
+    if log_type in ("Warn", "Kick", "Ban", "Ban BOLO"):
+        return bool(perms.get("can_warn"))
+    if log_type == "Notiz":
+        return bool(perms.get("can_add_notes"))
+    return False
+
+
 def _roblox_id_matches(submitted_id: str, resolved_id: str) -> bool:
     """A submitted ID may be empty/legacy N/A, otherwise it must match Roblox."""
     raw = str(submitted_id or "").strip()
@@ -1140,7 +1150,10 @@ def _roblox_id_matches(submitted_id: str, resolved_id: str) -> bool:
 
 @app.get("/api/roblox-user")
 async def roblox_user_lookup(request: Request, username: str, user_session: str = Cookie(None)):
-    user = get_current_user(user_session)
+    ctx = auth(request, user_session, perm=None)
+    if not (ctx.perms.get("can_warn") or ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Melonly.")
+    user = ctx.user
     client_key = f"roblox-lookup:{user.get('id')}:{request.client.host if request.client else 'unknown'}"
     if rate_limited(client_key, limit=60, window=60):
         return JSONResponse(
@@ -1212,7 +1225,10 @@ async def roblox_user_lookup(request: Request, username: str, user_session: str 
 # =============================================================
 @app.get("/api/roblox-search")
 async def roblox_search(request: Request, query: str, user_session: str = Cookie(None)):
-    user = get_current_user(user_session)
+    ctx = auth(request, user_session, perm=None)
+    if not (ctx.perms.get("can_warn") or ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Melonly.")
+    user = ctx.user
     client_key = f"roblox-search:{user.get('id')}:{request.client.host if request.client else 'unknown'}"
     if rate_limited(client_key, limit=120, window=60):
         return JSONResponse(
@@ -1635,7 +1651,9 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
         ltype = log.get("type", "Log")
         badge = LOG_TYPE_STYLE.get(ltype, "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300")
         search = f"{log.get('target_user','')} {log.get('roblox_id','')} {log.get('moderator','')} {ltype} {log.get('reason','')}".lower()
-        can_edit = is_manager or (log.get("moderator_id") and str(log.get("moderator_id")) == str(mod_id))
+        is_log_owner = str(log.get("moderator_id") or "") == str(mod_id)
+        can_manage_this_type = _can_manage_log_type(ctx.perms, ltype)
+        can_edit = is_manager or (is_log_owner and can_manage_this_type)
         display_name = str(log.get("roblox_display_name") or log.get("displayName") or "").strip()
         display_name_html = (f'<span class="text-[10px] text-slate-400 truncate">{esc(display_name)}</span>'
                              if display_name and display_name.casefold() != str(log.get("target_user") or "").casefold() else "")
@@ -1644,7 +1662,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
             if can_edit else ""
         )
         delete_form = f"""
-                <form action="/log/delete" method="post" onsubmit="return confirm('Diesen Log-Eintrag wirklich löschen?');">
+                <form action="/log/delete" method="post" onsubmit="return confirm(&quot;Melonly-Eintrag für {esc(log.get('target_user'))} ({esc(ltype)}) wirklich dauerhaft löschen?&quot;);">
                     <input type="hidden" name="log_id" value="{esc(log.get('id'))}">
                     <button class="text-rose-500 hover:underline font-semibold">🗑️ Löschen</button>
                 </form>""" if can_edit else ""
@@ -2163,6 +2181,8 @@ async def edit_log(
         own = str(entry.get("moderator_id") or "") == str(ctx.user["id"])
         if not (own or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
             raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
+        if not _can_manage_log_type(ctx.perms, str(entry.get("type") or "")) or not _can_manage_log_type(ctx.perms, log_type):
+            raise HTTPException(status_code=403, detail="Für diesen Eintragstyp fehlt dir die Berechtigung.")
 
         saved_id = str(entry.get("roblox_id") or "").strip()
         saved_name = str(entry.get("roblox_username") or entry.get("target_user") or "").strip()
@@ -2217,6 +2237,8 @@ async def edit_log(
         own = str(entry.get("moderator_id") or "") == str(ctx.user["id"])
         if not (own or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
             raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
+        if not _can_manage_log_type(ctx.perms, str(entry.get("type") or "")) or not _can_manage_log_type(ctx.perms, log_type):
+            raise HTTPException(status_code=403, detail="Für diesen Eintragstyp fehlt dir die Berechtigung.")
         if str(entry.get("roblox_id") or "").strip() != saved_id:
             return back("/dashboard#playerlog", "Der Eintrag wurde zwischenzeitlich geändert. Bitte lade die Seite neu.", False)
         duplicate = next((
@@ -2266,6 +2288,8 @@ async def delete_log(request: Request, log_id: str = Form(...), user_session: st
         own = str(entry.get("moderator_id") or "") == str(ctx.user["id"])
         if not (own or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
             raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs löschen.")
+        if not _can_manage_log_type(ctx.perms, str(entry.get("type") or "")):
+            raise HTTPException(status_code=403, detail="Für diesen Eintragstyp fehlt dir die Berechtigung.")
         remaining = [log for log in logs_db if not (isinstance(log, dict) and str(log.get("id") or "") == log_id)]
         if len(remaining) == len(logs_db):
             return back("/dashboard#playerlog", "Log wurde zwischenzeitlich bereits gelöscht.", False)
