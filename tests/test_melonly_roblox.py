@@ -16,6 +16,7 @@ from pulse_melonly import (
     RobloxUserNotFound,
     clear_cache,
     lookup_user_id,
+    normalize_search_query,
     normalize_username,
     resolve_username,
     search_users,
@@ -70,6 +71,14 @@ class RobloxIdentityTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(InvalidRobloxUsername):
                     normalize_username(value)
 
+    def test_search_keywords_may_be_display_names_without_becoming_identities(self):
+        self.assertEqual(normalize_search_query("  Pretty   Display Name "), "Pretty Display Name")
+        self.assertEqual(normalize_search_query("@ActualName"), "ActualName")
+        for value in ("", "x", "a" * 51):
+            with self.subTest(value=value):
+                with self.assertRaises(InvalidRobloxUsername):
+                    normalize_search_query(value)
+
     async def test_resolves_canonical_username_id_and_display_name(self):
         response = FakeResponse({"data": [{
             "requestedUsername": "spieler123",
@@ -123,10 +132,12 @@ class RobloxIdentityTests(unittest.IsolatedAsyncioTestCase):
             {"id": 321, "name": "ActualName", "displayName": "Pretty Name"},
             {"id": 321, "name": "ActualName", "displayName": "Pretty Name"},
         ]}))
-        users = await search_users("Actual", client_factory=factory)
+        users = await search_users("Pretty Name", client_factory=factory)
         self.assertEqual(users, [{
             "id": "321", "username": "ActualName", "displayName": "Pretty Name",
         }])
+        self.assertEqual(client.calls[0][2]["params"]["keyword"], "Pretty Name")
+        self.assertEqual(users[0]["username"], "ActualName")  # display name was not used as identity
 
     async def test_cache_does_not_keep_duplicate_aliases_as_different_accounts(self):
         response = FakeResponse({"data": [{
