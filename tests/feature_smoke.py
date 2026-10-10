@@ -120,9 +120,10 @@ def main() -> None:
         assert "send_team_update_embed" not in log_source
         assert "team_update(" not in log_source
         assert "log_audit(" in log_source
-    assert "with _io_lock:" in create_log_source
-    assert "with _io_lock:" in edit_log_source
-    assert "with _io_lock:" in delete_log_source
+    assert "MELOONLY_STORE.create(" in create_log_source
+    assert "MELOONLY_STORE.update(" in edit_log_source
+    assert "MELOONLY_STORE.delete(" in delete_log_source
+    assert "MELOONLY_STORE = MelonlyStore(LOGS_FILE, load_json, save_json, _io_lock)" in web
 
     # Team rank and bulk role-management regression checks.
     assert '"/team/{user_id}/roles"' in web
