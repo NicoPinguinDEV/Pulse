@@ -3614,8 +3614,7 @@ async def handle_action(
                 return back("/team", f"{member.display_name} wurde aus dem Team entfernt. Er bleibt auf dem Discord-Server.")
 
             if action == "server_kick":
-                actor_member = ctx.member
-                if not actor_member or not actor_member.guild_permissions.kick_members:
+                if not ctx.member or not ctx.member.guild_permissions.kick_members:
                     return back(member_url, "Dir fehlt die Discord-Berechtigung „Mitglieder kicken“.", False)
                 if not guild.me or not guild.me.guild_permissions.kick_members:
                     return back(member_url, "Der Bot hat keine Discord-Berechtigung „Mitglieder kicken“.", False)
