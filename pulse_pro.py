@@ -19,8 +19,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
+from pulse_version import PULSE_VERSION
 
-VERSION = "7.0.0"
+VERSION = PULSE_VERSION
 EXTRA_PERMS = (
     "can_manage_announcements",
     "can_manage_handover",
@@ -960,10 +961,24 @@ def register(app):
             target_idx = ws.team_rank(target, ids)
             can_manage_target = c.perms.get('is_admin') or actor_idx > target_idx
             if can_manage_target and target.id != c.user['id'] and target.id != c.guild.owner_id:
+                server_kick_form = ""
+                if (
+                    c.member
+                    and c.member.guild_permissions.kick_members
+                    and c.guild.me
+                    and c.guild.me.guild_permissions.kick_members
+                ):
+                    server_kick_form = f'''<form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('ACHTUNG: Dieses Mitglied wird vom gesamten Discord-Server entfernt. Fortfahren?')">
+                    <input type="hidden" name="action" value="server_kick">
+                    <input type="hidden" name="user_id" value="{target.id}">
+                    <input type="hidden" name="redirect_to_member" value="1">
+                    <input type="text" name="action_reason" maxlength="500" required class="pulse-input min-w-[260px]" placeholder="Pflicht: Grund für Discord-Server-Kick">
+                    <button class="pulse-btn bad">🚨 Discord-Server-Kick</button>
+                  </form>'''
                 actions_html = f'''
         <section class="pulse-card mb-4">
           <div class="pulse-card-h">
-            <div><div class="pulse-section-title">⚙ Team-Aktionen</div><div class="pulse-section-sub">Beförderung, Degradierung, Rollenverwaltung und Server-Kick.</div></div>
+            <div><div class="pulse-section-title">⚙ Team-Aktionen</div><div class="pulse-section-sub">Beförderung, Degradierung, Rollenverwaltung und Team-Ausschluss. Discord-Server-Kicks sind eine separate, ausdrücklich bestätigte Aktion.</div></div>
             <span class="pulse-pill good">Führung</span>
           </div>
           <div class="pulse-card-b space-y-4">
@@ -979,13 +994,13 @@ def register(app):
             </div>
             <div class="flex flex-wrap gap-2">
               <a href="/team/{target.id}/roles" class="pulse-btn primary">⚙️ Rollen ändern</a>
-              <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Dieses Mitglied wirklich vom Discord-Server kicken?')">
+              <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Dieses Mitglied aus dem Team entfernen? Es bleibt auf dem Discord-Server.')">
                 <input type="hidden" name="action" value="kick">
                 <input type="hidden" name="user_id" value="{target.id}">
-                <input type="hidden" name="redirect_to_member" value="0">
-                <input type="text" name="action_reason" maxlength="500" required class="pulse-input min-w-[260px]" placeholder="Pflicht: Grund für den Kick">
-                <button class="pulse-btn bad">🚪 Kicken</button>
-              </form>
+                <input type="hidden" name="redirect_to_member" value="1">
+                <input type="text" name="action_reason" maxlength="500" required class="pulse-input min-w-[260px]" placeholder="Pflicht: Grund für den Team-Ausschluss">
+                <button class="pulse-btn bad">🚪 Team-Ausschluss</button>
+              </form>{server_kick_form}
             </div>
           </div>
         </section>
@@ -1030,7 +1045,7 @@ def register(app):
             proof_html=f'<a href="{e(proof)}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-indigo-500 hover:underline">🔗 Beweis</a>' if proof else ''
             action_html=f'''<form action="/action" method="post" class="mt-2 flex flex-wrap gap-2" onsubmit="return confirm('Diese Verwarnung wirklich zurückziehen?');">
                 <input type="hidden" name="action" value="remove_warn"><input type="hidden" name="user_id" value="{m.id}"><input type="hidden" name="warn_id" value="{e(w.get('id'))}"><input type="hidden" name="redirect_to_member" value="">
-                <input name="warn_revoke_reason" maxlength="300" class="pulse-input flex-1 min-w-[180px]" placeholder="Rücknahmegrund (optional)">
+                <input name="warn_revoke_reason" maxlength="500" required class="pulse-input flex-1 min-w-[180px]" placeholder="Pflicht: Rücknahmegrund">
                 <button class="pulse-btn bad">↩ Zurückziehen</button></form>''' if is_active and (c.perms.get('can_warn') or c.perms.get('is_admin')) else ''
             revoked=f'<div class="text-[10px] text-slate-400 mt-2">↩ {e(w.get("revoked_at") or "N/A")} · {e(w.get("revoked_by") or "Team")} · {e(w.get("revoked_reason") or "Kein Grund")}</div>' if not is_active else ''
             return f'''<article class="pulse-row items-start"><div class="pulse-avatar">⚠</div><div class="pulse-row-main"><div class="flex items-center gap-2 flex-wrap"><a href="/member/{m.id}" class="pulse-row-title hover:underline">{e(m.display_name)}</a>{pill("Aktiv","warn") if is_active else pill("Zurückgezogen","good")}</div><div class="pulse-row-meta">{e(w.get("date") or "—")} · von {e(w.get("by") or "Team")} · Warn-ID {e(w.get("id") or "—")}</div><div class="text-[11px] mt-2 whitespace-pre-wrap">{e(w.get("reason") or "Kein Grund")}</div>{proof_html}{revoked}{action_html}</div><span class="pulse-pill {'warn' if is_active else 'good'}">{'Warnung' if is_active else 'Archiv'}</span></article>'''

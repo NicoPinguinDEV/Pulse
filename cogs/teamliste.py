@@ -236,15 +236,26 @@ class TeamlisteCog(commands.Cog):
                 msg_id = get_msg_id(key)
 
                 if msg_id and msg_id != 0:
+                    msg = None
                     try:
                         msg = await channel.fetch_message(msg_id)
 
-                        # Inhaltsprüfung: Keine Anfrage senden, falls sich der Text nicht geändert hat
+                        # Alle von Pulse gesetzten Embed-Inhalte vergleichen, damit der
+                        # Zwei-Minuten-Loop unveränderte Nachrichten nicht per PATCH aktualisiert.
                         if msg.embeds:
                             old_embed = msg.embeds[0]
+                            old_color = old_embed.color.value if old_embed.color else None
+                            new_color = embed.color.value if embed.color else None
+                            old_thumbnail = old_embed.thumbnail.url if old_embed.thumbnail else None
+                            new_thumbnail = embed.thumbnail.url if embed.thumbnail else None
+                            old_footer = old_embed.footer.text if old_embed.footer else None
+                            new_footer = embed.footer.text if embed.footer else None
                             if (
-                                old_embed.description == embed.description
-                                and old_embed.title == embed.title
+                                old_embed.title == embed.title
+                                and old_embed.description == embed.description
+                                and old_color == new_color
+                                and old_thumbnail == new_thumbnail
+                                and old_footer == new_footer
                             ):
                                 continue
 
@@ -258,7 +269,33 @@ class TeamlisteCog(commands.Cog):
 
                     except discord.HTTPException as e:
                         if e.status == 429:
-                            await asyncio.sleep(5)
+                            retry_after = None
+                            try:
+                                retry_after = float(e.response.headers.get("Retry-After", ""))
+                            except (AttributeError, TypeError, ValueError):
+                                retry_after = None
+                            if retry_after is None or retry_after <= 0:
+                                retry_after = 5.0
+                            print(
+                                f"Discord-Rate-Limit bei Teamliste ({key}); "
+                                f"warte {retry_after:.2f}s."
+                            )
+                            await asyncio.sleep(retry_after)
+                            if msg is None:
+                                print(
+                                    f"Teamliste ({key}) konnte wegen eines Rate-Limits beim "
+                                    "Abruf nicht aktualisiert werden; nächster regulärer Durchlauf."
+                                )
+                                break
+                            try:
+                                await msg.edit(embed=embed)
+                                await asyncio.sleep(2)
+                            except discord.HTTPException as retry_error:
+                                print(
+                                    f"Teamliste ({key}) nach Rate-Limit nicht aktualisiert; "
+                                    f"keine weiteren Versuche in diesem Durchlauf: {retry_error}"
+                                )
+                                break
                         elif e.code == 30046:
                             try:
                                 await channel.purge(
