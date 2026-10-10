@@ -1490,8 +1490,12 @@ DASHBOARD_HEAD = """
 
     const robloxSearchTimers = new WeakMap();
     const robloxLookupTimers = new WeakMap();
+    const robloxSearchVersions = new WeakMap();
+    const robloxLookupVersions = new WeakMap();
 
     function searchRobloxUsers(val, form) {
+        const version = (robloxSearchVersions.get(form) || 0) + 1;
+        robloxSearchVersions.set(form, version);
         const raw = String(val || "").trim();
         const input = raw.startsWith("@") ? raw.slice(1) : raw;
         const list = document.getElementById("robloxUserSuggestions");
@@ -1504,6 +1508,7 @@ DASHBOARD_HEAD = """
             fetch("/api/roblox-search?query=" + encodeURIComponent(input), {cache: "no-store"})
                 .then(async response => {
                     const data = await response.json();
+                    if (robloxSearchVersions.get(form) !== version) return;
                     if (!response.ok || !data.success) {
                         throw new Error(data.message || "Roblox-Vorschläge sind aktuell nicht verfügbar.");
                     }
@@ -1518,6 +1523,7 @@ DASHBOARD_HEAD = """
                     if (idInput && exact && /^[0-9]+$/.test(String(exact.id || ""))) idInput.value = String(exact.id);
                 })
                 .catch(error => {
+                    if (robloxSearchVersions.get(form) !== version) return;
                     list.innerHTML = "";
                     const preview = form.querySelector("[data-roblox-preview]");
                     if (preview && input.length >= 3) {
@@ -1532,6 +1538,8 @@ DASHBOARD_HEAD = """
 
     function lookupRobloxUser(val, form) {
         if (!form) return;
+        const version = (robloxLookupVersions.get(form) || 0) + 1;
+        robloxLookupVersions.set(form, version);
         const raw = String(val || "").trim();
         const name = raw.startsWith("@") ? raw.slice(1) : raw;
         const idInput = form.querySelector('[name="roblox_id"]');
@@ -1555,6 +1563,7 @@ DASHBOARD_HEAD = """
             fetch("/api/roblox-user?username=" + encodeURIComponent(name), {cache: "no-store"})
                 .then(async response => {
                     const data = await response.json();
+                    if (robloxLookupVersions.get(form) !== version) return;
                     if (!response.ok || !data.success) {
                         throw new Error(data.message || "Roblox-Konto konnte nicht bestätigt werden.");
                     }
@@ -1574,6 +1583,7 @@ DASHBOARD_HEAD = """
                     preview.classList.remove("hidden");
                 })
                 .catch(error => {
+                    if (robloxLookupVersions.get(form) !== version) return;
                     if (idInput) idInput.value = "";
                     preview.innerHTML = "<span class=\"text-rose-500 text-[11px] block px-1\">⚠️ " +
                         escapeHtml(error.message || "Roblox-Abfrage fehlgeschlagen. Bitte erneut versuchen.") +
