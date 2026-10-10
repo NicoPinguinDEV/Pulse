@@ -23,6 +23,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
+from pulse_version import PULSE_VERSION
 from fastapi import FastAPI, Form, Request, Cookie, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -115,7 +116,6 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.0.0"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -2335,12 +2335,12 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                     <button class="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-amber-500/10 text-amber-600 dark:text-amber-400">⬇️ Degradieren</button>
                 </form>''' if can_demote_target else ""
             kick_form = f'''
-                <form action="/action" method="post" class="inline" onsubmit="return fillActionReason(this, 'Kick') && confirm('Dieses Mitglied wirklich vom Discord-Server kicken?');">
+                <form action="/action" method="post" class="inline" onsubmit="return fillActionReason(this, 'Team-Ausschluss') && confirm('Dieses Mitglied aus dem Team entfernen? Es bleibt auf dem Discord-Server.');">
                     <input type="hidden" name="action" value="kick">
                     <input type="hidden" name="user_id" value="{m['id']}">
                     <input type="hidden" name="redirect_to_member" value="">
                     <input type="hidden" name="action_reason" value="">
-                    <button class="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-rose-500/10 text-rose-600 dark:text-rose-400">🚪 Team-Kick</button>
+                    <button class="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-rose-500/10 text-rose-600 dark:text-rose-400">🚪 Team-Ausschluss</button>
                 </form>'''
             role_actions = f'''
                 <details class="relative">
@@ -2704,8 +2704,8 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
                     <a href="/team/{member.id}/roles" class="bg-indigo-500/10 hover:bg-indigo-600 hover:text-white text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⚙️ Rollen verwalten</a>
                     <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Dieses Mitglied wirklich aus dem Team entfernen? Es bleibt auf dem Discord-Server.');">
                         <input type="hidden" name="action" value="kick"><input type="hidden" name="user_id" value="{member.id}">
-                        <input type="text" name="action_reason" maxlength="500" placeholder="Pflicht: Grund für den Kick..." required class="{INPUT} w-64">
-                        <button class="bg-rose-500/10 hover:bg-rose-600 hover:text-white text-rose-600 dark:text-rose-400 border border-rose-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">🚪 Kicken</button>
+                        <input type="text" name="action_reason" maxlength="500" placeholder="Pflicht: Grund für den Team-Ausschluss" required class="{INPUT} w-64">
+                        <button class="bg-rose-500/10 hover:bg-rose-600 hover:text-white text-rose-600 dark:text-rose-400 border border-rose-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">🚪 Team-Ausschluss</button>
                     </form>
                 </div>
             </div>
@@ -3419,6 +3419,7 @@ async def settings_page(request: Request, user_session: str = Cookie(None)):
 # =============================================================
 ACTION_PERMS = {
     "promote": "can_promote", "demote": "can_promote", "kick": "can_promote",
+    "server_kick": "can_promote",
     "warn_with_proof": "can_warn", "remove_warn": "can_warn", "add_note": "can_add_notes",
     "submit_loa": "can_view_dashboard", "cancel_loa": "can_view_dashboard",
     "vote_app": "can_view_dashboard", "decide_app": "can_manage_applications",
@@ -3568,7 +3569,7 @@ async def handle_action(
     member_url = f"/member/{user_id}" if redirect_to_member and user_id else "/dashboard"
 
     # ---------- Befördern / Degradieren / Kicken ----------
-    if action in ("promote", "demote", "kick"):
+    if action in ("promote", "demote", "kick", "server_kick"):
         member = guild.get_member(user_id) if user_id else None
         if not member:
             return back("/team", "Mitglied nicht gefunden.", False)
@@ -3582,7 +3583,7 @@ async def handle_action(
             return back(member_url, "Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.", False)
 
         action_reason = (action_reason or "").strip()[:500]
-        if action in ("promote", "demote", "kick") and not action_reason:
+        if action in ("promote", "demote", "kick", "server_kick") and not action_reason:
             return back(member_url, "Bitte einen Grund für die Maßnahme angeben.", False)
 
         try:
@@ -3611,6 +3612,47 @@ async def handle_action(
                 )
                 log_audit(actor, actor_id, "Team-Kick", f"{member.display_name}: Teamrollen entfernt · Grund: {action_reason}")
                 return back("/team", f"{member.display_name} wurde aus dem Team entfernt. Er bleibt auf dem Discord-Server.")
+
+            if action == "server_kick":
+                actor_member = ctx.member
+                bot_member = guild.me
+                if not actor_member or not actor_member.guild_permissions.kick_members:
+                    return back(member_url, "Dir fehlt die Discord-Berechtigung „Mitglieder kicken“.", False)
+                if not bot_member or not bot_member.guild_permissions.kick_members:
+                    return back(member_url, "Der Bot hat keine Discord-Berechtigung „Mitglieder kicken“.", False)
+                try:
+                    await send_dm_notification(
+                        member,
+                        f"🚪 Du wurdest vom Discord-Server **{guild.name}** entfernt. Grund: {action_reason}",
+                    )
+                    await member.kick(reason=f"Discord-Server-Kick durch {actor}: {action_reason}")
+                except discord.Forbidden:
+                    return back(member_url, "Discord hat den Server-Kick verweigert. Bitte prüfe die Bot-Berechtigungen.", False)
+                except discord.HTTPException as exc:
+                    print(f"Discord-Server-Kick für {member.id} fehlgeschlagen: {exc}")
+                    return back(member_url, "Der Discord-Server-Kick ist fehlgeschlagen. Bitte Berechtigungen und Discord-Status prüfen.", False)
+
+                try:
+                    await send_team_update_embed(
+                        guild,
+                        "🚨 Team-Update: Discord-Server-Kick",
+                        f"{member.display_name} wurde vom Discord-Server entfernt.",
+                        discord.Color.red(),
+                        target=member.mention,
+                        action="Discord-Server-Kick",
+                        actor=actor,
+                        fields=[("Grund", action_reason, False)],
+                        thumbnail=member.display_avatar.url,
+                    )
+                except Exception as exc:
+                    print(f"Team-Update nach Server-Kick für {member.id} fehlgeschlagen: {exc}")
+                log_audit(
+                    actor,
+                    actor_id,
+                    "Discord-Server-Kick",
+                    f"{member.display_name} ({member.id}) wurde vom Discord-Server entfernt · Grund: {action_reason}",
+                )
+                return back("/team", f"{member.display_name} wurde vom Discord-Server entfernt.")
 
             if action == "promote":
                 new_idx = target_idx + 1
