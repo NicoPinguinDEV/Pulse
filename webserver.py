@@ -1468,64 +1468,100 @@ DASHBOARD_HEAD = """
     // PWA
     if("serviceWorker" in navigator){ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }
 
-    let robloxSearchTimeout = null;
-    let robloxSuggestionIds = {};
-    function searchRobloxUsers(val) {
-        clearTimeout(robloxSearchTimeout);
-        const input = String(val || "").trim().replace(/^@+/, "");
+    const robloxSearchTimers = new WeakMap();
+    const robloxLookupTimers = new WeakMap();
+
+    function searchRobloxUsers(val, form) {
+        const raw = String(val || "").trim();
+        const input = raw.startsWith("@") ? raw.slice(1) : raw;
         const list = document.getElementById("robloxUserSuggestions");
-        if (!list || input.length < 2) { if (list) list.innerHTML = ""; return; }
-        robloxSearchTimeout = setTimeout(() => {
+        if (!list || !form) return;
+        const previousTimer = robloxSearchTimers.get(form);
+        if (previousTimer) clearTimeout(previousTimer);
+        if (input.length < 2) { list.innerHTML = ""; return; }
+
+        const timer = setTimeout(() => {
             fetch("/api/roblox-search?query=" + encodeURIComponent(input), {cache: "no-store"})
-                .then(r => r.json())
-                .then(data => {
-                    if (!data.success) { list.innerHTML = ""; return; }
-                    robloxSuggestionIds = {};
-                    (data.users || []).forEach(u => {
-                        const name = String(u.name || "").trim();
-                        if (name) robloxSuggestionIds[name.toLowerCase()] = String(u.id || "");
-                    });
-                    list.innerHTML = (data.users || []).map(u => "<option value=\"" + escapeHtml(u.name) + "\">" + escapeHtml(u.displayName || u.name) + " · ID " + escapeHtml(u.id) + "</option>").join("");
-                    const idInput = document.getElementById("robloxIdInput");
-                    const cachedId = robloxSuggestionIds[input.toLowerCase()];
-                    if (idInput && cachedId) idInput.value = cachedId;
-                })
-                .catch(() => { list.innerHTML = ""; });
-        }, 250);
-    }
-    let lookupTimeout = null;
-    function lookupRobloxUser(val) {
-        val = String(val || "").trim().replace(/^@+/, "");
-        searchRobloxUsers(val);
-        clearTimeout(lookupTimeout);
-        const infoDiv = document.getElementById("robloxUserPreview");
-        const idInput = document.getElementById("robloxIdInput");
-        if (!val || val.trim().length < 3) { infoDiv.classList.add("hidden"); return; }
-        lookupTimeout = setTimeout(() => {
-            fetch("/api/roblox-user?username=" + encodeURIComponent(val.trim()))
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success) {
-                        if (idInput) idInput.value = data.id;
-                        const prev = data.previous_total > 0
-                            ? `<div class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5">⚠️ ${data.previous_total} frühere Logs (${escapeHtml(data.previous_summary)})</div>`
-                            : `<div class="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">✔ Keine früheren Logs</div>`;
-                        infoDiv.innerHTML = `
-                            <div class="flex items-center gap-3 p-2.5 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/50 rounded-xl">
-                                <img src="${escapeHtml(data.avatarUrl)}" class="w-9 h-9 rounded-full border border-indigo-300 dark:border-indigo-700">
-                                <div class="truncate">
-                                    <div class="font-bold text-slate-900 dark:text-white text-xs">${escapeHtml(data.displayName)} <span class="text-slate-400 text-[10px]">(@${escapeHtml(data.username)})</span></div>
-                                    <div class="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-semibold">Roblox ID: ${escapeHtml(data.id)}</div>
-                                    ${prev}
-                                </div>
-                            </div>`;
-                    } else {
-                        infoDiv.innerHTML = `<span class="text-rose-500 text-[11px] block px-1">⚠️ ${escapeHtml(data.message)}</span>`;
+                .then(async response => {
+                    const data = await response.json();
+                    if (!response.ok || !data.success) {
+                        throw new Error(data.message || "Roblox-Vorschläge sind aktuell nicht verfügbar.");
                     }
-                    infoDiv.classList.remove("hidden");
+                    const users = Array.isArray(data.users) ? data.users : [];
+                    list.innerHTML = users.map(u =>
+                        "<option value=\"" + escapeHtml(u.name || "") + "\">" +
+                        escapeHtml(u.displayName || u.name || "") + " · ID " + escapeHtml(u.id || "") +
+                        "</option>"
+                    ).join("");
+                    const idInput = form.querySelector('[name="roblox_id"]');
+                    const exact = users.find(u => String(u.name || "").toLowerCase() === input.toLowerCase());
+                    if (idInput && exact && /^\d+$/.test(String(exact.id || ""))) idInput.value = String(exact.id);
                 })
-                .catch(() => infoDiv.classList.add("hidden"));
-        }, 400);
+                .catch(error => {
+                    list.innerHTML = "";
+                    const preview = form.querySelector("[data-roblox-preview]");
+                    if (preview && input.length >= 3) {
+                        preview.innerHTML = "<span class=\"text-amber-600 text-[11px]\">" +
+                            escapeHtml(error.message || "Roblox-Suche fehlgeschlagen.") + "</span>";
+                        preview.classList.remove("hidden");
+                    }
+                });
+        }, 250);
+        robloxSearchTimers.set(form, timer);
+    }
+
+    function lookupRobloxUser(val, form) {
+        if (!form) return;
+        const raw = String(val || "").trim();
+        const name = raw.startsWith("@") ? raw.slice(1) : raw;
+        const idInput = form.querySelector('[name="roblox_id"]');
+        const preview = form.querySelector("[data-roblox-preview]");
+        searchRobloxUsers(name, form);
+        const previousTimer = robloxLookupTimers.get(form);
+        if (previousTimer) clearTimeout(previousTimer);
+
+        // Never leave the previous account's ID attached to a newly typed username.
+        if (idInput) idInput.value = "";
+        if (!preview) return;
+        if (!name || name.length < 3) {
+            preview.innerHTML = "";
+            preview.classList.add("hidden");
+            return;
+        }
+
+        preview.innerHTML = "<span class=\"text-indigo-500 text-[11px]\">Roblox-Konto wird überprüft …</span>";
+        preview.classList.remove("hidden");
+        const timer = setTimeout(() => {
+            fetch("/api/roblox-user?username=" + encodeURIComponent(name), {cache: "no-store"})
+                .then(async response => {
+                    const data = await response.json();
+                    if (!response.ok || !data.success) {
+                        throw new Error(data.message || "Roblox-Konto konnte nicht bestätigt werden.");
+                    }
+                    if (idInput) idInput.value = String(data.id || "");
+                    const previous = data.previous_total > 0
+                        ? "<div class=\"text-[10px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5\">⚠️ " +
+                          escapeHtml(data.previous_total) + " frühere Logs (" + escapeHtml(data.previous_summary || "") + ")</div>"
+                        : "<div class=\"text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5\">✔ Keine früheren Logs</div>";
+                    preview.innerHTML =
+                        "<div class=\"flex items-center gap-3 p-2.5 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/50 rounded-xl\">" +
+                        "<img src=\"" + escapeHtml(data.avatarUrl || "") + "\" class=\"w-9 h-9 rounded-full border border-indigo-300 dark:border-indigo-700\" alt=\"Roblox-Avatar\">" +
+                        "<div class=\"truncate\"><div class=\"font-bold text-slate-900 dark:text-white text-xs\">" +
+                        escapeHtml(data.displayName || data.username) +
+                        " <span class=\"text-slate-400 text-[10px]\">(@" + escapeHtml(data.username) + ")</span></div>" +
+                        "<div class=\"text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-semibold\">Roblox ID: " +
+                        escapeHtml(data.id) + "</div>" + previous + "</div></div>";
+                    preview.classList.remove("hidden");
+                })
+                .catch(error => {
+                    if (idInput) idInput.value = "";
+                    preview.innerHTML = "<span class=\"text-rose-500 text-[11px] block px-1\">⚠️ " +
+                        escapeHtml(error.message || "Roblox-Abfrage fehlgeschlagen. Bitte erneut versuchen.") +
+                        "</span>";
+                    preview.classList.remove("hidden");
+                });
+        }, 350);
+        robloxLookupTimers.set(form, timer);
     }
 </script>
 """
@@ -1599,7 +1635,10 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
         ltype = log.get("type", "Log")
         badge = LOG_TYPE_STYLE.get(ltype, "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300")
         search = f"{log.get('target_user','')} {log.get('roblox_id','')} {log.get('moderator','')} {ltype} {log.get('reason','')}".lower()
-        can_edit = is_manager or (log.get("moderator_id") and log.get("moderator_id") == mod_id)
+        can_edit = is_manager or (log.get("moderator_id") and str(log.get("moderator_id")) == str(mod_id))
+        display_name = str(log.get("roblox_display_name") or log.get("displayName") or "").strip()
+        display_name_html = (f'<span class="text-[10px] text-slate-400 truncate">{esc(display_name)}</span>'
+                             if display_name and display_name.casefold() != str(log.get("target_user") or "").casefold() else "")
         edit_button = (
             f'<a href="/dashboard?edit_log={quote(str(log.get("id") or ""))}" class="text-indigo-500 hover:underline font-semibold">✏️ Bearbeiten</a>'
             if can_edit else ""
@@ -1618,8 +1657,10 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
             edit_form = f"""
             <form action="/log/edit" method="post" class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/60 space-y-2.5">
                 <input type="hidden" name="log_id" value="{esc(log.get('id'))}">
-                <input class="{INPUT}" name="target_user" maxlength="50" value="{esc(log.get('target_user'))}" required>
-                <input class="{INPUT}" name="roblox_id" maxlength="15" value="{esc(log.get('roblox_id','N/A'))}" placeholder="Roblox ID">
+                <input class="{INPUT}" name="target_user" maxlength="50" list="robloxUserSuggestions" oninput="lookupRobloxUser(this.value, this.form)" autocomplete="off" value="{esc(log.get('roblox_username') or log.get('target_user'))}" required>
+                <div data-roblox-preview class="hidden" aria-live="polite"></div>
+                <input class="{INPUT}" name="roblox_id" maxlength="20" value="{esc(log.get('roblox_id','N/A'))}" placeholder="Wird serverseitig überprüft">
+                <input type="hidden" name="original_roblox_id" value="{esc(log.get('roblox_id','N/A'))}">
                 <select class="{INPUT}" name="log_type">{edit_options}</select>
                 <textarea class="{INPUT} h-24" name="reason" maxlength="1000" required>{esc(log.get('reason'))}</textarea>
                 <div class="flex gap-2">
@@ -1633,6 +1674,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                 <div class="flex items-center gap-2 min-w-0">
                     <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border {badge}">{esc(ltype)}</span>
                     <span class="text-xs font-semibold text-slate-900 dark:text-white truncate">{esc(log.get('target_user'))}</span>
+                    {display_name_html}
                 </div>
                 <span class="text-[10px] text-slate-400 font-mono shrink-0">{esc(log.get('created_at'))}</span>
             </div>
@@ -1700,10 +1742,10 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                 <form action="/log/create" method="post" class="space-y-4 text-xs">
                     <div>
                         <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Roblox Username *</label>
-                        <input type="text" name="target_user" maxlength="50" list="robloxUserSuggestions" oninput="lookupRobloxUser(this.value)" placeholder="z. B. Spieler123" required class="{INPUT}">
+                        <input type="text" name="target_user" maxlength="50" list="robloxUserSuggestions" oninput="lookupRobloxUser(this.value, this.form)" placeholder="z. B. Spieler123 oder @Spieler123" autocomplete="off" required class="{INPUT}">
                     <datalist id="robloxUserSuggestions"></datalist>
                     </div>
-                    <div id="robloxUserPreview" class="hidden"></div>
+                    <div data-roblox-preview class="hidden" aria-live="polite"></div>
                     <div>
                         <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Roblox Player ID (Auto-Ausfüllung)</label>
                         <input type="text" name="roblox_id" id="robloxIdInput" placeholder="z. B. 12345678" class="{INPUT}">
