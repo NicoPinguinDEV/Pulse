@@ -29,7 +29,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_version.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -37,11 +37,29 @@ def main() -> None:
     main = read("main.py")
     web = read("webserver.py")
 
-    # Team-Kick must only remove team roles, never call Discord member.kick().
+    # Warn 5 and manual Team-Ausschluss may only remove team roles. A true server
+    # kick must live behind a separately named, permission-checked action.
     assert "Team-Kick" in web
-    assert 'await member.remove_roles(*team_roles' in web
-    assert 'await member.kick(' not in web
-    assert "Mitglied bleibt auf dem Discord-Server" not in web or "bleibt aber auf dem Discord-Server" in web
+    web_tree = parse("webserver.py")
+    warn5_nodes = [n for n in ast.walk(web_tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "_apply_warn5_team_kick"]
+    assert warn5_nodes, "webserver.py: Warn-5-Team-Ausschluss fehlt"
+    warn5_source = ast.get_source_segment(web, warn5_nodes[0]) or ""
+    assert "await member.remove_roles(*current_team_roles" in warn5_source
+    assert "await member.kick(" not in warn5_source
+
+    handler_nodes = [n for n in ast.walk(web_tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "handle_action"]
+    assert handler_nodes, "webserver.py: handle_action fehlt"
+    handler_source = ast.get_source_segment(web, handler_nodes[0]) or ""
+    team_kick_start = handler_source.index('if action == "kick":')
+    server_kick_start = handler_source.index('if action == "server_kick":')
+    team_kick_source = handler_source[team_kick_start:server_kick_start]
+    server_kick_source = handler_source[server_kick_start:]
+    assert 'await member.remove_roles(*team_roles' in team_kick_source
+    assert 'await member.kick(' not in team_kick_source
+    assert 'await member.kick(reason=' in server_kick_source
+    assert 'ctx.member.guild_permissions.kick_members' in server_kick_source
+    assert 'guild.me.guild_permissions.kick_members' in server_kick_source
+    assert "bleibst aber auf dem Discord-Server" in web
     ultimate = read("pulse_ultimate.py")
 
     # Pulse Pro /member route must expose the same management actions as the
@@ -51,7 +69,11 @@ def main() -> None:
     assert 'value="demote"' in pro
     assert 'name="action" value="kick"' in pro
     assert "Pflicht: Grund für Beförderung / Degradierung" in pro
-    assert "Pflicht: Grund für den Kick" in pro
+    assert "Pflicht: Grund für den Team-Ausschluss" in pro
+    assert 'name="action" value="server_kick"' in pro
+    assert 'placeholder="Pflicht: Grund für Discord-Server-Kick"' in pro
+    assert "ACHTUNG: Dieses Mitglied wird vom gesamten Discord-Server entfernt." in pro
+    assert "Dieses Mitglied wirklich vom Discord-Server kicken?" not in pro
     assert "ws.team_since_for(target, entry)" in pro
     assert 'placeholder="Pflicht: Rücknahmegrund"' in pro
 
@@ -142,7 +164,10 @@ def main() -> None:
     assert "/settings/pro-warn-roles" in pro
     assert "/settings/pro-warn-sync" in pro
     assert "Warn-Rollen" in pro
-    assert "PULSE_VERSION" in web
+    assert "from pulse_version import PULSE_VERSION" in web
+    assert "VERSION = PULSE_VERSION" in pro
+    assert 'PULSE_VERSION = "7.0.0"' in read("pulse_version.py")
+    assert 'PULSE_VERSION = "7.0.0"' not in web
     assert '"/healthz"' in web
 
     assert "reconcile_warning_roles" in main
