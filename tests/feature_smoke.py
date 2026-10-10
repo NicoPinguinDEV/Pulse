@@ -132,8 +132,8 @@ def main() -> None:
     assert "async def team_role_manager_save" in web
     assert "Mehrfach-Rollenänderung" in web
     assert "⚙️ Team-Update: Rollenänderung" in web
-    assert "⬆️ Hochstufen" in web
-    assert "⬇️ Runterstufen" in web
+    assert "⬆️ Befördern" in web
+    assert "⬇️ Degradieren" in web
     assert "1531132354272170115" in web
     # Team list keeps member actions inside the Details/eye menu.
     assert "details-only" not in web  # no stale marker should leak into UI
