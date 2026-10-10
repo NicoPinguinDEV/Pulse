@@ -961,20 +961,20 @@ def register(app):
             target_idx = ws.team_rank(target, ids)
             can_manage_target = c.perms.get('is_admin') or actor_idx > target_idx
             if can_manage_target and target.id != c.user['id'] and target.id != c.guild.owner_id:
-        server_kick_form = ""
-        if (
-            c.member
-            and c.member.guild_permissions.kick_members
-            and c.guild.me
-            and c.guild.me.guild_permissions.kick_members
-        ):
-            server_kick_form = f'''<form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('ACHTUNG: Dieses Mitglied wird vom gesamten Discord-Server entfernt. Fortfahren?')">
-                <input type="hidden" name="action" value="server_kick">
-                <input type="hidden" name="user_id" value="{target.id}">
-                <input type="hidden" name="redirect_to_member" value="1">
-                <input type="text" name="action_reason" maxlength="500" required class="pulse-input min-w-[260px]" placeholder="Pflicht: Grund für Discord-Server-Kick">
-                <button class="pulse-btn bad">🚨 Discord-Server-Kick</button>
-              </form>'''
+                server_kick_form = ""
+                if (
+                    c.member
+                    and c.member.guild_permissions.kick_members
+                    and c.guild.me
+                    and c.guild.me.guild_permissions.kick_members
+                ):
+                    server_kick_form = f'''<form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('ACHTUNG: Dieses Mitglied wird vom gesamten Discord-Server entfernt. Fortfahren?')">
+                    <input type="hidden" name="action" value="server_kick">
+                    <input type="hidden" name="user_id" value="{target.id}">
+                    <input type="hidden" name="redirect_to_member" value="1">
+                    <input type="text" name="action_reason" maxlength="500" required class="pulse-input min-w-[260px]" placeholder="Pflicht: Grund für Discord-Server-Kick">
+                    <button class="pulse-btn bad">🚨 Discord-Server-Kick</button>
+                  </form>'''
                 actions_html = f'''
         <section class="pulse-card mb-4">
           <div class="pulse-card-h">
