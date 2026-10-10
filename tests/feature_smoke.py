@@ -29,7 +29,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_melonly.py", "tests/test_melonly_roblox.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -103,7 +103,26 @@ def main() -> None:
     assert '@app.post("/log/edit")' in web
     assert '@app.post("/log/delete")' in web
     assert "edit_log_id" in web
-    assert "users_map = {}" in web
+    assert "resolve_roblox_username(target_user)" in create_log_source
+    assert '_roblox_id_matches(submitted_id, account["id"])' in create_log_source
+    assert '"roblox_verified": True' in create_log_source
+    assert '"roblox_display_name": account["displayName"]' in create_log_source
+    assert "log_{uuid.uuid4().hex}" in create_log_source
+    assert "users_map = {}" not in web  # no stale or unverified local fallback identities
+    assert "search_roblox_accounts(clean)" in web
+    assert "display_name_html" in web
+    edit_log_nodes = [n for n in ast.walk(web_tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "edit_log"]
+    delete_log_nodes = [n for n in ast.walk(web_tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "delete_log"]
+    assert edit_log_nodes and delete_log_nodes
+    edit_log_source = ast.get_source_segment(web, edit_log_nodes[0]) or ""
+    delete_log_source = ast.get_source_segment(web, delete_log_nodes[0]) or ""
+    for log_source in (create_log_source, edit_log_source, delete_log_source):
+        assert "send_team_update_embed" not in log_source
+        assert "team_update(" not in log_source
+        assert "log_audit(" in log_source
+    assert "with _io_lock:" in create_log_source
+    assert "with _io_lock:" in edit_log_source
+    assert "with _io_lock:" in delete_log_source
 
     # Team rank and bulk role-management regression checks.
     assert '"/team/{user_id}/roles"' in web
