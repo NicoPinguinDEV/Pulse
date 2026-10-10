@@ -3614,15 +3614,14 @@ async def handle_action(
                 return back("/team", f"{member.display_name} wurde aus dem Team entfernt. Er bleibt auf dem Discord-Server.")
 
             if action == "server_kick":
-                actor_member = ctx.member
                 bot_member = guild.me
-                if not actor_member or not actor_member.guild_permissions.kick_members:
+                if not ctx.member or not ctx.member.guild_permissions.kick_members:
                     return back(member_url, "Dir fehlt die Discord-Berechtigung „Mitglieder kicken“.", False)
                 if not bot_member or not bot_member.guild_permissions.kick_members:
                     return back(member_url, "Der Bot hat keine Discord-Berechtigung „Mitglieder kicken“.", False)
                 if member.top_role >= bot_member.top_role:
                     return back(member_url, "Der Bot kann dieses Mitglied wegen der Discord-Rollenhierarchie nicht kicken.", False)
-                if actor_member.id != guild.owner_id and actor_member.top_role <= member.top_role:
+                if ctx.member.id != guild.owner_id and ctx.member.top_role <= member.top_role:
                     return back(member_url, "Deine höchste Discord-Rolle muss über der höchsten Rolle des Zielmitglieds liegen.", False)
                 try:
                     await member.kick(reason=f"Discord-Server-Kick durch {actor}: {action_reason}")
