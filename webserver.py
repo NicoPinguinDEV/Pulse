@@ -1511,7 +1511,7 @@ DASHBOARD_HEAD = """
                     ).join("");
                     const idInput = form.querySelector('[name="roblox_id"]');
                     const exact = users.find(u => String(u.name || "").toLowerCase() === input.toLowerCase());
-                    if (idInput && exact && /^\d+$/.test(String(exact.id || ""))) idInput.value = String(exact.id);
+                    if (idInput && exact && /^[0-9]+$/.test(String(exact.id || ""))) idInput.value = String(exact.id);
                 })
                 .catch(error => {
                     list.innerHTML = "";
