@@ -1675,8 +1675,12 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
             f'<a href="/dashboard?edit_log={quote(str(log.get("id") or ""))}" class="text-indigo-500 hover:underline font-semibold">✏️ Bearbeiten</a>'
             if can_edit else ""
         )
+        delete_prompt = json.dumps(
+            f"Melonly-Eintrag für {str(log.get('target_user') or '')} ({ltype}) wirklich dauerhaft löschen?",
+            ensure_ascii=True,
+        )
         delete_form = f"""
-                <form action="/log/delete" method="post" onsubmit="return confirm(&quot;Melonly-Eintrag für {esc(log.get('target_user'))} ({esc(ltype)}) wirklich dauerhaft löschen?&quot;);">
+                <form action="/log/delete" method="post" onsubmit="return confirm({esc(delete_prompt)});">
                     <input type="hidden" name="log_id" value="{esc(log.get('id'))}">
                     <button class="text-rose-500 hover:underline font-semibold">🗑️ Löschen</button>
                 </form>""" if can_edit else ""
