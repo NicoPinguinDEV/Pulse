@@ -29,7 +29,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_melonly.py", "tests/test_melonly_roblox.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -103,15 +103,35 @@ def main() -> None:
     assert '@app.post("/log/edit")' in web
     assert '@app.post("/log/delete")' in web
     assert "edit_log_id" in web
-    assert "users_map = {}" in web
+    assert "resolve_roblox_username(target_user)" in create_log_source
+    assert '_roblox_id_matches(submitted_id, account["id"])' in create_log_source
+    assert '"roblox_verified": True' in create_log_source
+    assert '"roblox_display_name": account["displayName"]' in create_log_source
+    assert "log_{uuid.uuid4().hex}" in create_log_source
+    assert "users_map = {}" not in web  # no stale or unverified local fallback identities
+    assert "search_roblox_accounts(clean)" in web
+    assert "display_name_html" in web
+    edit_log_nodes = [n for n in ast.walk(web_tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "edit_log"]
+    delete_log_nodes = [n for n in ast.walk(web_tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "delete_log"]
+    assert edit_log_nodes and delete_log_nodes
+    edit_log_source = ast.get_source_segment(web, edit_log_nodes[0]) or ""
+    delete_log_source = ast.get_source_segment(web, delete_log_nodes[0]) or ""
+    for log_source in (create_log_source, edit_log_source, delete_log_source):
+        assert "send_team_update_embed" not in log_source
+        assert "team_update(" not in log_source
+        assert "log_audit(" in log_source
+    assert "MELOONLY_STORE.create(" in create_log_source
+    assert "MELOONLY_STORE.update(" in edit_log_source
+    assert "MELOONLY_STORE.delete(" in delete_log_source
+    assert "MELOONLY_STORE = MelonlyStore(LOGS_FILE, load_json, save_json, _io_lock)" in web
 
     # Team rank and bulk role-management regression checks.
     assert '"/team/{user_id}/roles"' in web
     assert "async def team_role_manager_save" in web
     assert "Mehrfach-Rollenänderung" in web
     assert "⚙️ Team-Update: Rollenänderung" in web
-    assert "⬆️ Hochstufen" in web
-    assert "⬇️ Runterstufen" in web
+    assert "⬆️ Befördern" in web
+    assert "⬇️ Degradieren" in web
     assert "1531132354272170115" in web
     # Team list keeps member actions inside the Details/eye menu.
     assert "details-only" not in web  # no stale marker should leak into UI
@@ -121,7 +141,10 @@ def main() -> None:
     assert 'href="/team/{member.id}/roles"' in web
     assert 'name="action_reason"' in web
     assert 'action == "kick"' in web
-    assert "guild.me.guild_permissions.kick_members" in web
+    assert "not guild.me.guild_permissions.manage_roles" in web
+    assert "r.position >= guild.me.top_role.position" in web
+    assert "await member.remove_roles(*team_roles" in web
+    assert "await member.kick(" not in web
     assert "def _record_team_since" in read("cogs/pulse_next.py")
     assert 'entry["team_since"]' in read("cogs/pulse_next.py")
     # Required reasons for personnel actions.

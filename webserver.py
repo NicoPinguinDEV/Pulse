@@ -29,6 +29,15 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import discord
 import pulse_db as pulse_db
+from pulse_melonly import (
+    RobloxLookupError,
+    RobloxUserNotFound,
+    normalize_username,
+    resolve_username as resolve_roblox_username,
+    lookup_user_id as lookup_roblox_user_id,
+    search_users as search_roblox_accounts,
+    MelonlyStore,
+)
 
 try:
     from zoneinfo import ZoneInfo
@@ -209,6 +218,9 @@ def save_json(filepath, data):
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         os.replace(tmp, filepath)  # verhindert kaputte Dateien bei Absturz
+
+
+MELOONLY_STORE = MelonlyStore(LOGS_FILE, load_json, save_json, _io_lock)
 
 
 def load_config() -> dict:
@@ -1115,53 +1127,100 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 _roblox_cache = {}
 
 
+def _roblox_error_response(exc: RobloxLookupError):
+    return JSONResponse(
+        {"success": False, "message": str(exc)},
+        status_code=getattr(exc, "http_status", 502),
+    )
+
+
+def _can_manage_log_type(perms: dict, log_type: str) -> bool:
+    if perms.get("is_admin") or perms.get("can_promote"):
+        return True
+    if log_type in ("Warn", "Kick", "Ban", "Ban BOLO"):
+        return bool(perms.get("can_warn"))
+    if log_type == "Notiz":
+        return bool(perms.get("can_add_notes"))
+    return False
+
+
+def _roblox_id_matches(submitted_id: str, resolved_id: str) -> bool:
+    """A submitted ID may be empty/legacy N/A, otherwise it must match Roblox."""
+    raw = str(submitted_id or "").strip()
+    if not raw or raw.upper() == "N/A":
+        return True
+    return bool(re.fullmatch(r"\d{1,20}", raw)) and str(int(raw)) == str(resolved_id)
+
+
 @app.get("/api/roblox-user")
 async def roblox_user_lookup(request: Request, username: str, user_session: str = Cookie(None)):
-    user = get_current_user(user_session)
+    ctx = auth(request, user_session, perm=None)
+    if not (ctx.perms.get("can_warn") or ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Melonly.")
+    user = ctx.user
     client_key = f"roblox-lookup:{user.get('id')}:{request.client.host if request.client else 'unknown'}"
     if rate_limited(client_key, limit=60, window=60):
-        return JSONResponse({"success": False, "message": "Zu viele Roblox-Abfragen. Bitte kurz warten."}, status_code=429)
-    name = (username or "").strip()
-    if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", name):
-        return JSONResponse({"success": False, "message": "Ungültiger Roblox-Name (3-20 Zeichen, A-Z, 0-9, _)"})
+        return JSONResponse(
+            {"success": False, "message": "Zu viele Roblox-Abfragen. Bitte kurz warten."},
+            status_code=429,
+        )
+    try:
+        name = normalize_username(username)
+    except RobloxLookupError as exc:
+        return _roblox_error_response(exc)
 
-    cached = _roblox_cache.get(name.lower())
+    cached = _roblox_cache.get(name.casefold())
     if cached and time.time() - cached[0] < 300:
         info = dict(cached[1])
     else:
-        async with httpx.AsyncClient() as client:
-            try:
-                res = await client.post(
-                    "https://users.roblox.com/v1/usernames/users",
-                    json={"usernames": [name], "excludeBannedUsers": False}, timeout=5.0)
-                data = res.json()
-                if not data.get("data"):
-                    return JSONResponse({"success": False, "message": "Nutzer auf Roblox nicht gefunden"})
-                u = data["data"][0]
-                avatar_url = "https://www.roblox.com/headshot-thumbnail/image"
-                try:
-                    thumb = await client.get(
-                        f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={u['id']}&size=150x150&format=Png&isCircular=true",
-                        timeout=5.0)
+        try:
+            account = await resolve_roblox_username(name)
+        except RobloxLookupError as exc:
+            return _roblox_error_response(exc)
+        avatar_url = "https://www.roblox.com/headshot-thumbnail/image"
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                thumb = await client.get(
+                    "https://thumbnails.roblox.com/v1/users/avatar-headshot",
+                    params={
+                        "userIds": account["id"],
+                        "size": "150x150",
+                        "format": "Png",
+                        "isCircular": "true",
+                    },
+                )
+                if 200 <= thumb.status_code < 300:
                     td = thumb.json()
                     if td.get("data"):
                         avatar_url = td["data"][0].get("imageUrl", avatar_url)
-                except Exception:
-                    pass
-                info = {"success": True, "id": str(u["id"]), "username": u["name"],
-                        "displayName": u.get("displayName", u["name"]), "avatarUrl": avatar_url}
-                _roblox_cache[name.lower()] = (time.time(), info)
-            except Exception:
-                return JSONResponse({"success": False, "message": "Roblox ist gerade nicht erreichbar"})
+        except Exception:
+            # Avatar thumbnails are decorative; the verified identity is authoritative.
+            pass
+        info = {
+            "success": True,
+            "id": account["id"],
+            "username": account["username"],
+            "displayName": account["displayName"],
+            "avatarUrl": avatar_url,
+        }
+        now = time.time()
+        _roblox_cache[name.casefold()] = (now, dict(info))
+        _roblox_cache[account["username"].casefold()] = (now, dict(info))
 
-    # Vorstrafen-Hinweis aus den eigenen Logs
-    previous = [l for l in load_json(LOGS_FILE, [])
-                if str(l.get("roblox_id")) == info["id"] or str(l.get("target_user", "")).lower() == info["username"].lower()]
+    previous = [
+        log for log in load_json(LOGS_FILE, [])
+        if isinstance(log, dict) and (
+            str(log.get("roblox_id") or "") == info["id"]
+            or str(log.get("roblox_username") or log.get("target_user") or "").casefold()
+            == info["username"].casefold()
+        )
+    ]
     counts = {}
-    for l in previous:
-        counts[l.get("type", "Log")] = counts.get(l.get("type", "Log"), 0) + 1
+    for log in previous:
+        kind = log.get("type", "Log")
+        counts[kind] = counts.get(kind, 0) + 1
     info["previous_total"] = len(previous)
-    info["previous_summary"] = ", ".join(f"{v}x {k}" for k, v in counts.items())
+    info["previous_summary"] = ", ".join(f"{count}x {kind}" for kind, count in counts.items())
     return JSONResponse(info)
 
 
@@ -1170,49 +1229,36 @@ async def roblox_user_lookup(request: Request, username: str, user_session: str 
 # =============================================================
 @app.get("/api/roblox-search")
 async def roblox_search(request: Request, query: str, user_session: str = Cookie(None)):
-    user = get_current_user(user_session)
+    ctx = auth(request, user_session, perm=None)
+    if not (ctx.perms.get("can_warn") or ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Melonly.")
+    user = ctx.user
     client_key = f"roblox-search:{user.get('id')}:{request.client.host if request.client else 'unknown'}"
     if rate_limited(client_key, limit=120, window=60):
-        return JSONResponse({"success": False, "users": [], "message": "Zu viele Roblox-Suchanfragen. Bitte kurz warten."}, status_code=429)
-    clean = (query or "").strip().lstrip("@")
-    if not re.fullmatch(r"[A-Za-z0-9_]{2,20}", clean):
+        return JSONResponse(
+            {"success": False, "users": [], "message": "Zu viele Roblox-Suchanfragen. Bitte kurz warten."},
+            status_code=429,
+        )
+    clean = str(query or "").strip()
+    if clean.startswith("@"):
+        clean = clean[1:]
+    if len(clean) < 2:
         return JSONResponse({"success": True, "users": []})
-
-    # Bereits im Melonly-Panel verwendete Namen dienen als lokale Fallback-Vorschläge.
-    # Damit bleiben Autocomplete-Einträge sichtbar, selbst wenn Roblox kurz nicht erreichbar ist.
-    users_map = {}
-    for entry in reversed(load_json(LOGS_FILE, [])[-5000:]):
-        saved_name = str(entry.get("target_user") or "").strip()
-        saved_id = str(entry.get("roblox_id") or "")
-        if not saved_name or clean.lower() not in saved_name.lower():
-            continue
-        users_map.setdefault(saved_name.lower(), {
-            "id": saved_id,
-            "name": saved_name,
-            "displayName": saved_name,
-        })
-
     try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(
-                "https://users.roblox.com/v1/users/search",
-                params={"keyword": clean, "limit": 8},
-                timeout=5.0,
-            )
-            data = res.json()
-            for u in data.get("data", [])[:8]:
-                name = str(u.get("name") or "")
-                if not name:
-                    continue
-                users_map[name.lower()] = {
-                    "id": str(u.get("id", "")),
-                    "name": name,
-                    "displayName": str(u.get("displayName") or name),
-                }
-    except Exception:
-        pass
+        accounts = await search_roblox_accounts(clean)
+    except RobloxLookupError as exc:
+        return JSONResponse(
+            {"success": False, "users": [], "message": str(exc)},
+            status_code=getattr(exc, "http_status", 502),
+        )
+    return JSONResponse({
+        "success": True,
+        "users": [
+            {"id": account["id"], "name": account["username"], "displayName": account["displayName"]}
+            for account in accounts
+        ],
+    })
 
-    return JSONResponse({"success": True, "users": list(users_map.values())[:8]})
 
 # =============================================================
 # HEALTH CHECK
@@ -1442,64 +1488,110 @@ DASHBOARD_HEAD = """
     // PWA
     if("serviceWorker" in navigator){ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }
 
-    let robloxSearchTimeout = null;
-    let robloxSuggestionIds = {};
-    function searchRobloxUsers(val) {
-        clearTimeout(robloxSearchTimeout);
-        const input = String(val || "").trim().replace(/^@+/, "");
+    const robloxSearchTimers = new WeakMap();
+    const robloxLookupTimers = new WeakMap();
+    const robloxSearchVersions = new WeakMap();
+    const robloxLookupVersions = new WeakMap();
+
+    function searchRobloxUsers(val, form) {
+        const version = (robloxSearchVersions.get(form) || 0) + 1;
+        robloxSearchVersions.set(form, version);
+        const raw = String(val || "").trim();
+        const input = raw.startsWith("@") ? raw.slice(1) : raw;
         const list = document.getElementById("robloxUserSuggestions");
-        if (!list || input.length < 2) { if (list) list.innerHTML = ""; return; }
-        robloxSearchTimeout = setTimeout(() => {
+        if (!list || !form) return;
+        const previousTimer = robloxSearchTimers.get(form);
+        if (previousTimer) clearTimeout(previousTimer);
+        if (input.length < 2) { list.innerHTML = ""; return; }
+
+        const timer = setTimeout(() => {
             fetch("/api/roblox-search?query=" + encodeURIComponent(input), {cache: "no-store"})
-                .then(r => r.json())
-                .then(data => {
-                    if (!data.success) { list.innerHTML = ""; return; }
-                    robloxSuggestionIds = {};
-                    (data.users || []).forEach(u => {
-                        const name = String(u.name || "").trim();
-                        if (name) robloxSuggestionIds[name.toLowerCase()] = String(u.id || "");
-                    });
-                    list.innerHTML = (data.users || []).map(u => "<option value=\"" + escapeHtml(u.name) + "\">" + escapeHtml(u.displayName || u.name) + " · ID " + escapeHtml(u.id) + "</option>").join("");
-                    const idInput = document.getElementById("robloxIdInput");
-                    const cachedId = robloxSuggestionIds[input.toLowerCase()];
-                    if (idInput && cachedId) idInput.value = cachedId;
-                })
-                .catch(() => { list.innerHTML = ""; });
-        }, 250);
-    }
-    let lookupTimeout = null;
-    function lookupRobloxUser(val) {
-        val = String(val || "").trim().replace(/^@+/, "");
-        searchRobloxUsers(val);
-        clearTimeout(lookupTimeout);
-        const infoDiv = document.getElementById("robloxUserPreview");
-        const idInput = document.getElementById("robloxIdInput");
-        if (!val || val.trim().length < 3) { infoDiv.classList.add("hidden"); return; }
-        lookupTimeout = setTimeout(() => {
-            fetch("/api/roblox-user?username=" + encodeURIComponent(val.trim()))
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success) {
-                        if (idInput) idInput.value = data.id;
-                        const prev = data.previous_total > 0
-                            ? `<div class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5">⚠️ ${data.previous_total} frühere Logs (${escapeHtml(data.previous_summary)})</div>`
-                            : `<div class="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">✔ Keine früheren Logs</div>`;
-                        infoDiv.innerHTML = `
-                            <div class="flex items-center gap-3 p-2.5 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/50 rounded-xl">
-                                <img src="${escapeHtml(data.avatarUrl)}" class="w-9 h-9 rounded-full border border-indigo-300 dark:border-indigo-700">
-                                <div class="truncate">
-                                    <div class="font-bold text-slate-900 dark:text-white text-xs">${escapeHtml(data.displayName)} <span class="text-slate-400 text-[10px]">(@${escapeHtml(data.username)})</span></div>
-                                    <div class="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-semibold">Roblox ID: ${escapeHtml(data.id)}</div>
-                                    ${prev}
-                                </div>
-                            </div>`;
-                    } else {
-                        infoDiv.innerHTML = `<span class="text-rose-500 text-[11px] block px-1">⚠️ ${escapeHtml(data.message)}</span>`;
+                .then(async response => {
+                    const data = await response.json();
+                    if (robloxSearchVersions.get(form) !== version) return;
+                    if (!response.ok || !data.success) {
+                        throw new Error(data.message || "Roblox-Vorschläge sind aktuell nicht verfügbar.");
                     }
-                    infoDiv.classList.remove("hidden");
+                    const users = Array.isArray(data.users) ? data.users : [];
+                    list.innerHTML = users.map(u =>
+                        "<option value=\"" + escapeHtml(u.name || "") + "\">" +
+                        escapeHtml(u.displayName || u.name || "") + " · ID " + escapeHtml(u.id || "") +
+                        "</option>"
+                    ).join("");
+                    const idInput = form.querySelector('[name="roblox_id"]');
+                    const exact = users.find(u => String(u.name || "").toLowerCase() === input.toLowerCase());
+                    if (idInput && exact && /^[0-9]+$/.test(String(exact.id || ""))) idInput.value = String(exact.id);
                 })
-                .catch(() => infoDiv.classList.add("hidden"));
-        }, 400);
+                .catch(error => {
+                    if (robloxSearchVersions.get(form) !== version) return;
+                    list.innerHTML = "";
+                    const preview = form.querySelector("[data-roblox-preview]");
+                    if (preview && input.length >= 3) {
+                        preview.innerHTML = "<span class=\"text-amber-600 text-[11px]\">" +
+                            escapeHtml(error.message || "Roblox-Suche fehlgeschlagen.") + "</span>";
+                        preview.classList.remove("hidden");
+                    }
+                });
+        }, 250);
+        robloxSearchTimers.set(form, timer);
+    }
+
+    function lookupRobloxUser(val, form) {
+        if (!form) return;
+        const version = (robloxLookupVersions.get(form) || 0) + 1;
+        robloxLookupVersions.set(form, version);
+        const raw = String(val || "").trim();
+        const name = raw.startsWith("@") ? raw.slice(1) : raw;
+        const idInput = form.querySelector('[name="roblox_id"]');
+        const preview = form.querySelector("[data-roblox-preview]");
+        searchRobloxUsers(name, form);
+        const previousTimer = robloxLookupTimers.get(form);
+        if (previousTimer) clearTimeout(previousTimer);
+
+        // Never leave the previous account's ID attached to a newly typed username.
+        if (idInput) idInput.value = "";
+        if (!preview) return;
+        if (!name || name.length < 3) {
+            preview.innerHTML = "";
+            preview.classList.add("hidden");
+            return;
+        }
+
+        preview.innerHTML = "<span class=\"text-indigo-500 text-[11px]\">Roblox-Konto wird überprüft …</span>";
+        preview.classList.remove("hidden");
+        const timer = setTimeout(() => {
+            fetch("/api/roblox-user?username=" + encodeURIComponent(name), {cache: "no-store"})
+                .then(async response => {
+                    const data = await response.json();
+                    if (robloxLookupVersions.get(form) !== version) return;
+                    if (!response.ok || !data.success) {
+                        throw new Error(data.message || "Roblox-Konto konnte nicht bestätigt werden.");
+                    }
+                    if (idInput) idInput.value = String(data.id || "");
+                    const previous = data.previous_total > 0
+                        ? "<div class=\"text-[10px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5\">⚠️ " +
+                          escapeHtml(data.previous_total) + " frühere Logs (" + escapeHtml(data.previous_summary || "") + ")</div>"
+                        : "<div class=\"text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5\">✔ Keine früheren Logs</div>";
+                    preview.innerHTML =
+                        "<div class=\"flex items-center gap-3 p-2.5 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/50 rounded-xl\">" +
+                        "<img src=\"" + escapeHtml(data.avatarUrl || "") + "\" class=\"w-9 h-9 rounded-full border border-indigo-300 dark:border-indigo-700\" alt=\"Roblox-Avatar\">" +
+                        "<div class=\"truncate\"><div class=\"font-bold text-slate-900 dark:text-white text-xs\">" +
+                        escapeHtml(data.displayName || data.username) +
+                        " <span class=\"text-slate-400 text-[10px]\">(@" + escapeHtml(data.username) + ")</span></div>" +
+                        "<div class=\"text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-semibold\">Roblox ID: " +
+                        escapeHtml(data.id) + "</div>" + previous + "</div></div>";
+                    preview.classList.remove("hidden");
+                })
+                .catch(error => {
+                    if (robloxLookupVersions.get(form) !== version) return;
+                    if (idInput) idInput.value = "";
+                    preview.innerHTML = "<span class=\"text-rose-500 text-[11px] block px-1\">⚠️ " +
+                        escapeHtml(error.message || "Roblox-Abfrage fehlgeschlagen. Bitte erneut versuchen.") +
+                        "</span>";
+                    preview.classList.remove("hidden");
+                });
+        }, 350);
+        robloxLookupTimers.set(form, timer);
     }
 </script>
 """
@@ -1573,13 +1665,22 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
         ltype = log.get("type", "Log")
         badge = LOG_TYPE_STYLE.get(ltype, "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300")
         search = f"{log.get('target_user','')} {log.get('roblox_id','')} {log.get('moderator','')} {ltype} {log.get('reason','')}".lower()
-        can_edit = is_manager or (log.get("moderator_id") and log.get("moderator_id") == mod_id)
+        is_log_owner = str(log.get("moderator_id") or "") == str(mod_id)
+        can_manage_this_type = _can_manage_log_type(ctx.perms, ltype)
+        can_edit = is_manager or (is_log_owner and can_manage_this_type)
+        display_name = str(log.get("roblox_display_name") or log.get("displayName") or "").strip()
+        display_name_html = (f'<span class="text-[10px] text-slate-400 truncate">{esc(display_name)}</span>'
+                             if display_name and display_name.casefold() != str(log.get("target_user") or "").casefold() else "")
         edit_button = (
             f'<a href="/dashboard?edit_log={quote(str(log.get("id") or ""))}" class="text-indigo-500 hover:underline font-semibold">✏️ Bearbeiten</a>'
             if can_edit else ""
         )
+        delete_prompt = json.dumps(
+            f"Melonly-Eintrag für {str(log.get('target_user') or '')} ({ltype}) wirklich dauerhaft löschen?",
+            ensure_ascii=True,
+        )
         delete_form = f"""
-                <form action="/log/delete" method="post" onsubmit="return confirm('Diesen Log-Eintrag wirklich löschen?');">
+                <form action="/log/delete" method="post" onsubmit="return confirm({esc(delete_prompt)});">
                     <input type="hidden" name="log_id" value="{esc(log.get('id'))}">
                     <button class="text-rose-500 hover:underline font-semibold">🗑️ Löschen</button>
                 </form>""" if can_edit else ""
@@ -1592,8 +1693,10 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
             edit_form = f"""
             <form action="/log/edit" method="post" class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/60 space-y-2.5">
                 <input type="hidden" name="log_id" value="{esc(log.get('id'))}">
-                <input class="{INPUT}" name="target_user" maxlength="50" value="{esc(log.get('target_user'))}" required>
-                <input class="{INPUT}" name="roblox_id" maxlength="15" value="{esc(log.get('roblox_id','N/A'))}" placeholder="Roblox ID">
+                <input class="{INPUT}" name="target_user" maxlength="50" list="robloxUserSuggestions" oninput="lookupRobloxUser(this.value, this.form)" autocomplete="off" value="{esc(log.get('roblox_username') or log.get('target_user'))}" required>
+                <div data-roblox-preview class="hidden" aria-live="polite"></div>
+                <input class="{INPUT}" name="roblox_id" maxlength="20" value="{esc(log.get('roblox_id','N/A'))}" placeholder="Wird serverseitig überprüft">
+                <input type="hidden" name="original_roblox_id" value="{esc(log.get('roblox_id','N/A'))}">
                 <select class="{INPUT}" name="log_type">{edit_options}</select>
                 <textarea class="{INPUT} h-24" name="reason" maxlength="1000" required>{esc(log.get('reason'))}</textarea>
                 <div class="flex gap-2">
@@ -1607,6 +1710,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                 <div class="flex items-center gap-2 min-w-0">
                     <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border {badge}">{esc(ltype)}</span>
                     <span class="text-xs font-semibold text-slate-900 dark:text-white truncate">{esc(log.get('target_user'))}</span>
+                    {display_name_html}
                 </div>
                 <span class="text-[10px] text-slate-400 font-mono shrink-0">{esc(log.get('created_at'))}</span>
             </div>
@@ -1674,10 +1778,10 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                 <form action="/log/create" method="post" class="space-y-4 text-xs">
                     <div>
                         <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Roblox Username *</label>
-                        <input type="text" name="target_user" maxlength="50" list="robloxUserSuggestions" oninput="lookupRobloxUser(this.value)" placeholder="z. B. Spieler123" required class="{INPUT}">
+                        <input type="text" name="target_user" maxlength="50" list="robloxUserSuggestions" oninput="lookupRobloxUser(this.value, this.form)" placeholder="z. B. Spieler123 oder @Spieler123" autocomplete="off" required class="{INPUT}">
                     <datalist id="robloxUserSuggestions"></datalist>
                     </div>
-                    <div id="robloxUserPreview" class="hidden"></div>
+                    <div data-roblox-preview class="hidden" aria-live="polite"></div>
                     <div>
                         <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Roblox Player ID (Auto-Ausfüllung)</label>
                         <input type="text" name="roblox_id" id="robloxIdInput" placeholder="z. B. 12345678" class="{INPUT}">
@@ -1999,38 +2103,55 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), u
 async def create_log(request: Request, target_user: str = Form(...), roblox_id: str = Form("N/A"),
                      log_type: str = Form(...), reason: str = Form(...), user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
-    target_user = target_user.strip()[:50]
-    reason = reason.strip()[:1000]
-    roblox_id = roblox_id.strip()
+    target_user = str(target_user or "").strip()[:50]
+    reason = str(reason or "").strip()[:1000]
+    submitted_id = str(roblox_id or "").strip()
     if log_type not in VALID_LOG_TYPES or not target_user or not reason:
-        return back("/dashboard", "Ungültige Eingabe.", False)
+        return back("/dashboard#playerlog", "Username, Typ und Begründung sind Pflicht.", False)
     if log_type in ("Warn", "Kick", "Ban", "Ban BOLO") and not (ctx.perms.get("can_warn") or ctx.perms.get("is_admin")):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Strafmaßnahmen.")
     if log_type == "Notiz" and not (ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Notizen.")
-    if not re.fullmatch(r"\d{1,15}", roblox_id):
-        roblox_id = "N/A"
 
-    logs_db = load_json(LOGS_FILE, [])
-    logs_db.append({
-        "id": f"log_{uuid.uuid4().hex[:6]}",
+    try:
+        account = await resolve_roblox_username(target_user)
+    except RobloxLookupError as exc:
+        return back("/dashboard#playerlog", str(exc), False)
+    if not _roblox_id_matches(submitted_id, account["id"]):
+        return back(
+            "/dashboard#playerlog",
+            "Die eingegebene Roblox-ID passt nicht zum Username. Bitte das Konto erneut auswählen.",
+            False,
+        )
+
+    target_user = account["username"]
+    stamp = now_de().strftime("%d.%m.%Y %H:%M")
+    entry_data = {
+        "id": f"log_{uuid.uuid4().hex}",
         "target_user": target_user,
-        "roblox_id": roblox_id,
+        "roblox_username": account["username"],
+        "roblox_display_name": account["displayName"],
+        "roblox_id": account["id"],
+        "roblox_verified": True,
         "type": log_type,
         "reason": reason,
-        "moderator": ctx.user.get("global_name", "Dashboard Admin"),
-        "moderator_id": ctx.user["id"],
-        "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
-    })
-    save_json(LOGS_FILE, logs_db)
-    # Melonly bleibt ausschließlich im Panel. Es gibt dafür bewusst kein Discord-Team-Update.
+        "moderator": ctx.user.get("global_name") or ctx.user.get("username") or "Dashboard Admin",
+        "moderator_id": str(ctx.user["id"]),
+        "created_at": stamp,
+    }
+    status, _saved_entry = MELOONLY_STORE.create(entry_data)
+    if status == "duplicate":
+        return back("/dashboard#playerlog", "Dieser identische Melonly-Eintrag wurde gerade bereits gespeichert.", False)
+    if status != "created":
+        return back("/dashboard#playerlog", "Melonly-Eintrag konnte nicht gespeichert werden.", False)
+    # Melonly remains dashboard-only; no Discord Team Updates call belongs here.
     log_audit(
-        ctx.user.get("global_name"),
+        ctx.user.get("global_name") or ctx.user.get("username"),
         ctx.user["id"],
         "Melonly-Eintrag erstellt",
-        f"Spieler: {target_user} ({log_type})",
+        f"Spieler: {target_user} ({log_type}) · Roblox-ID {account['id']}",
     )
-    return back("/dashboard", f"{log_type}-Log für {target_user} gespeichert.")
+    return back("/dashboard#playerlog", f"{log_type}-Log für {target_user} gespeichert.")
 
 
 @app.post("/log/edit")
@@ -2039,62 +2160,160 @@ async def edit_log(
     log_id: str = Form(...),
     target_user: str = Form(...),
     roblox_id: str = Form("N/A"),
+    original_roblox_id: str = Form(""),
     log_type: str = Form(...),
     reason: str = Form(...),
     user_session: str = Cookie(None),
 ):
     ctx = auth(request, user_session)
-    logs_db = load_json(LOGS_FILE, [])
-    entry = next((l for l in logs_db if l.get("id") == log_id), None)
-    if not entry:
-        return back("/dashboard", "Log nicht gefunden.", False)
-
-    own = entry.get("moderator_id") and str(entry.get("moderator_id")) == str(ctx.user["id"])
-    if not (own or ctx.perms["can_promote"] or ctx.perms["is_admin"]):
-        raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
-
-    target_user = target_user.strip()[:50]
-    reason = reason.strip()[:1000]
-    roblox_id = roblox_id.strip()
+    log_id = str(log_id or "").strip()
+    target_user = str(target_user or "").strip()[:50]
+    reason = str(reason or "").strip()[:1000]
+    submitted_id = str(roblox_id or "").strip()
     if log_type not in VALID_LOG_TYPES or not target_user or not reason:
-        return back("/dashboard", "Ungültige Eingabe.", False)
-    if not re.fullmatch(r"\d{1,15}", roblox_id):
-        roblox_id = "N/A"
+        return back("/dashboard#playerlog", "Username, Typ und Begründung sind Pflicht.", False)
+    if log_type in ("Warn", "Kick", "Ban", "Ban BOLO") and not (ctx.perms.get("can_warn") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Strafmaßnahmen.")
+    if log_type == "Notiz" and not (ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Notizen.")
 
-    old_target = str(entry.get("target_user") or "")
-    old_type = str(entry.get("type") or "Log")
-    entry.update({
-        "target_user": target_user,
-        "roblox_id": roblox_id,
-        "type": log_type,
-        "reason": reason,
-        "edited_at": now_de().strftime("%d.%m.%Y %H:%M"),
-        "edited_by": ctx.user.get("global_name") or ctx.user.get("username") or "Team",
-    })
-    save_json(LOGS_FILE, logs_db)
+    with _io_lock:
+        logs_db = load_json(LOGS_FILE, [])
+        if not isinstance(logs_db, list):
+            logs_db = []
+        entry = next((log for log in logs_db if isinstance(log, dict) and str(log.get("id") or "") == log_id), None)
+        if not entry:
+            return back("/dashboard#playerlog", "Log nicht gefunden.", False)
+        own = str(entry.get("moderator_id") or "") == str(ctx.user["id"])
+        if not (own or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
+            raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
+        if not _can_manage_log_type(ctx.perms, str(entry.get("type") or "")) or not _can_manage_log_type(ctx.perms, log_type):
+            raise HTTPException(status_code=403, detail="Für diesen Eintragstyp fehlt dir die Berechtigung.")
+        entry_snapshot = dict(entry)
+
+        saved_id = str(entry.get("roblox_id") or "").strip()
+        saved_name = str(entry.get("roblox_username") or entry.get("target_user") or "").strip()
+        current_original_id = str(original_roblox_id or "").strip()
+        if current_original_id and saved_id and current_original_id != saved_id:
+            return back("/dashboard#playerlog", "Der Eintrag wurde zwischenzeitlich geändert. Bitte lade die Seite neu.", False)
+
+        same_name = target_user.removeprefix("@").casefold() == saved_name.removeprefix("@").casefold()
+        id_unchanged = submitted_id.upper() in ("", "N/A") or submitted_id == saved_id
+        account = None
+        if entry.get("roblox_verified") is True and saved_id.isdecimal() and same_name and id_unchanged:
+            # Text-only edits must work during Roblox downtime and never lose the stable ID.
+            account = {
+                "id": str(int(saved_id)),
+                "username": saved_name,
+                "displayName": str(entry.get("roblox_display_name") or entry.get("displayName") or saved_name),
+            }
+
+    if account is None:
+        try:
+            account = await resolve_roblox_username(target_user)
+        except RobloxUserNotFound as exc:
+            # If the account's old username no longer resolves, its verified ID remains stable.
+            if (
+                same_name and saved_id.isdecimal() and submitted_id.upper() in ("", "N/A", saved_id)
+                ):
+                try:
+                    account = await lookup_roblox_user_id(saved_id)
+                except RobloxLookupError as id_exc:
+                    return back("/dashboard#playerlog", str(id_exc), False)
+            else:
+                return back("/dashboard#playerlog", str(exc), False)
+        except RobloxLookupError as exc:
+            return back("/dashboard#playerlog", str(exc), False)
+
+    if not _roblox_id_matches(submitted_id, account["id"]):
+        return back(
+            "/dashboard#playerlog",
+            "Die eingegebene Roblox-ID passt nicht zum Username. Bitte das Konto erneut auswählen.",
+            False,
+        )
+
+    target_user = account["username"]
+    stamp = now_de().strftime("%d.%m.%Y %H:%M")
+    with _io_lock:
+        logs_db = load_json(LOGS_FILE, [])
+        if not isinstance(logs_db, list):
+            logs_db = []
+        entry = next((log for log in logs_db if isinstance(log, dict) and str(log.get("id") or "") == log_id), None)
+        if not entry:
+            return back("/dashboard#playerlog", "Log wurde zwischenzeitlich gelöscht.", False)
+        own = str(entry.get("moderator_id") or "") == str(ctx.user["id"])
+        if not (own or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
+            raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
+        if not _can_manage_log_type(ctx.perms, str(entry.get("type") or "")) or not _can_manage_log_type(ctx.perms, log_type):
+            raise HTTPException(status_code=403, detail="Für diesen Eintragstyp fehlt dir die Berechtigung.")
+        if entry != entry_snapshot:
+            return back("/dashboard#playerlog", "Der Eintrag wurde während der Bearbeitung geändert. Bitte lade die Seite neu.", False)
+        if str(entry.get("roblox_id") or "").strip() != saved_id:
+            return back("/dashboard#playerlog", "Der Eintrag wurde zwischenzeitlich geändert. Bitte lade die Seite neu.", False)
+        old_target = str(entry.get("target_user") or "")
+        old_type = str(entry.get("type") or "Log")
+        changes = {
+            "target_user": target_user,
+            "roblox_username": account["username"],
+            "roblox_display_name": account["displayName"],
+            "roblox_id": account["id"],
+            "roblox_verified": True,
+            "type": log_type,
+            "reason": reason,
+            "edited_at": stamp,
+            "edited_by": ctx.user.get("global_name") or ctx.user.get("username") or "Team",
+        }
+        status, updated_entry = MELOONLY_STORE.update(
+            log_id, entry_snapshot, changes, reject_duplicate=True
+        )
+        if status == "missing":
+            return back("/dashboard#playerlog", "Log wurde zwischenzeitlich gelöscht.", False)
+        if status == "conflict":
+            return back("/dashboard#playerlog", "Der Eintrag wurde während der Bearbeitung geändert. Bitte lade die Seite neu.", False)
+        if status == "duplicate":
+            return back("/dashboard#playerlog", "Ein identischer Eintrag wurde gerade bereits gespeichert.", False)
+        if status != "updated" or not updated_entry:
+            return back("/dashboard#playerlog", "Änderungen konnten nicht gespeichert werden.", False)
     log_audit(
-        ctx.user.get("global_name"),
+        ctx.user.get("global_name") or ctx.user.get("username"),
         ctx.user["id"],
         "Melonly-Eintrag bearbeitet",
-        f"{log_id}: {old_target} ({old_type}) -> {target_user} ({log_type})",
+        f"{log_id}: {old_target} ({old_type}) -> {target_user} ({log_type}) · Roblox-ID {account['id']}",
     )
-    return back("/dashboard", "Melonly-Eintrag wurde bearbeitet.")
+    return back("/dashboard#playerlog", "Melonly-Eintrag wurde bearbeitet.")
 
 
 @app.post("/log/delete")
 async def delete_log(request: Request, log_id: str = Form(...), user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
-    logs_db = load_json(LOGS_FILE, [])
-    entry = next((l for l in logs_db if l.get("id") == log_id), None)
-    if not entry:
-        return back("/dashboard", "Log nicht gefunden.", False)
-    own = entry.get("moderator_id") and entry.get("moderator_id") == ctx.user["id"]
-    if not (own or ctx.perms["can_promote"] or ctx.perms["is_admin"]):
-        raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs löschen.")
-    save_json(LOGS_FILE, [l for l in logs_db if l.get("id") != log_id])
-    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Log Gelöscht",
-              f"{entry.get('target_user')} ({entry.get('type')}) – ID {log_id}")
-    return back("/dashboard", "Log gelöscht.")
+    log_id = str(log_id or "").strip()
+    with _io_lock:
+        logs_db = load_json(LOGS_FILE, [])
+        if not isinstance(logs_db, list):
+            logs_db = []
+        entry = next((log for log in logs_db if isinstance(log, dict) and str(log.get("id") or "") == log_id), None)
+        if not entry:
+            return back("/dashboard#playerlog", "Log nicht gefunden oder bereits gelöscht.", False)
+        own = str(entry.get("moderator_id") or "") == str(ctx.user["id"])
+        if not (own or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
+            raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs löschen.")
+        if not _can_manage_log_type(ctx.perms, str(entry.get("type") or "")):
+            raise HTTPException(status_code=403, detail="Für diesen Eintragstyp fehlt dir die Berechtigung.")
+        status, removed_entry = MELOONLY_STORE.delete(log_id, expected_snapshot=dict(entry))
+        if status == "missing":
+            return back("/dashboard#playerlog", "Log wurde zwischenzeitlich bereits gelöscht.", False)
+        if status == "conflict":
+            return back("/dashboard#playerlog", "Der Eintrag wurde geändert. Bitte lade die Seite neu.", False)
+        if status != "deleted" or not removed_entry:
+            return back("/dashboard#playerlog", "Log konnte nicht gelöscht werden.", False)
+        entry = removed_entry
+    log_audit(
+        ctx.user.get("global_name") or ctx.user.get("username"),
+        ctx.user["id"],
+        "Melonly-Eintrag gelöscht",
+        f"{entry.get('target_user')} ({entry.get('type')}) – ID {log_id}",
+    )
+    return back("/dashboard#playerlog", "Melonly-Eintrag wurde dauerhaft gelöscht.")
 
 
 def csv_safe(value) -> str:
