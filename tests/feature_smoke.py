@@ -178,6 +178,7 @@ def main() -> None:
     assert "backup_discord_channel_id" in web
     assert 'PULSE_BACKUP_DISCORD_CHANNEL_ID' in web
     assert "pre_restore_" in web
+    assert 'if panel.get("logs") == {}' in web
     assert "Nicht unterstützte Backup-Version" in web
     assert "Dieses Backup gehört zu einem anderen Discord-Server" in web
     assert '"/ultimate/api/monitor"' in ultimate
