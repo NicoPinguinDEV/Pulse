@@ -499,10 +499,44 @@ def register_routes():
 
     @app.get("/suite/audit",response_class=HTMLResponse)
     async def audit_page(request:Request,user_session:str=Cookie(None)):
-        ctx=auth(request,user_session,manager=True);ok,count=audit_ok();q=request.query_params.get("q","").lower()
-        with cx() as c:rows=[dict(x) for x in c.execute("SELECT * FROM suite_audit ORDER BY rowid DESC LIMIT 1000").fetchall()]
-        rows=[x for x in rows if not q or q in json.dumps(x,ensure_ascii=False).lower()];listing=''.join(f'<div class=event><b>{esc(x["occurred_at"])}</b> · <b>{esc(x["action"])}</b><div class=tiny>👤 {esc(x["target_name"])} · 🛡 {esc(x["actor_name"])} · 🆔 {esc(x["request_id"])}</div><div>{esc(x["details"])}</div></div>' for x in rows)
-        return page(ctx,"audit","Audit Center 2.0","Append-only Historie · SHA-256 Hashkette · Vorgangs-ID",f'<div class=card><span class="badge {"ok" if ok else "bad"}">{"✅ Hashkette intakt" if ok else "🚨 Manipulation erkannt"}</span> <span class="badge blue">{count} geprüft</span><form style="margin-top:10px"><input class=input name=q value="{esc(q)}" placeholder="Audit, Vorgang, Spieler, Aktion…"></form><div class=timeline style="margin-top:13px">{listing or "Keine Treffer."}</div></div>')
+        ctx=auth(request,user_session,manager=True)
+        ok,count=audit_ok()
+        q=request.query_params.get("q","").lower()
+        with cx() as c:
+            rows=[dict(x) for x in c.execute("SELECT * FROM suite_audit ORDER BY rowid DESC LIMIT 1000").fetchall()]
+        rows=[x for x in rows if not q or q in json.dumps(x,ensure_ascii=False).lower()]
+        listing=''.join(
+            f'<div class=event><b>{esc(x["occurred_at"])}</b> · <b>{esc(x["action"])}</b>'
+            f'<div class=tiny>👤 {esc(x["target_name"])} · 🛡 {esc(x["actor_name"])} · 🆔 {esc(x["request_id"])}</div>'
+            f'<div>{esc(x["details"])}</div></div>'
+            for x in rows
+        )
+
+        # Several legacy dashboard routes write to audit_logs.json while newer
+        # modules use the hash-chained suite_audit table. Show both stores so
+        # older management actions are not hidden from the central Audit Center.
+        legacy_source=webserver.load_json(webserver.AUDIT_FILE,[])
+        legacy_rows=[x for x in legacy_source[-500:] if isinstance(x,dict)] if isinstance(legacy_source,list) else []
+        if q:
+            legacy_rows=[x for x in legacy_rows if q in json.dumps(x,ensure_ascii=False).lower()]
+        legacy_listing=''.join(
+            f'<div class=event><b>{esc(x.get("timestamp","—"))}</b> · <b>{esc(x.get("action","Aktion"))}</b>'
+            f'<div class=tiny>👤 {esc(x.get("actor","Unbekannt"))} · 🆔 {esc(x.get("actor_id","—"))} · Quelle: Legacy-Webpanel</div>'
+            f'<div>{esc(x.get("details",""))}</div></div>'
+            for x in reversed(legacy_rows)
+        )
+        body=(
+            f'<div class=card><span class="badge {"ok" if ok else "bad"}">'
+            f'{"✅ Suite-Hashkette intakt" if ok else "🚨 Suite-Hashkette: Manipulation erkannt"}</span> '
+            f'<span class="badge blue">{count} geprüft</span>'
+            f'<form style="margin-top:10px"><input class=input name=q value="{esc(q)}" placeholder="Audit, Vorgang, Spieler, Aktion…"></form>'
+            f'<h3 style="margin-top:14px">🔐 Verifizierte Suite-Auditkette</h3>'
+            f'<div class=timeline style="margin-top:13px">{listing or "Keine Treffer."}</div></div>'
+            f'<div class=card style="margin-top:13px"><h3>🧾 Zusätzliche ältere Dashboard-Aktionen</h3>'
+            f'<div class=tiny>Quelle: audit_logs.json · Diese historischen Einträge besitzen keine Suite-Hashkettenprüfung.</div>'
+            f'<div class=timeline style="margin-top:13px">{legacy_listing or "Keine zusätzlichen Treffer."}</div></div>'
+        )
+        return page(ctx,"audit","Audit Center 2.0","Verifizierte Suite-Historie und zusätzliche Aktionen aus dem älteren Dashboard",body)
 
     @app.get("/suite/search",response_class=HTMLResponse)
     async def search_page(request:Request,user_session:str=Cookie(None)):
