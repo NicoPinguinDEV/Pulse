@@ -55,20 +55,59 @@ class ActivityView(discord.ui.View):
     def __init__(self, cog):
         super().__init__(timeout=None); self.cog=cog
 
-    @discord.ui.button(label="Aktivität bestätigen",style=discord.ButtonStyle.success,emoji="✅",custom_id="pulse_activity_confirm")
+    @discord.ui.button(label="Aktivität bestätigen", style=discord.ButtonStyle.success, emoji="✅", custom_id="pulse_activity_confirm")
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        check_id=self.cog.current_check_id(interaction.message.id)
+        # Discord interactions must be acknowledged within ~3 seconds. Defer first
+        # so database access or brief event-loop delays cannot expire the token.
+        try:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+        except discord.NotFound:
+            # The interaction token was already expired before this callback ran.
+            return
+        except discord.HTTPException as exc:
+            if getattr(exc, "code", None) == 10062:
+                return
+            raise
+
+        check_id = self.cog.current_check_id(interaction.message.id)
         if not check_id:
-            await interaction.response.send_message("⚠️ Dieser Activity Check ist nicht mehr aktiv.",ephemeral=True); return
-        with sqlite3.connect(DB_NAME) as c:
-            has_snapshot = c.execute("SELECT 1 FROM check_members WHERE check_id=? LIMIT 1", (check_id,)).fetchone()
-            if has_snapshot:
-                member_row = c.execute("SELECT 1 FROM check_members WHERE check_id=? AND user_id=?", (check_id, interaction.user.id)).fetchone()
-                if not member_row:
-                    await interaction.response.send_message("⚠️ Du warst bei diesem Activity Check nicht als Teammitglied erfasst.", ephemeral=True)
-                    return
-            c.execute("INSERT OR REPLACE INTO responses(check_id,user_id,reacted_at) VALUES(?,?,?)",(check_id,interaction.user.id,datetime.now(BERLIN_TZ).isoformat()))
-        await interaction.response.send_message("✅ Aktivität für diesen Activity Check bestätigt.",ephemeral=True)
+            await interaction.followup.send(
+                "⚠️ Dieser Activity Check ist nicht mehr aktiv.", ephemeral=True
+            )
+            return
+
+        rejection = None
+        try:
+            with sqlite3.connect(DB_NAME, timeout=5) as c:
+                has_snapshot = c.execute(
+                    "SELECT 1 FROM check_members WHERE check_id=? LIMIT 1",
+                    (check_id,),
+                ).fetchone()
+                if has_snapshot:
+                    member_row = c.execute(
+                        "SELECT 1 FROM check_members WHERE check_id=? AND user_id=?",
+                        (check_id, interaction.user.id),
+                    ).fetchone()
+                    if not member_row:
+                        rejection = "⚠️ Du warst bei diesem Activity Check nicht als Teammitglied erfasst."
+                if rejection is None:
+                    c.execute(
+                        "INSERT OR REPLACE INTO responses(check_id,user_id,reacted_at) VALUES(?,?,?)",
+                        (check_id, interaction.user.id, datetime.now(BERLIN_TZ).isoformat()),
+                    )
+        except sqlite3.Error:
+            await interaction.followup.send(
+                "❌ Deine Bestätigung konnte wegen eines Datenbankfehlers nicht gespeichert werden. Bitte versuche es erneut.",
+                ephemeral=True,
+            )
+            return
+
+        if rejection:
+            await interaction.followup.send(rejection, ephemeral=True)
+            return
+        await interaction.followup.send(
+            "✅ Aktivität für diesen Activity Check bestätigt.", ephemeral=True
+        )
 
 
 class ActivityCheckCog(commands.Cog):
