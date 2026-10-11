@@ -3198,12 +3198,65 @@ async def auto_backup_loop():
             bot = getattr(app.state, "bot", None)
             guild = bot.get_guild(GUILD_ID) if bot else None
             if guild:
-                times = [os.path.getmtime(os.path.join(BACKUP_DIR, f)) for f in os.listdir(BACKUP_DIR) if f.endswith(".json")]
+                times = [
+                    os.path.getmtime(os.path.join(BACKUP_DIR, f))
+                    for f in os.listdir(BACKUP_DIR)
+                    if BACKUP_NAME_RE.fullmatch(f)
+                ]
                 if not times or time.time() - max(times) > AUTO_BACKUP_HOURS * 3600:
                     name = create_backup_file(guild, "auto_")
                     log_audit("System", "0", "Auto-Backup", name)
+
+                    # Optional off-host copy. The local backup remains valid even
+                    # when Discord uploads fail or the attachment exceeds the cap.
+                    raw_channel_id = os.getenv("PULSE_BACKUP_DISCORD_CHANNEL_ID", "").strip()
+                    if not raw_channel_id:
+                        raw_channel_id = str(load_config().get("backup_discord_channel_id", "") or "")
+                    try:
+                        channel_id = int(raw_channel_id)
+                    except (TypeError, ValueError):
+                        channel_id = 0
+                    channel = (bot.get_channel(channel_id) or guild.get_channel(channel_id)) if channel_id else None
+                    if channel and hasattr(channel, "send"):
+                        full_path = os.path.join(BACKUP_DIR, name)
+                        size = os.path.getsize(full_path)
+                        embed = discord.Embed(
+                            title="💾 Automatische Pulse-Sicherung",
+                            description=(
+                                "Eine vollständige Pulse-Panel-Sicherung wurde erstellt. "
+                                "Die lokale Kopie bleibt zusätzlich im Dashboard unter /backups verfügbar."
+                            ),
+                            color=discord.Color.green() if size <= 7_500_000 else discord.Color.orange(),
+                            timestamp=now_de(),
+                        )
+                        embed.add_field(name="Datei", value=os.path.basename(name), inline=False)
+                        embed.add_field(name="Größe", value=f"{size / (1024 * 1024):.2f} MiB", inline=True)
+                        try:
+                            if size <= 7_500_000:
+                                await channel.send(
+                                    embed=embed,
+                                    file=discord.File(full_path, filename=os.path.basename(name)),
+                                    allowed_mentions=discord.AllowedMentions.none(),
+                                )
+                            else:
+                                embed.add_field(
+                                    name="Offsite-Kopie",
+                                    value="Upload übersprungen: Datei ist zu groß. Nur die lokale Sicherung wurde erstellt.",
+                                    inline=False,
+                                )
+                                await channel.send(
+                                    embed=embed,
+                                    allowed_mentions=discord.AllowedMentions.none(),
+                                )
+                            log_audit("System", "0", "Auto-Backup Discord-Kopie", f"{name} · {size} Bytes")
+                        except (discord.Forbidden, discord.HTTPException, OSError) as upload_error:
+                            log_audit(
+                                "System", "0", "Auto-Backup Upload Fehler",
+                                f"{name} · {type(upload_error).__name__}",
+                            )
+                            print(f"⚠️ Auto-Backup ist lokal vorhanden; Discord-Kopie fehlgeschlagen ({type(upload_error).__name__}).")
         except Exception as e:
-            print(f"Auto-Backup fehlgeschlagen: {e}")
+            print(f"Auto-Backup fehlgeschlagen: {type(e).__name__}: {e}")
 
 
 @app.on_event("startup")
