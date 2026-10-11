@@ -54,6 +54,7 @@ class SupportAssistant(commands.Cog):
             "PULSE_SUPPORT_CHANNEL_ID", DEFAULT_SUPPORT_CHANNEL_ID
         )
         self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        self.enabled = os.getenv("PULSE_SUPPORT_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
         self.model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini"
         self.api_base = os.getenv(
             "OPENAI_BASE_URL", "https://api.openai.com/v1"
@@ -133,7 +134,7 @@ class SupportAssistant(commands.Cog):
             return
         if message.channel.id != self.channel_id:
             return
-        if not self.api_key:
+        if not self.enabled or not self.api_key:
             return
 
         bot_mentioned = bool(self.bot.user and self.bot.user in message.mentions)
@@ -224,9 +225,11 @@ class SupportAssistant(commands.Cog):
         key_status = "✅ gesetzt" if self.api_key else "❌ fehlt"
         channel_status = channel.mention if channel else f"<#{self.channel_id}> (nicht im Cache)"
         knowledge_status = "✅ gefunden" if self.knowledge_path.is_file() else "⚠️ fehlt"
+        enabled_status = "✅ ja" if self.enabled else "⏸️ nein (PULSE_SUPPORT_ENABLED=true fehlt)"
         await interaction.response.send_message(
             "**Pulse KI-Support – Status**\n"
             f"**Channel:** {channel_status}\n"
+            f"**Aktiviert:** {enabled_status}\n"
             f"**API-Schlüssel:** {key_status}\n"
             f"**Modell:** `{self.model}`\n"
             f"**Wissensbasis:** {knowledge_status}\n"
