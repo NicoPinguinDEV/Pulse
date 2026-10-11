@@ -69,3 +69,38 @@ sichtbar im Channel, bevor du die Funktion freischaltest. Beispiel:
   unerwartete API-Kosten.
 - Er durchsucht das Internet nicht automatisch und kann ohne gepflegte Wissensbasis keine aktuellen
   oder internen Serverinformationen kennen.
+
+
+## KI-Nachrichtenmoderation (optional)
+
+Pulse kann in der konfigurierten Discord-Guild eingehende **Textnachrichten in allen Textkanälen** mit demselben Gemini-/OpenAI-kompatiblen KI-Anbieter auf mögliche Verstöße gegen die Bochum-RP-Regeln prüfen. Nur Verdachtsfälle ab der eingestellten Konfidenz werden in einen privaten Review-Kanal gemeldet. Bilder/Dateien ohne Text sowie Voice-Audio werden nicht analysiert.
+
+### Aktivierung im Hosting
+
+Erstelle zuerst einen **privaten Moderations-Prüfkanal** für berechtigte Teammitglieder. Gib Pulse dort mindestens Kanal ansehen, Nachrichten senden und Nachrichtenverlauf lesen. Verwende nicht den öffentlichen Support-Channel für interne Verdachtsmeldungen.
+
+Lege danach folgende Variablen im Hosting-Panel an:
+
+```env
+PULSE_AI_MODERATION_ENABLED=true
+PULSE_AI_MODERATION_REVIEW_CHANNEL_ID=ID_DEINES_PRIVATEN_PRUEFKANALS
+PULSE_AI_MODERATION_INTERVAL_SECONDS=4
+PULSE_AI_MODERATION_CONFIDENCE=0.72
+```
+
+Die Moderation verwendet dieselbe Anbieter-Konfiguration wie der Support-Assistent: `PULSE_SUPPORT_PROVIDER`, `GEMINI_API_KEY` und `GEMINI_MODEL` für Gemini oder die entsprechenden `OPENAI_...`-Variablen. Die Bürgerrollen sind im Code als `1531303733311307997` und `1531459374004834424` hinterlegt. Teamrollen werden aus den Pulse-Einstellungen gelesen.
+
+Starte den Bot neu und führe als Discord-Administrator `/aimod_status` aus. Der Status zeigt, ob die Moderation aktiviert ist, ob der Prüfkanal gefunden wurde und ob Nachrichten auf die Warteschlange warten.
+
+### Ablauf und Sanktionen
+
+- Die KI liest den Text, ordnet mögliche Regeln zu und erstellt einen Verdachtsbericht mit Beleg-Link, Regelhinweis, Schweregrad und Konfidenz.
+- **Die KI führt niemals allein eine Sanktion aus.** Berechtigte Teammitglieder müssen den Fall im privaten Prüfkanal bestätigen oder ablehnen.
+- Bei Bürgern können berechtigte Prüfer eine Verwarnung per DM, einen Timeout von 10 Minuten oder 1 Stunde, Kick oder Ban auswählen. Discord-Berechtigungen und Rollen-Hierarchie gelten weiterhin.
+- Bei Teammitgliedern kann nach menschlicher Prüfung eine Team-Warnung über das bestehende Pulse-Warnsystem eingetragen werden.
+- Achtung: Das bestehende Team-Warnsystem hat automatische Folgen: ab Warnstufe 2 Uprank-Sperre, ab Stufe 3 IC-Rechte-Sperre, ab Stufe 4 Downrank, ab Stufe 5 Entfernung der Teamrollen. Der Prüfbericht zeigt die voraussichtliche Folge vor der Bestätigung.
+- Nachrichten von Bots/Webhooks sowie Nachrichten ohne Text werden übersprungen. Bei API-Limits pausiert die Prüfung; bei voller Warteschlange können Nachrichten ausgelassen werden. Eine KI-Erkennung ist nie fehlerfrei, deshalb ist die menschliche Prüfung erforderlich.
+
+### Datenschutz und Transparenz
+
+Die Textnachrichten werden zur Klassifizierung an den konfigurierten KI-Anbieter übertragen. Das umfasst bei aktivierter Prüfung auch Nachrichten in privaten Ticketkanälen. Informiere Mitglieder vor der Aktivierung darüber und prüfe, ob private Supportkanäle aus Datenschutzgründen ausgeschlossen werden sollen. Beim kostenlosen Gemini-Tarif gelten Googles jeweilige Datenverwendungsbedingungen; poste keine Passwörter oder sonstigen Geheimnisse. Moderationsfälle werden lokal in `ai_moderation_cases.json` zwischengespeichert; erledigte Fälle werden nach 30 Tagen entfernt, offene Fälle bleiben gespeichert, bis sie bearbeitet werden.
