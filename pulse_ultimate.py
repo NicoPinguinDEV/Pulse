@@ -1419,19 +1419,63 @@ def register(app) -> None:
         checks = []
         guild = ctx.guild
         checks.append(("🟢", "Discord", "verbunden" if guild else "nicht verfügbar"))
-        checks.append(("🟢", "Pulse DB", "SQLite / WAL aktiv"))
-        checks.append(("🟢", "OAuth", "konfiguriert" if webserver.CLIENT_ID and webserver.CLIENT_SECRET else "prüfen"))
-        checks.append(("🟢" if guild.me and guild.me.guild_permissions.manage_roles else "🔴", "Manage Roles", "bereit" if guild.me and guild.me.guild_permissions.manage_roles else "fehlt"))
+        pulse_db_ok = False
+        try:
+            with db.connect() as pulse_conn:
+                pulse_conn.execute("SELECT 1").fetchone()
+            pulse_db_ok = True
+        except Exception:
+            pulse_db_ok = False
+        checks.append(("🟢" if pulse_db_ok else "🔴", "Pulse DB", "SQLite erreichbar" if pulse_db_ok else "Datenbankfehler"))
+        checks.append(("🟢" if webserver.CLIENT_ID and webserver.CLIENT_SECRET else "🟡", "OAuth", "konfiguriert" if webserver.CLIENT_ID and webserver.CLIENT_SECRET else "prüfen"))
+        bot_member = guild.me if guild else None
+        manage_roles_ok = bool(bot_member and bot_member.guild_permissions.manage_roles)
+        checks.append(("🟢" if manage_roles_ok else "🔴", "Manage Roles", "bereit" if manage_roles_ok else "fehlt"))
         try:
             wh = webserver.warning_role_health(guild, webserver.load_config())
             checks.append(("🟢" if all(x["ok"] for x in wh) else "🔴", "Warnrollen", f"{sum(x['ok'] for x in wh)}/5 bereit"))
         except Exception:
             checks.append(("🟡", "Warnrollen", "nicht prüfbar"))
         body = "<div class='grid g2'>" + "".join(card(f"<div class=row><b>{esc(n)}</b><span>{i} {esc(d)}</span></div>") for i,n,d in checks) + "</div>"
+        body += card("<h3>🛰 Live-Systemmonitor</h3><div id='pulse-monitor' class='tiny'>Systemdaten werden geladen …</div><div class='tiny' style='margin-top:8px'>Aktualisierung alle 15 Sekunden · nur für berechtigte Führungskräfte</div>")
         body += card(f"<h3>🎨 Branding</h3><form method='post' action='/ultimate/system/branding' class='form'><input class='input' name='name' value='{esc((setting('branding',{}) or {}).get('name','Pulse TeamOS'))}'><input class='input' name='accent' value='{esc((setting('branding',{}) or {}).get('accent','#6366f1'))}'><input class='input span2' name='logo_url' value='{esc((setting('branding',{}) or {}).get('logo_url',''))}' placeholder='Logo URL'><button class='btn primary span2'>Branding speichern</button></form>")
         body += card("<h3>🔑 API-Zugriff</h3><form method='post' action='/ultimate/system/api-key' class='form'><input class='input span2' name='name' placeholder='z.B. Mobile App / externe Website' required><button class='btn primary span2'>API-Key erstellen</button></form><div class='tiny' style='margin-top:8px'>Die v2-Endpunkte nutzen den Header X-Pulse-API-Key. Schlüssel werden nur einmal angezeigt.</div><div style='margin-top:8px'><a class='btn' href='/ultimate/system/api-keys'>🔑 Schlüssel verwalten</a></div>")
         body += card("<h3>🛡 Sicherheitsmaßnahmen</h3><div class='tiny'>Rate Limits, signierte Sessions, Sicherheitsheader, Warnrollen-Healthcheck, Audit-Logs, Backups und Health-Endpunkt sind aktiv.</div>")
-        return page(ctx, "system", "System & Branding", "Diagnose, Feature Flags und visuelle Serveranpassungen.", body)
+        return page(ctx, "system", "System & Branding", "Diagnose, Feature Flags und visuelle Serveranpassungen.", body, """
+async function loadPulseMonitor() {
+  const out = document.getElementById('pulse-monitor');
+  if (!out) return;
+  try {
+    const response = await fetch('/ultimate/api/monitor', {cache: 'no-store', headers: {'Accept': 'application/json'}});
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const d = await response.json();
+    const ok = v => v ? '🟢 OK' : '🔴 Störung';
+    const mb = v => (Number(v || 0)).toLocaleString('de-DE') + ' MB';
+    const rows = [
+      ['Zeitpunkt', d.timestamp || '—'],
+      ['Bot / Discord', ok(d.discord_ready)],
+      ['Pulse TeamOS DB', ok(d.ultimate_db_ok)],
+      ['Datenbank-Kern', ok(d.pulse_db_ok)],
+      ['Datenträger frei', mb(d.disk_free_mb)],
+      ['Datenträger belegt', (Number(d.disk_used_percent || 0)).toFixed(1) + '%'],
+      ['Letztes Backup', d.backup_last || 'Kein Backup gefunden'],
+      ['Backups vorhanden', String(d.backup_count || 0)],
+      ['Aktive Automationen', String(d.automations_enabled || 0)],
+      ['Automationsfehler / 24 h', String(d.automation_failures_24h || 0)],
+      ['KI-Moderation', d.ai_moderation && d.ai_moderation.enabled ? 'Aktiv' : 'Deaktiviert / nicht konfiguriert'],
+      ['KI-Prüfwarteschlange', String((d.ai_moderation && d.ai_moderation.queue) || 0)],
+      ['WebSocket-Latenz', d.discord_latency_ms == null ? 'Nicht verfügbar' : Number(d.discord_latency_ms).toFixed(0) + ' ms'],
+      ['Pulse-Version', d.version || 'unbekannt'],
+      ['Python', d.python || 'unbekannt']
+    ];
+    out.innerHTML = rows.map(([k, v]) => '<div class="row"><b>' + k + '</b><span>' + String(v) + '</span></div>').join('');
+  } catch (e) {
+    out.textContent = 'Live-Diagnose aktuell nicht erreichbar. Bitte Berechtigung, Bot-Status und Serverlogs prüfen.';
+  }
+}
+loadPulseMonitor();
+window.setInterval(loadPulseMonitor, 15000);
+""")
 
     @app.get("/ultimate/system/api-keys", response_class=HTMLResponse)
     async def ultimate_api_keys(request: Request, user_session: str = Cookie(None)):
@@ -1714,6 +1758,91 @@ def register(app) -> None:
             s = member_stats(m)
             data.append({"id":m.id,"name":m.display_name,"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/3600,2),"tickets":s["closed_tickets"],"warnings":s["warnings"]})
         return JSONResponse({"generated_at":iso(),"members":data})
+
+    @app.get("/ultimate/api/monitor")
+    async def ultimate_api_monitor(request: Request, user_session: str = Cookie(None)):
+        ctx = ctx_auth(request, user_session, manager=True)
+        import platform
+        import shutil
+        import webserver
+
+        bot = getattr(request.app.state, "bot", None)
+        guild = ctx.guild
+        ultimate_db_ok = False
+        pulse_db_ok = False
+        enabled_automations = 0
+        automation_failures_24h = 0
+        try:
+            with cx() as c:
+                c.execute("SELECT 1").fetchone()
+            ultimate_db_ok = True
+            with cx() as c:
+                enabled_automations = int(c.execute(
+                    "SELECT COUNT(*) FROM ultimate_automations WHERE enabled=1"
+                ).fetchone()[0])
+                cutoff = iso(utcnow() - timedelta(hours=24))
+                automation_failures_24h = int(c.execute(
+                    "SELECT COUNT(*) FROM ultimate_automation_runs WHERE status='error' AND started_at>=?",
+                    (cutoff,),
+                ).fetchone()[0])
+        except Exception:
+            ultimate_db_ok = False
+        try:
+            with db.connect() as c:
+                c.execute("SELECT 1").fetchone()
+            pulse_db_ok = True
+        except Exception:
+            pulse_db_ok = False
+
+        backup_dir = Path(webserver.BACKUP_DIR)
+        backup_files = []
+        try:
+            backup_files = sorted(
+                (name for name in os.listdir(backup_dir)
+                 if webserver.BACKUP_NAME_RE.fullmatch(name)),
+                key=lambda name: (backup_dir / name).stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            backup_files = []
+
+        disk_free_mb = 0
+        disk_used_percent = 100.0
+        try:
+            disk = shutil.disk_usage(str(webserver.BASE_DIR))
+            disk_free_mb = round(disk.free / (1024 * 1024))
+            disk_used_percent = round((disk.total - disk.free) * 100 / max(1, disk.total), 1)
+        except OSError:
+            pass
+
+        mod = bot.get_cog("AIModeration") if bot else None
+        mod_queue = getattr(mod, "queue", None)
+        ai_moderation = {
+            "enabled": bool(mod and getattr(mod, "enabled", False)
+                            and getattr(mod, "api_key", "")
+                            and getattr(mod, "review_channel_id", 0)),
+            "queue": int(mod_queue.qsize()) if mod_queue else 0,
+            "queue_drops": int(getattr(mod, "_queue_drops", 0)) if mod else 0,
+            "review_channel_ready": bool(guild and mod and guild.get_channel(getattr(mod, "review_channel_id", 0))),
+        }
+        discord_ready = bool(bot and bot.is_ready() and guild)
+        return JSONResponse({
+            "ok": discord_ready and ultimate_db_ok and pulse_db_ok and disk_used_percent < 95,
+            "timestamp": iso(),
+            "version": getattr(webserver, "PULSE_VERSION", "unknown"),
+            "python": platform.python_version(),
+            "discord_ready": discord_ready,
+            "discord_latency_ms": round(float(bot.latency) * 1000, 1) if bot and bot.is_ready() else None,
+            "ultimate_db_ok": ultimate_db_ok,
+            "pulse_db_ok": pulse_db_ok,
+            "disk_free_mb": disk_free_mb,
+            "disk_used_percent": disk_used_percent,
+            "backup_count": len(backup_files),
+            "backup_last": backup_files[0] if backup_files else None,
+            "automations_enabled": enabled_automations,
+            "automation_failures_24h": automation_failures_24h,
+            "ai_moderation": ai_moderation,
+        })
 
     app.state.pulse_ultimate_registered = True
 
