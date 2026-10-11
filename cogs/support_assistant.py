@@ -88,7 +88,7 @@ class SupportAssistant(commands.Cog):
 
     def _knowledge_text(self) -> str:
         try:
-            return self.knowledge_path.read_text(encoding="utf-8")[:12000].strip()
+            return self.knowledge_path.read_text(encoding="utf-8")[:30000].strip()
         except FileNotFoundError:
             return "Es wurde keine Server-Wissensbasis gefunden. Erfinde keine Serverdetails."
         except OSError as exc:
