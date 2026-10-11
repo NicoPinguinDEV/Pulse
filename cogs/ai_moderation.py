@@ -18,6 +18,7 @@ from discord.ext import commands
 
 DEFAULT_GUILD_ID = 1474514929351524616
 CITIZEN_ROLE_IDS = {1531303733311307997, 1531459374004834424}
+MODERATION_DECISION_ROLE_ID = 1510345520529412188
 ROOT = Path(__file__).resolve().parent.parent
 CASES_PATH = Path(os.getenv("PULSE_AI_MODERATION_CASES_FILE", str(ROOT / "ai_moderation_cases.json")))
 
@@ -380,11 +381,26 @@ class AIModeration(commands.Cog):
             member = guild.get_member(int(item["user_id"]))
             if member:
                 embed.add_field(name="Folge bei Team-Warn", value=safe_text(self._team_warn_preview(member), 500), inline=False)
+        decision_role = guild.get_role(MODERATION_DECISION_ROLE_ID) if guild else None
+        if decision_role is None:
+            print(
+                f"⚠️ KI-Moderation: Entscheidungsrolle {MODERATION_DECISION_ROLE_ID} "
+                "nicht gefunden; Fall wird ohne Rollen-Ping veröffentlicht."
+            )
         try:
             review_message = await channel.send(
+                content=(
+                    f"{decision_role.mention} Bitte Moderationsfall prüfen und eine Entscheidung treffen."
+                    if decision_role else None
+                ),
                 embed=embed,
                 view=ModerationReviewView(self, case_id, item["role_kind"]),
-                allowed_mentions=discord.AllowedMentions.none(),
+                allowed_mentions=(
+                    discord.AllowedMentions(
+                        roles=[decision_role], users=False, everyone=False, replied_user=False
+                    )
+                    if decision_role else discord.AllowedMentions.none()
+                ),
             )
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(f"⚠️ KI-Moderation: Prüfbericht konnte nicht gesendet werden ({type(exc).__name__}).")
