@@ -39,9 +39,9 @@ class DiscordLogRegressionTests(unittest.TestCase):
 
     def test_abmeldung_preflights_nickname_permissions_and_suppresses_retries(self):
         source = read_source("cogs/abmeldung.py")
-        helper = get_async_method(source, "_can_edit_member_nickname")
-        apply = get_async_method(source, "apply_user_status")
-        reset = get_async_method(source, "reset_user_status")
+        helper = get_method(source, "_can_edit_member_nickname")
+        apply = get_method(source, "apply_user_status")
+        reset = get_method(source, "reset_user_status")
         self.assertIn("manage_nicknames", helper)
         self.assertIn("member.top_role.position >= bot_member.top_role.position", helper)
         self.assertIn("self._nickname_forbidden", helper)
@@ -52,7 +52,7 @@ class DiscordLogRegressionTests(unittest.TestCase):
 
     def test_abmeldung_live_list_skips_identical_embed_patch(self):
         source = read_source("cogs/abmeldung.py")
-        method = get_async_method(source, "update_live_list")
+        method = get_method(source, "update_live_list")
         self.assertIn("len(message.embeds) == len(embeds)", method)
         self.assertIn("_embed_signature(old) == _embed_signature(new)", method)
         self.assertLess(
@@ -62,7 +62,7 @@ class DiscordLogRegressionTests(unittest.TestCase):
 
     def test_teamlist_compares_complete_embed_before_patching(self):
         source = read_source("cogs/teamliste.py")
-        method = get_async_method(source, "update_teamlist")
+        method = get_method(source, "update_teamlist")
         self.assertIn("_embed_signature(msg.embeds[0]) == _embed_signature(embed)", method)
         self.assertLess(
             method.index("_embed_signature(msg.embeds[0]) == _embed_signature(embed)"),
