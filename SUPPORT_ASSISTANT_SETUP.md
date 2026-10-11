@@ -9,6 +9,7 @@ Normale Unterhaltungen lösen keine Antwort aus.
 
 Lege folgende Umgebungsvariablen im Hosting-Panel an:
 
+- `PULSE_SUPPORT_ENABLED=true`: schaltet die Beantwortung ein. Erst setzen, nachdem die Wissensbasis gepflegt und der Datenschutz-Hinweis im Channel veröffentlicht wurde.
 - `OPENAI_API_KEY`: API-Schlüssel aus dem OpenAI-API-Projekt. Niemals in GitHub, Chat oder öffentliche
   Discord-Nachrichten schreiben.
 - `OPENAI_MODEL`: optional, Standard ist `gpt-4.1-mini`.
@@ -16,7 +17,7 @@ Lege folgende Umgebungsvariablen im Hosting-Panel an:
 - `PULSE_SUPPORT_CHANNEL_ID`: optional, Standard ist `1493649456086782083`.
 
 Die API-Nutzung wird separat nach dem API-Tarif abgerechnet; ein ChatGPT-Abonnement ist nicht
-automatisch ein API-Guthaben. Ohne `OPENAI_API_KEY` antwortet die KI nicht. Der Slash-Befehl
+automatisch ein API-Guthaben. Solange `PULSE_SUPPORT_ENABLED` nicht auf `true` steht oder `OPENAI_API_KEY` fehlt, beantwortet die KI keine Nachrichten. Der Slash-Befehl
 `/supportbot_status` zeigt die Konfiguration, `/supportbot_test` prüft die API-Verbindung und
 kann dabei einen kleinen API-Aufruf auslösen.
 
