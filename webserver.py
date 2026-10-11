@@ -3139,9 +3139,13 @@ def build_backup(guild) -> dict:
                                    "channels": [_channel_dict(ch) for ch in category.channels]})
     data["uncategorized_channels"] = [_channel_dict(ch) for ch in guild.channels
                                       if ch.category is None and not isinstance(ch, discord.CategoryChannel)]
+    backup_defaults = {
+        "team_data": {}, "config": {}, "logs": [],
+        "shifts": {}, "meetings": {}, "applications": {},
+    }
     for key, path in (("team_data", DATA_FILE), ("config", CONFIG_FILE), ("logs", LOGS_FILE),
                       ("shifts", SHIFTS_FILE), ("meetings", MEETINGS_FILE), ("applications", APPS_FILE)):
-        data["panel_data"][key] = load_json(path, {})
+        data["panel_data"][key] = load_json(path, backup_defaults[key])
     try:
         data["panel_data"]["pulse_db"] = pulse_db.export_state()
     except Exception as e:
