@@ -110,8 +110,8 @@ def main() -> None:
     assert "async def team_role_manager_save" in web
     assert "Mehrfach-Rollenänderung" in web
     assert "⚙️ Team-Update: Rollenänderung" in web
-    assert "⬆️ Hochstufen" in web
-    assert "⬇️ Runterstufen" in web
+    assert "⬆️ Befördern" in web
+    assert "⬇️ Degradieren" in web
     assert "1531132354272170115" in web
     # Team list keeps member actions inside the Details/eye menu.
     assert "details-only" not in web  # no stale marker should leak into UI
@@ -121,7 +121,10 @@ def main() -> None:
     assert 'href="/team/{member.id}/roles"' in web
     assert 'name="action_reason"' in web
     assert 'action == "kick"' in web
-    assert "guild.me.guild_permissions.kick_members" in web
+    assert "not guild.me.guild_permissions.manage_roles" in web
+    assert "r.position >= guild.me.top_role.position" in web
+    assert "await member.remove_roles(*team_roles" in web
+    assert "await member.kick(" not in web
     assert "def _record_team_since" in read("cogs/pulse_next.py")
     assert 'entry["team_since"]' in read("cogs/pulse_next.py")
     # Required reasons for personnel actions.
