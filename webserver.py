@@ -24,7 +24,7 @@ from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request, Cookie, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import discord
@@ -117,6 +117,23 @@ except Exception:
 
 PULSE_VERSION = "7.0.0"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
+
+
+# Local SVG fallback: browsers frequently request /favicon.ico automatically.
+_FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="15" fill="#4f46e5"/>
+<path d="M18 13h9v29h20v9H18z" fill="#fff"/>
+<circle cx="46" cy="17" r="5" fill="#a5f3fc"/>
+</svg>"""
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(
+        content=_FAVICON_SVG,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.middleware("http")
