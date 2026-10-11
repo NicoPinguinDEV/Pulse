@@ -7,6 +7,20 @@ from discord.ext import commands, tasks
 DB_NAME = "teamliste.db"
 
 
+def _embed_signature(embed: discord.Embed) -> tuple:
+    """Compares all visible parts of an embed, not only its title/description."""
+    colour = embed.color.value if embed.color else None
+    timestamp = embed.timestamp.isoformat() if embed.timestamp else None
+    fields = tuple((field.name, field.value, bool(field.inline)) for field in embed.fields)
+    footer = (embed.footer.text, embed.footer.icon_url)
+    author = (embed.author.name, embed.author.url, embed.author.icon_url)
+    image = (embed.image.url, embed.thumbnail.url)
+    return (
+        embed.title, embed.description, embed.url, colour, timestamp,
+        footer, author, image, fields,
+    )
+
+
 # --- DATENBANK HELFER ---
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -239,14 +253,12 @@ class TeamlisteCog(commands.Cog):
                     try:
                         msg = await channel.fetch_message(msg_id)
 
-                        # Inhaltsprüfung: Keine Anfrage senden, falls sich der Text nicht geändert hat
-                        if msg.embeds:
-                            old_embed = msg.embeds[0]
-                            if (
-                                old_embed.description == embed.description
-                                and old_embed.title == embed.title
-                            ):
-                                continue
+                        # Kein PATCH senden, wenn das vollständige Embed unverändert ist.
+                        if (
+                            len(msg.embeds) == 1
+                            and _embed_signature(msg.embeds[0]) == _embed_signature(embed)
+                        ):
+                            continue
 
                         await msg.edit(embed=embed)
                         await asyncio.sleep(2)
