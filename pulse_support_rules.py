@@ -6,7 +6,8 @@ import re
 _SUPPORT_CUE = re.compile(
     r"\b(?:wie|was|warum|wieso|weshalb|wann|wo|wer|welche|welcher|welches|"
     r"welchen|kannst du|kann ich|könnt ihr|könnte ich|habt ihr|gibt es|"
-    r"brauche hilfe|hilfe bei|bitte hilf|problem mit|funktioniert nicht|"
+    r"brauche hilfe|hilfe bei|hilfe|bitte hilf|unterstützung|problem|probleme|"
+    r"könntest du|soll ich|darf ich|funktioniert nicht|"
     r"geht nicht|bewerbung|support)\b",
     re.IGNORECASE,
 )
