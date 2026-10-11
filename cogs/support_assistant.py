@@ -155,13 +155,20 @@ class SupportAssistant(commands.Cog):
         now = time.monotonic()
         if now - self._user_last_request.get(message.author.id, 0.0) < 8.0:
             return
-        if now - self._last_request < 2.0:
+        if self._last_request and now - self._last_request < 2.0:
             return
         self._user_last_request[message.author.id] = now
         self._last_request = now
 
         question = message.clean_content.strip()[:2500]
-        if isinstance(replied_message, discord.Message) and replied_message.content:
+        if (
+            isinstance(replied_message, discord.Message)
+            and replied_message.content
+            and (
+                replied_message.author.id == message.author.id
+                or (self.bot.user is not None and replied_message.author.id == self.bot.user.id)
+            )
+        ):
             quoted = replied_message.clean_content[:900]
             question = (
                 f"Kontext der Nachricht, auf die geantwortet wird:\n{quoted}\n\n"
