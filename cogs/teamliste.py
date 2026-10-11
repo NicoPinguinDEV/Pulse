@@ -128,24 +128,26 @@ class TeamlisteCog(commands.Cog):
         self.bot = bot
         init_db()
         self._is_updating = False  # Verhindert parallele Updates
+        self._update_debounce_task: asyncio.Task | None = None
         self.update_list_loop.start()
 
     def cog_unload(self):
         self.update_list_loop.cancel()
+        if self._update_debounce_task and not self._update_debounce_task.done():
+            self._update_debounce_task.cancel()
 
-    # Prüft in abmeldungen.db, ob der User derzeit abgemeldet ist
-    def get_abmeldung_info(self, user_id: int) -> str | None:
+    # Liest Abmeldungen einmal pro Listenaktualisierung statt pro Teammitglied.
+    def get_abmeldungen_map(self) -> dict[int, str]:
         try:
-            conn = sqlite3.connect("abmeldungen.db")
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT bis FROM abmeldungen WHERE user_id = ?", (user_id,)
-            )
-            row = cursor.fetchone()
-            conn.close()
-            return row[0] if row else None
-        except sqlite3.Error:
-            return None
+            with sqlite3.connect("abmeldungen.db", timeout=3) as conn:
+                rows = conn.execute("SELECT user_id, bis FROM abmeldungen").fetchall()
+            return {int(user_id): str(bis) for user_id, bis in rows if user_id is not None}
+        except (sqlite3.Error, OSError, TypeError, ValueError):
+            return {}
+
+    # Legacy-Helfer für andere Aufrufer.
+    def get_abmeldung_info(self, user_id: int) -> str | None:
+        return self.get_abmeldungen_map().get(int(user_id))
 
     # Formatiert den Online-Status mit Status-Punkten
     def format_status(self, status: discord.Status) -> str:
@@ -177,12 +179,14 @@ class TeamlisteCog(commands.Cog):
             # 3. Nach der Server-Hierarchie (Position) absteigend sortieren
             sorted_roles = sorted(valid_roles, key=lambda r: r.position, reverse=True)
 
+            # Eine DB-Abfrage statt einer SQLite-Verbindung je Mitglied.
+            abmeldungen = self.get_abmeldungen_map()
             for role in sorted_roles:
                 lines.append(f"❯ **{role.name}**")
 
                 if role.members:
                     for member in role.members:
-                        bis_datum = self.get_abmeldung_info(member.id)
+                        bis_datum = abmeldungen.get(member.id)
                         if bis_datum:
                             status_text = f"🌴 Abgemeldet (bis {bis_datum})"
                         else:
@@ -281,8 +285,8 @@ class TeamlisteCog(commands.Cog):
         finally:
             self._is_updating = False
 
-    # LOOP (Alle 2 Minuten)
-    @tasks.loop(minutes=2)
+    # Sicherheitsabgleich alle fünf Minuten; Änderungen werden separat gebündelt.
+    @tasks.loop(minutes=5)
     async def update_list_loop(self):
         await self.bot.wait_until_ready()
         channel_id = get_config("teamlist_channel_id")
@@ -291,13 +295,29 @@ class TeamlisteCog(commands.Cog):
             if channel and channel.guild:
                 await self.update_teamlist(channel.guild)
 
-    # EVENT-TRIGGER (Statusänderungen werden vom Loop übernommen)
+    async def _debounced_update_teamlist(self, guild: discord.Guild):
+        try:
+            # Mehrere Rollen-/Nickname-Updates in kurzer Folge zu einem Update bündeln.
+            await asyncio.sleep(8)
+            if not self.bot.is_closed():
+                await self.update_teamlist(guild)
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._update_debounce_task = None
+
+    # Rollen-/Namensänderungen lösen keine parallelen Listen-Neuberechnungen aus.
     @commands.Cog.listener()
     async def on_member_update(
         self, before: discord.Member, after: discord.Member
     ):
         if before.roles != after.roles or before.display_name != after.display_name:
-            await self.update_teamlist(after.guild)
+            if self._update_debounce_task and not self._update_debounce_task.done():
+                self._update_debounce_task.cancel()
+            self._update_debounce_task = asyncio.create_task(
+                self._debounced_update_teamlist(after.guild),
+                name="pulse-teamlist-debounced-update",
+            )
 
     # COMMANDS
     @app_commands.command(
