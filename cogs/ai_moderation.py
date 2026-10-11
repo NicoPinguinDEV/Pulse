@@ -113,6 +113,14 @@ class AIModeration(commands.Cog):
         self.bot = bot
         self.guild_id = env_int("DISCORD_GUILD_ID", DEFAULT_GUILD_ID) or DEFAULT_GUILD_ID
         self.review_channel_id = env_int("PULSE_AI_MODERATION_REVIEW_CHANNEL_ID", 0)
+        self.excluded_channel_ids = {
+            int(x.strip()) for x in os.getenv("PULSE_AI_MODERATION_EXCLUDED_CHANNEL_IDS", "").split(",")
+            if x.strip().isdigit() and int(x.strip()) > 0
+        }
+        self.excluded_category_ids = {
+            int(x.strip()) for x in os.getenv("PULSE_AI_MODERATION_EXCLUDED_CATEGORY_IDS", "").split(",")
+            if x.strip().isdigit() and int(x.strip()) > 0
+        }
         self.enabled = env_bool("PULSE_AI_MODERATION_ENABLED", False)
         self.provider = os.getenv("PULSE_SUPPORT_PROVIDER", "gemini").strip().lower()
         if self.provider == "gemini":
@@ -300,6 +308,11 @@ class AIModeration(commands.Cog):
         if message.guild is None or message.guild.id != self.guild_id:
             return
         if message.author.bot or message.webhook_id or message.channel.id == self.review_channel_id:
+            return
+        if message.channel.id in self.excluded_channel_ids:
+            return
+        category_id = getattr(message.channel, "category_id", None)
+        if category_id and category_id in self.excluded_category_ids:
             return
         content = (message.clean_content or "").strip()
         # Text and captions are checked; image/file-only and voice messages cannot be read by this classifier.
@@ -598,6 +611,7 @@ class AIModeration(commands.Cog):
             f"**Mindestabstand zwischen KI-Anfragen:** {self.min_interval:.1f}s\n"
             f"**Konfidenzgrenze:** {self.confidence_threshold:.0%}\n"
             f"**Bürgerrollen:** {', '.join(str(x) for x in sorted(CITIZEN_ROLE_IDS))}\n"
+            f"**Ausgeschlossene Channels:** {len(self.excluded_channel_ids)} · **Kategorien:** {len(self.excluded_category_ids)}\n"
             "Teamrollen werden aus den Pulse-Einstellungen gelesen.\n"
             "Text und Textunterschriften werden geprüft; Dateien/Bilder ohne Text und Voice-Audio nicht. Sanktionen erfordern eine menschliche Bestätigung."
         )
