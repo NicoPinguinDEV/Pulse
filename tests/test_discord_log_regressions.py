@@ -70,5 +70,11 @@ class DiscordLogRegressionTests(unittest.TestCase):
         )
 
 
+    def test_favicon_route_prevents_browser_404_noise(self):
+        source = read_source("webserver.py")
+        self.assertIn('@app.get("/favicon.ico", include_in_schema=False)', source)
+        self.assertIn('media_type="image/svg+xml"', source)
+
+
 if __name__ == "__main__":
     unittest.main()
