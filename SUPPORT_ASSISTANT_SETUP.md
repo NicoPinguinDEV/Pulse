@@ -73,7 +73,7 @@ sichtbar im Channel, bevor du die Funktion freischaltest. Beispiel:
 
 ## KI-Nachrichtenmoderation (optional)
 
-Pulse kann in der konfigurierten Discord-Guild eingehende **Textnachrichten in allen Textkanälen** mit demselben Gemini-/OpenAI-kompatiblen KI-Anbieter auf mögliche Verstöße gegen die Bochum-RP-Regeln prüfen. Nur Verdachtsfälle ab der eingestellten Konfidenz werden in einen privaten Review-Kanal gemeldet. Bilder/Dateien ohne Text sowie Voice-Audio werden nicht analysiert.
+Pulse kann in der konfigurierten Discord-Guild eingehende **Textnachrichten in allen nicht ausgeschlossenen Textkanälen** mit demselben Gemini-/OpenAI-kompatiblen KI-Anbieter auf mögliche Verstöße gegen die Bochum-RP-Regeln prüfen. Nur Verdachtsfälle ab der eingestellten Konfidenz werden in einen privaten Review-Kanal gemeldet. Bilder/Dateien ohne Text sowie Voice-Audio werden nicht analysiert.
 
 ### Aktivierung im Hosting
 
@@ -86,9 +86,11 @@ PULSE_AI_MODERATION_ENABLED=true
 PULSE_AI_MODERATION_REVIEW_CHANNEL_ID=ID_DEINES_PRIVATEN_PRUEFKANALS
 PULSE_AI_MODERATION_INTERVAL_SECONDS=4
 PULSE_AI_MODERATION_CONFIDENCE=0.72
+PULSE_AI_MODERATION_EXCLUDED_CHANNEL_IDS=
+PULSE_AI_MODERATION_EXCLUDED_CATEGORY_IDS=
 ```
 
-Die Moderation verwendet dieselbe Anbieter-Konfiguration wie der Support-Assistent: `PULSE_SUPPORT_PROVIDER`, `GEMINI_API_KEY` und `GEMINI_MODEL` für Gemini oder die entsprechenden `OPENAI_...`-Variablen. Die Bürgerrollen sind im Code als `1531303733311307997` und `1531459374004834424` hinterlegt. Teamrollen werden aus den Pulse-Einstellungen gelesen.
+Die Moderation verwendet dieselbe Anbieter-Konfiguration wie der Support-Assistent: `PULSE_SUPPORT_PROVIDER`, `GEMINI_API_KEY` und `GEMINI_MODEL` für Gemini oder die entsprechenden `OPENAI_...`-Variablen. Die Bürgerrollen sind im Code als `1531303733311307997` und `1531459374004834424` hinterlegt. Teamrollen werden aus den Pulse-Einstellungen gelesen. Mit `PULSE_AI_MODERATION_EXCLUDED_CHANNEL_IDS` und `PULSE_AI_MODERATION_EXCLUDED_CATEGORY_IDS` kannst du private Ticket-Channels oder ganze Ticket-Kategorien von der KI-Übermittlung ausschließen (mehrere IDs kommasepariert).
 
 Starte den Bot neu und führe als Discord-Administrator `/aimod_status` aus. Der Status zeigt, ob die Moderation aktiviert ist, ob der Prüfkanal gefunden wurde und ob Nachrichten auf die Warteschlange warten.
 
