@@ -188,6 +188,12 @@ def main() -> None:
     assert "/suite/member/" in suite
     assert "/suite/audit" in suite
     assert "/suite/search" in suite
+    assert "Legacy-Webpanel" in suite
+    assert "audit_logs.json" in suite
+    assert '"/ultimate/automations/{automation_id}/toggle"' in ultimate
+    assert "Letzte 30 Ausführungen" in ultimate
+    assert "Automation pausieren" in ultimate
+    assert "Automation fortsetzen" in ultimate
 
     print("Pulse feature smoke test: OK")
 
