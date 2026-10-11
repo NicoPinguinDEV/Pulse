@@ -53,12 +53,31 @@ class SupportAssistant(commands.Cog):
         self.channel_id = positive_int_env(
             "PULSE_SUPPORT_CHANNEL_ID", DEFAULT_SUPPORT_CHANNEL_ID
         )
-        self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        self.provider = os.getenv("PULSE_SUPPORT_PROVIDER", "openai").strip().lower()
+        if self.provider not in {"openai", "gemini"}:
+            self.provider = "openai"
+
+        if self.provider == "gemini":
+            self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
+            self.key_env_name = "GEMINI_API_KEY"
+            self.model = os.getenv(
+                "GEMINI_MODEL", "gemini-3.1-flash-lite"
+            ).strip() or "gemini-3.1-flash-lite"
+            self.api_base = os.getenv(
+                "GEMINI_BASE_URL",
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+            ).strip().rstrip("/")
+        else:
+            self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
+            self.key_env_name = "OPENAI_API_KEY"
+            self.model = os.getenv(
+                "OPENAI_MODEL", "gpt-4.1-mini"
+            ).strip() or "gpt-4.1-mini"
+            self.api_base = os.getenv(
+                "OPENAI_BASE_URL", "https://api.openai.com/v1"
+            ).strip().rstrip("/")
+
         self.enabled = os.getenv("PULSE_SUPPORT_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini"
-        self.api_base = os.getenv(
-            "OPENAI_BASE_URL", "https://api.openai.com/v1"
-        ).strip().rstrip("/")
         self.knowledge_path = Path(
             os.getenv("SUPPORT_KNOWLEDGE_FILE", str(PROJECT_ROOT / "support_knowledge.md"))
         )
@@ -86,7 +105,7 @@ class SupportAssistant(commands.Cog):
 
     async def _request_completion(self, messages: list[dict[str, str]]) -> str | None:
         if not self.api_key:
-            self._last_api_error = "OPENAI_API_KEY fehlt"
+            self._last_api_error = f"{self.key_env_name} fehlt"
             return None
 
         endpoint = f"{self.api_base}/chat/completions"
@@ -97,9 +116,8 @@ class SupportAssistant(commands.Cog):
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "max_completion_tokens": 450,
+            "max_tokens": 450,
             "temperature": 0.4,
-            "store": False,
         }
 
         try:
@@ -261,7 +279,8 @@ class SupportAssistant(commands.Cog):
             if interaction.guild
             else self.bot.get_channel(self.channel_id)
         )
-        key_status = "✅ gesetzt" if self.api_key else "❌ fehlt"
+        key_status = "✅ gesetzt" if self.api_key else f"❌ {self.key_env_name} fehlt"
+        provider_label = "Google Gemini API" if self.provider == "gemini" else "OpenAI API"
         channel_status = channel.mention if channel else f"<#{self.channel_id}> (nicht im Cache)"
         knowledge_status = "✅ gefunden" if self.knowledge_path.is_file() else "⚠️ fehlt"
         enabled_status = "✅ ja" if self.enabled else "⏸️ nein (PULSE_SUPPORT_ENABLED=true fehlt)"
@@ -269,6 +288,7 @@ class SupportAssistant(commands.Cog):
             "**Pulse KI-Support – Status**\n"
             f"**Channel:** {channel_status}\n"
             f"**Aktiviert:** {enabled_status}\n"
+            f"**Anbieter:** {provider_label}\n"
             f"**API-Schlüssel:** {key_status}\n"
             f"**Modell:** `{self.model}`\n"
             f"**Wissensbasis:** {knowledge_status}\n"
@@ -285,7 +305,7 @@ class SupportAssistant(commands.Cog):
     async def supportbot_test(self, interaction: discord.Interaction):
         if not self.api_key:
             await interaction.response.send_message(
-                "❌ OPENAI_API_KEY fehlt in den Umgebungsvariablen des Hostings.",
+                f"❌ {self.key_env_name} fehlt in den Umgebungsvariablen des Hostings.",
                 ephemeral=True,
             )
             return
