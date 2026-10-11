@@ -510,10 +510,20 @@ class AIModeration(commands.Cog):
         entry["warns_list"].append(warn)
         count = len(webserver.active_warns(entry))
         webserver.save_json(webserver.DATA_FILE, team_db)
-        webserver.log_audit(reviewer.display_name, str(reviewer.id), "KI-Moderations-Team-Warn", f"{member.display_name} ({count}/5) · {reason[:250]}")
-        role_report = await webserver.sync_warn_roles(guild, member, count, config)
-        consequence_report = await webserver.apply_warn_consequences(guild, member, warn, count, config) if count >= 2 else {"ok": True, "actions": []}
-        await webserver.send_team_update_embed(
+        try:
+            webserver.log_audit(reviewer.display_name, str(reviewer.id), "KI-Moderations-Team-Warn", f"{member.display_name} ({count}/5) · {reason[:250]}")
+        except Exception as exc:
+            print(f"⚠️ KI-Moderation: Audit-Log für Team-Warn fehlgeschlagen ({type(exc).__name__}).")
+        try:
+            role_report = await webserver.sync_warn_roles(guild, member, count, config)
+        except Exception as exc:
+            role_report = {"ok": False, "message": f"Warnrollen-Sync fehlgeschlagen ({type(exc).__name__})"}
+        try:
+            consequence_report = await webserver.apply_warn_consequences(guild, member, warn, count, config) if count >= 2 else {"ok": True, "actions": []}
+        except Exception as exc:
+            consequence_report = {"ok": False, "actions": [f"Automatische Folge fehlgeschlagen ({type(exc).__name__}); Admin-Prüfung erforderlich"]}
+        try:
+            await webserver.send_team_update_embed(
             guild,
             "⚠️ KI-Moderation: Team-Warn bestätigt",
             f"{member.mention} hat nach menschlicher Prüfung eine Team-Warnung erhalten.",
@@ -528,13 +538,22 @@ class AIModeration(commands.Cog):
                 ("Folgen", "; ".join(consequence_report.get("actions", [])) or "Keine zusätzlichen Folgen", False),
             ],
             thumbnail=member.display_avatar.url,
-        )
+            )
+        except Exception as exc:
+            print(f"⚠️ KI-Moderation: Team-Updates konnten nicht gesendet werden ({type(exc).__name__}).")
         try:
             await webserver.send_dm_notification(member, f"⚠️ Du hast nach Moderatorenprüfung eine Team-Warnung erhalten ({count}/5).\nGrund: {reason[:600]}\nBeleg: {proof}")
         except Exception:
             pass
-        ok = bool(role_report.get("ok")) and bool(consequence_report.get("ok"))
-        return {"ok": ok, "message": f"Team-Warn {count}/5 gespeichert; Warnrollen-/Folgenstatus: {'OK' if ok else 'bitte Admin prüfen'}"}
+        details = []
+        if not role_report.get("ok"):
+            details.append(str(role_report.get("message", "Warnrollen-Sync prüfen")))
+        if not consequence_report.get("ok"):
+            details.extend(str(x) for x in consequence_report.get("actions", []) if x)
+        follow_up = "; ".join(details) if details else "Warnrollen und Folgen OK"
+        # The warning is already persisted. Mark this moderation case handled even if a
+        # secondary role/log operation failed, preventing duplicate warnings on retry.
+        return {"ok": True, "message": f"Team-Warn {count}/5 gespeichert; {follow_up}"}
 
     async def _apply_citizen_action(self, guild: discord.Guild, member: discord.Member, reviewer: discord.Member, case: dict[str, Any], action: str) -> dict[str, Any]:
         reason = self._action_reason(case, reviewer)
