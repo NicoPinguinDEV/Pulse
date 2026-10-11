@@ -164,6 +164,31 @@ def main() -> None:
     assert "/5600" not in read("pulse_next.py")
     assert "/3600" in read("pulse_next.py")
 
+    # Selected professional Pulse systems: confirm existing integrations remain wired.
+    suite = read("cogs/pulse_suite.py")
+    ai_mod = read("cogs/ai_moderation.py")
+    backups = read("cogs/backups.py")
+    for source_name in ("cogs/ai_moderation.py", "cogs/backups.py", "cogs/pulse_suite.py"):
+        parse(source_name)
+    assert "ModerationReviewView" in ai_mod
+    assert "MODERATION_DECISION_ROLE_ID = 1510345520529412188" in ai_mod
+    assert "human" not in ai_mod.lower() or "mensch" in ai_mod.lower()
+    assert "backup_discord_channel_id" in backups
+    assert "create_backup_file" in backups
+    assert "backup_discord_channel_id" in web
+    assert 'PULSE_BACKUP_DISCORD_CHANNEL_ID' in web
+    assert "pre_restore_" in web
+    assert "Nicht unterstützte Backup-Version" in web
+    assert "Dieses Backup gehört zu einem anderen Discord-Server" in web
+    assert '"/ultimate/api/monitor"' in ultimate
+    assert "automation_failures_24h" in ultimate
+    assert "disk_free_mb" in ultimate
+    assert "ultimate_automation_runs" in ultimate
+    # Teamakten, searchable audit history and global search already live in Pulse Suite.
+    assert "/suite/member/" in suite
+    assert "/suite/audit" in suite
+    assert "/suite/search" in suite
+
     print("Pulse feature smoke test: OK")
 
 
