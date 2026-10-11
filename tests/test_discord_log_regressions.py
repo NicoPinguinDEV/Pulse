@@ -12,21 +12,21 @@ def read_source(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def get_async_method(source: str, name: str) -> str:
+def get_method(source: str, name: str) -> str:
     tree = ast.parse(source)
     matches = [
         node for node in ast.walk(tree)
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == name
+        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)) and node.name == name
     ]
     if not matches:
-        raise AssertionError(f"Async method {name!r} missing")
+        raise AssertionError(f"Method {name!r} missing")
     return ast.get_source_segment(source, matches[0]) or ""
 
 
 class DiscordLogRegressionTests(unittest.TestCase):
     def test_activity_check_defers_before_database_access_and_uses_followup(self):
         source = read_source("cogs/activity_check.py")
-        method = get_async_method(source, "confirm")
+        method = get_method(source, "confirm")
         self.assertIn("interaction.response.defer(ephemeral=True, thinking=True)", method)
         self.assertLess(
             method.index("interaction.response.defer"),
