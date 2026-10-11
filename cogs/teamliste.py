@@ -304,7 +304,8 @@ class TeamlisteCog(commands.Cog):
         except asyncio.CancelledError:
             raise
         finally:
-            self._update_debounce_task = None
+            if self._update_debounce_task is asyncio.current_task():
+                self._update_debounce_task = None
 
     # Rollen-/Namensänderungen lösen keine parallelen Listen-Neuberechnungen aus.
     @commands.Cog.listener()
