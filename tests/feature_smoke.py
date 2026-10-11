@@ -196,6 +196,15 @@ def main() -> None:
     assert "Automation pausieren" in ultimate
     assert "Automation fortsetzen" in ultimate
 
+    # Team-list updates must batch SQLite lookups and debounce event-triggered refreshes.
+    teamlist = read("cogs/teamliste.py")
+    parse("cogs/teamliste.py")
+    assert 'SELECT user_id, bis FROM abmeldungen' in teamlist
+    assert '@tasks.loop(minutes=5)' in teamlist
+    assert 'await asyncio.sleep(8)' in teamlist
+    assert 'pulse-teamlist-debounced-update' in teamlist
+    assert 'self.get_abmeldung_info(member.id)' not in teamlist
+
     print("Pulse feature smoke test: OK")
 
 
