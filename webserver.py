@@ -3349,6 +3349,10 @@ async def restore_backup(request: Request, filename: str = Form(...), user_sessi
         if backup_guild_id is not None and str(backup_guild_id) != str(ctx.guild.id):
             raise ValueError("Dieses Backup gehört zu einem anderen Discord-Server; Wiederherstellung abgebrochen.")
         panel = backup["panel_data"]
+        # Version-2 snapshots created before the typed-default fix used an
+        # empty object when logs.json did not exist; migrate that legacy case.
+        if panel.get("logs") == {}:
+            panel["logs"] = []
         expected_types = {
             "team_data": dict, "config": dict, "logs": list,
             "shifts": dict, "meetings": dict, "applications": dict,
