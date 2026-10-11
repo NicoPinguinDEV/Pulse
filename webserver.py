@@ -3091,7 +3091,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
 # =============================================================
 # DISCORD BACKUP SYSTEM (nur Admins, mit Auto-Backup)
 # =============================================================
-BACKUP_NAME_RE = re.compile(r"^(auto_)?backup_[0-9_\-]+\.json$")
+BACKUP_NAME_RE = re.compile(r"^(?:(?:auto_|pre_restore_))?backup_[0-9_\-]+\.json$")
 
 
 def safe_backup_path(filename: str):
@@ -3184,7 +3184,7 @@ def prune_auto_backups():
 def create_backup_file(guild, prefix: str = "") -> str:
     filename = f"{prefix}backup_{now_de().strftime('%Y-%m-%d_%H-%M-%S')}.json"
     save_json(os.path.join(BACKUP_DIR, filename), build_backup(guild))
-    if prefix:
+    if prefix == "auto_":
         prune_auto_backups()
     return filename
 
@@ -3282,7 +3282,27 @@ async def restore_backup(request: Request, filename: str = Form(...), user_sessi
             backup = json.load(fh)
         if not isinstance(backup, dict) or not isinstance(backup.get("panel_data"), dict):
             raise ValueError("Kein gültiges Pulse-Backup")
+        try:
+            backup_version = int(backup.get("backup_version", 1))
+        except (TypeError, ValueError):
+            raise ValueError("Ungültige Backup-Version")
+        if backup_version < 1 or backup_version > 2:
+            raise ValueError(f"Nicht unterstützte Backup-Version: {backup_version}")
+        backup_guild_id = backup.get("guild_id")
+        if backup_guild_id is not None and str(backup_guild_id) != str(ctx.guild.id):
+            raise ValueError("Dieses Backup gehört zu einem anderen Discord-Server; Wiederherstellung abgebrochen.")
         panel = backup["panel_data"]
+        expected_types = {
+            "team_data": dict, "config": dict, "logs": list,
+            "shifts": dict, "meetings": dict, "applications": dict,
+            "pulse_db": dict, "loas": list, "transcripts": dict,
+        }
+        for key, expected_type in expected_types.items():
+            if key in panel and not isinstance(panel[key], expected_type):
+                raise ValueError(f"Ungültiger Datentyp im Backup-Feld: {key}")
+        # Vor jeder Wiederherstellung zuerst den aktuellen Zustand sichern.
+        # So kann ein Admin bei fehlerhaften/unerwarteten Daten zurückwechseln.
+        safety_snapshot = create_backup_file(ctx.guild, "pre_restore_")
         mapping = {"team_data": DATA_FILE, "config": CONFIG_FILE, "logs": LOGS_FILE, "shifts": SHIFTS_FILE, "meetings": MEETINGS_FILE, "applications": APPS_FILE}
         for key, target in mapping.items():
             if key in panel:
@@ -3303,8 +3323,14 @@ async def restore_backup(request: Request, filename: str = Form(...), user_sessi
             if safe.endswith(".txt") and isinstance(content, str) and len(content) <= 2 * 1024 * 1024:
                 with open(os.path.join(BASE_DIR, "transcripts", safe), "w", encoding="utf-8") as fh:
                     fh.write(content)
-        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Wiederhergestellt", f"Filename: {os.path.basename(path)}")
-        return back("/backups", "Panel-Daten und Pulse-Historien wurden wiederhergestellt.")
+        log_audit(
+            ctx.user.get("global_name"), ctx.user["id"], "Backup Wiederhergestellt",
+            f"Filename: {os.path.basename(path)} · Sicherheitskopie: {safety_snapshot}",
+        )
+        return back(
+            "/backups",
+            f"Panel-Daten und Pulse-Historien wurden wiederhergestellt. Sicherheitskopie angelegt: {safety_snapshot}",
+        )
     except Exception as exc:
         log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Wiederherstellung Fehlgeschlagen", f"{os.path.basename(path)} · {exc}")
         return back("/backups", f"Wiederherstellung fehlgeschlagen: {exc}", False)
