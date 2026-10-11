@@ -5,21 +5,32 @@ explizit konfigurierte `PULSE_SUPPORT_CHANNEL_ID`). Er antwortet auf erkennbare 
 Hilferufe und Nachrichten, die Pulse direkt erwähnen oder auf eine Pulse-Antwort reagieren.
 Normale Unterhaltungen lösen keine Antwort aus.
 
-## Hosting konfigurieren
+## Kostenlose Variante mit Google Gemini
 
-Lege folgende Umgebungsvariablen im Hosting-Panel an:
+Du kannst den Assistenten ohne OpenAI-API-Guthaben mit dem kostenlosen Kontingent der Gemini Developer API betreiben. Das kostenlose Kontingent hat Nutzungsgrenzen und die Verfügbarkeit der Modelle kann sich ändern. Google weist darauf hin, dass Inhalte im Free-Tier zur Verbesserung seiner Produkte verwendet werden können.
 
-- `PULSE_SUPPORT_ENABLED=true`: schaltet die Beantwortung ein. Erst setzen, nachdem die Wissensbasis gepflegt und der Datenschutz-Hinweis im Channel veröffentlicht wurde.
-- `OPENAI_API_KEY`: API-Schlüssel aus dem OpenAI-API-Projekt. Niemals in GitHub, Chat oder öffentliche
-  Discord-Nachrichten schreiben.
-- `OPENAI_MODEL`: optional, Standard ist `gpt-4.1-mini`.
-- `OPENAI_BASE_URL`: optional, Standard ist `https://api.openai.com/v1`.
-- `PULSE_SUPPORT_CHANNEL_ID`: optional, Standard ist `1493649456086782083`.
+1. Erstelle in [Google AI Studio](https://aistudio.google.com/apikey) einen Gemini-API-Schlüssel. Gib ihn niemals in GitHub, Chat oder Discord weiter.
+2. Öffne die Umgebungsvariablen im Hosting-Panel und lege diese Werte an:
 
-Die API-Nutzung wird separat nach dem API-Tarif abgerechnet; ein ChatGPT-Abonnement ist nicht
-automatisch ein API-Guthaben. Solange `PULSE_SUPPORT_ENABLED` nicht auf `true` steht oder `OPENAI_API_KEY` fehlt, beantwortet die KI keine Nachrichten. Der Slash-Befehl
-`/supportbot_status` zeigt die Konfiguration, `/supportbot_test` prüft die API-Verbindung und
-kann dabei einen kleinen API-Aufruf auslösen.
+```env
+PULSE_SUPPORT_PROVIDER=gemini
+PULSE_SUPPORT_ENABLED=true
+GEMINI_API_KEY=DEIN_GEMINI_API_SCHLUESSEL
+GEMINI_MODEL=gemini-3.1-flash-lite
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+PULSE_SUPPORT_CHANNEL_ID=1493649456086782083
+```
+
+3. Entferne oder ignoriere für diese Konfiguration die alten OpenAI-Einstellungen. Achte darauf, dass für den Gemini-Schlüssel kein kostenpflichtiges API-Projekt verwendet wird, wenn du ausschließlich das kostenlose Kontingent nutzen möchtest.
+4. Starte Pulse neu und führe in Discord als Administrator `/supportbot_status` und danach `/supportbot_test` aus.
+
+Der Code verwendet für OpenAI und Gemini denselben kompatiblen Chat-Completions-Aufruf. Ein ChatGPT-Abonnement ist kein OpenAI-API-Guthaben. Das Gemini-Free-Tier bleibt an Googles aktuelle Quoten und Bedingungen gebunden; bei ausgeschöpfter Quote muss die Grenze zurückgesetzt werden, statt auf bezahlte Nutzung umzustellen.
+
+## Alternative: OpenAI API
+
+Wenn du ausdrücklich die OpenAI-API verwenden möchtest, setze `PULSE_SUPPORT_PROVIDER=openai` und konfiguriere `OPENAI_API_KEY`, optional `OPENAI_MODEL` (Standard `gpt-4.1-mini`) und `OPENAI_BASE_URL` (Standard `https://api.openai.com/v1`). Die OpenAI-API wird separat abgerechnet und benötigt ein verfügbares API-Guthaben.
+
+`PULSE_SUPPORT_CHANNEL_ID` ist optional; Standard ist `1493649456086782083`. Solange `PULSE_SUPPORT_ENABLED` nicht auf `true` steht oder der zum Anbieter passende API-Schlüssel fehlt, beantwortet die KI keine Nachrichten. `/supportbot_status` zeigt die Konfiguration, `/supportbot_test` prüft die API-Verbindung und kann einen kleinen API-Aufruf auslösen.
 
 ## Serverwissen pflegen
 
