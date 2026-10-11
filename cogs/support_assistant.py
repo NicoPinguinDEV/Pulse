@@ -65,6 +65,7 @@ class SupportAssistant(commands.Cog):
         self._history: dict[int, list[dict[str, str]]] = {}
         self._user_last_request: dict[int, float] = {}
         self._last_request = 0.0
+        self._last_api_error = ""
 
     def _knowledge_text(self) -> str:
         try:
@@ -85,6 +86,7 @@ class SupportAssistant(commands.Cog):
 
     async def _request_completion(self, messages: list[dict[str, str]]) -> str | None:
         if not self.api_key:
+            self._last_api_error = "OPENAI_API_KEY fehlt"
             return None
 
         endpoint = f"{self.api_base}/chat/completions"
@@ -107,24 +109,54 @@ class SupportAssistant(commands.Cog):
                 response = await client.post(endpoint, headers=headers, json=payload)
 
             if response.is_error:
-                # Do not log request headers, API keys, user messages, or raw provider bodies.
-                print(f"⚠️ Pulse-Support: KI-API antwortete mit HTTP {response.status_code}.")
+                # Log only the provider's short error metadata, never request headers, API keys,
+                # user messages, or the full response body.
+                error_type = None
+                error_code = None
+                error_message = None
+                try:
+                    error_payload = response.json().get("error", {})
+                    if isinstance(error_payload, dict):
+                        error_type = error_payload.get("type")
+                        error_code = error_payload.get("code")
+                        error_message = error_payload.get("message")
+                except (ValueError, AttributeError, TypeError):
+                    pass
+
+                details = [f"HTTP {response.status_code}"]
+                if error_type:
+                    details.append(f"type={str(error_type)[:80]}")
+                if error_code and error_code != error_type:
+                    details.append(f"code={str(error_code)[:80]}")
+                if isinstance(error_message, str) and error_message.strip():
+                    details.append(" ".join(error_message.split())[:240])
+                retry_after = response.headers.get("retry-after")
+                if retry_after:
+                    details.append(f"Retry-After={retry_after[:40]}s")
+
+                self._last_api_error = " | ".join(details)
+                print(f"⚠️ Pulse-Support: KI-API-Fehler: {self._last_api_error}.")
                 return None
 
+            self._last_api_error = ""
             data = response.json()
             choices = data.get("choices", [])
             if not choices:
-                print("⚠️ Pulse-Support: KI-API lieferte keine Antwort.")
+                self._last_api_error = "API-Antwort enthält keine choices"
+                print(f"⚠️ Pulse-Support: {self._last_api_error}.")
                 return None
 
             text = choices[0].get("message", {}).get("content")
             if not isinstance(text, str) or not text.strip():
-                print("⚠️ Pulse-Support: KI-Antwort war leer oder hatte ein unerwartetes Format.")
+                self._last_api_error = "API-Antwort war leer oder hatte ein unerwartetes Format"
+                print(f"⚠️ Pulse-Support: {self._last_api_error}.")
                 return None
             return text.strip()
         except (httpx.TimeoutException, httpx.RequestError) as exc:
+            self._last_api_error = f"Verbindungsfehler: {type(exc).__name__}"
             print(f"⚠️ Pulse-Support: KI-API-Verbindung fehlgeschlagen ({type(exc).__name__}).")
         except (ValueError, KeyError, TypeError):
+            self._last_api_error = "Ungültige API-Antwort"
             print("⚠️ Pulse-Support: KI-API lieferte eine ungültige Antwort.")
         return None
 
@@ -271,8 +303,15 @@ class SupportAssistant(commands.Cog):
                 ephemeral=True,
             )
         else:
+            diagnostic = self._last_api_error or "Keine Detailmeldung verfügbar."
+            diagnostic = discord.utils.escape_markdown(
+                discord.utils.escape_mentions(" ".join(diagnostic.split())[:500])
+            )
             await interaction.followup.send(
-                "❌ Der Verbindungstest war nicht erfolgreich. Prüfe API-Schlüssel, Modell und API-Abrechnung im Hosting/API-Projekt; Details stehen im Bot-Log.",
+                "❌ Der Verbindungstest war nicht erfolgreich.\n"
+                f"**API-Diagnose:** {diagnostic}\n"
+                "Bei HTTP 429 prüfe das API-Kontingent, die Abrechnung und mögliche Rate-Limits "
+                "im Anbieter-Dashboard. Ein ChatGPT-Abonnement ist kein API-Guthaben.",
                 ephemeral=True,
             )
 
