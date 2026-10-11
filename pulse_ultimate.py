@@ -1373,20 +1373,52 @@ def register(app) -> None:
     async def ultimate_automations(request: Request, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session, manager=True)
         with cx() as c:
-            rows = [dict(r) for r in c.execute("SELECT * FROM ultimate_automations ORDER BY enabled DESC,next_run_at").fetchall()]
+            rows = [dict(r) for r in c.execute(
+                """SELECT a.*,
+                    (SELECT r.status FROM ultimate_automation_runs r
+                     WHERE r.automation_id=a.id ORDER BY r.started_at DESC LIMIT 1) AS last_status,
+                    (SELECT r.result FROM ultimate_automation_runs r
+                     WHERE r.automation_id=a.id ORDER BY r.started_at DESC LIMIT 1) AS last_result
+                   FROM ultimate_automations a
+                   ORDER BY a.enabled DESC,a.next_run_at"""
+            ).fetchall()]
+            run_rows = [dict(r) for r in c.execute(
+                """SELECT r.*,a.name AS automation_name
+                   FROM ultimate_automation_runs r
+                   LEFT JOIN ultimate_automations a ON a.id=r.automation_id
+                   ORDER BY r.started_at DESC LIMIT 30"""
+            ).fetchall()]
         opts = ["notify_managers", "notify_team", "create_case", "create_task", "team_report", "notify_user", "ticket_sla_alert", "inactivity_report", "probation_report"]
         cards = "".join(
-            card(f"<div class=row><b>{esc(x['name'])}</b><span class='pill'>{'✅' if x['enabled'] else '⏸'}</span></div><div class='tiny'>{esc(x['trigger_type'])} · alle {x['interval_minutes']}min · nächster Lauf {esc(x['next_run_at'])}</div>")
+            card(
+                f"<div class=row><b>{esc(x['name'])}</b><span class='pill'>{'✅ Aktiv' if x['enabled'] else '⏸ Pausiert'}</span></div>"
+                f"<div class='tiny'>{esc(x['trigger_type'])} · alle {x['interval_minutes']} min · nächster Lauf {esc(x['next_run_at'])}</div>"
+                f"<div class='tiny' style='margin-top:6px'>Letzter Lauf: {esc(x.get('last_run_at') or 'Noch nicht ausgeführt')} · "
+                f"{'✅ erfolgreich' if x.get('last_status') == 'success' else '❌ Fehler' if x.get('last_status') == 'error' else '—'}</div>"
+                f"<div class='tiny'>{esc(str(x.get('last_result') or '')[:220])}</div>"
+                f"<form method='post' action='/ultimate/automations/{esc(x['id'])}/toggle' style='margin-top:10px'>"
+                f"<button class='btn {'danger' if x['enabled'] else 'primary'}'>{'⏸ Automation pausieren' if x['enabled'] else '▶ Automation fortsetzen'}</button></form>"
+            )
             for x in rows
         )
-        body = f"""<div class="card"><h3>🤖 Workflow/Automation</h3><form class="form" method="post" action="/ultimate/automations/create">
+        run_history = "".join(
+            f"<div class='event'><b>{esc(r['started_at'])}</b> · {esc(r.get('automation_name') or r['automation_id'])}"
+            f"<div class='tiny'>{'✅ Erfolgreich' if r['status'] == 'success' else '❌ Fehler'} · beendet: {esc(r.get('finished_at') or '—')}</div>"
+            f"<div>{esc(str(r.get('result') or '')[:500])}</div></div>"
+            for r in run_rows
+        )
+        body = f"""<div class="card"><h3>🤖 Workflow/Automation erstellen</h3><form class="form" method="post" action="/ultimate/automations/create">
           <input class="input" name="name" placeholder="Überfällige Aufgaben melden" required>
           <input class="input" name="trigger_type" value="interval">
-          <input class="input" type="number" name="interval_minutes" min="5" value="1440">
+          <input class="input" type="number" name="interval_minutes" min="5" max="10080" value="1440">
           <select class="select" name="action_type">{"".join(f"<option>{esc(x)}</option>" for x in opts)}</select>
           <input class="input span2" name="payload" value='{{}}' placeholder='JSON-Payload'>
-          <button class="btn primary span2">Automation erstellen</button></form></div><div class='grid g2' style='margin-top:13px'>{cards or card("<div class=tiny>Keine Automationen.</div>")}</div>"""
-        return page(ctx, "automations", "Automationen", "Wiederkehrende Workflows, Erinnerungen, Reports und Eskalationen.", body)
+          <button class="btn primary span2">Automation erstellen</button></form>
+          <div class="tiny" style="margin-top:8px">Neue Workflows starten nach dem gewählten Intervall. Jeder Lauf wird mit Ergebnis protokolliert.</div></div>
+          <div class="grid g2" style="margin-top:13px">{cards or card("<div class=tiny>Keine Automationen.</div>")}</div>
+          <div class="card" style="margin-top:13px"><h3>🧾 Letzte 30 Ausführungen</h3>
+          <div class="timeline">{run_history or "<div class=tiny>Noch keine Ausführungen protokolliert.</div>"}</div></div>"""
+        return page(ctx, "automations", "Automationen", "Workflows anlegen, pausieren, fortsetzen und Ausführungsergebnisse prüfen.", body)
 
     @app.post("/ultimate/automations/create")
     async def ultimate_automation_create(
@@ -1410,6 +1442,34 @@ def register(app) -> None:
                  str(ctx.user["id"]), ctx.user.get("global_name") or ctx.user.get("username") or "Team", iso()),
             )
         audit(ctx, "Automation erstellt", "", name.strip(), action_type)
+        return RedirectResponse("/ultimate/automations", status_code=303)
+
+    @app.post("/ultimate/automations/{automation_id}/toggle")
+    async def ultimate_automation_toggle(
+        request: Request, automation_id: str, user_session: str = Cookie(None),
+    ):
+        ctx = ctx_auth(request, user_session, manager=True)
+        with cx() as c:
+            row = c.execute(
+                "SELECT id,name,enabled,interval_minutes,next_run_at FROM ultimate_automations WHERE id=?",
+                (automation_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(404, "Automation nicht gefunden.")
+            record = dict(row)
+            enabled = 0 if record["enabled"] else 1
+            next_run_at = (
+                iso(utcnow() + timedelta(minutes=max(5, int(record["interval_minutes"]))))
+                if enabled else record["next_run_at"]
+            )
+            c.execute(
+                "UPDATE ultimate_automations SET enabled=?,next_run_at=? WHERE id=?",
+                (enabled, next_run_at, automation_id),
+            )
+        audit(
+            ctx, "Automation fortgesetzt" if enabled else "Automation pausiert",
+            automation_id, record["name"], f"enabled={enabled}",
+        )
         return RedirectResponse("/ultimate/automations", status_code=303)
 
     @app.get("/ultimate/system", response_class=HTMLResponse)
