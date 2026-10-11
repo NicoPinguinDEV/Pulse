@@ -14,6 +14,8 @@ class SupportAssistantRuleTests(unittest.TestCase):
     def test_help_phrases_trigger_answer_without_question_mark(self):
         self.assertTrue(should_answer("Ich brauche Hilfe bei meiner Bewerbung"))
         self.assertTrue(should_answer("Das funktioniert nicht"))
+        self.assertTrue(should_answer("Ich habe ein Problem mit der Bewerbung"))
+        self.assertTrue(should_answer("Ich brauche Unterstützung"))
 
     def test_bot_mention_and_reply_trigger_answer(self):
         self.assertTrue(should_answer("Pulse", bot_mentioned=True))
