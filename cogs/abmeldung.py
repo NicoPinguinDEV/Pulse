@@ -118,6 +118,7 @@ class AbmeldungCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._nickname_permission_warnings: set[tuple[int, int, str]] = set()
+        self._nickname_forbidden: set[tuple[int, int]] = set()
         self.init_db()
         # Hintergrund-Task für abgelaufene Abmeldungen starten.
         self.check_expired_abmeldungen.start()
@@ -257,6 +258,8 @@ class AbmeldungCog(commands.Cog):
 
     def _can_edit_member_nickname(self, guild: discord.Guild, member: discord.Member) -> bool:
         """Prüft Nickname-Rechte vor dem API-Aufruf und protokolliert Fehler nur einmal."""
+        if (guild.id, member.id) in self._nickname_forbidden:
+            return False
         bot_member = guild.me
         reason = None
         if bot_member is None:
@@ -324,8 +327,14 @@ class AbmeldungCog(commands.Cog):
                     try:
                         await member.edit(nick=new_nick, reason="Pulse: Abmeldung")
                     except discord.Forbidden:
-                        # Berechtigungen können sich zwischen Prüfung und API-Aufruf ändern.
-                        self._can_edit_member_nickname(guild, member)
+                        # Discord can still deny the edit after a successful preflight.
+                        key = (guild.id, member.id)
+                        if key not in self._nickname_forbidden:
+                            self._nickname_forbidden.add(key)
+                            print(
+                                f"⚠️ Discord hat die Nickname-Änderung für {member} verweigert. "
+                                "Pulse versucht es bis zum Neustart nicht erneut."
+                            )
                     except discord.HTTPException as exc:
                         print(f"⚠️ Namensänderung für {member} fehlgeschlagen: {exc}")
 
@@ -366,8 +375,13 @@ class AbmeldungCog(commands.Cog):
             try:
                 await member.edit(nick=original_nick, reason="Pulse: Abmeldung beendet")
             except discord.Forbidden:
-                # Log once; no periodic task repeatedly retries this nickname.
-                self._can_edit_member_nickname(guild, member)
+                key = (guild.id, member.id)
+                if key not in self._nickname_forbidden:
+                    self._nickname_forbidden.add(key)
+                    print(
+                        f"⚠️ Discord hat das Wiederherstellen des Nicknames für {member} verweigert. "
+                        "Pulse versucht es bis zum Neustart nicht erneut."
+                    )
             except discord.HTTPException as exc:
                 print(f"⚠️ Namensänderung für {member} fehlgeschlagen: {exc}")
 
