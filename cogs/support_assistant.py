@@ -276,7 +276,7 @@ class SupportAssistant(commands.Cog):
                     pause = max(provider_retry, backoff)
                     now = time.monotonic()
                     self._api_paused_until = max(self._api_paused_until, now + pause)
-                    if now - self._last_rate_limit_log_at >= 900:
+                    if not self._last_rate_limit_log_at or now - self._last_rate_limit_log_at >= 900:
                         print(
                             f"⚠️ Pulse-Support: KI-API HTTP 429; pausiert für {pause}s. "
                             "Währenddessen werden keine weiteren KI-Anfragen gesendet."
