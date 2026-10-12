@@ -9,7 +9,7 @@ import os
 import re
 import uuid
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from email.utils import parsedate_to_datetime
 from urllib.parse import parse_qs, quote, urlparse
@@ -44,6 +44,9 @@ MAX_SOURCES = 50
 MAX_SEEN_IDS = 80
 MAX_POSTS_PER_CYCLE = 5
 POLL_INTERVAL_MINUTES = 2
+POLL_FAILURE_INITIAL_BACKOFF_SECONDS = 300
+POLL_FAILURE_MAX_BACKOFF_SECONDS = 3600
+POLL_FAILURE_LOG_INTERVAL_SECONDS = 3600
 USER_AGENT = "PulseSocialPromo/1.0 (+Discord community automation)"
 
 
@@ -495,6 +498,9 @@ class SocialPromo(commands.Cog):
                 source = self.sources.get(source_id)
                 if not source or not source.get("enabled", True):
                     continue
+                retry_after = _parse_entry_date(str(source.get("retry_after", "")))
+                if retry_after and retry_after > datetime.now(timezone.utc).timestamp():
+                    continue
                 try:
                     await self._poll_one(source_id, source)
                 except asyncio.CancelledError:
@@ -511,10 +517,54 @@ class SocialPromo(commands.Cog):
 
     async def _poll_one(self, source_id: str, source: dict) -> None:
         feed_url = str(source.get("feed_url", ""))
-        feed_url, feed_title, items = await self._fetch_feed(
-            feed_url, str(source.get("platform", "rss"))
-        )
+        checked_at = datetime.now(timezone.utc)
+        try:
+            feed_url, feed_title, items = await self._fetch_feed(
+                feed_url, str(source.get("platform", "rss"))
+            )
+        except asyncio.CancelledError:
+            raise
+        except (ValueError, httpx.HTTPError, ET.ParseError) as exc:
+            # Back off on unhealthy third-party feeds. This avoids hammering public
+            # mirrors and keeps the hosting console readable while still retrying.
+            failure_count = int(source.get("feed_failures", 0) or 0) + 1
+            exponent = min(failure_count - 1, 8)
+            retry_seconds = min(
+                POLL_FAILURE_INITIAL_BACKOFF_SECONDS * (2 ** exponent),
+                POLL_FAILURE_MAX_BACKOFF_SECONDS,
+            )
+            error_text = str(exc)[:700]
+            previous_log_at = _parse_entry_date(str(source.get("last_error_logged_at", "")))
+            should_log = (
+                not source.get("last_error_logged_at")
+                or checked_at.timestamp() - previous_log_at >= POLL_FAILURE_LOG_INTERVAL_SECONDS
+            )
+            source["feed_failures"] = failure_count
+            source["feed_status"] = "pending" if not source.get("initialized") else "degraded"
+            source["last_error"] = error_text
+            source["last_checked"] = checked_at.isoformat(timespec="seconds")
+            source["retry_after"] = (
+                checked_at + timedelta(seconds=retry_seconds)
+            ).isoformat(timespec="seconds")
+            if should_log:
+                print(
+                    "⚠️ Social-Promo: Quelle %s nicht abrufbar; nächster Versuch in %d Min. (%s: %s)"
+                    % (
+                        source.get("name", source_id),
+                        max(1, retry_seconds // 60),
+                        type(exc).__name__,
+                        error_text[:300],
+                    )
+                )
+                source["last_error_logged_at"] = checked_at.isoformat(timespec="seconds")
+            self._save_sources()
+            return
+
         source["feed_status"] = "active"
+        source["feed_failures"] = 0
+        source.pop("retry_after", None)
+        source.pop("last_error", None)
+        source.pop("last_error_logged_at", None)
         if feed_url != source.get("feed_url"):
             # Remember the working mirror so polling doesn't repeat the failed primary host.
             source["feed_url"] = feed_url
@@ -615,6 +665,7 @@ class SocialPromo(commands.Cog):
             if not _is_public_https_url(feed_url):
                 raise ValueError("Die erzeugte Feed-Adresse ist keine erlaubte öffentliche HTTPS-Adresse.")
             pending_feed = False
+            pending_feed_error = ""
             try:
                 feed_url, feed_title, items = await self._fetch_feed(feed_url, platform)
             except ValueError as exc:
@@ -625,10 +676,12 @@ class SocialPromo(commands.Cog):
                     and str(exc).startswith("Keine RSSHub-Instanz konnte den Feed abrufen")
                 ):
                     pending_feed = True
+                    pending_feed_error = str(exc)[:700]
                     feed_title, items = "", []
                     print(
-                        "⚠️ Social-Promo: Quelle %s wird gespeichert; Feed momentan nicht erreichbar: %s"
-                        % (inferred_name, str(exc)[:350])
+                        "⚠️ Social-Promo: Quelle %s wird gespeichert; Feed momentan nicht erreichbar. "
+                        "Nächster automatischer Versuch in 5 Min. (%s)"
+                        % (inferred_name, pending_feed_error[:300])
                     )
                 else:
                     raise
@@ -678,6 +731,14 @@ class SocialPromo(commands.Cog):
             "initialized": not pending_feed,
             "feed_status": "pending" if pending_feed else "active",
             "source_key": str(inferred_name or "").strip().lstrip("@").lower(),
+            "feed_failures": 1 if pending_feed else 0,
+            "retry_after": (
+                (datetime.now(timezone.utc) + timedelta(seconds=POLL_FAILURE_INITIAL_BACKOFF_SECONDS))
+                .isoformat(timespec="seconds")
+                if pending_feed else ""
+            ),
+            "last_error": pending_feed_error,
+            "last_error_logged_at": datetime.now(timezone.utc).isoformat(timespec="seconds") if pending_feed else "",
             "seen_ids": [item["id"] for item in items][:MAX_SEEN_IDS],
             "last_item": items[0]["id"] if items else "",
             "last_checked": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -724,6 +785,8 @@ class SocialPromo(commands.Cog):
                 status = "⏸️ pausiert"
             elif source.get("feed_status") == "pending" or not source.get("initialized"):
                 status = "🟡 wartet auf Feed"
+            elif source.get("feed_status") == "degraded":
+                status = "🟠 Feed gestört"
             else:
                 status = "🟢 aktiv"
             lines.append(
