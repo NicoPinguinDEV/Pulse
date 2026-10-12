@@ -211,6 +211,12 @@ def main() -> None:
     assert "Automation pausieren" in ultimate
     assert "Automation fortsetzen" in ultimate
 
+    # Pulse Suite inactivity scan must keep synchronous SQLite/JSON/cache work
+    # off the event loop and avoid recomputing the manager list for each member.
+    assert "await asyncio.to_thread(self._inactivity_sync, g)" in suite
+    assert "def _inactivity_sync(self,g):" in suite
+    assert "team_managers = managers(g,web)" in suite
+
     # Team-list updates must batch SQLite lookups and debounce event-triggered refreshes.
     teamlist = read("cogs/teamliste.py")
     parse("cogs/teamliste.py")
