@@ -278,6 +278,56 @@ class BueroUebernehmenView(discord.ui.View):
             await interaction.followup.send("❌ Die Übernahme ist fehlgeschlagen.", ephemeral=True)
 
 
+    @discord.ui.button(
+        label="Auftrag erledigt",
+        style=discord.ButtonStyle.secondary,
+        emoji="✅",
+        custom_id="buero_auftrag_erledigt_btn"
+    )
+    async def auftrag_erledigt(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "❌ Diese Aktion ist nur auf dem Server verfügbar.",
+                ephemeral=True,
+            )
+            return
+
+        team_member = interaction.user
+        try:
+            cfg = __import__("webserver").load_config()
+            team_ids = {int(role_id) for role_id in cfg.get("team_role_ids", [])}
+            allowed = team_member.guild_permissions.administrator or any(
+                role.id in team_ids for role in getattr(team_member, "roles", [])
+            )
+        except Exception:
+            allowed = team_member.guild_permissions.administrator
+        if not allowed:
+            await interaction.response.send_message(
+                "❌ Nur Teammitglieder dürfen Büro-Anfragen abschließen.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        removed = await delete_pending_ping(
+            self.bot,
+            self.waiting_user_id,
+            expected_message_id=interaction.message.id,
+            fallback_message=interaction.message,
+        )
+        if removed:
+            await interaction.followup.send(
+                "✅ Büro-Auftrag als erledigt markiert. Die Ping-Nachricht wurde gelöscht.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                "ℹ️ Diese Ping-Nachricht gehört nicht mehr zur aktuellen offenen Anfrage.",
+                ephemeral=True,
+            )
+
+
 # --- DROPDOWN MENÜ IN DER DM DES USERS ---
 class BueroSelect(discord.ui.Select):
     def __init__(self, voice_channels: list, guild_id: int):
