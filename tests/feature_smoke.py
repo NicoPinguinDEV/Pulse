@@ -234,11 +234,14 @@ def main() -> None:
     assert "TEAM_MODE_PROMPT" in support_assistant
     assert "PULSE_SUPPORT_TEAM_CHANNEL_ID" in support_assistant
     assert "PULSE_SUPPORT_TEAM_ROLE_IDS" in support_assistant
+    assert "templates_status" in support_assistant
+    assert "self.templates_path.is_file()" in support_assistant
     assert '"max_tokens": self.max_tokens' in support_assistant
     assert "history_key = (message.channel.id, message.author.id)" in support_assistant
     assert "Allgemeine Fragen darfst du mit deinem allgemeinen Wissen beantworten" in support_assistant
     assert "allgemeine Hilfsfragen" in support_assistant
     assert "formuliere|erklär|erkläre|zusammenfassung" in support_rules
+    assert "vorlagen|textbaustein|textbausteine|partnerschaft" in support_rules
     # The Team KI must receive the separate template library only in team mode
     # and be able to return complete multi-message drafts rather than truncate them.
     assert "def _team_templates_text(self) -> str:" in support_assistant
