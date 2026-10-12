@@ -227,6 +227,10 @@ def main() -> None:
     assert 'name="social_test"' in social
     assert "@tasks.loop(minutes=POLL_INTERVAL_MINUTES)" in social
     assert "def parse_feed(xml_text: str)" in social
+    assert "def _feed_candidates(self, feed_url: str, platform: str)" in social
+    assert "def _fetch_feed(" in social
+    assert "PULSE_RSSHUB_FALLBACK_URLS" in social
+    assert "Keine RSSHub-Instanz konnte den Feed abrufen" in social
     assert '"/tiktok/user/%40"' in social
     assert '"/instagram/2/user/"' in social
     assert '"/twitch/video/"' in social
