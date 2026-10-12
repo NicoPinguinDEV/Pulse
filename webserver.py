@@ -29,6 +29,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import discord
 import pulse_db as pulse_db
+from career_applications import APPLICATION_CAREERS, grade_career_test, render_career_test
 
 try:
     from zoneinfo import ZoneInfo
@@ -115,7 +116,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.0.0"
+PULSE_VERSION = "7.1.0"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -2984,10 +2985,10 @@ async def loa_page(request: Request, user_session: str = Cookie(None)):
 
 
 # =============================================================
-# ROUTE: ÖFFENTLICHES BEWERBUNGSFORMULAR
+# ROUTE: ÖFFENTLICHES BEWERBUNGSFORMULAR MIT LAUFBAHN-TEST
 # =============================================================
 @app.get("/apply", response_class=HTMLResponse)
-async def public_apply_page(apply_session: str = Cookie(None)):
+async def public_apply_page(request: Request, apply_session: str = Cookie(None)):
     applicant = verify_payload(apply_session) if apply_session else None
     if applicant and applicant.get("apply_exp", 0) < time.time():
         applicant = None
@@ -2997,25 +2998,91 @@ async def public_apply_page(apply_session: str = Cookie(None)):
         <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen flex items-center justify-center p-4 font-sans">
         <div class="{CARD} p-8 shadow-xl w-full max-w-lg text-center space-y-5">
             <div class="text-4xl">📝</div><h1 class="text-xl font-bold">Team-Bewerbung</h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Verknüpfe deine Bewerbung zuerst sicher mit deinem Discord-Account. Deine Discord-ID kann nicht mehr manuell für eine andere Person eingetragen werden.</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Verbinde deine Bewerbung zuerst sicher mit deinem Discord-Account. Danach kannst du deine Laufbahn auswählen und den passenden Eignungstest direkt online absolvieren.</p>
             <a href="/apply/login" class="block w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 rounded-xl">Mit Discord verbinden</a>
             <a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a>
         </div></body></html>"""
+
+    career_path = (request.query_params.get("career") or "").strip()
+    if career_path not in APPLICATION_CAREERS:
+        career_path = ""
+
+    applicant_name = applicant.get("global_name") or applicant.get("username") or "Discord-Mitglied"
+    applicant_id = esc(applicant.get("id"))
+    avatar_hash = esc(applicant.get("avatar") or "0")
+    avatar_url = f"https://cdn.discordapp.com/avatars/{applicant_id}/{avatar_hash}.png"
+
+    if not career_path:
+        career_cards = ""
+        for key, career in APPLICATION_CAREERS.items():
+            career_cards += f"""
+            <a href="/apply?career={key}" class="block text-left rounded-2xl border border-slate-200 dark:border-slate-700 p-4 hover:border-indigo-500 hover:shadow-md transition">
+                <div class="flex items-center justify-between gap-3">
+                    <h2 class="font-bold text-base">{esc(career["label"])}</h2>
+                    <span class="text-[10px] font-bold rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 px-2.5 py-1">Eignungstest</span>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">{esc(career["description"])}</p>
+                <p class="text-[10px] text-slate-400 mt-3">{len(career["questions"])} Fragen · Richtwert zum Bestehen: {career["pass_percent"]}%</p>
+            </a>"""
+        return f"""
+        <!DOCTYPE html><html lang="de"><head>{get_head_html("Laufbahn wählen · Team-Bewerbung")}</head>
+        <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen flex items-center justify-center p-4 font-sans">
+        <main class="w-full max-w-2xl space-y-5">
+            <div class="{CARD} p-6 sm:p-8 space-y-5">
+                <div class="flex items-center gap-3">
+                    <img src="{avatar_url}" class="w-11 h-11 rounded-full" alt="">
+                    <div><div class="font-bold">{esc(applicant_name)}</div><div class="text-[10px] text-slate-400">Discord verifiziert · ID {applicant_id}</div></div>
+                </div>
+                <div><div class="text-xs uppercase tracking-widest font-bold text-indigo-500">Pulse Recruiting</div>
+                    <h1 class="text-2xl font-bold mt-1">Welche Laufbahn möchtest du einschlagen?</h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">Wähle die Ebene, für die du dich bewerben möchtest. Jede Laufbahn hat eigene Fragen. Dein Ergebnis wird automatisch ausgewertet und zusammen mit deiner Bewerbung an das Team übermittelt.</p>
+                </div>
+                <div class="grid gap-3">{career_cards}</div>
+                <p class="text-[10px] text-slate-400">Hinweis: Die Auswahl und das Testergebnis vergeben keine Discord-Rollen. Über eine Einstellung und die passende Rolle entscheidet weiterhin die zuständige Führungsebene.</p>
+                <div class="text-center"><a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a></div>
+            </div>
+        </main></body></html>"""
+
+    career = APPLICATION_CAREERS[career_path]
+    question_markup = render_career_test(career_path)
     return f"""
-    <!DOCTYPE html><html lang="de"><head>{get_head_html("Team-Bewerbung")}</head>
-    <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen flex items-center justify-center p-4 font-sans">
-        <div class="{CARD} p-8 shadow-xl w-full max-w-lg space-y-4">
-            <div class="flex items-center gap-3"><img src="https://cdn.discordapp.com/avatars/{esc(applicant.get('id'))}/{esc(applicant.get('avatar') or '0')}.png" class="w-10 h-10 rounded-full"><div><div class="font-bold">{esc(applicant.get('global_name') or applicant.get('username'))}</div><div class="text-[10px] text-slate-400 font-mono">Discord-ID: {esc(applicant.get('id'))}</div></div></div>
-            <h1 class="text-xl font-bold">Team-Bewerbung</h1><p class="text-xs text-slate-500 dark:text-slate-400">Fülle die Bewerbung aus. Discord-Daten sind bereits verifiziert.</p>
-            <form action="/action" method="post" class="space-y-3.5 text-xs">
-                <input type="hidden" name="action" value="submit_application">
-                <input type="hidden" name="applicant_id" value="{esc(applicant.get('id'))}">
-                <input type="hidden" name="applicant_name" value="{esc(applicant.get('global_name') or applicant.get('username'))}">
-                <label class="block text-slate-500 mb-1 font-medium">Warum möchtest du ins Team?</label>
-                <textarea name="applicant_text" maxlength="2000" placeholder="Erzähle etwas über dich, deine Erfahrung und deine Motivation…" required class="{INPUT} h-36"></textarea>
-                <button class="w-full bg-emerald-600 hover:bg-emerald-500 font-semibold py-3 rounded-xl text-white">Bewerbung absenden</button>
-            </form><div class="text-center"><a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a></div>
-        </div></body></html>"""
+    <!DOCTYPE html><html lang="de"><head>{get_head_html("Online-Eignungstest · " + career["label"])}</head>
+    <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen p-4 sm:p-6 font-sans">
+        <main class="mx-auto w-full max-w-3xl space-y-5">
+            <div class="{CARD} p-6 sm:p-8 space-y-5">
+                <div class="flex items-center gap-3">
+                    <img src="{avatar_url}" class="w-11 h-11 rounded-full" alt="">
+                    <div><div class="font-bold">{esc(applicant_name)}</div><div class="text-[10px] text-slate-400">Discord verifiziert</div></div>
+                    <a href="/apply" class="ml-auto text-xs text-indigo-500 hover:underline">Laufbahn ändern</a>
+                </div>
+                <div class="rounded-2xl bg-indigo-500/10 border border-indigo-500/20 p-4">
+                    <div class="text-[10px] uppercase tracking-widest font-bold text-indigo-500">Deine Bewerbung</div>
+                    <h1 class="text-2xl font-bold mt-1">{esc(career["label"])}</h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">{esc(career["description"])}</p>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-3">{len(career["questions"])} Fragen · Bestehens-Richtwert: {career["pass_percent"]}%</p>
+                </div>
+                <form action="/action" method="post" class="space-y-5 text-xs">
+                    <input type="hidden" name="action" value="submit_application">
+                    <input type="hidden" name="applicant_id" value="{applicant_id}">
+                    <input type="hidden" name="applicant_name" value="{esc(applicant_name)}">
+                    <input type="hidden" name="career_path" value="{career_path}">
+                    <section class="space-y-2">
+                        <h2 class="font-bold text-base">1. Motivation</h2>
+                        <label for="applicant_text" class="block text-slate-500 dark:text-slate-400">Warum möchtest du diese Laufbahn einschlagen? Beschreibe kurz deine Erfahrung, Stärken und Motivation.</label>
+                        <textarea id="applicant_text" name="applicant_text" maxlength="2000" placeholder="Erzähle etwas über dich, deine Erfahrung und deine Motivation…" required class="{INPUT} h-32"></textarea>
+                    </section>
+                    <section class="space-y-3">
+                        <div><h2 class="font-bold text-base">2. Online-Eignungstest</h2>
+                            <p class="text-slate-500 dark:text-slate-400 mt-1">Beantworte alle Fragen. Das System prüft deine Antworten automatisch. Das Ergebnis ist eine Entscheidungshilfe und führt nicht allein automatisch zur Annahme oder Ablehnung.</p>
+                        </div>
+                        {question_markup}
+                    </section>
+                    <button class="w-full bg-emerald-600 hover:bg-emerald-500 font-semibold py-3 rounded-xl text-white">Bewerbung und Test absenden</button>
+                </form>
+                <div class="text-center"><a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a></div>
+            </div>
+        </main>
+    </body></html>"""
 
 
 @app.get("/apply/login")
@@ -3063,6 +3130,40 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
     for app_id, item in items:
         up, down = item.get("upvotes", []), item.get("downvotes", [])
         voted_up, voted_down = uid in up, uid in down
+        career_summary = (
+            f'<span class="rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 px-2.5 py-1">🧭 Laufbahn: {esc(item.get("career_label") or "Nicht angegeben")}</span>'
+        )
+        test_summary = ""
+        test_review_html = ""
+        if item.get("test_percent") is not None:
+            test_passed = bool(item.get("test_passed"))
+            test_badge_class = BADGE_OK if test_passed else BADGE_BAD
+            test_status_label = "Richtwert erreicht" if test_passed else "Richtwert nicht erreicht"
+            test_summary = (
+                f'<span class="rounded-full border px-2.5 py-1 {test_badge_class}">'
+                f'🧪 Online-Test: {int(item.get("test_score", 0))}/{int(item.get("test_total", 0))} '
+                f'({int(item.get("test_percent", 0))} %) · {test_status_label}</span>'
+            )
+            detail_parts = []
+            for index, detail in enumerate(item.get("test_details", []), start=1):
+                correct_answer_html = ""
+                if not detail.get("correct"):
+                    correct_answer_html = (
+                        f'<p class="text-emerald-600 dark:text-emerald-400">'
+                        f'Richtige Antwort: {esc(detail.get("correct_answer", "—"))}</p>'
+                    )
+                detail_parts.append(
+                    f'<div class="rounded-xl bg-slate-50 dark:bg-[#0b0e14] border border-slate-200 dark:border-slate-800 p-3 space-y-1">'
+                    f'<p class="font-semibold">{index}. {esc(detail.get("question", ""))}</p>'
+                    f'<p class="text-slate-600 dark:text-slate-300">Antwort: {esc(detail.get("selected_answer", "—"))} '
+                    f'{"✅" if detail.get("correct") else "❌"}</p>'
+                    f'{correct_answer_html}</div>'
+                )
+            if detail_parts:
+                test_review_html = (
+                    f'<details class="mt-3"><summary class="cursor-pointer text-xs font-semibold text-indigo-600 dark:text-indigo-300">'
+                    f'Online-Testantworten anzeigen</summary><div class="grid gap-2 mt-3">{"".join(detail_parts)}</div></details>'
+                )
         if show_history:
             accepted = item.get("status") == "accepted"
             footer = f'<span class="text-xs font-semibold border px-3 py-1 rounded-full {BADGE_OK if accepted else BADGE_BAD}">{"✅ Angenommen" if accepted else "❌ Abgelehnt"}{(" von " + esc(item.get("decided_by"))) if item.get("decided_by") else ""}</span>'
@@ -3090,6 +3191,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                 <div>
                     <h3 class="font-bold text-slate-900 dark:text-white text-sm">{esc(item.get('name'))}</h3>
                     <span class="text-[10px] text-slate-400 font-mono">ID: {esc(item.get('user_id'))} · {esc(item.get('created_at'))}</span>
+                    <div class="flex flex-wrap gap-2 mt-2 text-[10px]">{career_summary}{test_summary}</div>
                 </div>
                 <div class="flex items-center gap-2 text-xs font-semibold">
                     <span class="text-emerald-600 dark:text-emerald-400">👍 {len(up)}</span>
@@ -3097,6 +3199,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                 </div>
             </div>
             <p class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800/80 whitespace-pre-wrap break-words">{esc(item.get('text'))}</p>
+            {test_review_html}
             <div class="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">{footer}</div>
         </div>"""
 
@@ -3614,6 +3717,13 @@ async def handle_action(
     applicant_id: int = Form(None),
     applicant_name: str = Form(None),
     applicant_text: str = Form(None),
+    career_path: str = Form(None),
+    answer_1: str = Form(None),
+    answer_2: str = Form(None),
+    answer_3: str = Form(None),
+    answer_4: str = Form(None),
+    answer_5: str = Form(None),
+    answer_6: str = Form(None),
     app_id: str = Form(None),
     vote: str = Form(None),
     decision: str = Form(None),
@@ -3643,7 +3753,7 @@ async def handle_action(
     user_session: str = Cookie(None),
     apply_session: str = Cookie(None)
 ):
-    # ---------- Öffentliche Bewerbung (ohne Login, aber mit Limits) ----------
+    # ---------- Öffentliche Bewerbung inklusive serverseitig bewerteten Laufbahn-Test ----------
     if action == "submit_application":
         ip = request.client.host if request.client else "unknown"
         back_link = '<a href="/apply" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800">Zurück</a>'
@@ -3655,16 +3765,45 @@ async def handle_action(
         name = (apply_user.get("global_name") or apply_user.get("username") or applicant_name or "").strip()[:80]
         text = (applicant_text or "").strip()[:2000]
         if not applicant_id or not name or not text:
-            return HTMLResponse(simple_page("⚠️", "Angaben fehlen", "Bitte fülle alle Felder aus.", back_link), status_code=400)
+            return HTMLResponse(simple_page("⚠️", "Angaben fehlen", "Bitte fülle die Motivation und alle Pflichtfelder aus.", back_link), status_code=400)
+        try:
+            test_result = grade_career_test(
+                career_path or "",
+                [answer_1, answer_2, answer_3, answer_4, answer_5, answer_6],
+            )
+        except ValueError as exc:
+            return HTMLResponse(simple_page("⚠️", "Online-Test unvollständig", esc(str(exc)), back_link), status_code=400)
+
         apps = load_json(APPS_FILE, {})
         if any(a.get("user_id") == str(applicant_id) and a.get("status") == "pending" for a in apps.values()):
-            return HTMLResponse(simple_page("ℹ️", "Bewerbung liegt bereits vor", "Deine Bewerbung wird gerade geprüft.", back_link))
-        apps[f"app_{uuid.uuid4().hex[:6]}"] = {
-            "user_id": str(applicant_id), "name": name, "text": text, "status": "pending",
-            "upvotes": [], "downvotes": [], "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
+            return HTMLResponse(simple_page("ℹ️", "Bewerbung liegt bereits vor", "Deine Bewerbung wird gerade geprüft. Ein weiterer Antrag ist währenddessen nicht möglich.", back_link))
+        app_id_new = f"app_{uuid.uuid4().hex[:10]}"
+        apps[app_id_new] = {
+            "user_id": str(applicant_id),
+            "name": name,
+            "text": text,
+            "status": "pending",
+            "career_path": test_result["career_path"],
+            "career_label": test_result["career_label"],
+            "test_score": test_result["score"],
+            "test_total": test_result["total"],
+            "test_percent": test_result["percent"],
+            "test_pass_percent": test_result["pass_percent"],
+            "test_passed": test_result["passed"],
+            "test_details": test_result["details"],
+            "test_version": 1,
+            "upvotes": [],
+            "downvotes": [],
+            "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
         }
         save_json(APPS_FILE, apps)
-        return HTMLResponse(simple_page("✅", "Bewerbung erfolgreich abgesendet!", "Das Team meldet sich bei dir.", back_link))
+        result_status = "Bestanden" if test_result["passed"] else "noch nicht bestanden"
+        result_text = (
+            f"Deine Bewerbung wurde mit der Laufbahn {esc(test_result['career_label'])} gespeichert. "
+            f"Online-Test: {test_result['score']}/{test_result['total']} richtig ({test_result['percent']} %), "
+            f"Status: {result_status}. Das Team prüft Motivation und Testergebnis gemeinsam."
+        )
+        return HTMLResponse(simple_page("✅", "Bewerbung erfolgreich abgesendet!", result_text, back_link))
 
     # ---------- Ab hier: Login + Recht je nach Aktion ----------
     required = ACTION_PERMS.get(action)
@@ -4061,6 +4200,11 @@ async def handle_action(
             team_db = load_json(DATA_FILE, {})
             team_entry = user_entry(team_db, str(applicant.id))
             team_entry["team_since"] = now_de().isoformat(timespec="seconds")
+            if item.get("career_path"):
+                team_entry["career_path"] = item.get("career_path")
+                team_entry["career_label"] = item.get("career_label")
+                team_entry["application_test_percent"] = item.get("test_percent")
+                team_entry["application_test_passed"] = item.get("test_passed")
             save_json(DATA_FILE, team_db)
             save_json(APPS_FILE, apps)
             await send_dm_notification(applicant, f"🎉 Deine Bewerbung bei **{guild.name}** wurde angenommen. Du wurdest als **{role.name}** in das Team aufgenommen.")
