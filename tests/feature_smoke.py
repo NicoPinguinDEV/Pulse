@@ -216,6 +216,19 @@ def main() -> None:
     assert 'self.get_abmeldung_info(member.id)' not in teamlist
 
 
+    # AI support: general questions, optional team channel, role restriction and answer length.
+    support_assistant = read("cogs/support_assistant.py")
+    support_rules = read("pulse_support_rules.py")
+    parse("cogs/support_assistant.py")
+    assert "TEAM_MODE_PROMPT" in support_assistant
+    assert "PULSE_SUPPORT_TEAM_CHANNEL_ID" in support_assistant
+    assert "PULSE_SUPPORT_TEAM_ROLE_IDS" in support_assistant
+    assert '"max_tokens": self.max_tokens' in support_assistant
+    assert "history_key = (message.channel.id, message.author.id)" in support_assistant
+    assert "Allgemeine Fragen darfst du mit deinem allgemeinen Wissen beantworten" in support_assistant
+    assert "allgemeine Hilfsfragen" in support_assistant
+    assert "formuliere|erklär|erkläre|zusammenfassung" in support_rules
+
     # Social video announcements: configurable sources, deduplication and fixed target.
     social = read("cogs/social_promo.py")
     parse("cogs/social_promo.py")
