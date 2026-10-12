@@ -37,6 +37,56 @@ def _clean_text(value: str, limit: int = 500) -> str:
     return discord.utils.escape_mentions(value)[:limit]
 
 
+def _describe_fetch_error(exc: Exception, platform: str) -> str:
+    """Turn feed network failures into actionable, non-sensitive diagnostics."""
+    request = getattr(exc, "request", None)
+    host = getattr(getattr(request, "url", None), "host", None) or "Feed-Server"
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        request_host = getattr(getattr(exc.response, "url", None), "host", None) or host
+        if status in {401, 403}:
+            hint = (
+                "Der Server verweigert den Abruf. Deine Eingabe muss deshalb nicht falsch sein."
+            )
+            if platform in {"tiktok", "instagram", "twitch", "x"}:
+                hint += (
+                    " Bei dieser Plattform kann die öffentliche RSSHub-Instanz durch "
+                    "Anti-Bot-Schutz oder fehlende Zugangsdaten blockiert werden. "
+                    "Konfiguriere im Hosting PULSE_RSSHUB_BASE_URL mit einer erreichbaren "
+                    "RSSHub-Instanz; Instagram-Feeds können eigene Zugangsdaten/Cookies erfordern."
+                )
+            return f"{hint} (HTTP {status}, {request_host})."
+        if status == 429:
+            return (
+                f"Der Feed-Server begrenzt momentan die Anfragen (HTTP 429, {request_host}). "
+                "Warte kurz und versuche es erneut; gegebenenfalls ist eine andere RSSHub-Instanz nötig."
+            )
+        if status == 404:
+            return (
+                f"Der Feed-Endpunkt oder das Profil wurde nicht gefunden (HTTP 404, {request_host}). "
+                "Prüfe den Profilnamen und ob die Route auf dem Feed-Dienst verfügbar ist."
+            )
+        if status >= 500:
+            return (
+                f"Der Feed-Dienst meldet einen Serverfehler (HTTP {status}, {request_host}). "
+                "Das ist meist vorübergehend oder liegt am RSS-/Plattformanbieter."
+            )
+        return f"Der Feed-Server antwortet mit HTTP {status} ({request_host}). Prüfe die Feed-Adresse."
+
+    if isinstance(exc, httpx.TimeoutException):
+        return (
+            f"Zeitüberschreitung beim Abruf von {host}. Der Feed-Dienst hat nicht rechtzeitig "
+            "geantwortet; prüfe die Erreichbarkeit oder versuche es später erneut."
+        )
+    if isinstance(exc, httpx.RequestError):
+        return (
+            f"Netzwerkfehler beim Abruf von {host} ({type(exc).__name__}). "
+            "Mögliche Ursachen sind DNS, TLS, eine Netzwerkblockade oder ein nicht erreichbarer Feed-Dienst."
+        )
+    return "Die Quelle konnte nicht abgerufen werden. Prüfe die Feed-Adresse und deren Erreichbarkeit."
+
+
 def _is_public_https_url(value: str) -> bool:
     try:
         parsed = urlparse(value)
@@ -432,7 +482,14 @@ class SocialPromo(commands.Cog):
             if not feed_title and not items:
                 raise ValueError("Die Adresse liefert keinen erkennbaren RSS-/Atom-Feed.")
         except (ValueError, httpx.HTTPError, ET.ParseError) as exc:
-            msg = str(exc)[:850] if isinstance(exc, ValueError) else "Die Quelle konnte nicht abgerufen werden. Prüfe den Link, die Erreichbarkeit und mögliche Plattform-Sperren."
+            if isinstance(exc, ValueError):
+                msg = str(exc)[:850]
+            else:
+                msg = _describe_fetch_error(exc, platform)[:850]
+                print(
+                    "⚠️ Social-Promo: Quelle konnte nicht hinzugefügt werden "
+                    f"(Plattform={platform}, Fehler={type(exc).__name__}): {msg}"
+                )
             await interaction.followup.send("❌ Quelle nicht hinzugefügt: " + msg, ephemeral=True)
             return
         duplicate = next((s for s in self.sources.values() if s.get("feed_url") == feed_url), None)
