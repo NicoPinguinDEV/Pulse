@@ -36,8 +36,10 @@ class PulseNextEvents(commands.Cog):
     def _housekeeping_sync(self, guild: discord.Guild | None) -> None:
         """Run synchronous workflow/profile/score database work off the event loop."""
         try:
-            # run_workflows is synchronous (SQLite-backed), so do not await it.
-            pulse_next.run_workflows(self.bot)
+            # run_workflows is declared async, but currently performs only
+            # synchronous SQLite/cache work. Run and await it inside this
+            # worker thread rather than blocking Discord's event loop.
+            asyncio.run(pulse_next.run_workflows(self.bot))
         except Exception as exc:
             print(f"Pulse Workflow-Housekeeping fehlgeschlagen: {exc}")
 
