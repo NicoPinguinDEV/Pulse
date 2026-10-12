@@ -208,6 +208,12 @@ def main() -> None:
     assert 'PULSE_AI_MODERATION_MAX_QUEUE_AGE_SECONDS", "300"' in ai_mod
     assert "item_age > self.max_queue_age_seconds" in ai_mod
     assert "self.low_severity_threshold" in ai_mod
+    assert "asyncio.Queue(maxsize=self.max_queue_size)" in ai_mod
+    assert "PULSE_AI_MODERATION_QUEUE_SIZE" in ai_mod
+    assert "def _drop_pending_queue(self) -> int:" in ai_mod
+    assert "self._rate_limit_failures" in ai_mod
+    assert "self._paused_queue_drops" in ai_mod
+    assert "now < self._paused_until" in ai_mod
     assert "Erwähnte Rollen:" in ai_mod
     assert "Ein sachlich begründeter Rollen-/Team-Ping" in ai_mod
     for source_name in ("cogs/ai_moderation.py", "cogs/backups.py", "cogs/pulse_suite.py"):
@@ -265,6 +271,13 @@ def main() -> None:
     assert "self.templates_path.is_file()" in support_assistant
     assert '"max_tokens": self.max_tokens' in support_assistant
     assert "history_key = (message.channel.id, message.author.id)" in support_assistant
+    assert "def _prune_runtime_state(self, now: float) -> None:" in support_assistant
+    assert "self._api_paused_until" in support_assistant
+    assert "self._api_rate_limit_failures" in support_assistant
+    assert "self._api_lock = asyncio.Lock()" in support_assistant
+    assert "self._api_lock.locked()" in support_assistant
+    assert "while len(self._history) > 200" in support_assistant
+    assert "while len(self._user_last_request) > 500" in support_assistant
     assert "Allgemeine Fragen darfst du mit deinem allgemeinen Wissen beantworten" in support_assistant
     assert "allgemeine Hilfsfragen" in support_assistant
     assert "formuliere|erklär|erkläre|zusammenfassung" in support_rules

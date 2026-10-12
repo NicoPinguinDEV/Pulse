@@ -1,8 +1,10 @@
 """AI-powered question and answer assistant for one configured Discord channel."""
 from __future__ import annotations
 
+import asyncio
 import os
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -152,11 +154,29 @@ class SupportAssistant(commands.Cog):
         self.templates_path = Path(
             os.getenv("PULSE_SUPPORT_TEMPLATES_FILE", str(PROJECT_ROOT / "team_ki_vorlagen.md"))
         )
-        # Keep chat context separated by both user and channel.
-        self._history: dict[tuple[int, int], list[dict[str, str]]] = {}
-        self._user_last_request: dict[int, float] = {}
+        # Bounded LRU-like memory: conversation history and cooldown timestamps
+        # must not grow forever as new Discord users send messages.
+        self._history: OrderedDict[tuple[int, int], list[dict[str, str]]] = OrderedDict()
+        self._user_last_request: OrderedDict[int, float] = OrderedDict()
         self._last_request = 0.0
         self._last_api_error = ""
+        self._api_paused_until = 0.0
+        self._api_rate_limit_failures = 0
+        self._last_rate_limit_log_at = 0.0
+        self._api_lock = asyncio.Lock()
+
+    def _prune_runtime_state(self, now: float) -> None:
+        """Expire stale cooldowns and strictly cap cached conversations/users."""
+        expiry = now - 3600.0
+        while self._user_last_request:
+            user_id, last_seen = next(iter(self._user_last_request.items()))
+            if last_seen >= expiry:
+                break
+            self._user_last_request.popitem(last=False)
+        while len(self._user_last_request) > 500:
+            self._user_last_request.popitem(last=False)
+        while len(self._history) > 200:
+            self._history.popitem(last=False)
 
     def _knowledge_text(self) -> str:
         try:
@@ -194,6 +214,9 @@ class SupportAssistant(commands.Cog):
     async def _request_completion(self, messages: list[dict[str, str]]) -> str | None:
         if not self.api_key:
             self._last_api_error = f"{self.key_env_name} fehlt"
+            return None
+        if time.monotonic() < self._api_paused_until:
+            self._last_api_error = "KI-API wegen eines Rate-Limits vorübergehend pausiert"
             return None
 
         endpoint = f"{self.api_base}/chat/completions"
@@ -241,9 +264,30 @@ class SupportAssistant(commands.Cog):
                     details.append(f"Retry-After={retry_after[:40]}s")
 
                 self._last_api_error = " | ".join(details)
+                if response.status_code == 429:
+                    self._api_rate_limit_failures = min(self._api_rate_limit_failures + 1, 8)
+                    try:
+                        provider_retry = max(0, min(3600, int(float(retry_after or 0))))
+                    except (ValueError, TypeError):
+                        provider_retry = 0
+                    # If the provider quota is exhausted, waiting one minute only
+                    # repeats the same failed request. Increase the cooldown up to 1 hour.
+                    backoff = min(3600, 300 * (2 ** min(self._api_rate_limit_failures - 1, 4)))
+                    pause = max(provider_retry, backoff)
+                    now = time.monotonic()
+                    self._api_paused_until = max(self._api_paused_until, now + pause)
+                    if not self._last_rate_limit_log_at or now - self._last_rate_limit_log_at >= 900:
+                        print(
+                            f"⚠️ Pulse-Support: KI-API HTTP 429; pausiert für {pause}s. "
+                            "Währenddessen werden keine weiteren KI-Anfragen gesendet."
+                        )
+                        self._last_rate_limit_log_at = now
+                    return None
                 print(f"⚠️ Pulse-Support: KI-API-Fehler: {self._last_api_error}.")
                 return None
 
+            self._api_rate_limit_failures = 0
+            self._api_paused_until = 0.0
             self._last_api_error = ""
             data = response.json()
             choices = data.get("choices", [])
@@ -270,6 +314,8 @@ class SupportAssistant(commands.Cog):
     async def on_message(self, message: discord.Message):
         if message.guild is None or message.author.bot or message.webhook_id:
             return
+        now = time.monotonic()
+        self._prune_runtime_state(now)
 
         public_support = message.channel.id == self.channel_id
         team_support = bool(
@@ -287,6 +333,10 @@ class SupportAssistant(commands.Cog):
                 return
         if not self.enabled or not self.api_key:
             return
+        # A provider rate limit pauses this helper silently; do not emit a failure
+        # reply for every incoming question during the cooldown.
+        if now < self._api_paused_until or self._api_lock.locked():
+            return
 
         bot_mentioned = bool(self.bot.user and self.bot.user in message.mentions)
         reference = message.reference
@@ -303,12 +353,14 @@ class SupportAssistant(commands.Cog):
         ):
             return
 
-        now = time.monotonic()
         if now - self._user_last_request.get(message.author.id, 0.0) < 8.0:
             return
         if self._last_request and now - self._last_request < 2.0:
             return
+        self._user_last_request.pop(message.author.id, None)
         self._user_last_request[message.author.id] = now
+        self._user_last_request.move_to_end(message.author.id)
+        self._prune_runtime_state(now)
         self._last_request = now
 
         question = message.clean_content.strip()[:2500]
@@ -330,6 +382,8 @@ class SupportAssistant(commands.Cog):
 
         history_key = (message.channel.id, message.author.id)
         history = self._history.get(history_key, [])[-8:]
+        if history_key in self._history:
+            self._history.move_to_end(history_key)
         messages = [
             {"role": "system", "content": self._system_message(team_mode=team_support)},
             *history,
@@ -337,8 +391,13 @@ class SupportAssistant(commands.Cog):
         ]
 
         try:
-            async with message.channel.typing():
-                answer = await self._request_completion(messages)
+            async with self._api_lock:
+                # Re-check inside the lock in case a previous request exhausted
+                # the provider quota while this event was being prepared.
+                if time.monotonic() < self._api_paused_until:
+                    return
+                async with message.channel.typing():
+                    answer = await self._request_completion(messages)
 
             if not answer:
                 await message.reply(
@@ -386,6 +445,9 @@ class SupportAssistant(commands.Cog):
                 {"role": "assistant", "content": safe_answer},
             ]
             self._history[history_key] = history[-8:]
+            self._history.move_to_end(history_key)
+            while len(self._history) > 200:
+                self._history.popitem(last=False)
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(f"⚠️ Pulse-Support: Discord-Antwort fehlgeschlagen ({type(exc).__name__}).")
 

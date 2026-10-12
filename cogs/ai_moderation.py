@@ -162,10 +162,16 @@ class AIModeration(commands.Cog):
         except ValueError:
             self.max_queue_age_seconds = 300
         self._stale_queue_drops = 0
-        self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=500)
+        # A small bounded queue is enough for best-effort AI review. During an
+        # API outage we drop new work instead of retaining hundreds of messages.
+        self.max_queue_size = max(10, min(250, env_int("PULSE_AI_MODERATION_QUEUE_SIZE", 100) or 100))
+        self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=self.max_queue_size)
         self._last_request_at = 0.0
         self._paused_until = 0.0
         self._provider_failures = 0
+        self._rate_limit_failures = 0
+        self._last_rate_limit_log_at = 0.0
+        self._paused_queue_drops = 0
         self._queue_drops = 0
         self._warned_missing_config = False
         self.cases: dict[str, dict[str, Any]] = self._load_cases()
@@ -188,8 +194,11 @@ class AIModeration(commands.Cog):
         while not self.bot.is_closed():
             item = await self.queue.get()
             try:
+                # Never hold an item while waiting for a provider cooldown. Drop
+                # queued items quickly while the circuit breaker is open.
                 if time.monotonic() < self._paused_until:
-                    await asyncio.sleep(max(0, self._paused_until - time.monotonic()))
+                    self._paused_queue_drops += 1
+                    continue
                 # Do not moderate an old backlog after long API outages: context
                 # may be stale and can generate misleading moderation reports.
                 try:
@@ -216,6 +225,20 @@ class AIModeration(commands.Cog):
                 print(f"⚠️ KI-Moderation: Verarbeitungsfehler ({type(exc).__name__}).")
             finally:
                 self.queue.task_done()
+
+    def _drop_pending_queue(self) -> int:
+        """Release queued message payloads after an API outage/rate limit."""
+        dropped = 0
+        while True:
+            try:
+                self.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            else:
+                self.queue.task_done()
+                dropped += 1
+        self._paused_queue_drops += dropped
+        return dropped
 
     def _load_cases(self) -> dict[str, dict[str, Any]]:
         try:
@@ -308,11 +331,23 @@ class AIModeration(commands.Cog):
             if response.status_code == 429:
                 retry_raw = response.headers.get("retry-after", "")
                 try:
-                    pause = max(30, min(900, int(float(retry_raw))))
+                    provider_retry = max(60, min(3600, int(float(retry_raw))))
                 except (ValueError, TypeError):
-                    pause = 60
-                self._paused_until = time.monotonic() + pause
-                print(f"⚠️ KI-Moderation: API-Limit (HTTP 429); pausiert für {pause}s.")
+                    provider_retry = 0
+                self._rate_limit_failures = min(self._rate_limit_failures + 1, 8)
+                # Quota-exhausted APIs rarely recover in 60 seconds. Exponential
+                # backoff prevents repeatedly waking the worker only to get 429.
+                backoff = min(3600, 300 * (2 ** min(self._rate_limit_failures - 1, 4)))
+                pause = max(provider_retry, backoff)
+                self._paused_until = max(self._paused_until, time.monotonic() + pause)
+                dropped = self._drop_pending_queue()
+                now = time.monotonic()
+                if not self._last_rate_limit_log_at or now - self._last_rate_limit_log_at >= 900:
+                    print(
+                        f"⚠️ KI-Moderation: API-Limit (HTTP 429); pausiert für {pause}s. "
+                        f"{dropped} wartende Nachrichten verworfen; während der Pause werden keine neuen geprüft."
+                    )
+                    self._last_rate_limit_log_at = now
                 return None
             if response.is_error:
                 print(f"⚠️ KI-Moderation: Anbieter antwortete mit HTTP {response.status_code}; keine Sanktion.")
@@ -323,6 +358,7 @@ class AIModeration(commands.Cog):
                     print("⚠️ KI-Moderation: API-Zugang prüfen; pausiert für 300s.")
                 return None
             self._provider_failures = 0
+            self._rate_limit_failures = 0
             data = response.json()
             choices = data.get("choices", [])
             raw = choices[0].get("message", {}).get("content", "") if choices else ""
@@ -384,6 +420,16 @@ class AIModeration(commands.Cog):
                 print("⚠️ KI-Moderation: API-Schlüssel fehlt oder PULSE_AI_MODERATION_REVIEW_CHANNEL_ID ist nicht gesetzt.")
                 self._warned_missing_config = True
             return
+        now = time.monotonic()
+        if now < self._paused_until:
+            self._paused_queue_drops += 1
+            return
+        if self._paused_queue_drops:
+            print(
+                f"ℹ️ KI-Moderation: Pause beendet; {self._paused_queue_drops} Nachrichten "
+                "während des API-Ausfalls übersprungen."
+            )
+            self._paused_queue_drops = 0
         item = {
             "guild_id": message.guild.id,
             "channel_id": message.channel.id,
@@ -405,7 +451,10 @@ class AIModeration(commands.Cog):
         except asyncio.QueueFull:
             self._queue_drops += 1
             if self._queue_drops in (1, 10) or self._queue_drops % 100 == 0:
-                print(f"⚠️ KI-Moderation: Warteschlange voll; bisher {self._queue_drops} Nachrichten nicht geprüft.")
+                print(
+                    f"⚠️ KI-Moderation: Warteschlange voll ({self.max_queue_size}); "
+                    f"bisher {self._queue_drops} Nachrichten nicht geprüft."
+                )
 
     def _team_warn_preview(self, member: discord.Member) -> str:
         try:
