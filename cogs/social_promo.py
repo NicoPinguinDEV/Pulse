@@ -413,7 +413,36 @@ class SocialPromo(commands.Cog):
 
         if platform not in {"tiktok", "instagram", "twitch", "x"}:
             raise ValueError("Diese Plattform wird nicht unterstützt.")
-        handle = _name_from_url(platform, raw)
+
+        if platform == "tiktok":
+            # A common mistake is pasting a TikTok share/short link or display name.
+            # RSSHub needs the actual profile handle, not vm.tiktok.com/... or a video ID.
+            looks_like_url = (
+                "://" in raw
+                or raw.lower().startswith(("www.tiktok.com/", "tiktok.com/", "vm.tiktok.com/", "vt.tiktok.com/"))
+            )
+            if looks_like_url:
+                parsed_tiktok = urlparse(raw if "://" in raw else "https://" + raw)
+                host = (parsed_tiktok.hostname or "").lower()
+                if not (host == "tiktok.com" or host.endswith(".tiktok.com")):
+                    raise ValueError(
+                        "Bitte eine TikTok-Profiladresse wie https://www.tiktok.com/@benutzername "
+                        "oder nur @benutzername angeben."
+                    )
+                parts = [part for part in parsed_tiktok.path.split("/") if part]
+                if host in {"vm.tiktok.com", "vt.tiktok.com"} or not parts or not parts[0].startswith("@"):
+                    raise ValueError(
+                        "Das sieht nicht wie eine vollständige TikTok-Profiladresse aus. "
+                        "Öffne das Profil deines Kollegen und kopiere die Profil-URL mit /@benutzername "
+                        "oder gib nur @benutzername ein. Verkürzte Teilen-Links und reine Video-Links "
+                        "werden hier nicht als Profil erkannt."
+                    )
+                handle = parts[0][1:]
+            else:
+                handle = raw.strip().lstrip("@")
+        else:
+            handle = _name_from_url(platform, raw)
+
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", handle):
             raise ValueError("Der Benutzername enthält ungültige Zeichen.")
         quoted = quote(handle, safe="._-")
