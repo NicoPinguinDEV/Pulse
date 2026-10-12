@@ -27,15 +27,35 @@ class PulseNextEvents(commands.Cog):
 
     @tasks.loop(minutes=5)
     async def housekeeping(self):
-        await pulse_next.run_workflows(self.bot)
+        # Team score/profile maintenance performs synchronous SQLite work.
+        # Never run it on Discord's event loop: setup()/member_stats() can
+        # initialize tables and execute multiple queries, blocking heartbeats.
+        guild = self.bot.get_guild(int(__import__("os").getenv("DISCORD_GUILD_ID", "1474514929351524616")))
+        await asyncio.to_thread(self._housekeeping_sync, guild)
+
+    def _housekeeping_sync(self, guild: discord.Guild | None) -> None:
+        """Run synchronous workflow/profile/score database work off the event loop."""
         try:
-            guild = self.bot.get_guild(int(__import__("os").getenv("DISCORD_GUILD_ID", "1474514929351524616")))
-            if guild:
-                for member in pulse_next.members(guild):
-                    pulse_next.seed_profile_for_member(member)
-                    pulse_next.record_score(member)
-        except Exception:
-            pass
+            # run_workflows is synchronous (SQLite-backed), so do not await it.
+            pulse_next.run_workflows(self.bot)
+        except Exception as exc:
+            print(f"Pulse Workflow-Housekeeping fehlgeschlagen: {exc}")
+
+        if not guild:
+            return
+
+        try:
+            members = pulse_next.members(guild)
+        except Exception as exc:
+            print(f"Pulse Teammitglieder konnten nicht geladen werden: {exc}")
+            return
+
+        for member in members:
+            try:
+                pulse_next.seed_profile_for_member(member)
+                pulse_next.record_score(member)
+            except Exception as exc:
+                print(f"Pulse Score-Update für {member.id} fehlgeschlagen: {exc}")
 
     @housekeeping.before_loop
     async def before_housekeeping(self):
