@@ -214,12 +214,16 @@ class SocialPromo(commands.Cog):
 
     async def _resolve_youtube_handle(self, value: str) -> str:
         raw = value.strip()
-        parsed = urlparse(raw if "://" in raw else "https://www.youtube.com/" + raw.lstrip("/"))
+        if "://" in raw:
+            parsed = urlparse(raw)
+        elif re.match(r"^(www\\.)?youtube\\.com/", raw, re.IGNORECASE):
+            parsed = urlparse("https://" + raw)
+        elif raw.startswith("@"):
+            parsed = urlparse("https://www.youtube.com/" + raw)
+        else:
+            parsed = urlparse("https://www.youtube.com/" + raw.lstrip("/"))
         if not parsed.hostname or not parsed.hostname.lower().endswith("youtube.com"):
-            if raw.startswith("@"):
-                parsed = urlparse("https://www.youtube.com/" + raw)
-            else:
-                raise ValueError("Bitte eine YouTube-Kanal-URL, @Handle oder Kanal-ID angeben.")
+            raise ValueError("Bitte eine YouTube-Kanal-URL, @Handle oder Kanal-ID angeben.")
         channel_id = _youtube_channel_id_from_input(raw)
         if channel_id:
             return channel_id
@@ -244,7 +248,12 @@ class SocialPromo(commands.Cog):
             return raw, rawparse_name(raw)
 
         if platform == "youtube":
-            parsed = urlparse(raw if "://" in raw else "https://www.youtube.com/" + raw.lstrip("/"))
+            if "://" in raw:
+                parsed = urlparse(raw)
+            elif re.match(r"^(www\\.)?youtube\\.com/", raw, re.IGNORECASE):
+                parsed = urlparse("https://" + raw)
+            else:
+                parsed = urlparse("https://www.youtube.com/" + raw.lstrip("/"))
             if parsed.path.endswith("videos.xml") and parsed.hostname and parsed.hostname.lower().endswith("youtube.com"):
                 url = raw if "://" in raw else "https://" + raw
                 if _is_public_https_url(url):
