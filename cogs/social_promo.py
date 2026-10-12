@@ -216,7 +216,7 @@ class SocialPromo(commands.Cog):
         raw = value.strip()
         if "://" in raw:
             parsed = urlparse(raw)
-        elif re.match(r"^(www\\.)?youtube\\.com/", raw, re.IGNORECASE):
+        elif re.match(r"^(www\.)?youtube\.com/", raw, re.IGNORECASE):
             parsed = urlparse("https://" + raw)
         elif raw.startswith("@"):
             parsed = urlparse("https://www.youtube.com/" + raw)
@@ -250,7 +250,7 @@ class SocialPromo(commands.Cog):
         if platform == "youtube":
             if "://" in raw:
                 parsed = urlparse(raw)
-            elif re.match(r"^(www\\.)?youtube\\.com/", raw, re.IGNORECASE):
+            elif re.match(r"^(www\.)?youtube\.com/", raw, re.IGNORECASE):
                 parsed = urlparse("https://" + raw)
             else:
                 parsed = urlparse("https://www.youtube.com/" + raw.lstrip("/"))
