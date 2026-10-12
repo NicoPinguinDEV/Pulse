@@ -21,6 +21,11 @@ class SupportAssistantRuleTests(unittest.TestCase):
         self.assertTrue(should_answer("Pulse", bot_mentioned=True))
         self.assertTrue(should_answer("Danke", replying_to_bot=True))
 
+    def test_general_requests_without_question_mark_trigger_answer(self):
+        self.assertTrue(should_answer("Erstelle mir eine Checkliste für den Dienstantritt"))
+        self.assertTrue(should_answer("Schreibe eine freundliche Ticketantwort"))
+        self.assertTrue(should_answer("Gib mir Ideen für ein Teamtraining"))
+
     def test_regular_statement_does_not_trigger_answer(self):
         self.assertFalse(should_answer("Guten Abend zusammen"))
         self.assertFalse(should_answer(""))
