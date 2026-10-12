@@ -1,9 +1,12 @@
 # Pulse KI-Support für Discord
 
-Der Support-Assistent reagiert ausschließlich in Channel `1493649456086782083` (oder auf die
-explizit konfigurierte `PULSE_SUPPORT_CHANNEL_ID`). Er antwortet auf erkennbare Fragen,
-Hilferufe und Nachrichten, die Pulse direkt erwähnen oder auf eine Pulse-Antwort reagieren.
-Normale Unterhaltungen lösen keine Antwort aus.
+Der Support-Assistent antwortet im öffentlichen Support-Channel `1493649456086782083` (oder der
+konfigurierten `PULSE_SUPPORT_CHANNEL_ID`). Optional kann ein separater privater Team-Hilfekanal
+über `PULSE_SUPPORT_TEAM_CHANNEL_ID` aktiviert werden. Dort hilft Pulse unter anderem beim
+Formulieren von Ticketantworten, Reports, Ankündigungen, Checklisten und Trainingsmaterial.
+Normale Unterhaltungen lösen keine Antwort aus; Fragen und klare Arbeitsaufträge werden erkannt.
+Für allgemeine Themen nutzt der Assistent sein allgemeines Wissen. Konkrete Bochum-RP-Regeln,
+Rollen, Fristen und Serverabläufe darf er nur aus `support_knowledge.md` ableiten.
 
 ## Kostenlose Variante mit Google Gemini
 
@@ -19,6 +22,12 @@ GEMINI_API_KEY=DEIN_GEMINI_API_SCHLUESSEL
 GEMINI_MODEL=gemini-3.1-flash-lite
 GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
 PULSE_SUPPORT_CHANNEL_ID=1493649456086782083
+# Optionaler Team-Hilfekanal: ID des privaten Team-Channels eintragen
+PULSE_SUPPORT_TEAM_CHANNEL_ID=DEINE_TEAM_CHANNEL_ID
+# Optional: Rollen, die im Team-Channel die KI nutzen dürfen (kommasepariert)
+PULSE_SUPPORT_TEAM_ROLE_IDS=TEAM_ROLLEN_ID_1,TEAM_ROLLEN_ID_2
+# Umfangreicheres Antwortbudget (300–1200; Standard 750)
+PULSE_SUPPORT_MAX_TOKENS=750
 ```
 
 3. Entferne oder ignoriere für diese Konfiguration die alten OpenAI-Einstellungen. Achte darauf, dass für den Gemini-Schlüssel kein kostenpflichtiges API-Projekt verwendet wird, wenn du ausschließlich das kostenlose Kontingent nutzen möchtest.
@@ -30,7 +39,7 @@ Der Code verwendet für OpenAI und Gemini denselben kompatiblen Chat-Completions
 
 Wenn du ausdrücklich die OpenAI-API verwenden möchtest, setze `PULSE_SUPPORT_PROVIDER=openai` und konfiguriere `OPENAI_API_KEY`, optional `OPENAI_MODEL` (Standard `gpt-4.1-mini`) und `OPENAI_BASE_URL` (Standard `https://api.openai.com/v1`). Die OpenAI-API wird separat abgerechnet und benötigt ein verfügbares API-Guthaben.
 
-`PULSE_SUPPORT_CHANNEL_ID` ist optional; Standard ist `1493649456086782083`. Solange `PULSE_SUPPORT_ENABLED` nicht auf `true` steht oder der zum Anbieter passende API-Schlüssel fehlt, beantwortet die KI keine Nachrichten. `/supportbot_status` zeigt die Konfiguration, `/supportbot_test` prüft die API-Verbindung und kann einen kleinen API-Aufruf auslösen.
+`PULSE_SUPPORT_CHANNEL_ID` ist optional; Standard ist `1493649456086782083`. `PULSE_SUPPORT_TEAM_CHANNEL_ID` ist optional; nur mit einer echten Channel-ID wird der zusätzliche Team-Hilfekanal aktiv. Nutze einen privaten Channel und trage bei Bedarf die erlaubten Team-Rollen in `PULSE_SUPPORT_TEAM_ROLE_IDS` ein. `PULSE_SUPPORT_MAX_TOKENS` kann den Antwortumfang zwischen 300 und 1200 Tokens einstellen (Standard 750). Solange `PULSE_SUPPORT_ENABLED` nicht auf `true` steht oder der zum Anbieter passende API-Schlüssel fehlt, beantwortet die KI keine Nachrichten. `/supportbot_status` zeigt die Konfiguration, `/supportbot_test` prüft die API-Verbindung und kann einen kleinen API-Aufruf auslösen.
 
 ## Serverwissen pflegen
 
@@ -61,6 +70,11 @@ sichtbar im Channel, bevor du die Funktion freischaltest. Beispiel:
 
 - Der Assistent löscht keine Nachrichten, vergibt keine Rollen, erteilt keine Warnungen und kickt
   niemanden. Er ist ein Frage-/Antwort-Assistent, keine automatische Sanktionsmoderation.
+- Allgemeine Fragen und Arbeitsaufträge (z. B. Textentwürfe, Checklisten, Erklärungen oder
+  Trainingsideen) können beantwortet werden. Serverregeln und interne Abläufe bleiben an die
+  bestätigte Wissensbasis gebunden.
+- Der Gesprächsverlauf wird pro Person und Channel getrennt gehalten, damit ein Gespräch im
+  öffentlichen Support nicht als Kontext im privaten Teamkanal wiederverwendet wird.
 - Er darf keine internen Teamdaten, Geheimnisse, API-Schlüssel oder nicht veröffentlichte
   Einstellungen ausgeben.
 - Bei Sanktionen, Beschwerden, Bewerbungsentscheidungen und anderen verbindlichen Fragen verweist
