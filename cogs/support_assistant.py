@@ -1,6 +1,7 @@
 """AI-powered question and answer assistant for one configured Discord channel."""
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from collections import OrderedDict
@@ -162,6 +163,7 @@ class SupportAssistant(commands.Cog):
         self._api_paused_until = 0.0
         self._api_rate_limit_failures = 0
         self._last_rate_limit_log_at = 0.0
+        self._api_lock = asyncio.Lock()
 
     def _prune_runtime_state(self, now: float) -> None:
         """Expire stale cooldowns and strictly cap cached conversations/users."""
@@ -333,7 +335,7 @@ class SupportAssistant(commands.Cog):
             return
         # A provider rate limit pauses this helper silently; do not emit a failure
         # reply for every incoming question during the cooldown.
-        if now < self._api_paused_until:
+        if now < self._api_paused_until or self._api_lock.locked():
             return
 
         bot_mentioned = bool(self.bot.user and self.bot.user in message.mentions)
@@ -389,8 +391,13 @@ class SupportAssistant(commands.Cog):
         ]
 
         try:
-            async with message.channel.typing():
-                answer = await self._request_completion(messages)
+            async with self._api_lock:
+                # Re-check inside the lock in case a previous request exhausted
+                # the provider quota while this event was being prepared.
+                if time.monotonic() < self._api_paused_until:
+                    return
+                async with message.channel.typing():
+                    answer = await self._request_completion(messages)
 
             if not answer:
                 await message.reply(
