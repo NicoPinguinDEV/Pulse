@@ -23,6 +23,23 @@ TARGET_CHANNEL_ID = 1530972281893949521
 ROOT = Path(__file__).resolve().parent.parent
 DATA_FILE = Path(os.getenv("PULSE_SOCIAL_PROMO_FILE", str(ROOT / "social_promo_sources.json")))
 RSSHUB_BASE_URL = os.getenv("PULSE_RSSHUB_BASE_URL", "https://rsshub.app").strip().rstrip("/")
+# Public RSSHub mirrors listed by the RSSHub project. They are best-effort fallbacks:
+# platforms such as Instagram/TikTok may still require credentials or browser support.
+_DEFAULT_RSSHUB_FALLBACK_URLS = (
+    "https://rsshub.rssforever.com",
+    "https://rsshub.feeded.xyz",
+    "https://hub.slarker.me",
+)
+_raw_rsshub_fallbacks = os.getenv("PULSE_RSSHUB_FALLBACK_URLS")
+RSSHUB_FALLBACK_BASE_URLS = tuple(
+    value.strip().rstrip("/")
+    for value in (
+        _DEFAULT_RSSHUB_FALLBACK_URLS
+        if _raw_rsshub_fallbacks is None
+        else _raw_rsshub_fallbacks.split(",")
+    )
+    if value and value.strip()
+)
 MAX_SOURCES = 50
 MAX_SEEN_IDS = 80
 MAX_POSTS_PER_CYCLE = 5
@@ -263,6 +280,86 @@ class SocialPromo(commands.Cog):
                 raise ValueError("Die Feed-Antwort ist zu groß (Limit: 2 MB).")
             return response.text
 
+    def _feed_candidates(self, feed_url: str, platform: str) -> list[str]:
+        """Return the original RSSHub URL plus configured public mirrors for social routes."""
+        if platform not in {"tiktok", "instagram", "twitch", "x"}:
+            return [feed_url]
+
+        parsed_feed = urlparse(feed_url)
+        known_bases = [RSSHUB_BASE_URL, *RSSHUB_FALLBACK_BASE_URLS]
+        known_hosts = {
+            urlparse(base).hostname.lower()
+            for base in known_bases
+            if base and urlparse(base).hostname
+        }
+        if not parsed_feed.hostname or parsed_feed.hostname.lower() not in known_hosts:
+            # Never rewrite arbitrary user-provided RSS feeds to unrelated third-party hosts.
+            return [feed_url]
+
+        candidates: list[str] = [feed_url]
+        for base in known_bases:
+            if not _is_public_https_url(base):
+                continue
+            parsed_base = urlparse(base)
+            if not parsed_base.netloc:
+                continue
+            candidate = parsed_feed._replace(scheme="https", netloc=parsed_base.netloc).geturl()
+            if candidate not in candidates:
+                candidates.append(candidate)
+        return candidates
+
+    async def _fetch_feed(
+        self, feed_url: str, platform: str
+    ) -> tuple[str, str, list[dict[str, str]]]:
+        """Fetch and parse a feed, retrying other known RSSHub instances for social profiles."""
+        candidates = self._feed_candidates(feed_url, platform)
+        failures: list[tuple[str, Exception]] = []
+
+        for candidate in candidates:
+            host = urlparse(candidate).hostname or "Feed-Server"
+            try:
+                xml_text = await self._get_text(candidate)
+                feed_title, items = parse_feed(xml_text)
+                if not feed_title and not items:
+                    raise ValueError("Die Adresse liefert keinen erkennbaren RSS-/Atom-Feed.")
+                if candidate != feed_url:
+                    print(f"✅ Social-Promo: RSSHub-Fallback für {platform} erfolgreich ({host}).")
+                return candidate, feed_title, items
+            except asyncio.CancelledError:
+                raise
+            except (ValueError, httpx.HTTPError, ET.ParseError) as exc:
+                failures.append((host, exc))
+                if len(candidates) == 1:
+                    raise
+
+        details: list[str] = []
+        for host, exc in failures:
+            if isinstance(exc, httpx.HTTPStatusError):
+                reason = f"HTTP {exc.response.status_code}"
+            elif isinstance(exc, httpx.TimeoutException):
+                reason = "Zeitüberschreitung"
+            elif isinstance(exc, httpx.RequestError):
+                reason = type(exc).__name__
+            else:
+                reason = str(exc)[:90]
+            details.append(f"{host}: {reason}")
+
+        hint = ""
+        if platform == "instagram":
+            hint = (
+                " Instagram-RSSHub-Routen sind stark eingeschränkt; häufig braucht die "
+                "verwendete RSSHub-Instanz eigene IG_USERNAME/IG_PASSWORD-Konfiguration "
+                "oder geeignete Cookies. Öffentliche Mirrors können deshalb ebenfalls scheitern."
+            )
+        elif platform == "tiktok":
+            hint = (
+                " Die TikTok-Route benötigt je nach RSSHub-Instanz Browser-/Puppeteer-Unterstützung; "
+                "nicht jeder öffentliche Mirror bietet diese."
+            )
+        raise ValueError(
+            "Keine RSSHub-Instanz konnte den Feed abrufen (" + "; ".join(details) + ")." + hint
+        )
+
     async def _resolve_youtube_handle(self, value: str) -> str:
         raw = value.strip()
         if "://" in raw:
@@ -372,7 +469,10 @@ class SocialPromo(commands.Cog):
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
-                    print("⚠️ Social-Promo: Quelle %s fehlgeschlagen (%s)." % (source.get("name", source_id), type(exc).__name__))
+                    print(
+                        "⚠️ Social-Promo: Quelle %s fehlgeschlagen (%s: %s)."
+                        % (source.get("name", source_id), type(exc).__name__, str(exc)[:250])
+                    )
 
     @poll_sources.before_loop
     async def before_poll_sources(self):
@@ -380,8 +480,13 @@ class SocialPromo(commands.Cog):
 
     async def _poll_one(self, source_id: str, source: dict) -> None:
         feed_url = str(source.get("feed_url", ""))
-        xml_text = await self._get_text(feed_url)
-        feed_title, items = parse_feed(xml_text)
+        feed_url, feed_title, items = await self._fetch_feed(
+            feed_url, str(source.get("platform", "rss"))
+        )
+        if feed_url != source.get("feed_url"):
+            # Remember the working mirror so polling doesn't repeat the failed primary host.
+            source["feed_url"] = feed_url
+            self._save_sources()
         if not items:
             source["last_checked"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
             self._save_sources()
@@ -477,10 +582,7 @@ class SocialPromo(commands.Cog):
                 feed_url = "https://www.youtube.com/feeds/videos.xml?channel_id=" + channel_id
             if not _is_public_https_url(feed_url):
                 raise ValueError("Die erzeugte Feed-Adresse ist keine erlaubte öffentliche HTTPS-Adresse.")
-            xml_text = await self._get_text(feed_url)
-            feed_title, items = parse_feed(xml_text)
-            if not feed_title and not items:
-                raise ValueError("Die Adresse liefert keinen erkennbaren RSS-/Atom-Feed.")
+            feed_url, feed_title, items = await self._fetch_feed(feed_url, platform)
         except (ValueError, httpx.HTTPError, ET.ParseError) as exc:
             if isinstance(exc, ValueError):
                 msg = str(exc)[:850]
