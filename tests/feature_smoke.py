@@ -278,6 +278,9 @@ def main() -> None:
     assert "name=\"buero_rolle_setzen\"" in buero
     assert "await delete_pending_ping(self.bot, member.id)" in buero
     assert "await waiting_member.move_to(target_channel" in buero
+    assert 'label="Auftrag erledigt"' in buero
+    assert 'custom_id="buero_auftrag_erledigt_btn"' in buero
+    assert "Büro-Auftrag als erledigt markiert" in buero
     assert "Die Ping-Nachricht wurde entfernt" in buero
     assert "await message.delete()" in buero
     assert 'DELETE FROM pending_requests WHERE user_id = ? AND message_id = ?' in buero
