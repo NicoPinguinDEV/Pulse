@@ -143,6 +143,7 @@ class AIModeration(commands.Cog):
         self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=500)
         self._last_request_at = 0.0
         self._paused_until = 0.0
+        self._provider_failures = 0
         self._queue_drops = 0
         self._warned_missing_config = False
         self.cases: dict[str, dict[str, Any]] = self._load_cases()
@@ -222,6 +223,14 @@ class AIModeration(commands.Cog):
             return "BÜRGER"
         return "OTHER"
 
+    def _backoff_provider(self, reason: str) -> int:
+        """Temporarily reduce traffic after provider outages or repeated timeouts."""
+        self._provider_failures = min(self._provider_failures + 1, 8)
+        pause = min(300, 15 * (2 ** min(self._provider_failures - 1, 5)))
+        self._paused_until = max(self._paused_until, time.monotonic() + pause)
+        print(f"⚠️ KI-Moderation: {reason}; nächste Anfrage frühestens in {pause}s.")
+        return pause
+
     async def _analyse(self, item: dict[str, Any]) -> dict[str, Any] | None:
         if not self.api_key:
             return None
@@ -265,9 +274,13 @@ class AIModeration(commands.Cog):
                 return None
             if response.is_error:
                 print(f"⚠️ KI-Moderation: Anbieter antwortete mit HTTP {response.status_code}; keine Sanktion.")
-                if response.status_code in (401, 403):
-                    self._paused_until = time.monotonic() + 300
+                if response.status_code >= 500:
+                    self._backoff_provider(f"vorübergehender Serverfehler HTTP {response.status_code}")
+                elif response.status_code in (401, 403):
+                    self._paused_until = max(self._paused_until, time.monotonic() + 300)
+                    print("⚠️ KI-Moderation: API-Zugang prüfen; pausiert für 300s.")
                 return None
+            self._provider_failures = 0
             data = response.json()
             choices = data.get("choices", [])
             raw = choices[0].get("message", {}).get("content", "") if choices else ""
@@ -299,7 +312,7 @@ class AIModeration(commands.Cog):
                 "recommended_action": action,
             }
         except (httpx.TimeoutException, httpx.RequestError) as exc:
-            print(f"⚠️ KI-Moderation: Verbindungsfehler ({type(exc).__name__}).")
+            self._backoff_provider(f"Verbindungsfehler ({type(exc).__name__})")
         except (ValueError, KeyError, TypeError) as exc:
             print(f"⚠️ KI-Moderation: Antwortfehler ({type(exc).__name__}).")
         return None
