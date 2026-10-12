@@ -167,7 +167,17 @@ def main() -> None:
     # Selected professional Pulse systems: confirm existing integrations remain wired.
     suite = read("cogs/pulse_suite.py")
     ai_mod = read("cogs/ai_moderation.py")
+    activity_check = read("cogs/activity_check.py")
     backups = read("cogs/backups.py")
+    parse("cogs/activity_check.py")
+    # Activity Check must acknowledge buttons before doing DB work and then follow up.
+    assert "await interaction.response.defer(ephemeral=True, thinking=True)" in activity_check
+    assert "interaction.followup.send(response_text, ephemeral=True)" in activity_check
+    assert "except discord.NotFound:" in activity_check
+    # The AI moderation worker backs off during transient provider failures.
+    assert "def _backoff_provider(self, reason: str) -> int:" in ai_mod
+    assert "response.status_code >= 500" in ai_mod
+    assert '_backoff_provider(f"Verbindungsfehler ({type(exc).__name__})")' in ai_mod
     for source_name in ("cogs/ai_moderation.py", "cogs/backups.py", "cogs/pulse_suite.py"):
         parse(source_name)
     assert "ModerationReviewView" in ai_mod
