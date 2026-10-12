@@ -663,11 +663,12 @@ async def _apply_warn4_downrank(guild, member, warn: dict, team_role_ids: list[i
     if not team_role_ids:
         return {"ok": False, "message": "Keine Team-Rollen konfiguriert.", "changed": False}
 
-    target_idx = team_rank(member, team_role_ids)
+    ranked_team_role_ids = ordered_team_role_ids(guild, team_role_ids)
+    target_idx = team_rank(member, ranked_team_role_ids)
     if target_idx <= 0:
         return {"ok": True, "message": "Bereits auf niedrigster Team-Rangstufe.", "changed": False}
 
-    new_role = guild.get_role(team_role_ids[target_idx - 1])
+    new_role = guild.get_role(ranked_team_role_ids[target_idx - 1])
     old_roles = [r for r in member.roles if r.id in team_role_ids]
     if not new_role:
         return {"ok": False, "message": "Zielrolle für den automatischen Downrank nicht gefunden.", "changed": False}
@@ -921,8 +922,32 @@ async def reconcile_warning_roles(guild, config: dict | None = None) -> dict:
     return result
 
 
+def ordered_team_role_ids(guild, team_role_ids) -> list[int]:
+    """Return configured team roles from lowest to highest Discord role position."""
+    role_ids = []
+    seen = set()
+    for value in team_role_ids or []:
+        try:
+            role_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if role_id > 0 and role_id not in seen:
+            role_ids.append(role_id)
+            seen.add(role_id)
+
+    def sort_key(role_id: int):
+        role = guild.get_role(role_id) if guild else None
+        # Missing configured roles sort last but remain available for diagnostics.
+        return (role is None, role.position if role else 0, role_id)
+
+    return sorted(role_ids, key=sort_key)
+
+
 def team_rank(member, team_role_ids) -> int:
-    idx = [team_role_ids.index(r.id) for r in member.roles if r.id in team_role_ids]
+    """Return hierarchy index based on actual Discord role positions, lowest -> highest."""
+    guild = getattr(member, "guild", None)
+    ordered_ids = ordered_team_role_ids(guild, team_role_ids)
+    idx = [ordered_ids.index(r.id) for r in member.roles if r.id in ordered_ids]
     return max(idx) if idx else -1
 
 # =============================================================
@@ -2218,7 +2243,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
     guild = ctx.guild
     weekly_goal = float(ctx.config.get("weekly_goal_hours", 3.0))
-    team_role_ids = ctx.config.get("team_role_ids", [])
+    team_role_ids = ordered_team_role_ids(guild, ctx.config.get("team_role_ids", []))
     shifts_db = load_shifts()
     active = shifts_db["active_shifts"]
     loas = get_loas()
@@ -2240,7 +2265,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
         members.append({
             "id": member.id, "name": member.display_name, "username": member.name,
             "avatar": member.display_avatar.url, "role": top.name, "role_id": top.id,
-            "team_rank_idx": team_role_ids.index(top.id), "pos": top.position,
+            "team_rank_idx": team_rank(member, team_role_ids), "pos": top.position,
             "team_since": team_since_for(member, team_db.get(str(member.id)) if isinstance(team_db, dict) else None),
             "color": role_hex(top),
             "warns": len(active_warns(user_entry(team_db, str(member.id)))) if isinstance(team_db, dict) else 0,
@@ -2473,7 +2498,7 @@ async def team_role_manager(request: Request, user_id: int, user_session: str = 
     if member.bot or member.id == guild.owner_id or member.id == int(ctx.user["id"]):
         raise HTTPException(status_code=403, detail="Dieses Mitglied kann nicht über die Rollenverwaltung bearbeitet werden.")
 
-    team_role_ids = config.get("team_role_ids", [])
+    team_role_ids = ordered_team_role_ids(guild, config.get("team_role_ids", []))
     was_team_member = bool(team_role_ids and any(r.id in team_role_ids for r in member.roles))
     actor_idx = team_rank(ctx.member, team_role_ids) if ctx.member else -1
     target_idx = team_rank(member, team_role_ids)
@@ -2555,13 +2580,13 @@ async def team_role_manager_save(
         return back(f"/team/{user_id}/roles", "Dieses Mitglied kann nicht bearbeitet werden.", False)
 
     add_set, remove_set = set(add_role_ids or []), set(remove_role_ids or [])
-    team_role_ids = config.get("team_role_ids", [])
+    team_role_ids = ordered_team_role_ids(guild, config.get("team_role_ids", []))
     was_team_member = bool(team_role_ids and any(r.id in team_role_ids for r in member.roles))
     conflict = add_set & remove_set
     if conflict:
         return back(f"/team/{user_id}/roles", "Eine Rolle darf nicht gleichzeitig hinzugefügt und entfernt werden.", False)
 
-    team_role_ids = config.get("team_role_ids", [])
+    team_role_ids = ordered_team_role_ids(guild, config.get("team_role_ids", []))
     actor_idx = team_rank(ctx.member, team_role_ids) if ctx.member else -1
     target_idx = team_rank(member, team_role_ids)
     if not ctx.perms.get("is_admin") and actor_idx <= target_idx:
@@ -2637,7 +2662,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
     if not member:
         raise HTTPException(status_code=404, detail=f"Mitglied mit ID {user_id} wurde nicht gefunden.")
 
-    team_role_ids = ctx.config.get("team_role_ids", [])
+    team_role_ids = ordered_team_role_ids(guild, ctx.config.get("team_role_ids", []))
     team_db = load_json(DATA_FILE, {})
     shifts_db = load_shifts()
     info = team_db.get(str(user_id), {"warns_list": [], "notes": [], "ticket_cases": 0, "support_cases": 0})
@@ -3649,7 +3674,7 @@ async def handle_action(
     guild, config = ctx.guild, ctx.config
     actor, actor_id = ctx.user.get("global_name"), ctx.user["id"]
     is_manager = ctx.perms["can_promote"] or ctx.perms["is_admin"]
-    team_role_ids = config.get("team_role_ids", [])
+    team_role_ids = ordered_team_role_ids(guild, config.get("team_role_ids", []))
     if action == "decide_app" and not (ctx.perms.get("can_manage_applications") or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung.")
     member_url = f"/member/{user_id}" if redirect_to_member and user_id else "/dashboard"
