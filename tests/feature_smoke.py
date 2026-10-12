@@ -233,6 +233,8 @@ def main() -> None:
     assert "Keine RSSHub-Instanz konnte den Feed abrufen" in social
     assert '"/tiktok/user/@"' in social
     assert '"/tiktok/user/%40"' not in social
+    assert "Verkürzte Teilen-Links und reine Video-Links" in social
+    assert "Profil-URL mit /@benutzername" in social
     assert '"/instagram/2/user/"' in social
     assert '"/twitch/video/"' in social
     assert '"/twitter/user/"' in social
