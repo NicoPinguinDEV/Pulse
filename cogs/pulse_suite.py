@@ -719,14 +719,22 @@ class PulseSuite(commands.Cog):
                 set_setting("long_shift:"+str(uid)+":"+str(s.get("date")),True)
 
     async def inactivity(self,g):
+        # Alle Operationen in dieser Prüfung sind synchron (Discord-Cache,
+        # JSON-Dateien und SQLite). In einem Worker ausführen, damit langsame
+        # Datenbankzugriffe keinen Discord-Gateway-Heartbeat blockieren.
+        await asyncio.to_thread(self._inactivity_sync, g)
+
+    def _inactivity_sync(self,g):
         web=__import__("webserver");n=now();loas=web.get_loas()
-        for m in members(g,web):
+        team_members = members(g,web)
+        team_managers = managers(g,web)
+        for m in team_members:
             sm=member_row(m.id);last=local(sm.get("last_seen") if sm else None) or n;days=(n-last).days
             if days>=INACTIVITY_NOTICE_DAYS and not loas.get(str(m.id),{}).get("active") and not loas.get(m.id,{}).get("active"):
                 level="🔴 Inaktiv" if days>=INACTIVITY_WARNING_DAYS else "🟡 Aufmerksamkeit"
-                for x in managers(g,web):db.notify(x.id,"⚠️ Inaktivität",f"{m.display_name}: {days} Tage · {level}.","warning","/suite/member/"+str(m.id),f"inactive:{m.id}:{n.date()}:{level}",86400)
+                for x in team_managers:db.notify(x.id,"⚠️ Inaktivität",f"{m.display_name}: {days} Tage · {level}.","warning","/suite/member/"+str(m.id),f"inactive:{m.id}:{n.date()}:{level}",86400)
             if sm and sm.get("probation_end") and local(sm["probation_end"])<=n+timedelta(hours=24):
-                for x in managers(g,web):db.notify(x.id,"🎯 Probezeit",f"Probezeit von {m.display_name} endet bald.","info","/suite/member/"+str(m.id),f"probation:{m.id}:{sm['probation_end']}",86400)
+                for x in team_managers:db.notify(x.id,"🎯 Probezeit",f"Probezeit von {m.display_name} endet bald.","info","/suite/member/"+str(m.id),f"probation:{m.id}:{sm['probation_end']}",86400)
             achievement_text(m,web)
 
     async def reports(self,g):
