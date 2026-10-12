@@ -1,5 +1,7 @@
 # Pulse KI-Support für Discord
 
+Der Team-KI-Chat lädt zusätzlich die Vorlagen aus `team_ki_vorlagen.md`. Diese Bibliothek enthält unter anderem Partnerschafts- und Fraktionsantworten, Ticketvorlagen, Entbannungs- und Creator-Vorlagen, 30 Ingame-Broadcasts sowie die Dienstanweisung für Zivil-Admin-Cars. Die Vorlagen werden nur im konfigurierten Team-Hilfekanal in den KI-Kontext geladen. Pulse kann eine Vorlage vollständig ausgeben, passende Platzhalter mit vorhandenen Angaben ausfüllen und längere Entwürfe auf mehrere Discord-Nachrichten verteilen. Fehlende Daten bleiben Platzhalter; Entscheidungen werden nicht erfunden.
+
 Der Support-Assistent antwortet im öffentlichen Support-Channel `1493649456086782083` (oder der
 konfigurierten `PULSE_SUPPORT_CHANNEL_ID`). Optional kann ein separater privater Team-Hilfekanal
 über `PULSE_SUPPORT_TEAM_CHANNEL_ID` aktiviert werden. Dort hilft Pulse unter anderem beim
@@ -26,8 +28,8 @@ PULSE_SUPPORT_CHANNEL_ID=1493649456086782083
 PULSE_SUPPORT_TEAM_CHANNEL_ID=DEINE_TEAM_CHANNEL_ID
 # Optional: Rollen, die im Team-Channel die KI nutzen dürfen (kommasepariert)
 PULSE_SUPPORT_TEAM_ROLE_IDS=TEAM_ROLLEN_ID_1,TEAM_ROLLEN_ID_2
-# Umfangreicheres Antwortbudget (300–1200; Standard 750)
-PULSE_SUPPORT_MAX_TOKENS=750
+# Antwortbudget für vollständige Vorlagen (300–2200; Standard 1100)
+PULSE_SUPPORT_MAX_TOKENS=1100
 ```
 
 3. Entferne oder ignoriere für diese Konfiguration die alten OpenAI-Einstellungen. Achte darauf, dass für den Gemini-Schlüssel kein kostenpflichtiges API-Projekt verwendet wird, wenn du ausschließlich das kostenlose Kontingent nutzen möchtest.
@@ -39,7 +41,7 @@ Der Code verwendet für OpenAI und Gemini denselben kompatiblen Chat-Completions
 
 Wenn du ausdrücklich die OpenAI-API verwenden möchtest, setze `PULSE_SUPPORT_PROVIDER=openai` und konfiguriere `OPENAI_API_KEY`, optional `OPENAI_MODEL` (Standard `gpt-4.1-mini`) und `OPENAI_BASE_URL` (Standard `https://api.openai.com/v1`). Die OpenAI-API wird separat abgerechnet und benötigt ein verfügbares API-Guthaben.
 
-`PULSE_SUPPORT_CHANNEL_ID` ist optional; Standard ist `1493649456086782083`. `PULSE_SUPPORT_TEAM_CHANNEL_ID` ist optional; nur mit einer echten Channel-ID wird der zusätzliche Team-Hilfekanal aktiv. Nutze einen privaten Channel und trage bei Bedarf die erlaubten Team-Rollen in `PULSE_SUPPORT_TEAM_ROLE_IDS` ein. `PULSE_SUPPORT_MAX_TOKENS` kann den Antwortumfang zwischen 300 und 1200 Tokens einstellen (Standard 750). Solange `PULSE_SUPPORT_ENABLED` nicht auf `true` steht oder der zum Anbieter passende API-Schlüssel fehlt, beantwortet die KI keine Nachrichten. `/supportbot_status` zeigt die Konfiguration, `/supportbot_test` prüft die API-Verbindung und kann einen kleinen API-Aufruf auslösen.
+`PULSE_SUPPORT_CHANNEL_ID` ist optional; Standard ist `1493649456086782083`. `PULSE_SUPPORT_TEAM_CHANNEL_ID` ist optional; nur mit einer echten Channel-ID wird der zusätzliche Team-Hilfekanal aktiv. Nutze einen privaten Channel und trage bei Bedarf die erlaubten Team-Rollen in `PULSE_SUPPORT_TEAM_ROLE_IDS` ein. `PULSE_SUPPORT_MAX_TOKENS` kann den Antwortumfang zwischen 300 und 2200 Tokens einstellen (Standard 1100). Solange `PULSE_SUPPORT_ENABLED` nicht auf `true` steht oder der zum Anbieter passende API-Schlüssel fehlt, beantwortet die KI keine Nachrichten. `/supportbot_status` zeigt die Konfiguration, `/supportbot_test` prüft die API-Verbindung und kann einen kleinen API-Aufruf auslösen.
 
 ## Serverwissen pflegen
 
