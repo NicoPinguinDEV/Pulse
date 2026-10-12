@@ -309,6 +309,19 @@ class SocialPromo(commands.Cog):
             candidate = parsed_feed._replace(scheme="https", netloc=parsed_base.netloc).geturl()
             if candidate not in candidates:
                 candidates.append(candidate)
+
+        if platform == "tiktok":
+            # RSSHub documents an optional true route flag to use TikTok's official
+            # iframe rendering mode. Try the ordinary route first, then this variant
+            # across the same instances before marking the source temporarily unavailable.
+            for candidate in list(candidates):
+                parsed_candidate = urlparse(candidate)
+                if not parsed_candidate.path.rstrip("/").endswith("/true"):
+                    iframe_candidate = parsed_candidate._replace(
+                        path=parsed_candidate.path.rstrip("/") + "/true"
+                    ).geturl()
+                    if iframe_candidate not in candidates:
+                        candidates.append(iframe_candidate)
         return candidates
 
     async def _fetch_feed(
@@ -356,8 +369,10 @@ class SocialPromo(commands.Cog):
             )
         elif platform == "tiktok":
             hint = (
-                " Die TikTok-Route benötigt je nach RSSHub-Instanz Browser-/Puppeteer-Unterstützung; "
-                "nicht jeder öffentliche Mirror bietet diese."
+                " Die TikTok-Route ist durch Anti-Crawler-Schutz empfindlich. Pulse hat auch die "
+                "optionale RSSHub-Variante mit offiziellem TikTok-iframe ausprobiert. "
+                "Wenn alle Instanzen weiter 403/503 oder Timeouts liefern, ist eine eigene "
+                "RSSHub-Instanz oder eine autorisierte TikTok-API-Anbindung erforderlich."
             )
         raise ValueError(
             "Keine RSSHub-Instanz konnte den Feed abrufen (" + "; ".join(details) + ")." + hint
