@@ -61,6 +61,17 @@ def iso(dt: Optional[datetime] = None) -> str:
     return (dt or utcnow()).isoformat(timespec="seconds")
 
 
+def process_rss_mb() -> Optional[float]:
+    """Return the current process resident memory in MB when Linux exposes it."""
+    try:
+        statm = Path("/proc/self/statm").read_text(encoding="ascii").split()
+        resident_pages = int(statm[1])
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        return round((resident_pages * page_size) / (1024 * 1024), 1)
+    except (OSError, ValueError, IndexError, AttributeError):
+        return None
+
+
 def uid(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(6)}"
 
@@ -1516,6 +1527,7 @@ async function loadPulseMonitor() {
       ['Bot / Discord', ok(d.discord_ready)],
       ['Pulse TeamOS DB', ok(d.ultimate_db_ok)],
       ['Datenbank-Kern', ok(d.pulse_db_ok)],
+      ['RAM des Pulse-Prozesses', d.process_rss_mb == null ? 'Nicht verfügbar' : Number(d.process_rss_mb).toLocaleString('de-DE') + ' MB'],
       ['Datenträger frei', mb(d.disk_free_mb)],
       ['Datenträger belegt', (Number(d.disk_used_percent || 0)).toFixed(1) + '%'],
       ['Letztes Backup', d.backup_last || 'Kein Backup gefunden'],
@@ -1523,7 +1535,13 @@ async function loadPulseMonitor() {
       ['Aktive Automationen', String(d.automations_enabled || 0)],
       ['Automationsfehler / 24 h', String(d.automation_failures_24h || 0)],
       ['KI-Moderation', d.ai_moderation && d.ai_moderation.enabled ? 'Aktiv' : 'Deaktiviert / nicht konfiguriert'],
-      ['KI-Prüfwarteschlange', String((d.ai_moderation && d.ai_moderation.queue) || 0)],
+      ['KI-Prüfwarteschlange', String((d.ai_moderation && d.ai_moderation.queue) || 0) + ' / ' + String((d.ai_moderation && d.ai_moderation.queue_max) || '—')],
+      ['KI-Nachrichten wegen API-Limit verworfen', String((d.ai_moderation && d.ai_moderation.paused_queue_drops) || 0)],
+      ['KI-Warteschlangenverluste', String((d.ai_moderation && d.ai_moderation.queue_drops) || 0)],
+      ['KI-Moderationspause', String((d.ai_moderation && d.ai_moderation.paused_seconds) || 0) + ' s'],
+      ['KI-Support-Verläufe im RAM', String((d.ai_support && d.ai_support.history_count) || 0) + ' / 200'],
+      ['KI-Support-Nutzer im Cache', String((d.ai_support && d.ai_support.tracked_users) || 0) + ' / 500'],
+      ['KI-Support-API-Pause', String((d.ai_support && d.ai_support.paused_seconds) || 0) + ' s'],
       ['WebSocket-Latenz', d.discord_latency_ms == null ? 'Nicht verfügbar' : Number(d.discord_latency_ms).toFixed(0) + ' ms'],
       ['Pulse-Version', d.version || 'unbekannt'],
       ['Python', d.python || 'unbekannt']
@@ -1882,8 +1900,19 @@ window.setInterval(loadPulseMonitor, 15000);
                             and getattr(mod, "api_key", "")
                             and getattr(mod, "review_channel_id", 0)),
             "queue": int(mod_queue.qsize()) if mod_queue else 0,
+            "queue_max": int(getattr(mod, "max_queue_size", 0)) if mod else 0,
             "queue_drops": int(getattr(mod, "_queue_drops", 0)) if mod else 0,
+            "paused_queue_drops": int(getattr(mod, "_paused_queue_drops", 0)) if mod else 0,
+            "paused_seconds": max(0, int(getattr(mod, "_paused_until", 0) - __import__("time").monotonic())) if mod else 0,
+            "rate_limit_failures": int(getattr(mod, "_rate_limit_failures", 0)) if mod else 0,
             "review_channel_ready": bool(guild and mod and guild.get_channel(getattr(mod, "review_channel_id", 0))),
+        }
+        support = bot.get_cog("SupportAssistant") if bot else None
+        ai_support = {
+            "enabled": bool(support and getattr(support, "enabled", False) and getattr(support, "api_key", "")),
+            "history_count": len(getattr(support, "_history", {})) if support else 0,
+            "tracked_users": len(getattr(support, "_user_last_request", {})) if support else 0,
+            "paused_seconds": max(0, int(getattr(support, "_api_paused_until", 0) - __import__("time").monotonic())) if support else 0,
         }
         discord_ready = bool(bot and bot.is_ready() and guild)
         return JSONResponse({
@@ -1891,6 +1920,7 @@ window.setInterval(loadPulseMonitor, 15000);
             "timestamp": iso(),
             "version": getattr(webserver, "PULSE_VERSION", "unknown"),
             "python": platform.python_version(),
+            "process_rss_mb": process_rss_mb(),
             "discord_ready": discord_ready,
             "discord_latency_ms": round(float(bot.latency) * 1000, 1) if bot and bot.is_ready() else None,
             "ultimate_db_ok": ultimate_db_ok,
@@ -1902,6 +1932,7 @@ window.setInterval(loadPulseMonitor, 15000);
             "automations_enabled": enabled_automations,
             "automation_failures_24h": automation_failures_24h,
             "ai_moderation": ai_moderation,
+            "ai_support": ai_support,
         })
 
     app.state.pulse_ultimate_registered = True
