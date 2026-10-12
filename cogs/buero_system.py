@@ -186,8 +186,9 @@ async def delete_pending_ping(
 
 # --- BUTTON FÜR BÜRO-PING (ÜBERNEHMEN) ---
 class BueroUebernehmenView(discord.ui.View):
-    def __init__(self, waiting_user_id: int, target_voice_id: int):
+    def __init__(self, bot: commands.Bot, waiting_user_id: int, target_voice_id: int):
         super().__init__(timeout=None)
+        self.bot = bot
         self.waiting_user_id = waiting_user_id
         self.target_voice_id = target_voice_id
 
@@ -199,66 +200,82 @@ class BueroUebernehmenView(discord.ui.View):
     )
     async def uebernehmen(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("❌ Diese Aktion ist nur auf dem Server verfügbar.", ephemeral=True)
+            return
         waiting_member = guild.get_member(self.waiting_user_id)
         team_member = interaction.user
 
         # Nur Teamler/Administratoren dürfen Anfragen übernehmen.
         try:
             cfg = __import__("webserver").load_config()
-            team_ids = cfg.get("team_role_ids", [])
-            allowed = team_member.guild_permissions.administrator or any(r.id in team_ids for r in team_member.roles)
+            team_ids = {int(role_id) for role_id in cfg.get("team_role_ids", [])}
+            allowed = team_member.guild_permissions.administrator or any(
+                role.id in team_ids for role in getattr(team_member, "roles", [])
+            )
         except Exception:
             allowed = team_member.guild_permissions.administrator
         if not allowed:
             await interaction.response.send_message("❌ Nur Teammitglieder dürfen Büro-Anfragen übernehmen.", ephemeral=True)
             return
 
-        # Prüfen, ob der wartende User noch auf dem Server/im Warteraum ist
-        if not waiting_member or not waiting_member.voice:
+        warteraum_id = get_config("warteraum_channel_id")
+        if (
+            not waiting_member
+            or not waiting_member.voice
+            or not waiting_member.voice.channel
+            or waiting_member.voice.channel.id != warteraum_id
+        ):
+            await delete_pending_ping(
+                self.bot,
+                self.waiting_user_id,
+                expected_message_id=interaction.message.id,
+                fallback_message=interaction.message,
+            )
             await interaction.response.send_message(
-                "❌ Der User befindet sich nicht mehr im Warteraum!",
+                "❌ Die Person wartet nicht mehr im Büro-Warteraum. Die Ping-Nachricht wurde entfernt.",
                 ephemeral=True
             )
             return
 
+        target_channel = guild.get_channel(self.target_voice_id) if self.target_voice_id else None
+        if not isinstance(target_channel, discord.VoiceChannel):
+            if not getattr(team_member, "voice", None) or not team_member.voice.channel:
+                await interaction.response.send_message(
+                    "❌ Das gewünschte Büro existiert nicht mehr und du bist in keinem Sprachkanal.",
+                    ephemeral=True
+                )
+                return
+            target_channel = team_member.voice.channel
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
         try:
-            # Wenn ein Wunsch-Büro angegeben wurde, dieses verwenden; sonst den aktuellen Team-Kanal.
-            target_channel = guild.get_channel(self.target_voice_id) if self.target_voice_id else None
-            if not target_channel or not isinstance(target_channel, discord.VoiceChannel):
-                if not team_member.voice or not team_member.voice.channel:
-                    await interaction.response.send_message("❌ Das gewünschte Büro existiert nicht mehr und du bist in keinem Sprachkanal.", ephemeral=True)
-                    return
-                target_channel = team_member.voice.channel
-            await waiting_member.move_to(target_channel)
-
-            # Embed im Büro-Ping als "Übernommen" aktualisieren
-            embed = interaction.message.embeds[0]
-            embed.color = discord.Color.green()
-            embed.set_field_at(
-                index=1,
-                name="Status",
-                value=f"✅ Übernommen von {team_member.mention} in **{target_channel.name}**",
-                inline=False
+            await waiting_member.move_to(target_channel, reason=f"Büro-Anfrage übernommen von {team_member}")
+            # The voice-state listener also deletes the ping when the user leaves
+            # the waiting room. This second cleanup is safe if the listener won the race.
+            await delete_pending_ping(
+                self.bot,
+                self.waiting_user_id,
+                expected_message_id=interaction.message.id,
+                fallback_message=interaction.message,
             )
-
-            # Button deaktivieren
-            button.disabled = True
-            button.label = "Übernommen"
-            button.style = discord.ButtonStyle.secondary
-
-            await interaction.message.edit(embed=embed, view=self)
-            await interaction.response.send_message(
-                f"✅ Du hast {waiting_member.mention} erfolgreich in deinen Kanal geholt!",
+            await interaction.followup.send(
+                f"✅ Du hast {waiting_member.mention} erfolgreich in **{target_channel.name}** geholt. Die Ping-Nachricht wurde entfernt.",
                 ephemeral=True
             )
-
         except discord.Forbidden:
-            await interaction.response.send_message(
-                "❌ Mir fehlen die Rechte (`Mitglieder verschieben`), um diesen User zu verschieben!",
+            await interaction.followup.send(
+                "❌ Mir fehlen die Rechte (Mitglieder verschieben), um diesen User zu verschieben!",
                 ephemeral=True
             )
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Fehler: `{e}`", ephemeral=True)
+        except discord.HTTPException as exc:
+            await interaction.followup.send(
+                f"❌ Discord konnte die Person nicht verschieben ({type(exc).__name__}).",
+                ephemeral=True
+            )
+        except Exception as exc:
+            print(f"⚠️ Büro-System: Übernahme fehlgeschlagen ({type(exc).__name__}).")
+            await interaction.followup.send("❌ Die Übernahme ist fehlgeschlagen.", ephemeral=True)
 
 
 # --- DROPDOWN MENÜ IN DER DM DES USERS ---
