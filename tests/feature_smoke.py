@@ -274,6 +274,8 @@ def main() -> None:
     assert "def _prune_runtime_state(self, now: float) -> None:" in support_assistant
     assert "self._api_paused_until" in support_assistant
     assert "self._api_rate_limit_failures" in support_assistant
+    assert "self._api_lock = asyncio.Lock()" in support_assistant
+    assert "self._api_lock.locked()" in support_assistant
     assert "while len(self._history) > 200" in support_assistant
     assert "while len(self._user_last_request) > 500" in support_assistant
     assert "Allgemeine Fragen darfst du mit deinem allgemeinen Wissen beantworten" in support_assistant
