@@ -43,6 +43,7 @@ RSSHUB_FALLBACK_BASE_URLS = tuple(
 )
 MAX_SOURCES = 50
 MAX_SEEN_IDS = 80
+MAX_FEED_BYTES = 2_000_000
 MAX_POSTS_PER_CYCLE = 5
 POLL_INTERVAL_MINUTES = 2
 POLL_FAILURE_INITIAL_BACKOFF_SECONDS = 300
@@ -244,10 +245,16 @@ class SocialPromo(commands.Cog):
         self.bot = bot
         self.sources = self._load_sources()
         self._poll_lock = asyncio.Lock()
+        # Keep one bounded connection pool instead of opening sockets on every
+        # source and RSSHub fallback attempt.
+        self._http_client: httpx.AsyncClient | None = None
         self.poll_sources.start()
 
-    def cog_unload(self):
+    async def cog_unload(self):
         self.poll_sources.cancel()
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
 
     def _load_sources(self) -> dict[str, dict]:
         try:
@@ -274,15 +281,36 @@ class SocialPromo(commands.Cog):
     async def _get_text(self, url: str) -> str:
         if not _is_public_https_url(url):
             raise ValueError("Nur öffentliche HTTPS-URLs sind erlaubt.")
-        timeout = httpx.Timeout(15.0, connect=7.0)
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
-            response = await client.get(url)
+        if self._http_client is None or self._http_client.is_closed:
+            timeout = httpx.Timeout(15.0, connect=7.0)
+            self._http_client = httpx.AsyncClient(
+                timeout=timeout,
+                follow_redirects=True,
+                headers={"User-Agent": USER_AGENT},
+                limits=httpx.Limits(max_connections=5, max_keepalive_connections=3, keepalive_expiry=20.0),
+            )
+        # Stream and cap the body before buffering it. Checking response.content
+        # after a normal GET still allows an arbitrarily large feed to occupy RAM.
+        async with self._http_client.stream("GET", url) as response:
             if not _is_public_https_url(str(response.url)):
                 raise ValueError("Die Quelle leitete auf eine nicht erlaubte Adresse weiter.")
             response.raise_for_status()
-            if len(response.content) > 2_000_000:
+            content_length = response.headers.get("content-length", "")
+            try:
+                declared_size = int(content_length)
+            except (ValueError, TypeError):
+                declared_size = 0
+            if declared_size > MAX_FEED_BYTES:
                 raise ValueError("Die Feed-Antwort ist zu groß (Limit: 2 MB).")
-            return response.text
+            chunks: list[bytes] = []
+            size = 0
+            async for chunk in response.aiter_bytes():
+                size += len(chunk)
+                if size > MAX_FEED_BYTES:
+                    raise ValueError("Die Feed-Antwort ist zu groß (Limit: 2 MB).")
+                chunks.append(chunk)
+            encoding = response.encoding or "utf-8"
+            return b"".join(chunks).decode(encoding, errors="replace")
 
     def _feed_candidates(self, feed_url: str, platform: str) -> list[str]:
         """Return the original RSSHub URL plus configured public mirrors for social routes."""
