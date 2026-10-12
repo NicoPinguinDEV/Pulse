@@ -8,8 +8,11 @@ _SUPPORT_CUE = re.compile(
     r"welchen|kannst du|kann ich|könnt ihr|könnte ich|habt ihr|gibt es|"
     r"brauche hilfe|hilfe bei|hilfe|bitte hilf|unterstützung|problem|probleme|"
     r"könntest du|soll ich|darf ich|funktioniert nicht|"
-    r"geht nicht|bewerbung|support)\b",
-    re.IGNORECASE,
+    r"geht nicht|bewerbung|support|erstelle|erstell|schreib|schreibe|formulier|"
+    r"formuliere|erklär|erkläre|zusammenfassung|zusammenfass|übersetze|übersetz|"
+    r"überarbeite|verbessere|analysiere|analyse|ideen|vorschlag|vorschläge|"
+    r"checkliste|vorlage|plan|plane|nenn mir|gib mir|fass zusammen|"
+    r"hilf mir|entwirf|entwerfe|beispiel|erläutere)\b",
 )
 
 
