@@ -236,6 +236,13 @@ def main() -> None:
     assert "Feed noch nicht erreichbar" in social
     assert "wird gespeichert; Feed momentan nicht erreichbar" in social
     assert "🟡 wartet auf Feed" in social
+    assert "🟠 Feed gestört" in social
+    assert "POLL_FAILURE_INITIAL_BACKOFF_SECONDS = 300" in social
+    assert "POLL_FAILURE_MAX_BACKOFF_SECONDS = 3600" in social
+    assert 'source.get("retry_after", "")' in social
+    assert '"retry_after": (' in social
+    assert "nächster Versuch in %d Min." in social
+    assert 'source["feed_status"] = "pending" if not source.get("initialized") else "degraded"' in social
     assert '"/tiktok/user/@"' in social
     assert '"/tiktok/user/%40"' not in social
     assert "Verkürzte Teilen-Links und reine Video-Links" in social
