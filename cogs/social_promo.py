@@ -20,6 +20,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 TARGET_CHANNEL_ID = 1530972281893949521
+SOCIAL_PING_ROLE_ID = 1516838538702753943
 ROOT = Path(__file__).resolve().parent.parent
 DATA_FILE = Path(os.getenv("PULSE_SOCIAL_PROMO_FILE", str(ROOT / "social_promo_sources.json")))
 RSSHUB_BASE_URL = os.getenv("PULSE_RSSHUB_BASE_URL", "https://rsshub.app").strip().rstrip("/")
@@ -631,7 +632,16 @@ class SocialPromo(commands.Cog):
                     embed.add_field(name="Info", value=item["description"][:1024], inline=False)
                 embed.set_footer(text="Pulse Social Promo • " + str(source.get("platform_label") or source.get("platform", "Social")).upper())
                 try:
-                    await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                    await channel.send(
+                        content=f"<@&{SOCIAL_PING_ROLE_ID}>",
+                        embed=embed,
+                        allowed_mentions=discord.AllowedMentions(
+                            roles=[discord.Object(id=SOCIAL_PING_ROLE_ID)],
+                            users=False,
+                            everyone=False,
+                            replied_user=False,
+                        ),
+                    )
                 except (discord.Forbidden, discord.HTTPException) as exc:
                     print("⚠️ Social-Promo: Nachricht für %s konnte nicht gesendet werden (%s)." % (display_name, type(exc).__name__))
                     return
@@ -861,7 +871,16 @@ class SocialPromo(commands.Cog):
                 color=discord.Color.green(),
                 timestamp=datetime.now(timezone.utc),
             )
-            await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            await channel.send(
+                content=f"<@&{SOCIAL_PING_ROLE_ID}>",
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions(
+                    roles=[discord.Object(id=SOCIAL_PING_ROLE_ID)],
+                    users=False,
+                    everyone=False,
+                    replied_user=False,
+                ),
+            )
         except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError) as exc:
             await interaction.followup.send(
                 "❌ Test fehlgeschlagen (%s). Prüfe, ob die Kanal-ID stimmt und Pulse dort Nachrichten und Embeds senden darf." % type(exc).__name__,
