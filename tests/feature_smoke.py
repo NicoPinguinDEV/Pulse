@@ -123,6 +123,11 @@ def main() -> None:
     assert 'action == "kick"' in web
     assert "not guild.me.guild_permissions.manage_roles" in web
     assert "r.position >= guild.me.top_role.position" in web
+    assert "def ordered_team_role_ids(guild, team_role_ids) -> list[int]:" in web
+    assert "return sorted(role_ids, key=sort_key)" in web
+    assert "ordered_ids = ordered_team_role_ids(guild, team_role_ids)" in web
+    assert "ranked_team_role_ids = ordered_team_role_ids(guild, team_role_ids)" in web
+    assert '"team_rank_idx": team_rank(member, team_role_ids)' in web
     assert "await member.remove_roles(*team_roles" in web
     assert "await member.kick(" not in web
     assert "def _record_team_since" in read("cogs/pulse_next.py")
