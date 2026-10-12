@@ -266,6 +266,23 @@ def main() -> None:
     ):
         assert template_heading in team_templates, f"Team-Vorlage fehlt: {template_heading}"
 
+    # Office pings should mention the matching office role and delete a pending
+    # notification if the request is accepted or the visitor exits the waiting room.
+    buero = read("cogs/buero_system.py")
+    parse("cogs/buero_system.py")
+    assert "CREATE TABLE IF NOT EXISTS pending_requests" in buero
+    assert "def office_role_for(guild: discord.Guild, target_voice_id: int):" in buero
+    assert 'get_config(f"office_role_{target_voice_id}")' in buero
+    assert "content=content" in buero
+    assert "roles=[office_role] if office_role else []" in buero
+    assert "name=\"buero_rolle_setzen\"" in buero
+    assert "await delete_pending_ping(self.bot, member.id)" in buero
+    assert "await waiting_member.move_to(target_channel" in buero
+    assert "Die Ping-Nachricht wurde entfernt" in buero
+    assert "await message.delete()" in buero
+    assert 'DELETE FROM pending_requests WHERE user_id = ? AND message_id = ?' in buero
+    assert "guild_member.voice.channel.id != warteraum_id" in buero
+
     # Social video announcements: configurable sources, deduplication and fixed target.
     social = read("cogs/social_promo.py")
     parse("cogs/social_promo.py")
