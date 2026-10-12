@@ -149,6 +149,9 @@ class SupportAssistant(commands.Cog):
         self.knowledge_path = Path(
             os.getenv("SUPPORT_KNOWLEDGE_FILE", str(PROJECT_ROOT / "support_knowledge.md"))
         )
+        self.templates_path = Path(
+            os.getenv("PULSE_SUPPORT_TEMPLATES_FILE", str(PROJECT_ROOT / "team_ki_vorlagen.md"))
+        )
         # Keep chat context separated by both user and channel.
         self._history: dict[tuple[int, int], list[dict[str, str]]] = {}
         self._user_last_request: dict[int, float] = {}
@@ -165,14 +168,8 @@ class SupportAssistant(commands.Cog):
             return "Die Server-Wissensbasis ist gerade nicht lesbar. Erfinde keine Serverdetails."
 
     def _team_templates_text(self) -> str:
-        templates_path = Path(
-            os.getenv(
-                "PULSE_SUPPORT_TEMPLATES_FILE",
-                str(PROJECT_ROOT / "team_ki_vorlagen.md"),
-            )
-        )
         try:
-            return templates_path.read_text(encoding="utf-8")[:32000].strip()
+            return self.templates_path.read_text(encoding="utf-8")[:32000].strip()
         except FileNotFoundError:
             return "Die Team-Vorlagenbibliothek fehlt. Entwirf bei Bedarf einen neuen Vorschlag, erfinde aber keine bereits beschlossenen Vorlagen."
         except OSError as exc:
@@ -422,6 +419,7 @@ class SupportAssistant(commands.Cog):
             else "Kanalberechtigungen entscheiden"
         )
         knowledge_status = "✅ gefunden" if self.knowledge_path.is_file() else "⚠️ fehlt"
+        templates_status = "✅ gefunden" if self.templates_path.is_file() else "⚠️ fehlt"
         enabled_status = "✅ ja" if self.enabled else "⏸️ nein (PULSE_SUPPORT_ENABLED=true fehlt)"
         await interaction.response.send_message(
             "**Pulse KI-Support – Status**\n"
@@ -433,6 +431,7 @@ class SupportAssistant(commands.Cog):
             f"**API-Schlüssel:** {key_status}\n"
             f"**Modell:** `{self.model}` (max. {self.max_tokens} Tokens)\n"
             f"**Wissensbasis:** {knowledge_status}\n"
+            f"**Team-Vorlagen:** {templates_status}\n"
             "Der Assistent beantwortet allgemeine Fragen und unterstützt das Team; verbindliche Entscheidungen und Moderationsaktionen bleiben menschlich.",
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
