@@ -1,4 +1,6 @@
 import sqlite3
+import re
+import unicodedata
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -13,6 +15,16 @@ def init_db():
         CREATE TABLE IF NOT EXISTS config (
             key TEXT PRIMARY KEY,
             value INTEGER
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pending_requests (
+            user_id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            ping_channel_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            target_voice_id INTEGER NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
     conn.commit()
@@ -34,6 +46,142 @@ def get_config(key: str):
     row = cursor.fetchone()
     conn.close()
     return row[0] if row else None
+
+
+def save_pending_request(user_id: int, guild_id: int, ping_channel_id: int,
+                         message_id: int, target_voice_id: int):
+    init_db()
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO pending_requests
+               (user_id, guild_id, ping_channel_id, message_id, target_voice_id)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user_id, guild_id, ping_channel_id, message_id, target_voice_id),
+        )
+
+
+def get_pending_request(user_id: int):
+    init_db()
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM pending_requests WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def clear_pending_request(user_id: int, message_id: int | None = None):
+    init_db()
+    with sqlite3.connect(DB_NAME) as conn:
+        if message_id is None:
+            conn.execute("DELETE FROM pending_requests WHERE user_id = ?", (user_id,))
+        else:
+            conn.execute(
+                "DELETE FROM pending_requests WHERE user_id = ? AND message_id = ?",
+                (user_id, message_id),
+            )
+
+
+_GENERIC_OFFICE_WORDS = {
+    "buero", "office", "raum", "zimmer", "warte", "warteraum",
+    "fuer", "der", "die", "das", "im", "ins", "zum", "zur", "und",
+}
+
+
+def _normalise_label(value: str) -> str:
+    value = (value or "").casefold().replace("ä", "ae").replace("ö", "oe")
+    value = value.replace("ü", "ue").replace("ß", "ss")
+    value = unicodedata.normalize("NFKD", value)
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    return " ".join(re.findall(r"[a-z0-9]+", value))
+
+
+def office_role_for(guild: discord.Guild, target_voice_id: int):
+    """Resolve an office ping role: override first, then match the office and role names."""
+    override_id = get_config(f"office_role_{target_voice_id}")
+    if override_id:
+        role = guild.get_role(int(override_id))
+        if role and not role.is_default():
+            return role
+
+    channel = guild.get_channel(int(target_voice_id))
+    if not isinstance(channel, discord.VoiceChannel):
+        return None
+
+    channel_label = _normalise_label(channel.name)
+    channel_words = channel_label.split()
+    channel_core = [word for word in channel_words if word not in _GENERIC_OFFICE_WORDS]
+    matches = []
+    for role in guild.roles:
+        if role.is_default() or role.managed:
+            continue
+        role_label = _normalise_label(role.name)
+        role_words = role_label.split()
+        role_core = [word for word in role_words if word not in _GENERIC_OFFICE_WORDS]
+        if not role_core:
+            continue
+        score = 0
+        if role_label == channel_label:
+            score = 1000 + len(role_label)
+        elif role_label and role_label in channel_label:
+            score = 800 + len(role_label)
+        elif all(word in channel_core for word in role_core):
+            score = 500 + len(" ".join(role_core))
+        elif len(role_core) == 1 and role_core[0] in channel_words:
+            score = 300 + len(role_core[0])
+        if score:
+            matches.append((score, role.position, role))
+    return max(matches, key=lambda item: (item[0], item[1]))[2] if matches else None
+
+
+async def delete_pending_ping(
+    bot: commands.Bot,
+    user_id: int,
+    *,
+    expected_message_id: int | None = None,
+    fallback_message: discord.Message | None = None,
+) -> bool:
+    """Delete a pending office ping and its DB record without touching newer requests."""
+    request = get_pending_request(user_id)
+    if request and expected_message_id and int(request["message_id"]) != expected_message_id:
+        if fallback_message:
+            try:
+                await fallback_message.delete()
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
+        return False
+
+    message = fallback_message
+    if request:
+        if message is None or message.id != int(request["message_id"]):
+            channel = bot.get_channel(int(request["ping_channel_id"]))
+            if channel is None:
+                try:
+                    channel = await bot.fetch_channel(int(request["ping_channel_id"]))
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    print("⚠️ Büro-System: Ping-Kanal zum Löschen nicht erreichbar.")
+                    return False
+            try:
+                message = await channel.fetch_message(int(request["message_id"]))
+            except discord.NotFound:
+                clear_pending_request(user_id, int(request["message_id"]))
+                return True
+            except (discord.Forbidden, discord.HTTPException):
+                print("⚠️ Büro-System: Ping-Nachricht konnte nicht abgerufen werden.")
+                return False
+
+    if message:
+        try:
+            await message.delete()
+        except discord.NotFound:
+            pass
+        except (discord.Forbidden, discord.HTTPException):
+            print("⚠️ Büro-System: Ping-Nachricht konnte nicht gelöscht werden.")
+            return False
+
+    if request:
+        clear_pending_request(user_id, int(request["message_id"]))
+    return True
 
 
 # --- BUTTON FÜR BÜRO-PING (ÜBERNEHMEN) ---
