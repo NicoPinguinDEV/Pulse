@@ -164,6 +164,13 @@ class SupportAssistant(commands.Cog):
         self._api_rate_limit_failures = 0
         self._last_rate_limit_log_at = 0.0
         self._api_lock = asyncio.Lock()
+        self._http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=8.0),
+            limits=httpx.Limits(max_connections=2, max_keepalive_connections=1, keepalive_expiry=30.0),
+        )
+
+    async def cog_unload(self):
+        await self._http_client.aclose()
 
     def _prune_runtime_state(self, now: float) -> None:
         """Expire stale cooldowns and strictly cap cached conversations/users."""
@@ -232,10 +239,7 @@ class SupportAssistant(commands.Cog):
         }
 
         try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(30.0, connect=8.0)
-            ) as client:
-                response = await client.post(endpoint, headers=headers, json=payload)
+            response = await self._http_client.post(endpoint, headers=headers, json=payload)
 
             if response.is_error:
                 # Log only the provider's short error metadata, never request headers, API keys,
