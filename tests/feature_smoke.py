@@ -54,6 +54,12 @@ def main() -> None:
     assert "pulse_next.seed_profile_for_member(member)" in pulse_next_cog
     assert "pulse_next.record_score(member)" in pulse_next_cog
     assert "await pulse_next.run_workflows(self.bot)" not in pulse_next_cog
+    pulse_next_source = read("pulse_next.py")
+    parse("pulse_next.py")
+    score_record = pulse_next_source.split("def record_score(member):", 1)[1].split("\ndef all_stats(", 1)[0]
+    assert "def award_achievements(member, stats=None):" in pulse_next_source
+    assert "award_achievements(member, s)" in score_record
+    assert score_record.index("if exists:\n        return False") < score_record.index("u.member_stats(member)")
 
     # Pulse Pro /member route must expose the same management actions as the
     # central dashboard action handler.
