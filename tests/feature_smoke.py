@@ -239,6 +239,29 @@ def main() -> None:
     assert "Allgemeine Fragen darfst du mit deinem allgemeinen Wissen beantworten" in support_assistant
     assert "allgemeine Hilfsfragen" in support_assistant
     assert "formuliere|erklär|erkläre|zusammenfassung" in support_rules
+    # The Team KI must receive the separate template library only in team mode
+    # and be able to return complete multi-message drafts rather than truncate them.
+    assert "def _team_templates_text(self) -> str:" in support_assistant
+    assert "team_ki_vorlagen.md" in support_assistant
+    assert "PULSE_SUPPORT_TEMPLATES_FILE" in support_assistant
+    assert "TEAM-VORLAGENBIBLIOTHEK" in support_assistant
+    assert "if team_mode" in support_assistant
+    assert "def split_discord_messages(content: str, limit: int = 1700)" in support_assistant
+    assert "for part in answer_parts[1:]" in support_assistant
+    team_templates = read("team_ki_vorlagen.md")
+    for template_heading in (
+        "Rückmeldung der Partnerschaftsverwaltung",
+        "Partnerschaft genehmigt",
+        "Änderungsantrag | Fraktion",
+        "Fraktionsantrag abgelehnt",
+        "Entbannungsantrag angenommen",
+        "Bugreport erfasst",
+        "Content-Creator-Bewerbung angenommen",
+        "Ingame-Broadcasts – Vorlagen",
+        "[SERVER] – Respektvoller Umgang",
+        "Dienstanweisung – Zivil-Admin-Cars",
+    ):
+        assert template_heading in team_templates, f"Team-Vorlage fehlt: {template_heading}"
 
     # Social video announcements: configurable sources, deduplication and fixed target.
     social = read("cogs/social_promo.py")
