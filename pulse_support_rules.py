@@ -13,6 +13,7 @@ _SUPPORT_CUE = re.compile(
     r"überarbeite|verbessere|analysiere|analyse|ideen|vorschlag|vorschläge|"
     r"checkliste|vorlage|plan|plane|nenn mir|gib mir|fass zusammen|"
     r"hilf mir|entwirf|entwerfe|beispiel|erläutere)\b",
+    re.IGNORECASE,
 )
 
 
