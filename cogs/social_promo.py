@@ -394,6 +394,10 @@ class SocialPromo(commands.Cog):
         self._save_sources()
 
     @app_commands.command(name="social_add", description="Automatische Video-/Social-Ankündigung hinzufügen")
+    @app_commands.describe(
+        quelle="YouTube-Kanal/Handle, Social-Profilname oder öffentliche RSS-/Atom-Feed-URL",
+        name="Optionaler Anzeigename für die Discord-Werbung",
+    )
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(manage_guild=True)
     @app_commands.choices(plattform=[
