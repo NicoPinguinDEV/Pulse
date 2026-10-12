@@ -130,6 +130,7 @@ def parse_feed(xml_text: str) -> tuple[str, list[dict[str, str]]]:
                 "url": link[:1800],
                 "published": published[:100],
                 "description": _clean_text(description, 600),
+                "raw_description": html.unescape(description)[:4000],
                 "author": _clean_text(author, 120),
             })
     unique: list[dict[str, str]] = []
@@ -281,6 +282,32 @@ class SocialPromo(commands.Cog):
             raise ValueError("Die konfigurierte RSSHub-Adresse muss eine öffentliche HTTPS-Adresse sein.")
         return feed, handle
 
+    @staticmethod
+    def _is_video_item(source: dict, item: dict[str, str]) -> bool:
+        platform = str(source.get("platform", "rss"))
+        if platform in {"youtube", "tiktok", "twitch"}:
+            # These feed adapters specifically return videos or recorded broadcasts.
+            return True
+        url = str(item.get("url", "")).lower()
+        raw = str(item.get("raw_description", "")).lower()
+        if platform == "instagram":
+            # Only Reels/IGTV and explicit video media should be advertised, not photo posts.
+            return (
+                "/reel/" in url or "/tv/" in url
+                or "video_url" in raw or "video.mp4" in raw
+                or "video.twimg.com" in raw or "<video" in raw
+            )
+        if platform == "x":
+            # X timelines also contain text-only posts. Require a recognizable video/media marker.
+            return (
+                "video.twimg.com" in raw or "video.syndication.twimg.com" in raw
+                or "ext_tw_video_thumb" in raw or "video_url" in raw or "<video" in raw
+                or "youtube.com/watch" in raw or "youtu.be/" in raw
+                or "tiktok.com/" in raw or "instagram.com/reel/" in raw
+            )
+        # A custom RSS/Atom source should be a video-only feed selected by the administrator.
+        return True
+
     @tasks.loop(minutes=POLL_INTERVAL_MINUTES)
     async def poll_sources(self):
         if self._poll_lock.locked():
@@ -322,7 +349,10 @@ class SocialPromo(commands.Cog):
             self._save_sources()
             return
 
-        new_items = [item for item in items if item["id"] not in stored_seen]
+        new_items = [
+            item for item in items
+            if item["id"] not in stored_seen and self._is_video_item(source, item)
+        ]
         if new_items:
             new_items = sorted(new_items, key=lambda item: _parse_entry_date(item.get("published", "")))
             new_items = new_items[-MAX_POSTS_PER_CYCLE:]
