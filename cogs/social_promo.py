@@ -514,6 +514,7 @@ class SocialPromo(commands.Cog):
         feed_url, feed_title, items = await self._fetch_feed(
             feed_url, str(source.get("platform", "rss"))
         )
+        source["feed_status"] = "active"
         if feed_url != source.get("feed_url"):
             # Remember the working mirror so polling doesn't repeat the failed primary host.
             source["feed_url"] = feed_url
@@ -613,7 +614,24 @@ class SocialPromo(commands.Cog):
                 feed_url = "https://www.youtube.com/feeds/videos.xml?channel_id=" + channel_id
             if not _is_public_https_url(feed_url):
                 raise ValueError("Die erzeugte Feed-Adresse ist keine erlaubte öffentliche HTTPS-Adresse.")
-            feed_url, feed_title, items = await self._fetch_feed(feed_url, platform)
+            pending_feed = False
+            try:
+                feed_url, feed_title, items = await self._fetch_feed(feed_url, platform)
+            except ValueError as exc:
+                # Do not force admins to wait for a public RSSHub mirror to recover.
+                # Save the validated profile route and let the two-minute poll retry it.
+                if (
+                    platform in {"tiktok", "instagram", "twitch", "x"}
+                    and str(exc).startswith("Keine RSSHub-Instanz konnte den Feed abrufen")
+                ):
+                    pending_feed = True
+                    feed_title, items = "", []
+                    print(
+                        "⚠️ Social-Promo: Quelle %s wird gespeichert; Feed momentan nicht erreichbar: %s"
+                        % (inferred_name, str(exc)[:350])
+                    )
+                else:
+                    raise
         except (ValueError, httpx.HTTPError, ET.ParseError) as exc:
             if isinstance(exc, ValueError):
                 msg = str(exc)[:850]
@@ -625,7 +643,19 @@ class SocialPromo(commands.Cog):
                 )
             await interaction.followup.send("❌ Quelle nicht hinzugefügt: " + msg, ephemeral=True)
             return
-        duplicate = next((s for s in self.sources.values() if s.get("feed_url") == feed_url), None)
+        source_key = str(inferred_name or "").strip().lstrip("@").lower()
+        duplicate = next(
+            (
+                s for s in self.sources.values()
+                if s.get("feed_url") == feed_url
+                or (
+                    str(s.get("platform", "")) == platform
+                    and source_key
+                    and str(s.get("source_key") or s.get("name", "")).strip().lstrip("@").lower() == source_key
+                )
+            ),
+            None,
+        )
         if duplicate:
             await interaction.followup.send("Diese Quelle ist bereits eingetragen (ID: %s)." % duplicate["id"], ephemeral=True)
             return
@@ -645,7 +675,9 @@ class SocialPromo(commands.Cog):
             "added_by": str(interaction.user.id),
             "added_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "enabled": True,
-            "initialized": True,
+            "initialized": not pending_feed,
+            "feed_status": "pending" if pending_feed else "active",
+            "source_key": str(inferred_name or "").strip().lstrip("@").lower(),
             "seen_ids": [item["id"] for item in items][:MAX_SEEN_IDS],
             "last_item": items[0]["id"] if items else "",
             "last_checked": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -657,15 +689,27 @@ class SocialPromo(commands.Cog):
             self.sources.pop(source_id, None)
             await interaction.followup.send("❌ Die Quelle wurde geprüft, konnte aber nicht dauerhaft gespeichert werden. Prüfe Schreibrechte im Hosting.", ephemeral=True)
             return
-        await interaction.followup.send(
-            "✅ **Social-Quelle hinzugefügt**\n"
-            + "**Plattform:** " + label + "\n"
-            + "**Quelle:** " + source["name"] + "\n"
-            + "**ID:** " + source_id + "\n"
-            + "**Feed:** " + feed_url + "\n\n"
-            + "Ab jetzt werden neue Einträge automatisch in <#" + str(TARGET_CHANNEL_ID) + "> beworben. Bereits veröffentlichte Einträge werden nicht rückwirkend gepostet.",
-            ephemeral=True,
-        )
+        if pending_feed:
+            response_text = (
+                "✅ **Social-Quelle gespeichert – Feed noch nicht erreichbar**\n"
+                + "**Plattform:** " + label + "\n"
+                + "**Quelle:** " + source["name"] + "\n"
+                + "**ID:** " + source_id + "\n"
+                + "**Feed-Versuch:** " + feed_url + "\n\n"
+                + "Pulse prüft die Quelle automatisch alle zwei Minuten erneut. "
+                + "Sobald ein RSSHub-Server das Profil abrufen kann, wird die Quelle aktiviert. "
+                + "Bis dahin können keine neuen Videos erkannt oder beworben werden."
+            )
+        else:
+            response_text = (
+                "✅ **Social-Quelle hinzugefügt**\n"
+                + "**Plattform:** " + label + "\n"
+                + "**Quelle:** " + source["name"] + "\n"
+                + "**ID:** " + source_id + "\n"
+                + "**Feed:** " + feed_url + "\n\n"
+                + "Ab jetzt werden neue Einträge automatisch in <#" + str(TARGET_CHANNEL_ID) + "> beworben. Bereits veröffentlichte Einträge werden nicht rückwirkend gepostet."
+            )
+        await interaction.followup.send(response_text, ephemeral=True)
 
     @app_commands.command(name="social_list", description="Alle überwachten Social-Videoquellen anzeigen")
     @app_commands.guild_only()
@@ -676,7 +720,12 @@ class SocialPromo(commands.Cog):
             return
         lines = []
         for source in list(self.sources.values())[:40]:
-            status = "🟢 aktiv" if source.get("enabled", True) else "⏸️ pausiert"
+            if not source.get("enabled", True):
+                status = "⏸️ pausiert"
+            elif source.get("feed_status") == "pending" or not source.get("initialized"):
+                status = "🟡 wartet auf Feed"
+            else:
+                status = "🟢 aktiv"
             lines.append(
                 source.get("id", "?") + " · " + status + " · **"
                 + _clean_text(source.get("name", "Unbenannt"), 100) + "** ("
