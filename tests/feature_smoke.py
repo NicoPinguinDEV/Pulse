@@ -231,7 +231,8 @@ def main() -> None:
     assert "def _fetch_feed(" in social
     assert "PULSE_RSSHUB_FALLBACK_URLS" in social
     assert "Keine RSSHub-Instanz konnte den Feed abrufen" in social
-    assert '"/tiktok/user/%40"' in social
+    assert '"/tiktok/user/@"' in social
+    assert '"/tiktok/user/%40"' not in social
     assert '"/instagram/2/user/"' in social
     assert '"/twitch/video/"' in social
     assert '"/twitter/user/"' in social
