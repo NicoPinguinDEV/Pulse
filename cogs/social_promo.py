@@ -418,7 +418,9 @@ class SocialPromo(commands.Cog):
             raise ValueError("Der Benutzername enthält ungültige Zeichen.")
         quoted = quote(handle, safe="._-")
         if platform == "tiktok":
-            feed = RSSHUB_BASE_URL + "/tiktok/user/%40" + quoted
+            # RSSHub's documented route uses a literal @ in the path:
+            # /tiktok/user/@username. Keep it unescaped for compatibility with proxies/WAFs.
+            feed = RSSHUB_BASE_URL + "/tiktok/user/@" + quoted
         elif platform == "instagram":
             feed = RSSHUB_BASE_URL + "/instagram/2/user/" + quoted
         elif platform == "twitch":
