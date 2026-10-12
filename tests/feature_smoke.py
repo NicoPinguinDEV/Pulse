@@ -231,6 +231,8 @@ def main() -> None:
     assert "def _fetch_feed(" in social
     assert "PULSE_RSSHUB_FALLBACK_URLS" in social
     assert "Keine RSSHub-Instanz konnte den Feed abrufen" in social
+    assert 'parsed_candidate.path.rstrip("/") + "/true"' in social
+    assert "optionale RSSHub-Variante mit offiziellem TikTok-iframe" in social
     assert '"initialized": not pending_feed' in social
     assert '"feed_status": "pending" if pending_feed else "active"' in social
     assert "Feed noch nicht erreichbar" in social
