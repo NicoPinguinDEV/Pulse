@@ -232,7 +232,8 @@ def main() -> None:
     assert '"/twitch/video/"' in social
     assert '"/twitter/user/"' in social
     assert "seen_ids" in social
-    assert "already published entries are not retroactively" not in social.lower()
+    assert "nicht rückwirkend gepostet" in social
+    assert "def _is_video_item(source: dict, item: dict[str, str]) -> bool:" in social
 
     print("Pulse feature smoke test: OK")
 
