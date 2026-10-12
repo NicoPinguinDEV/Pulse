@@ -304,34 +304,96 @@ class BueroSelect(discord.ui.Select):
         guild = interaction.client.get_guild(self.guild_id)
         target_vc = guild.get_channel(target_vc_id) if guild else None
 
-        ping_channel_id = get_config("ping_channel_id")
-        ping_channel = guild.get_channel(ping_channel_id) if (guild and ping_channel_id) else None
+        if not guild or not isinstance(target_vc, discord.VoiceChannel):
+            await interaction.response.send_message(
+                "❌ Das ausgewählte Büro ist nicht mehr verfügbar. Bitte betrete den Warteraum erneut.",
+                ephemeral=True
+            )
+            return
 
-        if not ping_channel:
+        warteraum_id = get_config("warteraum_channel_id")
+        guild_member = guild.get_member(interaction.user.id)
+        if (
+            not guild_member
+            or not guild_member.voice
+            or not guild_member.voice.channel
+            or guild_member.voice.channel.id != warteraum_id
+        ):
+            await interaction.response.send_message(
+                "❌ Du bist nicht mehr im Büro-Warteraum. Bitte betrete ihn erneut, bevor du eine Anfrage sendest.",
+                ephemeral=True
+            )
+            return
+
+        ping_channel_id = get_config("ping_channel_id")
+        ping_channel = guild.get_channel(ping_channel_id) if ping_channel_id else None
+        if not isinstance(ping_channel, discord.TextChannel):
             await interaction.response.send_message(
                 "❌ Das Büro-Ping-System ist auf dem Server noch nicht vollständig eingerichtet.",
                 ephemeral=True
             )
             return
 
-        # Embed für den #Büro-Ping Kanal erstellen
+        # Pro Person nur eine offene Anfrage. Eine ältere Ping-Nachricht wird ersetzt.
+        await delete_pending_ping(interaction.client, interaction.user.id)
+
         embed = discord.Embed(
             title="🛎️ Neue Warteraum-Anfrage",
             color=discord.Color.gold()
         )
         embed.add_field(name="Nutzer", value=interaction.user.mention, inline=True)
         embed.add_field(name="Status", value="⏳ Wartet auf Übernahme...", inline=False)
-        if target_vc:
-            embed.add_field(name="Gewünschtes Büro", value=f"📌 **{target_vc.name}**", inline=True)
-
+        embed.add_field(name="Gewünschtes Büro", value=f"📌 **{target_vc.name}**", inline=True)
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
-        # Nachricht in Büro-Ping senden mit Button zum Übernehmen
-        view = BueroUebernehmenView(waiting_user_id=interaction.user.id, target_voice_id=target_vc_id)
-        await ping_channel.send(content=f"🔔 Anfrage für **{target_vc.name if target_vc else 'Büro'}**:", embed=embed, view=view)
+        office_role = office_role_for(guild, target_vc_id)
+        content = (
+            (office_role.mention + " ") if office_role else ""
+        ) + f"🔔 Anfrage für **{target_vc.name}**:"
+        view = BueroUebernehmenView(
+            bot=interaction.client,
+            waiting_user_id=interaction.user.id,
+            target_voice_id=target_vc_id,
+        )
+        try:
+            ping_message = await ping_channel.send(
+                content=content,
+                embed=embed,
+                view=view,
+                allowed_mentions=discord.AllowedMentions(
+                    roles=[office_role] if office_role else [],
+                    users=False,
+                    everyone=False,
+                    replied_user=False,
+                ),
+            )
+            save_pending_request(
+                user_id=interaction.user.id,
+                guild_id=guild.id,
+                ping_channel_id=ping_channel.id,
+                message_id=ping_message.id,
+                target_voice_id=target_vc_id,
+            )
+        except (discord.Forbidden, discord.HTTPException, sqlite3.Error) as exc:
+            try:
+                if "ping_message" in locals():
+                    await ping_message.delete()
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
+            print(f"⚠️ Büro-System: Anfrage konnte nicht angelegt werden ({type(exc).__name__}).")
+            await interaction.response.send_message(
+                "❌ Die Büro-Anfrage konnte nicht gespeichert oder gesendet werden. Prüfe die Bot-Rechte und versuche es erneut.",
+                ephemeral=True
+            )
+            return
 
         await interaction.response.send_message(
-            f"✅ Deine Anfrage für **{target_vc.name if target_vc else 'das Büro'}** wurde weitergeleitet! Bitte bleibe im Warteraum.",
+            f"✅ Deine Anfrage für **{target_vc.name}** wurde weitergeleitet! Bitte bleibe im Warteraum."
+            + (
+                ""
+                if office_role
+                else "\n⚠️ Die passende Bürorolle wurde nicht automatisch gefunden. Ein Administrator kann sie mit /buero_rolle_setzen fest zuordnen."
+            ),
             ephemeral=True
         )
 
@@ -357,6 +419,13 @@ class BueroSystemCog(commands.Cog):
         warteraum_id = get_config("warteraum_channel_id")
         if not warteraum_id:
             return
+
+        # Jede offene Ping-Nachricht löschen, sobald die Person den Warteraum verlässt.
+        # Dies greift auch beim Wechsel ins gewählte Büro nach einer Übernahme.
+        if before.channel and before.channel.id == warteraum_id and (
+            after.channel is None or after.channel.id != warteraum_id
+        ):
+            await delete_pending_ping(self.bot, member.id)
 
         # Wenn der User den Warteraum neu betritt
         if after.channel and after.channel.id == warteraum_id and (before.channel != after.channel):
@@ -398,6 +467,36 @@ class BueroSystemCog(commands.Cog):
             f"• **Warteraum:** {warteraum.mention}\n"
             f"• **Ping-Kanal:** {ping_kanal.mention}",
             ephemeral=True
+        )
+
+
+    @app_commands.command(
+        name="buero_rolle_setzen",
+        description="[Admin] Ordnet einem Büro eine feste Ping-Rolle zu",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(
+        buero="Sprachkanal des Büros",
+        rolle="Rolle, die bei einer Anfrage für dieses Büro gepingt werden soll",
+    )
+    async def buero_rolle_setzen(
+        self,
+        interaction: discord.Interaction,
+        buero: discord.VoiceChannel,
+        rolle: discord.Role,
+    ):
+        if rolle.is_default() or rolle.managed:
+            await interaction.response.send_message(
+                "❌ Bitte wähle eine normale, erwähnbare Bürorolle.",
+                ephemeral=True,
+            )
+            return
+        set_config(f"office_role_{buero.id}", rolle.id)
+        await interaction.response.send_message(
+            f"✅ Für **{buero.name}** wird bei neuen Büro-Anfragen jetzt {rolle.mention} gepingt. "
+            "Die feste Zuordnung überschreibt die automatische Namens-Erkennung.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
         )
 
 async def setup(bot: commands.Bot):
