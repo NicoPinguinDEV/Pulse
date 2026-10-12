@@ -244,6 +244,10 @@ def main() -> None:
     social = read("cogs/social_promo.py")
     parse("cogs/social_promo.py")
     assert "TARGET_CHANNEL_ID = 1530972281893949521" in social
+    assert "SOCIAL_PING_ROLE_ID = 1516838538702753943" in social
+    assert 'content=f"<@&{SOCIAL_PING_ROLE_ID}>"' in social
+    assert "roles=[discord.Object(id=SOCIAL_PING_ROLE_ID)]" in social
+    assert social.count('content=f"<@&{SOCIAL_PING_ROLE_ID}>"') == 2
     assert 'name="social_add"' in social
     assert 'name="social_list"' in social
     assert 'name="social_remove"' in social
