@@ -44,6 +44,17 @@ def main() -> None:
     assert "Mitglied bleibt auf dem Discord-Server" not in web or "bleibt aber auf dem Discord-Server" in web
     ultimate = read("pulse_ultimate.py")
 
+    # Pulse Next uses synchronous SQLite helpers during periodic score updates.
+    # Keep workflow/profile/score maintenance off the Discord event loop.
+    pulse_next_cog = read("cogs/pulse_next.py")
+    parse("cogs/pulse_next.py")
+    assert "await asyncio.to_thread(self._housekeeping_sync, guild)" in pulse_next_cog
+    assert "def _housekeeping_sync(self, guild: discord.Guild | None) -> None:" in pulse_next_cog
+    assert "pulse_next.run_workflows(self.bot)" in pulse_next_cog
+    assert "pulse_next.seed_profile_for_member(member)" in pulse_next_cog
+    assert "pulse_next.record_score(member)" in pulse_next_cog
+    assert "await pulse_next.run_workflows(self.bot)" not in pulse_next_cog
+
     # Pulse Pro /member route must expose the same management actions as the
     # central dashboard action handler.
     assert "⚙ Team-Aktionen" in pro
