@@ -102,11 +102,14 @@ PULSE_AI_MODERATION_ENABLED=true
 PULSE_AI_MODERATION_REVIEW_CHANNEL_ID=ID_DEINES_PRIVATEN_PRUEFKANALS
 PULSE_AI_MODERATION_INTERVAL_SECONDS=4
 PULSE_AI_MODERATION_CONFIDENCE=0.72
+PULSE_AI_MODERATION_LOW_CONFIDENCE=0.85
+PULSE_AI_MODERATION_MAX_QUEUE_AGE_SECONDS=300
+PULSE_AI_MODERATION_EXCLUDE_TEAM_KI=true
 PULSE_AI_MODERATION_EXCLUDED_CHANNEL_IDS=
 PULSE_AI_MODERATION_EXCLUDED_CATEGORY_IDS=
 ```
 
-Die Moderation verwendet dieselbe Anbieter-Konfiguration wie der Support-Assistent: `PULSE_SUPPORT_PROVIDER`, `GEMINI_API_KEY` und `GEMINI_MODEL` für Gemini oder die entsprechenden `OPENAI_...`-Variablen. Die Bürgerrollen sind im Code als `1531303733311307997` und `1531459374004834424` hinterlegt. Teamrollen werden aus den Pulse-Einstellungen gelesen. Mit `PULSE_AI_MODERATION_EXCLUDED_CHANNEL_IDS` und `PULSE_AI_MODERATION_EXCLUDED_CATEGORY_IDS` kannst du private Ticket-Channels oder ganze Ticket-Kategorien von der KI-Übermittlung ausschließen (mehrere IDs kommasepariert).
+Die Moderation verwendet dieselbe Anbieter-Konfiguration wie der Support-Assistent: `PULSE_SUPPORT_PROVIDER`, `GEMINI_API_KEY` und `GEMINI_MODEL` für Gemini oder die entsprechenden `OPENAI_...`-Variablen. Die Bürgerrollen sind im Code als `1531303733311307997` und `1531459374004834424` hinterlegt. Teamrollen werden aus den Pulse-Einstellungen gelesen. Mit `PULSE_AI_MODERATION_EXCLUDED_CHANNEL_IDS` und `PULSE_AI_MODERATION_EXCLUDED_CATEGORY_IDS` kannst du private Ticket-Channels oder ganze Ticket-Kategorien von der KI-Übermittlung ausschließen (mehrere IDs kommasepariert). Der konfigurierte Team-KI-Chat wird standardmäßig ebenfalls von der Moderation ausgeschlossen; das kannst du mit `PULSE_AI_MODERATION_EXCLUDE_TEAM_KI=false` ändern. Meldungen mit niedriger Schwere benötigen standardmäßig mindestens 85 % KI-Konfidenz (`PULSE_AI_MODERATION_LOW_CONFIDENCE`). Nach längeren API-Ausfällen werden Nachrichten aus der Warteschlange, die älter als fünf Minuten sind, übersprungen (`PULSE_AI_MODERATION_MAX_QUEUE_AGE_SECONDS`).
 
 Starte den Bot neu und führe als Discord-Administrator `/aimod_status` aus. Der Status zeigt, ob die Moderation aktiviert ist, ob der Prüfkanal gefunden wurde und ob Nachrichten auf die Warteschlange warten.
 
