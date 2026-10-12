@@ -342,7 +342,7 @@ class AIModeration(commands.Cog):
                 self._paused_until = max(self._paused_until, time.monotonic() + pause)
                 dropped = self._drop_pending_queue()
                 now = time.monotonic()
-                if now - self._last_rate_limit_log_at >= 900:
+                if not self._last_rate_limit_log_at or now - self._last_rate_limit_log_at >= 900:
                     print(
                         f"⚠️ KI-Moderation: API-Limit (HTTP 429); pausiert für {pause}s. "
                         f"{dropped} wartende Nachrichten verworfen; während der Pause werden keine neuen geprüft."
