@@ -11,7 +11,9 @@ _SUPPORT_CUE = re.compile(
     r"geht nicht|bewerbung|support|erstelle|erstell|schreib|schreibe|formulier|"
     r"formuliere|erklär|erkläre|zusammenfassung|zusammenfass|übersetze|übersetz|"
     r"überarbeite|verbessere|analysiere|analyse|ideen|vorschlag|vorschläge|"
-    r"checkliste|vorlage|plan|plane|nenn mir|gib mir|fass zusammen|"
+    r"checkliste|vorlage|vorlagen|textbaustein|textbausteine|partnerschaft|partnerschaften|"
+    r"fraktionsantrag|fraktionsverwaltung|partnerschaftsverwaltung|broadcast|dienstanweisung|"
+    r"entbannungsantrag|creator-bewerbung|ticketvorlage|plan|plane|nenn mir|gib mir|fass zusammen|"
     r"hilf mir|entwirf|entwerfe|beispiel|erläutere)\b",
     re.IGNORECASE,
 )
