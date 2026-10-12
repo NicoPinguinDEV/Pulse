@@ -23,6 +23,7 @@ import os
 import re
 import secrets
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -1903,7 +1904,7 @@ window.setInterval(loadPulseMonitor, 15000);
             "queue_max": int(getattr(mod, "max_queue_size", 0)) if mod else 0,
             "queue_drops": int(getattr(mod, "_queue_drops", 0)) if mod else 0,
             "paused_queue_drops": int(getattr(mod, "_paused_queue_drops", 0)) if mod else 0,
-            "paused_seconds": max(0, int(getattr(mod, "_paused_until", 0) - __import__("time").monotonic())) if mod else 0,
+            "paused_seconds": max(0, int(getattr(mod, "_paused_until", 0) - time.monotonic())) if mod else 0,
             "rate_limit_failures": int(getattr(mod, "_rate_limit_failures", 0)) if mod else 0,
             "review_channel_ready": bool(guild and mod and guild.get_channel(getattr(mod, "review_channel_id", 0))),
         }
@@ -1912,7 +1913,7 @@ window.setInterval(loadPulseMonitor, 15000);
             "enabled": bool(support and getattr(support, "enabled", False) and getattr(support, "api_key", "")),
             "history_count": len(getattr(support, "_history", {})) if support else 0,
             "tracked_users": len(getattr(support, "_user_last_request", {})) if support else 0,
-            "paused_seconds": max(0, int(getattr(support, "_api_paused_until", 0) - __import__("time").monotonic())) if support else 0,
+            "paused_seconds": max(0, int(getattr(support, "_api_paused_until", 0) - time.monotonic())) if support else 0,
         }
         discord_ready = bool(bot and bot.is_ready() and guild)
         return JSONResponse({
