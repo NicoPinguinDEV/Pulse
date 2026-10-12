@@ -174,6 +174,10 @@ class AIModeration(commands.Cog):
         self._paused_queue_drops = 0
         self._queue_drops = 0
         self._warned_missing_config = False
+        self._http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(25.0, connect=8.0),
+            limits=httpx.Limits(max_connections=2, max_keepalive_connections=1, keepalive_expiry=30.0),
+        )
         self.cases: dict[str, dict[str, Any]] = self._load_cases()
         self.worker_task: asyncio.Task | None = None
 
@@ -181,9 +185,10 @@ class AIModeration(commands.Cog):
         # Do not wait for readiness here: setup_hook loads cogs before login.
         self.worker_task = asyncio.create_task(self._worker(), name="pulse-ai-moderation-worker")
 
-    def cog_unload(self):
+    async def cog_unload(self):
         if self.worker_task:
             self.worker_task.cancel()
+        await self._http_client.aclose()
 
     async def _worker(self):
         await self.bot.wait_until_ready()
@@ -322,12 +327,11 @@ class AIModeration(commands.Cog):
         }
         self._last_request_at = time.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(25.0, connect=8.0)) as client:
-                response = await client.post(
-                    f"{self.api_base}/chat/completions",
-                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                    json=payload,
-                )
+            response = await self._http_client.post(
+                f"{self.api_base}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                json=payload,
+            )
             if response.status_code == 429:
                 retry_raw = response.headers.get("retry-after", "")
                 try:

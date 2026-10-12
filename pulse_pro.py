@@ -20,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
 
-VERSION = "7.1.1"
+VERSION = "7.2.0"
 EXTRA_PERMS = (
     "can_manage_announcements",
     "can_manage_handover",

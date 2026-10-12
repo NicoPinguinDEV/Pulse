@@ -206,6 +206,7 @@ def main() -> None:
     assert "self.excluded_channel_ids.add(self.team_support_channel_id)" in ai_mod
     assert 'PULSE_AI_MODERATION_LOW_CONFIDENCE", "0.85"' in ai_mod
     assert 'PULSE_AI_MODERATION_MAX_QUEUE_AGE_SECONDS", "300"' in ai_mod
+    assert "httpx.Limits(max_connections=2, max_keepalive_connections=1" in ai_mod
     assert "item_age > self.max_queue_age_seconds" in ai_mod
     assert "self.low_severity_threshold" in ai_mod
     assert "asyncio.Queue(maxsize=self.max_queue_size)" in ai_mod
@@ -232,6 +233,11 @@ def main() -> None:
     assert '"/ultimate/api/monitor"' in ultimate
     assert "automation_failures_24h" in ultimate
     assert "disk_free_mb" in ultimate
+    assert "def process_rss_mb() -> Optional[float]:" in ultimate
+    assert '"process_rss_mb": process_rss_mb()' in ultimate
+    assert '"paused_queue_drops"' in ultimate
+    assert '"ai_support": ai_support' in ultimate
+    assert "RAM des Pulse-Prozesses" in ultimate
     assert "ultimate_automation_runs" in ultimate
     # Teamakten, searchable audit history and global search already live in Pulse Suite.
     assert "/suite/member/" in suite
@@ -278,6 +284,7 @@ def main() -> None:
     assert "self._api_lock.locked()" in support_assistant
     assert "while len(self._history) > 200" in support_assistant
     assert "while len(self._user_last_request) > 500" in support_assistant
+    assert "httpx.Limits(max_connections=2, max_keepalive_connections=1" in support_assistant
     assert "Allgemeine Fragen darfst du mit deinem allgemeinen Wissen beantworten" in support_assistant
     assert "allgemeine Hilfsfragen" in support_assistant
     assert "formuliere|erklär|erkläre|zusammenfassung" in support_rules
@@ -329,6 +336,10 @@ def main() -> None:
     # Social video announcements: configurable sources, deduplication and fixed target.
     social = read("cogs/social_promo.py")
     parse("cogs/social_promo.py")
+    assert "MAX_FEED_BYTES = 2_000_000" in social
+    assert 'self._http_client.stream("GET", url)' in social
+    assert "self._http_client: httpx.AsyncClient | None = None" in social
+    assert "limits=httpx.Limits(max_connections=5, max_keepalive_connections=3" in social
     assert "TARGET_CHANNEL_ID = 1530972281893949521" in social
     assert "SOCIAL_PING_ROLE_ID = 1516838538702753943" in social
     assert 'content=f"<@&{SOCIAL_PING_ROLE_ID}>"' in social
