@@ -215,6 +215,25 @@ def main() -> None:
     assert 'pulse-teamlist-debounced-update' in teamlist
     assert 'self.get_abmeldung_info(member.id)' not in teamlist
 
+
+    # Social video announcements: configurable sources, deduplication and fixed target.
+    social = read("cogs/social_promo.py")
+    parse("cogs/social_promo.py")
+    assert "TARGET_CHANNEL_ID = 1530972281893949521" in social
+    assert 'name="social_add"' in social
+    assert 'name="social_list"' in social
+    assert 'name="social_remove"' in social
+    assert 'name="social_toggle"' in social
+    assert 'name="social_test"' in social
+    assert "@tasks.loop(minutes=POLL_INTERVAL_MINUTES)" in social
+    assert "def parse_feed(xml_text: str)" in social
+    assert '"/tiktok/user/%40"' in social
+    assert '"/instagram/2/user/"' in social
+    assert '"/twitch/video/"' in social
+    assert '"/twitter/user/"' in social
+    assert "seen_ids" in social
+    assert "already published entries are not retroactively" not in social.lower()
+
     print("Pulse feature smoke test: OK")
 
 
