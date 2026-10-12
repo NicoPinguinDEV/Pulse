@@ -379,11 +379,13 @@ def score_history(user_id: str, limit=30):
             (str(user_id),max(1,min(100,int(limit)))),
         ).fetchall()]
 
-def award_achievements(member):
-    try:
-        stats = u.member_stats(member)
-    except Exception:
-        return 0
+def award_achievements(member, stats=None):
+    # Reuse a score calculation when the caller already has one.
+    if stats is None:
+        try:
+            stats = u.member_stats(member)
+        except Exception:
+            return 0
     unlocked = []
     rules = {
         "hours_10": stats["total_seconds"] >= 10*3600,
@@ -408,23 +410,39 @@ def award_achievements(member):
     return len(unlocked)
 
 def record_score(member):
-    try:
-        s = u.member_stats(member)
-    except Exception:
-        return
+    # Housekeeping runs every five minutes, but scores are stored once per day.
+    # Check the snapshot before computing statistics (which performs multiple
+    # SQLite queries) and recheck before inserting to tolerate overlapping calls.
+    setup_next()
     today = now().date().isoformat()
     with cx() as c:
         exists = c.execute(
             "SELECT 1 FROM next_score_snapshots WHERE user_id=? AND substr(recorded_at,1,10)=?",
             (str(member.id),today),
         ).fetchone()
-        if not exists:
-            c.execute(
-                """INSERT INTO next_score_snapshots VALUES(?,?,?,?,?,?,?,?,?)""",
-                (u.uid("score"),str(member.id),s["score"],s["activity_pct"],s["reliability_pct"],
-                 s["support_pct"],s["discipline_pct"],s["training_pct"],iso()),
-            )
-    award_achievements(member)
+    if exists:
+        return False
+
+    try:
+        s = u.member_stats(member)
+    except Exception:
+        return False
+
+    with cx() as c:
+        exists = c.execute(
+            "SELECT 1 FROM next_score_snapshots WHERE user_id=? AND substr(recorded_at,1,10)=?",
+            (str(member.id),today),
+        ).fetchone()
+        if exists:
+            return False
+        c.execute(
+            """INSERT INTO next_score_snapshots VALUES(?,?,?,?,?,?,?,?,?)""",
+            (u.uid("score"),str(member.id),s["score"],s["activity_pct"],s["reliability_pct"],
+             s["support_pct"],s["discipline_pct"],s["training_pct"],iso()),
+        )
+    # Avoid calculating member_stats a second time just to unlock achievements.
+    award_achievements(member, s)
+    return True
 
 def all_stats(guild):
     rows=[]
