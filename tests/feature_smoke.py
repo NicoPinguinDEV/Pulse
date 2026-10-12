@@ -50,10 +50,10 @@ def main() -> None:
     parse("cogs/pulse_next.py")
     assert "await asyncio.to_thread(self._housekeeping_sync, guild)" in pulse_next_cog
     assert "def _housekeeping_sync(self, guild: discord.Guild | None) -> None:" in pulse_next_cog
-    assert "pulse_next.run_workflows(self.bot)" in pulse_next_cog
+    assert "asyncio.run(pulse_next.run_workflows(self.bot))" in pulse_next_cog
     assert "pulse_next.seed_profile_for_member(member)" in pulse_next_cog
     assert "pulse_next.record_score(member)" in pulse_next_cog
-    assert "await pulse_next.run_workflows(self.bot)" not in pulse_next_cog
+    assert "async def run_workflows(bot=None):" in read("pulse_next.py")
     pulse_next_source = read("pulse_next.py")
     parse("pulse_next.py")
     score_record = pulse_next_source.split("def record_score(member):", 1)[1].split("\ndef all_stats(", 1)[0]
