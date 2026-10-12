@@ -183,6 +183,16 @@ def main() -> None:
     assert "def _backoff_provider(self, reason: str) -> int:" in ai_mod
     assert "response.status_code >= 500" in ai_mod
     assert '_backoff_provider(f"Verbindungsfehler ({type(exc).__name__})")' in ai_mod
+    # Team KI messages and stale messages after provider outages should not create
+    # noisy false-positive moderation reports.
+    assert 'env_bool("PULSE_AI_MODERATION_EXCLUDE_TEAM_KI", True)' in ai_mod
+    assert "self.excluded_channel_ids.add(self.team_support_channel_id)" in ai_mod
+    assert 'PULSE_AI_MODERATION_LOW_CONFIDENCE", "0.85"' in ai_mod
+    assert 'PULSE_AI_MODERATION_MAX_QUEUE_AGE_SECONDS", "300"' in ai_mod
+    assert "item_age > self.max_queue_age_seconds" in ai_mod
+    assert "self.low_severity_threshold" in ai_mod
+    assert "Erwähnte Rollen:" in ai_mod
+    assert "Ein sachlich begründeter Rollen-/Team-Ping" in ai_mod
     for source_name in ("cogs/ai_moderation.py", "cogs/backups.py", "cogs/pulse_suite.py"):
         parse(source_name)
     assert "ModerationReviewView" in ai_mod
