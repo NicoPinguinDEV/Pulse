@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from pathlib import Path
 
 import discord
 from discord.ext import commands, tasks
@@ -17,6 +19,14 @@ class PulseNextEvents(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # Cache role configuration by file mtime: presence updates can be frequent,
+        # so never reopen/parse the JSON settings on every gateway event.
+        self._team_role_ids_cache: set[int] = set()
+        self._team_role_config_mtime_ns: int | None = None
+        self._team_role_config_loaded = False
+        # Presence may fire dozens of times per member. Keep the 5-minute persistence
+        # throttle in memory instead of querying SQLite for every event.
+        self._presence_last_write: dict[int, float] = {}
         self.housekeeping.start()
 
     def cog_unload(self):
@@ -63,10 +73,35 @@ class PulseNextEvents(commands.Cog):
     async def before_housekeeping(self):
         await self._ready()
 
+    def _team_role_ids(self) -> set[int]:
+        import webserver
+
+        try:
+            config_mtime_ns = Path(webserver.CONFIG_FILE).stat().st_mtime_ns
+        except OSError:
+            config_mtime_ns = None
+
+        if (
+            not self._team_role_config_loaded
+            or config_mtime_ns != self._team_role_config_mtime_ns
+        ):
+            try:
+                config = webserver.load_config()
+                self._team_role_ids_cache = {
+                    int(role_id) for role_id in config.get("team_role_ids", [])
+                }
+            except (OSError, ValueError, TypeError) as exc:
+                # Cache the empty result until the file changes, rather than
+                # retrying disk access on every subsequent presence event.
+                self._team_role_ids_cache = set()
+                print(f"Pulse Teamrollen-Konfiguration konnte nicht geladen werden ({type(exc).__name__}).")
+            self._team_role_config_mtime_ns = config_mtime_ns
+            self._team_role_config_loaded = True
+        return self._team_role_ids_cache
+
     def _is_team(self, member: discord.Member) -> bool:
         try:
-            import webserver
-            team_roles = {int(x) for x in webserver.load_config().get("team_role_ids", [])}
+            team_roles = self._team_role_ids()
             return any(role.id in team_roles for role in member.roles)
         except Exception:
             return False
@@ -147,21 +182,29 @@ class PulseNextEvents(commands.Cog):
 
     @commands.Cog.listener()
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
-        if not after.bot and self._is_team(after):
-            # Presence events can fire often; persist at most once per 5 minutes.
-            import datetime
-            activity = pulse_next.get_activity(str(after.id))
-            should_write = True
-            if activity:
-                try:
-                    last = datetime.datetime.fromisoformat(
-                        str(activity["last_seen_at"]).replace("Z", "+00:00")
-                    )
-                    should_write = (datetime.datetime.now(datetime.timezone.utc) - last).total_seconds() >= 300
-                except Exception:
-                    pass
-            if should_write:
-                pulse_next.touch_member(str(after.id), "discord_presence")
+        if after.bot or not self._is_team(after):
+            return
+
+        # At most one write per member every five minutes. This avoids a SQLite
+        # read on every presence event, which can otherwise delay the Discord
+        # gateway when many users update status at once.
+        now = time.monotonic()
+        previous = self._presence_last_write.get(after.id)
+        if previous is not None and now - previous < 300:
+            return
+        self._presence_last_write.pop(after.id, None)
+        self._presence_last_write[after.id] = now
+        while len(self._presence_last_write) > 2000:
+            self._presence_last_write.pop(next(iter(self._presence_last_write)))
+
+        try:
+            await asyncio.to_thread(
+                pulse_next.touch_member, str(after.id), "discord_presence"
+            )
+        except Exception as exc:
+            # Permit a later event to retry if persistence failed.
+            self._presence_last_write.pop(after.id, None)
+            print(f"Pulse Presence-Aktivität für {after.id} konnte nicht gespeichert werden ({type(exc).__name__}).")
 
 
 async def setup(bot: commands.Bot):
