@@ -520,12 +520,23 @@ class BueroSystemCog(commands.Cog):
             waiting_user_id=member.id,
             target_voice_id=0,
         )
+        # If the waiting room has a configured office role, notify that role.
+        # Otherwise still publish the request without pinging every team rank.
+        arrival_role = office_role_for(member.guild, waiting_room.id)
+        content = (
+            (arrival_role.mention + " ") if arrival_role else ""
+        ) + "🔔 **Neue Büro-Anfrage**"
         try:
             ping_message = await ping_channel.send(
-                content="🔔 **Neue Büro-Anfrage**",
+                content=content,
                 embed=embed,
                 view=view,
-                allowed_mentions=discord.AllowedMentions.none(),
+                allowed_mentions=discord.AllowedMentions(
+                    roles=[arrival_role] if arrival_role else [],
+                    users=False,
+                    everyone=False,
+                    replied_user=False,
+                ),
             )
             save_pending_request(
                 user_id=member.id,
