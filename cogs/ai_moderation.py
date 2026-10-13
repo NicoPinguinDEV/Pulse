@@ -174,6 +174,12 @@ class AIModeration(commands.Cog):
         self._paused_queue_drops = 0
         self._queue_drops = 0
         self._warned_missing_config = False
+        # Role configuration changes are written atomically by the dashboard.
+        # Cache the parsed IDs and reload only when the config file's mtime changes,
+        # rather than reopening/parsing JSON for every incoming server message.
+        self._team_role_ids_cache: set[int] = set()
+        self._team_role_config_mtime_ns: int | None = None
+        self._team_role_config_loaded = False
         self._http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(25.0, connect=8.0),
             limits=httpx.Limits(max_connections=2, max_keepalive_connections=1, keepalive_expiry=30.0),
@@ -248,9 +254,31 @@ class AIModeration(commands.Cog):
     def _load_cases(self) -> dict[str, dict[str, Any]]:
         try:
             data = json.loads(CASES_PATH.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else {}
+            if not isinstance(data, dict):
+                return {}
         except (FileNotFoundError, OSError, ValueError):
             return {}
+
+        # Match the existing 30-day retention rule at startup as well as on save.
+        # Pending cases are always retained so open moderator decisions survive restarts.
+        now = datetime.now(timezone.utc)
+        keep: dict[str, dict[str, Any]] = {}
+        for case_id, case in data.items():
+            if not isinstance(case, dict):
+                continue
+            if case.get("status") == "pending":
+                keep[str(case_id)] = case
+                continue
+            try:
+                created = datetime.fromisoformat(str(case.get("created_at", "")).replace("Z", "+00:00"))
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                if now - created <= timedelta(days=30):
+                    keep[str(case_id)] = case
+            except (ValueError, TypeError):
+                # The save path already discards malformed timestamps; keep startup consistent.
+                continue
+        return keep
 
     def _save_cases(self):
         now = datetime.now(timezone.utc)
@@ -279,8 +307,26 @@ class AIModeration(commands.Cog):
     def _role_kind(self, member: discord.Member, config: dict | None = None) -> str:
         try:
             import webserver
-            cfg = config if config is not None else webserver.load_config()
-            team_role_ids = {int(x) for x in cfg.get("team_role_ids", [])}
+            if config is not None:
+                team_role_ids = {int(x) for x in config.get("team_role_ids", [])}
+            else:
+                config_path = Path(webserver.CONFIG_FILE)
+                try:
+                    config_mtime_ns = config_path.stat().st_mtime_ns
+                except OSError:
+                    config_mtime_ns = None
+                if (
+                    not self._team_role_config_loaded
+                    or config_mtime_ns is None
+                    or config_mtime_ns != self._team_role_config_mtime_ns
+                ):
+                    cfg = webserver.load_config()
+                    self._team_role_ids_cache = {
+                        int(x) for x in cfg.get("team_role_ids", [])
+                    }
+                    self._team_role_config_mtime_ns = config_mtime_ns
+                    self._team_role_config_loaded = True
+                team_role_ids = self._team_role_ids_cache
         except Exception:
             team_role_ids = set()
         member_roles = {r.id for r in member.roles}

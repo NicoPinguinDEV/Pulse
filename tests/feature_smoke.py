@@ -37,6 +37,15 @@ def main() -> None:
     main = read("main.py")
     web = read("webserver.py")
 
+    # Memory optimisation must keep features available: cap only Discord's
+    # recent-message cache and fetch reply context on demand when it is absent.
+    support = read("cogs/support_assistant.py")
+    assert "DISCORD_MESSAGE_CACHE_SIZE" in main
+    assert "max_messages=MESSAGE_CACHE_SIZE" in main
+    assert "await reference_channel.fetch_message(reference.message_id)" in support
+    assert "process_peak_rss_mb" in read("pulse_ultimate.py")
+    assert "discord_cached_messages" in read("pulse_ultimate.py")
+
     # Team-Kick must only remove team roles, never call Discord member.kick().
     assert "Team-Kick" in web
     assert 'await member.remove_roles(*team_roles' in web

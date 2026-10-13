@@ -73,6 +73,17 @@ def process_rss_mb() -> Optional[float]:
         return None
 
 
+def process_peak_rss_mb() -> Optional[float]:
+    """Return Linux VmHWM (peak resident memory) in MB, without extra packages."""
+    try:
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines():
+            if line.startswith("VmHWM:"):
+                return round(int(line.split()[1]) / 1024, 1)
+    except (OSError, ValueError, IndexError, AttributeError):
+        pass
+    return None
+
+
 def uid(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(6)}"
 
@@ -1529,6 +1540,8 @@ async function loadPulseMonitor() {
       ['Pulse TeamOS DB', ok(d.ultimate_db_ok)],
       ['Datenbank-Kern', ok(d.pulse_db_ok)],
       ['RAM des Pulse-Prozesses', d.process_rss_mb == null ? 'Nicht verfügbar' : Number(d.process_rss_mb).toLocaleString('de-DE') + ' MB'],
+      ['RAM-Spitzenwert seit Prozessstart', d.process_peak_rss_mb == null ? 'Nicht verfügbar' : Number(d.process_peak_rss_mb).toLocaleString('de-DE') + ' MB'],
+      ['Discord-Nachrichten-Cache', String(d.discord_cached_messages || 0) + ' / ' + String(d.discord_message_cache_limit || 'unbegrenzt')],
       ['Datenträger frei', mb(d.disk_free_mb)],
       ['Datenträger belegt', (Number(d.disk_used_percent || 0)).toFixed(1) + '%'],
       ['Letztes Backup', d.backup_last || 'Kein Backup gefunden'],
@@ -1922,6 +1935,9 @@ window.setInterval(loadPulseMonitor, 15000);
             "version": getattr(webserver, "PULSE_VERSION", "unknown"),
             "python": platform.python_version(),
             "process_rss_mb": process_rss_mb(),
+            "process_peak_rss_mb": process_peak_rss_mb(),
+            "discord_cached_messages": len(getattr(bot, "cached_messages", ())) if bot else 0,
+            "discord_message_cache_limit": getattr(bot, "pulse_message_cache_limit", None) if bot else None,
             "discord_ready": discord_ready,
             "discord_latency_ms": round(float(bot.latency) * 1000, 1) if bot and bot.is_ready() else None,
             "ultimate_db_ok": ultimate_db_ok,
