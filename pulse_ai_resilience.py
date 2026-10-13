@@ -11,6 +11,8 @@ import asyncio
 import hashlib
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from dataclasses import dataclass, field
 from typing import AsyncIterator
 
@@ -26,6 +28,23 @@ class ProviderState:
 
 _STATES: dict[str, ProviderState] = {}
 MAX_PROVIDER_STATES = 16
+
+
+def _retry_after_seconds(value: str | None) -> int:
+    """Parse Retry-After as delta-seconds or an HTTP date, bounded to one hour."""
+    if not value:
+        return 0
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        try:
+            target = parsedate_to_datetime(value)
+            if target.tzinfo is None:
+                target = target.replace(tzinfo=timezone.utc)
+            seconds = (target - datetime.now(timezone.utc)).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            return 0
+    return max(0, min(3600, int(seconds + 0.999)))
 
 
 def _state_for(api_base: str, api_key: str) -> ProviderState:
@@ -119,16 +138,15 @@ def record_provider_failure(
             3600,
             300 * (2 ** min(state.rate_limit_failures - 1, 4)),
         )
-        try:
-            header_seconds = max(0, min(3600, int(float(retry_after or 0))))
-        except (TypeError, ValueError):
-            header_seconds = 0
-        pause = max(quota_backoff, header_seconds)
+        pause = max(quota_backoff, _retry_after_seconds(retry_after))
     elif status_code in (401, 403):
-        pause = 300
+        pause = max(300, _retry_after_seconds(retry_after))
     elif status_code is None or status_code >= 500:
         state.transient_failures = min(state.transient_failures + 1, 8)
-        pause = min(300, 15 * (2 ** min(state.transient_failures - 1, 5)))
+        pause = max(
+            min(300, 15 * (2 ** min(state.transient_failures - 1, 5))),
+            _retry_after_seconds(retry_after),
+        )
     else:
         return int(max(0, state.paused_until - now))
 
