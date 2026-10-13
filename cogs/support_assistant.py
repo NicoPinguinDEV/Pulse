@@ -345,6 +345,27 @@ class SupportAssistant(commands.Cog):
         bot_mentioned = bool(self.bot.user and self.bot.user in message.mentions)
         reference = message.reference
         replied_message = reference.resolved if reference else None
+
+        # Keep reply-to-bot behaviour even with the smaller global message cache:
+        # resolve an uncached referenced message only when a support-channel
+        # message actually needs the reply context.
+        if reference and replied_message is None and reference.message_id:
+            reference_channel = message.channel
+            reference_channel_id = getattr(reference, "channel_id", None)
+            if reference_channel_id and reference_channel_id != message.channel.id:
+                reference_channel = self.bot.get_channel(reference_channel_id)
+                if reference_channel is None:
+                    try:
+                        reference_channel = await self.bot.fetch_channel(reference_channel_id)
+                    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                        reference_channel = None
+            if reference_channel is not None and hasattr(reference_channel, "fetch_message"):
+                try:
+                    replied_message = await reference_channel.fetch_message(reference.message_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    # The referenced message may have been deleted or be inaccessible.
+                    replied_message = None
+
         replying_to_bot = (
             isinstance(replied_message, discord.Message)
             and self.bot.user is not None
