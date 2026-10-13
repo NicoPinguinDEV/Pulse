@@ -29,7 +29,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -58,6 +58,12 @@ def main() -> None:
     pulse_next_cog = read("cogs/pulse_next.py")
     parse("cogs/pulse_next.py")
     assert "await asyncio.to_thread(self._housekeeping_sync, guild)" in pulse_next_cog
+    presence_handler = pulse_next_cog.split("async def on_presence_update", 1)[1]
+    assert "pulse_next.get_activity(" not in presence_handler
+    assert "await asyncio.to_thread(" in presence_handler
+    assert "self._presence_last_write" in presence_handler
+    assert "def _team_role_ids(self) -> set[int]:" in pulse_next_cog
+    assert "self._team_role_config_mtime_ns" in pulse_next_cog
     assert "def _housekeeping_sync(self, guild: discord.Guild | None) -> None:" in pulse_next_cog
     assert "asyncio.run(pulse_next.run_workflows(self.bot))" in pulse_next_cog
     assert "pulse_next.seed_profile_for_member(member)" in pulse_next_cog
@@ -205,8 +211,18 @@ def main() -> None:
     assert "await interaction.response.defer(ephemeral=True, thinking=True)" in activity_check
     assert "interaction.followup.send(response_text, ephemeral=True)" in activity_check
     assert "except discord.NotFound:" in activity_check
-    # The AI moderation worker backs off during transient provider failures.
-    assert "def _backoff_provider(self, reason: str) -> int:" in ai_mod
+    # Shared AI resilience means support and moderation cannot retry the same
+    # provider/key independently when an API is rate-limited or unavailable.
+    resilience = read("pulse_ai_resilience.py")
+    assert "async def provider_request_slot(" in resilience
+    assert "def record_provider_failure(" in resilience
+    assert "status_code == 429" in resilience
+    assert "MAX_PROVIDER_STATES = 16" in resilience
+    assert "hashlib.sha256(api_key.encode(\"utf-8\")).hexdigest()[:16]" in resilience
+    assert "provider_request_slot(" in ai_mod
+    assert "provider_pause_remaining(self.api_base, self.api_key)" in ai_mod
+    assert "record_provider_failure(" in ai_mod
+    assert "def _backoff_provider(self, reason: str, status_code: int | None = None) -> int:" in ai_mod
     assert "response.status_code >= 500" in ai_mod
     assert '_backoff_provider(f"Verbindungsfehler ({type(exc).__name__})")' in ai_mod
     # Team KI messages and stale messages after provider outages should not create
@@ -374,6 +390,10 @@ def main() -> None:
     assert "def parse_feed(xml_text: str)" in social
     assert "def _feed_candidates(self, feed_url: str, platform: str)" in social
     assert "def _fetch_feed(" in social
+    assert "self._host_retry_at: dict[str, float] = {}" in social
+    assert "def _record_host_failure(self, host: str, exc: Exception) -> None:" in social
+    assert "def _host_cooldown(self, host: str) -> float:" in social
+    assert "if attempted == 0:" in social
     assert "PULSE_RSSHUB_FALLBACK_URLS" in social
     assert "Keine RSSHub-Instanz konnte den Feed abrufen" in social
     assert 'parsed_candidate.path.rstrip("/") + "/true"' in social
