@@ -231,7 +231,7 @@ def main() -> None:
     assert "KI-Moderation: manuelle Sichtung erforderlich" in ai_mod
     assert "Nur manueller Hinweis – keine automatische Klassifikation oder Sanktion." in ai_mod
     assert "response.status_code >= 500" in ai_mod
-    assert '_backoff_provider(f"Verbindungsfehler ({type(exc).__name__})")' in ai_mod
+    assert '_backoff_provider(f"Verbindungsfehler ({type(exc).__name__})", item=item)' in ai_mod
     # Team KI messages and stale messages after provider outages should not create
     # noisy false-positive moderation reports.
     assert 'env_bool("PULSE_AI_MODERATION_EXCLUDE_TEAM_KI", True)' in ai_mod
