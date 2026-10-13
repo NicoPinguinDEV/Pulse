@@ -53,6 +53,37 @@ POLL_FAILURE_LOG_INTERVAL_SECONDS = 3600
 USER_AGENT = "PulseSocialPromo/1.0 (+Discord community automation)"
 
 
+class FeedCooldownError(ValueError):
+    """All feed hosts are cooling down; retry only when the earliest cooldown expires."""
+
+    def __init__(self, message: str, retry_after_seconds: float):
+        super().__init__(message)
+        self.retry_after_seconds = max(0, min(3600, int(retry_after_seconds)))
+
+
+def _retry_after_seconds(exc: Exception) -> int:
+    """Respect a feed server's Retry-After header, including HTTP-date values."""
+    explicit = getattr(exc, "retry_after_seconds", 0)
+    try:
+        seconds = float(explicit or 0)
+    except (TypeError, ValueError):
+        seconds = 0
+    response = getattr(exc, "response", None)
+    raw = response.headers.get("retry-after", "").strip() if response is not None else ""
+    if raw:
+        try:
+            seconds = max(seconds, float(raw))
+        except (TypeError, ValueError):
+            try:
+                target = parsedate_to_datetime(raw)
+                if target.tzinfo is None:
+                    target = target.replace(tzinfo=timezone.utc)
+                seconds = max(seconds, (target - datetime.now(timezone.utc)).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                pass
+    return max(0, min(3600, int(seconds + 0.999)))
+
+
 def _clean_text(value: str, limit: int = 500) -> str:
     value = re.sub(r"<[^>]+>", " ", value or "")
     value = html.unescape(value)
@@ -294,7 +325,13 @@ class SocialPromo(commands.Cog):
 
         failures = min(self._host_failure_count.get(host, 0) + 1, 8)
         self._host_failure_count[host] = failures
-        pause = min(3600, POLL_FAILURE_INITIAL_BACKOFF_SECONDS * (2 ** min(failures - 1, 4)))
+        pause = min(
+            3600,
+            max(
+                POLL_FAILURE_INITIAL_BACKOFF_SECONDS * (2 ** min(failures - 1, 4)),
+                _retry_after_seconds(exc),
+            ),
+        )
         self._host_retry_at[host] = time.monotonic() + pause
 
         # Keep the diagnostic cache bounded even if many one-off feeds are added.
@@ -429,10 +466,11 @@ class SocialPromo(commands.Cog):
                 f"{host} ({max(1, int((remaining + 59) // 60))} Min.)"
                 for host, remaining in sorted(skipped_hosts.items())
             )
-            raise ValueError(
+            raise FeedCooldownError(
                 "Keine RSSHub-Instanz konnte den Feed abrufen (alle Kandidaten sind "
                 f"wegen vorheriger Serverfehler vorübergehend gedrosselt; nächster Probeversuch "
-                f"in ca. {retry_minutes} Min.; {skipped})."
+                f"in ca. {retry_minutes} Min.; {skipped}).",
+                retry_after_seconds=earliest,
             )
 
         details: list[str] = []
@@ -632,8 +670,11 @@ class SocialPromo(commands.Cog):
             failure_count = int(source.get("feed_failures", 0) or 0) + 1
             exponent = min(failure_count - 1, 8)
             retry_seconds = min(
-                POLL_FAILURE_INITIAL_BACKOFF_SECONDS * (2 ** exponent),
                 POLL_FAILURE_MAX_BACKOFF_SECONDS,
+                max(
+                    POLL_FAILURE_INITIAL_BACKOFF_SECONDS * (2 ** exponent),
+                    _retry_after_seconds(exc),
+                ),
             )
             error_text = str(exc)[:700]
             previous_log_at = _parse_entry_date(str(source.get("last_error_logged_at", "")))
