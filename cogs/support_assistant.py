@@ -14,6 +14,12 @@ from discord import app_commands
 from discord.ext import commands
 
 from pulse_support_rules import fit_response, should_answer
+from pulse_ai_resilience import (
+    provider_pause_remaining,
+    provider_request_slot,
+    record_provider_failure,
+    record_provider_success,
+)
 
 DEFAULT_SUPPORT_CHANNEL_ID = 1493649456086782083
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -222,8 +228,11 @@ class SupportAssistant(commands.Cog):
         if not self.api_key:
             self._last_api_error = f"{self.key_env_name} fehlt"
             return None
-        if time.monotonic() < self._api_paused_until:
-            self._last_api_error = "KI-API wegen eines Rate-Limits vorübergehend pausiert"
+        shared_pause = provider_pause_remaining(self.api_base, self.api_key)
+        if time.monotonic() < self._api_paused_until or shared_pause > 0:
+            self._last_api_error = (
+                f"KI-API wegen einer gemeinsamen Anbieterpause noch {max(shared_pause, self._api_paused_until - time.monotonic()):.0f}s pausiert"
+            )
             return None
 
         endpoint = f"{self.api_base}/chat/completions"
@@ -239,7 +248,16 @@ class SupportAssistant(commands.Cog):
         }
 
         try:
-            response = await self._http_client.post(endpoint, headers=headers, json=payload)
+            async with provider_request_slot(
+                self.api_base, self.api_key, min_interval=2.0
+            ) as request_allowed:
+                if not request_allowed:
+                    remaining = provider_pause_remaining(self.api_base, self.api_key)
+                    self._last_api_error = f"KI-API momentan pausiert ({remaining:.0f}s)"
+                    return None
+                response = await self._http_client.post(
+                    endpoint, headers=headers, json=payload
+                )
 
             if response.is_error:
                 # Log only the provider's short error metadata, never request headers, API keys,
@@ -278,6 +296,11 @@ class SupportAssistant(commands.Cog):
                     # repeats the same failed request. Increase the cooldown up to 1 hour.
                     backoff = min(3600, 300 * (2 ** min(self._api_rate_limit_failures - 1, 4)))
                     pause = max(provider_retry, backoff)
+                    shared_pause = record_provider_failure(
+                        self.api_base, self.api_key,
+                        status_code=429, retry_after=retry_after,
+                    )
+                    pause = max(pause, shared_pause)
                     now = time.monotonic()
                     self._api_paused_until = max(self._api_paused_until, now + pause)
                     if not self._last_rate_limit_log_at or now - self._last_rate_limit_log_at >= 900:
@@ -287,9 +310,24 @@ class SupportAssistant(commands.Cog):
                         )
                         self._last_rate_limit_log_at = now
                     return None
+                if response.status_code >= 500:
+                    pause = record_provider_failure(
+                        self.api_base, self.api_key, status_code=response.status_code
+                    )
+                    now = time.monotonic()
+                    self._api_paused_until = max(self._api_paused_until, now + pause)
+                    self._last_api_error += f" | automatische Pause {pause}s"
+                elif response.status_code in (401, 403):
+                    pause = record_provider_failure(
+                        self.api_base, self.api_key, status_code=response.status_code
+                    )
+                    now = time.monotonic()
+                    self._api_paused_until = max(self._api_paused_until, now + pause)
+                    self._last_api_error += f" | Zugang prüfen, Pause {pause}s"
                 print(f"⚠️ Pulse-Support: KI-API-Fehler: {self._last_api_error}.")
                 return None
 
+            record_provider_success(self.api_base, self.api_key)
             self._api_rate_limit_failures = 0
             self._api_paused_until = 0.0
             self._last_api_error = ""
@@ -308,7 +346,12 @@ class SupportAssistant(commands.Cog):
             return text.strip()
         except (httpx.TimeoutException, httpx.RequestError) as exc:
             self._last_api_error = f"Verbindungsfehler: {type(exc).__name__}"
-            print(f"⚠️ Pulse-Support: KI-API-Verbindung fehlgeschlagen ({type(exc).__name__}).")
+            pause = record_provider_failure(self.api_base, self.api_key)
+            self._api_paused_until = max(self._api_paused_until, time.monotonic() + pause)
+            print(
+                f"⚠️ Pulse-Support: KI-API-Verbindung fehlgeschlagen ({type(exc).__name__}); "
+                f"gemeinsame Pause {pause}s."
+            )
         except (ValueError, KeyError, TypeError):
             self._last_api_error = "Ungültige API-Antwort"
             print("⚠️ Pulse-Support: KI-API lieferte eine ungültige Antwort.")
@@ -339,7 +382,11 @@ class SupportAssistant(commands.Cog):
             return
         # A provider rate limit pauses this helper silently; do not emit a failure
         # reply for every incoming question during the cooldown.
-        if now < self._api_paused_until or self._api_lock.locked():
+        if (
+            now < self._api_paused_until
+            or provider_pause_remaining(self.api_base, self.api_key) > 0
+            or self._api_lock.locked()
+        ):
             return
 
         bot_mentioned = bool(self.bot.user and self.bot.user in message.mentions)
@@ -419,7 +466,10 @@ class SupportAssistant(commands.Cog):
             async with self._api_lock:
                 # Re-check inside the lock in case a previous request exhausted
                 # the provider quota while this event was being prepared.
-                if time.monotonic() < self._api_paused_until:
+                if (
+                    time.monotonic() < self._api_paused_until
+                    or provider_pause_remaining(self.api_base, self.api_key) > 0
+                ):
                     return
                 async with message.channel.typing():
                     answer = await self._request_completion(messages)
@@ -517,6 +567,7 @@ class SupportAssistant(commands.Cog):
             f"**Anbieter:** {provider_label}\n"
             f"**API-Schlüssel:** {key_status}\n"
             f"**Modell:** `{self.model}` (max. {self.max_tokens} Tokens)\n"
+            f"**Gemeinsame Anbieterpause:** {provider_pause_remaining(self.api_base, self.api_key):.0f}s\n"
             f"**Wissensbasis:** {knowledge_status}\n"
             f"**Team-Vorlagen:** {templates_status}\n"
             "Der Assistent beantwortet allgemeine Fragen und unterstützt das Team; verbindliche Entscheidungen und Moderationsaktionen bleiben menschlich.",
