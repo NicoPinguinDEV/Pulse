@@ -341,6 +341,15 @@ def main() -> None:
     assert "await message.delete()" in buero
     assert 'DELETE FROM pending_requests WHERE user_id = ? AND message_id = ?' in buero
     assert "guild_member.voice.channel.id != warteraum_id" in buero
+    # On entering the configured/default waiting room, Pulse immediately posts
+    # a persistent actionable ping; the existing DM office-selection remains.
+    assert "DEFAULT_WAITING_ROOM_ID = 1528821871057965067" in buero
+    assert "DEFAULT_PING_CHANNEL_ID = 1539324692001857606" in buero
+    assert "migrate_office_config()" in buero
+    assert "await self._send_arrival_ping(member, after.channel)" in buero
+    assert 'content="🔔 **Neue Büro-Anfrage**"' in buero
+    assert 'target_voice_id=0' in buero
+    assert "Die DM-Auswahl bleibt zusätzlich bestehen" in buero
 
     # Social video announcements: configurable sources, deduplication and fixed target.
     social = read("cogs/social_promo.py")
