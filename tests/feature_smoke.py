@@ -347,7 +347,9 @@ def main() -> None:
     assert "DEFAULT_PING_CHANNEL_ID = 1539324692001857606" in buero
     assert "migrate_office_config()" in buero
     assert "await self._send_arrival_ping(member, after.channel)" in buero
-    assert 'content="🔔 **Neue Büro-Anfrage**"' in buero
+    assert 'content = (' in buero
+    assert "arrival_role = office_role_for(member.guild, waiting_room.id)" in buero
+    assert "roles=[arrival_role] if arrival_role else []" in buero
     assert 'target_voice_id=0' in buero
     assert "Die DM-Auswahl bleibt zusätzlich bestehen" in buero
 
