@@ -18,6 +18,15 @@ from webserver import app
 TOKEN = os.getenv("DISCORD_TOKEN")
 PORT = int(os.getenv("SERVER_PORT", 25095))
 
+# discord.py caches recent messages to resolve references and certain gateway
+# events. On a small hosting plan, 1,000 Message objects can needlessly consume
+# memory. Keep a useful cache and make the limit configurable without disabling
+# any Cog or intent.
+try:
+    MESSAGE_CACHE_SIZE = max(100, min(1000, int(os.getenv("DISCORD_MESSAGE_CACHE_SIZE", "250"))))
+except (TypeError, ValueError):
+    MESSAGE_CACHE_SIZE = 250
+
 
 class CustomBot(commands.Bot):
 
@@ -27,7 +36,12 @@ class CustomBot(commands.Bot):
         intents.presences = True
         intents.message_content = True
 
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            max_messages=MESSAGE_CACHE_SIZE,
+        )
+        self.pulse_message_cache_limit = MESSAGE_CACHE_SIZE
 
     async def setup_hook(self):
         # WICHTIG: Bot-Instanz an die Webserver-App übergeben
