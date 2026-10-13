@@ -217,14 +217,21 @@ def main() -> None:
     assert "async def provider_request_slot(" in resilience
     assert "def record_provider_failure(" in resilience
     assert "status_code == 429" in resilience
+    assert "def _retry_after_seconds(value: str | None) -> int:" in resilience
+    assert "_retry_after_seconds(retry_after)" in resilience
     assert "MAX_PROVIDER_STATES = 16" in resilience
     assert "hashlib.sha256(api_key.encode(\"utf-8\")).hexdigest()[:16]" in resilience
     assert "provider_request_slot(" in ai_mod
     assert "provider_pause_remaining(self.api_base, self.api_key)" in ai_mod
     assert "record_provider_failure(" in ai_mod
-    assert "def _backoff_provider(self, reason: str, status_code: int | None = None) -> int:" in ai_mod
+    assert "def _backoff_provider(" in ai_mod
+    assert "retry_after=response.headers.get(\"retry-after\")" in ai_mod
+    assert "def _record_unreviewed_message(self, item: dict[str, Any]) -> None:" in ai_mod
+    assert "def _publish_outage_notice(self) -> bool:" in ai_mod
+    assert "KI-Moderation: manuelle Sichtung erforderlich" in ai_mod
+    assert "Nur manueller Hinweis – keine automatische Klassifikation oder Sanktion." in ai_mod
     assert "response.status_code >= 500" in ai_mod
-    assert '_backoff_provider(f"Verbindungsfehler ({type(exc).__name__})")' in ai_mod
+    assert '_backoff_provider(f"Verbindungsfehler ({type(exc).__name__})", item=item)' in ai_mod
     # Team KI messages and stale messages after provider outages should not create
     # noisy false-positive moderation reports.
     assert 'env_bool("PULSE_AI_MODERATION_EXCLUDE_TEAM_KI", True)' in ai_mod
@@ -392,6 +399,10 @@ def main() -> None:
     assert "def _fetch_feed(" in social
     assert "self._host_retry_at: dict[str, float] = {}" in social
     assert "def _record_host_failure(self, host: str, exc: Exception) -> None:" in social
+    assert "class FeedCooldownError(ValueError):" in social
+    assert "def _retry_after_seconds(exc: Exception) -> int:" in social
+    assert "retry_after_seconds=earliest" in social
+    assert "_retry_after_seconds(exc)" in social
     assert "def _host_cooldown(self, host: str) -> float:" in social
     assert "if attempted == 0:" in social
     assert "PULSE_RSSHUB_FALLBACK_URLS" in social

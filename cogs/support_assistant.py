@@ -312,7 +312,8 @@ class SupportAssistant(commands.Cog):
                     return None
                 if response.status_code >= 500:
                     pause = record_provider_failure(
-                        self.api_base, self.api_key, status_code=response.status_code
+                        self.api_base, self.api_key,
+                        status_code=response.status_code, retry_after=retry_after,
                     )
                     now = time.monotonic()
                     self._api_paused_until = max(self._api_paused_until, now + pause)
