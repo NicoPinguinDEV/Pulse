@@ -16,6 +16,13 @@ import httpx
 from discord import app_commands
 from discord.ext import commands
 
+from pulse_ai_resilience import (
+    provider_pause_remaining,
+    provider_request_slot,
+    record_provider_failure,
+    record_provider_success,
+)
+
 DEFAULT_GUILD_ID = 1474514929351524616
 CITIZEN_ROLE_IDS = {1531303733311307997, 1531459374004834424}
 MODERATION_DECISION_ROLE_ID = 1510345520529412188
@@ -336,10 +343,14 @@ class AIModeration(commands.Cog):
             return "BÜRGER"
         return "OTHER"
 
-    def _backoff_provider(self, reason: str) -> int:
-        """Temporarily reduce traffic after provider outages or repeated timeouts."""
+    def _backoff_provider(self, reason: str, status_code: int | None = None) -> int:
+        """Back off this worker and all other Pulse AI callers sharing the API key."""
         self._provider_failures = min(self._provider_failures + 1, 8)
-        pause = min(300, 15 * (2 ** min(self._provider_failures - 1, 5)))
+        local_pause = min(300, 15 * (2 ** min(self._provider_failures - 1, 5)))
+        shared_pause = record_provider_failure(
+            self.api_base, self.api_key, status_code=status_code
+        )
+        pause = max(local_pause, shared_pause)
         self._paused_until = max(self._paused_until, time.monotonic() + pause)
         print(f"⚠️ KI-Moderation: {reason}; nächste Anfrage frühestens in {pause}s.")
         return pause
@@ -347,10 +358,11 @@ class AIModeration(commands.Cog):
     async def _analyse(self, item: dict[str, Any]) -> dict[str, Any] | None:
         if not self.api_key:
             return None
-        wait = self.min_interval - (time.monotonic() - self._last_request_at)
-        if wait > 0:
-            await asyncio.sleep(wait)
-        if time.monotonic() < self._paused_until:
+        if (
+            time.monotonic() < self._paused_until
+            or provider_pause_remaining(self.api_base, self.api_key) > 0
+        ):
+            self._paused_queue_drops += 1
             return None
         payload = {
             "model": self.model,
@@ -371,13 +383,19 @@ class AIModeration(commands.Cog):
             "max_tokens": 260,
             "temperature": 0.1,
         }
-        self._last_request_at = time.monotonic()
         try:
-            response = await self._http_client.post(
-                f"{self.api_base}/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                json=payload,
-            )
+            async with provider_request_slot(
+                self.api_base, self.api_key, self.min_interval
+            ) as request_allowed:
+                if not request_allowed:
+                    self._paused_queue_drops += 1
+                    return None
+                self._last_request_at = time.monotonic()
+                response = await self._http_client.post(
+                    f"{self.api_base}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                    json=payload,
+                )
             if response.status_code == 429:
                 retry_raw = response.headers.get("retry-after", "")
                 try:
@@ -385,10 +403,16 @@ class AIModeration(commands.Cog):
                 except (ValueError, TypeError):
                     provider_retry = 0
                 self._rate_limit_failures = min(self._rate_limit_failures + 1, 8)
+                # Share quota backoff with the Support Assistant so both cogs
+                # cannot independently exhaust the same API key.
+                shared_pause = record_provider_failure(
+                    self.api_base, self.api_key,
+                    status_code=429, retry_after=retry_raw,
+                )
                 # Quota-exhausted APIs rarely recover in 60 seconds. Exponential
                 # backoff prevents repeatedly waking the worker only to get 429.
                 backoff = min(3600, 300 * (2 ** min(self._rate_limit_failures - 1, 4)))
-                pause = max(provider_retry, backoff)
+                pause = max(provider_retry, backoff, shared_pause)
                 self._paused_until = max(self._paused_until, time.monotonic() + pause)
                 dropped = self._drop_pending_queue()
                 now = time.monotonic()
@@ -402,11 +426,19 @@ class AIModeration(commands.Cog):
             if response.is_error:
                 print(f"⚠️ KI-Moderation: Anbieter antwortete mit HTTP {response.status_code}; keine Sanktion.")
                 if response.status_code >= 500:
-                    self._backoff_provider(f"vorübergehender Serverfehler HTTP {response.status_code}")
+                    self._backoff_provider(
+                        f"vorübergehender Serverfehler HTTP {response.status_code}",
+                        status_code=response.status_code,
+                    )
                 elif response.status_code in (401, 403):
-                    self._paused_until = max(self._paused_until, time.monotonic() + 300)
-                    print("⚠️ KI-Moderation: API-Zugang prüfen; pausiert für 300s.")
+                    shared_pause = record_provider_failure(
+                        self.api_base, self.api_key, status_code=response.status_code
+                    )
+                    pause = max(300, shared_pause)
+                    self._paused_until = max(self._paused_until, time.monotonic() + pause)
+                    print(f"⚠️ KI-Moderation: API-Zugang prüfen; pausiert für {pause}s.")
                 return None
+            record_provider_success(self.api_base, self.api_key)
             self._provider_failures = 0
             self._rate_limit_failures = 0
             data = response.json()
@@ -471,7 +503,10 @@ class AIModeration(commands.Cog):
                 self._warned_missing_config = True
             return
         now = time.monotonic()
-        if now < self._paused_until:
+        shared_pause = provider_pause_remaining(self.api_base, self.api_key)
+        if now < self._paused_until or shared_pause > 0:
+            if shared_pause > 0:
+                self._paused_until = max(self._paused_until, now + shared_pause)
             self._paused_queue_drops += 1
             return
         if self._paused_queue_drops:
@@ -788,6 +823,7 @@ class AIModeration(commands.Cog):
             f"**Warteschlangen-Überläufe:** {self._queue_drops}\n"
             f"**Veraltete Nachrichten übersprungen:** {self._stale_queue_drops}\n"
             f"**Mindestabstand zwischen KI-Anfragen:** {self.min_interval:.1f}s\n"
+            f"**Gemeinsame Anbieterpause:** {provider_pause_remaining(self.api_base, self.api_key):.0f}s\n"
             f"**Konfidenzgrenze:** {self.confidence_threshold:.0%} (niedrige Fälle: {self.low_severity_threshold:.0%})\n"
             f"**Team-KI-Chat ausgeschlossen:** {'ja' if self.team_support_channel_id and self.team_support_channel_id in self.excluded_channel_ids else 'nein'}\n"
             f"**Bürgerrollen:** {', '.join(str(x) for x in sorted(CITIZEN_ROLE_IDS))}\n"

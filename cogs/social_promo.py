@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 import re
+import time
 import uuid
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
@@ -245,6 +246,10 @@ class SocialPromo(commands.Cog):
         self.bot = bot
         self.sources = self._load_sources()
         self._poll_lock = asyncio.Lock()
+        # Track failed mirror hosts across sources. If one public RSSHub instance
+        # is down, do not make every configured source retry the same dead host.
+        self._host_retry_at: dict[str, float] = {}
+        self._host_failure_count: dict[str, int] = {}
         # Keep one bounded connection pool instead of opening sockets on every
         # source and RSSHub fallback attempt.
         self._http_client: httpx.AsyncClient | None = None
@@ -277,6 +282,37 @@ class SocialPromo(commands.Cog):
             encoding="utf-8",
         )
         temp.replace(DATA_FILE)
+
+    def _record_host_failure(self, host: str, exc: Exception) -> None:
+        """Temporarily cool down a mirror that is rate-limiting or unavailable."""
+        transient = isinstance(exc, (httpx.TimeoutException, httpx.RequestError))
+        if isinstance(exc, httpx.HTTPStatusError):
+            status = exc.response.status_code
+            transient = status in (401, 403, 429) or status >= 500
+        if not transient:
+            return
+
+        failures = min(self._host_failure_count.get(host, 0) + 1, 8)
+        self._host_failure_count[host] = failures
+        pause = min(3600, POLL_FAILURE_INITIAL_BACKOFF_SECONDS * (2 ** min(failures - 1, 4)))
+        self._host_retry_at[host] = time.monotonic() + pause
+
+        # Keep the diagnostic cache bounded even if many one-off feeds are added.
+        if len(self._host_retry_at) > 64:
+            oldest = sorted(
+                self._host_retry_at,
+                key=lambda key: self._host_retry_at[key],
+            )
+            for old_host in oldest[:len(self._host_retry_at) - 64]:
+                self._host_retry_at.pop(old_host, None)
+                self._host_failure_count.pop(old_host, None)
+
+    def _record_host_success(self, host: str) -> None:
+        self._host_retry_at.pop(host, None)
+        self._host_failure_count.pop(host, None)
+
+    def _host_cooldown(self, host: str) -> float:
+        return max(0.0, self._host_retry_at.get(host, 0.0) - time.monotonic())
 
     async def _get_text(self, url: str) -> str:
         if not _is_public_https_url(url):
@@ -359,14 +395,22 @@ class SocialPromo(commands.Cog):
         """Fetch and parse a feed, retrying other known RSSHub instances for social profiles."""
         candidates = self._feed_candidates(feed_url, platform)
         failures: list[tuple[str, Exception]] = []
+        skipped_hosts: dict[str, float] = {}
+        attempted = 0
 
         for candidate in candidates:
             host = urlparse(candidate).hostname or "Feed-Server"
+            remaining = self._host_cooldown(host)
+            if remaining > 0:
+                skipped_hosts[host] = max(skipped_hosts.get(host, 0.0), remaining)
+                continue
+            attempted += 1
             try:
                 xml_text = await self._get_text(candidate)
                 feed_title, items = parse_feed(xml_text)
                 if not feed_title and not items:
                     raise ValueError("Die Adresse liefert keinen erkennbaren RSS-/Atom-Feed.")
+                self._record_host_success(host)
                 if candidate != feed_url:
                     print(f"✅ Social-Promo: RSSHub-Fallback für {platform} erfolgreich ({host}).")
                 return candidate, feed_title, items
@@ -374,8 +418,22 @@ class SocialPromo(commands.Cog):
                 raise
             except (ValueError, httpx.HTTPError, ET.ParseError) as exc:
                 failures.append((host, exc))
+                self._record_host_failure(host, exc)
                 if len(candidates) == 1:
                     raise
+
+        if attempted == 0:
+            earliest = min(skipped_hosts.values(), default=float(POLL_FAILURE_INITIAL_BACKOFF_SECONDS))
+            retry_minutes = max(1, int((earliest + 59) // 60))
+            skipped = ", ".join(
+                f"{host} ({max(1, int((remaining + 59) // 60))} Min.)"
+                for host, remaining in sorted(skipped_hosts.items())
+            )
+            raise ValueError(
+                "Keine RSSHub-Instanz konnte den Feed abrufen (alle Kandidaten sind "
+                f"wegen vorheriger Serverfehler vorübergehend gedrosselt; nächster Probeversuch "
+                f"in ca. {retry_minutes} Min.; {skipped})."
+            )
 
         details: list[str] = []
         for host, exc in failures:
