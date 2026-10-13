@@ -7,6 +7,13 @@ from discord.ext import commands
 
 DB_NAME = "buero_system.db"
 
+# Aktuelle Server-Zuordnung für das Büro-System. Die bestehende /setup_buero-
+# Konfiguration bleibt weiterhin änderbar; die Version-Migration korrigiert einmalig
+# veraltete IDs aus älteren Deployments.
+DEFAULT_WAITING_ROOM_ID = 1528821871057965067
+DEFAULT_PING_CHANNEL_ID = 1539324692001857606
+OFFICE_CONFIG_VERSION = 2
+
 # --- DATENBANK HELFER ---
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -46,6 +53,28 @@ def get_config(key: str):
     row = cursor.fetchone()
     conn.close()
     return row[0] if row else None
+
+
+def migrate_office_config():
+    """Set the requested channel IDs once, then preserve future /setup_buero changes."""
+    init_db()
+    if get_config("office_config_version") == OFFICE_CONFIG_VERSION:
+        return
+    set_config("warteraum_channel_id", DEFAULT_WAITING_ROOM_ID)
+    set_config("ping_channel_id", DEFAULT_PING_CHANNEL_ID)
+    set_config("office_config_version", OFFICE_CONFIG_VERSION)
+
+
+async def resolve_ping_channel(guild: discord.Guild, channel_id: int | None = None):
+    """Resolve the configured ping channel from cache, then from Discord if needed."""
+    channel_id = int(channel_id or get_config("ping_channel_id") or DEFAULT_PING_CHANNEL_ID)
+    channel = guild.get_channel(channel_id)
+    if channel is None:
+        try:
+            channel = await guild.fetch_channel(channel_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return None
+    return channel if isinstance(channel, discord.TextChannel) else None
 
 
 def save_pending_request(user_id: int, guild_id: int, ping_channel_id: int,
@@ -375,8 +404,8 @@ class BueroSelect(discord.ui.Select):
             )
             return
 
-        ping_channel_id = get_config("ping_channel_id")
-        ping_channel = guild.get_channel(ping_channel_id) if ping_channel_id else None
+        ping_channel_id = int(get_config("ping_channel_id") or DEFAULT_PING_CHANNEL_ID)
+        ping_channel = await resolve_ping_channel(guild, ping_channel_id)
         if not isinstance(ping_channel, discord.TextChannel):
             await interaction.response.send_message(
                 "❌ Das Büro-Ping-System ist auf dem Server noch nicht vollständig eingerichtet.",
@@ -459,6 +488,84 @@ class BueroSystemCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         init_db()
+        migrate_office_config()
+
+    async def _send_arrival_ping(self, member: discord.Member, waiting_room: discord.VoiceChannel):
+        """Publish an immediate office request on entry, even before the DM selection."""
+        ping_channel_id = int(get_config("ping_channel_id") or DEFAULT_PING_CHANNEL_ID)
+        ping_channel = await resolve_ping_channel(member.guild, ping_channel_id)
+        if not ping_channel:
+            print(
+                f"⚠️ Büro-System: Ping-Kanal {ping_channel_id} fehlt oder ist nicht erreichbar. "
+                "Prüfe /setup_buero sowie die Bot-Rechte."
+            )
+            return
+
+        # Replace any stale open request, while keeping the database and message in sync.
+        await delete_pending_ping(self.bot, member.id)
+        embed = discord.Embed(
+            title="🛎️ Neue Büro-Anfrage",
+            description=f"**{member.display_name}** ist dem Büro-Warteraum beigetreten und wartet auf Unterstützung.",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="Nutzer", value=member.mention, inline=True)
+        embed.add_field(name="Warteraum", value=waiting_room.mention, inline=True)
+        embed.add_field(name="Gewünschtes Büro", value="Noch nicht ausgewählt – Auswahl per DM möglich.", inline=False)
+        embed.add_field(name="Status", value="⏳ Wartet auf Übernahme …", inline=False)
+        embed.set_thumbnail(url=member.display_avatar.url)
+
+        # target_voice_id=0 lets a team member take the visitor into their current voice channel.
+        view = BueroUebernehmenView(
+            bot=self.bot,
+            waiting_user_id=member.id,
+            target_voice_id=0,
+        )
+        # If the waiting room has a configured office role, notify that role.
+        # Otherwise still publish the request without pinging every team rank.
+        arrival_role = office_role_for(member.guild, waiting_room.id)
+        content = (
+            (arrival_role.mention + " ") if arrival_role else ""
+        ) + "🔔 **Neue Büro-Anfrage**"
+        try:
+            ping_message = await ping_channel.send(
+                content=content,
+                embed=embed,
+                view=view,
+                allowed_mentions=discord.AllowedMentions(
+                    roles=[arrival_role] if arrival_role else [],
+                    users=False,
+                    everyone=False,
+                    replied_user=False,
+                ),
+            )
+            save_pending_request(
+                user_id=member.id,
+                guild_id=member.guild.id,
+                ping_channel_id=ping_channel.id,
+                message_id=ping_message.id,
+                target_voice_id=0,
+            )
+            print(
+                f"🏢 Büro-System: Warteraum-Eintritt von {member} erkannt; "
+                f"Ping in Kanal {ping_channel.id} erstellt."
+            )
+
+            # A very quick exit can race with sending/saving the notification.
+            current_voice = member.voice.channel if member.voice else None
+            if not current_voice or current_voice.id != waiting_room.id:
+                await delete_pending_ping(
+                    self.bot,
+                    member.id,
+                    expected_message_id=ping_message.id,
+                    fallback_message=ping_message,
+                )
+        except (discord.Forbidden, discord.HTTPException, sqlite3.Error) as exc:
+            try:
+                if "ping_message" in locals():
+                    await ping_message.delete()
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
+            print(f"⚠️ Büro-System: Eintritts-Ping konnte nicht erstellt werden ({type(exc).__name__}).")
 
     # EVENT: ERKENNT WENN JEMAND DEN WARTERAUM BETRITT
     @commands.Cog.listener()
@@ -480,7 +587,12 @@ class BueroSystemCog(commands.Cog):
         # Wenn der User den Warteraum neu betritt
         if after.channel and after.channel.id == warteraum_id and (before.channel != after.channel):
             category = after.channel.category
-            
+
+            # Den Textkanal sofort benachrichtigen, wenn jemand den Warteraum betritt.
+            # Die DM-Auswahl bleibt zusätzlich bestehen, damit die passende Bürorolle
+            # anschließend gezielt gepingt werden kann.
+            await self._send_arrival_ping(member, after.channel)
+
             # Alle Sprachkanäle in der gleichen Kategorie holen (außer Warteraum)
             if category:
                 office_channels = [vc for vc in category.voice_channels if vc.id != warteraum_id]
@@ -488,6 +600,7 @@ class BueroSystemCog(commands.Cog):
                 office_channels = [vc for vc in member.guild.voice_channels if vc.id != warteraum_id]
 
             if not office_channels:
+                print("⚠️ Büro-System: Keine weiteren Büro-Sprachkanäle für die DM-Auswahl gefunden.")
                 return
 
             try:
@@ -511,6 +624,7 @@ class BueroSystemCog(commands.Cog):
     async def setup_buero(self, interaction: discord.Interaction, warteraum: discord.VoiceChannel, ping_kanal: discord.TextChannel):
         set_config("warteraum_channel_id", warteraum.id)
         set_config("ping_channel_id", ping_kanal.id)
+        set_config("office_config_version", OFFICE_CONFIG_VERSION)
 
         await interaction.response.send_message(
             f"✅ **Büro-System eingerichtet!**\n"
