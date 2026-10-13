@@ -180,6 +180,13 @@ class AIModeration(commands.Cog):
         self._last_rate_limit_log_at = 0.0
         self._paused_queue_drops = 0
         self._queue_drops = 0
+        # Keep a bounded record of moderation gaps so the team is notified when
+        # the provider recovers. Only message links are retained, never copied text.
+        self._outage_unreviewed_count = 0
+        self._outage_started_at: datetime | None = None
+        self._outage_last_at: datetime | None = None
+        self._outage_message_links: list[str] = []
+        self._outage_notice_task: asyncio.Task | None = None
         self._warned_missing_config = False
         # Role configuration changes are written atomically by the dashboard.
         # Cache the parsed IDs and reload only when the config file's mtime changes,
@@ -201,6 +208,8 @@ class AIModeration(commands.Cog):
     async def cog_unload(self):
         if self.worker_task:
             self.worker_task.cancel()
+        if self._outage_notice_task:
+            self._outage_notice_task.cancel()
         await self._http_client.aclose()
 
     async def _worker(self):
@@ -216,6 +225,8 @@ class AIModeration(commands.Cog):
                 # queued items quickly while the circuit breaker is open.
                 if time.monotonic() < self._paused_until:
                     self._paused_queue_drops += 1
+                    self._record_unreviewed_message(item)
+                    self._schedule_outage_notice()
                     continue
                 # Do not moderate an old backlog after long API outages: context
                 # may be stale and can generate misleading moderation reports.
@@ -227,6 +238,8 @@ class AIModeration(commands.Cog):
                 except (ValueError, TypeError):
                     item_age = 0
                 if item_age > self.max_queue_age_seconds:
+                    self._record_unreviewed_message(item)
+                    self._schedule_outage_notice()
                     self._stale_queue_drops += 1
                     if self._stale_queue_drops in (1, 10) or self._stale_queue_drops % 100 == 0:
                         print(
@@ -249,14 +262,126 @@ class AIModeration(commands.Cog):
         dropped = 0
         while True:
             try:
-                self.queue.get_nowait()
+                item = self.queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
             else:
+                self._record_unreviewed_message(item)
                 self.queue.task_done()
                 dropped += 1
         self._paused_queue_drops += dropped
         return dropped
+
+    def _record_unreviewed_message(self, item: dict[str, Any]) -> None:
+        """Track a message that could not be checked; retain links, not message text."""
+        now = datetime.now(timezone.utc)
+        self._outage_unreviewed_count += 1
+        if self._outage_started_at is None:
+            self._outage_started_at = now
+        self._outage_last_at = now
+        link = str(item.get("message_url", "")).strip()
+        if link and link not in self._outage_message_links and len(self._outage_message_links) < 12:
+            self._outage_message_links.append(link)
+
+    def _schedule_outage_notice(self) -> None:
+        if self._outage_notice_task is None or self._outage_notice_task.done():
+            self._outage_notice_task = asyncio.create_task(
+                self._wait_and_publish_outage_notice(),
+                name="pulse-ai-moderation-outage-notice",
+            )
+
+    async def _wait_and_publish_outage_notice(self) -> None:
+        published = False
+        try:
+            while not self.bot.is_closed():
+                local_remaining = self._paused_until - time.monotonic()
+                shared_remaining = provider_pause_remaining(self.api_base, self.api_key)
+                remaining = max(local_remaining, shared_remaining)
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(max(remaining + 0.25, 1.0), 60.0))
+            if not self.bot.is_closed() and self._outage_unreviewed_count:
+                published = await self._publish_outage_notice()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"⚠️ KI-Moderation: Ausfallhinweis fehlgeschlagen ({type(exc).__name__}).")
+        finally:
+            self._outage_notice_task = None
+            # Messages arriving while the summary was being sent start a new report.
+            if published and self._outage_unreviewed_count and not self.bot.is_closed():
+                self._schedule_outage_notice()
+
+    async def _publish_outage_notice(self) -> bool:
+        count = self._outage_unreviewed_count
+        if count <= 0:
+            return True
+        guild = self.bot.get_guild(self.guild_id)
+        channel = guild.get_channel(self.review_channel_id) if guild else None
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(self.review_channel_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+                print(f"⚠️ KI-Moderation: Ausfallhinweis kann Prüfkanal nicht erreichen ({type(exc).__name__}).")
+                return False
+        if not hasattr(channel, "send"):
+            print("⚠️ KI-Moderation: Ausfallhinweis kann nicht gesendet werden; Prüfkanal ist nicht beschreibbar.")
+            return False
+
+        started_at = self._outage_started_at or datetime.now(timezone.utc)
+        ended_at = self._outage_last_at or started_at
+        links = list(self._outage_message_links)
+        role = guild.get_role(MODERATION_DECISION_ROLE_ID) if guild else None
+        embed = discord.Embed(
+            title="⚠️ KI-Moderation: manuelle Sichtung erforderlich",
+            description=(
+                f"Pulse konnte während einer Anbieterpause bzw. Überlastung **{count} Nachrichten "
+                "nicht automatisch prüfen**. Das ist keine Feststellung eines Regelverstoßes; "
+                "es wurde dadurch keine Sanktion ausgelöst. Bitte die verlinkten Nachrichten manuell prüfen."
+            ),
+            color=discord.Color.orange(),
+            timestamp=ended_at,
+        )
+        embed.add_field(
+            name="Zeitraum (UTC)",
+            value=f"{started_at:%d.%m.%Y %H:%M:%S} – {ended_at:%d.%m.%Y %H:%M:%S}",
+            inline=False,
+        )
+        link_text = "\n".join(f"• [Nachricht {index}]({url})" for index, url in enumerate(links, start=1))
+        if count > len(links):
+            remaining = count - len(links)
+            link_text += f"\n… und {remaining} weitere nicht einzeln aufgeführte Nachricht(en)." if link_text else f"{remaining} weitere Nachricht(en) nicht einzeln aufgeführt."
+        embed.add_field(
+            name="Beispiele zur Prüfung (max. 12)",
+            value=link_text[:1024] or "Keine Nachrichtenlinks verfügbar.",
+            inline=False,
+        )
+        embed.set_footer(text="Nur manueller Hinweis – keine automatische Klassifikation oder Sanktion.")
+        content = f"{role.mention} Bitte die Moderationslücke prüfen." if role else None
+        allowed_mentions = (
+            discord.AllowedMentions(roles=[role], users=False, everyone=False, replied_user=False)
+            if role else discord.AllowedMentions.none()
+        )
+
+        # Reset before the network await. If sending fails, merge the snapshot back
+        # with any new messages observed while Discord was processing the request.
+        self._outage_unreviewed_count = 0
+        self._outage_started_at = None
+        self._outage_last_at = None
+        self._outage_message_links = []
+        try:
+            await channel.send(content=content, embed=embed, allowed_mentions=allowed_mentions)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            self._outage_unreviewed_count += count
+            if self._outage_started_at is None or started_at < self._outage_started_at:
+                self._outage_started_at = started_at
+            if self._outage_last_at is None or ended_at > self._outage_last_at:
+                self._outage_last_at = ended_at
+            self._outage_message_links = list(dict.fromkeys(links + self._outage_message_links))[:12]
+            print(f"⚠️ KI-Moderation: Ausfallhinweis konnte nicht gesendet werden ({type(exc).__name__}).")
+            return False
+        print(f"ℹ️ KI-Moderation: Ausfallhinweis veröffentlicht; {count} Nachrichten zur manuellen Sichtung.")
+        return True
 
     def _load_cases(self) -> dict[str, dict[str, Any]]:
         try:
@@ -343,15 +468,24 @@ class AIModeration(commands.Cog):
             return "BÜRGER"
         return "OTHER"
 
-    def _backoff_provider(self, reason: str, status_code: int | None = None) -> int:
-        """Back off this worker and all other Pulse AI callers sharing the API key."""
+    def _backoff_provider(
+        self,
+        reason: str,
+        status_code: int | None = None,
+        retry_after: str | None = None,
+        item: dict[str, Any] | None = None,
+    ) -> int:
+        """Back off all Pulse AI callers sharing this provider and report the review gap."""
         self._provider_failures = min(self._provider_failures + 1, 8)
         local_pause = min(300, 15 * (2 ** min(self._provider_failures - 1, 5)))
         shared_pause = record_provider_failure(
-            self.api_base, self.api_key, status_code=status_code
+            self.api_base, self.api_key, status_code=status_code, retry_after=retry_after
         )
         pause = max(local_pause, shared_pause)
         self._paused_until = max(self._paused_until, time.monotonic() + pause)
+        if item is not None:
+            self._record_unreviewed_message(item)
+        self._schedule_outage_notice()
         print(f"⚠️ KI-Moderation: {reason}; nächste Anfrage frühestens in {pause}s.")
         return pause
 
@@ -363,6 +497,8 @@ class AIModeration(commands.Cog):
             or provider_pause_remaining(self.api_base, self.api_key) > 0
         ):
             self._paused_queue_drops += 1
+            self._record_unreviewed_message(item)
+            self._schedule_outage_notice()
             return None
         payload = {
             "model": self.model,
@@ -389,6 +525,8 @@ class AIModeration(commands.Cog):
             ) as request_allowed:
                 if not request_allowed:
                     self._paused_queue_drops += 1
+                    self._record_unreviewed_message(item)
+                    self._schedule_outage_notice()
                     return None
                 self._last_request_at = time.monotonic()
                 response = await self._http_client.post(
@@ -414,6 +552,8 @@ class AIModeration(commands.Cog):
                 backoff = min(3600, 300 * (2 ** min(self._rate_limit_failures - 1, 4)))
                 pause = max(provider_retry, backoff, shared_pause)
                 self._paused_until = max(self._paused_until, time.monotonic() + pause)
+                self._record_unreviewed_message(item)
+                self._schedule_outage_notice()
                 dropped = self._drop_pending_queue()
                 now = time.monotonic()
                 if not self._last_rate_limit_log_at or now - self._last_rate_limit_log_at >= 900:
@@ -429,6 +569,8 @@ class AIModeration(commands.Cog):
                     self._backoff_provider(
                         f"vorübergehender Serverfehler HTTP {response.status_code}",
                         status_code=response.status_code,
+                        retry_after=response.headers.get("retry-after"),
+                        item=item,
                     )
                 elif response.status_code in (401, 403):
                     shared_pause = record_provider_failure(
@@ -436,6 +578,8 @@ class AIModeration(commands.Cog):
                     )
                     pause = max(300, shared_pause)
                     self._paused_until = max(self._paused_until, time.monotonic() + pause)
+                    self._record_unreviewed_message(item)
+                    self._schedule_outage_notice()
                     print(f"⚠️ KI-Moderation: API-Zugang prüfen; pausiert für {pause}s.")
                 return None
             record_provider_success(self.api_base, self.api_key)
@@ -477,7 +621,7 @@ class AIModeration(commands.Cog):
                 "recommended_action": action,
             }
         except (httpx.TimeoutException, httpx.RequestError) as exc:
-            self._backoff_provider(f"Verbindungsfehler ({type(exc).__name__})")
+            self._backoff_provider(f"Verbindungsfehler ({type(exc).__name__})", item=item)
         except (ValueError, KeyError, TypeError) as exc:
             print(f"⚠️ KI-Moderation: Antwortfehler ({type(exc).__name__}).")
         return None
@@ -508,6 +652,10 @@ class AIModeration(commands.Cog):
             if shared_pause > 0:
                 self._paused_until = max(self._paused_until, now + shared_pause)
             self._paused_queue_drops += 1
+            self._record_unreviewed_message({
+                "message_url": f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{message.id}",
+            })
+            self._schedule_outage_notice()
             return
         if self._paused_queue_drops:
             print(
@@ -535,6 +683,8 @@ class AIModeration(commands.Cog):
             self.queue.put_nowait(item)
         except asyncio.QueueFull:
             self._queue_drops += 1
+            self._record_unreviewed_message(item)
+            self._schedule_outage_notice()
             if self._queue_drops in (1, 10) or self._queue_drops % 100 == 0:
                 print(
                     f"⚠️ KI-Moderation: Warteschlange voll ({self.max_queue_size}); "
