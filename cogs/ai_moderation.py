@@ -709,10 +709,10 @@ class AIModeration(commands.Cog):
             record_provider_success(self.api_base, self.api_key)
             self._provider_failures = 0
             self._rate_limit_failures = 0
-            # A successful AI response ends the current provider outage. If the
-            # previous notice was throttled, release the pending digest promptly.
+            # A successful request confirms the provider is responding again, but
+            # it must not bypass the outage-notice cooldown. Otherwise a flapping
+            # HTTP 503 endpoint can produce a new review embed after every success.
             if self._outage_unreviewed_count:
-                self._outage_notice_last_sent_at = 0.0
                 self._schedule_outage_notice()
             data = response.json()
             choices = data.get("choices", [])

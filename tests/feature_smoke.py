@@ -442,6 +442,21 @@ def main() -> None:
     assert "nicht rückwirkend gepostet" in social
     assert "def _is_video_item(source: dict, item: dict[str, str]) -> bool:" in social
 
+    # The moderation digest cooldown must survive a successful probe while a provider is flapping.
+    assert ai_mod.count("self._outage_notice_last_sent_at = 0.0") == 1
+    assert "it must not bypass the outage-notice cooldown" in ai_mod
+
+    # Message deletion is confirmed, bounded, and avoids individually deleting old history by default.
+    messagedelete = read("cogs/messagedelete.py")
+    parse("cogs/messagedelete.py")
+    assert "class MessageDeleteConfirmationView(discord.ui.View):" in messagedelete
+    assert "app_commands.Range[int, 1, 1000]" in messagedelete
+    assert "await channel.purge(" in messagedelete
+    assert "after=cutoff" in messagedelete
+    assert "limit=None" not in messagedelete
+    assert "await asyncio.sleep(1.1)" in messagedelete
+    assert "amount > 100" in messagedelete
+
     print("Pulse feature smoke test: OK")
 
 
