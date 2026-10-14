@@ -238,8 +238,8 @@ def main() -> None:
     assert 'PULSE_AI_MODERATION_OUTAGE_NOTICE_INTERVAL_SECONDS", "21600"' in ai_mod
     assert "self._outage_notice_interval_seconds" in ai_mod
     assert "self._outage_notice_last_sent_at" in ai_mod
-    assert "KI-Moderation: manuelle Sichtung erforderlich" in ai_mod
-    assert "Nur manueller Hinweis – keine automatische Klassifikation oder Sanktion." in ai_mod
+    assert "KI-Moderation pausiert – manuelle Prüfung" in ai_mod
+    assert "Keine automatische Klassifikation oder Sanktion. Maßnahmen nur nach menschlicher Prüfung." in ai_mod
     assert "response.status_code >= 500" in ai_mod
     assert '_backoff_provider(f"Verbindungsfehler ({type(exc).__name__})", item=item)' in ai_mod
     # Team KI messages and stale messages after provider outages should not create
