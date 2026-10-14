@@ -186,6 +186,16 @@ class AIModeration(commands.Cog):
         self._outage_started_at: datetime | None = None
         self._outage_last_at: datetime | None = None
         self._outage_message_links: list[str] = []
+        # Persistent quota failures should not flood the review channel. One notice
+        # per configured interval, with skipped-message counts/links accumulated.
+        try:
+            self._outage_notice_interval_seconds = max(
+                3600,
+                min(86400, int(os.getenv("PULSE_AI_MODERATION_OUTAGE_NOTICE_INTERVAL_SECONDS", "21600"))),
+            )
+        except (TypeError, ValueError):
+            self._outage_notice_interval_seconds = 21600
+        self._outage_notice_last_sent_at = 0.0
         self._outage_notice_task: asyncio.Task | None = None
         self._warned_missing_config = False
         # Role configuration changes are written atomically by the dashboard.
@@ -294,9 +304,17 @@ class AIModeration(commands.Cog):
         published = False
         try:
             while not self.bot.is_closed():
-                local_remaining = self._paused_until - time.monotonic()
+                now = time.monotonic()
+                local_remaining = self._paused_until - now
                 shared_remaining = provider_pause_remaining(self.api_base, self.api_key)
-                remaining = max(local_remaining, shared_remaining)
+                notice_remaining = (
+                    self._outage_notice_last_sent_at
+                    + self._outage_notice_interval_seconds
+                    - now
+                    if self._outage_notice_last_sent_at
+                    else 0.0
+                )
+                remaining = max(local_remaining, shared_remaining, notice_remaining)
                 if remaining <= 0:
                     break
                 await asyncio.sleep(min(max(remaining + 0.25, 1.0), 60.0))
@@ -380,7 +398,12 @@ class AIModeration(commands.Cog):
             self._outage_message_links = list(dict.fromkeys(links + self._outage_message_links))[:12]
             print(f"⚠️ KI-Moderation: Ausfallhinweis konnte nicht gesendet werden ({type(exc).__name__}).")
             return False
-        print(f"ℹ️ KI-Moderation: Ausfallhinweis veröffentlicht; {count} Nachrichten zur manuellen Sichtung.")
+        self._outage_notice_last_sent_at = time.monotonic()
+        interval_hours = self._outage_notice_interval_seconds // 3600
+        print(
+            f"ℹ️ KI-Moderation: Ausfallhinweis veröffentlicht; {count} Nachrichten zur manuellen Sichtung. "
+            f"Nächster Hinweis bei anhaltendem Ausfall frühestens in {interval_hours} Std."
+        )
         return True
 
     def _load_cases(self) -> dict[str, dict[str, Any]]:
@@ -585,6 +608,11 @@ class AIModeration(commands.Cog):
             record_provider_success(self.api_base, self.api_key)
             self._provider_failures = 0
             self._rate_limit_failures = 0
+            # A successful AI response ends the current provider outage. If the
+            # previous notice was throttled, release the pending digest promptly.
+            if self._outage_unreviewed_count:
+                self._outage_notice_last_sent_at = 0.0
+                self._schedule_outage_notice()
             data = response.json()
             choices = data.get("choices", [])
             raw = choices[0].get("message", {}).get("content", "") if choices else ""

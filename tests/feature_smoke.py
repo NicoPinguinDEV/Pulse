@@ -228,6 +228,9 @@ def main() -> None:
     assert "retry_after=response.headers.get(\"retry-after\")" in ai_mod
     assert "def _record_unreviewed_message(self, item: dict[str, Any]) -> None:" in ai_mod
     assert "def _publish_outage_notice(self) -> bool:" in ai_mod
+    assert 'PULSE_AI_MODERATION_OUTAGE_NOTICE_INTERVAL_SECONDS", "21600"' in ai_mod
+    assert "self._outage_notice_interval_seconds" in ai_mod
+    assert "self._outage_notice_last_sent_at" in ai_mod
     assert "KI-Moderation: manuelle Sichtung erforderlich" in ai_mod
     assert "Nur manueller Hinweis – keine automatische Klassifikation oder Sanktion." in ai_mod
     assert "response.status_code >= 500" in ai_mod
