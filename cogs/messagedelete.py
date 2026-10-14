@@ -38,17 +38,6 @@ class MessageDeleteConfirmationView(discord.ui.View):
             return False
         return True
 
-    async def on_timeout(self) -> None:
-        for child in self.children:
-            if isinstance(child, discord.ui.Button):
-                child.disabled = True
-        # The confirmation is ephemeral; on_timeout is best-effort only.
-        try:
-            if self.message:
-                await self.message.edit(view=self)
-        except (discord.HTTPException, discord.NotFound):
-            pass
-
     @discord.ui.button(
         label="Löschen bestätigen",
         style=discord.ButtonStyle.danger,
@@ -213,7 +202,6 @@ class MessageDeleteCog(commands.Cog):
             view=view,
             ephemeral=True,
         )
-        view.message = await interaction.original_response()
 
 
 async def setup(bot: commands.Bot):
