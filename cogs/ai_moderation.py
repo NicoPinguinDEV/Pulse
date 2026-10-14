@@ -186,6 +186,8 @@ class AIModeration(commands.Cog):
         self._outage_started_at: datetime | None = None
         self._outage_last_at: datetime | None = None
         self._outage_message_links: list[str] = []
+        # Retain metadata for up to 12 individual manual cases; never store an unbounded outage backlog.
+        self._outage_review_items: list[dict[str, Any]] = []
         # Persistent quota failures should not flood the review channel. One notice
         # per configured interval, with skipped-message counts/links accumulated.
         try:
@@ -283,7 +285,7 @@ class AIModeration(commands.Cog):
         return dropped
 
     def _record_unreviewed_message(self, item: dict[str, Any]) -> None:
-        """Track a message that could not be checked; retain links, not message text."""
+        """Track skipped messages; keep only bounded metadata and links, never more than 12 cases."""
         now = datetime.now(timezone.utc)
         self._outage_unreviewed_count += 1
         if self._outage_started_at is None:
@@ -292,6 +294,35 @@ class AIModeration(commands.Cog):
         link = str(item.get("message_url", "")).strip()
         if link and link not in self._outage_message_links and len(self._outage_message_links) < 12:
             self._outage_message_links.append(link)
+
+        # The outage notice used to retain links only, so no action could be tied
+        # safely to a target. Keep enough bounded metadata to create individual,
+        # explicitly manual review cases for the first 12 unique messages.
+        required = ("guild_id", "channel_id", "message_id", "user_id", "role_kind")
+        if not link or any(item.get(key) is None for key in required):
+            return
+        message_id = str(item.get("message_id"))
+        if any(str(existing.get("message_id")) == message_id for existing in self._outage_review_items):
+            return
+        if len(self._outage_review_items) >= 12:
+            return
+        try:
+            record = {
+                "guild_id": int(item["guild_id"]),
+                "channel_id": int(item["channel_id"]),
+                "channel_name": str(item.get("channel_name", "unbekannt"))[:100],
+                "message_id": int(item["message_id"]),
+                "message_url": link,
+                "user_id": int(item["user_id"]),
+                "user_name": str(item.get("user_name", "Unbekannt"))[:100],
+                "content": str(item.get("content", ""))[:3500],
+                "role_names": [str(x)[:80] for x in item.get("role_names", [])[:20]],
+                "role_kind": str(item.get("role_kind", "OTHER")),
+                "created_at": str(item.get("created_at", now.isoformat())),
+            }
+        except (TypeError, ValueError, KeyError):
+            return
+        self._outage_review_items.append(record)
 
     def _schedule_outage_notice(self) -> None:
         if self._outage_notice_task is None or self._outage_notice_task.done():
@@ -349,13 +380,30 @@ class AIModeration(commands.Cog):
         started_at = self._outage_started_at or datetime.now(timezone.utc)
         ended_at = self._outage_last_at or started_at
         links = list(self._outage_message_links)
+        review_items = list(self._outage_review_items)
         role = guild.get_role(MODERATION_DECISION_ROLE_ID) if guild else None
+
+        link_lines = []
+        for index, url in enumerate(links, start=1):
+            line = f"• [Nachricht {index} öffnen]({url})"
+            candidate = "\n".join(link_lines + [line])
+            if len(candidate) > 980:
+                break
+            link_lines.append(line)
+        if count > len(links):
+            remaining = count - len(links)
+            note = f"… und {remaining} weitere Nachricht(en), die nicht einzeln gelistet sind."
+            candidate = "\n".join(link_lines + [note])
+            if len(candidate) <= 1024:
+                link_lines.append(note)
+
         embed = discord.Embed(
-            title="⚠️ KI-Moderation: manuelle Sichtung erforderlich",
+            title="⚠️ KI-Moderation pausiert – manuelle Prüfung",
             description=(
-                f"Pulse konnte während einer Anbieterpause bzw. Überlastung **{count} Nachrichten "
-                "nicht automatisch prüfen**. Das ist keine Feststellung eines Regelverstoßes; "
-                "es wurde dadurch keine Sanktion ausgelöst. Bitte die verlinkten Nachrichten manuell prüfen."
+                f"**{count} Nachrichten** konnten während eines API-Ausfalls nicht automatisch geprüft werden.\n"
+                "Das ist **keine Feststellung eines Regelverstoßes**; es wurde dadurch keine Sanktion ausgelöst.\n\n"
+                f"Für **{len(review_items)} gespeicherte Beispiel(e)** folgen darunter einzelne Prüffälle "
+                "mit den passenden manuellen Aktionsbuttons. Bitte öffne und prüfe den Originaltext vor jeder Entscheidung."
             ),
             color=discord.Color.orange(),
             timestamp=ended_at,
@@ -365,28 +413,25 @@ class AIModeration(commands.Cog):
             value=f"{started_at:%d.%m.%Y %H:%M:%S} – {ended_at:%d.%m.%Y %H:%M:%S}",
             inline=False,
         )
-        link_text = "\n".join(f"• [Nachricht {index}]({url})" for index, url in enumerate(links, start=1))
-        if count > len(links):
-            remaining = count - len(links)
-            link_text += f"\n… und {remaining} weitere nicht einzeln aufgeführte Nachricht(en)." if link_text else f"{remaining} weitere Nachricht(en) nicht einzeln aufgeführt."
-        embed.add_field(
-            name="Beispiele zur Prüfung (max. 12)",
-            value=link_text[:1024] or "Keine Nachrichtenlinks verfügbar.",
-            inline=False,
-        )
-        embed.set_footer(text="Nur manueller Hinweis – keine automatische Klassifikation oder Sanktion.")
-        content = f"{role.mention} Bitte die Moderationslücke prüfen." if role else None
+        if link_lines:
+            embed.add_field(
+                name="Originalnachrichten",
+                value="\n".join(link_lines)[:1024],
+                inline=False,
+            )
+        embed.set_footer(text="Keine automatische Klassifikation oder Sanktion. Maßnahmen nur nach menschlicher Prüfung.")
+        content = f"{role.mention} Bitte die manuellen Moderationsfälle prüfen." if role else None
         allowed_mentions = (
             discord.AllowedMentions(roles=[role], users=False, everyone=False, replied_user=False)
             if role else discord.AllowedMentions.none()
         )
 
-        # Reset before the network await. If sending fails, merge the snapshot back
-        # with any new messages observed while Discord was processing the request.
+        # Snapshot and clear before network awaits so newly skipped messages are not lost.
         self._outage_unreviewed_count = 0
         self._outage_started_at = None
         self._outage_last_at = None
         self._outage_message_links = []
+        self._outage_review_items = []
         try:
             await channel.send(content=content, embed=embed, allowed_mentions=allowed_mentions)
         except (discord.Forbidden, discord.HTTPException) as exc:
@@ -396,14 +441,70 @@ class AIModeration(commands.Cog):
             if self._outage_last_at is None or ended_at > self._outage_last_at:
                 self._outage_last_at = ended_at
             self._outage_message_links = list(dict.fromkeys(links + self._outage_message_links))[:12]
+            combined_items = review_items + self._outage_review_items
+            unique_items = []
+            seen_ids = set()
+            for item in combined_items:
+                item_id = str(item.get("message_id", ""))
+                if item_id and item_id not in seen_ids:
+                    seen_ids.add(item_id)
+                    unique_items.append(item)
+                if len(unique_items) >= 12:
+                    break
+            self._outage_review_items = unique_items
             print(f"⚠️ KI-Moderation: Ausfallhinweis konnte nicht gesendet werden ({type(exc).__name__}).")
             return False
+
         self._outage_notice_last_sent_at = time.monotonic()
+        posted_cases = 0
+        for item in review_items:
+            if await self._publish_manual_outage_case(channel, guild, item):
+                posted_cases += 1
         interval_hours = self._outage_notice_interval_seconds // 3600
         print(
-            f"ℹ️ KI-Moderation: Ausfallhinweis veröffentlicht; {count} Nachrichten zur manuellen Sichtung. "
-            f"Nächster Hinweis bei anhaltendem Ausfall frühestens in {interval_hours} Std."
+            f"ℹ️ KI-Moderation: Ausfallhinweis veröffentlicht; {count} Nachrichten zur manuellen Sichtung, "
+            f"{posted_cases}/{len(review_items)} Aktionsfälle erstellt. "
+            f"Nächster Sammelhinweis bei anhaltendem Ausfall frühestens in {interval_hours} Std."
         )
+        return True
+
+    async def _publish_manual_outage_case(
+        self, channel: Any, guild: discord.Guild | None, item: dict[str, Any]
+    ) -> bool:
+        """Publish an actionable case without pretending that the AI classified the message."""
+        if guild is None or not hasattr(channel, "send"):
+            return False
+        case_id = uuid.uuid4().hex[:10]
+        case = {
+            **item,
+            "id": case_id,
+            "rule": "Manuelle Prüfung nach KI-Ausfall",
+            "severity": "unknown",
+            "confidence": 0.0,
+            "reason": "Die KI konnte diese Nachricht wegen eines API-Ausfalls nicht bewerten. Bitte selbst anhand der Regeln prüfen.",
+            "recommended_action": "review_only",
+            "manual_outage": True,
+            "source_created_at": item.get("created_at"),
+            "status": "pending",
+            "review_message_id": None,
+            "review_channel_id": self.review_channel_id,
+            "reviewed_by": None,
+            "decision": None,
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        try:
+            review_message = await channel.send(
+                embed=self._case_embed(case, guild),
+                view=ModerationReviewView(self, case_id, str(case.get("role_kind", "OTHER"))),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"⚠️ KI-Moderation: Manueller Aktionsfall konnte nicht gesendet werden ({type(exc).__name__}).")
+            return False
+        case["review_message_id"] = review_message.id
+        self.cases[case_id] = case
+        self._save_cases()
+        print(f"🛡️ KI-Moderation: Manueller Ausfallfall {case_id} erstellt ({case.get('role_kind', 'OTHER')}).")
         return True
 
     def _load_cases(self) -> dict[str, dict[str, Any]]:
@@ -674,23 +775,6 @@ class AIModeration(commands.Cog):
                 print("⚠️ KI-Moderation: API-Schlüssel fehlt oder PULSE_AI_MODERATION_REVIEW_CHANNEL_ID ist nicht gesetzt.")
                 self._warned_missing_config = True
             return
-        now = time.monotonic()
-        shared_pause = provider_pause_remaining(self.api_base, self.api_key)
-        if now < self._paused_until or shared_pause > 0:
-            if shared_pause > 0:
-                self._paused_until = max(self._paused_until, now + shared_pause)
-            self._paused_queue_drops += 1
-            self._record_unreviewed_message({
-                "message_url": f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{message.id}",
-            })
-            self._schedule_outage_notice()
-            return
-        if self._paused_queue_drops:
-            print(
-                f"ℹ️ KI-Moderation: Pause beendet; {self._paused_queue_drops} Nachrichten "
-                "während des API-Ausfalls übersprungen."
-            )
-            self._paused_queue_drops = 0
         item = {
             "guild_id": message.guild.id,
             "channel_id": message.channel.id,
@@ -707,6 +791,21 @@ class AIModeration(commands.Cog):
             "role_kind": self._role_kind(message.author),
             "created_at": message.created_at.isoformat(),
         }
+        now = time.monotonic()
+        shared_pause = provider_pause_remaining(self.api_base, self.api_key)
+        if now < self._paused_until or shared_pause > 0:
+            if shared_pause > 0:
+                self._paused_until = max(self._paused_until, now + shared_pause)
+            self._paused_queue_drops += 1
+            self._record_unreviewed_message(item)
+            self._schedule_outage_notice()
+            return
+        if self._paused_queue_drops:
+            print(
+                f"ℹ️ KI-Moderation: Pause beendet; {self._paused_queue_drops} Nachrichten "
+                "während des API-Ausfalls übersprungen."
+            )
+            self._paused_queue_drops = 0
         try:
             self.queue.put_nowait(item)
         except asyncio.QueueFull:
@@ -786,31 +885,70 @@ class AIModeration(commands.Cog):
         print(f"🛡️ KI-Moderation: Fall {case_id} erstellt ({item['role_kind']}, {result['rule']}, {result['severity']}).")
 
     def _case_embed(self, case: dict[str, Any], guild: discord.Guild, resolved: bool = False) -> discord.Embed:
+        manual_outage = bool(case.get("manual_outage"))
         severity = case.get("severity", "low")
-        color = {"low": discord.Color.blurple(), "medium": discord.Color.orange(), "high": discord.Color.red(), "critical": discord.Color.dark_red()}.get(severity, discord.Color.blurple())
+        color = (
+            discord.Color.orange()
+            if manual_outage
+            else {
+                "low": discord.Color.blurple(),
+                "medium": discord.Color.orange(),
+                "high": discord.Color.red(),
+                "critical": discord.Color.dark_red(),
+            }.get(severity, discord.Color.blurple())
+        )
         if resolved:
             color = discord.Color.dark_grey()
         mention = f"<@{case['user_id']}>"
-        embed = discord.Embed(
-            title="✅ Moderationsfall erledigt" if resolved else "🛡️ KI-Moderationsprüfung",
-            description=(
+        if manual_outage:
+            description = (
+                f"**Mitglied:** {discord.utils.escape_mentions(str(case['user_name']))} ({mention})\n"
+                f"**Rollenklasse:** {case.get('role_kind', 'OTHER')}\n"
+                f"**Kanal:** <#{case['channel_id']}>\n"
+                "**Status:** Nicht von der KI bewertet – manuelle Entscheidung erforderlich."
+            )
+            title = "✅ Manuelle Moderationsprüfung abgeschlossen" if resolved else "⚠️ Manuelle Moderationsprüfung (KI-Ausfall)"
+        else:
+            description = (
                 f"**Mitglied:** {discord.utils.escape_mentions(str(case['user_name']))} ({mention})\n"
                 f"**Rollenklasse:** {case['role_kind']}\n"
                 f"**Kanal:** <#{case['channel_id']}>\n"
                 f"**Regelhinweis:** {safe_text(case.get('rule'), 120)}\n"
                 f"**Schwere:** {severity.upper()} · **KI-Konfidenz:** {float(case.get('confidence', 0)):.0%}"
-            ),
+            )
+            title = "✅ Moderationsfall erledigt" if resolved else "🛡️ KI-Moderationsprüfung"
+        timestamp_value = case.get("source_created_at") if manual_outage else case.get("created_at")
+        embed = discord.Embed(
+            title=title,
+            description=description,
             color=color,
-            timestamp=datetime.fromisoformat(str(case["created_at"]).replace("Z", "+00:00")),
+            timestamp=datetime.fromisoformat(str(timestamp_value).replace("Z", "+00:00")),
         )
         embed.add_field(name="Nachricht", value=safe_text(case.get("content", ""), 950) or "(leer)", inline=False)
-        embed.add_field(name="KI-Einschätzung", value=safe_text(case.get("reason", ""), 600), inline=False)
-        embed.add_field(name="Vorgeschlagene Maßnahme", value=safe_text(case.get("recommended_action", "review_only"), 100), inline=True)
-        embed.add_field(name="Beleg", value=f"[Nachricht öffnen]({case['message_url']})", inline=True)
+        if manual_outage:
+            embed.add_field(
+                name="Manuelle Sichtung",
+                value=(
+                    "Die KI hat diese Nachricht **nicht** bewertet, weil der Anbieter nicht erreichbar war. "
+                    "Prüfe den Originaltext und die Serverregeln selbst. Erst die gewählte Aktion führt eine Maßnahme aus."
+                ),
+                inline=False,
+            )
+            embed.add_field(name="Originalnachricht", value=f"[Nachricht öffnen]({case['message_url']})", inline=True)
+        else:
+            embed.add_field(name="KI-Einschätzung", value=safe_text(case.get("reason", ""), 600), inline=False)
+            embed.add_field(name="Vorgeschlagene Maßnahme", value=safe_text(case.get("recommended_action", "review_only"), 100), inline=True)
+            embed.add_field(name="Beleg", value=f"[Nachricht öffnen]({case['message_url']})", inline=True)
         if resolved:
             embed.add_field(name="Entscheidung", value=safe_text(case.get("decision"), 100), inline=True)
             embed.add_field(name="Geprüft von", value=safe_text(case.get("reviewed_by"), 100), inline=True)
-        embed.set_footer(text="KI schlägt nur vor. Sanktionen erfolgen erst nach Bestätigung durch berechtigte Teammitglieder.")
+        embed.set_footer(
+            text=(
+                "Manuelle Entscheidung; keine KI-Klassifikation. Sanktionen nur nach menschlicher Prüfung."
+                if manual_outage
+                else "KI schlägt nur vor. Sanktionen erfolgen erst nach Bestätigung durch berechtigte Teammitglieder."
+            )
+        )
         return embed
 
     async def _reviewer_allowed(self, interaction: discord.Interaction) -> bool:
@@ -826,6 +964,11 @@ class AIModeration(commands.Cog):
             return False
 
     def _action_reason(self, case: dict[str, Any], reviewer: discord.Member) -> str:
+        if case.get("manual_outage"):
+            return (
+                f"Manuelle Moderationsentscheidung nach Prüfung von {case.get('message_url', 'Originalnachricht')} · "
+                f"bestätigt von {reviewer.display_name}; KI-Ausfall, keine automatische Klassifikation."
+            )[:480]
         return f"KI-Fall {case['id']} · {case.get('rule', 'Regel')} · bestätigt von {reviewer.display_name}: {case.get('reason', '')}"[:480]
 
     async def handle_review_action(self, interaction: discord.Interaction, case_id: str, action: str):
@@ -899,7 +1042,11 @@ class AIModeration(commands.Cog):
         if len(webserver.active_warns(entry)) >= 5:
             return {"ok": False, "message": "Mitglied hat bereits 5 aktive Team-Warns."}
         proof = str(case.get("message_url", ""))
-        reason = f"KI-Fall {case['id']}: {case.get('rule')} – {case.get('reason')} (durch Moderator bestätigt)"
+        reason = (
+            f"Manuelle Team-Warnung nach Prüfung: {proof} (bestätigt von {reviewer.display_name}; KI-Ausfall)"
+            if case.get("manual_outage")
+            else f"KI-Fall {case['id']}: {case.get('rule')} – {case.get('reason')} (durch Moderator bestätigt)"
+        )[:500]
         warn = {
             "id": f"warn_{uuid.uuid4().hex[:8]}",
             "reason": reason[:500],

@@ -228,11 +228,18 @@ def main() -> None:
     assert "retry_after=response.headers.get(\"retry-after\")" in ai_mod
     assert "def _record_unreviewed_message(self, item: dict[str, Any]) -> None:" in ai_mod
     assert "def _publish_outage_notice(self) -> bool:" in ai_mod
+    assert "self._outage_review_items: list[dict[str, Any]] = []" in ai_mod
+    assert "def _publish_manual_outage_case(" in ai_mod
+    assert 'case.get("manual_outage")' in ai_mod
+    assert "Manuelle Moderationsprüfung (KI-Ausfall)" in ai_mod
+    assert "view=ModerationReviewView(self, case_id, str(case.get(\"role_kind\", \"OTHER\")))" in ai_mod
+    assert "self._record_unreviewed_message(item)" in ai_mod
+    assert "Manuelle Moderationsentscheidung nach Prüfung" in ai_mod
     assert 'PULSE_AI_MODERATION_OUTAGE_NOTICE_INTERVAL_SECONDS", "21600"' in ai_mod
     assert "self._outage_notice_interval_seconds" in ai_mod
     assert "self._outage_notice_last_sent_at" in ai_mod
-    assert "KI-Moderation: manuelle Sichtung erforderlich" in ai_mod
-    assert "Nur manueller Hinweis – keine automatische Klassifikation oder Sanktion." in ai_mod
+    assert "KI-Moderation pausiert – manuelle Prüfung" in ai_mod
+    assert "Keine automatische Klassifikation oder Sanktion. Maßnahmen nur nach menschlicher Prüfung." in ai_mod
     assert "response.status_code >= 500" in ai_mod
     assert '_backoff_provider(f"Verbindungsfehler ({type(exc).__name__})", item=item)' in ai_mod
     # Team KI messages and stale messages after provider outages should not create
