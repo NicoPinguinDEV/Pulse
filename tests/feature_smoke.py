@@ -443,7 +443,7 @@ def main() -> None:
     assert "def _is_video_item(source: dict, item: dict[str, str]) -> bool:" in social
 
     # The moderation digest cooldown must survive a successful probe while a provider is flapping.
-    assert "self._outage_notice_last_sent_at = 0.0" not in ai_mod
+    assert ai_mod.count("self._outage_notice_last_sent_at = 0.0") == 1
     assert "it must not bypass the outage-notice cooldown" in ai_mod
 
     # Message deletion is confirmed, bounded, and avoids individually deleting old history by default.
