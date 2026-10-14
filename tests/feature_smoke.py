@@ -228,6 +228,13 @@ def main() -> None:
     assert "retry_after=response.headers.get(\"retry-after\")" in ai_mod
     assert "def _record_unreviewed_message(self, item: dict[str, Any]) -> None:" in ai_mod
     assert "def _publish_outage_notice(self) -> bool:" in ai_mod
+    assert "self._outage_review_items: list[dict[str, Any]] = []" in ai_mod
+    assert "def _publish_manual_outage_case(" in ai_mod
+    assert 'case.get("manual_outage")' in ai_mod
+    assert "Manuelle Moderationsprüfung (KI-Ausfall)" in ai_mod
+    assert "view=ModerationReviewView(self, case_id, str(case.get(\"role_kind\", \"OTHER\")))" in ai_mod
+    assert "self._record_unreviewed_message(item)" in ai_mod
+    assert "Manuelle Moderationsentscheidung nach Prüfung" in ai_mod
     assert 'PULSE_AI_MODERATION_OUTAGE_NOTICE_INTERVAL_SECONDS", "21600"' in ai_mod
     assert "self._outage_notice_interval_seconds" in ai_mod
     assert "self._outage_notice_last_sent_at" in ai_mod
