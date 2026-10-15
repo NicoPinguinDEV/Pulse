@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from datetime import datetime, time
+from datetime import datetime
 from pathlib import Path
 import zoneinfo
 
@@ -308,9 +308,14 @@ class ActivityCheckCog(commands.Cog):
             )
         return message
 
-    @tasks.loop(time=time(hour=6, minute=0, tzinfo=BERLIN_TZ))
+    @tasks.loop(minutes=1)
     async def daily_activity_check(self):
         await self.bot.wait_until_ready()
+        # Besides the regular 06:00 post, recover a missing daily check after a
+        # restart later in the day. Never create a "late" check at/after 20:00.
+        now = datetime.now(BERLIN_TZ)
+        if (now.hour, now.minute) < (6, 0) or now.hour >= 20:
+            return
         channel_id = get_config("activity_channel_id")
         role_id = get_config("activity_role_id")
         if not channel_id:
@@ -563,7 +568,7 @@ class ActivityCheckCog(commands.Cog):
 
         return report
 
-    @app_commands.command(name="setup_activitycheck", description="[Admin] Activity Check um 06:00 einrichten")
+    @app_commands.command(name="setup_activitycheck", description="[Admin] Activity Check ab 06:00 einrichten (fehlende Checks werden nachgeholt)")
     @app_commands.checks.has_permissions(administrator=True)
     async def setup_activitycheck(self, interaction, kanal: discord.TextChannel, team_rolle: discord.Role = None):
         set_config("activity_channel_id", kanal.id)
