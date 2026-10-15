@@ -377,6 +377,110 @@ class PulsePro(commands.Cog):
         embed.add_field(name="Health-Endpunkt", value="/healthz", inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="pulse-diagnose", description="[Admin] Prüft RAM, Datenbanken, Warnrollen und wichtige Kanäle.")
+    async def pulse_diagnose(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True)
+            return
+
+        import webserver
+        import pulse_ultimate
+        cfg = webserver.load_config()
+        perms, _ = webserver.compute_perms(interaction.guild, interaction.user.id, cfg)
+        if not perms.get("is_admin"):
+            await interaction.response.send_message(
+                "❌ Nur Administratoren können die vollständige Systemdiagnose ausführen.",
+                ephemeral=True,
+            )
+            return
+
+        rss = pulse_ultimate.process_rss_mb()
+        peak = pulse_ultimate.process_peak_rss_mb()
+        db_ok = True
+        ultimate_db_ok = True
+        try:
+            with db.connect() as cx:
+                cx.execute("SELECT 1")
+        except Exception:
+            db_ok = False
+        try:
+            with pulse_ultimate.cx() as cx:
+                cx.execute("SELECT 1")
+        except Exception:
+            ultimate_db_ok = False
+
+        channel_checks = []
+        for label, channel_id in (
+            ("Büro-Pings", 1560211874602160218),
+            ("Team-Updates", 1531132354272170115),
+            ("Social-Promo", 1530972281893949521),
+        ):
+            channel = self.bot.get_channel(channel_id)
+            if channel is None:
+                try:
+                    channel = await interaction.guild.fetch_channel(channel_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    channel = None
+            if not isinstance(channel, discord.TextChannel):
+                channel_checks.append(f"🔴 {label}: Kanal fehlt / nicht erreichbar")
+                continue
+            me = interaction.guild.me
+            can_send = bool(me and channel.permissions_for(me).send_messages)
+            can_embed = bool(me and channel.permissions_for(me).embed_links)
+            status = "🟢 erreichbar"
+            if not can_send:
+                status = "🔴 keine Sendeberechtigung"
+            elif not can_embed:
+                status = "🟡 Nachrichten möglich, Embeds nicht erlaubt"
+            channel_checks.append(f"{status} · {label} · {channel.mention}")
+
+        try:
+            role_rows = webserver.warning_role_health(interaction.guild, cfg)
+            role_ok = sum(1 for row in role_rows if row.get("ok"))
+            role_text = f"{role_ok}/5 Warnrollen bereit"
+        except Exception:
+            role_ok = 0
+            role_text = "⚠️ nicht prüfbar"
+
+        ai_mod = self.bot.get_cog("AIModeration")
+        queue = getattr(ai_mod, "queue", None)
+        ai_queue_text = (
+            f"{queue.qsize()}/{getattr(ai_mod, 'max_queue_size', 0)}"
+            if queue is not None else "KI-Moderation nicht geladen"
+        )
+        cogs_text = f"{len(self.bot.cogs)} Cogs / {len(self.bot.extensions)} Erweiterungen"
+        ram_level = pulse_ultimate.memory_guard_level(rss)
+        ram_labels = {0: "🟢 Normal", 1: "🟡 Warnung", 2: "🟠 Kritisch", 3: "🔴 Notfallreserve"}
+        ram_text = "Nicht verfügbar" if rss is None else (
+            f"{ram_labels[ram_level]} · {rss:.1f} MB / 250 MB "
+            f"(Spitze: {peak:.1f} MB)" if peak is not None else
+            f"{ram_labels[ram_level]} · {rss:.1f} MB / 250 MB"
+        )
+
+        critical = (not self.bot.is_ready()) or (not db_ok) or (not ultimate_db_ok) or ram_level >= 2
+        warnings = ram_level == 1 or role_ok < 5 or any(
+            row.startswith(("🔴", "🟡")) for row in channel_checks
+        )
+        color = discord.Color.red() if critical else (
+            discord.Color.orange() if warnings else discord.Color.green()
+        )
+        embed = discord.Embed(
+            title="🩺 Pulse – Systemdiagnose",
+            description="Prüfung der wichtigsten Laufzeitkomponenten. Die Diagnose nimmt keine Teamänderungen vor.",
+            color=color,
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="RAM-Schutz", value=ram_text, inline=False)
+        embed.add_field(name="Discord", value="🟢 verbunden" if self.bot.is_ready() else "🔴 nicht bereit", inline=True)
+        embed.add_field(name="Pulse-Datenbank", value="🟢 OK" if db_ok else "🔴 Fehler", inline=True)
+        embed.add_field(name="TeamOS-Datenbank", value="🟢 OK" if ultimate_db_ok else "🔴 Fehler", inline=True)
+        embed.add_field(name="Warnrollen", value=role_text, inline=True)
+        embed.add_field(name="KI-Moderationswarteschlange", value=ai_queue_text, inline=True)
+        embed.add_field(name="Geladene Module", value=cogs_text, inline=True)
+        embed.add_field(name="Wichtige Kanalprüfungen", value="\n".join(channel_checks), inline=False)
+        embed.set_footer(text="RAM-Schwellen: 180 MB Warnung · 210 MB kritisch · 230 MB Notfallreserve")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(PulsePro(bot))
