@@ -1,8 +1,11 @@
 """Pure helpers for Activity Check deadlines and leave-date evaluation."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 import uuid
+from zoneinfo import ZoneInfo
+
+BERLIN_TZ = ZoneInfo("Europe/Berlin")
 
 
 def parse_activity_date(value: object) -> date | None:
@@ -44,6 +47,23 @@ def leave_covers_date(von: object, bis: object, target_date: object) -> bool:
 def activity_warning_due(local_now: datetime) -> bool:
     """Activity warnings are due at 20:00 in the supplied local timezone."""
     return (local_now.hour, local_now.minute) >= (20, 0)
+
+
+def confirmed_by_deadline(reacted_at: object, check_date: object) -> bool:
+    """Whether a stored response timestamp is at or before 20:00 Berlin time."""
+    target = parse_activity_date(check_date)
+    if target is None or not reacted_at:
+        return False
+    try:
+        reacted = datetime.fromisoformat(str(reacted_at).strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+    if reacted.tzinfo is None:
+        reacted = reacted.replace(tzinfo=BERLIN_TZ)
+    else:
+        reacted = reacted.astimezone(BERLIN_TZ)
+    deadline = datetime.combine(target, time(hour=20, minute=0), tzinfo=BERLIN_TZ)
+    return reacted <= deadline
 
 
 def activity_warning_id(check_id: int, user_id: int) -> str:
