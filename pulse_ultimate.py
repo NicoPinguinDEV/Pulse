@@ -81,6 +81,31 @@ def memory_guard_level(rss_mb: Optional[float], current_level: Optional[int] = N
     )
 
 
+def ram_trend_snapshot() -> dict:
+    """Return a bounded summary of recent RSS slope for the live system monitor."""
+    now_mono = time.monotonic()
+    latest = _RAM_SAMPLES[-1] if _RAM_SAMPLES else None
+    baseline = next(
+        (sample for sample in _RAM_SAMPLES if now_mono - sample[0] >= RAM_TREND_MIN_AGE_SECONDS),
+        None,
+    )
+    if latest is None or baseline is None:
+        return {
+            "samples": len(_RAM_SAMPLES),
+            "growth_mb": None,
+            "growth_mb_per_hour": None,
+            "window_minutes": None,
+        }
+    elapsed = max(1.0, latest[0] - baseline[0])
+    growth = latest[1] - baseline[1]
+    return {
+        "samples": len(_RAM_SAMPLES),
+        "growth_mb": round(growth, 1),
+        "growth_mb_per_hour": round(growth * 3600.0 / elapsed, 1),
+        "window_minutes": round(elapsed / 60.0, 1),
+    }
+
+
 async def runtime_memory_guard(bot) -> None:
     """Monitor RAM transitions and slow growth using a bounded, low-RAM sample ring.
 
@@ -141,7 +166,10 @@ async def runtime_memory_guard(bot) -> None:
             growth_per_hour = growth * 3600.0 / max(1.0, elapsed)
             if (
                 growth_per_hour >= RAM_TREND_GROWTH_MB_PER_HOUR
-                and now_mono - _RAM_LAST_TREND_ALERT_AT >= RAM_TREND_ALERT_COOLDOWN_SECONDS
+                and (
+                    not _RAM_LAST_TREND_ALERT_AT
+                    or now_mono - _RAM_LAST_TREND_ALERT_AT >= RAM_TREND_ALERT_COOLDOWN_SECONDS
+                )
             ):
                 _RAM_LAST_TREND_ALERT_AT = now_mono
                 messages.append(
@@ -1674,6 +1702,7 @@ async function loadPulseMonitor() {
       ['RAM des Pulse-Prozesses', d.process_rss_mb == null ? 'Nicht verfügbar' : Number(d.process_rss_mb).toLocaleString('de-DE') + ' MB'],
       ['RAM-Spitzenwert seit Prozessstart', d.process_peak_rss_mb == null ? 'Nicht verfügbar' : Number(d.process_peak_rss_mb).toLocaleString('de-DE') + ' MB'],
       ['RAM-Schutz', !d.ram_guard ? 'Nicht verfügbar' : Number(d.ram_guard.level || 0) >= 3 ? '🔴 Notfallreserve (230 MB)' : Number(d.ram_guard.level || 0) >= 2 ? '🟠 Kritisch (210 MB)' : Number(d.ram_guard.level || 0) >= 1 ? '🟡 Warnung (180 MB)' : '🟢 Normal (unter 180 MB)'],
+      ['RAM-Trend', !d.ram_trend || d.ram_trend.growth_mb == null ? 'Sammle Messwerte' : (Number(d.ram_trend.growth_mb) >= 0 ? '+' : '') + Number(d.ram_trend.growth_mb).toLocaleString('de-DE') + ' MB / ' + Number(d.ram_trend.window_minutes || 0).toLocaleString('de-DE') + ' Min.'],
       ['Discord-Nachrichten-Cache', String(d.discord_cached_messages || 0) + ' / ' + String(d.discord_message_cache_limit || 'unbegrenzt')],
       ['Datenträger frei', mb(d.disk_free_mb)],
       ['Datenträger belegt', (Number(d.disk_used_percent || 0)).toFixed(1) + '%'],
@@ -2076,6 +2105,7 @@ window.setInterval(loadPulseMonitor, 15000);
                 "emergency_mb": RAM_EMERGENCY_MB,
                 "recovery_mb": RAM_RECOVERY_MB,
             },
+            "ram_trend": ram_trend_snapshot(),
             "discord_cached_messages": len(getattr(bot, "cached_messages", ())) if bot else 0,
             "discord_message_cache_limit": getattr(bot, "pulse_message_cache_limit", None) if bot else None,
             "discord_ready": discord_ready,
