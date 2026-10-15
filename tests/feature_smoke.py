@@ -61,11 +61,22 @@ def main() -> None:
     assert "def _roblox_http_client()" in web
     assert "limits=httpx.Limits(" in web
 
-    # Team-Kick must only remove team roles, never call Discord member.kick().
+    # Dashboard Team-Kick must reset the member's roles to exactly the two
+    # configured post-kick roles, and must never kick the member from Discord.
     assert "Team-Kick" in web
-    assert 'await member.remove_roles(*team_roles' in web
+    assert "TEAM_KICK_KEEP_ROLE_IDS = (1531303733311307997, 1489912887949394082)" in web
+    kick_start = web.index('            if action == "kick":')
+    kick_end = web.index('            if action == "promote":', kick_start)
+    kick_block = web[kick_start:kick_end]
+    assert "roles_to_remove = [" in kick_block
+    assert "blocked_roles = [" in kick_block
+    assert "role.managed or role.position >= guild.me.top_role.position" in kick_block
+    assert "await member.edit(" in kick_block
+    assert "roles=keep_roles" in kick_block
+    assert "Verbleibende Rollen" in kick_block
+    assert "1531303733311307997" in kick_block
+    assert "1489912887949394082" in kick_block
     assert 'await member.kick(' not in web
-    assert "Mitglied bleibt auf dem Discord-Server" not in web or "bleibt aber auf dem Discord-Server" in web
     ultimate = read("pulse_ultimate.py")
     assert "RAM_TREND_GROWTH_MB_PER_HOUR = 20.0" in ultimate
     assert "Verbrauch wieder im Normalbereich" in ultimate
@@ -192,8 +203,8 @@ def main() -> None:
     # The visible /melonly page is Pulse Pro's route, not just the legacy dashboard.
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
-    assert 'VERSION = "7.3.0"' in pro_melonly
-    assert 'PULSE_VERSION = "7.3.0"' in web
+    assert 'VERSION = "7.3.1"' in pro_melonly
+    assert 'PULSE_VERSION = "7.3.1"' in web
     assert "ws.can_manage_melonly_entry(c,x)" in pro_melonly
     assert 'action="/log/edit"' in pro_melonly
     assert 'action="/log/delete"' in pro_melonly
