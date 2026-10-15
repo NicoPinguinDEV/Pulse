@@ -20,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
 
-VERSION = "7.4.1"
+VERSION = "7.4.2"
 EXTRA_PERMS = (
     "can_manage_announcements",
     "can_manage_handover",
@@ -747,6 +747,91 @@ def register(app):
             f'<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">🗂 Check-Historie</div><div class="pulse-section-sub">Jeder Tag ist ein eigener Datensatz.</div></div></div><div class="pulse-card-b space-y-2">{"".join(f'<a href="/activity-check?date={e(h["check_date"])}" class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(h["check_date"])}</div><div class="pulse-row-meta">{e(fmt_dt(h["created_at"]))} · {h["responses"]} Antworten · {h["members"]} Snapshot-Mitglieder · Nachricht {e(h["message_id"])}</div></div>{pill("Aktuell","good") if h["check_date"]==selected_date else pill("Öffnen")}</a>' for h in history)}</div></section>'
         )
         return render_pro_page(ws,"Activity Check",c,"activity-check",body)
+
+    async def activity_check_setup(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm="can_manage_checkins")
+        bot=getattr(request.app.state,"bot",None)
+        if bot is None:
+            return ws.back("/activity-check","Der Discord-Bot ist nicht mit dem Dashboard verbunden. Bitte Bot-Status und Startprotokoll prüfen.",False)
+        try:
+            form=await request.form()
+            channel_raw=str(form.get("channel_id") or "").strip()
+            role_raw=str(form.get("role_id") or "0").strip()
+            if not channel_raw.isdigit() or int(channel_raw)<=0:
+                return ws.back("/activity-check","Bitte einen gültigen Activity-Check-Kanal auswählen.",False)
+            if not role_raw.isdigit():
+                return ws.back("/activity-check","Die ausgewählte Rolle ist ungültig.",False)
+
+            channel=c.guild.get_channel(int(channel_raw))
+            if channel is None or not isinstance(channel,discord.TextChannel) or channel.guild.id != c.guild.id:
+                return ws.back("/activity-check","Der ausgewählte Kanal wurde auf diesem Discord-Server nicht gefunden.",False)
+            role=None
+            if int(role_raw)>0:
+                role=c.guild.get_role(int(role_raw))
+                if role is None or role.is_default() or role.managed:
+                    return ws.back("/activity-check","Die ausgewählte Teilnehmerrolle wurde nicht gefunden oder kann nicht verwendet werden.",False)
+
+            import cogs.activity_check as activity_module
+            activity_module.init_db()
+            cog=bot.get_cog("ActivityCheckCog")
+            if cog is None and "cogs.activity_check" not in getattr(bot,"extensions",{}):
+                try:
+                    await bot.load_extension("cogs.activity_check")
+                except Exception as exc:
+                    return ws.back("/activity-check",f"Activity-Check-Modul konnte nicht gestartet werden: {type(exc).__name__}: {exc}",False)
+                cog=bot.get_cog("ActivityCheckCog")
+            if cog is None:
+                return ws.back("/activity-check","ActivityCheckCog ist nicht geladen. Bitte Startprotokoll auf einen Fehler beim Laden von cogs/activity_check.py prüfen.",False)
+
+            # Persist the selected channel/role first; the bot's scheduled loop
+            # then uses the same settings after future restarts.
+            activity_module.set_config("activity_channel_id",channel.id)
+            activity_module.set_config("activity_role_id",role.id if role else 0)
+
+            today=ws.now_de().date().isoformat()
+            with sqlite3.connect(ws.ACTIVITY_DB,timeout=5.0) as ax:
+                ax.row_factory=sqlite3.Row
+                existing=ax.execute(
+                    "SELECT id,snapshot_version FROM checks WHERE guild_id=? AND check_date=?",
+                    (c.guild.id,today),
+                ).fetchone()
+                existing_count=int(ax.execute(
+                    "SELECT COUNT(*) FROM check_members WHERE check_id=?",
+                    (int(existing["id"]),),
+                ).fetchone()[0]) if existing else 0
+
+            members=await cog.eligible_members(c.guild,role)
+            if not members and not (existing and existing_count>0):
+                if role:
+                    detail=f"Die Rolle {role.name} hat aktuell keine passenden Mitglieder."
+                elif not c.config.get("team_role_ids"):
+                    detail="In der Pulse-Konfiguration sind keine Teamrollen hinterlegt. Wähle eine Teilnehmerrolle oder konfiguriere zuerst die Teamrollen."
+                else:
+                    detail="Es wurden keine Mitglieder mit den konfigurierten Teamrollen gefunden. Prüfe Teamrollen und die Discord-Mitglieder-Intention."
+                return ws.back("/activity-check",detail,False)
+
+            try:
+                message=await cog.send_check_message(channel,role)
+            except Exception as exc:
+                return ws.back("/activity-check",f"Activity Check konnte nicht erstellt werden: {type(exc).__name__}: {exc}",False)
+
+            with sqlite3.connect(ws.ACTIVITY_DB,timeout=5.0) as ax:
+                ax.row_factory=sqlite3.Row
+                saved=ax.execute(
+                    "SELECT id,snapshot_version,message_id FROM checks WHERE guild_id=? AND check_date=?",
+                    (c.guild.id,today),
+                ).fetchone()
+                snapshot_count=int(ax.execute(
+                    "SELECT COUNT(*) FROM check_members WHERE check_id=?",
+                    (int(saved["id"]),),
+                ).fetchone()[0]) if saved else 0
+            if saved and snapshot_count:
+                action="erstellt" if message is not None else "bereits vorhanden/geprüft"
+                return ws.back("/activity-check",f"Heutiger Activity Check {action}. Snapshot: {snapshot_count} Teilnehmer. Bitte Seite neu laden.")
+            return ws.back("/activity-check","Der Check-Datensatz hat weiterhin keinen Teilnehmer-Snapshot. Es wurden keine automatischen Warns ausgelöst. Bitte prüfe die Teamrollen und das Startprotokoll.",False)
+        except Exception as exc:
+            return ws.back("/activity-check",f"Setup fehlgeschlagen: {type(exc).__name__}: {exc}",False)
+
     async def team_status_page(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session)
         can_view = bool(c.perms.get("can_view_team_status") or c.perms.get("can_promote") or c.perms.get("is_admin"))
@@ -1392,6 +1477,7 @@ def register(app):
     remove_and_add(app,'/api/team/discord-status',{'GET'},discord_status_api,response_class=JSONResponse)
     app.post('/team-status/set')(set_team_status)
     app.get('/activity-check',response_class=HTMLResponse)(activity_check_page)
+    app.post('/activity-check/setup')(activity_check_setup)
     app.get('/handover',response_class=HTMLResponse)(handover_page)
     app.post('/handover/create')(create_handover)
     app.get('/announcements',response_class=HTMLResponse)(announcements_page)
