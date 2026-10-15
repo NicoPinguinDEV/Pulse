@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.1 – Digitale Rollen nach Discord-Teamrollen zuordnen
+
+- Digitale Dashboard-Rollen werden jetzt direkt vorhandenen, unter „Team-Rollen“ konfigurierten Discord-Teamrollen zugewiesen – nicht einzelnen Personen.
+- Beim Erstellen oder Bearbeiten eines digitalen Profils kannst du eine oder mehrere Discord-Teamrollen auswählen und Berechtigungen wie Tickets, Bewerbungen, Verwarnungen, Teamaktionen, Schulungen, Wiki und Analytics bündeln.
+- Alle Mitglieder mit den verknüpften Discord-Teamrollen erhalten die digitalen Profilrechte automatisch; mehrere passende Profile werden kombiniert.
+- Die Zuordnung bleibt rein intern in Pulse: Es werden keine Discord-Rollen erstellt, vergeben, entfernt oder in ihrer Hierarchie verändert.
+- Das direkte Zuweisen eines Dashboard-Profils per Nutzer-ID wurde aus der Oberfläche entfernt. Bestehende Discord-Rollenrechte bleiben weiterhin parallel verfügbar.
+
 ## Version 7.8.0 – Dashboard-only Berechtigungsrollen
 
 - Administratoren können unter `/settings` beliebig viele wiederverwendbare Pulse-Dashboard-Profile anlegen, bearbeiten und löschen, z. B. Support, Personalverwaltung oder Leitung.
