@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import uuid
 
 import discord
 from discord import app_commands
@@ -118,14 +119,68 @@ def category_open_count(key: str) -> int:
     )
 
 
+def ticket_category_definitions() -> dict:
+    """Merge Pulse's built-in categories with admin-configured categories."""
+    definitions = {
+        key: {
+            "id": key, "name": meta[0], "description": meta[1], "emoji": meta[2],
+            "max_open": meta[3], "group": meta[4], "prefix": key,
+            "role_ids": [], "parent_category_id": 0, "opening_message": "", "active": True,
+            "builtin": True,
+        }
+        for key, meta in CATEGORY_META.items()
+    }
+    saved = ticket_config().get("ticket_categories", [])
+    for item in saved if isinstance(saved, list) else []:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("id") or "").strip()
+        if not key or not re.fullmatch(r"[a-z0-9_-]{1,80}", key):
+            continue
+        if key not in definitions and not key.startswith("custom_"):
+            continue
+        base = definitions.get(key, {
+            "id": key, "name": "", "description": "", "emoji": "🎫", "max_open": 0,
+            "group": "team", "prefix": key, "role_ids": [], "parent_category_id": 0,
+            "opening_message": "", "active": True, "builtin": False,
+        })
+        base.update(item)
+        base["id"] = key
+        base["builtin"] = key in CATEGORY_META
+        definitions[key] = base
+    return definitions
+
+
 def category_meta(key: str):
-    meta = CATEGORY_META.get(key)
-    if not meta:
+    definition = ticket_category_definitions().get(str(key))
+    if not definition:
         return ("Ticket", "Allgemeines Anliegen", "🎫", 10, "team")
-    return meta
+    try:
+        maximum = max(0, int(definition.get("max_open") or 0))
+    except (TypeError, ValueError):
+        maximum = 0
+    return (
+        str(definition.get("name") or "Ticket")[:100],
+        str(definition.get("description") or "Allgemeines Anliegen")[:100],
+        str(definition.get("emoji") or "🎫")[:100],
+        maximum,
+        str(definition.get("group") or "team"),
+    )
 
 
 def category_roles(guild, key: str):
+    definition = ticket_category_definitions().get(str(key), {})
+    raw_ids = definition.get("role_ids", [])
+    selected = []
+    for raw in raw_ids if isinstance(raw_ids, list) else []:
+        try:
+            role = guild.get_role(int(raw))
+        except (TypeError, ValueError):
+            role = None
+        if role and not role.managed and not role.is_default():
+            selected.append(role)
+    if selected:
+        return selected
     return configured_role_ids(guild, category_meta(key)[4])
 
 
@@ -136,7 +191,35 @@ def can_manage_ticket(member, ticket) -> bool:
     return any(role.id in {r.id for r in category_roles(member.guild, key)} for role in member.roles)
 
 
-def build_panel_embed(guild) -> discord.Embed:
+def build_panel_embed(guild, panel_config: dict | None = None) -> discord.Embed:
+    if isinstance(panel_config, dict):
+        panel_title = str(panel_config.get("title") or panel_config.get("name") or "Ticket-Support").strip()[:256]
+        panel_description = str(panel_config.get("description") or "Wähle unten eine passende Kategorie, um ein Ticket zu eröffnen.").strip()[:4000]
+        raw_color = str(panel_config.get("color") or "#5865F2").strip().lstrip("#")
+        try:
+            embed_color = discord.Color(int(raw_color[:6], 16))
+        except (TypeError, ValueError):
+            embed_color = discord.Color.blurple()
+        embed = discord.Embed(title=panel_title, description=panel_description, color=embed_color)
+        definitions = ticket_category_definitions()
+        keys = panel_config.get("category_keys", [])
+        if not isinstance(keys, list):
+            keys = []
+        lines = []
+        for key in keys[:25]:
+            definition = definitions.get(str(key))
+            if not definition or not definition.get("active", True):
+                continue
+            name, _, emoji, _, _ = category_meta(str(key))
+            lines.append(f"{emoji} **{name}**")
+        if lines:
+            embed.add_field(name="📂 Verfügbare Kategorien", value="\n".join(lines)[:1024], inline=False)
+        embed.set_footer(text=str(panel_config.get("footer") or "Pulse Ticket-System")[:2048])
+        embed.timestamp = discord.utils.utcnow()
+        if guild.icon:
+            embed.set_thumbnail(url=guild.icon.url)
+        return embed
+
     lines = [
         "<:ticket:1360768000235409559> **Ticket-Support**",
         "",
@@ -335,23 +418,38 @@ class TicketCloseModal(Modal, title="Ticket schließen"):
 
 
 class TicketSelect(Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(
-                label=meta[0],
-                description=f"{meta[1]} · {category_open_count(key)}/{meta[3]} offen",
-                emoji=meta[2],
-                value=key,
-            )
-            for key, meta in CATEGORY_META.items()
-        ]
+    def __init__(self, panel_id: str | None = None, category_keys=None):
+        definitions = ticket_category_definitions()
+        keys = category_keys if isinstance(category_keys, list) else list(definitions)
+        options = []
+        for key in keys:
+            definition = definitions.get(str(key))
+            if not definition or not definition.get("active", True):
+                continue
+            name, description, emoji, maximum, _ = category_meta(str(key))
+            count = category_open_count(str(key))
+            suffix = f" · {count}/{maximum} offen" if maximum else f" · {count} offen"
+            options.append(discord.SelectOption(
+                label=name[:100],
+                description=(description + suffix)[:100],
+                emoji=emoji[:100] if emoji else "🎫",
+                value=str(key)[:100],
+            ))
+        options = options[:25]
+        if not options:
+            options = [discord.SelectOption(label="Noch nicht eingerichtet", value="__not_configured__", emoji="⚠️")]
+        custom_id = "pulse_ticket_category_v3"
+        if panel_id:
+            safe_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(panel_id))[:60] or "custom"
+            custom_id = f"pulse_ticket_category_panel_{safe_id}"[:100]
         super().__init__(
             placeholder="Wähle die passende Ticket-Kategorie …",
             min_values=1,
             max_values=1,
             options=options,
-            custom_id="pulse_ticket_category_v3",
+            custom_id=custom_id,
         )
+        self.panel_id = panel_id
 
     async def callback(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -360,7 +458,11 @@ class TicketSelect(Select):
             return
 
         key = self.values[0]
+        if key == "__not_configured__":
+            await interaction.response.send_message("Dieses Panel ist noch nicht eingerichtet. Bitte melde dich beim Serverteam.", ephemeral=True)
+            return
         label, desc, emoji, maximum, group = category_meta(key)
+        category_definition = ticket_category_definitions().get(key, {})
 
         existing = None
         for ticket in list_tickets(limit=2000):
@@ -393,7 +495,16 @@ class TicketSelect(Select):
         # Discord requires a response within a few seconds; channel creation and log delivery
         # may take longer, so defer only after all immediate validation errors are handled.
         await interaction.response.defer(ephemeral=True, thinking=True)
-        parent = discord.utils.get(guild.categories, name=TICKET_PARENT_NAME)
+        parent_id = category_definition.get("parent_category_id")
+        parent = None
+        try:
+            candidate = guild.get_channel(int(parent_id)) if parent_id else None
+            if isinstance(candidate, discord.CategoryChannel):
+                parent = candidate
+        except (TypeError, ValueError):
+            parent = None
+        if parent is None:
+            parent = discord.utils.get(guild.categories, name=TICKET_PARENT_NAME)
         if not parent:
             parent = await guild.create_category(TICKET_PARENT_NAME, reason="Pulse Ticket-System")
 
@@ -428,8 +539,9 @@ class TicketSelect(Select):
                 embed_links=True,
             )
 
+        channel_prefix = str(category_definition.get("prefix") or key)
         channel = await guild.create_text_channel(
-            f"ticket-{key}-{safe_channel_name(interaction.user.display_name)}",
+            f"ticket-{safe_channel_name(channel_prefix)}-{safe_channel_name(interaction.user.display_name)}",
             category=parent,
             overwrites=overwrites,
             topic=f"Pulse Ticket | user:{interaction.user.id} | category:{key}",
@@ -437,12 +549,14 @@ class TicketSelect(Select):
         )
         tid = create_ticket(channel.id, guild.id, interaction.user.id, interaction.user.display_name, key)
 
+        opening_text = str(category_definition.get("opening_message") or "").strip()[:1800]
+        if not opening_text:
+            opening_text = "Beschreibe dein Anliegen bitte möglichst vollständig. Ein zuständiges Teammitglied wird sich um dein Anliegen kümmern."
         embed = discord.Embed(
             title=f"{emoji} {label}",
             description=(
                 f"Willkommen {interaction.user.mention}!\n\n"
-                f"Beschreibe dein Anliegen bitte möglichst vollständig.\n"
-                f"Ein zuständiges Teammitglied wird sich um dein Anliegen kümmern.\n\n"
+                f"{opening_text}\n\n"
                 f"**Ticket-ID:** `{tid}`\n"
                 f"**Kategorie:** {label}\n"
                 f"**Status:** 🟢 Offen\n"
@@ -496,9 +610,9 @@ class TicketSelect(Select):
 
 
 class TicketView(View):
-    def __init__(self):
+    def __init__(self, panel_id: str | None = None, category_keys=None):
         super().__init__(timeout=None)
-        self.add_item(TicketSelect())
+        self.add_item(TicketSelect(panel_id=panel_id, category_keys=category_keys))
 
 
 class TicketControlView(View):
@@ -609,6 +723,10 @@ class Tickets(commands.Cog):
     async def cog_load(self):
         self.bot.add_view(TicketView())
         self.bot.add_view(TicketControlView())
+        for panel in ticket_config().get("ticket_panels", []):
+            if not isinstance(panel, dict) or not panel.get("id"):
+                continue
+            self.bot.add_view(TicketView(str(panel["id"]), panel.get("category_keys", [])))
 
     @tasks.loop(minutes=5)
     async def panel_refresh(self):
@@ -623,6 +741,9 @@ class Tickets(commands.Cog):
             panels = {**panels, str(legacy_channel_id): int(legacy_message_id)}
         if not isinstance(panels, dict) or not panels:
             return
+        custom_panels = settings.get("ticket_panels", [])
+        if not isinstance(custom_panels, list):
+            custom_panels = []
         for guild in self.bot.guilds:
             for raw_channel_id, raw_message_id in list(panels.items()):
                 try:
@@ -633,6 +754,19 @@ class Tickets(commands.Cog):
                     await message.edit(embed=build_panel_embed(guild), view=TicketView())
                 except (TypeError, ValueError, discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
                     print(f"Ticket-Panel {raw_channel_id} konnte nicht aktualisiert werden ({type(exc).__name__}).")
+            for panel in custom_panels:
+                if not isinstance(panel, dict) or not panel.get("id"):
+                    continue
+                try:
+                    channel = await _resolve_text_channel(self.bot, guild, int(panel.get("channel_id") or 0))
+                    message_id = int(panel.get("message_id") or 0)
+                    if channel is None or not message_id:
+                        continue
+                    message = await channel.fetch_message(message_id)
+                    keys = panel.get("category_keys", [])
+                    await message.edit(embed=build_panel_embed(guild, panel), view=TicketView(str(panel["id"]), keys))
+                except (TypeError, ValueError, discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+                    print(f"Benutzerdefiniertes Ticketpanel {panel.get('id')} konnte nicht aktualisiert werden ({type(exc).__name__}).")
 
     @panel_refresh.before_loop
     async def before_panel_refresh(self):
@@ -650,6 +784,52 @@ class Tickets(commands.Cog):
         settings.update({"panel_channel_id": interaction.channel.id, "panel_message_id": message.id})
         save_ticket_config(settings)
         await interaction.followup.send("✅ Professionelles Ticket-Panel eingerichtet. Die Auslastung wird automatisch aktualisiert.", ephemeral=True)
+
+    async def publish_panel_for_guild(self, guild: discord.Guild, panel_id: str) -> dict:
+        """Send or edit one configured custom Pulse panel in its selected channel."""
+        settings = ticket_config()
+        panels = settings.get("ticket_panels", [])
+        if not isinstance(panels, list):
+            panels = []
+        panel = next((p for p in panels if isinstance(p, dict) and str(p.get("id")) == str(panel_id)), None)
+        if panel is None:
+            raise ValueError("Panel wurde nicht gefunden.")
+        definitions = ticket_category_definitions()
+        keys = panel.get("category_keys", [])
+        keys = [str(key) for key in keys if str(key) in definitions and definitions[str(key)].get("active", True)][:25]
+        if not keys:
+            raise ValueError("Das Panel muss mindestens eine aktive Kategorie enthalten.")
+        panel["category_keys"] = keys
+        channel = await _resolve_text_channel(self.bot, guild, int(panel.get("channel_id") or 0))
+        if channel is None:
+            raise ValueError("Der ausgewählte Zielkanal ist nicht erreichbar.")
+        message = None
+        old_channel_id = int(panel.get("published_channel_id") or panel.get("channel_id") or 0)
+        old_message_id = int(panel.get("message_id") or 0)
+        if old_message_id and old_channel_id == channel.id:
+            try:
+                message = await channel.fetch_message(old_message_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+                message = None
+        elif old_message_id and old_channel_id != channel.id:
+            old_channel = await _resolve_text_channel(self.bot, guild, old_channel_id)
+            if old_channel:
+                try:
+                    old_message = await old_channel.fetch_message(old_message_id)
+                    await old_message.delete(reason="Pulse-Ticketpanel im Dashboard in einen anderen Kanal verschoben")
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+                    pass
+        view = TicketView(str(panel["id"]), keys)
+        if message is None:
+            message = await channel.send(embed=build_panel_embed(guild, panel), view=view)
+        else:
+            await message.edit(embed=build_panel_embed(guild, panel), view=view)
+        panel["message_id"] = message.id
+        panel["published_channel_id"] = channel.id
+        settings["ticket_panels"] = panels
+        save_ticket_config(settings)
+        self.bot.add_view(TicketView(str(panel["id"]), keys))
+        return {"channel": channel.mention, "message_id": message.id, "panel_name": str(panel.get("name") or panel.get("title") or "Panel")}
 
     async def setup_panels_for_guild(self, guild: discord.Guild) -> dict:
         """Create or update the native Pulse panel in every configured source channel."""
