@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.3 – Honeypot-Schutzkanal
+
+- Neuer Honeypot für den Kanal `1560397792751657053`: Pulse stellt dort automatisch ein auffälliges Embed mit der Warnung bereit, dort auf keinen Fall zu schreiben.
+- Wer dort selbst eine Nachricht sendet, dessen Nachricht wird nach Möglichkeit gelöscht und der Account automatisch vom Discord-Server gebannt.
+- Pulse ignoriert ausschließlich die eigene Warnnachricht, damit der Honeypot nicht beim Start seinen eigenen Schutz auslöst.
+- Ban-Versuche, Berechtigungsprobleme und nicht bannbare Ziele werden in der Hosting-Konsole protokolliert. Für das Webhook-Posting wird die Nachricht gelöscht; Webhooks selbst sind keine Mitglieder und können nicht mit einem Nutzer-Ban erfasst werden.
+- Benötigte Discord-Berechtigungen: Kanal ansehen, Nachrichtenverlauf anzeigen, Nachrichten senden, Links einbetten, Nachrichten verwalten und Mitglieder bannen.
+
 ## Version 7.8.2 – Zwischenrollen in der aktiven Pulse-Pro-Einstellungsseite
 
 - Der sichtbare `/settings`-Bereich wird von Pulse Pro überschrieben; die digitalen Zwischenrollen befinden sich jetzt in genau dieser aktiven Einstellungsseite und erscheinen oberhalb der einzelnen Discord-Rollen-Rechtekarten.
