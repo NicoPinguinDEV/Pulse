@@ -621,17 +621,8 @@ class Tickets(commands.Cog):
         save_ticket_config(settings)
         await interaction.followup.send("✅ Professionelles Ticket-Panel eingerichtet. Die Auslastung wird automatisch aktualisiert.", ephemeral=True)
 
-    @app_commands.command(
-        name="ticketpanels_setup",
-        description="[Admin] Richtet Pulse-Ticketpanels in allen sechs konfigurierten Kanälen ein.",
-    )
-    @app_commands.checks.has_permissions(administrator=True)
-    async def ticketpanels_setup(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-
+    async def setup_panels_for_guild(self, guild: discord.Guild) -> dict:
+        """Create or update the native Pulse panel in every configured source channel."""
         settings = ticket_config()
         panels = settings.get("panel_messages", {})
         if not isinstance(panels, dict):
@@ -639,9 +630,9 @@ class Tickets(commands.Cog):
         successes = []
         failures = []
         for channel_id in TICKET_PANEL_CHANNEL_IDS:
-            channel = await _resolve_text_channel(self.bot, interaction.guild, channel_id)
+            channel = await _resolve_text_channel(self.bot, guild, channel_id)
             if channel is None:
-                failures.append(f"`{channel_id}`: Kanal fehlt oder ist kein Textkanal")
+                failures.append(f"{channel_id}: Kanal fehlt oder ist kein Textkanal")
                 continue
             try:
                 old_message_id = panels.get(str(channel_id))
@@ -652,22 +643,34 @@ class Tickets(commands.Cog):
                     except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
                         message = None
                 if message is None:
-                    message = await channel.send(embed=build_panel_embed(interaction.guild), view=TicketView())
+                    message = await channel.send(embed=build_panel_embed(guild), view=TicketView())
                 else:
-                    await message.edit(embed=build_panel_embed(interaction.guild), view=TicketView())
+                    await message.edit(embed=build_panel_embed(guild), view=TicketView())
                 panels[str(channel_id)] = message.id
                 successes.append(channel.mention)
             except (discord.Forbidden, discord.HTTPException) as exc:
-                failures.append(f"`{channel_id}`: Discord-Fehler ({type(exc).__name__})")
-
+                failures.append(f"{channel_id}: Discord-Fehler ({type(exc).__name__})")
         settings["panel_messages"] = panels
         save_ticket_config(settings)
+        return {"successes": successes, "failures": failures, "expected": len(TICKET_PANEL_CHANNEL_IDS)}
+
+    @app_commands.command(
+        name="ticketpanels_setup",
+        description="[Admin] Richtet Pulse-Ticketpanels in allen sechs konfigurierten Kanälen ein.",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ticketpanels_setup(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        result = await self.setup_panels_for_guild(interaction.guild)
         details = [
-            f"✅ **Pulse-Ticketpanels eingerichtet:** {len(successes)}/{len(TICKET_PANEL_CHANNEL_IDS)}",
-            ", ".join(successes) if successes else "Kein Panel konnte eingerichtet werden.",
+            f"✅ **Pulse-Ticketpanels eingerichtet:** {len(result['successes'])}/{result['expected']}",
+            ", ".join(result["successes"]) if result["successes"] else "Kein Panel konnte eingerichtet werden.",
         ]
-        if failures:
-            details.append("\n**Nicht eingerichtet:**\n" + "\n".join(failures))
+        if result["failures"]:
+            details.append("\n**Nicht eingerichtet:**\n" + "\n".join(result["failures"]))
         await interaction.followup.send("\n".join(details), ephemeral=True)
 
     @app_commands.command(name="ticketrole", description="Setzt die zuständige Rolle für Highteam oder Führungsebene.")
