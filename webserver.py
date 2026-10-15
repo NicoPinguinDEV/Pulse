@@ -25,11 +25,12 @@ from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request, Cookie, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import discord
 import pulse_db as pulse_db
+from pulse_version import PULSE_VERSION
 
 from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
 from career_applications import APPLICATION_CAREERS, grade_career_test, render_career_test
@@ -124,8 +125,24 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.7.3"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
+
+
+# Small inline favicon avoids the browser's recurring default /favicon.ico 404.
+_FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="15" fill="#4f46e5"/>
+<path d="M18 13h9v29h20v9H18z" fill="#fff"/>
+<circle cx="46" cy="17" r="5" fill="#a5f3fc"/>
+</svg>"""
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(
+        content=_FAVICON_SVG,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.middleware("http")
