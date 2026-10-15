@@ -16,6 +16,7 @@ Implemented domains:
 from __future__ import annotations
 
 import asyncio
+import gc
 import hashlib
 import html
 import json
@@ -48,6 +49,97 @@ _POLL_TYPES = ("single", "multiple")
 
 _INIT = False
 _AUTOMATION_TASK: Optional[asyncio.Task] = None
+_RAM_GUARD_LEVEL = 0
+RAM_WARN_MB = 180.0
+RAM_CRITICAL_MB = 210.0
+RAM_EMERGENCY_MB = 230.0
+RAM_RECOVERY_MB = 160.0
+
+
+def memory_guard_level(rss_mb: Optional[float]) -> int:
+    """Map measured RSS to a conservative, low-overhead guard state."""
+    if rss_mb is None:
+        return 0
+    if rss_mb >= RAM_EMERGENCY_MB:
+        return 3
+    if rss_mb >= RAM_CRITICAL_MB:
+        return 2
+    if rss_mb >= RAM_WARN_MB:
+        return 1
+    return 0
+
+
+async def runtime_memory_guard(bot) -> None:
+    """Warn on RAM threshold changes and trim only expendable runtime cache data.
+
+    Runs inside the existing one-minute automation loop; it creates no new task.
+    Alerts are sent only when the level changes. Configure
+    PULSE_SYSTEM_ALERT_CHANNEL_ID to receive Discord alerts.
+    """
+    global _RAM_GUARD_LEVEL
+    try:
+        rss = process_rss_mb()
+        if rss is None:
+            return
+        level = memory_guard_level(rss)
+        previous = _RAM_GUARD_LEVEL
+        if level == previous:
+            return
+        _RAM_GUARD_LEVEL = level
+
+        if level == 0:
+            if previous:
+                print(f"✅ Pulse RAM-Schutz: Verbrauch wieder im Normalbereich ({rss:.1f} MB).")
+            return
+
+        labels = {
+            1: "WARNUNG",
+            2: "KRITISCH",
+            3: "NOTFALLRESERVE",
+        }
+        message = (
+            f"⚠️ **Pulse RAM-Schutz – {labels[level]}**\n"
+            f"Gemessener Prozess-RAM: **{rss:.1f} MB / 250 MB**. "
+            f"Schwellen: 180 MB Warnung, 210 MB kritisch, 230 MB Notfallreserve."
+        )
+
+        if level >= 2:
+            # Drop only expendable lookup cache entries, not team/session data.
+            try:
+                import webserver
+                lookup_cache = getattr(webserver, "_roblox_cache", None)
+                if lookup_cache is not None:
+                    lookup_cache.clear()
+            except Exception:
+                pass
+            collected = gc.collect()
+            message += f"\nCache-Bereinigung und GC ausgeführt ({collected} Objekte gefunden)."
+        print(message.replace("**", ""))
+
+        channel_id_raw = os.getenv("PULSE_SYSTEM_ALERT_CHANNEL_ID", "").strip()
+        try:
+            channel_id = int(channel_id_raw or "0")
+        except (TypeError, ValueError):
+            channel_id = 0
+        if channel_id and bot:
+            channel = bot.get_channel(channel_id)
+            if channel is None:
+                try:
+                    channel = await bot.fetch_channel(channel_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    channel = None
+            if channel is not None and hasattr(channel, "send"):
+                try:
+                    await channel.send(
+                        message,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        print(f"⚠️ Pulse RAM-Schutz konnte nicht vollständig prüfen ({type(exc).__name__}).")
 
 
 def esc(value) -> str:
@@ -1936,6 +2028,13 @@ window.setInterval(loadPulseMonitor, 15000);
             "python": platform.python_version(),
             "process_rss_mb": process_rss_mb(),
             "process_peak_rss_mb": process_peak_rss_mb(),
+            "ram_guard": {
+                "level": memory_guard_level(process_rss_mb()),
+                "warn_mb": RAM_WARN_MB,
+                "critical_mb": RAM_CRITICAL_MB,
+                "emergency_mb": RAM_EMERGENCY_MB,
+                "recovery_mb": RAM_RECOVERY_MB,
+            },
             "discord_cached_messages": len(getattr(bot, "cached_messages", ())) if bot else 0,
             "discord_message_cache_limit": getattr(bot, "pulse_message_cache_limit", None) if bot else None,
             "discord_ready": discord_ready,
@@ -2111,6 +2210,8 @@ async def automation_loop(bot):
     setup()
     while True:
         try:
+            # Memory guard piggybacks on this existing loop; no extra worker is added.
+            await runtime_memory_guard(bot)
             # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren
             # auch nach einem Neustart zuverlässig automatisch enden.
             try:
