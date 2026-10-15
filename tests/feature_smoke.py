@@ -596,6 +596,8 @@ def main() -> None:
     assert 'title="🎫 Neues Ticket geöffnet"' in tickets
     assert 'title="📥 Ticket übernommen"' in tickets
     assert 'async def pulse_tickets_dashboard(' in web
+    assert 'filter_name = request.query_params.get("status", "all")' in web
+    assert "Remove only the messages Pulse previously registered as ticket panels" in tickets
     assert 'async def pulse_tickets_dashboard_action(' in web
     assert 'auth(request, user_session, perm="can_manage_tickets")' in web
     assert "configured_panel_channel_ids()" in tickets
