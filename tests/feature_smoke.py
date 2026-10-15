@@ -266,8 +266,8 @@ def main() -> None:
     # The visible /melonly page is Pulse Pro's route, not just the legacy dashboard.
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
-    assert 'VERSION = "7.7.2"' in pro_melonly
-    assert 'PULSE_VERSION = "7.7.2"' in web
+    assert 'VERSION = "7.7.3"' in pro_melonly
+    assert 'PULSE_VERSION = "7.7.3"' in web
     assert 'pulse:scroll-restore:v1' in web
     assert 'saved.path === location.pathname' in web
     assert 'document.addEventListener' in web and 'submit' in web
@@ -295,6 +295,10 @@ def main() -> None:
     assert '"can_moderate_bans"' in pro_melonly
     assert '"can_moderate_bolo"' in pro_melonly
     assert "recommended_role_profile(role)" in pro_melonly
+    assert "def clear_all_role_permissions(c):" in pro_melonly
+    assert 'app.post(\'/settings/pro-clear-all\')(settings_clear_all_permissions)' in pro_melonly
+    assert "Alle Rollenrechte entziehen" in pro_melonly
+    assert "permissions_profile_version\"] = 2" in pro_melonly
     assert "legacy_recommended_role_profile(role)" in pro_melonly
     assert "permissions_profile_version" in pro_melonly
     assert "pk_role" in pro_melonly
@@ -632,7 +636,7 @@ def main() -> None:
     # Native multi-panel editor: independent panels, category registry, publishing and deletion.
     assert "async def publish_panel_for_guild" in tickets
     assert "def ticket_category_definitions()" in tickets
-    assert 'PULSE_VERSION = "7.7.2"' in web
+    assert 'PULSE_VERSION = "7.7.3"' in web
     assert "Panel-Builder" in web
     # Main dashboard administration navigation must expose the standalone builder directly.
     assert '("ticket-panels","/tickets/panels","▣","Ticket-Panel-Builder")' in pro_melonly
