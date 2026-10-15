@@ -124,7 +124,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.6.0"
+PULSE_VERSION = "7.6.1"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -2831,6 +2831,7 @@ def _ticket_role_options(guild, field_name: str, selected_ids) -> str:
     )
 
 
+@app.get("/tickets/panels", response_class=HTMLResponse)
 @app.get("/tickets", response_class=HTMLResponse)
 async def pulse_tickets_dashboard(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session, perm="can_manage_tickets")
@@ -3092,7 +3093,7 @@ async def pulse_tickets_dashboard(request: Request, user_session: str = Cookie(N
             f'<label class="check"><input type="checkbox" name="category_keys" value="{html.escape(key, quote=True)}" {"checked" if key in default_category_keys else ""}><span>{html.escape(str(meta.get("emoji") or "🎫"))} <strong>{html.escape(str(meta.get("name") or key))}</strong><small>{html.escape(str(meta.get("description") or ""))}</small></span></label>'
             for key, meta in active_categories
         )
-        panel_builder_html = f"""<section class="panel-builder settings">
+        panel_builder_html = f"""<section class="panel-builder settings" id="panel-builder">
 <div class="builder-heading"><div><div class="muted">PULSE TICKET SYSTEM</div><h2>🎛️ Panel-Builder</h2><p>Erstelle beliebig viele separate Panels. Jedes Panel hat einen eigenen Kanal, eigenes Embed-Design und eine eigene Kategorienauswahl. Speichern und anschließend veröffentlichen.</p></div><span class="builder-count">{len(panel_configs)} Panels</span></div>
 <div class="builder-columns"><div><h3>Deine Panels</h3><div class="builder-list">{panel_cards_html}</div></div>
 <div><h3>➕ Neues Panel erstellen</h3><form method="post" action="/tickets/panels/save" class="builder-form">
@@ -3150,7 +3151,7 @@ h1{{font-size:clamp(28px,4vw,40px);margin:22px 0 8px}}.muted{{color:#9cabc5;font
 @media(max-width:820px){{.stats{{grid-template-columns:repeat(2,minmax(0,1fr))}}.settings-form{{grid-template-columns:1fr}}.builder-columns,.category-editor-grid{{grid-template-columns:1fr}}.ticket-side{{width:100%;justify-items:start}}.actions{{justify-content:flex-start}}}}
 @media(max-width:480px){{.stats{{grid-template-columns:1fr}}.wrap{{padding:18px 12px 40px}}}}
 </style></head><body><main class="wrap">
-<header><a class="brand" href="/dashboard">⚡ Pulse TeamOS</a><nav class="nav"><a class="btn" href="/dashboard">Dashboard</a><a class="btn" href="/team">Teamliste</a><a class="btn primary" href="/tickets">Ticket-Zentrale</a></nav></header>
+<header><a class="brand" href="/dashboard">⚡ Pulse TeamOS</a><nav class="nav"><a class="btn" href="/dashboard">Dashboard</a><a class="btn" href="/team">Teamliste</a><a class="btn" href="/tickets">Ticket-Zentrale</a><a class="btn primary" href="/tickets/panels#panel-builder">Panel-Builder</a></nav></header>
 <section class="hero"><div><div class="muted">BOCHUM RP · TEAM OPERATIONS · <strong>Pulse Release v{PULSE_VERSION}</strong></div><h1>Ticket-Zentrale</h1><div class="muted">Tickets priorisieren, übernehmen, wieder öffnen, schließen und nachhalten – direkt in Pulse.</div></div><a class="btn" href="https://discord.com/channels/{guild.id}/{log_open_id}" target="_blank" rel="noopener">Öffnungsprotokoll ↗</a></section>
 {notice}
 {panel_builder_html}
@@ -3161,6 +3162,8 @@ h1{{font-size:clamp(28px,4vw,40px);margin:22px 0 8px}}.muted{{color:#9cabc5;font
 {settings_html}
 <footer>Pulse TeamOS · Native Pulse-Tickets · Ticketdaten, Aktionen und Protokolle bleiben im eigenen Pulse-System.</footer>
 </main></body></html>"""
+    if request.url.path == "/tickets/panels":
+        page = page.replace("</body>", '<script>document.getElementById("panel-builder")?.scrollIntoView({block:"start"});</script></body>')
     return HTMLResponse(content=page, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"})
 
 
@@ -3274,14 +3277,14 @@ async def pulse_ticket_panel_save(
     ctx = auth(request, user_session, admin=True)
     bot = getattr(request.app.state, "bot", None)
     if not bot or not bot.is_ready():
-        return back("/tickets", "Pulse-Bot ist nicht bereit. Panel wurde nicht gespeichert.", False)
+        return back("/tickets/panels", "Pulse-Bot ist nicht bereit. Panel wurde nicht gespeichert.", False)
     try:
         target_channel_id = int(channel_id)
     except (TypeError, ValueError):
-        return back("/tickets", "Bitte wähle einen gültigen Panel-Kanal aus.", False)
+        return back("/tickets/panels", "Bitte wähle einen gültigen Panel-Kanal aus.", False)
     target_channel = ctx.guild.get_channel(target_channel_id)
     if not isinstance(target_channel, discord.TextChannel) or target_channel.guild.id != ctx.guild.id:
-        return back("/tickets", "Der ausgewählte Panel-Kanal gehört nicht zu diesem Server.", False)
+        return back("/tickets/panels", "Der ausgewählte Panel-Kanal gehört nicht zu diesem Server.", False)
 
     cleaned_name = str(name).strip()[:80]
     cleaned_title = str(title).strip()[:256]
@@ -3289,22 +3292,22 @@ async def pulse_ticket_panel_save(
     cleaned_footer = str(footer).strip()[:200]
     cleaned_color = str(color).strip()
     if not cleaned_name or not cleaned_title or not cleaned_description:
-        return back("/tickets", "Panelname, Embed-Titel und Beschreibung sind Pflichtfelder.", False)
+        return back("/tickets/panels", "Panelname, Embed-Titel und Beschreibung sind Pflichtfelder.", False)
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", cleaned_color):
-        return back("/tickets", "Die Embed-Farbe ist ungültig.", False)
+        return back("/tickets/panels", "Die Embed-Farbe ist ungültig.", False)
 
     registry = pulse_ticket_category_registry()
     if len(category_keys) > 25:
-        return back("/tickets", "Pro Panel sind höchstens 25 Kategorien möglich.", False)
+        return back("/tickets/panels", "Pro Panel sind höchstens 25 Kategorien möglich.", False)
     valid_keys = []
     for key in category_keys:
         key = str(key).strip()
         if key not in registry or not registry[key].get("active", True):
-            return back("/tickets", "Eine ausgewählte Ticket-Kategorie ist ungültig oder deaktiviert.", False)
+            return back("/tickets/panels", "Eine ausgewählte Ticket-Kategorie ist ungültig oder deaktiviert.", False)
         if key not in valid_keys:
             valid_keys.append(key)
     if not valid_keys:
-        return back("/tickets", "Wähle mindestens eine Kategorie für dieses Panel aus.", False)
+        return back("/tickets/panels", "Wähle mindestens eine Kategorie für dieses Panel aus.", False)
 
     settings = pulse_ticket_config()
     panels = settings.get("ticket_panels", [])
@@ -3312,7 +3315,7 @@ async def pulse_ticket_panel_save(
     cleaned_panel_id = str(panel_id or "").strip()
     existing = next((p for p in panels if str(p.get("id") or "") == cleaned_panel_id), None) if cleaned_panel_id else None
     if cleaned_panel_id and existing is None:
-        return back("/tickets", "Das zu bearbeitende Panel wurde nicht gefunden. Bitte lade die Seite neu.", False)
+        return back("/tickets/panels", "Das zu bearbeitende Panel wurde nicht gefunden. Bitte lade die Seite neu.", False)
     if existing is None:
         cleaned_panel_id = "panel_" + secrets.token_hex(6)
         existing = {"id": cleaned_panel_id, "created_at": datetime.utcnow().isoformat(timespec="seconds")}
@@ -3330,7 +3333,7 @@ async def pulse_ticket_panel_save(
     })
     settings["ticket_panels"] = panels
     pulse_db.set_setting("ticket_system_config", settings)
-    return back("/tickets", f"Panel „{cleaned_name}“ wurde gespeichert. Klicke auf „Panel veröffentlichen / aktualisieren“, um es in Discord anzuzeigen.", True)
+    return back("/tickets/panels", f"Panel „{cleaned_name}“ wurde gespeichert. Klicke auf „Panel veröffentlichen / aktualisieren“, um es in Discord anzuzeigen.", True)
 
 
 @app.post("/tickets/panels/publish")
@@ -3342,18 +3345,18 @@ async def pulse_ticket_panel_publish(
     ctx = auth(request, user_session, admin=True)
     bot = getattr(request.app.state, "bot", None)
     if not bot or not bot.is_ready():
-        return back("/tickets", "Pulse-Bot ist nicht bereit. Das Panel wurde nicht veröffentlicht.", False)
+        return back("/tickets/panels", "Pulse-Bot ist nicht bereit. Das Panel wurde nicht veröffentlicht.", False)
     cog = bot.get_cog("Tickets")
     if not cog or not hasattr(cog, "publish_panel_for_guild"):
-        return back("/tickets", "Der neue Pulse-Panel-Builder ist im laufenden Bot noch nicht geladen. Bitte den Host-Prozess neu starten.", False)
+        return back("/tickets/panels", "Der neue Pulse-Panel-Builder ist im laufenden Bot noch nicht geladen. Bitte den Host-Prozess neu starten.", False)
     try:
         result = await cog.publish_panel_for_guild(ctx.guild, panel_id)
     except ValueError as exc:
-        return back("/tickets", str(exc), False)
+        return back("/tickets/panels", str(exc), False)
     except (discord.Forbidden, discord.HTTPException) as exc:
         print(f"⚠️ Pulse-Panel {panel_id} konnte nicht veröffentlicht werden ({type(exc).__name__}).")
-        return back("/tickets", "Discord hat das Veröffentlichen abgelehnt. Prüfe Kanalzugriff sowie Rechte zum Senden von Nachrichten und Einbettungen.", False)
-    return back("/tickets", f"Panel „{result.get('panel_name', 'Panel')}“ wurde in {result.get('channel', 'Discord')} veröffentlicht bzw. aktualisiert.", True)
+        return back("/tickets/panels", "Discord hat das Veröffentlichen abgelehnt. Prüfe Kanalzugriff sowie Rechte zum Senden von Nachrichten und Einbettungen.", False)
+    return back("/tickets/panels", f"Panel „{result.get('panel_name', 'Panel')}“ wurde in {result.get('channel', 'Discord')} veröffentlicht bzw. aktualisiert.", True)
 
 
 @app.post("/tickets/panels/delete")
@@ -3368,7 +3371,7 @@ async def pulse_ticket_panel_delete(
     panels = [p for p in panels if isinstance(p, dict)] if isinstance(panels, list) else []
     panel = next((p for p in panels if str(p.get("id") or "") == str(panel_id)), None)
     if panel is None:
-        return back("/tickets", "Panel wurde nicht gefunden.", False)
+        return back("/tickets/panels", "Panel wurde nicht gefunden.", False)
     bot = getattr(request.app.state, "bot", None)
     message_id = panel.get("message_id")
     destination_id = panel.get("published_channel_id") or panel.get("channel_id")
@@ -3382,10 +3385,10 @@ async def pulse_ticket_panel_delete(
             pass
         except (discord.Forbidden, discord.HTTPException, TypeError, ValueError) as exc:
             print(f"⚠️ Pulse-Panel {panel_id} konnte nicht entfernt werden ({type(exc).__name__}).")
-            return back("/tickets", "Die Panel-Nachricht konnte nicht entfernt werden. Prüfe die Rechte des Bots; die Konfiguration bleibt erhalten.", False)
+            return back("/tickets/panels", "Die Panel-Nachricht konnte nicht entfernt werden. Prüfe die Rechte des Bots; die Konfiguration bleibt erhalten.", False)
     settings["ticket_panels"] = [p for p in panels if str(p.get("id") or "") != str(panel_id)]
     pulse_db.set_setting("ticket_system_config", settings)
-    return back("/tickets", "Panel und seine Konfiguration wurden gelöscht.", True)
+    return back("/tickets/panels", "Panel und seine Konfiguration wurden gelöscht.", True)
 
 
 @app.post("/tickets/categories/save")
@@ -3410,33 +3413,33 @@ async def pulse_ticket_category_save(
     cleaned_description = str(description).strip()[:100]
     cleaned_opening = str(opening_message).strip()[:1800]
     if not cleaned_name or not cleaned_description:
-        return back("/tickets", "Kategorien benötigen einen Namen und eine Beschreibung.", False)
+        return back("/tickets/panels", "Kategorien benötigen einen Namen und eine Beschreibung.", False)
     if not re.fullmatch(r"[a-z0-9_-]{1,24}", cleaned_prefix):
-        return back("/tickets", "Das Präfix darf nur Buchstaben, Zahlen, Bindestriche und Unterstriche enthalten (max. 24 Zeichen).", False)
+        return back("/tickets/panels", "Das Präfix darf nur Buchstaben, Zahlen, Bindestriche und Unterstriche enthalten (max. 24 Zeichen).", False)
     if group not in {"team", "highteam", "leadership"}:
-        return back("/tickets", "Ungültiger Bearbeitungsbereich.", False)
+        return back("/tickets/panels", "Ungültiger Bearbeitungsbereich.", False)
     if not 0 <= int(max_open) <= 1000:
-        return back("/tickets", "Die Auslastungsgrenze muss zwischen 0 und 1000 liegen.", False)
+        return back("/tickets/panels", "Die Auslastungsgrenze muss zwischen 0 und 1000 liegen.", False)
 
     parent_id = 0
     if str(parent_category_id or "").strip():
         try:
             parent_id = int(parent_category_id)
         except (TypeError, ValueError):
-            return back("/tickets", "Ungültige Discord-Kategorie.", False)
+            return back("/tickets/panels", "Ungültige Discord-Kategorie.", False)
         parent = ctx.guild.get_channel(parent_id)
         if not isinstance(parent, discord.CategoryChannel) or parent.guild.id != ctx.guild.id:
-            return back("/tickets", "Die ausgewählte Ticket-Zielkategorie gehört nicht zu diesem Server.", False)
+            return back("/tickets/panels", "Die ausgewählte Ticket-Zielkategorie gehört nicht zu diesem Server.", False)
 
     role_values = []
     for raw in role_ids:
         try:
             role_id = int(raw)
         except (TypeError, ValueError):
-            return back("/tickets", "Ungültige Rollen-ID.", False)
+            return back("/tickets/panels", "Ungültige Rollen-ID.", False)
         role = ctx.guild.get_role(role_id)
         if role is None or role.is_default() or role.managed:
-            return back("/tickets", "Bitte wähle nur gültige, normale Serverrollen.", False)
+            return back("/tickets/panels", "Bitte wähle nur gültige, normale Serverrollen.", False)
         if role_id not in role_values:
             role_values.append(role_id)
 
@@ -3444,7 +3447,7 @@ async def pulse_ticket_category_save(
     key = str(category_id or "").strip()
     if key:
         if key not in registry:
-            return back("/tickets", "Die zu bearbeitende Kategorie wurde nicht gefunden.", False)
+            return back("/tickets/panels", "Die zu bearbeitende Kategorie wurde nicht gefunden.", False)
     else:
         key = "custom_" + secrets.token_hex(5)
         while key in registry:
@@ -3475,7 +3478,7 @@ async def pulse_ticket_category_save(
         definitions.append(category_value)
     settings["ticket_categories"] = definitions
     pulse_db.set_setting("ticket_system_config", settings)
-    return back("/tickets", f"Kategorie „{cleaned_name}“ wurde gespeichert und steht im Panel-Builder zur Auswahl.", True)
+    return back("/tickets/panels", f"Kategorie „{cleaned_name}“ wurde gespeichert und steht im Panel-Builder zur Auswahl.", True)
 
 
 @app.post("/tickets/categories/delete")
@@ -3486,12 +3489,12 @@ async def pulse_ticket_category_delete(
 ):
     ctx = auth(request, user_session, admin=True)
     if category_id in {"support", "bug", "unban", "highteam", "leadership"}:
-        return back("/tickets", "Standardkategorien können nicht gelöscht, aber zurückgesetzt werden.", False)
+        return back("/tickets/panels", "Standardkategorien können nicht gelöscht, aber zurückgesetzt werden.", False)
     settings = pulse_ticket_config()
     definitions = settings.get("ticket_categories", [])
     definitions = [item for item in definitions if isinstance(item, dict)] if isinstance(definitions, list) else []
     if not any(str(item.get("id") or "") == str(category_id) for item in definitions):
-        return back("/tickets", "Eigene Kategorie wurde nicht gefunden.", False)
+        return back("/tickets/panels", "Eigene Kategorie wurde nicht gefunden.", False)
     found = False
     for item in definitions:
         if str(item.get("id") or "") == str(category_id):
@@ -3500,7 +3503,7 @@ async def pulse_ticket_category_delete(
             found = True
             break
     if not found:
-        return back("/tickets", "Eigene Kategorie wurde nicht gefunden.", False)
+        return back("/tickets/panels", "Eigene Kategorie wurde nicht gefunden.", False)
     settings["ticket_categories"] = definitions
     panels = settings.get("ticket_panels", [])
     if isinstance(panels, list):
@@ -3508,7 +3511,7 @@ async def pulse_ticket_category_delete(
             if isinstance(panel, dict) and isinstance(panel.get("category_keys"), list):
                 panel["category_keys"] = [key for key in panel["category_keys"] if str(key) != str(category_id)]
     pulse_db.set_setting("ticket_system_config", settings)
-    return back("/tickets", "Eigene Kategorie wurde deaktiviert und aus allen Panel-Auswahlen entfernt. Bestehende Tickets behalten ihre Rollen- und Kategorieinfos.", True)
+    return back("/tickets/panels", "Eigene Kategorie wurde deaktiviert und aus allen Panel-Auswahlen entfernt. Bestehende Tickets behalten ihre Rollen- und Kategorieinfos.", True)
 
 
 @app.get("/tickets/transcript/{ticket_id}")
