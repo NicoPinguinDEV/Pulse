@@ -1633,6 +1633,7 @@ async function loadPulseMonitor() {
       ['Datenbank-Kern', ok(d.pulse_db_ok)],
       ['RAM des Pulse-Prozesses', d.process_rss_mb == null ? 'Nicht verfügbar' : Number(d.process_rss_mb).toLocaleString('de-DE') + ' MB'],
       ['RAM-Spitzenwert seit Prozessstart', d.process_peak_rss_mb == null ? 'Nicht verfügbar' : Number(d.process_peak_rss_mb).toLocaleString('de-DE') + ' MB'],
+      ['RAM-Schutz', !d.ram_guard ? 'Nicht verfügbar' : Number(d.ram_guard.level || 0) >= 3 ? '🔴 Notfallreserve (230 MB)' : Number(d.ram_guard.level || 0) >= 2 ? '🟠 Kritisch (210 MB)' : Number(d.ram_guard.level || 0) >= 1 ? '🟡 Warnung (180 MB)' : '🟢 Normal (unter 180 MB)'],
       ['Discord-Nachrichten-Cache', String(d.discord_cached_messages || 0) + ' / ' + String(d.discord_message_cache_limit || 'unbegrenzt')],
       ['Datenträger frei', mb(d.disk_free_mb)],
       ['Datenträger belegt', (Number(d.disk_used_percent || 0)).toFixed(1) + '%'],
