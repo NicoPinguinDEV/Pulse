@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.7.7 – Anspruchsvolle Eignungstests
+- Low Team: 12 schwierige Fragen, Bestehensgrenze 75 %.
+- High Team: 22 schwierige Fragen, Bestehensgrenze 82 %.
+- Leitungsebene: 30 sehr schwierige Fragen, Bestehensgrenze 90 %.
+- Die Fragen verwenden konkrete Fallbeispiele aus dem IC-/RP-Regelwerk und dem Discord-Regelwerk: unter anderem NLR, Fear-RP/NVL, Meta-/Powergaming, Safezones, Peacetime, Geiselnahmen, Medics, Verkehr, Support, Datenschutz, Doxing, Discord-Tickets, interne Leaks und Berechtigungen.
+- Antwortoptionen werden beim Anzeigen gemischt; der Lösungsschlüssel wird nicht in das HTML geschrieben. Bewertung und Pflichtfragenzahl werden serverseitig anhand der gewählten Laufbahn bestimmt.
+- Testauswertungen speichern zusätzlich Themenbereich und Regelstellen für eine nachvollziehbare Sichtung in der Bewerbungsakte.
+
 ## Version 7.7.6 – Discord-OAuth für Bewerbungen
 - Der Bewerbungslogin nutzt standardmäßig dieselbe, bereits registrierte Callback-URL wie das Dashboard. Dadurch ist keine zusätzliche Discord-Redirect-URI nur für `/apply/callback` nötig.
 - Der gemeinsame `/callback`-Endpunkt unterscheidet den Bewerbungslogin anhand des separaten OAuth-State-Cookies und gibt Bewerber sicher an `/apply` zurück, ohne ihnen eine Dashboard-Session zu erteilen.
