@@ -407,7 +407,7 @@ def register(app):
           const id=document.getElementById("melonlyId");
           const box=document.getElementById("melonlySuggestions");
           const preview=document.getElementById("melonlyPreview");
-          let searchTimer=null, exactTimer=null;
+          let searchTimer=null, exactTimer=null, latestSearchRequest=0, latestExactRequest=0;
 
           function norm(v){ return String(v || "").trim().replace(/^@+/, ""); }
           function hideSuggestions(){
@@ -424,17 +424,24 @@ def register(app):
           function showSuggestions(users){
             box.innerHTML="";
             if(!users || !users.length){ hideSuggestions(); return; }
-            users.forEach(function(u){
+            users.forEach(function(u,index){
               const b=document.createElement("button");
               b.type="button";
-              b.className="w-full text-left px-3 py-2.5 hover:bg-slate-100 dark:hover:bg-slate-800";
+              b.className="w-full flex items-center justify-between gap-3 text-left px-3 py-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 border-b last:border-b-0 border-slate-100 dark:border-slate-700";
+              const left=document.createElement("div");
+              left.className="min-w-0";
               const title=document.createElement("div");
               title.className="text-xs font-bold text-slate-900 dark:text-white";
-              title.textContent=u.displayName || u.name;
+              title.textContent=(index===0 ? "⭐ " : "")+(u.name || u.displayName || "");
+              const display=document.createElement("div");
+              display.className="text-[10px] text-slate-400";
+              display.textContent=u.displayName || u.name || "";
+              left.appendChild(title);
+              left.appendChild(display);
               const sub=document.createElement("div");
-              sub.className="text-[10px] text-slate-400";
-              sub.textContent="@"+(u.name||"")+" · ID "+(u.id||"");
-              b.appendChild(title);
+              sub.className="text-[10px] text-indigo-500 shrink-0 text-right";
+              sub.textContent=(index===0 ? "Bester Treffer · " : "")+"ID "+(u.id||"unbekannt");
+              b.appendChild(left);
               b.appendChild(sub);
               b.addEventListener("click",function(){pickUser(u);});
               box.appendChild(b);
@@ -443,18 +450,23 @@ def register(app):
           }
           function searchUsers(v){
             clearTimeout(searchTimer);
-            const q=norm(v);
+            const q=norm(v), requestId=++latestSearchRequest;
             if(q.length<2){hideSuggestions();return;}
             searchTimer=setTimeout(function(){
-              fetch("/api/roblox-search?query="+encodeURIComponent(q),{cache:"no-store"})
+              fetch("/api/roblox-search?query="+encodeURIComponent(q),{cache:"no-store",credentials:"same-origin"})
                 .then(function(r){return r.json();})
-                .then(function(d){showSuggestions(d.success ? d.users : []);})
-                .catch(hideSuggestions);
+                .then(function(d){
+                  if(requestId!==latestSearchRequest || norm(name.value).toLowerCase()!==q.toLowerCase())return;
+                  showSuggestions(d.success ? d.users : []);
+                  const exact=(d.users||[]).find(function(u){return String(u.name||"").toLowerCase()===q.toLowerCase();});
+                  if(exact && /^\d+$/.test(String(exact.id||"")))id.value=String(exact.id);
+                })
+                .catch(function(){if(requestId===latestSearchRequest)hideSuggestions();});
             },220);
           }
           function loadExact(v){
             clearTimeout(exactTimer);
-            const q=norm(v);
+            const q=norm(v), requestId=++latestExactRequest;
             if(q.length<3){
               if(preview){preview.classList.add("hidden");preview.innerHTML="";}
               return;
@@ -463,6 +475,7 @@ def register(app):
               fetch("/api/roblox-user?username="+encodeURIComponent(q),{cache:"no-store"})
                 .then(function(r){return r.json();})
                 .then(function(d){
+                  if(requestId!==latestExactRequest || norm(name.value).toLowerCase()!==q.toLowerCase())return;
                   if(!d.success)return;
                   id.value=d.id || "";
                   if(preview){

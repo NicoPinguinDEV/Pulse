@@ -188,6 +188,7 @@ def main() -> None:
     assert 'request.query_params.get("edit_log")' in pro_melonly
     assert "Bester Treffer" in pro_melonly
     assert "requestId!==latestSearchRequest" in pro_melonly
+    assert "latestExactRequest" in pro_melonly
     assert 'return_to: str = Form("/dashboard")' in web
 
     # Melonly uses role-aware management and similarity-ranked Roblox suggestions.
