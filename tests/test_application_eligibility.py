@@ -72,20 +72,37 @@ class ApplicationEligibilityTests(unittest.TestCase):
         applications = function_source(source, "applications_page")
         self.assertIn('can_decide = ctx.perms["can_manage_applications"] or ctx.perms["can_promote"] or ctx.perms["is_admin"]', applications)
 
-    def test_accepting_application_grants_the_fixed_extra_role(self):
+    def test_accepting_application_only_invites_to_mandatory_interview(self):
         source = read_web()
-        self.assertIn("APPLICATION_ACCEPTED_ROLE_ID = 1496070682126188604", source)
+        self.assertIn("APPLICATION_ROLE_ID = 1496070682126188604", source)
         handler = function_source(source, "handle_action")
-        start = handler.index('if decision == "accept":')
-        end = handler.index('item["status"] = "rejected"', start)
-        accept = handler[start:end]
-        self.assertIn("accepted_role = guild.get_role(APPLICATION_ACCEPTED_ROLE_ID)", accept)
-        self.assertIn("roles_to_add = [r for r in (role, accepted_role) if r not in applicant.roles]", accept)
-        self.assertIn("await applicant.add_roles(*roles_to_add", accept)
-        self.assertIn('item["application_accepted_role_id"] = accepted_role.id', accept)
-        self.assertIn("Zusätzliche Einstellungsrolle", accept)
-        self.assertIn("accepted_role.position >= guild.me.top_role.position", accept)
-        self.assertNotIn('await applicant.kick(', accept)
+        self.assertIn('"pending": {"accept", "reject"}', handler)
+        self.assertIn('"interview": {"hire_after_interview", "reject_after_interview"}', handler)
+        invite_start = handler.index('if decision == "accept":')
+        hire_start = handler.index('if decision == "hire_after_interview":', invite_start)
+        invite = handler[invite_start:hire_start]
+        hire_end = handler.index('if decision == "reject_after_interview"', hire_start)
+        hire = handler[hire_start:hire_end]
+        self.assertIn("application_role = guild.get_role(APPLICATION_ROLE_ID)", invite)
+        self.assertIn("await applicant.add_roles(", invite)
+        self.assertIn('item["status"] = "interview"', invite)
+        self.assertNotIn("hired_role_id", invite)
+        self.assertNotIn('team_entry["team_since"]', invite)
+        self.assertIn("verpflichtendes Bewerbungsgespräch", invite)
+        self.assertIn("role.id == APPLICATION_ROLE_ID", hire)
+        self.assertIn("await applicant.edit(", hire)
+        self.assertIn('item["status"] = "hired"', hire)
+        self.assertIn("set(team_role_ids) | {APPLICATION_ROLE_ID}", hire)
+        self.assertNotIn('await applicant.kick(', handler)
+
+    def test_applications_page_has_two_stage_interview_workflow(self):
+        source = read_web()
+        applications = function_source(source, "applications_page")
+        self.assertIn('active_application_statuses = {"pending", "interview"}', applications)
+        self.assertIn("Zum Bewerbungsgespräch einladen", applications)
+        self.assertIn("Bewerbungsgespräch erforderlich", applications)
+        self.assertIn("hire_after_interview", applications)
+        self.assertIn("reject_after_interview", applications)
 
     def test_application_oauth_reuses_registered_dashboard_callback(self):
         source = read_web()
