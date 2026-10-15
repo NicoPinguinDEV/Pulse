@@ -62,6 +62,8 @@ class PulsePro(commands.Cog):
             # Keep important work visible without repeatedly notifying the same person.
             now = datetime.now(timezone.utc)
             import webserver
+            # Resolve permissions/team managers once per pass instead of for each ticket/application.
+            manager_cache = self.manager_members(guild)
             if now.hour == 3 and now.minute < 5:
                 try: db.purge_old_notifications(90)
                 except Exception: pass
@@ -93,7 +95,7 @@ class PulsePro(commands.Cog):
                     created = datetime.strptime(created_raw, "%d.%m.%Y %H:%M").replace(tzinfo=timezone.utc)
                     if (now - created).total_seconds() < 172800:
                         continue
-                    for manager in self.manager_members(guild):
+                    for manager in manager_cache:
                         db.notify(manager.id, "📝 Bewerbung wartet", f"Bewerbung {aid} von {app_data.get('name','Unbekannt')} wartet seit über 48 Stunden.", "warning", "/applications", f"stale-application:{aid}", 86400)
             except Exception:
                 pass
@@ -109,7 +111,7 @@ class PulsePro(commands.Cog):
                     continue
                 age = (now - opened).total_seconds()
                 if age >= 1800:
-                    for member in self.manager_members(guild):
+                    for member in manager_cache:
                         db.notify(
                             member.id,
                             "🎫 Ticket wartet",
