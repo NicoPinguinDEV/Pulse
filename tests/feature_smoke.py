@@ -74,8 +74,7 @@ def main() -> None:
     assert "await member.edit(" in kick_block
     assert "roles=keep_roles" in kick_block
     assert "Verbleibende Rollen" in kick_block
-    assert "1531303733311307997" in kick_block
-    assert "1489912887949394082" in kick_block
+    assert "TEAM_KICK_KEEP_ROLE_IDS" in kick_block
     assert 'await member.kick(' not in web
     ultimate = read("pulse_ultimate.py")
     assert "RAM_TREND_GROWTH_MB_PER_HOUR = 20.0" in ultimate
@@ -266,7 +265,7 @@ def main() -> None:
     assert "ordered_ids = ordered_team_role_ids(guild, team_role_ids)" in web
     assert "ranked_team_role_ids = ordered_team_role_ids(guild, team_role_ids)" in web
     assert '"team_rank_idx": team_rank(member, team_role_ids)' in web
-    assert "await member.remove_roles(*team_roles" in web
+    assert "await member.edit(" in web
     assert "await member.kick(" not in web
     assert "def _record_team_since" in read("cogs/pulse_next.py")
     assert 'entry["team_since"]' in read("cogs/pulse_next.py")
