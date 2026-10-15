@@ -4679,6 +4679,10 @@ async def notify_new_application(request: Request, application_id: str, applicat
 # =============================================================
 @app.get("/apply", response_class=HTMLResponse)
 async def public_apply_page(request: Request, apply_session: str = Cookie(None)):
+    bot = getattr(request.app.state, "bot", None)
+    application_guild = bot.get_guild(GUILD_ID) if bot else None
+    required_role_obj = application_guild.get_role(APPLICATION_REQUIRED_ROLE_ID) if application_guild else None
+    required_role_display = esc(required_role_obj.name if required_role_obj else f"Discord-Rolle {APPLICATION_REQUIRED_ROLE_ID}")
     applicant = verify_payload(apply_session) if apply_session else None
     if applicant and applicant.get("apply_exp", 0) < time.time():
         applicant = None
@@ -4703,7 +4707,7 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
         <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen flex items-center justify-center p-4 font-sans">
         <div class="{CARD} p-8 shadow-xl w-full max-w-lg text-center space-y-5">
             <div class="text-4xl">📝</div><h1 class="text-xl font-bold">Team-Bewerbung</h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Verbinde deine Bewerbung zuerst sicher mit deinem Discord-Account. Danach kannst du deine Laufbahn auswählen und den passenden Eignungstest direkt online absolvieren.</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Dieses Formular ist ausschließlich für Discord-Mitglieder mit der Rolle <strong>{required_role_display}</strong> freigeschaltet. Verbinde deinen Discord-Account, damit Pulse deine Mitgliedschaft prüfen kann. Danach kannst du deine Laufbahn auswählen und den passenden Eignungstest online absolvieren.</p>
             <a href="/apply/login" class="block w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 rounded-xl">Mit Discord verbinden</a>
             <a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a>
         </div></body></html>"""
@@ -4822,7 +4826,14 @@ async def apply_callback(request: Request, code: str=None, state: str=None, erro
 # =============================================================
 @app.get("/applications", response_class=HTMLResponse)
 async def applications_page(request: Request, user_session: str = Cookie(None)):
-    ctx = auth(request, user_session)
+    ctx = auth(request, user_session, perm=None)
+    if not (
+        ctx.perms.get("can_view_dashboard")
+        or ctx.perms.get("can_manage_applications")
+        or ctx.perms.get("can_promote")
+        or ctx.perms.get("is_admin")
+    ):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Bewerbungen.")
     uid = ctx.user["id"]
     show_history = request.query_params.get("view") == "history"
     can_decide = ctx.perms["can_manage_applications"] or ctx.perms["can_promote"] or ctx.perms["is_admin"]
