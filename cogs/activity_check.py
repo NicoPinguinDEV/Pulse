@@ -418,6 +418,8 @@ class ActivityCheckCog(commands.Cog):
             # records for every confirmed/abgemeldeten participant.
             existing_entry = team_db.get(str(uid), {})
             existing_warnings = existing_entry.get("warns_list", []) if isinstance(existing_entry, dict) else []
+            if not isinstance(existing_warnings, list):
+                existing_warnings = []
             warning_id = activity_warning_id(check_id, uid)
             warn = next(
                 (
@@ -513,6 +515,10 @@ class ActivityCheckCog(commands.Cog):
 
                 count = len(ws.active_warns(entry))
                 role_report = await ws.sync_warn_roles(guild, member, count, cfg)
+                if not role_report.get("ok", False):
+                    set_warn_action(check_id, uid, "failed", warning_id, role_report.get("message", "Warn-Rolle konnte nicht synchronisiert werden"))
+                    report["failed"] += 1
+                    continue
                 if count >= 2 and not warn.get("activity_consequences_applied"):
                     consequence_report = await ws.apply_warn_consequences(guild, member, warn, count, cfg)
                     if consequence_report.get("ok", False):
