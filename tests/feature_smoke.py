@@ -580,6 +580,26 @@ def main() -> None:
     assert 'target_voice_id=0' in buero
     assert "Die DM-Auswahl bleibt zusätzlich bestehen" in buero
 
+    # The native Pulse ticket flow provisions panels in the six specified channels,
+    # logs opened/claimed tickets, and exposes the management page on the Pulse site.
+    tickets = read("cogs/tickets.py")
+    parse("cogs/tickets.py")
+    for channel_id in (
+        1511390378752741386, 1494338404224340179, 1494397389635719269,
+        1488972966774706186, 1559242374658662602, 1488699195157254436,
+    ):
+        assert str(channel_id) in tickets, f"Ticketpanel-Kanal fehlt: {channel_id}"
+    assert "TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503" in tickets
+    assert "TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778" in tickets
+    assert 'name="ticketpanels_setup"' in tickets
+    assert "await send_ticket_log(" in tickets
+    assert 'title="🎫 Neues Ticket geöffnet"' in tickets
+    assert 'title="📥 Ticket übernommen"' in tickets
+    assert 'async def pulse_tickets_dashboard(' in web
+    assert 'async def pulse_tickets_dashboard_action(' in web
+    assert 'auth(request, user_session, perm="can_manage_tickets")' in web
+    assert "/api/galaxybot/webhook" not in web
+
     # Social video announcements: configurable sources, deduplication and fixed target.
     social = read("cogs/social_promo.py")
     parse("cogs/social_promo.py")
