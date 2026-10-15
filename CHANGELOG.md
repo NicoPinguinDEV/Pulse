@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.0 – Dashboard-only Berechtigungsrollen
+
+- Administratoren können unter `/settings` beliebig viele wiederverwendbare Pulse-Dashboard-Profile anlegen, bearbeiten und löschen, z. B. Support, Personalverwaltung oder Leitung.
+- Jedes Profil bündelt die bestehenden Dashboard-Berechtigungen. Ein Profil kann mehreren Teamlern zugewiesen werden; einem Teamler können auch mehrere Profile zugeordnet werden.
+- Die Zuweisung funktioniert über Discord-Nutzer-ID, Mention oder Namen und ist auf Mitglieder mit einer konfigurierten Teamrolle beschränkt. Einzelne Zuweisungen lassen sich wieder entziehen.
+- Diese Profile sind rein intern: Sie ändern weder Discord-Rollen noch Serverberechtigungen oder Rollen-Hierarchie. Serverinhaber und Discord-Administratoren behalten weiterhin den technischen Adminzugriff.
+- Bestehende Discord-Rollenrechte bleiben erhalten; beide Berechtigungsarten werden in der zentralen serverseitigen Rechteprüfung zusammengeführt.
+
 ## Version 7.7.9 – Verbindliches Bewerbungsgespräch
 - Die erste Annahme einer Bewerbung ist jetzt eine Einladung zum verpflichtenden Bewerbungsgespräch und keine Einstellung.
 - Dabei wird ausschließlich die Bewerberolle `1496070682126188604` vergeben. Es wird noch keine Team-Einstiegsrolle vergeben, keine Teamakte auf Einstellung gesetzt und keine Teamzugehörigkeit gestartet.
