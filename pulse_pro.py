@@ -402,7 +402,9 @@ def register(app):
         '''
 
         head=r'''<script>
-        (function(){
+        // This extra script is inserted into <head>, so wait until Melonly's form exists.
+        document.addEventListener("DOMContentLoaded", function(){
+          (function(){
           const name=document.getElementById("melonlyName");
           const id=document.getElementById("melonlyId");
           const box=document.getElementById("melonlySuggestions");
@@ -515,7 +517,8 @@ def register(app):
             loadExact(q);
           });
           name.addEventListener("blur",function(){setTimeout(hideSuggestions,180);});
-        })();
+          })();
+        });
         </script>''';
 
         return render_pro_page(ws,"Melonly",c,"melonly",body,head)

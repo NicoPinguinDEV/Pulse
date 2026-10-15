@@ -191,6 +191,9 @@ def main() -> None:
     assert "Bester Treffer" in pro_melonly
     assert "requestId!==latestSearchRequest" in pro_melonly
     assert "latestExactRequest" in pro_melonly
+    assert 'document.addEventListener("DOMContentLoaded", function(){' in pro_melonly
+    assert 'const name=document.getElementById("melonlyName");' in pro_melonly
+    assert 'if(requestId!==latestSearchRequest || norm(name.value).toLowerCase()!==q.toLowerCase())return;' in pro_melonly
     assert 'return_to: str = Form("/dashboard")' in web
 
     # Melonly uses role-aware management and similarity-ranked Roblox suggestions.
