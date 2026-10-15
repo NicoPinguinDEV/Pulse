@@ -104,8 +104,8 @@ SHIFTS_FILE = "shifts.json"
 LOGS_FILE = "logs.json"
 AUDIT_FILE = "audit_logs.json"
 MEETINGS_FILE = "meetings.json"
-DB_ABMELDUNGEN = "abmeldungen.db"
-ACTIVITY_DB = "activity_check.db"
+DB_ABMELDUNGEN = str(BASE_DIR / "abmeldungen.db")
+ACTIVITY_DB = str(BASE_DIR / "activity_check.db")
 BACKUP_DIR = "backups"
 SECRET_FILE = ".session_secret"
 
