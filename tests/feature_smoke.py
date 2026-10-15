@@ -125,6 +125,20 @@ def main() -> None:
     assert "def _roblox_http_client()" in web
     assert "limits=httpx.Limits(" in web
 
+    # Dashboard-only roles are reusable user-scoped permission profiles. They must
+    # be enforced by the central permission calculation and remain separate from Discord roles.
+    assert '"dashboard_roles"' in web
+    assert '"dashboard_user_roles"' in web
+    assert "def dashboard_permission_boxes(" in web
+    assert '"assign_dashboard_role": "admin"' in web
+    assert '"unassign_dashboard_role": "admin"' in web
+    assert '"delete_dashboard_role": "admin"' in web
+    assert "assigned_dashboard_roles" in web
+    assert "Dashboard-Profile zugewiesen" in web
+    assert "Dashboard-Profile entzogen" in web
+    assert "Dashboard-Profile können nur Mitgliedern mit einer konfigurierten Teamrolle zugewiesen werden." in web
+
+
     # Dashboard Team-Kick must reset the member's roles to exactly the two
     # configured post-kick roles, and must never kick the member from Discord.
     assert "Team-Kick" in web
