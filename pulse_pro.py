@@ -404,7 +404,8 @@ def register(app):
                 continue
             permission_map[str(role_id)] = recommended_role_profile(role)
             changed.append(role)
-        c.config["permissions_profile_version"] = 2
+        c.config["permissions_profile_version"] = 3
+        c.config["all_role_permissions_disabled"] = False
         ws.save_json(ws.CONFIG_FILE, c.config)
         ws.log_audit(
             c.user.get("global_name") or c.user.get("username"),
@@ -438,8 +439,9 @@ def register(app):
             permission_map[role_id] = dict(no_rights)
 
         # Keep the team-role selection, warning roles and other settings intact.
-        # Version 2 prevents the legacy-profile migration from re-granting defaults.
-        c.config["permissions_profile_version"] = 2
+        # This one-time versioned migration also prevents legacy defaults from being restored.
+        c.config["permissions_profile_version"] = 3
+        c.config["all_role_permissions_disabled"] = True
         ws.save_json(ws.CONFIG_FILE, c.config)
         actor = c.user.get("global_name") or c.user.get("username") or "Unbekannt"
         ws.log_audit(
@@ -1481,7 +1483,11 @@ def register(app):
             profile_version=int(c.config.get("permissions_profile_version", 0) or 0)
         except (TypeError, ValueError):
             profile_version=0
-        if role_ids and profile_version < 1:
+        if profile_version < 3:
+            disabled_count=clear_all_role_permissions(c)
+            profile_version=3
+            profile_notice=f'<section class="pulse-alert mb-5"><strong>🛑 Sicherheitsreset abgeschlossen.</strong><div class="text-slate-400 mt-1">Alle Pulse-Rollenrechte wurden für {disabled_count} Rollen deaktiviert. Serverinhaber und echte Discord-Administratoren behalten den technischen Adminzugriff. Teamdaten und andere Einstellungen wurden nicht verändert.</div></section>'
+        elif role_ids and profile_version < 1:
             initialized=apply_recommended_role_profiles(c)
             profile_notice=f'<section class="pulse-alert mb-5"><strong>🔐 Empfohlene Standardrechte wurden gesetzt.</strong><div class="text-slate-400 mt-1">Die Standardprofile sind aktiv. PK erhält mehr Rechte als Teamleitung; Support bekommt keine Kicks, Bans oder BOLO-Einträge. Bitte prüfe die Karten unten.</div></section>'
         elif role_ids and profile_version < 2:
@@ -1573,11 +1579,14 @@ def register(app):
         vals=sorted(set(vals),key=lambda rid:c.guild.get_role(rid).position)
         c.config['team_role_ids']=vals
         permission_map=c.config.setdefault('permissions',{})
+        no_rights={key:False for key in tuple(dict.fromkeys((*ws.PERM_KEYS,*EXTRA_PERMS)))}
+        keep_roles_disabled=bool(c.config.get("all_role_permissions_disabled"))
         for rid in vals:
             role=c.guild.get_role(rid)
             if role and str(rid) not in permission_map:
-                permission_map[str(rid)]=recommended_role_profile(role)
-        c.config["permissions_profile_version"]=1
+                permission_map[str(rid)]=dict(no_rights) if keep_roles_disabled else recommended_role_profile(role)
+        # Do not retrigger the one-time reset when the selected roles are edited later.
+        c.config["permissions_profile_version"]=3 if keep_roles_disabled else 1
         ws.save_json(ws.CONFIG_FILE,c.config)
         ws.log_audit(c.user.get('global_name') or c.user.get('username'),c.user['id'],'Team-Rollen Geändert',','.join(str(x) for x in vals))
         return ws.back('/settings','Teamrollen und Standardrechte gespeichert.')
