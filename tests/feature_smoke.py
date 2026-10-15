@@ -266,8 +266,8 @@ def main() -> None:
     # The visible /melonly page is Pulse Pro's route, not just the legacy dashboard.
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
-    assert 'VERSION = "7.6.2"' in pro_melonly
-    assert 'PULSE_VERSION = "7.6.2"' in web
+    assert 'VERSION = "7.6.3"' in pro_melonly
+    assert 'PULSE_VERSION = "7.6.3"' in web
     assert "ws.can_manage_melonly_entry(c,x)" in pro_melonly
     assert 'action="/log/edit"' in pro_melonly
     assert 'action="/log/delete"' in pro_melonly
@@ -616,8 +616,11 @@ def main() -> None:
     # Native multi-panel editor: independent panels, category registry, publishing and deletion.
     assert "async def publish_panel_for_guild" in tickets
     assert "def ticket_category_definitions()" in tickets
-    assert 'PULSE_VERSION = "7.6.2"' in web
+    assert 'PULSE_VERSION = "7.6.3"' in web
     assert "Panel-Builder" in web
+    # Main dashboard administration navigation must expose the standalone builder directly.
+    assert '("ticket-panels","/tickets/panels","▣","Ticket-Panel-Builder")' in pro_melonly
+    assert '("🎛️", "Ticket-Panel-Builder", "/tickets/panels")' in pro_melonly
     assert '@app.get("/tickets/panels", response_class=HTMLResponse)' in web
     assert 'href="/tickets/panels#panel-builder"' in web
     assert 'id="panel-builder"' in web
