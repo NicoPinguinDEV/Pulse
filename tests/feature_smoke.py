@@ -5,9 +5,22 @@ Stdlib-only; complements the compileall CI check.
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
+from datetime import datetime
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from pulse_activity_utils import (
+    activity_action_is_terminal,
+    activity_warning_due,
+    activity_warning_id,
+    confirmed_by_deadline,
+    leave_covers_date,
+)
+
 
 
 def read(name: str) -> str:
@@ -29,7 +42,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -37,6 +50,44 @@ def main() -> None:
     main = read("main.py")
     web = read("webserver.py")
     shift_utils = read("pulse_shift_utils.py")
+    # Activity Check: use the same absolute database files in the bot and web app,
+    # preserve empty-vs-legacy snapshots, and issue idempotent 20:00 warnings.
+    activity_utils = read("pulse_activity_utils.py")
+    activity_cog = read("cogs/activity_check.py")
+    activity_pro = read("pulse_pro.py")
+    assert "DB_NAME = str(BASE_DIR / \"activity_check.db\")" in activity_cog
+    assert "ABMELDUNGEN_DB = str(BASE_DIR / \"abmeldungen.db\")" in activity_cog
+    assert 'DB_NAME = str(Path(__file__).resolve().parents[1] / "abmeldungen.db")' in read("cogs/abmeldung.py")
+    assert "ABMELDUNGEN_DB = str(BASE_DIR / \"abmeldungen.db\")" in read("cogs/teamliste.py")
+    assert "ACTIVITY_DB = str(BASE_DIR / \"activity_check.db\")" in web
+    assert "sqlite3.connect(ws.ACTIVITY_DB)" in activity_pro
+    assert "snapshot_version INTEGER NOT NULL DEFAULT 0" in activity_cog
+    assert "snapshot_version >= 1" in activity_pro
+    assert "activity_warn_actions" in activity_cog
+    assert "source_activity_check_id" in activity_cog
+    assert "source_activity_user_id" in activity_cog
+    assert "activity_warning_due(now)" in activity_cog
+    assert "@tasks.loop(minutes=1)\n    async def daily_activity_check" in activity_cog
+    assert "or now.hour >= 20" in activity_cog
+    assert "Snapshot ist leer" in activity_cog
+    assert "confirmed_by_deadline(responses.get(uid), check_date)" in activity_cog
+    assert "is_abgemeldet(uid, check_date)" in activity_cog
+    assert "await ws.sync_warn_roles(guild, member, count, cfg)" in activity_cog
+    assert "await ws.apply_warn_consequences(guild, member, warn, count, cfg)" in activity_cog
+    assert "warns.append(warn)" not in activity_cog  # warning is appended to the existing warns_list
+    assert "warnings.append(warn)" in activity_cog
+    assert "await member.kick(" not in activity_cog
+    assert "def confirmed_by_deadline(" in activity_utils
+    assert "def leave_covers_date(" in activity_utils
+    assert activity_warning_due(datetime(2026, 10, 15, 19, 59)) is False
+    assert activity_warning_due(datetime(2026, 10, 15, 20, 0)) is True
+    assert confirmed_by_deadline("2026-10-15T19:59:00+02:00", "2026-10-15")
+    assert not confirmed_by_deadline("2026-10-15T20:00:01+02:00", "2026-10-15")
+    assert leave_covers_date("2026-10-14", "2026-10-16", "2026-10-15")
+    assert activity_warning_id(12, 34) == activity_warning_id(12, 34)
+    assert activity_action_is_terminal("issued")
+    assert not activity_action_is_terminal("failed")
+
     parse("pulse_shift_utils.py")
     assert "AUTO_SHIFT_END_HOURS = 24.0" in shift_utils
     assert "AUTO_SHIFT_END_SECONDS" in web
@@ -202,8 +253,8 @@ def main() -> None:
     # The visible /melonly page is Pulse Pro's route, not just the legacy dashboard.
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
-    assert 'VERSION = "7.3.1"' in pro_melonly
-    assert 'PULSE_VERSION = "7.3.1"' in web
+    assert 'VERSION = "7.4.0"' in pro_melonly
+    assert 'PULSE_VERSION = "7.4.0"' in web
     assert "ws.can_manage_melonly_entry(c,x)" in pro_melonly
     assert 'action="/log/edit"' in pro_melonly
     assert 'action="/log/delete"' in pro_melonly

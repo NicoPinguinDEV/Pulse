@@ -1,12 +1,13 @@
 from datetime import datetime
 import sqlite3
 from typing import Optional
+from pathlib import Path
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-DB_NAME = "abmeldungen.db"
+DB_NAME = str(Path(__file__).resolve().parents[1] / "abmeldungen.db")
 
 
 # ---------------------------------------------------------------------------

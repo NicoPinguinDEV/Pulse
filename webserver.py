@@ -104,8 +104,8 @@ SHIFTS_FILE = "shifts.json"
 LOGS_FILE = "logs.json"
 AUDIT_FILE = "audit_logs.json"
 MEETINGS_FILE = "meetings.json"
-DB_ABMELDUNGEN = "abmeldungen.db"
-ACTIVITY_DB = "activity_check.db"
+DB_ABMELDUNGEN = str(BASE_DIR / "abmeldungen.db")
+ACTIVITY_DB = str(BASE_DIR / "activity_check.db")
 BACKUP_DIR = "backups"
 SECRET_FILE = ".session_secret"
 
@@ -123,7 +123,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.3.1"
+PULSE_VERSION = "7.4.0"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -2553,14 +2553,29 @@ def get_activity_today(guild_id: int):
                 "SELECT user_id FROM check_members WHERE check_id=?",
                 (check_id,),
             ).fetchall()
-            eligible = {int(x[0]) for x in snapshot_rows} if snapshot_rows else None
+            columns = {str(x[1]) for x in conn.execute("PRAGMA table_info(checks)").fetchall()}
+            snapshot_version = 0
+            if "snapshot_version" in columns:
+                version_row = conn.execute(
+                    "SELECT snapshot_version FROM checks WHERE id=?", (check_id,)
+                ).fetchone()
+                snapshot_version = int(version_row[0] or 0) if version_row else 0
+            # Empty set means a new check intentionally recorded an empty snapshot;
+            # None is reserved for legacy checks that predate immutable snapshots.
+            eligible = (
+                {int(x[0]) for x in snapshot_rows}
+                if snapshot_rows
+                else (set() if snapshot_version >= 1 else None)
+            )
             return {
                 "check_id": check_id,
                 "check_date": today,
                 "confirmed": confirmed,
                 "eligible": eligible,
+                "snapshot_version": snapshot_version,
             }
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        print(f"Activity-Check-Status konnte Datenbank nicht lesen: {type(exc).__name__}: {exc}")
         return empty
 
 
@@ -2585,8 +2600,9 @@ async def team_activity_api(request: Request, user_session: str = Cookie(None)):
             statuses[str(m.id)] = "confirmed" if m.id in activity["confirmed"] else "open"
 
     confirmed = sum(1 for m in members if statuses.get(str(m.id)) == "confirmed")
+    eligible_ids = eligible if eligible is not None else current_ids
     open_count = (
-        sum(1 for uid in (eligible or current_ids) if uid in current_ids and uid not in activity["confirmed"])
+        sum(1 for uid in eligible_ids if uid in current_ids and uid not in activity["confirmed"])
         if activity["check_id"] else 0
     )
     return JSONResponse({

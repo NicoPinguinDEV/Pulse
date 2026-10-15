@@ -1,10 +1,13 @@
 import asyncio
 import sqlite3
+from pathlib import Path
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-DB_NAME = "teamliste.db"
+BASE_DIR = Path(__file__).resolve().parents[1]
+DB_NAME = str(BASE_DIR / "teamliste.db")
+ABMELDUNGEN_DB = str(BASE_DIR / "abmeldungen.db")
 
 
 # --- DATENBANK HELFER ---
@@ -139,7 +142,7 @@ class TeamlisteCog(commands.Cog):
     # Liest Abmeldungen einmal pro Listenaktualisierung statt pro Teammitglied.
     def get_abmeldungen_map(self) -> dict[int, str]:
         try:
-            with sqlite3.connect("abmeldungen.db", timeout=3) as conn:
+            with sqlite3.connect(ABMELDUNGEN_DB, timeout=3) as conn:
                 rows = conn.execute("SELECT user_id, bis FROM abmeldungen").fetchall()
             return {int(user_id): str(bis) for user_id, bis in rows if user_id is not None}
         except (sqlite3.Error, OSError, TypeError, ValueError):
