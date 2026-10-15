@@ -267,7 +267,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.7.5"' in version_source
+    assert 'PULSE_VERSION = "7.7.6"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     assert "from pulse_version import PULSE_VERSION" in pro_melonly
     assert "VERSION = PULSE_VERSION" in pro_melonly
@@ -287,6 +287,13 @@ def main() -> None:
     assert "APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720" in web
     assert "APPLICATION_ALERT_ROLE_ID = 1531300183088824340" in web
     assert "async def verify_application_member(request: Request, applicant_id)" in web
+    oauth_helper = web.split("def oauth_redirect_uri(", 1)[1].split("\ndef oauth_cookie_secure(", 1)[0]
+    assert "(REDIRECT_URI or APPLICATION_REDIRECT_URI) if application else REDIRECT_URI" in oauth_helper
+    assert 'return f"{request_origin(request)}/callback"' in oauth_helper
+    oauth_callback = web.split('@app.get("/callback")', 1)[1].split("# =============================================================", 1)[0]
+    assert "apply_oauth_state: str = Cookie(None)" in oauth_callback
+    assert "application=application_flow" in oauth_callback
+    assert 'RedirectResponse(url="/apply", status_code=303)' in oauth_callback
     public_apply_source = web.split('async def public_apply_page(', 1)[1].split('@app.get("/apply/login")', 1)[0]
     assert "await verify_application_member(" in public_apply_source
     submit_source = web.split('if action == "submit_application":', 1)[1].split("# ---------- Ab hier: Login + Recht", 1)[0]
