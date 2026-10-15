@@ -29,7 +29,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -56,6 +56,26 @@ def main() -> None:
     assert 'await member.kick(' not in web
     assert "Mitglied bleibt auf dem Discord-Server" not in web or "bleibt aber auf dem Discord-Server" in web
     ultimate = read("pulse_ultimate.py")
+    assert "RAM_TREND_GROWTH_MB_PER_HOUR = 20.0" in ultimate
+    assert "current_level=previous" in ultimate
+    assert "_RAM_SAMPLES: deque[tuple[float, float]] = deque(maxlen=180)" in ultimate
+    assert "def memory_guard_level(" in ultimate
+    safety = read("pulse_safety.py")
+    parse("pulse_safety.py")
+    assert "def rank_role_ids_after_change(" in safety
+    assert 'if action_kind == "server-exit":' in safety
+    assert 'if action_kind == "team-exit":' in safety
+    safety_tests = read("tests/test_pulse_safety.py")
+    assert "test_warning_requires_recovery_below_160" in safety_tests
+    assert "test_server_kick_and_team_exit_are_not_interchangeable" in safety_tests
+    suite_actions = read("cogs/pulse_suite.py")
+    parse("cogs/pulse_suite.py")
+    assert "await target.kick(" in suite_actions
+    assert "await target.remove_roles(*team_roles" in suite_actions
+    assert "status='executing'" in suite_actions
+    assert "rank_role_ids_after_change(" in suite_actions
+    assert "Pflichtgrund für den Team-Kick" in suite_actions
+    assert "Pflichtgrund für den Server-Kick" in suite_actions
     assert "RAM_WARN_MB = 180.0" in ultimate
     assert "RAM_CRITICAL_MB = 210.0" in ultimate
     assert "RAM_EMERGENCY_MB = 230.0" in ultimate
@@ -66,6 +86,8 @@ def main() -> None:
     parse("cogs/pulse_pro.py")
     assert 'name="pulse-diagnose"' in pulse_pro_cog
     assert "process_peak_rss_mb" in pulse_pro_cog
+    assert "office_system.get_config(\"ping_channel_id\")" in pulse_pro_cog
+    assert "office_system.get_config(\"warteraum_channel_id\")" in pulse_pro_cog
 
     # Pulse Next uses synchronous SQLite helpers during periodic score updates.
     # Keep workflow/profile/score maintenance off the Discord event loop.
