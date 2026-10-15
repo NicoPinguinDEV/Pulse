@@ -124,7 +124,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.6.3"
+PULSE_VERSION = "7.7.0"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -2397,7 +2397,7 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
         can_moderate_kicks=bool(ctx.perms.get("can_moderate_kicks")),
         can_moderate_bans=bool(ctx.perms.get("can_moderate_bans")),
         can_moderate_bolo=bool(ctx.perms.get("can_moderate_bolo")),
-        manager=bool(ctx.perms.get("can_promote") or ctx.perms.get("is_admin")),
+        manager=bool(ctx.perms.get("is_admin")),
     ):
         raise HTTPException(status_code=403, detail="Für diesen Melonly-Aktionstyp fehlt dir die gesonderte Berechtigung.")
     if not re.fullmatch(r"\d{1,15}", roblox_id):
@@ -2498,7 +2498,7 @@ async def delete_log(
 def can_manage_melonly_entry(ctx, entry: dict, target_type: str | None = None) -> bool:
     """Enforce per-action Melonly permissions in UI and every write endpoint."""
     perms = ctx.perms
-    manager = bool(perms.get("can_promote") or perms.get("is_admin"))
+    manager = bool(perms.get("is_admin"))
     options = {
         "can_warn": bool(perms.get("can_warn")),
         "can_add_notes": bool(perms.get("can_add_notes")),
