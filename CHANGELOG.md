@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.2 – Zwischenrollen in der aktiven Pulse-Pro-Einstellungsseite
+
+- Der sichtbare `/settings`-Bereich wird von Pulse Pro überschrieben; die digitalen Zwischenrollen befinden sich jetzt in genau dieser aktiven Einstellungsseite und erscheinen oberhalb der einzelnen Discord-Rollen-Rechtekarten.
+- Digitale Zwischenrollen können dort erstellt, umbenannt, konfiguriert und gelöscht werden. Rechte werden über sämtliche Pulse-Pro-Berechtigungen einschließlich Ankündigungen, Übergaben, Beförderungsanträgen, Teamstatus und Activity Check ausgewählt.
+- Jedem Profil lassen sich eine oder mehrere vorhandene, unter „Teamrollen“ ausgewählte Discord-Teamrollen zuweisen. Mitglieder erhalten das Profil automatisch über ihre Discord-Rollen.
+- Speichern und Löschen sind serverseitig auf Administratoren beschränkt; alle Änderungen werden im Audit-Log protokolliert.
 ## Version 7.8.1 – Digitale Rollen nach Discord-Teamrollen zuordnen
 
 - Digitale Dashboard-Rollen werden jetzt direkt vorhandenen, unter „Team-Rollen“ konfigurierten Discord-Teamrollen zugewiesen – nicht einzelnen Personen.
