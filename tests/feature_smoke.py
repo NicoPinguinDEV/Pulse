@@ -29,7 +29,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -177,6 +177,19 @@ def main() -> None:
     assert "for level in sorted(ids):" in web
     assert "warning_5" in web
     assert "/3 Warnungen" not in web
+
+    # Melonly uses role-aware management and similarity-ranked Roblox suggestions.
+    melonly_helpers = read("pulse_melonly.py")
+    parse("pulse_melonly.py")
+    assert "def rank_roblox_candidates(" in melonly_helpers
+    assert "def roblox_similarity_score(" in melonly_helpers
+    assert "def can_manage_melonly_type(" in melonly_helpers
+    assert "robloxSuggestionPanel" in web
+    assert "⭐ Bester Treffer" in web
+    assert "best_match" in web
+    assert "can_manage_melonly_entry(ctx, log)" in web
+    assert "can_manage_melonly_entry(ctx, entry, target_type=log_type)" in web
+    assert "can_manage_melonly_entry(ctx, entry)" in web
 
     # Melonly stays internal and is editable/deletable.
     web_tree = parse("webserver.py")

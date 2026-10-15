@@ -31,6 +31,7 @@ import httpx
 import discord
 import pulse_db as pulse_db
 from career_applications import APPLICATION_CAREERS, grade_career_test, render_career_test
+from pulse_melonly import can_manage_melonly_type, rank_roblox_candidates, roblox_similarity_score
 
 try:
     from zoneinfo import ZoneInfo
@@ -1246,13 +1247,15 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
     if not re.fullmatch(r"[A-Za-z0-9_]{2,20}", clean):
         return JSONResponse({"success": True, "users": []})
 
-    # Bereits im Melonly-Panel verwendete Namen dienen als lokale Fallback-Vorschläge.
-    # Damit bleiben Autocomplete-Einträge sichtbar, selbst wenn Roblox kurz nicht erreichbar ist.
+    # Lokale Einträge fangen Roblox-Ausfälle ab; fuzzy Treffer helfen auch bei Tippfehlern.
     users_map = {}
+    query_lower = clean.lower()
     for entry in reversed(load_json(LOGS_FILE, [])[-5000:]):
         saved_name = str(entry.get("target_user") or "").strip()
         saved_id = str(entry.get("roblox_id") or "")
-        if not saved_name or clean.lower() not in saved_name.lower():
+        if not saved_name:
+            continue
+        if query_lower not in saved_name.lower() and roblox_similarity_score(clean, saved_name) < 0.42:
             continue
         users_map.setdefault(saved_name.lower(), {
             "id": saved_id,
@@ -1261,26 +1264,33 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
         })
 
     try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(
-                "https://users.roblox.com/v1/users/search",
-                params={"keyword": clean, "limit": 8},
-                timeout=5.0,
-            )
-            data = res.json()
-            for u in data.get("data", [])[:8]:
-                name = str(u.get("name") or "")
-                if not name:
-                    continue
-                users_map[name.lower()] = {
-                    "id": str(u.get("id", "")),
-                    "name": name,
-                    "displayName": str(u.get("displayName") or name),
-                }
+        client = _roblox_http_client()
+        res = await client.get(
+            "https://users.roblox.com/v1/users/search",
+            params={"keyword": clean, "limit": 8},
+            timeout=5.0,
+        )
+        res.raise_for_status()
+        data = res.json()
+        for u in data.get("data", [])[:8]:
+            name = str(u.get("name") or "")
+            if not name:
+                continue
+            users_map[name.lower()] = {
+                "id": str(u.get("id", "")),
+                "name": name,
+                "displayName": str(u.get("displayName") or name),
+            }
     except Exception:
+        # Bereits protokollierte ähnliche Namen werden bei Roblox-Ausfällen weiterhin angezeigt.
         pass
 
-    return JSONResponse({"success": True, "users": list(users_map.values())[:8]})
+    ranked_users = rank_roblox_candidates(clean, list(users_map.values()), limit=8)
+    return JSONResponse({
+        "success": True,
+        "users": ranked_users,
+        "best_match": ranked_users[0] if ranked_users else None,
+    })
 
 # =============================================================
 # HEALTH CHECK
@@ -1511,63 +1521,168 @@ DASHBOARD_HEAD = """
     if("serviceWorker" in navigator){ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }
 
     let robloxSearchTimeout = null;
-    let robloxSuggestionIds = {};
+    let robloxSearchRequestId = 0;
+    let lookupTimeout = null;
+    let lookupRequestId = 0;
+    let resolvedRobloxUsername = "";
+
+    function normalizedRobloxInput(value) {
+        return String(value || "").trim().replace(/^@+/, "").toLowerCase();
+    }
+
     function searchRobloxUsers(val) {
         clearTimeout(robloxSearchTimeout);
         const input = String(val || "").trim().replace(/^@+/, "");
         const list = document.getElementById("robloxUserSuggestions");
-        if (!list || input.length < 2) { if (list) list.innerHTML = ""; return; }
+        const panel = document.getElementById("robloxSuggestionPanel");
+        const requestId = ++robloxSearchRequestId;
+        if (!list || input.length < 2) {
+            if (list) list.innerHTML = "";
+            if (panel) { panel.replaceChildren(); panel.classList.add("hidden"); }
+            return;
+        }
         robloxSearchTimeout = setTimeout(() => {
             fetch("/api/roblox-search?query=" + encodeURIComponent(input), {cache: "no-store"})
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.success) { list.innerHTML = ""; return; }
-                    robloxSuggestionIds = {};
-                    (data.users || []).forEach(u => {
-                        const name = String(u.name || "").trim();
-                        if (name) robloxSuggestionIds[name.toLowerCase()] = String(u.id || "");
-                    });
-                    list.innerHTML = (data.users || []).map(u => "<option value=\"" + escapeHtml(u.name) + "\">" + escapeHtml(u.displayName || u.name) + " · ID " + escapeHtml(u.id) + "</option>").join("");
+                    if (requestId !== robloxSearchRequestId) return;
+                    const usernameInput = document.getElementById("robloxUsernameInput");
+                    if (!usernameInput || normalizedRobloxInput(usernameInput.value) !== input.toLowerCase()) return;
+                    if (!data.success) {
+                        list.innerHTML = "";
+                        if (panel) { panel.replaceChildren(); panel.classList.add("hidden"); }
+                        return;
+                    }
+                    const users = Array.isArray(data.users) ? data.users : [];
+                    list.innerHTML = users.map(u => "<option value=\"" + escapeHtml(u.name) + "\">" + escapeHtml(u.displayName || u.name) + " · ID " + escapeHtml(u.id) + "</option>").join("");
+                    if (panel) {
+                        panel.replaceChildren();
+                        users.forEach((u, index) => {
+                            const username = String(u.name || "").trim();
+                            if (!username) return;
+                            const button = document.createElement("button");
+                            button.type = "button";
+                            button.className = "flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border-b last:border-b-0 border-slate-100 dark:border-slate-800 focus:outline-none focus:bg-indigo-50 dark:focus:bg-indigo-950/40";
+                            button.setAttribute("role", "option");
+                            const left = document.createElement("span");
+                            left.className = "min-w-0 flex flex-col";
+                            const name = document.createElement("span");
+                            name.className = "font-semibold text-xs text-slate-900 dark:text-white truncate";
+                            name.textContent = (index === 0 ? "⭐ " : "") + username;
+                            const display = document.createElement("span");
+                            display.className = "text-[10px] text-slate-500 dark:text-slate-400 truncate";
+                            display.textContent = String(u.displayName || username);
+                            left.append(name, display);
+                            const right = document.createElement("span");
+                            right.className = "shrink-0 text-[10px] font-mono text-indigo-600 dark:text-indigo-300";
+                            right.textContent = (index === 0 ? "Bester Treffer · " : "") + "ID " + String(u.id || "unbekannt");
+                            button.append(left, right);
+                            button.addEventListener("click", () => selectRobloxSuggestion(u));
+                            panel.appendChild(button);
+                        });
+                        panel.classList.toggle("hidden", panel.childElementCount === 0);
+                    }
+                    const exact = users.find(u => String(u.name || "").toLowerCase() === input.toLowerCase());
                     const idInput = document.getElementById("robloxIdInput");
-                    const cachedId = robloxSuggestionIds[input.toLowerCase()];
-                    if (idInput && cachedId) idInput.value = cachedId;
+                    if (exact && idInput && /^\d+$/.test(String(exact.id || ""))) {
+                        idInput.value = String(exact.id);
+                        resolvedRobloxUsername = String(exact.name).toLowerCase();
+                    }
                 })
-                .catch(() => { list.innerHTML = ""; });
-        }, 250);
+                .catch(() => {
+                    if (requestId !== robloxSearchRequestId) return;
+                    list.innerHTML = "";
+                    if (panel) { panel.replaceChildren(); panel.classList.add("hidden"); }
+                });
+        }, 220);
     }
-    let lookupTimeout = null;
-    function lookupRobloxUser(val) {
-        val = String(val || "").trim().replace(/^@+/, "");
-        searchRobloxUsers(val);
-        clearTimeout(lookupTimeout);
-        const infoDiv = document.getElementById("robloxUserPreview");
+
+    function selectRobloxSuggestion(user) {
+        const username = String(user && user.name || "").trim();
+        if (!username) return;
+        const usernameInput = document.getElementById("robloxUsernameInput");
         const idInput = document.getElementById("robloxIdInput");
-        if (!val || val.trim().length < 3) { infoDiv.classList.add("hidden"); return; }
+        const panel = document.getElementById("robloxSuggestionPanel");
+        clearTimeout(robloxSearchTimeout);
+        robloxSearchRequestId += 1;
+        if (usernameInput) usernameInput.value = username;
+        if (idInput) idInput.value = /^\d+$/.test(String(user.id || "")) ? String(user.id) : "";
+        resolvedRobloxUsername = username.toLowerCase();
+        if (panel) { panel.replaceChildren(); panel.classList.add("hidden"); }
+        lookupRobloxUser(username, true);
+    }
+
+    function renderRobloxPreview(data) {
+        const infoDiv = document.getElementById("robloxUserPreview");
+        if (!infoDiv) return;
+        const prev = Number(data.previous_total || 0) > 0
+            ? '<div class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5">⚠️ ' + Number(data.previous_total) + ' frühere Logs (' + escapeHtml(data.previous_summary || "") + ')</div>'
+            : '<div class="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">✔ Keine früheren Logs</div>';
+        infoDiv.innerHTML =
+            '<div class="flex items-center gap-3 p-2.5 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/50 rounded-xl">' +
+                (data.avatarUrl ? '<img src="' + escapeHtml(data.avatarUrl) + '" class="w-9 h-9 rounded-full border border-indigo-300 dark:border-indigo-700">' : '') +
+                '<div class="truncate">' +
+                    '<div class="font-bold text-slate-900 dark:text-white text-xs">' + escapeHtml(data.displayName || data.username || data.name || "") +
+                    ' <span class="text-slate-400 text-[10px]">(@' + escapeHtml(data.username || data.name || "") + ')</span></div>' +
+                    '<div class="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-semibold">Roblox ID: ' + escapeHtml(data.id || "") + '</div>' +
+                    (data.previous_total === undefined ? '' : prev) +
+                '</div>' +
+            '</div>';
+        infoDiv.classList.remove("hidden");
+    }
+
+    function lookupRobloxUser(val, fromSuggestion) {
+        val = String(val || "").trim().replace(/^@+/, "");
+        const usernameInput = document.getElementById("robloxUsernameInput");
+        const idInput = document.getElementById("robloxIdInput");
+        const infoDiv = document.getElementById("robloxUserPreview");
+        if (!fromSuggestion) {
+            searchRobloxUsers(val);
+            if (resolvedRobloxUsername && normalizedRobloxInput(val) !== resolvedRobloxUsername) {
+                resolvedRobloxUsername = "";
+                if (idInput) idInput.value = "";
+            }
+            if (infoDiv) infoDiv.classList.add("hidden");
+        } else {
+            clearTimeout(robloxSearchTimeout);
+            robloxSearchRequestId += 1;
+        }
+        clearTimeout(lookupTimeout);
+        const requestId = ++lookupRequestId;
+        if (!val || val.length < 3) {
+            if (infoDiv) infoDiv.classList.add("hidden");
+            return;
+        }
         lookupTimeout = setTimeout(() => {
-            fetch("/api/roblox-user?username=" + encodeURIComponent(val.trim()))
+            fetch("/api/roblox-user?username=" + encodeURIComponent(val), {cache: "no-store"})
                 .then(r => r.json())
                 .then(data => {
+                    if (requestId !== lookupRequestId) return;
+                    if (!usernameInput || normalizedRobloxInput(usernameInput.value) !== val.toLowerCase()) return;
                     if (data.success) {
-                        if (idInput) idInput.value = data.id;
-                        const prev = data.previous_total > 0
-                            ? `<div class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5">⚠️ ${data.previous_total} frühere Logs (${escapeHtml(data.previous_summary)})</div>`
-                            : `<div class="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">✔ Keine früheren Logs</div>`;
-                        infoDiv.innerHTML = `
-                            <div class="flex items-center gap-3 p-2.5 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/50 rounded-xl">
-                                <img src="${escapeHtml(data.avatarUrl)}" class="w-9 h-9 rounded-full border border-indigo-300 dark:border-indigo-700">
-                                <div class="truncate">
-                                    <div class="font-bold text-slate-900 dark:text-white text-xs">${escapeHtml(data.displayName)} <span class="text-slate-400 text-[10px]">(@${escapeHtml(data.username)})</span></div>
-                                    <div class="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-semibold">Roblox ID: ${escapeHtml(data.id)}</div>
-                                    ${prev}
-                                </div>
-                            </div>`;
+                        if (idInput) idInput.value = String(data.id || "");
+                        resolvedRobloxUsername = String(data.username || val).toLowerCase();
+                        renderRobloxPreview(data);
+                    } else if (fromSuggestion) {
+                        renderRobloxPreview({name: val, username: val, id: idInput ? idInput.value : "", displayName: val});
                     } else {
-                        infoDiv.innerHTML = `<span class="text-rose-500 text-[11px] block px-1">⚠️ ${escapeHtml(data.message)}</span>`;
+                        const panel = document.getElementById("robloxSuggestionPanel");
+                        if (panel && !panel.classList.contains("hidden")) return;
+                        if (infoDiv) {
+                            infoDiv.innerHTML = '<span class="text-rose-500 text-[11px] block px-1">⚠️ ' + escapeHtml(data.message || "Roblox-Nutzer nicht gefunden") + '</span>';
+                            infoDiv.classList.remove("hidden");
+                        }
                     }
-                    infoDiv.classList.remove("hidden");
                 })
-                .catch(() => infoDiv.classList.add("hidden"));
-        }, 400);
+                .catch(() => {
+                    if (requestId !== lookupRequestId) return;
+                    if (fromSuggestion && idInput && idInput.value) {
+                        renderRobloxPreview({name: val, username: val, id: idInput.value, displayName: val});
+                    } else if (infoDiv) {
+                        infoDiv.classList.add("hidden");
+                    }
+                });
+        }, fromSuggestion ? 80 : 380);
     }
 </script>
 """
@@ -1641,7 +1756,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
         ltype = log.get("type", "Log")
         badge = LOG_TYPE_STYLE.get(ltype, "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300")
         search = f"{log.get('target_user','')} {log.get('roblox_id','')} {log.get('moderator','')} {ltype} {log.get('reason','')}".lower()
-        can_edit = is_manager or (log.get("moderator_id") and log.get("moderator_id") == mod_id)
+        can_edit = can_manage_melonly_entry(ctx, log)
         edit_button = (
             f'<a href="/dashboard?edit_log={quote(str(log.get("id") or ""))}" class="text-indigo-500 hover:underline font-semibold">✏️ Bearbeiten</a>'
             if can_edit else ""
@@ -1742,8 +1857,9 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                 <form action="/log/create" method="post" class="space-y-4 text-xs">
                     <div>
                         <label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Roblox Username *</label>
-                        <input type="text" name="target_user" maxlength="50" list="robloxUserSuggestions" oninput="lookupRobloxUser(this.value)" placeholder="z. B. Spieler123" required class="{INPUT}">
-                    <datalist id="robloxUserSuggestions"></datalist>
+                        <input type="text" id="robloxUsernameInput" name="target_user" maxlength="50" list="robloxUserSuggestions" autocomplete="off" oninput="lookupRobloxUser(this.value)" onfocus="searchRobloxUsers(this.value)" placeholder="z. B. Spieler123" required class="{INPUT}">
+                        <div id="robloxSuggestionPanel" class="hidden mt-2 overflow-hidden rounded-xl border border-indigo-200 dark:border-indigo-800/70 bg-white dark:bg-[#10141f] shadow-sm" role="listbox" aria-label="Roblox-Spielervorschläge"></div>
+                        <datalist id="robloxUserSuggestions"></datalist>
                     </div>
                     <div id="robloxUserPreview" class="hidden"></div>
                     <div>
@@ -2117,9 +2233,8 @@ async def edit_log(
     if not entry:
         return back("/dashboard", "Log nicht gefunden.", False)
 
-    own = entry.get("moderator_id") and str(entry.get("moderator_id")) == str(ctx.user["id"])
-    if not (own or ctx.perms["can_promote"] or ctx.perms["is_admin"]):
-        raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs bearbeiten.")
+    if not can_manage_melonly_entry(ctx, entry, target_type=log_type):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung, diesen Melonly-Eintrag zu bearbeiten.")
 
     target_user = target_user.strip()[:50]
     reason = reason.strip()[:1000]
@@ -2156,13 +2271,26 @@ async def delete_log(request: Request, log_id: str = Form(...), user_session: st
     entry = next((l for l in logs_db if l.get("id") == log_id), None)
     if not entry:
         return back("/dashboard", "Log nicht gefunden.", False)
-    own = entry.get("moderator_id") and entry.get("moderator_id") == ctx.user["id"]
-    if not (own or ctx.perms["can_promote"] or ctx.perms["is_admin"]):
-        raise HTTPException(status_code=403, detail="Du darfst nur eigene Logs löschen.")
+    if not can_manage_melonly_entry(ctx, entry):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung, diesen Melonly-Eintrag zu löschen.")
     save_json(LOGS_FILE, [l for l in logs_db if l.get("id") != log_id])
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Log Gelöscht",
               f"{entry.get('target_user')} ({entry.get('type')}) – ID {log_id}")
     return back("/dashboard", "Log gelöscht.")
+
+
+def can_manage_melonly_entry(ctx, entry: dict, target_type: str | None = None) -> bool:
+    """Enforce Melonly role permissions consistently in UI and POST endpoints."""
+    perms = ctx.perms
+    manager = bool(perms.get("can_promote") or perms.get("is_admin"))
+    can_warn = bool(perms.get("can_warn"))
+    can_add_notes = bool(perms.get("can_add_notes"))
+    existing_type = str(entry.get("type") or "Log")
+    if not can_manage_melonly_type(existing_type, can_warn=can_warn, can_add_notes=can_add_notes, manager=manager):
+        return False
+    if target_type is not None and not can_manage_melonly_type(target_type, can_warn=can_warn, can_add_notes=can_add_notes, manager=manager):
+        return False
+    return True
 
 
 def csv_safe(value) -> str:
