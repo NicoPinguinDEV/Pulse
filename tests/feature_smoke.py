@@ -266,8 +266,8 @@ def main() -> None:
     # The visible /melonly page is Pulse Pro's route, not just the legacy dashboard.
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
-    assert 'VERSION = "7.5.1"' in pro_melonly
-    assert 'PULSE_VERSION = "7.5.1"' in web
+    assert 'VERSION = "7.6.0"' in pro_melonly
+    assert 'PULSE_VERSION = "7.6.0"' in web
     assert "ws.can_manage_melonly_entry(c,x)" in pro_melonly
     assert 'action="/log/edit"' in pro_melonly
     assert 'action="/log/delete"' in pro_melonly
@@ -613,6 +613,19 @@ def main() -> None:
     assert "def reopen_ticket(" in read("pulse_db.py")
     assert '("rated", f"Bewertet ({rated_count})")' in web
     assert "ticket_open_log_channel_id" in web and "ticket_claim_log_channel_id" in web
+    # Native multi-panel editor: independent panels, category registry, publishing and deletion.
+    assert "async def publish_panel_for_guild" in tickets
+    assert "def ticket_category_definitions()" in tickets
+    assert 'PULSE_VERSION = "7.6.0"' in web
+    assert "Panel-Builder" in web
+    assert 'action="/tickets/panels/save"' in web
+    assert 'action="/tickets/panels/publish"' in web
+    assert 'action="/tickets/panels/delete"' in web
+    assert 'action="/tickets/categories/save"' in web
+    assert 'action="/tickets/categories/delete"' in web
+    assert 'name="category_keys"' in web
+    assert "pulse_ticket_category_registry()" in web
+    assert "if not panels and not custom_panels:" in tickets
 
     # Social video announcements: configurable sources, deduplication and fixed target.
     social = read("cogs/social_promo.py")
