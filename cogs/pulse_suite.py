@@ -878,7 +878,7 @@ class PulseSuite(commands.Cog):
                 role.id,
             )
         )
-        desired_roles = [r for r in member.roles if r.id in planned_ids]
+        desired_roles = [r for r in member.roles if r.id in planned_ids and not r.is_default()]
         if not any(r.id == role.id for r in desired_roles):
             desired_roles.append(role)
         try:
