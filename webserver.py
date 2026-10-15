@@ -123,7 +123,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.4.1"
+PULSE_VERSION = "7.4.2"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
