@@ -64,7 +64,7 @@ def main() -> None:
     assert "confirmed_by_deadline(responses.get(uid), check_date)" in activity_cog
     assert "is_abgemeldet(uid, check_date)" in activity_cog
     assert "await ws.sync_warn_roles(guild, member, count, cfg)" in activity_cog
-    assert "await ws.apply_warn_consequences(guild, member, count, cfg)" not in activity_cog
+    assert "await ws.apply_warn_consequences(guild, member, warn, count, cfg)" in activity_cog
     assert "warns.append(warn)" not in activity_cog  # warning is appended to the existing warns_list
     assert "warnings.append(warn)" in activity_cog
     assert "await member.kick(" not in activity_cog
