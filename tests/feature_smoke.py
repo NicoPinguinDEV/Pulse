@@ -42,7 +42,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "pulse_version.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "pulse_version.py", "cogs/honeypot.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -124,6 +124,17 @@ def main() -> None:
     assert "def _prune_roblox_cache" in web
     assert "def _roblox_http_client()" in web
     assert "limits=httpx.Limits(" in web
+
+    # Honeypot: ensure the configured channel warns clearly and automatically bans authors.
+    honeypot = read("cogs/honeypot.py")
+    assert "HONEYPOT_CHANNEL_ID = 1560397792751657053" in honeypot
+    assert "HONEYPOT – HIER AUF KEINEN FALL SCHREIBEN!" in honeypot
+    assert "permanenten Server-Ban" in honeypot
+    assert "async def on_ready(self)" in honeypot
+    assert "async def on_message(self, message: discord.Message)" in honeypot
+    assert "await guild.ban(author, reason=reason)" in honeypot
+    assert "message.author.id == self.bot.user.id" in honeypot
+    assert "Nachrichtenverlauf anzeigen" in honeypot
 
     # Dashboard-only profiles are mapped to configured Discord team roles.
     assert '"dashboard_roles"' in web
@@ -282,7 +293,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.2"' in version_source
+    assert 'PULSE_VERSION = "7.8.3"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
