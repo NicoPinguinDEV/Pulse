@@ -484,6 +484,24 @@ class PulsePro(commands.Cog):
             f"(Spitze: {peak:.1f} MB)" if peak is not None else
             f"{ram_labels[ram_level]} · {rss:.1f} MB / 250 MB"
         )
+        trend = pulse_ultimate.ram_trend_snapshot()
+        if trend.get("growth_mb") is None:
+            trend_text = f"Messwerte werden gesammelt ({trend.get('samples', 0)} Samples)"
+        else:
+            trend_text = (
+                f"{float(trend['growth_mb']):+.1f} MB in "
+                f"{float(trend.get('window_minutes') or 0):.0f} Min. · "
+                f"{float(trend.get('growth_mb_per_hour') or 0):+.1f} MB/Stunde"
+            )
+        bot_member = interaction.guild.me
+        if bot_member:
+            bot_permissions_text = "\n".join((
+                ("🟢" if bot_member.guild_permissions.manage_roles else "🔴") + " Rollen verwalten",
+                ("🟢" if bot_member.guild_permissions.kick_members else "🔴") + " Mitglieder kicken",
+                ("🟢" if bot_member.guild_permissions.move_members else "🔴") + " Mitglieder verschieben",
+            ))
+        else:
+            bot_permissions_text = "🔴 Bot-Mitglied nicht verfügbar"
 
         critical = (not self.bot.is_ready()) or (not db_ok) or (not ultimate_db_ok) or ram_level >= 2
         warnings = ram_level == 1 or role_ok < 5 or any(
@@ -499,6 +517,8 @@ class PulsePro(commands.Cog):
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="RAM-Schutz", value=ram_text, inline=False)
+        embed.add_field(name="RAM-Langzeittrend", value=trend_text, inline=False)
+        embed.add_field(name="Bot-Berechtigungen", value=bot_permissions_text, inline=False)
         embed.add_field(name="Discord", value="🟢 verbunden" if self.bot.is_ready() else "🔴 nicht bereit", inline=True)
         embed.add_field(name="Pulse-Datenbank", value="🟢 OK" if db_ok else "🔴 Fehler", inline=True)
         embed.add_field(name="TeamOS-Datenbank", value="🟢 OK" if ultimate_db_ok else "🔴 Fehler", inline=True)
