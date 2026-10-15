@@ -75,6 +75,8 @@ def oauth_cookie_secure(request: Request) -> bool:
 GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616"))
 TEAM_UPDATE_CHANNEL_NAME = os.getenv("TEAM_UPDATE_CHANNEL_NAME", "╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
 TEAM_UPDATE_CHANNEL_ID = 1531132354272170115  # zentraler Team-Updates-Kanal
+# Nach einem manuellen Team-Kick bleiben ausschließlich diese beiden Rollen erhalten.
+TEAM_KICK_KEEP_ROLE_IDS = (1531303733311307997, 1489912887949394082)
 
 WARN_ROLE_IDS = {
     1: 1489221948348043395,
@@ -121,7 +123,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.3.0"
+PULSE_VERSION = "7.3.1"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -4234,26 +4236,75 @@ async def handle_action(
                     return back(member_url, "Der Bot ist auf diesem Server noch nicht verfügbar.", False)
                 if not guild.me.guild_permissions.manage_roles:
                     return back(member_url, "Der Bot hat keine Berechtigung 'Rollen verwalten'.", False)
+
                 team_roles = [r for r in member.roles if r.id in team_role_ids]
                 if not team_roles:
                     return back(member_url, "Dieses Mitglied hat keine Teamrolle mehr.", False)
-                if any(r.position >= guild.me.top_role.position for r in team_roles):
-                    return back(member_url, "Der Bot kann mindestens eine Teamrolle dieses Mitglieds nicht entfernen, weil sie auf oder über der Bot-Rolle liegt.", False)
-                await member.remove_roles(*team_roles, reason=f"Team-Kick durch {actor}: {action_reason}")
-                await send_dm_notification(member, f"❌ Du wurdest aus dem Team von **{guild.name}** entfernt, bleibst aber auf dem Discord-Server. Grund: {action_reason}")
+
+                # Rollen vor jeder Änderung vollständig prüfen, damit ein Kick nicht
+                # mitten im Rollen-Reset endet und zusätzliche Rollen zurückbleiben.
+                keep_roles = [guild.get_role(role_id) for role_id in TEAM_KICK_KEEP_ROLE_IDS]
+                if any(role is None for role in keep_roles):
+                    return back(member_url, "Team-Kick abgebrochen: Die Bürgerrolle oder die zweite Pflichtrolle wurde auf dem Server nicht gefunden.", False)
+                if any(role.managed or role.position >= guild.me.top_role.position for role in keep_roles):
+                    return back(member_url, "Team-Kick abgebrochen: Der Bot kann die Bürgerrolle oder die zweite Pflichtrolle wegen der Rollenverwaltung/-hierarchie nicht setzen.", False)
+
+                keep_role_ids = set(TEAM_KICK_KEEP_ROLE_IDS)
+                roles_to_remove = [
+                    role for role in member.roles
+                    if role.id != guild.id and role.id not in keep_role_ids
+                ]
+                blocked_roles = [
+                    role for role in roles_to_remove
+                    if role.managed or role.position >= guild.me.top_role.position
+                ]
+                if blocked_roles:
+                    blocked_names = ", ".join(role.name for role in blocked_roles)
+                    return back(
+                        member_url,
+                        f"Team-Kick abgebrochen: Der Bot kann folgende Rollen nicht entfernen: {blocked_names}. Bitte Rollen-Hierarchie bzw. verwaltete Rollen prüfen.",
+                        False,
+                    )
+
+                removed_role_names = [role.name for role in roles_to_remove]
+                # Ein einzelner Member-Edit setzt die Rollen gezielt auf die beiden
+                # gewünschten Rollen zurück. Das ist kein Discord-Server-Kick.
+                await member.edit(
+                    roles=keep_roles,
+                    reason=f"Team-Kick durch {actor}: {action_reason}",
+                )
+                await send_dm_notification(
+                    member,
+                    f"❌ Du wurdest aus dem Team von **{guild.name}** entfernt. "
+                    f"Du bleibst auf dem Discord-Server und erhältst nur noch die Rollen "
+                    f"{keep_roles[0].mention} und {keep_roles[1].mention}. Grund: {action_reason}",
+                )
                 await send_team_update_embed(
                     guild,
                     "🚪 Team-Update: Team-Kick",
-                    f"{member.mention} wurde aus dem Team entfernt, bleibt aber auf dem Discord-Server.",
+                    f"{member.mention} wurde aus dem Team entfernt. Die übrigen Rollen wurden entfernt; "
+                    f"die Person bleibt auf dem Discord-Server.",
                     discord.Color.red(),
                     target=member.mention,
                     action="Team-Kick",
                     actor=actor,
-                    fields=[("Entfernte Teamrollen", ", ".join(r.mention for r in team_roles), False), ("Grund", action_reason, False)],
+                    fields=[
+                        ("Entfernte Rollen", ", ".join(removed_role_names) if removed_role_names else "Keine zusätzlichen Rollen", False),
+                        ("Verbleibende Rollen", ", ".join(role.mention for role in keep_roles), False),
+                        ("Grund", action_reason, False),
+                    ],
                     thumbnail=member.display_avatar.url,
                 )
-                log_audit(actor, actor_id, "Team-Kick", f"{member.display_name}: Teamrollen entfernt · Grund: {action_reason}")
-                return back("/team", f"{member.display_name} wurde aus dem Team entfernt. Er bleibt auf dem Discord-Server.")
+                log_audit(
+                    actor,
+                    actor_id,
+                    "Team-Kick",
+                    f"{member.display_name}: Rollen zurückgesetzt auf {', '.join(role.name for role in keep_roles)} · Grund: {action_reason}",
+                )
+                return back(
+                    "/team",
+                    f"{member.display_name} wurde aus dem Team entfernt. Es bleiben nur Bürgerrolle und die festgelegte Zusatzrolle; der Discord-Server-Kick wurde nicht ausgeführt.",
+                )
 
             if action == "promote":
                 new_idx = target_idx + 1
