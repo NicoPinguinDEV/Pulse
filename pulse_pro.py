@@ -22,7 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
 
-VERSION = "7.7.2"
+VERSION = "7.7.3"
 EXTRA_PERMS = (
     "can_manage_announcements",
     "can_manage_handover",
@@ -413,6 +413,40 @@ def register(app):
             ", ".join(f"{role.name} ({role.id})" for role in changed) or "Keine gültigen Teamrollen",
         )
         return changed
+
+
+    def clear_all_role_permissions(c):
+        """Revoke all Pulse permission flags from every current and previously configured role."""
+        keys = tuple(dict.fromkeys((*ws.PERM_KEYS, *EXTRA_PERMS)))
+        permission_map = c.config.get("permissions")
+        if not isinstance(permission_map, dict):
+            permission_map = {}
+            c.config["permissions"] = permission_map
+
+        role_ids = {str(role_id) for role_id in permission_map}
+        role_ids.update(str(role.id) for role in c.guild.roles if not role.is_default())
+        for raw_id in c.config.get("team_role_ids", []):
+            try:
+                role_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if role_id > 0:
+                role_ids.add(str(role_id))
+
+        no_rights = {key: False for key in keys}
+        for role_id in role_ids:
+            permission_map[role_id] = dict(no_rights)
+
+        # Keep the team-role selection, warning roles and other settings intact.
+        # Version 2 prevents the legacy-profile migration from re-granting defaults.
+        c.config["permissions_profile_version"] = 2
+        ws.save_json(ws.CONFIG_FILE, c.config)
+        actor = c.user.get("global_name") or c.user.get("username") or "Unbekannt"
+        ws.log_audit(
+            actor, c.user["id"], "Alle Rollenrechte entzogen",
+            f"{len(role_ids)} Rollenprofile auf keine Pulse-Rechte gesetzt",
+        )
+        return len(role_ids)
 
 
     async def team_update(guild, title, content, color=None):
@@ -1514,7 +1548,7 @@ def register(app):
         warn_role_card=f'''<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">⚠ Warn-Rollen 1–5</div><div class="pulse-section-sub">Die fünf Discord-Warnrollen sind fest für Pulse hinterlegt und werden automatisch auf die aktive Warnstufe synchronisiert.</div></div></div><div class="pulse-card-b">{"".join(warn_rows)}<form action="/settings/pro-warn-roles" method="post" class="mt-3"><button class="pulse-btn primary w-full">↻ Fünf Warnrollen prüfen & synchronisieren</button></form></div></section>'''
         team_boxes=''.join(f'<label class="flex items-center gap-2 p-2 rounded-lg text-xs"><input type="checkbox" name="team_roles" value="{r.id}" {"checked" if r.id in role_ids else ""}><span style="color:#{r.color.value:06x}">{e(r.name)}</span></label>' for r in sorted(roles,key=lambda r:-r.position))
         audit=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(a.get("actor"))} · {e(a.get("action"))}</div><div class="pulse-row-meta">{e(a.get("details"))}</div></div><div class="pulse-row-meta">{e(a.get("timestamp"))}</div></div>' for a in reversed(ws.load_json(ws.AUDIT_FILE,[])[-120:]))
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div>{profile_notice}<section class="pulse-card mb-5"><div class="pulse-card-b flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div class="pulse-section-title">🔐 Empfohlene Rechteprofile</div><div class="pulse-section-sub">Ordnet allen aktuell ausgewählten Teamrollen neue, konservative Standardrechte anhand ihres Discord-Rollennamens zu. Bereits manuell gesetzte Rechte werden dabei überschrieben.</div></div><form action="/settings/pro-presets" method="post" onsubmit="return confirm('Empfohlene Profile für ALLE ausgewählten Teamrollen anwenden? Manuell konfigurierte Rechte werden überschrieben.');"><button class="pulse-btn primary">Empfohlene Profile erneut anwenden</button></form></div></section><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div><div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div>{profile_notice}<section class="pulse-card mb-5"><div class="pulse-card-b flex flex-col gap-4"><div class="flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div class="pulse-section-title">🔐 Empfohlene Rechteprofile</div><div class="pulse-section-sub">Ordnet allen aktuell ausgewählten Teamrollen neue Standardrechte anhand ihres Discord-Rollennamens zu. Bereits manuell gesetzte Rechte werden dabei überschrieben.</div></div><form action="/settings/pro-presets" method="post" onsubmit="return confirm('Empfohlene Profile für ALLE ausgewählten Teamrollen anwenden? Manuell konfigurierte Rechte werden überschrieben.');"><button class="pulse-btn primary">Empfohlene Profile erneut anwenden</button></form></div><div class="pulse-alert"><strong>🛑 Alle Rollenrechte entziehen</strong><div class="text-slate-400 mt-1">Setzt jede gespeicherte Rollenberechtigung in Pulse auf „aus“ – einschließlich aller aktuell ausgewählten Teamrollen. Die Teamrollenauswahl und andere Einstellungen bleiben erhalten. Serverinhaber und echte Discord-Administratoren behalten den technischen Adminzugriff.</div><form action="/settings/pro-clear-all" method="post" onsubmit="return confirm('Wirklich ALLE Pulse-Berechtigungen für sämtliche Rollen deaktivieren? Nur Serverinhaber und echte Discord-Administratoren behalten Adminzugriff.');" class="mt-3"><button class="pulse-btn bad">Alle Rollenrechte entziehen</button></form></div></div></section><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div><div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
         return render_pro_page(ws,'Einstellungen',c,'settings',body)
 
     async def settings_save(request: Request, role_id: int=Form(...), user_session: str=Cookie(None)):
@@ -1552,6 +1586,11 @@ def register(app):
         c=cctx(request,user_session,perm=None,admin=True)
         changed=apply_recommended_role_profiles(c)
         return ws.back('/settings',f'Empfohlene Rechteprofile für {len(changed)} Teamrollen angewendet. Prüfe die Rechtekarten und passe sie anschließend bei Bedarf an.')
+
+    async def settings_clear_all_permissions(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None,admin=True)
+        count=clear_all_role_permissions(c)
+        return ws.back('/settings',f'Pulse-Rechte für {count} Rollen vollständig deaktiviert. Nur Serverinhaber und echte Discord-Administratoren behalten den Adminzugriff.')
 
     async def settings_warn_roles(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True)
@@ -1680,6 +1719,7 @@ def register(app):
     app.post('/settings/pro-save')(settings_save)
     app.post('/settings/pro-roles')(settings_roles)
     app.post('/settings/pro-presets')(settings_profiles)
+    app.post('/settings/pro-clear-all')(settings_clear_all_permissions)
     app.post('/settings/pro-goal')(settings_goal)
     app.post('/settings/pro-warn-roles')(settings_warn_roles)
     app.post('/settings/pro-warn-sync')(settings_warn_sync)
