@@ -357,10 +357,6 @@ class TicketSelect(Select):
                 return
             close_ticket(existing["id"], "Verwaistes Ticket automatisch archiviert.", "", interaction.user.id, interaction.user.display_name)
 
-        parent = discord.utils.get(guild.categories, name=TICKET_PARENT_NAME)
-        if not parent:
-            parent = await guild.create_category(TICKET_PARENT_NAME, reason="Pulse Ticket-System")
-
         roles = category_roles(guild, key)
         if key in ("highteam", "leadership") and not ticket_config().get(f"{group}_role_ids"):
             await interaction.response.send_message(
@@ -368,6 +364,13 @@ class TicketSelect(Select):
                 ephemeral=True,
             )
             return
+
+        # Discord requires a response within a few seconds; channel creation and log delivery
+        # may take longer, so defer only after all immediate validation errors are handled.
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        parent = discord.utils.get(guild.categories, name=TICKET_PARENT_NAME)
+        if not parent:
+            parent = await guild.create_category(TICKET_PARENT_NAME, reason="Pulse Ticket-System")
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -464,7 +467,7 @@ class TicketSelect(Select):
                 actor=interaction.user,
                 color=discord.Color.green(),
             )
-        await interaction.response.send_message(f"✅ Dein Ticket wurde erstellt: {channel.mention}", ephemeral=True)
+        await interaction.followup.send(f"✅ Dein Ticket wurde erstellt: {channel.mention}", ephemeral=True)
 
 
 class TicketView(View):
@@ -492,6 +495,8 @@ class TicketControlView(View):
             who = latest.get("claimed_by_name") if latest else None
             await interaction.response.send_message(f"Dieses Ticket wurde bereits von **{who or 'jemand anderem'}** übernommen.", ephemeral=True)
             return
+        # Follow-up logging and message updates can exceed Discord's initial response window.
+        await interaction.response.defer(ephemeral=True, thinking=True)
         latest = get_ticket(ticket_id=t["id"])
         button.disabled = True
         button.label = f"Übernommen · {interaction.user.display_name}"[:80]
@@ -518,7 +523,7 @@ class TicketControlView(View):
                 )
             except (discord.Forbidden, discord.HTTPException):
                 pass
-        await interaction.response.send_message(f"✅ Du bearbeitest Ticket `{t['id']}` jetzt.", ephemeral=True)
+        await interaction.followup.send(f"✅ Du bearbeitest Ticket `{t['id']}` jetzt.", ephemeral=True)
 
     @discord.ui.button(label="Freigeben", style=discord.ButtonStyle.secondary, emoji="↩️", custom_id="pulse_ticket_unclaim")
     async def unclaim(self, interaction: discord.Interaction, button: Button):
