@@ -16,6 +16,8 @@ def memory_guard_level(
     critical_mb: float = 210.0,
     emergency_mb: float = 230.0,
     recovery_mb: float = 160.0,
+    critical_recovery_mb: float = 200.0,
+    emergency_recovery_mb: float = 220.0,
 ) -> int:
     """Return a RAM guard state with hysteresis to prevent threshold flapping.
 
@@ -30,7 +32,11 @@ def memory_guard_level(
     rss = float(rss_mb)
     if rss >= emergency_mb:
         return 3
+    if current_level >= 3 and rss >= emergency_recovery_mb:
+        return 3
     if rss >= critical_mb:
+        return 2
+    if current_level >= 2 and rss >= critical_recovery_mb:
         return 2
     if rss >= warn_mb:
         return 1
