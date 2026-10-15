@@ -10,6 +10,18 @@ from discord.ext import commands, tasks
 DB_NAME = str(Path(__file__).resolve().parents[1] / "abmeldungen.db")
 
 
+def _embed_signature(embed: discord.Embed) -> tuple:
+    """Compare all visible embed content, not only title and description."""
+    colour = embed.color.value if embed.color else None
+    timestamp = embed.timestamp.isoformat() if embed.timestamp else None
+    fields = tuple((field.name, field.value, bool(field.inline)) for field in embed.fields)
+    footer = (embed.footer.text, embed.footer.icon_url)
+    author = (embed.author.name, embed.author.url, embed.author.icon_url)
+    image = (embed.image.url, embed.thumbnail.url)
+    return (embed.title, embed.description, embed.url, colour, timestamp, footer, author, image, fields)
+
+
+
 # ---------------------------------------------------------------------------
 # UI: Abmeldungsliste mit persistenten Buttons
 # ---------------------------------------------------------------------------
@@ -104,6 +116,8 @@ class AbmeldungCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._nickname_permission_warnings: set[tuple[int, int, str]] = set()
+        self._nickname_forbidden: set[tuple[int, int]] = set()
         self.init_db()
         # Hintergrund-Task für abgelaufene Abmeldungen starten.
         self.check_expired_abmeldungen.start()
@@ -241,20 +255,44 @@ class AbmeldungCog(commands.Cog):
                     f" {exc}"
                 )
 
+    def _can_edit_member_nickname(self, guild: discord.Guild, member: discord.Member) -> bool:
+        """Preflight nickname permissions/hierarchy and suppress repeat warning noise."""
+        key = (guild.id, member.id)
+        if key in self._nickname_forbidden:
+            return False
+        bot_member = guild.me
+        reason = None
+        if bot_member is None:
+            reason = "Bot-Mitglied in diesem Server nicht verfügbar."
+        elif member.id == guild.owner_id:
+            reason = "Der Nickname des Serverbesitzers kann nicht durch Pulse geändert werden."
+        elif member.top_role.position >= bot_member.top_role.position:
+            reason = "Die höchste Rolle des Mitglieds liegt auf oder über der Bot-Rolle."
+        elif not (bot_member.guild_permissions.administrator or bot_member.guild_permissions.manage_nicknames):
+            reason = "Dem Bot fehlt die Berechtigung „Spitznamen verwalten“."
+
+        if reason:
+            warning_key = (guild.id, member.id, reason)
+            if warning_key not in self._nickname_permission_warnings:
+                if len(self._nickname_permission_warnings) >= 1000:
+                    self._nickname_permission_warnings.clear()
+                self._nickname_permission_warnings.add(warning_key)
+                print(f"⚠️ Nickname für {member} wird übersprungen: {reason} Es wird nicht bei jedem 15-Minuten-Abgleich erneut protokolliert.")
+            return False
+        self._nickname_permission_warnings = {warning for warning in self._nickname_permission_warnings if warning[:2] != key}
+        return True
+
     async def apply_user_status(self, user_id: int, original_nick: Optional[str], guild_id: int):
-        """Stellt sicher, dass die Abmeldungsrolle und der Nickname gesetzt sind."""
+        """Stellt Abmeldungsrolle und Nickname sicher, ohne verbotene Änderungen zu wiederholen."""
         role_id = self.get_config("abgemeldet_role_id")
         guild = self.bot.get_guild(guild_id) if guild_id else None
-
         if not guild:
             for candidate in self.bot.guilds:
                 if candidate.get_member(user_id):
                     guild = candidate
                     break
-
         if not guild:
             return
-
         member = guild.get_member(user_id)
         if not member:
             try:
@@ -272,17 +310,22 @@ class AbmeldungCog(commands.Cog):
                 except discord.HTTPException as exc:
                     print(f"⚠️ Abmeldungsrolle konnte nicht vergeben werden: {exc}")
 
-        # Nur setzen, wenn ein alter Nickname gespeichert ist und der aktuelle
-        # Nickname noch nicht als abgemeldet markiert ist.
-        if member.nick is None or " | Abgemeldet" not in member.display_name:
+        suffix = " | Abgemeldet"
+        if suffix not in member.display_name and self._can_edit_member_nickname(guild, member):
             base_name = member.display_name
-            new_nick = f"{base_name} | Abgemeldet"[:32]
-            try:
-                await member.edit(nick=new_nick, reason="Pulse: Abmeldung")
-            except discord.Forbidden:
-                print(f"⚠️ Keine Rechte, um den Namen von {member} zu ändern.")
-            except discord.HTTPException as exc:
-                print(f"⚠️ Namensänderung fehlgeschlagen: {exc}")
+            new_nick = f"{base_name[:32 - len(suffix)]}{suffix}"
+            if member.nick != new_nick:
+                try:
+                    await member.edit(nick=new_nick, reason="Pulse: Abmeldung")
+                except discord.Forbidden:
+                    key = (guild.id, member.id)
+                    if len(self._nickname_forbidden) >= 2000:
+                        self._nickname_forbidden.clear()
+                    if key not in self._nickname_forbidden:
+                        self._nickname_forbidden.add(key)
+                        print(f"⚠️ Discord hat die Nickname-Änderung für {member} verweigert. Pulse versucht es nach einer Rollenänderung oder einem Neustart erneut.")
+                except discord.HTTPException as exc:
+                    print(f"⚠️ Namensänderung für {member} fehlgeschlagen: {exc}")
 
     async def reset_user_status(
         self, user_id: int, original_nick: Optional[str], guild_id: int
@@ -290,16 +333,13 @@ class AbmeldungCog(commands.Cog):
         """Entfernt Abmeldungsrolle und stellt den vorherigen Nickname wieder her."""
         role_id = self.get_config("abgemeldet_role_id")
         guild = self.bot.get_guild(guild_id) if guild_id else None
-
         if not guild:
             for candidate in self.bot.guilds:
                 if candidate.get_member(user_id):
                     guild = candidate
                     break
-
         if not guild:
             return
-
         member = guild.get_member(user_id)
         if not member:
             try:
@@ -317,12 +357,33 @@ class AbmeldungCog(commands.Cog):
                 except discord.HTTPException as exc:
                     print(f"⚠️ Abmeldungsrolle konnte nicht entfernt werden: {exc}")
 
-        try:
-            await member.edit(nick=original_nick, reason="Pulse: Abmeldung beendet")
-        except discord.Forbidden:
-            print(f"⚠️ Keine Rechte, um den Namen von {member} zu ändern.")
-        except discord.HTTPException as exc:
-            print(f"⚠️ Namensänderung fehlgeschlagen: {exc}")
+        if member.nick != original_nick and self._can_edit_member_nickname(guild, member):
+            try:
+                await member.edit(nick=original_nick, reason="Pulse: Abmeldung beendet")
+            except discord.Forbidden:
+                key = (guild.id, member.id)
+                if len(self._nickname_forbidden) >= 2000:
+                    self._nickname_forbidden.clear()
+                if key not in self._nickname_forbidden:
+                    self._nickname_forbidden.add(key)
+                    print(f"⚠️ Discord hat das Wiederherstellen des Nicknames für {member} verweigert. Pulse versucht es nach einer Rollenänderung oder einem Neustart erneut.")
+            except discord.HTTPException as exc:
+                print(f"⚠️ Namensänderung für {member} fehlgeschlagen: {exc}")
+
+    @commands.Cog.listener()
+    async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
+        """Retry previously denied nickname changes when role permissions/hierarchy change."""
+        guild_id = after.guild.id
+        self._nickname_forbidden = {key for key in self._nickname_forbidden if key[0] != guild_id}
+        self._nickname_permission_warnings = {key for key in self._nickname_permission_warnings if key[0] != guild_id}
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        """Clear denial cache if the bot's own role assignment changes."""
+        bot_user = self.bot.user
+        if bot_user and after.id == bot_user.id and before.roles != after.roles:
+            self._nickname_forbidden = {key for key in self._nickname_forbidden if key[0] != after.guild.id}
+            self._nickname_permission_warnings = {key for key in self._nickname_permission_warnings if key[0] != after.guild.id}
 
     async def sync_existing_abmeldungen(self):
         """Stellt nach einem Bot-Neustart die Abmeldungsrollen wieder her."""
@@ -502,6 +563,11 @@ class AbmeldungCog(commands.Cog):
 
         try:
             message = await channel.fetch_message(message_id)
+            if (
+                len(message.embeds) == len(embeds)
+                and all(_embed_signature(old) == _embed_signature(new) for old, new in zip(message.embeds, embeds))
+            ):
+                return
             await message.edit(embeds=embeds, view=AbmeldungView(self))
         except discord.NotFound:
             print("⚠️ Abmeldungsliste wurde nicht gefunden. Bitte /setup_liste erneut ausführen.")
