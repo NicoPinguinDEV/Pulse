@@ -66,11 +66,18 @@ def request_origin(request: Request) -> str:
     return str(request.base_url).rstrip("/")
 
 def oauth_redirect_uri(request: Request, application: bool = False) -> str:
-    """Nutzt immer die konfigurierte oder öffentlich aufgerufene Callback-URL."""
+    """Gibt eine explizit konfigurierte Callback-URL zurück.
+
+    Ohne separate Bewerbungs-Callback-URL verwendet der Bewerbungslogin dieselbe
+    registrierte Discord-Callback-URL wie das Dashboard. So wird nicht automatisch
+    /apply/callback angefordert, obwohl in Discord nur /callback registriert ist.
+    """
     configured = APPLICATION_REDIRECT_URI if application else REDIRECT_URI
     if configured:
         return configured.rstrip("/")
-    return f"{request_origin(request)}/{ 'apply/callback' if application else 'callback' }"
+    if application and REDIRECT_URI:
+        return REDIRECT_URI.rstrip("/")
+    return f"{request_origin(request)}/callback"
 
 def oauth_cookie_secure(request: Request) -> bool:
     return oauth_redirect_uri(request).startswith("https://") or oauth_redirect_uri(request, application=True).startswith("https://")
@@ -1599,15 +1606,27 @@ async def logout():
 
 @app.get("/callback")
 async def callback(request: Request, code: str = None, state: str = None, error: str = None,
-                   oauth_state: str = Cookie(None)):
-    retry = '<a href="/" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Erneut versuchen</a>'
+                   oauth_state: str = Cookie(None), apply_oauth_state: str = Cookie(None)):
+    application_flow = bool(
+        state and apply_oauth_state and hmac.compare_digest(state, apply_oauth_state)
+    )
+    retry = (
+        '<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zur Bewerbung</a>'
+        if application_flow else
+        '<a href="/" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Erneut versuchen</a>'
+    )
     if error or not code:
-        return HTMLResponse(simple_page("❌", "Login abgebrochen", "Du hast die Anmeldung nicht bestätigt.", retry))
-    if not state or not oauth_state or not hmac.compare_digest(state, oauth_state):
-        return HTMLResponse(simple_page("❌", "Login fehlgeschlagen", "Ungültiger Sicherheits-Token. Bitte erneut anmelden.", retry), status_code=400)
+        title = "Bewerbungs-Login fehlgeschlagen" if application_flow else "Login abgebrochen"
+        return HTMLResponse(simple_page("❌", title, "Du hast die Anmeldung nicht bestätigt. Bitte erneut versuchen.", retry))
+    state_valid = application_flow or bool(
+        state and oauth_state and hmac.compare_digest(state, oauth_state)
+    )
+    if not state_valid:
+        title = "Bewerbungs-Login fehlgeschlagen" if apply_oauth_state else "Login fehlgeschlagen"
+        return HTMLResponse(simple_page("❌", title, "Ungültiger Sicherheits-Token. Bitte erneut anmelden.", retry), status_code=400)
 
     async with httpx.AsyncClient() as client:
-        redirect_uri = oauth_redirect_uri(request)
+        redirect_uri = oauth_redirect_uri(request, application=application_flow)
         token_res = await client.post(
             "https://discord.com/api/v10/oauth2/token",
             data={"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "grant_type": "authorization_code",
@@ -1616,9 +1635,30 @@ async def callback(request: Request, code: str = None, state: str = None, error:
         )
         access_token = token_res.json().get("access_token")
         if not access_token:
-            return HTMLResponse(simple_page("❌", "Login fehlgeschlagen", "Discord hat den Login abgelehnt.", retry))
+            title = "Bewerbungs-Login fehlgeschlagen" if application_flow else "Login fehlgeschlagen"
+            return HTMLResponse(simple_page("❌", title, "Discord hat den Login abgelehnt. Bitte erneut versuchen.", retry))
         user_data = (await client.get("https://discord.com/api/v10/users/@me",
                                       headers={"Authorization": f"Bearer {access_token}"})).json()
+
+    if application_flow:
+        application_session = {
+            "id": str(user_data.get("id")),
+            "username": user_data.get("username"),
+            "global_name": user_data.get("global_name") or user_data.get("username"),
+            "avatar": user_data.get("avatar"),
+            "apply_exp": int(time.time() + 1800),
+        }
+        response = RedirectResponse(url="/apply", status_code=303)
+        response.set_cookie(
+            "apply_session",
+            sign_payload(application_session),
+            httponly=True,
+            samesite="lax",
+            secure=oauth_cookie_secure(request),
+            max_age=1800,
+        )
+        response.delete_cookie("apply_oauth_state")
+        return response
 
     # Nur Mitglieder mit Dashboard-Recht dürfen überhaupt eine Session bekommen
     bot = getattr(request.app.state, "bot", None)
