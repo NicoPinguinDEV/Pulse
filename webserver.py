@@ -86,6 +86,7 @@ GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616"))
 APPLICATION_REQUIRED_ROLE_ID = 1531303733311307997
 APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720
 APPLICATION_ALERT_ROLE_ID = 1531300183088824340
+APPLICATION_ACCEPTED_ROLE_ID = 1496070682126188604  # Wird bei angenommener Bewerbung zusätzlich vergeben
 TEAM_UPDATE_CHANNEL_NAME = os.getenv("TEAM_UPDATE_CHANNEL_NAME", "╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
 TEAM_UPDATE_CHANNEL_ID = 1531132354272170115  # zentraler Team-Updates-Kanal
 # Nach einem manuellen Team-Kick bleiben ausschließlich diese beiden Rollen erhalten.
@@ -6133,24 +6134,54 @@ async def handle_action(
         if decision == "accept":
             if not applicant:
                 return back("/applications", "Der Bewerber ist nicht mehr auf dem Discord-Server.", False)
+            accepted_role = guild.get_role(APPLICATION_ACCEPTED_ROLE_ID)
+            if accepted_role is None:
+                return back(
+                    "/applications",
+                    f"Die automatische Einstellungsrolle {APPLICATION_ACCEPTED_ROLE_ID} wurde auf Discord nicht gefunden. Bitte Rolle prüfen.",
+                    False,
+                )
             configured_roles = [guild.get_role(rid) for rid in team_role_ids]
-            configured_roles = [r for r in configured_roles if r and not r.managed]
+            configured_roles = [
+                r for r in configured_roles
+                if r and not r.managed and r.id != APPLICATION_ACCEPTED_ROLE_ID
+            ]
             role = guild.get_role(hire_role_id) if hire_role_id else (min(configured_roles, key=lambda r: r.position) if configured_roles else None)
-            if role is None or role.id not in team_role_ids:
+            if role is None or role.id not in team_role_ids or role.id == APPLICATION_ACCEPTED_ROLE_ID:
                 return back("/applications", "Bitte eine gültige Team-Einstiegsrolle konfigurieren/auswählen.", False)
-            if guild.me and guild.me.top_role.position <= role.position:
-                return back("/applications", "Der Bot steht nicht über der Einstiegsrolle.", False)
-            old_team_roles = [r for r in applicant.roles if r.id in team_role_ids and r.id != role.id]
+            if accepted_role.is_default() or accepted_role.managed:
+                return back("/applications", "Die automatische Einstellungsrolle ist nicht verwaltbar.", False)
+            if guild.me and (
+                not guild.me.guild_permissions.manage_roles
+                or role.position >= guild.me.top_role.position
+                or accepted_role.position >= guild.me.top_role.position
+            ):
+                return back(
+                    "/applications",
+                    "Der Bot benötigt „Rollen verwalten“ und muss über der Einstiegs- sowie der automatischen Einstellungsrolle stehen.",
+                    False,
+                )
+            # Die zusätzliche Einstellungsrolle bleibt auch dann erhalten, wenn sie
+            # versehentlich in config.json als Teamrolle eingetragen wurde.
+            protected_role_ids = {role.id, APPLICATION_ACCEPTED_ROLE_ID}
+            old_team_roles = [
+                r for r in applicant.roles
+                if r.id in team_role_ids and r.id not in protected_role_ids
+            ]
             try:
                 if old_team_roles:
                     await applicant.remove_roles(*old_team_roles, reason=f"Einstellung durch {actor}: {action_reason}")
-                await applicant.add_roles(role, reason=f"Einstellung durch {actor}: {action_reason}")
+                roles_to_add = [r for r in (role, accepted_role) if r not in applicant.roles]
+                if roles_to_add:
+                    await applicant.add_roles(*roles_to_add, reason=f"Einstellung durch {actor}: {action_reason}")
             except discord.Forbidden:
                 return back("/applications", "Discord hat die Rollenänderung verweigert. Bot-Rolle höher setzen.", False)
 
             item["status"] = "accepted"
             item["hired_role_id"] = role.id
             item["hired_role"] = role.name
+            item["application_accepted_role_id"] = accepted_role.id
+            item["application_accepted_role"] = accepted_role.name
             item["decided_by"] = actor
             item["decided_at"] = now_de().strftime("%d.%m.%Y %H:%M")
             team_db = load_json(DATA_FILE, {})
@@ -6163,7 +6194,11 @@ async def handle_action(
                 team_entry["application_test_passed"] = item.get("test_passed")
             save_json(DATA_FILE, team_db)
             save_json(APPS_FILE, apps)
-            await send_dm_notification(applicant, f"🎉 Deine Bewerbung bei **{guild.name}** wurde angenommen. Du wurdest als **{role.name}** in das Team aufgenommen.")
+            await send_dm_notification(
+                applicant,
+                f"🎉 Deine Bewerbung bei **{guild.name}** wurde angenommen. "
+                f"Du wurdest als **{role.name}** in das Team aufgenommen und hast zusätzlich die Rolle **{accepted_role.name}** erhalten.",
+            )
             await send_team_update_embed(
                 guild,
                 "🎉 Team-Update: Einstellung",
@@ -6172,11 +6207,11 @@ async def handle_action(
                 target=applicant.mention,
                 action="Einstellung",
                 actor=actor,
-                fields=[("Einstiegsrolle", role.mention, True), ("Bewerbung", app_id or "—", True), ("Grund", action_reason, False), ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True)],
+                fields=[("Einstiegsrolle", role.mention, True), ("Zusätzliche Einstellungsrolle", accepted_role.mention, True), ("Bewerbung", app_id or "—", True), ("Grund", action_reason, False), ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True)],
                 thumbnail=applicant.display_avatar.url,
             )
-            log_audit(actor, actor_id, "Einstellung", f"{applicant.display_name} -> {role.name} · Grund: {action_reason}")
-            return back("/applications", f"{applicant.display_name} wurde als {role.name} eingestellt.")
+            log_audit(actor, actor_id, "Einstellung", f"{applicant.display_name} -> {role.name} + {accepted_role.name} · Grund: {action_reason}")
+            return back("/applications", f"{applicant.display_name} wurde als {role.name} eingestellt und erhielt zusätzlich {accepted_role.name}.")
 
         item["status"] = "rejected"
         item["decided_by"] = actor
