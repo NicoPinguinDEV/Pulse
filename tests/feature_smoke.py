@@ -546,7 +546,17 @@ def main() -> None:
     assert "def office_role_for(guild: discord.Guild, target_voice_id: int):" in buero
     assert 'get_config(f"office_role_{target_voice_id}")' in buero
     assert "content=content" in buero
-    assert "roles=[office_role] if office_role else []" in buero
+    assert "DEFAULT_OFFICE_ROLE_IDS: dict[int, tuple[int, ...]]" in buero
+    assert "1541048940504555603: (1529263871003726005, 1552036094239842436)" in buero
+    assert "office_roles = office_roles_for(guild, target_vc_id)" in buero
+    assert "roles=office_roles" in buero
+    for office_id in (
+        1541048940504555603, 1541038737188724996, 1508167060444942487,
+        1505243897603948635, 1523012037888970894, 1535286753584218292,
+        1541494047548379317, 1510377962774728815, 1505245108654571540,
+        1535312722344804432, 1535392546476527738, 1559580826025599056,
+    ):
+        assert f"{office_id}:" in buero, f"Büro-Ping-Zuordnung fehlt: {office_id}"
     assert "name=\"buero_rolle_setzen\"" in buero
     assert "await delete_pending_ping(self.bot, member.id)" in buero
     assert "await waiting_member.move_to(target_channel" in buero
