@@ -5490,12 +5490,6 @@ async def handle_action(
     applicant_name: str = Form(None),
     applicant_text: str = Form(None),
     career_path: str = Form(None),
-    answer_1: str = Form(None),
-    answer_2: str = Form(None),
-    answer_3: str = Form(None),
-    answer_4: str = Form(None),
-    answer_5: str = Form(None),
-    answer_6: str = Form(None),
     app_id: str = Form(None),
     vote: str = Form(None),
     decision: str = Form(None),
@@ -5548,10 +5542,17 @@ async def handle_action(
         if not applicant_id or not name or not text:
             return HTMLResponse(simple_page("⚠️", "Angaben fehlen", "Bitte fülle die Motivation und alle Pflichtfelder aus.", back_link), status_code=400)
         try:
-            test_result = grade_career_test(
-                career_path or "",
-                [answer_1, answer_2, answer_3, answer_4, answer_5, answer_6],
-            )
+            # Die Laufbahnen haben unterschiedliche Testlängen (12/22/30).
+            # Antworten anhand der serverseitig definierten Fragezahl aus dem Formular
+            # lesen; zusätzliche oder manipulierte Felder können den Score nicht erhöhen.
+            submitted_form = await request.form()
+            career_definition = APPLICATION_CAREERS.get(career_path or "")
+            answer_count = len(career_definition["questions"]) if career_definition else 0
+            submitted_answers = [
+                str(submitted_form.get(f"answer_{index}", ""))
+                for index in range(1, answer_count + 1)
+            ]
+            test_result = grade_career_test(career_path or "", submitted_answers)
         except ValueError as exc:
             return HTMLResponse(simple_page("⚠️", "Online-Test unvollständig", esc(str(exc)), back_link), status_code=400)
 
@@ -5572,7 +5573,7 @@ async def handle_action(
             "test_pass_percent": test_result["pass_percent"],
             "test_passed": test_result["passed"],
             "test_details": test_result["details"],
-            "test_version": 1,
+            "test_version": 2,
             "upvotes": [],
             "downvotes": [],
             "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
