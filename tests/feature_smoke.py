@@ -589,8 +589,8 @@ def main() -> None:
         1488972966774706186, 1559242374658662602, 1488699195157254436,
     ):
         assert str(channel_id) in tickets, f"Ticketpanel-Kanal fehlt: {channel_id}"
-    assert "TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503" in tickets
-    assert "TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778" in tickets
+    assert "DEFAULT_TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503" in tickets
+    assert "DEFAULT_TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778" in tickets
     assert 'name="ticketpanels_setup"' in tickets
     assert "await send_ticket_log(" in tickets
     assert 'title="🎫 Neues Ticket geöffnet"' in tickets
@@ -598,6 +598,19 @@ def main() -> None:
     assert 'async def pulse_tickets_dashboard(' in web
     assert 'async def pulse_tickets_dashboard_action(' in web
     assert 'auth(request, user_session, perm="can_manage_tickets")' in web
+    assert "configured_panel_channel_ids()" in tickets
+    assert 'configured_ticket_log_channel_id("opened")' in tickets
+    assert 'configured_ticket_log_channel_id("claimed")' in tickets
+    assert 'async def pulse_tickets_dashboard_settings(' in web
+    assert 'async def pulse_ticket_panels_setup(' in web
+    assert 'async def pulse_ticket_transcript(' in web
+    assert 'async def pulse_tickets_dashboard_action(' in web
+    assert 'if action == "priority":' in web
+    assert 'if action == "reopen":' in web
+    assert 'async def _refresh_pulse_ticket_discord_state(' in web
+    assert "def reopen_ticket(" in read("pulse_db.py")
+    assert '("rated", f"Bewertet ({rated_count})")' in web
+    assert "ticket_open_log_channel_id" in web and "ticket_claim_log_channel_id" in web
 
     # Social video announcements: configurable sources, deduplication and fixed target.
     social = read("cogs/social_promo.py")
