@@ -2635,6 +2635,17 @@ async def warn_roles_api(request: Request, user_session: str = Cookie(None)):
 # =============================================================
 # PULSE-EIGENES TICKETSYSTEM (Dashboard)
 # =============================================================
+# =============================================================
+# PULSE-EIGENES TICKETSYSTEM (Dashboard)
+# =============================================================
+PULSE_TICKET_DEFAULT_PANEL_CHANNEL_IDS = (
+    1511390378752741386,
+    1494338404224340179,
+    1494397389635719269,
+    1488972966774706186,
+    1559242374658662602,
+    1488699195157254436,
+)
 PULSE_TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503
 PULSE_TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778
 PULSE_TICKET_META = {
@@ -2644,26 +2655,90 @@ PULSE_TICKET_META = {
     "highteam": ("Highteam Ticket", "💢"),
     "leadership": ("Führungsebene Ticket", "🐬"),
 }
+PULSE_TICKET_PRIORITY_LABELS = {
+    "low": "⚪ Niedrig",
+    "normal": "🟢 Normal",
+    "high": "🟠 Hoch",
+    "urgent": "🚨 Dringend",
+}
+PULSE_TICKET_PRIORITY_ORDER = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
+
+
+def pulse_ticket_config() -> dict:
+    config = pulse_db.get_setting("ticket_system_config", {}) or {}
+    return config if isinstance(config, dict) else {}
+
+
+def pulse_ticket_panel_channel_ids() -> tuple[int, ...]:
+    raw = pulse_ticket_config().get("panel_channel_ids", list(PULSE_TICKET_DEFAULT_PANEL_CHANNEL_IDS))
+    if not isinstance(raw, list):
+        raw = list(PULSE_TICKET_DEFAULT_PANEL_CHANNEL_IDS)
+    ids = []
+    for value in raw[:25]:
+        try:
+            channel_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if channel_id > 0 and channel_id not in ids:
+            ids.append(channel_id)
+    return tuple(ids) or PULSE_TICKET_DEFAULT_PANEL_CHANNEL_IDS
+
+
+def pulse_ticket_log_channel_id(kind: str) -> int:
+    config = pulse_ticket_config()
+    key = "ticket_open_log_channel_id" if kind == "created" else "ticket_claim_log_channel_id"
+    fallback = PULSE_TICKET_OPEN_LOG_CHANNEL_ID if kind == "created" else PULSE_TICKET_CLAIM_LOG_CHANNEL_ID
+    try:
+        return int(config.get(key) or fallback)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _ticket_dashboard_embed(ticket: dict, actor, kind: str, guild) -> discord.Embed:
     label, emoji = PULSE_TICKET_META.get(str(ticket.get("category")), ("Ticket", "🎫"))
-    is_created = kind == "created"
+    titles = {
+        "created": "🎫 Neues Ticket geöffnet",
+        "claimed": "📥 Ticket übernommen",
+        "unclaimed": "↩️ Ticket freigegeben",
+        "closed": "🔒 Ticket geschlossen",
+        "reopened": "🔓 Ticket erneut geöffnet",
+        "priority": "🚦 Ticket-Priorität geändert",
+    }
+    descriptions = {
+        "created": "Ein neues Ticket wurde über Pulse erstellt.",
+        "claimed": "Ein Teammitglied hat ein Pulse-Ticket beansprucht.",
+        "unclaimed": "Ein beanspruchtes Ticket wurde freigegeben.",
+        "closed": "Ein Pulse-Ticket wurde geschlossen.",
+        "reopened": "Ein zuvor geschlossenes Ticket wurde erneut geöffnet.",
+        "priority": "Die Priorität eines Pulse-Tickets wurde geändert.",
+    }
     channel_id = str(ticket.get("channel_id") or "")
+    is_claimed = bool(ticket.get("claimed_by_id"))
     embed = discord.Embed(
-        title=("🎫 Neues Ticket geöffnet" if is_created else "📥 Ticket übernommen"),
-        description=("Ein neues Ticket wurde über Pulse erstellt." if is_created else "Ein Teammitglied hat ein Pulse-Ticket beansprucht."),
-        color=(discord.Color.green() if is_created else discord.Color.blue()),
+        title=titles.get(kind, "🎫 Pulse-Ticket aktualisiert"),
+        description=descriptions.get(kind, "Ein Pulse-Ticket wurde aktualisiert."),
+        color=discord.Color.green() if kind in {"created", "reopened"} else (
+            discord.Color.red() if kind == "closed" else (
+                discord.Color.orange() if kind == "priority" else discord.Color.blurple()
+            )
+        ),
         timestamp=discord.utils.utcnow(),
     )
     embed.add_field(name="Ticket-ID", value=str(ticket.get("id") or "unbekannt")[:100], inline=True)
     embed.add_field(name="Kategorie", value=f"{emoji} {label}", inline=True)
-    embed.add_field(name="Status", value="🔵 In Bearbeitung" if ticket.get("claimed_by_id") else "🟢 Offen", inline=True)
+    embed.add_field(name="Status", value="🔒 Geschlossen" if ticket.get("status") == "closed" else ("🔵 In Bearbeitung" if is_claimed else "🟢 Offen"), inline=True)
+    embed.add_field(name="Priorität", value=PULSE_TICKET_PRIORITY_LABELS.get(str(ticket.get("priority") or "normal"), "🟢 Normal"), inline=True)
     creator = str(ticket.get("user_name") or "Unbekannt")[:200]
     creator_id = str(ticket.get("user_id") or "")
     embed.add_field(name="Ersteller", value=creator + (f" ({creator_id})" if creator_id else ""), inline=True)
+    if ticket.get("claimed_by_name"):
+        embed.add_field(name="Aktueller Bearbeiter", value=str(ticket.get("claimed_by_name"))[:200], inline=True)
     if actor:
-        embed.add_field(name="Bearbeiter", value=f"{actor.display_name} ({actor.id})", inline=True)
+        embed.add_field(name="Aktion von", value=f"{actor.display_name} ({actor.id})", inline=True)
+    if ticket.get("rating"):
+        embed.add_field(name="Bewertung", value=f"{ticket['rating']}/5", inline=True)
+    if ticket.get("close_reason") and ticket.get("status") == "closed":
+        embed.add_field(name="Schließgrund", value=str(ticket.get("close_reason"))[:900], inline=False)
     if channel_id.isdigit():
         embed.add_field(name="Ticket-Kanal", value=f"<#{channel_id}>", inline=True)
         embed.url = f"https://discord.com/channels/{guild.id}/{channel_id}"
@@ -2671,7 +2746,8 @@ def _ticket_dashboard_embed(ticket: dict, actor, kind: str, guild) -> discord.Em
     return embed
 
 
-async def _send_pulse_ticket_log(bot, guild, destination_id: int, ticket: dict, actor, kind: str):
+async def _send_pulse_ticket_log(bot, guild, kind: str, ticket: dict, actor=None):
+    destination_id = pulse_ticket_log_channel_id("created" if kind == "created" else "claimed")
     destination = guild.get_channel(destination_id)
     if destination is None:
         try:
@@ -2692,104 +2768,291 @@ async def _send_pulse_ticket_log(bot, guild, destination_id: int, ticket: dict, 
         return False
 
 
-async def _refresh_pulse_ticket_discord_state(channel, ticket: dict):
-    if not isinstance(channel, discord.TextChannel):
-        return
-    try:
-        from cogs.tickets import TicketControlView, refresh_ticket_embed
-        view = TicketControlView()
-        claimed_by = ticket.get("claimed_by_name") or "Teammitglied"
-        claimed = bool(ticket.get("claimed_by_id"))
-        for item in view.children:
-            if getattr(item, "custom_id", None) == "pulse_ticket_claim":
-                item.disabled = claimed
-                item.label = (f"Übernommen · {claimed_by}"[:80] if claimed else "Übernehmen")
-        await refresh_ticket_embed(channel, ticket, view)
-    except Exception as exc:
-        print(f"⚠️ Pulse-Tickets: Discord-Anzeige konnte nicht mit dem Dashboard synchronisiert werden ({type(exc).__name__}).")
+def _ticket_channel_options(guild, selected_ids) -> str:
+    selected = {int(item) for item in selected_ids if str(item).isdigit()}
+    return "".join(
+        f'<option value="{channel.id}" {"selected" if channel.id in selected else ""}>#{html.escape(channel.name)} · {channel.id}</option>'
+        for channel in sorted(guild.text_channels, key=lambda item: item.position)
+    )
+
+
+def _ticket_role_options(guild, field_name: str, selected_ids) -> str:
+    selected = {int(item) for item in selected_ids if str(item).isdigit()}
+    roles = [role for role in guild.roles if not role.is_default() and not role.managed]
+    return "".join(
+        f'<option value="{role.id}" {"selected" if role.id in selected else ""}>{html.escape(role.name)} · {role.id}</option>'
+        for role in sorted(roles, key=lambda item: item.position, reverse=True)
+    )
 
 
 @app.get("/tickets", response_class=HTMLResponse)
 async def pulse_tickets_dashboard(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session, perm="can_manage_tickets")
     guild = ctx.guild
-    items = [t for t in pulse_db.list_tickets(limit=2000) if str(t.get("guild_id")) == str(guild.id)]
-    open_items = [t for t in items if t.get("status") != "closed" and not t.get("claimed_by_id")]
-    claimed_items = [t for t in items if t.get("status") != "closed" and t.get("claimed_by_id")]
-    closed_items = [t for t in items if t.get("status") == "closed"]
+    settings = pulse_ticket_config()
+    items = [
+        item for item in pulse_db.list_tickets(limit=2000)
+        if str(item.get("guild_id")) == str(guild.id)
+    ]
+    items.sort(key=lambda item: (
+        PULSE_TICKET_PRIORITY_ORDER.get(str(item.get("priority") or "normal"), 2),
+        str(item.get("opened_at") or ""),
+    ), reverse=False)
+    open_items = [item for item in items if item.get("status") != "closed" and not item.get("claimed_by_id")]
+    claimed_items = [item for item in items if item.get("status") != "closed" and item.get("claimed_by_id")]
+    closed_items = [item for item in items if item.get("status") == "closed"]
+    urgent_count = sum(1 for item in items if item.get("status") != "closed" and item.get("priority") == "urgent")
+    rated_count = sum(1 for item in items if item.get("rating"))
+
     filter_name = request.query_params.get("status", "open")
-    if filter_name not in {"open", "claimed", "closed", "all"}:
+    if filter_name not in {"open", "claimed", "closed", "all", "rated"}:
         filter_name = "open"
-    group = {
+    query = str(request.query_params.get("q", "")).strip()[:100].casefold()
+    category_filter = str(request.query_params.get("category", "")).strip()
+    groups = {
         "open": open_items,
         "claimed": claimed_items,
         "closed": closed_items,
-        "all": sorted(items, key=lambda x: str(x.get("opened_at") or ""), reverse=True),
-    }[filter_name]
+        "all": items,
+        "rated": [item for item in items if item.get("rating")],
+    }
+    selected_items = groups[filter_name]
+    if category_filter in PULSE_TICKET_META:
+        selected_items = [item for item in selected_items if str(item.get("category")) == category_filter]
+    if query:
+        selected_items = [
+            item for item in selected_items
+            if query in str(item.get("id") or "").casefold()
+            or query in str(item.get("user_name") or "").casefold()
+            or query in str(item.get("claimed_by_name") or "").casefold()
+            or query in str(item.get("category") or "").casefold()
+            or query in str(item.get("close_reason") or "").casefold()
+        ]
+    selected_items = selected_items[:200]
+
     nav = "".join(
         f'<a class="tab {"active" if key == filter_name else ""}" href="/tickets?status={key}">{label}</a>'
         for key, label in (
             ("open", f"Offen ({len(open_items)})"),
-            ("claimed", f"In Bearbeitung ({len(claimed_items)})"),
+            ("claimed", f"Übernommen ({len(claimed_items)})"),
             ("closed", f"Geschlossen ({len(closed_items)})"),
+            ("rated", f"Bewertet ({rated_count})"),
             ("all", f"Alle ({len(items)})"),
         )
     )
+    category_options = '<option value="">Alle Kategorien</option>' + "".join(
+        f'<option value="{html.escape(key)}" {"selected" if category_filter == key else ""}>{emoji} {html.escape(label)}</option>'
+        for key, (label, emoji) in PULSE_TICKET_META.items()
+    )
     cards = []
-    for ticket in group:
-        tid = str(ticket.get("id") or "")
-        safe_tid = html.escape(tid)
-        name, emoji = PULSE_TICKET_META.get(str(ticket.get("category")), ("Ticket", "🎫"))
-        name = html.escape(name)
+    for ticket in selected_items:
+        ticket_id = str(ticket.get("id") or "")
+        safe_ticket_id = html.escape(ticket_id)
+        category, emoji = PULSE_TICKET_META.get(str(ticket.get("category")), ("Ticket", "🎫"))
         creator = html.escape(str(ticket.get("user_name") or "Unbekannt"))
         opened = html.escape(str(ticket.get("opened_at") or ""))
         channel_id = str(ticket.get("channel_id") or "")
-        link = f'<a class="btn" href="https://discord.com/channels/{guild.id}/{channel_id}" target="_blank" rel="noopener">Discord öffnen ↗</a>' if channel_id.isdigit() else ""
+        channel_link = (
+            f'<a class="btn" href="https://discord.com/channels/{guild.id}/{channel_id}" target="_blank" rel="noopener">Discord öffnen ↗</a>'
+            if channel_id.isdigit() else ""
+        )
         closed = ticket.get("status") == "closed"
         is_claimed = bool(ticket.get("claimed_by_id"))
-        if closed:
-            state = '<span class="state closed">Geschlossen</span>'
-            actions = link + '<span class="muted">' + html.escape(str(ticket.get("close_reason") or "Kein Schließgrund")) + '</span>'
-        elif is_claimed:
-            state = '<span class="state claimed">In Bearbeitung</span>'
-            actions = link
-            if str(ticket.get("claimed_by_id")) == str(ctx.member.id) or ctx.perms.get("is_admin"):
-                actions += f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{safe_tid}"><input type="hidden" name="action" value="unclaim"><button class="btn">Freigeben</button></form>'
-            actions += f'<form method="post" action="/tickets/action" class="close"><input type="hidden" name="ticket_id" value="{safe_tid}"><input type="hidden" name="action" value="close"><input name="reason" required maxlength="500" placeholder="Schließgrund"><button class="btn danger">Schließen</button></form>'
-        else:
-            state = '<span class="state open">Offen</span>'
-            actions = link
-            actions += f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{safe_tid}"><input type="hidden" name="action" value="claim"><button class="btn primary">Übernehmen</button></form>'
-            actions += f'<form method="post" action="/tickets/action" class="close"><input type="hidden" name="ticket_id" value="{safe_tid}"><input type="hidden" name="action" value="close"><input name="reason" required maxlength="500" placeholder="Schließgrund"><button class="btn danger">Schließen</button></form>'
-        detail = f"Bearbeiter: {html.escape(str(ticket.get('claimed_by_name') or 'Niemand'))} · Priorität: {html.escape(str(ticket.get('priority') or 'normal'))}"
-        cards.append(
-            '<article class="ticket"><div><div class="kicker">' + emoji + ' ' + name + ' · ' + safe_tid + '</div>'
-            '<h3>' + creator + '</h3><div class="muted">Eröffnet: ' + opened + '</div><p>' + detail + '</p></div>'
-            '<div class="actions-side">' + state + '<div class="actions">' + actions + '</div></div></article>'
+        priority = str(ticket.get("priority") or "normal")
+        priority_label = PULSE_TICKET_PRIORITY_LABELS.get(priority, "🟢 Normal")
+        status_html = (
+            '<span class="state closed">Geschlossen</span>' if closed else
+            ('<span class="state claimed">In Bearbeitung</span>' if is_claimed else '<span class="state open">Offen</span>')
         )
-    listing = "".join(cards) or '<div class="empty">Keine Tickets in diesem Bereich.</div>'
+        actions = channel_link
+        if closed:
+            reason_html = html.escape(str(ticket.get("close_reason") or "Kein Schließgrund hinterlegt"))
+            actions += (
+                f'<a class="btn" href="/tickets/transcript/{safe_ticket_id}">Transcript ansehen</a>'
+                if ticket.get("transcript_path") else ""
+            )
+            actions += (
+                f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{safe_ticket_id}">'
+                '<input type="hidden" name="action" value="reopen"><button class="btn primary" type="submit">Wieder öffnen</button></form>'
+            )
+            detail = f'<div class="detail">Schließgrund: {reason_html}</div>'
+            if ticket.get("closed_by_name"):
+                detail += f'<div class="muted">Geschlossen von: {html.escape(str(ticket.get("closed_by_name")))}</div>'
+        else:
+            actions += (
+                f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{safe_ticket_id}">'
+                '<input type="hidden" name="action" value="priority">'
+                '<select name="priority" aria-label="Ticketpriorität">'
+                + "".join(
+                    f'<option value="{value}" {"selected" if priority == value else ""}>{label}</option>'
+                    for value, label in PULSE_TICKET_PRIORITY_LABELS.items()
+                )
+                + '</select><button class="btn" type="submit">Priorität speichern</button></form>'
+            )
+            if is_claimed:
+                if str(ticket.get("claimed_by_id")) == str(ctx.member.id) or ctx.perms.get("is_admin"):
+                    actions += (
+                        f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{safe_ticket_id}">'
+                        '<input type="hidden" name="action" value="unclaim"><button class="btn" type="submit">Freigeben</button></form>'
+                    )
+            else:
+                actions += (
+                    f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{safe_ticket_id}">'
+                    '<input type="hidden" name="action" value="claim"><button class="btn primary" type="submit">Übernehmen</button></form>'
+                )
+            actions += (
+                f'<form method="post" action="/tickets/action" class="close-form"><input type="hidden" name="ticket_id" value="{safe_ticket_id}">'
+                '<input type="hidden" name="action" value="close"><input name="reason" required maxlength="500" placeholder="Schließgrund">'
+                '<button class="btn danger" type="submit">Schließen</button></form>'
+            )
+            detail = (
+                f'<div class="detail">Bearbeiter: {html.escape(str(ticket.get("claimed_by_name") or "Niemand"))} · Priorität: {html.escape(priority_label)}</div>'
+            )
+        rating_html = (
+            f'<div class="muted">Bewertung: {"⭐" * int(ticket.get("rating") or 0)} ({int(ticket.get("rating") or 0)}/5)'
+            + (f' · {html.escape(str(ticket.get("rating_comment") or ""))}' if ticket.get("rating_comment") else "")
+            + '</div>'
+            if ticket.get("rating") else ""
+        )
+        cards.append(
+            '<article class="ticket"><div class="ticket-main"><div class="kicker">'
+            + emoji + " " + html.escape(category) + " · <code>" + safe_ticket_id + "</code> · "
+            + html.escape(priority_label) + "</div><h3>" + creator + "</h3>"
+            + '<div class="muted">Eröffnet: ' + opened + "</div>"
+            + detail + rating_html + '</div><div class="ticket-side">' + status_html
+            + '<div class="actions">' + actions + "</div></div></article>"
+        )
+    listing = "".join(cards) or '<div class="empty">Keine Tickets entsprechen dieser Auswahl.</div>'
     message = html.escape(str(ctx.msg or ""))
     notice = f'<div class="notice {"ok" if ctx.msg_ok else "err"}">{message}</div>' if message else ""
-    panel_setup_html = (
-        '<form class="actions" method="post" action="/tickets/setup-panels"><button class="btn primary" type="submit">Panels in 6 Kanälen einrichten</button></form>'
-        if ctx.perms.get("is_admin") else ""
-    )
+
+    panel_ids = pulse_ticket_panel_channel_ids()
+    panel_input = ", ".join(str(item) for item in panel_ids)
+    log_open_id = pulse_ticket_log_channel_id("created")
+    log_claim_id = pulse_ticket_log_channel_id("claimed")
+    settings_html = ""
+    if ctx.perms.get("is_admin"):
+        role_cfg = settings
+        team_selected = role_cfg.get("team_role_ids", ctx.config.get("team_role_ids", []))
+        highteam_selected = role_cfg.get("highteam_role_ids", [])
+        leadership_selected = role_cfg.get("leadership_role_ids", [])
+        panel_options = "".join(
+            f'<option value="{channel.id}" {"selected" if channel.id in panel_ids else ""}>#{html.escape(channel.name)} · {channel.id}</option>'
+            for channel in sorted(guild.text_channels, key=lambda item: item.position)
+        )
+        channel_options_open = _ticket_channel_options(guild, [log_open_id])
+        channel_options_claim = _ticket_channel_options(guild, [log_claim_id])
+        team_options = _ticket_role_options(guild, "team_role_ids", team_selected)
+        highteam_options = _ticket_role_options(guild, "highteam_role_ids", highteam_selected)
+        leadership_options = _ticket_role_options(guild, "leadership_role_ids", leadership_selected)
+        settings_html = f"""<section class="settings">
+<details><summary>⚙ Ticket-System konfigurieren</summary>
+<form method="post" action="/tickets/settings" class="settings-form">
+<label>Panel-Kanäle (mehrere auswählen, für Mehrfachauswahl STRG halten)<select name="panel_channel_ids" multiple size="6" required>{panel_options}</select></label>
+<label>Protokoll: neue Tickets<select name="open_log_channel_id" required>{channel_options_open}</select></label>
+<label>Protokoll: beanspruchte Tickets<select name="claim_log_channel_id" required>{channel_options_claim}</select></label>
+<label>Zuständige Rollen: Allgemeiner Support, Bug und Entbannungsantrag<select name="team_role_ids" multiple size="6">{team_options}</select></label>
+<label>Zuständige Rollen: Highteam<select name="highteam_role_ids" multiple size="5">{highteam_options}</select></label>
+<label>Zuständige Rollen: Führungsebene<select name="leadership_role_ids" multiple size="5">{leadership_options}</select></label>
+<p class="muted">Die Rollenauswahl steuert Sichtbarkeit, Ping und Bearbeitungsrechte der jeweiligen Ticketkategorie. Wird für einen Bereich keine Rolle ausgewählt, greift bei allgemeinen Tickets die bestehende Pulse-Teamrollen-Konfiguration.</p>
+<button class="btn primary" type="submit">Einstellungen speichern</button>
+</form>
+<form method="post" action="/tickets/setup-panels"><button class="btn" type="submit">Panels aktualisieren/einrichten</button></form>
+</details></section>"""
+
     page = f"""<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pulse · Ticket Center</title><style>
-*{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#e8eefb;font-family:system-ui,Segoe UI,sans-serif}}a{{color:inherit;text-decoration:none}}
-.wrap{{max-width:1160px;margin:auto;padding:28px 18px 56px}}header,.hero{{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap;align-items:center}}.brand{{font-size:20px;font-weight:900}}.nav,.tabs,.actions{{display:flex;gap:8px;flex-wrap:wrap}}
+<title>Pulse · Ticket-Zentrale</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 12% 0%,#1a2850 0,transparent 35%),#0b1020;color:#e8eefb;font-family:system-ui,Segoe UI,sans-serif}}a{{color:inherit;text-decoration:none}}
+.wrap{{max-width:1280px;margin:auto;padding:28px 18px 56px}}header,.hero{{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap;align-items:center}}.brand{{font-size:20px;font-weight:900}}.nav,.tabs,.actions{{display:flex;gap:8px;flex-wrap:wrap;align-items:center}}
 h1{{font-size:clamp(28px,4vw,40px);margin:22px 0 8px}}.muted{{color:#9cabc5;font-size:12px}}.btn,.tab{{border:1px solid #2a3952;border-radius:10px;padding:9px 12px;font-size:12px;font-weight:800;background:#172238;color:#e8eefb;cursor:pointer;display:inline-flex;align-items:center}}.btn.primary,.tab.active{{background:#647cf5;border-color:#647cf5;color:white}}.btn.danger{{background:#502034;border-color:#81394d}}
-.stats{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:22px 0}}.stat,.ticket{{background:#121a2c;border:1px solid #27354d;border-radius:17px;padding:16px}}.stat span{{color:#9cabc5;font-size:12px}}.stat strong{{display:block;font-size:28px;margin-top:4px}}
-.ticket-list{{display:grid;gap:10px;margin-top:14px}}.ticket{{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}}.ticket>div:first-child{{flex:1;min-width:220px}}.kicker{{color:#b9c7ff;font-size:12px;font-weight:800;margin-bottom:8px}}h3{{margin:0 0 5px;font-size:17px}}p{{font-size:12px;color:#9cabc5}}.actions-side{{display:grid;justify-items:end;gap:10px}}.state{{font-size:10px;font-weight:900;border-radius:999px;padding:6px 9px}}.state.open{{background:#153b31;color:#9cf0d0}}.state.claimed{{background:#1c2c55;color:#bfcaff}}.state.closed{{background:#333b4c;color:#d9e0ed}}.actions form{{margin:0}}input{{width:140px;max-width:42vw;background:#0b1221;color:#e8eefb;border:1px solid #27354d;border-radius:9px;padding:9px;font-size:11px}}.empty{{text-align:center;padding:45px;color:#9cabc5;border:1px dashed #27354d;border-radius:17px}}.notice{{padding:12px;border-radius:12px;margin-top:14px;font-size:12px}}.notice.ok{{background:#123b30;color:#adf5d8}}.notice.err{{background:#4a1e2c;color:#ffd4dc}}footer{{margin-top:28px;color:#9cabc5;font-size:11px}}
-@media(max-width:640px){{.stats{{grid-template-columns:1fr}}.actions-side{{width:100%;justify-items:start}}}}
+.stats{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:22px 0}}.stat,.ticket,.settings{{background:#121a2c;border:1px solid #27354d;border-radius:17px;padding:16px}}.stat span{{color:#9cabc5;font-size:12px}}.stat strong{{display:block;font-size:28px;margin-top:4px}}
+.ticket-list{{display:grid;gap:10px;margin-top:14px}}.ticket{{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}}.ticket-main{{flex:1;min-width:220px}}.kicker{{color:#b9c7ff;font-size:12px;font-weight:800;margin-bottom:8px}}h3{{margin:0 0 5px;font-size:17px}}.detail{{font-size:12px;color:#c4cde0;margin-top:10px;overflow-wrap:anywhere}}.ticket-side{{display:grid;justify-items:end;gap:10px;min-width:240px}}.actions form{{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0}}.actions{{justify-content:flex-end;max-width:680px}}input,select{{max-width:100%;background:#0b1221;color:#e8eefb;border:1px solid #27354d;border-radius:9px;padding:9px;font-size:11px}}select[name="priority"]{{width:130px}}.close-form input[name="reason"]{{width:150px}}
+.state{{font-size:10px;font-weight:900;border-radius:999px;padding:6px 9px}}.state.open{{background:#153b31;color:#9cf0d0}}.state.claimed{{background:#1c2c55;color:#bfcaff}}.state.closed{{background:#333b4c;color:#d9e0ed}}.empty{{text-align:center;padding:45px;color:#9cabc5;border:1px dashed #27354d;border-radius:17px}}.notice{{padding:12px;border-radius:12px;margin-top:14px;font-size:12px}}.notice.ok{{background:#123b30;color:#adf5d8}}.notice.err{{background:#4a1e2c;color:#ffd4dc}}footer{{margin-top:28px;color:#9cabc5;font-size:11px}}.filters{{display:flex;gap:9px;flex-wrap:wrap;margin:12px 0}}.filters input{{min-width:230px}}.filters select{{min-width:180px}}.settings{{margin-top:24px}}summary{{font-weight:900;cursor:pointer}}.settings-form{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:18px}}.settings-form label{{display:grid;gap:6px;font-size:12px;font-weight:800}}.settings-form select[multiple]{{width:100%;min-height:130px}}.settings-form p,.settings-form button{{grid-column:1/-1}}
+@media(max-width:820px){{.stats{{grid-template-columns:repeat(2,minmax(0,1fr))}}.settings-form{{grid-template-columns:1fr}}.ticket-side{{width:100%;justify-items:start}}.actions{{justify-content:flex-start}}}}
+@media(max-width:480px){{.stats{{grid-template-columns:1fr}}.wrap{{padding:18px 12px 40px}}}}
 </style></head><body><main class="wrap">
-<header><a class="brand" href="/dashboard">⚡ Pulse TeamOS</a><nav class="nav"><a class="btn" href="/dashboard">Dashboard</a><a class="btn" href="/team">Teamliste</a><a class="btn primary" href="/tickets">Tickets</a></nav></header>
-<section class="hero"><div><div class="muted">BOCHUM RP · TEAM OPERATIONS</div><h1>Ticket Center</h1><div class="muted">Pulse-eigene Tickets direkt in deiner Website verwalten.</div></div><div class="actions">{panel_setup_html}<a class="btn" href="https://discord.com/channels/{guild.id}/{PULSE_TICKET_OPEN_LOG_CHANNEL_ID}" target="_blank" rel="noopener">Öffnungsprotokoll ↗</a></div></section>
-{notice}<section class="stats"><div class="stat"><span>Offene Tickets</span><strong>{len(open_items)}</strong></div><div class="stat"><span>In Bearbeitung</span><strong>{len(claimed_items)}</strong></div><div class="stat"><span>Geschlossen gesamt</span><strong>{len(closed_items)}</strong></div></section>
-<nav class="tabs">{nav}</nav><section class="ticket-list">{listing}</section>
-<footer>Pulse Ticket Center · Sichtbar für Teammitglieder mit „Tickets verwalten“. Änderungen werden in der Pulse-Datenbank gespeichert.</footer>
+<header><a class="brand" href="/dashboard">⚡ Pulse TeamOS</a><nav class="nav"><a class="btn" href="/dashboard">Dashboard</a><a class="btn" href="/team">Teamliste</a><a class="btn primary" href="/tickets">Ticket-Zentrale</a></nav></header>
+<section class="hero"><div><div class="muted">BOCHUM RP · TEAM OPERATIONS</div><h1>Ticket-Zentrale</h1><div class="muted">Tickets priorisieren, übernehmen, wieder öffnen, schließen und nachhalten – direkt in Pulse.</div></div><a class="btn" href="https://discord.com/channels/{guild.id}/{log_open_id}" target="_blank" rel="noopener">Öffnungsprotokoll ↗</a></section>
+{notice}
+<section class="stats"><div class="stat"><span>Offen</span><strong>{len(open_items)}</strong></div><div class="stat"><span>🚨 Dringend</span><strong>{urgent_count}</strong></div><div class="stat"><span>◉ Übernommen</span><strong>{len(claimed_items)}</strong></div><div class="stat"><span>★ Bewertet</span><strong>{rated_count}</strong></div></section>
+<nav class="tabs">{nav}</nav>
+<form class="filters" method="get" action="/tickets"><input name="q" value="{html.escape(str(request.query_params.get('q', '')), quote=True)}" placeholder="Ticket-ID, Nutzer, Bearbeiter oder Grund suchen"><select name="category">{category_options}</select><input type="hidden" name="status" value="{html.escape(filter_name)}"><button class="btn primary" type="submit">Suchen / filtern</button><a class="btn" href="/tickets">Zurücksetzen</a></form>
+<section class="ticket-list">{listing}</section>
+{settings_html}
+<footer>Pulse TeamOS · Native Pulse-Tickets · Ticketdaten, Aktionen und Protokolle bleiben im eigenen Pulse-System.</footer>
 </main></body></html>"""
     return HTMLResponse(content=page)
+
+
+@app.post("/tickets/settings")
+async def pulse_tickets_dashboard_settings(
+    request: Request,
+    panel_channel_ids: list[str] = Form(default=[]),
+    open_log_channel_id: str = Form(...),
+    claim_log_channel_id: str = Form(...),
+    team_role_ids: list[str] = Form(default=[]),
+    highteam_role_ids: list[str] = Form(default=[]),
+    leadership_role_ids: list[str] = Form(default=[]),
+    user_session: str = Cookie(None),
+):
+    ctx = auth(request, user_session, admin=True)
+    if not panel_channel_ids:
+        return back("/tickets", "Bitte wähle mindestens einen Ticketpanel-Kanal aus.", False)
+    if len(panel_channel_ids) > 25:
+        return back("/tickets", "Es können höchstens 25 Panel-Kanäle ausgewählt werden.", False)
+
+    bot = getattr(request.app.state, "bot", None)
+    if not bot or not bot.is_ready():
+        return back("/tickets", "Pulse-Bot ist nicht bereit.", False)
+
+    valid_panels = []
+    for raw in panel_channel_ids:
+        try:
+            channel_id = int(raw)
+        except (TypeError, ValueError):
+            return back("/tickets", "Ungültige Panel-Kanal-ID.", False)
+        channel = ctx.guild.get_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel) or channel.guild.id != ctx.guild.id:
+            return back("/tickets", f"Panel-Kanal {channel_id} ist kein Textkanal dieses Servers.", False)
+        if channel_id not in valid_panels:
+            valid_panels.append(channel_id)
+
+    log_ids = {}
+    for key, raw in (("ticket_open_log_channel_id", open_log_channel_id), ("ticket_claim_log_channel_id", claim_log_channel_id)):
+        try:
+            channel_id = int(raw)
+        except (TypeError, ValueError):
+            return back("/tickets", "Ungültige Protokoll-Kanal-ID.", False)
+        channel = ctx.guild.get_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel) or channel.guild.id != ctx.guild.id:
+            return back("/tickets", f"Protokoll-Kanal {channel_id} ist kein Textkanal dieses Servers.", False)
+        log_ids[key] = channel_id
+
+    role_values = {}
+    for key, raw_values in (
+        ("team_role_ids", team_role_ids),
+        ("highteam_role_ids", highteam_role_ids),
+        ("leadership_role_ids", leadership_role_ids),
+    ):
+        values = []
+        for raw in raw_values:
+            try:
+                role_id = int(raw)
+            except (TypeError, ValueError):
+                return back("/tickets", "Ungültige Rollen-ID.", False)
+            role = ctx.guild.get_role(role_id)
+            if role is None or role.is_default() or role.managed:
+                return back("/tickets", "Bitte wähle nur gültige, normale Serverrollen.", False)
+            if role_id not in values:
+                values.append(role_id)
+        role_values[key] = values
+
+    settings = pulse_ticket_config()
+    settings.update(log_ids)
+    settings.update(role_values)
+    settings["panel_channel_ids"] = valid_panels
+    pulse_db.set_setting("ticket_system_config", settings)
+    return back("/tickets", f"Ticket-Einstellungen gespeichert: {len(valid_panels)} Panelkanal/-kanäle konfiguriert.", True)
 
 
 @app.post("/tickets/setup-panels")
@@ -2814,24 +3077,39 @@ async def pulse_ticket_panels_setup(request: Request, user_session: str = Cookie
     return back("/tickets", message, successes > 0 and not failures)
 
 
+@app.get("/tickets/transcript/{ticket_id}")
+async def pulse_ticket_transcript(request: Request, ticket_id: str, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm="can_manage_tickets")
+    ticket = pulse_db.get_ticket(ticket_id=ticket_id)
+    if not ticket or str(ticket.get("guild_id")) != str(ctx.guild.id):
+        raise HTTPException(status_code=404, detail="Ticket nicht gefunden.")
+    transcript_name = os.path.basename(str(ticket.get("transcript_path") or ""))
+    if not transcript_name or transcript_name != f"{ticket_id}.txt":
+        raise HTTPException(status_code=404, detail="Für dieses Ticket ist kein Transkript gespeichert.")
+    transcript_dir = (BASE_DIR / "transcripts").resolve()
+    transcript_file = (transcript_dir / transcript_name).resolve()
+    if transcript_file.parent != transcript_dir or not transcript_file.is_file():
+        raise HTTPException(status_code=404, detail="Transkriptdatei ist nicht vorhanden.")
+    return FileResponse(path=str(transcript_file), media_type="text/plain; charset=utf-8", filename=transcript_name)
+
+
 @app.post("/tickets/action")
 async def pulse_tickets_dashboard_action(
     request: Request,
     ticket_id: str = Form(...),
     action: str = Form(...),
     reason: str = Form(""),
+    priority: str = Form("normal"),
     user_session: str = Cookie(None),
 ):
     ctx = auth(request, user_session, perm="can_manage_tickets")
     ticket = pulse_db.get_ticket(ticket_id=ticket_id)
     if not ticket or str(ticket.get("guild_id")) != str(ctx.guild.id):
         return back("/tickets", "Ticket nicht gefunden oder gehört zu einem anderen Server.", False)
-    if ticket.get("status") == "closed":
-        return back("/tickets?status=closed", "Dieses Ticket ist bereits geschlossen.", False)
-    bot = getattr(request.app.state, "bot", None)
-    if not bot:
-        return back("/tickets", "Pulse-Bot ist nicht erreichbar.", False)
 
+    bot = getattr(request.app.state, "bot", None)
+    if not bot or not bot.is_ready():
+        return back("/tickets", "Pulse-Bot ist nicht erreichbar.", False)
     actor_id = int(ctx.member.id)
     actor_name = ctx.member.display_name
     channel_id = int(ticket.get("channel_id") or 0)
@@ -2839,8 +3117,64 @@ async def pulse_tickets_dashboard_action(
     if channel is None:
         try:
             channel = await bot.fetch_channel(channel_id)
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
             channel = None
+
+    if action == "reopen":
+        if ticket.get("status") != "closed":
+            return back("/tickets", "Nur geschlossene Tickets können wieder geöffnet werden.", False)
+        try:
+            from cogs.tickets import TICKET_PARENT_NAME, TicketControlView, category_meta, category_roles, safe_channel_name
+            owner = ctx.guild.get_member(int(ticket.get("user_id") or 0))
+            if owner is None:
+                try:
+                    owner = await ctx.guild.fetch_member(int(ticket.get("user_id") or 0))
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+                    owner = None
+            parent = discord.utils.get(ctx.guild.categories, name=TICKET_PARENT_NAME)
+            if parent is None:
+                parent = await ctx.guild.create_category(TICKET_PARENT_NAME, reason="Pulse-Ticket erneut geöffnet")
+            roles = category_roles(ctx.guild, str(ticket.get("category") or "support"))
+            overwrites = {
+                ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                ctx.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True, manage_messages=True, manage_permissions=True, attach_files=True, embed_links=True),
+            }
+            if owner:
+                overwrites[owner] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, attach_files=True, embed_links=True)
+            for role in roles:
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_messages=True, attach_files=True, embed_links=True)
+            short_id = re.sub(r"[^a-zA-Z0-9]", "", str(ticket.get("id") or ""))[-8:] or "ticket"
+            channel = await ctx.guild.create_text_channel(
+                f"ticket-{safe_channel_name(str(ticket.get('category') or 'support'))}-{safe_channel_name(str(ticket.get('user_name') or 'user'))}-r{short_id}"[:95],
+                category=parent,
+                overwrites=overwrites,
+                topic=f"Pulse Ticket | ticket:{ticket_id} | user:{ticket.get('user_id')} | category:{ticket.get('category')}",
+                reason=f"Pulse-Ticket erneut geöffnet von {actor_name}",
+            )
+            if not pulse_db.reopen_ticket(ticket_id, channel.id, actor_id, actor_name):
+                await channel.delete(reason="Ticket-Datenbank hat Wiederöffnung abgelehnt")
+                return back("/tickets?status=closed", "Ticket konnte nicht wieder geöffnet werden.", False)
+            updated = pulse_db.get_ticket(ticket_id=ticket_id) or ticket
+            label, _, emoji, _, _ = category_meta(str(updated.get("category") or "support"))
+            embed = discord.Embed(
+                title=f"{emoji} {label} – Ticket erneut geöffnet",
+                description=f"Dieses Ticket wurde von {ctx.member.mention} erneut geöffnet. Der bisherige Verlauf bleibt in der Transcript-Datei erhalten.",
+                color=discord.Color.green(),
+                timestamp=discord.utils.utcnow(),
+            )
+            embed.add_field(name="Ticket-ID", value=str(ticket_id), inline=True)
+            embed.add_field(name="Ersteller", value=str(updated.get("user_name") or "Unbekannt"), inline=True)
+            embed.add_field(name="Status", value="🟢 Offen", inline=True)
+            await channel.send(embed=embed, view=TicketControlView())
+            pulse_db.record_event("ticket_reopened_dashboard", "ticket", ticket_id, actor_id, actor_name, {"channel_id": channel.id})
+            await _send_pulse_ticket_log(bot, ctx.guild, "reopened", updated, ctx.member)
+            return back("/tickets?status=open", f"Ticket {ticket_id} wurde wieder geöffnet.")
+        except (discord.Forbidden, discord.HTTPException, ImportError) as exc:
+            print(f"⚠️ Pulse-Tickets: Wiederöffnung fehlgeschlagen ({type(exc).__name__}).")
+            return back("/tickets?status=closed", "Ticket konnte nicht wieder geöffnet werden. Prüfe die Bot-Rechte.", False)
+
+    if ticket.get("status") == "closed":
+        return back("/tickets?status=closed", "Dieses Ticket ist bereits geschlossen.", False)
 
     if action == "claim":
         if not pulse_db.claim_ticket(ticket["id"], actor_id, actor_name):
@@ -2849,13 +3183,17 @@ async def pulse_tickets_dashboard_action(
             return back("/tickets?status=claimed", f"Ticket wurde bereits von {who} übernommen.", False)
         latest = pulse_db.get_ticket(ticket_id=ticket_id) or ticket
         pulse_db.record_event("ticket_claimed_dashboard", "ticket", ticket_id, actor_id, actor_name, {"channel_id": channel_id})
-        await _refresh_pulse_ticket_discord_state(channel, latest)
+        try:
+            from cogs.tickets import TicketControlView, refresh_ticket_embed
+            await _refresh_pulse_ticket_discord_state(channel, latest)
+        except Exception:
+            pass
         if isinstance(channel, discord.TextChannel):
             try:
                 await channel.send(f"📥 {ctx.member.mention} hat dieses Ticket über das Pulse-Dashboard übernommen.", allowed_mentions=discord.AllowedMentions(users=[ctx.member], roles=False, everyone=False))
             except (discord.Forbidden, discord.HTTPException):
                 pass
-        await _send_pulse_ticket_log(bot, ctx.guild, PULSE_TICKET_CLAIM_LOG_CHANNEL_ID, latest, ctx.member, "claimed")
+        await _send_pulse_ticket_log(bot, ctx.guild, "claimed", latest, ctx.member)
         return back("/tickets?status=claimed", f"Ticket {ticket_id} wurde übernommen.")
 
     if action == "unclaim":
@@ -2870,7 +3208,19 @@ async def pulse_tickets_dashboard_action(
                 await channel.send(f"{actor_name} hat das Ticket im Pulse-Dashboard freigegeben.", allowed_mentions=discord.AllowedMentions.none())
             except (discord.Forbidden, discord.HTTPException):
                 pass
+        await _send_pulse_ticket_log(bot, ctx.guild, "unclaimed", latest, ctx.member)
         return back("/tickets?status=open", f"Ticket {ticket_id} wurde freigegeben.")
+
+    if action == "priority":
+        if priority not in PULSE_TICKET_PRIORITY_LABELS:
+            return back("/tickets", "Ungültige Ticketpriorität.", False)
+        if not pulse_db.update_ticket_priority(ticket_id, priority, actor_id, actor_name):
+            return back("/tickets", "Priorität konnte nicht geändert werden.", False)
+        latest = pulse_db.get_ticket(ticket_id=ticket_id) or ticket
+        await _refresh_pulse_ticket_discord_state(channel, latest)
+        pulse_db.record_event("ticket_priority_dashboard", "ticket", ticket_id, actor_id, actor_name, {"priority": priority})
+        await _send_pulse_ticket_log(bot, ctx.guild, "priority", latest, ctx.member)
+        return back(f"/tickets?status={('claimed' if latest.get('claimed_by_id') else 'open')}", f"Priorität für Ticket {ticket_id} geändert auf {PULSE_TICKET_PRIORITY_LABELS[priority]}.")
 
     if action == "close":
         reason = str(reason or "").strip()[:500]
@@ -2893,17 +3243,19 @@ async def pulse_tickets_dashboard_action(
         except (discord.Forbidden, discord.HTTPException):
             lines.append("[Transkript konnte von Pulse nicht vollständig gelesen werden.]")
         os.makedirs("transcripts", exist_ok=True)
-        local_name = f"{ticket['id']}.txt"
-        local_path = os.path.join("transcripts", local_name)
-        with open(local_path, "w", encoding="utf-8") as handle:
+        transcript_name = f"{ticket['id']}.txt"
+        transcript_path = os.path.join("transcripts", transcript_name)
+        with open(transcript_path, "w", encoding="utf-8") as handle:
             handle.write("\n".join(lines))
         try:
-            await channel.send(file=discord.File(local_path, filename=local_name))
+            await channel.send(file=discord.File(transcript_path, filename=transcript_name))
         except (discord.Forbidden, discord.HTTPException):
             pass
-        if not pulse_db.close_ticket(ticket["id"], reason, local_name, actor_id, actor_name):
+        if not pulse_db.close_ticket(ticket["id"], reason, transcript_name, actor_id, actor_name):
             return back("/tickets", "Ticket konnte nicht geschlossen werden.", False)
+        closed = pulse_db.get_ticket(ticket_id=ticket_id) or ticket
         pulse_db.record_event("ticket_closed_dashboard", "ticket", ticket_id, actor_id, actor_name, {"reason": reason})
+        await _send_pulse_ticket_log(bot, ctx.guild, "closed", closed, ctx.member)
         try:
             owner = ctx.guild.get_member(int(ticket.get("user_id") or 0))
             if owner:
@@ -2917,6 +3269,7 @@ async def pulse_tickets_dashboard_action(
         except (discord.Forbidden, discord.HTTPException):
             pass
         return back("/tickets?status=closed", f"Ticket {ticket_id} wurde geschlossen.")
+
     return back("/tickets", "Unbekannte Ticketaktion.", False)
 
 
