@@ -11,8 +11,8 @@ DB_NAME = "buero_system.db"
 # Konfiguration bleibt weiterhin änderbar; die Version-Migration korrigiert einmalig
 # veraltete IDs aus älteren Deployments.
 DEFAULT_WAITING_ROOM_ID = 1528821871057965067
-DEFAULT_PING_CHANNEL_ID = 1539324692001857606
-OFFICE_CONFIG_VERSION = 2
+DEFAULT_PING_CHANNEL_ID = 1560211874602160218
+OFFICE_CONFIG_VERSION = 3
 
 # --- DATENBANK HELFER ---
 def init_db():
