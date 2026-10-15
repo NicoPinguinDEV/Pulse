@@ -932,12 +932,12 @@ class PulseSuite(commands.Cog):
                 fields=[
                     ("Grund",grund),
                     ("Warn-ID",w["id"]),
-                    ("Warn-Stufe",f"{count}/3"),
+                    ("Warn-Stufe",f"{count}/5"),
                     ("Discord-Warnrolle","✅ Synchronisiert" if role_report.get("ok") else f"❌ {role_report.get('message')}"),
                 ],
             )
             audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"warning_created",w["id"]+" · "+grund)
-            result_text="✅ Warnung "+w["id"]+" erstellt ("+str(count)+"/3)."
+            result_text="✅ Warnung "+w["id"]+" erstellt ("+str(count)+"/5)."
             if not role_report.get("ok"):
                 result_text += "\n⚠️ Warnrolle konnte nicht synchronisiert werden: "+str(role_report.get("message"))
             await x.response.edit_message(content=result_text,embed=None,view=None)
@@ -991,8 +991,11 @@ class PulseSuite(commands.Cog):
         if not allowed(i,"kick",web) or locked() or not self.safe_target(i,member):
             return await i.response.send_message("❌ Aktion nicht erlaubt.",ephemeral=True)
         async def do(x):
+            approvers=[m for m in managers(i.guild,web) if m.id!=i.user.id]
+            if not approvers:
+                return await x.response.edit_message(content="❌ Keine andere berechtigte Führungskraft kann den Vorgang freigeben. Es wurde nichts angelegt.",embed=None,view=None)
             aid=action_record("server-exit",{"target_id":member.id,"reason":grund.strip()[:1000]},i.user)
-            for manager in managers(i.guild,web):
+            for manager in approvers:
                 if manager.id!=i.user.id:
                     db.notify(manager.id,"🔐 Zweite Freigabe",f"Server-Kick {aid} für {member.display_name} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
             await x.response.edit_message(content="🔐 Server-Kick "+aid+" vorbereitet. Eine andere berechtigte Führungskraft muss ihn mit /pulse-approve freigeben.",embed=None,view=None)
@@ -1012,8 +1015,11 @@ class PulseSuite(commands.Cog):
         if member not in members(i.guild,web):
             return await i.response.send_message("❌ Das Zielmitglied besitzt aktuell keine konfigurierte Teamrolle.",ephemeral=True)
         async def do(x):
+            approvers=[m for m in managers(i.guild,web) if m.id!=i.user.id]
+            if not approvers:
+                return await x.response.edit_message(content="❌ Keine andere berechtigte Führungskraft kann den Vorgang freigeben. Es wurde nichts angelegt.",embed=None,view=None)
             aid=action_record("team-exit",{"target_id":member.id,"reason":grund.strip()[:1000]},i.user)
-            for manager in managers(i.guild,web):
+            for manager in approvers:
                 if manager.id!=i.user.id:
                     db.notify(manager.id,"🔐 Zweite Freigabe",f"Team-Offboarding {aid} für {member.display_name} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
             await x.response.edit_message(content="🔐 Team-Kick "+aid+" vorbereitet. Die Person bleibt auf dem Discord-Server; eine andere berechtigte Führungskraft muss freigeben.",embed=None,view=None)
@@ -1031,8 +1037,11 @@ class PulseSuite(commands.Cog):
         if not allowed(i,"server-exit",web) or locked() or not self.safe_target(i,member):
             return await i.response.send_message("❌ Aktion nicht erlaubt.",ephemeral=True)
         async def do(x):
+            approvers=[m for m in managers(i.guild,web) if m.id!=i.user.id]
+            if not approvers:
+                return await x.response.edit_message(content="❌ Keine andere berechtigte Führungskraft kann den Vorgang freigeben. Es wurde nichts angelegt.",embed=None,view=None)
             aid=action_record("server-exit",{"target_id":member.id,"reason":grund.strip()[:1000]},i.user)
-            for manager in managers(i.guild,web):
+            for manager in approvers:
                 if manager.id!=i.user.id:
                     db.notify(manager.id,"🔐 Zweite Freigabe",f"Server-Kick {aid} für {member.display_name} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
             await x.response.edit_message(content="🔐 Server-Kick "+aid+" vorbereitet. Eine andere berechtigte Führungskraft muss ihn mit /pulse-approve freigeben.",embed=None,view=None)
@@ -1052,8 +1061,11 @@ class PulseSuite(commands.Cog):
         if member not in members(i.guild,web):
             return await i.response.send_message("❌ Das Zielmitglied besitzt aktuell keine konfigurierte Teamrolle.",ephemeral=True)
         async def do(x):
+            approvers=[m for m in managers(i.guild,web) if m.id!=i.user.id]
+            if not approvers:
+                return await x.response.edit_message(content="❌ Keine andere berechtigte Führungskraft kann den Vorgang freigeben. Es wurde nichts angelegt.",embed=None,view=None)
             aid=action_record("team-exit",{"target_id":member.id,"reason":grund.strip()[:1000]},i.user)
-            for manager in managers(i.guild,web):
+            for manager in approvers:
                 if manager.id!=i.user.id:
                     db.notify(manager.id,"🔐 Zweite Freigabe",f"Team-Offboarding {aid} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
             await x.response.edit_message(content="🔐 Team-Offboarding "+aid+" vorbereitet. Die Person bleibt auf dem Server; eine andere berechtigte Führungskraft muss freigeben.",embed=None,view=None)
