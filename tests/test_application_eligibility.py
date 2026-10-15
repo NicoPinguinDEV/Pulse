@@ -67,6 +67,22 @@ class ApplicationEligibilityTests(unittest.TestCase):
         applications = function_source(source, "applications_page")
         self.assertIn('can_decide = ctx.perms["can_manage_applications"] or ctx.perms["can_promote"] or ctx.perms["is_admin"]', applications)
 
+    def test_application_oauth_reuses_registered_dashboard_callback(self):
+        source = read_web()
+        redirect_helper = function_source(source, "oauth_redirect_uri")
+        callback = function_source(source, "callback")
+        apply_login = function_source(source, "apply_login")
+
+        # A normal dashboard callback is reused by default, avoiding an unregistered
+        # /apply/callback URI when only /callback exists in the Discord portal.
+        self.assertIn("(REDIRECT_URI or APPLICATION_REDIRECT_URI) if application else REDIRECT_URI", redirect_helper)
+        self.assertIn('return f"{request_origin(request)}/callback"', redirect_helper)
+        self.assertNotIn("apply/callback' if application", redirect_helper)
+        self.assertIn("redirect_apply = oauth_redirect_uri(request, application=True)", apply_login)
+        self.assertIn("apply_oauth_state: str = Cookie(None)", callback)
+        self.assertIn("application=application_flow", callback)
+        self.assertIn('RedirectResponse(url="/apply", status_code=303)', callback)
+
 
 if __name__ == "__main__":
     unittest.main()
