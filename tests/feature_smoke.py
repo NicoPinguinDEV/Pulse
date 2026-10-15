@@ -75,6 +75,7 @@ def main() -> None:
     assert "await target.remove_roles(*team_roles" in suite_actions
     assert "status='executing'" in suite_actions
     assert "rank_role_ids_after_change(" in suite_actions
+    assert "if r.id in planned_ids and not r.is_default()" in suite_actions
     assert "Keine andere berechtigte Führungskraft" in suite_actions
     assert '("Warn-Stufe",f"{count}/5")' in suite_actions
     assert 'str(count)+"/5)."' in suite_actions
