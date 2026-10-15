@@ -86,7 +86,7 @@ GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616"))
 APPLICATION_REQUIRED_ROLE_ID = 1531303733311307997
 APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720
 APPLICATION_ALERT_ROLE_ID = 1531300183088824340
-APPLICATION_ACCEPTED_ROLE_ID = 1496070682126188604  # Wird bei angenommener Bewerbung zusätzlich vergeben
+APPLICATION_ROLE_ID = 1496070682126188604  # Bewerberolle bis zum abgeschlossenen Bewerbungsgespräch
 TEAM_UPDATE_CHANNEL_NAME = os.getenv("TEAM_UPDATE_CHANNEL_NAME", "╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
 TEAM_UPDATE_CHANNEL_ID = 1531132354272170115  # zentraler Team-Updates-Kanal
 # Nach einem manuellen Team-Kick bleiben ausschließlich diese beiden Rollen erhalten.
@@ -4881,7 +4881,8 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
     can_decide = ctx.perms["can_manage_applications"] or ctx.perms["can_promote"] or ctx.perms["is_admin"]
     apps = load_json(APPS_FILE, {})
 
-    items = [(k, v) for k, v in apps.items() if (v.get("status") != "pending") == show_history]
+    active_application_statuses = {"pending", "interview"}
+    items = [(k, v) for k, v in apps.items() if (v.get("status") not in active_application_statuses) == show_history]
     items.reverse()  # neueste zuerst
 
     apps_html = ""
@@ -4923,18 +4924,28 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     f'Online-Testantworten anzeigen</summary><div class="grid gap-2 mt-3">{"".join(detail_parts)}</div></details>'
                 )
         if show_history:
-            accepted = item.get("status") == "accepted"
-            footer = f'<span class="text-xs font-semibold border px-3 py-1 rounded-full {BADGE_OK if accepted else BADGE_BAD}">{"✅ Angenommen" if accepted else "❌ Abgelehnt"}{(" von " + esc(item.get("decided_by"))) if item.get("decided_by") else ""}</span>'
+            hired = item.get("status") in {"hired", "accepted"}  # accepted = Altbestand aus früherer Version
+            history_label = "✅ Eingestellt" if hired else "❌ Abgelehnt"
+            footer = f'<span class="text-xs font-semibold border px-3 py-1 rounded-full {BADGE_OK if hired else BADGE_BAD}">{history_label}{(" von " + esc(item.get("decided_by"))) if item.get("decided_by") else ""}</span>'
+        elif item.get("status") == "interview":
+            interview_form = f"""
+                <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Wurde das verpflichtende Bewerbungsgespräch durchgeführt?');">
+                    <input type="hidden" name="action" value="decide_app"><input type="hidden" name="app_id" value="{esc(app_id)}">
+                    <select name="hire_role_id" class="{INPUT} py-1.5 text-[11px] w-auto min-w-44" required>
+                        <option value="">Team-Einstiegsrolle nach Gespräch wählen…</option>
+                        {''.join(f'<option value="{r.id}">{esc(r.name)}</option>' for r in sorted((ctx.guild.get_role(x) for x in ctx.config.get("team_role_ids", []) if str(x) != str(APPLICATION_ROLE_ID)), key=lambda z: z.position if z else -1) if r and r.id != APPLICATION_ROLE_ID)}
+                    </select>
+                    <input type="text" name="action_reason" maxlength="500" placeholder="Gesprächsnotiz / Entscheidungsgrund..." required class="{INPUT} py-1.5 min-w-56">
+                    <button name="decision" value="hire_after_interview" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">✅ Gespräch geführt – einstellen</button>
+                    <button name="decision" value="reject_after_interview" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">Nach Gespräch ablehnen</button>
+                </form>"""
+            footer = f'<div class="w-full space-y-3"><span class="inline-flex text-xs font-semibold border px-3 py-1 rounded-full border-amber-500/30 text-amber-600">🎙️ Bewerbungsgespräch erforderlich · noch keine Einstellung</span>{interview_form if can_decide else ""}</div>'
         else:
             decide = f"""
-                <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Entscheidung endgültig treffen?');">
+                <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Bewerber zum verpflichtenden Bewerbungsgespräch einladen?');">
                     <input type="hidden" name="action" value="decide_app"><input type="hidden" name="app_id" value="{esc(app_id)}">
-                    <select name="hire_role_id" class="{INPUT} py-1.5 text-[11px] w-auto min-w-44">
-                        <option value="">Einstiegsrolle wählen…</option>
-                        {''.join(f'<option value="{r.id}">{esc(r.name)}</option>' for r in sorted((ctx.guild.get_role(x) for x in ctx.config.get("team_role_ids", [])), key=lambda z: z.position if z else -1) if r)}
-                    </select>
-                    <input type="text" name="action_reason" maxlength="500" placeholder="Grund für die Entscheidung..." required class="{INPUT} py-1.5 min-w-56">
-                    <button name="decision" value="accept" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">✅ Einstellen</button>
+                    <input type="text" name="action_reason" maxlength="500" placeholder="Grund für Einladung oder Ablehnung..." required class="{INPUT} py-1.5 min-w-56">
+                    <button name="decision" value="accept" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">🎙️ Zum Bewerbungsgespräch einladen</button>
                     <button name="decision" value="reject" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">Ablehnen</button>
                 </form>""" if can_decide else ""
             footer = f"""
@@ -5440,7 +5451,7 @@ def team_since_for(member, entry=None) -> str:
         apps = load_json(APPS_FILE, {})
         candidates = []
         for item in apps.values() if isinstance(apps, dict) else []:
-            if str(item.get("user_id")) != str(member.id) or str(item.get("status")) != "accepted":
+            if str(item.get("user_id")) != str(member.id) or str(item.get("status")) not in {"hired", "accepted"}:
                 continue
             try:
                 candidates.append(datetime.strptime(str(item.get("decided_at") or ""), "%d.%m.%Y %H:%M"))
@@ -6118,8 +6129,16 @@ async def handle_action(
     if action == "decide_app":
         apps = load_json(APPS_FILE, {})
         item = apps.get(app_id or "")
-        if not item or item.get("status") != "pending" or decision not in ("accept", "reject"):
-            return back("/applications", "Bewerbung nicht mehr offen.", False)
+        if not item:
+            return back("/applications", "Bewerbung nicht gefunden.", False)
+
+        current_status = str(item.get("status") or "")
+        allowed_decisions = {
+            "pending": {"accept", "reject"},
+            "interview": {"hire_after_interview", "reject_after_interview"},
+        }
+        if decision not in allowed_decisions.get(current_status, set()):
+            return back("/applications", "Diese Entscheidung passt nicht zum aktuellen Bewerbungsstatus.", False)
 
         applicant = None
         try:
@@ -6129,61 +6148,135 @@ async def handle_action(
 
         action_reason = (action_reason or "").strip()[:500]
         if not action_reason:
-            return back("/applications", "Bitte einen Grund für die Bewerbungsentscheidung angeben.", False)
+            return back("/applications", "Bitte einen Grund bzw. eine Gesprächsnotiz angeben.", False)
 
         if decision == "accept":
+            # Erste Annahme = Einladung zum Bewerbungsgespräch. Das ist ausdrücklich
+            # KEINE Einstellung; die Team-Einstiegsrolle wird erst nach dem Gespräch vergeben.
             if not applicant:
                 return back("/applications", "Der Bewerber ist nicht mehr auf dem Discord-Server.", False)
-            accepted_role = guild.get_role(APPLICATION_ACCEPTED_ROLE_ID)
-            if accepted_role is None:
+            application_role = guild.get_role(APPLICATION_ROLE_ID)
+            if application_role is None:
                 return back(
                     "/applications",
-                    f"Die automatische Einstellungsrolle {APPLICATION_ACCEPTED_ROLE_ID} wurde auf Discord nicht gefunden. Bitte Rolle prüfen.",
+                    f"Die Bewerberolle {APPLICATION_ROLE_ID} wurde auf Discord nicht gefunden. Bitte die Rolle prüfen.",
                     False,
                 )
-            configured_roles = [guild.get_role(rid) for rid in team_role_ids]
-            configured_roles = [
-                r for r in configured_roles
-                if r and not r.managed and r.id != APPLICATION_ACCEPTED_ROLE_ID
-            ]
-            role = guild.get_role(hire_role_id) if hire_role_id else (min(configured_roles, key=lambda r: r.position) if configured_roles else None)
-            if role is None or role.id not in team_role_ids or role.id == APPLICATION_ACCEPTED_ROLE_ID:
-                return back("/applications", "Bitte eine gültige Team-Einstiegsrolle konfigurieren/auswählen.", False)
-            if accepted_role.is_default() or accepted_role.managed:
-                return back("/applications", "Die automatische Einstellungsrolle ist nicht verwaltbar.", False)
+            if application_role.is_default() or application_role.managed:
+                return back("/applications", "Die Bewerberolle ist nicht verwaltbar.", False)
             if guild.me and (
                 not guild.me.guild_permissions.manage_roles
-                or role.position >= guild.me.top_role.position
-                or accepted_role.position >= guild.me.top_role.position
+                or application_role.position >= guild.me.top_role.position
             ):
                 return back(
                     "/applications",
-                    "Der Bot benötigt „Rollen verwalten“ und muss über der Einstiegs- sowie der automatischen Einstellungsrolle stehen.",
+                    "Der Bot benötigt „Rollen verwalten“ und muss in der Rollen-Hierarchie über der Bewerberolle stehen.",
                     False,
                 )
-            # Die zusätzliche Einstellungsrolle bleibt auch dann erhalten, wenn sie
-            # versehentlich in config.json als Teamrolle eingetragen wurde.
-            protected_role_ids = {role.id, APPLICATION_ACCEPTED_ROLE_ID}
-            old_team_roles = [
-                r for r in applicant.roles
-                if r.id in team_role_ids and r.id not in protected_role_ids
-            ]
             try:
-                if old_team_roles:
-                    await applicant.remove_roles(*old_team_roles, reason=f"Einstellung durch {actor}: {action_reason}")
-                roles_to_add = [r for r in (role, accepted_role) if r not in applicant.roles]
-                if roles_to_add:
-                    await applicant.add_roles(*roles_to_add, reason=f"Einstellung durch {actor}: {action_reason}")
+                if application_role not in applicant.roles:
+                    await applicant.add_roles(
+                        application_role,
+                        reason=f"Zum Bewerbungsgespräch eingeladen durch {actor}: {action_reason}",
+                    )
             except discord.Forbidden:
-                return back("/applications", "Discord hat die Rollenänderung verweigert. Bot-Rolle höher setzen.", False)
+                return back("/applications", "Discord hat die Bewerberolle verweigert. Bitte Bot-Rechte und Rollen-Hierarchie prüfen.", False)
+            except discord.HTTPException as exc:
+                print(f"Bewerberolle für {applicant.id} konnte nicht vergeben werden: {exc}")
+                return back("/applications", "Die Bewerberolle konnte wegen eines Discord-Fehlers nicht vergeben werden.", False)
 
-            item["status"] = "accepted"
+            invited_at = now_de().strftime("%d.%m.%Y %H:%M")
+            item["status"] = "interview"
+            item["application_role_id"] = application_role.id
+            item["application_role"] = application_role.name
+            item["interview_invited_by"] = actor
+            item["interview_invited_at"] = invited_at
+            item["interview_invitation_reason"] = action_reason
+            save_json(APPS_FILE, apps)
+            await send_dm_notification(
+                applicant,
+                f"📋 Deine Bewerbung bei **{guild.name}** wurde für die nächste Stufe freigegeben. "
+                f"Du hast die Bewerberolle **{application_role.name}** erhalten. "
+                "Vor einer Einstellung muss verpflichtend ein Bewerbungsgespräch stattfinden. "
+                "Du bist damit noch nicht als Teammitglied eingestellt.",
+            )
+            await send_team_update_embed(
+                guild,
+                "🎙️ Bewerbungsgespräch erforderlich",
+                f"{applicant.mention} wurde zum verpflichtenden Bewerbungsgespräch eingeladen. Eine Einstellung ist noch nicht erfolgt.",
+                discord.Color.blurple(),
+                target=applicant.mention,
+                action="Zum Bewerbungsgespräch eingeladen",
+                actor=actor,
+                fields=[
+                    ("Bewerberolle", application_role.mention, True),
+                    ("Laufbahn", item.get("career_label", "Nicht angegeben"), True),
+                    ("Bewerbung", app_id or "—", True),
+                    ("Grund / Hinweis", action_reason, False),
+                    ("Eingeladen am", invited_at, True),
+                ],
+                thumbnail=applicant.display_avatar.url,
+            )
+            log_audit(
+                actor,
+                actor_id,
+                "Bewerbungsgespräch eingeladen",
+                f"{applicant.display_name} ({applicant.id}) erhielt Bewerberolle {application_role.id}; noch keine Einstellung. Grund: {action_reason}",
+            )
+            return back("/applications", f"{applicant.display_name} wurde zum Bewerbungsgespräch eingeladen. Noch keine Teamrolle vergeben.")
+
+        if decision == "hire_after_interview":
+            if current_status != "interview" or not item.get("interview_invited_at"):
+                return back("/applications", "Vor der Einstellung muss die Einladung zum Bewerbungsgespräch dokumentiert sein.", False)
+            if not applicant:
+                return back("/applications", "Der Bewerber ist nicht mehr auf dem Discord-Server.", False)
+            configured_roles = [
+                guild.get_role(rid) for rid in team_role_ids
+                if str(rid) != str(APPLICATION_ROLE_ID)
+            ]
+            configured_roles = [r for r in configured_roles if r and not r.managed]
+            role = guild.get_role(hire_role_id) if hire_role_id else (
+                min(configured_roles, key=lambda r: r.position) if configured_roles else None
+            )
+            if role is None or role.id not in team_role_ids or role.id == APPLICATION_ROLE_ID:
+                return back("/applications", "Bitte nach dem Bewerbungsgespräch eine gültige Team-Einstiegsrolle auswählen.", False)
+            application_role = guild.get_role(APPLICATION_ROLE_ID)
+            if guild.me and (
+                not guild.me.guild_permissions.manage_roles
+                or role.position >= guild.me.top_role.position
+                or (application_role and application_role.position >= guild.me.top_role.position)
+            ):
+                return back(
+                    "/applications",
+                    "Der Bot benötigt „Rollen verwalten“ und muss über der Team-Einstiegsrolle und der Bewerberolle stehen.",
+                    False,
+                )
+            # Ein Rollen-Edit ersetzt die Teamrangrolle und entfernt die Bewerberolle
+            # in einem Discord-Aufruf, während alle anderen Rollen erhalten bleiben.
+            remove_role_ids = set(team_role_ids) | {APPLICATION_ROLE_ID}
+            roles_to_keep = [r for r in applicant.roles if r.id not in remove_role_ids]
+            roles_to_keep.append(role)
+            try:
+                await applicant.edit(
+                    roles=roles_to_keep,
+                    reason=f"Einstellung nach Bewerbungsgespräch durch {actor}: {action_reason}",
+                )
+            except discord.Forbidden:
+                return back("/applications", "Discord hat die Einstellung verweigert. Bitte Bot-Rechte und Rollen-Hierarchie prüfen.", False)
+            except discord.HTTPException as exc:
+                print(f"Einstellung nach Bewerbungsgespräch für {applicant.id} fehlgeschlagen: {exc}")
+                return back("/applications", "Die Einstellung konnte wegen eines Discord-Fehlers nicht durchgeführt werden.", False)
+
+            decided_at = now_de().strftime("%d.%m.%Y %H:%M")
+            item["status"] = "hired"
             item["hired_role_id"] = role.id
             item["hired_role"] = role.name
-            item["application_accepted_role_id"] = accepted_role.id
-            item["application_accepted_role"] = accepted_role.name
+            item["application_role_id"] = APPLICATION_ROLE_ID
+            item["interview_completed_by"] = actor
+            item["interview_completed_at"] = decided_at
+            item["decision_reason"] = action_reason
             item["decided_by"] = actor
-            item["decided_at"] = now_de().strftime("%d.%m.%Y %H:%M")
+            item["decided_at"] = decided_at
             team_db = load_json(DATA_FILE, {})
             team_entry = user_entry(team_db, str(applicant.id))
             team_entry["team_since"] = now_de().isoformat(timespec="seconds")
@@ -6196,36 +6289,62 @@ async def handle_action(
             save_json(APPS_FILE, apps)
             await send_dm_notification(
                 applicant,
-                f"🎉 Deine Bewerbung bei **{guild.name}** wurde angenommen. "
-                f"Du wurdest als **{role.name}** in das Team aufgenommen und hast zusätzlich die Rolle **{accepted_role.name}** erhalten.",
+                f"🎉 Nach deinem Bewerbungsgespräch wurde deine Bewerbung bei **{guild.name}** final angenommen. "
+                f"Du wurdest als **{role.name}** in das Team aufgenommen; die Bewerberolle wurde entfernt.",
             )
             await send_team_update_embed(
                 guild,
-                "🎉 Team-Update: Einstellung",
-                f"{applicant.mention} wurde erfolgreich in das Team aufgenommen.",
+                "🎉 Team-Update: Einstellung nach Bewerbungsgespräch",
+                f"{applicant.mention} wurde nach dem verpflichtenden Bewerbungsgespräch eingestellt.",
                 discord.Color.green(),
                 target=applicant.mention,
-                action="Einstellung",
+                action="Einstellung nach Bewerbungsgespräch",
                 actor=actor,
-                fields=[("Einstiegsrolle", role.mention, True), ("Zusätzliche Einstellungsrolle", accepted_role.mention, True), ("Bewerbung", app_id or "—", True), ("Grund", action_reason, False), ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True)],
+                fields=[
+                    ("Einstiegsrolle", role.mention, True),
+                    ("Bewerberolle", f"Entfernt (<@&{APPLICATION_ROLE_ID}>)", True),
+                    ("Bewerbung", app_id or "—", True),
+                    ("Gesprächsnotiz / Grund", action_reason, False),
+                    ("Zeitpunkt", decided_at, True),
+                ],
                 thumbnail=applicant.display_avatar.url,
             )
-            log_audit(actor, actor_id, "Einstellung", f"{applicant.display_name} -> {role.name} + {accepted_role.name} · Grund: {action_reason}")
-            return back("/applications", f"{applicant.display_name} wurde als {role.name} eingestellt und erhielt zusätzlich {accepted_role.name}.")
+            log_audit(
+                actor, actor_id, "Einstellung nach Bewerbungsgespräch",
+                f"{applicant.display_name} -> {role.name}; Bewerberolle {APPLICATION_ROLE_ID} entfernt. Grund: {action_reason}",
+            )
+            return back("/applications", f"{applicant.display_name} wurde nach dem Bewerbungsgespräch als {role.name} eingestellt.")
+
+        if decision == "reject_after_interview" and applicant:
+            application_role = guild.get_role(APPLICATION_ROLE_ID)
+            if application_role and application_role in applicant.roles:
+                try:
+                    await applicant.remove_roles(application_role, reason=f"Bewerbung nach Gespräch abgelehnt durch {actor}: {action_reason}")
+                except discord.Forbidden:
+                    return back("/applications", "Die Ablehnung kann nicht abgeschlossen werden, weil Discord das Entfernen der Bewerberolle verweigert.", False)
+                except discord.HTTPException as exc:
+                    print(f"Bewerberolle nach Ablehnung für {applicant.id} konnte nicht entfernt werden: {exc}")
+                    return back("/applications", "Die Bewerberolle konnte nicht entfernt werden. Bitte Discord-Rechte prüfen.", False)
 
         item["status"] = "rejected"
         item["decided_by"] = actor
         item["decided_at"] = now_de().strftime("%d.%m.%Y %H:%M")
+        item["decision_reason"] = action_reason
         save_json(APPS_FILE, apps)
         if applicant:
-            await send_dm_notification(applicant, f"Deine Bewerbung bei **{guild.name}** wurde leider abgelehnt. Danke für dein Interesse!")
+            notice = (
+                f"Deine Bewerbung bei **{guild.name}** wurde nach dem Bewerbungsgespräch leider abgelehnt."
+                if decision == "reject_after_interview"
+                else f"Deine Bewerbung bei **{guild.name}** wurde leider abgelehnt. Danke für dein Interesse."
+            )
+            await send_dm_notification(applicant, notice)
         await send_team_update_embed(
             guild,
             "📄 Team-Update: Bewerbung abgelehnt",
             f"Die Bewerbung von **{item.get('name','Unbekannt')}** wurde abgelehnt.",
             discord.Color.red(),
             target=item.get("name","Unbekannt"),
-            action="Bewerbung abgelehnt",
+            action="Bewerbung nach Gespräch abgelehnt" if decision == "reject_after_interview" else "Bewerbung abgelehnt",
             actor=actor,
             fields=[("Bewerbung", app_id or "—", True), ("Grund", action_reason, False), ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True)],
         )
