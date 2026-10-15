@@ -78,6 +78,11 @@ def main() -> None:
     assert '("Warn-Stufe",f"{count}/5")' in suite_actions
     assert 'str(count)+"/5)."' in suite_actions
     assert "manager_cache=managers(g,web)" in suite_actions
+    assert "task_snapshot=db.list_tasks(limit=1000,include_archived=True)" in suite_actions
+    assert "ticket_snapshot=db.list_tickets(limit=2000)" in suite_actions
+    assert "ctx=auth(request,user_session,manager=True);web=webserver;rows=\"\"" in suite_actions
+    assert 'async def member_page(request:Request,member_id:int,user_session:str=Cookie(None)):\n        ctx=auth(request,user_session,manager=True)' in suite_actions
+    assert "Interne Notiz aktualisiert" in suite_actions
     assert "🧠 RAM-Schutz" in suite_actions
     assert "🧭 Tagesprioritäten" in suite_actions
     assert "ram_trend_snapshot()" in suite_actions
