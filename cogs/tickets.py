@@ -585,6 +585,8 @@ class Tickets(commands.Cog):
         await self.bot.wait_until_ready()
         settings = ticket_config()
         panels = settings.get("panel_messages", {})
+        if not isinstance(panels, dict):
+            panels = {}
         legacy_channel_id = settings.get("panel_channel_id")
         legacy_message_id = settings.get("panel_message_id")
         if legacy_channel_id and legacy_message_id:
