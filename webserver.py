@@ -2835,6 +2835,12 @@ def _ticket_role_options(guild, field_name: str, selected_ids) -> str:
 @app.get("/tickets", response_class=HTMLResponse)
 async def pulse_tickets_dashboard(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session, perm="can_manage_tickets")
+    if request.url.path == "/tickets/panels" and not ctx.perms.get("is_admin"):
+        return HTMLResponse(
+            content="<!doctype html><html lang='de'><meta charset='utf-8'><title>Keine Berechtigung</title><body style='font-family:system-ui;background:#0b1020;color:#e8eefb;padding:40px'><h1>Kein Zugriff auf den Panel-Builder</h1><p>Nur Dashboard-Administratoren dürfen Ticket-Panels und Kategorien verwalten.</p><p><a style='color:#b9c7ff' href='/tickets'>Zur Ticket-Zentrale</a></p></body></html>",
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+        )
     guild = ctx.guild
     settings = pulse_ticket_config()
     category_registry = pulse_ticket_category_registry()
@@ -2981,6 +2987,11 @@ async def pulse_tickets_dashboard(request: Request, user_session: str = Cookie(N
     log_open_id = pulse_ticket_log_channel_id("created")
     log_claim_id = pulse_ticket_log_channel_id("claimed")
     settings_html = ""
+    panel_builder_html = (
+        '<section class="panel-builder settings" id="panel-builder">'
+        '<div class="builder-heading"><div><h2>🎛️ Panel-Builder</h2>'
+        '<p>Der Panel-Builder ist nur für Dashboard-Administratoren verfügbar.</p></div></div></section>'
+    )
     if ctx.perms.get("is_admin"):
         role_cfg = settings
         team_selected = role_cfg.get("team_role_ids", ctx.config.get("team_role_ids", []))
@@ -3163,7 +3174,30 @@ h1{{font-size:clamp(28px,4vw,40px);margin:22px 0 8px}}.muted{{color:#9cabc5;font
 <footer>Pulse TeamOS · Native Pulse-Tickets · Ticketdaten, Aktionen und Protokolle bleiben im eigenen Pulse-System.</footer>
 </main></body></html>"""
     if request.url.path == "/tickets/panels":
-        page = page.replace("</body>", '<script>document.getElementById("panel-builder")?.scrollIntoView({block:"start"});</script></body>')
+        # Render a dedicated builder page instead of merely scrolling within the ticket list.
+        # Reuse the established stylesheet and the same admin form handlers.
+        document_head = page.split("<body>", 1)[0] + "<body>"
+        page = document_head + f"""
+<main class="wrap">
+<header>
+  <a class="brand" href="/dashboard">⚡ Pulse TeamOS</a>
+  <nav class="nav">
+    <a class="btn" href="/dashboard">Dashboard</a>
+    <a class="btn" href="/team">Teamliste</a>
+    <a class="btn" href="/tickets">Ticket-Zentrale</a>
+    <a class="btn primary" href="/tickets/panels">Panel-Builder</a>
+  </nav>
+</header>
+<section class="hero">
+  <div><div class="muted">BOCHUM RP · TEAM OPERATIONS · <strong>Pulse Release v{PULSE_VERSION}</strong></div>
+  <h1>Ticket-Panel-Builder</h1>
+  <div class="muted">Erstelle mehrere unabhängige Ticket-Panels und verwalte deren Kategorien direkt in Pulse.</div></div>
+  <a class="btn" href="/tickets">← Zur Ticket-Zentrale</a>
+</section>
+{notice}
+{panel_builder_html}
+<footer>Pulse TeamOS · Ticket-Panel-Builder · Einstellungen werden im eigenen Pulse-System gespeichert.</footer>
+</main></body></html>"""
     return HTMLResponse(content=page, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"})
 
 
