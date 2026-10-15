@@ -501,6 +501,27 @@ def close_ticket(tid, reason, transcript_path="", closed_by_id=None, closed_by_n
         return False
 
 
+def reopen_ticket(tid, channel_id, actor_id=None, actor_name=None):
+    """Reopen a previously closed ticket in a newly created Discord channel."""
+    with connect() as db:
+        now = _now()
+        cur = db.execute(
+            """UPDATE tickets
+               SET status='open', channel_id=?, claimed_by_id=NULL, claimed_by_name=NULL,
+                   claimed_at=NULL, closed_at=NULL, close_reason='', closed_by_id=NULL,
+                   closed_by_name=NULL
+               WHERE id=? AND status='closed'""",
+            (str(channel_id), tid),
+        )
+        if cur.rowcount:
+            db.execute(
+                "INSERT INTO ticket_events VALUES (?,?,?,?,?,?,?)",
+                (make_id("te"), tid, str(actor_id or "0"), actor_name or "System", "reopened", "Ticket über Pulse erneut geöffnet", now),
+            )
+            return True
+        return False
+
+
 def rate_ticket(tid, rating, comment=""):
     rating = max(1, min(5, int(rating)))
     with connect() as db:
