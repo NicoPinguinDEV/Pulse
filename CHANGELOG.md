@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.7.9 – Verbindliches Bewerbungsgespräch
+- Die erste Annahme einer Bewerbung ist jetzt eine Einladung zum verpflichtenden Bewerbungsgespräch und keine Einstellung.
+- Dabei wird ausschließlich die Bewerberolle `1496070682126188604` vergeben. Es wird noch keine Team-Einstiegsrolle vergeben, keine Teamakte auf Einstellung gesetzt und keine Teamzugehörigkeit gestartet.
+- Eingeladene Bewerber bleiben unter `/applications` in der aktiven Übersicht. Erst über die separate Aktion „Gespräch geführt – einstellen“ kann eine Team-Einstiegsrolle nach dokumentierter Gesprächsnotiz vergeben werden.
+- Nach einer Einstellung wird die Bewerberolle entfernt; alle anderen nicht betroffenen Discord-Rollen bleiben erhalten. Eine Ablehnung nach dem Gespräch entfernt die Bewerberolle ebenfalls.
+- DM, Team-Update, Bewerbungsstatus und Audit-Protokoll unterscheiden Einladung zum Gespräch von der endgültigen Einstellung.
+
 ## Version 7.7.8 – Automatische Einstellungsrolle
 - Bei einer angenommenen Bewerbung vergibt Pulse zusätzlich die feste Discord-Rolle `1496070682126188604` zur gewählten Team-Einstiegsrolle.
 - Die automatische Rolle wird vorab auf Existenz, Verwaltbarkeit und Bot-Rollenhierarchie geprüft. Fehlt sie oder kann der Bot sie nicht vergeben, wird die Einstellung mit einer klaren Fehlermeldung nicht stillschweigend als erfolgreich markiert.
