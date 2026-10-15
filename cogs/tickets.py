@@ -180,7 +180,20 @@ def category_roles(guild, key: str):
             selected.append(role)
     if selected:
         return selected
-    return configured_role_ids(guild, category_meta(key)[4])
+    group = category_meta(key)[4]
+    # Confidential categories must never silently fall back to every team role.
+    if group in {"highteam", "leadership"}:
+        raw_group_ids = ticket_config().get(f"{group}_role_ids", [])
+        roles = []
+        for raw in raw_group_ids if isinstance(raw_group_ids, list) else []:
+            try:
+                role = guild.get_role(int(raw))
+            except (TypeError, ValueError):
+                role = None
+            if role and not role.managed and not role.is_default():
+                roles.append(role)
+        return roles
+    return configured_role_ids(guild, group)
 
 
 def can_manage_ticket(member, ticket) -> bool:
@@ -484,7 +497,7 @@ class TicketSelect(Select):
             close_ticket(existing["id"], "Verwaistes Ticket automatisch archiviert.", "", interaction.user.id, interaction.user.display_name)
 
         roles = category_roles(guild, key)
-        if key in ("highteam", "leadership") and not (ticket_config().get(f"{group}_role_ids") or category_definition.get("role_ids")):
+        if group in ("highteam", "leadership") and not (ticket_config().get(f"{group}_role_ids") or category_definition.get("role_ids")):
             await interaction.response.send_message(
                 f"⚠️ **{label}** ist noch nicht vollständig eingerichtet. Eine zuständige Rolle muss zuerst durch einen Administrator konfiguriert werden.",
                 ephemeral=True,
