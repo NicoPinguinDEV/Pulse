@@ -124,7 +124,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.7.1"
+PULSE_VERSION = "7.7.2"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -1166,6 +1166,8 @@ BADGE_OK = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emer
 BADGE_BAD = "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
 BADGE_WARN = "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
 
+SCROLL_RESTORE_SCRIPT = "<script>\n(function () {\n    const key = \"pulse:scroll-restore:v1\";\n    function clearSavedPosition() {\n        try { sessionStorage.removeItem(key); } catch (_) {}\n    }\n\n    // Restore only when a form redirect returns to the same page, never on unrelated navigation.\n    try {\n        const raw = sessionStorage.getItem(key);\n        if (raw) {\n            const saved = JSON.parse(raw);\n            const now = Date.now();\n            const fresh = saved && typeof saved.at === \"number\" && now >= saved.at && now - saved.at < 120000;\n            if (fresh && saved.path === location.pathname && Number.isFinite(saved.y)) {\n                clearSavedPosition();\n                const restore = () => requestAnimationFrame(() => requestAnimationFrame(() => {\n                    window.scrollTo(Number(saved.x) || 0, Number(saved.y) || 0);\n                }));\n                if (document.readyState === \"complete\") restore();\n                else window.addEventListener(\"load\", restore, { once: true });\n            } else {\n                clearSavedPosition();\n            }\n        }\n    } catch (_) {\n        clearSavedPosition();\n    }\n\n    // Save the viewport before ordinary form navigation (save buttons, filters and actions).\n    document.addEventListener(\"submit\", function (event) {\n        const form = event.target;\n        if (!(form instanceof HTMLFormElement) || form.dataset.noScrollRestore === \"true\") return;\n        if (form.target && form.target.toLowerCase() !== \"_self\") return;\n        try {\n            sessionStorage.setItem(key, JSON.stringify({\n                path: location.pathname,\n                x: window.scrollX,\n                y: window.scrollY,\n                at: Date.now()\n            }));\n        } catch (_) {}\n    }, true);\n})();\n</script>"
+
 HEAD_SCRIPT = """
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -1190,7 +1192,7 @@ HEAD_SCRIPT = """
         return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
 </script>
-"""
+""" + SCROLL_RESTORE_SCRIPT
 
 
 def get_head_html(title: str):
@@ -3173,7 +3175,7 @@ h1{{font-size:clamp(28px,4vw,40px);margin:22px 0 8px}}.muted{{color:#9cabc5;font
 .state{{font-size:10px;font-weight:900;border-radius:999px;padding:6px 9px}}.state.open{{background:#153b31;color:#9cf0d0}}.state.claimed{{background:#1c2c55;color:#bfcaff}}.state.closed{{background:#333b4c;color:#d9e0ed}}.empty{{text-align:center;padding:45px;color:#9cabc5;border:1px dashed #27354d;border-radius:17px}}.notice{{padding:12px;border-radius:12px;margin-top:14px;font-size:12px}}.notice.ok{{background:#123b30;color:#adf5d8}}.notice.err{{background:#4a1e2c;color:#ffd4dc}}footer{{margin-top:28px;color:#9cabc5;font-size:11px}}.filters{{display:flex;gap:9px;flex-wrap:wrap;margin:12px 0}}.filters input{{min-width:230px}}.filters select{{min-width:180px}}.settings{{margin-top:24px}}summary{{font-weight:900;cursor:pointer}}.settings-form{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:18px}}.panel-builder{{padding:22px}}.builder-heading{{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}}.builder-heading h2{{margin:6px 0}}.panel-builder h3{{margin:16px 0 10px}}.builder-heading p{{max-width:900px;color:#9cabc5;font-size:13px}}.builder-count{{background:#202d4a;border:1px solid #34486f;padding:9px 13px;border-radius:999px;font-weight:800}}.builder-columns{{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:14px}}.builder-list,.category-editor-grid{{display:grid;gap:10px}}.category-editor-grid{{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px}}.builder-item{{background:#0d1527;border:1px solid #2a3952;border-radius:12px;padding:13px;margin-bottom:10px}}.builder-item summary{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.builder-item summary small{{color:#9cabc5;font-size:10px}}.builder-form{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}}.builder-form label{{display:grid;gap:6px;font-size:12px;font-weight:750}}.builder-form input,.builder-form textarea,.builder-form select{{width:100%;font:inherit}}.builder-form textarea{{resize:vertical;background:#0b1221;color:#e8eefb;border:1px solid #27354d;border-radius:9px;padding:10px}}.builder-form .wide{{grid-column:1/-1}}.builder-form fieldset{{border:1px solid #2a3952;border-radius:10px;padding:12px;min-width:0}}.builder-form legend{{font-size:12px;font-weight:800;padding:0 6px}}.check-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}.check{{display:flex!important;align-items:flex-start;gap:8px!important;padding:9px;background:#121a2c;border-radius:8px;font-weight:500!important}}.check input{{width:auto!important;margin-top:3px}}.check span{{display:grid;gap:3px}}.check small{{color:#9cabc5;font-weight:400}}.panel-actions{{justify-content:flex-start;margin-top:12px}}.category-delete{{margin-top:10px}}.btn.success{{background:#124534;border-color:#246c4e}}.small-empty{{padding:20px}}.settings-form label{{display:grid;gap:6px;font-size:12px;font-weight:800}}.settings-form select[multiple]{{width:100%;min-height:130px}}.settings-form p,.settings-form button{{grid-column:1/-1}}
 @media(max-width:820px){{.stats{{grid-template-columns:repeat(2,minmax(0,1fr))}}.settings-form{{grid-template-columns:1fr}}.builder-columns,.category-editor-grid{{grid-template-columns:1fr}}.ticket-side{{width:100%;justify-items:start}}.actions{{justify-content:flex-start}}}}
 @media(max-width:480px){{.stats{{grid-template-columns:1fr}}.wrap{{padding:18px 12px 40px}}}}
-</style></head><body><main class="wrap">
+</style>{SCROLL_RESTORE_SCRIPT}</head><body><main class="wrap">
 <header><a class="brand" href="/dashboard">⚡ Pulse TeamOS</a><nav class="nav"><a class="btn" href="/dashboard">Dashboard</a><a class="btn" href="/team">Teamliste</a><a class="btn" href="/tickets">Ticket-Zentrale</a><a class="btn primary" href="/tickets/panels#panel-builder">Panel-Builder</a></nav></header>
 <section class="hero"><div><div class="muted">BOCHUM RP · TEAM OPERATIONS · <strong>Pulse Release v{PULSE_VERSION}</strong></div><h1>Ticket-Zentrale</h1><div class="muted">Tickets priorisieren, übernehmen, wieder öffnen, schließen und nachhalten – direkt in Pulse.</div></div><a class="btn" href="https://discord.com/channels/{guild.id}/{log_open_id}" target="_blank" rel="noopener">Öffnungsprotokoll ↗</a></section>
 {notice}
