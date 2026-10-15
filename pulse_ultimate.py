@@ -130,7 +130,7 @@ async def runtime_memory_guard(bot) -> None:
         if level != previous:
             _RAM_GUARD_LEVEL = level
             if level == 0:
-                print(f"✅ Pulse RAM-Schutz: Verbrauch wieder im Normalbereich ({rss:.1f} MB).")
+                messages.append(f"✅ Pulse RAM-Schutz: Verbrauch wieder im Normalbereich ({rss:.1f} MB).")
             else:
                 labels = {1: "WARNUNG", 2: "KRITISCH", 3: "NOTFALLRESERVE"}
                 message = (
