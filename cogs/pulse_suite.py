@@ -796,7 +796,11 @@ class PulseSuite(commands.Cog):
         if role.id not in role_ids or role.is_default() or role.managed:
             return "Bitte wähle eine verwaltbare Team-Rangrolle aus."
         bot_member = interaction.guild.me
-        if not bot_member or role.position >= bot_member.top_role.position:
+        if not bot_member or not bot_member.guild_permissions.manage_roles:
+            return "Dem Bot fehlt die Berechtigung „Rollen verwalten“."
+        if member.top_role >= bot_member.top_role:
+            return "Das Zielmitglied liegt auf oder über der höchsten Bot-Rolle."
+        if role.position >= bot_member.top_role.position:
             return "Der Bot kann diese Rangrolle nicht verwalten (Rollenhierarchie prüfen)."
         current_team_roles = [r for r in member.roles if r.id in role_ids and not r.is_default()]
         if any(r.position >= bot_member.top_role.position for r in current_team_roles):
@@ -809,6 +813,8 @@ class PulseSuite(commands.Cog):
         return ""
 
     async def _confirm_rank_change(self, interaction, member, role, grund, action, web, role_ids):
+        if interaction.guild:
+            member = interaction.guild.get_member(member.id) or member
         error = self._rank_change_error(interaction, member, role, role_ids, action)
         if error or locked() or not allowed(interaction, action, web):
             await interaction.response.edit_message(
@@ -1118,9 +1124,13 @@ class PulseSuite(commands.Cog):
             bot_member=i.guild.me
             if bot_member is None:
                 return await i.response.send_message("❌ Bot-Mitglied konnte nicht ermittelt werden.",ephemeral=True)
+            if target.top_role>=bot_member.top_role:
+                return await i.response.send_message("❌ Das Zielmitglied liegt auf oder über der höchsten Bot-Rolle; die Aktion wurde blockiert.",ephemeral=True)
+            if operation=="kick_member" and not bot_member.guild_permissions.kick_members:
+                return await i.response.send_message("❌ Dem Bot fehlt die Berechtigung „Mitglieder kicken“.",ephemeral=True)
+            if operation=="remove_team_roles" and not bot_member.guild_permissions.manage_roles:
+                return await i.response.send_message("❌ Dem Bot fehlt die Berechtigung „Rollen verwalten“.",ephemeral=True)
             team_roles=[r for r in target.roles if r.id in team_role_ids and not r.is_default()]
-            if operation=="kick_member" and target.top_role>=bot_member.top_role:
-                return await i.response.send_message("❌ Der Bot kann dieses Mitglied wegen der Rollen-Hierarchie nicht vom Server kicken.",ephemeral=True)
             if operation=="remove_team_roles":
                 if not team_roles:
                     return await i.response.send_message("❌ Das Mitglied besitzt keine konfigurierten Teamrollen mehr.",ephemeral=True)
