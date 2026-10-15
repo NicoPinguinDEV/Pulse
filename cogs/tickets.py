@@ -738,11 +738,13 @@ class Tickets(commands.Cog):
         legacy_message_id = settings.get("panel_message_id")
         if legacy_channel_id and legacy_message_id:
             panels = {**panels, str(legacy_channel_id): int(legacy_message_id)}
-        if not isinstance(panels, dict) or not panels:
-            return
+        if not isinstance(panels, dict):
+            panels = {}
         custom_panels = settings.get("ticket_panels", [])
         if not isinstance(custom_panels, list):
             custom_panels = []
+        if not panels and not custom_panels:
+            return
         for guild in self.bot.guilds:
             for raw_channel_id, raw_message_id in list(panels.items()):
                 try:
