@@ -307,14 +307,7 @@ APPLICATION_CAREERS = {
                    "c": "Zuerst muss die Community abstimmen, ob der Vorteil zu groß ist.",
                    "d": "Hacking, Cheating und Exploits führen laut RP-Regelwerk zum permanenten Bann; die Maßnahme ist durch das Serverteam umzusetzen und zu dokumentieren.",
                }, "d"),
-            _q("§1.2, §1.3, §5.2 Discord-Regelwerk", "Toxisches Verhalten und DMs",
-               "Ein Nutzer beleidigt ein Mitglied wiederholt in Direktnachrichten und droht ihm wegen eines serverbezogenen Konflikts. Er behauptet, DMs seien grundsätzlich privat und könnten daher nie sanktioniert werden. Was gilt?",
-               {
-                   "a": "Serverbezogene Belästigungen oder Drohungen per DM können nach dem Discord-Regelwerk wie Serververstöße behandelt werden.",
-                   "b": "Nur Nachrichten in öffentlichen Serverkanälen können jemals berücksichtigt werden.",
-                   "c": "Das Team darf ausschließlich dann reagieren, wenn der Absender die DM selbst veröffentlicht.",
-                   "d": "Private Nachrichten sind stets außerhalb der Serverregeln, auch wenn sie direkt mit einem Serverkonflikt zusammenhängen.",
-               }, "a"),
+            ,
         ],
     },
     "leadership": {
@@ -458,14 +451,7 @@ APPLICATION_CAREERS = {
                    "c": "Blitzer dürfen überall stehen, wenn der Fahrer zu schnell fährt.",
                    "d": "Der Fahrer kann den Unfall abbrechen, sofern er die Kosten übernimmt.",
                }, "b"),
-            _q("§18.2–§18.5, §16.2", "Beschwerdeweg nach dem RP",
-               "Während RP laufen mehrere offensichtliche Regelvorwürfe auf. Es besteht kein Notfall. Eine Partei fordert, die Situation zu stoppen und den Streit im OOC-Voice auszutragen. Welche Reihenfolge ist korrekt?",
-               {
-                   "a": "Sofort stoppen; OOC-Diskussionen sind der bevorzugte Weg, um Missverständnisse zu vermeiden.",
-                   "b": "Die lautere Partei entscheiden lassen und Beweise erst bei einer Ablehnung suchen.",
-                   "c": "Die Szene ignorieren und später ohne Begründung irgendeine Sanktion erteilen.",
-                   "d": "RP vollständig fortführen, relevante Beweise sichern und danach Support kontaktieren; Regelklärungen und Beschwerden nicht IC oder mitten in der Szene austragen.",
-               }, "d"),
+            ,
             _q("§26.1–§26.2, §1.5", "Regeländerungen",
                "Eine Regel wurde nachweislich geändert. Ein Spieler sagt, er habe die frühere Fassung gelernt und müsse deshalb die aktuelle Regel nicht befolgen. Welche Aussage trifft zu?",
                {
@@ -554,14 +540,7 @@ APPLICATION_CAREERS = {
                    "c": "Nur andere Nutzer dürfen Audioverhalten melden, Teamler dürfen nicht eingreifen.",
                    "d": "Die Regel gilt nur für öffentliche Textkanäle.",
                }, "b"),
-            _q("§17.3, §25.1–§25.2", "Realistische Verkehrssituation",
-               "Ein Spieler platziert einen Blitzer an einer offensichtlich unrealistischen Stelle und begründet dies damit, dass die StVO nur im echten Straßenverkehr gelte. Was ist korrekt?",
-               {
-                   "a": "Blitzerplatzierung ist frei, solange eine Geschwindigkeitsüberschreitung vorliegt.",
-                   "b": "Die StVO gilt nur für Polizei und ADAC.",
-                   "c": "Blitzer müssen realistisch platziert werden; die StVO und eine an die RP-Situation angepasste Fahrweise gelten auf dem Server.",
-                   "d": "Der Spieler darf die Platzierung selbst entscheiden, wenn der Blitzer keine Geldstrafe auslöst.",
-               }, "c"),
+            ,
             _q("§10.1–§10.4, §18.1", "Fraktions- und Berufs-RP",
                "Eine nicht genehmigte Organisation beginnt berufliches Einsatz-RP, führt einen Überfall ohne Absprache durch und verkürzt die Szene, sobald ein Ergebnis feststeht. Welche Gesamtbewertung ist richtig?",
                {
@@ -578,14 +557,7 @@ APPLICATION_CAREERS = {
                    "c": "Nur die Belohnung ist relevant; Verletzungen haben keine RP-Auswirkungen.",
                    "d": "Eine Charaktergeschichte ist optional, wenn ein Teamler die Handlung genehmigt.",
                }, "a"),
-            _q("§26.1–§26.2, §1.5 Discord-Regelwerk", "Verantwortung nach Regeländerung",
-               "Die Serverleitung aktualisiert das Regelwerk. Ein langjähriges Teammitglied beruft sich auf seine frühere Praxis und erklärt, die neue Regel gelte für ihn bis zu einer persönlichen Unterweisung nicht. Was ist richtig?",
-               {
-                   "a": "Erfahrene Teammitglieder dürfen frühere Auslegungen vorübergehend weiter anwenden.",
-                   "b": "Neue Regeln gelten nur bei ausdrücklicher Zustimmung aller Teamler.",
-                   "c": "Das Teammitglied muss die jeweils geltenden Regeln einhalten; Änderungen sind vorbehalten und Unwissenheit schützt nicht vor Konsequenzen.",
-                   "d": "Die Regeländerung betrifft nur Bewerber, nicht bestehende Teammitglieder.",
-               }, "c"),
+            ,
         ],
     },
 }
