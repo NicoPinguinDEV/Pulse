@@ -88,7 +88,7 @@ class ApplicationEligibilityTests(unittest.TestCase):
         self.assertIn('item["status"] = "interview"', invite)
         self.assertNotIn("hired_role_id", invite)
         self.assertNotIn('team_entry["team_since"]', invite)
-        self.assertIn("verpflichtendes Bewerbungsgespräch", invite)
+        self.assertIn("Vor einer Einstellung muss verpflichtend ein Bewerbungsgespräch stattfinden.", invite)
         self.assertIn("role.id == APPLICATION_ROLE_ID", hire)
         self.assertIn("await applicant.edit(", hire)
         self.assertIn('item["status"] = "hired"', hire)
