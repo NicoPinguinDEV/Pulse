@@ -657,9 +657,37 @@ class Tickets(commands.Cog):
         panels = settings.get("panel_messages", {})
         if not isinstance(panels, dict):
             panels = {}
+        legacy_channel_id = settings.get("panel_channel_id")
+        legacy_message_id = settings.get("panel_message_id")
+        if legacy_channel_id and legacy_message_id:
+            panels.setdefault(str(legacy_channel_id), int(legacy_message_id))
+        panel_channel_ids = configured_panel_channel_ids()
+        active_panel_ids = set(panel_channel_ids)
         successes = []
         failures = []
-        panel_channel_ids = configured_panel_channel_ids()
+
+        # Remove only the messages Pulse previously registered as ticket panels
+        # when an administrator removes their channel from the website settings.
+        for old_channel_key, old_message_id in list(panels.items()):
+            try:
+                old_channel_id = int(old_channel_key)
+                old_message_id = int(old_message_id)
+            except (TypeError, ValueError):
+                panels.pop(old_channel_key, None)
+                continue
+            if old_channel_id in active_panel_ids:
+                continue
+            old_channel = await _resolve_text_channel(self.bot, guild, old_channel_id)
+            if old_channel is not None:
+                try:
+                    old_message = await old_channel.fetch_message(old_message_id)
+                    await old_message.delete(reason="Pulse-Ticketpanel aus Website-Einstellungen entfernt")
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
+            panels.pop(old_channel_key, None)
+
+        settings.pop("panel_channel_id", None)
+        settings.pop("panel_message_id", None)
         for channel_id in panel_channel_ids:
             channel = await _resolve_text_channel(self.bot, guild, channel_id)
             if channel is None:
