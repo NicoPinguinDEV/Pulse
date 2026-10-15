@@ -307,7 +307,6 @@ APPLICATION_CAREERS = {
                    "c": "Zuerst muss die Community abstimmen, ob der Vorteil zu groß ist.",
                    "d": "Hacking, Cheating und Exploits führen laut RP-Regelwerk zum permanenten Bann; die Maßnahme ist durch das Serverteam umzusetzen und zu dokumentieren.",
                }, "d"),
-            ,
         ],
     },
     "leadership": {
@@ -451,7 +450,6 @@ APPLICATION_CAREERS = {
                    "c": "Blitzer dürfen überall stehen, wenn der Fahrer zu schnell fährt.",
                    "d": "Der Fahrer kann den Unfall abbrechen, sofern er die Kosten übernimmt.",
                }, "b"),
-            ,
             _q("§26.1–§26.2, §1.5", "Regeländerungen",
                "Eine Regel wurde nachweislich geändert. Ein Spieler sagt, er habe die frühere Fassung gelernt und müsse deshalb die aktuelle Regel nicht befolgen. Welche Aussage trifft zu?",
                {
@@ -540,7 +538,6 @@ APPLICATION_CAREERS = {
                    "c": "Nur andere Nutzer dürfen Audioverhalten melden, Teamler dürfen nicht eingreifen.",
                    "d": "Die Regel gilt nur für öffentliche Textkanäle.",
                }, "b"),
-            ,
             _q("§10.1–§10.4, §18.1", "Fraktions- und Berufs-RP",
                "Eine nicht genehmigte Organisation beginnt berufliches Einsatz-RP, führt einen Überfall ohne Absprache durch und verkürzt die Szene, sobald ein Ergebnis feststeht. Welche Gesamtbewertung ist richtig?",
                {
@@ -557,7 +554,6 @@ APPLICATION_CAREERS = {
                    "c": "Nur die Belohnung ist relevant; Verletzungen haben keine RP-Auswirkungen.",
                    "d": "Eine Charaktergeschichte ist optional, wenn ein Teamler die Handlung genehmigt.",
                }, "a"),
-            ,
         ],
     },
 }
