@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import os
+import re
 import shutil
 import sqlite3
 import time
@@ -21,7 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
 
-VERSION = "7.7.0"
+VERSION = "7.7.1"
 EXTRA_PERMS = (
     "can_manage_announcements",
     "can_manage_handover",
@@ -305,8 +306,8 @@ def register(app):
         active_count=sum(1 for s in active.values() if s.get("status") in ("online","break"))
         return {"active":active_count,"logs":len(logs),"apps":sum(1 for a in apps.values() if a.get("status")=="pending"),"loas":sum(1 for l in loas.values() if l.get("active")),"tickets":tickets,"tasks":tasks,"promos":promos,"weekly":weekly,"current":current}
 
-    def recommended_role_profile(role):
-        """Least-privilege role templates; server administrator access stays Discord-admin-only."""
+    def legacy_recommended_role_profile(role):
+        """Version-1 defaults, used only to detect profiles not manually customized."""
         keys = tuple(dict.fromkeys((*ws.PERM_KEYS, *EXTRA_PERMS)))
         profile = {key: False for key in keys}
         profile["can_view_dashboard"] = True
@@ -319,35 +320,74 @@ def register(app):
         )) or ("leitung" in name and not support_role)
         moderator_role = any(word in name for word in ("moderator", "moderation")) or name.strip() in {"mod", "team-mod", "team mod"}
         if leadership_role:
-            for key in keys:
-                profile[key] = True
+            for key in keys: profile[key] = True
         elif moderator_role:
+            for key in ("can_manage_tickets", "can_manage_tasks", "can_manage_training", "can_manage_wiki",
+                        "can_add_notes", "can_warn", "can_moderate_kicks", "can_view_team_status"):
+                if key in profile: profile[key] = True
+        elif support_role:
+            for key in ("can_manage_tickets", "can_manage_tasks", "can_manage_training", "can_manage_wiki",
+                        "can_add_notes", "can_view_team_status"):
+                if key in profile: profile[key] = True
+        elif any(word in name for word in ("ausbildung", "probezeit", "bewerber", "trainee", "praktikant")):
+            for key in ("can_manage_tickets", "can_manage_training", "can_manage_wiki"):
+                if key in profile: profile[key] = True
+        else:
+            for key in ("can_manage_tickets", "can_manage_tasks", "can_manage_training", "can_manage_wiki"):
+                if key in profile: profile[key] = True
+        return profile
+
+    def recommended_role_profile(role):
+        """PK outranks Teamleitung; Discord-server administrator access stays separate."""
+        keys = tuple(dict.fromkeys((*ws.PERM_KEYS, *EXTRA_PERMS)))
+        profile = {key: False for key in keys}
+        profile["can_view_dashboard"] = True
+        name = str(getattr(role, "name", "") or "").casefold()
+        role_words = re.sub(r"[^a-z0-9äöüß]+", " ", name).strip()
+        pk_role = bool(re.search(r"(?<![a-z0-9])pk(?![a-z0-9])", name)) or any(
+            word in role_words for word in ("personalkommission", "personal kontrolle", "personalkontrolle")
+        )
+        team_lead_role = any(word in role_words for word in ("teamleitung", "team leitung", "teamlead", "team lead"))
+        support_role = any(word in name for word in ("support", "supporter", "lowteam", "low team", "teamler", "ticket"))
+        leadership_role = any(word in name for word in (
+            "highteam", "high team", "führungsebene", "fuehrungsebene", "führung",
+            "fuehrung", "administrator", "admin", "owner", "inhaber", "management", "manager",
+            "serverleitung", "leitungsebene", "direktor", "director",
+        )) or ("leitung" in name and not support_role and not team_lead_role)
+
+        if pk_role:
+            for key in keys: profile[key] = True
+        elif team_lead_role:
+            # Teamleitung leads day-to-day operations; bans and BOLOs remain above this level.
+            for key in (
+                "can_warn", "can_moderate_kicks", "can_add_notes", "can_promote",
+                "can_manage_tickets", "can_manage_applications", "can_manage_tasks",
+                "can_manage_training", "can_manage_wiki", "can_manage_announcements",
+                "can_manage_handover", "can_manage_promotions", "can_view_team_status",
+                "can_manage_checkins",
+            ):
+                if key in profile: profile[key] = True
+        elif leadership_role:
+            for key in keys: profile[key] = True
+        elif any(word in name for word in ("moderator", "moderation")) or role_words in {"mod", "team mod"}:
             for key in (
                 "can_manage_tickets", "can_manage_tasks", "can_manage_training",
                 "can_manage_wiki", "can_add_notes", "can_warn", "can_moderate_kicks",
                 "can_view_team_status",
             ):
-                if key in profile:
-                    profile[key] = True
-            # Bans and BOLO remain reserved for Highteam/Leitung.
+                if key in profile: profile[key] = True
         elif support_role:
             for key in (
                 "can_manage_tickets", "can_manage_tasks", "can_manage_training",
                 "can_manage_wiki", "can_add_notes", "can_view_team_status",
             ):
-                if key in profile:
-                    profile[key] = True
-            # Support deliberately gets no Warn/Kick/Ban/BOLO or team-promotion rights.
+                if key in profile: profile[key] = True
         elif any(word in name for word in ("ausbildung", "probezeit", "bewerber", "trainee", "praktikant")):
             for key in ("can_manage_tickets", "can_manage_training", "can_manage_wiki"):
-                if key in profile:
-                    profile[key] = True
+                if key in profile: profile[key] = True
         else:
-            # Selected team roles with unfamiliar names receive basic workflow rights only.
-            # Moderation, notes, bans, BOLOs, promotions and administration remain off.
             for key in ("can_manage_tickets", "can_manage_tasks", "can_manage_training", "can_manage_wiki"):
-                if key in profile:
-                    profile[key] = True
+                if key in profile: profile[key] = True
         return profile
 
     def apply_recommended_role_profiles(c):
@@ -364,7 +404,7 @@ def register(app):
                 continue
             permission_map[str(role_id)] = recommended_role_profile(role)
             changed.append(role)
-        c.config["permissions_profile_version"] = 1
+        c.config["permissions_profile_version"] = 2
         ws.save_json(ws.CONFIG_FILE, c.config)
         ws.log_audit(
             c.user.get("global_name") or c.user.get("username"),
