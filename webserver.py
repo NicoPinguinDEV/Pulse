@@ -25,11 +25,23 @@ from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request, Cookie, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import discord
 import pulse_db as pulse_db
+from pulse_galaxybot import (
+    GALAXYBOT_WEBHOOK_PATH,
+    SUPPORTED_TICKET_EVENTS,
+    TICKET_CLAIM_LOG_CHANNEL_ID,
+    TICKET_OPEN_LOG_CHANNEL_ID,
+    TICKET_SOURCE_CHANNEL_IDS,
+    collect_numeric_ids,
+    find_channel_ids,
+    make_webhook_event_id,
+    ticket_display_fields,
+    verify_webhook_signature,
+)
 from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
 from career_applications import APPLICATION_CAREERS, grade_career_test, render_career_test
 from pulse_melonly import can_manage_melonly_type, rank_roblox_candidates, roblox_similarity_score
@@ -1492,6 +1504,173 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
         "users": ranked_users,
         "best_match": ranked_users[0] if ranked_users else None,
     })
+
+# =============================================================
+# GALAXYBOT TICKET WEBHOOK
+# =============================================================
+_GALAXYBOT_SEEN_DELIVERIES = OrderedDict()
+_GALAXYBOT_WEBHOOK_LOCK = asyncio.Lock()
+_GALAXYBOT_SEEN_DELIVERY_LIMIT = 2048
+
+
+async def _galaxybot_source_matches(bot, guild, data: dict) -> tuple[bool, int | None]:
+    """Match known panel/category channels when GalaxyBot includes source metadata."""
+    matching_ids = collect_numeric_ids(data) & TICKET_SOURCE_CHANNEL_IDS
+    if matching_ids:
+        return True, sorted(matching_ids)[0]
+
+    candidate_ids = find_channel_ids(data)
+    resolved_context = False
+    for channel_id in candidate_ids:
+        if channel_id in TICKET_SOURCE_CHANNEL_IDS:
+            return True, channel_id
+        channel = guild.get_channel(channel_id) if guild else None
+        if channel is None:
+            try:
+                channel = await bot.fetch_channel(channel_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                continue
+        if getattr(getattr(channel, "guild", None), "id", None) != getattr(guild, "id", None):
+            continue
+        resolved_context = True
+        parent_id = getattr(channel, "category_id", None) or getattr(channel, "parent_id", None)
+        if parent_id in TICKET_SOURCE_CHANNEL_IDS:
+            return True, parent_id
+
+    # Some GalaxyBot event variants omit panel/channel IDs entirely. In that
+    # case, accept the event instead of silently losing ticket/claim notices;
+    # the webhook itself is scoped to this server and to ticket events.
+    if not candidate_ids or not resolved_context:
+        return True, None
+    return False, None
+
+
+def _galaxybot_embed(event_name: str, guild_id: int, data: dict, source_id: int | None) -> discord.Embed:
+    fields = ticket_display_fields(data)
+    created = event_name == "ticket.created"
+    embed = discord.Embed(
+        title="🎫 GalaxyBot – Neues Ticket" if created else "📥 GalaxyBot – Ticket übernommen",
+        color=discord.Color.blurple() if created else discord.Color.green(),
+        timestamp=discord.utils.utcnow(),
+    )
+    description = "Ein neues Ticket wurde geöffnet." if created else "Ein Teammitglied hat ein Ticket übernommen."
+    ticket_channel_id = fields.get("channel_id", "")
+    if ticket_channel_id.isdigit() and guild_id:
+        description += f"\n\n[Ticket im Discord öffnen](https://discord.com/channels/{guild_id}/{ticket_channel_id})"
+    embed.description = description
+
+    if fields.get("ticket_id"):
+        embed.add_field(name="Ticket-ID", value=fields["ticket_id"], inline=True)
+    if fields.get("title"):
+        embed.add_field(name="Titel", value=fields["title"], inline=True)
+    if fields.get("category"):
+        embed.add_field(name="Kategorie", value=fields["category"], inline=True)
+    if fields.get("creator"):
+        embed.add_field(name="Erstellt von", value=fields["creator"], inline=True)
+    if not created and fields.get("claimed_by"):
+        embed.add_field(name="Beansprucht von", value=fields["claimed_by"], inline=True)
+    if fields.get("priority"):
+        embed.add_field(name="Priorität", value=fields["priority"], inline=True)
+    if source_id:
+        embed.add_field(name="Erkannter Ticket-Ursprung", value=f"<#{source_id}>", inline=True)
+    embed.set_footer(text="Pulse • GalaxyBot Ticket-Protokoll")
+    return embed
+
+
+@app.post(GALAXYBOT_WEBHOOK_PATH)
+async def galaxybot_ticket_webhook(request: Request):
+    """Receive signed GalaxyBot ticket.created / ticket.claimed events."""
+    secret = os.getenv("GALAXYBOT_WEBHOOK_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(
+            status_code=503,
+            detail="GalaxyBot-Webhook ist noch nicht konfiguriert: GALAXYBOT_WEBHOOK_SECRET fehlt.",
+        )
+
+    raw_body = await request.body()
+    timestamp = request.headers.get("X-GalaxyBot-Timestamp", "")
+    signature = request.headers.get("X-GalaxyBot-Signature", "")
+    if not verify_webhook_signature(secret, timestamp, signature, raw_body):
+        raise HTTPException(status_code=401, detail="Ungültige oder abgelaufene GalaxyBot-Webhook-Signatur.")
+
+    try:
+        event = json.loads(raw_body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Ungültiger JSON-Body.")
+    if not isinstance(event, dict):
+        raise HTTPException(status_code=400, detail="Webhook-Body muss ein JSON-Objekt sein.")
+
+    event_name = str(event.get("event") or request.headers.get("X-GalaxyBot-Event") or "").strip()
+    header_event = request.headers.get("X-GalaxyBot-Event")
+    if header_event and event_name and header_event != event_name:
+        raise HTTPException(status_code=400, detail="Event-Header und JSON-Event stimmen nicht überein.")
+
+    delivery_id = make_webhook_event_id(event, request.headers.get("X-GalaxyBot-Delivery", ""))
+    # Acknowledge other subscribed ticket events, but only mirror opened/claimed tickets.
+    if event_name not in SUPPORTED_TICKET_EVENTS:
+        return Response(status_code=204)
+
+    payload_guild_id = str(event.get("guildID") or event.get("guildId") or event.get("guild_id") or "").strip()
+    if payload_guild_id.isdigit() and int(payload_guild_id) != GUILD_ID:
+        return Response(status_code=204)
+
+    data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    bot = getattr(request.app.state, "bot", None)
+    if not bot or not bot.is_ready():
+        raise HTTPException(status_code=503, detail="Pulse-Discord-Bot ist momentan nicht bereit.")
+
+    guild = bot.get_guild(int(payload_guild_id)) if payload_guild_id.isdigit() else bot.get_guild(GUILD_ID)
+    if guild is None:
+        raise HTTPException(status_code=503, detail="Der konfigurierte Discord-Server ist für Pulse nicht verfügbar.")
+
+    async with _GALAXYBOT_WEBHOOK_LOCK:
+        if delivery_id and delivery_id in _GALAXYBOT_SEEN_DELIVERIES:
+            return Response(status_code=204)
+
+        matches, source_id = await _galaxybot_source_matches(bot, guild, data)
+        if not matches:
+            print(f"ℹ️ GalaxyBot-Ticket-Webhook: Event {event_name} außerhalb der konfigurierten Ticket-Ursprünge ignoriert.")
+            if delivery_id:
+                _GALAXYBOT_SEEN_DELIVERIES[delivery_id] = True
+                _GALAXYBOT_SEEN_DELIVERIES.move_to_end(delivery_id)
+            return Response(status_code=204)
+
+        fields = ticket_display_fields(data)
+        destination_id = TICKET_OPEN_LOG_CHANNEL_ID if event_name == "ticket.created" else TICKET_CLAIM_LOG_CHANNEL_ID
+        destination = guild.get_channel(destination_id)
+        if destination is None:
+            try:
+                destination = await bot.fetch_channel(destination_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                destination = None
+        if not isinstance(destination, (discord.TextChannel, discord.Thread)):
+            raise HTTPException(
+                status_code=503,
+                detail=f"GalaxyBot-Ticket-Protokollkanal {destination_id} ist nicht erreichbar.",
+            )
+
+        try:
+            await destination.send(
+                embed=_galaxybot_embed(event_name, guild.id, data, source_id),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"⚠️ GalaxyBot-Ticket-Webhook: Protokoll konnte nicht gesendet werden ({type(exc).__name__}).")
+            raise HTTPException(status_code=503, detail="GalaxyBot-Ticket-Protokoll konnte nicht gesendet werden.")
+
+        if delivery_id:
+            _GALAXYBOT_SEEN_DELIVERIES[delivery_id] = True
+            _GALAXYBOT_SEEN_DELIVERIES.move_to_end(delivery_id)
+            while len(_GALAXYBOT_SEEN_DELIVERIES) > _GALAXYBOT_SEEN_DELIVERY_LIMIT:
+                _GALAXYBOT_SEEN_DELIVERIES.popitem(last=False)
+
+        print(
+            f"🎫 GalaxyBot-Ticket-Webhook: {event_name} für "
+            f"{fields.get('ticket_id') or fields.get('title') or 'Ticket'} "
+            f"im Protokollkanal {destination_id} erfasst."
+        )
+    return Response(status_code=204)
+
 
 # =============================================================
 # HEALTH CHECK
