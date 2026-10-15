@@ -192,8 +192,8 @@ def main() -> None:
     # The visible /melonly page is Pulse Pro's route, not just the legacy dashboard.
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
-    assert 'VERSION = "7.2.2"' in pro_melonly
-    assert 'PULSE_VERSION = "7.2.2"' in web
+    assert 'VERSION = "7.3.0"' in pro_melonly
+    assert 'PULSE_VERSION = "7.3.0"' in web
     assert "ws.can_manage_melonly_entry(c,x)" in pro_melonly
     assert 'action="/log/edit"' in pro_melonly
     assert 'action="/log/delete"' in pro_melonly
