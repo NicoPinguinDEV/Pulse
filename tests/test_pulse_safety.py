@@ -22,8 +22,10 @@ class MemoryGuardTests(unittest.TestCase):
         self.assertEqual(memory_guard_level(159.9, current_level=1), 0)
 
     def test_critical_steps_down_without_flapping(self):
-        self.assertEqual(memory_guard_level(220, current_level=3), 2)
-        self.assertEqual(memory_guard_level(205, current_level=2), 1)
+        self.assertEqual(memory_guard_level(225, current_level=3), 3)
+        self.assertEqual(memory_guard_level(219.9, current_level=3), 2)
+        self.assertEqual(memory_guard_level(205, current_level=2), 2)
+        self.assertEqual(memory_guard_level(199.9, current_level=2), 1)
         self.assertEqual(memory_guard_level(170, current_level=2), 1)
         self.assertEqual(memory_guard_level(150, current_level=2), 0)
 
