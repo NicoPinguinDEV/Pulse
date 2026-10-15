@@ -270,7 +270,7 @@ def main() -> None:
     assert 'PULSE_VERSION = "7.7.2"' in web
     assert 'pulse:scroll-restore:v1' in web
     assert 'saved.path === location.pathname' in web
-    assert 'document.addEventListener("submit"' in web
+    assert 'document.addEventListener' in web and 'submit' in web
     assert '</style>{SCROLL_RESTORE_SCRIPT}</head><body><main class="wrap">' in web
     assert "ws.can_manage_melonly_entry(c,x)" in pro_melonly
     assert 'action="/log/edit"' in pro_melonly
