@@ -5,8 +5,13 @@ Stdlib-only; complements the compileall CI check.
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 from datetime import datetime
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from pulse_activity_utils import (
     activity_action_is_terminal,
@@ -16,7 +21,6 @@ from pulse_activity_utils import (
     leave_covers_date,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def read(name: str) -> str:
