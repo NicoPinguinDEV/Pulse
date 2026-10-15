@@ -60,6 +60,14 @@ Administratoren können in Discord `/pulse-diagnose` verwenden, um RAM, Datenban
 
 Der Webserver wird vom Bot-Prozess gestartet. Für Hosting hinter einem Reverse Proxy sollte `PUBLIC_BASE_URL` auf die öffentliche HTTPS-Adresse zeigen.
 
+## Pulse-eigenes Ticketsystem
+
+- `/ticketpanels_setup` richtet native Pulse-Ticketpanels in sechs konfigurierten Discord-Kanälen ein.
+- Öffnungen werden in Kanal `1543914075308818503`, Übernahmen in Kanal `1535025111722098778` protokolliert.
+- Das eigene Dashboard `/tickets` zeigt offene, übernommene und geschlossene Pulse-Tickets und erlaubt berechtigten Teammitgliedern, Tickets zu übernehmen, freizugeben oder mit Pflichtgrund zu schließen.
+- Die bestehenden Ticketfunktionen in Discord bleiben aktiv: private Ticketkanäle, Rollenberechtigungen, Priorität, Übernahme, Freigabe, Transkript und Schließen.
+- Alle Ticketdaten liegen in der Pulse-Datenbank. Dafür wird kein externer Ticketbot benötigt.
+
 ## Discord-Voraussetzungen
 
 Der Bot benötigt je nach aktivierten Modulen unter anderem die Intent-Berechtigungen für Members, Presences und Message Content. Für automatische Rollenänderungen muss die Bot-Rolle über den Team- und Warnrollen stehen und über „Rollen verwalten“ verfügen.
