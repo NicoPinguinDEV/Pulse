@@ -129,6 +129,18 @@ PERM_KEYS = (
     "can_manage_tickets", "can_manage_applications", "can_manage_tasks",
     "can_manage_training", "can_manage_wiki", "can_view_analytics",
 )
+DASHBOARD_PERMISSION_LABELS = (
+    ("can_view_dashboard", "Dashboard sehen"),
+    ("can_warn", "Verwarnungen verwalten"),
+    ("can_promote", "Befördern, degradieren und Team-Kick"),
+    ("can_add_notes", "Teamakten-Notizen erstellen"),
+    ("can_manage_tickets", "Tickets verwalten"),
+    ("can_manage_applications", "Bewerbungen verwalten"),
+    ("can_manage_tasks", "Aufgaben verwalten"),
+    ("can_manage_training", "Schulungen verwalten"),
+    ("can_manage_wiki", "Team-Wiki verwalten"),
+    ("can_view_analytics", "Statistiken und Auswertungen sehen"),
+)
 
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
@@ -254,6 +266,9 @@ def load_config() -> dict:
     cfg.setdefault("team_role_ids", [])
     cfg.setdefault("weekly_goal_hours", 3.0)
     cfg.setdefault("permissions", {})
+    # Dashboard-only Rollen werden intern gespeichert und ändern keine Discord-Rollen.
+    cfg.setdefault("dashboard_roles", {})
+    cfg.setdefault("dashboard_user_roles", {})
     return cfg
 
 
@@ -390,6 +405,18 @@ def compute_perms(guild, user_id, config):
         for k in PERM_KEYS:
             if rp.get(k):
                 perms[k] = True
+
+    # Interne Dashboard-Rollen werden pro Nutzer-ID vergeben. Sie sind unabhängig von
+    # Discord-Rollen und dürfen niemals is_admin oder Discord-Serverrechte verleihen.
+    dashboard_roles = config.get("dashboard_roles", {})
+    assigned_dashboard_roles = config.get("dashboard_user_roles", {}).get(str(member.id), [])
+    for dashboard_role_id in assigned_dashboard_roles:
+        profile = dashboard_roles.get(str(dashboard_role_id), {})
+        role_permissions = profile.get("permissions", {}) if isinstance(profile, dict) else {}
+        for k in PERM_KEYS:
+            if role_permissions.get(k):
+                perms[k] = True
+
     # Bestehende Manager-Konfigurationen bleiben kompatibel mit den neuen Modulen.
     if perms.get("can_promote"):
         perms["can_manage_applications"] = True
@@ -5363,6 +5390,108 @@ async def settings_page(request: Request, user_session: str = Cookie(None)):
             </form>
         </div>"""
 
+    # Wiederverwendbare interne Berechtigungsprofile, vollständig getrennt von Discord-Rollen.
+    dashboard_role_cfg = config.get("dashboard_roles", {})
+    dashboard_assignments = config.get("dashboard_user_roles", {})
+
+    def dashboard_permission_boxes(profile_permissions, default_dashboard=False):
+        return "".join(
+            f'<label class="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-300">'
+            f'<input type="checkbox" name="{key}" {"checked" if (profile_permissions.get(key) or (default_dashboard and key == "can_view_dashboard")) else ""} class="rounded mt-0.5">'
+            f'<span>{esc(label)}</span></label>'
+            for key, label in DASHBOARD_PERMISSION_LABELS
+        )
+
+    dashboard_role_cards = ""
+    for dashboard_role_key, profile in sorted(dashboard_role_cfg.items(), key=lambda item: str(item[1].get("name", item[0])).casefold()):
+        if not isinstance(profile, dict):
+            continue
+        profile_permissions = profile.get("permissions", {})
+        dashboard_role_name = str(profile.get("name") or dashboard_role_key)
+        dashboard_role_cards += f"""
+        <div class="{CARD} p-5 space-y-4">
+            <form action="/action" method="post" class="space-y-3">
+                <input type="hidden" name="action" value="save_dashboard_role">
+                <input type="hidden" name="dashboard_role_id" value="{esc(dashboard_role_key)}">
+                <label class="block text-xs font-semibold">Name der Dashboard-Rolle
+                    <input required maxlength="40" name="dashboard_role_name" value="{esc(dashboard_role_name)}" class="{INPUT} w-full mt-1">
+                </label>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">{dashboard_permission_boxes(profile_permissions)}</div>
+                <button class="{BTN} w-full py-2.5">Profil speichern</button>
+            </form>
+            <form action="/action" method="post" onsubmit="return confirm('Dashboard-Rolle und alle ihre Zuweisungen wirklich löschen?')">
+                <input type="hidden" name="action" value="delete_dashboard_role">
+                <input type="hidden" name="dashboard_role_id" value="{esc(dashboard_role_key)}">
+                <button class="w-full rounded-xl border border-rose-300 dark:border-rose-900 text-rose-600 dark:text-rose-400 px-3 py-2 text-xs font-semibold">Dashboard-Rolle löschen</button>
+            </form>
+        </div>"""
+
+    dashboard_new_role_form = f"""
+    <div class="{CARD} p-5 space-y-4">
+        <h3 class="font-bold text-sm">➕ Neues Dashboard-Profil anlegen</h3>
+        <form action="/action" method="post" class="space-y-3">
+            <input type="hidden" name="action" value="save_dashboard_role">
+            <label class="block text-xs font-semibold">Profilname
+                <input required maxlength="40" name="dashboard_role_name" placeholder="z. B. Support, Personalverwaltung, Leitung" class="{INPUT} w-full mt-1">
+            </label>
+            <p class="text-[11px] text-slate-500">Das Profil wird einmal erstellt und kann anschließend beliebig vielen Teamlern zugewiesen werden.</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">{dashboard_permission_boxes({}, default_dashboard=True)}</div>
+            <button class="{BTN} w-full py-2.5">Profil erstellen</button>
+        </form>
+    </div>"""
+
+    dashboard_role_options = "".join(
+        f'<option value="{esc(key)}">{esc(str(profile.get("name") or key))}</option>'
+        for key, profile in sorted(dashboard_role_cfg.items(), key=lambda item: str(item[1].get("name", item[0])).casefold())
+        if isinstance(profile, dict)
+    )
+    if not dashboard_role_options:
+        dashboard_role_options = '<option value="">Bitte zuerst ein Dashboard-Profil erstellen</option>'
+
+    dashboard_assignment_rows = []
+    for assigned_user_id, assigned_role_keys in sorted(dashboard_assignments.items(), key=lambda item: str(item[0])):
+        for assigned_role_key in assigned_role_keys if isinstance(assigned_role_keys, list) else []:
+            assigned_profile = dashboard_role_cfg.get(str(assigned_role_key), {})
+            if not assigned_profile:
+                continue
+            member = guild.get_member(int(assigned_user_id)) if str(assigned_user_id).isdigit() else None
+            member_label = f"{member.display_name} (ID {assigned_user_id})" if member else f"Mitglied nicht im Cache (ID {assigned_user_id})"
+            assigned_role_name = assigned_profile.get("name") or assigned_role_key
+            dashboard_assignment_rows.append(f"""
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 py-3">
+                <div class="text-xs"><span class="font-semibold">{esc(member_label)}</span><span class="block text-slate-500 mt-1">Dashboard-Rolle: {esc(str(assigned_role_name))}</span></div>
+                <form action="/action" method="post">
+                    <input type="hidden" name="action" value="unassign_dashboard_role">
+                    <input type="hidden" name="target_user_id" value="{esc(str(assigned_user_id))}">
+                    <input type="hidden" name="dashboard_role_id" value="{esc(str(assigned_role_key))}">
+                    <button class="rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs">Zuweisung entfernen</button>
+                </form>
+            </div>""")
+
+    dashboard_role_section = f"""
+    <section class="{CARD} p-6 space-y-5">
+        <div>
+            <h2 class="text-lg font-bold text-slate-900 dark:text-white">🧩 Dashboard-only Rollen</h2>
+            <p class="text-xs text-slate-500 mt-1">Diese Rollen existieren nur in Pulse. Sie ändern keine Discord-Rollen, keine Serverrechte und keine Rollenhierarchie. Mehrere Profile pro Teamler werden kombiniert.</p>
+        </div>
+        {dashboard_new_role_form}
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">{dashboard_role_cards or "<p class='text-xs text-slate-400 italic'>Noch keine Dashboard-Profile angelegt.</p>"}</div>
+        <div class="border-t border-slate-200 dark:border-slate-800 pt-5 space-y-3">
+            <h3 class="font-bold text-sm">👤 Profil einem Teamler zuweisen</h3>
+            <form action="/action" method="post" class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                <input type="hidden" name="action" value="assign_dashboard_role">
+                <label class="block text-xs font-semibold">Discord-ID oder Discord-Name
+                    <input required name="target_user_id" placeholder="ID, @Name oder Anzeigename" class="{INPUT} w-full mt-1">
+                </label>
+                <label class="block text-xs font-semibold">Dashboard-Profil
+                    <select required name="dashboard_role_id" class="{INPUT} w-full mt-1">{dashboard_role_options}</select>
+                </label>
+                <button class="{BTN} px-4 py-3">Zuweisen</button>
+            </form>
+            <div class="max-h-96 overflow-y-auto">{''.join(dashboard_assignment_rows) or "<p class='text-xs text-slate-400 italic py-3'>Noch keine Dashboard-only Rollen zugewiesen.</p>"}</div>
+        </div>
+    </section>"""
+
     audit = load_json(AUDIT_FILE, [])
     audit_html = "".join(f"""
         <div class="audit-row bg-slate-50 dark:bg-[#0b0e14] border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1" data-search="{esc((str(e.get('actor')) + ' ' + str(e.get('action')) + ' ' + str(e.get('details'))).lower())}">
@@ -5402,6 +5531,7 @@ async def settings_page(request: Request, user_session: str = Cookie(None)):
             <p class="text-[11px] text-slate-500 mb-4">Admins/Server-Owner haben immer alle Rechte. Neue Team-Rollen dürfen standardmäßig nur das Dashboard sehen.</p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">{perm_cards or "<p class='text-xs text-slate-400 italic'>Keine Team-Rollen konfiguriert.</p>"}</div>
         </div>
+        {dashboard_role_section}
         <div class="{CARD} p-6 space-y-4">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <h2 class="text-lg font-bold text-slate-900 dark:text-white">📜 Panel-Audit-Log (letzte 100)</h2>
@@ -5424,6 +5554,8 @@ ACTION_PERMS = {
     "meeting_rsvp": "can_view_dashboard", "add_meeting_topic": "can_view_dashboard",
     "delete_meeting_topic": "can_view_dashboard", "set_meeting_info": "can_promote",
     "save_role_permissions": "admin", "set_weekly_goal": "admin", "save_team_roles": "admin",
+    "save_dashboard_role": "admin", "delete_dashboard_role": "admin",
+    "assign_dashboard_role": "admin", "unassign_dashboard_role": "admin",
 }
 
 
@@ -5518,6 +5650,8 @@ async def handle_action(
     announce: bool = Form(False),
     weekly_goal: float = Form(None),
     team_roles: List[int] = Form(default=[]),
+    dashboard_role_id: str = Form(None),
+    dashboard_role_name: str = Form(None),
     can_view_dashboard: bool = Form(False),
     can_warn: bool = Form(False),
     can_promote: bool = Form(False),
@@ -6404,6 +6538,144 @@ async def handle_action(
             await send_team_update_embed(guild, "🎙️ Teambesprechung angesetzt",
                 f"**{title}**\n📅 {when}\n{meetings['description']}\n\nZu-/Absagen im Dashboard unter *Teambesprechung*.", discord.Color.blurple())
         return back("/meetings", "Besprechung gespeichert.")
+
+    # ---------- Dashboard-only Rollenprofile (keine Discord-Rollenänderung) ----------
+    if action == "save_dashboard_role":
+        name = (dashboard_role_name or "").strip()[:40]
+        if not name:
+            return back("/settings", "Bitte gib einen Namen für das Dashboard-Profil an.", False)
+
+        profiles = config.setdefault("dashboard_roles", {})
+        profile_key = (dashboard_role_id or "").strip()
+        if profile_key and profile_key not in profiles:
+            return back("/settings", "Dieses Dashboard-Profil wurde nicht gefunden. Bitte lade die Einstellungen neu.", False)
+        if any(
+            str(existing_key) != profile_key and isinstance(existing, dict)
+            and str(existing.get("name", "")).casefold() == name.casefold()
+            for existing_key, existing in profiles.items()
+        ):
+            return back("/settings", "Es gibt bereits ein Dashboard-Profil mit diesem Namen.", False)
+        if not profile_key:
+            if len(profiles) >= 50:
+                return back("/settings", "Es können maximal 50 Dashboard-Profile angelegt werden.", False)
+            profile_key = f"dash_{uuid.uuid4().hex[:10]}"
+
+        profile_permissions = {
+            "can_view_dashboard": can_view_dashboard, "can_warn": can_warn,
+            "can_promote": can_promote, "can_add_notes": can_add_notes,
+            "can_manage_tickets": can_manage_tickets, "can_manage_applications": can_manage_applications,
+            "can_manage_tasks": can_manage_tasks, "can_manage_training": can_manage_training,
+            "can_manage_wiki": can_manage_wiki, "can_view_analytics": can_view_analytics,
+        }
+        profiles[profile_key] = {"name": name, "permissions": profile_permissions}
+        save_json(CONFIG_FILE, config)
+        enabled = ", ".join(label for key, label in DASHBOARD_PERMISSION_LABELS if profile_permissions.get(key)) or "keine Rechte"
+        log_audit(actor, actor_id, "Dashboard-Profil gespeichert", f"{name} ({profile_key}) · {enabled}")
+        return back("/settings", f"Dashboard-Profil „{name}“ gespeichert.")
+
+    if action == "delete_dashboard_role":
+        profile_key = (dashboard_role_id or "").strip()
+        profiles = config.setdefault("dashboard_roles", {})
+        if not profile_key or profile_key not in profiles:
+            return back("/settings", "Dieses Dashboard-Profil wurde nicht gefunden.", False)
+        profile_name = str(profiles[profile_key].get("name") or profile_key)
+        del profiles[profile_key]
+        assignments = config.setdefault("dashboard_user_roles", {})
+        for assigned_user_id, assigned_keys in list(assignments.items()):
+            if not isinstance(assigned_keys, list):
+                assignments.pop(assigned_user_id, None)
+                continue
+            assignments[assigned_user_id] = [str(key) for key in assigned_keys if str(key) != profile_key]
+            if not assignments[assigned_user_id]:
+                assignments.pop(assigned_user_id, None)
+        save_json(CONFIG_FILE, config)
+        log_audit(actor, actor_id, "Dashboard-Profil gelöscht", f"{profile_name} ({profile_key}); alle Zuweisungen entfernt")
+        return back("/settings", f"Dashboard-Profil „{profile_name}“ und seine Zuweisungen wurden gelöscht.")
+
+    if action == "assign_dashboard_role":
+        lookup = (target_user_id or "").strip()
+        profile_key = (dashboard_role_id or "").strip()
+        profiles = config.setdefault("dashboard_roles", {})
+        if not lookup:
+            return back("/settings", "Bitte gib eine Discord-ID oder einen Namen ein.", False)
+        profile = profiles.get(profile_key)
+        if not isinstance(profile, dict):
+            return back("/settings", "Bitte wähle ein gültiges Dashboard-Profil aus.", False)
+
+        lookup_id = lookup
+        if lookup_id.startswith("<@") and lookup_id.endswith(">"):
+            lookup_id = lookup_id[2:-1].lstrip("!").strip()
+        target = None
+        if lookup_id.isdigit():
+            target = guild.get_member(int(lookup_id))
+            if target is None:
+                try:
+                    target = await guild.fetch_member(int(lookup_id))
+                except discord.NotFound:
+                    return back("/settings", "Diese Discord-ID gehört zu keinem Mitglied dieses Servers.", False)
+                except discord.Forbidden:
+                    return back("/settings", "Discord verweigert den Zugriff auf dieses Mitglied.", False)
+                except discord.HTTPException:
+                    return back("/settings", "Das Mitglied konnte gerade nicht geladen werden. Bitte versuche es erneut.", False)
+        else:
+            name_query = lookup_id.lstrip("@").strip().casefold()
+            try:
+                if not getattr(guild, "chunked", True):
+                    await guild.chunk(cache=True)
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+            pool = [member for member in list(getattr(guild, "members", []) or []) if not member.bot]
+            fields = (
+                lambda member: str(getattr(member, "name", "") or "").casefold(),
+                lambda member: str(getattr(member, "global_name", "") or "").casefold(),
+                lambda member: str(getattr(member, "display_name", "") or "").casefold(),
+            )
+            exact = {member.id: member for member in pool if any(field(member) == name_query for field in fields)}
+            candidates = exact or {
+                member.id: member for member in pool
+                if any(name_query in field(member) for field in fields)
+            }
+            if len(candidates) == 1:
+                target = next(iter(candidates.values()))
+            elif len(candidates) > 1:
+                examples = ", ".join(f"{member.display_name} (ID {member.id})" for member in list(candidates.values())[:5])
+                return back("/settings", f"Mehrere Discord-Mitglieder passen. Bitte nutze die ID. Treffer: {examples}", False)
+
+        if target is None:
+            return back("/settings", "Kein passendes Discord-Mitglied gefunden. Bitte prüfe die ID oder den Namen.", False)
+        if target.bot or target.id == guild.owner_id:
+            return back("/settings", "Bots und der Serverinhaber benötigen keine Dashboard-Zuweisung.", False)
+        configured_team_roles = {int(value) for value in config.get("team_role_ids", []) if str(value).isdigit()}
+        if not any(role.id in configured_team_roles for role in target.roles):
+            return back("/settings", "Dashboard-Profile können nur Mitgliedern mit einer konfigurierten Teamrolle zugewiesen werden.", False)
+
+        assignments = config.setdefault("dashboard_user_roles", {})
+        assigned = [str(key) for key in assignments.get(str(target.id), []) if str(key) in profiles]
+        if profile_key in assigned:
+            return back("/settings", f"{target.display_name} hat dieses Dashboard-Profil bereits.", False)
+        assigned.append(profile_key)
+        assignments[str(target.id)] = assigned
+        save_json(CONFIG_FILE, config)
+        profile_name = str(profile.get("name") or profile_key)
+        log_audit(actor, actor_id, "Dashboard-Profil zugewiesen", f"{target.display_name} ({target.id}) ← {profile_name}")
+        return back("/settings", f"Dashboard-Profil „{profile_name}“ wurde {target.display_name} zugewiesen.")
+
+    if action == "unassign_dashboard_role":
+        assigned_user_id = (target_user_id or "").strip()
+        profile_key = (dashboard_role_id or "").strip()
+        if not assigned_user_id.isdigit():
+            return back("/settings", "Ungültige Discord-Nutzer-ID für die Zuweisung.", False)
+        assignments = config.setdefault("dashboard_user_roles", {})
+        assigned = assignments.get(assigned_user_id, [])
+        if not isinstance(assigned, list) or profile_key not in [str(key) for key in assigned]:
+            return back("/settings", "Diese Dashboard-Zuweisung existiert nicht mehr.", False)
+        assignments[assigned_user_id] = [str(key) for key in assigned if str(key) != profile_key]
+        if not assignments[assigned_user_id]:
+            assignments.pop(assigned_user_id, None)
+        save_json(CONFIG_FILE, config)
+        profile = config.get("dashboard_roles", {}).get(profile_key, {})
+        log_audit(actor, actor_id, "Dashboard-Profil entzogen", f"Nutzer {assigned_user_id} · {profile.get('name', profile_key)}")
+        return back("/settings", "Dashboard-Zuweisung wurde entfernt.")
 
     # ---------- Einstellungen (nur Admins) ----------
     if action == "save_role_permissions":
