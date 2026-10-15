@@ -5403,7 +5403,7 @@ async def settings_page(request: Request, user_session: str = Cookie(None)):
         )
 
     dashboard_role_cards = ""
-    for dashboard_role_key, profile in sorted(dashboard_role_cfg.items(), key=lambda item: str(item[1].get("name", item[0])).casefold()):
+    for dashboard_role_key, profile in sorted(dashboard_role_cfg.items(), key=lambda item: str(item[1].get("name", item[0]) if isinstance(item[1], dict) else item[0]).casefold()):
         if not isinstance(profile, dict):
             continue
         profile_permissions = profile.get("permissions", {})
@@ -5442,7 +5442,7 @@ async def settings_page(request: Request, user_session: str = Cookie(None)):
 
     dashboard_role_options = "".join(
         f'<option value="{esc(key)}">{esc(str(profile.get("name") or key))}</option>'
-        for key, profile in sorted(dashboard_role_cfg.items(), key=lambda item: str(item[1].get("name", item[0])).casefold())
+        for key, profile in sorted(dashboard_role_cfg.items(), key=lambda item: str(item[1].get("name", item[0]) if isinstance(item[1], dict) else item[0]).casefold())
         if isinstance(profile, dict)
     )
     if not dashboard_role_options:
@@ -6578,7 +6578,8 @@ async def handle_action(
         profiles = config.setdefault("dashboard_roles", {})
         if not profile_key or profile_key not in profiles:
             return back("/settings", "Dieses Dashboard-Profil wurde nicht gefunden.", False)
-        profile_name = str(profiles[profile_key].get("name") or profile_key)
+        profile_value = profiles[profile_key]
+        profile_name = str(profile_value.get("name") or profile_key) if isinstance(profile_value, dict) else profile_key
         del profiles[profile_key]
         assignments = config.setdefault("dashboard_user_roles", {})
         for assigned_user_id, assigned_keys in list(assignments.items()):
