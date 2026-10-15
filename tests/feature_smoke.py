@@ -57,6 +57,7 @@ def main() -> None:
     assert "Mitglied bleibt auf dem Discord-Server" not in web or "bleibt aber auf dem Discord-Server" in web
     ultimate = read("pulse_ultimate.py")
     assert "RAM_TREND_GROWTH_MB_PER_HOUR = 20.0" in ultimate
+    assert "Verbrauch wieder im Normalbereich" in ultimate
     assert "current_level=previous" in ultimate
     assert "_RAM_SAMPLES: deque[tuple[float, float]] = deque(maxlen=180)" in ultimate
     assert "def memory_guard_level(" in ultimate
@@ -102,6 +103,7 @@ def main() -> None:
     assert "office_system.get_config(\"warteraum_channel_id\")" in pulse_pro_cog
     assert 'name="RAM-Langzeittrend"' in pulse_pro_cog
     assert 'name="Bot-Berechtigungen"' in pulse_pro_cog
+    assert "or not bot_permissions_ready" in pulse_pro_cog
 
     # Pulse Next uses synchronous SQLite helpers during periodic score updates.
     # Keep workflow/profile/score maintenance off the Discord event loop.
