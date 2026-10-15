@@ -60,6 +60,20 @@ Administratoren können in Discord `/pulse-diagnose` verwenden, um RAM, Datenban
 
 Der Webserver wird vom Bot-Prozess gestartet. Für Hosting hinter einem Reverse Proxy sollte `PUBLIC_BASE_URL` auf die öffentliche HTTPS-Adresse zeigen.
 
+## GalaxyBot-Ticketprotokoll
+
+Pulse kann GalaxyBot-Plus-Ticketereignisse per signiertem Webhook entgegennehmen:
+
+- `ticket.created` wird im Kanal `1543914075308818503` protokolliert.
+- `ticket.claimed` wird im Kanal `1535025111722098778` protokolliert.
+- Die sechs vorgegebenen Ticket-/Panelkanäle werden als mögliche Ursprünge erkannt, wenn GalaxyBot entsprechende Kanalmetadaten mitsendet.
+- Webhook-Signaturen werden mit HMAC-SHA256 und einem Zeitfenster von fünf Minuten geprüft; wiederholte Zustellungen werden im laufenden Prozess dedupliziert.
+- Der öffentliche Webhook-Endpunkt lautet `/api/galaxybot/webhook`.
+
+Zum Aktivieren muss der Webhook im GalaxyBot-Plus-Dashboard auf die öffentliche HTTPS-Adresse `https://<deine-pulse-domain>/api/galaxybot/webhook` zeigen. Aktiviere dort die Ereignisse **Ticket erstellt** (`ticket.created`) und **Ticket übernommen** (`ticket.claimed`). Trage den zugehörigen Webhook-Schlüssel unter `GALAXYBOT_WEBHOOK_SECRET` in den Hosting-Umgebungsvariablen ein und starte Pulse neu. Einen echten Schlüssel niemals in GitHub committen oder in einen Chat posten.
+
+GalaxyBot entscheidet serverseitig, welche Ereignisse es zustellt. Wenn eine GalaxyBot-Payload keine Herkunftsinformation enthält, protokolliert Pulse das Ticket-Ereignis trotzdem, statt es still zu verwerfen.
+
 ## Discord-Voraussetzungen
 
 Der Bot benötigt je nach aktivierten Modulen unter anderem die Intent-Berechtigungen für Members, Presences und Message Content. Für automatische Rollenänderungen muss die Bot-Rolle über den Team- und Warnrollen stehen und über „Rollen verwalten“ verfügen.
