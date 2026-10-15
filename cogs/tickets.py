@@ -36,8 +36,33 @@ TICKET_PANEL_CHANNEL_IDS = (
     1559242374658662602,
     1488699195157254436,
 )
-TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503
-TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778
+DEFAULT_TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503
+DEFAULT_TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778
+
+
+def configured_panel_channel_ids() -> tuple[int, ...]:
+    raw = ticket_config().get("panel_channel_ids", list(TICKET_PANEL_CHANNEL_IDS))
+    if not isinstance(raw, list):
+        raw = list(TICKET_PANEL_CHANNEL_IDS)
+    values = []
+    for item in raw[:25]:
+        try:
+            channel_id = int(item)
+        except (TypeError, ValueError):
+            continue
+        if channel_id > 0 and channel_id not in values:
+            values.append(channel_id)
+    return tuple(values) or TICKET_PANEL_CHANNEL_IDS
+
+
+def configured_ticket_log_channel_id(kind: str) -> int:
+    settings = ticket_config()
+    key = "ticket_open_log_channel_id" if kind == "opened" else "ticket_claim_log_channel_id"
+    fallback = DEFAULT_TICKET_OPEN_LOG_CHANNEL_ID if kind == "opened" else DEFAULT_TICKET_CLAIM_LOG_CHANNEL_ID
+    try:
+        return int(settings.get(key) or fallback)
+    except (TypeError, ValueError):
+        return fallback
 
 CATEGORY_META = {
     "support": ("Allgemeiner Support", "Fragen, Hilfe und allgemeine Anliegen", "🎫", 10, "team"),
@@ -460,7 +485,7 @@ class TicketSelect(Select):
             await send_ticket_log(
                 interaction.client,
                 guild,
-                TICKET_OPEN_LOG_CHANNEL_ID,
+                configured_ticket_log_channel_id("opened"),
                 title="🎫 Neues Ticket geöffnet",
                 description="Ein neues Ticket wurde über das Pulse-Ticketpanel erstellt.",
                 ticket=created_ticket,
@@ -509,7 +534,7 @@ class TicketControlView(View):
             await send_ticket_log(
                 interaction.client,
                 interaction.guild,
-                TICKET_CLAIM_LOG_CHANNEL_ID,
+                configured_ticket_log_channel_id("claimed"),
                 title="📥 Ticket übernommen",
                 description="Ein Teammitglied hat ein Pulse-Ticket beansprucht.",
                 ticket=latest,
@@ -634,7 +659,8 @@ class Tickets(commands.Cog):
             panels = {}
         successes = []
         failures = []
-        for channel_id in TICKET_PANEL_CHANNEL_IDS:
+        panel_channel_ids = configured_panel_channel_ids()
+        for channel_id in panel_channel_ids:
             channel = await _resolve_text_channel(self.bot, guild, channel_id)
             if channel is None:
                 failures.append(f"{channel_id}: Kanal fehlt oder ist kein Textkanal")
@@ -657,7 +683,7 @@ class Tickets(commands.Cog):
                 failures.append(f"{channel_id}: Discord-Fehler ({type(exc).__name__})")
         settings["panel_messages"] = panels
         save_ticket_config(settings)
-        return {"successes": successes, "failures": failures, "expected": len(TICKET_PANEL_CHANNEL_IDS)}
+        return {"successes": successes, "failures": failures, "expected": len(panel_channel_ids)}
 
     @app_commands.command(
         name="ticketpanels_setup",
