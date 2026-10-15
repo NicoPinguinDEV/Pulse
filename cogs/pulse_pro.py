@@ -411,10 +411,25 @@ class PulsePro(commands.Cog):
         except Exception:
             ultimate_db_ok = False
 
+        # Diagnose the persisted Büro setting rather than assuming the default ID.
+        try:
+            import cogs.buero_system as office_system
+            office_ping_id = int(
+                office_system.get_config("ping_channel_id")
+                or office_system.DEFAULT_PING_CHANNEL_ID
+            )
+            office_waiting_id = int(
+                office_system.get_config("warteraum_channel_id")
+                or office_system.DEFAULT_WAITING_ROOM_ID
+            )
+        except Exception:
+            office_ping_id = 1560211874602160218
+            office_waiting_id = 1528821871057965067
+
         channel_checks = []
         for label, channel_id in (
-            ("Büro-Pings", 1560211874602160218),
-            ("Team-Updates", 1531132354272170115),
+            ("Büro-Pings", office_ping_id),
+            ("Team-Updates", webserver.TEAM_UPDATE_CHANNEL_ID),
             ("Social-Promo", 1530972281893949521),
         ):
             channel = self.bot.get_channel(channel_id)
@@ -435,6 +450,17 @@ class PulsePro(commands.Cog):
             elif not can_embed:
                 status = "🟡 Nachrichten möglich, Embeds nicht erlaubt"
             channel_checks.append(f"{status} · {label} · {channel.mention}")
+
+        waiting_channel = interaction.guild.get_channel(office_waiting_id)
+        if waiting_channel is None:
+            try:
+                waiting_channel = await interaction.guild.fetch_channel(office_waiting_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                waiting_channel = None
+        if isinstance(waiting_channel, discord.VoiceChannel):
+            channel_checks.append(f"🟢 erreichbar · Büro-Warteraum · {waiting_channel.mention}")
+        else:
+            channel_checks.append("🔴 Büro-Warteraum: Sprachkanal fehlt / nicht erreichbar")
 
         try:
             role_rows = webserver.warning_role_health(interaction.guild, cfg)
