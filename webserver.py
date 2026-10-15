@@ -2225,13 +2225,15 @@ async def edit_log(
     roblox_id: str = Form("N/A"),
     log_type: str = Form(...),
     reason: str = Form(...),
+    return_to: str = Form("/dashboard"),
     user_session: str = Cookie(None),
 ):
+    return_to = "/melonly" if return_to == "/melonly" else "/dashboard"
     ctx = auth(request, user_session)
     logs_db = load_json(LOGS_FILE, [])
     entry = next((l for l in logs_db if l.get("id") == log_id), None)
     if not entry:
-        return back("/dashboard", "Log nicht gefunden.", False)
+        return back(return_to, "Log nicht gefunden.", False)
 
     if not can_manage_melonly_entry(ctx, entry, target_type=log_type):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung, diesen Melonly-Eintrag zu bearbeiten.")
@@ -2240,7 +2242,7 @@ async def edit_log(
     reason = reason.strip()[:1000]
     roblox_id = roblox_id.strip()
     if log_type not in VALID_LOG_TYPES or not target_user or not reason:
-        return back("/dashboard", "Ungültige Eingabe.", False)
+        return back(return_to, "Ungültige Eingabe.", False)
     if not re.fullmatch(r"\d{1,15}", roblox_id):
         roblox_id = "N/A"
 
@@ -2261,22 +2263,28 @@ async def edit_log(
         "Melonly-Eintrag bearbeitet",
         f"{log_id}: {old_target} ({old_type}) -> {target_user} ({log_type})",
     )
-    return back("/dashboard", "Melonly-Eintrag wurde bearbeitet.")
+    return back(return_to, "Melonly-Eintrag wurde bearbeitet.")
 
 
 @app.post("/log/delete")
-async def delete_log(request: Request, log_id: str = Form(...), user_session: str = Cookie(None)):
+async def delete_log(
+    request: Request,
+    log_id: str = Form(...),
+    return_to: str = Form("/dashboard"),
+    user_session: str = Cookie(None),
+):
+    return_to = "/melonly" if return_to == "/melonly" else "/dashboard"
     ctx = auth(request, user_session)
     logs_db = load_json(LOGS_FILE, [])
     entry = next((l for l in logs_db if l.get("id") == log_id), None)
     if not entry:
-        return back("/dashboard", "Log nicht gefunden.", False)
+        return back(return_to, "Log nicht gefunden.", False)
     if not can_manage_melonly_entry(ctx, entry):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung, diesen Melonly-Eintrag zu löschen.")
     save_json(LOGS_FILE, [l for l in logs_db if l.get("id") != log_id])
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Log Gelöscht",
               f"{entry.get('target_user')} ({entry.get('type')}) – ID {log_id}")
-    return back("/dashboard", "Log gelöscht.")
+    return back(return_to, "Melonly-Eintrag gelöscht.")
 
 
 def can_manage_melonly_entry(ctx, entry: dict, target_type: str | None = None) -> bool:

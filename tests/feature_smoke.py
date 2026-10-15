@@ -178,6 +178,18 @@ def main() -> None:
     assert "warning_5" in web
     assert "/3 Warnungen" not in web
 
+    # The visible /melonly page is Pulse Pro's route, not just the legacy dashboard.
+    pro_melonly = read("pulse_pro.py")
+    parse("pulse_pro.py")
+    assert "ws.can_manage_melonly_entry(c,x)" in pro_melonly
+    assert 'action="/log/edit"' in pro_melonly
+    assert 'action="/log/delete"' in pro_melonly
+    assert 'name="return_to" value="/melonly"' in pro_melonly
+    assert 'request.query_params.get("edit_log")' in pro_melonly
+    assert "Bester Treffer" in pro_melonly
+    assert "requestId!==latestSearchRequest" in pro_melonly
+    assert 'return_to: str = Form("/dashboard")' in web
+
     # Melonly uses role-aware management and similarity-ranked Roblox suggestions.
     melonly_helpers = read("pulse_melonly.py")
     parse("pulse_melonly.py")

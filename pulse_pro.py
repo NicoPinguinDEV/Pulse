@@ -323,12 +323,33 @@ def register(app):
 
         logs=ws.load_json(ws.LOGS_FILE,[])
         relevant=[x for x in reversed(logs) if x.get("type") in ("Ban","Kick","Notiz","Ban BOLO")][:120]
+        edit_log_id=str(request.query_params.get("edit_log") or "")
+        melonly_types=(("Ban","🚫 Ban"),("Kick","🚪 Kick"),("Notiz","📝 Notiz"),("Ban BOLO","🚨 Ban BOLO"))
         items=[]
         for x in relevant:
             lt=x.get("type","Log")
+            log_id=str(x.get("id") or "")
             kind={"Ban":"bad","Kick":"warn","Notiz":"","Ban BOLO":"bad"}.get(lt,"")
+            can_edit=bool(log_id and ws.can_manage_melonly_entry(c,x))
+            actions=""
+            if can_edit:
+                edit_url="/melonly?edit_log="+quote(log_id,safe="")+"#melonly-entry-"+quote(log_id,safe="")
+                actions=f'<div class="flex flex-wrap items-center gap-2 mt-2"><a href="{e(edit_url)}" class="pulse-btn ghost">✏️ Bearbeiten</a><form action="/log/delete" method="post" data-confirm="Diesen Melonly-Eintrag wirklich dauerhaft löschen?"><input type="hidden" name="log_id" value="{e(log_id)}"><input type="hidden" name="return_to" value="/melonly"><button type="submit" class="pulse-btn bad">🗑️ Löschen</button></form></div>'
+            edit_form=""
+            if can_edit and edit_log_id==log_id:
+                edit_options="".join(f'<option value="{e(key)}" {"selected" if lt==key else ""}>{e(label)}</option>' for key,label in melonly_types)
+                edit_form=f"""
+                  <form action="/log/edit" method="post" class="mt-3 pt-3 border-t space-y-3" id="edit-melonly-{e(log_id)}">
+                    <input type="hidden" name="log_id" value="{e(log_id)}">
+                    <input type="hidden" name="return_to" value="/melonly">
+                    <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Roblox Username</label><input class="pulse-input mt-1" name="target_user" maxlength="50" value="{e(x.get('target_user',''))}" required></div>
+                    <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Roblox Player ID</label><input class="pulse-input mt-1" name="roblox_id" maxlength="15" value="{e(x.get('roblox_id','N/A'))}" inputmode="numeric" pattern="[0-9]+" required></div>
+                    <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Aktion</label><select class="pulse-input mt-1" name="log_type" required>{edit_options}</select></div>
+                    <div><label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Grund</label><textarea class="pulse-input pulse-textarea mt-1" name="reason" maxlength="1000" required>{e(x.get('reason',''))}</textarea></div>
+                    <div class="flex flex-wrap gap-2"><button class="pulse-btn primary" type="submit">💾 Änderungen speichern</button><a class="pulse-btn ghost" href="/melonly#melonly-entry-{quote(log_id,safe='')}">Abbrechen</a></div>
+                  </form>"""
             items.append(
-                f'<article class="pulse-row"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(x.get("target_user") or "?"))}</div><div class="pulse-row-main"><div class="pulse-row-title"><span class="pulse-pill {kind}">{e(lt)}</span> {e(x.get("target_user"))}</div><div class="pulse-row-meta">Roblox ID: {e(x.get("roblox_id","N/A"))} · {e(x.get("created_at"))}</div><div class="pulse-row-meta">{e(x.get("reason"))}</div></div></div><div class="text-[10px] text-slate-400">von {e(x.get("moderator"))}</div></article>'
+                f'<article id="melonly-entry-{e(log_id)}" class="pulse-row items-start"><div class="flex items-start gap-3 min-w-0 flex-1"><div class="pulse-avatar">{e(initials(x.get("target_user") or "?"))}</div><div class="pulse-row-main min-w-0"><div class="pulse-row-title"><span class="pulse-pill {kind}">{e(lt)}</span> {e(x.get("target_user"))}</div><div class="pulse-row-meta">Roblox ID: {e(x.get("roblox_id","N/A"))} · {e(x.get("created_at"))}</div><div class="pulse-row-meta break-words">{e(x.get("reason"))}</div><div class="pulse-row-meta">von {e(x.get("moderator"))}</div>{actions}{edit_form}</div></div></article>'
             )
         history="".join(items) or '<div class="pulse-empty">Noch keine Spieler-Vorgänge eingetragen.</div>'
 
