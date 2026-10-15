@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-import uuid
 
 import discord
 from discord import app_commands
@@ -485,7 +484,7 @@ class TicketSelect(Select):
             close_ticket(existing["id"], "Verwaistes Ticket automatisch archiviert.", "", interaction.user.id, interaction.user.display_name)
 
         roles = category_roles(guild, key)
-        if key in ("highteam", "leadership") and not ticket_config().get(f"{group}_role_ids"):
+        if key in ("highteam", "leadership") and not (ticket_config().get(f"{group}_role_ids") or category_definition.get("role_ids")):
             await interaction.response.send_message(
                 f"⚠️ **{label}** ist noch nicht vollständig eingerichtet. Eine zuständige Rolle muss zuerst durch einen Administrator konfiguriert werden.",
                 ephemeral=True,
