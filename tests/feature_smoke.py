@@ -185,7 +185,7 @@ def main() -> None:
     assert "def roblox_similarity_score(" in melonly_helpers
     assert "def can_manage_melonly_type(" in melonly_helpers
     assert "robloxSuggestionPanel" in web
-    assert "⭐ Bester Treffer" in web
+    assert "Bester Treffer" in web
     assert "best_match" in web
     assert "can_manage_melonly_entry(ctx, log)" in web
     assert "can_manage_melonly_entry(ctx, entry, target_type=log_type)" in web
