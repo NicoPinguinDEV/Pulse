@@ -580,6 +580,17 @@ def main() -> None:
     assert 'target_voice_id=0' in buero
     assert "Die DM-Auswahl bleibt zusätzlich bestehen" in buero
 
+    # GalaxyBot Plus ticket events enter Pulse via a signed webhook.
+    galaxybot = read("pulse_galaxybot.py")
+    parse("pulse_galaxybot.py")
+    assert 'GALAXYBOT_WEBHOOK_PATH = "/api/galaxybot/webhook"' in galaxybot
+    assert "TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503" in galaxybot
+    assert "TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778" in galaxybot
+    assert "verify_webhook_signature" in web
+    assert "@app.post(GALAXYBOT_WEBHOOK_PATH)" in web
+    assert 'os.getenv("GALAXYBOT_WEBHOOK_SECRET", "")' in web
+    assert "ticket.created" in galaxybot and "ticket.claimed" in galaxybot
+
     # Social video announcements: configurable sources, deduplication and fixed target.
     social = read("cogs/social_promo.py")
     parse("cogs/social_promo.py")
