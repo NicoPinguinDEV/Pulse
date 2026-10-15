@@ -65,7 +65,8 @@ Der Webserver wird vom Bot-Prozess gestartet. Für Hosting hinter einem Reverse 
 - Die externe Bewerbungsseite ist unter `/apply` erreichbar. Bewerber müssen sich per Discord verifizieren und die konfigurierte Serverrolle besitzen.
 - Der Zugang wird bei Formularaufruf und erneut beim Absenden serverseitig geprüft.
 - Neue Bewerbungen erscheinen unter `/applications` und lösen eine Benachrichtigung im konfigurierten Recruiting-Kanal mit gezieltem Rollen-Ping aus.
-- OAuth-Callback und öffentliche Basis-URL müssen in den Discord-Entwicklereinstellungen bzw. Hosting-Variablen passend zur tatsächlich genutzten Domain eingerichtet sein.
+- `DISCORD_REDIRECT_URI` muss exakt einer im Discord Developer Portal unter **OAuth2 → Redirects** gespeicherten Adresse entsprechen (typischer Callback-Pfad: `/callback`). Der Bewerbungslogin verwendet diese vorhandene Adresse ebenfalls, statt standardmäßig eine neue `/apply/callback`-Adresse vorauszusetzen.
+- `PUBLIC_BASE_URL` sollte die öffentlich erreichbare kanonische HTTPS-Adresse ohne Pfad sein. `DISCORD_APPLICATION_REDIRECT_URI` ist nur ein Fallback, wenn `DISCORD_REDIRECT_URI` leer ist; nach einer Domain- oder HTTPS-Änderung müssen Hosting-Variable und registrierte Discord-Redirect-URI übereinstimmen.
 
 ## Pulse-eigenes Ticketsystem
 
