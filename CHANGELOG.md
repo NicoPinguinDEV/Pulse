@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.7.8 – Automatische Einstellungsrolle
+- Bei einer angenommenen Bewerbung vergibt Pulse zusätzlich die feste Discord-Rolle `1496070682126188604` zur gewählten Team-Einstiegsrolle.
+- Die automatische Rolle wird vorab auf Existenz, Verwaltbarkeit und Bot-Rollenhierarchie geprüft. Fehlt sie oder kann der Bot sie nicht vergeben, wird die Einstellung mit einer klaren Fehlermeldung nicht stillschweigend als erfolgreich markiert.
+- Die zusätzliche Rolle bleibt beim Austausch bisheriger Team-Einstiegsrollen erhalten und wird in Bewerbungsakte, Team-Update, DM und Audit-Protokoll aufgeführt.
+- Regressionstests sichern die automatische Rollenvergabe ab.
+
 ## Version 7.7.7 – Anspruchsvolle Eignungstests
 - Low Team: 12 schwierige Fragen, Bestehensgrenze 75 %.
 - High Team: 22 schwierige Fragen, Bestehensgrenze 82 %.
