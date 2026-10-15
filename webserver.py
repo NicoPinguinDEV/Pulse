@@ -124,7 +124,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.4.5"
+PULSE_VERSION = "7.5.0"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -2824,7 +2824,7 @@ async def pulse_tickets_dashboard(request: Request, user_session: str = Cookie(N
     urgent_count = sum(1 for item in items if item.get("status") != "closed" and item.get("priority") == "urgent")
     rated_count = sum(1 for item in items if item.get("rating"))
 
-    filter_name = request.query_params.get("status", "open")
+    filter_name = request.query_params.get("status", "all")
     if filter_name not in {"open", "claimed", "closed", "all", "rated"}:
         filter_name = "open"
     query = str(request.query_params.get("q", "")).strip()[:100].casefold()
