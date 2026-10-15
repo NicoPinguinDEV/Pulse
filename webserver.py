@@ -2390,10 +2390,16 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
     roblox_id = roblox_id.strip()
     if log_type not in VALID_LOG_TYPES or not target_user or not reason:
         return back("/dashboard", "Ungültige Eingabe.", False)
-    if log_type in ("Warn", "Kick", "Ban", "Ban BOLO") and not (ctx.perms.get("can_warn") or ctx.perms.get("is_admin")):
-        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Strafmaßnahmen.")
-    if log_type == "Notiz" and not (ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
-        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Notizen.")
+    if not can_manage_melonly_type(
+        log_type,
+        can_warn=bool(ctx.perms.get("can_warn")),
+        can_add_notes=bool(ctx.perms.get("can_add_notes")),
+        can_moderate_kicks=bool(ctx.perms.get("can_moderate_kicks")),
+        can_moderate_bans=bool(ctx.perms.get("can_moderate_bans")),
+        can_moderate_bolo=bool(ctx.perms.get("can_moderate_bolo")),
+        manager=bool(ctx.perms.get("can_promote") or ctx.perms.get("is_admin")),
+    ):
+        raise HTTPException(status_code=403, detail="Für diesen Melonly-Aktionstyp fehlt dir die gesonderte Berechtigung.")
     if not re.fullmatch(r"\d{1,15}", roblox_id):
         roblox_id = "N/A"
 
@@ -2490,15 +2496,21 @@ async def delete_log(
 
 
 def can_manage_melonly_entry(ctx, entry: dict, target_type: str | None = None) -> bool:
-    """Enforce Melonly role permissions consistently in UI and POST endpoints."""
+    """Enforce per-action Melonly permissions in UI and every write endpoint."""
     perms = ctx.perms
     manager = bool(perms.get("can_promote") or perms.get("is_admin"))
-    can_warn = bool(perms.get("can_warn"))
-    can_add_notes = bool(perms.get("can_add_notes"))
+    options = {
+        "can_warn": bool(perms.get("can_warn")),
+        "can_add_notes": bool(perms.get("can_add_notes")),
+        "can_moderate_kicks": bool(perms.get("can_moderate_kicks")),
+        "can_moderate_bans": bool(perms.get("can_moderate_bans")),
+        "can_moderate_bolo": bool(perms.get("can_moderate_bolo")),
+        "manager": manager,
+    }
     existing_type = str(entry.get("type") or "Log")
-    if not can_manage_melonly_type(existing_type, can_warn=can_warn, can_add_notes=can_add_notes, manager=manager):
+    if not can_manage_melonly_type(existing_type, **options):
         return False
-    if target_type is not None and not can_manage_melonly_type(target_type, can_warn=can_warn, can_add_notes=can_add_notes, manager=manager):
+    if target_type is not None and not can_manage_melonly_type(target_type, **options):
         return False
     return True
 
@@ -2511,7 +2523,7 @@ def csv_safe(value) -> str:
 
 @app.get("/export/logs")
 async def export_logs(request: Request, user_session: str = Cookie(None)):
-    auth(request, user_session)
+    auth(request, user_session, perm="can_view_analytics")
     output = io.StringIO()
     output.write("\ufeff")  # BOM: Excel zeigt Umlaute korrekt an
     writer = csv.writer(output, delimiter=';')
