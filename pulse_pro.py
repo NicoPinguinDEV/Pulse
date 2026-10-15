@@ -523,6 +523,46 @@ def register(app):
 
         return render_pro_page(ws,"Melonly",c,"melonly",body,head)
 
+    async def admin_end_shift(
+        request: Request,
+        target_user_id: int = Form(...),
+        reason: str = Form("Manuell durch Führungskraft beendet"),
+        user_session: str = Cookie(None),
+    ):
+        c=cctx(request,user_session)
+        if not (c.perms.get("can_promote") or c.perms.get("is_admin")):
+            raise HTTPException(403,"Nur die Führungsebene darf fremde Schichten beenden.")
+        target=c.guild.get_member(int(target_user_id))
+        if not target or target.bot:
+            return ws.back("/team-status","Teammitglied wurde nicht gefunden.",False)
+        shifts_db=ws.load_shifts()
+        active=shifts_db.setdefault("active_shifts",{})
+        shift=active.get(str(target.id))
+        if not shift:
+            return ws.back("/team-status",f"{target.display_name} hat keine laufende Schicht.",False)
+        now=ws.now_de()
+        duration=ws.shift_elapsed(shift)
+        reason=(reason or "Manuell durch Führungskraft beendet").strip()[:300]
+        shifts_db.setdefault("history",[]).append({
+            "mod_id":str(target.id),
+            "date":shift.get("date"),
+            "started_at_iso":shift.get("started_at_iso"),
+            "ended_at_iso":now.isoformat(timespec="seconds"),
+            "duration_seconds":duration,
+            "admin_closed":True,
+            "closed_by_id":str(c.user["id"]),
+            "closed_by_name":c.user.get("global_name") or c.user.get("username") or "Führungskraft",
+            "close_reason":reason,
+        })
+        del active[str(target.id)]
+        ws.save_json(ws.SHIFTS_FILE,shifts_db)
+        actor=c.user.get("global_name") or c.user.get("username") or str(c.user["id"])
+        ws.log_audit(actor,str(c.user["id"]),"Fremde Schicht beendet",
+                     f"{target.display_name} ({target.id}) · {ws.fmt_duration(duration)} · Grund: {reason}")
+        await ws.send_dm_notification(target,
+            f"⏹ Deine Schicht wurde von {actor} beendet.\n**Dauer:** {ws.fmt_duration(duration)}\n**Grund:** {reason}")
+        return ws.back("/team-status",f"Schicht von {target.display_name} wurde beendet ({ws.fmt_duration(duration)}).")
+
     # ---------------- Dashboard ----------------
     async def dashboard_v5(request: Request, user_session: str = Cookie(None)):
         c=cctx(request,user_session); s=work_stats(c); goal=float(c.config.get("weekly_goal_hours",3.0)); pct=min(100,round(s["weekly"]/(goal*3600)*100)) if goal else 100
@@ -642,7 +682,11 @@ def register(app):
         )
         return render_pro_page(ws,"Activity Check",c,"activity-check",body)
     async def team_status_page(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session,perm="can_view_team_status")
+        c=cctx(request,user_session)
+        can_view = bool(c.perms.get("can_view_team_status") or c.perms.get("can_promote") or c.perms.get("is_admin"))
+        if not can_view:
+            raise HTTPException(403,"Dafür fehlt dir die Berechtigung für den Teamstatus.")
+        can_manage_shifts = bool(c.perms.get("can_promote") or c.perms.get("is_admin"))
         ids=c.config.get("team_role_ids",[])
         members=team(c.guild,ids)
         shifts=ws.load_shifts().get("active_shifts",{})
@@ -668,7 +712,13 @@ def register(app):
             sh=shifts.get(str(m.id))
             act_html=f" · {e(act)}" if act else ""
             duty=pill("Pause","warn") if sh and sh.get("status")=="break" else (pill("Im Dienst","good") if sh else pill("Keine Schicht"))
-            rows.append(f'<div class="pulse-row" data-discord-user="{m.id}"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(m.display_name))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(m.display_name)}</div><div class="pulse-row-meta">{e(member_role(m,ids))} · <span data-status-label="{m.id}">{e(lab)}</span>{act_html}</div></div></div><div class="text-right"><div data-status-pill="{m.id}">{pill(ico+" "+lab,kind)}</div><div class="mt-1">{duty}</div></div></div>')
+            shift_meta=""
+            shift_stop=""
+            if sh:
+                shift_meta=f'<div class="pulse-row-meta">Schichtdauer: {e(ws.fmt_duration(ws.shift_elapsed(sh)))}</div>'
+                if can_manage_shifts and m.id != int(c.user["id"]):
+                    shift_stop=f'<form action="/shift/admin-end" method="post" class="mt-2" data-confirm="Schicht von {e(m.display_name)} wirklich beenden?"><input type="hidden" name="target_user_id" value="{m.id}"><input type="hidden" name="reason" value="Manuell durch Führungskraft beendet"><button type="submit" class="pulse-btn bad">⏹ Schicht beenden</button></form>'
+            rows.append(f'<div class="pulse-row items-start" data-discord-user="{m.id}"><div class="flex items-start gap-3 min-w-0 flex-1"><div class="pulse-avatar">{e(initials(m.display_name))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(m.display_name)}</div><div class="pulse-row-meta">{e(member_role(m,ids))} · <span data-status-label="{m.id}">{e(lab)}</span>{act_html}</div>{shift_meta}{shift_stop}</div></div><div class="text-right shrink-0"><div data-status-pill="{m.id}">{pill(ico+" "+lab,kind)}</div><div class="mt-1">{duty}</div></div></div>')
 
         team_html="".join(rows) or '<div class="pulse-empty">Keine Teamrollen konfiguriert.</div>'
         body=f"""
@@ -1272,6 +1322,7 @@ def register(app):
     remove_and_add(app,'/meetings-history',{'GET'},meetings_history_v5,response_class=HTMLResponse)
     app.get('/team-status',response_class=HTMLResponse)(team_status_page)
     remove_and_add(app,'/melonly',{'GET'},melonly_page,response_class=HTMLResponse)
+    remove_and_add(app,'/shift/admin-end',{'POST'},admin_end_shift)
     remove_and_add(app,'/api/team/discord-status',{'GET'},discord_status_api,response_class=JSONResponse)
     app.post('/team-status/set')(set_team_status)
     app.get('/activity-check',response_class=HTMLResponse)(activity_check_page)

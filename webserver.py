@@ -30,6 +30,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import discord
 import pulse_db as pulse_db
+from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
 from career_applications import APPLICATION_CAREERS, grade_career_test, render_career_test
 from pulse_melonly import can_manage_melonly_type, rank_roblox_candidates, roblox_similarity_score
 
@@ -87,7 +88,9 @@ WARN_IC_LOCK_ROLE_ID = 1506054747554189472
 WARN_TEMP_ROLE_DAYS = 7
 SYNC_WARN_ROLES = os.getenv("SYNC_WARN_ROLES", "1") == "1"      # Warn-Rollen automatisch vergeben
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
-MAX_SHIFT_HOURS = float(os.getenv("MAX_SHIFT_HOURS", "12"))     # vergessene Schichten werden danach beendet
+# Vergessene Schichten werden nach genau 24 Stunden automatisch beendet und verwarnt.
+# MAX_SHIFT_HOURS bleibt als kompatible Konstante für alte Integrationen bestehen.
+MAX_SHIFT_HOURS = AUTO_SHIFT_END_HOURS
 AUTO_BACKUP_HOURS = float(os.getenv("AUTO_BACKUP_HOURS", "24")) # 0 = aus
 MAX_BACKUPS = int(os.getenv("MAX_BACKUPS", "30"))
 COOKIE_SECURE = bool(PUBLIC_BASE_URL and PUBLIC_BASE_URL.startswith("https://"))
@@ -426,27 +429,223 @@ def shift_elapsed(shift: dict) -> int:
 
 
 def load_shifts() -> dict:
-    """Lädt Schichten und beendet vergessene Schichten automatisch."""
+    """Lädt Schichten und beendet vergessene Schichten nach 24 Stunden."""
     db = load_json(SHIFTS_FILE, {})
     db.setdefault("active_shifts", {})
     db.setdefault("history", [])
     changed = False
-    limit = int(MAX_SHIFT_HOURS * 3600)
+    now = now_de()
+    limit = AUTO_SHIFT_END_SECONDS
     for uid, s in list(db["active_shifts"].items()):
-        try:
-            age = (now_de() - parse_dt(s.get("started_at_iso"))).total_seconds()
-        except Exception:
+        age = shift_age_seconds(s.get("started_at_iso"), now)
+        if age is None or age < limit:
             continue
-        if age > limit:
-            db["history"].append({
-                "mod_id": uid, "date": s.get("date"),
-                "duration_seconds": min(shift_elapsed(s), limit), "auto_closed": True,
-            })
-            del db["active_shifts"][uid]
-            changed = True
+        started_at = str(s.get("started_at_iso") or "")
+        event_id = shift_event_id(uid, started_at)
+        db["history"].append({
+            "mod_id": str(uid),
+            "date": s.get("date"),
+            "started_at_iso": started_at,
+            "ended_at_iso": now.isoformat(timespec="seconds"),
+            "duration_seconds": min(shift_elapsed(s), limit),
+            "auto_closed": True,
+            "shift_event_id": event_id,
+            "auto_warn_status": "pending",
+            "auto_warn_reason": "Schicht nicht innerhalb von 24 Stunden beendet.",
+        })
+        del db["active_shifts"][uid]
+        changed = True
     if changed:
         save_json(SHIFTS_FILE, db)
     return db
+
+
+async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
+    """Schließt Schichten nach 24h, vergibt genau eine Team-Warn und protokolliert sie."""
+    report = {"checked": 0, "closed": 0, "warned": 0, "failed": 0, "max_warns": 0}
+    if not guild:
+        report["failed"] = 1
+        return report
+
+    cfg = config or load_config()
+    shifts_db = load_shifts()
+    active = shifts_db.setdefault("active_shifts", {})
+    history = shifts_db.setdefault("history", [])
+    now = now_de()
+    changed = False
+
+    # The specified 24-hour threshold must not be delayed by an older env setting.
+    for uid, shift in list(active.items()):
+        report["checked"] += 1
+        age = shift_age_seconds(shift.get("started_at_iso"), now)
+        if age is None or age < AUTO_SHIFT_END_SECONDS:
+            continue
+        started_at = str(shift.get("started_at_iso") or "")
+        history.append({
+            "mod_id": str(uid),
+            "date": shift.get("date"),
+            "started_at_iso": started_at,
+            "ended_at_iso": now.isoformat(timespec="seconds"),
+            "duration_seconds": min(shift_elapsed(shift), AUTO_SHIFT_END_SECONDS),
+            "auto_closed": True,
+            "shift_event_id": shift_event_id(uid, started_at),
+            "auto_warn_status": "pending",
+            "auto_warn_reason": "Schicht nicht innerhalb von 24 Stunden beendet.",
+        })
+        del active[uid]
+        report["closed"] += 1
+        changed = True
+
+    if changed:
+        save_json(SHIFTS_FILE, shifts_db)
+
+    team_role_ids = {int(value) for value in cfg.get("team_role_ids", []) if str(value).isdigit()}
+    team_db = load_json(DATA_FILE, {})
+    if not isinstance(team_db, dict):
+        team_db = {}
+    system_actor = "Pulse – automatische Schichtkontrolle"
+    reason = "Automatische Team-Verwarnung: Die Schicht wurde nicht innerhalb von 24 Stunden beendet."
+
+    # Process pending events oldest first. source_shift_id makes retries idempotent.
+    for shift_event in history[-1000:]:
+        if not shift_event.get("auto_closed") or shift_event.get("auto_warn_status") != "pending":
+            continue
+        event_id = str(shift_event.get("shift_event_id") or "")
+        uid = str(shift_event.get("mod_id") or "")
+        if not event_id or not uid.isdigit():
+            shift_event["auto_warn_status"] = "invalid_shift_record"
+            save_json(SHIFTS_FILE, shifts_db)
+            continue
+
+        member = guild.get_member(int(uid))
+        if member is None:
+            try:
+                member = await guild.fetch_member(int(uid))
+            except discord.NotFound:
+                shift_event["auto_warn_status"] = "member_left_server"
+                save_json(SHIFTS_FILE, shifts_db)
+                continue
+            except Exception as exc:
+                shift_event["auto_warn_error"] = str(exc)[:400]
+                report["failed"] += 1
+                continue
+        if member.bot:
+            shift_event["auto_warn_status"] = "not_team_member"
+            save_json(SHIFTS_FILE, shifts_db)
+            continue
+
+        entry = user_entry(team_db, uid)
+        warnings = entry.setdefault("warns_list", [])
+        existing_warn = next(
+            (item for item in warnings if isinstance(item, dict) and item.get("source_shift_id") == event_id),
+            None,
+        )
+        if existing_warn:
+            count = len(active_warns(entry))
+            await sync_warn_roles(guild, member, count, cfg)
+            if count >= 2:
+                await apply_warn_consequences(guild, member, existing_warn, count, cfg)
+            shift_event["auto_warn_status"] = "issued"
+            shift_event["auto_warn_issued_at"] = shift_event.get("auto_warn_issued_at") or now.isoformat(timespec="seconds")
+            shift_event.pop("auto_warn_error", None)
+            save_json(SHIFTS_FILE, shifts_db)
+            continue
+
+        if team_role_ids and not any(role.id in team_role_ids for role in member.roles):
+            shift_event["auto_warn_status"] = "not_team_member"
+            save_json(SHIFTS_FILE, shifts_db)
+            continue
+
+        count_before = len(active_warns(entry))
+        if count_before >= 5:
+            shift_event["auto_warn_status"] = "max_warns"
+            shift_event["auto_warn_processed_at"] = now.isoformat(timespec="seconds")
+            save_json(SHIFTS_FILE, shifts_db)
+            report["max_warns"] += 1
+            log_audit(system_actor, "system", "Automatische Schicht-Warnung nicht möglich",
+                      f"{member.display_name} ({member.id}) hat bereits 5 aktive Warnungen; Schicht {event_id}.")
+            for manager in guild.members:
+                if manager.bot or manager.id == member.id:
+                    continue
+                manager_perms, _ = compute_perms(guild, manager.id, cfg)
+                if manager_perms.get("can_promote") or manager_perms.get("is_admin"):
+                    try:
+                        pulse_db.notify(
+                            manager.id, "🚨 Schichtkontrolle: bereits 5 Warnungen",
+                            f"{member.display_name} hat eine Schicht über 24 Stunden offen gelassen, aber bereits 5 aktive Warnungen.",
+                            "warning", "/warns", f"shift-warn-max:{event_id}", 86400,
+                        )
+                    except Exception:
+                        pass
+            continue
+
+        warning_id = "warn_" + uuid.uuid5(uuid.NAMESPACE_URL, f"pulse-shift-warning:{event_id}").hex[:10]
+        warn = {
+            "id": warning_id,
+            "reason": reason,
+            "proof": "",
+            "by": system_actor,
+            "date": now.strftime("%d.%m.%Y %H:%M"),
+            "active": True,
+            "revoked_at": None,
+            "revoked_by": None,
+            "revoked_reason": "",
+            "source": "auto_shift_timeout",
+            "source_shift_id": event_id,
+            "shift_started_at_iso": shift_event.get("started_at_iso"),
+        }
+        warnings.append(warn)
+        count = len(active_warns(entry))
+        save_json(DATA_FILE, team_db)
+
+        try:
+            role_report = await sync_warn_roles(guild, member, count, cfg)
+            consequence_report = (
+                await apply_warn_consequences(guild, member, warn, count, cfg)
+                if count >= 2 else {"actions": [], "ok": True}
+            )
+            try:
+                await send_team_update_embed(
+                    guild,
+                    "⚠️ Team-Warn: Schicht nicht beendet",
+                    f"{member.mention} hat die Schicht nach 24 Stunden nicht beendet.",
+                    discord.Color.orange(),
+                    target=f"{member.mention}\nWarn-Stufe: {count}/5",
+                    action=f"Automatische Schicht-Verwarnung {count}/5",
+                    actor=system_actor,
+                    fields=[
+                        ("Grund", reason, False),
+                        ("Schicht gestartet", str(shift_event.get("started_at_iso") or "Unbekannt"), False),
+                        ("Automatische Beendigung", str(shift_event.get("ended_at_iso") or "Unbekannt"), False),
+                        ("Warnrolle", role_report.get("message", "Nicht verfügbar"), False),
+                    ],
+                    thumbnail=member.display_avatar.url,
+                )
+            except Exception as exc:
+                print(f"Team-Update für automatische Schicht-Warnung fehlgeschlagen: {exc}")
+            try:
+                consequence_text = "; ".join(str(value) for value in consequence_report.get("actions", []) if value)
+                suffix = f"\n**Automatische Folge:** {consequence_text}" if consequence_text else ""
+                await send_dm_notification(
+                    member,
+                    f"⚠️ Du hast eine Team-Warnung erhalten ({count}/5).\n**Grund:** {reason}\n**Von:** {system_actor}{suffix}",
+                )
+            except Exception as exc:
+                print(f"DM für automatische Schicht-Warnung fehlgeschlagen: {exc}")
+            log_audit(system_actor, "system", "Automatische Schicht-Verwarnung",
+                      f"{member.display_name} ({member.id}) ({count}/5): {reason}")
+            shift_event["auto_warn_status"] = "issued"
+            shift_event["auto_warn_issued_at"] = now.isoformat(timespec="seconds")
+            shift_event.pop("auto_warn_error", None)
+            report["warned"] += 1
+            save_json(SHIFTS_FILE, shifts_db)
+        except Exception as exc:
+            shift_event["auto_warn_error"] = str(exc)[:400]
+            report["failed"] += 1
+            save_json(SHIFTS_FILE, shifts_db)
+            print(f"Automatische Schicht-Warnung fehlgeschlagen für {uid}: {exc}")
+
+    return report
 
 
 def calculate_weekly_seconds(mod_id, history, active_shifts=None) -> int:

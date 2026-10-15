@@ -64,6 +64,12 @@ class PulsePro(commands.Cog):
             import webserver
             # Resolve permissions/team managers once per pass instead of for each ticket/application.
             manager_cache = self.manager_members(guild)
+            try:
+                shift_report = await webserver.process_overdue_shifts(guild, webserver.load_config())
+                if shift_report.get("closed") or shift_report.get("warned") or shift_report.get("failed") or shift_report.get("max_warns"):
+                    print(f"⏱ Automatische Schichtkontrolle: {shift_report}")
+            except Exception as exc:
+                print(f"⚠️ Automatische Schichtkontrolle fehlgeschlagen: {exc}")
             if now.hour == 3 and now.minute < 5:
                 try: db.purge_old_notifications(90)
                 except Exception: pass

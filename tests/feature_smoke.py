@@ -29,13 +29,24 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py"):
         parse(name)
 
     web = read("webserver.py")
     pro = read("pulse_pro.py")
     main = read("main.py")
     web = read("webserver.py")
+    shift_utils = read("pulse_shift_utils.py")
+    parse("pulse_shift_utils.py")
+    assert "AUTO_SHIFT_END_HOURS = 24.0" in shift_utils
+    assert "AUTO_SHIFT_END_SECONDS" in web
+    assert "def process_overdue_shifts(" in web
+    assert '"auto_warn_status": "pending"' in web
+    assert '"source_shift_id": event_id' in web
+    assert 'webserver.process_overdue_shifts(guild, webserver.load_config())' in read("cogs/pulse_pro.py")
+    assert 'action="/shift/admin-end"' in pro
+    assert "async def admin_end_shift(" in pro
+    assert "Fremde Schicht beendet" in pro
 
     # Memory optimisation must keep features available: cap only Discord's
     # recent-message cache and fetch reply context on demand when it is absent.
