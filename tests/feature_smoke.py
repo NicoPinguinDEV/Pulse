@@ -78,6 +78,9 @@ def main() -> None:
     assert '("Warn-Stufe",f"{count}/5")' in suite_actions
     assert 'str(count)+"/5)."' in suite_actions
     assert "manager_cache=managers(g,web)" in suite_actions
+    assert "🧠 RAM-Schutz" in suite_actions
+    assert "🧭 Tagesprioritäten" in suite_actions
+    assert "ram_trend_snapshot()" in suite_actions
     assert "Pflichtgrund für den Team-Kick" in suite_actions
     assert "Pflichtgrund für den Server-Kick" in suite_actions
     assert "RAM_WARN_MB = 180.0" in ultimate
@@ -92,6 +95,8 @@ def main() -> None:
     assert "process_peak_rss_mb" in pulse_pro_cog
     assert "office_system.get_config(\"ping_channel_id\")" in pulse_pro_cog
     assert "office_system.get_config(\"warteraum_channel_id\")" in pulse_pro_cog
+    assert 'name="RAM-Langzeittrend"' in pulse_pro_cog
+    assert 'name="Bot-Berechtigungen"' in pulse_pro_cog
 
     # Pulse Next uses synchronous SQLite helpers during periodic score updates.
     # Keep workflow/profile/score maintenance off the Discord event loop.
