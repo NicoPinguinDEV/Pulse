@@ -42,6 +42,8 @@ class CustomBot(commands.Bot):
             max_messages=MESSAGE_CACHE_SIZE,
         )
         self.pulse_message_cache_limit = MESSAGE_CACHE_SIZE
+        self._pulse_web_server = None
+        self._pulse_web_server_task = None
 
     async def setup_hook(self):
         # WICHTIG: Bot-Instanz an die Webserver-App übergeben
@@ -77,8 +79,29 @@ class CustomBot(commands.Bot):
             app=app, host="0.0.0.0", port=PORT, log_level="info"
         )
         server = uvicorn.Server(config)
-        asyncio.create_task(server.serve())
+        self._pulse_web_server = server
+        self._pulse_web_server_task = asyncio.create_task(server.serve(), name="pulse-webserver")
         print(f"🌐 Webserver gestartet auf Port {PORT}")
+
+    async def close(self):
+        """Stop the dashboard cleanly before closing Discord's event loop."""
+        server = self._pulse_web_server
+        task = self._pulse_web_server_task
+        if server is not None:
+            server.should_exit = True
+
+        if task is not None and task is not asyncio.current_task():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=8.0)
+            except asyncio.TimeoutError:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                print(f"⚠️ Webserver-Shutdown meldet einen Fehler: {type(exc).__name__}: {exc}")
+
+        await super().close()
 
     async def on_ready(self):
         print(f"✅ Bot ist online als {self.user} (ID: {self.user.id})")
