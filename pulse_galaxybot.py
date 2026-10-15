@@ -79,12 +79,15 @@ def _as_display(value: Any) -> str:
 
 def find_data_value(data: dict[str, Any], aliases: Iterable[str]) -> str:
     """Find a simple value by key, tolerating common API casing/nesting variants."""
-    alias_keys = {_key(alias) for alias in aliases}
-    for key, value in _walk_items(data):
-        if key in alias_keys:
-            result = _as_display(value)
-            if result:
-                return result
+    items = list(_walk_items(data))
+    # Respect alias priority (e.g. prefer a ticket title over a nested category name).
+    for alias in aliases:
+        wanted = _key(alias)
+        for key, value in items:
+            if key == wanted:
+                result = _as_display(value)
+                if result:
+                    return result
     return ""
 
 
