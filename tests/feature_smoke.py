@@ -397,6 +397,10 @@ def main() -> None:
     assert "/settings/pro-warn-sync" in pro
     assert "Warn-Rollen" in pro
     assert "PULSE_VERSION" in web
+    startup_source = read("main.py")
+    assert 'asyncio.create_task(server.serve(), name="pulse-webserver")' in startup_source
+    assert 'server.should_exit = True' in startup_source
+    assert 'await asyncio.wait_for(asyncio.shield(task), timeout=8.0)' in startup_source
     assert '"/healthz"' in web
 
     assert "reconcile_warning_roles" in main
