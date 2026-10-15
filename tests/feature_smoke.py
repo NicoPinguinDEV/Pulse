@@ -42,7 +42,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -57,6 +57,8 @@ def main() -> None:
     activity_pro = read("pulse_pro.py")
     assert "DB_NAME = str(BASE_DIR / \"activity_check.db\")" in activity_cog
     assert "ABMELDUNGEN_DB = str(BASE_DIR / \"abmeldungen.db\")" in activity_cog
+    assert 'DB_NAME = str(Path(__file__).resolve().parents[1] / "abmeldungen.db")' in read("cogs/abmeldung.py")
+    assert "ABMELDUNGEN_DB = str(BASE_DIR / \"abmeldungen.db\")" in read("cogs/teamliste.py")
     assert "ACTIVITY_DB = str(BASE_DIR / \"activity_check.db\")" in web
     assert "sqlite3.connect(ws.ACTIVITY_DB)" in activity_pro
     assert "snapshot_version INTEGER NOT NULL DEFAULT 0" in activity_cog
@@ -65,6 +67,9 @@ def main() -> None:
     assert "source_activity_check_id" in activity_cog
     assert "source_activity_user_id" in activity_cog
     assert "activity_warning_due(now)" in activity_cog
+    assert "@tasks.loop(minutes=1)\n    async def daily_activity_check" in activity_cog
+    assert "or now.hour >= 20" in activity_cog
+    assert "Snapshot ist leer" in activity_cog
     assert "confirmed_by_deadline(responses.get(uid), check_date)" in activity_cog
     assert "is_abgemeldet(uid, check_date)" in activity_cog
     assert "await ws.sync_warn_roles(guild, member, count, cfg)" in activity_cog
