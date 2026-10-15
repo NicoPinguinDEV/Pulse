@@ -20,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
 
-VERSION = "7.4.1"
+VERSION = "7.4.2"
 EXTRA_PERMS = (
     "can_manage_announcements",
     "can_manage_handover",
@@ -675,15 +675,163 @@ def register(app):
             return "".join(out)
         history_options="".join(f'<option value="{e(h["check_date"])}" {"selected" if h["check_date"]==selected_date else ""}>{e(h["check_date"])} · {h["responses"]} Antworten · {h["members"]} Team-Snapshot</option>' for h in history) or f'<option value="{e(selected_date)}">{e(selected_date)}</option>'
         state_note=(pill("Snapshot pro Check gespeichert","good") if check and not legacy and snapshot else (pill("Snapshot ist leer – automatische Warns ausgesetzt","warn") if check and not legacy and snapshot_version >= 1 and not snapshot else (pill("Alter Check ohne Snapshot","warn") if legacy else pill("Kein Check für dieses Datum","warn"))))
+        # Configuration and a one-click recovery action live on the same page so
+        # "Kein Check" is actionable instead of silently leaving a blank report.
+        bot = getattr(request.app.state, "bot", None)
+        activity_cog_loaded = bool(bot and bot.get_cog("ActivityCheckCog"))
+        configured_channel_id = 0
+        configured_role_id = 0
+        activity_config_error = ""
+        try:
+            import cogs.activity_check as activity_module
+            activity_module.init_db()
+            configured_channel_id = int(activity_module.get_config("activity_channel_id") or 0)
+            configured_role_id = int(activity_module.get_config("activity_role_id") or 0)
+        except Exception as exc:
+            activity_config_error = f"{type(exc).__name__}: {exc}"
+        channel_options = "".join(
+            f'<option value="{ch.id}" {"selected" if ch.id == configured_channel_id else ""}>#{e(ch.name)} · {ch.id}</option>'
+            for ch in sorted(c.guild.text_channels, key=lambda x: x.name.casefold())
+        )
+        team_role_ids = {int(rid) for rid in c.config.get("team_role_ids", []) if str(rid).isdigit()}
+        if configured_role_id:
+            team_role_ids.add(configured_role_id)
+        role_options = (
+            '<option value="0" '+('selected' if not configured_role_id else '')+'>Konfigurierte Teamrollen verwenden (empfohlen)</option>'
+            + "".join(
+                f'<option value="{role.id}" {"selected" if role.id == configured_role_id else ""}>{e(role.name)} · {role.id}</option>'
+                for role in sorted(
+                    [r for r in c.guild.roles if r.id in team_role_ids and not r.is_default() and not r.managed],
+                    key=lambda x: (-x.position, x.name.casefold()),
+                )
+            )
+        )
+        config_status = (
+            pill("ActivityCheckCog aktiv", "good") if activity_cog_loaded
+            else pill("ActivityCheckCog nicht geladen", "bad")
+        )
+        if activity_config_error:
+            config_status += f'<div class="pulse-alert" style="margin-top:8px">Konfiguration konnte nicht gelesen werden: {e(activity_config_error)}</div>'
+        elif configured_channel_id:
+            saved_channel = c.guild.get_channel(configured_channel_id)
+            config_status += f'<div class="pulse-section-sub" style="margin-top:6px">Gespeicherter Kanal: {("#"+e(saved_channel.name)) if saved_channel else "nicht gefunden"} · ID {configured_channel_id}</div>'
+        else:
+            config_status += '<div class="pulse-section-sub" style="margin-top:6px">Es wurde noch kein Activity-Check-Kanal gespeichert.</div>'
+        setup_panel = f"""
+        <section class="pulse-card mb-5">
+          <div class="pulse-card-h"><div>
+            <div class="pulse-section-title">🛠 Activity Check reparieren / einrichten</div>
+            <div class="pulse-section-sub">Wenn für heute kein Datensatz existiert, hier den Kanal speichern und den Check direkt erstellen.</div>
+          </div>{config_status}</div>
+          <div class="pulse-card-b">
+            <form method="post" action="/activity-check/setup" class="grid md:grid-cols-3 gap-3 items-end">
+              <label class="text-xs">Activity-Check-Kanal
+                <select name="channel_id" class="pulse-input mt-1" required>{channel_options or '<option value="">Keine Textkanäle gefunden</option>'}</select>
+              </label>
+              <label class="text-xs">Teilnehmer / Ping-Rolle
+                <select name="role_id" class="pulse-input mt-1">{role_options}</select>
+              </label>
+              <button class="pulse-btn primary" type="submit" {"disabled" if not channel_options else ""}>Speichern & heutigen Check erstellen</button>
+            </form>
+            <div class="pulse-section-sub" style="margin-top:10px">Bei „Konfigurierte Teamrollen“ wird der Snapshot aus den Rollen in der Pulse-Konfiguration erstellt. Eine explizite Rolle begrenzt den Snapshot auf Mitglieder dieser Rolle.</div>
+          </div>
+        </section>
+        """
         body=(
             f'<div class="pulse-topbar"><div><div class="pulse-section-title">✓ Activity Check</div><div class="pulse-section-sub">Jeder Check wird separat gespeichert. Antworten gehören exakt zu diesem Check.</div></div>{state_note}</div>'
-            f'<section class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Tagesauswertung · {e(selected_date)}</div><div class="pulse-title">{done} von {total} bestätigt</div><div class="pulse-sub">Der Teilnehmer-Snapshot wird beim Erstellen des Checks gespeichert. Spätere Rollenänderungen verändern vergangene Auswertungen nicht.</div></div><div class="pulse-hero-box"><div class="label">BESTÄTIGUNGSQUOTE</div><div class="value">{pct}%</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{pct}%;background:white"></span></div></div></div></section>'
-            f'<div class="flex flex-wrap items-center gap-2 mb-4"><form method="get" action="/activity-check" class="flex flex-wrap gap-2"><select name="date" class="pulse-input" style="width:auto;min-width:310px">{history_options}</select><button class="pulse-btn ghost">Check öffnen</button></form><a href="/team#activity" class="pulse-btn ghost">↩ Teamliste</a></div>'
-            f'<div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">👥</div><div class="label">Snapshot</div><div class="value">{total}</div></div><div class="pulse-stat"><div class="icon">✅</div><div class="label">Bestätigt</div><div class="value">{done}</div></div><div class="pulse-stat"><div class="icon">⏳</div><div class="label">Offen</div><div class="value">{open_n}</div></div><div class="pulse-stat"><div class="icon">◷</div><div class="label">Erstellt</div><div class="value">{e(fmt_dt(check["created_at"]) if check else "—")}</div></div></div>'
-            f'<div class="pulse-grid"><div>{card("✅ Bestätigt",person_rows(confirmed,"confirmed"),"✓")}</div><div>{card("⏳ Noch offen",person_rows(open_members,"open"),"⏳")}</div></div>'
-            f'<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">🗂 Check-Historie</div><div class="pulse-section-sub">Jeder Tag ist ein eigener Datensatz.</div></div></div><div class="pulse-card-b space-y-2">{"".join(f'<a href="/activity-check?date={e(h["check_date"])}" class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(h["check_date"])}</div><div class="pulse-row-meta">{e(fmt_dt(h["created_at"]))} · {h["responses"]} Antworten · {h["members"]} Snapshot-Mitglieder · Nachricht {e(h["message_id"])}</div></div>{pill("Aktuell","good") if h["check_date"]==selected_date else pill("Öffnen")}</a>' for h in history)}</div></section>'
+            + setup_panel
+            + f'<section class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Tagesauswertung · {e(selected_date)}</div><div class="pulse-title">{done} von {total} bestätigt</div><div class="pulse-sub">Der Teilnehmer-Snapshot wird beim Erstellen des Checks gespeichert. Spätere Rollenänderungen verändern vergangene Auswertungen nicht.</div></div><div class="pulse-hero-box"><div class="label">BESTÄTIGUNGSQUOTE</div><div class="value">{pct}%</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{pct}%;background:white"></span></div></div></div></section>'
+            + f'<div class="flex flex-wrap items-center gap-2 mb-4"><form method="get" action="/activity-check" class="flex flex-wrap gap-2"><select name="date" class="pulse-input" style="width:auto;min-width:310px">{history_options}</select><button class="pulse-btn ghost">Check öffnen</button></form><a href="/team#activity" class="pulse-btn ghost">↩ Teamliste</a></div>'
+            + f'<div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">👥</div><div class="label">Snapshot</div><div class="value">{total}</div></div><div class="pulse-stat"><div class="icon">✅</div><div class="label">Bestätigt</div><div class="value">{done}</div></div><div class="pulse-stat"><div class="icon">⏳</div><div class="label">Offen</div><div class="value">{open_n}</div></div><div class="pulse-stat"><div class="icon">◷</div><div class="label">Erstellt</div><div class="value">{e(fmt_dt(check["created_at"]) if check else "—")}</div></div></div>'
+            + f'<div class="pulse-grid"><div>{card("✅ Bestätigt",person_rows(confirmed,"confirmed"),"✓")}</div><div>{card("⏳ Noch offen",person_rows(open_members,"open"),"⏳")}</div></div>'
+            + f'<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">🗂 Check-Historie</div><div class="pulse-section-sub">Jeder Tag ist ein eigener Datensatz.</div></div></div><div class="pulse-card-b space-y-2">{"".join(f'<a href="/activity-check?date={e(h["check_date"])}" class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(h["check_date"])}</div><div class="pulse-row-meta">{e(fmt_dt(h["created_at"]))} · {h["responses"]} Antworten · {h["members"]} Snapshot-Mitglieder · Nachricht {e(h["message_id"])}</div></div>{pill("Aktuell","good") if h["check_date"]==selected_date else pill("Öffnen")}</a>' for h in history)}</div></section>'
         )
         return render_pro_page(ws,"Activity Check",c,"activity-check",body)
+
+    async def activity_check_setup(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm="can_manage_checkins")
+        bot=getattr(request.app.state,"bot",None)
+        if bot is None:
+            return ws.back("/activity-check","Der Discord-Bot ist nicht mit dem Dashboard verbunden. Bitte Bot-Status und Startprotokoll prüfen.",False)
+        try:
+            form=await request.form()
+            channel_raw=str(form.get("channel_id") or "").strip()
+            role_raw=str(form.get("role_id") or "0").strip()
+            if not channel_raw.isdigit() or int(channel_raw)<=0:
+                return ws.back("/activity-check","Bitte einen gültigen Activity-Check-Kanal auswählen.",False)
+            if not role_raw.isdigit():
+                return ws.back("/activity-check","Die ausgewählte Rolle ist ungültig.",False)
+
+            channel=c.guild.get_channel(int(channel_raw))
+            if channel is None or not isinstance(channel,discord.TextChannel) or channel.guild.id != c.guild.id:
+                return ws.back("/activity-check","Der ausgewählte Kanal wurde auf diesem Discord-Server nicht gefunden.",False)
+            role=None
+            if int(role_raw)>0:
+                role=c.guild.get_role(int(role_raw))
+                if role is None or role.is_default() or role.managed:
+                    return ws.back("/activity-check","Die ausgewählte Teilnehmerrolle wurde nicht gefunden oder kann nicht verwendet werden.",False)
+
+            import cogs.activity_check as activity_module
+            activity_module.init_db()
+            cog=bot.get_cog("ActivityCheckCog")
+            if cog is None and "cogs.activity_check" not in getattr(bot,"extensions",{}):
+                try:
+                    await bot.load_extension("cogs.activity_check")
+                except Exception as exc:
+                    return ws.back("/activity-check",f"Activity-Check-Modul konnte nicht gestartet werden: {type(exc).__name__}: {exc}",False)
+                cog=bot.get_cog("ActivityCheckCog")
+            if cog is None:
+                return ws.back("/activity-check","ActivityCheckCog ist nicht geladen. Bitte Startprotokoll auf einen Fehler beim Laden von cogs/activity_check.py prüfen.",False)
+
+            # Persist the selected channel/role first; the bot's scheduled loop
+            # then uses the same settings after future restarts.
+            activity_module.set_config("activity_channel_id",channel.id)
+            activity_module.set_config("activity_role_id",role.id if role else 0)
+
+            today=ws.now_de().date().isoformat()
+            with sqlite3.connect(ws.ACTIVITY_DB,timeout=5.0) as ax:
+                ax.row_factory=sqlite3.Row
+                existing=ax.execute(
+                    "SELECT id,snapshot_version FROM checks WHERE guild_id=? AND check_date=?",
+                    (c.guild.id,today),
+                ).fetchone()
+                existing_count=int(ax.execute(
+                    "SELECT COUNT(*) FROM check_members WHERE check_id=?",
+                    (int(existing["id"]),),
+                ).fetchone()[0]) if existing else 0
+
+            members=await cog.eligible_members(c.guild,role)
+            if not members and not (existing and existing_count>0):
+                if role:
+                    detail=f"Die Rolle {role.name} hat aktuell keine passenden Mitglieder."
+                elif not c.config.get("team_role_ids"):
+                    detail="In der Pulse-Konfiguration sind keine Teamrollen hinterlegt. Wähle eine Teilnehmerrolle oder konfiguriere zuerst die Teamrollen."
+                else:
+                    detail="Es wurden keine Mitglieder mit den konfigurierten Teamrollen gefunden. Prüfe Teamrollen und die Discord-Mitglieder-Intention."
+                return ws.back("/activity-check",detail,False)
+
+            try:
+                message=await cog.send_check_message(channel,role)
+            except Exception as exc:
+                return ws.back("/activity-check",f"Activity Check konnte nicht erstellt werden: {type(exc).__name__}: {exc}",False)
+
+            with sqlite3.connect(ws.ACTIVITY_DB,timeout=5.0) as ax:
+                ax.row_factory=sqlite3.Row
+                saved=ax.execute(
+                    "SELECT id,snapshot_version,message_id FROM checks WHERE guild_id=? AND check_date=?",
+                    (c.guild.id,today),
+                ).fetchone()
+                snapshot_count=int(ax.execute(
+                    "SELECT COUNT(*) FROM check_members WHERE check_id=?",
+                    (int(saved["id"]),),
+                ).fetchone()[0]) if saved else 0
+            if saved and snapshot_count:
+                action="erstellt" if message is not None else "bereits vorhanden/geprüft"
+                return ws.back("/activity-check",f"Heutiger Activity Check {action}. Snapshot: {snapshot_count} Teilnehmer. Bitte Seite neu laden.")
+            return ws.back("/activity-check","Der Check-Datensatz hat weiterhin keinen Teilnehmer-Snapshot. Es wurden keine automatischen Warns ausgelöst. Bitte prüfe die Teamrollen und das Startprotokoll.",False)
+        except Exception as exc:
+            return ws.back("/activity-check",f"Setup fehlgeschlagen: {type(exc).__name__}: {exc}",False)
+
     async def team_status_page(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session)
         can_view = bool(c.perms.get("can_view_team_status") or c.perms.get("can_promote") or c.perms.get("is_admin"))
@@ -1329,6 +1477,7 @@ def register(app):
     remove_and_add(app,'/api/team/discord-status',{'GET'},discord_status_api,response_class=JSONResponse)
     app.post('/team-status/set')(set_team_status)
     app.get('/activity-check',response_class=HTMLResponse)(activity_check_page)
+    app.post('/activity-check/setup')(activity_check_setup)
     app.get('/handover',response_class=HTMLResponse)(handover_page)
     app.post('/handover/create')(create_handover)
     app.get('/announcements',response_class=HTMLResponse)(announcements_page)
