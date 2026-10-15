@@ -2753,6 +2753,10 @@ async def pulse_tickets_dashboard(request: Request, user_session: str = Cookie(N
     listing = "".join(cards) or '<div class="empty">Keine Tickets in diesem Bereich.</div>'
     message = html.escape(str(ctx.msg or ""))
     notice = f'<div class="notice {"ok" if ctx.msg_ok else "err"}">{message}</div>' if message else ""
+    panel_setup_html = (
+        '<form class="actions" method="post" action="/tickets/setup-panels"><button class="btn primary" type="submit">Panels in 6 Kanälen einrichten</button></form>'
+        if ctx.perms.get("is_admin") else ""
+    )
     page = f"""<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pulse · Ticket Center</title><style>
 *{{box-sizing:border-box}}body{{margin:0;background:#0b1020;color:#e8eefb;font-family:system-ui,Segoe UI,sans-serif}}a{{color:inherit;text-decoration:none}}
@@ -2763,12 +2767,34 @@ h1{{font-size:clamp(28px,4vw,40px);margin:22px 0 8px}}.muted{{color:#9cabc5;font
 @media(max-width:640px){{.stats{{grid-template-columns:1fr}}.actions-side{{width:100%;justify-items:start}}}}
 </style></head><body><main class="wrap">
 <header><a class="brand" href="/dashboard">⚡ Pulse TeamOS</a><nav class="nav"><a class="btn" href="/dashboard">Dashboard</a><a class="btn" href="/team">Teamliste</a><a class="btn primary" href="/tickets">Tickets</a></nav></header>
-<section class="hero"><div><div class="muted">BOCHUM RP · TEAM OPERATIONS</div><h1>Ticket Center</h1><div class="muted">Pulse-eigene Tickets direkt in deiner Website verwalten.</div></div><a class="btn" href="https://discord.com/channels/{guild.id}/{PULSE_TICKET_OPEN_LOG_CHANNEL_ID}" target="_blank" rel="noopener">Öffnungsprotokoll ↗</a></section>
+<section class="hero"><div><div class="muted">BOCHUM RP · TEAM OPERATIONS</div><h1>Ticket Center</h1><div class="muted">Pulse-eigene Tickets direkt in deiner Website verwalten.</div></div><div class="actions">{panel_setup_html}<a class="btn" href="https://discord.com/channels/{guild.id}/{PULSE_TICKET_OPEN_LOG_CHANNEL_ID}" target="_blank" rel="noopener">Öffnungsprotokoll ↗</a></div></section>
 {notice}<section class="stats"><div class="stat"><span>Offene Tickets</span><strong>{len(open_items)}</strong></div><div class="stat"><span>In Bearbeitung</span><strong>{len(claimed_items)}</strong></div><div class="stat"><span>Geschlossen gesamt</span><strong>{len(closed_items)}</strong></div></section>
 <nav class="tabs">{nav}</nav><section class="ticket-list">{listing}</section>
 <footer>Pulse Ticket Center · Sichtbar für Teammitglieder mit „Tickets verwalten“. Änderungen werden in der Pulse-Datenbank gespeichert.</footer>
 </main></body></html>"""
     return HTMLResponse(content=page)
+
+
+@app.post("/tickets/setup-panels")
+async def pulse_ticket_panels_setup(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, admin=True)
+    bot = getattr(request.app.state, "bot", None)
+    if not bot or not bot.is_ready():
+        return back("/tickets", "Pulse-Bot ist nicht bereit.", False)
+    cog = bot.get_cog("Tickets")
+    if not cog or not hasattr(cog, "setup_panels_for_guild"):
+        return back("/tickets", "Das Pulse-Ticketmodul ist nicht geladen.", False)
+    try:
+        result = await cog.setup_panels_for_guild(ctx.guild)
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        print(f"⚠️ Pulse-Ticketpanels über Dashboard konnten nicht eingerichtet werden ({type(exc).__name__}).")
+        return back("/tickets", "Discord hat die Einrichtung abgelehnt. Prüfe die Rechte des Bots.", False)
+    successes = len(result.get("successes", []))
+    failures = result.get("failures", [])
+    message = f"Pulse-Ticketpanels: {successes}/{result.get('expected', 6)} eingerichtet."
+    if failures:
+        message += " Nicht eingerichtet: " + "; ".join(failures)
+    return back("/tickets", message, successes > 0 and not failures)
 
 
 @app.post("/tickets/action")
