@@ -124,7 +124,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.5.0"
+PULSE_VERSION = "7.5.1"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -2992,7 +2992,7 @@ h1{{font-size:clamp(28px,4vw,40px);margin:22px 0 8px}}.muted{{color:#9cabc5;font
 @media(max-width:480px){{.stats{{grid-template-columns:1fr}}.wrap{{padding:18px 12px 40px}}}}
 </style></head><body><main class="wrap">
 <header><a class="brand" href="/dashboard">⚡ Pulse TeamOS</a><nav class="nav"><a class="btn" href="/dashboard">Dashboard</a><a class="btn" href="/team">Teamliste</a><a class="btn primary" href="/tickets">Ticket-Zentrale</a></nav></header>
-<section class="hero"><div><div class="muted">BOCHUM RP · TEAM OPERATIONS</div><h1>Ticket-Zentrale</h1><div class="muted">Tickets priorisieren, übernehmen, wieder öffnen, schließen und nachhalten – direkt in Pulse.</div></div><a class="btn" href="https://discord.com/channels/{guild.id}/{log_open_id}" target="_blank" rel="noopener">Öffnungsprotokoll ↗</a></section>
+<section class="hero"><div><div class="muted">BOCHUM RP · TEAM OPERATIONS · <strong>Pulse Release v{PULSE_VERSION}</strong></div><h1>Ticket-Zentrale</h1><div class="muted">Tickets priorisieren, übernehmen, wieder öffnen, schließen und nachhalten – direkt in Pulse.</div></div><a class="btn" href="https://discord.com/channels/{guild.id}/{log_open_id}" target="_blank" rel="noopener">Öffnungsprotokoll ↗</a></section>
 {notice}
 <section class="stats"><div class="stat"><span>Offen</span><strong>{len(open_items)}</strong></div><div class="stat"><span>🚨 Dringend</span><strong>{urgent_count}</strong></div><div class="stat"><span>◉ Übernommen</span><strong>{len(claimed_items)}</strong></div><div class="stat"><span>★ Bewertet</span><strong>{rated_count}</strong></div></section>
 <nav class="tabs">{nav}</nav>
@@ -3001,7 +3001,7 @@ h1{{font-size:clamp(28px,4vw,40px);margin:22px 0 8px}}.muted{{color:#9cabc5;font
 {settings_html}
 <footer>Pulse TeamOS · Native Pulse-Tickets · Ticketdaten, Aktionen und Protokolle bleiben im eigenen Pulse-System.</footer>
 </main></body></html>"""
-    return HTMLResponse(content=page)
+    return HTMLResponse(content=page, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache", "Expires": "0"})
 
 
 @app.post("/tickets/settings")
