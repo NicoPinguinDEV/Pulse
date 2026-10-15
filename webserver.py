@@ -72,11 +72,12 @@ def oauth_redirect_uri(request: Request, application: bool = False) -> str:
     registrierte Discord-Callback-URL wie das Dashboard. So wird nicht automatisch
     /apply/callback angefordert, obwohl in Discord nur /callback registriert ist.
     """
-    configured = APPLICATION_REDIRECT_URI if application else REDIRECT_URI
+    # Für Bewerbungen hat die bereits vorhandene Dashboard-Callback-URL Vorrang.
+    # Eine getrennte Bewerbungs-URI wird nur als Fallback genutzt, damit eine neu
+    # hinzugefügte Route nicht plötzlich eine neue Discord-Developer-Portal-URI verlangt.
+    configured = (REDIRECT_URI or APPLICATION_REDIRECT_URI) if application else REDIRECT_URI
     if configured:
         return configured.rstrip("/")
-    if application and REDIRECT_URI:
-        return REDIRECT_URI.rstrip("/")
     return f"{request_origin(request)}/callback"
 
 def oauth_cookie_secure(request: Request) -> bool:
