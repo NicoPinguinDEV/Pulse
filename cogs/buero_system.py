@@ -14,6 +14,24 @@ DEFAULT_WAITING_ROOM_ID = 1528821871057965067
 DEFAULT_PING_CHANNEL_ID = 1560211874602160218
 OFFICE_CONFIG_VERSION = 3
 
+# Explizite Rollen-Zuordnung pro Zielbüro. Mehrere Rollen pro Büro sind möglich.
+# Diese IDs werden nach der Auswahl in der DM gepingt; die Warteraum-Anfrage
+# selbst bleibt weiterhin bestehen und wird beim Verlassen des Warteraums gelöscht.
+DEFAULT_OFFICE_ROLE_IDS: dict[int, tuple[int, ...]] = {
+    1541048940504555603: (1529263871003726005, 1552036094239842436),
+    1541038737188724996: (1488968787800752298,),
+    1508167060444942487: (1510287224300638271,),
+    1505243897603948635: (1488968681231745074,),
+    1523012037888970894: (1489608498328113344,),
+    1535286753584218292: (1504951078788272288,),
+    1541494047548379317: (1537046970722680952,),
+    1510377962774728815: (1510219918958661722,),
+    1505245108654571540: (1488968538667483176,),
+    1535312722344804432: (1545749842863591464,),
+    1535392546476527738: (1531369673658990642,),
+    1559580826025599056: (1556379740196175992,),
+}
+
 # --- DATENBANK HELFER ---
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -125,17 +143,27 @@ def _normalise_label(value: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", value))
 
 
-def office_role_for(guild: discord.Guild, target_voice_id: int):
-    """Resolve an office ping role: override first, then match the office and role names."""
+def office_roles_for(guild: discord.Guild, target_voice_id: int) -> list[discord.Role]:
+    """Resolve all roles for an office: admin override, explicit ID mapping, then name matching."""
     override_id = get_config(f"office_role_{target_voice_id}")
     if override_id:
         role = guild.get_role(int(override_id))
-        if role and not role.is_default():
-            return role
+        if role and not role.is_default() and not role.managed:
+            return [role]
+
+    # Explicit mapping has priority over fuzzy name matching. If a configured
+    # role is missing from the server, don't accidentally ping a different role.
+    if int(target_voice_id) in DEFAULT_OFFICE_ROLE_IDS:
+        roles = []
+        for role_id in DEFAULT_OFFICE_ROLE_IDS[int(target_voice_id)]:
+            role = guild.get_role(int(role_id))
+            if role and not role.is_default() and not role.managed:
+                roles.append(role)
+        return roles
 
     channel = guild.get_channel(int(target_voice_id))
     if not isinstance(channel, discord.VoiceChannel):
-        return None
+        return []
 
     channel_label = _normalise_label(channel.name)
     channel_words = channel_label.split()
@@ -160,8 +188,13 @@ def office_role_for(guild: discord.Guild, target_voice_id: int):
             score = 300 + len(role_core[0])
         if score:
             matches.append((score, role.position, role))
-    return max(matches, key=lambda item: (item[0], item[1]))[2] if matches else None
+    return [max(matches, key=lambda item: (item[0], item[1]))[2]] if matches else []
 
+
+def office_role_for(guild: discord.Guild, target_voice_id: int):
+    """Backward-compatible singular helper used for the waiting-room arrival ping."""
+    roles = office_roles_for(guild, target_voice_id)
+    return roles[0] if roles else None
 
 async def delete_pending_ping(
     bot: commands.Bot,
@@ -425,9 +458,10 @@ class BueroSelect(discord.ui.Select):
         embed.add_field(name="Gewünschtes Büro", value=f"📌 **{target_vc.name}**", inline=True)
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
-        office_role = office_role_for(guild, target_vc_id)
+        office_roles = office_roles_for(guild, target_vc_id)
+        role_mentions = " ".join(role.mention for role in office_roles)
         content = (
-            (office_role.mention + " ") if office_role else ""
+            (role_mentions + " ") if role_mentions else ""
         ) + f"🔔 Anfrage für **{target_vc.name}**:"
         view = BueroUebernehmenView(
             bot=interaction.client,
@@ -440,7 +474,7 @@ class BueroSelect(discord.ui.Select):
                 embed=embed,
                 view=view,
                 allowed_mentions=discord.AllowedMentions(
-                    roles=[office_role] if office_role else [],
+                    roles=office_roles,
                     users=False,
                     everyone=False,
                     replied_user=False,
@@ -470,8 +504,8 @@ class BueroSelect(discord.ui.Select):
             f"✅ Deine Anfrage für **{target_vc.name}** wurde weitergeleitet! Bitte bleibe im Warteraum."
             + (
                 ""
-                if office_role
-                else "\n⚠️ Die passende Bürorolle wurde nicht automatisch gefunden. Ein Administrator kann sie mit /buero_rolle_setzen fest zuordnen."
+                if office_roles
+                else "\n⚠️ Für dieses Büro wurde keine gültige Ping-Rolle gefunden. Ein Administrator kann sie mit /buero_rolle_setzen fest zuordnen."
             ),
             ephemeral=True
         )
