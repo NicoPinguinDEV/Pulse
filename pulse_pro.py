@@ -135,6 +135,25 @@ def make_shell_helpers(ws):
                 for key in EXTRA_PERMS:
                     if rp.get(key):
                         perms[key] = True
+
+            # Digitale Pulse-Zwischenrollen verknüpfen interne Rechteprofile mit
+            # konfigurierten Discord-Teamrollen; alle Mitglieder erben die Rechte automatisch.
+            team_ids = {int(value) for value in config.get("team_role_ids", []) if str(value).isdigit()}
+            member_role_ids = {int(role.id) for role in member_roles}
+            for dashboard_profile in config.get("dashboard_roles", {}).values():
+                if not isinstance(dashboard_profile, dict):
+                    continue
+                mapped_ids = {
+                    int(value) for value in dashboard_profile.get("discord_role_ids", [])
+                    if str(value).isdigit()
+                }
+                if not (mapped_ids & team_ids & member_role_ids):
+                    continue
+                profile_permissions = dashboard_profile.get("permissions", {})
+                for key in EXTRA_PERMS:
+                    if profile_permissions.get(key):
+                        perms[key] = True
+
             if perms.get("can_promote"):
                 perms["can_manage_announcements"] = True
                 perms["can_manage_promotions"] = True
@@ -1554,14 +1573,168 @@ def register(app):
         # Fünf Warnstufen sind serverweit verbindlich und werden nicht mehr durch Legacy-Konfiguration ersetzt.
         warn_role_card=f'''<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">⚠ Warn-Rollen 1–5</div><div class="pulse-section-sub">Die fünf Discord-Warnrollen sind fest für Pulse hinterlegt und werden automatisch auf die aktive Warnstufe synchronisiert.</div></div></div><div class="pulse-card-b">{"".join(warn_rows)}<form action="/settings/pro-warn-roles" method="post" class="mt-3"><button class="pulse-btn primary w-full">↻ Fünf Warnrollen prüfen & synchronisieren</button></form></div></section>'''
         team_boxes=''.join(f'<label class="flex items-center gap-2 p-2 rounded-lg text-xs"><input type="checkbox" name="team_roles" value="{r.id}" {"checked" if r.id in role_ids else ""}><span style="color:#{r.color.value:06x}">{e(r.name)}</span></label>' for r in sorted(roles,key=lambda r:-r.position))
+
+        # Digitale Zwischenrollen sind interne Pulse-Profile, die einer oder mehreren
+        # konfigurierten Discord-Teamrollen zugewiesen werden.
+        dashboard_role_cfg = c.config.get("dashboard_roles", {})
+        configured_roles = []
+        for raw_role_id in role_ids:
+            try:
+                role = c.guild.get_role(int(raw_role_id))
+            except (TypeError, ValueError):
+                role = None
+            if role and not role.managed and not role.is_default():
+                configured_roles.append(role)
+        dashboard_role_cards = []
+        for profile_key, profile in sorted(
+            dashboard_role_cfg.items(),
+            key=lambda item: str(item[1].get("name", item[0]) if isinstance(item[1], dict) else item[0]).casefold(),
+        ):
+            if not isinstance(profile, dict):
+                continue
+            profile_permissions = profile.get("permissions", {})
+            selected_role_ids = {int(value) for value in profile.get("discord_role_ids", []) if str(value).isdigit()}
+            selected_names = [role.name for role in configured_roles if role.id in selected_role_ids]
+            role_checkboxes = ''.join(
+                f'<label class="flex items-start gap-2 p-2 rounded-lg text-[11px] bg-slate-50 dark:bg-slate-900/40">'
+                f'<input type="checkbox" name="dashboard_discord_roles" value="{role.id}" {"checked" if role.id in selected_role_ids else ""}>'
+                f'<span>{e(role.name)}<span class="block text-slate-400 font-mono">{role.id}</span></span></label>'
+                for role in configured_roles
+            )
+            profile_fields = ''.join(
+                f'<label class="flex items-center gap-2 text-[11px] p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50">'
+                f'<input type="checkbox" name="{key}" value="1" {"checked" if profile_permissions.get(key) else ""}>'
+                f'<span>{e(label)}</span></label>'
+                for key, label in permission_fields
+            )
+            dashboard_role_cards.append(
+                f'<section class="pulse-card"><div class="pulse-card-h"><div>'
+                f'<div class="pulse-section-title">{e(profile.get("name") or profile_key)}</div>'
+                f'<div class="pulse-section-sub">Digitale Zwischenrolle · {len(selected_names)} Discord-Teamrolle(n) zugeordnet</div>'
+                f'</div><span class="text-[9px] text-slate-400 font-mono">{e(profile_key)}</span></div>'
+                f'<div class="pulse-card-b space-y-4">'
+                f'<form action="/settings/dashboard-profile/save" method="post" class="space-y-4">'
+                f'<input type="hidden" name="dashboard_profile_id" value="{e(profile_key)}">'
+                f'<label class="block text-xs font-bold">Name der digitalen Rolle'
+                f'<input required maxlength="40" name="dashboard_profile_name" value="{e(profile.get("name") or profile_key)}" class="pulse-input mt-2"></label>'
+                f'<div><div class="pulse-section-title mb-2">Discord-Teamrollen zuordnen</div>'
+                f'<p class="pulse-section-sub mb-2">Alle Mitglieder dieser Discord-Rollen erhalten das ausgewählte Rechteprofil automatisch.</p>'
+                f'<div class="grid sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto">{role_checkboxes or "<p class=\'pulse-section-sub\'>Bitte zuerst oben unter Teamrollen Discord-Rollen auswählen und speichern.</p>"}</div></div>'
+                f'<div><div class="pulse-section-title mb-2">Berechtigungen dieser digitalen Rolle</div>'
+                f'<div class="grid sm:grid-cols-2 gap-1">{profile_fields}</div></div>'
+                f'<button class="pulse-btn primary w-full">Digitale Rolle speichern</button></form>'
+                f'<form action="/settings/dashboard-profile/delete" method="post" onsubmit="return confirm(\'Digitale Zwischenrolle und ihre Rechte-Zuordnung wirklich löschen?\')">'
+                f'<input type="hidden" name="dashboard_profile_id" value="{e(profile_key)}">'
+                f'<button class="pulse-btn bad w-full">Digitale Rolle löschen</button></form>'
+                f'<div class="pulse-section-sub">Zugeordnet: {e(", ".join(selected_names) if selected_names else "Keine Discord-Teamrolle")}</div>'
+                f'</div></section>'
+            )
+
+        new_profile_role_checkboxes = ''.join(
+            f'<label class="flex items-start gap-2 p-2 rounded-lg text-[11px] bg-slate-50 dark:bg-slate-900/40">'
+            f'<input type="checkbox" name="dashboard_discord_roles" value="{role.id}">'
+            f'<span>{e(role.name)}<span class="block text-slate-400 font-mono">{role.id}</span></span></label>'
+            for role in configured_roles
+        )
+        new_profile_fields = ''.join(
+            f'<label class="flex items-center gap-2 text-[11px] p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50">'
+            f'<input type="checkbox" name="{key}" value="1" {"checked" if key == "can_view_dashboard" else ""}>'
+            f'<span>{e(label)}</span></label>'
+            for key, label in permission_fields
+        )
+        dashboard_roles_section = (
+            f'<section class="mt-5 space-y-4"><div><div class="pulse-section-title">🔗 Digitale Zwischenrollen</div>'
+            f'<div class="pulse-section-sub mt-1">Erstelle interne Rollenprofile wie bei GalaxyBot, konfiguriere deren Rechte und weise sie direkt vorhandenen Discord-Teamrollen zu.</div></div>'
+            f'<div class="pulse-alert"><strong>Nur im Dashboard</strong><div class="text-slate-400 mt-1">Diese Zwischenrollen existieren ausschließlich in Pulse. Alle Mitglieder der zugeordneten Discord-Teamrollen erhalten die Rechte automatisch. Discord-Rollen und Serverrechte werden nicht verändert; du musst identische Rechte nicht mehr an jeder Discord-Rolle einzeln setzen.</div></div>'
+            f'<section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">➕ Digitale Zwischenrolle erstellen</div>'
+            f'<div class="pulse-section-sub">Name, Rechte und Ziel-Teamrollen in einem Schritt festlegen.</div></div></div><div class="pulse-card-b">'
+            f'<form action="/settings/dashboard-profile/save" method="post" class="space-y-4">'
+            f'<label class="block text-xs font-bold">Name der digitalen Rolle<input required maxlength="40" name="dashboard_profile_name" placeholder="z. B. Support-Rechte, Personalverwaltung" class="pulse-input mt-2"></label>'
+            f'<div><div class="pulse-section-title mb-2">Discord-Teamrollen zuordnen</div><div class="grid sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto">{new_profile_role_checkboxes or "<p class=\'pulse-section-sub\'>Bitte zuerst oben unter Teamrollen mindestens eine Discord-Rolle auswählen und speichern.</p>"}</div></div>'
+            f'<div><div class="pulse-section-title mb-2">Berechtigungen auswählen</div><div class="grid sm:grid-cols-2 gap-1">{new_profile_fields}</div></div>'
+            f'<button class="pulse-btn primary w-full">Digitale Zwischenrolle erstellen</button></form></div></section>'
+            f'<div class="grid md:grid-cols-2 gap-4">{"".join(dashboard_role_cards) or "<div class=\'pulse-empty\'>Noch keine digitalen Zwischenrollen erstellt.</div>"}</div></section>'
+        )
         audit=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(a.get("actor"))} · {e(a.get("action"))}</div><div class="pulse-row-meta">{e(a.get("details"))}</div></div><div class="pulse-row-meta">{e(a.get("timestamp"))}</div></div>' for a in reversed(ws.load_json(ws.AUDIT_FILE,[])[-120:]))
         if c.config.get("all_role_permissions_disabled"):
             presets_action = '<div class="pulse-alert"><strong>🛑 Standardprofile gesperrt</strong><div class="text-slate-400 mt-1">Der globale Rechte-Reset ist aktiv. Es werden keine automatischen Standardrechte vergeben. Rechte können nur pro Rolle ausdrücklich in den einzelnen Rechtekarten gesetzt werden.</div></div>'
         else:
             presets_action = "<form action=\"/settings/pro-presets\" method=\"post\" onsubmit=\"return confirm('Empfohlene Profile für ALLE ausgewählten Teamrollen anwenden? Manuell konfigurierte Rechte werden überschrieben.');\"><button class=\"pulse-btn primary\">Empfohlene Profile erneut anwenden</button></form>"
 
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div>{profile_notice}<section class="pulse-card mb-5"><div class="pulse-card-b flex flex-col gap-4"><div class="flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div class="pulse-section-title">🔐 Empfohlene Rechteprofile</div><div class="pulse-section-sub">Ordnet allen aktuell ausgewählten Teamrollen neue Standardrechte anhand ihres Discord-Rollennamens zu. Bereits manuell gesetzte Rechte werden dabei überschrieben.</div></div>{presets_action}</div><div class="pulse-alert"><strong>🛑 Alle Rollenrechte entziehen</strong><div class="text-slate-400 mt-1">Setzt jede gespeicherte Rollenberechtigung in Pulse auf „aus“ – einschließlich aller aktuell ausgewählten Teamrollen. Die Teamrollenauswahl und andere Einstellungen bleiben erhalten. Serverinhaber und echte Discord-Administratoren behalten den technischen Adminzugriff.</div><form action="/settings/pro-clear-all" method="post" onsubmit="return confirm('Wirklich ALLE Pulse-Berechtigungen für sämtliche Rollen deaktivieren? Nur Serverinhaber und echte Discord-Administratoren behalten Adminzugriff.');" class="mt-3"><button class="pulse-btn bad">Alle Rollenrechte entziehen</button></form></div></div></section><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div><div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div>{profile_notice}<section class="pulse-card mb-5"><div class="pulse-card-b flex flex-col gap-4"><div class="flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div class="pulse-section-title">🔐 Empfohlene Rechteprofile</div><div class="pulse-section-sub">Ordnet allen aktuell ausgewählten Teamrollen neue Standardrechte anhand ihres Discord-Rollennamens zu. Bereits manuell gesetzte Rechte werden dabei überschrieben.</div></div>{presets_action}</div><div class="pulse-alert"><strong>🛑 Alle Rollenrechte entziehen</strong><div class="text-slate-400 mt-1">Setzt jede gespeicherte Rollenberechtigung in Pulse auf „aus“ – einschließlich aller aktuell ausgewählten Teamrollen. Die Teamrollenauswahl und andere Einstellungen bleiben erhalten. Serverinhaber und echte Discord-Administratoren behalten den technischen Adminzugriff.</div><form action="/settings/pro-clear-all" method="post" onsubmit="return confirm('Wirklich ALLE Pulse-Berechtigungen für sämtliche Rollen deaktivieren? Nur Serverinhaber und echte Discord-Administratoren behalten Adminzugriff.');" class="mt-3"><button class="pulse-btn bad">Alle Rollenrechte entziehen</button></form></div></div></section><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div>{dashboard_roles_section}<div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
         return render_pro_page(ws,'Einstellungen',c,'settings',body)
+
+    async def settings_dashboard_profile_save(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None,admin=True)
+        form=await request.form()
+        name=str(form.get("dashboard_profile_name") or "").strip()[:40]
+        profile_key=str(form.get("dashboard_profile_id") or "").strip()
+        if not name:
+            return ws.back('/settings','Bitte gib einen Namen für die digitale Zwischenrolle an.',False)
+
+        profiles=c.config.setdefault("dashboard_roles",{})
+        if profile_key and profile_key not in profiles:
+            return ws.back('/settings','Diese digitale Zwischenrolle wurde nicht gefunden. Bitte lade die Einstellungen neu.',False)
+        if any(
+            str(key)!=profile_key and isinstance(value,dict)
+            and str(value.get("name","")).casefold()==name.casefold()
+            for key,value in profiles.items()
+        ):
+            return ws.back('/settings','Eine digitale Zwischenrolle mit diesem Namen existiert bereits.',False)
+        if not profile_key:
+            if len(profiles)>=50:
+                return ws.back('/settings','Es können maximal 50 digitale Zwischenrollen angelegt werden.',False)
+            profile_key=f"dash_{uuid.uuid4().hex[:10]}"
+
+        allowed_ids={int(value) for value in c.config.get("team_role_ids",[]) if str(value).isdigit()}
+        selected_ids=set()
+        for raw in form.getlist("dashboard_discord_roles"):
+            try:
+                selected_ids.add(int(raw))
+            except (TypeError,ValueError):
+                continue
+        if selected_ids-allowed_ids:
+            return ws.back('/settings','Es dürfen nur unter Teamrollen ausgewählte Discord-Rollen zugeordnet werden.',False)
+        valid_roles=[]
+        for rid in sorted(selected_ids):
+            role=c.guild.get_role(rid)
+            if not role or role.managed or role.is_default():
+                return ws.back('/settings','Mindestens eine ausgewählte Discord-Teamrolle ist ungültig. Bitte lade die Seite neu.',False)
+            valid_roles.append(rid)
+
+        permission_keys=tuple(dict.fromkeys((*ws.PERM_KEYS,*EXTRA_PERMS)))
+        permissions={key:bool(form.get(key)) for key in permission_keys}
+        profiles[profile_key]={
+            "name":name,
+            "permissions":permissions,
+            "discord_role_ids":valid_roles,
+        }
+        ws.save_json(ws.CONFIG_FILE,c.config)
+        mapped_names=", ".join(c.guild.get_role(rid).name for rid in valid_roles) or "keine Teamrolle"
+        enabled=", ".join(permission_labels.get(key,key) for key in permission_keys if permissions.get(key)) or "keine Rechte"
+        ws.log_audit(
+            c.user.get('global_name') or c.user.get('username'),c.user['id'],
+            "Digitale Zwischenrolle gespeichert",
+            f"{name} ({profile_key}) · Discord-Rollen: {mapped_names} · Rechte: {enabled}",
+        )
+        return ws.back('/settings',f'Digitale Zwischenrolle „{name}“ gespeichert.')
+
+    async def settings_dashboard_profile_delete(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None,admin=True)
+        form=await request.form()
+        profile_key=str(form.get("dashboard_profile_id") or "").strip()
+        profiles=c.config.setdefault("dashboard_roles",{})
+        profile=profiles.get(profile_key)
+        if not isinstance(profile,dict):
+            return ws.back('/settings','Diese digitale Zwischenrolle wurde nicht gefunden.',False)
+        profile_name=str(profile.get("name") or profile_key)
+        del profiles[profile_key]
+        ws.save_json(ws.CONFIG_FILE,c.config)
+        ws.log_audit(
+            c.user.get('global_name') or c.user.get('username'),c.user['id'],
+            "Digitale Zwischenrolle gelöscht",f"{profile_name} ({profile_key})",
+        )
+        return ws.back('/settings',f'Digitale Zwischenrolle „{profile_name}“ wurde gelöscht.')
 
     async def settings_save(request: Request, role_id: int=Form(...), user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True); role=c.guild.get_role(role_id)
@@ -1734,6 +1907,8 @@ def register(app):
     app.post('/promotions/create')(create_promotion)
     app.post('/promotions/decide')(decide_promotion)
     app.post('/settings/pro-save')(settings_save)
+    app.post('/settings/dashboard-profile/save')(settings_dashboard_profile_save)
+    app.post('/settings/dashboard-profile/delete')(settings_dashboard_profile_delete)
     app.post('/settings/pro-roles')(settings_roles)
     app.post('/settings/pro-presets')(settings_profiles)
     app.post('/settings/pro-clear-all')(settings_clear_all_permissions)
