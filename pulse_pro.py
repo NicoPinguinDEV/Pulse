@@ -314,7 +314,7 @@ def register(app):
         support_role = any(word in name for word in ("support", "supporter", "lowteam", "low team", "teamler", "ticket"))
         leadership_role = any(word in name for word in (
             "highteam", "high team", "führungsebene", "fuehrungsebene", "führung",
-            "fuehrung", "administrator", "admin", "owner", "inhaber", "management",
+            "fuehrung", "administrator", "admin", "owner", "inhaber", "management", "manager",
             "serverleitung", "teamleitung", "leitungsebene", "direktor", "director",
         )) or ("leitung" in name and not support_role)
         moderator_role = any(word in name for word in ("moderator", "moderation")) or name.strip() in {"mod", "team-mod", "team mod"}
@@ -342,7 +342,12 @@ def register(app):
             for key in ("can_manage_tickets", "can_manage_training", "can_manage_wiki"):
                 if key in profile:
                     profile[key] = True
-        # Unrecognized team roles receive dashboard-only access until an admin reviews them.
+        else:
+            # Selected team roles with unfamiliar names receive basic workflow rights only.
+            # Moderation, notes, bans, BOLOs, promotions and administration remain off.
+            for key in ("can_manage_tickets", "can_manage_tasks", "can_manage_training", "can_manage_wiki"):
+                if key in profile:
+                    profile[key] = True
         return profile
 
     def apply_recommended_role_profiles(c):
