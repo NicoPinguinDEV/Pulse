@@ -4,6 +4,7 @@ import unittest
 from pulse_activity_utils import (
     activity_action_is_terminal,
     activity_warning_due,
+    confirmed_by_deadline,
     activity_warning_id,
     leave_covers_date,
     parse_activity_date,
@@ -25,6 +26,13 @@ class ActivityUtilsTests(unittest.TestCase):
     def test_malformed_leave_record_fails_safe(self):
         self.assertTrue(leave_covers_date("bad-date", "2026-10-17", "2026-10-15"))
         self.assertTrue(leave_covers_date("2026-10-14", "bad-date", "2026-10-15"))
+
+    def test_confirmations_after_20_are_late_even_if_processed_later(self):
+        self.assertTrue(confirmed_by_deadline("2026-10-15T19:59:59+02:00", "2026-10-15"))
+        self.assertTrue(confirmed_by_deadline("2026-10-15T20:00:00+02:00", "2026-10-15"))
+        self.assertFalse(confirmed_by_deadline("2026-10-15T20:00:01+02:00", "2026-10-15"))
+        self.assertFalse(confirmed_by_deadline("2026-10-14T20:00:00+02:00", "2026-10-15"))
+        self.assertFalse(confirmed_by_deadline(None, "2026-10-15"))
 
     def test_warning_id_is_stable_per_check_and_user(self):
         first = activity_warning_id(42, 1234)
