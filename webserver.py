@@ -2747,7 +2747,9 @@ def _ticket_dashboard_embed(ticket: dict, actor, kind: str, guild) -> discord.Em
 
 
 async def _send_pulse_ticket_log(bot, guild, kind: str, ticket: dict, actor=None):
-    destination_id = pulse_ticket_log_channel_id("created" if kind == "created" else "claimed")
+    if kind not in {"created", "reopened", "claimed"}:
+        return False
+    destination_id = pulse_ticket_log_channel_id("created" if kind in {"created", "reopened"} else "claimed")
     destination = guild.get_channel(destination_id)
     if destination is None:
         try:
@@ -2766,6 +2768,24 @@ async def _send_pulse_ticket_log(bot, guild, kind: str, ticket: dict, actor=None
     except (discord.Forbidden, discord.HTTPException) as exc:
         print(f"⚠️ Pulse-Tickets: Protokoll in {destination_id} fehlgeschlagen ({type(exc).__name__}).")
         return False
+
+
+async def _refresh_pulse_ticket_discord_state(channel, ticket: dict):
+    """Keep the ticket's Discord embed/button state aligned with dashboard actions."""
+    if not isinstance(channel, discord.TextChannel):
+        return
+    try:
+        from cogs.tickets import TicketControlView, refresh_ticket_embed
+        view = TicketControlView()
+        claimed_by = ticket.get("claimed_by_name") or "Teammitglied"
+        claimed = bool(ticket.get("claimed_by_id"))
+        for item in view.children:
+            if getattr(item, "custom_id", None) == "pulse_ticket_claim":
+                item.disabled = claimed
+                item.label = (f"Übernommen · {claimed_by}"[:80] if claimed else "Übernehmen")
+        await refresh_ticket_embed(channel, ticket, view)
+    except Exception as exc:
+        print(f"⚠️ Pulse-Tickets: Discord-Anzeige konnte nicht mit dem Dashboard synchronisiert werden ({type(exc).__name__}).")
 
 
 def _ticket_channel_options(guild, selected_ids) -> str:
