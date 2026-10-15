@@ -113,17 +113,19 @@ def get_warn_action(check_id: int, user_id: int):
         return dict(row) if row else None
 
 
-def is_abgemeldet(user_id: int, check_date: str) -> bool:
-    """Query the shared Abmeldungsmodul database for the exact check date."""
+def is_abgemeldet(user_id: int, check_date: str) -> bool | None:
+    """Query the shared Abmeldungsmodul DB; return None on read errors so we can retry."""
     try:
         with sqlite3.connect(ABMELDUNGEN_DB, timeout=3.0) as conn:
             rows = conn.execute(
                 "SELECT von,bis FROM abmeldungen WHERE user_id=?",
                 (int(user_id),),
             ).fetchall()
-    except (sqlite3.Error, OSError, TypeError, ValueError):
-        # Do not issue automated warnings if the leave system cannot be checked.
-        return True
+    except (sqlite3.Error, OSError, TypeError, ValueError) as exc:
+        # Never warn when leave status could not be checked; don't mark the user
+        # as permanently excused either, so the next scheduled pass can retry.
+        print(f"⚠️ Activity Check: Abmeldung für {user_id} nicht prüfbar ({type(exc).__name__}).")
+        return None
     return any(leave_covers_date(von, bis, check_date) for von, bis in rows)
 
 
@@ -242,11 +244,53 @@ class ActivityCheckCog(commands.Cog):
         today = datetime.now(BERLIN_TZ).date().isoformat()
         with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
             existing = conn.execute(
-                "SELECT id FROM checks WHERE guild_id=? AND check_date=?",
+                "SELECT id,snapshot_version FROM checks WHERE guild_id=? AND check_date=?",
                 (channel.guild.id, today),
             ).fetchone()
-            if existing:
-                return None
+            existing_snapshot_count = (
+                int(conn.execute(
+                    "SELECT COUNT(*) FROM check_members WHERE check_id=?",
+                    (int(existing[0]),),
+                ).fetchone()[0])
+                if existing else 0
+            )
+
+        if existing:
+            # A check created by an older release may have a row but no frozen
+            # participant snapshot. Repair today's legacy row once before 20:00,
+            # rather than leaving the page empty or silently skipping all warnings.
+            if int(existing[1] or 0) < 1 and existing_snapshot_count == 0 and datetime.now(BERLIN_TZ).hour < 20:
+                repaired_members = await self.eligible_members(channel.guild, role)
+                if repaired_members:
+                    repaired_at = datetime.now(BERLIN_TZ).isoformat(timespec="seconds")
+                    with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+                        conn.execute(
+                            "UPDATE checks SET snapshot_version=1 WHERE id=? AND snapshot_version<1",
+                            (int(existing[0]),),
+                        )
+                        for member in repaired_members:
+                            conn.execute(
+                                """INSERT OR IGNORE INTO check_members
+                                   (check_id,user_id,user_name,role_name,added_at)
+                                   VALUES(?,?,?,?,?)""",
+                                (
+                                    int(existing[0]),
+                                    member.id,
+                                    member.display_name,
+                                    member.top_role.name if member.top_role else "",
+                                    repaired_at,
+                                ),
+                            )
+                    print(
+                        f"♻️ Activity Check Snapshot repariert: Check={existing[0]}, "
+                        f"Datum={today}, Teilnehmer={len(repaired_members)}."
+                    )
+                else:
+                    print(
+                        f"⚠️ Activity Check {today}: alter Check ohne Snapshot; "
+                        "Reparatur noch nicht möglich, weil keine Teammitglieder ermittelt wurden."
+                    )
+            return None
 
         eligible = await self.eligible_members(channel.guild, role)
         embed = discord.Embed(
@@ -339,7 +383,7 @@ class ActivityCheckCog(commands.Cog):
         except Exception as exc:
             print(f"⚠️ Activity Check: Tagescheck konnte nicht erstellt werden ({type(exc).__name__}: {exc}).")
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=1)
     async def activity_warning_check(self):
         await self.bot.wait_until_ready()
         now = datetime.now(BERLIN_TZ)
@@ -436,10 +480,16 @@ class ActivityCheckCog(commands.Cog):
                 set_warn_action(check_id, uid, "confirmed")
                 report["confirmed"] += 1
                 continue
-            if warn is None and is_abgemeldet(uid, check_date):
-                set_warn_action(check_id, uid, "on_leave")
-                report["on_leave"] += 1
-                continue
+            if warn is None:
+                leave_status = is_abgemeldet(uid, check_date)
+                if leave_status is None:
+                    set_warn_action(check_id, uid, "failed", warning_id, "Abmeldungsdatenbank konnte nicht geprüft werden")
+                    report["failed"] += 1
+                    continue
+                if leave_status:
+                    set_warn_action(check_id, uid, "on_leave")
+                    report["on_leave"] += 1
+                    continue
 
             member = guild.get_member(uid)
             if member is None:
