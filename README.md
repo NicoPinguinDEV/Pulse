@@ -60,6 +60,13 @@ Administratoren können in Discord `/pulse-diagnose` verwenden, um RAM, Datenban
 
 Der Webserver wird vom Bot-Prozess gestartet. Für Hosting hinter einem Reverse Proxy sollte `PUBLIC_BASE_URL` auf die öffentliche HTTPS-Adresse zeigen.
 
+## Öffentliches Bewerbungsportal
+
+- Die externe Bewerbungsseite ist unter `/apply` erreichbar. Bewerber müssen sich per Discord verifizieren und die konfigurierte Serverrolle besitzen.
+- Der Zugang wird bei Formularaufruf und erneut beim Absenden serverseitig geprüft.
+- Neue Bewerbungen erscheinen unter `/applications` und lösen eine Benachrichtigung im konfigurierten Recruiting-Kanal mit gezieltem Rollen-Ping aus.
+- OAuth-Callback und öffentliche Basis-URL müssen in den Discord-Entwicklereinstellungen bzw. Hosting-Variablen passend zur tatsächlich genutzten Domain eingerichtet sein.
+
 ## Pulse-eigenes Ticketsystem
 
 - `/ticketpanels_setup` richtet native Pulse-Ticketpanels in sechs konfigurierten Discord-Kanälen ein.
