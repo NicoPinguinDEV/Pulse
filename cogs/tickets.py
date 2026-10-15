@@ -497,9 +497,9 @@ class TicketSelect(Select):
             close_ticket(existing["id"], "Verwaistes Ticket automatisch archiviert.", "", interaction.user.id, interaction.user.display_name)
 
         roles = category_roles(guild, key)
-        if group in ("highteam", "leadership") and not (ticket_config().get(f"{group}_role_ids") or category_definition.get("role_ids")):
+        if not roles:
             await interaction.response.send_message(
-                f"⚠️ **{label}** ist noch nicht vollständig eingerichtet. Eine zuständige Rolle muss zuerst durch einen Administrator konfiguriert werden.",
+                f"⚠️ **{label}** ist noch nicht vollständig eingerichtet. Weise dieser Kategorie zuerst mindestens eine gültige zuständige Rolle zu.",
                 ephemeral=True,
             )
             return
