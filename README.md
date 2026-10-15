@@ -30,13 +30,24 @@ Pulse ist für kleine Hosts mit **maximal 250 MB RAM** ausgelegt. Der laufende S
 - **180 MB:** Warnung
 - **210 MB:** kritisch; entbehrlicher Roblox-Lookup-Cache wird geleert und die Python-Garbage-Collection ausgeführt
 - **230 MB:** Notfallwarnung
+- **220 MB:** Notfallstufe fällt erst unter diesen Wert zurück; das reduziert Warnungs-Flattern
+- **200 MB:** kritische Stufe fällt erst unter diesen Wert zurück
 - **unter 160 MB:** Rückkehr in den Normalbereich wird protokolliert
+- **RAM-Trend:** ein kleiner, begrenzter Messring erkennt anhaltendes Wachstum (mindestens 20 MB/Stunde) und meldet es höchstens einmal pro Stunde
 
 Die Warnschwellen sind Schutzmaßnahmen, keine harte Betriebssystem-Grenze und keine Garantie, dass ein Host-Prozess bei jedem Lastmuster unter 250 MB bleibt. Der Hosting-Anbieter bleibt die letzte Instanz bei Speicherlimits. Der Roblox-Lookup-Cache ist auf 300 Einträge und fünf Minuten Lebensdauer begrenzt; sein HTTP-Verbindungspool wird wiederverwendet und beim Shutdown geschlossen.
 
 Der optionale Wert `PULSE_SYSTEM_ALERT_CHANNEL_ID` in der `.env` kann auf einen Textkanal zeigen, in dem Pulse einmalig beim Wechsel der RAM-Warnstufe meldet. Bleibt der Wert leer, werden die Meldungen nur in der Hosting-Konsole protokolliert.
 
 Administratoren können in Discord `/pulse-diagnose` verwenden, um RAM, Datenbanken, Warnrollen und die wichtigsten Team-, Büro- und Social-Kanäle zu prüfen. Der Befehl verändert keine Teamdaten.
+
+## Kritische Teamaktionen
+
+- `/team-kick` und `/team-exit` entziehen nur die konfigurierten Teamrollen. Die Person bleibt im Discord-Server.
+- `/kick` und `/server-exit` führen einen echten Server-Kick erst nach einer zweiten, anderen berechtigten Führungskraft aus.
+- Server-Kick und Team-Offboarding prüfen Gründe, Berechtigungen und Rollenhierarchie. Vorgänge werden vor Ausführung atomar beansprucht, um doppelte Freigaben zu vermeiden.
+- `/promote` und `/demote` ersetzen konfigurierte Rangrollen durch genau eine Zielrangrolle und erhalten alle anderen Rollen.
+- Die Kernregeln sind in `pulse_safety.py` ohne externe Abhängigkeiten testbar; `tests/test_pulse_safety.py` prüft Hysterese, Rangrollenplanung sowie die Trennung zwischen Server-Kick und Team-Offboarding.
 
 ## Start
 
