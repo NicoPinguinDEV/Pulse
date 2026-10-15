@@ -21,7 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
 
-VERSION = "7.6.2"
+VERSION = "7.6.3"
 EXTRA_PERMS = (
     "can_manage_announcements",
     "can_manage_handover",
@@ -193,7 +193,7 @@ def make_shell_helpers(ws):
                 nav.append(nav_item(key, href, icon, label, current_page == key, str(badge_text)))
         if perms.get("is_admin"):
             nav.append('<div class="px-2 mt-4 mb-2 text-[9px] font-bold uppercase tracking-[.14em] text-slate-400">Administration</div>')
-            for key,href,icon,label in [("settings","/settings","⚙","Einstellungen"),("backups","/backups","◉","Backups"),("system","/system","♥","Systemstatus")]:
+            for key,href,icon,label in [("ticket-panels","/tickets/panels","▣","Ticket-Panel-Builder"),("settings","/settings","⚙","Einstellungen"),("backups","/backups","◉","Backups"),("system","/system","♥","Systemstatus")]:
                 nav.append(nav_item(key,href,icon,label,current_page==key))
         user_name = ws.esc(current_user.get("global_name") or current_user.get("username") or "Team")
         avatar_id=current_user.get("avatar"); user_id=current_user.get("id")
@@ -229,7 +229,7 @@ def build_command_modal(ws):
         ("⌂", "Dashboard öffnen", "/dashboard"), ("◌", "Teamstatus", "/team-status"), ("✓", "Activity Check", "/activity-check"), ("🛡️", "Melonly", "/melonly"), ("▣", "Tickets", "/tickets"),
         ("□", "Aufgaben", "/tasks"), ("✓", "Freigaben", "/approvals"), ("↪", "Übergabe", "/handover"),
         ("✦", "Ankündigungen", "/announcements"), ("▤", "Meeting-Historie", "/meetings-history"), ("◇", "Schulungen", "/training"), ("▤", "Team-Wiki", "/wiki"),
-        ("◒", "Analytics", "/stats"), ("◆", "Achievements", "/achievements"), ("⚙", "Einstellungen", "/settings"),
+        ("◒", "Analytics", "/stats"), ("◆", "Achievements", "/achievements"), ("🎛️", "Ticket-Panel-Builder", "/tickets/panels"), ("⚙", "Einstellungen", "/settings"),
     ]
     rows = "".join(f'<a href="{u}" class="pulse-command-item"><span class="pulse-avatar">{i}</span><span>{t}</span><span class="pulse-key">Öffnen</span></a>' for i,t,u in items)
     return f'''<div id="pulseCommandModal" class="pulse-modal-backdrop"><div class="pulse-modal"><div class="pulse-modal-head"><div><div class="text-sm font-extrabold">Pulse Schnellzugriff</div><div class="text-[10px] text-slate-400 mt-0.5">Navigation ohne Umwege</div></div><button onclick="pulseTogglePalette(false)" class="pulse-icon-btn">✕</button></div><div class="p-3"><div class="pulse-search" style="max-width:none"><span>⌕</span><input id="pulseCmdFilter" oninput="pulseFilterCmd(this.value)" autofocus placeholder="Bereich suchen…"></div></div><div id="pulseCmdList" class="pulse-command-list">{rows}</div></div></div><script>function pulseFilterCmd(v){{v=v.toLowerCase();document.querySelectorAll('#pulseCmdList .pulse-command-item').forEach(x=>x.style.display=x.textContent.toLowerCase().includes(v)?'':'none')}}</script>'''
