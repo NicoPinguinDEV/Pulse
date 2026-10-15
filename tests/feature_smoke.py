@@ -134,8 +134,8 @@ def main() -> None:
     assert '"unassign_dashboard_role": "admin"' in web
     assert '"delete_dashboard_role": "admin"' in web
     assert "assigned_dashboard_roles" in web
-    assert "Dashboard-Profile zugewiesen" in web
-    assert "Dashboard-Profile entzogen" in web
+    assert "Dashboard-Profil zugewiesen" in web
+    assert "Dashboard-Profil entzogen" in web
     assert "Dashboard-Profile können nur Mitgliedern mit einer konfigurierten Teamrolle zugewiesen werden." in web
 
 
