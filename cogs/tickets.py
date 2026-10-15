@@ -27,6 +27,18 @@ os.makedirs("transcripts", exist_ok=True)
 TICKET_PARENT_NAME = "🎫・Tickets"
 TEAM_UPDATE_CHANNEL_ID = 1531132354272170115
 
+# Native Pulse ticket panel sources and lifecycle logs (no external ticket bot).
+TICKET_PANEL_CHANNEL_IDS = (
+    1511390378752741386,
+    1494338404224340179,
+    1494397389635719269,
+    1488972966774706186,
+    1559242374658662602,
+    1488699195157254436,
+)
+TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503
+TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778
+
 CATEGORY_META = {
     "support": ("Allgemeiner Support", "Fragen, Hilfe und allgemeine Anliegen", "🎫", 10, "team"),
     "bug": ("Bug melden", "Technische Fehler oder Server-Bugs melden", "⚙️", 5, "team"),
@@ -151,6 +163,63 @@ def safe_channel_name(name: str) -> str:
 
 def priority_embed_value(priority: str) -> str:
     return PRIORITY_LABELS.get(priority, "🟢 Normal")
+
+
+async def _resolve_text_channel(bot, guild: discord.Guild, channel_id: int):
+    channel = guild.get_channel(int(channel_id))
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(int(channel_id))
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return None
+    if not isinstance(channel, discord.TextChannel):
+        return None
+    if channel.guild.id != guild.id:
+        return None
+    return channel
+
+
+async def send_ticket_log(
+    bot: commands.Bot,
+    guild: discord.Guild,
+    destination_id: int,
+    *,
+    title: str,
+    description: str,
+    ticket: dict,
+    actor: discord.abc.User | None = None,
+    color: discord.Color | None = None,
+):
+    """Send a compact lifecycle log for Pulse-owned tickets."""
+    destination = await _resolve_text_channel(bot, guild, destination_id)
+    if destination is None:
+        print(f"⚠️ Pulse-Tickets: Protokollkanal {destination_id} fehlt oder ist nicht erreichbar.")
+        return False
+    channel_id = str(ticket.get("channel_id") or "")
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=color or discord.Color.blurple(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="Ticket-ID", value=f"`{ticket.get('id', 'unbekannt')}`", inline=True)
+    embed.add_field(name="Kategorie", value=category_meta(ticket.get("category"))[0], inline=True)
+    embed.add_field(name="Status", value="🔵 In Bearbeitung" if ticket.get("claimed_by_id") else "🟢 Offen", inline=True)
+    creator_name = str(ticket.get("user_name") or "Unbekannt")[:200]
+    creator_id = str(ticket.get("user_id") or "")
+    embed.add_field(name="Ersteller", value=f"{creator_name}" + (f" (`{creator_id}`)" if creator_id else ""), inline=True)
+    if actor:
+        embed.add_field(name="Bearbeiter", value=f"{actor} (`{actor.id}`)", inline=True)
+    if channel_id.isdigit():
+        embed.add_field(name="Ticket-Kanal", value=f"<#{channel_id}>", inline=True)
+        embed.url = f"https://discord.com/channels/{guild.id}/{channel_id}"
+    embed.set_footer(text="Pulse Ticket-System • Ereignisprotokoll")
+    try:
+        await destination.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        return True
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        print(f"⚠️ Pulse-Tickets: Protokoll in {destination_id} fehlgeschlagen ({type(exc).__name__}).")
+        return False
 
 
 async def transcript(channel):
@@ -381,8 +450,20 @@ class TicketSelect(Select):
             tid,
             interaction.user.id,
             interaction.user.display_name,
-            {"category": key, "channel_id": channel.id},
+            {"category": key, "channel_id": channel.id, "panel_channel_id": interaction.channel.id},
         )
+        created_ticket = get_ticket(ticket_id=tid)
+        if created_ticket:
+            await send_ticket_log(
+                interaction.client,
+                guild,
+                TICKET_OPEN_LOG_CHANNEL_ID,
+                title="🎫 Neues Ticket geöffnet",
+                description="Ein neues Ticket wurde über das Pulse-Ticketpanel erstellt.",
+                ticket=created_ticket,
+                actor=interaction.user,
+                color=discord.Color.green(),
+            )
         await interaction.response.send_message(f"✅ Dein Ticket wurde erstellt: {channel.mention}", ephemeral=True)
 
 
@@ -419,6 +500,24 @@ class TicketControlView(View):
                 await refresh_ticket_embed(interaction.channel, latest, self)
         except Exception:
             pass
+        if latest:
+            await send_ticket_log(
+                interaction.client,
+                interaction.guild,
+                TICKET_CLAIM_LOG_CHANNEL_ID,
+                title="📥 Ticket übernommen",
+                description="Ein Teammitglied hat ein Pulse-Ticket beansprucht.",
+                ticket=latest,
+                actor=interaction.user,
+                color=discord.Color.blue(),
+            )
+            try:
+                await interaction.channel.send(
+                    f"📥 {interaction.user.mention} hat dieses Ticket übernommen.",
+                    allowed_mentions=discord.AllowedMentions(users=[interaction.user], roles=False, everyone=False),
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
         await interaction.response.send_message(f"✅ Du bearbeitest Ticket `{t['id']}` jetzt.", ephemeral=True)
 
     @discord.ui.button(label="Freigeben", style=discord.ButtonStyle.secondary, emoji="↩️", custom_id="pulse_ticket_unclaim")
@@ -485,19 +584,23 @@ class Tickets(commands.Cog):
     async def panel_refresh(self):
         await self.bot.wait_until_ready()
         settings = ticket_config()
-        channel_id = settings.get("panel_channel_id")
-        message_id = settings.get("panel_message_id")
-        if not channel_id or not message_id:
+        panels = settings.get("panel_messages", {})
+        legacy_channel_id = settings.get("panel_channel_id")
+        legacy_message_id = settings.get("panel_message_id")
+        if legacy_channel_id and legacy_message_id:
+            panels = {**panels, str(legacy_channel_id): int(legacy_message_id)}
+        if not isinstance(panels, dict) or not panels:
             return
         for guild in self.bot.guilds:
-            try:
-                channel = guild.get_channel(int(channel_id))
-                if not channel:
-                    continue
-                message = await channel.fetch_message(int(message_id))
-                await message.edit(embed=build_panel_embed(guild), view=TicketView())
-            except Exception as exc:
-                print(f"Ticket-Panel konnte nicht aktualisiert werden: {exc}")
+            for raw_channel_id, raw_message_id in list(panels.items()):
+                try:
+                    channel = guild.get_channel(int(raw_channel_id))
+                    if not isinstance(channel, discord.TextChannel):
+                        continue
+                    message = await channel.fetch_message(int(raw_message_id))
+                    await message.edit(embed=build_panel_embed(guild), view=TicketView())
+                except (TypeError, ValueError, discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+                    print(f"Ticket-Panel {raw_channel_id} konnte nicht aktualisiert werden ({type(exc).__name__}).")
 
     @panel_refresh.before_loop
     async def before_panel_refresh(self):
@@ -515,6 +618,55 @@ class Tickets(commands.Cog):
         settings.update({"panel_channel_id": interaction.channel.id, "panel_message_id": message.id})
         save_ticket_config(settings)
         await interaction.followup.send("✅ Professionelles Ticket-Panel eingerichtet. Die Auslastung wird automatisch aktualisiert.", ephemeral=True)
+
+    @app_commands.command(
+        name="ticketpanels_setup",
+        description="[Admin] Richtet Pulse-Ticketpanels in allen sechs konfigurierten Kanälen ein.",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ticketpanels_setup(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        settings = ticket_config()
+        panels = settings.get("panel_messages", {})
+        if not isinstance(panels, dict):
+            panels = {}
+        successes = []
+        failures = []
+        for channel_id in TICKET_PANEL_CHANNEL_IDS:
+            channel = await _resolve_text_channel(self.bot, interaction.guild, channel_id)
+            if channel is None:
+                failures.append(f"`{channel_id}`: Kanal fehlt oder ist kein Textkanal")
+                continue
+            try:
+                old_message_id = panels.get(str(channel_id))
+                message = None
+                if old_message_id:
+                    try:
+                        message = await channel.fetch_message(int(old_message_id))
+                    except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+                        message = None
+                if message is None:
+                    message = await channel.send(embed=build_panel_embed(interaction.guild), view=TicketView())
+                else:
+                    await message.edit(embed=build_panel_embed(interaction.guild), view=TicketView())
+                panels[str(channel_id)] = message.id
+                successes.append(channel.mention)
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                failures.append(f"`{channel_id}`: Discord-Fehler ({type(exc).__name__})")
+
+        settings["panel_messages"] = panels
+        save_ticket_config(settings)
+        details = [
+            f"✅ **Pulse-Ticketpanels eingerichtet:** {len(successes)}/{len(TICKET_PANEL_CHANNEL_IDS)}",
+            ", ".join(successes) if successes else "Kein Panel konnte eingerichtet werden.",
+        ]
+        if failures:
+            details.append("\n**Nicht eingerichtet:**\n" + "\n".join(failures))
+        await interaction.followup.send("\n".join(details), ephemeral=True)
 
     @app_commands.command(name="ticketrole", description="Setzt die zuständige Rolle für Highteam oder Führungsebene.")
     @app_commands.describe(bereich="Geschützter Ticketbereich", rolle="Rolle, die Zugriff erhält")
