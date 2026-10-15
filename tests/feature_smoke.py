@@ -298,7 +298,10 @@ def main() -> None:
     assert "def clear_all_role_permissions(c):" in pro_melonly
     assert 'app.post(\'/settings/pro-clear-all\')(settings_clear_all_permissions)' in pro_melonly
     assert "Alle Rollenrechte entziehen" in pro_melonly
-    assert "permissions_profile_version\"] = 2" in pro_melonly
+    assert "profile_version < 3" in pro_melonly
+    assert 'c.config["all_role_permissions_disabled"] = True' in pro_melonly
+    assert 'c.config["permissions_profile_version"] = 3' in pro_melonly
+    assert 'dict(no_rights) if keep_roles_disabled else recommended_role_profile(role)' in pro_melonly
     assert "legacy_recommended_role_profile(role)" in pro_melonly
     assert "permissions_profile_version" in pro_melonly
     assert "pk_role" in pro_melonly
