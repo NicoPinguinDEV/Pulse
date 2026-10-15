@@ -1537,12 +1537,12 @@ async def _galaxybot_source_matches(bot, guild, data: dict) -> tuple[bool, int |
         if parent_id in TICKET_SOURCE_CHANNEL_IDS:
             return True, parent_id
 
-    # Some GalaxyBot event variants omit panel/channel IDs entirely. In that
-    # case, accept the event instead of silently losing ticket/claim notices;
-    # the webhook itself is scoped to this server and to ticket events.
-    if not candidate_ids or not resolved_context:
-        return True, None
-    return False, None
+    # A ticket's own channel ID is not necessarily the panel channel ID. Some
+    # GalaxyBot event variants expose only the created ticket channel, so a
+    # non-match cannot safely prove that the event came from another panel.
+    # Prefer reliable logging over silently losing events; exact source matches
+    # are shown in the log when the payload includes them.
+    return True, None
 
 
 def _galaxybot_embed(event_name: str, guild_id: int, data: dict, source_id: int | None) -> discord.Embed:
