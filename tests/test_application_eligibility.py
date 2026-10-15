@@ -72,6 +72,21 @@ class ApplicationEligibilityTests(unittest.TestCase):
         applications = function_source(source, "applications_page")
         self.assertIn('can_decide = ctx.perms["can_manage_applications"] or ctx.perms["can_promote"] or ctx.perms["is_admin"]', applications)
 
+    def test_accepting_application_grants_the_fixed_extra_role(self):
+        source = read_web()
+        self.assertIn("APPLICATION_ACCEPTED_ROLE_ID = 1496070682126188604", source)
+        handler = function_source(source, "handle_action")
+        start = handler.index('if decision == "accept":')
+        end = handler.index('item["status"] = "rejected"', start)
+        accept = handler[start:end]
+        self.assertIn("accepted_role = guild.get_role(APPLICATION_ACCEPTED_ROLE_ID)", accept)
+        self.assertIn("roles_to_add = [r for r in (role, accepted_role) if r not in applicant.roles]", accept)
+        self.assertIn("await applicant.add_roles(*roles_to_add", accept)
+        self.assertIn('item["application_accepted_role_id"] = accepted_role.id', accept)
+        self.assertIn("Zusätzliche Einstellungsrolle", accept)
+        self.assertIn("accepted_role.position >= guild.me.top_role.position", accept)
+        self.assertNotIn('await applicant.kick(', accept)
+
     def test_application_oauth_reuses_registered_dashboard_callback(self):
         source = read_web()
         redirect_helper = function_source(source, "oauth_redirect_uri")
