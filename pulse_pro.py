@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import time
 import traceback
+import uuid
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from urllib.parse import quote, urlparse
