@@ -429,7 +429,7 @@ def main() -> None:
     assert "Bitte einen Grund für die Maßnahme angeben." in web
     assert "Bitte einen Grund für die Rücknahme der Verwarnung angeben." in web
     assert "Bitte einen Grund für die Rollenänderung angeben." in web
-    assert "Bitte einen Grund für die Bewerbungsentscheidung angeben." in web
+    assert "Bitte einen Grund bzw. eine Gesprächsnotiz angeben." in web
     assert '("Grund", action_reason, False)' in web
     assert '("📝 Grund", action_reason, False)' in web
 
