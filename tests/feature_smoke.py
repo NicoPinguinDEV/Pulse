@@ -45,6 +45,10 @@ def main() -> None:
     assert "await reference_channel.fetch_message(reference.message_id)" in support
     assert "process_peak_rss_mb" in read("pulse_ultimate.py")
     assert "discord_cached_messages" in read("pulse_ultimate.py")
+    assert "_ROBLOX_CACHE_MAX_ENTRIES = 300" in web
+    assert "def _prune_roblox_cache" in web
+    assert "def _roblox_http_client()" in web
+    assert "limits=httpx.Limits(" in web
 
     # Team-Kick must only remove team roles, never call Discord member.kick().
     assert "Team-Kick" in web
@@ -52,6 +56,16 @@ def main() -> None:
     assert 'await member.kick(' not in web
     assert "Mitglied bleibt auf dem Discord-Server" not in web or "bleibt aber auf dem Discord-Server" in web
     ultimate = read("pulse_ultimate.py")
+    assert "RAM_WARN_MB = 180.0" in ultimate
+    assert "RAM_CRITICAL_MB = 210.0" in ultimate
+    assert "RAM_EMERGENCY_MB = 230.0" in ultimate
+    assert "async def runtime_memory_guard(bot)" in ultimate
+    assert "await runtime_memory_guard(bot)" in ultimate
+    assert '"ram_guard": {' in ultimate
+    pulse_pro_cog = read("cogs/pulse_pro.py")
+    parse("cogs/pulse_pro.py")
+    assert 'name="pulse-diagnose"' in pulse_pro_cog
+    assert "process_peak_rss_mb" in pulse_pro_cog
 
     # Pulse Next uses synchronous SQLite helpers during periodic score updates.
     # Keep workflow/profile/score maintenance off the Discord event loop.
@@ -377,7 +391,8 @@ def main() -> None:
     # On entering the configured/default waiting room, Pulse immediately posts
     # a persistent actionable ping; the existing DM office-selection remains.
     assert "DEFAULT_WAITING_ROOM_ID = 1528821871057965067" in buero
-    assert "DEFAULT_PING_CHANNEL_ID = 1539324692001857606" in buero
+    assert "DEFAULT_PING_CHANNEL_ID = 1560211874602160218" in buero
+    assert "OFFICE_CONFIG_VERSION = 3" in buero
     assert "migrate_office_config()" in buero
     assert "await self._send_arrival_ping(member, after.channel)" in buero
     assert 'content = (' in buero
