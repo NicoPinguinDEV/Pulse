@@ -123,7 +123,7 @@ try:
 except Exception:
     TZ = None
 
-PULSE_VERSION = "7.4.4"
+PULSE_VERSION = "7.4.5"
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
 
 
@@ -2861,6 +2861,48 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             });
         }
     </script>"""
+    hire_panel = ""
+    if ctx.perms.get("can_promote") or ctx.perms.get("is_admin"):
+        hire_roles = [
+            guild.get_role(rid) for rid in team_role_ids
+            if guild.get_role(rid) and not guild.get_role(rid).managed and not guild.get_role(rid).is_default()
+        ]
+        if hire_roles:
+            hire_role_options = "".join(
+                f'<option value="{role.id}">{esc(role.name)}</option>'
+                for role in hire_roles
+            )
+            hire_panel = f"""
+            <section class="{CARD} p-5 mb-6">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-900 dark:text-white">➕ Teamler manuell einstellen</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Discord-ID, Benutzername oder Anzeigename eingeben und die Teamrolle festlegen. Die Person muss bereits auf diesem Discord-Server sein.</p>
+                    </div>
+                    <span class="text-[10px] font-semibold px-3 py-1 rounded-full border {BADGE_OK}">Führung</span>
+                </div>
+                <form action="/action" method="post" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                    <input type="hidden" name="action" value="hire">
+                    <label class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Discord-Nutzer
+                        <input name="target_user_id" required maxlength="100" autocomplete="off" class="mt-1 w-full bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs" placeholder="ID, @Benutzername oder Name">
+                    </label>
+                    <label class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Teamrolle
+                        <select name="hire_role_id" required class="mt-1 w-full bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs">
+                            <option value="">Teamrolle auswählen…</option>
+                            {hire_role_options}
+                        </select>
+                    </label>
+                    <label class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Pflichtgrund
+                        <input name="action_reason" required maxlength="500" class="mt-1 w-full bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs" placeholder="Grund für die Einstellung">
+                    </label>
+                    <div class="flex items-end">
+                        <button class="w-full px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm" onclick="return confirm('Diese Person wirklich mit der ausgewählten Teamrolle einstellen?')">🎉 Teamler einstellen</button>
+                    </div>
+                </form>
+            </section>"""
+        else:
+            hire_panel = f'<section class="{CARD} p-4 mb-6 text-sm text-amber-600">⚠️ Es sind keine gültigen Teamrollen konfiguriert. Bitte zuerst die Teamrollen in den Einstellungen festlegen.</section>'
+
     body = f"""
     <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
         <div>
@@ -2877,6 +2919,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             <input type="text" id="searchInput" oninput="filterTeam()" placeholder="Teammitglied suchen..." class="bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white rounded-xl px-4 py-2.5 w-56 focus:outline-none focus:border-indigo-500 shadow-sm">
         </div>
     </div>
+    {hire_panel}
     <div class="space-y-3">{rows_html or f"<div class='text-center py-12 text-slate-400 text-sm {CARD}'>Keine Teammitglieder gefunden. Team-Rollen kannst du unter Einstellungen festlegen.</div>"}</div>"""
     return render_page("Teamliste", ctx, "team", body, head)
 
@@ -4043,7 +4086,7 @@ async def settings_page(request: Request, user_session: str = Cookie(None)):
 # ZENTRALER ACTION-HANDLER (jede Aktion mit Rechteprüfung)
 # =============================================================
 ACTION_PERMS = {
-    "promote": "can_promote", "demote": "can_promote", "kick": "can_promote",
+    "promote": "can_promote", "demote": "can_promote", "kick": "can_promote", "hire": "can_promote",
     "warn_with_proof": "can_warn", "remove_warn": "can_warn", "add_note": "can_add_notes",
     "submit_loa": "can_view_dashboard", "cancel_loa": "can_view_dashboard",
     "vote_app": "can_view_dashboard", "decide_app": "can_manage_applications",
@@ -4227,6 +4270,130 @@ async def handle_action(
     if action == "decide_app" and not (ctx.perms.get("can_manage_applications") or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung.")
     member_url = f"/member/{user_id}" if redirect_to_member and user_id else "/dashboard"
+
+    # ---------- Manuelle Einstellung über Discord-ID oder Namen ----------
+    if action == "hire":
+        query = (target_user_id or "").strip()
+        action_reason = (action_reason or "").strip()[:500]
+        if not query:
+            return back("/team", "Bitte gib eine Discord-Nutzer-ID oder einen Discord-Namen ein.", False)
+        if not action_reason:
+            return back("/team", "Bitte gib einen Pflichtgrund für die Einstellung an.", False)
+        if not hire_role_id:
+            return back("/team", "Bitte wähle eine Teamrolle aus.", False)
+
+        role = guild.get_role(hire_role_id)
+        configured_team_role_ids = set(team_role_ids)
+        if role is None or role.id not in configured_team_role_ids or role.managed or role.is_default():
+            return back("/team", "Die ausgewählte Rolle ist keine gültige, konfigurierte Teamrolle.", False)
+        if not guild.me:
+            return back("/team", "Der Bot ist auf diesem Discord-Server noch nicht vollständig verfügbar.", False)
+        if not guild.me.guild_permissions.manage_roles:
+            return back("/team", "Dem Bot fehlt die Berechtigung 'Rollen verwalten'.", False)
+        if role.position >= guild.me.top_role.position:
+            return back("/team", "Der Bot muss in der Rollenliste über der ausgewählten Teamrolle stehen.", False)
+
+        lookup = query
+        if lookup.startswith("<@") and lookup.endswith(">"):
+            lookup = lookup[2:-1].lstrip("!").strip()
+        target = None
+        if lookup.isdigit():
+            target_id = int(lookup)
+            target = guild.get_member(target_id)
+            if target is None:
+                try:
+                    target = await guild.fetch_member(target_id)
+                except discord.NotFound:
+                    return back("/team", "Diese Discord-ID gehört zu keinem Mitglied dieses Servers. Bitte prüfe die ID und lade die Person zuerst auf den Server ein.", False)
+                except discord.Forbidden:
+                    return back("/team", "Discord verweigert das Abrufen dieses Mitglieds. Bitte prüfe die Bot-Berechtigungen.", False)
+                except discord.HTTPException:
+                    return back("/team", "Das Discord-Mitglied konnte gerade nicht geladen werden. Bitte versuche es erneut.", False)
+        else:
+            name_query = lookup.lstrip("@").strip().casefold()
+            if not name_query:
+                return back("/team", "Bitte gib einen gültigen Discord-Namen ein.", False)
+            try:
+                if not getattr(guild, "chunked", True):
+                    await guild.chunk(cache=True)
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+            pool = [m for m in list(getattr(guild, "members", []) or []) if not m.bot]
+            lookup_fields = (
+                lambda m: str(getattr(m, "name", "") or "").casefold(),
+                lambda m: str(getattr(m, "global_name", "") or "").casefold(),
+                lambda m: str(getattr(m, "display_name", "") or "").casefold(),
+            )
+            for field in lookup_fields:
+                exact = [m for m in pool if field(m) == name_query]
+                if exact:
+                    target = exact[0] if len(exact) == 1 else None
+                    if len(exact) > 1:
+                        examples = ", ".join(f"{m.display_name} (ID {m.id})" for m in exact[:5])
+                        return back("/team", f"Der Name ist nicht eindeutig. Bitte verwende die Discord-ID. Treffer: {examples}", False)
+                    break
+            if target is None:
+                partial = [
+                    m for m in pool
+                    if any(name_query in field(m) for field in lookup_fields)
+                ]
+                unique_partial = {m.id: m for m in partial}
+                if len(unique_partial) == 1:
+                    target = next(iter(unique_partial.values()))
+                elif len(unique_partial) > 1:
+                    examples = ", ".join(f"{m.display_name} (ID {m.id})" for m in list(unique_partial.values())[:5])
+                    return back("/team", f"Mehrere Discord-Mitglieder passen zu dieser Eingabe. Bitte verwende die ID. Treffer: {examples}", False)
+
+        if target is None:
+            return back("/team", "Kein passendes Discord-Mitglied gefunden. Nutze am besten die Nutzer-ID oder prüfe, ob die Person bereits auf dem Server ist.", False)
+        if target.bot or target.id == guild.owner_id or str(target.id) == str(actor_id):
+            return back("/team", "Bots, der Serverinhaber und du selbst können nicht über diese Funktion eingestellt werden.", False)
+        if target.top_role.position >= guild.me.top_role.position:
+            return back("/team", "Der Bot kann dieses Mitglied wegen der Discord-Rollenhierarchie nicht verwalten. Die Bot-Rolle muss über der höchsten Rolle der Person stehen.", False)
+        if any(r.id in configured_team_role_ids for r in target.roles):
+            return back("/team", f"{target.display_name} besitzt bereits eine Teamrolle. Verwende stattdessen die Rollenverwaltung.", False)
+
+        selected_rank = team_role_ids.index(role.id)
+        actor_rank = team_rank(ctx.member, team_role_ids) if ctx.member else -1
+        if not ctx.perms.get("is_admin") and actor_rank <= selected_rank:
+            return back("/team", "Du darfst niemanden auf deinen eigenen Rang oder einen höheren Rang einstellen.", False)
+
+        try:
+            await target.add_roles(role, reason=f"Manuelle Teameinstellung durch {actor}: {action_reason}")
+        except discord.Forbidden:
+            return back("/team", "Discord hat die Rollenänderung verweigert. Prüfe die Rollenrechte und die Position der Bot-Rolle.", False)
+        except discord.HTTPException:
+            return back("/team", "Die Teamrolle konnte gerade nicht vergeben werden. Bitte versuche es erneut.", False)
+
+        team_db = load_json(DATA_FILE, {})
+        team_entry = user_entry(team_db, str(target.id))
+        team_entry["team_since"] = now_de().isoformat(timespec="seconds")
+        team_entry["manual_hire_by"] = str(actor)
+        team_entry["manual_hire_reason"] = action_reason
+        save_json(DATA_FILE, team_db)
+
+        await send_dm_notification(
+            target,
+            f"🎉 Du wurdest von **{guild.name}** in das Team aufgenommen. Deine neue Teamrolle: **{role.name}**. Bei Fragen wende dich bitte an die Führungsebene."
+        )
+        await send_team_update_embed(
+            guild,
+            "🎉 Team-Update: Manuelle Einstellung",
+            f"{target.mention} wurde manuell in das Team aufgenommen.",
+            discord.Color.green(),
+            target=target.mention,
+            action="Manuelle Einstellung",
+            actor=actor,
+            fields=[
+                ("Teamrolle", role.mention, True),
+                ("Discord-ID", str(target.id), True),
+                ("Grund", action_reason, False),
+                ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True),
+            ],
+            thumbnail=target.display_avatar.url,
+        )
+        log_audit(actor, actor_id, "Manuelle Einstellung", f"{target.display_name} ({target.id}) -> {role.name} · Grund: {action_reason}")
+        return back("/team", f"{target.display_name} wurde mit der Rolle {role.name} erfolgreich eingestellt.")
 
     # ---------- Befördern / Degradieren / Kicken ----------
     if action in ("promote", "demote", "kick"):
