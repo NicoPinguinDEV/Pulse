@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.7.6 – Discord-OAuth für Bewerbungen
+- Der Bewerbungslogin nutzt standardmäßig dieselbe, bereits registrierte Callback-URL wie das Dashboard. Dadurch ist keine zusätzliche Discord-Redirect-URI nur für `/apply/callback` nötig.
+- Der gemeinsame `/callback`-Endpunkt unterscheidet den Bewerbungslogin anhand des separaten OAuth-State-Cookies und gibt Bewerber sicher an `/apply` zurück, ohne ihnen eine Dashboard-Session zu erteilen.
+- `DISCORD_APPLICATION_REDIRECT_URI` bleibt als Fallback für Deployments verfügbar, die keine `DISCORD_REDIRECT_URI` gesetzt haben.
+- Regressionstests decken die Callback-Auswahl und den getrennten Bewerbungs-Session-Ablauf ab.
+
 ## Version 7.7.5 – Bewerbungsportal
 
 - Das externe Bewerbungsformular unter `/apply` ist jetzt ausschließlich für Mitglieder mit Discord-Rolle `1531303733311307997` freigeschaltet.
