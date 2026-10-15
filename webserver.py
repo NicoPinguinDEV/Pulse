@@ -75,6 +75,9 @@ def oauth_redirect_uri(request: Request, application: bool = False) -> str:
 def oauth_cookie_secure(request: Request) -> bool:
     return oauth_redirect_uri(request).startswith("https://") or oauth_redirect_uri(request, application=True).startswith("https://")
 GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616"))
+APPLICATION_REQUIRED_ROLE_ID = 1531303733311307997
+APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720
+APPLICATION_ALERT_ROLE_ID = 1531300183088824340
 TEAM_UPDATE_CHANNEL_NAME = os.getenv("TEAM_UPDATE_CHANNEL_NAME", "╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
 TEAM_UPDATE_CHANNEL_ID = 1531132354272170115  # zentraler Team-Updates-Kanal
 # Nach einem manuellen Team-Kick bleiben ausschließlich diese beiden Rollen erhalten.
@@ -4566,6 +4569,111 @@ async def loa_page(request: Request, user_session: str = Cookie(None)):
     return render_page("Abmeldungen (LOA)", ctx, "loa", body)
 
 
+async def verify_application_member(request: Request, applicant_id) -> tuple[bool, int, str, str]:
+    """Fail-closed eligibility check for the public recruitment form."""
+    bot = getattr(request.app.state, "bot", None)
+    if bot is None:
+        return False, 503, "", "Pulse ist noch nicht bereit. Bitte versuche es gleich erneut."
+
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return False, 503, "", "Der Discord-Server konnte gerade nicht geprüft werden."
+
+    eligible_role = guild.get_role(APPLICATION_REQUIRED_ROLE_ID)
+    if eligible_role is None:
+        return False, 503, "", "Die für Bewerbungen erforderliche Discord-Rolle wurde nicht gefunden. Bitte informiere die Serverleitung."
+
+    try:
+        uid = int(applicant_id)
+    except (TypeError, ValueError):
+        return False, 403, eligible_role.name, "Bitte verbinde zuerst deinen Discord-Account."
+
+    member = guild.get_member(uid)
+    if member is None:
+        try:
+            member = await guild.fetch_member(uid)
+        except discord.NotFound:
+            return False, 403, eligible_role.name, "Du musst dem Discord-Server beitreten und die erforderliche Mitgliedsrolle besitzen."
+        except (discord.Forbidden, discord.HTTPException):
+            return False, 503, eligible_role.name, "Deine Mitgliedschaft konnte gerade nicht sicher geprüft werden. Bitte versuche es erneut."
+
+    if member.bot:
+        return False, 403, eligible_role.name, "Bot-Accounts können keine Bewerbung einreichen."
+    if not any(role.id == APPLICATION_REQUIRED_ROLE_ID for role in member.roles):
+        return False, 403, eligible_role.name, f"Dieses Bewerbungsformular ist nur für Mitglieder mit der Rolle „{eligible_role.name}“ freigeschaltet."
+
+    return True, 200, eligible_role.name, ""
+
+
+async def notify_new_application(request: Request, application_id: str, application: dict) -> bool:
+    """Notify the configured team channel, pinging only the recruitment alert role."""
+    bot = getattr(request.app.state, "bot", None)
+    guild = bot.get_guild(GUILD_ID) if bot else None
+    if guild is None:
+        print("⚠️ Neue Bewerbung gespeichert, aber Team-Benachrichtigung übersprungen: Discord-Server nicht verfügbar.")
+        return False
+
+    channel = guild.get_channel(APPLICATION_ALERT_CHANNEL_ID)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(APPLICATION_ALERT_CHANNEL_ID)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+            print(f"⚠️ Neue Bewerbung gespeichert, aber Bewerbungs-Kanal nicht erreichbar: {type(exc).__name__}.")
+            return False
+
+    channel_guild = getattr(channel, "guild", None)
+    if channel_guild is not None and channel_guild.id != GUILD_ID:
+        print("⚠️ Bewerbungs-Benachrichtigung abgebrochen: Der konfigurierte Kanal liegt auf einem anderen Server.")
+        return False
+    if not callable(getattr(channel, "send", None)):
+        print("⚠️ Bewerbungs-Benachrichtigung abgebrochen: Der konfigurierte Kanal kann keine Nachrichten empfangen.")
+        return False
+
+    alert_role = guild.get_role(APPLICATION_ALERT_ROLE_ID)
+    applicant_id = str(application.get("user_id") or "")
+    applicant_name = str(application.get("name") or "Unbekannt")[:80]
+    career_label = str(application.get("career_label") or "Nicht angegeben")[:100]
+    score = int(application.get("test_score") or 0)
+    total = max(0, int(application.get("test_total") or 0))
+    percent = max(0, min(100, int(application.get("test_percent") or 0)))
+    result_label = "Richtwert erreicht" if application.get("test_passed") else "Richtwert nicht erreicht"
+
+    embed = discord.Embed(
+        title="📝 Neue Bewerbung eingegangen",
+        description="Eine neue Bewerbung wurde über das externe Pulse-Bewerbungsformular eingereicht.",
+        color=discord.Color.blurple(),
+        timestamp=now_de(),
+    )
+    embed.add_field(name="Bewerber", value=f"{esc(applicant_name)}\nDiscord-ID: `{esc(applicant_id)}`", inline=True)
+    embed.add_field(name="Laufbahn", value=esc(career_label), inline=True)
+    embed.add_field(name="Online-Test", value=f"{score}/{total} richtig ({percent} %)\n{result_label}", inline=True)
+    embed.add_field(
+        name="Bewerbung öffnen",
+        value=f"[In Pulse zur Bewerbungsübersicht]({request_origin(request)}/applications)",
+        inline=False,
+    )
+    embed.set_footer(text=f"Pulse Recruiting · Bewerbungs-ID {application_id}")
+
+    content = alert_role.mention if alert_role else f"<@&{APPLICATION_ALERT_ROLE_ID}>"
+    try:
+        await channel.send(
+            content=content,
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(
+                roles=[alert_role] if alert_role else [],
+                users=False,
+                everyone=False,
+                replied_user=False,
+            ),
+        )
+        if alert_role is None:
+            print(f"⚠️ Neue Bewerbung wurde gemeldet, aber Ping-Rolle {APPLICATION_ALERT_ROLE_ID} wurde im Server nicht gefunden.")
+        return True
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        print(f"⚠️ Bewerbung {application_id} wurde gespeichert, aber Team-Benachrichtigung fehlgeschlagen: {type(exc).__name__}.")
+        return False
+
+
 # =============================================================
 # ROUTE: ÖFFENTLICHES BEWERBUNGSFORMULAR MIT LAUFBAHN-TEST
 # =============================================================
@@ -4574,6 +4682,21 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
     applicant = verify_payload(apply_session) if apply_session else None
     if applicant and applicant.get("apply_exp", 0) < time.time():
         applicant = None
+    if applicant:
+        eligible, eligibility_status, eligibility_role, eligibility_message = await verify_application_member(
+            request, applicant.get("id")
+        )
+        if not eligible:
+            retry_link = '<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Erneut prüfen</a>'
+            if eligibility_status == 503:
+                return HTMLResponse(
+                    simple_page("⏳", "Bewerbung gerade nicht verfügbar", eligibility_message, retry_link),
+                    status_code=503,
+                )
+            return HTMLResponse(
+                simple_page("🔒", "Bewerbung nicht freigegeben", eligibility_message, retry_link),
+                status_code=403,
+            )
     if not applicant:
         return f"""
         <!DOCTYPE html><html lang="de"><head>{get_head_html("Team-Bewerbung")}</head>
@@ -4702,7 +4825,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
     uid = ctx.user["id"]
     show_history = request.query_params.get("view") == "history"
-    can_decide = ctx.perms["can_promote"] or ctx.perms["is_admin"]
+    can_decide = ctx.perms["can_manage_applications"] or ctx.perms["can_promote"] or ctx.perms["is_admin"]
     apps = load_json(APPS_FILE, {})
 
     items = [(k, v) for k, v in apps.items() if (v.get("status") != "pending") == show_history]
@@ -5359,6 +5482,15 @@ async def handle_action(
         apply_user = verify_payload(apply_session) if apply_session else None
         if not apply_user or apply_user.get("apply_exp", 0) < time.time() or str(apply_user.get("id")) != str(applicant_id):
             return HTMLResponse(simple_page("🔒", "Discord-Verknüpfung fehlt", "Bitte starte die Bewerbung über Mit Discord verbinden.", back_link), status_code=403)
+        eligible, eligibility_status, eligibility_role, eligibility_message = await verify_application_member(
+            request, apply_user.get("id")
+        )
+        if not eligible:
+            title = "Bewerbung nicht freigegeben" if eligibility_status == 403 else "Mitgliedschaft gerade nicht prüfbar"
+            return HTMLResponse(
+                simple_page("🔒", title, eligibility_message, back_link),
+                status_code=eligibility_status,
+            )
         name = (apply_user.get("global_name") or apply_user.get("username") or applicant_name or "").strip()[:80]
         text = (applicant_text or "").strip()[:2000]
         if not applicant_id or not name or not text:
@@ -5394,6 +5526,7 @@ async def handle_action(
             "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
         }
         save_json(APPS_FILE, apps)
+        await notify_new_application(request, app_id_new, apps[app_id_new])
         result_status = "Bestanden" if test_result["passed"] else "noch nicht bestanden"
         result_text = (
             f"Deine Bewerbung wurde mit der Laufbahn {esc(test_result['career_label'])} gespeichert. "
