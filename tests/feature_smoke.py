@@ -267,7 +267,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.7.8"' in version_source
+    assert 'PULSE_VERSION = "7.7.9"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     assert "from pulse_version import PULSE_VERSION" in pro_melonly
     assert "VERSION = PULSE_VERSION" in pro_melonly
@@ -286,14 +286,22 @@ def main() -> None:
     assert "APPLICATION_REQUIRED_ROLE_ID = 1531303733311307997" in web
     assert "APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720" in web
     assert "APPLICATION_ALERT_ROLE_ID = 1531300183088824340" in web
-    assert "APPLICATION_ACCEPTED_ROLE_ID = 1496070682126188604" in web
-    accepted_start = web.index('if decision == "accept":')
-    accepted_end = web.index('item["status"] = "rejected"', accepted_start)
-    accepted_block = web[accepted_start:accepted_end]
-    assert "accepted_role = guild.get_role(APPLICATION_ACCEPTED_ROLE_ID)" in accepted_block
-    assert "await applicant.add_roles(*roles_to_add" in accepted_block
-    assert 'item["application_accepted_role_id"] = accepted_role.id' in accepted_block
-    assert "Zusätzliche Einstellungsrolle" in accepted_block
+    assert "APPLICATION_ROLE_ID = 1496070682126188604" in web
+    active_application_statuses = web.split("active_application_statuses =", 1)[1].split("\n", 1)[0]
+    assert '"pending", "interview"' in active_application_statuses
+    accept_start = web.index('if decision == "accept":')
+    hire_start = web.index('if decision == "hire_after_interview":', accept_start)
+    accept_block = web[accept_start:hire_start]
+    hire_end = web.index('if decision == "reject_after_interview"', hire_start)
+    hire_block = web[hire_start:hire_end]
+    assert "application_role = guild.get_role(APPLICATION_ROLE_ID)" in accept_block
+    assert 'item["status"] = "interview"' in accept_block
+    assert "Zum Bewerbungsgespräch eingeladen" in accept_block
+    assert "await applicant.add_roles(" in accept_block
+    assert 'item["status"] = "hired"' in hire_block
+    assert "await applicant.edit(" in hire_block
+    assert "set(team_role_ids) | {APPLICATION_ROLE_ID}" in hire_block
+    assert "Zum Bewerbungsgespräch einladen" in web
     assert "async def verify_application_member(request: Request, applicant_id)" in web
     career_applications = read("career_applications.py")
     parse("career_applications.py")
