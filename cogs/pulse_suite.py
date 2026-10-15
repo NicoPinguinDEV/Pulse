@@ -224,20 +224,30 @@ def action_record(kind,payload,actor):
     with cx() as c:c.execute("INSERT INTO suite_actions(id,kind,payload_json,status,created_by_id,created_by_name,approved_by_id,approved_by_name,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",(aid,kind,json.dumps(payload,ensure_ascii=False),"awaiting_second",str(actor.id),actor.display_name,"","",iso(),iso()))
     return aid
 
-def nav(active):
+def nav(active, manager=False):
     items=[("suite","/suite","⌂ Command Center"),("team","/suite/team","👥 Teamakten"),("time","/suite/time","⏱ Dienstzeit"),("schedule","/suite/schedule","🗓 Dienstplan"),("myschedule","/suite/my-schedule","👤 Mein Dienstplan"),("calendar","/suite/calendar","📅 Kalender"),("apps","/suite/applications","📝 Recruiting"),("interviews","/suite/interviews","🎤 Gespräche"),("training","/suite/training","🎓 Schulungen"),("tasks","/suite/tasks","📋 Aufgaben"),("news","/suite/news","📢 Team-News"),("audit","/suite/audit","🛡 Audit"),("search","/suite/search","⌕ Suche"),("cases","/suite/cases","🚨 Meldungen"),("ach","/suite/achievements","🏆 Erfolge")]
+    if not manager:
+        # Hide restricted personnel files and leadership controls from ordinary dashboard users.
+        items=[item for item in items if item[0] not in {"suite","team","apps","interviews","training","audit","cases","ach"}]
     return "".join('<a class="{}" href="{}">{}</a>'.format("active" if k==active else "",p,label) for k,p,label in items)
 
 def page(ctx,active,title,subtitle,body,js=""):
     u=esc(ctx.user.get("global_name") or ctx.user.get("username") or ctx.user.get("id"))
     initials=esc((u[:1] or "P").upper())
+    perms=getattr(ctx,"perms",{}) or {}
+    has_leadership=bool(perms.get("can_promote") or perms.get("is_admin"))
+    top_actions=(
+        '<a class=btn href=/ultimate>⚡ Command Center</a><a class="btn primary" href=/suite>Führung</a>'
+        if has_leadership else
+        '<a class="btn primary" href=/suite/tasks>Meine Aufgaben</a><a class=btn href=/suite/my-schedule>Mein Dienstplan</a>'
+    )
     html = (
         """<!doctype html><html lang=de><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><meta name=theme-color content="#080d16"><title>"""
         + esc(title)
         + """ · Pulse</title><style>"""
         + CSS
         + """</style></head><body><div class=shell><aside class=side><div class=brand><div class=brand-mark>⚡</div><div><div class=brand-main>Pulse <span style="color:var(--a)">TeamOS</span></div><small>OPERATIONS SUITE · v7</small></div></div><nav class=nav>"""
-        + nav(active)
+        + nav(active, has_leadership)
         + """</nav><div class=side-bottom><div class=side-actions><button class=btn onclick=openSearch()>⌕ Suche</button><button class=btn onclick=accent()>✦ Akzent</button></div><div class=profile><div style="width:30px;height:30px;border-radius:10px;background:linear-gradient(135deg,var(--a),#06b6d4);display:grid;place-items:center;font-size:11px;font-weight:950">"""
         + initials
         + """</div><div style="min-width:0"><div style="font-size:11px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">"""
@@ -246,7 +256,7 @@ def page(ctx,active,title,subtitle,body,js=""):
         + esc(title)
         + """</h1><div class=muted>"""
         + esc(subtitle)
-        + """</div></div><div class=top-actions><a class=btn href=/ultimate>⚡ Command Center</a><a class="btn primary" href=/suite>Führung</a></div></div>"""
+        + """</div></div><div class=top-actions>""" + top_actions + """</div></div>"""
         + body
         + """</main></div><div id=search class=search><div><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px"><div><div class=kicker>Pulse Search</div><b>Alles im TeamOS finden</b></div><button class=btn onclick=closeSearch()>Esc</button></div><input id=sq class=input placeholder="Teamler, ID, Warn-ID, Ticket, Aufgabe, Bewerbung, Audit, Roblox …" oninput=doSearch(this.value)><div id=sr style="margin-top:8px"></div></div></div><script>
 function openSearch(){document.getElementById('search').style.display='flex';document.getElementById('sq').focus()}
