@@ -20,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
 
-VERSION = "7.3.1"
+VERSION = "7.4.0"
 EXTRA_PERMS = (
     "can_manage_announcements",
     "can_manage_handover",
@@ -628,21 +628,24 @@ def register(app):
         selected_date=(request.query_params.get("date") or today).strip()
         try: selected_date=datetime.fromisoformat(selected_date).date().isoformat()
         except Exception: selected_date=today
-        check=None; responded={}; snapshot=[]; legacy=False
+        check=None; responded={}; snapshot=[]; legacy=False; snapshot_version=0
         try:
-            with sqlite3.connect("activity_check.db") as ax:
+            with sqlite3.connect(ws.ACTIVITY_DB) as ax:
                 ax.row_factory=sqlite3.Row
                 check=ax.execute("SELECT * FROM checks WHERE guild_id=? AND check_date=?",(c.guild.id,selected_date)).fetchone()
                 if check:
+                    snapshot_version=int(check["snapshot_version"] or 0) if "snapshot_version" in check.keys() else 0
                     responded={int(r["user_id"]):r["reacted_at"] for r in ax.execute("SELECT user_id,reacted_at FROM responses WHERE check_id=?",(check["id"],)).fetchall()}
                     try: snapshot=[dict(r) for r in ax.execute("SELECT user_id,user_name,role_name FROM check_members WHERE check_id=? ORDER BY user_name COLLATE NOCASE",(check["id"],)).fetchall()]
                     except sqlite3.Error: snapshot=[]
-        except Exception: check=None
-        if check and not snapshot:
+        except Exception as exc:
+            print(f"Activity-Check-Webauswertung: Datenbank konnte nicht gelesen werden: {type(exc).__name__}: {exc}")
+            check=None
+        if check and not snapshot and snapshot_version < 1:
             legacy=True
             role=None
             try:
-                with sqlite3.connect("activity_check.db") as ax:
+                with sqlite3.connect(ws.ACTIVITY_DB) as ax:
                     rr=ax.execute("SELECT value FROM config WHERE key='activity_role_id'").fetchone()
                     if rr and rr[0]: role=c.guild.get_role(int(rr[0]))
             except Exception: pass
@@ -650,7 +653,7 @@ def register(app):
             snapshot=[{"user_id":m.id,"user_name":m.display_name,"role_name":member_role(m,c.config.get("team_role_ids",[]))} for m in members]
         history=[]
         try:
-            with sqlite3.connect("activity_check.db") as hx:
+            with sqlite3.connect(ws.ACTIVITY_DB) as hx:
                 hx.row_factory=sqlite3.Row
                 history=[dict(r) for r in hx.execute("SELECT id,check_date,created_at,message_id FROM checks WHERE guild_id=? ORDER BY check_date DESC LIMIT 60",(c.guild.id,)).fetchall()]
                 for h in history:
@@ -671,7 +674,7 @@ def register(app):
                 out.append(f'<div class="pulse-row"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(name))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(name)}</div><div class="pulse-row-meta">{e(p.get("role_name") or "Team")}{when}</div></div></div>{pill(icon+" "+label,kind)}</div>')
             return "".join(out)
         history_options="".join(f'<option value="{e(h["check_date"])}" {"selected" if h["check_date"]==selected_date else ""}>{e(h["check_date"])} · {h["responses"]} Antworten · {h["members"]} Team-Snapshot</option>' for h in history) or f'<option value="{e(selected_date)}">{e(selected_date)}</option>'
-        state_note=pill("Snapshot pro Check gespeichert","good") if check and not legacy else (pill("Alter Check ohne Snapshot","warn") if legacy else pill("Kein Check für dieses Datum","warn"))
+        state_note=(pill("Snapshot pro Check gespeichert","good") if check and not legacy and snapshot else (pill("Snapshot ist leer – automatische Warns ausgesetzt","warn") if check and not legacy and snapshot_version >= 1 and not snapshot else (pill("Alter Check ohne Snapshot","warn") if legacy else pill("Kein Check für dieses Datum","warn"))))
         body=(
             f'<div class="pulse-topbar"><div><div class="pulse-section-title">✓ Activity Check</div><div class="pulse-section-sub">Jeder Check wird separat gespeichert. Antworten gehören exakt zu diesem Check.</div></div>{state_note}</div>'
             f'<section class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Tagesauswertung · {e(selected_date)}</div><div class="pulse-title">{done} von {total} bestätigt</div><div class="pulse-sub">Der Teilnehmer-Snapshot wird beim Erstellen des Checks gespeichert. Spätere Rollenänderungen verändern vergangene Auswertungen nicht.</div></div><div class="pulse-hero-box"><div class="label">BESTÄTIGUNGSQUOTE</div><div class="value">{pct}%</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{pct}%;background:white"></span></div></div></div></section>'
