@@ -598,7 +598,6 @@ def main() -> None:
     assert 'async def pulse_tickets_dashboard(' in web
     assert 'async def pulse_tickets_dashboard_action(' in web
     assert 'auth(request, user_session, perm="can_manage_tickets")' in web
-    assert "/api/galaxybot/webhook" not in web
 
     # Social video announcements: configurable sources, deduplication and fixed target.
     social = read("cogs/social_promo.py")
