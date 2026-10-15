@@ -266,8 +266,8 @@ def main() -> None:
     # The visible /melonly page is Pulse Pro's route, not just the legacy dashboard.
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
-    assert 'VERSION = "7.4.4"' in pro_melonly
-    assert 'PULSE_VERSION = "7.4.4"' in web
+    assert 'VERSION = "7.4.5"' in pro_melonly
+    assert 'PULSE_VERSION = "7.4.5"' in web
     assert "ws.can_manage_melonly_entry(c,x)" in pro_melonly
     assert 'action="/log/edit"' in pro_melonly
     assert 'action="/log/delete"' in pro_melonly
@@ -314,6 +314,20 @@ def main() -> None:
     assert "⬆️ Befördern" in web
     assert "⬇️ Degradieren" in web
     assert "1531132354272170115" in web
+    # Manual team hiring: resolve ID/name safely, assign only a configured rank role,
+    # require a reason, respect role hierarchy, notify the member, and log the change.
+    assert 'name="target_user_id"' in web
+    assert 'name="hire_role_id"' in web
+    assert "➕ Teamler manuell einstellen" in web
+    assert '"hire": "can_promote"' in web
+    assert 'if action == "hire":' in web
+    assert "guild.fetch_member(target_id)" in web
+    assert "name_query in field(m)" in web
+    assert "selected_rank = team_role_ids.index(role.id)" in web
+    assert 'team_entry["team_since"] = now_de().isoformat(timespec="seconds")' in web
+    assert '"🎉 Team-Update: Manuelle Einstellung"' in web
+    assert 'log_audit(actor, actor_id, "Manuelle Einstellung"' in web
+
     # Team list keeps member actions inside the Details/eye menu.
     assert "details-only" not in web  # no stale marker should leak into UI
     assert 'href="/member/{m["id"]}"' in web
