@@ -42,7 +42,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "pulse_version.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -266,13 +266,21 @@ def main() -> None:
     # The visible /melonly page is Pulse Pro's route, not just the legacy dashboard.
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
-    assert 'VERSION = "7.7.3"' in pro_melonly
-    assert 'PULSE_VERSION = "7.7.3"' in web
+    version_source = read("pulse_version.py")
+    assert 'PULSE_VERSION = "7.7.4"' in version_source
+    assert "from pulse_version import PULSE_VERSION" in web
+    assert "from pulse_version import PULSE_VERSION" in pro_melonly
+    assert "VERSION = PULSE_VERSION" in pro_melonly
     assert 'pulse:scroll-restore:v1' in web
     assert 'saved.path === location.pathname' in web
     assert 'document.addEventListener' in web and 'submit' in web
     assert '</style>{SCROLL_RESTORE_SCRIPT}</head><body><main class="wrap">' in web
     assert "ws.can_manage_melonly_entry(c,x)" in pro_melonly
+    assert '@app.get("/favicon.ico", include_in_schema=False)' in web
+    assert "def _embed_signature(embed: discord.Embed)" in read("cogs/teamliste.py")
+    assert "def _embed_signature(embed: discord.Embed)" in read("cogs/abmeldung.py")
+    assert "Retry-After" in read("cogs/teamliste.py")
+    assert "all_role_permissions_disabled" in pro_melonly
     assert 'action="/log/edit"' in pro_melonly
     assert 'action="/log/delete"' in pro_melonly
     assert 'name="return_to" value="/melonly"' in pro_melonly
@@ -639,7 +647,7 @@ def main() -> None:
     # Native multi-panel editor: independent panels, category registry, publishing and deletion.
     assert "async def publish_panel_for_guild" in tickets
     assert "def ticket_category_definitions()" in tickets
-    assert 'PULSE_VERSION = "7.7.3"' in web
+    assert "from pulse_version import PULSE_VERSION" in web
     assert "Panel-Builder" in web
     # Main dashboard administration navigation must expose the standalone builder directly.
     assert '("ticket-panels","/tickets/panels","▣","Ticket-Panel-Builder")' in pro_melonly
