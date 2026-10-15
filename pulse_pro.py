@@ -432,6 +432,9 @@ def register(app):
     # ---------------- Melonly / Roblox Moderation ----------------
     async def melonly_page(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session)
+        can_access_melonly=any(c.perms.get(k) for k in ("can_warn","can_moderate_kicks","can_moderate_bans","can_moderate_bolo","can_add_notes")) or c.perms.get("is_admin")
+        if not can_access_melonly:
+            raise HTTPException(403,"Dafür fehlt dir die Berechtigung für Melonly.")
         all_melonly_types=(("Warn","⚠️ Warn"),("Kick","🚪 Kick"),("Ban","🚫 Ban"),("Notiz","📝 Notiz"),("Ban BOLO","🚨 Ban BOLO"))
         melonly_types=tuple((key,label) for key,label in all_melonly_types if ws.can_manage_melonly_entry(c,{"type":key}))
         if not melonly_types:
@@ -1446,7 +1449,32 @@ def register(app):
             profile_version=0
         if role_ids and profile_version < 1:
             initialized=apply_recommended_role_profiles(c)
-            profile_notice=f'<section class="pulse-alert mb-5"><strong>🔐 Empfohlene Standardrechte wurden gesetzt.</strong><div class="text-slate-400 mt-1">Für {len(initialized)} ausgewählte Teamrollen sind jetzt konservative Rechteprofile aktiv. Support kann keine Kicks, Bans oder BOLO-Einträge anlegen; Moderation kann warnen und kicken; Highteam/Leitung erhält die erweiterten operativen Rechte. Prüfe alle Häkchen unten.</div></section>'
+            profile_notice=f'<section class="pulse-alert mb-5"><strong>🔐 Empfohlene Standardrechte wurden gesetzt.</strong><div class="text-slate-400 mt-1">Die Standardprofile sind aktiv. PK erhält mehr Rechte als Teamleitung; Support bekommt keine Kicks, Bans oder BOLO-Einträge. Bitte prüfe die Karten unten.</div></section>'
+        elif role_ids and profile_version < 2:
+            permission_map=c.config.setdefault('permissions',{})
+            keys=tuple(dict.fromkeys((*ws.PERM_KEYS,*EXTRA_PERMS)))
+            migrated=0
+            preserved=0
+            for raw_id in role_ids:
+                try: role_id=int(raw_id)
+                except (TypeError,ValueError): continue
+                role=c.guild.get_role(role_id)
+                if not role: continue
+                current=permission_map.get(str(role_id),{})
+                normalized={key:bool(current.get(key)) for key in keys}
+                legacy=legacy_recommended_role_profile(role)
+                if normalized == legacy:
+                    updated=recommended_role_profile(role)
+                    if updated != normalized:
+                        permission_map[str(role_id)]=updated
+                        migrated += 1
+                else:
+                    # Preserve role settings manually changed by an administrator.
+                    preserved += 1
+            c.config["permissions_profile_version"]=2
+            ws.save_json(ws.CONFIG_FILE,c.config)
+            if migrated or preserved:
+                profile_notice=f'<section class="pulse-alert mb-5"><strong>🔐 Rollen-Hierarchie korrigiert.</strong><div class="text-slate-400 mt-1">{migrated} unveränderte Standardprofile wurden aktualisiert; {preserved} manuell angepasste Profile blieben erhalten. PK liegt jetzt über Teamleitung.</div></section>'
         cfg=c.config.get('permissions',{})
         permission_labels={
             'can_view_dashboard':'Dashboard öffnen',
