@@ -58,6 +58,8 @@ RAM_WARN_MB = 180.0
 RAM_CRITICAL_MB = 210.0
 RAM_EMERGENCY_MB = 230.0
 RAM_RECOVERY_MB = 160.0
+RAM_CRITICAL_RECOVERY_MB = 200.0
+RAM_EMERGENCY_RECOVERY_MB = 220.0
 RAM_TREND_WINDOW_SECONDS = 3600.0
 RAM_TREND_MIN_AGE_SECONDS = 1800.0
 RAM_TREND_GROWTH_MB_PER_HOUR = 20.0
@@ -74,6 +76,8 @@ def memory_guard_level(rss_mb: Optional[float], current_level: Optional[int] = N
         critical_mb=RAM_CRITICAL_MB,
         emergency_mb=RAM_EMERGENCY_MB,
         recovery_mb=RAM_RECOVERY_MB,
+        critical_recovery_mb=RAM_CRITICAL_RECOVERY_MB,
+        emergency_recovery_mb=RAM_EMERGENCY_RECOVERY_MB,
     )
 
 
