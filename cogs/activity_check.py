@@ -1,6 +1,7 @@
+import asyncio
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, time as datetime_time
 from pathlib import Path
 import zoneinfo
 
@@ -221,13 +222,16 @@ class ActivityCheckCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._check_creation_lock = asyncio.Lock()
         init_db()
         self.daily_activity_check.start()
+        self.activity_check_recovery.start()
         self.activity_warning_check.start()
         self.bot.add_view(ActivityView(self))
 
     def cog_unload(self):
         self.daily_activity_check.cancel()
+        self.activity_check_recovery.cancel()
         self.activity_warning_check.cancel()
 
     def current_check_id(self, message_id):
@@ -239,6 +243,11 @@ class ActivityCheckCog(commands.Cog):
             return row[0] if row else None
 
     async def send_check_message(self, channel, role=None):
+        """Serialize scheduler/recovery/dashboard calls so they cannot post duplicates."""
+        async with self._check_creation_lock:
+            return await self._send_check_message_locked(channel, role)
+
+    async def _send_check_message_locked(self, channel, role=None):
         if channel is None or not getattr(channel, "guild", None):
             return None
         today = datetime.now(BERLIN_TZ).date().isoformat()
@@ -352,11 +361,22 @@ class ActivityCheckCog(commands.Cog):
             )
         return message
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(time=datetime_time(hour=6, minute=0, tzinfo=BERLIN_TZ))
     async def daily_activity_check(self):
+        """Send the day's Activity Check at exactly 06:00 Europe/Berlin."""
         await self.bot.wait_until_ready()
-        # Besides the regular 06:00 post, recover a missing daily check after a
-        # restart later in the day. Never create a "late" check at/after 20:00.
+        await self._run_daily_activity_check()
+
+    @tasks.loop(minutes=5)
+    async def activity_check_recovery(self):
+        """Recover a missed daily check after restart, but never create one after 20:00."""
+        await self.bot.wait_until_ready()
+        now = datetime.now(BERLIN_TZ)
+        if (now.hour, now.minute) < (6, 0) or now.hour >= 20:
+            return
+        await self._run_daily_activity_check()
+
+    async def _run_daily_activity_check(self):
         now = datetime.now(BERLIN_TZ)
         if (now.hour, now.minute) < (6, 0) or now.hour >= 20:
             return

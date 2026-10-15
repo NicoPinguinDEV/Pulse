@@ -76,7 +76,10 @@ def main() -> None:
     assert "@tasks.loop(minutes=1)\n    async def activity_warning_check" in activity_cog
     assert "Activity Check Snapshot repariert" in activity_cog
     assert "leave_status is None" in activity_cog
-    assert "@tasks.loop(minutes=1)\n    async def daily_activity_check" in activity_cog
+    assert "@tasks.loop(time=datetime_time(hour=6, minute=0, tzinfo=BERLIN_TZ))\n    async def daily_activity_check" in activity_cog
+    assert "@tasks.loop(minutes=5)\n    async def activity_check_recovery" in activity_cog
+    assert "self._check_creation_lock = asyncio.Lock()" in activity_cog
+    assert "await self._run_daily_activity_check()" in activity_cog
     assert "or now.hour >= 20" in activity_cog
     assert "Snapshot ist leer" in activity_cog
     assert "confirmed_by_deadline(responses.get(uid), check_date)" in activity_cog
@@ -262,8 +265,8 @@ def main() -> None:
     # The visible /melonly page is Pulse Pro's route, not just the legacy dashboard.
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
-    assert 'VERSION = "7.4.2"' in pro_melonly
-    assert 'PULSE_VERSION = "7.4.2"' in web
+    assert 'VERSION = "7.4.3"' in pro_melonly
+    assert 'PULSE_VERSION = "7.4.3"' in web
     assert "ws.can_manage_melonly_entry(c,x)" in pro_melonly
     assert 'action="/log/edit"' in pro_melonly
     assert 'action="/log/delete"' in pro_melonly
