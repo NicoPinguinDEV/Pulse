@@ -28,12 +28,14 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from collections import deque
 
 import discord
 from fastapi import Cookie, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
+from pulse_safety import memory_guard_level as _policy_memory_guard_level
 
 BASE = Path(__file__).resolve().parent
 ATTACHMENTS_DIR = BASE / "attachments"
@@ -50,71 +52,105 @@ _POLL_TYPES = ("single", "multiple")
 _INIT = False
 _AUTOMATION_TASK: Optional[asyncio.Task] = None
 _RAM_GUARD_LEVEL = 0
+_RAM_SAMPLES: deque[tuple[float, float]] = deque(maxlen=180)
+_RAM_LAST_TREND_ALERT_AT = 0.0
 RAM_WARN_MB = 180.0
 RAM_CRITICAL_MB = 210.0
 RAM_EMERGENCY_MB = 230.0
 RAM_RECOVERY_MB = 160.0
+RAM_TREND_WINDOW_SECONDS = 3600.0
+RAM_TREND_MIN_AGE_SECONDS = 1800.0
+RAM_TREND_GROWTH_MB_PER_HOUR = 20.0
+RAM_TREND_ALERT_COOLDOWN_SECONDS = 3600.0
 
 
-def memory_guard_level(rss_mb: Optional[float]) -> int:
-    """Map measured RSS to a conservative, low-overhead guard state."""
-    if rss_mb is None:
-        return 0
-    if rss_mb >= RAM_EMERGENCY_MB:
-        return 3
-    if rss_mb >= RAM_CRITICAL_MB:
-        return 2
-    if rss_mb >= RAM_WARN_MB:
-        return 1
-    return 0
+def memory_guard_level(rss_mb: Optional[float], current_level: Optional[int] = None) -> int:
+    """Measure threshold state with hysteresis after a warning has occurred."""
+    previous = _RAM_GUARD_LEVEL if current_level is None else current_level
+    return _policy_memory_guard_level(
+        rss_mb,
+        previous,
+        warn_mb=RAM_WARN_MB,
+        critical_mb=RAM_CRITICAL_MB,
+        emergency_mb=RAM_EMERGENCY_MB,
+        recovery_mb=RAM_RECOVERY_MB,
+    )
 
 
 async def runtime_memory_guard(bot) -> None:
-    """Warn on RAM threshold changes and trim only expendable runtime cache data.
+    """Monitor RAM transitions and slow growth using a bounded, low-RAM sample ring.
 
-    Runs inside the existing one-minute automation loop; it creates no new task.
-    Alerts are sent only when the level changes. Configure
-    PULSE_SYSTEM_ALERT_CHANNEL_ID to receive Discord alerts.
+    Piggybacks on the existing one-minute automation loop; creates no extra task.
+    Discord notifications are sent only when a threshold changes or a long-term
+    growth trend is detected, and are optional via PULSE_SYSTEM_ALERT_CHANNEL_ID.
     """
-    global _RAM_GUARD_LEVEL
+    global _RAM_GUARD_LEVEL, _RAM_LAST_TREND_ALERT_AT
     try:
         rss = process_rss_mb()
         if rss is None:
             return
-        level = memory_guard_level(rss)
+        now_mono = time.monotonic()
+        _RAM_SAMPLES.append((now_mono, rss))
+        while _RAM_SAMPLES and now_mono - _RAM_SAMPLES[0][0] > RAM_TREND_WINDOW_SECONDS:
+            _RAM_SAMPLES.popleft()
+
         previous = _RAM_GUARD_LEVEL
-        if level == previous:
-            return
-        _RAM_GUARD_LEVEL = level
+        level = memory_guard_level(rss, current_level=previous)
+        messages: list[str] = []
 
-        if level == 0:
-            if previous:
+        if level != previous:
+            _RAM_GUARD_LEVEL = level
+            if level == 0:
                 print(f"✅ Pulse RAM-Schutz: Verbrauch wieder im Normalbereich ({rss:.1f} MB).")
-            return
+            else:
+                labels = {1: "WARNUNG", 2: "KRITISCH", 3: "NOTFALLRESERVE"}
+                message = (
+                    f"⚠️ **Pulse RAM-Schutz – {labels[level]}**\n"
+                    f"Gemessener Prozess-RAM: **{rss:.1f} MB / 250 MB**. "
+                    "Schwellen: 180 MB Warnung, 210 MB kritisch, 230 MB Notfallreserve."
+                )
+                if level >= 2:
+                    # Drop only expendable lookup cache entries, not team/session data.
+                    try:
+                        import webserver
+                        lookup_cache = getattr(webserver, "_roblox_cache", None)
+                        if lookup_cache is not None:
+                            lookup_cache.clear()
+                    except Exception:
+                        pass
+                    collected = gc.collect()
+                    message += f"\nCache-Bereinigung und GC ausgeführt ({collected} Objekte gefunden)."
+                messages.append(message)
 
-        labels = {
-            1: "WARNUNG",
-            2: "KRITISCH",
-            3: "NOTFALLRESERVE",
-        }
-        message = (
-            f"⚠️ **Pulse RAM-Schutz – {labels[level]}**\n"
-            f"Gemessener Prozess-RAM: **{rss:.1f} MB / 250 MB**. "
-            f"Schwellen: 180 MB Warnung, 210 MB kritisch, 230 MB Notfallreserve."
+        # Growth alert: at least 30 minutes of samples, normalised to MB/hour.
+        # The ring is capped at 180 points and only lives in this process.
+        trend_sample = next(
+            (
+                sample for sample in _RAM_SAMPLES
+                if now_mono - sample[0] >= RAM_TREND_MIN_AGE_SECONDS
+            ),
+            None,
         )
+        if trend_sample is not None:
+            elapsed = now_mono - trend_sample[0]
+            growth = rss - trend_sample[1]
+            growth_per_hour = growth * 3600.0 / max(1.0, elapsed)
+            if (
+                growth_per_hour >= RAM_TREND_GROWTH_MB_PER_HOUR
+                and now_mono - _RAM_LAST_TREND_ALERT_AT >= RAM_TREND_ALERT_COOLDOWN_SECONDS
+            ):
+                _RAM_LAST_TREND_ALERT_AT = now_mono
+                messages.append(
+                    "📈 **Pulse RAM-Trend erkannt**\n"
+                    f"Der Verbrauch stieg um {growth:.1f} MB in {elapsed / 60:.0f} Minuten "
+                    f"(hochgerechnet {growth_per_hour:.1f} MB/Stunde; aktuell {rss:.1f} MB). "
+                    "Bitte Logs und Cache-/Hintergrundaufgaben prüfen."
+                )
 
-        if level >= 2:
-            # Drop only expendable lookup cache entries, not team/session data.
-            try:
-                import webserver
-                lookup_cache = getattr(webserver, "_roblox_cache", None)
-                if lookup_cache is not None:
-                    lookup_cache.clear()
-            except Exception:
-                pass
-            collected = gc.collect()
-            message += f"\nCache-Bereinigung und GC ausgeführt ({collected} Objekte gefunden)."
-        print(message.replace("**", ""))
+        if not messages:
+            return
+        for message in messages:
+            print(message.replace("**", ""))
 
         channel_id_raw = os.getenv("PULSE_SYSTEM_ALERT_CHANNEL_ID", "").strip()
         try:
@@ -129,18 +165,18 @@ async def runtime_memory_guard(bot) -> None:
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     channel = None
             if channel is not None and hasattr(channel, "send"):
-                try:
-                    await channel.send(
-                        message,
-                        allowed_mentions=discord.AllowedMentions.none(),
-                    )
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
+                for message in messages:
+                    try:
+                        await channel.send(
+                            message,
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
+                    except (discord.Forbidden, discord.HTTPException):
+                        break
     except asyncio.CancelledError:
         raise
     except Exception as exc:
         print(f"⚠️ Pulse RAM-Schutz konnte nicht vollständig prüfen ({type(exc).__name__}).")
-
 
 def esc(value) -> str:
     return html.escape("" if value is None else str(value), quote=True)
