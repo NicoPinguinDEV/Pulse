@@ -3492,14 +3492,23 @@ async def pulse_ticket_category_delete(
     definitions = [item for item in definitions if isinstance(item, dict)] if isinstance(definitions, list) else []
     if not any(str(item.get("id") or "") == str(category_id) for item in definitions):
         return back("/tickets", "Eigene Kategorie wurde nicht gefunden.", False)
-    settings["ticket_categories"] = [item for item in definitions if str(item.get("id") or "") != str(category_id)]
+    found = False
+    for item in definitions:
+        if str(item.get("id") or "") == str(category_id):
+            # Keep metadata so already-open or historic tickets retain their privacy and display labels.
+            item["active"] = False
+            found = True
+            break
+    if not found:
+        return back("/tickets", "Eigene Kategorie wurde nicht gefunden.", False)
+    settings["ticket_categories"] = definitions
     panels = settings.get("ticket_panels", [])
     if isinstance(panels, list):
         for panel in panels:
             if isinstance(panel, dict) and isinstance(panel.get("category_keys"), list):
                 panel["category_keys"] = [key for key in panel["category_keys"] if str(key) != str(category_id)]
     pulse_db.set_setting("ticket_system_config", settings)
-    return back("/tickets", "Eigene Kategorie wurde gelöscht und aus allen Panel-Auswahlen entfernt.", True)
+    return back("/tickets", "Eigene Kategorie wurde deaktiviert und aus allen Panel-Auswahlen entfernt. Bestehende Tickets behalten ihre Rollen- und Kategorieinfos.", True)
 
 
 @app.get("/tickets/transcript/{ticket_id}")
