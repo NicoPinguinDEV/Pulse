@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta
+from collections import OrderedDict
 from types import SimpleNamespace
 from typing import List
 from pathlib import Path
@@ -1138,7 +1139,39 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 # =============================================================
 # API-ROUTE: ROBLOX LIVE USER LOOKUP (nur eingeloggt, mit Cache)
 # =============================================================
-_roblox_cache = {}
+# Small bounded LRU cache: both expiry and size are enforced so a stream of
+# unique Roblox usernames cannot grow process memory without limit.
+_ROBLOX_CACHE_TTL_SECONDS = 300
+_ROBLOX_CACHE_MAX_ENTRIES = 300
+_roblox_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+
+
+def _prune_roblox_cache(now: float | None = None) -> None:
+    now = time.time() if now is None else now
+    expired = [
+        key for key, (created_at, _value) in _roblox_cache.items()
+        if now - created_at >= _ROBLOX_CACHE_TTL_SECONDS
+    ]
+    for key in expired:
+        _roblox_cache.pop(key, None)
+    while len(_roblox_cache) > _ROBLOX_CACHE_MAX_ENTRIES:
+        _roblox_cache.popitem(last=False)
+
+
+def _roblox_http_client() -> httpx.AsyncClient:
+    """Reuse a low-concurrency HTTP pool instead of opening a client per lookup."""
+    client = getattr(app.state, "roblox_http_client", None)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0, connect=3.0),
+            limits=httpx.Limits(
+                max_connections=4,
+                max_keepalive_connections=2,
+                keepalive_expiry=15.0,
+            ),
+        )
+        app.state.roblox_http_client = client
+    return client
 
 
 @app.get("/api/roblox-user")
@@ -1151,34 +1184,43 @@ async def roblox_user_lookup(request: Request, username: str, user_session: str 
     if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", name):
         return JSONResponse({"success": False, "message": "Ungültiger Roblox-Name (3-20 Zeichen, A-Z, 0-9, _)"})
 
-    cached = _roblox_cache.get(name.lower())
-    if cached and time.time() - cached[0] < 300:
+    cache_key = name.lower()
+    cached = _roblox_cache.get(cache_key)
+    now = time.time()
+    if cached and now - cached[0] < _ROBLOX_CACHE_TTL_SECONDS:
+        _roblox_cache.move_to_end(cache_key)
         info = dict(cached[1])
     else:
-        async with httpx.AsyncClient() as client:
+        if cached:
+            _roblox_cache.pop(cache_key, None)
+        client = _roblox_http_client()
+        try:
+            res = await client.post(
+                "https://users.roblox.com/v1/usernames/users",
+                json={"usernames": [name], "excludeBannedUsers": False}, timeout=5.0)
+            res.raise_for_status()
+            data = res.json()
+            if not data.get("data"):
+                return JSONResponse({"success": False, "message": "Nutzer auf Roblox nicht gefunden"})
+            u = data["data"][0]
+            avatar_url = "https://www.roblox.com/headshot-thumbnail/image"
             try:
-                res = await client.post(
-                    "https://users.roblox.com/v1/usernames/users",
-                    json={"usernames": [name], "excludeBannedUsers": False}, timeout=5.0)
-                data = res.json()
-                if not data.get("data"):
-                    return JSONResponse({"success": False, "message": "Nutzer auf Roblox nicht gefunden"})
-                u = data["data"][0]
-                avatar_url = "https://www.roblox.com/headshot-thumbnail/image"
-                try:
-                    thumb = await client.get(
-                        f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={u['id']}&size=150x150&format=Png&isCircular=true",
-                        timeout=5.0)
-                    td = thumb.json()
-                    if td.get("data"):
-                        avatar_url = td["data"][0].get("imageUrl", avatar_url)
-                except Exception:
-                    pass
-                info = {"success": True, "id": str(u["id"]), "username": u["name"],
-                        "displayName": u.get("displayName", u["name"]), "avatarUrl": avatar_url}
-                _roblox_cache[name.lower()] = (time.time(), info)
+                thumb = await client.get(
+                    f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={u['id']}&size=150x150&format=Png&isCircular=true",
+                    timeout=5.0)
+                thumb.raise_for_status()
+                td = thumb.json()
+                if td.get("data"):
+                    avatar_url = td["data"][0].get("imageUrl", avatar_url)
             except Exception:
-                return JSONResponse({"success": False, "message": "Roblox ist gerade nicht erreichbar"})
+                pass
+            info = {"success": True, "id": str(u["id"]), "username": u["name"],
+                    "displayName": u.get("displayName", u["name"]), "avatarUrl": avatar_url}
+            _roblox_cache[cache_key] = (time.time(), info)
+            _roblox_cache.move_to_end(cache_key)
+            _prune_roblox_cache()
+        except Exception:
+            return JSONResponse({"success": False, "message": "Roblox ist gerade nicht erreichbar"})
 
     # Vorstrafen-Hinweis aus den eigenen Logs
     previous = [l for l in load_json(LOGS_FILE, [])
@@ -3393,7 +3435,22 @@ async def auto_backup_loop():
 
 @app.on_event("startup")
 async def _start_background_tasks():
-    app.state.backup_task = asyncio.create_task(auto_backup_loop())
+    # Initialise one small shared HTTP pool and keep the backup worker singular.
+    _roblox_http_client()
+    task = getattr(app.state, "backup_task", None)
+    if task is None or task.done():
+        app.state.backup_task = asyncio.create_task(auto_backup_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_background_tasks():
+    task = getattr(app.state, "backup_task", None)
+    if task is not None and not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    client = getattr(app.state, "roblox_http_client", None)
+    if client is not None and not client.is_closed:
+        await client.aclose()
 
 
 @app.get("/backups", response_class=HTMLResponse)
