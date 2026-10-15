@@ -675,8 +675,71 @@ def register(app):
             return "".join(out)
         history_options="".join(f'<option value="{e(h["check_date"])}" {"selected" if h["check_date"]==selected_date else ""}>{e(h["check_date"])} · {h["responses"]} Antworten · {h["members"]} Team-Snapshot</option>' for h in history) or f'<option value="{e(selected_date)}">{e(selected_date)}</option>'
         state_note=(pill("Snapshot pro Check gespeichert","good") if check and not legacy and snapshot else (pill("Snapshot ist leer – automatische Warns ausgesetzt","warn") if check and not legacy and snapshot_version >= 1 and not snapshot else (pill("Alter Check ohne Snapshot","warn") if legacy else pill("Kein Check für dieses Datum","warn"))))
+        # Configuration and a one-click recovery action live on the same page so
+        # "Kein Check" is actionable instead of silently leaving a blank report.
+        bot = getattr(request.app.state, "bot", None)
+        activity_cog_loaded = bool(bot and bot.get_cog("ActivityCheckCog"))
+        configured_channel_id = 0
+        configured_role_id = 0
+        activity_config_error = ""
+        try:
+            import cogs.activity_check as activity_module
+            activity_module.init_db()
+            configured_channel_id = int(activity_module.get_config("activity_channel_id") or 0)
+            configured_role_id = int(activity_module.get_config("activity_role_id") or 0)
+        except Exception as exc:
+            activity_config_error = f"{type(exc).__name__}: {exc}"
+        channel_options = "".join(
+            f'<option value="{ch.id}" {"selected" if ch.id == configured_channel_id else ""}>#{e(ch.name)} · {ch.id}</option>'
+            for ch in sorted(c.guild.text_channels, key=lambda x: x.name.casefold())
+        )
+        team_role_ids = {int(rid) for rid in c.config.get("team_role_ids", []) if str(rid).isdigit()}
+        if configured_role_id:
+            team_role_ids.add(configured_role_id)
+        role_options = (
+            '<option value="0" '+('selected' if not configured_role_id else '')+'>Konfigurierte Teamrollen verwenden (empfohlen)</option>'
+            + "".join(
+                f'<option value="{role.id}" {"selected" if role.id == configured_role_id else ""}>{e(role.name)} · {role.id}</option>'
+                for role in sorted(
+                    [r for r in c.guild.roles if r.id in team_role_ids and not r.is_default() and not r.managed],
+                    key=lambda x: (-x.position, x.name.casefold()),
+                )
+            )
+        )
+        config_status = (
+            pill("ActivityCheckCog aktiv", "good") if activity_cog_loaded
+            else pill("ActivityCheckCog nicht geladen", "bad")
+        )
+        if activity_config_error:
+            config_status += f'<div class="pulse-alert" style="margin-top:8px">Konfiguration konnte nicht gelesen werden: {e(activity_config_error)}</div>'
+        elif configured_channel_id:
+            saved_channel = c.guild.get_channel(configured_channel_id)
+            config_status += f'<div class="pulse-section-sub" style="margin-top:6px">Gespeicherter Kanal: {("#"+e(saved_channel.name)) if saved_channel else "nicht gefunden"} · ID {configured_channel_id}</div>'
+        else:
+            config_status += '<div class="pulse-section-sub" style="margin-top:6px">Es wurde noch kein Activity-Check-Kanal gespeichert.</div>'
+        setup_panel = f"""
+        <section class="pulse-card mb-5">
+          <div class="pulse-card-h"><div>
+            <div class="pulse-section-title">🛠 Activity Check reparieren / einrichten</div>
+            <div class="pulse-section-sub">Wenn für heute kein Datensatz existiert, hier den Kanal speichern und den Check direkt erstellen.</div>
+          </div>{config_status}</div>
+          <div class="pulse-card-b">
+            <form method="post" action="/activity-check/setup" class="grid md:grid-cols-3 gap-3 items-end">
+              <label class="text-xs">Activity-Check-Kanal
+                <select name="channel_id" class="pulse-input mt-1" required>{channel_options or '<option value="">Keine Textkanäle gefunden</option>'}</select>
+              </label>
+              <label class="text-xs">Teilnehmer / Ping-Rolle
+                <select name="role_id" class="pulse-input mt-1">{role_options}</select>
+              </label>
+              <button class="pulse-btn primary" type="submit" {"disabled" if not channel_options else ""}>Speichern & heutigen Check erstellen</button>
+            </form>
+            <div class="pulse-section-sub" style="margin-top:10px">Bei „Konfigurierte Teamrollen“ wird der Snapshot aus den Rollen in der Pulse-Konfiguration erstellt. Eine explizite Rolle begrenzt den Snapshot auf Mitglieder dieser Rolle.</div>
+          </div>
+        </section>
+        """
         body=(
             f'<div class="pulse-topbar"><div><div class="pulse-section-title">✓ Activity Check</div><div class="pulse-section-sub">Jeder Check wird separat gespeichert. Antworten gehören exakt zu diesem Check.</div></div>{state_note}</div>'
+            + setup_panel
             f'<section class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Tagesauswertung · {e(selected_date)}</div><div class="pulse-title">{done} von {total} bestätigt</div><div class="pulse-sub">Der Teilnehmer-Snapshot wird beim Erstellen des Checks gespeichert. Spätere Rollenänderungen verändern vergangene Auswertungen nicht.</div></div><div class="pulse-hero-box"><div class="label">BESTÄTIGUNGSQUOTE</div><div class="value">{pct}%</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{pct}%;background:white"></span></div></div></div></section>'
             f'<div class="flex flex-wrap items-center gap-2 mb-4"><form method="get" action="/activity-check" class="flex flex-wrap gap-2"><select name="date" class="pulse-input" style="width:auto;min-width:310px">{history_options}</select><button class="pulse-btn ghost">Check öffnen</button></form><a href="/team#activity" class="pulse-btn ghost">↩ Teamliste</a></div>'
             f'<div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">👥</div><div class="label">Snapshot</div><div class="value">{total}</div></div><div class="pulse-stat"><div class="icon">✅</div><div class="label">Bestätigt</div><div class="value">{done}</div></div><div class="pulse-stat"><div class="icon">⏳</div><div class="label">Offen</div><div class="value">{open_n}</div></div><div class="pulse-stat"><div class="icon">◷</div><div class="label">Erstellt</div><div class="value">{e(fmt_dt(check["created_at"]) if check else "—")}</div></div></div>'
