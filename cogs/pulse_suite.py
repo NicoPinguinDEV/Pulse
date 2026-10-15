@@ -683,13 +683,15 @@ class PulseSuite(commands.Cog):
 
     async def reminders(self,g):
         web=__import__("webserver");n=now()
-        for t in db.list_tasks(limit=3000):
+        # Resolve role permissions once per pass instead of once per stale application/promotion.
+        manager_cache=managers(g,web)
+        for t in db.list_tasks(limit=1000):
             d=local(t.get("due_at"))
             if d and d<=n and t.get("status") not in {"done","archived"} and t.get("assignee_id"):db.notify(t["assignee_id"],"⏰ Aufgabe überfällig",f'{t["title"]} ist überfällig.',"warning","/suite/tasks",f"overdue:{t['id']}",21600)
         for aid,a in web.load_json(web.APPS_FILE,{}).items():
             d=local(a.get("created_at"))
             if d and (n-d).total_seconds()>172800:
-                for m in managers(g,web):db.notify(m.id,"📝 Bewerbung wartet",f"{appname(aid,a)} wartet seit über 48h.","warning","/suite/applications",f"staleapp:{aid}",86400)
+                for m in manager_cache:db.notify(m.id,"📝 Bewerbung wartet",f"{appname(aid,a)} wartet seit über 48h.","warning","/suite/applications",f"staleapp:{aid}",86400)
         for p in _promos():
             if p["status"] in {"pending","revision"}:
                 for m in managers(g,web):db.notify(m.id,"📈 Beförderung wartet",f'{p["target_name"]} wartet auf eine Freigabe.',"warning","/suite/promotions",f"promo:{p['id']}",86400)
@@ -712,10 +714,11 @@ class PulseSuite(commands.Cog):
     async def long_shift_check(self,g):
         web=__import__("webserver")
         sh=web.load_shifts()
+        manager_cache=managers(g,web)
         for uid,s in sh.get("active_shifts",{}).items():
             elapsed=web.shift_elapsed(s)
             if elapsed>=8*3600 and not setting("long_shift:"+str(uid)+":"+str(s.get("date")),False):
-                for m in managers(g,web):
+                for m in manager_cache:
                     db.notify(m.id,"⏱ Ungewöhnlich lange Schicht",f"{s.get('mod_name',uid)} ist seit {secfmt(elapsed)} im Dienst. Prüfe bei Bedarf die Schicht.","warning","/suite/member/"+str(uid),f"longshift:{uid}:{s.get('date')}",86400)
                 set_setting("long_shift:"+str(uid)+":"+str(s.get("date")),True)
 
