@@ -10,6 +10,31 @@ DB_NAME = str(BASE_DIR / "teamliste.db")
 ABMELDUNGEN_DB = str(BASE_DIR / "abmeldungen.db")
 
 
+def _embed_signature(embed: discord.Embed) -> tuple:
+    """Compare all user-visible embed fields before sending a Discord PATCH."""
+    colour = embed.color.value if embed.color else None
+    timestamp = embed.timestamp.isoformat() if embed.timestamp else None
+    fields = tuple((field.name, field.value, bool(field.inline)) for field in embed.fields)
+    footer = (embed.footer.text, embed.footer.icon_url)
+    author = (embed.author.name, embed.author.url, embed.author.icon_url)
+    image = (embed.image.url, embed.thumbnail.url)
+    return (embed.title, embed.description, embed.url, colour, timestamp, footer, author, image, fields)
+
+
+def _retry_after_seconds(exc: discord.HTTPException) -> float:
+    """Parse Discord Retry-After; unknown headers fall back to a conservative pause."""
+    value = getattr(exc, "retry_after", None)
+    if value is None:
+        response = getattr(exc, "response", None)
+        headers = getattr(response, "headers", {}) or {}
+        value = headers.get("Retry-After") or headers.get("retry-after")
+    try:
+        return max(0.0, min(3600.0, float(value)))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+
 # --- DATENBANK HELFER ---
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -243,17 +268,11 @@ class TeamlisteCog(commands.Cog):
                 msg_id = get_msg_id(key)
 
                 if msg_id and msg_id != 0:
+                    msg = None
                     try:
                         msg = await channel.fetch_message(msg_id)
-
-                        # Inhaltsprüfung: Keine Anfrage senden, falls sich der Text nicht geändert hat
-                        if msg.embeds:
-                            old_embed = msg.embeds[0]
-                            if (
-                                old_embed.description == embed.description
-                                and old_embed.title == embed.title
-                            ):
-                                continue
+                        if len(msg.embeds) == 1 and _embed_signature(msg.embeds[0]) == _embed_signature(embed):
+                            continue
 
                         await msg.edit(embed=embed)
                         await asyncio.sleep(2)
@@ -265,21 +284,33 @@ class TeamlisteCog(commands.Cog):
 
                     except discord.HTTPException as e:
                         if e.status == 429:
-                            await asyncio.sleep(5)
+                            retry_after = _retry_after_seconds(e)
+                            if retry_after > 30:
+                                print(f"⏳ Teamliste ({key}): Rate-Limit aktiv; nächster regulärer Durchlauf übernimmt (Retry-After {retry_after:.1f}s).")
+                                return
+                            await asyncio.sleep(retry_after)
+                            try:
+                                if msg is None:
+                                    msg = await channel.fetch_message(msg_id)
+                                await msg.edit(embed=embed)
+                                await asyncio.sleep(2)
+                            except discord.NotFound:
+                                new_msg = await channel.send(embed=embed)
+                                set_msg_id(key, new_msg.id)
+                                await asyncio.sleep(2)
+                            except discord.HTTPException as retry_error:
+                                print(f"⏳ Teamliste ({key}): erneuter Discord-Aufruf fehlgeschlagen; Durchlauf wird beendet ({retry_error.status}).")
+                                return
                         elif e.code == 30046:
                             try:
-                                await channel.purge(
-                                    limit=1, check=lambda m: m.id == msg_id
-                                )
+                                await channel.purge(limit=1, check=lambda m: m.id == msg_id)
                             except discord.HTTPException:
                                 pass
                             new_msg = await channel.send(embed=embed)
                             set_msg_id(key, new_msg.id)
                             await asyncio.sleep(2)
                         else:
-                            print(
-                                f"HTTP-Fehler beim Aktualisieren der Teamliste ({key}): {e}"
-                            )
+                            print(f"HTTP-Fehler beim Aktualisieren der Teamliste ({key}): {e}")
                 else:
                     new_msg = await channel.send(embed=embed)
                     set_msg_id(key, new_msg.id)
