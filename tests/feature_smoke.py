@@ -621,6 +621,11 @@ def main() -> None:
     assert '@app.get("/tickets/panels", response_class=HTMLResponse)' in web
     assert 'href="/tickets/panels#panel-builder"' in web
     assert 'id="panel-builder"' in web
+    # The dedicated route must render a standalone builder page, not only the ticket overview.
+    assert 'if request.url.path == "/tickets/panels" and not ctx.perms.get("is_admin")' in web
+    assert 'Ticket-Panel-Builder' in web
+    assert 'Erstelle mehrere unabhängige Ticket-Panels' in web
+    assert 'document_head = page.split("<body>", 1)[0] + "<body>"' in web
     assert 'back("/tickets/panels' in web
     assert 'action="/tickets/panels/save"' in web
     assert 'action="/tickets/panels/publish"' in web
