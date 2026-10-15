@@ -282,8 +282,17 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.1"' in version_source
+    assert 'PULSE_VERSION = "7.8.2"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
+    # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
+    # builder and its save/delete handlers must live there (not only in legacy webserver.py).
+    assert "Digitale Zwischenrollen" in pro_melonly
+    assert 'dashboard_role_cfg = c.config.get("dashboard_roles", {})' in pro_melonly
+    assert 'name="dashboard_discord_roles"' in pro_melonly
+    assert "dashboard_profile.get(\"discord_role_ids\", [])" in pro_melonly
+    assert "mapped_ids & team_ids & member_role_ids" in pro_melonly
+    assert "app.post('/settings/dashboard-profile/save')(settings_dashboard_profile_save)" in pro_melonly
+    assert "app.post('/settings/dashboard-profile/delete')(settings_dashboard_profile_delete)" in pro_melonly
     assert "from pulse_version import PULSE_VERSION" in pro_melonly
     assert "VERSION = PULSE_VERSION" in pro_melonly
     assert 'pulse:scroll-restore:v1' in web
