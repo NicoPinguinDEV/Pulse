@@ -61,6 +61,7 @@ def main() -> None:
     assert "ABMELDUNGEN_DB = str(BASE_DIR / \"abmeldungen.db\")" in read("cogs/teamliste.py")
     assert "ACTIVITY_DB = str(BASE_DIR / \"activity_check.db\")" in web
     assert "sqlite3.connect(ws.ACTIVITY_DB)" in activity_pro
+    assert "import sqlite3\n" in activity_pro.split("PRO_CSS", 1)[0]
     assert "Activity Check reparieren / einrichten" in activity_pro
     assert "/activity-check/setup" in activity_pro
     assert "async def activity_check_setup(" in activity_pro
@@ -265,8 +266,8 @@ def main() -> None:
     # The visible /melonly page is Pulse Pro's route, not just the legacy dashboard.
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
-    assert 'VERSION = "7.4.3"' in pro_melonly
-    assert 'PULSE_VERSION = "7.4.3"' in web
+    assert 'VERSION = "7.4.4"' in pro_melonly
+    assert 'PULSE_VERSION = "7.4.4"' in web
     assert "ws.can_manage_melonly_entry(c,x)" in pro_melonly
     assert 'action="/log/edit"' in pro_melonly
     assert 'action="/log/delete"' in pro_melonly
