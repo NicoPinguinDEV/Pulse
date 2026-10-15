@@ -154,8 +154,9 @@ def upsert_members_batch(member_rows):
                 )
     return len(member_rows)
 
-def warns(m,web):
-    td=web.load_json(web.DATA_FILE,{})
+def warns(m,web,team_data=None):
+    """Read a team record from an optional per-request snapshot to avoid repeated file loads."""
+    td=team_data if team_data is not None else web.load_json(web.DATA_FILE,{})
     return web.active_warns(web.user_entry(td,str(m.id)))
 
 def total_time(m,web):
@@ -165,11 +166,17 @@ def total_time(m,web):
 def weekly(m,web):
     s=web.load_shifts();return web.calculate_weekly_seconds(str(m.id),s.get("history",[]),s.get("active_shifts",{}))
 
-def team_score(m,web):
+def team_score(m,web,task_rows=None,ticket_rows=None,team_data=None):
     w=weekly(m,web);goal=max(1,float(setting("weekly_goal_hours",3))*3600);activity=min(100,int(w/goal*100))
-    ts=db.list_tasks(assignee_id=m.id,limit=1000,include_archived=True);done=sum(t.get("status") in {"done","archived"} for t in ts);reliability=100 if not ts else int(done/len(ts)*100)
-    tickets=[t for t in db.list_tickets(limit=3000) if str(t.get("claimed_by_id"))==str(m.id) and t.get("status")=="closed"];support=min(100,len(tickets)*5)
-    discipline=max(0,100-len(warns(m,web))*30);training=min(100,len([x for x in db.attempts(user_id=m.id,limit=200) if x.get("passed")])*25)
+    ts=(
+        db.list_tasks(assignee_id=m.id,limit=1000,include_archived=True)
+        if task_rows is None
+        else [t for t in task_rows if str(t.get("assignee_id"))==str(m.id)]
+    )
+    done=sum(t.get("status") in {"done","archived"} for t in ts);reliability=100 if not ts else int(done/len(ts)*100)
+    ticket_source=db.list_tickets(limit=2000) if ticket_rows is None else ticket_rows
+    tickets=[t for t in ticket_source if str(t.get("claimed_by_id"))==str(m.id) and t.get("status")=="closed"];support=min(100,len(tickets)*5)
+    discipline=max(0,100-len(warns(m,web,team_data))*30);training=min(100,len([x for x in db.attempts(user_id=m.id,limit=200) if x.get("passed")])*25)
     return {"score":int(activity*.30+reliability*.20+support*.15+discipline*.20+training*.15),"activity":activity,"reliability":reliability,"support":support,"discipline":discipline,"training":training}
 
 def rank_progress(m,web):
@@ -292,16 +299,21 @@ def register_routes():
 
     @app.get("/suite/team",response_class=HTMLResponse)
     async def team_page(request:Request,user_session:str=Cookie(None)):
-        ctx=auth(request,user_session);web=webserver;rows=""
-        for m in members(ctx.guild,web):
-            s=team_score(m,web);sm=member_row(m.id);cl="ok" if s["score"]>=80 else "warn" if s["score"]>=60 else "bad"
-            rows+=f'<tr><td><a href=/suite/member/{m.id}><b>{esc(m.display_name)}</b></a><div class=tiny>{m.id}</div></td><td>{esc(m.top_role.name)}</td><td>{secfmt(total_time(m,web))}</td><td>{secfmt(weekly(m,web))}</td><td><span class="badge {cl}">{s["score"]}/100</span></td><td>{min(5,len(warns(m,web)))}/5</td><td>{esc(sm.get("probation_end") if sm else "—")}</td><td>{"🟢" if str(m.status) in {"online","idle","dnd"} else "⚪"}</td></tr>'
+        ctx=auth(request,user_session,manager=True);web=webserver;rows=""
+        # Fetch shared workloads and the team record file once for this request.
+        team_members=members(ctx.guild,web)
+        task_snapshot=db.list_tasks(limit=1000,include_archived=True)
+        ticket_snapshot=db.list_tickets(limit=2000)
+        team_data=web.load_json(web.DATA_FILE,{})
+        for m in team_members:
+            s=team_score(m,web,task_rows=task_snapshot,ticket_rows=ticket_snapshot,team_data=team_data);sm=member_row(m.id);cl="ok" if s["score"]>=80 else "warn" if s["score"]>=60 else "bad"
+            rows+=f'<tr><td><a href=/suite/member/{m.id}><b>{esc(m.display_name)}</b></a><div class=tiny>{m.id}</div></td><td>{esc(m.top_role.name)}</td><td>{secfmt(total_time(m,web))}</td><td>{secfmt(weekly(m,web))}</td><td><span class="badge {cl}">{s["score"]}/100</span></td><td>{min(5,len(warns(m,web,team_data)))}/5</td><td>{esc(sm.get("probation_end") if sm else "—")}</td><td>{"🟢" if str(m.status) in {"online","idle","dnd"} else "⚪"}</td></tr>'
         body=f'<div class=card><input class=input id=tf placeholder="Name oder Discord-ID…" oninput="f(this.value)"><div class=scroll style="margin-top:10px"><table class=table id=tt><thead><tr><th>Teamler</th><th>Position</th><th>Gesamt</th><th>Woche</th><th>Score</th><th>Warnungen</th><th>Probezeit</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div></div>'
         return page(ctx,"team","Teamakten","Digitale Personalakte mit Score, Dienstzeit, Warnungen und Probezeit",body,"function f(q){q=q.toLowerCase();document.querySelectorAll('#tt tbody tr').forEach(r=>r.style.display=r.innerText.toLowerCase().includes(q)?'':'none')}")
 
     @app.get("/suite/member/{member_id}",response_class=HTMLResponse)
     async def member_page(request:Request,member_id:int,user_session:str=Cookie(None)):
-        ctx=auth(request,user_session);web=webserver;m=ctx.guild.get_member(member_id)
+        ctx=auth(request,user_session,manager=True);web=webserver;m=ctx.guild.get_member(member_id)
         if not m or m.bot or m not in members(ctx.guild,web):raise HTTPException(404,"Teammitglied nicht gefunden")
         upsert_member(m);sm=member_row(member_id) or {};td=web.load_json(web.DATA_FILE,{});entry=web.user_entry(td,str(member_id));s=team_score(m,web)
         with cx() as c:ps=[dict(x) for x in c.execute("SELECT * FROM suite_promotions WHERE target_id=? ORDER BY created_at DESC",(str(member_id),)).fetchall()];aud=[dict(x) for x in c.execute("SELECT * FROM suite_audit WHERE target_id=? OR actor_id=? ORDER BY rowid DESC LIMIT 80",(str(member_id),str(member_id))).fetchall()]
@@ -315,9 +327,12 @@ def register_routes():
 
     @app.post("/suite/member/{member_id}/note")
     async def member_note(request:Request,member_id:int,note:str=Form(...),user_session:str=Cookie(None)):
-        ctx=auth(request,user_session)
+        ctx=auth(request,user_session,manager=True)
+        target=ctx.guild.get_member(member_id)
+        if not target or target.bot or target not in members(ctx.guild,webserver):
+            raise HTTPException(404,"Teammitglied nicht gefunden")
         with cx() as c:c.execute("UPDATE suite_members SET notes=?,last_seen=? WHERE user_id=?",(note[:5000],iso(),str(member_id)))
-        audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),member_id,"","note_updated","Notiz aktualisiert");return RedirectResponse(f"/suite/member/{member_id}",303)
+        audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),member_id,target.display_name,"note_updated","Interne Notiz aktualisiert");return RedirectResponse(f"/suite/member/{member_id}",303)
 
     @app.get("/suite/time",response_class=HTMLResponse)
     async def time_page(request:Request,user_session:str=Cookie(None)):
