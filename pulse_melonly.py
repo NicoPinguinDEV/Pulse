@@ -77,11 +77,19 @@ def can_manage_melonly_type(
     *,
     can_warn: bool = False,
     can_add_notes: bool = False,
+    can_moderate_kicks: bool = False,
+    can_moderate_bans: bool = False,
+    can_moderate_bolo: bool = False,
     manager: bool = False,
 ) -> bool:
-    """Only moderation roles can manage matching case types; managers can manage all."""
+    """Check permission per action type; a warn permission never grants ban rights."""
     if manager:
         return log_type in VALID_LOG_TYPES
-    if log_type == "Notiz":
-        return bool(can_add_notes)
-    return log_type in PUNISHMENT_LOG_TYPES and bool(can_warn)
+    permissions = {
+        "Warn": can_warn,
+        "Notiz": can_add_notes,
+        "Kick": can_moderate_kicks,
+        "Ban": can_moderate_bans,
+        "Ban BOLO": can_moderate_bolo,
+    }
+    return bool(permissions.get(log_type, False))
