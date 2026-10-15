@@ -62,6 +62,8 @@ def confirmed_by_deadline(reacted_at: object, check_date: object) -> bool:
         reacted = reacted.replace(tzinfo=BERLIN_TZ)
     else:
         reacted = reacted.astimezone(BERLIN_TZ)
+    if reacted.date() != target:
+        return False
     deadline = datetime.combine(target, time(hour=20, minute=0), tzinfo=BERLIN_TZ)
     return reacted <= deadline
 
