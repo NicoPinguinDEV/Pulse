@@ -295,7 +295,8 @@ def main() -> None:
     assert "permissions_profile_version" in pro_melonly
     assert "pk_role" in pro_melonly
     assert "team_lead_role" in pro_melonly
-    assert 'for key in ("can_warn", "can_moderate_kicks", "can_add_notes", "can_promote",' in pro_melonly
+    assert '"can_moderate_bans"' in pro_melonly
+    assert '"can_moderate_bolo"' in pro_melonly
     assert "robloxSuggestionPanel" in web
     assert "Bester Treffer" in web
     assert "best_match" in web
