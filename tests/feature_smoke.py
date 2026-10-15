@@ -281,7 +281,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.7.9"' in version_source
+    assert 'PULSE_VERSION = "7.8.0"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     assert "from pulse_version import PULSE_VERSION" in pro_melonly
     assert "VERSION = PULSE_VERSION" in pro_melonly
