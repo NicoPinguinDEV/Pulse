@@ -74,6 +74,10 @@ def main() -> None:
     assert "await target.remove_roles(*team_roles" in suite_actions
     assert "status='executing'" in suite_actions
     assert "rank_role_ids_after_change(" in suite_actions
+    assert "Keine andere berechtigte Führungskraft" in suite_actions
+    assert '("Warn-Stufe",f"{count}/5")' in suite_actions
+    assert 'str(count)+"/5)."' in suite_actions
+    assert "manager_cache=managers(g,web)" in suite_actions
     assert "Pflichtgrund für den Team-Kick" in suite_actions
     assert "Pflichtgrund für den Server-Kick" in suite_actions
     assert "RAM_WARN_MB = 180.0" in ultimate
