@@ -125,18 +125,19 @@ def main() -> None:
     assert "def _roblox_http_client()" in web
     assert "limits=httpx.Limits(" in web
 
-    # Dashboard-only roles are reusable user-scoped permission profiles. They must
-    # be enforced by the central permission calculation and remain separate from Discord roles.
+    # Dashboard-only profiles are mapped to configured Discord team roles.
     assert '"dashboard_roles"' in web
-    assert '"dashboard_user_roles"' in web
     assert "def dashboard_permission_boxes(" in web
-    assert '"assign_dashboard_role": "admin"' in web
-    assert '"unassign_dashboard_role": "admin"' in web
+    assert "def dashboard_discord_role_boxes(" in web
+    assert 'dashboard_discord_role_ids: List[int] = Form(default=[])' in web
+    assert '"save_dashboard_role": "admin"' in web
     assert '"delete_dashboard_role": "admin"' in web
-    assert "assigned_dashboard_roles" in web
-    assert "Dashboard-Profil zugewiesen" in web
-    assert "Dashboard-Profil entzogen" in web
-    assert "Dashboard-Profile können nur Mitgliedern mit einer konfigurierten Teamrolle zugewiesen werden." in web
+    assert '"discord_role_ids": valid_role_ids' in web
+    assert "mapped_ids & member_role_ids & configured_team_role_ids" in web
+    assert "Zugeordnete Discord-Teamrollen" in web
+    assert "Dashboard-Profile dürfen nur vorhandene, konfigurierte Discord-Teamrollen verwenden." in web
+    assert 'if action == "assign_dashboard_role":' not in web
+    assert 'if action == "unassign_dashboard_role":' not in web
 
 
     # Dashboard Team-Kick must reset the member's roles to exactly the two
@@ -281,7 +282,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.0"' in version_source
+    assert 'PULSE_VERSION = "7.8.1"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     assert "from pulse_version import PULSE_VERSION" in pro_melonly
     assert "VERSION = PULSE_VERSION" in pro_melonly
