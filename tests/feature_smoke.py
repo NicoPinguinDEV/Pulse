@@ -267,7 +267,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.7.4"' in version_source
+    assert 'PULSE_VERSION = "7.7.5"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     assert "from pulse_version import PULSE_VERSION" in pro_melonly
     assert "VERSION = PULSE_VERSION" in pro_melonly
@@ -281,6 +281,21 @@ def main() -> None:
     assert "def _embed_signature(embed: discord.Embed)" in read("cogs/abmeldung.py")
     assert "Retry-After" in read("cogs/teamliste.py")
     assert "all_role_permissions_disabled" in pro_melonly
+
+    # Public recruitment submissions are gated by a live Discord role check on both GET and POST.
+    assert "APPLICATION_REQUIRED_ROLE_ID = 1531303733311307997" in web
+    assert "APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720" in web
+    assert "APPLICATION_ALERT_ROLE_ID = 1531300183088824340" in web
+    assert "async def verify_application_member(request: Request, applicant_id)" in web
+    public_apply_source = web.split('async def public_apply_page(', 1)[1].split('@app.get("/apply/login")', 1)[0]
+    assert "await verify_application_member(" in public_apply_source
+    submit_source = web.split('if action == "submit_application":', 1)[1].split("# ---------- Ab hier: Login + Recht", 1)[0]
+    assert "await verify_application_member(" in submit_source
+    assert "async def notify_new_application(" in web
+    assert "await notify_new_application(request, app_id_new, apps[app_id_new])" in submit_source
+    assert "discord.AllowedMentions(" in web
+    assert "roles=[alert_role] if alert_role else []" in web
+    assert 'can_decide = ctx.perms["can_manage_applications"] or ctx.perms["can_promote"] or ctx.perms["is_admin"]' in web
     assert 'action="/log/edit"' in pro_melonly
     assert 'action="/log/delete"' in pro_melonly
     assert 'name="return_to" value="/melonly"' in pro_melonly
