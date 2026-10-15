@@ -16,6 +16,7 @@ from fastapi import Cookie, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
+from pulse_safety import approved_action_operation, rank_role_ids_after_change
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE, "pulse_suite.db")
@@ -789,6 +790,93 @@ class PulseSuite(commands.Cog):
     def safe_target(self,i,m):
         return i.guild and isinstance(m,discord.Member) and not m.bot and m.id!=i.user.id and m.top_role<i.user.top_role
 
+    def _rank_change_error(self, interaction, member, role, role_ids, action):
+        if not interaction.guild or not self.safe_target(interaction, member):
+            return "Zielmitglied ist nicht in deiner zulässigen Rollen-Hierarchie."
+        if role.id not in role_ids or role.is_default() or role.managed:
+            return "Bitte wähle eine verwaltbare Team-Rangrolle aus."
+        bot_member = interaction.guild.me
+        if not bot_member or role.position >= bot_member.top_role.position:
+            return "Der Bot kann diese Rangrolle nicht verwalten (Rollenhierarchie prüfen)."
+        current_team_roles = [r for r in member.roles if r.id in role_ids and not r.is_default()]
+        if any(r.position >= bot_member.top_role.position for r in current_team_roles):
+            return "Mindestens eine bestehende Teamrolle liegt auf oder über der Bot-Rolle."
+        current_rank = max((r.position for r in current_team_roles), default=0)
+        if action == "promote" and role.position <= current_rank:
+            return "Die Zielrolle ist nicht höher als der aktuelle Teamrang."
+        if action == "demote" and (not current_team_roles or role.position >= current_rank):
+            return "Die Zielrolle ist nicht niedriger als der aktuelle Teamrang."
+        return ""
+
+    async def _confirm_rank_change(self, interaction, member, role, grund, action, web, role_ids):
+        error = self._rank_change_error(interaction, member, role, role_ids, action)
+        if error or locked() or not allowed(interaction, action, web):
+            await interaction.response.edit_message(
+                content="❌ Rangwechsel abgebrochen: " + (error or "Berechtigung fehlt oder Pulse Emergency Lock ist aktiv."),
+                embed=None,
+                view=None,
+            )
+            return
+        old_team_roles = [r for r in member.roles if r.id in role_ids and not r.is_default()]
+        old_names = ", ".join(r.name for r in old_team_roles) or "Kein Teamrang"
+        planned_ids = set(
+            rank_role_ids_after_change(
+                [r.id for r in member.roles],
+                role_ids,
+                role.id,
+            )
+        )
+        desired_roles = [r for r in member.roles if r.id in planned_ids]
+        if not any(r.id == role.id for r in desired_roles):
+            desired_roles.append(role)
+        try:
+            await member.edit(
+                roles=desired_roles,
+                reason=f"Pulse {action} · {grund}"[:512],
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            await interaction.response.edit_message(
+                content=f"❌ Rangwechsel fehlgeschlagen ({type(exc).__name__}). Die bestehende Rollenliste wurde nicht absichtlich verändert.",
+                embed=None,
+                view=None,
+            )
+            return
+
+        label = "Beförderung" if action == "promote" else "Degradierung"
+        audit(
+            interaction.guild.id,
+            interaction.user.id,
+            interaction.user.display_name,
+            member.id,
+            member.display_name,
+            action,
+            f"{old_names} → {role.name} · Grund: {grund}",
+        )
+        try:
+            await web.send_team_update_embed(
+                interaction.guild,
+                f"📣 Team-Update: {label}",
+                f"{member.mention} erhielt einen neuen Teamrang.",
+                discord.Color.green() if action == "promote" else discord.Color.orange(),
+                actor=interaction.user,
+                target=member,
+                action=label,
+                fields=[
+                    ("Bisherige Teamrolle(n)", old_names, False),
+                    ("Neue Teamrolle", role.mention, False),
+                    ("Grund", grund[:1000], False),
+                ],
+                thumbnail=member.display_avatar.url,
+            )
+        except Exception as exc:
+            print(f"⚠️ Pulse {label}: Team-Update konnte nicht gesendet werden ({type(exc).__name__}).")
+        await interaction.response.edit_message(
+            content=f"✅ {label} ausgeführt: **{member.display_name}** → {role.mention}. Alle anderen Team-Rangrollen wurden ersetzt, übrige Rollen bleiben erhalten.",
+            embed=None,
+            view=None,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
     @commands.Cog.listener()
     async def on_ready(self):
         g=self.guild()
@@ -854,106 +942,225 @@ class PulseSuite(commands.Cog):
 
     @app_commands.command(name="warn-remove",description="Zieht eine Warnung nach Bestätigung zurück.")
     async def warn_remove(self,i,member:discord.Member,warn_id:str,grund:str=""):
-        web=__import__("webserver");td=web.load_json(web.DATA_FILE,{});e=web.user_entry(td,str(member.id));w=next((x for x in e.get("warns_list",[]) if x.get("id")==warn_id and x.get("active",True)),None)
-        if not allowed(i,"warn-remove",web) or locked() or not w:return await i.response.send_message("❌ Warnung nicht gefunden / keine Berechtigung.",ephemeral=True)
+        if not grund.strip():
+            return await i.response.send_message("❌ Bitte gib einen Pflichtgrund für die Rücknahme an.",ephemeral=True)
+        web=__import__("webserver")
+        td=web.load_json(web.DATA_FILE,{})
+        entry=web.user_entry(td,str(member.id))
+        warn_entry=next((x for x in entry.get("warns_list",[]) if x.get("id")==warn_id and x.get("active",True)),None)
+        if not allowed(i,"warn-remove",web) or locked() or not warn_entry:
+            return await i.response.send_message("❌ Warnung nicht gefunden / keine Berechtigung.",ephemeral=True)
         async def do(x):
-            td=web.load_json(web.DATA_FILE,{})
-            e=web.user_entry(td,str(member.id))
-            w=next((z for z in e.get("warns_list",[]) if z.get("id")==warn_id),None)
-            if not w:
-                raise ValueError("Warnung wurde nicht gefunden.")
-            w["active"]=False
-            w["revoked_at"]=iso()
-            w["revoked_by"]=i.user.display_name
-            w["revoked_reason"]=grund[:1000]
-            web.save_json(web.DATA_FILE,td)
-            count=len(web.active_warns(e))
+            current_data=web.load_json(web.DATA_FILE,{})
+            current_entry=web.user_entry(current_data,str(member.id))
+            current_warn=next((z for z in current_entry.get("warns_list",[]) if z.get("id")==warn_id and z.get("active",True)),None)
+            if not current_warn:
+                return await x.response.edit_message(content="❌ Diese Warnung ist nicht mehr aktiv.",embed=None,view=None)
+            current_warn["active"]=False
+            current_warn["revoked_at"]=iso()
+            current_warn["revoked_by"]=i.user.display_name
+            current_warn["revoked_reason"]=grund.strip()[:1000]
+            web.save_json(web.DATA_FILE,current_data)
+            count=len(web.active_warns(current_entry))
             role_report=await web.sync_warn_roles(i.guild,member,count,web.load_config())
-            audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"warning_withdrawn",warn_id+" · "+grund)
-            result_text="✅ "+warn_id+" zurückgezogen ("+str(count)+"/3 aktiv)."
+            audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"warning_withdrawn",warn_id+" · "+grund.strip())
+            result_text="✅ "+warn_id+" zurückgezogen ("+str(count)+"/5 aktive Warnungen)."
             if not role_report.get("ok"):
                 result_text += "\n⚠️ Warnrolle konnte nicht synchronisiert werden: "+str(role_report.get("message"))
             await x.response.edit_message(content=result_text,embed=None,view=None)
-        await i.response.send_message(f"Warnung {warn_id} von {member.display_name} wirklich zurückziehen?",view=Confirm(i.user.id,do),ephemeral=True)
+        await i.response.send_message(
+            f"Warnung {warn_id} von {member.display_name} wirklich zurückziehen?\nGrund: {grund.strip()}",
+            view=Confirm(i.user.id,do),
+            ephemeral=True,
+        )
 
-    @app_commands.command(name="kick",description="Alias für den sicheren Server-Kick mit Zweitfreigabe.")
+    @app_commands.command(name="kick",description="Server-Kick mit verpflichtendem Grund und Zweitfreigabe.")
     async def kick_cmd(self,i,member:discord.Member,grund:str=""):
+        if not grund.strip():
+            return await i.response.send_message("❌ Bitte gib einen Pflichtgrund für den Server-Kick an.",ephemeral=True)
         web=__import__("webserver")
         if not allowed(i,"kick",web) or locked() or not self.safe_target(i,member):
             return await i.response.send_message("❌ Aktion nicht erlaubt.",ephemeral=True)
         async def do(x):
-            aid=action_record("server-exit",{"target_id":member.id,"reason":grund},i.user)
-            for m in managers(i.guild,web):
-                if m.id!=i.user.id:
-                    db.notify(m.id,"🔐 Zweite Freigabe",f"Vorgang {aid} für {member.display_name} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
-            await x.response.edit_message(content="🔐 Vorgang "+aid+" angelegt. Zweite Führungskraft erforderlich.",embed=None,view=None)
-        await i.response.send_message(f"🚨 {member.display_name} soll aus dem Server entfernt werden.\n{grund}\n\nWirklich ausführen?",view=Confirm(i.user.id,do),ephemeral=True)
+            aid=action_record("server-exit",{"target_id":member.id,"reason":grund.strip()[:1000]},i.user)
+            for manager in managers(i.guild,web):
+                if manager.id!=i.user.id:
+                    db.notify(manager.id,"🔐 Zweite Freigabe",f"Server-Kick {aid} für {member.display_name} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
+            await x.response.edit_message(content="🔐 Server-Kick "+aid+" vorbereitet. Eine andere berechtigte Führungskraft muss ihn mit /pulse-approve freigeben.",embed=None,view=None)
+        await i.response.send_message(
+            f"🚨 **Server-Kick**\n{member.display_name} wird nach einer zweiten Freigabe vom Discord-Server entfernt.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
+            view=Confirm(i.user.id,do),
+            ephemeral=True,
+        )
 
-    @app_commands.command(name="team-kick",description="Alias für das sichere Team-Offboarding mit Zweitfreigabe.")
+    @app_commands.command(name="team-kick",description="Entfernt ausschließlich Teamrollen; Person bleibt auf dem Server.")
     async def team_kick_cmd(self,i,member:discord.Member,grund:str=""):
+        if not grund.strip():
+            return await i.response.send_message("❌ Bitte gib einen Pflichtgrund für den Team-Kick an.",ephemeral=True)
         web=__import__("webserver")
         if not allowed(i,"team-kick",web) or locked() or not self.safe_target(i,member):
             return await i.response.send_message("❌ Aktion nicht erlaubt.",ephemeral=True)
+        if member not in members(i.guild,web):
+            return await i.response.send_message("❌ Das Zielmitglied besitzt aktuell keine konfigurierte Teamrolle.",ephemeral=True)
         async def do(x):
-            aid=action_record("team-exit",{"target_id":member.id,"reason":grund},i.user)
-            for m in managers(i.guild,web):
-                if m.id!=i.user.id:
-                    db.notify(m.id,"🔐 Zweite Freigabe",f"Team-Offboarding {aid} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
-            await x.response.edit_message(content="🔐 Vorgang "+aid+" angelegt. Zweite Führungskraft erforderlich.",embed=None,view=None)
-        await i.response.send_message(f"🚪 {member.display_name} soll das Team verlassen.\n{grund}\n\nWirklich ausführen?",view=Confirm(i.user.id,do),ephemeral=True)
+            aid=action_record("team-exit",{"target_id":member.id,"reason":grund.strip()[:1000]},i.user)
+            for manager in managers(i.guild,web):
+                if manager.id!=i.user.id:
+                    db.notify(manager.id,"🔐 Zweite Freigabe",f"Team-Offboarding {aid} für {member.display_name} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
+            await x.response.edit_message(content="🔐 Team-Kick "+aid+" vorbereitet. Die Person bleibt auf dem Discord-Server; eine andere berechtigte Führungskraft muss freigeben.",embed=None,view=None)
+        await i.response.send_message(
+            f"🚪 **Team-Kick**\n{member.display_name} verliert nach einer zweiten Freigabe die konfigurierten Teamrollen, wird aber nicht vom Server gekickt.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
+            view=Confirm(i.user.id,do),
+            ephemeral=True,
+        )
 
-    @app_commands.command(name="server-exit",description="Kritische Server-Aktion mit Zweitfreigabe.")
+    @app_commands.command(name="server-exit",description="Server-Kick mit Pflichtgrund und Zweitfreigabe.")
     async def server_exit(self,i,member:discord.Member,grund:str=""):
+        if not grund.strip():
+            return await i.response.send_message("❌ Bitte gib einen Pflichtgrund für den Server-Kick an.",ephemeral=True)
         web=__import__("webserver")
-        if not allowed(i,"server-exit",web) or locked() or not self.safe_target(i,member):return await i.response.send_message("❌ Aktion nicht erlaubt.",ephemeral=True)
+        if not allowed(i,"server-exit",web) or locked() or not self.safe_target(i,member):
+            return await i.response.send_message("❌ Aktion nicht erlaubt.",ephemeral=True)
         async def do(x):
-            aid=action_record("server-exit",{"target_id":member.id,"reason":grund},i.user)
-            for m in managers(i.guild,web):
-                if m.id!=i.user.id:db.notify(m.id,"🔐 Zweite Freigabe",f"Vorgang {aid} für {member.display_name} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
-            await x.response.edit_message(content="🔐 Vorgang "+aid+" angelegt. Zweite Führungskraft erforderlich.",embed=None,view=None)
-        await i.response.send_message(f"🚨 {member.display_name} soll aus dem Server entfernt werden.\n{grund}\n\nWirklich vorbereiten?",view=Confirm(i.user.id,do),ephemeral=True)
+            aid=action_record("server-exit",{"target_id":member.id,"reason":grund.strip()[:1000]},i.user)
+            for manager in managers(i.guild,web):
+                if manager.id!=i.user.id:
+                    db.notify(manager.id,"🔐 Zweite Freigabe",f"Server-Kick {aid} für {member.display_name} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
+            await x.response.edit_message(content="🔐 Server-Kick "+aid+" vorbereitet. Eine andere berechtigte Führungskraft muss ihn mit /pulse-approve freigeben.",embed=None,view=None)
+        await i.response.send_message(
+            f"🚨 **Server-Kick**\n{member.display_name} wird nach einer zweiten Freigabe vom Discord-Server entfernt.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
+            view=Confirm(i.user.id,do),
+            ephemeral=True,
+        )
 
-    @app_commands.command(name="team-exit",description="Entfernt Teamrollen mit Zweitfreigabe und startet Offboarding.")
+    @app_commands.command(name="team-exit",description="Entfernt Teamrollen mit Zweitfreigabe; kein Server-Kick.")
     async def team_exit(self,i,member:discord.Member,grund:str=""):
+        if not grund.strip():
+            return await i.response.send_message("❌ Bitte gib einen Pflichtgrund für das Team-Offboarding an.",ephemeral=True)
         web=__import__("webserver")
-        if not allowed(i,"team-exit",web) or locked() or not self.safe_target(i,member):return await i.response.send_message("❌ Aktion nicht erlaubt.",ephemeral=True)
+        if not allowed(i,"team-exit",web) or locked() or not self.safe_target(i,member):
+            return await i.response.send_message("❌ Aktion nicht erlaubt.",ephemeral=True)
+        if member not in members(i.guild,web):
+            return await i.response.send_message("❌ Das Zielmitglied besitzt aktuell keine konfigurierte Teamrolle.",ephemeral=True)
         async def do(x):
-            aid=action_record("team-exit",{"target_id":member.id,"reason":grund},i.user)
-            for m in managers(i.guild,web):
-                if m.id!=i.user.id:db.notify(m.id,"🔐 Zweite Freigabe",f"Team-Offboarding {aid} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
-            await x.response.edit_message(content="🔐 Vorgang "+aid+" angelegt. Zweite Führungskraft erforderlich.",embed=None,view=None)
-        await i.response.send_message(f"🚪 {member.display_name} soll das Team verlassen.\n{grund}\n\nWirklich vorbereiten?",view=Confirm(i.user.id,do),ephemeral=True)
+            aid=action_record("team-exit",{"target_id":member.id,"reason":grund.strip()[:1000]},i.user)
+            for manager in managers(i.guild,web):
+                if manager.id!=i.user.id:
+                    db.notify(manager.id,"🔐 Zweite Freigabe",f"Team-Offboarding {aid} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
+            await x.response.edit_message(content="🔐 Team-Offboarding "+aid+" vorbereitet. Die Person bleibt auf dem Server; eine andere berechtigte Führungskraft muss freigeben.",embed=None,view=None)
+        await i.response.send_message(
+            f"🚪 **Team-Offboarding**\n{member.display_name} verliert nach einer zweiten Freigabe die konfigurierten Teamrollen.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
+            view=Confirm(i.user.id,do),
+            ephemeral=True,
+        )
 
-    @app_commands.command(name="promote",description="Befördert mit Bestätigung und Hierarchieschutz.")
+    @app_commands.command(name="promote",description="Befördert mit Pflichtgrund, Hierarchieschutz und Bestätigung.")
     async def promote_cmd(self,i,member:discord.Member,rolle:discord.Role,grund:str=""):
-        web=__import__("webserver");ids={int(x) for x in web.load_config().get("team_role_ids",[])}
-        if not allowed(i,"promote",web) or locked() or i.user.id==member.id or rolle.id not in ids or rolle.position>=i.user.top_role.position or rolle.position<=member.top_role.position:return await i.response.send_message("❌ Beförderung blockiert.",ephemeral=True)
+        if not grund.strip():
+            return await i.response.send_message("❌ Bitte gib einen Pflichtgrund für die Beförderung an.",ephemeral=True)
+        web=__import__("webserver")
+        role_ids={int(x) for x in web.load_config().get("team_role_ids",[]) if str(x).isdigit()}
+        error=self._rank_change_error(i,member,rolle,role_ids,"promote")
+        if not allowed(i,"promote",web) or locked() or error:
+            return await i.response.send_message("❌ Beförderung blockiert: "+(error or "Berechtigung fehlt oder Pulse Emergency Lock ist aktiv."),ephemeral=True)
         async def do(x):
-            old=member.top_role;await member.add_roles(rolle,reason="Pulse Promotion");audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"promote",f"{old.name} → {rolle.name} · {grund}");await x.response.edit_message(content=f"✅ {member.display_name} → {rolle.name}.",view=None)
-        await i.response.send_message(f"📈 {member.display_name} → {rolle.name}\n{grund}\n\nWirklich befördern?",view=Confirm(i.user.id,do),ephemeral=True)
+            await self._confirm_rank_change(x,member,rolle,grund.strip()[:1000],"promote",web,role_ids)
+        await i.response.send_message(
+            f"📈 **Beförderung vorbereiten**\n{member.display_name}: **{rolle.name}**\nGrund: {grund.strip()}\n\nBestehende Team-Rangrollen werden durch den neuen Rang ersetzt. Fortfahren?",
+            view=Confirm(i.user.id,do),
+            ephemeral=True,
+        )
 
-    @app_commands.command(name="demote",description="Degradiert mit Bestätigung und Hierarchieschutz.")
+    @app_commands.command(name="demote",description="Degradiert mit Pflichtgrund, Hierarchieschutz und Bestätigung.")
     async def demote_cmd(self,i,member:discord.Member,rolle:discord.Role,grund:str=""):
-        web=__import__("webserver");ids={int(x) for x in web.load_config().get("team_role_ids",[])}
-        if not allowed(i,"demote",web) or locked() or i.user.id==member.id or rolle.id not in ids or rolle.position>=member.top_role.position or member.top_role.position>=i.user.top_role.position:return await i.response.send_message("❌ Degradierung blockiert.",ephemeral=True)
+        if not grund.strip():
+            return await i.response.send_message("❌ Bitte gib einen Pflichtgrund für die Degradierung an.",ephemeral=True)
+        web=__import__("webserver")
+        role_ids={int(x) for x in web.load_config().get("team_role_ids",[]) if str(x).isdigit()}
+        error=self._rank_change_error(i,member,rolle,role_ids,"demote")
+        if not allowed(i,"demote",web) or locked() or error:
+            return await i.response.send_message("❌ Degradierung blockiert: "+(error or "Berechtigung fehlt oder Pulse Emergency Lock ist aktiv."),ephemeral=True)
         async def do(x):
-            old=member.top_role;await member.add_roles(rolle,reason="Pulse Demotion");audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"demote",f"{old.name} → {rolle.name} · {grund}");await x.response.edit_message(content=f"✅ {member.display_name} → {rolle.name}.",view=None)
-        await i.response.send_message(f"📉 {member.display_name} → {rolle.name}\n{grund}\n\nWirklich degradieren?",view=Confirm(i.user.id,do),ephemeral=True)
+            await self._confirm_rank_change(x,member,rolle,grund.strip()[:1000],"demote",web,role_ids)
+        await i.response.send_message(
+            f"📉 **Degradierung vorbereiten**\n{member.display_name}: **{rolle.name}**\nGrund: {grund.strip()}\n\nBestehende Team-Rangrollen werden durch den neuen Rang ersetzt. Fortfahren?",
+            view=Confirm(i.user.id,do),
+            ephemeral=True,
+        )
 
-    @app_commands.command(name="pulse-approve",description="Gibt einen kritischen Vorgang mit Zweitfreigabe frei.")
+    @app_commands.command(name="pulse-approve",description="Führt einen freizugebenden Server-Kick oder Team-Austritt aus.")
     async def approve_cmd(self,i,action_id:str):
-        if not i.guild:return
-        web=__import__("webserver");p,_=web.compute_perms(i.guild,i.user.id,web.load_config())
-        if not p.get("can_promote") and not p.get("is_admin"):return await i.response.send_message("❌ Nur Führungskräfte.",ephemeral=True)
-        with cx() as c:r=c.execute("SELECT * FROM suite_actions WHERE id=?",(action_id,)).fetchone()
-        if not r or r["status"]!="awaiting_second" or r["created_by_id"]==str(i.user.id):return await i.response.send_message("❌ Kein freigabefähiger Vorgang.",ephemeral=True)
-        payload=json.loads(r["payload_json"]);target=i.guild.get_member(int(payload["target_id"]))
-        if not target or target.top_role>=i.user.top_role:return await i.response.send_message("❌ Ziel nicht mehr in zulässiger Hierarchie.",ephemeral=True)
-        if r["kind"]=="server-exit":await target.remove_roles(*[x for x in target.roles if x.id in {int(z) for z in web.load_config().get("team_role_ids",[])} and not x.is_default()],reason="Pulse Server-Exit "+action_id)
-        elif r["kind"]=="team-exit":await target.remove_roles(*[x for x in target.roles if x.id in {int(z) for z in web.load_config().get("team_role_ids",[])} and not x.is_default()],reason="Pulse Team-Exit "+action_id)
-        else:return await i.response.send_message("❌ Unbekannter Vorgang.",ephemeral=True)
-        with cx() as c:c.execute("UPDATE suite_actions SET status='approved',approved_by_id=?,approved_by_name=?,updated_at=? WHERE id=?",(str(i.user.id),i.user.display_name,iso(),action_id))
-        audit(i.guild.id,i.user.id,i.user.display_name,target.id,target.display_name,r["kind"],"Zweite Freigabe "+action_id);await i.response.send_message("✅ "+action_id+" ausgeführt.",ephemeral=True)
+        if not i.guild:
+            return await i.response.send_message("Dieser Befehl funktioniert nur auf dem Server.",ephemeral=True)
+        web=__import__("webserver")
+        p,_=web.compute_perms(i.guild,i.user.id,web.load_config())
+        if not p.get("can_promote") and not p.get("is_admin"):
+            return await i.response.send_message("❌ Nur berechtigte Führungskräfte dürfen freigeben.",ephemeral=True)
+
+        team_role_ids={int(x) for x in web.load_config().get("team_role_ids",[]) if str(x).isdigit()}
+        with cx() as c:
+            row=c.execute("SELECT * FROM suite_actions WHERE id=?",(action_id,)).fetchone()
+            if not row or row["status"]!="awaiting_second" or row["created_by_id"]==str(i.user.id):
+                return await i.response.send_message("❌ Kein freigabefähiger Vorgang oder du bist dessen Ersteller.",ephemeral=True)
+            try:
+                payload=json.loads(row["payload_json"])
+                target_id=int(payload["target_id"])
+                reason=str(payload.get("reason","")).strip()
+            except (ValueError,TypeError,KeyError,json.JSONDecodeError):
+                return await i.response.send_message("❌ Der Vorgang enthält ungültige Daten.",ephemeral=True)
+            operation=approved_action_operation(str(row["kind"]))
+            target=i.guild.get_member(target_id)
+            if operation is None or not target or not reason:
+                return await i.response.send_message("❌ Vorgang, Zielmitglied oder Pflichtgrund ist ungültig.",ephemeral=True)
+            if target.top_role>=i.user.top_role:
+                return await i.response.send_message("❌ Zielmitglied liegt auf oder über deiner höchsten Rolle.",ephemeral=True)
+
+            bot_member=i.guild.me
+            if bot_member is None:
+                return await i.response.send_message("❌ Bot-Mitglied konnte nicht ermittelt werden.",ephemeral=True)
+            team_roles=[r for r in target.roles if r.id in team_role_ids and not r.is_default()]
+            if operation=="kick_member" and target.top_role>=bot_member.top_role:
+                return await i.response.send_message("❌ Der Bot kann dieses Mitglied wegen der Rollen-Hierarchie nicht vom Server kicken.",ephemeral=True)
+            if operation=="remove_team_roles":
+                if not team_roles:
+                    return await i.response.send_message("❌ Das Mitglied besitzt keine konfigurierten Teamrollen mehr.",ephemeral=True)
+                if any(r.position>=bot_member.top_role.position for r in team_roles):
+                    return await i.response.send_message("❌ Mindestens eine Teamrolle liegt auf oder über der Bot-Rolle.",ephemeral=True)
+
+            claimed=c.execute(
+                "UPDATE suite_actions SET status='executing',approved_by_id=?,approved_by_name=?,updated_at=? WHERE id=? AND status='awaiting_second'",
+                (str(i.user.id),i.user.display_name,iso(),action_id),
+            ).rowcount
+            if claimed!=1:
+                return await i.response.send_message("❌ Dieser Vorgang wird bereits ausgeführt oder wurde schon freigegeben.",ephemeral=True)
+
+        await i.response.defer(ephemeral=True,thinking=True)
+        try:
+            if operation=="kick_member":
+                await target.kick(reason=f"Pulse Server-Kick {action_id} · {reason}"[:512])
+                outcome=f"{target.display_name} wurde nach Zweitfreigabe vom Discord-Server gekickt."
+            else:
+                await target.remove_roles(*team_roles,reason=f"Pulse Team-Kick {action_id} · {reason}"[:512])
+                outcome=f"{target.display_name} wurden die konfigurierten Teamrollen entzogen; die Person bleibt auf dem Discord-Server."
+
+            with cx() as c:
+                c.execute(
+                    "UPDATE suite_actions SET status='approved',updated_at=? WHERE id=? AND status='executing'",
+                    (iso(),action_id),
+                )
+            audit(i.guild.id,i.user.id,i.user.display_name,target.id,target.display_name,row["kind"],f"Zweitfreigabe {action_id} · Grund: {reason}")
+            await i.followup.send("✅ "+action_id+" ausgeführt. "+outcome,ephemeral=True)
+        except Exception as exc:
+            with cx() as c:
+                c.execute(
+                    "UPDATE suite_actions SET status='failed',updated_at=? WHERE id=? AND status='executing'",
+                    (iso(),action_id),
+                )
+            audit(i.guild.id,i.user.id,i.user.display_name,target.id,target.display_name,"action_failed",f"{action_id} · {type(exc).__name__}")
+            await i.followup.send(
+                f"❌ Ausführung von {action_id} fehlgeschlagen oder Ergebnis unklar ({type(exc).__name__}). Es erfolgt kein automatischer Wiederholungsversuch. Bitte Mitgliedschaft und Rollen prüfen, bevor ein neuer Vorgang angelegt wird.",
+                ephemeral=True,
+            )
 
     @app_commands.command(name="team-ping",description="Ping für alle, Führung, Aktive oder Diensthabende.")
     async def team_ping(self,i,scope:str="all",rolle:discord.Role=None):
