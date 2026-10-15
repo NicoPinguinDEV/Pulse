@@ -387,13 +387,14 @@ def register(app):
     # ---------------- Melonly / Roblox Moderation ----------------
     async def melonly_page(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session)
-        if not (c.perms.get("can_warn") or c.perms.get("can_add_notes") or c.perms.get("is_admin")):
-            raise HTTPException(403,"Dafür fehlt dir die Berechtigung für Melonly.")
+        all_melonly_types=(("Warn","⚠️ Warn"),("Kick","🚪 Kick"),("Ban","🚫 Ban"),("Notiz","📝 Notiz"),("Ban BOLO","🚨 Ban BOLO"))
+        melonly_types=tuple((key,label) for key,label in all_melonly_types if ws.can_manage_melonly_entry(c,{"type":key}))
+        if not melonly_types:
+            raise HTTPException(403,"Dafür fehlt dir eine Melonly-Berechtigung. Bitte wende dich an die Führungsebene.")
 
         logs=ws.load_json(ws.LOGS_FILE,[])
-        relevant=[x for x in reversed(logs) if x.get("type") in ("Ban","Kick","Notiz","Ban BOLO")][:120]
+        relevant=[x for x in reversed(logs) if x.get("type") in ("Warn","Ban","Kick","Notiz","Ban BOLO")][:120]
         edit_log_id=str(request.query_params.get("edit_log") or "")
-        melonly_types=(("Ban","🚫 Ban"),("Kick","🚪 Kick"),("Notiz","📝 Notiz"),("Ban BOLO","🚨 Ban BOLO"))
         items=[]
         for x in relevant:
             lt=x.get("type","Log")
@@ -437,10 +438,7 @@ def register(app):
           <div>
             <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Aktion</label>
             <select name="log_type" required class="pulse-input mt-1">
-              <option value="Ban">🚫 Ban</option>
-              <option value="Kick">🚪 Kick</option>
-              <option value="Notiz">📝 Notiz</option>
-              <option value="Ban BOLO">🚨 Ban BOLO</option>
+              {''.join(f'<option value="{e(key)}">{e(label)}</option>' for key,label in melonly_types)}
             </select>
           </div>
           <div>
@@ -1397,7 +1395,11 @@ def register(app):
         roles=[r for r in c.guild.roles if not r.is_default() and not r.managed]
         role_ids=c.config.get('team_role_ids',[])
         profile_notice=""
-        if role_ids and int(c.config.get("permissions_profile_version", 0) or 0) < 1:
+        try:
+            profile_version=int(c.config.get("permissions_profile_version", 0) or 0)
+        except (TypeError, ValueError):
+            profile_version=0
+        if role_ids and profile_version < 1:
             initialized=apply_recommended_role_profiles(c)
             profile_notice=f'<section class="pulse-alert mb-5"><strong>🔐 Empfohlene Standardrechte wurden gesetzt.</strong><div class="text-slate-400 mt-1">Für {len(initialized)} ausgewählte Teamrollen sind jetzt konservative Rechteprofile aktiv. Support kann keine Kicks, Bans oder BOLO-Einträge anlegen; Moderation kann warnen und kicken; Highteam/Leitung erhält die erweiterten operativen Rechte. Prüfe alle Häkchen unten.</div></section>'
         cfg=c.config.get('permissions',{})
