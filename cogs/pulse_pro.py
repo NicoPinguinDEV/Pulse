@@ -495,16 +495,22 @@ class PulsePro(commands.Cog):
             )
         bot_member = interaction.guild.me
         if bot_member:
+            bot_permissions_ready = all((
+                bot_member.guild_permissions.manage_roles,
+                bot_member.guild_permissions.kick_members,
+                bot_member.guild_permissions.move_members,
+            ))
             bot_permissions_text = "\n".join((
                 ("🟢" if bot_member.guild_permissions.manage_roles else "🔴") + " Rollen verwalten",
                 ("🟢" if bot_member.guild_permissions.kick_members else "🔴") + " Mitglieder kicken",
                 ("🟢" if bot_member.guild_permissions.move_members else "🔴") + " Mitglieder verschieben",
             ))
         else:
+            bot_permissions_ready = False
             bot_permissions_text = "🔴 Bot-Mitglied nicht verfügbar"
 
         critical = (not self.bot.is_ready()) or (not db_ok) or (not ultimate_db_ok) or ram_level >= 2
-        warnings = ram_level == 1 or role_ok < 5 or any(
+        warnings = ram_level == 1 or role_ok < 5 or not bot_permissions_ready or any(
             row.startswith(("🔴", "🟡")) for row in channel_checks
         )
         color = discord.Color.red() if critical else (
