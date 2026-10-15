@@ -1972,7 +1972,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
 
     active_staff_count = len([s for s in active_shifts.values() if s.get("status") in ("online", "break")])
     loa_count = len([l for l in loas.values() if l["active"]])
-    pending_apps_count = len([a for a in apps_db.values() if a.get("status") == "pending"])
+    pending_apps_count = len([a for a in apps_db.values() if a.get("status") in {"pending", "interview"}])
 
     current_shift = active_shifts.get(mod_id)
     shift_status = current_shift.get("status") if current_shift else "offline"
@@ -5569,7 +5569,7 @@ async def handle_action(
             return HTMLResponse(simple_page("⚠️", "Online-Test unvollständig", esc(str(exc)), back_link), status_code=400)
 
         apps = load_json(APPS_FILE, {})
-        if any(a.get("user_id") == str(applicant_id) and a.get("status") == "pending" for a in apps.values()):
+        if any(a.get("user_id") == str(applicant_id) and a.get("status") in {"pending", "interview"} for a in apps.values()):
             return HTMLResponse(simple_page("ℹ️", "Bewerbung liegt bereits vor", "Deine Bewerbung wird gerade geprüft. Ein weiterer Antrag ist währenddessen nicht möglich.", back_link))
         app_id_new = f"app_{uuid.uuid4().hex[:10]}"
         apps[app_id_new] = {
