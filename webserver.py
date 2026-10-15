@@ -2692,6 +2692,23 @@ async def _send_pulse_ticket_log(bot, guild, destination_id: int, ticket: dict, 
         return False
 
 
+async def _refresh_pulse_ticket_discord_state(channel, ticket: dict):
+    if not isinstance(channel, discord.TextChannel):
+        return
+    try:
+        from cogs.tickets import TicketControlView, refresh_ticket_embed
+        view = TicketControlView()
+        claimed_by = ticket.get("claimed_by_name") or "Teammitglied"
+        claimed = bool(ticket.get("claimed_by_id"))
+        for item in view.children:
+            if getattr(item, "custom_id", None) == "pulse_ticket_claim":
+                item.disabled = claimed
+                item.label = (f"Übernommen · {claimed_by}"[:80] if claimed else "Übernehmen")
+        await refresh_ticket_embed(channel, ticket, view)
+    except Exception as exc:
+        print(f"⚠️ Pulse-Tickets: Discord-Anzeige konnte nicht mit dem Dashboard synchronisiert werden ({type(exc).__name__}).")
+
+
 @app.get("/tickets", response_class=HTMLResponse)
 async def pulse_tickets_dashboard(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session, perm="can_manage_tickets")
@@ -2832,6 +2849,7 @@ async def pulse_tickets_dashboard_action(
             return back("/tickets?status=claimed", f"Ticket wurde bereits von {who} übernommen.", False)
         latest = pulse_db.get_ticket(ticket_id=ticket_id) or ticket
         pulse_db.record_event("ticket_claimed_dashboard", "ticket", ticket_id, actor_id, actor_name, {"channel_id": channel_id})
+        await _refresh_pulse_ticket_discord_state(channel, latest)
         if isinstance(channel, discord.TextChannel):
             try:
                 await channel.send(f"📥 {ctx.member.mention} hat dieses Ticket über das Pulse-Dashboard übernommen.", allowed_mentions=discord.AllowedMentions(users=[ctx.member], roles=False, everyone=False))
@@ -2845,6 +2863,8 @@ async def pulse_tickets_dashboard_action(
             return back("/tickets?status=claimed", "Du darfst nur deine eigenen Tickets freigeben (Admins dürfen alle freigeben).", False)
         if not pulse_db.unclaim_ticket(ticket["id"], actor_id, actor_name):
             return back("/tickets?status=claimed", "Ticket konnte nicht freigegeben werden.", False)
+        latest = pulse_db.get_ticket(ticket_id=ticket_id) or ticket
+        await _refresh_pulse_ticket_discord_state(channel, latest)
         if isinstance(channel, discord.TextChannel):
             try:
                 await channel.send(f"{actor_name} hat das Ticket im Pulse-Dashboard freigegeben.", allowed_mentions=discord.AllowedMentions.none())
