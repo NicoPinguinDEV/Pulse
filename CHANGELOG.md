@@ -1,5 +1,15 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.7.5 – Bewerbungsportal
+
+- Das externe Bewerbungsformular unter `/apply` ist jetzt ausschließlich für Mitglieder mit Discord-Rolle `1531303733311307997` freigeschaltet.
+- Die Rollenzugehörigkeit wird nach Discord-OAuth sowohl beim Öffnen des Formulars als auch serverseitig beim Absenden geprüft. Manipulierte Formularfelder umgehen die Prüfung nicht; bei nicht prüfbarer Mitgliedschaft wird fail-closed abgebrochen.
+- Eingereichte Bewerbungen werden weiterhin in `applications.json` gespeichert und sind danach im geschützten Pulse-Bereich unter `/applications` sichtbar.
+- Nach erfolgreicher Speicherung sendet Pulse eine Team-Benachrichtigung in Kanal `1558776676731719720` und pingt gezielt Rolle `1531300183088824340`. Die Benachrichtigung enthält Bewerber, Laufbahn, Testergebnis und einen Link zur Bewerbungsübersicht, aber nicht den privaten Motivationstext.
+- Benachrichtigungsfehler löschen oder verlieren keine bereits gespeicherte Bewerbung; der Fehler wird in der Hosting-Konsole protokolliert.
+- Die Entscheidungsoberfläche wird auch für Teamrollen mit explizitem Recht `can_manage_applications` angezeigt, nicht nur für Beförderungsberechtigte oder Administratoren.
+- Neue Regressionstests prüfen die Rollen-Gate auf GET/POST, die Benachrichtigungsziele und die eingeschränkten Discord-Mentions.
+
 ## Version 7.7.4
 
 ### Stabilität und Betrieb
