@@ -21,13 +21,16 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
 
-VERSION = "7.6.3"
+VERSION = "7.7.0"
 EXTRA_PERMS = (
     "can_manage_announcements",
     "can_manage_handover",
     "can_manage_promotions",
     "can_view_team_status",
     "can_manage_checkins",
+    "can_moderate_kicks",
+    "can_moderate_bans",
+    "can_moderate_bolo",
 )
 
 PRO_CSS = r"""
@@ -301,6 +304,71 @@ def register(app):
         weekly=ws.calculate_weekly_seconds(str(c.user["id"]),hist,active)
         active_count=sum(1 for s in active.values() if s.get("status") in ("online","break"))
         return {"active":active_count,"logs":len(logs),"apps":sum(1 for a in apps.values() if a.get("status")=="pending"),"loas":sum(1 for l in loas.values() if l.get("active")),"tickets":tickets,"tasks":tasks,"promos":promos,"weekly":weekly,"current":current}
+
+    def recommended_role_profile(role):
+        """Least-privilege role templates; server administrator access stays Discord-admin-only."""
+        keys = tuple(dict.fromkeys((*ws.PERM_KEYS, *EXTRA_PERMS)))
+        profile = {key: False for key in keys}
+        profile["can_view_dashboard"] = True
+        name = str(getattr(role, "name", "") or "").casefold()
+        support_role = any(word in name for word in ("support", "supporter", "lowteam", "low team", "teamler", "ticket"))
+        leadership_role = any(word in name for word in (
+            "highteam", "high team", "führungsebene", "fuehrungsebene", "führung",
+            "fuehrung", "administrator", "admin", "owner", "inhaber", "management",
+            "serverleitung", "teamleitung", "leitungsebene", "direktor", "director",
+        )) or ("leitung" in name and not support_role)
+        moderator_role = any(word in name for word in ("moderator", "moderation")) or name.strip() in {"mod", "team-mod", "team mod"}
+        if leadership_role:
+            for key in keys:
+                profile[key] = True
+        elif moderator_role:
+            for key in (
+                "can_manage_tickets", "can_manage_tasks", "can_manage_training",
+                "can_manage_wiki", "can_add_notes", "can_warn", "can_moderate_kicks",
+                "can_view_team_status",
+            ):
+                if key in profile:
+                    profile[key] = True
+            # Bans and BOLO remain reserved for Highteam/Leitung.
+        elif support_role:
+            for key in (
+                "can_manage_tickets", "can_manage_tasks", "can_manage_training",
+                "can_manage_wiki", "can_add_notes", "can_view_team_status",
+            ):
+                if key in profile:
+                    profile[key] = True
+            # Support deliberately gets no Warn/Kick/Ban/BOLO or team-promotion rights.
+        elif any(word in name for word in ("ausbildung", "probezeit", "bewerber", "trainee", "praktikant")):
+            for key in ("can_manage_tickets", "can_manage_training", "can_manage_wiki"):
+                if key in profile:
+                    profile[key] = True
+        # Unrecognized team roles receive dashboard-only access until an admin reviews them.
+        return profile
+
+    def apply_recommended_role_profiles(c):
+        configured_ids = c.config.get("team_role_ids", [])
+        permission_map = c.config.setdefault("permissions", {})
+        changed = []
+        for raw_id in configured_ids:
+            try:
+                role_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            role = c.guild.get_role(role_id)
+            if not role or role.managed or role.is_default():
+                continue
+            permission_map[str(role_id)] = recommended_role_profile(role)
+            changed.append(role)
+        c.config["permissions_profile_version"] = 1
+        ws.save_json(ws.CONFIG_FILE, c.config)
+        ws.log_audit(
+            c.user.get("global_name") or c.user.get("username"),
+            c.user["id"],
+            "Empfohlene Rollenrechte angewendet",
+            ", ".join(f"{role.name} ({role.id})" for role in changed) or "Keine gültigen Teamrollen",
+        )
+        return changed
+
 
     async def team_update(guild, title, content, color=None):
         color = color or discord.Color.blurple()
@@ -1325,8 +1393,35 @@ def register(app):
         return render_pro_page(ws,'Achievements',c,'achievements',body)
 
     async def settings_v5(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session,perm=None,admin=True); roles=[r for r in c.guild.roles if not r.is_default() and not r.managed]; role_ids=c.config.get('team_role_ids',[]); cfg=c.config.get('permissions',{})
-        permission_fields=[('can_view_dashboard','Dashboard'),('can_warn','Verwarnungen'),('can_promote','Teamaktionen'),('can_add_notes','Notizen'),('can_manage_tickets','Tickets'),('can_manage_applications','Bewerbungen'),('can_manage_tasks','Aufgaben'),('can_manage_training','Schulungen'),('can_manage_wiki','Wiki'),('can_view_analytics','Analytics'),*[(x,x.replace('can_','').replace('_',' ').title()) for x in EXTRA_PERMS]]
+        c=cctx(request,user_session,perm=None,admin=True)
+        roles=[r for r in c.guild.roles if not r.is_default() and not r.managed]
+        role_ids=c.config.get('team_role_ids',[])
+        profile_notice=""
+        if role_ids and int(c.config.get("permissions_profile_version", 0) or 0) < 1:
+            initialized=apply_recommended_role_profiles(c)
+            profile_notice=f'<section class="pulse-alert mb-5"><strong>🔐 Empfohlene Standardrechte wurden gesetzt.</strong><div class="text-slate-400 mt-1">Für {len(initialized)} ausgewählte Teamrollen sind jetzt konservative Rechteprofile aktiv. Support kann keine Kicks, Bans oder BOLO-Einträge anlegen; Moderation kann warnen und kicken; Highteam/Leitung erhält die erweiterten operativen Rechte. Prüfe alle Häkchen unten.</div></section>'
+        cfg=c.config.get('permissions',{})
+        permission_labels={
+            'can_view_dashboard':'Dashboard öffnen',
+            'can_warn':'Melonly: Warn',
+            'can_moderate_kicks':'Melonly: Kick',
+            'can_moderate_bans':'Melonly: Ban',
+            'can_moderate_bolo':'Melonly: Ban-BOLO',
+            'can_add_notes':'Melonly: Notizen',
+            'can_promote':'Teamaktionen (Befördern/Degradieren)',
+            'can_manage_tickets':'Tickets verwalten',
+            'can_manage_applications':'Bewerbungen verwalten',
+            'can_manage_tasks':'Aufgaben verwalten',
+            'can_manage_training':'Schulungen verwalten',
+            'can_manage_wiki':'Team-Wiki verwalten',
+            'can_view_analytics':'Analytics ansehen',
+            'can_manage_announcements':'Ankündigungen verwalten',
+            'can_manage_handover':'Übergaben verwalten',
+            'can_manage_promotions':'Beförderungsanträge verwalten',
+            'can_view_team_status':'Teamstatus ansehen/verwalten',
+            'can_manage_checkins':'Activity Check verwalten',
+        }
+        permission_fields=[(key,permission_labels.get(key,key.replace('can_','').replace('_',' ').title())) for key in (*ws.PERM_KEYS,*EXTRA_PERMS)]
         cards=[]
         for rid in role_ids:
             role=c.guild.get_role(rid)
@@ -1344,7 +1439,7 @@ def register(app):
         warn_role_card=f'''<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">⚠ Warn-Rollen 1–5</div><div class="pulse-section-sub">Die fünf Discord-Warnrollen sind fest für Pulse hinterlegt und werden automatisch auf die aktive Warnstufe synchronisiert.</div></div></div><div class="pulse-card-b">{"".join(warn_rows)}<form action="/settings/pro-warn-roles" method="post" class="mt-3"><button class="pulse-btn primary w-full">↻ Fünf Warnrollen prüfen & synchronisieren</button></form></div></section>'''
         team_boxes=''.join(f'<label class="flex items-center gap-2 p-2 rounded-lg text-xs"><input type="checkbox" name="team_roles" value="{r.id}" {"checked" if r.id in role_ids else ""}><span style="color:#{r.color.value:06x}">{e(r.name)}</span></label>' for r in sorted(roles,key=lambda r:-r.position))
         audit=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(a.get("actor"))} · {e(a.get("action"))}</div><div class="pulse-row-meta">{e(a.get("details"))}</div></div><div class="pulse-row-meta">{e(a.get("timestamp"))}</div></div>' for a in reversed(ws.load_json(ws.AUDIT_FILE,[])[-120:]))
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div><div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div>{profile_notice}<section class="pulse-card mb-5"><div class="pulse-card-b flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div class="pulse-section-title">🔐 Empfohlene Rechteprofile</div><div class="pulse-section-sub">Ordnet allen aktuell ausgewählten Teamrollen neue, konservative Standardrechte anhand ihres Discord-Rollennamens zu. Bereits manuell gesetzte Rechte werden dabei überschrieben.</div></div><form action="/settings/pro-presets" method="post" onsubmit="return confirm('Empfohlene Profile für ALLE ausgewählten Teamrollen anwenden? Manuell konfigurierte Rechte werden überschrieben.');"><button class="pulse-btn primary">Empfohlene Profile erneut anwenden</button></form></div></section><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div><div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
         return render_pro_page(ws,'Einstellungen',c,'settings',body)
 
     async def settings_save(request: Request, role_id: int=Form(...), user_session: str=Cookie(None)):
@@ -1356,13 +1451,32 @@ def register(app):
         return ws.back('/settings','Rollenrechte gespeichert.')
 
     async def settings_roles(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session,perm=None,admin=True); form=await request.form(); raw=form.getlist('team_roles'); vals=[]
-        for x in raw:
+        c=cctx(request,user_session,perm=None,admin=True)
+        form=await request.form()
+        vals=[]
+        for x in form.getlist('team_roles'):
             try:
                 r=c.guild.get_role(int(x))
-                if r and not r.managed: vals.append(r.id)
-            except ValueError: pass
-        vals=sorted(set(vals),key=lambda rid:c.guild.get_role(rid).position); c.config['team_role_ids']=vals; ws.save_json(ws.CONFIG_FILE,c.config); ws.log_audit(c.user.get('global_name'),c.user['id'],'Team-Rollen Geändert',','.join(str(x) for x in vals)); return ws.back('/settings','Teamrollen gespeichert.')
+                if r and not r.managed and not r.is_default():
+                    vals.append(r.id)
+            except (TypeError, ValueError):
+                pass
+        vals=sorted(set(vals),key=lambda rid:c.guild.get_role(rid).position)
+        c.config['team_role_ids']=vals
+        permission_map=c.config.setdefault('permissions',{})
+        for rid in vals:
+            role=c.guild.get_role(rid)
+            if role and str(rid) not in permission_map:
+                permission_map[str(rid)]=recommended_role_profile(role)
+        c.config["permissions_profile_version"]=1
+        ws.save_json(ws.CONFIG_FILE,c.config)
+        ws.log_audit(c.user.get('global_name') or c.user.get('username'),c.user['id'],'Team-Rollen Geändert',','.join(str(x) for x in vals))
+        return ws.back('/settings','Teamrollen und Standardrechte gespeichert.')
+
+    async def settings_profiles(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None,admin=True)
+        changed=apply_recommended_role_profiles(c)
+        return ws.back('/settings',f'Empfohlene Rechteprofile für {len(changed)} Teamrollen angewendet. Prüfe die Rechtekarten und passe sie anschließend bei Bedarf an.')
 
     async def settings_warn_roles(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True)
@@ -1490,6 +1604,7 @@ def register(app):
     app.post('/promotions/decide')(decide_promotion)
     app.post('/settings/pro-save')(settings_save)
     app.post('/settings/pro-roles')(settings_roles)
+    app.post('/settings/pro-presets')(settings_profiles)
     app.post('/settings/pro-goal')(settings_goal)
     app.post('/settings/pro-warn-roles')(settings_warn_roles)
     app.post('/settings/pro-warn-sync')(settings_warn_sync)
