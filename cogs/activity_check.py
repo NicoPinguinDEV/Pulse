@@ -414,12 +414,14 @@ class ActivityCheckCog(commands.Cog):
             if activity_action_is_terminal(status):
                 continue
 
-            entry = ws.user_entry(team_db, str(uid))
-            warnings = entry.setdefault("warns_list", [])
+            # Look up an existing activity warning without creating empty team-data
+            # records for every confirmed/abgemeldeten participant.
+            existing_entry = team_db.get(str(uid), {})
+            existing_warnings = existing_entry.get("warns_list", []) if isinstance(existing_entry, dict) else []
             warning_id = activity_warning_id(check_id, uid)
             warn = next(
                 (
-                    item for item in warnings
+                    item for item in existing_warnings
                     if isinstance(item, dict)
                     and (
                         str(item.get("source_activity_check_id", "")) == str(check_id)
@@ -459,6 +461,8 @@ class ActivityCheckCog(commands.Cog):
                 continue
 
             try:
+                entry = ws.user_entry(team_db, str(uid))
+                warnings = entry.setdefault("warns_list", [])
                 if warn is None:
                     count_before = len(ws.active_warns(entry))
                     if count_before >= 5:
