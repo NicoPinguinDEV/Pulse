@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.18 – Supportfälle zwischen Teammeetings
+
+- Die Teamliste und jede Teamakte zeigen jetzt die Zahl der abgeschlossenen Pulse-Tickets pro Teammitglied seit dem letzten bestätigten Teammeeting-Zeitraum.
+- Unter „Teambesprechung“ kann die Teamleitung nach dem Meeting den bisherigen Zeitraum archivieren und eine neue Zählung starten.
+- Die abgeschlossene Wochenzählung wird intern gespeichert; die aktuelle Periode ist startinklusive und endexklusiv, damit Tickets nicht in zwei Zeiträumen gezählt werden.
+- Es werden echte, abgeschlossene Tickets gezählt, die bei Abschluss einem Teammitglied zugeordnet waren; offene oder nicht übernommene Tickets erhöhen den Wert nicht.
+
 ## Version 7.8.17 – Wiederherstellung mit robuster API-Kompatibilität
 
 - Stage-Kanäle werden mit der eigenen Discord-API-Signatur und erforderlichem Thema wiederhergestellt; bei älteren API-Versionen wird ein klarer Fallback protokolliert.
