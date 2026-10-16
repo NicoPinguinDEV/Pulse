@@ -6601,6 +6601,16 @@ async def handle_action(
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung.")
     member_url = f"/member/{user_id}" if redirect_to_member and user_id else "/dashboard"
 
+    # Active safety lockouts also block alternate high-impact dashboard actions.
+    if action in {"promote", "demote", "kick", "hire", "remove_warn"}:
+        actor_member = ctx.member or guild.get_member(int(actor_id)) if str(actor_id).isdigit() else ctx.member
+        guard_target = guild.get_member(user_id) if user_id else None
+        allowed_safety_action, safety_message = await enforce_team_safety_action_lockout(
+            guild, actor_member, guard_target, action, config, source="Dashboard",
+        )
+        if not allowed_safety_action:
+            return back(member_url, safety_message, False)
+
     # ---------- Manuelle Einstellung über Discord-ID oder Namen ----------
     if action == "hire":
         query = (target_user_id or "").strip()
@@ -6942,6 +6952,17 @@ async def handle_action(
             return back(member_url, "Du kannst dir selbst keine Team-Verwarnung geben.", False)
         if team_role_ids and not any(r.id in team_role_ids for r in m.roles):
             return back(member_url, "Team-Verwarnungen können nur an Teammitglieder vergeben werden.", False)
+        if not ctx.perms.get("is_admin") and ctx.member:
+            actor_rank = team_rank(ctx.member, team_role_ids)
+            target_rank = team_rank(m, team_role_ids)
+            if target_rank >= 0 and (actor_rank < 0 or target_rank >= actor_rank):
+                return back(member_url, "Du darfst keine Team-Warnung an ein Mitglied mit gleichem oder höherem Teamrang vergeben.", False)
+
+        allowed_warn, protection_message = await enforce_team_warn_protection(
+            guild, ctx.member or guild.get_member(int(actor_id)), m, config, source="Dashboard",
+        )
+        if not allowed_warn:
+            return back(member_url, protection_message, False)
 
         team_db = load_json(DATA_FILE, {})
         entry = user_entry(team_db, str(user_id))
