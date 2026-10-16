@@ -1,6 +1,7 @@
 """Configurable Pulse voice support, synced to the dashboard shift system."""
 from __future__ import annotations
 
+import asyncio
 import re
 import uuid
 from datetime import datetime
@@ -174,6 +175,8 @@ class VoiceSupport(commands.Cog):
         self._opening: set[int] = set()
         self._closing_cases: set[str] = set()
         self._registered_case_views: set[str] = set()
+        self._duty_status_lock = asyncio.Lock()
+        self._case_action_locks: dict[str, asyncio.Lock] = {}
         self._music_warning_logged = False
         self.duty_status_loop.start()
         self.music_loop.start()
@@ -186,6 +189,9 @@ class VoiceSupport(commands.Cog):
         gid = channel_id(get_config().get("guild_id"))
         return self.bot.get_guild(gid) if gid else None
 
+
+    def _case_action_lock(self, case_id: str) -> asyncio.Lock:
+        return self._case_action_locks.setdefault(str(case_id), asyncio.Lock())
 
     def _find_case_by_id(self, case_id: str):
         cases = get_cases()
@@ -383,6 +389,10 @@ class VoiceSupport(commands.Cog):
             db.set_setting(CASES_KEY, cases)
 
     async def _assign_case(self, case_id: str, staff: discord.Member, transfer: bool) -> tuple[bool, str]:
+        async with self._case_action_lock(case_id):
+            return await self._assign_case_locked(case_id, staff, transfer)
+
+    async def _assign_case_locked(self, case_id: str, staff: discord.Member, transfer: bool) -> tuple[bool, str]:
         cfg = get_config()
         key, case, cases = self._find_case_by_id(case_id)
         if key is None or not isinstance(case, dict):
@@ -548,6 +558,10 @@ class VoiceSupport(commands.Cog):
             await self.sync_member_duty_role(guild, user_id)
 
     async def _refresh_duty_status(self, guild=None):
+        async with self._duty_status_lock:
+            await self._refresh_duty_status_locked(guild)
+
+    async def _refresh_duty_status_locked(self, guild=None):
         cfg = get_config()
         if not cfg.get("duty_mode") or not cfg.get("duty_message_enabled"):
             return
@@ -850,6 +864,22 @@ class VoiceSupport(commands.Cog):
             print(f"⚠️ Voice-Support: Notiz-Thread konnte nicht erstellt werden: {exc}")
 
     async def _close_case(
+        self,
+        channel: discord.VoiceChannel | None,
+        case: dict,
+        cfg: dict,
+        *,
+        reason: str = "Supportfall geschlossen",
+        kick_user: bool = False,
+        closed_by: discord.Member | None = None,
+    ):
+        case_id = str(case.get("case_id") or "")
+        if not case_id:
+            return
+        async with self._case_action_lock(case_id):
+            await self._close_case_locked(channel, case, cfg, reason=reason, kick_user=kick_user, closed_by=closed_by)
+
+    async def _close_case_locked(
         self,
         channel: discord.VoiceChannel | None,
         case: dict,
