@@ -96,6 +96,34 @@ class RoleNicknamePrefixes(commands.Cog):
             and current_nick.startswith(f"{saved_prefix} ")
         )
         selected = self._selected_role(member, prefixes)
+        if selected is None and current_nick:
+            # After a bot re-invite, a partially filled Discord member cache can
+            # temporarily expose only @everyone. If the existing nickname carries
+            # a rank tag, refresh that member before considering the citizen default.
+            legacy_base = strip_legacy_rank_prefix(current_nick)
+            has_legacy_rank_tag = bool(legacy_base and legacy_base != current_nick)
+            only_default_role = not any(not role.is_default() for role in member.roles)
+            if has_legacy_rank_tag and only_default_role:
+                try:
+                    refreshed_member = await member.guild.fetch_member(member.id)
+                    if refreshed_member.roles:
+                        member = refreshed_member
+                        current_nick = member.nick
+                        selected = self._selected_role(member, prefixes)
+                except (discord.Forbidden, discord.HTTPException, discord.NotFound) as exc:
+                    print(
+                        f"⚠️ Rollen für {member.id} konnten nicht neu geladen werden: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                if selected is None:
+                    # Better leave the nickname untouched than downgrade a known
+                    # rank to Bürger just because role data is missing.
+                    print(
+                        f"⏸️ Namenspräfix übersprungen für {member} ({member.id}): "
+                        "Discord liefert derzeit nur @everyone, obwohl der Name eine Rangkennung enthält."
+                    )
+                    return "deferred"
+
         if selected is None:
             # The standard citizen prefix applies to new and existing members
             # even before an automatic verification role is assigned.
@@ -295,17 +323,16 @@ class RoleNicknamePrefixes(commands.Cog):
             print("⚠️ Namenspräfix-Synchronisierung abgebrochen: konfigurierte Discord-Server-ID nicht geladen.")
             return
 
-        # Usually discord.py has already chunked the guild before on_ready. If the
-        # cache is incomplete, explicitly request the member list so the initial
-        # backfill can include existing users beyond the currently cached subset.
-        if not guild.chunked:
-            try:
-                await guild.chunk(cache=True)
-            except (discord.Forbidden, discord.HTTPException) as exc:
-                print(
-                    "⚠️ Discord-Mitgliederliste konnte nicht vollständig geladen werden; "
-                    f"Synchronisierung arbeitet mit dem verfügbaren Cache: {type(exc).__name__}: {exc}"
-                )
+        # Force a fresh member chunk even when discord.py marks a partial cache
+        # as chunked. A stale cache here can incorrectly give team leads Bürger ✗.
+        try:
+            await guild.chunk(cache=True)
+            print(f"🏷️ Discord-Mitglieder/Rollen-Cache aktualisiert: {len(guild.members)} Mitglieder geladen.")
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(
+                "⚠️ Discord-Mitgliederliste konnte nicht vollständig geladen werden; "
+                f"Synchronisierung arbeitet mit dem verfügbaren Cache: {type(exc).__name__}: {exc}"
+            )
 
         config = load_config()
         prefixes = self._valid_prefix_map(config)
