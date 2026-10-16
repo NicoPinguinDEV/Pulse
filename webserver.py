@@ -1275,7 +1275,15 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
         and bool((item.get("consequences") or {}).get("test_supporter_team_kick"))
         for item in warnings
     )
-    if permanent_test_kick:
+    manual_team_override = bool(current_team_ids) and any(
+        isinstance(item, dict)
+        and (item.get("consequences") or {}).get("team_kick_applied")
+        and not (item.get("consequences") or {}).get("team_kick_reverted_at")
+        and not (item.get("consequences") or {}).get("team_kick_restore_skipped_at")
+        and not (item.get("consequences") or {}).get("test_supporter_team_kick")
+        for item in warnings
+    )
+    if permanent_test_kick or manual_team_override:
         for item in warnings:
             if not isinstance(item, dict):
                 continue
@@ -1351,6 +1359,7 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
 
         if (
             not permanent_test_kick
+            and not manual_team_override
             and consequences.get("downrank_applied")
             and not consequences.get("downrank_reverted_at")
             and not consequences.get("downrank_restore_skipped_at")
