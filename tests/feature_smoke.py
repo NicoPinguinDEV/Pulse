@@ -399,7 +399,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.15"' in version_source
+    assert 'PULSE_VERSION = "7.8.16"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
@@ -686,6 +686,10 @@ def main() -> None:
     assert "icon_base64" in web
     assert 'await create_backup_file_async(guild, "auto_")' in web
     assert "Exakte Struktur erzwingen" in web
+    assert "def resolve_backup_role_id(role_id: int, config: dict | None = None)" in web
+    assert 'restored_config["backup_role_id_aliases"] = aliases' in web
+    assert "if role.managed or not exact_restore" in web
+    assert "MAX_BACKUP_UPLOAD_BYTES = 50 * 1024 * 1024" in web
     assert 'if panel.get("logs") == {}' in web
     assert "Nicht unterstützte Backup-Version" in web
     assert "Dieses Backup gehört zu einem anderen Discord-Server" in web
