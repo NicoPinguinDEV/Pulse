@@ -6763,13 +6763,18 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
         ("public_updates_channel", "public_updates_channel_id"),
         ("afk_channel", "afk_channel_id"),
     ):
+        if source_key not in settings:
+            continue
         old_channel_id = settings.get(source_key)
-        if old_channel_id is not None:
-            mapped = channel_map.get(int(old_channel_id))
-            if mapped is None:
-                mapped = guild.get_channel(int(old_channel_id))
-            if mapped is not None and getattr(guild, key, None) != mapped:
-                settings_kwargs[key] = mapped
+        if old_channel_id is None:
+            if getattr(guild, key, None) is not None:
+                settings_kwargs[key] = None
+            continue
+        mapped = channel_map.get(int(old_channel_id))
+        if mapped is None:
+            mapped = guild.get_channel(int(old_channel_id))
+        if mapped is not None and getattr(guild, key, None) != mapped:
+            settings_kwargs[key] = mapped
 
     if settings_kwargs:
         try:
@@ -6794,7 +6799,7 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
                 warnings.append("Server-Icon im Backup überschreitet das erlaubte Größenlimit.")
         except (ValueError, TypeError, discord.Forbidden, discord.HTTPException) as exc:
             warnings.append(f"Server-Icon konnte nicht wiederhergestellt werden ({type(exc).__name__}).")
-    elif not icon_b64 and stored_icon_key is None and current_icon_key is not None:
+    elif "icon_base64" in settings and "icon_key" in settings and not icon_b64 and stored_icon_key is None and current_icon_key is not None:
         try:
             await guild.edit(icon=None, reason="Pulse Server-Backup wiederherstellen")
         except (TypeError, discord.Forbidden, discord.HTTPException) as exc:
