@@ -1031,10 +1031,199 @@ async def _apply_warn5_team_kick(guild, member, warn: dict, team_role_ids: list[
         return {"ok": False, "message": f"Automatischer Team-Kick fehlgeschlagen: {exc}", "changed": False}
 
 
-async def apply_warn_consequences(guild, member, warn: dict, count: int, config: dict | None = None):
-    """Wendet die automatische Eskalation der aktuellen Warnstufe an."""
+async def process_probation_warning(
+    guild,
+    member,
+    warn: dict,
+    team_role_ids: list[int],
+    entry: dict | None = None,
+):
+    """Apply Test-Supporter kick or restore the previous rank for probation warnings."""
+    result = {"actions": [], "ok": True, "team_kicked": False, "probation_reverted": False}
+    if not member or member.bot or not guild:
+        return result
+
+    if entry is None:
+        team_db = load_json(DATA_FILE, {})
+        entry = user_entry(team_db, str(member.id))
+        owns_db = True
+    else:
+        team_db = None
+        owns_db = False
+
+    warn_reason = str(warn.get("reason") or "Team-Warn")
+    is_test_supporter = any(
+        role.id == TEST_SUPPORTER_ROLE_ID or "test supporter" in role.name.casefold()
+        for role in member.roles
+    )
+
+    # The Test-Supporter role is a trial rank. Any team warning ends the trial immediately.
+    if is_test_supporter:
+        kick_ids = sorted({int(role_id) for role_id in team_role_ids} | {TEST_SUPPORTER_ROLE_ID})
+        kick = await _apply_warn5_team_kick(guild, member, warn, kick_ids)
+        result["actions"].append(
+            kick["message"] if kick.get("ok")
+            else f"Test-Supporter-Team-Kick fehlgeschlagen: {kick['message']}"
+        )
+        result["ok"] = bool(kick.get("ok"))
+        result["team_kicked"] = bool(kick.get("ok") and kick.get("changed"))
+        if result["team_kicked"]:
+            probation = entry.get("probation")
+            if isinstance(probation, dict) and probation.get("active"):
+                probation["active"] = False
+                probation["status"] = "ended"
+                probation["ended_at"] = now_de().isoformat(timespec="seconds")
+                probation["completion_reason"] = "Team-Kick nach Verwarnung während Test-Supporter-Phase"
+            consequences = warn.setdefault("consequences", {})
+            consequences["team_kick_applied"] = True
+            consequences["test_supporter_team_kick"] = True
+            log_audit(
+                "Pulse – Test-Supporter-Schutz",
+                "system",
+                "Automatischer Team-Kick",
+                f"{member.display_name} ({member.id}) · Grund: {warn_reason}",
+            )
+            try:
+                await send_dm_notification(
+                    member,
+                    f"❌ Du wurdest nach einer Team-Verwarnung während deiner Test-Supporter-Phase "
+                    f"aus dem Team von **{guild.name}** entfernt. Grund: {warn_reason}",
+                )
+            except Exception:
+                pass
+            try:
+                await send_team_update_embed(
+                    guild,
+                    "🚨 Team-Update: Test-Supporter-Team-Kick",
+                    f"{member.mention} wurde nach einer Team-Verwarnung automatisch aus dem Team entfernt.",
+                    discord.Color.red(),
+                    target=member.mention,
+                    action="Test-Supporter-Team-Kick",
+                    actor="Pulse – Test-Supporter-Schutz",
+                    fields=[("Grund", warn_reason, False), ("Auslöser", "Team-Warn während Test-Supporter-Phase", False)],
+                    thumbnail=member.display_avatar.url,
+                )
+            except Exception as exc:
+                print(f"⚠️ Team-Update zum Test-Supporter-Team-Kick fehlgeschlagen: {exc}")
+        if owns_db:
+            save_json(DATA_FILE, team_db)
+        return result
+
+    probation = entry.get("probation")
+    if not isinstance(probation, dict) or not probation.get("active"):
+        if owns_db:
+            save_json(DATA_FILE, team_db)
+        return result
+
+    try:
+        expires_at = parse_dt(str(probation.get("expires_at") or ""))
+    except (TypeError, ValueError, OverflowError):
+        result["actions"].append("Aktive Probezeit hat ein ungültiges Ablaufdatum; Rolle wurde nicht geändert")
+        result["ok"] = False
+        return result
+
+    current = now_de()
+    if current >= expires_at:
+        probation["active"] = False
+        probation["status"] = "completed"
+        probation["completed_at"] = current.isoformat(timespec="seconds")
+        probation["completion_reason"] = "Probezeit bereits abgelaufen"
+        if owns_db:
+            save_json(DATA_FILE, team_db)
+        return result
+
+    previous_role_id = int(probation.get("previous_role_id") or 0)
+    previous_role = guild.get_role(previous_role_id) if previous_role_id else None
+    team_ids = {int(role_id) for role_id in team_role_ids}
+    current_team_roles = [role for role in member.roles if role.id in team_ids]
+    if previous_role is None or previous_role_id not in team_ids:
+        result["actions"].append("Probezeit aktiv, aber die vorherige Teamrolle fehlt – automatische Rückstufung nicht möglich")
+        result["ok"] = False
+        return result
+    if guild.me and (
+        not guild.me.guild_permissions.manage_roles
+        or previous_role.managed
+        or previous_role.position >= guild.me.top_role.position
+        or any(
+            role.position >= guild.me.top_role.position or role.managed
+            for role in current_team_roles if role.id != previous_role_id
+        )
+    ):
+        result["actions"].append("Probezeit-Rückstufung fehlgeschlagen: Bot-Rollenrechte oder Rollen-Hierarchie prüfen")
+        result["ok"] = False
+        return result
+
+    try:
+        if previous_role not in member.roles:
+            await member.add_roles(previous_role, reason=f"Probezeit-Rückstufung nach Team-Warn: {warn_reason}")
+        to_remove = [role for role in current_team_roles if role.id != previous_role.id]
+        if to_remove:
+            await member.remove_roles(*to_remove, reason=f"Probezeit-Rückstufung nach Team-Warn: {warn_reason}")
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        result["actions"].append(f"Probezeit-Rückstufung fehlgeschlagen: {type(exc).__name__}")
+        result["ok"] = False
+        return result
+
+    probation["active"] = False
+    probation["status"] = "reverted"
+    probation["ended_at"] = current.isoformat(timespec="seconds")
+    probation["completion_reason"] = "Vorherige Teamrolle nach Team-Warn wiederhergestellt"
+    probation["reverted_by_warn_id"] = warn.get("id")
+    consequences = warn.setdefault("consequences", {})
+    consequences["probation_reverted"] = True
+    consequences["probation_previous_role_id"] = previous_role.id
+    result["actions"].append(f"Probezeit-Rückstufung: vorherige Rolle {previous_role.name} wiederhergestellt")
+    result["probation_reverted"] = True
+    log_audit(
+        "Pulse – Probezeit-Automatik",
+        "system",
+        "Probezeit-Rückstufung nach Team-Warn",
+        f"{member.display_name} ({member.id}) · Rolle zurück auf {previous_role.name} · Grund: {warn_reason}",
+    )
+    try:
+        await send_dm_notification(
+            member,
+            f"⚠️ Du hast während deiner Probezeit eine Team-Verwarnung erhalten. "
+            f"Deine Teamrolle wurde deshalb auf **{previous_role.name}** zurückgesetzt. Grund: {warn_reason}",
+        )
+    except Exception:
+        pass
+    try:
+        await send_team_update_embed(
+            guild,
+            "⚠️ Team-Update: Probezeit-Rückstufung",
+            f"{member.mention} erhielt während der Probezeit eine Team-Warnung; die vorherige Rolle wurde wiederhergestellt.",
+            discord.Color.orange(),
+            target=member.mention,
+            action="Probezeit-Rückstufung",
+            actor="Pulse – Probezeit-Automatik",
+            fields=[("Wiederhergestellte Rolle", previous_role.mention, True), ("Grund", warn_reason, False)],
+            thumbnail=member.display_avatar.url,
+        )
+    except Exception as exc:
+        print(f"⚠️ Team-Update zur Probezeit-Rückstufung fehlgeschlagen: {exc}")
+    if owns_db:
+        save_json(DATA_FILE, team_db)
+    return result
+
+
+async def apply_warn_consequences(
+    guild,
+    member,
+    warn: dict,
+    count: int,
+    config: dict | None = None,
+    entry: dict | None = None,
+):
+    """Apply warning escalation and probation rules for every new warning."""
     result = {"level": int(count or 0), "actions": [], "ok": True}
     team_role_ids = [int(x) for x in (config or load_config()).get("team_role_ids", [])]
+
+    probation_result = await process_probation_warning(guild, member, warn, team_role_ids, entry)
+    result["actions"].extend(probation_result.get("actions", []))
+    result["ok"] = result["ok"] and probation_result.get("ok", True)
+    if probation_result.get("team_kicked"):
+        return result
 
     if count == 2:
         role = await _add_temporary_warn_role(guild, member, WARN_UPRANK_LOCK_ROLE_ID, warn, "Uprank-Sperre")
@@ -1046,7 +1235,7 @@ async def apply_warn_consequences(guild, member, warn: dict, count: int, config:
         result["actions"].append(role["message"] if role["ok"] else role["message"])
         result["ok"] = result["ok"] and role["ok"]
 
-    elif count == 4:
+    elif count == 4 and not probation_result.get("probation_reverted"):
         downrank = await _apply_warn4_downrank(guild, member, warn, team_role_ids)
         result["actions"].append(downrank["message"])
         result["ok"] = result["ok"] and downrank["ok"]
