@@ -147,7 +147,7 @@ class ServerStatsVoiceChannels(commands.Cog):
                     channel = await category.create_voice_channel(
                         name=desired_name,
                         overwrites={
-                            target: discord.PermissionOverwrite(**overwrite._values)
+                            target: discord.PermissionOverwrite.from_pair(*overwrite.pair())
                             for target, overwrite in overwrite_template.items()
                         },
                         reason="Pulse: automatische Server-Statistik",
