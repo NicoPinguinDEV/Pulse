@@ -215,14 +215,13 @@ class VoiceSupport(commands.Cog):
             online = shift_is_online(webserver.load_shifts(), member.id)
         except Exception:
             team_ids, online = set(), False
-        if not any(r.id in team_ids for r in member.roles):
-            return
+        is_team = any(r.id in team_ids for r in member.roles)
         has_role = any(r.id == role.id for r in member.roles)
         try:
-            if online and not has_role:
+            if online and is_team and not has_role:
                 await member.add_roles(role, reason="Pulse Voice-Support: Bereitschaft aus Dashboard-Schicht")
-            elif not online and has_role:
-                await member.remove_roles(role, reason="Pulse Voice-Support: Pause/Schichtende im Dashboard")
+            elif (not online or not is_team) and has_role:
+                await member.remove_roles(role, reason="Pulse Voice-Support: Pause/Schichtende/Teamwechsel im Dashboard")
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(f"⚠️ Voice-Support: Bereitschaftsrolle für {member.id} konnte nicht synchronisiert werden: {exc}")
 
