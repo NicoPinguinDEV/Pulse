@@ -663,6 +663,8 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
             "revoked_at": None,
             "revoked_by": None,
             "revoked_reason": "",
+            "duration_days": DEFAULT_AUTO_WARN_DURATION_DAYS,
+            "expires_at": (now + timedelta(days=DEFAULT_AUTO_WARN_DURATION_DAYS)).isoformat(timespec="seconds"),
             "source": "auto_shift_timeout",
             "source_shift_id": event_id,
             "shift_started_at_iso": shift_event.get("started_at_iso"),
@@ -673,10 +675,8 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
 
         try:
             role_report = await sync_warn_roles(guild, member, count, cfg)
-            consequence_report = (
-                await apply_warn_consequences(guild, member, warn, count, cfg)
-                if count >= 2 else {"actions": [], "ok": True}
-            )
+            consequence_report = await apply_warn_consequences(guild, member, warn, count, cfg, entry=entry)
+            save_json(DATA_FILE, team_db)
             try:
                 await send_team_update_embed(
                     guild,
