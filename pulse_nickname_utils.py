@@ -1,6 +1,9 @@
 """Pure helpers for configurable Discord nickname prefixes."""
 from __future__ import annotations
 
+import re
+import unicodedata
+
 MAX_DISCORD_NICKNAME_LENGTH = 32
 MAX_ROLE_PREFIX_LENGTH = 24
 
@@ -25,6 +28,104 @@ def format_prefixed_nickname(prefix: object, base_name: object) -> str:
     if available < 1:
         raise ValueError("Der Präfix lässt keinen Platz für den Namen.")
     return f"{clean_prefix} {name[:available]}"
+
+
+
+def automatic_role_prefix(role_name: object) -> str:
+    """Build 'Role ✗' from a Discord role name, cleaning common server decorations."""
+    original = unicodedata.normalize("NFKC", str(role_name or "")).strip()
+    if not original:
+        return "Bürger ✗"
+
+    # Discord role names here often have a brand/category before the actual rank.
+    separators = ("メ", "║", "✘", "✗", "⌯⌲", "||")
+    found = [(original.rfind(separator), separator) for separator in separators if separator in original]
+    label = original
+    if found:
+        position, separator = max(found, key=lambda item: item[0])
+        label = original[position + len(separator):].strip()
+
+    # Remove leading emoji/decorative glyphs and trailing decorative marks.
+    while label and unicodedata.category(label[0])[0] not in {"L", "N"}:
+        label = label[1:].lstrip()
+    while label and unicodedata.category(label[-1])[0] not in {"L", "N"} and label[-1] not in "+#":
+        label = label[:-1].rstrip()
+
+    label = re.sub(r"\s+", " ", label).strip()
+    if not label:
+        label = original
+    if "bürger" in label.casefold():
+        label = "Bürger"
+    elif label.casefold() == "vip":
+        label = "VIP"
+
+    # A Discord nickname is limited to 32 characters including the member name.
+    if len(label) > 22:
+        label = label[:21].rstrip() + "…"
+    return f"{label} ✗"
+
+
+def select_highest_role_prefix(role_records, configured_prefixes: dict[str, str]):
+    """Return (role_id, prefix) for the highest non-@everyone role.
+
+    role_records contains (role_id, role_position, role_name, is_default_role).
+    Custom settings override that role's prefix, but a lower configured role
+    cannot outrank a higher Discord role.
+    """
+    candidates = []
+    for raw_role_id, raw_position, role_name, is_default in role_records:
+        if is_default:
+            continue
+        try:
+            role_id = int(raw_role_id)
+            position = int(raw_position)
+        except (TypeError, ValueError):
+            continue
+        configured = configured_prefixes.get(str(role_id))
+        try:
+            prefix = normalize_role_prefix(configured) if configured else automatic_role_prefix(role_name)
+        except ValueError:
+            prefix = automatic_role_prefix(role_name)
+        candidates.append((position, role_id, prefix))
+
+    if not candidates:
+        return None
+    _, role_id, prefix = max(candidates, key=lambda item: (item[0], item[1]))
+    return role_id, prefix
+
+
+_LEGACY_RANK_HINTS = {
+    "owner", "founder", "teamleitung", "teamaufsicht", "supervisor", "sr", "stv",
+    "lta", "sup", "srsup", "tsup", "supporter", "moderator", "srmoderator",
+    "admin", "jradmin", "dev", "direktor", "manager", "projekt", "koordination",
+    "ausbilder", "fraktionsverwaltung", "eventleitung", "bürger", "vip", "pl",
+    "pk", "lpl", "lpk", "lsl", "sl", "tl", "cm", "hta", "highteam", "leitender",
+    "leitende", "leitend", "leitung", "serverleitung", "teamler", "rechtehand",
+}
+
+
+def strip_legacy_rank_prefix(name: object) -> str | None:
+    """Remove a common pre-existing rank tag from a nickname before re-prefixing it."""
+    nickname = str(name or "").strip()
+    match = re.match(
+        r"^\s*(?P<label>[^メ║✗✘|]{1,48}?)\s*(?:メ|║|✗|✘|\|{1,2})\s*(?P<rest>.+?)\s*$",
+        nickname,
+    )
+    if not match:
+        return nickname or None
+
+    label = unicodedata.normalize("NFKC", match.group("label")).casefold()
+    tokens = re.findall(r"[a-z0-9]+", label)
+    compact = "".join(tokens)
+    looks_like_rank = (
+        compact in _LEGACY_RANK_HINTS
+        or any(token in _LEGACY_RANK_HINTS for token in tokens)
+        or any(compact.startswith(hint) for hint in ("teamleitung", "teamaufsicht", "serverleitung", "srsup", "srsupporter"))
+    )
+    if looks_like_rank:
+        rest = match.group("rest").strip()
+        return rest or None
+    return nickname or None
 
 
 def strip_known_prefix(name: object, prefixes) -> str | None:
