@@ -163,11 +163,14 @@ class SupportAssistant(commands.Cog):
         # Bounded LRU-like memory: conversation history and cooldown timestamps
         # must not grow forever as new Discord users send messages.
         self._history: OrderedDict[tuple[int, int], list[dict[str, str]]] = OrderedDict()
-        self._user_last_request: OrderedDict[int, float] = OrderedDict()
-        self._last_request = 0.0
+        # Cooldowns are scoped to (channel, user): activity in the public help
+        # channel must never silently suppress a question in the team KI channel.
+        self._user_last_request: OrderedDict[tuple[int, int], float] = OrderedDict()
+        self._last_status_notice: OrderedDict[int, float] = OrderedDict()
         self._last_api_error = ""
         self._api_paused_until = 0.0
         self._api_rate_limit_failures = 0
+        self._api_transient_failures = 0
         self._last_rate_limit_log_at = 0.0
         self._api_lock = asyncio.Lock()
         self._http_client = httpx.AsyncClient(
@@ -190,6 +193,49 @@ class SupportAssistant(commands.Cog):
             self._user_last_request.popitem(last=False)
         while len(self._history) > 200:
             self._history.popitem(last=False)
+        while self._last_status_notice:
+            channel_id, last_notice = next(iter(self._last_status_notice.items()))
+            if last_notice >= now - 300.0 and len(self._last_status_notice) <= 50:
+                break
+            self._last_status_notice.pop(channel_id, None)
+
+    async def _reply_status_notice(self, message: discord.Message, text: str) -> None:
+        """Post at most one service/status notice per channel every 30 seconds."""
+        now = time.monotonic()
+        channel_id = message.channel.id
+        last_notice = self._last_status_notice.get(channel_id, 0.0)
+        if now - last_notice < 30.0:
+            return
+        self._last_status_notice[channel_id] = now
+        self._last_status_notice.move_to_end(channel_id)
+        while len(self._last_status_notice) > 50:
+            self._last_status_notice.popitem(last=False)
+        try:
+            await message.reply(
+                text,
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"⚠️ Pulse-Support: Statusmeldung nicht gesendet ({type(exc).__name__}).")
+
+    def _provider_pause_seconds(self) -> float:
+        shared = provider_pause_remaining(self.api_base, self.api_key)
+        return max(0.0, self._api_paused_until - time.monotonic(), shared)
+
+    def _provider_unavailable_text(self) -> str:
+        remaining = self._provider_pause_seconds()
+        if remaining >= 60:
+            wait_text = f"etwa {max(1, int((remaining + 59) // 60))} Minute(n)"
+        elif remaining > 0:
+            wait_text = f"etwa {max(1, int(remaining + 0.999))} Sekunden"
+        else:
+            wait_text = "kurz"
+        return (
+            "⚠️ **Der KI-Dienst ist gerade vorübergehend nicht erreichbar oder ausgelastet.** "
+            f"Bitte versuche es in {wait_text} erneut. Deine Frage wurde nicht von der KI beantwortet. "
+            "Bei dringenden Anliegen wende dich bitte direkt an das Serverteam."
+        )
 
     def _knowledge_text(self) -> str:
         try:
@@ -310,14 +356,16 @@ class SupportAssistant(commands.Cog):
                         )
                         self._last_rate_limit_log_at = now
                     return None
-                if response.status_code >= 500:
-                    pause = record_provider_failure(
-                        self.api_base, self.api_key,
-                        status_code=response.status_code, retry_after=retry_after,
-                    )
+                        if response.status_code >= 500:
+                    # Transient provider outages should pause this interactive
+                    # assistant only; an unrelated moderation failure must not
+                    # globally silence both support chats. Quota/auth errors below
+                    # still use the shared circuit breaker.
+                    self._api_transient_failures = min(self._api_transient_failures + 1, 5)
+                    pause = min(120, 15 * (2 ** (self._api_transient_failures - 1)))
                     now = time.monotonic()
                     self._api_paused_until = max(self._api_paused_until, now + pause)
-                    self._last_api_error += f" | automatische Pause {pause}s"
+                    self._last_api_error += f" | automatische lokale Pause {pause}s"
                 elif response.status_code in (401, 403):
                     pause = record_provider_failure(
                         self.api_base, self.api_key, status_code=response.status_code
@@ -330,6 +378,7 @@ class SupportAssistant(commands.Cog):
 
             record_provider_success(self.api_base, self.api_key)
             self._api_rate_limit_failures = 0
+            self._api_transient_failures = 0
             self._api_paused_until = 0.0
             self._last_api_error = ""
             data = response.json()
@@ -347,11 +396,12 @@ class SupportAssistant(commands.Cog):
             return text.strip()
         except (httpx.TimeoutException, httpx.RequestError) as exc:
             self._last_api_error = f"Verbindungsfehler: {type(exc).__name__}"
-            pause = record_provider_failure(self.api_base, self.api_key)
+            self._api_transient_failures = min(self._api_transient_failures + 1, 5)
+            pause = min(120, 15 * (2 ** (self._api_transient_failures - 1)))
             self._api_paused_until = max(self._api_paused_until, time.monotonic() + pause)
             print(
                 f"⚠️ Pulse-Support: KI-API-Verbindung fehlgeschlagen ({type(exc).__name__}); "
-                f"gemeinsame Pause {pause}s."
+                f"lokale Pause {pause}s."
             )
         except (ValueError, KeyError, TypeError):
             self._last_api_error = "Ungültige API-Antwort"
@@ -379,17 +429,6 @@ class SupportAssistant(commands.Cog):
             }
             if not author_role_ids.intersection(self.team_role_ids):
                 return
-        if not self.enabled or not self.api_key:
-            return
-        # A provider rate limit pauses this helper silently; do not emit a failure
-        # reply for every incoming question during the cooldown.
-        if (
-            now < self._api_paused_until
-            or provider_pause_remaining(self.api_base, self.api_key) > 0
-            or self._api_lock.locked()
-        ):
-            return
-
         bot_mentioned = bool(self.bot.user and self.bot.user in message.mentions)
         reference = message.reference
         replied_message = reference.resolved if reference else None
@@ -426,15 +465,38 @@ class SupportAssistant(commands.Cog):
         ):
             return
 
-        if now - self._user_last_request.get(message.author.id, 0.0) < 8.0:
+        request_key = (message.channel.id, message.author.id)
+        last_user_request = self._user_last_request.get(request_key, 0.0)
+        if now - last_user_request < 8.0:
+            wait = max(1, int(8.0 - (now - last_user_request) + 0.999))
+            await self._reply_status_notice(
+                message,
+                f"⏳ Bitte warte noch etwa {wait} Sekunden, bevor du in diesem KI-Chat erneut fragst.",
+            )
             return
-        if self._last_request and now - self._last_request < 2.0:
+
+        if not self.enabled:
+            await self._reply_status_notice(
+                message,
+                "⚠️ Der KI-Support ist derzeit deaktiviert. Bitte wende dich an die Serverleitung, damit der Dienst geprüft wird.",
+            )
             return
-        self._user_last_request.pop(message.author.id, None)
-        self._user_last_request[message.author.id] = now
-        self._user_last_request.move_to_end(message.author.id)
+        if not self.api_key:
+            await self._reply_status_notice(
+                message,
+                "⚠️ Der KI-Support ist gerade nicht vollständig konfiguriert. Bitte informiere die Serverleitung.",
+            )
+            return
+
+        pause_seconds = self._provider_pause_seconds()
+        if pause_seconds > 0:
+            await self._reply_status_notice(message, self._provider_unavailable_text())
+            return
+
+        self._user_last_request.pop(request_key, None)
+        self._user_last_request[request_key] = now
+        self._user_last_request.move_to_end(request_key)
         self._prune_runtime_state(now)
-        self._last_request = now
 
         question = message.clean_content.strip()[:2500]
         if (
@@ -465,22 +527,20 @@ class SupportAssistant(commands.Cog):
 
         try:
             async with self._api_lock:
-                # Re-check inside the lock in case a previous request exhausted
-                # the provider quota while this event was being prepared.
-                if (
-                    time.monotonic() < self._api_paused_until
-                    or provider_pause_remaining(self.api_base, self.api_key) > 0
-                ):
-                    return
-                async with message.channel.typing():
-                    answer = await self._request_completion(messages)
+                # Another request may have triggered a provider pause while this
+                # message was waiting for the shared interactive request lock.
+                pause_seconds = self._provider_pause_seconds()
+                if pause_seconds > 0:
+                    self._last_api_error = "KI-Dienst während des Wartens pausiert"
+                    answer = None
+                else:
+                    async with message.channel.typing():
+                        answer = await self._request_completion(messages)
 
             if not answer:
-                await message.reply(
-                    "Ich kann gerade keine zuverlässige KI-Antwort erstellen. "
-                    "Bitte wende dich bei deinem Anliegen direkt an das Serverteam.",
-                    mention_author=False,
-                    allowed_mentions=discord.AllowedMentions.none(),
+                await self._reply_status_notice(
+                    message,
+                    self._provider_unavailable_text(),
                 )
                 return
 
@@ -526,6 +586,12 @@ class SupportAssistant(commands.Cog):
                 self._history.popitem(last=False)
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(f"⚠️ Pulse-Support: Discord-Antwort fehlgeschlagen ({type(exc).__name__}).")
+        except Exception as exc:
+            print(f"⚠️ Pulse-Support: Unerwarteter Fehler im Nachrichtenablauf ({type(exc).__name__}).")
+            await self._reply_status_notice(
+                message,
+                "⚠️ Beim Erstellen der KI-Antwort ist ein interner Fehler aufgetreten. Bitte versuche es später erneut oder wende dich an das Serverteam.",
+            )
 
     @app_commands.command(
         name="supportbot_status",
