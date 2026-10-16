@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import re
+import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -178,6 +181,7 @@ class VoiceSupport(commands.Cog):
         self._duty_status_lock = asyncio.Lock()
         self._case_action_locks: dict[str, asyncio.Lock] = {}
         self._music_warning_logged = False
+        self._after_hours_audio_warning_logged = False
         self.duty_status_loop.start()
         self.music_loop.start()
 
@@ -227,10 +231,14 @@ class VoiceSupport(commands.Cog):
         else:
             status = "🟠 **Status:** Wartet auf Übernahme durch einen Supporter mit Bereitschaftsrolle"
             color = discord.Color.orange()
+        after_hours_note = (
+            "\n⏰ **Außerhalb der Öffnungszeiten:** Der Fall wurde trotzdem regulär aufgenommen."
+            if case.get("outside_opening_hours") else ""
+        )
         description = (
             f"**Nutzer:** <@{user_id}> ({user_id})\n"
             f"**Sprachkanal:** {active_channel.mention if active_channel else 'Wird beim Übernehmen zugewiesen'}\n"
-            f"{status}"
+            f"{status}{after_hours_note}"
         )
         embed = discord.Embed(
             title=f"🎧 Supportfall · {case.get('room_name') or 'Support'}",
@@ -683,11 +691,9 @@ class VoiceSupport(commands.Cog):
         if cfg.get("active") and wait_id and after.channel and after.channel.id == wait_id and (not before.channel or before.channel.id != wait_id):
             if member.id in self._opening:
                 return
-            if not support_open_now(cfg):
-                await self._closed_hours(member, before.channel, cfg)
-                return
             self._opening.add(member.id)
             try:
+                outside_opening_hours = not support_open_now(cfg)
                 cases = get_cases()
                 old = next((x for x in cases.values() if isinstance(x, dict) and str(x.get("guild_id")) == str(member.guild.id) and str(x.get("user_id")) == str(member.id)), None)
                 if old:
@@ -702,7 +708,7 @@ class VoiceSupport(commands.Cog):
                         reason="Bürger hat den Supportkanal verlassen und erneut den Warteraum betreten",
                         kick_user=False,
                     )
-                await self._open_case(member, cfg)
+                await self._open_case(member, cfg, outside_opening_hours=outside_opening_hours)
             except (discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
                 print(f"❌ Voice-Support: Fall für {member.id} konnte nicht eröffnet werden: {exc}")
                 await self._failure_dm(member)
@@ -752,13 +758,34 @@ class VoiceSupport(commands.Cog):
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
+    def _after_hours_audio_path(self) -> Path | None:
+        """Decode the bundled spoken notice once, keeping runtime audio outside the repo."""
+        cached = Path(tempfile.gettempdir()) / "pulse_voice_support_after_hours_v1.mp3"
+        try:
+            if cached.is_file() and cached.stat().st_size > 1024:
+                return cached
+            source = Path(__file__).resolve().parents[1] / "assets" / "voice_support_after_hours.mp3.b64"
+            encoded = source.read_text(encoding="ascii").strip()
+            audio_bytes = base64.b64decode(encoded, validate=True)
+            if len(audio_bytes) <= 1024:
+                raise ValueError("Audiodatei ist leer oder unvollständig")
+            cached.write_bytes(audio_bytes)
+            return cached
+        except (OSError, ValueError, binascii.Error) as exc:
+            if not self._after_hours_audio_warning_logged:
+                print(f"⚠️ Voice-Support: Außerhalb-Öffnungszeiten-Ansage nicht verfügbar: {exc}")
+                self._after_hours_audio_warning_logged = True
+            return None
+
     async def _failure_dm(self, member: discord.Member):
         try:
             await member.send("Dein Supportraum konnte nicht erstellt werden. Bitte versuche es erneut oder öffne ein Ticket.")
         except (discord.Forbidden, discord.HTTPException):
             pass
 
-    async def _open_case(self, member: discord.Member, cfg: dict):
+    async def _open_case(self, member: discord.Member, cfg: dict, *, outside_opening_hours: bool | None = None):
+        if outside_opening_hours is None:
+            outside_opening_hours = not support_open_now(cfg)
         guild = member.guild
         category = guild.get_channel(channel_id(cfg.get("category_id")))
         if not isinstance(category, discord.CategoryChannel):
@@ -796,6 +823,7 @@ class VoiceSupport(commands.Cog):
             "room_name": str(cfg.get("room_name") or "Support")[:45],
             "created_at": datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds"),
             "created_by_pulse": created, "original_overwrites": snapshot, "staff_joined": False,
+            "outside_opening_hours": bool(outside_opening_hours), "after_hours_notice_played": False,
             "private_channel_id": channel.id, "support_channel_id": 0,
             "support_original_overwrite": {}, "assigned_staff_id": 0, "assigned_staff_name": "",
             "claiming_staff_id": 0, "private_room_cleaned": False,
@@ -1098,12 +1126,17 @@ class VoiceSupport(commands.Cog):
     @tasks.loop(seconds=8)
     async def music_loop(self):
         cfg = get_config()
+        if not cfg.get("active"):
+            return
+
+        # The spoken after-hours notice works independently of the optional waiting music.
+        music_path = None
         audio_value = str(cfg.get("waiting_music_path") or "")
-        if not cfg.get("active") or not cfg.get("waiting_music_enabled") or not audio_value:
-            return
-        path = Path(__file__).resolve().parents[1] / audio_value
-        if not path.is_file():
-            return
+        if cfg.get("waiting_music_enabled") and audio_value:
+            candidate = Path(__file__).resolve().parents[1] / audio_value
+            if candidate.is_file():
+                music_path = candidate
+
         for case in get_cases().values():
             if not isinstance(case, dict) or case.get("staff_joined"):
                 continue
@@ -1117,11 +1150,28 @@ class VoiceSupport(commands.Cog):
             try:
                 if vc is None:
                     vc = await channel.connect(self_deaf=True)
-                if vc.channel and vc.channel.id == channel.id and not vc.is_playing():
-                    vc.play(discord.FFmpegPCMAudio(str(path), options="-vn"))
-            except (discord.ClientException, discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
+                if not vc.channel or vc.channel.id != channel.id or vc.is_playing():
+                    continue
+
+                if case.get("outside_opening_hours") and not case.get("after_hours_notice_played"):
+                    notice_path = self._after_hours_audio_path()
+                    if notice_path:
+                        vc.play(discord.FFmpegPCMAudio(str(notice_path), options="-vn"))
+                        latest_cases = get_cases()
+                        case_key = str(channel.id)
+                        latest = latest_cases.get(case_key)
+                        if isinstance(latest, dict) and str(latest.get("case_id")) == str(case.get("case_id")):
+                            latest["after_hours_notice_played"] = True
+                            latest["after_hours_notice_played_at"] = datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds")
+                            latest_cases[case_key] = latest
+                            db.set_setting(CASES_KEY, latest_cases)
+                        continue
+
+                if music_path:
+                    vc.play(discord.FFmpegPCMAudio(str(music_path), options="-vn"))
+            except (discord.ClientException, discord.Forbidden, discord.HTTPException, RuntimeError, OSError) as exc:
                 if not self._music_warning_logged:
-                    print(f"⚠️ Voice-Support: Wartemusik nicht verfügbar: {exc}")
+                    print(f"⚠️ Voice-Support: Audio im Warteraum nicht verfügbar: {exc}")
                     self._music_warning_logged = True
 
     @music_loop.before_loop
