@@ -1,5 +1,14 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.23 – Übernehmen, Übertragen und Abschließen von Voice-Supportfällen
+
+- Supportmeldungen enthalten nun dauerhafte Buttons zum Übernehmen, Übertragen und Beenden eines Falls.
+- Übernehmen und Übertragen ist nur für die konfigurierte Support-/Bereitschaftsrolle möglich. Der Supporter muss bereits in einem normalen Sprachkanal sein; der Bürger wird dorthin verschoben.
+- Für den Bürger werden temporär Anzeigen, Verbinden, Sprechen, Sprachaktivierung ohne Push-to-Talk und Streamen freigeschaltet. Beim Übertragen werden die Rechte im vorherigen Supportkanal zurückgesetzt.
+- Beim Beenden wird der Bürger aus dem Sprachkanal entfernt und sein ursprünglicher individueller Berechtigungs-Overwrite wiederhergestellt. Verlässt der Bürger den Supportkanal selbst, wird der Fall automatisch geschlossen und die Rechte werden bereinigt.
+- Das Abschlussprotokoll wird im Kanal `1531443370172485703` als Embed mit Case-ID, Erstellungszeit, Nutzer, Supporter, Dauer und Abschlussgrund veröffentlicht.
+- Die Bereitschaftsnachricht wird im Verlauf wiedererkannt, aktualisiert und bei vorhandenen Duplikaten auf eine Nachricht reduziert.
+
 ## Version 7.8.22 – Konfigurierbarer Voice-Support mit Schicht-Bereitschaft
 
 - Eigener Dashboard-Menüpunkt „Sprach-Support“ mit separater Konfigurations- und Fallübersicht.
