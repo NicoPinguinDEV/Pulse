@@ -1289,11 +1289,16 @@ def register(app):
         for channel_key, case in sorted(cases.items(), key=lambda pair: str(pair[1].get("created_at", "")) if isinstance(pair[1], dict) else ""):
             if not isinstance(case, dict):
                 continue
-            chan = c.guild.get_channel(int(case.get("channel_id") or channel_key)) if str(case.get("channel_id") or channel_key).isdigit() else None
+            raw_channel_id = case.get("channel_id") or channel_key
+            chan = c.guild.get_channel(int(raw_channel_id)) if str(raw_channel_id).isdigit() else None
+            if chan:
+                case_link = f'<a class="pulse-btn ghost" href="https://discord.com/channels/{c.guild.id}/{chan.id}" target="_blank" rel="noopener noreferrer">Raum öffnen</a>'
+            else:
+                case_link = '<a class="pulse-btn ghost" href="/voice-support">Aktualisieren</a>'
             case_rows.append(
                 f'<div class="pulse-row"><div class="pulse-avatar">🎧</div><div class="pulse-row-main"><div class="pulse-row-title">{e(case.get("user_name") or "Unbekannt")}</div>'
                 f'<div class="pulse-row-meta">Fall {e(case.get("case_id") or "—")} · seit {e(case.get("created_at") or "—")}</div></div>'
-                f'<div class="flex gap-2">{f"<a class=pulse-btn ghost href=\'/voice-support\'>Aktualisieren</a>" if not chan else f"<a class=pulse-btn ghost href=\'https://discord.com/channels/{c.guild.id}/{chan.id}\' target=\'_blank\'>Raum öffnen</a>"}</div></div>'
+                f'<div class="flex gap-2">{case_link}</div></div>'
             )
         rating_rows = db.get_setting("voice_support_ratings", [])
         rating_rows = rating_rows if isinstance(rating_rows, list) else []
@@ -1389,7 +1394,7 @@ def register(app):
         for day in DAYS:
             start = str(form.get(f"hours_{day}_start") or DEFAULT_HOURS[day]["start"])
             end = str(form.get(f"hours_{day}_end") or DEFAULT_HOURS[day]["end"])
-            if not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", start) or not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", end):
+            if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", start) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", end):
                 return ws.back("/voice-support", "Öffnungszeiten müssen im Format HH:MM angegeben werden.", False)
             hours[day] = {"enabled": form.get(f"hours_{day}_enabled") == "1", "start": start, "end": end}
         previous = db.get_setting("voice_support_config", {})
