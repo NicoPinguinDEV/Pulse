@@ -615,8 +615,8 @@ def main() -> None:
     assert "await interaction.response.defer(ephemeral=True, thinking=True)" in activity_check
     assert "interaction.followup.send(response_text, ephemeral=True)" in activity_check
     assert "except discord.NotFound:" in activity_check
-    # Shared AI resilience means support and moderation cannot retry the same
-    # provider/key independently when an API is rate-limited or unavailable.
+    # Quota/auth failures share a cooldown, while transient moderation outages
+    # must not silently suppress replies in either interactive support channel.
     resilience = read("pulse_ai_resilience.py")
     assert "async def provider_request_slot(" in resilience
     assert "def record_provider_failure(" in resilience
@@ -629,6 +629,7 @@ def main() -> None:
     assert "provider_pause_remaining(self.api_base, self.api_key)" in ai_mod
     assert "record_provider_failure(" in ai_mod
     assert "def _backoff_provider(" in ai_mod
+    assert "if status_code == 429 or status_code in (401, 403):" in ai_mod
     assert "retry_after=response.headers.get(\"retry-after\")" in ai_mod
     assert "def _record_unreviewed_message(self, item: dict[str, Any]) -> None:" in ai_mod
     assert "def _publish_outage_notice(self) -> bool:" in ai_mod
@@ -748,7 +749,12 @@ def main() -> None:
     assert "self._api_paused_until" in support_assistant
     assert "self._api_rate_limit_failures" in support_assistant
     assert "self._api_lock = asyncio.Lock()" in support_assistant
-    assert "self._api_lock.locked()" in support_assistant
+    assert "self._api_lock.locked()" not in support_assistant
+    assert "request_key = (message.channel.id, message.author.id)" in support_assistant
+    assert "async def _reply_status_notice(" in support_assistant
+    assert "def _provider_unavailable_text(self) -> str:" in support_assistant
+    assert "await self._reply_status_notice(message, self._provider_unavailable_text())" in support_assistant
+    assert "self._api_transient_failures" in support_assistant
     assert "while len(self._history) > 200" in support_assistant
     assert "while len(self._user_last_request) > 500" in support_assistant
     assert "httpx.Limits(max_connections=2, max_keepalive_connections=1" in support_assistant
