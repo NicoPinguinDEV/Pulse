@@ -356,7 +356,7 @@ class SupportAssistant(commands.Cog):
                         )
                         self._last_rate_limit_log_at = now
                     return None
-                        if response.status_code >= 500:
+                if response.status_code >= 500:
                     # Transient provider outages should pause this interactive
                     # assistant only; an unrelated moderation failure must not
                     # globally silence both support chats. Quota/auth errors below
