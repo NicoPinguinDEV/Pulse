@@ -700,7 +700,7 @@ class VoiceSupport(commands.Cog):
         if after.channel:
             case = cases.get(str(after.channel.id))
             staff_roles = {channel_id(cfg.get("support_role_id")), channel_id(cfg.get("duty_role_id"))} - {0}
-            if isinstance(case, dict) and member.id != channel_id(case.get("user_id")) and staff_roles.intersection(r.id for r in member.roles):
+            if isinstance(case, dict) and not case.get("waiting_in_shared_room") and member.id != channel_id(case.get("user_id")) and staff_roles.intersection(r.id for r in member.roles):
                 case["staff_joined"] = True
                 db.set_setting(CASES_KEY, cases)
                 await self._disconnect_music(after.channel.id)
@@ -786,10 +786,9 @@ class VoiceSupport(commands.Cog):
             await member.send("⏰ Der Voice-Support ist aktuell geschlossen. Bitte beachte die im Pulse-Dashboard eingestellten Öffnungszeiten.")
         except (discord.Forbidden, discord.HTTPException):
             pass
-        try:
-            await member.move_to(previous_channel, reason="Pulse Voice-Support: außerhalb der Öffnungszeiten")
-        except (discord.Forbidden, discord.HTTPException):
-            pass
+        # Intentionally never move a citizen out of the waiting room here.
+        # After-hours requests are accepted as normal cases and remain queued
+        # until a supporter claims the case or the citizen leaves voluntarily.
         destination = member.guild.get_channel(channel_id(cfg.get("notification_channel_id")))
         if isinstance(destination, discord.TextChannel) and cfg.get("notification_enabled", True):
             try:
