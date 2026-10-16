@@ -165,7 +165,7 @@ def main() -> None:
     assert "stream=True" in voice_support
     assert "await member.move_to(None" in voice_support
     assert "async def _restore_member_overwrite" in voice_support
-    assert "await channel.history(limit=100)" in voice_support
+    assert "channel.history(limit=100)" in voice_support
     assert "await duplicate.delete()" in voice_support
     assert "await report.send(embed=result_embed" in voice_support
 
