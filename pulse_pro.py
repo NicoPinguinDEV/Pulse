@@ -730,6 +730,14 @@ def register(app):
         })
         del active[str(target.id)]
         ws.save_json(ws.SHIFTS_FILE,shifts_db)
+        try:
+            bot = getattr(request.app.state, "bot", None)
+            voice_support = bot.get_cog("VoiceSupport") if bot else None
+            if voice_support:
+                await voice_support.sync_member_duty_role(c.guild, target.id)
+                await voice_support._refresh_duty_status(c.guild)
+        except Exception as exc:
+            print(f"⚠️ Voice-Support: Bereitschaft nach administrativem Schichtende nicht aktualisiert: {exc}")
         actor=c.user.get("global_name") or c.user.get("username") or str(c.user["id"])
         ws.log_audit(actor,str(c.user["id"]),"Fremde Schicht beendet",
                      f"{target.display_name} ({target.id}) · {ws.fmt_duration(duration)} · Grund: {reason}")
