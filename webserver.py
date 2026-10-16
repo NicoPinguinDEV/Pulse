@@ -1257,6 +1257,176 @@ async def apply_warn_consequences(
     return result
 
 
+async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dict | None = None) -> dict:
+    """Reverse warning-derived rank sanctions once every team warning has expired or been revoked."""
+    result = {"restored": [], "failed": [], "changed": False}
+    if not guild or not member or active_warns(entry):
+        return result
+
+    cfg = config or load_config()
+    team_role_ids = {
+        int(role_id) for role_id in (cfg.get("team_role_ids") or [])
+        if str(role_id).isdigit()
+    }
+    current_team_ids = {role.id for role in member.roles if role.id in team_role_ids}
+    warnings = entry.get("warns_list", []) or []
+
+    # Reverse consequences newest-first: undo the Warn-5 team removal first,
+    # then restore the rank that was present before a Warn-4 downrank.
+    for warn in reversed(warnings):
+        if not isinstance(warn, dict):
+            continue
+        consequences = warn.get("consequences") or {}
+
+        if (
+            consequences.get("team_kick_applied")
+            and not consequences.get("team_kick_reverted_at")
+            and not consequences.get("team_kick_restore_skipped_at")
+            and not consequences.get("test_supporter_team_kick")
+        ):
+            raw_previous_ids = consequences.get("team_kick_removed_role_ids") or []
+            previous_ids = []
+            for value in raw_previous_ids:
+                try:
+                    role_id = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if role_id in team_role_ids and role_id not in previous_ids:
+                    previous_ids.append(role_id)
+
+            # If a manager already re-hired the member, do not overwrite their edit.
+            if current_team_ids:
+                consequences["team_kick_restore_skipped_at"] = now_de().isoformat(timespec="seconds")
+                result["changed"] = True
+            elif previous_ids:
+                previous_roles = [guild.get_role(role_id) for role_id in previous_ids]
+                if any(role is None or role.managed for role in previous_roles):
+                    result["failed"].append("Die ursprüngliche Teamrolle des Team-Kicks fehlt oder ist verwaltet.")
+                elif (
+                    not guild.me
+                    or not guild.me.guild_permissions.manage_roles
+                    or any(role.position >= guild.me.top_role.position for role in previous_roles)
+                ):
+                    result["failed"].append("Team-Kick-Rücknahme fehlgeschlagen: Bot-Rollenrechte/Hiearchie prüfen.")
+                else:
+                    try:
+                        await member.add_roles(
+                            *previous_roles,
+                            reason=f"Warn-Folge aufgehoben: keine aktiven Team-Warnungen mehr (Warn {warn.get('id')})",
+                        )
+                        current_team_ids.update(previous_ids)
+                        consequences["team_kick_reverted_at"] = now_de().isoformat(timespec="seconds")
+                        result["restored"].extend(role.name for role in previous_roles)
+                        result["changed"] = True
+                        log_audit(
+                            "Pulse – Warn-Ablaufkontrolle",
+                            "system",
+                            "Team-Kick-Folge aufgehoben",
+                            f"{member.display_name} ({member.id}) · Teamrollen wiederhergestellt: "
+                            f"{', '.join(role.name for role in previous_roles)} · keine aktiven Warnungen mehr.",
+                        )
+                    except (discord.Forbidden, discord.HTTPException) as exc:
+                        result["failed"].append(f"Team-Kick-Rücknahme: {type(exc).__name__}")
+
+        if (
+            consequences.get("downrank_applied")
+            and not consequences.get("downrank_reverted_at")
+            and not consequences.get("downrank_restore_skipped_at")
+        ):
+            raw_previous_ids = consequences.get("downrank_from_role_ids") or []
+            previous_ids = []
+            for value in raw_previous_ids:
+                try:
+                    role_id = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if role_id in team_role_ids and role_id not in previous_ids:
+                    previous_ids.append(role_id)
+            try:
+                downrank_to_id = int(consequences.get("downrank_to_role_id") or 0)
+            except (TypeError, ValueError):
+                downrank_to_id = 0
+
+            # Only undo the exact rank that Pulse applied; respect later manual changes.
+            if downrank_to_id and current_team_ids != {downrank_to_id}:
+                if current_team_ids:
+                    consequences["downrank_restore_skipped_at"] = now_de().isoformat(timespec="seconds")
+                    result["changed"] = True
+                continue
+            if not previous_ids:
+                result["failed"].append("Vorherige Teamrolle des Downranks ist nicht gespeichert.")
+                continue
+
+            previous_roles = [guild.get_role(role_id) for role_id in previous_ids]
+            current_roles = [guild.get_role(role_id) for role_id in current_team_ids]
+            all_roles = previous_roles + current_roles
+            if any(role is None or role.managed for role in all_roles):
+                result["failed"].append("Für die Downrank-Rücknahme fehlt eine Teamrolle oder sie ist verwaltet.")
+                continue
+            if (
+                not guild.me
+                or not guild.me.guild_permissions.manage_roles
+                or any(role.position >= guild.me.top_role.position for role in all_roles)
+            ):
+                result["failed"].append("Downrank-Rücknahme fehlgeschlagen: Bot-Rollenrechte/Hiearchie prüfen.")
+                continue
+            try:
+                roles_to_add = [role for role in previous_roles if role.id not in current_team_ids]
+                roles_to_remove = [role for role in current_roles if role.id not in set(previous_ids)]
+                if roles_to_add:
+                    await member.add_roles(
+                        *roles_to_add,
+                        reason=f"Warn-Downrank aufgehoben: keine aktiven Team-Warnungen mehr (Warn {warn.get('id')})",
+                    )
+                if roles_to_remove:
+                    await member.remove_roles(
+                        *roles_to_remove,
+                        reason=f"Warn-Downrank aufgehoben: keine aktiven Team-Warnungen mehr (Warn {warn.get('id')})",
+                    )
+                current_team_ids.difference_update(role.id for role in roles_to_remove)
+                current_team_ids.update(role.id for role in previous_roles)
+                consequences["downrank_reverted_at"] = now_de().isoformat(timespec="seconds")
+                result["restored"].extend(role.name for role in previous_roles)
+                result["changed"] = True
+                log_audit(
+                    "Pulse – Warn-Ablaufkontrolle",
+                    "system",
+                    "Downrank-Folge aufgehoben",
+                    f"{member.display_name} ({member.id}) · Teamrolle(n) wiederhergestellt: "
+                    f"{', '.join(role.name for role in previous_roles)} · keine aktiven Warnungen mehr.",
+                )
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                result["failed"].append(f"Downrank-Rücknahme: {type(exc).__name__}")
+
+    if result["restored"]:
+        unique_names = list(dict.fromkeys(result["restored"]))
+        try:
+            await send_dm_notification(
+                member,
+                f"✅ Deine Team-Warnungen sind abgelaufen oder wurden zurückgezogen. "
+                f"Folgende zeitlich gebundene Team-Bestrafung(en) wurden aufgehoben: {', '.join(unique_names)}.",
+            )
+        except Exception as exc:
+            print(f"⚠️ DM zu aufgehobenen Warn-Folgen für {member.id} fehlgeschlagen: {exc}")
+        try:
+            await send_team_update_embed(
+                guild,
+                "✅ Team-Update: Warn-Folgen aufgehoben",
+                f"Für {member.mention} sind keine aktiven Team-Warnungen mehr vorhanden. "
+                "Automatisch gespeicherte Downrank-/Team-Kick-Folgen wurden geprüft und gegebenenfalls zurückgenommen.",
+                discord.Color.green(),
+                target=member.mention,
+                action="Warn-Folgen aufgehoben",
+                actor="Pulse – automatische Warn-Ablaufkontrolle",
+                fields=[("Wiederhergestellt", ", ".join(unique_names), False)],
+                thumbnail=member.display_avatar.url,
+            )
+        except Exception as exc:
+            print(f"⚠️ Team-Update zu aufgehobenen Warn-Folgen fehlgeschlagen: {exc}")
+
+    return result
+
+
 async def cleanup_expired_team_warnings(guild, config: dict | None = None):
     """Expire timed warnings, retain their history, then resynchronize warning roles."""
     result = {"checked": 0, "expired": 0, "roles_synced": 0, "failed": 0}
