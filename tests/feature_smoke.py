@@ -179,6 +179,8 @@ def main() -> None:
     assert 'nickname_default_prefix", "Bürger ✗"' in nickname_cog
     assert 'c.config.setdefault("role_nickname_prefixes",{})' in pro
     assert "select_highest_role_prefix" in nickname_utils
+    assert "EX_TEAMLER_ROLE_ID = 1489912887949394082" in nickname_utils
+    assert 'EX_TEAMLER_PREFIX = "𝐄𝐗 𝐓𝐄𝐀𝐌𝐋𝐄𝐑 ✗"' in nickname_utils
     assert "automatic_role_prefix" in nickname_utils
     assert "role.id, role.position, role.name, role.is_default()" in nickname_cog
     assert "strip_legacy_rank_prefix" in nickname_cog
@@ -371,7 +373,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.9"' in version_source
+    assert 'PULSE_VERSION = "7.8.10"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
