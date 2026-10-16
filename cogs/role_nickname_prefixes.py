@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import time
 from pathlib import Path
 
 import discord
@@ -15,7 +18,7 @@ from pulse_nickname_utils import (
     strip_known_prefix,
     strip_legacy_rank_prefix,
 )
-from webserver import GUILD_ID, load_config, load_json, save_json
+from webserver import GUILD_ID, load_config
 
 STATE_FILE = Path(__file__).resolve().parents[1] / "role_nickname_state.json"
 MAX_CONFIGURED_PREFIX_ROLES = 150
@@ -27,10 +30,113 @@ class RoleNicknamePrefixes(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._member_locks: dict[int, asyncio.Lock] = {}
+        self._state_cache_lock = asyncio.Lock()
         self._state_file_lock = asyncio.Lock()
+        self._member_state_cache: dict[str, dict] | None = None
+        self._state_revision = 0
+        self._state_dirty = False
+        self._bulk_state_batching = False
         self._bulk_sync_task: asyncio.Task | None = None
         self._startup_sync_started = False
         self._sync_requested_again = False
+
+    @staticmethod
+    def _read_state_file_sync() -> dict[str, dict]:
+        """Load the nickname state once; preserve a damaged file for recovery."""
+        if not STATE_FILE.exists():
+            return {}
+        try:
+            with STATE_FILE.open("r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+            if isinstance(raw, dict):
+                return {
+                    str(key): value
+                    for key, value in raw.items()
+                    if isinstance(value, dict)
+                }
+            raise ValueError("Die Zustandsdatei enthält kein JSON-Objekt.")
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError) as exc:
+            backup = STATE_FILE.with_name(
+                f"{STATE_FILE.stem}.corrupt-{time.time_ns()}{STATE_FILE.suffix}"
+            )
+            try:
+                os.replace(STATE_FILE, backup)
+                print(
+                    f"⚠️ Namenspräfix-Zustandsdatei war ungültig und wurde zur Wiederherstellung "
+                    f"gesichert: {backup.name} ({type(exc).__name__}: {exc})"
+                )
+            except OSError as backup_exc:
+                print(
+                    f"❌ Namenspräfix-Zustandsdatei konnte nicht gelesen/gesichert werden: "
+                    f"{type(exc).__name__}: {exc}; Sicherung fehlgeschlagen: {backup_exc}"
+                )
+            return {}
+
+    @staticmethod
+    def _write_state_file_sync(states: dict[str, dict]) -> None:
+        """Write to a sibling temporary file and atomically replace the state file."""
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = STATE_FILE.with_name(
+            f"{STATE_FILE.name}.{os.getpid()}.{time.time_ns()}.tmp"
+        )
+        try:
+            with temp_path.open("w", encoding="utf-8") as handle:
+                json.dump(states, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, STATE_FILE)
+        finally:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    async def _ensure_state_cache(self) -> None:
+        if self._member_state_cache is not None:
+            return
+        async with self._state_cache_lock:
+            if self._member_state_cache is None:
+                self._member_state_cache = await asyncio.to_thread(self._read_state_file_sync)
+
+    async def _get_member_state(self, member_id: int) -> dict | None:
+        await self._ensure_state_cache()
+        async with self._state_cache_lock:
+            states = self._member_state_cache or {}
+            state = states.get(str(member_id))
+            return dict(state) if isinstance(state, dict) else None
+
+    async def _set_member_state(self, member_id: int, state: dict | None) -> None:
+        await self._ensure_state_cache()
+        async with self._state_cache_lock:
+            if self._member_state_cache is None:
+                self._member_state_cache = {}
+            key = str(member_id)
+            if state is None:
+                self._member_state_cache.pop(key, None)
+            else:
+                self._member_state_cache[key] = dict(state)
+            self._state_revision += 1
+            self._state_dirty = True
+
+        if not self._bulk_state_batching:
+            await self._flush_state_cache()
+
+    async def _flush_state_cache(self) -> None:
+        async with self._state_file_lock:
+            await self._ensure_state_cache()
+            async with self._state_cache_lock:
+                if not self._state_dirty or self._member_state_cache is None:
+                    return
+                snapshot = {
+                    key: dict(value)
+                    for key, value in self._member_state_cache.items()
+                    if isinstance(value, dict)
+                }
+                revision = self._state_revision
+            await asyncio.to_thread(self._write_state_file_sync, snapshot)
+            async with self._state_cache_lock:
+                if revision == self._state_revision:
+                    self._state_dirty = False
 
     @staticmethod
     def _valid_prefix_map(config: dict) -> dict[str, str]:
@@ -81,11 +187,16 @@ class RoleNicknamePrefixes(commands.Cog):
                 states[key] = state
             save_json(STATE_FILE, states)
 
-    async def _synchronize_member_locked(self, member: discord.Member) -> str:
+    async def _synchronize_member_locked(
+        self,
+        member: discord.Member,
+        *,
+        config_snapshot: dict | None = None,
+    ) -> str:
         if member.bot or (GUILD_ID and member.guild.id != GUILD_ID):
             return "unchanged"
 
-        config = load_config()
+        config = config_snapshot if isinstance(config_snapshot, dict) else await asyncio.to_thread(load_config)
         prefixes = self._valid_prefix_map(config)
         state = await self._get_member_state(member.id)
         current_nick = member.nick
@@ -244,10 +355,15 @@ class RoleNicknamePrefixes(commands.Cog):
         await self._set_member_state(member.id, None)
         return "unchanged"
 
-    async def synchronize_member(self, member: discord.Member) -> str:
+    async def synchronize_member(
+        self,
+        member: discord.Member,
+        *,
+        config_snapshot: dict | None = None,
+    ) -> str:
         lock = self._member_locks.setdefault(member.id, asyncio.Lock())
         async with lock:
-            return await self._synchronize_member_locked(member)
+            return await self._synchronize_member_locked(member, config_snapshot=config_snapshot)
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -334,10 +450,13 @@ class RoleNicknamePrefixes(commands.Cog):
                 f"Synchronisierung arbeitet mit dem verfügbaren Cache: {type(exc).__name__}: {exc}"
             )
 
-        config = load_config()
+        # Load the config and nickname state once for the complete backfill.
+        # Synchronous per-member file IO was blocking Discord's gateway heartbeat.
+        config = await asyncio.to_thread(load_config)
         prefixes = self._valid_prefix_map(config)
-        states = load_json(STATE_FILE, {})
-        states = states if isinstance(states, dict) else {}
+        await self._ensure_state_cache()
+        async with self._state_cache_lock:
+            states = dict(self._member_state_cache or {})
         raw_default_prefix = config.get("nickname_default_prefix", "Bürger ✗")
         try:
             default_prefix = normalize_role_prefix(raw_default_prefix) if str(raw_default_prefix or "").strip() else ""
@@ -359,14 +478,21 @@ class RoleNicknamePrefixes(commands.Cog):
             f"🏷️ Namenspräfix-Synchronisierung gestartet: {len(candidates)} passende "
             f"Mitglieder im aktuellen Discord-Cache."
         )
-        for member in candidates:
-            result = await self.synchronize_member(member)
-            updated += result == "updated"
-            restored += result == "restored"
-            failed += result == "failed"
-            if result in ("updated", "restored"):
-                # Space out edits to avoid bursts of Discord nickname changes.
-                await asyncio.sleep(0.35)
+        self._bulk_state_batching = True
+        try:
+            for index, member in enumerate(candidates, start=1):
+                result = await self.synchronize_member(member, config_snapshot=config)
+                updated += result == "updated"
+                restored += result == "restored"
+                failed += result == "failed"
+                if index % 25 == 0:
+                    await self._flush_state_cache()
+                    await asyncio.sleep(0)
+                if result in ("updated", "restored"):
+                    await asyncio.sleep(0.35)
+        finally:
+            self._bulk_state_batching = False
+            await self._flush_state_cache()
         print(
             f"✅ Namenspräfix-Synchronisierung abgeschlossen: {updated} geändert, "
             f"{restored} zurückgesetzt, {failed} fehlgeschlagen."
