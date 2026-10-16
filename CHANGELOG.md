@@ -1,5 +1,10 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.17 – Wiederherstellung mit robuster API-Kompatibilität
+
+- Stage-Kanäle werden mit der eigenen Discord-API-Signatur und erforderlichem Thema wiederhergestellt; bei älteren API-Versionen wird ein klarer Fallback protokolliert.
+- Letzte Wiederherstellungs-Korrekturen aus 7.8.16 bleiben enthalten: Pulse-Sicherheitsrollen werden über dauerhafte ID-Aliase aufgelöst, und der normale Restore verändert vorhandene Mitgliedsrollen additiv statt sie ungefragt zu entfernen.
+
 ## Version 7.8.16 – Restore-Sicherheit und ID-Zuordnung
 
 - Eingebaute Pulse-Warn-, Probezeit- und Pflichtrollen behalten nach dem Wiederherstellen gelöschter Rollen ihre Funktion: neue Discord-Rollen-IDs werden im Backup-Konfigurationsalias hinterlegt.
