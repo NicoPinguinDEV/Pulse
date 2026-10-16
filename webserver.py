@@ -996,6 +996,7 @@ async def _apply_warn4_downrank(guild, member, warn: dict, team_role_ids: list[i
             await member.remove_roles(*remove, reason=f"Automatischer Downrank durch {actor}: {reason}")
         consequences = warn.setdefault("consequences", {})
         consequences["downrank_applied"] = True
+        consequences["downrank_from_role_ids"] = [role.id for role in old_roles]
         consequences["downrank_to_role_id"] = new_role.id
         return {"ok": True, "message": f"Automatisch auf {new_role.name} degradiert.", "changed": True}
     except discord.Forbidden:
@@ -1028,6 +1029,8 @@ async def _apply_warn5_team_kick(guild, member, warn: dict, team_role_ids: list[
     reason = warn.get("reason") or "Warn 5"
     try:
         await member.remove_roles(*current_team_roles, reason=f"Automatischer Team-Kick durch {actor}: {reason}")
+        # Keep the previous rank for an automatic return once every active warning expires.
+        consequences["team_kick_removed_role_ids"] = [role.id for role in current_team_roles]
         return {"ok": True, "message": "Alle Team-Rollen wurden automatisch entfernt.", "changed": True}
     except discord.Forbidden:
         consequences["team_kick_applied"] = False
