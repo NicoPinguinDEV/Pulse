@@ -6886,7 +6886,9 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
                 for role in member.roles:
                     if role.is_default() or role in desired_roles:
                         continue
-                    if role.managed or (not exact_restore and role.id not in snapshot_role_objects):
+                    # Safe mode is additive for member roles; exact mode may reset
+                    # assignable role assignments, but integration-managed roles remain.
+                    if role.managed or not exact_restore:
                         desired_roles.append(role)
                 current_role_ids = {role.id for role in member.roles if not role.is_default()}
                 desired_role_ids = {role.id for role in desired_roles}
