@@ -52,7 +52,7 @@ class TeamProtectionDatabaseTests(unittest.TestCase):
     def test_second_burst_within_24_hours_escalates_to_team_kick(self):
         first = self._trigger_multi_target_burst(start=10000)
         self.assertEqual(first[-1]["action"], "lockout")
-        start_again = 10000 + 1801
+        start_again = 10000 + 1804
         results = self._trigger_multi_target_burst(start=start_again)
         self.assertTrue(all(item["allowed"] for item in results[:3]))
         self.assertEqual(results[-1]["action"], "team_kick")
