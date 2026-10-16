@@ -528,6 +528,114 @@ async def enforce_team_warn_protection(guild, actor, target, config: dict | None
     return False, "🛡️ Teamler-Schutz: Warnrechte wurden wegen auffälliger Aktivität für 30 Minuten gesperrt. Die Führungsebene wurde benachrichtigt."
 
 
+def high_impact_warning_reason(target, entry: dict, current_count: int) -> str:
+    """Describe why the next warning would cause a consequential automatic sanction."""
+    consequences = []
+    if current_count >= 4:
+        consequences.append("Die nächste Warnung erreicht 5/5 und löst den automatischen Team-Kick aus.")
+    elif current_count >= 3:
+        consequences.append("Die nächste Warnung erreicht 4/5 und löst den automatischen Downrank aus.")
+    if any(
+        role.id == TEST_SUPPORTER_ROLE_ID or "test supporter" in role.name.casefold()
+        for role in getattr(target, "roles", [])
+    ):
+        consequences.append("Test-Supporter: bereits eine Warnung beendet die Probezeit mit Team-Kick.")
+    probation = entry.get("probation") if isinstance(entry, dict) else None
+    if isinstance(probation, dict) and probation.get("active"):
+        consequences.append("Aktive Probezeit: eine Warnung löst eine automatische Rückstufung aus.")
+    return " ".join(consequences)
+
+
+async def enforce_high_impact_warning_approval(
+    guild, actor, target, entry: dict, current_count: int,
+    config: dict | None = None, source: str = "Dashboard",
+) -> tuple[bool, str]:
+    """Require a leader to issue any warning that automatically downranks or team-kicks."""
+    cfg = config or load_config()
+    if team_safety_admin_exempt(guild, actor):
+        return True, ""
+    actor_perms, _ = compute_perms(guild, actor.id, cfg)
+    if actor_perms.get("can_promote") or actor_perms.get("is_admin"):
+        return True, ""
+
+    impact_reason = high_impact_warning_reason(target, entry, current_count)
+    if not impact_reason:
+        return True, ""
+
+    actor_name = getattr(actor, "display_name", str(actor.id))
+    target_name = getattr(target, "display_name", str(target.id))
+    message = (
+        f"Manueller Warnversuch durch {actor_name} ({actor.id}) gegen {target_name} ({target.id}) "
+        f"wurde blockiert. Quelle: {source}. {impact_reason}"
+    )
+    try:
+        log_audit(
+            actor_name, str(actor.id), "Hochrisiko-Verwarnung blockiert",
+            message,
+        )
+    except Exception as exc:
+        print(f"⚠️ Teamler-Schutz: Audit für Hochrisiko-Verwarnung fehlgeschlagen: {exc}")
+    try:
+        pulse_db.record_event(
+            "team_high_impact_warning_blocked", "team_member", target.id,
+            actor.id, actor_name,
+            {"source": source, "reason": impact_reason, "active_warns": current_count},
+        )
+    except Exception as exc:
+        print(f"⚠️ Teamler-Schutz: Event für Hochrisiko-Verwarnung fehlgeschlagen: {exc}")
+
+    try:
+        await send_team_update_embed(
+            guild,
+            "🛡️ Teamler-Schutz: Hochrisiko-Verwarnung blockiert",
+            f"Die Warnung durch {getattr(actor, 'mention', actor_name)} gegen "
+            f"{getattr(target, 'mention', target_name)} wurde nicht eingetragen, weil sie eine automatische "
+            "Rang-/Team-Sanktion auslösen würde.",
+            discord.Color.orange(),
+            actor="Pulse – Teamler-Schutz",
+            target=getattr(target, "mention", target_name),
+            action="Hochrisiko-Verwarnung blockiert",
+            fields=[
+                ("Moderator", f"{actor_name} ({actor.id})", False),
+                ("Zielmitglied", f"{target_name} ({target.id})", False),
+                ("Grund", impact_reason, False),
+                ("Quelle", source, True),
+            ],
+            thumbnail=getattr(getattr(target, "display_avatar", None), "url", None),
+        )
+    except Exception as exc:
+        print(f"⚠️ Teamler-Schutz: Leadership-Alarm konnte nicht gesendet werden: {exc}")
+
+    notified = 0
+    for manager in list(getattr(guild, "members", []) or []):
+        if getattr(manager, "bot", False) or manager.id == actor.id:
+            continue
+        try:
+            manager_perms, _ = compute_perms(guild, manager.id, cfg)
+            if not (manager_perms.get("can_promote") or manager_perms.get("is_admin")):
+                continue
+            pulse_db.notify(
+                manager.id,
+                "🛡️ Hochrisiko-Verwarnung blockiert",
+                message,
+                "warning",
+                "/warns",
+                f"team-high-impact-warn:{guild.id}:{actor.id}:{target.id}:{now_de().strftime('%Y%m%d%H%M')}",
+                86400,
+            )
+            notified += 1
+        except Exception as exc:
+            print(f"⚠️ Teamler-Schutz: Warnprüfung konnte nicht an {manager.id} gemeldet werden: {exc}")
+    print(
+        f"🛡️ Hochrisiko-Verwarnung blockiert: Moderator={actor.id}, Ziel={target.id}, "
+        f"Führungskräfte benachrichtigt={notified}, Grund={impact_reason}"
+    )
+    return False, (
+        "🛡️ Diese Verwarnung würde automatisch einen Downrank, Team-Kick oder eine Probezeit-Sanktion auslösen. "
+        "Das darf nur die Führungsebene mit Teamaktionsrechten durchführen; die Warnung wurde nicht gespeichert."
+    )
+
+
 async def enforce_team_safety_action_lockout(guild, actor, target, action_name: str, config: dict | None = None, source: str = "Dashboard") -> tuple[bool, str]:
     """Prevent a moderator in warning lockout from bypassing it with another power action."""
     if team_safety_admin_exempt(guild, actor):
@@ -6958,17 +7066,23 @@ async def handle_action(
             if target_rank >= 0 and (actor_rank < 0 or target_rank >= actor_rank):
                 return back(member_url, "Du darfst keine Team-Warnung an ein Mitglied mit gleichem oder höherem Teamrang vergeben.", False)
 
-        allowed_warn, protection_message = await enforce_team_warn_protection(
-            guild, ctx.member or guild.get_member(int(actor_id)), m, config, source="Dashboard",
-        )
-        if not allowed_warn:
-            return back(member_url, protection_message, False)
-
         team_db = load_json(DATA_FILE, {})
         entry = user_entry(team_db, str(user_id))
         current_count = len(active_warns(entry))
         if current_count >= 5:
             return back(member_url, "Dieses Teammitglied hat bereits die maximale Anzahl von 5 aktiven Verwarnungen.", False)
+
+        allowed_warn, protection_message = await enforce_team_warn_protection(
+            guild, ctx.member or guild.get_member(int(actor_id)), m, config, source="Dashboard",
+        )
+        if not allowed_warn:
+            return back(member_url, protection_message, False)
+        actor_member = ctx.member or guild.get_member(int(actor_id))
+        allowed_impact, impact_message = await enforce_high_impact_warning_approval(
+            guild, actor_member, m, entry, current_count, config, source="Dashboard",
+        )
+        if not allowed_impact:
+            return back(member_url, impact_message, False)
         entry["warns_list"].append({
             "id": f"warn_{uuid.uuid4().hex[:6]}", "reason": reason, "proof": safe_url(warn_proof),
             "by": actor, "date": now_de().strftime("%d.%m.%Y %H:%M"),
