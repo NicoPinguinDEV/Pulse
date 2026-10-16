@@ -42,7 +42,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "pulse_version.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -153,6 +153,21 @@ def main() -> None:
     assert "async def on_member_remove" in server_stats
     assert "async def on_member_update" in server_stats
     assert "REFRESH_DEBOUNCE_SECONDS = 3" in server_stats
+
+    # Role nickname prefixes validate, format and restore Discord-sized names.
+    nickname_utils = read("pulse_nickname_utils.py")
+    assert "MAX_DISCORD_NICKNAME_LENGTH = 32" in nickname_utils
+    assert "MAX_ROLE_PREFIX_LENGTH = 24" in nickname_utils
+    nickname_cog = read("cogs/role_nickname_prefixes.py")
+    assert "async def on_member_join" in nickname_cog
+    assert "async def on_member_update" in nickname_cog
+    assert "start_sync_existing_members" in nickname_cog
+    assert "role_nickname_prefixes" in nickname_cog
+    assert "await member.edit(" in nickname_cog
+    assert 'action="/settings/nickname-prefix/save"' in pro
+    assert 'app.post(\'/settings/nickname-prefix/sync\')(settings_nickname_prefix_sync)' in pro
+    assert "Automatische Rollen-Namenspräfixe" in pro
+    assert 'c.config.setdefault("role_nickname_prefixes",{})' in pro
 
     # Dashboard-only profiles are mapped to configured Discord team roles.
     assert '"dashboard_roles"' in web
@@ -311,7 +326,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.4"' in version_source
+    assert 'PULSE_VERSION = "7.8.5"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
