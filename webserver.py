@@ -4331,6 +4331,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                     <input type="hidden" name="user_id" value="{m['id']}">
                     <input type="hidden" name="redirect_to_member" value="">
                     <input type="hidden" name="action_reason" value="">
+                    <select name="probation_days" required class="{INPUT} text-xs"><option value="">Probezeit wählen</option><option value="3">3 Tage Probezeit</option><option value="7">7 Tage Probezeit</option></select>
                     <button class="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" {'disabled title="Höchster Rang erreicht"' if not can_promote_target else ''}>⬆️ Befördern</button>
                 </form>''' if can_promote_target else ""
             demote_form = f'''
@@ -4720,7 +4721,8 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
             <div class="flex justify-between items-center text-slate-400 font-mono text-[10px]">
                 <span>Datum: {esc(w.get('date', 'N/A'))} | Von: {esc(w.get('by', 'System'))}</span>{remove}
             </div>
-            <div class="text-slate-700 dark:text-slate-200"><strong>Grund:</strong> {esc(w.get('reason', 'Kein Grund'))}{proof_btn}</div>
+            <div class="text-slate-400">Gültigkeit: {esc((w.get("duration_days") or "Dauerhaft") if not w.get("expires_at") else str(w.get("duration_days") or "") + " Tage · bis " + str(w.get("expires_at")) )}</div>
+        <div class="text-slate-700 dark:text-slate-200"><strong>Grund:</strong> {esc(w.get('reason', 'Kein Grund'))}{proof_btn}</div>
         </div>"""
 
     notes_html = "".join(f"<div class='text-xs bg-slate-50 dark:bg-[#0b0e14] p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'>• {esc(n)}</div>"
@@ -4746,8 +4748,9 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
                     <form action="/action" method="post" class="flex flex-wrap gap-2 items-center">
                         <input type="hidden" name="user_id" value="{member.id}"><input type="hidden" name="redirect_to_member" value="1">
                         <input type="text" name="action_reason" maxlength="500" placeholder="Pflicht: Grund für Beförderung / Degradierung..." required class="{INPUT} min-w-64">
-                        <button name="action" value="promote" onclick="return confirm('Wirklich befördern?')" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬆️ Befördern</button>
-                        <button name="action" value="demote" onclick="return confirm('Wirklich degradieren?')" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬇️ Degradieren</button>
+                        <select name="probation_days" class="{INPUT}" aria-label="Probezeit (nur bei Beförderung)"><option value="">Probezeit wählen</option><option value="3">3 Tage Probezeit</option><option value="7">7 Tage Probezeit</option></select>
+                        <button name="action" value="promote" onclick="this.form.querySelector('[name=probation_days]').required=true; return confirm('Wirklich befördern?')" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬆️ Befördern</button>
+                        <button name="action" value="demote" onclick="this.form.querySelector('[name=probation_days]').required=false; return confirm('Wirklich degradieren?')" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-semibold transition">⬇️ Degradieren</button>
                     </form>
                 </div>
                 <div class="flex flex-wrap gap-2">
@@ -4765,6 +4768,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
         <form action="/action" method="post" class="space-y-2.5 text-xs">
             <input type="hidden" name="user_id" value="{member.id}"><input type="hidden" name="action" value="warn_with_proof"><input type="hidden" name="redirect_to_member" value="1">
             <input type="text" name="warn_reason" maxlength="500" placeholder="Grund für die Verwarnung..." required class="{INPUT}">
+            <label class="block text-xs font-semibold">Gültigkeit der Warnung (Tage)<input type="number" name="warn_duration_days" min="1" max="365" value="7" required class="{INPUT} w-full mt-1"><span class="text-slate-400 font-normal">Nach Ablauf wird die Warn automatisch deaktiviert.</span></label>
             <input type="url" name="warn_proof" placeholder="Beweis-Link (Screenshot / Video URL)..." class="{INPUT}">
             <button class="bg-amber-500 hover:bg-amber-600 px-4 py-2 rounded-xl font-semibold text-white shadow-sm transition">⚠️ Verwarnung eintragen</button>
         </form>
@@ -5985,6 +5989,8 @@ async def handle_action(
     redirect_to_member: str = Form(None),
     warn_reason: str = Form(None),
     warn_proof: str = Form(None),
+    warn_duration_days: int = Form(7),
+    probation_days: int = Form(None),
     warn_id: str = Form(None),
     warn_revoke_reason: str = Form(None),
     action_reason: str = Form(None),
@@ -6252,6 +6258,8 @@ async def handle_action(
         action_reason = (action_reason or "").strip()[:500]
         if action in ("promote", "demote", "kick") and not action_reason:
             return back(member_url, "Bitte einen Grund für die Maßnahme angeben.", False)
+        if action == "promote" and probation_days not in VALID_PROBATION_DAYS:
+            return back(member_url, "Für jede Beförderung muss eine Probezeit von 3 oder 7 Tagen ausgewählt werden.", False)
 
         try:
             if action == "kick":
@@ -6339,10 +6347,41 @@ async def handle_action(
                 if not new_role:
                     return back(member_url, "Die Zielrolle existiert nicht mehr (Team-Rollen in den Einstellungen prüfen).", False)
                 old = [r for r in member.roles if r.id in team_role_ids and r.id != new_role.id]
+                previous_role = max(old, key=lambda role: role.position) if old else None
+                if previous_role is None:
+                    return back(member_url, "Für eine Beförderung wurde keine vorherige Teamrolle gefunden. Bitte Teamrollen prüfen.", False)
                 await member.add_roles(new_role, reason=f"Beförderung durch {actor}: {action_reason}")
                 if old:
                     await member.remove_roles(*old, reason=f"Beförderung durch {actor}: {action_reason}")
-                await send_dm_notification(member, f"🎉 **Herzlichen Glückwunsch!** Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert!")
+
+                team_db = load_json(DATA_FILE, {})
+                team_entry = user_entry(team_db, str(member.id))
+                previous_probation = team_entry.get("probation")
+                if isinstance(previous_probation, dict) and previous_probation.get("active"):
+                    history = team_entry.setdefault("probation_history", [])
+                    history.append(dict(previous_probation))
+                    team_entry["probation_history"] = history[-10:]
+                probation_started = now_de()
+                probation_expires = probation_started + timedelta(days=int(probation_days))
+                team_entry["probation"] = {
+                    "active": True,
+                    "status": "active",
+                    "days": int(probation_days),
+                    "previous_role_id": previous_role.id,
+                    "new_role_id": new_role.id,
+                    "started_at": probation_started.isoformat(timespec="seconds"),
+                    "expires_at": probation_expires.isoformat(timespec="seconds"),
+                    "promoted_by": actor,
+                    "promoted_by_id": actor_id,
+                    "reason": action_reason,
+                }
+                save_json(DATA_FILE, team_db)
+                await send_dm_notification(
+                    member,
+                    f"🎉 **Herzlichen Glückwunsch!** Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert. "
+                    f"Deine Probezeit beträgt **{probation_days} Tage** und endet am "
+                    f"**{probation_expires.strftime('%d.%m.%Y %H:%M')}**.",
+                )
                 await send_team_update_embed(
                     guild,
                     "⬆️ Team-Update: Beförderung",
@@ -6351,11 +6390,11 @@ async def handle_action(
                     target=member.mention,
                     action="Beförderung",
                     actor=actor,
-                    fields=[("Vorherige Rolle", old[0].mention if old else "Keine", True), ("Neue Rolle", new_role.mention, True), ("Grund", action_reason, False)],
+                    fields=[("Vorherige Rolle", previous_role.mention, True), ("Neue Rolle", new_role.mention, True), ("Probezeit", f"{probation_days} Tage · bis {probation_expires.strftime('%d.%m.%Y %H:%M')}", True), ("Grund", action_reason, False)],
                     thumbnail=member.display_avatar.url,
                 )
-                log_audit(actor, actor_id, "Beförderung", f"{member.display_name} -> {new_role.name} · Grund: {action_reason}")
-                return back(member_url, f"{member.display_name} wurde zum {new_role.name} befördert.")
+                log_audit(actor, actor_id, "Beförderung", f"{member.display_name} -> {new_role.name} · Probezeit: {probation_days} Tage · bis {probation_expires.strftime('%d.%m.%Y %H:%M')} · Grund: {action_reason}")
+                return back(member_url, f"{member.display_name} wurde zum {new_role.name} befördert; Probezeit: {probation_days} Tage.")
 
             # demote
             if target_idx < 0:
@@ -6408,6 +6447,8 @@ async def handle_action(
         reason = (warn_reason or "").strip()[:500]
         if not user_id or not reason:
             return back(member_url, "Bitte einen Grund angeben.", False)
+        if warn_duration_days is None or not 1 <= int(warn_duration_days) <= 365:
+            return back(member_url, "Die Warn-Gültigkeit muss zwischen 1 und 365 Tagen liegen.", False)
         m = guild.get_member(user_id)
         if not m:
             return back(member_url, "Mitglied nicht gefunden.", False)
@@ -6426,13 +6467,16 @@ async def handle_action(
         entry["warns_list"].append({
             "id": f"warn_{uuid.uuid4().hex[:6]}", "reason": reason, "proof": safe_url(warn_proof),
             "by": actor, "date": now_de().strftime("%d.%m.%Y %H:%M"),
+            "duration_days": int(warn_duration_days),
+            "expires_at": (now_de() + timedelta(days=int(warn_duration_days))).isoformat(timespec="seconds"),
             "active": True, "revoked_at": None, "revoked_by": None, "revoked_reason": "",
         })
         count = len(active_warns(entry))
         save_json(DATA_FILE, team_db)
         log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/5): {reason}")
         role_report = await sync_warn_roles(guild, m, count, config)
-        consequence_report = await apply_warn_consequences(guild, m, entry["warns_list"][-1], count, config) if count >= 2 else {"level": count, "actions": [], "ok": True}
+        consequence_report = await apply_warn_consequences(guild, m, entry["warns_list"][-1], count, config, entry=entry)
+        save_json(DATA_FILE, team_db)
         if m:
             await send_team_update_embed(
                 guild,
