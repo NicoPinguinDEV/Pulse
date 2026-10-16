@@ -42,7 +42,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_db.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_team_protection.py"):
+    for name in ("main.py", "webserver.py", "pulse_db.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/voice_support.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_team_protection.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -137,6 +137,20 @@ def main() -> None:
     assert "await guild.ban(author, reason=reason)" in honeypot
     assert "message.author.id == self.bot.user.id" in honeypot
     assert "Nachrichtenverlauf anzeigen" in honeypot
+
+    # Voice support: dashboard route, shift-synchronised duty role, cases and settings.
+    voice_support = read("cogs/voice_support.py")
+    assert "CONFIG_KEY = " in voice_support
+    assert "def support_open_now(" in voice_support
+    assert "await voice_support.sync_member_duty_role(ctx.guild, mod_id)" in web
+    assert "await voice_support._refresh_duty_status(ctx.guild)" in web
+    assert '("voice-support","/voice-support","🎧","Sprach-Support"' in pro
+    assert "voice_support_v5" in pro and "/voice-support/save" in pro
+    assert "Start/Fortsetzen gibt die Bereitschaftsrolle" in pro
+    assert "private_thread" in voice_support
+    assert "ratings_enabled" in voice_support
+    assert "use_existing_channels" in voice_support
+    assert "hours_" in pro
 
     # Server-statistics voice channels: maintain the three required non-joinable stats.
     server_stats = read("cogs/server_stats.py")
@@ -399,7 +413,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.21"' in version_source
+    assert 'PULSE_VERSION = "7.8.22"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
