@@ -49,10 +49,11 @@ _ROLE_PREFIX_ABBREVIATIONS = {
     for label, short in (
         ("Founder", "Founder"),
         ("FND", "Founder"),
-        ("Inhaber", "Inh."),
-        ("Inh.", "Inh."),
-        ("Stv.Inhaber", "Stv.Inh."),
-        ("Stv.Inh.", "Stv.Inh."),
+        ("Inhaber", "Inhaber"),
+        ("Inh.", "Inhaber"),
+        ("Stv.Inhaber", "Stv.Inh"),
+        ("Stv.Inh.", "Stv.Inh"),
+        ("Stv.Inh", "Stv.Inh"),
         ("Rechte Hand", "Rechte Hand"),
         ("RH", "Rechte Hand"),
         ("Owner", "Owner"),
@@ -69,15 +70,21 @@ _ROLE_PREFIX_ABBREVIATIONS = {
         ("Leitende Projektkoordination", "L.PK"),
         ("Projektkoordination", "PK"),
         ("Stv.Projektkoordination", "Stv.PK"),
-        ("Leitender Direktor", "L.Dir"),
-        ("Direktor", "Dir"),
-        ("Stv.Direktor", "Stv.Dir"),
+        ("Leitender Direktor", "L.DK"),
+        ("L.DK", "L.DK"),
+        ("Direktor", "DK"),
+        ("DK", "DK"),
+        ("Stv.Direktor", "Stv.DK"),
+        ("Stv.DK", "Stv.DK"),
         ("Leitende Serverleitung", "L.SL"),
         ("Serverleitung", "SL"),
         ("Stv.Serverleitung", "Stv.SL"),
-        ("Leitender Manager", "L.Mgmt"),
-        ("Management", "Mgmt"),
-        ("Stv.Management", "Stv.Mgmt"),
+        ("Leitender Manager", "L.MA"),
+        ("L.MA", "L.MA"),
+        ("Management", "MA"),
+        ("MA", "MA"),
+        ("Stv.Management", "Stv.MA"),
+        ("Stv.MA", "Stv.MA"),
         ("Leitende Teamleitung", "L.TL"),
         ("Teamleitung", "TL"),
         ("Stv.Teamleitung", "Stv.TL"),
@@ -85,11 +92,12 @@ _ROLE_PREFIX_ABBREVIATIONS = {
         ("Teamaufsicht", "TA"),
         ("Stv.Teamaufsicht", "Stv.TA"),
         ("Stv Teamaufsicht", "Stv.TA"),
-        ("Leitender-Supervisor", "L.Sup"),
-        ("Leitender Supervisor", "L.Sup"),
-        ("Supervisor", "Sup"),
-        ("Stv.Supervisor", "Stv.Sup"),
-        ("Stv Supervisor", "Stv.Sup"),
+        ("Leitender-Supervisor", "L.Supervisor"),
+        ("L.Supervisor", "L.Supervisor"),
+        ("Leitender Supervisor", "L.Supervisor"),
+        ("Supervisor", "Supervisor"),
+        ("Stv.Supervisor", "Stv.Supervisor"),
+        ("Stv Supervisor", "Stv.Supervisor"),
         ("Ausbilder-Leitung", "L.AB"),
         ("L.AB", "L.AB"),
         ("AusbL", "L.AB"),
@@ -183,6 +191,19 @@ _PREVIOUS_ROLE_PREFIX_LABELS = {
         ("Aushilfe", "Aush."),
         ("Bauteamler Leitung", "BauL"),
         ("Stv Bauteamler Leitung", "Stv.BauL"),
+        ("Inhaber", "Inh."),
+        ("Stv.Inhaber", "Stv.Inh."),
+        ("Leitender Direktor", "L.Dir"),
+        ("Direktor", "Dir"),
+        ("Stv.Direktor", "Stv.Dir"),
+        ("Leitender Manager", "L.Mgmt"),
+        ("Management", "Mgmt"),
+        ("Stv.Management", "Stv.Mgmt"),
+        ("Leitender-Supervisor", "L.Sup"),
+        ("Leitender Supervisor", "L.Sup"),
+        ("Supervisor", "Sup"),
+        ("Stv.Supervisor", "Stv.Sup"),
+        ("Stv Supervisor", "Stv.Sup"),
     )
 }
 
@@ -207,6 +228,33 @@ def automatic_role_prefix(role_name: object) -> str:
     return f"{label} ✗"
 
 
+# Explicit Pulse team hierarchy, highest to lowest. The values match the canonical
+# prefixes returned by automatic_role_prefix(); Discord role positions break ties
+# between alternate spellings of the same logical rank.
+_TEAM_ROLE_PREFIX_ORDER = (
+    "Founder", "Inhaber", "Stv.Inh", "Rechte Hand", "Owner", "Co.Owner",
+    "L.Dev", "Dev",
+    "L.PL", "PL", "Stv.PL",
+    "L.PK", "PK", "Stv.PK",
+    "L.DK", "DK", "Stv.DK",
+    "L.SL", "SL", "Stv.SL",
+    "L.MA", "MA", "Stv.MA",
+    "L.TL", "TL", "Stv.TL",
+    "L.TA", "TA", "Stv.TA",
+    "L.Supervisor", "Supervisor", "Stv.Supervisor",
+    "L.AB", "AB", "HTA",
+    "CM", "Stv.CM", "FV", "Stv.FV", "EL",
+    "L.Admin", "Sr.Admin", "Admin", "Jr.Admin",
+    "L.Mod", "Sr.Mod", "Mod", "Jr.Mod",
+    "L.Sup", "Sr.Sup", "Sup", "T.Sup", "Aushilfe",
+    "L.Bau", "Stv.L.Bau", "Sr.Bau", "Bau", "T.Bau",
+)
+_TEAM_ROLE_PREFIX_PRIORITY = {
+    _role_label_key(label): priority
+    for priority, label in enumerate(_TEAM_ROLE_PREFIX_ORDER)
+}
+
+
 def _is_section_divider_role(role_name: object) -> bool:
     """True for decorative heading roles such as '━━━━ Administrator-Ebene ━━━━'."""
     normalized = unicodedata.normalize("NFKC", str(role_name or ""))
@@ -214,11 +262,14 @@ def _is_section_divider_role(role_name: object) -> bool:
 
 
 def select_highest_role_prefix(role_records, configured_prefixes: dict[str, str]):
-    """Return the forced former-team prefix or the highest non-@everyone role.
+    """Select the highest team rank from Pulse's explicit hierarchy.
 
     role_records contains (role_id, role_position, role_name, is_default_role).
-    The former-team role is a special status and deliberately overrides any
-    remaining VIP/citizen/old-rank roles after a team exit.
+    The former-team role is a special status and deliberately overrides every
+    remaining role. Known team ranks follow the ordered Pulse hierarchy instead
+    of Discord's raw role position; that keeps Citizen/VIP/utility roles from
+    masking a member's actual team rank. For members without a recognized team
+    rank, the highest remaining Discord role is used as a fallback.
     """
     records = list(role_records)
     for raw_role_id, _, _, is_default in records:
@@ -231,7 +282,8 @@ def select_highest_role_prefix(role_records, configured_prefixes: dict[str, str]
         if role_id == EX_TEAMLER_ROLE_ID:
             return EX_TEAMLER_ROLE_ID, EX_TEAMLER_PREFIX
 
-    candidates = []
+    ranked_candidates = []
+    fallback_candidates = []
     for raw_role_id, raw_position, role_name, is_default in records:
         if is_default:
             continue
@@ -242,31 +294,43 @@ def select_highest_role_prefix(role_records, configured_prefixes: dict[str, str]
             continue
         if _is_section_divider_role(role_name):
             continue
-        configured = configured_prefixes.get(str(role_id))
+
         automatic_prefix = automatic_role_prefix(role_name)
+        automatic_core = re.sub(r"\\s*✗\\s*$", "", automatic_prefix).strip()
+        rank_priority = _TEAM_ROLE_PREFIX_PRIORITY.get(_role_label_key(automatic_core))
         prefix = automatic_prefix
+        configured = configured_prefixes.get(str(role_id))
         if configured:
             try:
                 configured_prefix = normalize_role_prefix(configured)
-                configured_core = re.sub(r"\s*✗\s*$", "", configured_prefix).strip()
+                configured_core = re.sub(r"\\s*✗\\s*$", "", configured_prefix).strip()
                 configured_key = _role_label_key(configured_core)
                 role_label_key = _role_label_key(_extract_role_label(role_name))
-                automatic_core_key = _role_label_key(re.sub(r"\s*✗\s*$", "", automatic_prefix).strip())
+                automatic_core_key = _role_label_key(automatic_core)
                 previous_label = _PREVIOUS_ROLE_PREFIX_LABELS.get(role_label_key, "")
                 previous_key = _role_label_key(previous_label)
-                # If the stored setting is just the old role label or an old
-                # generated abbreviation, use the canonical label for this release.
+                # Stored old names/abbreviations migrate to canonical labels;
+                # genuinely custom prefix choices continue to take precedence.
                 if configured_key not in {role_label_key, automatic_core_key, previous_key}:
                     prefix = configured_prefix
             except ValueError:
                 prefix = automatic_prefix
-        candidates.append((position, role_id, prefix))
 
-    if not candidates:
+        if rank_priority is not None:
+            ranked_candidates.append((rank_priority, position, role_id, prefix))
+        else:
+            fallback_candidates.append((position, role_id, prefix))
+
+    if ranked_candidates:
+        _, _, role_id, prefix = min(
+            ranked_candidates,
+            key=lambda item: (item[0], -item[1], -item[2]),
+        )
+        return role_id, prefix
+    if not fallback_candidates:
         return None
-    _, role_id, prefix = max(candidates, key=lambda item: (item[0], item[1]))
+    _, role_id, prefix = max(fallback_candidates, key=lambda item: (item[0], item[1]))
     return role_id, prefix
-
 
 _LEGACY_RANK_HINTS = {
     "owner", "founder", "teamleitung", "teamaufsicht", "supervisor", "sr", "stv",

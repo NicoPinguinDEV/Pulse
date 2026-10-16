@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.13 – Feste Teamrang-Hierarchie für Namenspräfixe
+
+- Die Rangreihenfolge aus den Pulse-Einstellungen ist jetzt ausdrücklich festgelegt: Founder/Inhaber/Führung, Entwicklung, Projektleitung, Projektkoordination, Direktion, Serverleitung, Management, Teamleitung, Teamaufsicht, Supervisor, Ausbildung, Community/Fraktionen, Administration, Moderation, Support und Bauteam.
+- Erkannte Teamränge entscheiden anhand dieser Hierarchie – auch wenn eine allgemeine Discord-Rolle wie Bürger oder VIP in der Discord-Rollenliste technisch höher einsortiert ist. Bei mehreren Rängen gewinnt die höchste Teamrang-Stufe; Discord-Rollenpositionen brechen Gleichstände.
+- Präfixe verwenden die gewünschten Kürzel, insbesondere `Inhaber`, `Stv.Inh`, `L.DK`, `DK`, `Stv.DK`, `L.MA`, `MA`, `Stv.MA`, `L.Supervisor`, `Supervisor` und `Stv.Supervisor`.
+- Vorherige automatisch erzeugte Kürzel werden auf die neuen kanonischen Labels migriert; wirklich individuelle Präfixe bleiben erhalten.
+
 ## Version 7.8.12 – Einheitliche Rangpräfixe nach deiner Teamhierarchie
 
 - Teamrollen verwenden jetzt die gewünschten Bezeichnungen, darunter `Founder`, `Inh.`, `Stv.Inh.`, `Rechte Hand`, `L.Dev`, `L.AB`, `AB`, `L.Admin`, `L.Mod`, `L.Sup`, `L.Bau` und `Stv.L.Bau`.

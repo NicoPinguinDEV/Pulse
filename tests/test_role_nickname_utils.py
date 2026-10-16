@@ -33,8 +33,8 @@ class RoleNicknamePrefixTests(unittest.TestCase):
     def test_bochum_team_roles_use_compact_abbreviations(self):
         cases = [
             ("》𝐅𝐨𝐮𝐧𝐝𝐞𝐫", "Founder"),
-            ("》BORP メ Inhaber", "Inh."),
-            ("》BORP メ Stv.Inhaber", "Stv.Inh."),
+            ("》BORP メ Inhaber", "Inhaber"),
+            ("》BORP メ Stv.Inhaber", "Stv.Inh"),
             ("》BORP ✘ Rechte Hand", "Rechte Hand"),
             ("》BORP メ Owner", "Owner"),
             ("》BORP メ Co.Owner", "Co.Owner"),
@@ -47,24 +47,24 @@ class RoleNicknamePrefixTests(unittest.TestCase):
             ("》BORP メ Leitende Projektkoordination", "L.PK"),
             ("》BORP メ Projektkoordination", "PK"),
             ("》BORP メ Stv.Projektkoordination", "Stv.PK"),
-            ("》BORP メ Leitender Direktor", "L.Dir"),
-            ("》BORP メ Direktor", "Dir"),
-            ("》BORP メ Stv.Direktor", "Stv.Dir"),
+            ("》BORP メ Leitender Direktor", "L.DK"),
+            ("》BORP メ Direktor", "DK"),
+            ("》BORP メ Stv.Direktor", "Stv.DK"),
             ("》BORP メ Leitende Serverleitung", "L.SL"),
             ("》BORP メ Serverleitung", "SL"),
             ("》BORP メ Stv.Serverleitung", "Stv.SL"),
-            ("》BORP メ Leitender Manager", "L.Mgmt"),
-            ("》BORP メ Management", "Mgmt"),
-            ("》BORP メ Stv.Management", "Stv.Mgmt"),
+            ("》BORP メ Leitender Manager", "L.MA"),
+            ("》BORP メ Management", "MA"),
+            ("》BORP メ Stv.Management", "Stv.MA"),
             ("》BORP メ Leitende Teamleitung", "L.TL"),
             ("》BORP メ Teamleitung", "TL"),
             ("》BORP メ Stv.Teamleitung", "Stv.TL"),
             ("》BORP メ Leitende Teamaufsicht", "L.TA"),
             ("》BORP メ Teamaufsicht", "TA"),
             ("》BORP メ Stv Teamaufsicht", "Stv.TA"),
-            ("》BORP メ Leitender-Supervisor", "L.Sup"),
-            ("》BORP メ Supervisor", "Sup"),
-            ("》BORP メ Stv.Supervisor", "Stv.Sup"),
+            ("》BORP メ Leitender-Supervisor", "L.Supervisor"),
+            ("》BORP メ Supervisor", "Supervisor"),
+            ("》BORP メ Stv.Supervisor", "Stv.Supervisor"),
             ("》BORP メ Ausbilder-Leitung", "L.AB"),
             ("》BORP メ Ausbilder", "AB"),
             ("》BORP メ Highteamanwärter", "HTA"),
@@ -101,7 +101,11 @@ class RoleNicknamePrefixTests(unittest.TestCase):
         cases = [
             ("》𝐅𝐨𝐮𝐧𝐝𝐞𝐫", "FND ✗", "Founder ✗"),
             ("》BORP メ Dev-Leitung", "DevL ✗", "L.Dev ✗"),
-            ("》BORP メ Stv.Management", "Stv.Management ✗", "Stv.Mgmt ✗"),
+            ("》BORP メ Stv.Management", "Stv.Management ✗", "Stv.MA ✗"),
+            ("》BORP メ Leitender Direktor", "L.Dir ✗", "L.DK ✗"),
+            ("》BORP メ Leitender Manager", "L.Mgmt ✗", "L.MA ✗"),
+            ("》BORP メ Leitender-Supervisor", "L.Sup ✗", "L.Supervisor ✗"),
+            ("》BORP メ Inhaber", "Inh. ✗", "Inhaber ✗"),
             ("》BORP メ Ausbilder", "Ausb ✗", "AB ✗"),
             ("》BORP メ Sup-Leitung", "SupL ✗", "L.Sup ✗"),
             ("》𝐁𝐎𝐑𝐏 メ 𝐒𝐭𝐯 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫 𝐋𝐞𝐢𝐭𝐮𝐧𝐠", "Stv.BauL ✗", "Stv.L.Bau ✗"),
@@ -129,7 +133,7 @@ class RoleNicknamePrefixTests(unittest.TestCase):
             (101, "PL ✗"),
         )
 
-    def test_highest_discord_role_wins_even_when_only_a_lower_role_is_configured(self):
+    def test_hierarchy_and_custom_overrides_choose_a_single_role_prefix(self):
         roles = [
             (100, 0, "@everyone", True),
             (101, 5, "》 𝐁𝐎 ║ Bürger", False),
@@ -145,6 +149,29 @@ class RoleNicknamePrefixTests(unittest.TestCase):
             (103, "Owner-Team ✗"),
         )
         self.assertIsNone(select_highest_role_prefix(roles[:1], {}))
+
+    def test_explicit_team_hierarchy_beats_general_roles_and_discord_position(self):
+        roles = [
+            (100, 0, "@everyone", True),
+            (101, 100, "》 𝐁𝐎 ║ Bürger", False),
+            (102, 90, "》BORP メ Developer", False),
+            (103, 5, "》𝐅𝐨𝐮𝐧𝐝𝐞𝐫", False),
+        ]
+        self.assertEqual(
+            select_highest_role_prefix(roles, {}),
+            (103, "Founder ✗"),
+        )
+
+        # Within the configured rank order, Director/Development ranks are
+        # evaluated by the Pulse hierarchy, not by the server's role positions.
+        roles = [
+            (201, 5, "》BORP メ Leitender Manager", False),
+            (202, 50, "》BORP メ Projektleitung", False),
+        ]
+        self.assertEqual(
+            select_highest_role_prefix(roles, {}),
+            (201, "L.MA ✗"),
+        )
 
     def test_ex_teamler_role_overrides_higher_remaining_roles(self):
         roles = [
