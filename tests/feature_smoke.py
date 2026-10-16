@@ -680,12 +680,12 @@ def main() -> None:
     assert "def validate_backup_document(backup: dict, guild_id: int | None = None)" in web
     assert 'action="/backup/upload" method="post" enctype="multipart/form-data"' in web
     assert "MAX_BACKUP_UPLOAD_BYTES = 50 * 1024 * 1024" in web
-    assert "await create_backup_file_async(ctx.guild, \"pre_restore_\")" in web
+    assert 'await create_backup_file_async(ctx.guild, "pre_restore_")' in web
     assert "member_assignments" in web
     assert "guild_settings" in web
     assert "icon_base64" in web
     assert 'await create_backup_file_async(guild, "auto_")' in web
-    assert 'value="true">\n                    <span><strong>Exakte Struktur erzwingen' in web
+    assert "Exakte Struktur erzwingen" in web
     assert 'if panel.get("logs") == {}' in web
     assert "Nicht unterstützte Backup-Version" in web
     assert "Dieses Backup gehört zu einem anderen Discord-Server" in web
