@@ -169,24 +169,6 @@ class RoleNicknamePrefixes(commands.Cog):
         role = next((candidate for candidate in member.roles if candidate.id == role_id), None)
         return (role, prefix) if role is not None else None
 
-    async def _get_member_state(self, member_id: int) -> dict | None:
-        async with self._state_file_lock:
-            states = load_json(STATE_FILE, {})
-            state = states.get(str(member_id)) if isinstance(states, dict) else None
-            return dict(state) if isinstance(state, dict) else None
-
-    async def _set_member_state(self, member_id: int, state: dict | None) -> None:
-        async with self._state_file_lock:
-            states = load_json(STATE_FILE, {})
-            if not isinstance(states, dict):
-                states = {}
-            key = str(member_id)
-            if state is None:
-                states.pop(key, None)
-            else:
-                states[key] = state
-            save_json(STATE_FILE, states)
-
     async def _synchronize_member_locked(
         self,
         member: discord.Member,
