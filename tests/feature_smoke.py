@@ -162,6 +162,11 @@ def main() -> None:
     assert "async def on_member_join" in nickname_cog
     assert "async def on_member_update" in nickname_cog
     assert "start_sync_existing_members" in nickname_cog
+    assert "async def on_ready" in nickname_cog
+    assert "self._startup_sync_started" in nickname_cog
+    assert "await guild.chunk(cache=True)" in nickname_cog
+    assert "start_sync_existing_members(queue_if_running=True)" in pro
+    assert "Bestehende Mitglieder werden beim Bot-Start nachgezogen" in pro
     assert "role_nickname_prefixes" in nickname_cog
     assert "await member.edit(" in nickname_cog
     assert 'action="/settings/nickname-prefix/save"' in pro
@@ -329,7 +334,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.5"' in version_source
+    assert 'PULSE_VERSION = "7.8.6"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
