@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.6 – Bestehende Nicknames automatisch synchronisieren
+
+- Beim ersten Ready-Ereignis nach dem Bot-Start startet automatisch eine Synchronisierung aller passenden bestehenden Mitglieder, nicht nur neu beigetretener Nutzer.
+- Pulse fordert bei Bedarf die vollständige Mitgliederliste des konfigurierten Servers an, damit die Synchronisierung nicht nur auf einen unvollständigen Cache begrenzt bleibt.
+- Änderungen an Rollenpräfixen und am Standardpräfix stoßen sofort eine Synchronisierung bestehender Nicknames an. Wird die Konfiguration während einer laufenden Synchronisierung geändert, wird ein weiterer Durchlauf vorgemerkt.
+- Die Synchronisierung bleibt auf Menschen beschränkt, berücksichtigt die höchste konfigurierte Discord-Rolle und respektiert weiterhin Discords Nickname-Limit und Berechtigungs-Hierarchie.
+
 ## Version 7.8.5 – Automatische Rollen-Namenspräfixe
 
 - Rollenpräfixe können in den bestehenden Pulse-Einstellungen für jede normale Discord-Rolle konfiguriert werden, z. B. `Bürger ✗` oder `VIP ✗`.
