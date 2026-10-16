@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.7 – Höchste Rolle bestimmt den Namenspräfix
+
+- Pulse verwendet nun immer die höchste zugewiesene Discord-Rolle für den Namenspräfix, selbst wenn für diese Rolle kein manueller Präfix gespeichert ist.
+- Individuell konfigurierte Präfixe bleiben als Überschreibung erhalten; ein niedrigeres konfiguriertes Rollenprofil kann eine höhere Discord-Rolle nicht mehr übersteuern.
+- Häufige Rollen-Dekorationen wie `》BORP メ Owner` werden automatisch zu lesbaren Präfixen wie `Owner ✗` und `》 𝐁𝐎 ║ Bürger` zu `Bürger ✗`.
+- Bestehende, manuell gesetzte Rangteile wie `Sr.-Sup メ Dawo`, `Owner メ Phillip`, `TeamleitungメMrJoela` oder `LTA ✗ Max` werden bei der Synchronisierung erkannt und vor dem neuen Präfix entfernt.
+- Die Start-Synchronisierung erfasst weiterhin alle bestehenden menschlichen Mitglieder, auch wenn keine manuellen Rollenpräfixe konfiguriert sind.
+
 ## Version 7.8.6 – Bestehende Nicknames automatisch synchronisieren
 
 - Beim ersten Ready-Ereignis nach dem Bot-Start startet automatisch eine Synchronisierung aller passenden bestehenden Mitglieder, nicht nur neu beigetretener Nutzer.
