@@ -184,6 +184,15 @@ def main() -> None:
     assert "strip_legacy_rank_prefix" in nickname_cog
     assert "await member.guild.fetch_member(member.id)" in nickname_cog
     assert 'return "deferred"' in nickname_cog
+    # The large existing-member sync must never block Discord with repeated synchronous JSON IO.
+    assert "asyncio.to_thread(load_config)" in nickname_cog
+    assert "self._member_state_cache" in nickname_cog
+    assert "os.replace(temp_path, STATE_FILE)" in nickname_cog
+    assert "if index % 25 == 0" in nickname_cog
+    assert "load_json(STATE_FILE" not in nickname_cog
+    assert "save_json(STATE_FILE" not in nickname_cog
+    assert nickname_cog.count("async def _get_member_state") == 1
+    assert "json.JSONDecodeError" in nickname_cog
 
     # Warning lifetime, probation and automatic penalty cleanup regressions.
     assert "DEFAULT_AUTO_WARN_DURATION_DAYS = 7" in web
@@ -362,7 +371,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.8"' in version_source
+    assert 'PULSE_VERSION = "7.8.9"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
