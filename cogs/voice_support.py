@@ -524,8 +524,16 @@ class VoiceSupport(commands.Cog):
     @tasks.loop(minutes=1)
     async def duty_status_loop(self):
         cfg = get_config()
-        if cfg.get("duty_mode") and cfg.get("duty_message_enabled"):
-            await self._refresh_duty_status()
+        if not cfg.get("duty_mode"):
+            return
+        guild = self._guild()
+        if guild is None:
+            return
+        # The dashboard may automatically close an overlong shift. Reconcile on
+        # every cycle so the Discord duty role cannot remain stale after that.
+        await self._reconcile_duty_roles(guild, cfg)
+        if cfg.get("duty_message_enabled"):
+            await self._refresh_duty_status(guild)
 
     @duty_status_loop.before_loop
     async def before_duty_status_loop(self):
