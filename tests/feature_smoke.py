@@ -156,6 +156,18 @@ def main() -> None:
     assert "ratings_enabled" in voice_support
     assert "use_existing_channels" in voice_support
     assert "hours_" in pro
+    assert "SUPPORT_REPORT_CHANNEL_ID = 1531443370172485703" in voice_support
+    assert "class SupportCaseView" in voice_support
+    assert "class TransferUserSelect" in voice_support
+    assert "async def handle_case_action" in voice_support
+    assert "async def _assign_case" in voice_support
+    assert "use_voice_activation=True" in voice_support
+    assert "stream=True" in voice_support
+    assert "await member.move_to(None" in voice_support
+    assert "async def _restore_member_overwrite" in voice_support
+    assert "await channel.history(limit=100)" in voice_support
+    assert "await duplicate.delete()" in voice_support
+    assert "await report.send(embed=result_embed" in voice_support
 
     # Server-statistics voice channels: maintain the three required non-joinable stats.
     server_stats = read("cogs/server_stats.py")
@@ -418,7 +430,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.22"' in version_source
+    assert 'PULSE_VERSION = "7.8.23"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
