@@ -46,11 +46,18 @@ def get_cases() -> dict:
 
 
 
-def private_overwrites(guild: discord.Guild, member: discord.Member, staff_roles: list[discord.Role]) -> dict:
+def private_overwrites(
+    guild: discord.Guild,
+    member: discord.Member,
+    staff_roles: list[discord.Role],
+    *,
+    grant_member: bool = True,
+) -> dict:
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(view_channel=False, connect=False),
-        member: discord.PermissionOverwrite(view_channel=True, connect=True, speak=True, stream=True),
     }
+    if grant_member:
+        overwrites[member] = discord.PermissionOverwrite(view_channel=True, connect=True, speak=True, stream=True)
     if guild.me:
         overwrites[guild.me] = discord.PermissionOverwrite(
             view_channel=True, connect=True, speak=True, manage_channels=True, move_members=True
@@ -846,13 +853,13 @@ class VoiceSupport(commands.Cog):
         if existing:
             snapshot = serialize_overwrites(existing)
             # Replace existing permissions temporarily; the original overwrites are saved and restored on close.
-            overwrites = private_overwrites(guild, member, roles)
+            overwrites = private_overwrites(guild, member, roles, grant_member=not outside_opening_hours)
             channel = await existing.edit(overwrites=overwrites, reason=f"Pulse Voice-Support: temporär für {member} geschützt")
         else:
             channel = await guild.create_voice_channel(
                 name=f"{prefix}-{re.sub(r'[^a-zA-Z0-9_-]+', '-', member.display_name).strip('-')[:70] or str(member.id)}"[:95],
                 category=category,
-                overwrites=private_overwrites(guild, member, roles),
+                overwrites=private_overwrites(guild, member, roles, grant_member=not outside_opening_hours),
                 reason=f"Pulse Voice-Support: Supportfall für {member}",
             )
         case_id = uuid.uuid4().hex[:12]
@@ -1238,17 +1245,23 @@ class VoiceSupport(commands.Cog):
         # Once every citizen has either left or been picked up, disconnect from
         # the shared waiting room so the bot does not remain there indefinitely.
         waiting_room_id = channel_id(cfg.get("waiting_room_channel_id"))
+        support_guild_id = channel_id(cfg.get("guild_id"))
+        if not support_guild_id:
+            support_guild_id = next(
+                (channel_id(item.get("guild_id")) for item in cases if isinstance(item, dict)),
+                0,
+            )
         active_shared_wait = any(
             isinstance(item, dict)
             and item.get("waiting_in_shared_room")
             and not item.get("staff_joined")
-            and str(item.get("guild_id")) == str(getattr(guild, "id", 0))
+            and channel_id(item.get("guild_id")) == support_guild_id
             for item in cases
         )
-        if waiting_room_id and not active_shared_wait:
+        if waiting_room_id and support_guild_id and not active_shared_wait:
             for vc in list(self.bot.voice_clients):
                 if (
-                    vc.guild.id == getattr(guild, "id", 0)
+                    vc.guild.id == support_guild_id
                     and vc.channel
                     and vc.channel.id == waiting_room_id
                     and not vc.is_playing()
