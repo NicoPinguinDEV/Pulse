@@ -616,8 +616,8 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
         if existing_warn:
             count = len(active_warns(entry))
             await sync_warn_roles(guild, member, count, cfg)
-            if count >= 2:
-                await apply_warn_consequences(guild, member, existing_warn, count, cfg)
+            await apply_warn_consequences(guild, member, existing_warn, count, cfg, entry=entry)
+            save_json(DATA_FILE, team_db)
             shift_event["auto_warn_status"] = "issued"
             shift_event["auto_warn_issued_at"] = shift_event.get("auto_warn_issued_at") or now.isoformat(timespec="seconds")
             shift_event.pop("auto_warn_error", None)
@@ -6566,8 +6566,25 @@ async def handle_action(
         temp_roles = (target.get("consequences") or {}).get("temporary_roles", [])
         temp_remove_failed = False
         for restriction in temp_roles:
-            role = guild.get_role(int(restriction.get("role_id", 0) or 0))
+            role_id = int(restriction.get("role_id", 0) or 0)
+            role = guild.get_role(role_id)
             if not role:
+                continue
+            other_warn_still_needs_role = any(
+                other is not target
+                and isinstance(other, dict)
+                and other.get("active", True)
+                and not other.get("revoked_at")
+                and not warning_is_expired(other)
+                and any(
+                    isinstance(other_restriction, dict)
+                    and int(other_restriction.get("role_id", 0) or 0) == role_id
+                    and not _restriction_expired(other_restriction)
+                    for other_restriction in ((other.get("consequences") or {}).get("temporary_roles") or [])
+                )
+                for other in entry.get("warns_list", [])
+            )
+            if other_warn_still_needs_role:
                 continue
             try:
                 if role in m.roles:
