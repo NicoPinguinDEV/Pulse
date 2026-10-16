@@ -52,6 +52,8 @@ class RoleNicknamePrefixTests(unittest.TestCase):
         self.assertEqual(strip_legacy_rank_prefix("Owner メ Phillip | Abgem"), "Phillip | Abgem")
         self.assertEqual(strip_legacy_rank_prefix("TeamleitungメMrJoela | A"), "MrJoela | A")
         self.assertEqual(strip_legacy_rank_prefix("LTA ✗ Max"), "Max")
+        self.assertEqual(strip_legacy_rank_prefix("DK メ Lomlom"), "Lomlom")
+        self.assertEqual(strip_legacy_rank_prefix("MA メ Zaziki"), "Zaziki")
         self.assertEqual(strip_legacy_rank_prefix("Jules ist der Beste"), "Jules ist der Beste")
 
     def test_invalid_prefixes_are_rejected(self):
