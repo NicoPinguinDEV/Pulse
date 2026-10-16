@@ -218,6 +218,18 @@ def allowed(i,key,web):
     if key in {"warn-remove","server-exit","team-exit","kick","team-kick","promote","demote"}:
         safety_state = web.pulse_db.get_team_safety_state(i.guild.id, i.user.id)
         if safety_state and safety_state.get("locked"):
+            decision = web.pulse_db.check_team_safety_action(i.guild.id, i.user.id, key)
+            # allowed() is synchronous, so schedule the Discord-side lockout alert /
+            # automatic team-role removal on the active gateway event loop.
+            try:
+                asyncio.get_running_loop().create_task(
+                    web._notify_team_safety_incident(
+                        i.guild, i.user, i.user, web.load_config(), decision,
+                        source=f"Slash /{key}",
+                    )
+                )
+            except RuntimeError:
+                pass
             return False
     need={"warn":"can_warn","warn-remove":"can_warn","server-exit":"can_promote","team-exit":"can_promote","kick":"can_promote","team-kick":"can_promote","promote":"can_promote","demote":"can_promote","team-ping":"can_view_dashboard","pulse-ticket":"can_manage_tickets","melden":"can_view_dashboard","pulse-panel":"can_view_dashboard","pulse-lock":"is_admin","pulse-unlock":"is_admin","pulse-permission":"is_admin","activity-check":"can_view_dashboard","pulse-suite":"can_view_dashboard"}.get(key,"can_view_dashboard")
     rm=setting("command_roles",{}) or {};ids={int(x) for x in rm.get(key,[]) if str(x).isdigit()}
