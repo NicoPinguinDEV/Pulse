@@ -766,7 +766,38 @@ class Tickets(commands.Cog):
                         continue
                     message = await channel.fetch_message(int(raw_message_id))
                     await message.edit(embed=build_panel_embed(guild), view=TicketView())
-                except (TypeError, ValueError, discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+                except discord.NotFound:
+                    # A deleted panel must not stay broken forever. Re-create it in
+                    # the same channel and persist the new message ID immediately.
+                    channel = guild.get_channel(int(raw_channel_id))
+                    if not isinstance(channel, discord.TextChannel):
+                        print(f"Ticket-Panel {raw_channel_id} fehlt; der Kanal ist nicht erreichbar.")
+                        continue
+                    try:
+                        replacement = await channel.send(
+                            embed=build_panel_embed(guild),
+                            view=TicketView(),
+                        )
+                        current_settings = ticket_config()
+                        current_panels = current_settings.get("panel_messages", {})
+                        if not isinstance(current_panels, dict):
+                            current_panels = {}
+                        current_panels[str(channel.id)] = replacement.id
+                        current_settings["panel_messages"] = current_panels
+                        current_settings["panel_channel_id"] = channel.id
+                        current_settings["panel_message_id"] = replacement.id
+                        save_ticket_config(current_settings)
+                        panels[str(channel.id)] = replacement.id
+                        print(
+                            f"✅ Ticket-Panel in Kanal {channel.id} fehlte und wurde neu erstellt "
+                            f"(Nachricht {replacement.id})."
+                        )
+                    except (discord.Forbidden, discord.HTTPException, TypeError, ValueError) as repair_exc:
+                        print(
+                            f"❌ Ticket-Panel in Kanal {raw_channel_id} fehlt und konnte nicht "
+                            f"neu erstellt werden ({type(repair_exc).__name__})."
+                        )
+                except (TypeError, ValueError, discord.Forbidden, discord.HTTPException) as exc:
                     print(f"Ticket-Panel {raw_channel_id} konnte nicht aktualisiert werden ({type(exc).__name__}).")
             for panel in custom_panels:
                 if not isinstance(panel, dict) or not panel.get("id"):
@@ -779,7 +810,21 @@ class Tickets(commands.Cog):
                     message = await channel.fetch_message(message_id)
                     keys = panel.get("category_keys", [])
                     await message.edit(embed=build_panel_embed(guild, panel), view=TicketView(str(panel["id"]), keys))
-                except (TypeError, ValueError, discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+                except discord.NotFound:
+                    # The dashboard publishing helper creates a replacement
+                    # message and writes its new ID back into the settings.
+                    try:
+                        replacement = await self.publish_panel_for_guild(guild, str(panel["id"]))
+                        print(
+                            f"✅ Benutzerdefiniertes Ticketpanel {panel.get('id')} fehlte und wurde "
+                            f"in {replacement.get('channel', 'dem Zielkanal')} neu veröffentlicht."
+                        )
+                    except (TypeError, ValueError, discord.Forbidden, discord.HTTPException) as repair_exc:
+                        print(
+                            f"❌ Benutzerdefiniertes Ticketpanel {panel.get('id')} fehlt und konnte "
+                            f"nicht neu veröffentlicht werden ({type(repair_exc).__name__})."
+                        )
+                except (TypeError, ValueError, discord.Forbidden, discord.HTTPException) as exc:
                     print(f"Benutzerdefiniertes Ticketpanel {panel.get('id')} konnte nicht aktualisiert werden ({type(exc).__name__}).")
 
     @panel_refresh.before_loop
