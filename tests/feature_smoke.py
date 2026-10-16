@@ -399,7 +399,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.18"' in version_source
+    assert 'PULSE_VERSION = "7.8.19"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
@@ -676,6 +676,12 @@ def main() -> None:
     # Full Discord + Pulse backup/restore is validated, importable, and guarded by a pre-restore snapshot.
     assert '"backup_version": 3' in web
     assert "async def create_backup_file_async(guild" in web
+    backup_async = web[web.index("async def create_backup_file_async"):web.index("\ndef _backup_channel_type", web.index("async def create_backup_file_async"))]
+    assert "build_backup, icon_base64" in backup_async
+    assert "guild_icon_base64" not in backup_async
+    warn_cleanup = web[web.index("async def cleanup_expired_warn_restrictions"):web.index("\nasync def sync_warn_roles", web.index("async def cleanup_expired_warn_restrictions"))]
+    assert "role_id = int(restriction.get(\"role_id\") or 0)" in warn_cleanup
+    assert "if not isinstance(restriction, dict)" in warn_cleanup
     assert "async def restore_guild_structure(guild, backup: dict, exact_restore: bool = False)" in web
     assert "def validate_backup_document(backup: dict, guild_id: int | None = None)" in web
     assert 'action="/backup/upload" method="post" enctype="multipart/form-data"' in web
