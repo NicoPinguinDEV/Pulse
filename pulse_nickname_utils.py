@@ -130,7 +130,7 @@ _ROLE_PREFIX_ABBREVIATIONS = {
         ("Stv Bauteamler Leitung", "Stv.L.Bau"),
         ("Stv.L.Bau", "Stv.L.Bau"),
         ("Stv.BauL", "Stv.L.Bau"),
-        ("Stv. Bauteamler Leitung", "Stv.BauL"),
+        ("Stv. Bauteamler Leitung", "Stv.L.Bau"),
         ("Senior Bauteamler", "Sr.Bau"),
         ("Sr. Bauteamler", "Sr.Bau"),
         ("Bauteamler", "Bau"),
@@ -162,7 +162,7 @@ def _extract_role_label(role_name: object) -> str:
     while label and unicodedata.category(label[-1])[0] not in {"L", "N"} and label[-1] not in "+#":
         label = label[:-1].rstrip()
 
-    return re.sub(r"\\s+", " ", label).strip()
+    return re.sub(r"\s+", " ", label).strip()
 
 
 # Older values could have been saved manually by an earlier Pulse version.
@@ -248,10 +248,10 @@ def select_highest_role_prefix(role_records, configured_prefixes: dict[str, str]
         if configured:
             try:
                 configured_prefix = normalize_role_prefix(configured)
-                configured_core = re.sub(r"\\s*✗\\s*$", "", configured_prefix).strip()
+                configured_core = re.sub(r"\s*✗\s*$", "", configured_prefix).strip()
                 configured_key = _role_label_key(configured_core)
                 role_label_key = _role_label_key(_extract_role_label(role_name))
-                automatic_core_key = _role_label_key(re.sub(r"\\s*✗\\s*$", "", automatic_prefix).strip())
+                automatic_core_key = _role_label_key(re.sub(r"\s*✗\s*$", "", automatic_prefix).strip())
                 previous_label = _PREVIOUS_ROLE_PREFIX_LABELS.get(role_label_key, "")
                 previous_key = _role_label_key(previous_label)
                 # If the stored setting is just the old role label or an old
