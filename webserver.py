@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, Request, Cookie, HTTPException
+from fastapi import FastAPI, Form, Request, Cookie, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
@@ -5981,7 +5981,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
 # =============================================================
 # DISCORD BACKUP SYSTEM (nur Admins, mit Auto-Backup)
 # =============================================================
-BACKUP_NAME_RE = re.compile(r"^(?:(?:auto_|pre_restore_))?backup_[0-9_\-]+\.json$")
+BACKUP_NAME_RE = re.compile(r"^(?:(?:auto_|pre_restore_|uploaded_))?backup_[0-9_\-]+\.json$")
 
 
 def safe_backup_path(filename: str):
@@ -5997,38 +5997,133 @@ def _overwrites(channel):
     out = []
     for target, ow in channel.overwrites.items():
         allow, deny = ow.pair()
-        out.append({"type": "role" if isinstance(target, discord.Role) else "member", "id": target.id,
-                    "name": getattr(target, "name", str(target)), "allow": allow.value, "deny": deny.value})
+        out.append({
+            "type": "role" if isinstance(target, discord.Role) else "member",
+            "id": int(target.id),
+            "name": getattr(target, "name", str(target)),
+            "allow": int(allow.value),
+            "deny": int(deny.value),
+        })
     return out
 
 
+def _enum_int(value, default=None):
+    raw = getattr(value, "value", value)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 def _channel_dict(ch):
-    return {"name": ch.name, "type": str(ch.type), "topic": getattr(ch, "topic", None), "position": ch.position,
-            "nsfw": getattr(ch, "nsfw", None), "slowmode": getattr(ch, "slowmode_delay", None),
-            "overwrites": _overwrites(ch)}
-
-
-def build_backup(guild) -> dict:
+    """Serialize restorable channel structure without message history."""
     data = {
-        "backup_version": 2,
-        "pulse_version": "5.0",
-        "guild_name": guild.name, "guild_id": guild.id,
-        "created_at": now_de().strftime("%Y-%m-%d_%H-%M-%S"),
-        "roles": [], "categories": [], "uncategorized_channels": [],
-        "panel_data": {},  # Panel-Daten (Verwarnungen, Logs, Schichten, Einstellungen ...)
+        "id": int(ch.id),
+        "name": str(ch.name),
+        "type": str(ch.type),
+        "topic": getattr(ch, "topic", None),
+        "position": int(getattr(ch, "position", 0) or 0),
+        "nsfw": getattr(ch, "nsfw", None),
+        "slowmode": getattr(ch, "slowmode_delay", None),
+        "overwrites": _overwrites(ch),
+        "category_id": int(ch.category_id) if getattr(ch, "category_id", None) else None,
+        "bitrate": getattr(ch, "bitrate", None),
+        "user_limit": getattr(ch, "user_limit", None),
+        "rtc_region": getattr(ch, "rtc_region", None),
+        "video_quality_mode": _enum_int(getattr(ch, "video_quality_mode", None)),
+        "default_auto_archive_duration": getattr(ch, "default_auto_archive_duration", None),
+        "default_thread_slowmode_delay": getattr(ch, "default_thread_slowmode_delay", None),
+        "default_sort_order": _enum_int(getattr(ch, "default_sort_order", None)),
+        "default_layout": _enum_int(getattr(ch, "default_layout", None)),
     }
+    available_tags = getattr(ch, "available_tags", None)
+    if available_tags is not None:
+        data["available_tags"] = [
+            {
+                "name": str(tag.name),
+                "moderated": bool(getattr(tag, "moderated", False)),
+                "emoji_name": getattr(getattr(tag, "emoji", None), "name", None),
+                "emoji_id": getattr(getattr(tag, "emoji", None), "id", None),
+            }
+            for tag in available_tags
+        ]
+    return data
+
+
+def build_backup(guild, guild_icon_base64: str | None = None) -> dict:
+    """Build a JSON-safe snapshot of Pulse data and Discord's restorable structure."""
+    icon = getattr(guild, "icon", None)
+    data = {
+        "backup_version": 3,
+        "pulse_version": PULSE_VERSION,
+        "guild_name": guild.name,
+        "guild_id": int(guild.id),
+        "created_at": now_de().strftime("%Y-%m-%d_%H-%M-%S"),
+        "guild_settings": {
+            "name": guild.name,
+            "description": getattr(guild, "description", None),
+            "verification_level": _enum_int(getattr(guild, "verification_level", None)),
+            "default_notifications": _enum_int(getattr(guild, "default_notifications", None)),
+            "explicit_content_filter": _enum_int(getattr(guild, "explicit_content_filter", None)),
+            "afk_timeout": _enum_int(getattr(guild, "afk_timeout", None)),
+            "preferred_locale": str(getattr(guild, "preferred_locale", "") or ""),
+            "premium_progress_bar_enabled": getattr(guild, "premium_progress_bar_enabled", None),
+            "system_channel_id": getattr(getattr(guild, "system_channel", None), "id", None),
+            "rules_channel_id": getattr(getattr(guild, "rules_channel", None), "id", None),
+            "public_updates_channel_id": getattr(getattr(guild, "public_updates_channel", None), "id", None),
+            "afk_channel_id": getattr(getattr(guild, "afk_channel", None), "id", None),
+            "system_channel_flags": _enum_int(getattr(guild, "system_channel_flags", None)),
+            "icon_base64": guild_icon_base64,
+            "icon_key": getattr(icon, "key", None),
+            "icon_restored_from_backup": bool(guild_icon_base64),
+        },
+        "roles": [],
+        "categories": [],
+        "uncategorized_channels": [],
+        "member_assignments": [],
+        "panel_data": {},
+    }
+
     for role in guild.roles:
         if role.is_default():
             continue
-        data["roles"].append({"id": role.id, "name": role.name, "color": role.color.value,
-                              "permissions": role.permissions.value, "hoist": role.hoist,
-                              "mentionable": role.mentionable, "position": role.position})
+        data["roles"].append({
+            "id": int(role.id),
+            "name": str(role.name),
+            "color": int(role.color.value),
+            "permissions": int(role.permissions.value),
+            "hoist": bool(role.hoist),
+            "mentionable": bool(role.mentionable),
+            "position": int(role.position),
+            "managed": bool(role.managed),
+            "unicode_emoji": getattr(role, "unicode_emoji", None),
+        })
+
     for category in guild.categories:
-        data["categories"].append({"name": category.name, "position": category.position,
-                                   "overwrites": _overwrites(category),
-                                   "channels": [_channel_dict(ch) for ch in category.channels]})
-    data["uncategorized_channels"] = [_channel_dict(ch) for ch in guild.channels
-                                      if ch.category is None and not isinstance(ch, discord.CategoryChannel)]
+        data["categories"].append({
+            "id": int(category.id),
+            "name": str(category.name),
+            "position": int(category.position),
+            "overwrites": _overwrites(category),
+            "channels": [_channel_dict(ch) for ch in category.channels],
+        })
+
+    data["uncategorized_channels"] = [
+        _channel_dict(ch) for ch in guild.channels
+        if ch.category is None and not isinstance(ch, discord.CategoryChannel)
+    ]
+
+    # Membership is never recreated or kicked. Existing members' role assignments
+    # and server nicknames can, however, be restored by a privileged administrator.
+    data["member_assignments"] = [
+        {
+            "id": int(member.id),
+            "nick": member.nick,
+            "role_ids": [int(role.id) for role in member.roles if not role.is_default()],
+        }
+        for member in guild.members
+    ]
+
     backup_defaults = {
         "team_data": {}, "config": {}, "logs": [],
         "shifts": {}, "meetings": {}, "applications": {},
@@ -6036,51 +6131,630 @@ def build_backup(guild) -> dict:
     for key, path in (("team_data", DATA_FILE), ("config", CONFIG_FILE), ("logs", LOGS_FILE),
                       ("shifts", SHIFTS_FILE), ("meetings", MEETINGS_FILE), ("applications", APPS_FILE)):
         data["panel_data"][key] = load_json(path, backup_defaults[key])
+
     try:
         data["panel_data"]["pulse_db"] = pulse_db.export_state()
-    except Exception as e:
-        data["panel_data"]["pulse_db_error"] = str(e)
-    # Ticket transcripts are small text files; include them so support history is preserved in backups.
+    except Exception as exc:
+        # Fail closed rather than claiming this backup contains a database that
+        # could not be read. The UI surfaces this as a warning to the operator.
+        data["panel_data"]["pulse_db_error"] = f"{type(exc).__name__}: {exc}"
+
+    # The Activity Check database includes immutable participant snapshots and
+    # warning idempotency state, so it must travel with the backup as well.
+    sqlite_files = {}
+    for db_name in ("activity_check.db", "pulse.db"):
+        db_path = str(BASE_DIR / db_name)
+        if not os.path.isfile(db_path):
+            continue
+        try:
+            if os.path.getsize(db_path) <= 20 * 1024 * 1024:
+                with open(db_path, "rb") as fh:
+                    sqlite_files[db_name] = base64.b64encode(fh.read()).decode("ascii")
+        except OSError:
+            continue
+    data["panel_data"]["sqlite_files_base64"] = sqlite_files
+
+    # Ticket transcripts are included within a combined size budget, preventing
+    # a large transcript directory from exhausting memory during backup creation.
     transcripts = {}
+    transcript_bytes = 0
     transcript_dir = os.path.join(BASE_DIR, "transcripts")
     if os.path.isdir(transcript_dir):
-        for name in os.listdir(transcript_dir):
+        for name in sorted(os.listdir(transcript_dir)):
             path = os.path.join(transcript_dir, name)
             if not (name.endswith(".txt") and os.path.isfile(path)):
                 continue
             try:
-                if os.path.getsize(path) <= 2 * 1024 * 1024:
-                    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-                        transcripts[name] = fh.read()
+                size = os.path.getsize(path)
+                if size > 2 * 1024 * 1024 or transcript_bytes + size > 30 * 1024 * 1024:
+                    continue
+                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    transcripts[name] = fh.read()
+                transcript_bytes += size
             except OSError:
                 continue
     data["panel_data"]["transcripts"] = transcripts
+
     try:
-        conn = sqlite3.connect(DB_ABMELDUNGEN)
-        rows = conn.execute("SELECT user_id,user_name,grund,von,bis,original_nick,guild_id FROM abmeldungen").fetchall()
-        conn.close()
-        data["panel_data"]["loas"] = [dict(zip(["user_id","user_name","grund","von","bis","original_nick","guild_id"], r)) for r in rows]
+        with sqlite3.connect(DB_ABMELDUNGEN, timeout=3.0) as conn:
+            rows = conn.execute(
+                "SELECT user_id,user_name,grund,von,bis,original_nick,guild_id FROM abmeldungen"
+            ).fetchall()
+        data["panel_data"]["loas"] = [
+            dict(zip(["user_id", "user_name", "grund", "von", "bis", "original_nick", "guild_id"], row))
+            for row in rows
+        ]
     except Exception:
         data["panel_data"]["loas"] = []
+
     return data
 
 
+def validate_backup_document(backup: dict, guild_id: int | None = None) -> None:
+    """Validate imported/local backup shape before it can touch runtime data."""
+    if not isinstance(backup, dict) or not isinstance(backup.get("panel_data"), dict):
+        raise ValueError("Kein gültiges Pulse-Backup: Panel-Daten fehlen.")
+    try:
+        version = int(backup.get("backup_version", 1))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Ungültige Backup-Version.") from exc
+    if version < 1 or version > 3:
+        raise ValueError(f"Nicht unterstützte Backup-Version: {version}")
+    stored_guild_id = backup.get("guild_id")
+    if guild_id is not None and str(stored_guild_id) != str(guild_id):
+        raise ValueError("Dieses Backup gehört zu einem anderen Discord-Server; Wiederherstellung abgebrochen.")
+
+    panel = backup["panel_data"]
+    expected_types = {
+        "team_data": dict, "config": dict, "logs": list,
+        "shifts": dict, "meetings": dict, "applications": dict,
+        "pulse_db": dict, "loas": list, "transcripts": dict,
+        "sqlite_files_base64": dict,
+    }
+    if panel.get("logs") == {}:
+        panel["logs"] = []
+    for key, expected_type in expected_types.items():
+        if key in panel and not isinstance(panel[key], expected_type):
+            raise ValueError(f"Ungültiger Datentyp im Backup-Feld: {key}")
+
+    # Bound collection counts before any API calls.
+    roles = backup.get("roles", [])
+    categories = backup.get("categories", [])
+    channels = backup.get("uncategorized_channels", [])
+    members = backup.get("member_assignments", [])
+    settings = backup.get("guild_settings", {})
+    if not isinstance(roles, list) or len(roles) > 250:
+        raise ValueError("Ungültige Rollenliste im Backup.")
+    if not isinstance(categories, list) or len(categories) > 500:
+        raise ValueError("Ungültige Kategorienliste im Backup.")
+    if not isinstance(channels, list) or len(channels) > 5000:
+        raise ValueError("Ungültige Kanalliste im Backup.")
+    if not isinstance(members, list) or len(members) > 100000:
+        raise ValueError("Ungültige Mitgliederliste im Backup.")
+    if not isinstance(settings, dict):
+        raise ValueError("Ungültige Servereinstellungen im Backup.")
+    for role in roles:
+        if not isinstance(role, dict) or not isinstance(role.get("name"), str) or not role["name"] or len(role["name"]) > 100:
+            raise ValueError("Ungültiger Rolleneintrag im Backup.")
+    for category in categories:
+        if not isinstance(category, dict) or not isinstance(category.get("name"), str):
+            raise ValueError("Ungültiger Kategorieeintrag im Backup.")
+        category_channels = category.get("channels", [])
+        if not isinstance(category_channels, list) or len(category_channels) > 5000:
+            raise ValueError("Ungültige Kanalliste in einer Kategorie.")
+        if any(not isinstance(channel, dict) or not isinstance(channel.get("name"), str) for channel in category_channels):
+            raise ValueError("Ungültiger Kanal in einer Kategorie.")
+    if any(not isinstance(channel, dict) or not isinstance(channel.get("name"), str) for channel in channels):
+        raise ValueError("Ungültiger nicht kategorisierter Kanal im Backup.")
+    if any(not isinstance(member, dict) or not str(member.get("id", "")).isdigit() for member in members):
+        raise ValueError("Ungültiger Mitgliedseintrag im Backup.")
+
+
 def prune_auto_backups():
-    autos = sorted((f for f in os.listdir(BACKUP_DIR) if f.startswith("auto_") and f.endswith(".json")),
-                   key=lambda f: os.path.getmtime(os.path.join(BACKUP_DIR, f)), reverse=True)
+    autos = sorted(
+        (name for name in os.listdir(BACKUP_DIR) if name.startswith("auto_") and name.endswith(".json")),
+        key=lambda name: os.path.getmtime(os.path.join(BACKUP_DIR, name)),
+        reverse=True,
+    )
     for old in autos[MAX_BACKUPS:]:
         try:
             os.remove(os.path.join(BACKUP_DIR, old))
-        except Exception:
+        except OSError:
             pass
 
 
 def create_backup_file(guild, prefix: str = "") -> str:
-    filename = f"{prefix}backup_{now_de().strftime('%Y-%m-%d_%H-%M-%S')}.json"
+    """Synchronous compatibility helper; new UI/automatic backups use the async version."""
+    filename = f"{prefix}backup_{now_de().strftime('%Y-%m-%d_%H-%M-%S_%f')}.json"
     save_json(os.path.join(BACKUP_DIR, filename), build_backup(guild))
     if prefix == "auto_":
         prune_auto_backups()
     return filename
+
+
+async def create_backup_file_async(guild, prefix: str = "") -> str:
+    """Create a richer snapshot, including server icon bytes when Discord allows it."""
+    icon_base64 = None
+    icon = getattr(guild, "icon", None)
+    if icon is not None:
+        try:
+            image_bytes = await asyncio.wait_for(icon.read(), timeout=10.0)
+            if image_bytes and len(image_bytes) <= 8 * 1024 * 1024:
+                icon_base64 = base64.b64encode(image_bytes).decode("ascii")
+        except Exception as exc:
+            print(f"⚠️ Server-Icon konnte nicht gesichert werden ({type(exc).__name__}).")
+    filename = f"{prefix}backup_{now_de().strftime('%Y-%m-%d_%H-%M-%S_%f')}.json"
+    snapshot = build_backup(guild, guild_icon_base64=icon_base64)
+    save_json(os.path.join(BACKUP_DIR, filename), snapshot)
+    if prefix == "auto_":
+        prune_auto_backups()
+    return filename
+
+
+def _backup_channel_type(channel_data: dict) -> str:
+    return str(channel_data.get("type") or "text").lower()
+
+
+def _make_permission_overwrites(guild, entries, role_map, backup_guild_id: int, warnings: list[str]):
+    overwrites = {}
+    if not isinstance(entries, list):
+        return overwrites
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            target_id = int(entry.get("id"))
+            if entry.get("type") == "role":
+                target = role_map.get(target_id)
+                if target is None and target_id == backup_guild_id:
+                    target = guild.default_role
+                if target is None:
+                    target = guild.get_role(target_id)
+            elif entry.get("type") == "member":
+                target = guild.get_member(target_id)
+            else:
+                continue
+            if target is None:
+                warnings.append(f"Überschreibung für nicht vorhandene Rolle/Mitglied {target_id} übersprungen.")
+                continue
+            allow = discord.Permissions(int(entry.get("allow", 0)))
+            deny = discord.Permissions(int(entry.get("deny", 0)))
+            overwrites[target] = discord.PermissionOverwrite.from_pair(allow, deny)
+        except (TypeError, ValueError):
+            warnings.append("Ungültige Kanalberechtigung im Backup übersprungen.")
+        except Exception as exc:
+            warnings.append(f"Kanalberechtigung konnte nicht gelesen werden ({type(exc).__name__}).")
+    return overwrites
+
+
+async def _create_restored_channel(guild, source: dict, category, overwrites, warnings: list[str]):
+    name = str(source.get("name") or "restored-channel")[:100]
+    kind = _backup_channel_type(source)
+    position = max(0, int(source.get("position", 0) or 0))
+    reason = "Pulse Server-Backup wiederherstellen"
+
+    if kind == "category":
+        return await guild.create_category(
+            name, overwrites=overwrites, position=position, reason=reason
+        )
+
+    if kind in ("voice", "stage_voice"):
+        kwargs = {
+            "category": category, "overwrites": overwrites, "position": position,
+            "reason": reason,
+        }
+        if source.get("bitrate") is not None:
+            kwargs["bitrate"] = max(8000, min(384000, int(source["bitrate"])))
+        if source.get("user_limit") is not None:
+            kwargs["user_limit"] = max(0, min(99, int(source["user_limit"])))
+        if source.get("rtc_region") is not None:
+            kwargs["rtc_region"] = str(source["rtc_region"])
+        if source.get("nsfw") is not None:
+            kwargs["nsfw"] = bool(source["nsfw"])
+        if kind == "stage_voice" and hasattr(guild, "create_stage_channel"):
+            return await guild.create_stage_channel(name, **kwargs)
+        if kind == "stage_voice":
+            warnings.append(f"Stage-Kanal {name}: API nicht verfügbar, als Sprachkanal erstellt.")
+        return await guild.create_voice_channel(name, **kwargs)
+
+    if kind in ("forum", "media") and hasattr(guild, "create_forum"):
+        kwargs = {
+            "category": category, "overwrites": overwrites, "position": position,
+            "reason": reason, "nsfw": bool(source.get("nsfw", False)),
+        }
+        if source.get("topic") is not None:
+            kwargs["topic"] = str(source["topic"])[:1024]
+        if source.get("slowmode") is not None:
+            kwargs["slowmode_delay"] = max(0, min(21600, int(source["slowmode"])))
+        if source.get("default_auto_archive_duration") is not None:
+            kwargs["default_auto_archive_duration"] = int(source["default_auto_archive_duration"])
+        if source.get("default_thread_slowmode_delay") is not None:
+            kwargs["default_thread_slowmode_delay"] = int(source["default_thread_slowmode_delay"])
+        tags = []
+        for tag in source.get("available_tags", [])[:20]:
+            if not isinstance(tag, dict) or not tag.get("name"):
+                continue
+            emoji = None
+            if tag.get("emoji_id"):
+                try:
+                    emoji = discord.PartialEmoji(name=tag.get("emoji_name") or "emoji", id=int(tag["emoji_id"]))
+                except (TypeError, ValueError):
+                    emoji = None
+            elif tag.get("emoji_name"):
+                emoji = str(tag["emoji_name"])
+            try:
+                tags.append(discord.ForumTag(name=str(tag["name"])[:20], moderated=bool(tag.get("moderated")), emoji=emoji))
+            except (TypeError, ValueError):
+                warnings.append(f"Forum-Tag in {name} wurde übersprungen.")
+        if tags:
+            kwargs["available_tags"] = tags
+        if kind == "media":
+            kwargs["media"] = True
+        try:
+            return await guild.create_forum(name, **kwargs)
+        except TypeError:
+            # Older discord.py builds may lack the media flag or advanced forum fields.
+            kwargs.pop("media", None)
+            kwargs.pop("available_tags", None)
+            return await guild.create_forum(name, **kwargs)
+
+    if kind == "news":
+        creator = getattr(guild, "create_news_channel", None)
+        kwargs = {
+            "category": category, "overwrites": overwrites, "position": position,
+            "reason": reason, "nsfw": bool(source.get("nsfw", False)),
+        }
+        if source.get("topic") is not None:
+            kwargs["topic"] = str(source["topic"])[:1024]
+        if source.get("slowmode") is not None:
+            kwargs["slowmode_delay"] = max(0, min(21600, int(source["slowmode"])))
+        if creator is not None:
+            return await creator(name, **kwargs)
+        warnings.append(f"Ankündigungskanal {name}: API nicht verfügbar, als Textkanal erstellt.")
+        kind = "text"
+
+    if kind in ("text", "news", "store"):
+        kwargs = {
+            "category": category, "overwrites": overwrites, "position": position,
+            "reason": reason, "nsfw": bool(source.get("nsfw", False)),
+        }
+        if source.get("topic") is not None:
+            kwargs["topic"] = str(source["topic"])[:1024]
+        if source.get("slowmode") is not None:
+            kwargs["slowmode_delay"] = max(0, min(21600, int(source["slowmode"])))
+        if source.get("default_auto_archive_duration") is not None:
+            kwargs["default_auto_archive_duration"] = int(source["default_auto_archive_duration"])
+        if source.get("default_thread_slowmode_delay") is not None:
+            kwargs["default_thread_slowmode_delay"] = int(source["default_thread_slowmode_delay"])
+        return await guild.create_text_channel(name, **kwargs)
+
+    warnings.append(f"Kanaltyp {kind} ({name}) wird von diesem Restore nicht automatisch angelegt.")
+    return None
+
+
+async def _edit_restored_channel(channel, source: dict, category, overwrites):
+    kwargs = {
+        "name": str(source.get("name") or channel.name)[:100],
+        "position": max(0, int(source.get("position", 0) or 0)),
+        "overwrites": overwrites,
+        "reason": "Pulse Server-Backup wiederherstellen",
+    }
+    if isinstance(channel, discord.CategoryChannel):
+        return await channel.edit(**kwargs)
+
+    kwargs["category"] = category
+    if hasattr(channel, "topic"):
+        kwargs["topic"] = source.get("topic")
+    if hasattr(channel, "nsfw"):
+        kwargs["nsfw"] = bool(source.get("nsfw", False))
+    if hasattr(channel, "slowmode_delay") and source.get("slowmode") is not None:
+        kwargs["slowmode_delay"] = max(0, min(21600, int(source["slowmode"])))
+    if hasattr(channel, "bitrate") and source.get("bitrate") is not None:
+        kwargs["bitrate"] = max(8000, min(384000, int(source["bitrate"])))
+    if hasattr(channel, "user_limit") and source.get("user_limit") is not None:
+        kwargs["user_limit"] = max(0, min(99, int(source["user_limit"])))
+    if hasattr(channel, "rtc_region"):
+        kwargs["rtc_region"] = source.get("rtc_region")
+    if hasattr(channel, "default_auto_archive_duration") and source.get("default_auto_archive_duration") is not None:
+        kwargs["default_auto_archive_duration"] = int(source["default_auto_archive_duration"])
+    if hasattr(channel, "default_thread_slowmode_delay") and source.get("default_thread_slowmode_delay") is not None:
+        kwargs["default_thread_slowmode_delay"] = int(source["default_thread_slowmode_delay"])
+    return await channel.edit(**kwargs)
+
+
+async def restore_guild_structure(guild, backup: dict, exact_restore: bool = False) -> dict:
+    """Restore roles, categories/channels, overwrites, server settings and known member assignments."""
+    validate_backup_document(backup, guild.id)
+    backup_guild_id = int(backup["guild_id"])
+    warnings: list[str] = []
+    role_map = {backup_guild_id: guild.default_role}
+    channel_map = {}
+    restored_roles = 0
+    restored_channels = 0
+    restored_members = 0
+    skipped_members = 0
+
+    current_roles_by_id = {int(role.id): role for role in guild.roles}
+    current_roles_by_name = {role.name: role for role in guild.roles}
+    role_records = backup.get("roles", [])
+    for source in role_records:
+        old_id = int(source.get("id", 0) or 0)
+        name = str(source.get("name") or "restored-role")[:100]
+        role = current_roles_by_id.get(old_id) or current_roles_by_name.get(name)
+        is_managed = bool(source.get("managed"))
+        if role is None and is_managed:
+            warnings.append(f"Verwaltete Discord-Rolle {name} kann nicht neu erstellt werden.")
+            continue
+        try:
+            if role is None:
+                role = await guild.create_role(
+                    name=name,
+                    colour=discord.Colour(int(source.get("color", 0) or 0)),
+                    permissions=discord.Permissions(int(source.get("permissions", 0) or 0)),
+                    hoist=bool(source.get("hoist", False)),
+                    mentionable=bool(source.get("mentionable", False)),
+                    reason="Pulse Server-Backup wiederherstellen",
+                )
+                restored_roles += 1
+            elif not role.managed:
+                desired = {
+                    "name": name,
+                    "colour": discord.Colour(int(source.get("color", 0) or 0)),
+                    "permissions": discord.Permissions(int(source.get("permissions", 0) or 0)),
+                    "hoist": bool(source.get("hoist", False)),
+                    "mentionable": bool(source.get("mentionable", False)),
+                }
+                if (
+                    role.name != desired["name"]
+                    or role.color.value != desired["colour"].value
+                    or role.permissions.value != desired["permissions"].value
+                    or role.hoist != desired["hoist"]
+                    or role.mentionable != desired["mentionable"]
+                ):
+                    await role.edit(reason="Pulse Server-Backup wiederherstellen", **desired)
+                    restored_roles += 1
+            role_map[old_id] = role
+        except (discord.Forbidden, discord.HTTPException, ValueError, TypeError) as exc:
+            warnings.append(f"Rolle {name} konnte nicht wiederhergestellt werden ({type(exc).__name__}).")
+
+    try:
+        positions = {}
+        for source in role_records:
+            role = role_map.get(int(source.get("id", 0) or 0))
+            if role is not None and not role.managed and not role.is_default():
+                positions[role] = max(1, int(source.get("position", 1) or 1))
+        if positions:
+            await guild.edit_role_positions(positions=positions, reason="Pulse Server-Backup wiederherstellen")
+    except (discord.Forbidden, discord.HTTPException, ValueError, TypeError) as exc:
+        warnings.append(f"Rollenreihenfolge konnte nicht vollständig wiederhergestellt werden ({type(exc).__name__}).")
+
+    category_records = backup.get("categories", [])
+    current_channels_by_id = {int(channel.id): channel for channel in guild.channels}
+    current_categories_by_name = {channel.name: channel for channel in guild.categories}
+    for source in category_records:
+        old_id = int(source.get("id", 0) or 0)
+        name = str(source.get("name") or "restored-category")[:100]
+        category = current_channels_by_id.get(old_id)
+        if not isinstance(category, discord.CategoryChannel):
+            possible = current_categories_by_name.get(name)
+            category = possible if isinstance(possible, discord.CategoryChannel) else None
+        overwrites = _make_permission_overwrites(guild, source.get("overwrites", []), role_map, backup_guild_id, warnings)
+        try:
+            if category is None:
+                category = await guild.create_category(
+                    name, overwrites=overwrites,
+                    position=max(0, int(source.get("position", 0) or 0)),
+                    reason="Pulse Server-Backup wiederherstellen",
+                )
+                restored_channels += 1
+            else:
+                await _edit_restored_channel(category, source, None, overwrites)
+            channel_map[old_id] = category
+        except (discord.Forbidden, discord.HTTPException, ValueError, TypeError) as exc:
+            warnings.append(f"Kategorie {name} konnte nicht wiederhergestellt werden ({type(exc).__name__}).")
+
+    all_channel_records = []
+    for category in category_records:
+        parent_id = int(category.get("id", 0) or 0)
+        for child in category.get("channels", []):
+            if isinstance(child, dict):
+                child_copy = dict(child)
+                child_copy["category_id"] = parent_id
+                all_channel_records.append(child_copy)
+    all_channel_records.extend(backup.get("uncategorized_channels", []))
+
+    for source in all_channel_records:
+        if not isinstance(source, dict):
+            continue
+        old_id = int(source.get("id", 0) or 0)
+        name = str(source.get("name") or "restored-channel")[:100]
+        kind = _backup_channel_type(source)
+        parent_id = int(source.get("category_id", 0) or 0)
+        category = channel_map.get(parent_id)
+        if category is None and parent_id:
+            candidate = guild.get_channel(parent_id)
+            category = candidate if isinstance(candidate, discord.CategoryChannel) else None
+        overwrites = _make_permission_overwrites(guild, source.get("overwrites", []), role_map, backup_guild_id, warnings)
+
+        channel = guild.get_channel(old_id) if old_id else None
+        expected_type = kind
+        if isinstance(channel, discord.CategoryChannel) or channel is not None and str(channel.type) != expected_type:
+            channel = None
+        if channel is None:
+            channel = next(
+                (
+                    item for item in guild.channels
+                    if not isinstance(item, discord.CategoryChannel)
+                    and item.name == name
+                    and str(item.type) == expected_type
+                    and (getattr(item, "category_id", None) or 0) == (category.id if category else 0)
+                ),
+                None,
+            )
+        try:
+            if channel is None:
+                channel = await _create_restored_channel(guild, source, category, overwrites, warnings)
+                if channel is not None:
+                    restored_channels += 1
+            else:
+                await _edit_restored_channel(channel, source, category, overwrites)
+                restored_channels += 1
+            if channel is not None and old_id:
+                channel_map[old_id] = channel
+        except (discord.Forbidden, discord.HTTPException, ValueError, TypeError) as exc:
+            warnings.append(f"Kanal {name} konnte nicht wiederhergestellt werden ({type(exc).__name__}).")
+
+    # Restore server properties only after the channels they refer to exist.
+    settings = backup.get("guild_settings", {}) if isinstance(backup.get("guild_settings"), dict) else {}
+    settings_kwargs = {}
+    if settings.get("name") and guild.name != str(settings["name"])[:100]:
+        settings_kwargs["name"] = str(settings["name"])[:100]
+    if "description" in settings:
+        settings_kwargs["description"] = settings.get("description")
+    enum_fields = (
+        ("verification_level", "verification_level", discord.VerificationLevel),
+        ("default_notifications", "default_notifications", discord.NotificationLevel),
+        ("explicit_content_filter", "explicit_content_filter", discord.ContentFilter),
+    )
+    for source_key, target_key, enum_type in enum_fields:
+        value = settings.get(source_key)
+        if value is not None:
+            try:
+                settings_kwargs[target_key] = enum_type(int(value))
+            except (TypeError, ValueError):
+                warnings.append(f"Servereinstellung {source_key} war ungültig und wurde übersprungen.")
+    if settings.get("afk_timeout") is not None:
+        try:
+            settings_kwargs["afk_timeout"] = int(settings["afk_timeout"])
+        except (TypeError, ValueError):
+            pass
+    if settings.get("premium_progress_bar_enabled") is not None:
+        settings_kwargs["premium_progress_bar_enabled"] = bool(settings["premium_progress_bar_enabled"])
+    if settings.get("preferred_locale"):
+        try:
+            settings_kwargs["preferred_locale"] = discord.Locale(str(settings["preferred_locale"]))
+        except (TypeError, ValueError):
+            warnings.append("Server-Sprache wurde nicht wiederhergestellt (unbekannte Discord-Locale).")
+
+    for key, source_key in (
+        ("system_channel", "system_channel_id"),
+        ("rules_channel", "rules_channel_id"),
+        ("public_updates_channel", "public_updates_channel_id"),
+        ("afk_channel", "afk_channel_id"),
+    ):
+        old_channel_id = settings.get(source_key)
+        if old_channel_id is not None:
+            mapped = channel_map.get(int(old_channel_id))
+            if mapped is None:
+                mapped = guild.get_channel(int(old_channel_id))
+            if mapped is not None:
+                settings_kwargs[key] = mapped
+
+    if settings_kwargs:
+        try:
+            await guild.edit(reason="Pulse Server-Backup wiederherstellen", **settings_kwargs)
+        except (discord.Forbidden, discord.HTTPException, TypeError, ValueError) as exc:
+            warnings.append(f"Servereinstellungen konnten nicht vollständig gesetzt werden ({type(exc).__name__}).")
+            for key, value in settings_kwargs.items():
+                try:
+                    await guild.edit(reason="Pulse Server-Backup wiederherstellen", **{key: value})
+                except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                    warnings.append(f"Servereinstellung {key} konnte nicht wiederhergestellt werden.")
+
+    icon_b64 = settings.get("icon_base64")
+    if isinstance(icon_b64, str) and icon_b64:
+        try:
+            icon_bytes = base64.b64decode(icon_b64, validate=True)
+            if 0 < len(icon_bytes) <= 8 * 1024 * 1024:
+                await guild.edit(icon=icon_bytes, reason="Pulse Server-Backup wiederherstellen")
+            else:
+                warnings.append("Server-Icon im Backup überschreitet das erlaubte Größenlimit.")
+        except (ValueError, TypeError, discord.Forbidden, discord.HTTPException) as exc:
+            warnings.append(f"Server-Icon konnte nicht wiederhergestellt werden ({type(exc).__name__}).")
+
+    mapped_channels = {id(channel) for channel in channel_map.values()}
+    mapped_channels.update(id(channel) for channel in channel_map.values())
+    mapped_roles = {id(role) for role in role_map.values()}
+    if exact_restore:
+        bot_member = guild.me
+        bot_top = bot_member.top_role.position if bot_member else 0
+        extra_channels = [
+            channel for channel in guild.channels
+            if id(channel) not in mapped_channels
+        ]
+        extra_channels.sort(key=lambda item: isinstance(item, discord.CategoryChannel))
+        for channel in extra_channels:
+            try:
+                await channel.delete(reason="Pulse exakte Server-Backup-Wiederherstellung")
+            except (discord.Forbidden, discord.HTTPException):
+                warnings.append(f"Zusätzlicher Kanal {channel.name} konnte nicht entfernt werden.")
+        for role in list(guild.roles):
+            if role.is_default() or role.managed or id(role) in mapped_roles:
+                continue
+            if bot_member and role.position >= bot_top:
+                warnings.append(f"Zusätzliche Rolle {role.name} bleibt wegen der Bot-Rollenhierarchie erhalten.")
+                continue
+            try:
+                await role.delete(reason="Pulse exakte Server-Backup-Wiederherstellung")
+            except (discord.Forbidden, discord.HTTPException):
+                warnings.append(f"Zusätzliche Rolle {role.name} konnte nicht entfernt werden.")
+
+    member_records = backup.get("member_assignments", [])
+    if isinstance(member_records, list):
+        snapshot_role_objects = {role.id for key, role in role_map.items() if key != backup_guild_id}
+        for source in member_records:
+            try:
+                member_id = int(source.get("id"))
+                member = guild.get_member(member_id)
+                if member is None:
+                    skipped_members += 1
+                    continue
+                desired_roles = []
+                for old_role_id in source.get("role_ids", []):
+                    role = role_map.get(int(old_role_id))
+                    if role is not None and not role.is_default() and role not in desired_roles:
+                        desired_roles.append(role)
+                if not exact_restore:
+                    for role in member.roles:
+                        if role.is_default() or role in desired_roles:
+                            continue
+                        if role.managed or role.id not in snapshot_role_objects:
+                            desired_roles.append(role)
+                current_role_ids = {role.id for role in member.roles if not role.is_default()}
+                desired_role_ids = {role.id for role in desired_roles}
+                desired_nick = source.get("nick")
+                if current_role_ids == desired_role_ids and member.nick == desired_nick:
+                    continue
+                await member.edit(
+                    roles=desired_roles,
+                    nick=desired_nick,
+                    reason="Pulse Server-Backup wiederherstellen",
+                )
+                restored_members += 1
+            except (discord.Forbidden, discord.HTTPException, TypeError, ValueError) as exc:
+                warnings.append(f"Mitgliedsrollen/-name konnten nicht wiederhergestellt werden ({type(exc).__name__}).")
+
+    return {
+        "roles_changed": restored_roles,
+        "channels_changed": restored_channels,
+        "members_changed": restored_members,
+        "members_skipped": skipped_members,
+        "exact_restore": bool(exact_restore),
+        "warnings": warnings[:50],
+        "warning_count": len(warnings),
+    }
+
+
+MAX_BACKUP_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+def safe_backup_path(filename: str):
+    """Prevent path traversal while permitting generated and imported backup names."""
+    name = os.path.basename(filename or "")
+    if not BACKUP_NAME_RE.fullmatch(name):
+        return None
+    path = os.path.join(BACKUP_DIR, name)
+    return path if os.path.isfile(path) else None
 
 
 async def auto_backup_loop():
