@@ -325,10 +325,13 @@ async def _apply_team_safety_team_kick(guild, member, config: dict, reason: str)
             configured_ids.add(int(raw_id))
         except (TypeError, ValueError):
             continue
-    configured_ids.add(TEST_SUPPORTER_ROLE_ID)
+    configured_ids.add(resolve_backup_role_id(TEST_SUPPORTER_ROLE_ID, config))
     roles_to_remove = [
         role for role in member.roles
-        if role.id in configured_ids and not role.is_default()
+        if (
+            role.id in configured_ids
+            or "test supporter" in role.name.casefold()
+        ) and not role.is_default()
     ]
     if not roles_to_remove:
         return {"ok": True, "changed": False, "message": "Keine konfigurierten Teamrollen mehr vorhanden."}
@@ -1154,13 +1157,35 @@ async def send_team_update_embed(guild, title, description, color=None, *, field
         return None
 
 
+def resolve_backup_role_id(role_id: int, config: dict | None = None) -> int:
+    """Resolve a built-in role ID after Discord recreated that role with a new snowflake."""
+    cfg = config if isinstance(config, dict) else load_config()
+    aliases = cfg.get("backup_role_id_aliases", {}) if isinstance(cfg, dict) else {}
+    current = int(role_id)
+    seen = set()
+    for _ in range(12):
+        if current in seen:
+            break
+        seen.add(current)
+        replacement = aliases.get(str(current), aliases.get(current))
+        if replacement is None:
+            break
+        try:
+            next_id = int(replacement)
+        except (TypeError, ValueError):
+            break
+        if next_id == current:
+            break
+        current = next_id
+    return current
+
+
 def get_warn_role_ids(config: dict | None = None) -> dict:
-    """Gibt die festgelegten fünf Pulse-Team-Warnrollen zurück.
-    
-    Legacy-Konfigurationen und alte ENV-Werte werden absichtlich ignoriert,
-    damit das Warnsystem im Live-Betrieb immer dieselben fünf Rollen verwendet.
-    """
-    return dict(WARN_ROLE_IDS)
+    """Return the canonical five warning levels, remapped after a backup restore."""
+    return {
+        level: resolve_backup_role_id(role_id, config)
+        for level, role_id in WARN_ROLE_IDS.items()
+    }
 
 def normalize_warns(entry: dict) -> bool:
     """Migriert Warns zu einem stabilen Format mit Status statt hartem Löschen."""
@@ -1407,14 +1432,21 @@ async def process_probation_warning(
         owns_db = False
 
     warn_reason = str(warn.get("reason") or "Team-Warn")
-    is_test_supporter = any(
-        role.id == TEST_SUPPORTER_ROLE_ID or "test supporter" in role.name.casefold()
-        for role in member.roles
-    )
+    current_config = load_config()
+    test_supporter_role_id = resolve_backup_role_id(TEST_SUPPORTER_ROLE_ID, current_config)
+    test_supporter_roles = [
+        role for role in member.roles
+        if role.id == test_supporter_role_id or "test supporter" in role.name.casefold()
+    ]
+    is_test_supporter = bool(test_supporter_roles)
 
     # The Test-Supporter role is a trial rank. Any team warning ends the trial immediately.
     if is_test_supporter:
-        kick_ids = sorted({int(role_id) for role_id in team_role_ids} | {TEST_SUPPORTER_ROLE_ID})
+        kick_ids = sorted(
+            {int(role_id) for role_id in team_role_ids}
+            | {role.id for role in test_supporter_roles}
+            | {test_supporter_role_id}
+        )
         kick = await _apply_warn5_team_kick(guild, member, warn, kick_ids)
         result["actions"].append(
             kick["message"] if kick.get("ok")
@@ -1581,12 +1613,16 @@ async def apply_warn_consequences(
         return result
 
     if count == 2:
-        role = await _add_temporary_warn_role(guild, member, WARN_UPRANK_LOCK_ROLE_ID, warn, "Uprank-Sperre")
+        role = await _add_temporary_warn_role(
+            guild, member, resolve_backup_role_id(WARN_UPRANK_LOCK_ROLE_ID, config), warn, "Uprank-Sperre"
+        )
         result["actions"].append(role["message"] if role["ok"] else role["message"])
         result["ok"] = result["ok"] and role["ok"]
 
     elif count == 3:
-        role = await _add_temporary_warn_role(guild, member, WARN_IC_LOCK_ROLE_ID, warn, "IC-Rechte-Sperre")
+        role = await _add_temporary_warn_role(
+            guild, member, resolve_backup_role_id(WARN_IC_LOCK_ROLE_ID, config), warn, "IC-Rechte-Sperre"
+        )
         result["actions"].append(role["message"] if role["ok"] else role["message"])
         result["ok"] = result["ok"] and role["ok"]
 
@@ -6845,14 +6881,13 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
                 desired_roles = []
                 for old_role_id in source.get("role_ids", []):
                     role = role_map.get(int(old_role_id))
-                    if role is not None and not role.is_default() and role not in desired_roles:
+                    if role is not None and not role.is_default() and not role.managed and role not in desired_roles:
                         desired_roles.append(role)
-                if not exact_restore:
-                    for role in member.roles:
-                        if role.is_default() or role in desired_roles:
-                            continue
-                        if role.managed or role.id not in snapshot_role_objects:
-                            desired_roles.append(role)
+                for role in member.roles:
+                    if role.is_default() or role in desired_roles:
+                        continue
+                    if role.managed or (not exact_restore and role.id not in snapshot_role_objects):
+                        desired_roles.append(role)
                 current_role_ids = {role.id for role in member.roles if not role.is_default()}
                 desired_role_ids = {role.id for role in desired_roles}
                 desired_nick = source.get("nick")
@@ -7175,6 +7210,22 @@ async def restore_backup(
         id_remap = structure_report.pop("id_remap", {})
         if id_remap:
             panel = _remap_backup_ids(panel, id_remap)
+
+        restored_config = panel.get("config")
+        if isinstance(restored_config, dict):
+            aliases = restored_config.get("backup_role_id_aliases", {})
+            if not isinstance(aliases, dict):
+                aliases = {}
+            built_in_role_ids = (
+                list(WARN_ROLE_IDS.values())
+                + [WARN_UPRANK_LOCK_ROLE_ID, WARN_IC_LOCK_ROLE_ID, TEST_SUPPORTER_ROLE_ID]
+                + list(TEAM_KICK_KEEP_ROLE_IDS)
+            )
+            for original_id in built_in_role_ids:
+                replacement = id_remap.get(str(original_id))
+                if replacement is not None and int(replacement) != int(original_id):
+                    aliases[str(int(original_id))] = int(replacement)
+            restored_config["backup_role_id_aliases"] = aliases
 
         mapping = {
             "team_data": DATA_FILE, "config": CONFIG_FILE, "logs": LOGS_FILE,
@@ -7819,13 +7870,16 @@ async def handle_action(
 
                 # Rollen vor jeder Änderung vollständig prüfen, damit ein Kick nicht
                 # mitten im Rollen-Reset endet und zusätzliche Rollen zurückbleiben.
-                keep_roles = [guild.get_role(role_id) for role_id in TEAM_KICK_KEEP_ROLE_IDS]
+                resolved_keep_role_ids = tuple(
+                    resolve_backup_role_id(role_id, config) for role_id in TEAM_KICK_KEEP_ROLE_IDS
+                )
+                keep_roles = [guild.get_role(role_id) for role_id in resolved_keep_role_ids]
                 if any(role is None for role in keep_roles):
                     return back(member_url, "Team-Kick abgebrochen: Die Bürgerrolle oder die zweite Pflichtrolle wurde auf dem Server nicht gefunden.", False)
                 if any(role.managed or role.position >= guild.me.top_role.position for role in keep_roles):
                     return back(member_url, "Team-Kick abgebrochen: Der Bot kann die Bürgerrolle oder die zweite Pflichtrolle wegen der Rollenverwaltung/-hierarchie nicht setzen.", False)
 
-                keep_role_ids = set(TEAM_KICK_KEEP_ROLE_IDS)
+                keep_role_ids = set(resolved_keep_role_ids)
                 roles_to_remove = [
                     role for role in member.roles
                     if role.id != guild.id and role.id not in keep_role_ids
