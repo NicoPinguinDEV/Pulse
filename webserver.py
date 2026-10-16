@@ -6316,10 +6316,13 @@ async def create_backup_file_async(guild, prefix: str = "") -> str:
         except Exception as exc:
             print(f"⚠️ Server-Icon konnte nicht gesichert werden ({type(exc).__name__}).")
     filename = f"{prefix}backup_{now_de().strftime('%Y-%m-%d_%H-%M-%S_%f')}.json"
-    snapshot = build_backup(guild, guild_icon_base64=icon_base64)
-    save_json(os.path.join(BACKUP_DIR, filename), snapshot)
+    snapshot = await asyncio.to_thread(build_backup, guild, guild_icon_base64)
+    path = os.path.join(BACKUP_DIR, filename)
+    await asyncio.to_thread(save_json, path, snapshot)
+    for warning in snapshot.get("snapshot_warnings", []):
+        print(f"⚠️ Backup-Hinweis: {warning}")
     if prefix == "auto_":
-        prune_auto_backups()
+        await asyncio.to_thread(prune_auto_backups)
     return filename
 
 
@@ -6465,34 +6468,80 @@ async def _create_restored_channel(guild, source: dict, category, overwrites, wa
 
 
 async def _edit_restored_channel(channel, source: dict, category, overwrites):
-    kwargs = {
-        "name": str(source.get("name") or channel.name)[:100],
-        "position": max(0, int(source.get("position", 0) or 0)),
-        "overwrites": overwrites,
-        "reason": "Pulse Server-Backup wiederherstellen",
-    }
-    if isinstance(channel, discord.CategoryChannel):
-        return await channel.edit(**kwargs)
+    """Apply only real differences, avoiding hundreds of no-op PATCH requests."""
+    kwargs = {}
+    desired_name = str(source.get("name") or channel.name)[:100]
+    desired_position = max(0, int(source.get("position", 0) or 0))
+    if channel.name != desired_name:
+        kwargs["name"] = desired_name
+    if int(getattr(channel, "position", 0) or 0) != desired_position:
+        kwargs["position"] = desired_position
+    if dict(getattr(channel, "overwrites", {}) or {}) != overwrites:
+        kwargs["overwrites"] = overwrites
 
-    kwargs["category"] = category
-    if hasattr(channel, "topic"):
+    if isinstance(channel, discord.CategoryChannel):
+        if kwargs:
+            kwargs["reason"] = "Pulse Server-Backup wiederherstellen"
+            await channel.edit(**kwargs)
+        return channel
+
+    desired_category_id = category.id if category else None
+    if getattr(channel, "category_id", None) != desired_category_id:
+        kwargs["category"] = category
+    if hasattr(channel, "topic") and getattr(channel, "topic", None) != source.get("topic"):
         kwargs["topic"] = source.get("topic")
-    if hasattr(channel, "nsfw"):
+    if hasattr(channel, "nsfw") and bool(getattr(channel, "nsfw", False)) != bool(source.get("nsfw", False)):
         kwargs["nsfw"] = bool(source.get("nsfw", False))
     if hasattr(channel, "slowmode_delay") and source.get("slowmode") is not None:
-        kwargs["slowmode_delay"] = max(0, min(21600, int(source["slowmode"])))
+        desired = max(0, min(21600, int(source["slowmode"])))
+        if int(getattr(channel, "slowmode_delay", 0) or 0) != desired:
+            kwargs["slowmode_delay"] = desired
     if hasattr(channel, "bitrate") and source.get("bitrate") is not None:
-        kwargs["bitrate"] = max(8000, min(384000, int(source["bitrate"])))
+        desired = max(8000, min(384000, int(source["bitrate"])))
+        if int(getattr(channel, "bitrate", 0) or 0) != desired:
+            kwargs["bitrate"] = desired
     if hasattr(channel, "user_limit") and source.get("user_limit") is not None:
-        kwargs["user_limit"] = max(0, min(99, int(source["user_limit"])))
-    if hasattr(channel, "rtc_region"):
+        desired = max(0, min(99, int(source["user_limit"])))
+        if int(getattr(channel, "user_limit", 0) or 0) != desired:
+            kwargs["user_limit"] = desired
+    if hasattr(channel, "rtc_region") and getattr(channel, "rtc_region", None) != source.get("rtc_region"):
         kwargs["rtc_region"] = source.get("rtc_region")
     if hasattr(channel, "default_auto_archive_duration") and source.get("default_auto_archive_duration") is not None:
-        kwargs["default_auto_archive_duration"] = int(source["default_auto_archive_duration"])
+        desired = int(source["default_auto_archive_duration"])
+        if int(getattr(channel, "default_auto_archive_duration", 0) or 0) != desired:
+            kwargs["default_auto_archive_duration"] = desired
     if hasattr(channel, "default_thread_slowmode_delay") and source.get("default_thread_slowmode_delay") is not None:
-        kwargs["default_thread_slowmode_delay"] = int(source["default_thread_slowmode_delay"])
-    return await channel.edit(**kwargs)
+        desired = int(source["default_thread_slowmode_delay"])
+        if int(getattr(channel, "default_thread_slowmode_delay", 0) or 0) != desired:
+            kwargs["default_thread_slowmode_delay"] = desired
 
+    if hasattr(channel, "available_tags") and isinstance(source.get("available_tags"), list):
+        desired_tags = []
+        for tag in source.get("available_tags", [])[:20]:
+            if not isinstance(tag, dict) or not tag.get("name"):
+                continue
+            emoji = None
+            if tag.get("emoji_id"):
+                try:
+                    emoji = discord.PartialEmoji(name=tag.get("emoji_name") or "emoji", id=int(tag["emoji_id"]))
+                except (TypeError, ValueError):
+                    emoji = None
+            elif tag.get("emoji_name"):
+                emoji = str(tag["emoji_name"])
+            try:
+                desired_tags.append(discord.ForumTag(name=str(tag["name"])[:20], moderated=bool(tag.get("moderated")), emoji=emoji))
+            except (TypeError, ValueError):
+                continue
+        current_tags = list(getattr(channel, "available_tags", []) or [])
+        current_signature = [(tag.name, bool(tag.moderated), getattr(tag.emoji, "name", None), getattr(tag.emoji, "id", None)) for tag in current_tags]
+        desired_signature = [(tag.name, bool(tag.moderated), getattr(tag.emoji, "name", None), getattr(tag.emoji, "id", None)) for tag in desired_tags]
+        if current_signature != desired_signature:
+            kwargs["available_tags"] = desired_tags
+
+    if kwargs:
+        kwargs["reason"] = "Pulse Server-Backup wiederherstellen"
+        await channel.edit(**kwargs)
+    return channel
 
 async def restore_guild_structure(guild, backup: dict, exact_restore: bool = False) -> dict:
     """Restore roles, categories/channels, overwrites, server settings and known member assignments."""
@@ -6554,11 +6603,15 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
 
     try:
         positions = {}
+        position_changed = False
         for source in role_records:
             role = role_map.get(int(source.get("id", 0) or 0))
             if role is not None and not role.managed and not role.is_default():
-                positions[role] = max(1, int(source.get("position", 1) or 1))
-        if positions:
+                desired_position = max(1, int(source.get("position", 1) or 1))
+                positions[role] = desired_position
+                if int(role.position) != desired_position:
+                    position_changed = True
+        if positions and position_changed:
             await guild.edit_role_positions(positions=positions, reason="Pulse Server-Backup wiederherstellen")
     except (discord.Forbidden, discord.HTTPException, ValueError, TypeError) as exc:
         warnings.append(f"Rollenreihenfolge konnte nicht vollständig wiederhergestellt werden ({type(exc).__name__}).")
@@ -6671,7 +6724,7 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
     settings_kwargs = {}
     if settings.get("name") and guild.name != str(settings["name"])[:100]:
         settings_kwargs["name"] = str(settings["name"])[:100]
-    if "description" in settings:
+    if "description" in settings and settings.get("description") != getattr(guild, "description", None):
         settings_kwargs["description"] = settings.get("description")
     enum_fields = (
         ("verification_level", "verification_level", discord.VerificationLevel),
@@ -6682,19 +6735,25 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
         value = settings.get(source_key)
         if value is not None:
             try:
-                settings_kwargs[target_key] = enum_type(int(value))
+                current_value = _enum_int(getattr(guild, target_key, None))
+                if current_value != int(value):
+                    settings_kwargs[target_key] = enum_type(int(value))
             except (TypeError, ValueError):
                 warnings.append(f"Servereinstellung {source_key} war ungültig und wurde übersprungen.")
     if settings.get("afk_timeout") is not None:
         try:
-            settings_kwargs["afk_timeout"] = int(settings["afk_timeout"])
+            if _enum_int(getattr(guild, "afk_timeout", None)) != int(settings["afk_timeout"]):
+                settings_kwargs["afk_timeout"] = int(settings["afk_timeout"])
         except (TypeError, ValueError):
             pass
     if settings.get("premium_progress_bar_enabled") is not None:
-        settings_kwargs["premium_progress_bar_enabled"] = bool(settings["premium_progress_bar_enabled"])
+        if bool(getattr(guild, "premium_progress_bar_enabled", False)) != bool(settings["premium_progress_bar_enabled"]):
+            settings_kwargs["premium_progress_bar_enabled"] = bool(settings["premium_progress_bar_enabled"])
     if settings.get("preferred_locale"):
         try:
-            settings_kwargs["preferred_locale"] = discord.Locale(str(settings["preferred_locale"]))
+            restored_locale = discord.Locale(str(settings["preferred_locale"]))
+            if str(getattr(guild, "preferred_locale", "")) != str(restored_locale):
+                settings_kwargs["preferred_locale"] = restored_locale
         except (TypeError, ValueError):
             warnings.append("Server-Sprache wurde nicht wiederhergestellt (unbekannte Discord-Locale).")
 
@@ -6709,7 +6768,7 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
             mapped = channel_map.get(int(old_channel_id))
             if mapped is None:
                 mapped = guild.get_channel(int(old_channel_id))
-            if mapped is not None:
+            if mapped is not None and getattr(guild, key, None) != mapped:
                 settings_kwargs[key] = mapped
 
     if settings_kwargs:
@@ -6724,7 +6783,9 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
                     warnings.append(f"Servereinstellung {key} konnte nicht wiederhergestellt werden.")
 
     icon_b64 = settings.get("icon_base64")
-    if isinstance(icon_b64, str) and icon_b64:
+    stored_icon_key = settings.get("icon_key")
+    current_icon_key = getattr(getattr(guild, "icon", None), "key", None)
+    if isinstance(icon_b64, str) and icon_b64 and stored_icon_key != current_icon_key:
         try:
             icon_bytes = base64.b64decode(icon_b64, validate=True)
             if 0 < len(icon_bytes) <= 8 * 1024 * 1024:
@@ -6733,6 +6794,11 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
                 warnings.append("Server-Icon im Backup überschreitet das erlaubte Größenlimit.")
         except (ValueError, TypeError, discord.Forbidden, discord.HTTPException) as exc:
             warnings.append(f"Server-Icon konnte nicht wiederhergestellt werden ({type(exc).__name__}).")
+    elif not icon_b64 and stored_icon_key is None and current_icon_key is not None:
+        try:
+            await guild.edit(icon=None, reason="Pulse Server-Backup wiederherstellen")
+        except (TypeError, discord.Forbidden, discord.HTTPException) as exc:
+            warnings.append(f"Server-Icon konnte nicht zurückgesetzt werden ({type(exc).__name__}).")
 
     mapped_channels = set(restored_object_ids)
     mapped_channels.update(id(channel) for channel in channel_map.values())
