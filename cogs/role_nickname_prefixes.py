@@ -7,7 +7,14 @@ from pathlib import Path
 import discord
 from discord.ext import commands
 
-from pulse_nickname_utils import format_prefixed_nickname, normalize_role_prefix, strip_known_prefix
+from pulse_nickname_utils import (
+    automatic_role_prefix,
+    format_prefixed_nickname,
+    normalize_role_prefix,
+    select_highest_role_prefix,
+    strip_known_prefix,
+    strip_legacy_rank_prefix,
+)
 from webserver import GUILD_ID, load_config, load_json, save_json
 
 STATE_FILE = Path(__file__).resolve().parents[1] / "role_nickname_state.json"
@@ -42,16 +49,19 @@ class RoleNicknamePrefixes(commands.Cog):
 
     @staticmethod
     def _selected_role(member: discord.Member, prefixes: dict[str, str]):
-        """Highest Discord role wins when a member has multiple configured roles."""
-        matches = [
-            (role.position, role.id, role, prefixes[str(role.id)])
-            for role in member.roles
-            if str(role.id) in prefixes
-        ]
-        if not matches:
+        """Highest Discord role always wins; custom settings only override its prefix."""
+        selected = select_highest_role_prefix(
+            [
+                (role.id, role.position, role.name, role.is_default())
+                for role in member.roles
+            ],
+            prefixes,
+        )
+        if selected is None:
             return None
-        _, _, role, prefix = max(matches, key=lambda item: (item[0], item[1]))
-        return role, prefix
+        role_id, prefix = selected
+        role = next((candidate for candidate in member.roles if candidate.id == role_id), None)
+        return (role, prefix) if role is not None else None
 
     async def _get_member_state(self, member_id: int) -> dict | None:
         async with self._state_file_lock:
@@ -115,6 +125,11 @@ class RoleNicknamePrefixes(commands.Cog):
                 known_prefixes = list(prefixes.values()) + [
                     config.get("nickname_default_prefix", "Bürger ✗")
                 ]
+                known_prefixes.extend(
+                    automatic_role_prefix(role.name)
+                    for role in member.roles
+                    if not role.is_default()
+                )
                 stripped = strip_known_prefix(current_nick, known_prefixes)
                 if stripped:
                     original_nick = stripped
@@ -122,6 +137,14 @@ class RoleNicknamePrefixes(commands.Cog):
                 else:
                     original_nick = current_nick
                     base_name = current_nick or member.name
+
+            # Older nicknames may already contain a manual rank tag, e.g.
+            # 'Sr.-Sup メ Dawo' or 'Owner メ Phillip'. Remove it before applying
+            # the real highest-role prefix, including from saved nickname state.
+            cleaned_base_name = strip_legacy_rank_prefix(base_name) or member.name
+            if isinstance(original_nick, str) and original_nick.strip():
+                original_nick = strip_legacy_rank_prefix(original_nick) or member.name
+            base_name = cleaned_base_name
 
             try:
                 target_nick = format_prefixed_nickname(prefix, base_name)
@@ -293,9 +316,6 @@ class RoleNicknamePrefixes(commands.Cog):
             default_prefix = normalize_role_prefix(raw_default_prefix) if str(raw_default_prefix or "").strip() else ""
         except ValueError:
             default_prefix = ""
-        if not prefixes and not states and not default_prefix:
-            print("🏷️ Namenspräfix-Synchronisierung: Es sind keine Rollenpräfixe oder gespeicherten Nicknames vorhanden.")
-            return
         role_ids = set(prefixes)
         candidates = [
             member for member in list(guild.members)
@@ -303,6 +323,7 @@ class RoleNicknamePrefixes(commands.Cog):
             and (
                 default_prefix
                 or str(member.id) in states
+                or any(not role.is_default() for role in member.roles)
                 or any(str(role.id) in role_ids for role in member.roles)
             )
         ]
