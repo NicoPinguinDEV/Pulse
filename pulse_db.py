@@ -281,6 +281,33 @@ def init_db():
                 key TEXT PRIMARY KEY,
                 value_json TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS team_safety_warn_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id TEXT NOT NULL,
+                actor_id TEXT NOT NULL,
+                target_id TEXT NOT NULL DEFAULT '',
+                action TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                details TEXT DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_team_safety_actor_time
+                ON team_safety_warn_events(guild_id, actor_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_team_safety_actor_target
+                ON team_safety_warn_events(guild_id, actor_id, target_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS team_safety_actor_state (
+                guild_id TEXT NOT NULL,
+                actor_id TEXT NOT NULL,
+                strike_count INTEGER NOT NULL DEFAULT 0,
+                locked_until REAL NOT NULL DEFAULT 0,
+                last_trigger_at REAL NOT NULL DEFAULT 0,
+                lockout_attempts INTEGER NOT NULL DEFAULT 0,
+                team_kicked_at REAL,
+                last_reason TEXT DEFAULT '',
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (guild_id, actor_id)
+            );
             """
         )
         # Migrations for v4 installations.
@@ -745,6 +772,238 @@ def set_setting(key, value):
         db.execute("INSERT OR REPLACE INTO settings(key,value_json) VALUES (?,?)", (key, json.dumps(value, ensure_ascii=False)))
 
 
+def get_team_safety_state(guild_id, actor_id, now_ts=None):
+    """Return the persistent moderator safety state for one actor, if recorded."""
+    import time
+    current = float(time.time() if now_ts is None else now_ts)
+    with connect() as db:
+        row = db.execute(
+            "SELECT * FROM team_safety_actor_state WHERE guild_id=? AND actor_id=?",
+            (str(guild_id), str(actor_id)),
+        ).fetchone()
+    if not row:
+        return None
+    state = dict(row)
+    state["locked"] = float(state.get("locked_until") or 0) > current
+    return state
+
+
+def _save_team_safety_state(db, guild_id, actor_id, *, strike_count, locked_until,
+                            last_trigger_at, lockout_attempts, team_kicked_at,
+                            last_reason, updated_at):
+    db.execute(
+        """INSERT INTO team_safety_actor_state
+           (guild_id,actor_id,strike_count,locked_until,last_trigger_at,
+            lockout_attempts,team_kicked_at,last_reason,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(guild_id,actor_id) DO UPDATE SET
+             strike_count=excluded.strike_count,
+             locked_until=excluded.locked_until,
+             last_trigger_at=excluded.last_trigger_at,
+             lockout_attempts=excluded.lockout_attempts,
+             team_kicked_at=COALESCE(excluded.team_kicked_at, team_safety_actor_state.team_kicked_at),
+             last_reason=excluded.last_reason,
+             updated_at=excluded.updated_at""",
+        (
+            str(guild_id), str(actor_id), int(strike_count or 0), float(locked_until or 0),
+            float(last_trigger_at or 0), int(lockout_attempts or 0), team_kicked_at,
+            str(last_reason or "")[:1000], float(updated_at),
+        ),
+    )
+
+
+def check_team_warn_safety(guild_id, actor_id, target_id, now_ts=None):
+    """Atomically rate-limit manual warnings and persist lockouts/escalations.
+
+    The result action is one of: allow, duplicate, lockout, blocked, or team_kick.
+    Only manually initiated warnings should call this; automatic Activity Check and
+    other system warnings must not count against a human moderator.
+    """
+    import time
+    from pulse_team_protection import (
+        DUPLICATE_ATTEMPT_SECONDS,
+        FIRST_LOCKOUT_SECONDS,
+        REPEAT_LOCKOUT_SECONDS,
+        detect_warn_burst,
+        lockout_action,
+        next_incident_action,
+    )
+
+    current = float(time.time() if now_ts is None else now_ts)
+    guild_key, actor_key, target_key = str(guild_id), str(actor_id), str(target_id)
+    with connect() as db:
+        # Small bounded event history. The actor state remains for a persistent audit trail.
+        db.execute(
+            "DELETE FROM team_safety_warn_events WHERE created_at < ?",
+            (current - 86400,),
+        )
+        raw_state = db.execute(
+            "SELECT * FROM team_safety_actor_state WHERE guild_id=? AND actor_id=?",
+            (guild_key, actor_key),
+        ).fetchone()
+        state = dict(raw_state) if raw_state else {}
+        strikes = int(state.get("strike_count") or 0)
+        last_trigger = float(state.get("last_trigger_at") or 0)
+        locked_until = float(state.get("locked_until") or 0)
+        lockout_attempts = int(state.get("lockout_attempts") or 0)
+        team_kicked_at = state.get("team_kicked_at")
+        last_reason = str(state.get("last_reason") or "")
+
+        if locked_until > current:
+            lockout_attempts += 1
+            incident_action = lockout_action(lockout_attempts)
+            detail = f"Warnversuch während aktiver Sperre gegen Ziel {target_key}"
+            db.execute(
+                """INSERT INTO team_safety_warn_events
+                   (guild_id,actor_id,target_id,action,created_at,details)
+                   VALUES (?,?,?,?,?,?)""",
+                (guild_key, actor_key, target_key, "blocked_lockout", current, detail),
+            )
+            if incident_action == "team_kick":
+                strikes = max(strikes, 2)
+                locked_until = max(locked_until, current + REPEAT_LOCKOUT_SECONDS)
+                last_reason = "Wiederholter Warnversuch trotz aktiver Schutzsperre"
+            _save_team_safety_state(
+                db, guild_key, actor_key, strike_count=strikes,
+                locked_until=locked_until, last_trigger_at=last_trigger,
+                lockout_attempts=lockout_attempts, team_kicked_at=team_kicked_at,
+                last_reason=last_reason, updated_at=current,
+            )
+            return {
+                "allowed": False, "action": incident_action, "code": "lockout_attempt",
+                "reason": "Manuelle Verwarnungen sind für diesen Account vorübergehend gesperrt.",
+                "strike_count": strikes, "locked_until": locked_until,
+                "lockout_attempts": lockout_attempts, "incident_id": None,
+            }
+
+        # A rapid duplicate submission is rejected without creating a security strike.
+        duplicate = db.execute(
+            """SELECT created_at FROM team_safety_warn_events
+               WHERE guild_id=? AND actor_id=? AND target_id=? AND action='warn_attempt'
+                 AND created_at>? ORDER BY created_at DESC LIMIT 1""",
+            (guild_key, actor_key, target_key, current - DUPLICATE_ATTEMPT_SECONDS),
+        ).fetchone()
+        if duplicate:
+            return {
+                "allowed": False, "action": "duplicate", "code": "duplicate_submit",
+                "reason": "Doppelte Warnanfrage erkannt. Bitte warte kurz und prüfe den Status.",
+                "strike_count": strikes, "locked_until": locked_until,
+                "lockout_attempts": lockout_attempts, "incident_id": None,
+            }
+
+        from_row = db.execute(
+            """SELECT target_id, action, created_at FROM team_safety_warn_events
+               WHERE guild_id=? AND actor_id=? AND action='warn_attempt' AND created_at>=?
+               ORDER BY created_at""",
+            (guild_key, actor_key, current - 600),
+        ).fetchall()
+        history = [dict(row) for row in from_row]
+        burst = detect_warn_burst(history, target_key, current)
+        if burst["triggered"]:
+            incident_action = next_incident_action(strikes, last_trigger, current)
+            strikes = strikes + 1 if last_trigger and current - last_trigger <= 86400 else 1
+            duration = FIRST_LOCKOUT_SECONDS if incident_action == "lockout" else REPEAT_LOCKOUT_SECONDS
+            locked_until = current + duration
+            lockout_attempts = 0
+            last_trigger = current
+            last_reason = burst["reason"]
+            cursor = db.execute(
+                """INSERT INTO team_safety_warn_events
+                   (guild_id,actor_id,target_id,action,created_at,details)
+                   VALUES (?,?,?,?,?,?)""",
+                (guild_key, actor_key, target_key, "security_trigger", current, burst["reason"]),
+            )
+            _save_team_safety_state(
+                db, guild_key, actor_key, strike_count=strikes,
+                locked_until=locked_until, last_trigger_at=last_trigger,
+                lockout_attempts=lockout_attempts, team_kicked_at=team_kicked_at,
+                last_reason=last_reason, updated_at=current,
+            )
+            return {
+                "allowed": False, "action": incident_action, "code": burst["code"],
+                "reason": burst["reason"], "strike_count": strikes,
+                "locked_until": locked_until, "lockout_attempts": 0,
+                "incident_id": cursor.lastrowid, "metrics": burst,
+            }
+
+        db.execute(
+            """INSERT INTO team_safety_warn_events
+               (guild_id,actor_id,target_id,action,created_at,details)
+               VALUES (?,?,?,?,?,?)""",
+            (guild_key, actor_key, target_key, "warn_attempt", current, ""),
+        )
+        _save_team_safety_state(
+            db, guild_key, actor_key, strike_count=strikes,
+            locked_until=0, last_trigger_at=last_trigger,
+            lockout_attempts=0, team_kicked_at=team_kicked_at,
+            last_reason=last_reason, updated_at=current,
+        )
+        return {
+            "allowed": True, "action": "allow", "code": "",
+            "reason": "", "strike_count": strikes, "locked_until": 0,
+            "lockout_attempts": 0, "incident_id": None, "metrics": burst,
+        }
+
+
+def check_team_safety_action(guild_id, actor_id, action_name, now_ts=None):
+    """Block high-impact moderation/rank actions during a safety lockout.
+
+    Repeated attempts while locked cause the same escalation as repeated warning
+    attempts. Callers should enforce the returned team_kick action asynchronously.
+    """
+    import time
+    from pulse_team_protection import REPEAT_LOCKOUT_SECONDS, lockout_action
+
+    current = float(time.time() if now_ts is None else now_ts)
+    guild_key, actor_key = str(guild_id), str(actor_id)
+    with connect() as db:
+        row = db.execute(
+            "SELECT * FROM team_safety_actor_state WHERE guild_id=? AND actor_id=?",
+            (guild_key, actor_key),
+        ).fetchone()
+        if not row or float(row["locked_until"] or 0) <= current:
+            return {"allowed": True, "action": "allow", "lockout_attempts": 0}
+        state = dict(row)
+        attempts = int(state.get("lockout_attempts") or 0) + 1
+        decision = lockout_action(attempts)
+        locked_until = float(state.get("locked_until") or 0)
+        strikes = int(state.get("strike_count") or 0)
+        reason = f"Versuch der Aktion {str(action_name)[:80]} während aktiver Team-Schutzsperre"
+        if decision == "team_kick":
+            strikes = max(strikes, 2)
+            locked_until = max(locked_until, current + REPEAT_LOCKOUT_SECONDS)
+        db.execute(
+            """INSERT INTO team_safety_warn_events
+               (guild_id,actor_id,target_id,action,created_at,details)
+               VALUES (?,?,?,?,?,?)""",
+            (guild_key, actor_key, "", "blocked_action", current, reason),
+        )
+        _save_team_safety_state(
+            db, guild_key, actor_key, strike_count=strikes,
+            locked_until=locked_until, last_trigger_at=float(state.get("last_trigger_at") or 0),
+            lockout_attempts=attempts, team_kicked_at=state.get("team_kicked_at"),
+            last_reason=reason if decision == "team_kick" else str(state.get("last_reason") or ""),
+            updated_at=current,
+        )
+        return {
+            "allowed": False, "action": decision, "code": "lockout_action",
+            "reason": reason, "strike_count": strikes, "locked_until": locked_until,
+            "lockout_attempts": attempts, "incident_id": None,
+        }
+
+
+def mark_team_safety_kicked(guild_id, actor_id, now_ts=None):
+    """Persist completion of an automatic team role removal."""
+    import time
+    current = float(time.time() if now_ts is None else now_ts)
+    with connect() as db:
+        db.execute(
+            """UPDATE team_safety_actor_state SET team_kicked_at=?,updated_at=?
+               WHERE guild_id=? AND actor_id=?""",
+            (current, current, str(guild_id), str(actor_id)),
+        )
+
+
 def purge_old_notifications(days=90):
     cutoff = datetime.now(timezone.utc).timestamp() - max(1, int(days)) * 86400
     cutoff_iso = datetime.fromtimestamp(cutoff, timezone.utc).isoformat(timespec="seconds")
@@ -756,6 +1015,7 @@ TABLES = [
     "notifications", "tasks", "task_history", "tickets", "ticket_events", "wiki_pages", "achievements",
     "achievement_progress", "trainings", "training_questions", "training_attempts", "meetings_history",
     "team_status", "handover_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
+    "team_safety_warn_events", "team_safety_actor_state",
 ]
 
 
