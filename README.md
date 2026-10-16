@@ -26,7 +26,7 @@ Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstz
 - Support/SLA-Übersicht, Aufgaben-2.0-Board und Performance-Leaderboards
 - Monatsberichte, CSV/JSON-Export und detailliertes Health/Security Center mit RAM-, KI-Cache- und Warteschlangen-Monitoring
 - Wiederverwendete HTTP-Verbindungspools für KI-/Social-Integrationen und Größenlimits beim Feed-Streaming
-- Vollständige Discord-Struktur- und Pulse-Backups mit Rollen/Kanalberechtigungen, Servereinstellungen, vorhandenen Mitgliedsrollen, SQLite/JSON-Daten, Ticket-Transkripten, JSON-Download/-Upload, validiertem Restore und automatischer Sicherheitskopie
+- Vollständige Discord-Struktur- und Pulse-Backups mit Rollen/Kanalberechtigungen, Servereinstellungen, Mitgliedsrollen, SQLite/JSON-Daten, Ticket-Transkripten, validiertem JSON-Download/-Upload, automatischer Sicherheitskopie, sicherem additive Restore-Modus und optionaler exakter Wiederherstellung
 - Digitale Dashboard-Zwischenrollen direkt in den Pulse-Pro-Einstellungen: interne Rechteprofile erstellen, konfigurieren und vorhandenen Discord-Teamrollen zuordnen, ohne Discord-Rollen oder Serverrechte zu ändern; plus granulare Permission-Overrides und Workflow Center mit Bedingungen/Aktionsketten
 
 ## Ressourcen- und RAM-Schutz
