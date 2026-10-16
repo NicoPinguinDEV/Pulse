@@ -916,7 +916,7 @@ def warning_role_health(guild, config: dict | None = None) -> list[dict]:
 
 
 async def _add_temporary_warn_role(guild, member, role_id: int, warn: dict, label: str):
-    """Vergibt eine einwöchige Warn-Folgerolle und speichert ihr Ablaufdatum dauerhaft."""
+    """Vergibt eine Warn-Folgerolle bis zum Ablauf der zugehörigen Warnung."""
     result = {"ok": True, "role_id": role_id, "expires_at": None, "message": ""}
     role = guild.get_role(role_id) if guild else None
     if not role:
@@ -929,7 +929,13 @@ async def _add_temporary_warn_role(guild, member, role_id: int, warn: dict, labe
         result.update(ok=False, message=f"Bot kann die {label}-Rolle nicht verwalten.")
         return result
 
-    expires_at = (now_de() + timedelta(days=WARN_TEMP_ROLE_DAYS)).isoformat(timespec="seconds")
+    # The punishment follows the warning lifetime selected in the dashboard.
+    # Legacy warnings without an expiry retain the safe seven-day default.
+    raw_warn_expiry = warn.get("expires_at")
+    try:
+        expires_at = parse_dt(str(raw_warn_expiry)).isoformat(timespec="seconds") if raw_warn_expiry else (now_de() + timedelta(days=WARN_TEMP_ROLE_DAYS)).isoformat(timespec="seconds")
+    except (TypeError, ValueError, OverflowError):
+        expires_at = (now_de() + timedelta(days=WARN_TEMP_ROLE_DAYS)).isoformat(timespec="seconds")
     try:
         if role not in member.roles:
             await member.add_roles(role, reason=f"Warn-Folge {label} · Warn {warn.get('id')}")
@@ -1401,26 +1407,20 @@ async def cleanup_expired_warn_restrictions(guild, config: dict | None = None):
                     keep.append(restriction)
                     continue
 
-                # Do not remove a shared restriction while another live warning
-                # still owns the same temporary role.
+                # Keep all warning-related punishment roles while any other
+                # team warning remains active. Keep this expiry record as well so
+                # the role is removed automatically once the final warning ends.
                 result["checked"] += 1
-                role_id = int(restriction.get("role_id", 0) or 0)
                 another_active_source = any(
                     other is not warn
                     and isinstance(other, dict)
                     and other.get("active", True)
                     and not other.get("revoked_at")
                     and not warning_is_expired(other, current)
-                    and any(
-                        isinstance(other_restriction, dict)
-                        and int(other_restriction.get("role_id", 0) or 0) == role_id
-                        and not _restriction_expired(other_restriction, current)
-                        for other_restriction in ((other.get("consequences") or {}).get("temporary_roles") or [])
-                    )
                     for other in (entry.get("warns_list", []) or [])
                 )
                 if another_active_source:
-                    warns_changed = True
+                    keep.append(restriction)
                     continue
 
                 member = guild.get_member(int(user_id)) if guild else None
@@ -6565,38 +6565,39 @@ async def handle_action(
         # Temporäre Folgen dieser konkreten Warnung beim Zurückziehen sofort entfernen.
         temp_roles = (target.get("consequences") or {}).get("temporary_roles", [])
         temp_remove_failed = False
+        temp_roles_to_keep = []
         for restriction in temp_roles:
             role_id = int(restriction.get("role_id", 0) or 0)
             role = guild.get_role(role_id)
             if not role:
                 continue
-            other_warn_still_needs_role = any(
+            # A different active warning keeps temporary punishments in place,
+            # even if the warning that originally granted the role was revoked.
+            other_active_warning = any(
                 other is not target
                 and isinstance(other, dict)
                 and other.get("active", True)
                 and not other.get("revoked_at")
                 and not warning_is_expired(other)
-                and any(
-                    isinstance(other_restriction, dict)
-                    and int(other_restriction.get("role_id", 0) or 0) == role_id
-                    and not _restriction_expired(other_restriction)
-                    for other_restriction in ((other.get("consequences") or {}).get("temporary_roles") or [])
-                )
                 for other in entry.get("warns_list", [])
             )
-            if other_warn_still_needs_role:
+            if other_active_warning:
+                temp_roles_to_keep.append(restriction)
                 continue
             try:
                 if role in m.roles:
                     if guild.me and (not guild.me.guild_permissions.manage_roles or role.position >= guild.me.top_role.position):
                         temp_remove_failed = True
+                        temp_roles_to_keep.append(restriction)
                         continue
                     await m.remove_roles(role, reason=f"Warn zurückgezogen · {revoke_reason}")
             except discord.Forbidden:
                 temp_remove_failed = True
+                temp_roles_to_keep.append(restriction)
             except Exception:
                 temp_remove_failed = True
-        target.setdefault("consequences", {})["temporary_roles"] = [] if not temp_remove_failed else temp_roles
+                temp_roles_to_keep.append(restriction)
+        target.setdefault("consequences", {})["temporary_roles"] = temp_roles if temp_remove_failed else temp_roles_to_keep
         save_json(DATA_FILE, team_db)
         role_report = await sync_warn_roles(guild, m, count, config)
 
