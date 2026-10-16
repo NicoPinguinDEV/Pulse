@@ -3479,6 +3479,16 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), u
         return back("/dashboard", "Diese Aktion ist gerade nicht möglich.", False)
 
     save_json(SHIFTS_FILE, shifts_db)
+    # Voice-Support-Bereitschaft is a view of this same shift state, not a
+    # second independent check-in. Keep its Discord role and status post in sync.
+    try:
+        bot = getattr(request.app.state, "bot", None)
+        voice_support = bot.get_cog("VoiceSupport") if bot else None
+        if voice_support:
+            await voice_support.sync_member_duty_role(ctx.guild, mod_id)
+            await voice_support._refresh_duty_status(ctx.guild)
+    except Exception as exc:
+        print(f"⚠️ Voice-Support: Bereitschaft konnte nach Schichtaktion nicht aktualisiert werden: {exc}")
     return back("/dashboard", msg)
 
 
