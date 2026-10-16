@@ -4848,6 +4848,17 @@ async def pulse_tickets_dashboard_action(
 # =============================================================
 # ROUTE 2: TEAMLISTE (Wochenziel mit Fortschrittsbalken)
 # =============================================================
+def format_support_case_period_start(value: str) -> str:
+    """Format the stored UTC period boundary in Pulse's configured local timezone."""
+    try:
+        stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if stamp.tzinfo is not None:
+            stamp = stamp.astimezone(TZ)
+        return stamp.strftime("%d.%m.%Y %H:%M Uhr")
+    except (TypeError, ValueError, OverflowError):
+        return str(value or "unbekannt")
+
+
 @app.get("/team", response_class=HTMLResponse)
 async def team_list_page(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
@@ -4858,6 +4869,10 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     active = shifts_db["active_shifts"]
     loas = get_loas()
     team_db = load_json(DATA_FILE, {})
+    support_period_start = pulse_db.get_support_case_period_start()
+    support_counts = pulse_db.support_case_counts(support_period_start)
+    support_period_start_label = format_support_case_period_start(support_period_start)
+    support_period_total = sum(support_counts.values())
     activity = get_activity_today(guild.id)
     activity_exists = bool(activity["check_id"])
     activity_confirmed = activity["confirmed"]
@@ -4880,6 +4895,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             "color": role_hex(top),
             "warns": len(active_warns(user_entry(team_db, str(member.id)))) if isinstance(team_db, dict) else 0,
             "hrs": hrs, "reached": hrs >= weekly_goal, "on_loa": on_loa,
+            "support_cases": support_counts.get(str(member.id), 0),
             "loa_until": fmt_date(loa["bis"]) if on_loa else "",
             "duty": active.get(str(member.id), {}).get("status"),
             "activity": (
@@ -4913,7 +4929,8 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
         if activity_exists else "⚪ Heute noch kein Activity Check"
     )
     summary = (f"{len(members)} Mitglieder · ✅ {len([m for m in members if m['reached']])} Ziel erreicht · "
-               f"⚠️ {below} unter Ziel · 🟢 {len([m for m in members if m['duty']])} im Dienst · 🌴 {len([m for m in members if m['on_loa']])} abgemeldet · Activity: {activity_summary}")
+               f"⚠️ {below} unter Ziel · 🟢 {len([m for m in members if m['duty']])} im Dienst · 🌴 {len([m for m in members if m['on_loa']])} abgemeldet · Activity: {activity_summary} · "
+               f"🎧 {support_period_total} Supportfälle seit {support_period_start_label}")
 
     confirmed_names = [m["name"] for m in members if m["activity"] == "confirmed"]
     open_names = [m["name"] for m in members if m["activity"] == "open"]
@@ -5040,6 +5057,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                         <span class="w-1.5 h-1.5 rounded-full" style="background-color:{m['color']}"></span>{esc(m['role'])}
                     </span>
                     <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg border {style}" title="Soll-Ziel: {weekly_goal}h/Woche">⏱️ {m['hrs']:.1f}h / {weekly_goal:g}h</span>
+                    <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400" title="Abgeschlossene Pulse-Tickets, zugeordnet im Zeitraum seit dem letzten Teammeeting">🎧 {m['support_cases']} Supportfälle</span>
                 </div>
                 <div class="text-[10px] text-slate-400">🗓️ Team seit <span class="font-semibold text-slate-500 dark:text-slate-300">{esc(m['team_since'])}</span></div>
                 <div class="h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"><div class="h-full {bar_color}" style="width:{pct}%"></div></div>
@@ -5327,6 +5345,9 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
     warns = info.get("warns_list", [])
     active_warn_count = len(active_warns(info))
     weekly = calculate_weekly_seconds(str(user_id), shifts_db["history"], shifts_db["active_shifts"]) / 3600
+    support_period_start = pulse_db.get_support_case_period_start()
+    support_case_count = pulse_db.support_case_counts(support_period_start).get(str(user_id), 0)
+    support_period_start_label = format_support_case_period_start(support_period_start)
 
     roles = [r for r in member.roles if r.id in team_role_ids]
     top = max(roles, key=lambda r: r.position) if roles else member.top_role
@@ -5423,7 +5444,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
         <div class="lg:col-span-2 space-y-6">
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Ticket-Cases</div><div class="text-2xl font-bold">{info.get('ticket_cases', 0)}</div></div>
-                <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Support-Cases</div><div class="text-2xl font-bold">{info.get('support_cases', 0)}</div></div>
+                <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Supportfälle seit Teammeeting</div><div class="text-2xl font-bold text-sky-600 dark:text-sky-400">{support_case_count}</div><div class="text-[10px] text-slate-400 mt-1">Seit {esc(support_period_start_label)}</div></div>
                 <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Wochenstunden</div><div class="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{weekly:.1f}h</div></div>
                 <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Verwarnungen</div><div class="text-2xl font-bold {warn_color}">{len(warns)}/5</div></div>
             </div>
@@ -5463,6 +5484,10 @@ async def meetings_page(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
     guild = ctx.guild
     meetings = load_meetings()
+    support_period_start = pulse_db.get_support_case_period_start()
+    support_counts = pulse_db.support_case_counts(support_period_start)
+    support_period_total = sum(support_counts.values())
+    support_period_start_label = format_support_case_period_start(support_period_start)
     uid = ctx.user["id"]
     rsvps = meetings["rsvps"]
     user_status = rsvps.get(uid, {}).get("status", "none")
@@ -5498,6 +5523,24 @@ async def meetings_page(request: Request, user_session: str = Cookie(None)):
 
     def rsvp_btn(value, label, active_cls, idle_cls):
         return f'<button name="rsvp_status" value="{value}" class="{active_cls if user_status == value else idle_cls} px-4 py-2 rounded-xl text-xs transition">{label}</button>'
+
+    support_period_action = f"""
+        <form action="/action" method="post" onsubmit="return confirm('Teammeeting als abgeschlossen markieren und einen neuen Supportfall-Zeitraum starten? Die bisherige Zählung wird archiviert.');">
+            <input type="hidden" name="action" value="reset_support_case_period">
+            <button class="{BTN} px-4 py-2.5">✅ Teammeeting abgeschlossen · neue Support-Woche starten</button>
+        </form>""" if is_manager else '<p class="text-[11px] text-slate-500">Die nächste Support-Woche kann nach dem Teammeeting durch die Teamleitung gestartet werden.</p>'
+    support_period_card = f"""
+        <div class="{CARD} p-5 space-y-3">
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <h3 class="text-sm font-bold text-slate-900 dark:text-white">🎧 Supportfälle zwischen Teammeetings</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Gezählt werden abgeschlossene Pulse-Tickets, die einem Teammitglied zugeordnet sind.</p>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-2">Aktueller Zeitraum seit <strong>{esc(support_period_start_label)}</strong></p>
+                </div>
+                <div class="text-3xl font-extrabold text-sky-600 dark:text-sky-400">{support_period_total}</div>
+            </div>
+            {support_period_action}
+        </div>"""
 
     admin_card = f"""
     <div class="{CARD} p-6 space-y-3 text-xs">
@@ -5536,6 +5579,7 @@ async def meetings_page(request: Request, user_session: str = Cookie(None)):
                     </form>
                 </div>
             </div>
+            {support_period_card}
             <div class="{CARD} p-6 space-y-4">
                 <h3 class="text-sm font-bold text-slate-900 dark:text-white">💡 Themenvorschläge einreichen</h3>
                 <form action="/action" method="post" class="space-y-3 text-xs">
@@ -7521,6 +7565,7 @@ ACTION_PERMS = {
     "vote_app": "can_view_dashboard", "decide_app": "can_manage_applications",
     "meeting_rsvp": "can_view_dashboard", "add_meeting_topic": "can_view_dashboard",
     "delete_meeting_topic": "can_view_dashboard", "set_meeting_info": "can_promote",
+    "reset_support_case_period": "can_promote",
     "save_role_permissions": "admin", "set_weekly_goal": "admin", "save_team_roles": "admin",
     "save_dashboard_role": "admin", "delete_dashboard_role": "admin",
 }
@@ -8594,6 +8639,23 @@ async def handle_action(
             await send_team_update_embed(guild, "🎙️ Teambesprechung angesetzt",
                 f"**{title}**\n📅 {when}\n{meetings['description']}\n\nZu-/Absagen im Dashboard unter *Teambesprechung*.", discord.Color.blurple())
         return back("/meetings", "Besprechung gespeichert.")
+
+    if action == "reset_support_case_period":
+        try:
+            completed_period = pulse_db.finish_support_case_period(actor_id, actor)
+            log_audit(
+                actor, actor_id, "Supportfall-Zeitraum abgeschlossen",
+                f"{completed_period['total']} abgeschlossene Pulse-Tickets · "
+                f"{completed_period['start_at']} bis {completed_period['end_at']}",
+            )
+            return back(
+                "/meetings",
+                f"Teammeeting-Zeitraum archiviert: {completed_period['total']} abgeschlossene Supportfälle. "
+                "Die neue Zählung läuft ab jetzt.",
+            )
+        except Exception as exc:
+            print(f"Supportfall-Zeitraum konnte nicht zurückgesetzt werden: {type(exc).__name__}: {exc}")
+            return back("/meetings", "Der Supportfall-Zeitraum konnte nicht gespeichert werden. Bitte erneut versuchen.", False)
 
     # ---------- Dashboard-only Rollenprofile (keine Discord-Rollenänderung) ----------
     if action == "save_dashboard_role":
