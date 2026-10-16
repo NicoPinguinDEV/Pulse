@@ -13,6 +13,7 @@ __pycache__/
 .session_secret
 
 # Runtime databases and state
+role_nickname_state.json
 *.db
 *.sqlite
 *.sqlite3
