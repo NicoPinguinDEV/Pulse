@@ -872,8 +872,7 @@ def main() -> None:
     assert "async def publish_panel_for_guild" in tickets
     # Deleted ticket panel messages should self-heal and persist replacement IDs.
     assert "except discord.NotFound:" in tickets
-    assert "failed and could not be republished" not in tickets.lower()
-    assert "Ticket-Panel in Kanal" not in tickets
+    assert 'current_settings["panel_message_id"] = replacement.id' in tickets
     assert "wurde neu erstellt" in tickets
     assert "await self.publish_panel_for_guild(guild, str(panel[\"id\"]))" in tickets
     assert "def ticket_category_definitions()" in tickets
