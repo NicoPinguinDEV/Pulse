@@ -399,7 +399,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.14"' in version_source
+    assert 'PULSE_VERSION = "7.8.15"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
@@ -673,6 +673,19 @@ def main() -> None:
     assert "backup_discord_channel_id" in web
     assert 'PULSE_BACKUP_DISCORD_CHANNEL_ID' in web
     assert "pre_restore_" in web
+    # Full Discord + Pulse backup/restore is validated, importable, and guarded by a pre-restore snapshot.
+    assert '"backup_version": 3' in web
+    assert "async def create_backup_file_async(guild" in web
+    assert "async def restore_guild_structure(guild, backup: dict, exact_restore: bool = False)" in web
+    assert "def validate_backup_document(backup: dict, guild_id: int | None = None)" in web
+    assert 'action="/backup/upload" method="post" enctype="multipart/form-data"' in web
+    assert "MAX_BACKUP_UPLOAD_BYTES = 50 * 1024 * 1024" in web
+    assert "await create_backup_file_async(ctx.guild, \"pre_restore_\")" in web
+    assert "member_assignments" in web
+    assert "guild_settings" in web
+    assert "icon_base64" in web
+    assert 'await create_backup_file_async(guild, "auto_")' in web
+    assert 'value="true">\n                    <span><strong>Exakte Struktur erzwingen' in web
     assert 'if panel.get("logs") == {}' in web
     assert "Nicht unterstützte Backup-Version" in web
     assert "Dieses Backup gehört zu einem anderen Discord-Server" in web
