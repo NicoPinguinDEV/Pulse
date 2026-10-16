@@ -47,6 +47,18 @@ class RoleNicknamePrefixTests(unittest.TestCase):
         )
         self.assertIsNone(select_highest_role_prefix(roles[:1], {}))
 
+    def test_ex_teamler_role_overrides_higher_remaining_roles(self):
+        roles = [
+            (100, 0, "@everyone", True),
+            (101, 5, "》 𝐁𝐎 ║ Bürger", False),
+            (1489912887949394082, 10, "》⛔ ‖ 𝐄𝐗 𝐓𝐄𝐀𝐌𝐋𝐄𝐑", False),
+            (103, 100, "》BORP メ Owner", False),
+        ]
+        self.assertEqual(
+            select_highest_role_prefix(roles, {}),
+            (1489912887949394082, "𝐄𝐗 𝐓𝐄𝐀𝐌𝐋𝐄𝐑 ✗"),
+        )
+
     def test_legacy_rank_tags_are_removed_from_existing_nicknames(self):
         self.assertEqual(strip_legacy_rank_prefix("Sr.-Sup メ Dawo"), "Dawo")
         self.assertEqual(strip_legacy_rank_prefix("Owner メ Phillip | Abgem"), "Phillip | Abgem")
