@@ -42,7 +42,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_team_protection.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -197,6 +197,26 @@ def main() -> None:
     assert "save_json(STATE_FILE" not in nickname_cog
     assert nickname_cog.count("async def _get_member_state") == 1
     assert "json.JSONDecodeError" in nickname_cog
+
+    # Persistent moderator-abuse protection: rate-limit both manual warning interfaces,
+    # preserve lockout state in SQLite/backups, and auto-remove team roles on repeat abuse.
+    team_protection = read("pulse_team_protection.py")
+    parse("tests/test_team_protection.py")
+    assert "SAME_TARGET_WARN_LIMIT = 3" in team_protection
+    assert "MULTI_TARGET_WARN_LIMIT = 4" in team_protection
+    assert "FIRST_LOCKOUT_SECONDS = 30 * 60" in team_protection
+    assert "REPEAT_INCIDENT_WINDOW_SECONDS = 24 * 60 * 60" in team_protection
+    assert "CREATE TABLE IF NOT EXISTS team_safety_warn_events" in read("pulse_db.py")
+    assert "CREATE TABLE IF NOT EXISTS team_safety_actor_state" in read("pulse_db.py")
+    assert '"team_safety_actor_state"' in read("pulse_db.py")
+    assert "def check_team_warn_safety(" in read("pulse_db.py")
+    assert "def check_team_safety_action(" in read("pulse_db.py")
+    assert "async def enforce_team_warn_protection(" in web
+    assert "async def enforce_team_safety_action_lockout(" in web
+    assert "_apply_team_safety_team_kick" in web
+    assert "await web.enforce_team_warn_protection(" in read("cogs/pulse_suite.py")
+    assert "active warning lockout" not in read("cogs/pulse_suite.py")
+    assert 'if key in {"warn-remove","server-exit","team-exit","kick","team-kick","promote","demote"}:' in read("cogs/pulse_suite.py")
 
     # Warning lifetime, probation and automatic penalty cleanup regressions.
     assert "DEFAULT_AUTO_WARN_DURATION_DAYS = 7" in web
@@ -375,7 +395,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.13"' in version_source
+    assert 'PULSE_VERSION = "7.8.14"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
