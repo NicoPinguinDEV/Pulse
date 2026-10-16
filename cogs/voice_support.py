@@ -10,24 +10,12 @@ from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands, tasks
 import pulse_db as db
+from pulse_voice_support_utils import DEFAULT_HOURS, DAYS, DAY_NAMES, shift_is_online, support_open_now
 
 CONFIG_KEY = "voice_support_config"
 CASES_KEY = "voice_support_cases"
 RATINGS_KEY = "voice_support_ratings"
 PENDING_KEY = "voice_support_pending_ratings"
-DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
-DAY_NAMES = dict(zip(DAYS, ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")))
-DEFAULT_HOURS = {
-    "monday": {"enabled": True, "start": "10:00", "end": "22:00"},
-    "tuesday": {"enabled": True, "start": "10:00", "end": "22:00"},
-    "wednesday": {"enabled": True, "start": "10:00", "end": "22:00"},
-    "thursday": {"enabled": True, "start": "10:00", "end": "22:00"},
-    "friday": {"enabled": True, "start": "10:00", "end": "23:59"},
-    "saturday": {"enabled": True, "start": "10:00", "end": "23:59"},
-    "sunday": {"enabled": True, "start": "10:00", "end": "22:00"},
-}
-
-
 def get_config() -> dict:
     cfg = db.get_setting(CONFIG_KEY, {})
     cfg = cfg if isinstance(cfg, dict) else {}
@@ -50,38 +38,6 @@ def get_cases() -> dict:
     value = db.get_setting(CASES_KEY, {})
     return value if isinstance(value, dict) else {}
 
-
-def shift_is_online(shifts: dict, user_id: int | str) -> bool:
-    active = shifts.get("active_shifts", {}) if isinstance(shifts, dict) else {}
-    state = active.get(str(user_id), {}) if isinstance(active, dict) else {}
-    return isinstance(state, dict) and state.get("status") == "online"
-
-
-def support_open_now(cfg: dict, now: datetime | None = None) -> bool:
-    try:
-        local = (now or datetime.now(ZoneInfo("Europe/Berlin"))).astimezone(ZoneInfo("Europe/Berlin"))
-    except Exception:
-        local = now or datetime.now()
-    hours = cfg.get("hours", {})
-    day = DAYS[local.weekday()]
-    item = hours.get(day, DEFAULT_HOURS[day]) if isinstance(hours, dict) else DEFAULT_HOURS[day]
-    if not isinstance(item, dict) or not item.get("enabled"):
-        return False
-
-    def parse(value):
-        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", str(value or "")):
-            raise ValueError
-        h, m = str(value).split(":")
-        return int(h) * 60 + int(m)
-
-    try:
-        start, end = parse(item.get("start", "10:00")), parse(item.get("end", "22:00"))
-    except ValueError:
-        return False
-    current = local.hour * 60 + local.minute
-    if start == end:
-        return False
-    return start <= current < end if start < end else current >= start or current < end
 
 
 def private_overwrites(guild: discord.Guild, member: discord.Member, staff_roles: list[discord.Role]) -> dict:
