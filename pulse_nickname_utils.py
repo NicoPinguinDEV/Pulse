@@ -7,6 +7,10 @@ import unicodedata
 MAX_DISCORD_NICKNAME_LENGTH = 32
 MAX_ROLE_PREFIX_LENGTH = 24
 
+# This role marks members who have left the team. It must override every active rank.
+EX_TEAMLER_ROLE_ID = 1489912887949394082
+EX_TEAMLER_PREFIX = "𝐄𝐗 𝐓𝐄𝐀𝐌𝐋𝐄𝐑 ✗"
+
 
 def normalize_role_prefix(value: object) -> str:
     """Validate a prefix while keeping the delimiter separate from the setting."""
@@ -66,14 +70,25 @@ def automatic_role_prefix(role_name: object) -> str:
 
 
 def select_highest_role_prefix(role_records, configured_prefixes: dict[str, str]):
-    """Return (role_id, prefix) for the highest non-@everyone role.
+    """Return the forced former-team prefix or the highest non-@everyone role.
 
     role_records contains (role_id, role_position, role_name, is_default_role).
-    Custom settings override that role's prefix, but a lower configured role
-    cannot outrank a higher Discord role.
+    The former-team role is a special status and deliberately overrides any
+    remaining VIP/citizen/old-rank roles after a team exit.
     """
+    records = list(role_records)
+    for raw_role_id, _, _, is_default in records:
+        if is_default:
+            continue
+        try:
+            role_id = int(raw_role_id)
+        except (TypeError, ValueError):
+            continue
+        if role_id == EX_TEAMLER_ROLE_ID:
+            return EX_TEAMLER_ROLE_ID, EX_TEAMLER_PREFIX
+
     candidates = []
-    for raw_role_id, raw_position, role_name, is_default in role_records:
+    for raw_role_id, raw_position, role_name, is_default in records:
         if is_default:
             continue
         try:
