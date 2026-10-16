@@ -1440,8 +1440,11 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
 
 
 async def cleanup_expired_team_warnings(guild, config: dict | None = None):
-    """Expire timed warnings, retain their history, then resynchronize warning roles."""
-    result = {"checked": 0, "expired": 0, "roles_synced": 0, "failed": 0}
+    """Expire warnings, update warning roles, and release warning sanctions when no active warns remain."""
+    result = {
+        "checked": 0, "expired": 0, "roles_synced": 0, "failed": 0,
+        "sanctions_restored": 0, "sanctions_failed": 0,
+    }
     if not guild:
         result["failed"] = 1
         return result
@@ -1452,7 +1455,7 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
 
     current = now_de()
     changed = False
-    expired_users = []
+    users_to_process = []
     for user_id, entry in team_db.items():
         if not isinstance(entry, dict):
             continue
@@ -1469,38 +1472,75 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
                 newly_expired.append(warn)
                 result["expired"] += 1
                 changed = True
-        if newly_expired:
-            expired_users.append((str(user_id), entry, newly_expired))
+
+        no_active_warnings = not active_warns(entry)
+        sanctions_pending = no_active_warnings and any(
+            isinstance(warn, dict)
+            and (
+                (
+                    (warn.get("consequences") or {}).get("downrank_applied")
+                    and not (warn.get("consequences") or {}).get("downrank_reverted_at")
+                    and not (warn.get("consequences") or {}).get("downrank_restore_skipped_at")
+                )
+                or (
+                    (warn.get("consequences") or {}).get("team_kick_applied")
+                    and not (warn.get("consequences") or {}).get("team_kick_reverted_at")
+                    and not (warn.get("consequences") or {}).get("team_kick_restore_skipped_at")
+                    and not (warn.get("consequences") or {}).get("test_supporter_team_kick")
+                )
+            )
+            for warn in (entry.get("warns_list", []) or [])
+        )
+        if newly_expired or sanctions_pending:
+            users_to_process.append((str(user_id), entry, newly_expired))
 
     if changed:
         save_json(DATA_FILE, team_db)
 
     cfg = config or load_config()
-    for user_id, entry, newly_expired in expired_users:
+    sanctions_changed = False
+    for user_id, entry, newly_expired in users_to_process:
         member = guild.get_member(int(user_id)) if str(user_id).isdigit() else None
-        report = await sync_warn_roles(guild, member, len(active_warns(entry)), cfg) if member else {"ok": False}
-        if report.get("ok"):
-            result["roles_synced"] += 1
-        else:
+        if member:
+            report = await sync_warn_roles(guild, member, len(active_warns(entry)), cfg)
+            if report.get("ok"):
+                result["roles_synced"] += 1
+            else:
+                result["failed"] += 1
+
+            if not active_warns(entry):
+                restoration = await restore_expired_warn_sanctions(guild, member, entry, cfg)
+                if restoration.get("changed"):
+                    sanctions_changed = True
+                result["sanctions_restored"] += len(restoration.get("restored", []))
+                result["sanctions_failed"] += len(restoration.get("failed", []))
+                if restoration.get("failed"):
+                    result["failed"] += len(restoration["failed"])
+                    for issue in restoration["failed"]:
+                        print(f"⚠️ Warn-Folge konnte für {member.id} nicht aufgehoben werden: {issue}")
+        elif newly_expired:
             result["failed"] += 1
 
-        reasons = "; ".join(str(w.get("reason") or "Kein Grund") for w in newly_expired[:3])
-        log_audit(
-            "Pulse – automatische Warn-Ablaufkontrolle",
-            "system",
-            "Team-Warnung abgelaufen",
-            f"User-ID {user_id}: {len(newly_expired)} Warnung(en) abgelaufen. Gründe: {reasons}",
-        )
-        if member:
-            try:
-                await send_dm_notification(
-                    member,
-                    f"✅ Deine Team-Verwarnung(en) bei **{guild.name}** sind abgelaufen. "
-                    f"Verbleibende aktive Warnungen: {len(active_warns(entry))}/5.",
-                )
-            except Exception as exc:
-                print(f"⚠️ DM über abgelaufene Warnung für {user_id} fehlgeschlagen: {exc}")
+        if newly_expired:
+            reasons = "; ".join(str(w.get("reason") or "Kein Grund") for w in newly_expired[:3])
+            log_audit(
+                "Pulse – automatische Warn-Ablaufkontrolle",
+                "system",
+                "Team-Warnung abgelaufen",
+                f"User-ID {user_id}: {len(newly_expired)} Warnung(en) abgelaufen. Gründe: {reasons}",
+            )
+            if member:
+                try:
+                    await send_dm_notification(
+                        member,
+                        f"✅ Deine Team-Verwarnung(en) bei **{guild.name}** sind abgelaufen. "
+                        f"Verbleibende aktive Warnungen: {len(active_warns(entry))}/5.",
+                    )
+                except Exception as exc:
+                    print(f"⚠️ DM über abgelaufene Warnung für {user_id} fehlgeschlagen: {exc}")
 
+    if sanctions_changed:
+        save_json(DATA_FILE, team_db)
     return result
 
 
