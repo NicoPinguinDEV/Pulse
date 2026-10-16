@@ -585,7 +585,13 @@ class VoiceSupport(commands.Cog):
             print(f"⚠️ Voice-Support: Verlauf zur Duplikatprüfung nicht lesbar: {exc}")
 
         msg = None
-        if saved_message and saved_message.author.id == getattr(self.bot.user, "id", 0):
+        if (
+            saved_message
+            and saved_message.author.id == getattr(self.bot.user, "id", 0)
+            and saved_message.embeds
+            and saved_message.embeds[0].title == "🧠 Support-Bereitschaft"
+            and saved_message.embeds[0].footer.text == DUTY_STATUS_FOOTER
+        ):
             msg = saved_message
         elif matches:
             msg = matches[0]
@@ -881,8 +887,9 @@ class VoiceSupport(commands.Cog):
 
             support_channel_id = channel_id(latest.get("support_channel_id"))
             support_channel = guild.get_channel(support_channel_id) if support_channel_id else None
-            if kick_user and member and isinstance(support_channel, discord.VoiceChannel):
-                if member.voice and member.voice.channel and member.voice.channel.id == support_channel.id:
+            active_channel = support_channel if isinstance(support_channel, discord.VoiceChannel) else guild.get_channel(channel_id(latest.get("channel_id")))
+            if kick_user and member and isinstance(active_channel, discord.VoiceChannel):
+                if member.voice and member.voice.channel and member.voice.channel.id == active_channel.id:
                     try:
                         await member.move_to(None, reason=f"Pulse Voice-Support: Supportfall {case_id} beendet")
                     except (discord.Forbidden, discord.HTTPException) as exc:
@@ -929,13 +936,17 @@ class VoiceSupport(commands.Cog):
             supporter_id = channel_id(latest.get("assigned_staff_id"))
             case_tag = f"#S-{case_id[:9].upper()}"
 
+            user_label = member.mention if member else str(latest.get("user_name") or "Unbekannter Bürger")
+            if supporter_id and reason == "Supportfall vom Team beendet":
+                result_description = f"{user_label} wurde von <@{supporter_id}> erfolgreich supportet!"
+            elif supporter_id:
+                result_description = f"Der Supportfall für {user_label} mit <@{supporter_id}> wurde geschlossen."
+            else:
+                result_description = f"Der Supportfall für {user_label} wurde automatisch geschlossen."
             result_embed = discord.Embed(
                 title="✅ Support Fall beendet",
-                description=(
-                    f"{member.mention if member else str(latest.get('user_name') or 'Unbekannter Bürger')} "
-                    f"{'wurde von <@' + str(supporter_id) + '> erfolgreich supportet.' if supporter_id else '· Supportfall wurde automatisch geschlossen.'}"
-                ),
-                color=discord.Color.green() if supporter_id else discord.Color.dark_grey(),
+                description=result_description,
+                color=discord.Color.green() if supporter_id and reason == "Supportfall vom Team beendet" else discord.Color.dark_grey(),
                 timestamp=discord.utils.utcnow(),
             )
             result_embed.add_field(name="CaseID", value=case_tag, inline=True)
@@ -944,6 +955,8 @@ class VoiceSupport(commands.Cog):
             result_embed.add_field(name="Supporter", value=f"<@{supporter_id}>" if supporter_id else "Nicht übernommen", inline=True)
             result_embed.add_field(name="Dauer", value=duration, inline=True)
             result_embed.add_field(name="Abschlussgrund", value=reason[:1024], inline=False)
+            if closed_by:
+                result_embed.add_field(name="Beendet von", value=closed_by.mention, inline=True)
             result_embed.set_footer(text="Pulse TeamOS · Support-Protokoll")
 
             notification = guild.get_channel(channel_id(cfg.get("notification_channel_id")))
