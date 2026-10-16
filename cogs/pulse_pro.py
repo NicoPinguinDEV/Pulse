@@ -64,8 +64,22 @@ class PulsePro(commands.Cog):
             import webserver
             # Resolve permissions/team managers once per pass instead of for each ticket/application.
             manager_cache = self.manager_members(guild)
+            housekeeping_cfg = webserver.load_config()
+            # Warning/probation expiries and their Discord role consequences must be
+            # enforced repeatedly, including after a bot restart.
             try:
-                shift_report = await webserver.process_overdue_shifts(guild, webserver.load_config())
+                warn_expiry = await webserver.cleanup_expired_team_warnings(guild, housekeeping_cfg)
+                penalty_expiry = await webserver.cleanup_expired_warn_restrictions(guild, housekeeping_cfg)
+                probation_expiry = await webserver.process_expired_probations(guild)
+                if warn_expiry.get("expired") or warn_expiry.get("failed") or penalty_expiry.get("removed") or penalty_expiry.get("failed") or probation_expiry.get("completed") or probation_expiry.get("failed"):
+                    print(
+                        f"🧾 Ablaufkontrolle: Warnungen {warn_expiry}; "
+                        f"Sperrrollen {penalty_expiry}; Probezeiten {probation_expiry}"
+                    )
+            except Exception as exc:
+                print(f"⚠️ Warn-/Probezeit-Ablaufkontrolle fehlgeschlagen: {exc}")
+            try:
+                shift_report = await webserver.process_overdue_shifts(guild, housekeeping_cfg)
                 if shift_report.get("closed") or shift_report.get("warned") or shift_report.get("failed") or shift_report.get("max_warns"):
                     print(f"⏱ Automatische Schichtkontrolle: {shift_report}")
             except Exception as exc:
