@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.16 – Restore-Sicherheit und ID-Zuordnung
+
+- Eingebaute Pulse-Warn-, Probezeit- und Pflichtrollen behalten nach dem Wiederherstellen gelöschter Rollen ihre Funktion: neue Discord-Rollen-IDs werden im Backup-Konfigurationsalias hinterlegt.
+- Die normale Wiederherstellung behält zusätzlich vergebene Mitgliedsrollen bei; nur die ausdrücklich aktivierte exakte Wiederherstellung setzt zuweisbare Mitgliederrollen auf den gesicherten Stand zurück. Von Discord verwaltete Rollen werden nicht entfernt.
+- Wiederherstellungen vermeiden unnötige identische Discord-API-Änderungen; die Sicherung selbst liest/schreibt größere Daten im Hintergrund, um den Bot-Heartbeat nicht unnötig zu blockieren.
+
 ## Version 7.8.15 – Vollständiges Discord- + Pulse-Backup
 
 - Backup-Version 3 sichert Servername und unterstützte Servereinstellungen, Rollen inklusive Berechtigungsflags/Reihenfolge, Kategorien, Kanäle, Berechtigungsüberschreibungen, Kanaloptionen, Server-Icon und bestehende Mitglieder mit Spitznamen und Rollen-Zuordnungen.
