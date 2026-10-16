@@ -560,6 +560,75 @@ def ticket_events(ticket_id, limit=100):
         return [dict(r) for r in db.execute("SELECT * FROM ticket_events WHERE ticket_id=? ORDER BY created_at DESC LIMIT ?", (ticket_id, limit)).fetchall()]
 
 
+def get_support_case_period_start():
+    """Return the current support-case reporting period start, initializing it once."""
+    raw = get_setting("support_case_period_start")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return raw
+        except (TypeError, ValueError):
+            pass
+    start = _now()
+    set_setting("support_case_period_start", start)
+    return start
+
+
+def support_case_counts(start_at=None, end_at=None):
+    """Count completed Pulse tickets by assignee for a meeting-to-meeting period.
+
+    A support case is credited to the team member who owned the ticket when it
+    was closed. Only completed tickets with a recorded assignee count.
+    The period is start-inclusive and end-exclusive, so a reset cannot count a
+    case in both reporting periods.
+    """
+    start = start_at or get_support_case_period_start()
+    end = end_at or _now()
+    with connect() as db:
+        rows = db.execute(
+            """
+            SELECT claimed_by_id AS user_id, COUNT(*) AS total
+            FROM tickets
+            WHERE status='closed'
+              AND closed_at IS NOT NULL
+              AND claimed_by_id IS NOT NULL
+              AND claimed_by_id != ''
+              AND closed_at >= ?
+              AND closed_at < ?
+            GROUP BY claimed_by_id
+            """,
+            (str(start), str(end)),
+        ).fetchall()
+    return {str(row["user_id"]): int(row["total"] or 0) for row in rows}
+
+
+def finish_support_case_period(actor_id, actor_name):
+    """Archive current per-member completed-case counts and start the next period."""
+    previous_start = get_support_case_period_start()
+    boundary = _now()
+    counts = support_case_counts(previous_start, boundary)
+    history = get_setting("support_case_period_history", [])
+    if not isinstance(history, list):
+        history = []
+    history.append({
+        "start_at": previous_start,
+        "end_at": boundary,
+        "total": sum(counts.values()),
+        "counts": counts,
+        "closed_by_id": str(actor_id or ""),
+        "closed_by_name": str(actor_name or "Teamleitung")[:100],
+    })
+    # Keep a bounded historical record so reporting cannot grow without limits.
+    set_setting("support_case_period_history", history[-52:])
+    set_setting("support_case_period_start", boundary)
+    return {
+        "start_at": previous_start,
+        "end_at": boundary,
+        "counts": counts,
+        "total": sum(counts.values()),
+    }
+
+
 def save_wiki(title, category, content, author_id, author_name, page_id=None):
     with connect() as db:
         now = _now(); pid = page_id or make_id("wiki")
