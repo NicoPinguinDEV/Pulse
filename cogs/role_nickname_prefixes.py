@@ -195,7 +195,8 @@ class RoleNicknamePrefixes(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member) -> None:
-        await self._set_member_state(member.id, None)
+        if not GUILD_ID or member.guild.id == GUILD_ID:
+            await self._set_member_state(member.id, None)
 
     def start_sync_existing_members(self) -> bool:
         if self._bulk_sync_task and not self._bulk_sync_task.done():
@@ -213,12 +214,11 @@ class RoleNicknamePrefixes(commands.Cog):
 
         config = load_config()
         prefixes = self._valid_prefix_map(config)
-        if not prefixes:
-            print("🏷️ Namenspräfix-Synchronisierung: Es sind keine Rollenpräfixe konfiguriert.")
-            return
-
         states = load_json(STATE_FILE, {})
         states = states if isinstance(states, dict) else {}
+        if not prefixes and not states:
+            print("🏷️ Namenspräfix-Synchronisierung: Es sind keine Rollenpräfixe oder gespeicherten Nicknames vorhanden.")
+            return
         role_ids = set(prefixes)
         candidates = [
             member for member in list(guild.members)
