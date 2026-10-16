@@ -3,6 +3,7 @@
 ## Version 7.8.5 – Automatische Rollen-Namenspräfixe
 
 - Rollenpräfixe können in den bestehenden Pulse-Einstellungen für jede normale Discord-Rolle konfiguriert werden, z. B. `Bürger ✗` oder `VIP ✗`.
+- Der Standardpräfix `Bürger ✗` gilt bereits ohne zusätzliche Rollenregel für alle neuen Mitglieder und als Fallback für Mitglieder ohne höher priorisierte Präfixrolle; er kann in den Einstellungen geändert oder deaktiviert werden.
 - Pulse setzt den Präfix beim Serverbeitritt und nach Rollenänderungen automatisch vor den Nickname. Hat ein Mitglied mehrere konfigurierte Rollen, gilt die höher positionierte Discord-Rolle.
 - Wenn die passende Rolle entfernt wird, versucht Pulse den vorherigen Nickname wiederherzustellen. Manuelle Nickname-Änderungen werden als neue Ausgangsbasis übernommen.
 - Die Einstellungen enthalten eine Synchronisierung für bereits vorhandene Mitglieder. Nickname-Änderungen benötigen die Discord-Berechtigung „Spitznamen verwalten“ sowie eine entsprechend hohe Bot-Rolle.
