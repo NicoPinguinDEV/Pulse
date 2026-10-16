@@ -6423,7 +6423,19 @@ async def _create_restored_channel(guild, source: dict, category, overwrites, wa
         if source.get("nsfw") is not None:
             kwargs["nsfw"] = bool(source["nsfw"])
         if kind == "stage_voice" and hasattr(guild, "create_stage_channel"):
-            return await guild.create_stage_channel(name, **kwargs)
+            # Stage APIs need a topic and don't accept the ordinary voice bitrate/user limit.
+            stage_kwargs = {
+                "topic": str(source.get("topic") or "Stage-Kanal wiederhergestellt")[:120],
+                "category": category,
+                "overwrites": overwrites,
+                "position": position,
+                "reason": reason,
+            }
+            try:
+                return await guild.create_stage_channel(name, **stage_kwargs)
+            except TypeError:
+                # Compatibility fallback for older supported discord.py releases.
+                warnings.append(f"Stage-Kanal {name}: API-Signatur nicht kompatibel, als Sprachkanal erstellt.")
         if kind == "stage_voice":
             warnings.append(f"Stage-Kanal {name}: API nicht verfügbar, als Sprachkanal erstellt.")
         return await guild.create_voice_channel(name, **kwargs)
