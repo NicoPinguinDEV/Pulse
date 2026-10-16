@@ -6147,10 +6147,12 @@ def build_backup(guild, guild_icon_base64: str | None = None) -> dict:
         if not os.path.isfile(db_path):
             continue
         try:
+            with sqlite3.connect(db_path, timeout=3.0) as checkpoint_db:
+                checkpoint_db.execute("PRAGMA wal_checkpoint(FULL)")
             if os.path.getsize(db_path) <= 20 * 1024 * 1024:
                 with open(db_path, "rb") as fh:
                     sqlite_files[db_name] = base64.b64encode(fh.read()).decode("ascii")
-        except OSError:
+        except (OSError, sqlite3.Error):
             continue
     data["panel_data"]["sqlite_files_base64"] = sqlite_files
 
@@ -6593,7 +6595,9 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
         for child in category.get("channels", []):
             if isinstance(child, dict):
                 child_copy = dict(child)
-                child_copy["category_id"] = parent_id
+                if not child_copy.get("category_id") and parent_id:
+                    child_copy["category_id"] = parent_id
+                child_copy["category_name"] = str(category.get("name") or "")
                 all_channel_records.append(child_copy)
     all_channel_records.extend(backup.get("uncategorized_channels", []))
 
@@ -6608,6 +6612,11 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
         if category is None and parent_id:
             candidate = guild.get_channel(parent_id)
             category = candidate if isinstance(candidate, discord.CategoryChannel) else None
+        if category is None and source.get("category_name"):
+            category = next(
+                (item for item in guild.categories if item.name == str(source["category_name"])),
+                None,
+            )
         overwrites = _make_permission_overwrites(guild, source.get("overwrites", []), role_map, backup_guild_id, warnings)
 
         channel = guild.get_channel(old_id) if old_id else None
