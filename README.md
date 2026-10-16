@@ -5,6 +5,7 @@ Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstz
 ## Kernfunktionen
 
 - Discord-OAuth-Dashboard mit signierten Sessions
+- Konfigurierbarer Voice-Support mit privatem Sprachraum, Öffnungszeiten, Support-Notizen, Bewertungen und einer Bereitschaftsrolle, die direkt mit den Pulse-Dashboard-Schichten synchronisiert wird.
 - Honeypot-Schutzkanal `1560397792751657053`: auffälliges Warn-Embed und automatischer Ban bei Nachrichten im verbotenen Kanal
 - Live-Serverstatistiken als nicht betretbare Sprachkanäle: Mitglieder, Boosts, Bots und Rollen werden in einer bestehenden Kategorie automatisch aktualisiert
 - Teamler-Schutz: erkennt massenhafte manuelle Warnungen, sperrt Warn-/Teamaktionen vorübergehend, protokolliert Vorfälle und entfernt bei wiederholtem Missbrauch automatisch Teamrollen (kein Server-Kick)
