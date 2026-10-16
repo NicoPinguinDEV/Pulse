@@ -399,7 +399,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.19"' in version_source
+    assert 'PULSE_VERSION = "7.8.20"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
@@ -870,6 +870,12 @@ def main() -> None:
     assert "ticket_open_log_channel_id" in web and "ticket_claim_log_channel_id" in web
     # Native multi-panel editor: independent panels, category registry, publishing and deletion.
     assert "async def publish_panel_for_guild" in tickets
+    # Deleted ticket panel messages should self-heal and persist replacement IDs.
+    assert "except discord.NotFound:" in tickets
+    assert "failed and could not be republished" not in tickets.lower()
+    assert "Ticket-Panel in Kanal" not in tickets
+    assert "wurde neu erstellt" in tickets
+    assert "await self.publish_panel_for_guild(guild, str(panel[\"id\"]))" in tickets
     assert "def ticket_category_definitions()" in tickets
     assert "from pulse_version import PULSE_VERSION" in web
     assert "Panel-Builder" in web
