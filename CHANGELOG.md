@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.8 – Beförderungs-Probezeit und befristete Team-Warnungen
+
+- Jede Beförderung verlangt jetzt eine ausdrückliche Probezeit-Auswahl von 3 oder 7 Tagen. Pulse speichert die vorherige Teamrolle und beendet die Probezeit automatisch nach Ablauf.
+- Erhält ein Mitglied während aktiver Probezeit eine Team-Warnung, wird die vorherige Teamrolle wiederhergestellt. Erhält ein Test Supporter eine Team-Warnung, entfernt Pulse automatisch seine Teamrollen (Team-Kick, kein Discord-Server-Kick).
+- Team-Warnungen aus dem Dashboard haben eine einstellbare Laufzeit von 1 bis 365 Tagen (Standard 7 Tage). Automatische Warnungen erhalten ebenfalls eine 7-Tage-Laufzeit; abgelaufene Warnungen bleiben in der Historie, zählen nicht mehr zur Warnstufe und die Discord-Warnrolle wird synchronisiert.
+- Zeitlich befristete Warn-Folgerollen übernehmen das Ablaufdatum ihrer Warnung. Sie bleiben erhalten, solange weitere aktive Team-Warnungen bestehen, und werden entfernt, sobald keine aktive Warnung mehr verbleibt.
+- Die Namenspräfix-Synchronisierung lädt die Discord-Mitgliederliste beim Start erneut. Wenn Discord für einen Namen mit vorhandenem Rang-Tag vorübergehend nur `@everyone` liefert, setzt Pulse nicht fälschlich das Standardpräfix `Bürger ✗`, sondern lädt die Rollen erneut und verschiebt die Änderung bei unvollständigen Daten.
+
 ## Version 7.8.7 – Höchste Rolle bestimmt den Namenspräfix
 
 - Pulse verwendet nun immer die höchste zugewiesene Discord-Rolle für den Namenspräfix, selbst wenn für diese Rolle kein manueller Präfix gespeichert ist.
