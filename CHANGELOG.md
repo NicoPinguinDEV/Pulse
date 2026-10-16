@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.5 – Automatische Rollen-Namenspräfixe
+
+- Rollenpräfixe können in den bestehenden Pulse-Einstellungen für jede normale Discord-Rolle konfiguriert werden, z. B. `Bürger ✗` oder `VIP ✗`.
+- Pulse setzt den Präfix beim Serverbeitritt und nach Rollenänderungen automatisch vor den Nickname. Hat ein Mitglied mehrere konfigurierte Rollen, gilt die höher positionierte Discord-Rolle.
+- Wenn die passende Rolle entfernt wird, versucht Pulse den vorherigen Nickname wiederherzustellen. Manuelle Nickname-Änderungen werden als neue Ausgangsbasis übernommen.
+- Die Einstellungen enthalten eine Synchronisierung für bereits vorhandene Mitglieder. Nickname-Änderungen benötigen die Discord-Berechtigung „Spitznamen verwalten“ sowie eine entsprechend hohe Bot-Rolle.
+- Die Discord-Grenze von 32 Nickname-Zeichen wird berücksichtigt; sehr lange Namen können nach dem Präfix gekürzt werden.
+
 ## Version 7.8.4 – Live-Serverstatistiken in Sprachkanälen
 
 - Pulse erstellt unter der bestehenden Kategorie `1536812484462256179` vier Statistik-Sprachkanäle: Mitgliederzahl, Boost-Anzahl, Bot-Anzahl und Rollenanzahl.
