@@ -573,6 +573,10 @@ class ActivityCheckCog(commands.Cog):
                         "revoked_at": None,
                         "revoked_by": None,
                         "revoked_reason": "",
+                        "duration_days": ws.DEFAULT_AUTO_WARN_DURATION_DAYS,
+                        "expires_at": (ws.now_de() + timedelta(days=ws.DEFAULT_AUTO_WARN_DURATION_DAYS)).isoformat(timespec="seconds"),
+                        "expired_at": None,
+                        "expired_reason": "",
                         "source": "auto_activity_check",
                         "source_activity_check_id": check_id,
                         "source_activity_user_id": str(uid),
@@ -584,17 +588,27 @@ class ActivityCheckCog(commands.Cog):
                     set_warn_action(check_id, uid, "processing", warning_id)
 
                 count = len(ws.active_warns(entry))
+                # Trial-rank consequences must run even on the first warning and
+                # even if Discord cannot synchronize the visual warning role.
+                consequence_report = None
+                if not warn.get("activity_consequences_applied"):
+                    consequence_report = await ws.apply_warn_consequences(
+                        guild, member, warn, count, cfg, entry=entry
+                    )
+                    if consequence_report.get("ok", False):
+                        warn["activity_consequences_applied"] = True
+                        warn["activity_consequences"] = consequence_report.get("actions", [])
+                    else:
+                        warn["activity_consequences_error"] = "; ".join(
+                            str(item) for item in consequence_report.get("actions", []) if item
+                        )[:500]
+                    ws.save_json(ws.DATA_FILE, team_db)
+
                 role_report = await ws.sync_warn_roles(guild, member, count, cfg)
                 if not role_report.get("ok", False):
                     set_warn_action(check_id, uid, "failed", warning_id, role_report.get("message", "Warn-Rolle konnte nicht synchronisiert werden"))
                     report["failed"] += 1
                     continue
-                if count >= 2 and not warn.get("activity_consequences_applied"):
-                    consequence_report = await ws.apply_warn_consequences(guild, member, warn, count, cfg)
-                    if consequence_report.get("ok", False):
-                        warn["activity_consequences_applied"] = True
-                        warn["activity_consequences"] = consequence_report.get("actions", [])
-                        ws.save_json(ws.DATA_FILE, team_db)
 
                 if not warn.get("activity_team_update_sent"):
                     update = await ws.send_team_update_embed(
