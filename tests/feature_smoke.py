@@ -168,6 +168,11 @@ def main() -> None:
     assert "channel.history(limit=100)" in voice_support
     assert "await duplicate.delete()" in voice_support
     assert "await report.send(embed=result_embed" in voice_support
+    assert "vorhandenen Fall fortsetzen" not in voice_support
+    assert 'reason="Bürger hat den Supportkanal verlassen und erneut den Warteraum betreten"' in voice_support
+    assert "async def _refresh_duty_status_locked" in voice_support
+    assert "self._duty_status_lock = asyncio.Lock()" in voice_support
+    assert "async with self._case_action_lock(case_id)" in voice_support
 
     # Server-statistics voice channels: maintain the three required non-joinable stats.
     server_stats = read("cogs/server_stats.py")
