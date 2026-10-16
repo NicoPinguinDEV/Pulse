@@ -1059,6 +1059,121 @@ async def apply_warn_consequences(guild, member, warn: dict, count: int, config:
     return result
 
 
+async def cleanup_expired_team_warnings(guild, config: dict | None = None):
+    """Expire timed warnings, retain their history, then resynchronize warning roles."""
+    result = {"checked": 0, "expired": 0, "roles_synced": 0, "failed": 0}
+    if not guild:
+        result["failed"] = 1
+        return result
+
+    team_db = load_json(DATA_FILE, {})
+    if not isinstance(team_db, dict):
+        return result
+
+    current = now_de()
+    changed = False
+    expired_users = []
+    for user_id, entry in team_db.items():
+        if not isinstance(entry, dict):
+            continue
+        changed = normalize_warns(entry) or changed
+        newly_expired = []
+        for warn in entry.get("warns_list", []) or []:
+            if not isinstance(warn, dict):
+                continue
+            result["checked"] += 1
+            if warn.get("active", True) and not warn.get("revoked_at") and warning_is_expired(warn, current):
+                warn["active"] = False
+                warn["expired_at"] = current.isoformat(timespec="seconds")
+                warn["expired_reason"] = "Gültigkeitsdauer abgelaufen"
+                newly_expired.append(warn)
+                result["expired"] += 1
+                changed = True
+        if newly_expired:
+            expired_users.append((str(user_id), entry, newly_expired))
+
+    if changed:
+        save_json(DATA_FILE, team_db)
+
+    cfg = config or load_config()
+    for user_id, entry, newly_expired in expired_users:
+        member = guild.get_member(int(user_id)) if str(user_id).isdigit() else None
+        report = await sync_warn_roles(guild, member, len(active_warns(entry)), cfg) if member else {"ok": False}
+        if report.get("ok"):
+            result["roles_synced"] += 1
+        else:
+            result["failed"] += 1
+
+        reasons = "; ".join(str(w.get("reason") or "Kein Grund") for w in newly_expired[:3])
+        log_audit(
+            "Pulse – automatische Warn-Ablaufkontrolle",
+            "system",
+            "Team-Warnung abgelaufen",
+            f"User-ID {user_id}: {len(newly_expired)} Warnung(en) abgelaufen. Gründe: {reasons}",
+        )
+        if member:
+            try:
+                await send_dm_notification(
+                    member,
+                    f"✅ Deine Team-Verwarnung(en) bei **{guild.name}** sind abgelaufen. "
+                    f"Verbleibende aktive Warnungen: {len(active_warns(entry))}/5.",
+                )
+            except Exception as exc:
+                print(f"⚠️ DM über abgelaufene Warnung für {user_id} fehlgeschlagen: {exc}")
+
+    return result
+
+
+async def process_expired_probations(guild) -> dict:
+    """End active promotion probation periods after their selected 3 or 7 days."""
+    result = {"checked": 0, "completed": 0, "failed": 0}
+    if not guild:
+        result["failed"] = 1
+        return result
+
+    team_db = load_json(DATA_FILE, {})
+    if not isinstance(team_db, dict):
+        return result
+    current = now_de()
+    changed = False
+    completed = []
+    for user_id, entry in team_db.items():
+        if not isinstance(entry, dict):
+            continue
+        probation = entry.get("probation")
+        if not isinstance(probation, dict) or not probation.get("active"):
+            continue
+        result["checked"] += 1
+        try:
+            expires_at = parse_dt(str(probation.get("expires_at") or ""))
+        except (TypeError, ValueError, OverflowError):
+            result["failed"] += 1
+            continue
+        if current < expires_at:
+            continue
+        probation["active"] = False
+        probation["status"] = "completed"
+        probation["completed_at"] = current.isoformat(timespec="seconds")
+        probation["completion_reason"] = "Probezeit erfolgreich abgelaufen"
+        completed.append((str(user_id), probation))
+        changed = True
+        result["completed"] += 1
+
+    if changed:
+        save_json(DATA_FILE, team_db)
+    for user_id, probation in completed:
+        member = guild.get_member(int(user_id)) if str(user_id).isdigit() else None
+        display_name = member.display_name if member else f"User {user_id}"
+        log_audit(
+            "Pulse – Probezeit-Automatik",
+            "system",
+            "Probezeit abgeschlossen",
+            f"{display_name} ({user_id}) · neue Rolle-ID {probation.get('new_role_id')} · "
+            f"Probezeit bis {probation.get('expires_at')}",
+        )
+    return result
+
+
 async def cleanup_expired_warn_restrictions(guild, config: dict | None = None):
     """Entfernt abgelaufene Warn-Folgerollen. Läuft auch nach Neustarts weiter."""
     team_db = load_json(DATA_FILE, {})
