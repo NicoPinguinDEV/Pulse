@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.11 – Kompakte Namenspräfixe für Teamrollen
+
+- Automatische Namenspräfixe verwenden jetzt einheitliche kurze Bezeichnungen für die Teamhierarchie, unter anderem `PL`, `Stv.PL`, `L.PK`, `Stv.SL`, `Stv.TL`, `Stv.Sup`, `Sr.Mod`, `T.Sup` und die Bauteam-Ränge.
+- Die vollständigen Discord-Rollennamen und die manuell in den Einstellungen konfigurierten Präfixe bleiben unverändert.
+- Dekorative Trennrollen wie `━━━━ Projektleitung-Ebene ━━━━` werden nicht mehr als Rangpräfix behandelt, damit sie den tatsächlichen Teamrang nicht übersteuern.
+- Beim regulären Startup-Abgleich erhalten bereits vorhandene Mitglieder die neuen kurzen Präfixe ebenfalls. Die Nickname-Synchronisierung läuft dabei weiter mit gecachtem Zustand und nichtblockierender Datei-I/O.
+
 ## Version 7.8.10 – Namenspräfix für ausgeschiedene Teamler
 
 - Die Rolle `1489912887949394082` erzwingt jetzt das Namenspräfix `𝐄𝐗 𝐓𝐄𝐀𝐌𝐋𝐄𝐑 ✗`, auch wenn noch eine höher sortierte Discord-Rolle vorhanden ist.
