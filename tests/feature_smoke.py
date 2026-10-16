@@ -142,6 +142,10 @@ def main() -> None:
     assert '"👤・Mitglieder: ", "member_count"' in server_stats
     assert '"💎・Boosts: ", "premium_subscription_count"' in server_stats
     assert '"🤖・Bots: ", "bot_count"' in server_stats
+    assert '"🛡️・Rollen: ", "role_count"' in server_stats
+    assert '"role_count": len(guild.roles)' in server_stats
+    assert "async def on_guild_role_create" in server_stats
+    assert "async def on_guild_role_delete" in server_stats
     assert "category.create_voice_channel(" in server_stats
     assert "overwrite.connect = False" in server_stats
     assert "guild.default_role" in server_stats
