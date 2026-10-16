@@ -69,7 +69,7 @@ def support_open_now(cfg: dict, now: datetime | None = None) -> bool:
         return False
 
     def parse(value):
-        if not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", str(value or "")):
+        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", str(value or "")):
             raise ValueError
         h, m = str(value).split(":")
         return int(h) * 60 + int(m)
@@ -398,8 +398,8 @@ class VoiceSupport(commands.Cog):
         snapshot = []
         if existing:
             snapshot = serialize_overwrites(existing)
-            overwrites = dict(existing.overwrites)
-            overwrites.update(private_overwrites(guild, member, roles))
+            # Replace existing permissions temporarily; the original overwrites are saved and restored on close.
+            overwrites = private_overwrites(guild, member, roles)
             channel = await existing.edit(overwrites=overwrites, reason=f"Pulse Voice-Support: temporär für {member} geschützt")
         else:
             channel = await guild.create_voice_channel(
