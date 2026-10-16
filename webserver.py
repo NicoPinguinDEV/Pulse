@@ -1203,16 +1203,37 @@ async def cleanup_expired_warn_restrictions(guild, config: dict | None = None):
                     keep.append(restriction)
                     continue
 
-                warn_is_active = bool(warn.get("active", True)) and not warn.get("revoked_at")
+                warn_is_active = (
+                    bool(warn.get("active", True))
+                    and not warn.get("revoked_at")
+                    and not warning_is_expired(warn, current)
+                )
                 if warn_is_active and current < expires:
                     keep.append(restriction)
                     continue
 
-                # Bei einer zurückgezogenen Warnung wird die Sperrrolle ebenfalls
-                # automatisch entfernt; bei fehlenden Rechten wird im nächsten
-                # Bereinigungszyklus erneut versucht.
+                # Do not remove a shared restriction while another live warning
+                # still owns the same temporary role.
                 result["checked"] += 1
                 role_id = int(restriction.get("role_id", 0) or 0)
+                another_active_source = any(
+                    other is not warn
+                    and isinstance(other, dict)
+                    and other.get("active", True)
+                    and not other.get("revoked_at")
+                    and not warning_is_expired(other, current)
+                    and any(
+                        isinstance(other_restriction, dict)
+                        and int(other_restriction.get("role_id", 0) or 0) == role_id
+                        and not _restriction_expired(other_restriction, current)
+                        for other_restriction in ((other.get("consequences") or {}).get("temporary_roles") or [])
+                    )
+                    for other in (entry.get("warns_list", []) or [])
+                )
+                if another_active_source:
+                    warns_changed = True
+                    continue
+
                 member = guild.get_member(int(user_id)) if guild else None
                 role = guild.get_role(role_id) if guild else None
 
