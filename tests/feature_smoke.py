@@ -86,7 +86,9 @@ def main() -> None:
     assert "confirmed_by_deadline(responses.get(uid), check_date)" in activity_cog
     assert "is_abgemeldet(uid, check_date)" in activity_cog
     assert "await ws.sync_warn_roles(guild, member, count, cfg)" in activity_cog
-    assert "await ws.apply_warn_consequences(guild, member, warn, count, cfg)" in activity_cog
+    assert "ws.apply_warn_consequences(" in activity_cog
+    assert "entry=entry" in activity_cog
+    assert '"duration_days": ws.DEFAULT_AUTO_WARN_DURATION_DAYS' in activity_cog
     assert "warns.append(warn)" not in activity_cog  # warning is appended to the existing warns_list
     assert "warnings.append(warn)" in activity_cog
     assert "await member.kick(" not in activity_cog
@@ -107,7 +109,7 @@ def main() -> None:
     assert "def process_overdue_shifts(" in web
     assert '"auto_warn_status": "pending"' in web
     assert '"source_shift_id": event_id' in web
-    assert 'webserver.process_overdue_shifts(guild, webserver.load_config())' in read("cogs/pulse_pro.py")
+    assert 'webserver.process_overdue_shifts(guild, housekeeping_cfg)' in read("cogs/pulse_pro.py")
     assert 'action="/shift/admin-end"' in pro
     assert "async def admin_end_shift(" in pro
     assert "Fremde Schicht beendet" in pro
@@ -180,6 +182,22 @@ def main() -> None:
     assert "automatic_role_prefix" in nickname_utils
     assert "role.id, role.position, role.name, role.is_default()" in nickname_cog
     assert "strip_legacy_rank_prefix" in nickname_cog
+    assert "await member.guild.fetch_member(member.id)" in nickname_cog
+    assert 'return "deferred"' in nickname_cog
+
+    # Warning lifetime, probation and automatic penalty cleanup regressions.
+    assert "DEFAULT_AUTO_WARN_DURATION_DAYS = 7" in web
+    assert "TEST_SUPPORTER_ROLE_ID = 1498397925817188518" in web
+    assert "VALID_PROBATION_DAYS = (3, 7)" in web
+    assert "def warning_is_expired(" in web
+    assert "def cleanup_expired_team_warnings(" in web
+    assert "def cleanup_expired_warn_restrictions(" in web
+    assert "def process_expired_probations(" in web
+    assert "def process_probation_warning(" in web
+    assert "await webserver.cleanup_expired_team_warnings(guild, housekeeping_cfg)" in read("cogs/pulse_pro.py")
+    assert "await webserver.cleanup_expired_warn_restrictions(guild, housekeeping_cfg)" in read("cogs/pulse_pro.py")
+    assert 'name="warn_duration_days"' in web and 'name="probation_days"' in web
+    assert 'name="warn_duration_days"' in pro and 'name="probation_days"' in pro
 
     # Dashboard-only profiles are mapped to configured Discord team roles.
     assert '"dashboard_roles"' in web
@@ -338,7 +356,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.7"' in version_source
+    assert 'PULSE_VERSION = "7.8.8"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
