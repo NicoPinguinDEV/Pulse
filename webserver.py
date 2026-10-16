@@ -1270,6 +1270,11 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
     }
     current_team_ids = {role.id for role in member.roles if role.id in team_role_ids}
     warnings = entry.get("warns_list", []) or []
+    permanent_test_kick = any(
+        isinstance(item, dict)
+        and bool((item.get("consequences") or {}).get("test_supporter_team_kick"))
+        for item in warnings
+    )
 
     # Reverse consequences newest-first: undo the Warn-5 team removal first,
     # then restore the rank that was present before a Warn-4 downrank.
@@ -1298,7 +1303,11 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
             if current_team_ids:
                 consequences["team_kick_restore_skipped_at"] = now_de().isoformat(timespec="seconds")
                 result["changed"] = True
-            elif previous_ids:
+            elif not previous_ids:
+                # Older records did not keep a snapshot of the old rank.
+                consequences["team_kick_restore_skipped_at"] = now_de().isoformat(timespec="seconds")
+                result["changed"] = True
+            else:
                 previous_roles = [guild.get_role(role_id) for role_id in previous_ids]
                 if any(role is None or role.managed for role in previous_roles):
                     result["failed"].append("Die ursprüngliche Teamrolle des Team-Kicks fehlt oder ist verwaltet.")
@@ -1329,7 +1338,8 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
                         result["failed"].append(f"Team-Kick-Rücknahme: {type(exc).__name__}")
 
         if (
-            consequences.get("downrank_applied")
+            not permanent_test_kick
+            and consequences.get("downrank_applied")
             and not consequences.get("downrank_reverted_at")
             and not consequences.get("downrank_restore_skipped_at")
         ):
@@ -1354,7 +1364,9 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
                     result["changed"] = True
                 continue
             if not previous_ids:
-                result["failed"].append("Vorherige Teamrolle des Downranks ist nicht gespeichert.")
+                # Safe migration behavior: do not guess a rank for pre-7.8.8 records.
+                consequences["downrank_restore_skipped_at"] = now_de().isoformat(timespec="seconds")
+                result["changed"] = True
                 continue
 
             previous_roles = [guild.get_role(role_id) for role_id in previous_ids]
