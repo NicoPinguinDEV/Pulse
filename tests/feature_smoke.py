@@ -42,7 +42,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_db.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/voice_support.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_team_protection.py"):
+    for name in ("main.py", "webserver.py", "pulse_db.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/voice_support.py", "pulse_voice_support_utils.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_team_protection.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -140,8 +140,11 @@ def main() -> None:
 
     # Voice support: dashboard route, shift-synchronised duty role, cases and settings.
     voice_support = read("cogs/voice_support.py")
+    voice_support_utils = read("pulse_voice_support_utils.py")
     assert "CONFIG_KEY = " in voice_support
-    assert "def support_open_now(" in voice_support
+    assert "support_open_now" in voice_support
+    assert "def support_open_now(" in voice_support_utils
+    assert "def shift_is_online(" in voice_support_utils
     assert "await voice_support.sync_member_duty_role(ctx.guild, mod_id)" in web
     assert "await voice_support._refresh_duty_status(ctx.guild)" in web
     assert '("voice-support","/voice-support","🎧","Sprach-Support"' in pro
