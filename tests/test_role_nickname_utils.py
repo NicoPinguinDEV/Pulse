@@ -32,14 +32,14 @@ class RoleNicknamePrefixTests(unittest.TestCase):
 
     def test_bochum_team_roles_use_compact_abbreviations(self):
         cases = [
-            ("》𝐅𝐨𝐮𝐧𝐝𝐞𝐫", "FND"),
+            ("》𝐅𝐨𝐮𝐧𝐝𝐞𝐫", "Founder"),
             ("》BORP メ Inhaber", "Inh."),
             ("》BORP メ Stv.Inhaber", "Stv.Inh."),
-            ("》BORP ✘ Rechte Hand", "RH"),
+            ("》BORP ✘ Rechte Hand", "Rechte Hand"),
             ("》BORP メ Owner", "Owner"),
             ("》BORP メ Co.Owner", "Co.Owner"),
             ("〘⭐〙𝐃𝐂 𝐑𝐄𝐂𝐇𝐓𝐄", "DC"),
-            ("》BORP メ Dev-Leitung", "DevL"),
+            ("》BORP メ Dev-Leitung", "L.Dev"),
             ("》BORP メ Developer", "Dev"),
             ("》BORP メ Leitende Projektleitung", "L.PL"),
             ("》BORP メ Projektleitung", "PL"),
@@ -65,29 +65,29 @@ class RoleNicknamePrefixTests(unittest.TestCase):
             ("》BORP メ Leitender-Supervisor", "L.Sup"),
             ("》BORP メ Supervisor", "Sup"),
             ("》BORP メ Stv.Supervisor", "Stv.Sup"),
-            ("》BORP メ Ausbilder-Leitung", "AusbL"),
-            ("》BORP メ Ausbilder", "Ausb"),
+            ("》BORP メ Ausbilder-Leitung", "L.AB"),
+            ("》BORP メ Ausbilder", "AB"),
             ("》BORP メ Highteamanwärter", "HTA"),
             ("》BORP メ Community-Management", "CM"),
             ("》BORP メ Stv.Community-Management", "Stv.CM"),
             ("》BORP メ Fraktionsverwaltung", "FV"),
             ("》BORP メ Stv.Fraktionsverwaltung", "Stv.FV"),
             ("》BORP メ Eventleitung", "EL"),
-            ("》BORP メ Admin-Leitung", "AdminL"),
+            ("》BORP メ Admin-Leitung", "L.Admin"),
             ("》BORP メ Sr.Admin", "Sr.Admin"),
             ("》BORP メ Admin", "Admin"),
             ("》BORP メ Jr.Admin", "Jr.Admin"),
-            ("》BORP メ Mod-Leitung", "ModL"),
+            ("》BORP メ Mod-Leitung", "L.Mod"),
             ("》BORP メ Sr.Moderator", "Sr.Mod"),
             ("》BORP メ Moderator", "Mod"),
             ("》BORP メ Jr.Moderator", "Jr.Mod"),
-            ("》BORP メ Sup-Leitung", "SupL"),
+            ("》BORP メ Sup-Leitung", "L.Sup"),
             ("》BORP メ Sr.Supporter", "Sr.Sup"),
             ("》BORP メ Supporter", "Sup"),
             ("》BORP メ Test Supporter", "T.Sup"),
-            ("》BORP メ Aushilfe", "Aush."),
-            ("》𝐁𝐎𝐑𝐏 メ 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫 𝐋𝐞𝐢𝐭𝐮𝐧𝐠", "BauL"),
-            ("》𝐁𝐎𝐑𝐏 メ 𝐒𝐭𝐯 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫 𝐋𝐞𝐢𝐭𝐮𝐧𝐠", "Stv.BauL"),
+            ("》BORP メ Aushilfe", "Aushilfe"),
+            ("》𝐁𝐎𝐑𝐏 メ 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫 𝐋𝐞𝐢𝐭𝐮𝐧𝐠", "L.Bau"),
+            ("》𝐁𝐎𝐑𝐏 メ 𝐒𝐭𝐯 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫 𝐋𝐞𝐢𝐭𝐮𝐧𝐠", "Stv.L.Bau"),
             ("》𝐁𝐎𝐑𝐏 メ 𝐒𝐞𝐧𝐢𝐨𝐫 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫", "Sr.Bau"),
             ("》𝐁𝐎𝐑𝐏 メ 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫", "Bau"),
             ("》𝐁𝐎𝐑𝐏 メ 𝐓𝐞𝐬𝐭 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫", "T.Bau"),
@@ -96,6 +96,27 @@ class RoleNicknamePrefixTests(unittest.TestCase):
         for role_name, expected_label in cases:
             with self.subTest(role=role_name):
                 self.assertEqual(automatic_role_prefix(role_name), f"{expected_label} ✗")
+
+    def test_old_prefix_settings_migrate_to_canonical_labels_but_custom_overrides_survive(self):
+        cases = [
+            ("》𝐅𝐨𝐮𝐧𝐝𝐞𝐫", "FND ✗", "Founder ✗"),
+            ("》BORP メ Dev-Leitung", "DevL ✗", "L.Dev ✗"),
+            ("》BORP メ Stv.Management", "Stv.Management ✗", "Stv.Mgmt ✗"),
+            ("》BORP メ Ausbilder", "Ausb ✗", "AB ✗"),
+            ("》BORP メ Sup-Leitung", "SupL ✗", "L.Sup ✗"),
+            ("》𝐁𝐎𝐑𝐏 メ 𝐒𝐭𝐯 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫 𝐋𝐞𝐢𝐭𝐮𝐧𝐠", "Stv.BauL ✗", "Stv.L.Bau ✗"),
+        ]
+        for role_name, old_value, expected in cases:
+            with self.subTest(role=role_name):
+                self.assertEqual(
+                    select_highest_role_prefix([(101, 10, role_name, False)], {"101": old_value}),
+                    (101, expected),
+                )
+
+        self.assertEqual(
+            select_highest_role_prefix([(102, 10, "》BORP メ Owner", False)], {"102": "Boss ✗"}),
+            (102, "Boss ✗"),
+        )
 
     def test_section_divider_roles_do_not_override_actual_team_rank(self):
         roles = [
