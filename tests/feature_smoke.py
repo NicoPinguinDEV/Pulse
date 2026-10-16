@@ -176,6 +176,10 @@ def main() -> None:
     assert "settings_nickname_prefix_default" in pro
     assert 'nickname_default_prefix", "Bürger ✗"' in nickname_cog
     assert 'c.config.setdefault("role_nickname_prefixes",{})' in pro
+    assert "select_highest_role_prefix" in nickname_utils
+    assert "automatic_role_prefix" in nickname_utils
+    assert "role.id, role.position, role.name, role.is_default()" in nickname_cog
+    assert "strip_legacy_rank_prefix" in nickname_cog
 
     # Dashboard-only profiles are mapped to configured Discord team roles.
     assert '"dashboard_roles"' in web
@@ -334,7 +338,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.6"' in version_source
+    assert 'PULSE_VERSION = "7.8.7"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
