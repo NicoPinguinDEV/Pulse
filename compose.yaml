@@ -1,0 +1,26 @@
+services:
+  pulse:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulse-teamos
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      SERVER_PORT: ${SERVER_PORT:-25095}
+      PULSE_DB_PATH: ${PULSE_DB_PATH:-/app/pulse.db}
+    ports:
+      - "${SERVER_PORT:-25095}:${SERVER_PORT:-25095}"
+    volumes:
+      # Keep config, JSON state, SQLite databases, backups and transcripts
+      # on the VPS between image rebuilds and deployments.
+      - ./:/app
+    working_dir: /app
+    stop_grace_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
