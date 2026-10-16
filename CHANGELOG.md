@@ -2,7 +2,7 @@
 
 ## Version 7.8.4 – Live-Serverstatistiken in Sprachkanälen
 
-- Pulse erstellt unter der bestehenden Kategorie `1536812484462256179` drei Statistik-Sprachkanäle: Mitgliederzahl, Boost-Anzahl und Bot-Anzahl.
+- Pulse erstellt unter der bestehenden Kategorie `1536812484462256179` vier Statistik-Sprachkanäle: Mitgliederzahl, Boost-Anzahl, Bot-Anzahl und Rollenanzahl.
 - Die Kanalnamen werden automatisch nach Beitritten, Austritten und Boost-Änderungen aktualisiert; Ereignisse werden kurz gebündelt, damit nicht unnötig viele Discord-Änderungen gesendet werden.
 - Die Sprachkanäle kopieren die Sichtbarkeitseinstellungen der Kategorie und verweigern `Verbinden` für @everyone sowie vorhandene Rollen-/Mitglieder-Überschreibungen. Discord-Administratoren können Kanal-Sperren technisch weiterhin umgehen.
 - Benötigt wird die Discord-Berechtigung `Kanäle verwalten` für die Zielkategorie.
