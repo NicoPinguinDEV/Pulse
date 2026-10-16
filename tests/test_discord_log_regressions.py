@@ -76,7 +76,7 @@ class DiscordLogRegressionTests(unittest.TestCase):
 
     def test_application_version_has_one_source_of_truth(self):
         version = read_source("pulse_version.py")
-        self.assertIn('PULSE_VERSION = "7.8.15"', version)
+        self.assertIn('PULSE_VERSION = "7.8.16"', version)
         self.assertIn("from pulse_version import PULSE_VERSION", read_source("webserver.py"))
         self.assertIn("from pulse_version import PULSE_VERSION", read_source("pulse_pro.py"))
 
