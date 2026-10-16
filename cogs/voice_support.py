@@ -685,10 +685,17 @@ class VoiceSupport(commands.Cog):
                 cases = get_cases()
                 old = next((x for x in cases.values() if isinstance(x, dict) and str(x.get("guild_id")) == str(member.guild.id) and str(x.get("user_id")) == str(member.id)), None)
                 if old:
-                    channel = member.guild.get_channel(channel_id(old.get("channel_id")))
-                    if isinstance(channel, discord.VoiceChannel):
-                        await member.move_to(channel, reason="Pulse Voice-Support: vorhandenen Fall fortsetzen")
-                        return
+                    old_channel = member.guild.get_channel(channel_id(old.get("support_channel_id") or old.get("channel_id")))
+                    # Re-entering the wait room means the citizen left the prior call.
+                    # Close and clean that case first, then treat the new wait-room entry
+                    # as a new support request instead of moving the citizen back.
+                    await self._close_case(
+                        old_channel,
+                        old,
+                        cfg,
+                        reason="Bürger hat den Supportkanal verlassen und erneut den Warteraum betreten",
+                        kick_user=False,
+                    )
                 await self._open_case(member, cfg)
             except (discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
                 print(f"❌ Voice-Support: Fall für {member.id} konnte nicht eröffnet werden: {exc}")
