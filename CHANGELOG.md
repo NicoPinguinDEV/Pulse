@@ -1,5 +1,15 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.14 – Schutz vor missbräuchlichen Team-Verwarnungen
+
+- Einheitlicher, persistenter Schutz für manuelle Team-Warnungen im Dashboard und über `/warn`.
+- Warn-Spam wird blockiert: ab dem dritten Warnversuch gegen dasselbe Teammitglied innerhalb von fünf Minuten, ab vier Warnversuchen gegen mindestens drei Teammitglieder innerhalb von fünf Minuten oder ab sechs Warnversuchen in zehn Minuten.
+- Beim ersten Verdachtsfall setzt Pulse eine 30-minütige Warn-/Teamaktionssperre und alarmiert die Führungsebene per Team-Update, Pulse-Inbox und Audit-Log. Wiederholte Vorfälle binnen 24 Stunden oder wiederholte Versuche trotz aktiver Sperre lösen einen automatischen Team-Kick aus.
+- Der automatische Team-Kick entfernt nur konfigurierten Teamrollen und die Test-Supporter-Rolle. Er kickt und bannt niemanden vom Discord-Server. Wenn Discord-Berechtigungen oder Rollen-Hierarchie die Entfernung verhindern, protokolliert Pulse den Fehler und alarmiert die Führungsebene.
+- Teamwarnungen aus `/warn` verwenden jetzt wie das Dashboard standardmäßig die festgelegte siebentägige Gültigkeit und führen dieselben Warn-Konsequenzen aus.
+- Hochrangige bzw. gleichrangige Teamler können im Dashboard nicht mehr durch niedrigere Teamränge verwarnt werden; doppelte Warnanfragen innerhalb von vier Sekunden werden abgewiesen.
+- Der Schutzstatus und die Ereignishistorie liegen in SQLite und werden von Pulse-Backups mitgenommen. Automatische Activity-Check-/Schichtwarnungen zählen nicht als menschliche Missbrauchsversuche.
+
 ## Version 7.8.13 – Feste Teamrang-Hierarchie für Namenspräfixe
 
 - Die Rangreihenfolge aus den Pulse-Einstellungen ist jetzt ausdrücklich festgelegt: Founder/Inhaber/Führung, Entwicklung, Projektleitung, Projektkoordination, Direktion, Serverleitung, Management, Teamleitung, Teamaufsicht, Supervisor, Ausbildung, Community/Fraktionen, Administration, Moderation, Support und Bauteam.
