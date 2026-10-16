@@ -110,7 +110,10 @@ class RoleNicknamePrefixes(commands.Cog):
             else:
                 # Avoid duplicating prefixes if a nickname was already formatted
                 # before state was first recorded (for example after a restore).
-                stripped = strip_known_prefix(current_nick, prefixes.values())
+                known_prefixes = list(prefixes.values()) + [
+                    config.get("nickname_default_prefix", "Bürger ✗")
+                ]
+                stripped = strip_known_prefix(current_nick, known_prefixes)
                 if stripped:
                     original_nick = stripped
                     base_name = stripped
