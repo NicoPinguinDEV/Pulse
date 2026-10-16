@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
+from pulse_nickname_utils import normalize_role_prefix
 from pulse_version import PULSE_VERSION
 
 VERSION = PULSE_VERSION
@@ -1575,6 +1576,80 @@ def register(app):
         warn_role_card=f'''<section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">⚠ Warn-Rollen 1–5</div><div class="pulse-section-sub">Die fünf Discord-Warnrollen sind fest für Pulse hinterlegt und werden automatisch auf die aktive Warnstufe synchronisiert.</div></div></div><div class="pulse-card-b">{"".join(warn_rows)}<form action="/settings/pro-warn-roles" method="post" class="mt-3"><button class="pulse-btn primary w-full">↻ Fünf Warnrollen prüfen & synchronisieren</button></form></div></section>'''
         team_boxes=''.join(f'<label class="flex items-center gap-2 p-2 rounded-lg text-xs"><input type="checkbox" name="team_roles" value="{r.id}" {"checked" if r.id in role_ids else ""}><span style="color:#{r.color.value:06x}">{e(r.name)}</span></label>' for r in sorted(roles,key=lambda r:-r.position))
 
+        # Role-based nickname prefixes are independent from Pulse's dashboard permission roles.
+        nickname_prefix_cfg = c.config.get("role_nickname_prefixes", {})
+        if not isinstance(nickname_prefix_cfg, dict):
+            nickname_prefix_cfg = {}
+        roles_by_id = {role.id: role for role in roles}
+        valid_prefix_items = []
+        for raw_role_id, raw_prefix in nickname_prefix_cfg.items():
+            try:
+                parsed_role_id = int(raw_role_id)
+            except (TypeError, ValueError):
+                continue
+            valid_prefix_items.append((parsed_role_id, str(raw_prefix or "").strip()))
+        configured_prefix_ids = {role_id for role_id, _ in valid_prefix_items}
+        nickname_prefix_cards = []
+        for role_id, prefix_value in sorted(
+            valid_prefix_items,
+            key=lambda item: (-(roles_by_id[item[0]].position if item[0] in roles_by_id else -1), item[0]),
+        ):
+            prefix_role = roles_by_id.get(role_id)
+            prefix_role_name = prefix_role.name if prefix_role else "Discord-Rolle nicht gefunden"
+            nickname_prefix_cards.append(
+                f'<section class="pulse-card"><div class="pulse-card-h"><div>'
+                f'<div class="pulse-section-title">{e(prefix_role_name)}</div>'
+                f'<div class="pulse-section-sub">Rollen-ID: {role_id}</div></div>'
+                f'<span class="text-[9px] text-slate-400">Aktiv</span></div>'
+                f'<div class="pulse-card-b space-y-3">'
+                f'<form action="/settings/nickname-prefix/save" method="post" class="space-y-3">'
+                f'<input type="hidden" name="nickname_prefix_role_id" value="{role_id}">'
+                f'<label class="block text-xs font-bold">Namenspräfix'
+                f'<input required maxlength="24" name="nickname_prefix_value" value="{e(prefix_value)}" '
+                f'placeholder="z. B. Bürger ✗" class="pulse-input mt-2"></label>'
+                f'<p class="pulse-section-sub">Ergebnis: <strong>{e(prefix_value)} Name</strong></p>'
+                f'<button class="pulse-btn primary w-full">Präfix speichern</button></form>'
+                f'<form action="/settings/nickname-prefix/delete" method="post" '
+                f'onsubmit="return confirm(\'Dieses Rollenpräfix wirklich entfernen? Betroffene Nicknames werden bei der nächsten Synchronisierung zurückgesetzt.\')">'
+                f'<input type="hidden" name="nickname_prefix_role_id" value="{role_id}">'
+                f'<button class="pulse-btn bad w-full">Präfix entfernen</button></form>'
+                f'</div></section>'
+            )
+        prefix_role_options = ''.join(
+            f'<option value="{role.id}">{e(role.name)} · {role.id}</option>'
+            for role in sorted(roles, key=lambda role: (-role.position, role.name.casefold()))
+            if role.id not in configured_prefix_ids
+        )
+        nickname_prefix_section = (
+            f'<section class="pulse-card mt-5"><div class="pulse-card-h"><div>'
+            f'<div class="pulse-section-title">🏷️ Automatische Rollen-Namenspräfixe</div>'
+            f'<div class="pulse-section-sub">Beispiele: „Bürger ✗ Name“ oder „VIP ✗ Name“.</div>'
+            f'</div></div><div class="pulse-card-b space-y-4">'
+            f'<div class="pulse-alert"><strong>Automatisch bei Beitritt und Rollenwechsel</strong>'
+            f'<div class="text-slate-400 mt-1">Wähle jede Discord-Rolle und lege den Text vor dem Namen fest. '
+            f'Wenn ein Mitglied mehrere konfigurierte Rollen hat, gewinnt die in Discord höher positionierte Rolle. '
+            f'Entfernt man die passende Rolle, versucht Pulse den vorherigen Nickname wiederherzustellen. '
+            f'Discord erlaubt maximal 32 Zeichen für Nicknames; lange Namen können deshalb gekürzt werden.</div></div>'
+            f'<form action="/settings/nickname-prefix/sync" method="post" '
+            f'onsubmit="return confirm(\'Die Namenspräfixe für bereits vorhandene Mitglieder im aktuell geladenen Server-Cache anwenden? Nicknames können geändert oder zurückgesetzt werden.\')">'
+            f'<button class="pulse-btn ghost">↻ Bestehende Mitglieder synchronisieren</button></form>'
+            f'<section class="pulse-card"><div class="pulse-card-h"><div>'
+            f'<div class="pulse-section-title">➕ Präfix für eine Rolle hinzufügen</div>'
+            f'<div class="pulse-section-sub">Es können auch Rollen außerhalb der Pulse-Teamrollen ausgewählt werden.</div>'
+            f'</div></div><div class="pulse-card-b">'
+            f'<form action="/settings/nickname-prefix/save" method="post" class="space-y-3">'
+            f'<label class="block text-xs font-bold">Discord-Rolle'
+            f'<select required name="nickname_prefix_role_id" class="pulse-input mt-2">'
+            f'<option value="">Rolle auswählen …</option>{prefix_role_options}</select></label>'
+            f'<label class="block text-xs font-bold">Präfix vor dem Namen'
+            f'<input required maxlength="24" name="nickname_prefix_value" placeholder="z. B. Bürger ✗ oder VIP ✗" class="pulse-input mt-2"></label>'
+            f'<button class="pulse-btn primary w-full">Rollenpräfix hinzufügen</button></form>'
+            f'</div></section>'
+            f'<div class="grid md:grid-cols-2 gap-4">{"".join(nickname_prefix_cards) or "<div class=\'pulse-empty\'>Noch keine Rollenpräfixe eingerichtet.</div>"}</div>'
+            f'</div></section>'
+        )
+
+
         # Digitale Zwischenrollen sind interne Pulse-Profile, die einer oder mehreren
         # konfigurierten Discord-Teamrollen zugewiesen werden.
         dashboard_role_cfg = c.config.get("dashboard_roles", {})
@@ -1662,7 +1737,7 @@ def register(app):
         else:
             presets_action = "<form action=\"/settings/pro-presets\" method=\"post\" onsubmit=\"return confirm('Empfohlene Profile für ALLE ausgewählten Teamrollen anwenden? Manuell konfigurierte Rechte werden überschrieben.');\"><button class=\"pulse-btn primary\">Empfohlene Profile erneut anwenden</button></form>"
 
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div>{profile_notice}<section class="pulse-card mb-5"><div class="pulse-card-b flex flex-col gap-4"><div class="flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div class="pulse-section-title">🔐 Empfohlene Rechteprofile</div><div class="pulse-section-sub">Ordnet allen aktuell ausgewählten Teamrollen neue Standardrechte anhand ihres Discord-Rollennamens zu. Bereits manuell gesetzte Rechte werden dabei überschrieben.</div></div>{presets_action}</div><div class="pulse-alert"><strong>🛑 Alle Rollenrechte entziehen</strong><div class="text-slate-400 mt-1">Setzt jede gespeicherte Rollenberechtigung in Pulse auf „aus“ – einschließlich aller aktuell ausgewählten Teamrollen. Die Teamrollenauswahl und andere Einstellungen bleiben erhalten. Serverinhaber und echte Discord-Administratoren behalten den technischen Adminzugriff.</div><form action="/settings/pro-clear-all" method="post" onsubmit="return confirm('Wirklich ALLE Pulse-Berechtigungen für sämtliche Rollen deaktivieren? Nur Serverinhaber und echte Discord-Administratoren behalten Adminzugriff.');" class="mt-3"><button class="pulse-btn bad">Alle Rollenrechte entziehen</button></form></div></div></section><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div>{dashboard_roles_section}<div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div>{profile_notice}<section class="pulse-card mb-5"><div class="pulse-card-b flex flex-col gap-4"><div class="flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div class="pulse-section-title">🔐 Empfohlene Rechteprofile</div><div class="pulse-section-sub">Ordnet allen aktuell ausgewählten Teamrollen neue Standardrechte anhand ihres Discord-Rollennamens zu. Bereits manuell gesetzte Rechte werden dabei überschrieben.</div></div>{presets_action}</div><div class="pulse-alert"><strong>🛑 Alle Rollenrechte entziehen</strong><div class="text-slate-400 mt-1">Setzt jede gespeicherte Rollenberechtigung in Pulse auf „aus“ – einschließlich aller aktuell ausgewählten Teamrollen. Die Teamrollenauswahl und andere Einstellungen bleiben erhalten. Serverinhaber und echte Discord-Administratoren behalten den technischen Adminzugriff.</div><form action="/settings/pro-clear-all" method="post" onsubmit="return confirm('Wirklich ALLE Pulse-Berechtigungen für sämtliche Rollen deaktivieren? Nur Serverinhaber und echte Discord-Administratoren behalten Adminzugriff.');" class="mt-3"><button class="pulse-btn bad">Alle Rollenrechte entziehen</button></form></div></div></section><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div>{dashboard_roles_section}{nickname_prefix_section}<div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
         return render_pro_page(ws,'Einstellungen',c,'settings',body)
 
     async def settings_dashboard_profile_save(request: Request, user_session: str=Cookie(None)):
@@ -1736,6 +1811,70 @@ def register(app):
             "Digitale Zwischenrolle gelöscht",f"{profile_name} ({profile_key})",
         )
         return ws.back('/settings',f'Digitale Zwischenrolle „{profile_name}“ wurde gelöscht.')
+
+    async def settings_nickname_prefix_save(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None,admin=True)
+        form=await request.form()
+        try:
+            role_id=int(str(form.get("nickname_prefix_role_id") or "").strip())
+        except (TypeError,ValueError):
+            return ws.back('/settings','Bitte wähle eine gültige Discord-Rolle aus.',False)
+        role=c.guild.get_role(role_id)
+        if not role or role.is_default() or role.managed:
+            return ws.back('/settings','Diese Discord-Rolle ist ungültig oder wird von einer Integration verwaltet.',False)
+        try:
+            prefix=normalize_role_prefix(form.get("nickname_prefix_value"))
+        except ValueError as exc:
+            return ws.back('/settings',str(exc),False)
+
+        prefix_map=c.config.setdefault("role_nickname_prefixes",{})
+        if not isinstance(prefix_map,dict):
+            prefix_map={}
+            c.config["role_nickname_prefixes"]=prefix_map
+        if str(role_id) not in prefix_map and len(prefix_map)>=150:
+            return ws.back('/settings','Es können maximal 150 Rollen-Namenspräfixe konfiguriert werden.',False)
+        prefix_map[str(role_id)]=prefix
+        ws.save_json(ws.CONFIG_FILE,c.config)
+        ws.log_audit(
+            c.user.get('global_name') or c.user.get('username'),c.user['id'],
+            "Rollen-Namenspräfix gespeichert",f"{role.name} ({role_id}) → {prefix}",
+        )
+        return ws.back('/settings',f'Namenspräfix „{prefix}“ für „{role.name}“ gespeichert.')
+
+    async def settings_nickname_prefix_delete(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None,admin=True)
+        form=await request.form()
+        try:
+            role_id=int(str(form.get("nickname_prefix_role_id") or "").strip())
+        except (TypeError,ValueError):
+            return ws.back('/settings','Bitte wähle eine gültige Discord-Rolle aus.',False)
+        prefix_map=c.config.setdefault("role_nickname_prefixes",{})
+        if not isinstance(prefix_map,dict) or str(role_id) not in prefix_map:
+            return ws.back('/settings','Für diese Rolle ist kein Namenspräfix eingerichtet.',False)
+        prefix=str(prefix_map.pop(str(role_id)) or "")
+        role=c.guild.get_role(role_id)
+        role_name=role.name if role else str(role_id)
+        ws.save_json(ws.CONFIG_FILE,c.config)
+        ws.log_audit(
+            c.user.get('global_name') or c.user.get('username'),c.user['id'],
+            "Rollen-Namenspräfix entfernt",f"{role_name} ({role_id}) · zuvor: {prefix}",
+        )
+        return ws.back('/settings',f'Namenspräfix für „{role_name}“ entfernt. Klicke bei Bedarf auf „Bestehende Mitglieder synchronisieren“, damit Nicknames zurückgesetzt werden.')
+
+    async def settings_nickname_prefix_sync(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None,admin=True)
+        bot=getattr(request.app.state,"bot",None)
+        cog=bot.get_cog("RoleNicknamePrefixes") if bot else None
+        if cog is None:
+            return ws.back('/settings','Die Namenspräfix-Funktion ist nicht geladen. Bitte den Bot neu starten und die Hosting-Logs prüfen.',False)
+        if not cog.start_sync_existing_members():
+            return ws.back('/settings','Die Synchronisierung läuft bereits. Bitte warte, bis sie in den Hosting-Logs abgeschlossen ist.',False)
+        ws.log_audit(
+            c.user.get('global_name') or c.user.get('username'),c.user['id'],
+            "Namenspräfix-Synchronisierung gestartet",
+            "Bestehende Mitglieder mit konfigurierten Rollenpräfixen oder gespeichertem Präfixstatus",
+        )
+        return ws.back('/settings','Namenspräfix-Synchronisierung im Hintergrund gestartet. Den Fortschritt findest du in den Hosting-Logs.')
 
     async def settings_save(request: Request, role_id: int=Form(...), user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True); role=c.guild.get_role(role_id)
@@ -1910,6 +2049,9 @@ def register(app):
     app.post('/settings/pro-save')(settings_save)
     app.post('/settings/dashboard-profile/save')(settings_dashboard_profile_save)
     app.post('/settings/dashboard-profile/delete')(settings_dashboard_profile_delete)
+    app.post('/settings/nickname-prefix/save')(settings_nickname_prefix_save)
+    app.post('/settings/nickname-prefix/delete')(settings_nickname_prefix_delete)
+    app.post('/settings/nickname-prefix/sync')(settings_nickname_prefix_sync)
     app.post('/settings/pro-roles')(settings_roles)
     app.post('/settings/pro-presets')(settings_profiles)
     app.post('/settings/pro-clear-all')(settings_clear_all_permissions)
