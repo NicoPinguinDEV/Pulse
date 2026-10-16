@@ -47,15 +47,21 @@ def _role_label_key(value: object) -> str:
 _ROLE_PREFIX_ABBREVIATIONS = {
     _role_label_key(label): short
     for label, short in (
-        ("Founder", "FND"),
+        ("Founder", "Founder"),
+        ("FND", "Founder"),
         ("Inhaber", "Inh."),
+        ("Inh.", "Inh."),
         ("Stv.Inhaber", "Stv.Inh."),
-        ("Rechte Hand", "RH"),
+        ("Stv.Inh.", "Stv.Inh."),
+        ("Rechte Hand", "Rechte Hand"),
+        ("RH", "Rechte Hand"),
         ("Owner", "Owner"),
         ("Co.Owner", "Co.Owner"),
         ("Champ", "Champ"),
         ("DC Rechte", "DC"),
-        ("Dev-Leitung", "DevL"),
+        ("Dev-Leitung", "L.Dev"),
+        ("L.Dev", "L.Dev"),
+        ("DevL", "L.Dev"),
         ("Developer", "Dev"),
         ("Leitende Projektleitung", "L.PL"),
         ("Projektleitung", "PL"),
@@ -84,8 +90,12 @@ _ROLE_PREFIX_ABBREVIATIONS = {
         ("Supervisor", "Sup"),
         ("Stv.Supervisor", "Stv.Sup"),
         ("Stv Supervisor", "Stv.Sup"),
-        ("Ausbilder-Leitung", "AusbL"),
-        ("Ausbilder", "Ausb"),
+        ("Ausbilder-Leitung", "L.AB"),
+        ("L.AB", "L.AB"),
+        ("AusbL", "L.AB"),
+        ("Ausbilder", "AB"),
+        ("AB", "AB"),
+        ("Ausb", "AB"),
         ("Highteamanwärter", "HTA"),
         ("Community-Management", "CM"),
         ("Stv.Community-Management", "Stv.CM"),
@@ -94,21 +104,32 @@ _ROLE_PREFIX_ABBREVIATIONS = {
         ("Stv.Fraktionsverwaltung", "Stv.FV"),
         ("Stv Fraktionsverwaltung", "Stv.FV"),
         ("Eventleitung", "EL"),
-        ("Admin-Leitung", "AdminL"),
+        ("Admin-Leitung", "L.Admin"),
+        ("L.Admin", "L.Admin"),
+        ("AdminL", "L.Admin"),
         ("Sr.Admin", "Sr.Admin"),
         ("Admin", "Admin"),
         ("Jr.Admin", "Jr.Admin"),
-        ("Mod-Leitung", "ModL"),
+        ("Mod-Leitung", "L.Mod"),
+        ("L.Mod", "L.Mod"),
+        ("ModL", "L.Mod"),
         ("Sr.Moderator", "Sr.Mod"),
         ("Moderator", "Mod"),
         ("Jr.Moderator", "Jr.Mod"),
-        ("Sup-Leitung", "SupL"),
+        ("Sup-Leitung", "L.Sup"),
+        ("L.Sup", "L.Sup"),
+        ("SupL", "L.Sup"),
         ("Sr.Supporter", "Sr.Sup"),
         ("Supporter", "Sup"),
         ("Test Supporter", "T.Sup"),
-        ("Aushilfe", "Aush."),
-        ("Bauteamler Leitung", "BauL"),
-        ("Stv Bauteamler Leitung", "Stv.BauL"),
+        ("Aushilfe", "Aushilfe"),
+        ("Aush.", "Aushilfe"),
+        ("Bauteamler Leitung", "L.Bau"),
+        ("L.Bau", "L.Bau"),
+        ("BauL", "L.Bau"),
+        ("Stv Bauteamler Leitung", "Stv.L.Bau"),
+        ("Stv.L.Bau", "Stv.L.Bau"),
+        ("Stv.BauL", "Stv.L.Bau"),
         ("Stv. Bauteamler Leitung", "Stv.BauL"),
         ("Senior Bauteamler", "Sr.Bau"),
         ("Sr. Bauteamler", "Sr.Bau"),
@@ -121,11 +142,11 @@ _ROLE_PREFIX_ABBREVIATIONS = {
 }
 
 
-def automatic_role_prefix(role_name: object) -> str:
-    """Build a compact role prefix, cleaning the server's decorative role names."""
+def _extract_role_label(role_name: object) -> str:
+    """Strip hierarchy branding and decorative glyphs from a Discord role name."""
     original = unicodedata.normalize("NFKC", str(role_name or "")).strip()
     if not original:
-        return "Bürger ✗"
+        return ""
 
     # Discord role names often have a brand/category before the actual rank.
     separators = ("メ", "║", "✘", "✗", "⌯⌲", "||")
@@ -141,12 +162,37 @@ def automatic_role_prefix(role_name: object) -> str:
     while label and unicodedata.category(label[-1])[0] not in {"L", "N"} and label[-1] not in "+#":
         label = label[:-1].rstrip()
 
-    label = re.sub(r"\s+", " ", label).strip()
-    if not label:
-        label = original
+    return re.sub(r"\\s+", " ", label).strip()
 
-    # Use explicit abbreviations for team ranks, with case/Unicode-insensitive
-    # matching. This is a nickname-only label; the actual Discord roles stay intact.
+
+# Older values could have been saved manually by an earlier Pulse version.
+# If a setting still contains the unshortened role name or one of these former
+# generated labels, migrate it to the current canonical prefix. Truly custom
+# values continue to take precedence.
+_PREVIOUS_ROLE_PREFIX_LABELS = {
+    _role_label_key(role): old
+    for role, old in (
+        ("Founder", "FND"),
+        ("Rechte Hand", "RH"),
+        ("Dev-Leitung", "DevL"),
+        ("Ausbilder-Leitung", "AusbL"),
+        ("Ausbilder", "Ausb"),
+        ("Admin-Leitung", "AdminL"),
+        ("Mod-Leitung", "ModL"),
+        ("Sup-Leitung", "SupL"),
+        ("Aushilfe", "Aush."),
+        ("Bauteamler Leitung", "BauL"),
+        ("Stv Bauteamler Leitung", "Stv.BauL"),
+    )
+}
+
+
+def automatic_role_prefix(role_name: object) -> str:
+    """Build a compact role prefix, cleaning the server's decorative role names."""
+    label = _extract_role_label(role_name)
+    if not label:
+        return "Bürger ✗"
+
     short_label = _ROLE_PREFIX_ABBREVIATIONS.get(_role_label_key(label))
     if short_label:
         label = short_label
@@ -197,10 +243,23 @@ def select_highest_role_prefix(role_records, configured_prefixes: dict[str, str]
         if _is_section_divider_role(role_name):
             continue
         configured = configured_prefixes.get(str(role_id))
-        try:
-            prefix = normalize_role_prefix(configured) if configured else automatic_role_prefix(role_name)
-        except ValueError:
-            prefix = automatic_role_prefix(role_name)
+        automatic_prefix = automatic_role_prefix(role_name)
+        prefix = automatic_prefix
+        if configured:
+            try:
+                configured_prefix = normalize_role_prefix(configured)
+                configured_core = re.sub(r"\\s*✗\\s*$", "", configured_prefix).strip()
+                configured_key = _role_label_key(configured_core)
+                role_label_key = _role_label_key(_extract_role_label(role_name))
+                automatic_core_key = _role_label_key(re.sub(r"\\s*✗\\s*$", "", automatic_prefix).strip())
+                previous_label = _PREVIOUS_ROLE_PREFIX_LABELS.get(role_label_key, "")
+                previous_key = _role_label_key(previous_label)
+                # If the stored setting is just the old role label or an old
+                # generated abbreviation, use the canonical label for this release.
+                if configured_key not in {role_label_key, automatic_core_key, previous_key}:
+                    prefix = configured_prefix
+            except ValueError:
+                prefix = automatic_prefix
         candidates.append((position, role_id, prefix))
 
     if not candidates:
