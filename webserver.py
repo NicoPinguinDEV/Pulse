@@ -2890,7 +2890,7 @@ DASHBOARD_HEAD = """
                     }
                     const exact = users.find(u => String(u.name || "").toLowerCase() === input.toLowerCase());
                     const idInput = document.getElementById("robloxIdInput");
-                    if (exact && idInput && /^\d+$/.test(String(exact.id || ""))) {
+                    if (exact && idInput && /^\\d+$/.test(String(exact.id || ""))) {
                         idInput.value = String(exact.id);
                         resolvedRobloxUsername = String(exact.name).toLowerCase();
                     }
