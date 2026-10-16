@@ -306,6 +306,244 @@ def log_audit(actor_name: str, actor_id: str, action: str, details: str):
     save_json(AUDIT_FILE, audit_data[-5000:])  # Datei wächst nicht unendlich
 
 
+def team_safety_admin_exempt(guild, member) -> bool:
+    """Only the real Discord server owner/administrators bypass automatic team safety."""
+    if not guild or not member:
+        return False
+    return member.id == getattr(guild, "owner_id", None) or bool(
+        getattr(getattr(member, "guild_permissions", None), "administrator", False)
+    )
+
+
+async def _apply_team_safety_team_kick(guild, member, config: dict, reason: str) -> dict:
+    """Remove Pulse team rank roles only; never ban or kick the member from Discord."""
+    if not guild or not member:
+        return {"ok": False, "changed": False, "message": "Guild oder Moderator nicht verfügbar."}
+    configured_ids = set()
+    for raw_id in config.get("team_role_ids", []) or []:
+        try:
+            configured_ids.add(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    configured_ids.add(TEST_SUPPORTER_ROLE_ID)
+    roles_to_remove = [
+        role for role in member.roles
+        if role.id in configured_ids and not role.is_default()
+    ]
+    if not roles_to_remove:
+        return {"ok": True, "changed": False, "message": "Keine konfigurierten Teamrollen mehr vorhanden."}
+
+    bot_member = getattr(guild, "me", None)
+    if not bot_member or not bot_member.guild_permissions.manage_roles:
+        return {"ok": False, "changed": False, "message": "Bot hat keine Berechtigung „Rollen verwalten“."}
+    blocked = [
+        role for role in roles_to_remove
+        if role.managed or role.position >= bot_member.top_role.position
+    ]
+    if blocked:
+        return {
+            "ok": False, "changed": False,
+            "message": "Bot kann folgende Teamrollen nicht entfernen: "
+                       + ", ".join(role.name for role in blocked)
+                       + ". Rollen-Hierarchie oder verwaltete Rollen prüfen.",
+        }
+
+    try:
+        await member.remove_roles(
+            *roles_to_remove,
+            reason=f"Pulse-Teamler-Schutz: automatischer Team-Kick: {reason}"[:500],
+        )
+        pulse_db.mark_team_safety_kicked(guild.id, member.id)
+        removed_names = ", ".join(role.name for role in roles_to_remove)
+        log_audit(
+            "Pulse – Teamler-Schutz", "system", "Automatischer Team-Kick wegen Warn-Missbrauch",
+            f"{member.display_name} ({member.id}) · entfernte Teamrollen: {removed_names} · Grund: {reason}",
+        )
+        try:
+            pulse_db.record_event(
+                "team_warn_abuse_team_kick", "team_member", member.id, "system",
+                "Pulse – Teamler-Schutz", {"reason": reason, "removed_roles": [r.id for r in roles_to_remove]},
+            )
+        except Exception as exc:
+            print(f"⚠️ Teamler-Schutz: Event-Audit konnte nicht geschrieben werden: {exc}")
+        try:
+            await send_dm_notification(
+                member,
+                f"🛡️ **Pulse-Teamler-Schutz:** Deine Teamrollen auf **{guild.name}** wurden automatisch entfernt. "
+                f"Grund: {reason}. Du wurdest nicht vom Discord-Server gekickt. "
+                "Bitte kläre den Vorfall mit der Führungsebene.",
+            )
+        except Exception as exc:
+            print(f"⚠️ Teamler-Schutz: DM an Moderator {member.id} fehlgeschlagen: {exc}")
+        return {"ok": True, "changed": True, "message": f"Teamrollen entfernt: {removed_names}"}
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        return {
+            "ok": False, "changed": False,
+            "message": f"Discord konnte die Teamrollen nicht entfernen ({type(exc).__name__}).",
+        }
+
+
+async def _notify_team_safety_incident(guild, actor, target, config: dict, decision: dict, source: str):
+    """Audit and notify leadership about a warning-abuse lockout or automatic team-kick."""
+    actor_name = getattr(actor, "display_name", str(getattr(actor, "id", "Unbekannt")))
+    actor_id = str(getattr(actor, "id", ""))
+    target_name = getattr(target, "display_name", str(getattr(target, "id", "unbekannt")))
+    action = str(decision.get("action") or "blocked")
+    reason = str(decision.get("reason") or "Verdächtige Verwarnungsaktivität")
+    kicked = None
+    if action == "team_kick":
+        kicked = await _apply_team_safety_team_kick(guild, actor, config, reason)
+
+    locked_until = float(decision.get("locked_until") or 0)
+    try:
+        if locked_until:
+            until = datetime.fromtimestamp(locked_until, TZ).strftime("%d.%m.%Y %H:%M") if TZ else datetime.fromtimestamp(locked_until).strftime("%d.%m.%Y %H:%M")
+        else:
+            until = "bis zur Prüfung durch die Führungsebene"
+    except (ValueError, OverflowError, OSError):
+        until = "bis zur Prüfung durch die Führungsebene"
+
+    if action == "team_kick":
+        status_text = (
+            "Automatischer Team-Kick durchgeführt. " + kicked["message"]
+            if kicked and kicked.get("ok")
+            else "Automatischer Team-Kick fehlgeschlagen; sofort manuell prüfen. "
+                 + str((kicked or {}).get("message", "Unbekannter Fehler"))
+        )
+        audit_action = "Teamler-Schutz: automatischer Team-Kick" if kicked and kicked.get("ok") else "Teamler-Schutz: Team-Kick fehlgeschlagen"
+        title = "🚨 Teamler-Schutz: Automatischer Team-Kick"
+        color = discord.Color.red()
+    elif action == "duplicate":
+        status_text = "Doppelte Anfrage wurde blockiert; keine Verwarnung erstellt."
+        audit_action = "Teamler-Schutz: doppelte Warnanfrage blockiert"
+        title = "⚠️ Teamler-Schutz: Doppelte Warnanfrage"
+        color = discord.Color.orange()
+    else:
+        status_text = f"Warnrechte für diesen Moderator bis {until} gesperrt. Der aktuelle Warnversuch wurde blockiert."
+        audit_action = "Teamler-Schutz: Verwarnungssperre aktiviert"
+        title = "🛡️ Teamler-Schutz: Verdächtige Warnaktivität"
+        color = discord.Color.orange()
+
+    try:
+        log_audit(
+            "Pulse – Teamler-Schutz", "system", audit_action,
+            f"Moderator {actor_name} ({actor_id}) · Ziel {target_name} "
+            f"({getattr(target, 'id', 'unbekannt')}) · Quelle: {source} · Muster: {reason} · {status_text}",
+        )
+    except Exception as exc:
+        print(f"⚠️ Teamler-Schutz: Audit-Log fehlgeschlagen: {exc}")
+    try:
+        pulse_db.record_event(
+            "team_warn_abuse_detected", "team_member", actor_id, "system",
+            "Pulse – Teamler-Schutz",
+            {
+                "target_id": str(getattr(target, "id", "")),
+                "source": source,
+                "action": action,
+                "reason": reason,
+                "status": status_text,
+                "strike_count": int(decision.get("strike_count") or 0),
+                "code": decision.get("code", ""),
+            },
+        )
+    except Exception as exc:
+        print(f"⚠️ Teamler-Schutz: Sicherheitsevent konnte nicht gespeichert werden: {exc}")
+
+    try:
+        description = (
+            f"**Moderator:** {getattr(actor, 'mention', actor_name)} ({actor_id})\n"
+            f"**Ziel der versuchten Verwarnung:** {getattr(target, 'mention', target_name)}\n"
+            f"**Quelle:** {source}\n**Erkennung:** {reason}\n**Maßnahme:** {status_text}"
+        )
+        await send_team_update_embed(
+            guild,
+            title,
+            description,
+            color,
+            target=getattr(actor, "mention", actor_name),
+            action=audit_action,
+            actor="Pulse – Teamler-Schutz",
+            fields=[
+                ("Erkennung", reason, False),
+                ("Maßnahme", status_text, False),
+                ("Wiederholungen", str(decision.get("strike_count", 0)), True),
+            ],
+            thumbnail=getattr(getattr(actor, "display_avatar", None), "url", None),
+        )
+    except Exception as exc:
+        print(f"⚠️ Teamler-Schutz: Discord-Alarm konnte nicht gesendet werden: {exc}")
+
+    # Notify leadership in the Pulse inbox, independently of team-update channel delivery.
+    notified = 0
+    for manager in list(getattr(guild, "members", []) or []):
+        if getattr(manager, "bot", False) or str(manager.id) == actor_id:
+            continue
+        try:
+            perms, _ = compute_perms(guild, manager.id, config)
+            if not (perms.get("can_promote") or perms.get("is_admin")):
+                continue
+            pulse_db.notify(
+                manager.id,
+                title,
+                f"{actor_name} ({actor_id}) · {reason} · {status_text}",
+                "urgent" if action == "team_kick" else "warning",
+                "/warns",
+                f"team-safety:{guild.id}:{actor_id}:{decision.get('incident_id') or int(locked_until)}",
+                86400,
+            )
+            notified += 1
+        except Exception as exc:
+            print(f"⚠️ Teamler-Schutz: Inbox-Alarm an {manager.id} fehlgeschlagen: {exc}")
+
+    if action != "duplicate":
+        try:
+            await send_dm_notification(
+                actor,
+                f"🛡️ **Pulse-Teamler-Schutz:** Dein manueller Warnversuch wurde blockiert. "
+                f"Erkennung: {reason}. {status_text}",
+            )
+        except Exception as exc:
+            print(f"⚠️ Teamler-Schutz: DM an {actor_id} fehlgeschlagen: {exc}")
+    print(
+        f"🛡️ Teamler-Schutz ausgelöst: Moderator={actor_id}, Aktion={action}, "
+        f"Quelle={source}, Führungskräfte benachrichtigt={notified}, Status={status_text}"
+    )
+
+
+async def enforce_team_warn_protection(guild, actor, target, config: dict | None = None, source: str = "Dashboard"):
+    """Gate for all human-issued warnings; returns (allowed, explanation)."""
+    if team_safety_admin_exempt(guild, actor):
+        return True, ""
+    if not guild or not actor or not target:
+        return False, "Teamler-Schutz: Moderator oder Zielmitglied ist nicht verfügbar."
+    cfg = config or load_config()
+    decision = pulse_db.check_team_warn_safety(guild.id, actor.id, target.id)
+    if decision.get("allowed"):
+        return True, ""
+    await _notify_team_safety_incident(guild, actor, target, cfg, decision, source)
+    if decision.get("action") == "duplicate":
+        return False, "Doppelte Warnanfrage erkannt; es wurde keine zusätzliche Verwarnung erstellt."
+    if decision.get("action") == "team_kick":
+        return False, "🚨 Teamler-Schutz hat den Warnversuch blockiert und einen automatischen Team-Kick ausgelöst. Die Führungsebene wurde benachrichtigt."
+    return False, "🛡️ Teamler-Schutz: Warnrechte wurden wegen auffälliger Aktivität für 30 Minuten gesperrt. Die Führungsebene wurde benachrichtigt."
+
+
+async def enforce_team_safety_action_lockout(guild, actor, target, action_name: str, config: dict | None = None, source: str = "Dashboard") -> tuple[bool, str]:
+    """Prevent a moderator in warning lockout from bypassing it with another power action."""
+    if team_safety_admin_exempt(guild, actor):
+        return True, ""
+    if not guild or not actor:
+        return False, "Teamler-Schutz: Moderator ist nicht verfügbar."
+    decision = pulse_db.check_team_safety_action(guild.id, actor.id, action_name)
+    if decision.get("allowed"):
+        return True, ""
+    cfg = config or load_config()
+    await _notify_team_safety_incident(guild, actor, target or actor, cfg, decision, source)
+    if decision.get("action") == "team_kick":
+        return False, "🚨 Teamler-Schutz: Die Aktion wurde blockiert und wegen wiederholter Verstöße ein automatischer Team-Kick ausgelöst."
+    return False, "🛡️ Teamler-Schutz: Während der aktiven Warnsperre sind Teamaktionen gesperrt. Die Führungsebene wurde benachrichtigt."
+
+
 def get_loas() -> dict:
     """Alle Abmeldungen als {user_id_str: {...,'active': bool}} – abgelaufene bleiben sichtbar, zählen aber nicht mehr."""
     result = {}
