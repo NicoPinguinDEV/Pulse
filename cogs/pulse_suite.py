@@ -977,6 +977,20 @@ class PulseSuite(commands.Cog):
                 )
             td=web.load_json(web.DATA_FILE,{})
             e=web.user_entry(td,str(member.id))
+            current_count=len(web.active_warns(e))
+            if current_count >= 5:
+                return await x.response.edit_message(
+                    content="❌ Dieses Teammitglied hat bereits 5 aktive Verwarnungen.",
+                    embed=None, view=None,
+                )
+            config=web.load_config()
+            allowed_impact, impact_message = await web.enforce_high_impact_warning_approval(
+                i.guild, i.user, member, e, current_count, config, source="Slash /warn",
+            )
+            if not allowed_impact:
+                return await x.response.edit_message(
+                    content="❌ " + impact_message, embed=None, view=None,
+                )
             issued_at=web.now_de()
             duration_days=web.DEFAULT_AUTO_WARN_DURATION_DAYS
             w={
@@ -995,7 +1009,6 @@ class PulseSuite(commands.Cog):
             e.setdefault("warns_list",[]).append(w)
             web.save_json(web.DATA_FILE,td)
             count=len(web.active_warns(e))
-            config=web.load_config()
             role_report=await web.sync_warn_roles(i.guild,member,count,config)
             consequence_report=await web.apply_warn_consequences(i.guild,member,w,count,config,entry=e)
             web.save_json(web.DATA_FILE,td)
