@@ -676,8 +676,8 @@ def main() -> None:
     # Full Discord + Pulse backup/restore is validated, importable, and guarded by a pre-restore snapshot.
     assert '"backup_version": 3' in web
     assert "async def create_backup_file_async(guild" in web
-    assert "snapshot = await asyncio.to_thread(build_backup, icon_base64)" in web
-    assert "snapshot = await asyncio.to_thread(build_backup, guild_icon_base64)" not in web
+    assert "snapshot = await asyncio.to_thread(build_backup, guild, icon_base64)" in web
+    assert "snapshot = await asyncio.to_thread(build_backup, guild, guild_icon_base64)" not in web
     assert 'role_id = int(restriction.get("role_id") or 0)' in web
     assert "if not isinstance(restriction, dict)" in web
     assert "async def restore_guild_structure(guild, backup: dict, exact_restore: bool = False)" in web
