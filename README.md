@@ -90,6 +90,10 @@ Der Bot benötigt je nach aktivierten Modulen unter anderem die Intent-Berechtig
 
 Laufzeitdaten werden lokal in SQLite-Datenbanken und JSON-Dateien gespeichert. Diese Dateien sind absichtlich nicht für das Git-Repository vorgesehen. Regelmäßige Backups sollten außerhalb des Containers bzw. Hosts aufbewahrt werden.
 
+## Eigenes VPS-Hosting
+
+Die Docker-Konfiguration und sichere Umzugs-Checkliste liegen in [`VPS_DEPLOYMENT.md`](VPS_DEPLOYMENT.md). Der VPS nutzt weiterhin dieses GitHub-Repository als Codequelle; nach erfolgreich bestandenen GitHub-Tests kann GitHub Actions Updates optional automatisch auf den Server ausrollen. Runtime-Konfiguration, Mitglieder-/Teamdaten, Datenbanken, Backups und Transkripte müssen separat übertragen und gesichert werden.
+
 ## Entwicklung
 
 Vor dem Deploy:
