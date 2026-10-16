@@ -114,13 +114,16 @@ def strip_legacy_rank_prefix(name: object) -> str | None:
     if not match:
         return nickname or None
 
-    label = unicodedata.normalize("NFKC", match.group("label")).casefold()
+    raw_label = match.group("label").strip()
+    label = unicodedata.normalize("NFKC", raw_label).casefold()
     tokens = re.findall(r"[a-z0-9]+", label)
     compact = "".join(tokens)
     looks_like_rank = (
         compact in _LEGACY_RANK_HINTS
         or any(token in _LEGACY_RANK_HINTS for token in tokens)
         or any(compact.startswith(hint) for hint in ("teamleitung", "teamaufsicht", "serverleitung", "srsup", "srsupporter"))
+        # Short uppercase tags such as DK, MA, or PK are used as legacy rank labels.
+        or (raw_label.isupper() and 2 <= len(compact) <= 4 and compact.isalpha())
     )
     if looks_like_rank:
         rest = match.group("rest").strip()
