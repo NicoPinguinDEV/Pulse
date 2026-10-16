@@ -16,10 +16,10 @@ from discord.ext import commands
 DISCORD_UPLOAD_SOFT_LIMIT = 7_500_000  # leave headroom for Discord's upload cap
 
 
-def _backup_file(guild: discord.Guild, prefix: str = "") -> str:
+async def _backup_file(guild: discord.Guild, prefix: str = "") -> str:
     import webserver
 
-    filename = webserver.create_backup_file(guild, prefix)
+    filename = await webserver.create_backup_file_async(guild, prefix)
     return os.path.join(webserver.BACKUP_DIR, filename)
 
 
@@ -67,7 +67,7 @@ class BackupCog(commands.Cog):
 
     @app_commands.command(
         name="backup_erstellen",
-        description="[Admin] Erstellt ein vollständiges Pulse-Panel-Backup",
+        description="[Admin] Erstellt ein vollständiges Discord-Server- und Pulse-Backup",
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def manual_backup(self, interaction: discord.Interaction):
@@ -79,13 +79,13 @@ class BackupCog(commands.Cog):
         try:
             import webserver
 
-            path = _backup_file(interaction.guild)
+            path = await _backup_file(interaction.guild)
             size = os.path.getsize(path)
             embed = discord.Embed(
-                title="💾 Pulse-Backup erstellt",
+                title="💾 Discord-Server + Pulse-Backup erstellt",
                 description=(
-                    "Die vollständige Panel-Sicherung wurde lokal abgelegt und ist im Dashboard unter "
-                    "/backups verfügbar."
+                    "Serverstruktur, Rollen/Kanalrechte und Pulse-Daten wurden gesichert. "
+                    "Die JSON-Datei liegt außerdem im Dashboard unter /backups."
                 ),
                 color=discord.Color.green(),
                 timestamp=datetime.now(timezone.utc),
