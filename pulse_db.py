@@ -583,10 +583,8 @@ def support_case_counts(start_at=None, end_at=None):
     case in both reporting periods.
     """
     start = start_at or get_support_case_period_start()
-    end = end_at or _now()
-    with connect() as db:
-        rows = db.execute(
-            """
+    if end_at:
+        query = """
             SELECT claimed_by_id AS user_id, COUNT(*) AS total
             FROM tickets
             WHERE status='closed'
@@ -596,9 +594,25 @@ def support_case_counts(start_at=None, end_at=None):
               AND closed_at >= ?
               AND closed_at < ?
             GROUP BY claimed_by_id
-            """,
-            (str(start), str(end)),
-        ).fetchall()
+            """
+        params = (str(start), str(end_at))
+    else:
+        # The live dashboard must include tickets closed during the current
+        # second. The explicit end-exclusive boundary is needed only when
+        # archiving a period, not for a live count.
+        query = """
+            SELECT claimed_by_id AS user_id, COUNT(*) AS total
+            FROM tickets
+            WHERE status='closed'
+              AND closed_at IS NOT NULL
+              AND claimed_by_id IS NOT NULL
+              AND claimed_by_id != ''
+              AND closed_at >= ?
+            GROUP BY claimed_by_id
+            """
+        params = (str(start),)
+    with connect() as db:
+        rows = db.execute(query, params).fetchall()
     return {str(row["user_id"]): int(row["total"] or 0) for row in rows}
 
 
