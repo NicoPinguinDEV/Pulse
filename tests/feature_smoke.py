@@ -42,7 +42,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_team_protection.py"):
+    for name in ("main.py", "webserver.py", "pulse_db.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_team_protection.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -399,7 +399,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.17"' in version_source
+    assert 'PULSE_VERSION = "7.8.18"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
@@ -817,6 +817,19 @@ def main() -> None:
     assert "roles=[arrival_role] if arrival_role else []" in buero
     assert 'target_voice_id=0' in buero
     assert "Die DM-Auswahl bleibt zusätzlich bestehen" in buero
+
+    # Support cases are counted per person between manually confirmed team-meeting boundaries.
+    pulse_db_source = read("pulse_db.py")
+    assert "def get_support_case_period_start()" in pulse_db_source
+    assert "def support_case_counts(start_at=None, end_at=None)" in pulse_db_source
+    assert "def finish_support_case_period(actor_id, actor_name)" in pulse_db_source
+    assert "support_case_period_history" in pulse_db_source
+    assert "support_counts = pulse_db.support_case_counts(support_period_start)" in web
+    assert '"support_cases": support_counts.get(str(member.id), 0)' in web
+    assert "🎧 {m['support_cases']} Supportfälle" in web
+    assert "Supportfälle seit Teammeeting" in web
+    assert 'value="reset_support_case_period"' in web
+    assert '"reset_support_case_period": "can_promote"' in web
 
     # The native Pulse ticket flow provisions panels in the six specified channels,
     # logs opened/claimed tickets, and exposes the management page on the Pulse site.
