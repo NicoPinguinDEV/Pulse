@@ -1620,6 +1620,20 @@ def register(app):
             for role in sorted(roles, key=lambda role: (-role.position, role.name.casefold()))
             if role.id not in configured_prefix_ids
         )
+        default_prefix_value = str(c.config.get("nickname_default_prefix", "Bürger ✗") or "").strip()
+        nickname_default_section = (
+            f'<section class="pulse-card"><div class="pulse-card-h"><div>'
+            f'<div class="pulse-section-title">👤 Standardpräfix für neue und normale Mitglieder</div>'
+            f'<div class="pulse-section-sub">Voreinstellung: Bürger ✗</div></div></div><div class="pulse-card-b">'
+            f'<form action="/settings/nickname-prefix/default" method="post" class="space-y-3">'
+            f'<label class="block text-xs font-bold">Standardpräfix'
+            f'<input maxlength="24" name="nickname_default_prefix" value="{e(default_prefix_value)}" '
+            f'placeholder="Bürger ✗" class="pulse-input mt-2"></label>'
+            f'<p class="pulse-section-sub">Dieser Präfix wird bei jedem Beitritt verwendet, solange keine zugeordnete Discord-Rolle einen eigenen Präfix vorgibt. '
+            f'Für keinen Standardpräfix das Feld leer lassen. Ein leerer Wert deaktiviert nur den Standard, nicht deine Rollenregeln.</p>'
+            f'<button class="pulse-btn primary w-full">Standardpräfix speichern</button></form>'
+            f'</div></section>'
+        )
         nickname_prefix_section = (
             f'<section class="pulse-card mt-5"><div class="pulse-card-h"><div>'
             f'<div class="pulse-section-title">🏷️ Automatische Rollen-Namenspräfixe</div>'
@@ -1628,8 +1642,10 @@ def register(app):
             f'<div class="pulse-alert"><strong>Automatisch bei Beitritt und Rollenwechsel</strong>'
             f'<div class="text-slate-400 mt-1">Wähle jede Discord-Rolle und lege den Text vor dem Namen fest. '
             f'Wenn ein Mitglied mehrere konfigurierte Rollen hat, gewinnt die in Discord höher positionierte Rolle. '
-            f'Entfernt man die passende Rolle, versucht Pulse den vorherigen Nickname wiederherzustellen. '
+            f'Entfernt man alle zugeordneten Rollen, versucht Pulse den vorherigen Nickname wiederherzustellen. '
+            f'Der Standardpräfix „Bürger ✗“ greift, solange keine Rollenregel passt. '
             f'Discord erlaubt maximal 32 Zeichen für Nicknames; lange Namen können deshalb gekürzt werden.</div></div>'
+            f'{nickname_default_section}'
             f'<form action="/settings/nickname-prefix/sync" method="post" '
             f'onsubmit="return confirm(\'Die Namenspräfixe für bereits vorhandene Mitglieder im aktuell geladenen Server-Cache anwenden? Nicknames können geändert oder zurückgesetzt werden.\')">'
             f'<button class="pulse-btn ghost">↻ Bestehende Mitglieder synchronisieren</button></form>'
@@ -1841,6 +1857,26 @@ def register(app):
         )
         return ws.back('/settings',f'Namenspräfix „{prefix}“ für „{role.name}“ gespeichert.')
 
+    async def settings_nickname_prefix_default(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None,admin=True)
+        form=await request.form()
+        raw_prefix=str(form.get("nickname_default_prefix") or "").strip()
+        if raw_prefix:
+            try:
+                prefix=normalize_role_prefix(raw_prefix)
+            except ValueError as exc:
+                return ws.back('/settings',str(exc),False)
+        else:
+            prefix=""
+        c.config["nickname_default_prefix"]=prefix
+        ws.save_json(ws.CONFIG_FILE,c.config)
+        ws.log_audit(
+            c.user.get('global_name') or c.user.get('username'),c.user['id'],
+            "Standard-Namenspräfix gespeichert",
+            f"{prefix or 'deaktiviert'} · gilt als Fallback für Mitglieder ohne Rollenpräfix",
+        )
+        return ws.back('/settings',f'Standardpräfix {"„"+prefix+"“" if prefix else "deaktiviert"}. Neue Mitglieder erhalten ihn automatisch, sofern keine Rollenregel passt.')
+
     async def settings_nickname_prefix_delete(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True)
         form=await request.form()
@@ -2050,6 +2086,7 @@ def register(app):
     app.post('/settings/dashboard-profile/save')(settings_dashboard_profile_save)
     app.post('/settings/dashboard-profile/delete')(settings_dashboard_profile_delete)
     app.post('/settings/nickname-prefix/save')(settings_nickname_prefix_save)
+    app.post('/settings/nickname-prefix/default')(settings_nickname_prefix_default)
     app.post('/settings/nickname-prefix/delete')(settings_nickname_prefix_delete)
     app.post('/settings/nickname-prefix/sync')(settings_nickname_prefix_sync)
     app.post('/settings/pro-roles')(settings_roles)
