@@ -2020,6 +2020,10 @@ async def cleanup_expired_warn_restrictions(guild, config: dict | None = None):
 
             keep = []
             for restriction in temp_roles:
+                if not isinstance(restriction, dict):
+                    keep.append(restriction)
+                    result["failed"] += 1
+                    continue
                 try:
                     expires = parse_dt(str(restriction.get("expires_at") or ""))
                 except Exception:
@@ -2049,6 +2053,17 @@ async def cleanup_expired_warn_restrictions(guild, config: dict | None = None):
                 )
                 if another_active_source:
                     keep.append(restriction)
+                    continue
+
+                try:
+                    role_id = int(restriction.get("role_id") or 0)
+                except (TypeError, ValueError):
+                    keep.append(restriction)
+                    result["failed"] += 1
+                    continue
+                if role_id <= 0:
+                    keep.append(restriction)
+                    result["failed"] += 1
                     continue
 
                 member = guild.get_member(int(user_id)) if guild else None
@@ -6396,7 +6411,7 @@ async def create_backup_file_async(guild, prefix: str = "") -> str:
         except Exception as exc:
             print(f"⚠️ Server-Icon konnte nicht gesichert werden ({type(exc).__name__}).")
     filename = f"{prefix}backup_{now_de().strftime('%Y-%m-%d_%H-%M-%S_%f')}.json"
-    snapshot = await asyncio.to_thread(build_backup, guild, guild_icon_base64)
+    snapshot = await asyncio.to_thread(build_backup, guild, icon_base64)
     path = os.path.join(BACKUP_DIR, filename)
     await asyncio.to_thread(save_json, path, snapshot)
     for warning in snapshot.get("snapshot_warnings", []):
