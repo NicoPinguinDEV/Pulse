@@ -1,0 +1,65 @@
+name: Deploy Pulse VPS
+
+on:
+  workflow_run:
+    workflows: ["Pulse Python Syntax Check"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: GitHub main → Pulse VPS
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deployment-Secrets prüfen
+        id: setup
+        env:
+          VPS_HOST: ${{ secrets.PULSE_VPS_HOST }}
+          VPS_USER: ${{ secrets.PULSE_VPS_USER }}
+          VPS_KEY: ${{ secrets.PULSE_VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.PULSE_VPS_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          if [[ -z "$VPS_HOST" || -z "$VPS_USER" || -z "$VPS_KEY" || -z "$VPS_KNOWN_HOSTS" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::VPS-Deployment übersprungen. Richte zuerst die vier PULSE_VPS_* Repository-Secrets ein."
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: SSH vorbereiten
+        if: steps.setup.outputs.enabled == 'true'
+        env:
+          VPS_KEY: ${{ secrets.PULSE_VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.PULSE_VPS_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$VPS_KEY" > "$HOME/.ssh/pulse_vps"
+          chmod 600 "$HOME/.ssh/pulse_vps"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Geprüften Pulse-Stand auf dem VPS deployen
+        if: steps.setup.outputs.enabled == 'true'
+        env:
+          VPS_HOST: ${{ secrets.PULSE_VPS_HOST }}
+          VPS_USER: ${{ secrets.PULSE_VPS_USER }}
+          VPS_PORT: ${{ secrets.PULSE_VPS_SSH_PORT }}
+        shell: bash
+        run: |
+          PORT="${VPS_PORT:-22}"
+          ssh -p "$PORT" \
+            -i "$HOME/.ssh/pulse_vps" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            'set -eu; cd /opt/pulse/Pulse; git fetch origin main; git reset --hard origin/main; docker compose up -d --build; docker image prune -f'
