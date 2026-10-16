@@ -6142,7 +6142,7 @@ def build_backup(guild, guild_icon_base64: str | None = None) -> dict:
     # The Activity Check database includes immutable participant snapshots and
     # warning idempotency state, so it must travel with the backup as well.
     sqlite_files = {}
-    for db_name in ("activity_check.db", "pulse.db"):
+    for db_name in ("activity_check.db",):
         db_path = str(BASE_DIR / db_name)
         if not os.path.isfile(db_path):
             continue
@@ -6236,18 +6236,48 @@ def validate_backup_document(backup: dict, guild_id: int | None = None) -> None:
     for role in roles:
         if not isinstance(role, dict) or not isinstance(role.get("name"), str) or not role["name"] or len(role["name"]) > 100:
             raise ValueError("Ungültiger Rolleneintrag im Backup.")
+    total_channels = len(channels)
     for category in categories:
         if not isinstance(category, dict) or not isinstance(category.get("name"), str):
             raise ValueError("Ungültiger Kategorieeintrag im Backup.")
         category_channels = category.get("channels", [])
         if not isinstance(category_channels, list) or len(category_channels) > 5000:
             raise ValueError("Ungültige Kanalliste in einer Kategorie.")
+        total_channels += len(category_channels)
         if any(not isinstance(channel, dict) or not isinstance(channel.get("name"), str) for channel in category_channels):
             raise ValueError("Ungültiger Kanal in einer Kategorie.")
+    if total_channels > 5000:
+        raise ValueError("Das Backup enthält zu viele Kanäle für eine sichere Wiederherstellung.")
     if any(not isinstance(channel, dict) or not isinstance(channel.get("name"), str) for channel in channels):
         raise ValueError("Ungültiger nicht kategorisierter Kanal im Backup.")
     if any(not isinstance(member, dict) or not str(member.get("id", "")).isdigit() for member in members):
         raise ValueError("Ungültiger Mitgliedseintrag im Backup.")
+    for role in roles:
+        if not str(role.get("id", "")).isdigit():
+            raise ValueError("Ungültige Rollen-ID im Backup.")
+        for key in ("color", "permissions", "position"):
+            if key in role and not isinstance(role[key], (int, float)):
+                raise ValueError(f"Ungültiger Rollenwert: {key}.")
+    for category in categories:
+        if "id" in category and not str(category.get("id", "")).isdigit():
+            raise ValueError("Ungültige Kategorie-ID im Backup.")
+        for channel in category.get("channels", []):
+            if "id" in channel and not str(channel.get("id", "")).isdigit():
+                raise ValueError("Ungültige Kanal-ID im Backup.")
+            if "overwrites" in channel and not isinstance(channel["overwrites"], list):
+                raise ValueError("Ungültige Kanalrechte im Backup.")
+    for channel in channels:
+        if "id" in channel and not str(channel.get("id", "")).isdigit():
+            raise ValueError("Ungültige Kanal-ID im Backup.")
+        if "overwrites" in channel and not isinstance(channel["overwrites"], list):
+            raise ValueError("Ungültige Kanalrechte im Backup.")
+    for member in members:
+        role_ids = member.get("role_ids", [])
+        if not isinstance(role_ids, list) or any(not str(role_id).isdigit() for role_id in role_ids):
+            raise ValueError("Ungültige Rollenliste eines Mitglieds im Backup.")
+    sqlite_files = panel.get("sqlite_files_base64", {})
+    if isinstance(sqlite_files, dict) and any(key != "activity_check.db" for key in sqlite_files):
+        raise ValueError("Das Backup enthält eine nicht zulässige Datenbankdatei.")
 
 
 def prune_auto_backups():
@@ -6734,12 +6764,21 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
             except (discord.Forbidden, discord.HTTPException, TypeError, ValueError) as exc:
                 warnings.append(f"Mitgliedsrollen/-name konnten nicht wiederhergestellt werden ({type(exc).__name__}).")
 
+    id_remap = {}
+    for old_id, role in role_map.items():
+        if role is not None:
+            id_remap[str(int(old_id))] = int(role.id)
+    for old_id, channel in channel_map.items():
+        if channel is not None:
+            id_remap[str(int(old_id))] = int(channel.id)
+
     return {
         "roles_changed": restored_roles,
         "channels_changed": restored_channels,
         "members_changed": restored_members,
         "members_skipped": skipped_members,
         "exact_restore": bool(exact_restore),
+        "id_remap": id_remap,
         "warnings": warnings[:50],
         "warning_count": len(warnings),
     }
