@@ -39,7 +39,7 @@ def support_open_now(cfg: dict, now: datetime | None = None) -> bool:
         return False
 
     def parse(value: str) -> int:
-        if not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", str(value or "")):
+        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", str(value or "")):
             raise ValueError("Uhrzeit muss HH:MM sein")
         hour, minute = str(value).split(":")
         return int(hour) * 60 + int(minute)
