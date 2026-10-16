@@ -35,13 +35,99 @@ def format_prefixed_nickname(prefix: object, base_name: object) -> str:
 
 
 
+def _role_label_key(value: object) -> str:
+    """Normalize decorated Discord role labels so spelling/punctuation variants match."""
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    return "".join(character for character in normalized if character.isalnum())
+
+
+# Compact, recognizable nicknames for Bochum RP's team hierarchy.
+# The Discord role names themselves are never renamed. Add aliases here when a
+# role is spelled slightly differently in the Discord server.
+_ROLE_PREFIX_ABBREVIATIONS = {
+    _role_label_key(label): short
+    for label, short in (
+        ("Founder", "FND"),
+        ("Inhaber", "Inh."),
+        ("Stv.Inhaber", "Stv.Inh."),
+        ("Rechte Hand", "RH"),
+        ("Owner", "Owner"),
+        ("Co.Owner", "Co.Owner"),
+        ("Champ", "Champ"),
+        ("DC Rechte", "DC"),
+        ("Dev-Leitung", "DevL"),
+        ("Developer", "Dev"),
+        ("Leitende Projektleitung", "L.PL"),
+        ("Projektleitung", "PL"),
+        ("Stv.Projektleitung", "Stv.PL"),
+        ("Leitende Projektkoordination", "L.PK"),
+        ("Projektkoordination", "PK"),
+        ("Stv.Projektkoordination", "Stv.PK"),
+        ("Leitender Direktor", "L.Dir"),
+        ("Direktor", "Dir"),
+        ("Stv.Direktor", "Stv.Dir"),
+        ("Leitende Serverleitung", "L.SL"),
+        ("Serverleitung", "SL"),
+        ("Stv.Serverleitung", "Stv.SL"),
+        ("Leitender Manager", "L.Mgmt"),
+        ("Management", "Mgmt"),
+        ("Stv.Management", "Stv.Mgmt"),
+        ("Leitende Teamleitung", "L.TL"),
+        ("Teamleitung", "TL"),
+        ("Stv.Teamleitung", "Stv.TL"),
+        ("Leitende Teamaufsicht", "L.TA"),
+        ("Teamaufsicht", "TA"),
+        ("Stv.Teamaufsicht", "Stv.TA"),
+        ("Stv Teamaufsicht", "Stv.TA"),
+        ("Leitender-Supervisor", "L.Sup"),
+        ("Leitender Supervisor", "L.Sup"),
+        ("Supervisor", "Sup"),
+        ("Stv.Supervisor", "Stv.Sup"),
+        ("Stv Supervisor", "Stv.Sup"),
+        ("Ausbilder-Leitung", "AusbL"),
+        ("Ausbilder", "Ausb"),
+        ("Highteamanwärter", "HTA"),
+        ("Community-Management", "CM"),
+        ("Stv.Community-Management", "Stv.CM"),
+        ("Stv Community-Management", "Stv.CM"),
+        ("Fraktionsverwaltung", "FV"),
+        ("Stv.Fraktionsverwaltung", "Stv.FV"),
+        ("Stv Fraktionsverwaltung", "Stv.FV"),
+        ("Eventleitung", "EL"),
+        ("Admin-Leitung", "AdminL"),
+        ("Sr.Admin", "Sr.Admin"),
+        ("Admin", "Admin"),
+        ("Jr.Admin", "Jr.Admin"),
+        ("Mod-Leitung", "ModL"),
+        ("Sr.Moderator", "Sr.Mod"),
+        ("Moderator", "Mod"),
+        ("Jr.Moderator", "Jr.Mod"),
+        ("Sup-Leitung", "SupL"),
+        ("Sr.Supporter", "Sr.Sup"),
+        ("Supporter", "Sup"),
+        ("Test Supporter", "T.Sup"),
+        ("Aushilfe", "Aush."),
+        ("Bauteamler Leitung", "BauL"),
+        ("Stv Bauteamler Leitung", "Stv.BauL"),
+        ("Stv. Bauteamler Leitung", "Stv.BauL"),
+        ("Senior Bauteamler", "Sr.Bau"),
+        ("Sr. Bauteamler", "Sr.Bau"),
+        ("Bauteamler", "Bau"),
+        ("Test Bauteamler", "T.Bau"),
+        ("Teamler", "Team"),
+        ("VIP", "VIP"),
+        ("Bürger", "Bürger"),
+    )
+}
+
+
 def automatic_role_prefix(role_name: object) -> str:
-    """Build 'Role ✗' from a Discord role name, cleaning common server decorations."""
+    """Build a compact role prefix, cleaning the server's decorative role names."""
     original = unicodedata.normalize("NFKC", str(role_name or "")).strip()
     if not original:
         return "Bürger ✗"
 
-    # Discord role names here often have a brand/category before the actual rank.
+    # Discord role names often have a brand/category before the actual rank.
     separators = ("メ", "║", "✘", "✗", "⌯⌲", "||")
     found = [(original.rfind(separator), separator) for separator in separators if separator in original]
     label = original
@@ -58,15 +144,27 @@ def automatic_role_prefix(role_name: object) -> str:
     label = re.sub(r"\s+", " ", label).strip()
     if not label:
         label = original
-    if "bürger" in label.casefold():
+
+    # Use explicit abbreviations for team ranks, with case/Unicode-insensitive
+    # matching. This is a nickname-only label; the actual Discord roles stay intact.
+    short_label = _ROLE_PREFIX_ABBREVIATIONS.get(_role_label_key(label))
+    if short_label:
+        label = short_label
+    elif "bürger" in label.casefold():
         label = "Bürger"
     elif label.casefold() == "vip":
         label = "VIP"
 
-    # A Discord nickname is limited to 32 characters including the member name.
+    # Keep a little room for the member name within Discord's 32-character limit.
     if len(label) > 22:
         label = label[:21].rstrip() + "…"
     return f"{label} ✗"
+
+
+def _is_section_divider_role(role_name: object) -> bool:
+    """True for decorative heading roles such as '━━━━ Administrator-Ebene ━━━━'."""
+    normalized = unicodedata.normalize("NFKC", str(role_name or ""))
+    return bool(re.search(r"[━─═]{2,}", normalized))
 
 
 def select_highest_role_prefix(role_records, configured_prefixes: dict[str, str]):
@@ -95,6 +193,8 @@ def select_highest_role_prefix(role_records, configured_prefixes: dict[str, str]
             role_id = int(raw_role_id)
             position = int(raw_position)
         except (TypeError, ValueError):
+            continue
+        if _is_section_divider_role(role_name):
             continue
         configured = configured_prefixes.get(str(role_id))
         try:
