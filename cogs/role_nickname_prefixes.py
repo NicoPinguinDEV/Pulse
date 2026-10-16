@@ -84,9 +84,21 @@ class RoleNicknamePrefixes(commands.Cog):
             and current_nick.startswith(f"{saved_prefix} ")
         )
         selected = self._selected_role(member, prefixes)
+        if selected is None:
+            # The standard citizen prefix applies to new and existing members
+            # even before an automatic verification role is assigned.
+            raw_default_prefix = config.get("nickname_default_prefix", "Bürger ✗")
+            try:
+                default_prefix = normalize_role_prefix(raw_default_prefix) if str(raw_default_prefix or "").strip() else ""
+            except ValueError:
+                default_prefix = ""
+            if default_prefix:
+                selected = (None, default_prefix)
 
         if selected:
             role, prefix = selected
+            role_label = role.name if role else "Standardpräfix"
+            role_id = str(role.id) if role else "default"
             if state and still_has_our_prefix:
                 original_nick = state.get("original_nick")
                 base_name = original_nick if isinstance(original_nick, str) and original_nick else member.name
@@ -109,13 +121,13 @@ class RoleNicknamePrefixes(commands.Cog):
             try:
                 target_nick = format_prefixed_nickname(prefix, base_name)
             except ValueError as exc:
-                print(f"⚠️ Namenspräfix für Rolle {role.id} ungültig: {exc}")
+                print(f"⚠️ Namenspräfix für {role_label} ({role_id}) ungültig: {exc}")
                 return "failed"
 
             new_state = {
                 "original_nick": original_nick,
                 "applied_prefix": prefix,
-                "role_id": str(role.id),
+                "role_id": role_id,
             }
             if current_nick == target_nick:
                 if state != new_state:
@@ -128,10 +140,10 @@ class RoleNicknamePrefixes(commands.Cog):
             try:
                 await member.edit(
                     nick=target_nick,
-                    reason=f"Pulse: automatischer Namenspräfix für Rolle {role.name}",
+                    reason=f"Pulse: automatischer Namenspräfix für {role_label}",
                 )
                 print(
-                    f"🏷️ Namenspräfix angewendet: {member} ({member.id}) → {target_nick}"
+                    f"🏷️ Namenspräfix angewendet: {member} ({member.id}) · {role_label} → {target_nick}"
                 )
                 return "updated"
             except discord.Forbidden:
@@ -216,7 +228,12 @@ class RoleNicknamePrefixes(commands.Cog):
         prefixes = self._valid_prefix_map(config)
         states = load_json(STATE_FILE, {})
         states = states if isinstance(states, dict) else {}
-        if not prefixes and not states:
+        raw_default_prefix = config.get("nickname_default_prefix", "Bürger ✗")
+        try:
+            default_prefix = normalize_role_prefix(raw_default_prefix) if str(raw_default_prefix or "").strip() else ""
+        except ValueError:
+            default_prefix = ""
+        if not prefixes and not states and not default_prefix:
             print("🏷️ Namenspräfix-Synchronisierung: Es sind keine Rollenpräfixe oder gespeicherten Nicknames vorhanden.")
             return
         role_ids = set(prefixes)
@@ -224,7 +241,8 @@ class RoleNicknamePrefixes(commands.Cog):
             member for member in list(guild.members)
             if not member.bot
             and (
-                str(member.id) in states
+                default_prefix
+                or str(member.id) in states
                 or any(str(role.id) in role_ids for role in member.roles)
             )
         ]
