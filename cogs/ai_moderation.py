@@ -602,9 +602,14 @@ class AIModeration(commands.Cog):
         """Back off all Pulse AI callers sharing this provider and report the review gap."""
         self._provider_failures = min(self._provider_failures + 1, 8)
         local_pause = min(300, 15 * (2 ** min(self._provider_failures - 1, 5)))
-        shared_pause = record_provider_failure(
-            self.api_base, self.api_key, status_code=status_code, retry_after=retry_after
-        )
+        # A transient moderation-side timeout/5xx must not pause the user-facing
+        # support assistant in both channels. Share only failures that genuinely
+        # affect all callers using the same credentials (quota/auth failures).
+        shared_pause = 0
+        if status_code == 429 or status_code in (401, 403):
+            shared_pause = record_provider_failure(
+                self.api_base, self.api_key, status_code=status_code, retry_after=retry_after
+            )
         pause = max(local_pause, shared_pause)
         self._paused_until = max(self._paused_until, time.monotonic() + pause)
         if item is not None:
