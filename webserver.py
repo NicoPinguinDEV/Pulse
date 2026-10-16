@@ -6772,7 +6772,7 @@ async def auto_backup_loop():
                     if BACKUP_NAME_RE.fullmatch(f)
                 ]
                 if not times or time.time() - max(times) > AUTO_BACKUP_HOURS * 3600:
-                    name = create_backup_file(guild, "auto_")
+                    name = await create_backup_file_async(guild, "auto_")
                     log_audit("System", "0", "Auto-Backup", name)
 
                     # Optional off-host copy. The local backup remains valid even
@@ -6850,52 +6850,138 @@ async def _stop_background_tasks():
 @app.get("/backups", response_class=HTMLResponse)
 async def backups_page(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session, perm=None, admin=True)
-    files = sorted((f for f in os.listdir(BACKUP_DIR) if BACKUP_NAME_RE.fullmatch(f)),
-                   key=lambda f: os.path.getmtime(os.path.join(BACKUP_DIR, f)), reverse=True)
+    files = sorted(
+        (name for name in os.listdir(BACKUP_DIR) if BACKUP_NAME_RE.fullmatch(name)),
+        key=lambda name: os.path.getmtime(os.path.join(BACKUP_DIR, name)),
+        reverse=True,
+    )
     rows = ""
-    for f in files:
-        path = os.path.join(BACKUP_DIR, f)
+    for name in files:
+        path = os.path.join(BACKUP_DIR, name)
         created = datetime.fromtimestamp(os.path.getmtime(path), TZ).strftime("%d.%m.%Y %H:%M") if TZ else \
             datetime.fromtimestamp(os.path.getmtime(path)).strftime("%d.%m.%Y %H:%M")
-        auto = ' <span class="text-[10px] px-2 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-500 font-sans">AUTO</span>' if f.startswith("auto_") else ""
+        size = os.path.getsize(path)
+        auto = ' <span class="text-[10px] px-2 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-500 font-sans">AUTO</span>' if name.startswith("auto_") else ""
+        uploaded = ' <span class="text-[10px] px-2 py-0.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-500 font-sans">IMPORT</span>' if name.startswith("uploaded_") else ""
         rows += f"""
-        <div class="{CARD} p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-                <div class="font-bold text-slate-900 dark:text-white text-sm font-mono break-all">{esc(f)}{auto}</div>
-                <div class="text-xs text-slate-400 mt-0.5">{created} · {round(os.path.getsize(path) / 1024, 1)} KB</div>
+        <div class="{CARD} p-4 flex flex-col gap-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                    <div class="font-bold text-slate-900 dark:text-white text-sm font-mono break-all">{esc(name)}{auto}{uploaded}</div>
+                    <div class="text-xs text-slate-400 mt-0.5">{created} · {round(size / 1024, 1)} KB</div>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="/backup/download/{esc(name)}" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs px-3.5 py-2 rounded-xl text-slate-700 dark:text-slate-300 font-medium transition shadow-sm">📥 JSON herunterladen</a>
+                    <form action="/backup/delete" method="post" onsubmit="return confirm('Backup wirklich endgültig löschen?');">
+                        <input type="hidden" name="filename" value="{esc(name)}">
+                        <button class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-2 rounded-xl font-medium transition">🗑️ Löschen</button>
+                    </form>
+                </div>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="/backup/download/{esc(f)}" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs px-3.5 py-2 rounded-xl text-slate-700 dark:text-slate-300 font-medium transition shadow-sm">📥 Herunterladen</a>
-                <form action="/backup/restore" method="post" onsubmit="return confirm('Panel-Daten dieses Backups wiederherstellen? Aktuelle Panel-Daten werden überschrieben.');">
-                    <input type="hidden" name="filename" value="{esc(f)}">
-                    <button class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs px-3.5 py-2 rounded-xl font-medium transition">↩️ Panel wiederherstellen</button>
-                </form>
-                <form action="/backup/delete" method="post" onsubmit="return confirm('Backup wirklich löschen?');">
-                    <input type="hidden" name="filename" value="{esc(f)}">
-                    <button class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-2 rounded-xl font-medium transition">🗑️ Löschen</button>
-                </form>
-            </div>
+            <form action="/backup/restore" method="post" class="border-t border-slate-200 dark:border-slate-700 pt-3 flex flex-col gap-2" onsubmit="return confirm('Vollständige Server- und Pulse-Wiederherstellung starten? Es wird vorher automatisch eine Sicherheitskopie des aktuellen Zustands angelegt.');">
+                <input type="hidden" name="filename" value="{esc(name)}">
+                <label class="flex items-start gap-2 text-xs text-slate-600 dark:text-slate-300">
+                    <input type="checkbox" name="exact_restore" value="true" class="mt-0.5 rounded">
+                    <span><strong>Exakte Struktur erzwingen:</strong> löscht zusätzliche, nicht im Backup enthaltene Kanäle und nicht verwaltete Rollen (nur soweit die Bot-Hierarchie es erlaubt).</span>
+                </label>
+                <button class="self-start bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs px-3.5 py-2 rounded-xl font-medium transition">↩️ Server + Pulse wiederherstellen</button>
+            </form>
         </div>"""
-    auto_text = (f"Automatisches Backup alle {AUTO_BACKUP_HOURS:g}h aktiv (letzte {MAX_BACKUPS} automatische Backups werden behalten)."
-                 if AUTO_BACKUP_HOURS > 0 else "Automatisches Backup ist deaktiviert (AUTO_BACKUP_HOURS=0).")
+
+    auto_text = (
+        f"Automatische Sicherungen alle {AUTO_BACKUP_HOURS:g} Stunden; bis zu {MAX_BACKUPS} automatische Dateien bleiben erhalten."
+        if AUTO_BACKUP_HOURS > 0 else "Automatische Sicherung ist deaktiviert (AUTO_BACKUP_HOURS=0)."
+    )
     body = f"""
-    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+    <div class="flex flex-col gap-5 mb-6 max-w-4xl">
         <div>
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Discord Server Backups</h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Rollen, Kanäle, Kanal-Rechte und alle Panel-Daten. {auto_text}</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">Sichert Servername/-einstellungen, Rollen samt Berechtigungen und Reihenfolge, Kategorien, Kanäle samt Rechten, vorhandene Mitgliedsrollen/-Spitznamen sowie Pulse-Datenbanken, Konfiguration, Warnhistorien und Transkripte. {auto_text}</p>
         </div>
-        <form action="/backup/create" method="post"><button class="{BTN} text-xs py-3 px-5">💾 Neues Backup erstellen</button></form>
+        <div class="{CARD} p-4 flex flex-col gap-3">
+            <h2 class="font-bold text-slate-900 dark:text-white text-sm">💾 Neues vollständiges Backup</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Erstellt eine herunterladbare JSON-Datei. Für jede Wiederherstellung legt Pulse vorher automatisch eine Rückfall-Sicherung an.</p>
+            <form action="/backup/create" method="post">
+                <button class="{BTN} text-xs py-3 px-5">💾 Server + Pulse sichern</button>
+            </form>
+        </div>
+        <div class="{CARD} p-4 flex flex-col gap-3">
+            <h2 class="font-bold text-slate-900 dark:text-white text-sm">📤 Backup hochladen</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Importiert ein zuvor von Pulse heruntergeladenes JSON-Backup (max. {MAX_BACKUP_UPLOAD_BYTES // (1024 * 1024)} MiB). Das Backup muss zu diesem Discord-Server gehören und wird vor dem Speichern geprüft.</p>
+            <form action="/backup/upload" method="post" enctype="multipart/form-data" class="flex flex-col sm:flex-row gap-3">
+                <input type="file" name="backup_file" accept=".json,application/json" required class="block w-full text-xs text-slate-600 dark:text-slate-300">
+                <button class="{BTN} text-xs py-3 px-5 shrink-0">⬆️ Backup importieren</button>
+            </form>
+        </div>
+        <div class="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-xs text-slate-600 dark:text-slate-300">
+            <strong>Grenzen von Discord:</strong> Bot-Backups können keine alten Nachrichten/Verläufe, privaten DMs, externe Integrationen, Webhooks, Einladungen, Server-Boosts oder nicht mehr verfügbare benutzerdefinierte Emojis rekonstruieren. Mitglieder werden weder eingeladen noch entfernt. Für das Wiederherstellen von Rollen/Kanälen braucht Pulse passende Discord-Rechte und eine ausreichend hohe Bot-Rolle.
+        </div>
     </div>
-    <div class="space-y-3 max-w-3xl">{rows or f"<div class='text-xs text-slate-400 italic {CARD} p-6 text-center'>Noch keine Backups vorhanden.</div>"}</div>"""
+    <div class="space-y-3 max-w-4xl">{rows or f"<div class='text-xs text-slate-400 italic {CARD} p-6 text-center'>Noch keine Backups vorhanden.</div>"}</div>"""
     return render_page("Server Backups", ctx, "backups", body)
 
 
 @app.post("/backup/create")
 async def create_backup(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session, perm=None, admin=True)
-    name = create_backup_file(ctx.guild)
-    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Erstellt", f"Filename: {name}")
-    return back("/backups", "Backup erstellt.")
+    try:
+        name = await create_backup_file_async(ctx.guild)
+        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Server-Backup Erstellt", f"Filename: {name}")
+        return back("/backups", f"Server- und Pulse-Backup erstellt: {name}")
+    except Exception as exc:
+        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Server-Backup Fehlgeschlagen", type(exc).__name__)
+        return back("/backups", f"Backup fehlgeschlagen ({type(exc).__name__}). Vorhandene Sicherungen wurden nicht verändert.", False)
+
+
+@app.post("/backup/upload")
+async def upload_backup(
+    request: Request,
+    backup_file: UploadFile = File(...),
+    user_session: str = Cookie(None),
+):
+    ctx = auth(request, user_session, perm=None, admin=True)
+    try:
+        if not backup_file.filename or not backup_file.filename.lower().endswith(".json"):
+            return back("/backups", "Bitte eine Pulse-Backup-Datei mit der Endung .json auswählen.", False)
+        raw = await backup_file.read(MAX_BACKUP_UPLOAD_BYTES + 1)
+        if len(raw) > MAX_BACKUP_UPLOAD_BYTES:
+            return back("/backups", f"Datei zu groß. Maximum: {MAX_BACKUP_UPLOAD_BYTES // (1024 * 1024)} MiB.", False)
+        try:
+            backup = json.loads(raw.decode("utf-8-sig"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Die Datei ist keine gültige UTF-8-JSON-Datei.") from exc
+        validate_backup_document(backup, ctx.guild.id)
+        settings = backup.get("guild_settings", {})
+        if isinstance(settings, dict) and isinstance(settings.get("icon_base64"), str):
+            icon_raw = base64.b64decode(settings["icon_base64"], validate=True)
+            if len(icon_raw) > 8 * 1024 * 1024:
+                raise ValueError("Das Server-Icon im Backup ist zu groß.")
+        sqlite_files = backup.get("panel_data", {}).get("sqlite_files_base64", {})
+        for database_name, encoded in sqlite_files.items():
+            if database_name != "activity_check.db" or not isinstance(encoded, str):
+                raise ValueError("Unerlaubte Datenbankdatei im Backup.")
+            if len(encoded) > 28 * 1024 * 1024:
+                raise ValueError("Die Datenbankdatei im Backup ist zu groß.")
+            decoded = base64.b64decode(encoded, validate=True)
+            if len(decoded) > 20 * 1024 * 1024 or not decoded.startswith(b"SQLite format 3\x00"):
+                raise ValueError("Die SQLite-Datei im Backup ist beschädigt oder ungültig.")
+        name = f"uploaded_backup_{now_de().strftime('%Y-%m-%d_%H-%M-%S_%f')}.json"
+        safe_path = os.path.join(BACKUP_DIR, name)
+        # Normalize accepted JSON and write atomically; never trust the user-supplied filename.
+        temp_path = safe_path + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as fh:
+            json.dump(backup, fh, ensure_ascii=False, separators=(",", ":"))
+        os.replace(temp_path, safe_path)
+        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Importiert", f"Filename: {name}")
+        return back("/backups", f"Backup geprüft und importiert: {name}")
+    except (ValueError, OSError) as exc:
+        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Import Abgelehnt", f"{type(exc).__name__}: {str(exc)[:180]}")
+        return back("/backups", f"Backup-Import abgelehnt: {str(exc)[:240]}", False)
+    except Exception as exc:
+        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Import Fehlgeschlagen", type(exc).__name__)
+        return back("/backups", f"Backup konnte nicht importiert werden ({type(exc).__name__}).", False)
+    finally:
+        await backup_file.close()
 
 
 @app.get("/backup/download/{filename}")
@@ -6907,73 +6993,115 @@ async def download_backup(request: Request, filename: str, user_session: str = C
     return FileResponse(path, media_type="application/json", filename=os.path.basename(path))
 
 
+def _remap_backup_ids(value, id_map: dict[str, int]):
+    """Replace only exact Discord snowflake references, preserving all other values."""
+    if isinstance(value, dict):
+        return {key: _remap_backup_ids(item, id_map) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_remap_backup_ids(item, id_map) for item in value]
+    if isinstance(value, int) and not isinstance(value, bool):
+        return id_map.get(str(value), value)
+    if isinstance(value, str) and value.isdigit():
+        return str(id_map.get(value, int(value)))
+    return value
+
+
 @app.post("/backup/restore")
-async def restore_backup(request: Request, filename: str = Form(...), user_session: str = Cookie(None)):
+async def restore_backup(
+    request: Request,
+    filename: str = Form(...),
+    exact_restore: bool = Form(False),
+    user_session: str = Cookie(None),
+):
     ctx = auth(request, user_session, perm=None, admin=True)
     path = safe_backup_path(filename)
     if not path:
         return back("/backups", "Backup nicht gefunden.", False)
     try:
+        if os.path.getsize(path) > MAX_BACKUP_UPLOAD_BYTES:
+            raise ValueError("Backup überschreitet das zulässige Dateigrößenlimit.")
         with open(path, "r", encoding="utf-8") as fh:
             backup = json.load(fh)
-        if not isinstance(backup, dict) or not isinstance(backup.get("panel_data"), dict):
-            raise ValueError("Kein gültiges Pulse-Backup")
-        try:
-            backup_version = int(backup.get("backup_version", 1))
-        except (TypeError, ValueError):
-            raise ValueError("Ungültige Backup-Version")
-        if backup_version < 1 or backup_version > 2:
-            raise ValueError(f"Nicht unterstützte Backup-Version: {backup_version}")
-        backup_guild_id = backup.get("guild_id")
-        if backup_guild_id is not None and str(backup_guild_id) != str(ctx.guild.id):
-            raise ValueError("Dieses Backup gehört zu einem anderen Discord-Server; Wiederherstellung abgebrochen.")
+        validate_backup_document(backup, ctx.guild.id)
         panel = backup["panel_data"]
-        # Version-2 snapshots created before the typed-default fix used an
-        # empty object when logs.json did not exist; migrate that legacy case.
-        if panel.get("logs") == {}:
-            panel["logs"] = []
-        expected_types = {
-            "team_data": dict, "config": dict, "logs": list,
-            "shifts": dict, "meetings": dict, "applications": dict,
-            "pulse_db": dict, "loas": list, "transcripts": dict,
+
+        # Current state is snapshotted before touching Discord or Pulse runtime data.
+        safety_snapshot = await create_backup_file_async(ctx.guild, "pre_restore_")
+        structure_report = await restore_guild_structure(ctx.guild, backup, exact_restore=exact_restore)
+
+        # Re-map IDs if deleted roles/channels had to be recreated with new Discord IDs.
+        id_remap = structure_report.pop("id_remap", {})
+        if id_remap:
+            panel = _remap_backup_ids(panel, id_remap)
+
+        mapping = {
+            "team_data": DATA_FILE, "config": CONFIG_FILE, "logs": LOGS_FILE,
+            "shifts": SHIFTS_FILE, "meetings": MEETINGS_FILE, "applications": APPS_FILE,
         }
-        for key, expected_type in expected_types.items():
-            if key in panel and not isinstance(panel[key], expected_type):
-                raise ValueError(f"Ungültiger Datentyp im Backup-Feld: {key}")
-        # Vor jeder Wiederherstellung zuerst den aktuellen Zustand sichern.
-        # So kann ein Admin bei fehlerhaften/unerwarteten Daten zurückwechseln.
-        safety_snapshot = create_backup_file(ctx.guild, "pre_restore_")
-        mapping = {"team_data": DATA_FILE, "config": CONFIG_FILE, "logs": LOGS_FILE, "shifts": SHIFTS_FILE, "meetings": MEETINGS_FILE, "applications": APPS_FILE}
         for key, target in mapping.items():
             if key in panel:
                 save_json(target, panel[key])
         if isinstance(panel.get("pulse_db"), dict):
-            pulse_db.import_state(panel["pulse_db"])
+            pulse_db.import_state(_remap_backup_ids(panel["pulse_db"], id_remap))
+
         if isinstance(panel.get("loas"), list):
-            conn = sqlite3.connect(DB_ABMELDUNGEN)
-            conn.execute("DELETE FROM abmeldungen")
-            conn.executemany("INSERT OR REPLACE INTO abmeldungen(user_id,user_name,grund,von,bis,original_nick,guild_id) VALUES (?,?,?,?,?,?,?)", [
-                (x.get("user_id"), x.get("user_name", ""), x.get("grund", ""), x.get("von", ""), x.get("bis", ""), x.get("original_nick", ""), x.get("guild_id", GUILD_ID))
-                for x in panel["loas"] if isinstance(x, dict) and x.get("user_id") is not None
-            ])
-            conn.commit(); conn.close()
+            with sqlite3.connect(DB_ABMELDUNGEN, timeout=5.0) as conn:
+                conn.execute("DELETE FROM abmeldungen")
+                conn.executemany(
+                    "INSERT OR REPLACE INTO abmeldungen(user_id,user_name,grund,von,bis,original_nick,guild_id) VALUES (?,?,?,?,?,?,?)",
+                    [
+                        (item.get("user_id"), item.get("user_name", ""), item.get("grund", ""),
+                         item.get("von", ""), item.get("bis", ""), item.get("original_nick", ""),
+                         item.get("guild_id", GUILD_ID))
+                        for item in panel["loas"] if isinstance(item, dict) and item.get("user_id") is not None
+                    ],
+                )
+
+        sqlite_files = panel.get("sqlite_files_base64", {})
+        if isinstance(sqlite_files, dict) and "activity_check.db" in sqlite_files:
+            decoded = base64.b64decode(sqlite_files["activity_check.db"], validate=True)
+            if not decoded.startswith(b"SQLite format 3\x00") or len(decoded) > 20 * 1024 * 1024:
+                raise ValueError("Activity-Check-Datenbank im Backup ist beschädigt.")
+            db_path = str(BASE_DIR / "activity_check.db")
+            temp_db = db_path + ".restore.tmp"
+            with open(temp_db, "wb") as fh:
+                fh.write(decoded)
+            os.replace(temp_db, db_path)
+
         os.makedirs(os.path.join(BASE_DIR, "transcripts"), exist_ok=True)
-        for name, content in (panel.get("transcripts") or {}).items():
+        for name, transcript in (panel.get("transcripts") or {}).items():
             safe = os.path.basename(str(name))
-            if safe.endswith(".txt") and isinstance(content, str) and len(content) <= 2 * 1024 * 1024:
+            if safe.endswith(".txt") and isinstance(transcript, str) and len(transcript) <= 2 * 1024 * 1024:
                 with open(os.path.join(BASE_DIR, "transcripts", safe), "w", encoding="utf-8") as fh:
-                    fh.write(content)
-        log_audit(
-            ctx.user.get("global_name"), ctx.user["id"], "Backup Wiederhergestellt",
-            f"Filename: {os.path.basename(path)} · Sicherheitskopie: {safety_snapshot}",
+                    fh.write(transcript)
+
+        warning_text = ""
+        if structure_report["warnings"]:
+            warning_text = (
+                f" Hinweis: {structure_report['warning_count']} Strukturwarnung(en); "
+                "Details stehen im Hosting-Log/Audit."
+            )
+            print("⚠️ Server-Backup mit Strukturwarnungen: " + " | ".join(structure_report["warnings"][:12]))
+
+        details = (
+            f"Datei: {os.path.basename(path)} · Sicherheitskopie: {safety_snapshot} · "
+            f"Rollenänderungen: {structure_report['roles_changed']} · "
+            f"Kanaländerungen: {structure_report['channels_changed']} · "
+            f"Mitglieder aktualisiert: {structure_report['members_changed']} · "
+            f"Exakte Struktur: {structure_report['exact_restore']} · "
+            f"Strukturwarnungen: {structure_report['warning_count']}"
         )
+        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Server + Pulse wiederhergestellt", details)
         return back(
             "/backups",
-            f"Panel-Daten und Pulse-Historien wurden wiederhergestellt. Sicherheitskopie angelegt: {safety_snapshot}",
+            "Wiederherstellung abgeschlossen. "
+            f"Rollen: {structure_report['roles_changed']}, Kanäle/Kategorien: {structure_report['channels_changed']}, "
+            f"Mitglieder: {structure_report['members_changed']}. Sicherheitskopie: {safety_snapshot}.{warning_text}",
         )
     except Exception as exc:
-        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Wiederherstellung Fehlgeschlagen", f"{os.path.basename(path)} · {exc}")
-        return back("/backups", f"Wiederherstellung fehlgeschlagen: {exc}", False)
+        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Wiederherstellung Fehlgeschlagen", f"{os.path.basename(path)} · {type(exc).__name__}: {str(exc)[:180]}")
+        print(f"❌ Backup-Wiederherstellung fehlgeschlagen: {type(exc).__name__}: {exc}")
+        return back("/backups", f"Wiederherstellung fehlgeschlagen ({type(exc).__name__}). Sicherheitskopie vor Restore wurde, falls begonnen, behalten.", False)
 
 
 @app.post("/backup/delete")
@@ -6985,7 +7113,6 @@ async def delete_backup(request: Request, filename: str = Form(...), user_sessio
     os.remove(path)
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Gelöscht", f"Filename: {os.path.basename(path)}")
     return back("/backups", "Backup gelöscht.")
-
 
 # =============================================================
 # ROUTE: EINSTELLUNGEN, RECHTE & AUDIT-LOG (nur Admins)
