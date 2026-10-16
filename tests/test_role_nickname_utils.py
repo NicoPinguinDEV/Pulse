@@ -30,6 +30,84 @@ class RoleNicknamePrefixTests(unittest.TestCase):
         self.assertEqual(automatic_role_prefix("》 𝐁𝐎 ║ 𝐁ü𝐫𝐠𝐞𝐫"), "Bürger ✗")
         self.assertEqual(automatic_role_prefix("》 VIP"), "VIP ✗")
 
+    def test_bochum_team_roles_use_compact_abbreviations(self):
+        cases = [
+            ("》𝐅𝐨𝐮𝐧𝐝𝐞𝐫", "FND"),
+            ("》BORP メ Inhaber", "Inh."),
+            ("》BORP メ Stv.Inhaber", "Stv.Inh."),
+            ("》BORP ✘ Rechte Hand", "RH"),
+            ("》BORP メ Owner", "Owner"),
+            ("》BORP メ Co.Owner", "Co.Owner"),
+            ("〘⭐〙𝐃𝐂 𝐑𝐄𝐂𝐇𝐓𝐄", "DC"),
+            ("》BORP メ Dev-Leitung", "DevL"),
+            ("》BORP メ Developer", "Dev"),
+            ("》BORP メ Leitende Projektleitung", "L.PL"),
+            ("》BORP メ Projektleitung", "PL"),
+            ("》BORP メ Stv.Projektleitung", "Stv.PL"),
+            ("》BORP メ Leitende Projektkoordination", "L.PK"),
+            ("》BORP メ Projektkoordination", "PK"),
+            ("》BORP メ Stv.Projektkoordination", "Stv.PK"),
+            ("》BORP メ Leitender Direktor", "L.Dir"),
+            ("》BORP メ Direktor", "Dir"),
+            ("》BORP メ Stv.Direktor", "Stv.Dir"),
+            ("》BORP メ Leitende Serverleitung", "L.SL"),
+            ("》BORP メ Serverleitung", "SL"),
+            ("》BORP メ Stv.Serverleitung", "Stv.SL"),
+            ("》BORP メ Leitender Manager", "L.Mgmt"),
+            ("》BORP メ Management", "Mgmt"),
+            ("》BORP メ Stv.Management", "Stv.Mgmt"),
+            ("》BORP メ Leitende Teamleitung", "L.TL"),
+            ("》BORP メ Teamleitung", "TL"),
+            ("》BORP メ Stv.Teamleitung", "Stv.TL"),
+            ("》BORP メ Leitende Teamaufsicht", "L.TA"),
+            ("》BORP メ Teamaufsicht", "TA"),
+            ("》BORP メ Stv Teamaufsicht", "Stv.TA"),
+            ("》BORP メ Leitender-Supervisor", "L.Sup"),
+            ("》BORP メ Supervisor", "Sup"),
+            ("》BORP メ Stv.Supervisor", "Stv.Sup"),
+            ("》BORP メ Ausbilder-Leitung", "AusbL"),
+            ("》BORP メ Ausbilder", "Ausb"),
+            ("》BORP メ Highteamanwärter", "HTA"),
+            ("》BORP メ Community-Management", "CM"),
+            ("》BORP メ Stv.Community-Management", "Stv.CM"),
+            ("》BORP メ Fraktionsverwaltung", "FV"),
+            ("》BORP メ Stv.Fraktionsverwaltung", "Stv.FV"),
+            ("》BORP メ Eventleitung", "EL"),
+            ("》BORP メ Admin-Leitung", "AdminL"),
+            ("》BORP メ Sr.Admin", "Sr.Admin"),
+            ("》BORP メ Admin", "Admin"),
+            ("》BORP メ Jr.Admin", "Jr.Admin"),
+            ("》BORP メ Mod-Leitung", "ModL"),
+            ("》BORP メ Sr.Moderator", "Sr.Mod"),
+            ("》BORP メ Moderator", "Mod"),
+            ("》BORP メ Jr.Moderator", "Jr.Mod"),
+            ("》BORP メ Sup-Leitung", "SupL"),
+            ("》BORP メ Sr.Supporter", "Sr.Sup"),
+            ("》BORP メ Supporter", "Sup"),
+            ("》BORP メ Test Supporter", "T.Sup"),
+            ("》BORP メ Aushilfe", "Aush."),
+            ("》𝐁𝐎𝐑𝐏 メ 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫 𝐋𝐞𝐢𝐭𝐮𝐧𝐠", "BauL"),
+            ("》𝐁𝐎𝐑𝐏 メ 𝐒𝐭𝐯 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫 𝐋𝐞𝐢𝐭𝐮𝐧𝐠", "Stv.BauL"),
+            ("》𝐁𝐎𝐑𝐏 メ 𝐒𝐞𝐧𝐢𝐨𝐫 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫", "Sr.Bau"),
+            ("》𝐁𝐎𝐑𝐏 メ 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫", "Bau"),
+            ("》𝐁𝐎𝐑𝐏 メ 𝐓𝐞𝐬𝐭 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫", "T.Bau"),
+            ("》𝐁𝐎 ║ 𝐓𝐞𝐚𝐦𝐥𝐞𝐫", "Team"),
+        ]
+        for role_name, expected_label in cases:
+            with self.subTest(role=role_name):
+                self.assertEqual(automatic_role_prefix(role_name), f"{expected_label} ✗")
+
+    def test_section_divider_roles_do_not_override_actual_team_rank(self):
+        roles = [
+            (100, 0, "@everyone", True),
+            (101, 10, "》BORP メ Projektleitung", False),
+            (102, 100, "「━━━━ Projektleitung-Ebene ━━━━」", False),
+        ]
+        self.assertEqual(
+            select_highest_role_prefix(roles, {}),
+            (101, "PL ✗"),
+        )
+
     def test_highest_discord_role_wins_even_when_only_a_lower_role_is_configured(self):
         roles = [
             (100, 0, "@everyone", True),
