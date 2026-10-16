@@ -12,6 +12,16 @@ __pycache__/
 !.env.example
 .session_secret
 
+
+# Pulse runtime data (never publish guild/member data or dashboard settings)
+config.json
+team_data.json
+applications.json
+shifts.json
+logs.json
+audit_logs.json
+meetings.json
+
 # Runtime databases and state
 role_nickname_state.json
 *.db
