@@ -6,6 +6,7 @@
 - Erhält ein Mitglied während aktiver Probezeit eine Team-Warnung, wird die vorherige Teamrolle wiederhergestellt. Erhält ein Test Supporter eine Team-Warnung, entfernt Pulse automatisch seine Teamrollen (Team-Kick, kein Discord-Server-Kick).
 - Team-Warnungen aus dem Dashboard haben eine einstellbare Laufzeit von 1 bis 365 Tagen (Standard 7 Tage). Automatische Warnungen erhalten ebenfalls eine 7-Tage-Laufzeit; abgelaufene Warnungen bleiben in der Historie, zählen nicht mehr zur Warnstufe und die Discord-Warnrolle wird synchronisiert.
 - Zeitlich befristete Warn-Folgerollen übernehmen das Ablaufdatum ihrer Warnung. Sie bleiben erhalten, solange weitere aktive Team-Warnungen bestehen, und werden entfernt, sobald keine aktive Warnung mehr verbleibt.
+- Warn-4-Downranks und normale Warn-5-Team-Kicks werden beim Ablauf bzw. Zurückziehen aller aktiven Team-Warnungen automatisch rückgängig gemacht, sofern Pulse die vorherige Rolle gespeichert hat und die Rolle nicht zwischenzeitlich manuell geändert wurde. Ein Test-Supporter-Team-Kick bleibt als Maßnahme während der Probezeit dauerhaft bestehen und stellt den Bewerber nicht automatisch wieder ein.
 - Die Namenspräfix-Synchronisierung lädt die Discord-Mitgliederliste beim Start erneut. Wenn Discord für einen Namen mit vorhandenem Rang-Tag vorübergehend nur `@everyone` liefert, setzt Pulse nicht fälschlich das Standardpräfix `Bürger ✗`, sondern lädt die Rollen erneut und verschiebt die Änderung bei unvollständigen Daten.
 
 ## Version 7.8.7 – Höchste Rolle bestimmt den Namenspräfix
