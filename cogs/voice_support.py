@@ -1129,20 +1129,75 @@ class VoiceSupport(commands.Cog):
         if not cfg.get("active"):
             return
 
-        # The spoken after-hours notice works independently of the optional waiting music.
+        cases = list(get_cases().values())
+
+        # Pending after-hours notices have priority over optional waiting music.
+        # If another clip is currently playing in the same guild, the notice waits
+        # until that clip finishes; idle connections may be moved to the next case.
+        for case in cases:
+            if (
+                not isinstance(case, dict)
+                or case.get("staff_joined")
+                or not case.get("outside_opening_hours")
+                or case.get("after_hours_notice_played")
+            ):
+                continue
+            guild = self.bot.get_guild(channel_id(case.get("guild_id")))
+            channel = guild.get_channel(channel_id(case.get("channel_id"))) if guild else None
+            if not isinstance(channel, discord.VoiceChannel) or not any(
+                m.id == channel_id(case.get("user_id")) for m in channel.members
+            ):
+                continue
+
+            notice_path = self._after_hours_audio_path()
+            if notice_path is None:
+                continue
+
+            vc = next((v for v in self.bot.voice_clients if v.guild.id == guild.id), None)
+            try:
+                if vc and vc.channel and vc.channel.id != channel.id:
+                    if vc.is_playing():
+                        continue
+                    await vc.disconnect(force=True)
+                    vc = None
+                if vc is None:
+                    vc = await channel.connect(self_deaf=True)
+                if not vc.channel or vc.channel.id != channel.id or vc.is_playing():
+                    continue
+
+                vc.play(discord.FFmpegPCMAudio(str(notice_path), options="-vn"))
+                latest_cases = get_cases()
+                case_key = str(channel.id)
+                latest = latest_cases.get(case_key)
+                if isinstance(latest, dict) and str(latest.get("case_id")) == str(case.get("case_id")):
+                    latest["after_hours_notice_played"] = True
+                    latest["after_hours_notice_played_at"] = datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds")
+                    latest_cases[case_key] = latest
+                    db.set_setting(CASES_KEY, latest_cases)
+                return
+            except (discord.ClientException, discord.Forbidden, discord.HTTPException, RuntimeError, OSError) as exc:
+                if not self._after_hours_audio_warning_logged:
+                    print(f"⚠️ Voice-Support: Ansage außerhalb der Öffnungszeiten konnte nicht abgespielt werden: {exc}")
+                    self._after_hours_audio_warning_logged = True
+
+        # Optional waiting music remains unchanged when configured in the dashboard.
         music_path = None
         audio_value = str(cfg.get("waiting_music_path") or "")
         if cfg.get("waiting_music_enabled") and audio_value:
             candidate = Path(__file__).resolve().parents[1] / audio_value
             if candidate.is_file():
                 music_path = candidate
+        if not music_path:
+            return
 
-        for case in get_cases().values():
+        for case in cases:
             if not isinstance(case, dict) or case.get("staff_joined"):
                 continue
             guild = self.bot.get_guild(channel_id(case.get("guild_id")))
             channel = guild.get_channel(channel_id(case.get("channel_id"))) if guild else None
-            if not isinstance(channel, discord.VoiceChannel) or not any(m.id == channel_id(case.get("user_id")) for m in channel.members):
+            if not isinstance(channel, discord.VoiceChannel) or not any(
+                m.id == channel_id(case.get("user_id")) for m in channel.members
+            ):
                 continue
             if any(vc.guild.id == guild.id and vc.channel and vc.channel.id != channel.id for vc in self.bot.voice_clients):
                 continue
@@ -1150,24 +1205,7 @@ class VoiceSupport(commands.Cog):
             try:
                 if vc is None:
                     vc = await channel.connect(self_deaf=True)
-                if not vc.channel or vc.channel.id != channel.id or vc.is_playing():
-                    continue
-
-                if case.get("outside_opening_hours") and not case.get("after_hours_notice_played"):
-                    notice_path = self._after_hours_audio_path()
-                    if notice_path:
-                        vc.play(discord.FFmpegPCMAudio(str(notice_path), options="-vn"))
-                        latest_cases = get_cases()
-                        case_key = str(channel.id)
-                        latest = latest_cases.get(case_key)
-                        if isinstance(latest, dict) and str(latest.get("case_id")) == str(case.get("case_id")):
-                            latest["after_hours_notice_played"] = True
-                            latest["after_hours_notice_played_at"] = datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds")
-                            latest_cases[case_key] = latest
-                            db.set_setting(CASES_KEY, latest_cases)
-                        continue
-
-                if music_path:
+                if vc.channel and vc.channel.id == channel.id and not vc.is_playing():
                     vc.play(discord.FFmpegPCMAudio(str(music_path), options="-vn"))
             except (discord.ClientException, discord.Forbidden, discord.HTTPException, RuntimeError, OSError) as exc:
                 if not self._music_warning_logged:
