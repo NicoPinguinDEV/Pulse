@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.12 – Einheitliche Rangpräfixe nach deiner Teamhierarchie
+
+- Teamrollen verwenden jetzt die gewünschten Bezeichnungen, darunter `Founder`, `Inh.`, `Stv.Inh.`, `Rechte Hand`, `L.Dev`, `L.AB`, `AB`, `L.Admin`, `L.Mod`, `L.Sup`, `L.Bau` und `Stv.L.Bau`.
+- Die höchste echte Discord-Rolle entscheidet weiterhin über das Präfix; dekorative Ebenen-/Trennrollen werden übersprungen.
+- Bestehende gespeicherte Präfixe, die nur aus dem alten vollständigen Rollennamen oder früheren automatischen Kürzeln bestehen, werden auf die neuen Standardlabels umgestellt. Bewusst eigene Präfixe bleiben erhalten.
+- Die Synchronisierung beim Bot-Start wendet die neuen Labels auch auf bereits vorhandene Mitglieder an.
+
 ## Version 7.8.11 – Kompakte Namenspräfixe für Teamrollen
 
 - Automatische Namenspräfixe verwenden jetzt einheitliche kurze Bezeichnungen für die Teamhierarchie, unter anderem `PL`, `Stv.PL`, `L.PK`, `Stv.SL`, `Stv.TL`, `Stv.Sup`, `Sr.Mod`, `T.Sup` und die Bauteam-Ränge.
