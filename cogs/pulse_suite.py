@@ -213,6 +213,12 @@ def allowed(i,key,web):
     if not i.guild or not isinstance(i.user,discord.Member):return False
     p,_=web.compute_perms(i.guild,i.user.id,web.load_config())
     if p.get("is_admin"):return True
+    # During a warning-abuse lockout, prevent rank changes, kicks and warn withdrawal
+    # from being used as an alternate route around the temporary safety restriction.
+    if key in {"warn-remove","server-exit","team-exit","kick","team-kick","promote","demote"}:
+        safety_state = web.pulse_db.get_team_safety_state(i.guild.id, i.user.id)
+        if safety_state and safety_state.get("locked"):
+            return False
     need={"warn":"can_warn","warn-remove":"can_warn","server-exit":"can_promote","team-exit":"can_promote","kick":"can_promote","team-kick":"can_promote","promote":"can_promote","demote":"can_promote","team-ping":"can_view_dashboard","pulse-ticket":"can_manage_tickets","melden":"can_view_dashboard","pulse-panel":"can_view_dashboard","pulse-lock":"is_admin","pulse-unlock":"is_admin","pulse-permission":"is_admin","activity-check":"can_view_dashboard","pulse-suite":"can_view_dashboard"}.get(key,"can_view_dashboard")
     rm=setting("command_roles",{}) or {};ids={int(x) for x in rm.get(key,[]) if str(x).isdigit()}
     return bool(p.get(need)) or any(r.id in ids for r in i.user.roles)
@@ -946,15 +952,29 @@ class PulseSuite(commands.Cog):
     async def warn_cmd(self,i,member:discord.Member,grund:str):
         web=__import__("webserver")
         if not allowed(i,"warn",web) or locked() or not self.safe_target(i,member) or member not in members(i.guild,web):return await i.response.send_message("❌ Warnung nicht erlaubt.",ephemeral=True)
+        grund = str(grund or "").strip()
+        if len(grund) < 5:
+            return await i.response.send_message("❌ Bitte gib einen nachvollziehbaren Pflichtgrund mit mindestens 5 Zeichen an.",ephemeral=True)
         async def do(x):
+            allowed_warn, protection_message = await web.enforce_team_warn_protection(
+                i.guild, i.user, member, web.load_config(), source="Slash /warn",
+            )
+            if not allowed_warn:
+                return await x.response.edit_message(
+                    content="❌ " + protection_message, embed=None, view=None,
+                )
             td=web.load_json(web.DATA_FILE,{})
             e=web.user_entry(td,str(member.id))
+            issued_at=web.now_de()
+            duration_days=web.DEFAULT_AUTO_WARN_DURATION_DAYS
             w={
                 "id":"warn_"+uuid.uuid4().hex[:10],
                 "reason":grund[:1000],
                 "proof":"",
                 "by":i.user.display_name,
-                "date":now().strftime("%d.%m.%Y %H:%M"),
+                "date":issued_at.strftime("%d.%m.%Y %H:%M"),
+                "duration_days":duration_days,
+                "expires_at":(issued_at+web.timedelta(days=duration_days)).isoformat(timespec="seconds"),
                 "active":True,
                 "revoked_at":None,
                 "revoked_by":None,
@@ -963,7 +983,10 @@ class PulseSuite(commands.Cog):
             e.setdefault("warns_list",[]).append(w)
             web.save_json(web.DATA_FILE,td)
             count=len(web.active_warns(e))
-            role_report=await web.sync_warn_roles(i.guild,member,count,web.load_config())
+            config=web.load_config()
+            role_report=await web.sync_warn_roles(i.guild,member,count,config)
+            consequence_report=await web.apply_warn_consequences(i.guild,member,w,count,config,entry=e)
+            web.save_json(web.DATA_FILE,td)
             await web.send_team_update_embed(
                 i.guild,
                 "⚠️ Team-Warnung",
@@ -976,13 +999,19 @@ class PulseSuite(commands.Cog):
                     ("Grund",grund),
                     ("Warn-ID",w["id"]),
                     ("Warn-Stufe",f"{count}/5"),
+                    ("Gültig bis",w["expires_at"]),
                     ("Discord-Warnrolle","✅ Synchronisiert" if role_report.get("ok") else f"❌ {role_report.get('message')}"),
+                    ("Automatische Folgen","; ".join(consequence_report.get("actions", [])) or "Keine"),
                 ],
             )
             audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"warning_created",w["id"]+" · "+grund)
-            result_text="✅ Warnung "+w["id"]+" erstellt ("+str(count)+"/5)."
+            result_text="✅ Warnung "+w["id"]+" erstellt ("+str(count)+"/5), gültig für "+str(duration_days)+" Tage."
+            if consequence_report.get("actions"):
+                result_text += "\nAutomatische Folgen: " + "; ".join(consequence_report.get("actions", []))
             if not role_report.get("ok"):
                 result_text += "\n⚠️ Warnrolle konnte nicht synchronisiert werden: "+str(role_report.get("message"))
+            if not consequence_report.get("ok"):
+                result_text += "\n⚠️ Eine automatische Warnfolge ist fehlgeschlagen; Führungsebene prüfen."
             await x.response.edit_message(content=result_text,embed=None,view=None)
         await i.response.send_message(f"⚠️ {member.display_name}\n{grund}\n\nWirklich verwarnen?",view=Confirm(i.user.id,do),ephemeral=True)
 
