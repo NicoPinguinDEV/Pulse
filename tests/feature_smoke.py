@@ -42,7 +42,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_pro.py", "pulse_version.py", "cogs/honeypot.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py"):
+    for name in ("main.py", "webserver.py", "pulse_pro.py", "pulse_version.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -135,6 +135,20 @@ def main() -> None:
     assert "await guild.ban(author, reason=reason)" in honeypot
     assert "message.author.id == self.bot.user.id" in honeypot
     assert "Nachrichtenverlauf anzeigen" in honeypot
+
+    # Server-statistics voice channels: maintain the three required non-joinable stats.
+    server_stats = read("cogs/server_stats.py")
+    assert "STATS_CATEGORY_ID = 1536812484462256179" in server_stats
+    assert '"👤・Mitglieder: ", "member_count"' in server_stats
+    assert '"💎・Boosts: ", "premium_subscription_count"' in server_stats
+    assert '"🤖・Bots: ", "bot_count"' in server_stats
+    assert "category.create_voice_channel(" in server_stats
+    assert "overwrite.connect = False" in server_stats
+    assert "guild.default_role" in server_stats
+    assert "async def on_member_join" in server_stats
+    assert "async def on_member_remove" in server_stats
+    assert "async def on_member_update" in server_stats
+    assert "REFRESH_DEBOUNCE_SECONDS = 3" in server_stats
 
     # Dashboard-only profiles are mapped to configured Discord team roles.
     assert '"dashboard_roles"' in web
@@ -293,7 +307,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.3"' in version_source
+    assert 'PULSE_VERSION = "7.8.4"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
