@@ -14,6 +14,7 @@ STAT_DEFINITIONS = (
     ("members", "👤・Mitglieder: ", "member_count"),
     ("boosts", "💎・Boosts: ", "premium_subscription_count"),
     ("bots", "🤖・Bots: ", "bot_count"),
+    ("roles", "🛡️・Rollen: ", "role_count"),
 )
 
 
@@ -98,6 +99,7 @@ class ServerStatsVoiceChannels(commands.Cog):
             "member_count": int(total_members),
             "premium_subscription_count": int(guild.premium_subscription_count or 0),
             "bot_count": bots,
+            "role_count": len(guild.roles),
         }
 
     @staticmethod
@@ -200,6 +202,16 @@ class ServerStatsVoiceChannels(commands.Cog):
         if after.id == STATS_CATEGORY_ID or (
             self._category is not None and after.id == self._category.guild.id
         ):
+            self.schedule_refresh()
+
+    @commands.Cog.listener()
+    async def on_guild_role_create(self, role: discord.Role) -> None:
+        if self._category is None or role.guild.id == self._category.guild.id:
+            self.schedule_refresh()
+
+    @commands.Cog.listener()
+    async def on_guild_role_delete(self, role: discord.Role) -> None:
+        if self._category is None or role.guild.id == self._category.guild.id:
             self.schedule_refresh()
 
     async def cog_unload(self) -> None:
