@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.10 – Namenspräfix für ausgeschiedene Teamler
+
+- Die Rolle `1489912887949394082` erzwingt jetzt das Namenspräfix `𝐄𝐗 𝐓𝐄𝐀𝐌𝐋𝐄𝐑 ✗`, auch wenn noch eine höher sortierte Discord-Rolle vorhanden ist.
+- Damit erhalten ehemalige Teammitglieder nach einem Team-Kick nicht versehentlich erneut ein aktives Rollenpräfix wie Owner oder Teamleitung.
+- Die Regel gilt auch für bestehende Mitglieder, sobald Pulse die Namenspräfix-Synchronisierung ausführt.
+
 ## Version 7.8.9 – Stabiler Mitglieder-Namensabgleich
 
 - Die einmalige Synchronisierung tausender bestehender Mitglieder lädt Konfiguration und Nickname-Zustände nicht mehr bei jedem Mitglied erneut synchron aus der JSON-Datei.
