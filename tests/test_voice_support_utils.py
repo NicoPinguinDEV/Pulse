@@ -3,7 +3,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import unittest
 
-from cogs.voice_support import DEFAULT_HOURS, shift_is_online, support_open_now
+from pulse_voice_support_utils import DEFAULT_HOURS, shift_is_online, support_open_now
 
 
 class VoiceSupportHoursTests(unittest.TestCase):
