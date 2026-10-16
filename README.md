@@ -7,6 +7,7 @@ Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstz
 - Discord-OAuth-Dashboard mit signierten Sessions
 - Honeypot-Schutzkanal `1560397792751657053`: auffälliges Warn-Embed und automatischer Ban bei Nachrichten im verbotenen Kanal
 - Live-Serverstatistiken als nicht betretbare Sprachkanäle: Mitglieder, Boosts, Bots und Rollen werden in einer bestehenden Kategorie automatisch aktualisiert
+- Teamler-Schutz: erkennt massenhafte manuelle Warnungen, sperrt Warn-/Teamaktionen vorübergehend, protokolliert Vorfälle und entfernt bei wiederholtem Missbrauch automatisch Teamrollen (kein Server-Kick)
 - Automatische Discord-Namenspräfixe: die feste Pulse-Teamhierarchie entscheidet über den höchsten Rang (auch wenn Bürger-/VIP-Rollen in Discord höher einsortiert sind); Labels u. a. `PL ✗`, `Stv.PL ✗`, `L.DK ✗`, `Stv.SL ✗`, `L.MA ✗`, `L.Supervisor ✗`, `Sr.Mod ✗`; standardmäßig `Bürger ✗`, individuelle Präfixe für VIP- und andere Rollen, automatische Aktualisierung bei Rollenwechseln und Synchronisierung bestehender Mitglieder; manuelle Präfixe bleiben möglich
 - Teamliste mit Wochenstunden, Dienststatus, LOA, Warnungen und aktuellem Discord-Presence-Status
 - Activity Check mit eingefrorenem Teilnehmer-Snapshot
