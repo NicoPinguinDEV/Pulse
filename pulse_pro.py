@@ -1311,7 +1311,8 @@ def register(app):
         def warning_row(w, active=True):
             proof=ws.safe_url(w.get('proof')) if active else ws.safe_url(w.get('proof'))
             proof_html=f'<a href="{e(proof)}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-indigo-500 hover:underline">🔗 Beweis</a>' if proof else ''
-            state=pill('Aktiv','warn') if active else pill('Zurückgezogen','good')
+            expired=bool(w.get("expired_at")) or ws.warning_is_expired(w)
+            state=pill('Aktiv','warn') if active else (pill('Abgelaufen','good') if expired else pill('Zurückgezogen','good'))
             action_html=''
             if active and (c.perms.get('can_warn') or c.perms.get('is_admin')):
                 action_html=f'''<form action="/action" method="post" class="mt-2 flex flex-wrap gap-2" onsubmit="return confirm('Diese Verwarnung wirklich zurückziehen?');">
@@ -1325,7 +1326,13 @@ def register(app):
             revoked_meta=''
             if not active:
                 revoked_meta=f'<div class="text-[10px] text-slate-400 mt-2">↩ {e(w.get("revoked_at") or "N/A")} · von {e(w.get("revoked_by") or "Team")} · {e(w.get("revoked_reason") or "Kein Grund")}</div>'
-            return f'''<article class="pulse-row items-start"><div class="pulse-avatar">⚠</div><div class="pulse-row-main"><div class="flex items-center gap-2 flex-wrap"><div class="pulse-row-title">{e(w.get("reason") or w.get("grund") or "Verwarnung")}</div>{state}</div><div class="pulse-row-meta">{e(w.get("date") or "—")} · ausgestellt von {e(w.get("by") or "Team")} · ID {e(w.get("id") or "—")}</div>{proof_html}{revoked_meta}{action_html}</div></article>'''
+            expiry_label=''
+            if w.get("expires_at"):
+                try:
+                    expiry_label=' · gültig bis '+ws.parse_dt(str(w.get("expires_at"))).strftime("%d.%m.%Y %H:%M")
+                except Exception:
+                    expiry_label=' · Ablauf: '+str(w.get("expires_at"))
+            return f'''<article class="pulse-row items-start"><div class="pulse-avatar">⚠</div><div class="pulse-row-main"><div class="flex items-center gap-2 flex-wrap"><div class="pulse-row-title">{e(w.get("reason") or w.get("grund") or "Verwarnung")}</div>{state}</div><div class="pulse-row-meta">{e(w.get("date") or "—")} · ausgestellt von {e(w.get("by") or "Team")} · ID {e(w.get("id") or "—")}{e(expiry_label)}</div>{proof_html}{revoked_meta}{action_html}</div></article>'''
 
         active_html=''.join(warning_row(w,True) for w in reversed(active_warns))
         revoked_html=''.join(warning_row(w,False) for w in reversed(revoked_warns[-12:]))
@@ -1354,6 +1361,7 @@ def register(app):
                 <div class="pulse-section-title">⚠ Neue Verwarnung</div>
                 <input type="hidden" name="action" value="warn_with_proof"><input type="hidden" name="user_id" value="{target.id}"><input type="hidden" name="redirect_to_member" value="1">
                 <input name="warn_reason" required maxlength="500" class="pulse-input" placeholder="Warn-Grund">
+                <label class="pulse-section-sub">Gültigkeit der Warnung (Tage)<input type="number" name="warn_duration_days" min="1" max="365" value="7" required class="pulse-input w-full" style="margin-top:6px"></label>
                 <input name="warn_proof" maxlength="1000" class="pulse-input" placeholder="Beweis / Link (optional)">
                 <button class="pulse-btn bad w-full">Verwarnung ausstellen</button>
             </form>'''
@@ -1384,8 +1392,9 @@ def register(app):
                 <input type="hidden" name="user_id" value="{target.id}">
                 <input type="hidden" name="redirect_to_member" value="1">
                 <input type="text" name="action_reason" maxlength="500" required class="pulse-input flex-1 min-w-[260px]" placeholder="Pflicht: Grund für Beförderung / Degradierung">
-                <button name="action" value="promote" class="pulse-btn good" onclick="return confirm('Wirklich befördern?')">⬆️ Befördern</button>
-                <button name="action" value="demote" class="pulse-btn ghost" onclick="return confirm('Wirklich degradieren?')">⬇️ Degradieren</button>
+                <select name="probation_days" class="pulse-input" aria-label="Probezeit (nur bei Beförderung)"><option value="">Probezeit wählen</option><option value="3">3 Tage Probezeit</option><option value="7">7 Tage Probezeit</option></select>
+                <button name="action" value="promote" class="pulse-btn good" onclick="this.form.querySelector('[name=probation_days]').required=true; return confirm('Wirklich befördern?')">⬆️ Befördern</button>
+                <button name="action" value="demote" class="pulse-btn ghost" onclick="this.form.querySelector('[name=probation_days]').required=false; return confirm('Wirklich degradieren?')">⬇️ Degradieren</button>
               </form>
             </div>
             <div class="flex flex-wrap gap-2">
