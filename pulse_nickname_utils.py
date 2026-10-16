@@ -296,14 +296,14 @@ def select_highest_role_prefix(role_records, configured_prefixes: dict[str, str]
             continue
 
         automatic_prefix = automatic_role_prefix(role_name)
-        automatic_core = re.sub(r"\\s*✗\\s*$", "", automatic_prefix).strip()
+        automatic_core = re.sub(r"\s*✗\s*$", "", automatic_prefix).strip()
         rank_priority = _TEAM_ROLE_PREFIX_PRIORITY.get(_role_label_key(automatic_core))
         prefix = automatic_prefix
         configured = configured_prefixes.get(str(role_id))
         if configured:
             try:
                 configured_prefix = normalize_role_prefix(configured)
-                configured_core = re.sub(r"\\s*✗\\s*$", "", configured_prefix).strip()
+                configured_core = re.sub(r"\s*✗\s*$", "", configured_prefix).strip()
                 configured_key = _role_label_key(configured_core)
                 role_label_key = _role_label_key(_extract_role_label(role_name))
                 automatic_core_key = _role_label_key(automatic_core)

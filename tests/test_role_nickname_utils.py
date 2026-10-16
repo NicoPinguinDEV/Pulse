@@ -162,15 +162,15 @@ class RoleNicknamePrefixTests(unittest.TestCase):
             (103, "Founder ✗"),
         )
 
-        # Within the configured rank order, Director/Development ranks are
-        # evaluated by the Pulse hierarchy, not by the server's role positions.
+        # Projectleitung outranks Management in Pulse's ordered hierarchy,
+        # even when Discord's raw role positions put the roles in the opposite order.
         roles = [
-            (201, 5, "》BORP メ Leitender Manager", False),
-            (202, 50, "》BORP メ Projektleitung", False),
+            (201, 50, "》BORP メ Leitender Manager", False),
+            (202, 5, "》BORP メ Projektleitung", False),
         ]
         self.assertEqual(
             select_highest_role_prefix(roles, {}),
-            (201, "L.MA ✗"),
+            (202, "PL ✗"),
         )
 
     def test_ex_teamler_role_overrides_higher_remaining_roles(self):
