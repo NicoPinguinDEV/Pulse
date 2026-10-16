@@ -143,6 +143,8 @@ def main() -> None:
     voice_support_utils = read("pulse_voice_support_utils.py")
     assert "CONFIG_KEY = " in voice_support
     assert "support_open_now" in voice_support
+    assert "async def duty_status_loop(self)" in voice_support
+    assert "await self._reconcile_duty_roles(guild, cfg)" in voice_support
     assert "def support_open_now(" in voice_support_utils
     assert "def shift_is_online(" in voice_support_utils
     assert "await voice_support.sync_member_duty_role(ctx.guild, mod_id)" in web
