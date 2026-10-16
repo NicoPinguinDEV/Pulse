@@ -6501,6 +6501,7 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
     warnings: list[str] = []
     role_map = {backup_guild_id: guild.default_role}
     channel_map = {}
+    restored_object_ids = set()
     restored_roles = 0
     restored_channels = 0
     restored_members = 0
@@ -6574,7 +6575,9 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
             category = possible if isinstance(possible, discord.CategoryChannel) else None
         overwrites = _make_permission_overwrites(guild, source.get("overwrites", []), role_map, backup_guild_id, warnings)
         if category is not None:
-            channel_map[old_id] = category
+            restored_object_ids.add(id(category))
+            if old_id:
+                channel_map[old_id] = category
         try:
             if category is None:
                 category = await guild.create_category(
@@ -6585,8 +6588,14 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
                 restored_channels += 1
             else:
                 await _edit_restored_channel(category, source, None, overwrites)
-            channel_map[old_id] = category
+            restored_object_ids.add(id(category))
+            if old_id:
+                channel_map[old_id] = category
         except (discord.Forbidden, discord.HTTPException, ValueError, TypeError) as exc:
+            if category is not None:
+                restored_object_ids.add(id(category))
+                if old_id:
+                    channel_map[old_id] = category
             warnings.append(f"Kategorie {name} konnte nicht wiederhergestellt werden ({type(exc).__name__}).")
 
     all_channel_records = []
@@ -6634,8 +6643,10 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
                 ),
                 None,
             )
-        if channel is not None and old_id:
-            channel_map[old_id] = channel
+        if channel is not None:
+            restored_object_ids.add(id(channel))
+            if old_id:
+                channel_map[old_id] = channel
         try:
             if channel is None:
                 channel = await _create_restored_channel(guild, source, category, overwrites, warnings)
@@ -6644,11 +6655,15 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
             else:
                 await _edit_restored_channel(channel, source, category, overwrites)
                 restored_channels += 1
-            if channel is not None and old_id:
-                channel_map[old_id] = channel
+            if channel is not None:
+                restored_object_ids.add(id(channel))
+                if old_id:
+                    channel_map[old_id] = channel
         except (discord.Forbidden, discord.HTTPException, ValueError, TypeError) as exc:
-            if channel is not None and old_id:
-                channel_map[old_id] = channel
+            if channel is not None:
+                restored_object_ids.add(id(channel))
+                if old_id:
+                    channel_map[old_id] = channel
             warnings.append(f"Kanal {name} konnte nicht wiederhergestellt werden ({type(exc).__name__}).")
 
     # Restore server properties only after the channels they refer to exist.
@@ -6719,7 +6734,7 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
         except (ValueError, TypeError, discord.Forbidden, discord.HTTPException) as exc:
             warnings.append(f"Server-Icon konnte nicht wiederhergestellt werden ({type(exc).__name__}).")
 
-    mapped_channels = {id(channel) for channel in channel_map.values()}
+    mapped_channels = set(restored_object_ids)
     mapped_channels.update(id(channel) for channel in channel_map.values())
     mapped_roles = {id(role) for role in role_map.values()}
     if exact_restore:
