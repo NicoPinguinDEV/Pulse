@@ -1,5 +1,14 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.15 – Vollständiges Discord- + Pulse-Backup
+
+- Backup-Version 3 sichert Servername und unterstützte Servereinstellungen, Rollen inklusive Berechtigungsflags/Reihenfolge, Kategorien, Kanäle, Berechtigungsüberschreibungen, Kanaloptionen, Server-Icon und bestehende Mitglieder mit Spitznamen und Rollen-Zuordnungen.
+- Pulse-Daten umfassen JSON-Konfigurationen, Pulse-Datenbankexport, Activity-Check-SQLite-Datenbank, Abmeldungen und verfügbare Ticket-Transkripte.
+- Das Dashboard unterstützt JSON-Download, geprüftes JSON-Upload und eine Wiederherstellung von Discord-Struktur plus Pulse-Daten per Aktion.
+- Vor jedem Restore wird automatisch eine komplette Rückfall-Sicherung erstellt. Optional kann die exakte Struktur erzwungen werden; dabei werden zusätzliche, nicht im Backup enthaltene und für den Bot verwaltbare Kanäle/Rollen entfernt.
+- Uploads sind auf 50 MiB begrenzt, werden vor dem Speichern auf Server-ID, Format, Feldtypen, IDs und Datenbankdateien geprüft und bekommen einen servergenerierten Dateinamen. Restore/Import, Fehler und Wiederherstellungen landen im Audit-Log.
+- Discord kann alte Nachrichten, private DMs, Webhooks, Einladungen, Integrationen, Boosts, nicht verfügbare Emojis oder ausgeloggte Mitglieder nicht vollständig rekonstruieren. Fehlende Mitglieder werden nicht erneut eingeladen; nicht verfügbare/verwaltete Discord-Rollen oder fehlende Bot-Berechtigungen werden als Restore-Warnung behandelt.
+
 ## Version 7.8.14 – Schutz vor missbräuchlichen Team-Verwarnungen
 
 - Einheitlicher, persistenter Schutz für manuelle Team-Warnungen im Dashboard und über `/warn`.
