@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.8.9 – Stabiler Mitglieder-Namensabgleich
+
+- Die einmalige Synchronisierung tausender bestehender Mitglieder lädt Konfiguration und Nickname-Zustände nicht mehr bei jedem Mitglied erneut synchron aus der JSON-Datei.
+- Dateizugriffe laufen außerhalb des Discord-Ereignisloops; dadurch soll der Gateway-Heartbeat während des Backfills nicht mehr durch lokale Dateioperationen blockieren.
+- Zustände werden aus einem Cache in kleinen Paketen gespeichert. Schreibvorgänge verwenden eine temporäre Datei mit anschließendem atomarem Austausch, damit paralleles Lesen keine halbfertige JSON-Datei sieht.
+- Wird eine alte beschädigte Nickname-Zustandsdatei erkannt, sichert Pulse sie als `*.corrupt-*.json`, anstatt den JSON-Fehler den Synchronisierungs-Task abbrechen zu lassen.
+
 ## Version 7.8.8 – Beförderungs-Probezeit und befristete Team-Warnungen
 
 - Jede Beförderung verlangt jetzt eine ausdrückliche Probezeit-Auswahl von 3 oder 7 Tagen. Pulse speichert die vorherige Teamrolle und beendet die Probezeit automatisch nach Ablauf.
