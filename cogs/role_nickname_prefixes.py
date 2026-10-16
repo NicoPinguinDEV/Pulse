@@ -22,6 +22,8 @@ class RoleNicknamePrefixes(commands.Cog):
         self._member_locks: dict[int, asyncio.Lock] = {}
         self._state_file_lock = asyncio.Lock()
         self._bulk_sync_task: asyncio.Task | None = None
+        self._startup_sync_started = False
+        self._sync_requested_again = False
 
     @staticmethod
     def _valid_prefix_map(config: dict) -> dict[str, str]:
@@ -197,6 +199,25 @@ class RoleNicknamePrefixes(commands.Cog):
             return await self._synchronize_member_locked(member)
 
     @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        """Backfill existing members once per bot process, not only future joins."""
+        if self._startup_sync_started:
+            return
+        guild = self.bot.get_guild(GUILD_ID) if GUILD_ID else None
+        if guild is None:
+            print(
+                "⚠️ Namenspräfix-Synchronisierung beim Start wartet: "
+                "konfigurierter Discord-Server ist noch nicht im Cache."
+            )
+            return
+        self._startup_sync_started = True
+        if self.start_sync_existing_members():
+            print(
+                "🏷️ Automatische Synchronisierung bestehender Mitgliedernamen "
+                "beim Bot-Start eingereiht."
+            )
+
+    @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
         if not GUILD_ID or member.guild.id == GUILD_ID:
             await self.synchronize_member(member)
@@ -213,19 +234,55 @@ class RoleNicknamePrefixes(commands.Cog):
         if not GUILD_ID or member.guild.id == GUILD_ID:
             await self._set_member_state(member.id, None)
 
-    def start_sync_existing_members(self) -> bool:
+    def start_sync_existing_members(self, *, queue_if_running: bool = False) -> bool:
         if self._bulk_sync_task and not self._bulk_sync_task.done():
+            if queue_if_running:
+                # Configuration may change while a pass is in progress. Queue one
+                # fresh pass so members missed by the old candidate list are caught.
+                self._sync_requested_again = True
             return False
+        self._sync_requested_again = False
         self._bulk_sync_task = asyncio.create_task(
-            self.sync_existing_members(), name="pulse-role-nickname-prefix-sync"
+            self._run_sync_existing_members(), name="pulse-role-nickname-prefix-sync"
         )
         return True
+
+    async def _run_sync_existing_members(self) -> None:
+        while True:
+            self._sync_requested_again = False
+            try:
+                await self.sync_existing_members()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(
+                    "❌ Namenspräfix-Synchronisierung unerwartet fehlgeschlagen: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+            if not self._sync_requested_again:
+                return
+            print(
+                "🔁 Namenspräfix-Regeln wurden während der Synchronisierung geändert; "
+                "eine weitere Synchronisierung wird gestartet."
+            )
 
     async def sync_existing_members(self) -> None:
         guild = self.bot.get_guild(GUILD_ID) if GUILD_ID else None
         if guild is None:
             print("⚠️ Namenspräfix-Synchronisierung abgebrochen: konfigurierte Discord-Server-ID nicht geladen.")
             return
+
+        # Usually discord.py has already chunked the guild before on_ready. If the
+        # cache is incomplete, explicitly request the member list so the initial
+        # backfill can include existing users beyond the currently cached subset.
+        if not guild.chunked:
+            try:
+                await guild.chunk(cache=True)
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(
+                    "⚠️ Discord-Mitgliederliste konnte nicht vollständig geladen werden; "
+                    f"Synchronisierung arbeitet mit dem verfügbaren Cache: {type(exc).__name__}: {exc}"
+                )
 
         config = load_config()
         prefixes = self._valid_prefix_map(config)
