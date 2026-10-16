@@ -1275,6 +1275,18 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
         and bool((item.get("consequences") or {}).get("test_supporter_team_kick"))
         for item in warnings
     )
+    if permanent_test_kick:
+        for item in warnings:
+            if not isinstance(item, dict):
+                continue
+            item_consequences = item.get("consequences") or {}
+            if (
+                item_consequences.get("downrank_applied")
+                and not item_consequences.get("downrank_reverted_at")
+                and not item_consequences.get("downrank_restore_skipped_at")
+            ):
+                item_consequences["downrank_restore_skipped_at"] = now_de().isoformat(timespec="seconds")
+                result["changed"] = True
 
     # Reverse consequences newest-first: undo the Warn-5 team removal first,
     # then restore the rank that was present before a Warn-4 downrank.
