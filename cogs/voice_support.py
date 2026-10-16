@@ -223,8 +223,18 @@ class VoiceSupport(commands.Cog):
     def _case_notification_embed(self, guild: discord.Guild, case: dict) -> discord.Embed:
         user_id = channel_id(case.get("user_id"))
         staff_id = channel_id(case.get("assigned_staff_id"))
-        active_channel_id = channel_id(case.get("support_channel_id") or case.get("channel_id"))
+        waiting_in_shared_room = bool(
+            case.get("outside_opening_hours")
+            and case.get("waiting_in_shared_room")
+            and not staff_id
+        )
+        active_channel_id = (
+            channel_id(case.get("waiting_room_id"))
+            if waiting_in_shared_room
+            else channel_id(case.get("support_channel_id") or case.get("channel_id"))
+        )
         active_channel = guild.get_channel(active_channel_id)
+        active_channel_label = "Warteraum" if waiting_in_shared_room else "Sprachkanal"
         if staff_id:
             status = f"✅ **Übernommen von:** <@{staff_id}>"
             color = discord.Color.green()
@@ -237,7 +247,7 @@ class VoiceSupport(commands.Cog):
         )
         description = (
             f"**Nutzer:** <@{user_id}> ({user_id})\n"
-            f"**Sprachkanal:** {active_channel.mention if active_channel else 'Wird beim Übernehmen zugewiesen'}\n"
+            f"**{active_channel_label}:** {active_channel.mention if active_channel else ('Warteraum (bis zur Übernahme)' if waiting_in_shared_room else 'Wird beim Übernehmen zugewiesen')}\n"
             f"{status}{after_hours_note}"
         )
         embed = discord.Embed(
@@ -491,6 +501,7 @@ class VoiceSupport(commands.Cog):
         case["support_channel_id"] = target.id
         case["assigned_staff_id"] = staff.id
         case["assigned_staff_name"] = staff.display_name
+        case["waiting_in_shared_room"] = False
         case["support_original_overwrite"] = snapshot
         case["support_started_at"] = datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds")
         case["staff_joined"] = True
@@ -718,9 +729,37 @@ class VoiceSupport(commands.Cog):
         if before.channel and before.channel.id != getattr(after.channel, "id", None):
             cases = get_cases()
             case = cases.get(str(before.channel.id))
-            if isinstance(case, dict) and str(case.get("guild_id")) == str(member.guild.id):
+
+            # After-hours cases stay in the shared waiting room and are indexed
+            # by their reserved private case room. Find that user's pending case
+            # when they leave the shared room; do not end it during staff pickup.
+            if not (isinstance(case, dict) and str(case.get("guild_id")) == str(member.guild.id)):
+                case = next(
+                    (
+                        item for item in cases.values()
+                        if isinstance(item, dict)
+                        and str(item.get("guild_id")) == str(member.guild.id)
+                        and channel_id(item.get("user_id")) == member.id
+                        and item.get("waiting_in_shared_room")
+                        and channel_id(item.get("waiting_room_id")) == before.channel.id
+                    ),
+                    None,
+                )
+                if isinstance(case, dict):
+                    if channel_id(case.get("claiming_staff_id")):
+                        # Staff pickup moves the citizen from the queue into the supporter's call.
+                        return
+                    private_channel = member.guild.get_channel(channel_id(case.get("channel_id")))
+                    await self._close_case(
+                        private_channel if isinstance(private_channel, discord.VoiceChannel) else None,
+                        case,
+                        cfg,
+                        reason="Bürger hat den Support-Warteraum verlassen",
+                        kick_user=False,
+                    )
+            else:
                 if channel_id(case.get("claiming_staff_id")):
-                    # Claim/transfer moves the citizen between channels; don't mistake it for abandonment.
+                    # Claim/transfer moves the citizen between channels; don't mistake this for abandonment.
                     return
                 if member.id == channel_id(case.get("user_id")):
                     await self._close_case(
@@ -824,6 +863,8 @@ class VoiceSupport(commands.Cog):
             "created_at": datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds"),
             "created_by_pulse": created, "original_overwrites": snapshot, "staff_joined": False,
             "outside_opening_hours": bool(outside_opening_hours), "after_hours_notice_played": False,
+            "waiting_room_id": channel_id(cfg.get("waiting_room_channel_id")) if outside_opening_hours else 0,
+            "waiting_in_shared_room": bool(outside_opening_hours),
             "private_channel_id": channel.id, "support_channel_id": 0,
             "support_original_overwrite": {}, "assigned_staff_id": 0, "assigned_staff_name": "",
             "claiming_staff_id": 0, "private_room_cleaned": False,
@@ -831,22 +872,26 @@ class VoiceSupport(commands.Cog):
         }
         cases[str(channel.id)] = case
         db.set_setting(CASES_KEY, cases)
-        try:
-            await member.move_to(channel, reason="Pulse Voice-Support: privater Raum bereit")
-        except Exception:
-            cases.pop(str(channel.id), None)
-            db.set_setting(CASES_KEY, cases)
-            if created:
-                try:
-                    await channel.delete(reason="Pulse Voice-Support: Start fehlgeschlagen")
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
-            else:
-                try:
-                    await channel.edit(overwrites=deserialize_overwrites(guild, snapshot), reason="Pulse Voice-Support: ursprüngliche Rechte wiederhergestellt")
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
-            raise
+        # During opening hours the citizen is moved into the private case room.
+        # Outside opening hours, keep them in the waiting room until a human
+        # supporter claims the case or the citizen leaves on their own.
+        if not outside_opening_hours:
+            try:
+                await member.move_to(channel, reason="Pulse Voice-Support: privater Raum bereit")
+            except Exception:
+                cases.pop(str(channel.id), None)
+                db.set_setting(CASES_KEY, cases)
+                if created:
+                    try:
+                        await channel.delete(reason="Pulse Voice-Support: Start fehlgeschlagen")
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+                else:
+                    try:
+                        await channel.edit(overwrites=deserialize_overwrites(guild, snapshot), reason="Pulse Voice-Support: ursprüngliche Rechte wiederhergestellt")
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+                raise
 
         staff = await self._on_duty(guild, cfg) if cfg.get("duty_mode") else []
         ping_role = duty_role if cfg.get("duty_mode") else support_role
@@ -875,7 +920,11 @@ class VoiceSupport(commands.Cog):
             if not path.is_file() and not self._music_warning_logged:
                 print("⚠️ Voice-Support: Wartemusik aktiviert, aber Audiodatei fehlt.")
                 self._music_warning_logged = True
-        print(f"🎧 Voice-Support-Fall {case_id}: {member} → {channel.id}")
+        location_text = (
+            f"Warteraum {channel_id(cfg.get('waiting_room_channel_id'))}"
+            if outside_opening_hours else str(channel.id)
+        )
+        print(f"🎧 Voice-Support-Fall {case_id}: {member} → {location_text}")
 
     async def _create_note_thread(self, parent: discord.TextChannel, member: discord.Member, staff: list[discord.Member], case: dict):
         try:
@@ -1143,7 +1192,13 @@ class VoiceSupport(commands.Cog):
             ):
                 continue
             guild = self.bot.get_guild(channel_id(case.get("guild_id")))
-            channel = guild.get_channel(channel_id(case.get("channel_id"))) if guild else None
+            waiting_in_shared_room = bool(case.get("waiting_in_shared_room"))
+            room_id = (
+                channel_id(case.get("waiting_room_id") or cfg.get("waiting_room_channel_id"))
+                if waiting_in_shared_room
+                else channel_id(case.get("channel_id"))
+            )
+            channel = guild.get_channel(room_id) if guild else None
             if not isinstance(channel, discord.VoiceChannel) or not any(
                 m.id == channel_id(case.get("user_id")) for m in channel.members
             ):
@@ -1167,7 +1222,7 @@ class VoiceSupport(commands.Cog):
 
                 vc.play(discord.FFmpegPCMAudio(str(notice_path), options="-vn"))
                 latest_cases = get_cases()
-                case_key = str(channel.id)
+                case_key = str(channel_id(case.get("channel_id")))
                 latest = latest_cases.get(case_key)
                 if isinstance(latest, dict) and str(latest.get("case_id")) == str(case.get("case_id")):
                     latest["after_hours_notice_played"] = True
@@ -1179,6 +1234,26 @@ class VoiceSupport(commands.Cog):
                 if not self._after_hours_audio_warning_logged:
                     print(f"⚠️ Voice-Support: Ansage außerhalb der Öffnungszeiten konnte nicht abgespielt werden: {exc}")
                     self._after_hours_audio_warning_logged = True
+
+        # Once every citizen has either left or been picked up, disconnect from
+        # the shared waiting room so the bot does not remain there indefinitely.
+        waiting_room_id = channel_id(cfg.get("waiting_room_channel_id"))
+        active_shared_wait = any(
+            isinstance(item, dict)
+            and item.get("waiting_in_shared_room")
+            and not item.get("staff_joined")
+            and str(item.get("guild_id")) == str(getattr(guild, "id", 0))
+            for item in cases
+        )
+        if waiting_room_id and not active_shared_wait:
+            for vc in list(self.bot.voice_clients):
+                if (
+                    vc.guild.id == getattr(guild, "id", 0)
+                    and vc.channel
+                    and vc.channel.id == waiting_room_id
+                    and not vc.is_playing()
+                ):
+                    await vc.disconnect(force=True)
 
         # Optional waiting music remains unchanged when configured in the dashboard.
         music_path = None
