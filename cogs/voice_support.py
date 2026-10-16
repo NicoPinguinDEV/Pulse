@@ -410,6 +410,8 @@ class VoiceSupport(commands.Cog):
             return False, "Tritt zuerst einem normalen Sprachkanal bei. Der Bürger wird bei der Übernahme dorthin verschoben."
         if target.id == channel_id(cfg.get("waiting_room_channel_id")):
             return False, "Du kannst den Fall nicht in den allgemeinen Warteraum übernehmen. Tritt zuerst deinem Support-Sprachkanal bei."
+        if not current_staff_id and target.id == channel_id(case.get("channel_id")):
+            return False, "Bitte übernimm den Fall aus deinem eigenen Support-Sprachkanal, nicht im privaten Warteraum des Bürgers."
 
         for other in cases.values():
             if not isinstance(other, dict) or str(other.get("case_id")) == str(case_id):
@@ -435,6 +437,10 @@ class VoiceSupport(commands.Cog):
             "allow": allow.value,
             "deny": deny.value,
         }
+        # If the transfer stays in the same voice channel, retain the true
+        # pre-support overwrite rather than snapshotting the temporary grant.
+        if current_staff_id and previous_channel_id == target.id and isinstance(previous_overwrite, dict):
+            snapshot = dict(previous_overwrite)
         case["claiming_staff_id"] = staff.id
         cases[key] = case
         db.set_setting(CASES_KEY, cases)
