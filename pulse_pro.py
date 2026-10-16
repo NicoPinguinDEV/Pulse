@@ -1639,10 +1639,11 @@ def register(app):
             f'<div class="pulse-section-title">🏷️ Automatische Rollen-Namenspräfixe</div>'
             f'<div class="pulse-section-sub">Beispiele: „Bürger ✗ Name“ oder „VIP ✗ Name“.</div>'
             f'</div></div><div class="pulse-card-b space-y-4">'
-            f'<div class="pulse-alert"><strong>Automatisch bei Beitritt und Rollenwechsel</strong>'
+            f'<div class="pulse-alert"><strong>Automatisch bei Beitritt, Rollenwechsel und Bot-Start</strong>'
             f'<div class="text-slate-400 mt-1">Wähle jede Discord-Rolle und lege den Text vor dem Namen fest. '
             f'Wenn ein Mitglied mehrere konfigurierte Rollen hat, gewinnt die in Discord höher positionierte Rolle. '
             f'Entfernt man alle zugeordneten Rollen, versucht Pulse den vorherigen Nickname wiederherzustellen. '
+            f'Bestehende Mitglieder werden beim Bot-Start nachgezogen; Änderungen an Präfixregeln starten ebenfalls eine Synchronisierung. '
             f'Der Standardpräfix „Bürger ✗“ greift, solange keine Rollenregel passt. '
             f'Discord erlaubt maximal 32 Zeichen für Nicknames; lange Namen können deshalb gekürzt werden.</div></div>'
             f'{nickname_default_section}'
@@ -1855,7 +1856,11 @@ def register(app):
             c.user.get('global_name') or c.user.get('username'),c.user['id'],
             "Rollen-Namenspräfix gespeichert",f"{role.name} ({role_id}) → {prefix}",
         )
-        return ws.back('/settings',f'Namenspräfix „{prefix}“ für „{role.name}“ gespeichert.')
+        bot=getattr(request.app.state,"bot",None)
+        prefix_cog=bot.get_cog("RoleNicknamePrefixes") if bot else None
+        if prefix_cog:
+            prefix_cog.start_sync_existing_members(queue_if_running=True)
+        return ws.back('/settings',f'Namenspräfix „{prefix}“ für „{role.name}“ gespeichert. Bestehende Mitglieder werden mit synchronisiert.')
 
     async def settings_nickname_prefix_default(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True)
@@ -1875,7 +1880,11 @@ def register(app):
             "Standard-Namenspräfix gespeichert",
             f"{prefix or 'deaktiviert'} · gilt als Fallback für Mitglieder ohne Rollenpräfix",
         )
-        return ws.back('/settings',f'Standardpräfix {"„"+prefix+"“" if prefix else "deaktiviert"}. Neue Mitglieder erhalten ihn automatisch, sofern keine Rollenregel passt.')
+        bot=getattr(request.app.state,"bot",None)
+        prefix_cog=bot.get_cog("RoleNicknamePrefixes") if bot else None
+        if prefix_cog:
+            prefix_cog.start_sync_existing_members(queue_if_running=True)
+        return ws.back('/settings',f'Standardpräfix {"„"+prefix+"“" if prefix else "deaktiviert"}. Bestehende Mitglieder werden ebenfalls synchronisiert.')
 
     async def settings_nickname_prefix_delete(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True)
@@ -1895,7 +1904,11 @@ def register(app):
             c.user.get('global_name') or c.user.get('username'),c.user['id'],
             "Rollen-Namenspräfix entfernt",f"{role_name} ({role_id}) · zuvor: {prefix}",
         )
-        return ws.back('/settings',f'Namenspräfix für „{role_name}“ entfernt. Klicke bei Bedarf auf „Bestehende Mitglieder synchronisieren“, damit Nicknames zurückgesetzt werden.')
+        bot=getattr(request.app.state,"bot",None)
+        prefix_cog=bot.get_cog("RoleNicknamePrefixes") if bot else None
+        if prefix_cog:
+            prefix_cog.start_sync_existing_members(queue_if_running=True)
+        return ws.back('/settings',f'Namenspräfix für „{role_name}“ entfernt. Bestehende Mitglieder werden auf die verbleibende Präfixregel umgestellt.')
 
     async def settings_nickname_prefix_sync(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True)
