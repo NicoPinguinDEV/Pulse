@@ -102,6 +102,9 @@ WARN_ROLE_IDS = {
 WARN_UPRANK_LOCK_ROLE_ID = 1506055179362107494
 WARN_IC_LOCK_ROLE_ID = 1506054747554189472
 WARN_TEMP_ROLE_DAYS = 7
+DEFAULT_AUTO_WARN_DURATION_DAYS = 7
+TEST_SUPPORTER_ROLE_ID = 1498397925817188518
+VALID_PROBATION_DAYS = (3, 7)
 SYNC_WARN_ROLES = os.getenv("SYNC_WARN_ROLES", "1") == "1"      # Warn-Rollen automatisch vergeben
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
 # Vergessene Schichten werden nach genau 24 Stunden automatisch beendet und verwarnt.
@@ -840,6 +843,11 @@ def normalize_warns(entry: dict) -> bool:
         item.setdefault("revoked_at", None)
         item.setdefault("revoked_by", None)
         item.setdefault("revoked_reason", "")
+        # Legacy warnings without an expiry remain permanent.
+        item.setdefault("expires_at", None)
+        item.setdefault("duration_days", None)
+        item.setdefault("expired_at", None)
+        item.setdefault("expired_reason", "")
         normalized.append(item)
 
     if normalized != entry.get("warns_list"):
@@ -848,10 +856,36 @@ def normalize_warns(entry: dict) -> bool:
     return changed
 
 
+def _restriction_expired(restriction: dict, current: datetime | None = None) -> bool:
+    try:
+        return parse_dt(str(restriction.get("expires_at") or "")) <= (current or now_de())
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def warning_is_expired(warn: dict, current: datetime | None = None) -> bool:
+    """Whether an optional warning expiry timestamp has passed."""
+    raw_expiry = warn.get("expires_at") if isinstance(warn, dict) else None
+    if not raw_expiry:
+        return False
+    try:
+        return parse_dt(str(raw_expiry)) <= (current or now_de())
+    except (TypeError, ValueError, OverflowError):
+        # A malformed historical value must not silently erase a warning.
+        return False
+
+
 def active_warns(entry: dict) -> list[dict]:
-    """Nur aktive Warns zählen; zurückgezogene Warns bleiben als Historie erhalten."""
+    """Count active, unexpired warnings while retaining expired/revoked history."""
     normalize_warns(entry)
-    return [w for w in entry.get("warns_list", []) if isinstance(w, dict) and w.get("active", True) and not w.get("revoked_at")]
+    current = now_de()
+    return [
+        w for w in entry.get("warns_list", [])
+        if isinstance(w, dict)
+        and w.get("active", True)
+        and not w.get("revoked_at")
+        and not warning_is_expired(w, current)
+    ]
 
 
 def warning_role_health(guild, config: dict | None = None) -> list[dict]:
