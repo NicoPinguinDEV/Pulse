@@ -190,6 +190,7 @@ def make_shell_helpers(ws):
             ]),
             ("Workflow", [
                 ("tickets","/tickets","▣","Tickets",True,False),
+                ("voice-support","/voice-support","🎧","Sprach-Support",perms.get("can_manage_tickets") or perms.get("can_promote") or perms.get("is_admin"),False),
                 ("tasks","/tasks","□","Aufgaben",True,False),
                 ("applications","/applications","✎","Bewerbungen",True,False),
                 ("approvals","/approvals","✓","Freigaben",perms.get("can_promote") or perms.get("can_manage_applications") or perms.get("is_admin"),False),
@@ -252,7 +253,7 @@ def make_shell_helpers(ws):
 
 def build_command_modal(ws):
     items = [
-        ("⌂", "Dashboard öffnen", "/dashboard"), ("◌", "Teamstatus", "/team-status"), ("✓", "Activity Check", "/activity-check"), ("🛡️", "Melonly", "/melonly"), ("▣", "Tickets", "/tickets"),
+        ("⌂", "Dashboard öffnen", "/dashboard"), ("◌", "Teamstatus", "/team-status"), ("✓", "Activity Check", "/activity-check"), ("🛡️", "Melonly", "/melonly"), ("▣", "Tickets", "/tickets"), ("🎧", "Sprach-Support", "/voice-support"),
         ("□", "Aufgaben", "/tasks"), ("✓", "Freigaben", "/approvals"), ("↪", "Übergabe", "/handover"),
         ("✦", "Ankündigungen", "/announcements"), ("▤", "Meeting-Historie", "/meetings-history"), ("◇", "Schulungen", "/training"), ("▤", "Team-Wiki", "/wiki"),
         ("◒", "Analytics", "/stats"), ("◆", "Achievements", "/achievements"), ("🎛️", "Ticket-Panel-Builder", "/tickets/panels"), ("⚙", "Einstellungen", "/settings"),
@@ -1239,6 +1240,200 @@ def register(app):
         ws.log_audit(c.user.get('global_name'),c.user['id'],'Ticket Priorität geändert',f'{ticket_id} → {priority}')
         return ws.back('/tickets','Ticket aktualisiert.')
 
+    # ---------------- Voice-Support / Bereitschaft ----------------
+    async def voice_support_v5(request: Request, user_session: str=Cookie(None)):
+        c = cctx(request, user_session)
+        if not (c.perms.get("can_manage_tickets") or c.perms.get("can_promote") or c.perms.get("is_admin")):
+            raise HTTPException(403, "Dafür fehlt dir die Berechtigung.")
+        cfg = db.get_setting("voice_support_config", {})
+        cfg = cfg if isinstance(cfg, dict) else {}
+        from cogs.voice_support import DEFAULT_HOURS, DAYS, DAY_NAMES
+        hours = cfg.get("hours", {})
+        if not isinstance(hours, dict):
+            hours = {}
+        def channel_options(items, selected, placeholder):
+            options = [f'<option value="0">— {e(placeholder)} —</option>']
+            for item in items:
+                sel = " selected" if str(item.id) == str(selected or "0") else ""
+                options.append(f'<option value="{item.id}"{sel}>{e(item.name)} · {item.id}</option>')
+            return "".join(options)
+        def select_field(name, label, items, selected, placeholder):
+            return f'<label class="block text-xs font-bold">{e(label)}<select name="{name}" class="pulse-input mt-2">{channel_options(items, selected, placeholder)}</select></label>'
+        voice_channels = sorted(c.guild.voice_channels, key=lambda x: x.position)
+        text_channels = sorted(c.guild.text_channels, key=lambda x: x.position)
+        categories = sorted(c.guild.categories, key=lambda x: x.position)
+        roles = sorted([r for r in c.guild.roles if not r.is_default() and not r.managed], key=lambda x: x.position, reverse=True)
+        role_options = ['<option value="0">— Keine Rolle —</option>']
+        for role in roles:
+            sel = " selected" if str(role.id) == str(cfg.get("support_role_id") or "0") else ""
+            role_options.append(f'<option value="{role.id}"{sel}>{e(role.name)} · {role.id}</option>')
+        duty_role_options = ['<option value="0">— Keine Rolle —</option>']
+        for role in roles:
+            sel = " selected" if str(role.id) == str(cfg.get("duty_role_id") or "0") else ""
+            duty_role_options.append(f'<option value="{role.id}"{sel}>{e(role.name)} · {role.id}</option>')
+        defaults = {day: value.copy() for day, value in DEFAULT_HOURS.items()}
+        schedule_rows = []
+        for day in DAYS:
+            item = {**defaults[day], **(hours.get(day, {}) if isinstance(hours.get(day), dict) else {})}
+            checked = "checked" if item.get("enabled", False) else ""
+            start = e(str(item.get("start") or defaults[day]["start"]))
+            end = e(str(item.get("end") or defaults[day]["end"]))
+            schedule_rows.append(
+                f'<div class="pulse-row items-center"><div class="pulse-row-main"><label class="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" name="hours_{day}_enabled" value="1" {checked}>{DAY_NAMES[day]}</label></div>'
+                f'<input type="time" class="pulse-input !w-[120px]" name="hours_{day}_start" value="{start}">'
+                f'<span class="text-xs text-slate-400">bis</span><input type="time" class="pulse-input !w-[120px]" name="hours_{day}_end" value="{end}"></div>'
+            )
+        cases = db.get_setting("voice_support_cases", {})
+        cases = cases if isinstance(cases, dict) else {}
+        case_rows = []
+        for channel_key, case in sorted(cases.items(), key=lambda pair: str(pair[1].get("created_at", "")) if isinstance(pair[1], dict) else ""):
+            if not isinstance(case, dict):
+                continue
+            chan = c.guild.get_channel(int(case.get("channel_id") or channel_key)) if str(case.get("channel_id") or channel_key).isdigit() else None
+            case_rows.append(
+                f'<div class="pulse-row"><div class="pulse-avatar">🎧</div><div class="pulse-row-main"><div class="pulse-row-title">{e(case.get("user_name") or "Unbekannt")}</div>'
+                f'<div class="pulse-row-meta">Fall {e(case.get("case_id") or "—")} · seit {e(case.get("created_at") or "—")}</div></div>'
+                f'<div class="flex gap-2">{f"<a class=pulse-btn ghost href=\'/voice-support\'>Aktualisieren</a>" if not chan else f"<a class=pulse-btn ghost href=\'https://discord.com/channels/{c.guild.id}/{chan.id}\' target=\'_blank\'>Raum öffnen</a>"}</div></div>'
+            )
+        rating_rows = db.get_setting("voice_support_ratings", [])
+        rating_rows = rating_rows if isinstance(rating_rows, list) else []
+        rated = [int(x.get("rating", 0)) for x in rating_rows if isinstance(x, dict) and str(x.get("rating", "")).isdigit() and 1 <= int(x.get("rating", 0)) <= 5]
+        average_rating = (sum(rated) / len(rated)) if rated else 0
+        is_admin = bool(c.perms.get("is_admin"))
+        config_form = ""
+        if is_admin:
+            config_form = f'''
+            <form action="/voice-support/save" method="post" enctype="multipart/form-data" class="space-y-5">
+              <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">🎧 Raumeinstellungen</div><div class="pulse-section-sub">Wenn jemand den Warteraum betritt, erstellt Pulse automatisch einen geschützten Sprach-Supportfall.</div></div></div><div class="pulse-card-b grid md:grid-cols-2 gap-4">
+                <label class="block text-xs font-bold">Support-Name<input name="room_name" class="pulse-input mt-2" required maxlength="60" value="{e(cfg.get('room_name') or 'Support')}"></label>
+                <label class="block text-xs font-bold">Kanalnamen-Prefix<input name="channel_prefix" class="pulse-input mt-2" required minlength="1" maxlength="15" value="{e(cfg.get('channel_prefix') or 'support')}"><span class="pulse-section-sub mt-1">Wird vor den Namen des Supportkanals gesetzt.</span></label>
+                {select_field("waiting_room_channel_id","Warteraum – Voice-Kanal",voice_channels,cfg.get("waiting_room_channel_id"),"Voice-Warteraum auswählen")}
+                {select_field("notification_channel_id","Benachrichtigungs-Kanal",text_channels,cfg.get("notification_channel_id"),"Textkanal auswählen")}
+                <label class="block text-xs font-bold">Support-Rolle<select name="support_role_id" class="pulse-input mt-2">{"".join(role_options)}</select><span class="pulse-section-sub mt-1">Wird außerhalb des Bereitschaftsmodus benachrichtigt und erhält Kanalzugriff.</span></label>
+                {select_field("category_id","Kategorie für Support-Voice",categories,cfg.get("category_id"),"Kategorie auswählen")}
+                <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="active" value="1" {"checked" if cfg.get("active") else ""}>Support-System aktivieren</label>
+                <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="notification_enabled" value="1" {"checked" if cfg.get("notification_enabled", True) else ""}>Support geöffnet/geschlossen melden</label>
+                <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="notes_enabled" value="1" {"checked" if cfg.get("notes_enabled", True) else ""}>Private Notiz-Threads pro Supportfall erstellen</label>
+                <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="use_existing_channels" value="1" {"checked" if cfg.get("use_existing_channels") else ""}>Eigene Kanäle verwenden, sofern ein passender leerer Prefix-Kanal existiert</label>
+              </div></section>
+              <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">🕒 Öffnungszeiten</div><div class="pulse-section-sub">Außerhalb der Zeitfenster wird der Nutzer mit einer DM informiert und in seinen vorherigen Kanal zurückgeführt.</div></div></div><div class="pulse-card-b space-y-1">{"".join(schedule_rows)}</div></section>
+              <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">🧠 Bereitschaft & Schichtsynchronisierung</div><div class="pulse-section-sub">Keine zweite unabhängige Check-in-Uhr: Pulse nutzt die bestehenden Dashboard-Schichten. Start/Fortsetzen gibt die Bereitschaftsrolle; Pause/Ende nimmt sie weg.</div></div></div><div class="pulse-card-b grid md:grid-cols-2 gap-4">
+                <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="duty_mode" value="1" {"checked" if cfg.get("duty_mode") else ""}>Duty-/Bereitschaftsmodus aktivieren</label>
+                <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="duty_message_enabled" value="1" {"checked" if cfg.get("duty_message_enabled", True) else ""}>Bereitschaftsstatus im Check-in-Kanal automatisch aktualisieren</label>
+                {select_field("checkin_channel_id","Check-in-/Bereitschafts-Kanal",text_channels,cfg.get("checkin_channel_id"),"Textkanal auswählen")}
+                <label class="block text-xs font-bold">Bereitschafts-Rolle<select name="duty_role_id" class="pulse-input mt-2">{"".join(duty_role_options)}</select><span class="pulse-section-sub mt-1">Nur Teammitglieder mit laufender Dashboard-Schicht erhalten diese Rolle.</span></label>
+              </div></section>
+              <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">⭐ Bewertungen & Wartemusik</div><div class="pulse-section-sub">Nach dem Support kann der Nutzer bewerten. Die Wartemusik braucht eine MP3-, OGG- oder WAV-Datei und FFmpeg auf dem Host.</div></div></div><div class="pulse-card-b grid md:grid-cols-2 gap-4">
+                <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="ratings_enabled" value="1" {"checked" if cfg.get("ratings_enabled", True) else ""}>Support-Bewertungen aktivieren</label>
+                <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="waiting_music_enabled" value="1" {"checked" if cfg.get("waiting_music_enabled") else ""}>Wartemusik aktivieren</label>
+                <label class="block text-xs font-bold md:col-span-2">Wartemusik-Datei<input type="file" name="waiting_music_file" accept=".mp3,.ogg,.wav,audio/mpeg,audio/ogg,audio/wav" class="pulse-input mt-2"><span class="pulse-section-sub mt-1">Aktuell hinterlegt: {e(os.path.basename(str(cfg.get('waiting_music_path') or 'Keine Datei')))}</span></label>
+                <div class="pulse-alert md:col-span-2"><strong>Wichtig zu Discord-Rechten</strong><div class="text-slate-400 mt-1">Pulse benötigt Kanäle verwalten, Kanäle ansehen, Mitglieder verschieben, Nachrichten senden, Embeds, private Threads verwalten und für Wartemusik Verbinden/Sprechen. Die Bot-Rolle muss hoch genug sein, um Support-Rollen zu verwalten.</div></div>
+              </div></section>
+              <button class="pulse-btn primary w-full">⚙ Support-System speichern</button>
+            </form>'''
+        else:
+            config_form = '<div class="pulse-alert"><strong>Nur Ansicht</strong><div class="text-slate-400 mt-1">Die Support-Konfiguration kann nur von Dashboard-Administratoren geändert werden.</div></div>'
+        status = "🟢 Aktiv" if cfg.get("active") else "⚪ Deaktiviert"
+        duty_ids = []
+        try:
+            shifts = ws.load_shifts()
+            duty_ids = [uid for uid, state in shifts.get("active_shifts", {}).items() if isinstance(state, dict) and state.get("status") == "online"]
+        except Exception:
+            pass
+        body = f'''<div class="pulse-topbar"><div><div class="pulse-section-title">🎧 Voice-Support</div><div class="pulse-section-sub">Sprach-Support, private Räume, Fallnotizen, Bewertungen und Bereitschaft – direkt mit Pulse-Dienstzeiten verbunden.</div></div><span class="pulse-pill {"good" if cfg.get("active") else "warn"}">{status}</span></div>
+        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🎧</div><div class="label">Offene Sprachfälle</div><div class="value">{len(cases)}</div></div><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Aktuell im Dienst</div><div class="value">{len(duty_ids)}</div></div><div class="pulse-stat"><div class="icon">⭐</div><div class="label">Bewertungen</div><div class="value">{len(rated)}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Bewertung</div><div class="value">{average_rating:.1f}/5</div></div></div>
+        {config_form}
+        <section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">📞 Aktuelle Supportfälle</div><div class="pulse-section-sub">Räume werden automatisch entfernt, sobald sie leer sind; eigene Kanäle erhalten ihre ursprünglichen Berechtigungen zurück.</div></div><a href="/voice-support" class="pulse-btn ghost">↻ Aktualisieren</a></div><div class="pulse-card-b space-y-2">{"".join(case_rows) or '<div class="pulse-empty">Aktuell keine offenen Sprach-Supportfälle.</div>'}</div></section>'''
+        return render_pro_page(ws, "Voice-Support", c, "voice-support", body)
+
+    async def voice_support_save(request: Request, user_session: str=Cookie(None)):
+        c = cctx(request, user_session, perm=None, admin=True)
+        form = await request.form()
+        def form_id(key):
+            try:
+                return max(0, int(form.get(key) or 0))
+            except (TypeError, ValueError):
+                return 0
+        waiting = c.guild.get_channel(form_id("waiting_room_channel_id"))
+        notify = c.guild.get_channel(form_id("notification_channel_id"))
+        checkin = c.guild.get_channel(form_id("checkin_channel_id"))
+        category = c.guild.get_channel(form_id("category_id"))
+        support_role = c.guild.get_role(form_id("support_role_id"))
+        duty_role = c.guild.get_role(form_id("duty_role_id"))
+        enabled = form.get("active") == "1"
+        duty_mode = form.get("duty_mode") == "1"
+        notification_enabled = form.get("notification_enabled") == "1"
+        duty_message_enabled = form.get("duty_message_enabled") == "1"
+        if waiting and not isinstance(waiting, discord.VoiceChannel):
+            return ws.back("/voice-support", "Der Warteraum muss ein normaler Sprachkanal sein.", False)
+        if notify and not isinstance(notify, discord.TextChannel):
+            return ws.back("/voice-support", "Der Benachrichtigungskanal muss ein Textkanal sein.", False)
+        if checkin and not isinstance(checkin, discord.TextChannel):
+            return ws.back("/voice-support", "Der Check-in-Kanal muss ein Textkanal sein.", False)
+        if category and not isinstance(category, discord.CategoryChannel):
+            return ws.back("/voice-support", "Die Support-Kategorie muss eine Kategorie sein.", False)
+        if support_role and (support_role.managed or support_role.is_default()):
+            return ws.back("/voice-support", "Diese Support-Rolle kann nicht verwendet werden.", False)
+        if duty_role and (duty_role.managed or duty_role.is_default()):
+            return ws.back("/voice-support", "Diese Bereitschaftsrolle kann nicht verwendet werden.", False)
+        if enabled and (not isinstance(waiting, discord.VoiceChannel) or not isinstance(category, discord.CategoryChannel) or not support_role):
+            return ws.back("/voice-support", "Zum Aktivieren bitte Warteraum, Support-Kategorie und Support-Rolle auswählen.", False)
+        if duty_mode and (not duty_role or (duty_message_enabled and not checkin)):
+            return ws.back("/voice-support", "Für den Bereitschaftsmodus bitte Bereitschafts-Rolle und Check-in-Kanal auswählen.", False)
+        room_name = str(form.get("room_name") or "Support").strip()[:60] or "Support"
+        prefix = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(form.get("channel_prefix") or "support").casefold()).strip("-_")[:15]
+        if not prefix:
+            return ws.back("/voice-support", "Der Kanalnamen-Prefix muss mindestens ein Buchstaben- oder Zahlzeichen enthalten.", False)
+        hours = {}
+        from cogs.voice_support import DAYS, DEFAULT_HOURS
+        for day in DAYS:
+            start = str(form.get(f"hours_{day}_start") or DEFAULT_HOURS[day]["start"])
+            end = str(form.get(f"hours_{day}_end") or DEFAULT_HOURS[day]["end"])
+            if not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", start) or not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", end):
+                return ws.back("/voice-support", "Öffnungszeiten müssen im Format HH:MM angegeben werden.", False)
+            hours[day] = {"enabled": form.get(f"hours_{day}_enabled") == "1", "start": start, "end": end}
+        previous = db.get_setting("voice_support_config", {})
+        previous = previous if isinstance(previous, dict) else {}
+        music_path = str(previous.get("waiting_music_path") or "")
+        upload = form.get("waiting_music_file")
+        if upload and getattr(upload, "filename", ""):
+            original_name = os.path.basename(str(upload.filename))
+            extension = os.path.splitext(original_name)[1].lower()
+            if extension not in {".mp3", ".ogg", ".wav"}:
+                return ws.back("/voice-support", "Die Wartemusik muss MP3, OGG oder WAV sein.", False)
+            data = await upload.read(8 * 1024 * 1024 + 1)
+            if len(data) > 8 * 1024 * 1024:
+                return ws.back("/voice-support", "Die Wartemusik-Datei darf maximal 8 MB groß sein.", False)
+            asset_dir = os.path.join(ws.BASE_DIR, "assets")
+            os.makedirs(asset_dir, exist_ok=True)
+            music_path = os.path.join("assets", "support_wait" + extension)
+            with open(os.path.join(ws.BASE_DIR, music_path), "wb") as handle:
+                handle.write(data)
+        config = {
+            **previous,
+            "guild_id": c.guild.id, "active": enabled, "room_name": room_name, "channel_prefix": prefix,
+            "waiting_room_channel_id": waiting.id if isinstance(waiting, discord.VoiceChannel) else 0,
+            "notification_channel_id": notify.id if isinstance(notify, discord.TextChannel) else 0,
+            "support_role_id": support_role.id if support_role else 0,
+            "category_id": category.id if isinstance(category, discord.CategoryChannel) else 0,
+            "notes_enabled": form.get("notes_enabled") == "1",
+            "use_existing_channels": form.get("use_existing_channels") == "1",
+            "notification_enabled": notification_enabled,
+            "hours": hours,
+            "duty_mode": duty_mode, "checkin_channel_id": checkin.id if isinstance(checkin, discord.TextChannel) else 0,
+            "duty_role_id": duty_role.id if duty_role else 0, "duty_message_enabled": duty_message_enabled,
+            "ratings_enabled": form.get("ratings_enabled") == "1",
+            "waiting_music_enabled": form.get("waiting_music_enabled") == "1", "waiting_music_path": music_path,
+        }
+        db.set_setting("voice_support_config", config)
+        ws.log_audit(c.user.get("global_name") or c.user.get("username"), c.user["id"], "Voice-Support Konfiguration gespeichert", f"Aktiv={enabled}; Bereitschaft={duty_mode}; Kategorie={config['category_id']}")
+        bot = getattr(request.app.state, "bot", None)
+        cog = bot.get_cog("VoiceSupport") if bot else None
+        if cog and duty_mode:
+            await cog._reconcile_duty_roles(c.guild, config)
+            await cog._refresh_duty_status(c.guild)
+        return ws.back("/voice-support", "Voice-Support-Konfiguration gespeichert.", True)
+
     # ---------------- Modern stats / calendar / settings / system / search ----------------
     async def stats_v5(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm='can_view_analytics'); s=work_stats(c); members=team(c.guild,c.config.get('team_role_ids',[])); hist=ws.load_shifts().get('history',[]); week=[]
@@ -2072,6 +2267,8 @@ def register(app):
     remove_and_add(app,'/tasks',{'GET'},tasks_v5,response_class=HTMLResponse)
     remove_and_add(app,'/tasks/update',{'POST'},update_task_v5)
     remove_and_add(app,'/tickets',{'GET'},tickets_v5,response_class=HTMLResponse)
+    remove_and_add(app,'/voice-support',{'GET'},voice_support_v5,response_class=HTMLResponse)
+    remove_and_add(app,'/voice-support/save',{'POST'},voice_support_save)
     remove_and_add(app,'/tickets/update',{'POST'},ticket_update_v5)
     remove_and_add(app,'/stats',{'GET'},stats_v5,response_class=HTMLResponse)
     remove_and_add(app,'/calendar',{'GET'},calendar_v5,response_class=HTMLResponse)
