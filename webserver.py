@@ -2912,7 +2912,7 @@ DASHBOARD_HEAD = """
         clearTimeout(robloxSearchTimeout);
         robloxSearchRequestId += 1;
         if (usernameInput) usernameInput.value = username;
-        if (idInput) idInput.value = /^\d+$/.test(String(user.id || "")) ? String(user.id) : "";
+        if (idInput) idInput.value = /^\\d+$/.test(String(user.id || "")) ? String(user.id) : "";
         resolvedRobloxUsername = username.toLowerCase();
         if (panel) { panel.replaceChildren(); panel.classList.add("hidden"); }
         lookupRobloxUser(username, true);
