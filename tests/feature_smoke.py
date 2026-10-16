@@ -167,6 +167,9 @@ def main() -> None:
     assert 'action="/settings/nickname-prefix/save"' in pro
     assert 'app.post(\'/settings/nickname-prefix/sync\')(settings_nickname_prefix_sync)' in pro
     assert "Automatische Rollen-Namenspräfixe" in pro
+    assert "Standardpräfix für neue und normale Mitglieder" in pro
+    assert "settings_nickname_prefix_default" in pro
+    assert 'nickname_default_prefix", "Bürger ✗"' in nickname_cog
     assert 'c.config.setdefault("role_nickname_prefixes",{})' in pro
 
     # Dashboard-only profiles are mapped to configured Discord team roles.
