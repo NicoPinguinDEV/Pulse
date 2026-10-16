@@ -194,6 +194,12 @@ def main() -> None:
     assert "def cleanup_expired_warn_restrictions(" in web
     assert "def process_expired_probations(" in web
     assert "def process_probation_warning(" in web
+    assert "async def restore_expired_warn_sanctions(" in web
+    assert "downrank_from_role_ids" in web
+    assert "team_kick_removed_role_ids" in web
+    assert "downrank_reverted_at" in web
+    assert "team_kick_reverted_at" in web
+    assert "test_supporter_team_kick" in web
     assert "await webserver.cleanup_expired_team_warnings(guild, housekeeping_cfg)" in read("cogs/pulse_pro.py")
     assert "await webserver.cleanup_expired_warn_restrictions(guild, housekeeping_cfg)" in read("cogs/pulse_pro.py")
     assert 'name="warn_duration_days"' in web and 'name="probation_days"' in web
