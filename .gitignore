@@ -21,6 +21,7 @@ shifts.json
 logs.json
 audit_logs.json
 meetings.json
+pulse_announcement_archive.json
 
 # Runtime databases and state
 role_nickname_state.json
