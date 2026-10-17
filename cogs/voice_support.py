@@ -994,7 +994,7 @@ class VoiceSupport(commands.Cog):
             pass
 
     async def _start_waiting_audio(self, case: dict, cfg: dict) -> bool:
-        """Connect to the shared queue and start the correct clip; later loop ticks retry failures."""
+        """Play an opening announcement once, then keep the selected music looping."""
         if not isinstance(case, dict) or case.get("staff_joined"):
             return False
         guild = self.bot.get_guild(channel_id(case.get("guild_id")))
@@ -1012,35 +1012,40 @@ class VoiceSupport(commands.Cog):
 
         is_after_hours = bool(case.get("outside_opening_hours"))
         mark_after_hours_notice = is_after_hours and not case.get("after_hours_notice_played")
+        mark_opening_audio = False
         if is_after_hours:
             if not mark_after_hours_notice:
-                # Outside opening hours, only the one-time spoken notice is played;
-                # the opening-hours music loop must not start afterwards.
+                # Outside opening hours, play only the one-time spoken notice.
                 return False
             audio_path = (
                 self._configured_audio_path(cfg, "custom_after_hours_audio_path")
                 or self._after_hours_audio_path()
             )
         else:
-            # The shared waiting room must play the configured waiting-music file,
-            # never the separate spoken/custom opening audio.
-            audio_path = (
-                self._configured_audio_path(cfg, "waiting_music_path")
-                if cfg.get("waiting_music_enabled") else None
-            )
+            # The configured opening clip is an intro, never the repeating music.
+            opening_path = self._configured_audio_path(cfg, "custom_opening_audio_path")
+            if opening_path and not case.get("opening_audio_played"):
+                audio_path = opening_path
+                mark_opening_audio = True
+            else:
+                audio_path = (
+                    self._configured_audio_path(cfg, "waiting_music_path")
+                    if cfg.get("waiting_music_enabled") else None
+                )
+
         if audio_path is None:
-            if not is_after_hours and cfg.get("waiting_music_enabled"):
+            if not is_after_hours and (
+                cfg.get("waiting_music_enabled") or cfg.get("custom_opening_audio_path")
+            ):
                 if not self._music_warning_logged:
-                    print("⚠️ Voice-Support: Wartemusik aktiviert, aber die konfigurierte Audiodatei fehlt oder ist leer.")
+                    print("⚠️ Voice-Support: Eine konfigurierte Wartemusik-/Eröffnungs-Audiodatei fehlt oder ist leer.")
                     self._music_warning_logged = True
             return False
 
         voice_client = next((client for client in self.bot.voice_clients if client.guild.id == guild.id), None)
         try:
             if voice_client and (not voice_client.channel or voice_client.channel.id != channel.id):
-                # A stale, idle connection in another channel must not block the
-                # queue forever. If that channel is still playing, let it finish
-                # and retry on the next loop tick rather than cutting it off.
+                # A stale, idle connection in another channel must not block the queue.
                 if voice_client.is_playing():
                     return False
                 await voice_client.disconnect(force=True)
@@ -1052,15 +1057,51 @@ class VoiceSupport(commands.Cog):
             if voice_client.is_playing():
                 return False
 
-            voice_client.play(discord.FFmpegPCMAudio(str(audio_path), options="-vn"))
-            if mark_after_hours_notice:
+            after_playback = None
+            if not is_after_hours:
+                loop = self.bot.loop
+                guild_id = guild.id
+                voice_room_id = channel.id
+                case_id = str(case.get("case_id", ""))
+
+                def after_playback(error):
+                    # Discord calls this callback from its audio-player thread.
+                    # Only chain audio after clean completion; the 8-second loop
+                    # remains responsible for retrying playback errors.
+                    if error:
+                        print(f"⚠️ Voice-Support: Audio-Wiedergabe beendet mit Fehler: {type(error).__name__}: {error}")
+                        return
+
+                    def schedule_next():
+                        task = loop.create_task(
+                            self._continue_waiting_audio(guild_id, voice_room_id, case_id)
+                        )
+
+                    try:
+                        loop.call_soon_threadsafe(schedule_next)
+                    except RuntimeError:
+                        pass
+
+            voice_client.play(
+                discord.FFmpegPCMAudio(str(audio_path), options="-vn"),
+                after=after_playback,
+            )
+            if mark_after_hours_notice or mark_opening_audio:
                 case_key, latest, latest_cases = self._find_case_by_id(str(case.get("case_id", "")))
                 if case_key is not None and isinstance(latest, dict):
-                    latest["after_hours_notice_played"] = True
-                    latest["after_hours_notice_played_at"] = datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds")
+                    if mark_after_hours_notice:
+                        latest["after_hours_notice_played"] = True
+                        latest["after_hours_notice_played_at"] = datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds")
+                    if mark_opening_audio:
+                        latest["opening_audio_played"] = True
+                        latest["opening_audio_played_at"] = datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds")
                     latest_cases[case_key] = latest
                     db.set_setting(CASES_KEY, latest_cases)
-            audio_label = "Ansage außerhalb der Öffnungszeiten" if mark_after_hours_notice else "Wartemusik"
+            audio_label = (
+                "Ansage außerhalb der Öffnungszeiten" if mark_after_hours_notice
+                else "Eröffnungsansage" if mark_opening_audio
+                else "Wartemusik"
+            )
             print(f"🎧 Voice-Support: {audio_label} gestartet · Kanal {channel.id} · Fall {case.get('case_id')}")
             return True
         except (discord.ClientException, discord.Forbidden, discord.HTTPException, RuntimeError, OSError) as exc:
@@ -1069,6 +1110,77 @@ class VoiceSupport(commands.Cog):
                 print(f"⚠️ Voice-Support: Audio konnte in Warteraum {channel.id} nicht gestartet werden: {type(exc).__name__}: {exc}")
                 setattr(self, warning_flag, True)
             return False
+
+    async def _continue_waiting_audio(self, guild_id: int, room_id: int, previous_case_id: str):
+        """Advance from intro to looping music, including when a queue member leaves."""
+        cfg = get_config()
+        guild = self.bot.get_guild(channel_id(guild_id))
+        channel = guild.get_channel(channel_id(room_id)) if guild else None
+        if not cfg.get("active") or not isinstance(channel, discord.VoiceChannel):
+            await self._disconnect_music(room_id)
+            return
+
+        present_user_ids = {member.id for member in channel.members}
+        candidates = []
+        for item in get_cases().values():
+            if not isinstance(item, dict) or item.get("staff_joined"):
+                continue
+            if channel_id(item.get("guild_id")) != guild_id:
+                continue
+            target_room_id = (
+                channel_id(item.get("waiting_room_id") or cfg.get("waiting_room_channel_id"))
+                if item.get("waiting_in_shared_room")
+                else channel_id(item.get("channel_id"))
+            )
+            if target_room_id != room_id or channel_id(item.get("user_id")) not in present_user_ids:
+                continue
+            candidates.append(item)
+
+        # Play any newly-arrived user's intro once before returning to the music.
+        opening_path = self._configured_audio_path(cfg, "custom_opening_audio_path")
+        pending_notices = [
+            item for item in candidates
+            if item.get("outside_opening_hours") and not item.get("after_hours_notice_played")
+        ]
+        pending_openings = [
+            item for item in candidates
+            if not item.get("outside_opening_hours")
+            and opening_path
+            and not item.get("opening_audio_played")
+        ]
+        previous = next(
+            (item for item in candidates if str(item.get("case_id", "")) == str(previous_case_id)),
+            None,
+        )
+        ordered = []
+        seen_ids = set()
+        for item in [*pending_notices, *pending_openings, previous, *candidates]:
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get("case_id", ""))
+            if not item_id or item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            ordered.append(item)
+
+        for item in ordered:
+            if await self._start_waiting_audio(item, cfg):
+                return
+
+        # Nothing else is queued for this room (or all audio has been disabled).
+        # Disconnect only the idle player in this room, never another active call.
+        voice_client = next(
+            (
+                client for client in self.bot.voice_clients
+                if client.guild.id == guild_id and client.channel and client.channel.id == room_id
+            ),
+            None,
+        )
+        if voice_client and not voice_client.is_playing():
+            try:
+                await voice_client.disconnect(force=True)
+            except (discord.ClientException, discord.HTTPException):
+                pass
 
     async def _open_case(self, member: discord.Member, cfg: dict, *, outside_opening_hours: bool | None = None):
         if outside_opening_hours is None:
