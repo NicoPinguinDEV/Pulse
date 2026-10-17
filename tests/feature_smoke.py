@@ -450,7 +450,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.9.2"' in version_source
+    assert 'PULSE_VERSION = "7.9.3"' in version_source
     archive_source = read("cogs/announcement_archive.py")
     parse("cogs/announcement_archive.py")
     archive_utils = read("pulse_announcement_utils.py")
@@ -1101,6 +1101,18 @@ def main() -> None:
     valid_workflow["actions"] = [{"type": "execute_shell", "message": "must be blocked"}]
     ok, errors, _ = validate_workflow_json(__import__("json").dumps(valid_workflow))
     assert not ok and errors
+
+    # Voice Support starts queue audio immediately, recovers idle voice clients,
+    # and maintains a persistent live status embed in the notification channel.
+    voice_support_source = read("cogs/voice_support.py")
+    parse("cogs/voice_support.py")
+    assert "async def _start_waiting_audio(self, case: dict, cfg: dict) -> bool:" in voice_support_source
+    assert "await voice_client.disconnect(force=True)" in voice_support_source
+    assert "await self._start_waiting_audio(saved_case, cfg)" in voice_support_source
+    assert "async def _refresh_support_status(self, guild=None):" in voice_support_source
+    assert "SUPPORT_STATUS_FOOTER = \"Pulse Voice-Support · Live-Status\"" in voice_support_source
+    assert 'cfg.get("support_status_message_id")' in voice_support_source
+    assert "await self._refresh_support_status(guild)" in voice_support_source
 
     # Support claiming is independent of the transient on-duty role.
     voice_claim = parse("cogs/voice_support.py")
