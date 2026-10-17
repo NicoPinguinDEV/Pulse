@@ -78,19 +78,24 @@ class DiscordLogRegressionTests(unittest.TestCase):
         self.assertIn("await voice_client.disconnect(force=True)", audio)
         self.assertIn("if voice_client.is_playing():", audio)
         self.assertIn("await channel.connect(self_deaf=True)", audio)
-        self.assertIn("voice_client.play(discord.FFmpegPCMAudio", audio)
+        self.assertIn("voice_client.play(", audio)
+        self.assertIn("discord.FFmpegPCMAudio(str(audio_path)", audio)
         self.assertIn("await self._start_waiting_audio(saved_case, cfg)", open_case)
         self.assertIn("await self._start_waiting_audio(case, cfg)", loop)
         self.assertIn("case.get(\"outside_opening_hours\")", audio)
 
-    def test_shared_waiting_room_uses_selected_music_not_spoken_opening_audio(self):
+    def test_shared_waiting_room_plays_intro_once_then_loops_selected_music(self):
         source = read_source("cogs/voice_support.py")
         audio = get_method(source, "_start_waiting_audio")
+        continuation = get_method(source, "_continue_waiting_audio")
+        self.assertIn('self._configured_audio_path(cfg, "custom_opening_audio_path")', audio)
         self.assertIn('self._configured_audio_path(cfg, "waiting_music_path")', audio)
         self.assertIn('if cfg.get("waiting_music_enabled") else None', audio)
-        self.assertNotIn("custom_opening_audio_path", audio)
-        self.assertNotIn("opening_audio_played", audio)
-        self.assertNotIn("Eröffnungsansage", audio)
+        self.assertIn("opening_audio_played", audio)
+        self.assertIn("mark_opening_audio = True", audio)
+        self.assertIn("after=after_playback", audio)
+        self.assertIn("self._continue_waiting_audio", audio)
+        self.assertIn("self._start_waiting_audio(item, cfg)", continuation)
         self.assertIn('self._configured_audio_path(cfg, "custom_after_hours_audio_path")', audio)
 
     def test_voice_support_publishes_one_persistent_live_status(self):
