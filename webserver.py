@@ -290,6 +290,15 @@ def application_module_states(config: dict | None = None) -> dict[str, bool]:
     return {key: bool(stored.get(key, True)) for key in APPLICATION_CAREERS}
 
 
+APPLICATION_REVIEW_CRITERIA = (
+    ("rules", "Regelverständnis"),
+    ("communication", "Kommunikation & Deeskalation"),
+    ("judgement", "Urteilsvermögen"),
+    ("teamwork", "Zusammenarbeit"),
+    ("responsibility", "Verantwortungsbewusstsein"),
+)
+
+
 def load_meetings() -> dict:
     """Normalisiert die Meeting-Datei (vorher: KeyError, wenn 'rsvps' fehlte)."""
     d = load_json(MEETINGS_FILE, {})
@@ -6394,6 +6403,64 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                 'Praxisaufgaben prüfen · manuelle Bewertung erforderlich</summary><div class="grid gap-2 mt-3">'
                 + "".join(practical_parts) + '</div></details>'
             )
+
+        reviews = item.get("reviews", {})
+        if not isinstance(reviews, dict):
+            reviews = {}
+        all_scores = [
+            int(value)
+            for review in reviews.values() if isinstance(review, dict)
+            for value in (review.get("ratings", {}) or {}).values()
+            if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 5
+        ]
+        if all_scores:
+            review_average = sum(all_scores) / len(all_scores)
+            review_summary_html = (
+                f'<span class="rounded-full border border-violet-500/25 bg-violet-500/10 px-2.5 py-1 text-violet-700 dark:text-violet-300">'
+                f'★ Team-Score: {review_average:.1f}/5 · {len(reviews)} Review(s)</span>'
+            )
+        else:
+            review_summary_html = (
+                '<span class="rounded-full border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-slate-500">'
+                'Noch keine strukturierte Team-Bewertung</span>'
+            )
+
+        review_form_html = ""
+        if can_decide and not show_history and item.get("status") in {"pending", "interview"}:
+            my_review = reviews.get(str(uid), {})
+            if not isinstance(my_review, dict):
+                my_review = {}
+            my_ratings = my_review.get("ratings", {})
+            if not isinstance(my_ratings, dict):
+                my_ratings = {}
+            rating_controls = []
+            for criterion_key, criterion_label in APPLICATION_REVIEW_CRITERIA:
+                selected_value = my_ratings.get(criterion_key)
+                choices = '<option value="">Wert wählen …</option>' + "".join(
+                    f'<option value="{score}" {"selected" if selected_value == score else ""}>{score} / 5'
+                    f' · {("Unter Erwartung", "Ausbaufähig", "Solide", "Stark", "Hervorragend")[score - 1]}</option>'
+                    for score in range(1, 6)
+                )
+                rating_controls.append(
+                    f'<label class="block text-[11px] font-semibold">{esc(criterion_label)}'
+                    f'<select name="rating_{esc(criterion_key)}" required class="mt-1 w-full rounded-xl border border-slate-200 '
+                    f'dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs">{choices}</select></label>'
+                )
+            review_notes = esc(str(my_review.get("notes") or "")[:1000])
+            review_updated = esc(str(my_review.get("updated_at") or "Noch nicht bewertet"))
+            review_form_html = (
+                '<details class="mt-3 rounded-2xl border border-violet-500/20 p-4">'
+                '<summary class="cursor-pointer text-xs font-bold text-violet-600 dark:text-violet-300">Bewertungsmatrix öffnen · 5 Kompetenzen</summary>'
+                '<div class="mt-3 space-y-3"><p class="text-[10px] text-slate-500">Bewerte anhand der Antworten und belegbarer Beobachtungen. 1 = Unter Erwartung, 5 = Hervorragend. Deine letzte Bewertung: '
+                + review_updated
+                + '</p><form action="/applications/review" method="post" class="space-y-3">'
+                f'<input type="hidden" name="app_id" value="{esc(app_id)}">'
+                f'<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">{"".join(rating_controls)}</div>'
+                '<label class="block text-[11px] font-semibold">Interne Beobachtungen (optional)'
+                f'<textarea name="review_notes" maxlength="1000" class="mt-1 w-full min-h-24 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs" placeholder="Stärken, offene Punkte, konkrete Beispiele …">{review_notes}</textarea></label>'
+                '<button class="rounded-xl bg-violet-600 hover:bg-violet-500 px-4 py-2.5 text-xs font-semibold text-white">Bewertung für mich speichern</button>'
+                '</form></div></details>'
+            )
         if show_history:
             hired = item.get("status") in {"hired", "accepted"}  # accepted = Altbestand aus früherer Version
             history_label = "✅ Eingestellt" if hired else "❌ Abgelehnt"
@@ -6439,8 +6506,10 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                 </div>
             </div>
             <p class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800/80 whitespace-pre-wrap break-words">{esc(item.get('text'))}</p>
+            {review_summary_html}
             {test_review_html}
             {practical_review_html}
+            {review_form_html}
             <div class="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">{footer}</div>
         </div>"""
 
@@ -6460,6 +6529,65 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
     </div>
     <div class="space-y-4 max-w-3xl">{apps_html or f"<p class='text-xs text-slate-400 italic {CARD} p-6'>{empty}</p>"}</div>"""
     return render_page("Bewerbungen", ctx, "apps", body)
+
+
+
+@app.post("/applications/review")
+async def save_application_review(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None)
+    can_manage = bool(
+        ctx.perms.get("can_manage_applications")
+        or ctx.perms.get("can_promote")
+        or ctx.perms.get("is_admin")
+    )
+    if not can_manage:
+        raise HTTPException(status_code=403, detail="Dir fehlt die Berechtigung, Bewerbungen zu bewerten.")
+
+    form = await request.form()
+    app_id = str(form.get("app_id") or "").strip()
+    apps = load_json(APPS_FILE, {})
+    item = apps.get(app_id) if isinstance(apps, dict) else None
+    if not isinstance(item, dict):
+        return back("/applications", "Bewerbung wurde nicht gefunden.", False)
+    if item.get("status") not in {"pending", "interview"}:
+        return back("/applications", "Abgeschlossene Bewerbungen können nicht mehr bewertet werden.", False)
+
+    ratings = {}
+    for criterion_key, criterion_label in APPLICATION_REVIEW_CRITERIA:
+        try:
+            score = int(str(form.get(f"rating_{criterion_key}") or "").strip())
+        except (TypeError, ValueError):
+            return back("/applications", f"Bitte bewerte „{criterion_label}“.", False)
+        if score not in range(1, 6):
+            return back("/applications", f"Ungültiger Wert für „{criterion_label}“.", False)
+        ratings[criterion_key] = score
+
+    reviewer_id = str(ctx.user.get("id") or "")
+    if not reviewer_id:
+        raise HTTPException(status_code=403, detail="Die Reviewer-ID konnte nicht ermittelt werden.")
+    reviewer_name = str(ctx.user.get("global_name") or ctx.user.get("username") or "Teammitglied")[:80]
+    notes = str(form.get("review_notes") or "").strip()[:1000]
+    reviews = item.setdefault("reviews", {})
+    if not isinstance(reviews, dict):
+        reviews = {}
+        item["reviews"] = reviews
+    reviews[reviewer_id] = {
+        "reviewer_id": reviewer_id,
+        "reviewer_name": reviewer_name,
+        "ratings": ratings,
+        "notes": notes,
+        "updated_at": now_de().strftime("%d.%m.%Y %H:%M"),
+    }
+    save_json(APPS_FILE, apps)
+    average = sum(ratings.values()) / len(ratings)
+    log_audit(
+        reviewer_name,
+        reviewer_id,
+        "Bewerbung bewertet",
+        f"{item.get('name', 'Unbekannt')} · {item.get('career_label', 'Laufbahn unbekannt')} · eigener Score {average:.1f}/5",
+    )
+    return back("/applications", f"Bewertung gespeichert: {average:.1f}/5. Deine Bewertung bleibt separat von der anderer Reviewer.")
+
 
 
 @app.get("/applications/config", response_class=HTMLResponse)
