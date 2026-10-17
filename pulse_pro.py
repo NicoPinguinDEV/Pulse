@@ -1336,7 +1336,7 @@ def register(app):
                   <div class="pulse-card-b grid md:grid-cols-2 gap-4">
                     <div class="space-y-3">
                       <div class="text-xs font-bold">🟢 Während der Supportzeiten</div>
-                      <div class="pulse-section-sub">Wird im privaten Support-Raum wiederholt, bis ein Teamler übernimmt. Ohne eigene Datei wird die vorhandene Wartemusik-Einstellung verwendet.</div>
+                      <div class="pulse-section-sub">Wird beim ersten Wartenden einmal als Eröffnungsansage abgespielt. Danach läuft die aktivierte Wartemusik in der gemeinsamen Warteschlange, bis ein Teamler übernimmt.</div>
                       <div class="pulse-section-sub">Aktuell: <strong>{e(os.path.basename(str(cfg.get('custom_opening_audio_path') or 'Keine eigene Audio')))}</strong></div>
                       <label class="block text-xs font-bold">Eigene Audio hochladen<input type="file" name="custom_opening_audio_file" accept=".mp3,.wav,.ogg,.flac,.m4a,audio/*" class="pulse-input mt-2"></label>
                       <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="remove_custom_opening_audio" value="1"> Eigene Audio entfernen und auf Standard zurücksetzen</label>
