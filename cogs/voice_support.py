@@ -697,16 +697,22 @@ class VoiceSupport(commands.Cog):
 
         saved_id = channel_id(cfg.get("support_status_message_id"))
         saved_message = None
+        saved_partial = None
         if saved_id:
             try:
                 saved_message = await channel.fetch_message(saved_id)
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            except discord.NotFound:
                 saved_message = None
+            except (discord.Forbidden, discord.HTTPException):
+                # Editing a saved partial message avoids duplicate status posts when
+                # the bot can send/edit but cannot read channel history.
+                saved_partial = channel.get_partial_message(saved_id)
 
         if not cfg.get("notification_enabled", True):
-            if saved_message and saved_message.author.id == getattr(self.bot.user, "id", 0):
+            target_message = saved_message or saved_partial
+            if target_message:
                 try:
-                    await saved_message.delete()
+                    await target_message.delete()
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     pass
             if cfg.pop("support_status_message_id", None):
@@ -755,6 +761,16 @@ class VoiceSupport(commands.Cog):
             )
         embed.add_field(name="👥 Teamstatus", value=availability, inline=False)
         embed.set_footer(text=SUPPORT_STATUS_FOOTER)
+
+        if saved_partial is not None:
+            try:
+                await saved_partial.edit(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                return
+            except discord.NotFound:
+                saved_partial = None
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(f"⚠️ Voice-Support: gespeicherter Live-Status konnte nicht editiert werden: {exc}")
+                return
 
         valid_saved = (
             saved_message
