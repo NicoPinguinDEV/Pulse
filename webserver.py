@@ -6206,7 +6206,7 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
                         </div>
                     </div>
                     <script>
-                    (function(){
+                    (function(){{
                         const form=document.querySelector('[data-apply-wizard]');
                         if(!form)return;
                         const panels=Array.from(form.querySelectorAll('[data-apply-step]'));
@@ -6220,29 +6220,29 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
                         const indicators=Array.from(form.querySelectorAll('[data-apply-step-indicator]'));
                         const names=['Profil & Motivation','Regelwissen','Praxis-Simulation'];
                         let active=0;
-                        function updateProgress(){
+                        function updateProgress(){{
                             const controls=Array.from(form.querySelectorAll('[required]'));
                             const groups=new Map();
-                            controls.forEach((el,index)=>{
+                            controls.forEach((el,index)=>{{
                                 const key=el.type==='radio'?'radio:'+el.name:(el.name||'field:'+index);
                                 if(!groups.has(key))groups.set(key,[]);
                                 groups.get(key).push(el);
-                            });
+                            }});
                             let complete=0;
-                            groups.forEach((group)=>{
+                            groups.forEach((group)=>{{
                                 const first=group[0];
                                 const done=first.type==='radio'?group.some(el=>el.checked):
                                     first.tagName==='SELECT'?Boolean(first.value):
                                     Boolean(String(first.value||'').trim())&&first.checkValidity();
                                 if(done)complete++;
-                            });
+                            }});
                             const total=Math.max(1,groups.size);
                             const pct=Math.round(complete/total*100);
                             progressPercent.textContent=pct+'%';
                             progressBar.style.width=pct+'%';
                             progressLabel.textContent=complete+' von '+groups.size+' Pflichtfeldern erledigt';
-                        }
-                        function showStep(index){
+                        }}
+                        function showStep(index){{
                             active=Math.max(0,Math.min(index,panels.length-1));
                             panels.forEach((panel,i)=>panel.hidden=i!==active);
                             prev.hidden=active===0;
@@ -6250,46 +6250,46 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
                             submit.hidden=active!==panels.length-1;
                             stepLabel.textContent='Schritt '+(active+1)+' von '+panels.length;
                             progressLabel.dataset.activeStep=String(active);
-                            indicators.forEach((el,i)=>{
+                            indicators.forEach((el,i)=>{{
                                 el.classList.toggle('border-indigo-500/40',i===active);
                                 el.classList.toggle('bg-indigo-500/10',i===active);
                                 el.classList.toggle('border-slate-200',i!==active);
-                            });
+                            }});
                             const heading=panels[active].querySelector('h2,legend');
                             const label=heading?heading.textContent.trim():names[active];
                             stepLabel.setAttribute('aria-label',label);
-                            window.scrollTo({top:0,behavior:'smooth'});
+                            window.scrollTo({{top:0,behavior:'smooth'}});
                             updateProgress();
-                        }
-                        function firstInvalid(panel){
+                        }}
+                        function firstInvalid(panel){{
                             return Array.from(panel.querySelectorAll('input,textarea,select')).find(el=>el.required&&!el.checkValidity());
-                        }
-                        function validatePanel(panel){
+                        }}
+                        function validatePanel(panel){{
                             const invalid=firstInvalid(panel);
-                            if(invalid){invalid.reportValidity();invalid.focus({preventScroll:true});return false;}
+                            if(invalid){{invalid.reportValidity();invalid.focus({{preventScroll:true}});return false;}}
                             return true;
-                        }
+                        }}
                         prev.addEventListener('click',()=>showStep(active-1));
-                        next.addEventListener('click',()=>{
+                        next.addEventListener('click',()=>{{
                             if(validatePanel(panels[active]))showStep(active+1);
-                        });
+                        }});
                         form.addEventListener('input',updateProgress);
                         form.addEventListener('change',updateProgress);
-                        form.addEventListener('submit',event=>{
-                            for(let i=0;i<panels.length;i++){
-                                if(!validatePanel(panels[i])){
+                        form.addEventListener('submit',event=>{{
+                            for(let i=0;i<panels.length;i++){{
+                                if(!validatePanel(panels[i])){{
                                     event.preventDefault();
                                     showStep(i);
                                     const invalid=firstInvalid(panels[i]);
                                     if(invalid)invalid.reportValidity();
                                     return;
-                                }
-                            }
+                                }}
+                            }}
                             submit.disabled=true;
                             submit.textContent='Wird sicher übermittelt …';
-                        });
+                        }});
                         showStep(0);
-                    })();
+                    }})();
                     </script>
                 </form>
                 <div class="text-center"><a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a></div>
