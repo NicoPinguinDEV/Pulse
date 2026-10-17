@@ -5394,7 +5394,14 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
     active_warn_count = len(active_warns(info))
     weekly = calculate_weekly_seconds(str(user_id), shifts_db["history"], shifts_db["active_shifts"]) / 3600
     support_period_start = pulse_db.get_support_case_period_start()
-    support_case_count = pulse_db.support_case_counts(support_period_start).get(str(user_id), 0)
+    voice_case_stats = pulse_db.voice_support_case_counts(support_period_start, guild.id)
+    voice_active_counts = active_voice_support_case_counts(guild.id)
+    ticket_stats = pulse_db.ticket_member_activity_counts(support_period_start, guild.id)
+    voice_case_completed = int(voice_case_stats.get(str(user_id), {}).get("completed", 0))
+    voice_case_active = int(voice_active_counts.get(str(user_id), 0))
+    ticket_case_stats = ticket_stats.get(str(user_id), {})
+    ticket_case_completed = int(ticket_case_stats.get("completed", 0))
+    ticket_case_active = int(ticket_case_stats.get("active", 0))
     support_period_start_label = format_support_case_period_start(support_period_start)
 
     roles = [r for r in member.roles if r.id in team_role_ids]
@@ -5491,8 +5498,10 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div class="lg:col-span-2 space-y-6">
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Ticket-Cases</div><div class="text-2xl font-bold">{info.get('ticket_cases', 0)}</div></div>
-                <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Supportfälle seit Teammeeting</div><div class="text-2xl font-bold text-sky-600 dark:text-sky-400">{support_case_count}</div><div class="text-[10px] text-slate-400 mt-1">Seit {esc(support_period_start_label)}</div></div>
+                <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Voice-Support erledigt</div><div class="text-2xl font-bold text-sky-600 dark:text-sky-400">{voice_case_completed}</div><div class="text-[10px] text-slate-400 mt-1">Seit {esc(support_period_start_label)}</div></div>
+                <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Aktive Supportfälle</div><div class="text-2xl font-bold">{voice_case_active}</div><div class="text-[10px] text-slate-400 mt-1">Aktuell zugewiesen</div></div>
+                <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Tickets erledigt</div><div class="text-2xl font-bold text-violet-600 dark:text-violet-400">{ticket_case_completed}</div><div class="text-[10px] text-slate-400 mt-1">Seit {esc(support_period_start_label)}</div></div>
+                <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Aktive Tickets</div><div class="text-2xl font-bold">{ticket_case_active}</div><div class="text-[10px] text-slate-400 mt-1">Aktuell übernommen</div></div>
                 <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Wochenstunden</div><div class="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{weekly:.1f}h</div></div>
                 <div class="{CARD} p-5"><div class="text-xs text-slate-400 font-semibold mb-1">Verwarnungen</div><div class="text-2xl font-bold {warn_color}">{len(warns)}/5</div></div>
             </div>
