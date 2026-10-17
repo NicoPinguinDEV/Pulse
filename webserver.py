@@ -4884,6 +4884,22 @@ def format_support_case_period_start(value: str) -> str:
         return str(value or "unbekannt")
 
 
+def active_voice_support_case_counts(guild_id: int) -> dict[str, int]:
+    """Count currently open voice-support cases by their assigned staff member."""
+    cases = pulse_db.get_setting("voice_support_cases", {})
+    counts: dict[str, int] = {}
+    if not isinstance(cases, dict):
+        return counts
+    for case in cases.values():
+        if not isinstance(case, dict) or str(case.get("guild_id", "")) != str(guild_id):
+            continue
+        staff_id = str(case.get("assigned_staff_id") or "").strip()
+        if not staff_id or staff_id == "0":
+            continue
+        counts[staff_id] = counts.get(staff_id, 0) + 1
+    return counts
+
+
 @app.get("/team", response_class=HTMLResponse)
 async def team_list_page(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
@@ -4895,9 +4911,12 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     loas = get_loas()
     team_db = load_json(DATA_FILE, {})
     support_period_start = pulse_db.get_support_case_period_start()
-    support_counts = pulse_db.support_case_counts(support_period_start)
+    voice_support_counts = pulse_db.voice_support_case_counts(support_period_start, guild.id)
+    voice_active_counts = active_voice_support_case_counts(guild.id)
+    ticket_counts = pulse_db.ticket_member_activity_counts(support_period_start, guild.id)
     support_period_start_label = format_support_case_period_start(support_period_start)
-    support_period_total = sum(support_counts.values())
+    voice_period_total = sum(int(item.get("completed", 0)) for item in voice_support_counts.values())
+    ticket_period_total = sum(int(item.get("completed", 0)) for item in ticket_counts.values())
     activity = get_activity_today(guild.id)
     activity_exists = bool(activity["check_id"])
     activity_confirmed = activity["confirmed"]
@@ -4920,7 +4939,10 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             "color": role_hex(top),
             "warns": len(active_warns(user_entry(team_db, str(member.id)))) if isinstance(team_db, dict) else 0,
             "hrs": hrs, "reached": hrs >= weekly_goal, "on_loa": on_loa,
-            "support_cases": support_counts.get(str(member.id), 0),
+            "voice_cases_completed": int(voice_support_counts.get(str(member.id), {}).get("completed", 0)),
+            "voice_cases_active": voice_active_counts.get(str(member.id), 0),
+            "ticket_cases_completed": int(ticket_counts.get(str(member.id), {}).get("completed", 0)),
+            "ticket_cases_active": int(ticket_counts.get(str(member.id), {}).get("active", 0)),
             "loa_until": fmt_date(loa["bis"]) if on_loa else "",
             "duty": active.get(str(member.id), {}).get("status"),
             "activity": (
@@ -4955,7 +4977,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     )
     summary = (f"{len(members)} Mitglieder · ✅ {len([m for m in members if m['reached']])} Ziel erreicht · "
                f"⚠️ {below} unter Ziel · 🟢 {len([m for m in members if m['duty']])} im Dienst · 🌴 {len([m for m in members if m['on_loa']])} abgemeldet · Activity: {activity_summary} · "
-               f"🎧 {support_period_total} Supportfälle seit {support_period_start_label}")
+               f"🎧 {voice_period_total} Voice-Supportfälle · 🎫 {ticket_period_total} Tickets abgeschlossen seit {support_period_start_label}")
 
     confirmed_names = [m["name"] for m in members if m["activity"] == "confirmed"]
     open_names = [m["name"] for m in members if m["activity"] == "open"]
@@ -5082,7 +5104,8 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                         <span class="w-1.5 h-1.5 rounded-full" style="background-color:{m['color']}"></span>{esc(m['role'])}
                     </span>
                     <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg border {style}" title="Soll-Ziel: {weekly_goal}h/Woche">⏱️ {m['hrs']:.1f}h / {weekly_goal:g}h</span>
-                    <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400" title="Abgeschlossene Pulse-Tickets, zugeordnet im Zeitraum seit dem letzten Teammeeting">🎧 {m['support_cases']} Supportfälle</span>
+                    <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400" title="Abgeschlossene Voice-Supportfälle seit dem letzten Teammeeting; offen = aktuell zugewiesene Fälle">🎧 {m['voice_cases_completed']} erledigt · {m['voice_cases_active']} offen</span>
+                    <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg border border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400" title="Tickets seit dem letzten Teammeeting; offen = aktuell übernommene Tickets">🎫 {m['ticket_cases_completed']} erledigt · {m['ticket_cases_active']} offen</span>
                 </div>
                 <div class="text-[10px] text-slate-400">🗓️ Team seit <span class="font-semibold text-slate-500 dark:text-slate-300">{esc(m['team_since'])}</span></div>
                 <div class="h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"><div class="h-full {bar_color}" style="width:{pct}%"></div></div>
