@@ -3082,18 +3082,112 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
     edit_log_id = str(request.query_params.get("edit_log") or "")
     is_manager = ctx.perms["can_promote"] or ctx.perms["is_admin"]
     type_labels = {"Warn":"⚠️ Warn","Kick":"🚪 Kick","Ban":"🚫 Ban","Ban BOLO":"🚨 Ban BOLO","Notiz":"📝 Notiz"}
-    for log in reversed(logs_db[-50:]):
+
+    # Search the complete archive for a player's history, not only the latest 50 records.
+    player_history_query = str(request.query_params.get("player_history") or "").strip()[:80]
+    normalized_query = player_history_query.lstrip("@").strip().casefold()
+
+    def normalized_player_name(log):
+        return str(log.get("target_user") or "").strip().lstrip("@").casefold()
+
+    def normalized_player_id(log):
+        value = str(log.get("roblox_id") or "").strip()
+        return value if value.isdigit() else ""
+
+    player_history_matches = []
+    if normalized_query:
+        if normalized_query.isdigit():
+            seed_matches = [
+                log for log in logs_db
+                if normalized_player_id(log) == normalized_query
+            ]
+            if not seed_matches:
+                exact_names = [
+                    log for log in logs_db
+                    if normalized_player_name(log) == normalized_query
+                ]
+                seed_matches = exact_names or [
+                    log for log in logs_db
+                    if normalized_query in normalized_player_name(log)
+                ]
+        else:
+            exact_names = [
+                log for log in logs_db
+                if normalized_player_name(log) == normalized_query
+            ]
+            seed_matches = exact_names or [
+                log for log in logs_db
+                if normalized_query in normalized_player_name(log)
+            ]
+
+        # Link records under an older username if their saved Roblox ID matches.
+        matched_names = {normalized_player_name(log) for log in seed_matches if normalized_player_name(log)}
+        matched_ids = {normalized_player_id(log) for log in seed_matches if normalized_player_id(log)}
+        player_history_matches = [
+            log for log in logs_db
+            if (normalized_player_name(log) and normalized_player_name(log) in matched_names)
+            or (normalized_player_id(log) and normalized_player_id(log) in matched_ids)
+        ]
+
+    history_active = bool(normalized_query)
+    logs_to_render = reversed(player_history_matches) if history_active else reversed(logs_db[-50:])
+    history_query_param = f"player_history={quote(player_history_query, safe='')}&" if history_active else ""
+    history_return_to = (
+        f"/dashboard?player_history={quote(player_history_query, safe='')}#playerlog"
+        if history_active else "/dashboard#playerlog"
+    )
+
+    history_players = sorted(
+        {str(log.get("target_user") or "").strip().lstrip("@") for log in player_history_matches
+         if str(log.get("target_user") or "").strip()},
+        key=str.casefold,
+    )
+    if history_active:
+        history_warns = sum(1 for log in player_history_matches if log.get("type") == "Warn")
+        history_kicks = sum(1 for log in player_history_matches if log.get("type") == "Kick")
+        history_bans = sum(1 for log in player_history_matches if log.get("type") in {"Ban", "Ban BOLO"})
+        history_notes = sum(1 for log in player_history_matches if log.get("type") == "Notiz")
+        matched_people = ", ".join("@" + name for name in history_players[:4]) or player_history_query
+        if len(history_players) > 4:
+            matched_people += f" (+{len(history_players) - 4} weitere)"
+        player_history_summary = f"""
+            <div class="{CARD} p-4 space-y-3">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="text-sm font-bold text-slate-900 dark:text-white">🔎 Spieler-Verlauf</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400 mt-1 break-words">{esc(matched_people)}</div>
+                    </div>
+                    <span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-300">{len(player_history_matches)} Vorgänge</span>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div class="rounded-lg bg-slate-50 dark:bg-[#0b0e14] p-2"><div class="text-[10px] text-slate-500">Warns</div><div class="font-bold text-sm">{history_warns}</div></div>
+                    <div class="rounded-lg bg-slate-50 dark:bg-[#0b0e14] p-2"><div class="text-[10px] text-slate-500">Kicks</div><div class="font-bold text-sm">{history_kicks}</div></div>
+                    <div class="rounded-lg bg-slate-50 dark:bg-[#0b0e14] p-2"><div class="text-[10px] text-slate-500">Bans / BOLO</div><div class="font-bold text-sm">{history_bans}</div></div>
+                    <div class="rounded-lg bg-slate-50 dark:bg-[#0b0e14] p-2"><div class="text-[10px] text-slate-500">Notizen</div><div class="font-bold text-sm">{history_notes}</div></div>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400">Alle gespeicherten Vorgänge dieses Suchtreffers werden angezeigt – auch ältere Einträge außerhalb der normalen letzten 50.</p>
+            </div>"""
+    else:
+        player_history_summary = ""
+    empty_logs_html = (
+        f'<div class="text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-[#141824] p-6 rounded-2xl border border-slate-200 dark:border-slate-800 text-center shadow-sm">Keine Vorgänge für „{esc(player_history_query)}“ gefunden. Bitte prüfe den Roblox-@Namen oder die ID.</div>'
+        if history_active else
+        "<div class='text-xs text-slate-400 italic bg-white dark:bg-[#141824] p-6 rounded-2xl border border-slate-200 dark:border-slate-800 text-center shadow-sm'>Noch keine Logs eingetragen.</div>"
+    )
+
+    for log in logs_to_render:
         ltype = log.get("type", "Log")
         badge = LOG_TYPE_STYLE.get(ltype, "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300")
         search = f"{log.get('target_user','')} {log.get('roblox_id','')} {log.get('moderator','')} {ltype} {log.get('reason','')}".lower()
         can_edit = can_manage_melonly_entry(ctx, log)
         edit_button = (
-            f'<a href="/dashboard?edit_log={quote(str(log.get("id") or ""))}" class="text-indigo-500 hover:underline font-semibold">✏️ Bearbeiten</a>'
+            f'<a href="/dashboard?{history_query_param}edit_log={quote(str(log.get("id") or ""))}#playerlog" class="text-indigo-500 hover:underline font-semibold">✏️ Bearbeiten</a>'
             if can_edit else ""
         )
         delete_form = f"""
                 <form action="/log/delete" method="post" onsubmit="return confirm('Diesen Log-Eintrag wirklich löschen?');">
                     <input type="hidden" name="log_id" value="{esc(log.get('id'))}">
+                    <input type="hidden" name="return_to" value="{esc(history_return_to)}">
                     <button class="text-rose-500 hover:underline font-semibold">🗑️ Löschen</button>
                 </form>""" if can_edit else ""
         edit_form = ""
@@ -3105,6 +3199,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
             edit_form = f"""
             <form action="/log/edit" method="post" class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/60 space-y-2.5">
                 <input type="hidden" name="log_id" value="{esc(log.get('id'))}">
+                <input type="hidden" name="return_to" value="{esc(history_return_to)}">
                 <input class="{INPUT}" name="target_user" maxlength="50" value="{esc(log.get('target_user'))}" required>
                 <input class="{INPUT}" name="roblox_id" maxlength="15" value="{esc(log.get('roblox_id','N/A'))}" placeholder="Roblox ID">
                 <select class="{INPUT}" name="log_type">{edit_options}</select>
@@ -3223,12 +3318,18 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                     <span class="text-xs text-slate-400 font-mono">{len(logs_db)} gesamt</span>
                 </div>
             </div>
+            <form action="/dashboard#playerlog" method="get" class="flex flex-col sm:flex-row gap-2">
+                <input type="search" name="player_history" maxlength="80" value="{esc(player_history_query)}" placeholder="Roblox-@Name oder Spieler-ID suchen…" required class="{INPUT} flex-1">
+                <button type="submit" class="{BTN} px-4 py-2.5 text-xs shrink-0">🔎 Spielerakte suchen</button>
+                {('<a href="/dashboard#playerlog" class="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-center">Suche zurücksetzen</a>' if history_active else '')}
+            </form>
+            {player_history_summary}
             <div class="flex flex-wrap gap-1.5">{chips}</div>
             <input type="text" id="logSearch" oninput="filterLogs()" placeholder="🔎 Name, ID, Moderator oder Grund..." class="w-full bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 shadow-sm">
             <div class="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto pr-1">
-                {logs_html or "<div class='text-xs text-slate-400 italic bg-white dark:bg-[#141824] p-6 rounded-2xl border border-slate-200 dark:border-slate-800 text-center shadow-sm'>Noch keine Logs eingetragen.</div>"}
+                {logs_html or empty_logs_html}
             </div>
-            <p class="text-[10px] text-slate-400">Angezeigt werden die letzten 50 Einträge – der CSV-Export enthält alle.</p>
+            <p class="text-[10px] text-slate-400">{f"Alle {len(player_history_matches)} gespeicherten Vorgänge der Spielerakte werden angezeigt." if history_active else "Die Standardansicht zeigt die letzten 50 Einträge – der CSV-Export enthält alle."}</p>
         </div>
     </div>"""
     return render_page("Moderatoren-Panel", ctx, "dashboard", body, DASHBOARD_HEAD)
@@ -3580,7 +3681,17 @@ async def edit_log(
     return_to: str = Form("/dashboard"),
     user_session: str = Cookie(None),
 ):
-    return_to = "/melonly" if return_to == "/melonly" else "/dashboard"
+    if return_to == "/melonly":
+        return_to = "/melonly"
+    elif return_to.startswith("/dashboard?player_history="):
+        raw_history_query = return_to.split("player_history=", 1)[1].split("#", 1)[0].split("&", 1)[0]
+        return_to = (
+            f"/dashboard?player_history={raw_history_query}#playerlog"
+            if re.fullmatch(r"[A-Za-z0-9_%@.+-]{1,240}", raw_history_query)
+            else "/dashboard"
+        )
+    else:
+        return_to = "/dashboard"
     ctx = auth(request, user_session)
     logs_db = load_json(LOGS_FILE, [])
     entry = next((l for l in logs_db if l.get("id") == log_id), None)
@@ -3625,7 +3736,17 @@ async def delete_log(
     return_to: str = Form("/dashboard"),
     user_session: str = Cookie(None),
 ):
-    return_to = "/melonly" if return_to == "/melonly" else "/dashboard"
+    if return_to == "/melonly":
+        return_to = "/melonly"
+    elif return_to.startswith("/dashboard?player_history="):
+        raw_history_query = return_to.split("player_history=", 1)[1].split("#", 1)[0].split("&", 1)[0]
+        return_to = (
+            f"/dashboard?player_history={raw_history_query}#playerlog"
+            if re.fullmatch(r"[A-Za-z0-9_%@.+-]{1,240}", raw_history_query)
+            else "/dashboard"
+        )
+    else:
+        return_to = "/dashboard"
     ctx = auth(request, user_session)
     logs_db = load_json(LOGS_FILE, [])
     entry = next((l for l in logs_db if l.get("id") == log_id), None)
