@@ -91,6 +91,8 @@ class DiscordLogRegressionTests(unittest.TestCase):
         status_loop = get_method(source, "duty_status_loop")
         self.assertIn("🎧 Voice-Support · Aktueller Status", status)
         self.assertIn('cfg.get("support_status_message_id")', status)
+        self.assertIn("channel.get_partial_message(saved_id)", status)
+        self.assertIn("saved_partial.edit", status)
         self.assertIn("⏳ Wartende Fälle", status)
         self.assertIn("🎧 Laufende Gespräche", status)
         self.assertIn("await self._refresh_support_status(guild)", open_case)
