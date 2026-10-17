@@ -1012,7 +1012,6 @@ class VoiceSupport(commands.Cog):
 
         is_after_hours = bool(case.get("outside_opening_hours"))
         mark_after_hours_notice = is_after_hours and not case.get("after_hours_notice_played")
-        mark_opening_audio = False
         if is_after_hours:
             if not mark_after_hours_notice:
                 # Outside opening hours, only the one-time spoken notice is played;
@@ -1023,19 +1022,14 @@ class VoiceSupport(commands.Cog):
                 or self._after_hours_audio_path()
             )
         else:
-            # The uploaded opening clip is an intro, not the repeating soundtrack.
-            # Play it once per shared waiting-room queue, then loop the actual
-            # waiting music configured in the legacy music setting.
-            opening_path = self._configured_audio_path(cfg, "custom_opening_audio_path")
-            if opening_path and not case.get("opening_audio_played"):
-                audio_path = opening_path
-                mark_opening_audio = True
-            elif cfg.get("waiting_music_enabled"):
-                audio_path = self._configured_audio_path(cfg, "waiting_music_path")
-            else:
-                audio_path = None
+            # The shared waiting room must play the configured waiting-music file,
+            # never the separate spoken/custom opening audio.
+            audio_path = (
+                self._configured_audio_path(cfg, "waiting_music_path")
+                if cfg.get("waiting_music_enabled") else None
+            )
         if audio_path is None:
-            if not is_after_hours and (cfg.get("waiting_music_enabled") or cfg.get("custom_opening_audio_path")):
+            if not is_after_hours and cfg.get("waiting_music_enabled"):
                 if not self._music_warning_logged:
                     print("⚠️ Voice-Support: Wartemusik aktiviert, aber die konfigurierte Audiodatei fehlt oder ist leer.")
                     self._music_warning_logged = True
@@ -1059,21 +1053,14 @@ class VoiceSupport(commands.Cog):
                 return False
 
             voice_client.play(discord.FFmpegPCMAudio(str(audio_path), options="-vn"))
-            if mark_after_hours_notice or mark_opening_audio:
+            if mark_after_hours_notice:
                 case_key, latest, latest_cases = self._find_case_by_id(str(case.get("case_id", "")))
                 if case_key is not None and isinstance(latest, dict):
-                    if mark_after_hours_notice:
-                        latest["after_hours_notice_played"] = True
-                        latest["after_hours_notice_played_at"] = datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds")
-                    if mark_opening_audio:
-                        latest["opening_audio_played"] = True
+                    latest["after_hours_notice_played"] = True
+                    latest["after_hours_notice_played_at"] = datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds")
                     latest_cases[case_key] = latest
                     db.set_setting(CASES_KEY, latest_cases)
-            audio_label = (
-                "Ansage außerhalb der Öffnungszeiten" if mark_after_hours_notice
-                else "Eröffnungsansage" if mark_opening_audio
-                else "Wartemusik"
-            )
+            audio_label = "Ansage außerhalb der Öffnungszeiten" if mark_after_hours_notice else "Wartemusik"
             print(f"🎧 Voice-Support: {audio_label} gestartet · Kanal {channel.id} · Fall {case.get('case_id')}")
             return True
         except (discord.ClientException, discord.Forbidden, discord.HTTPException, RuntimeError, OSError) as exc:
@@ -1127,32 +1114,6 @@ class VoiceSupport(commands.Cog):
         # under a unique user key instead of using the shared channel ID as the key.
         case_key = f"waiting:{member.id}"
         cases = get_cases()
-        if not outside_opening_hours:
-            active_shared_waiters = [
-                item for item in cases.values()
-                if isinstance(item, dict)
-                and item.get("waiting_in_shared_room")
-                and not channel_id(item.get("assigned_staff_id"))
-                and channel_id(item.get("guild_id")) == guild.id
-            ]
-            intro_already_started = any(item.get("opening_audio_played") for item in active_shared_waiters)
-            existing_voice = next((vc for vc in self.bot.voice_clients if vc.guild.id == guild.id), None)
-            if (
-                not intro_already_started
-                and existing_voice
-                and existing_voice.channel
-                and existing_voice.channel.id == waiting_room.id
-                and existing_voice.is_playing()
-                and active_shared_waiters
-            ):
-                # Migrate pre-7.9.4 queued cases if their intro was already playing
-                # when the new release was deployed; continue with waiting music.
-                intro_already_started = True
-                for item in active_shared_waiters:
-                    item["opening_audio_played"] = True
-            case["opening_audio_played"] = intro_already_started
-        else:
-            case["opening_audio_played"] = True
         cases[case_key] = case
         db.set_setting(CASES_KEY, cases)
 
@@ -1518,8 +1479,8 @@ class VoiceSupport(commands.Cog):
                     except (discord.ClientException, discord.HTTPException):
                         pass
 
-        # During opening hours the configured opening clip (or the legacy waiting
-        # music, if enabled) repeats while an unclaimed citizen is still waiting.
+        # During opening hours the configured waiting-music file loops in the
+        # shared waiting room; custom opening audio is not used as queue music.
         for case in cases:
             if not isinstance(case, dict) or case.get("staff_joined") or case.get("outside_opening_hours"):
                 continue

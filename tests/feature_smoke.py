@@ -450,7 +450,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.9.4"' in version_source
+    assert 'PULSE_VERSION = "7.9.5"' in version_source
     archive_source = read("cogs/announcement_archive.py")
     parse("cogs/announcement_archive.py")
     archive_utils = read("pulse_announcement_utils.py")
@@ -1102,13 +1102,15 @@ def main() -> None:
     ok, errors, _ = validate_workflow_json(__import__("json").dumps(valid_workflow))
     assert not ok and errors
 
-    # The opening voice clip plays once, then the configured waiting music loops.
-    voice_audio_logic = read("cogs/voice_support.py")
-    assert 'case.get("opening_audio_played")' in voice_audio_logic
-    assert 'latest["opening_audio_played"] = True' in voice_audio_logic
-    assert 'self._configured_audio_path(cfg, "waiting_music_path")' in voice_audio_logic
-    assert "mark_opening_audio = True" in voice_audio_logic
-    assert "Wird beim ersten Wartenden einmal als Eröffnungsansage abgespielt." in read("pulse_pro.py")
+    # The shared queue only plays the selected waiting music, not custom opening audio.
+    voice_audio_tree = parse("cogs/voice_support.py")
+    voice_audio_fn = next(node for node in ast.walk(voice_audio_tree) if isinstance(node, ast.AsyncFunctionDef) and node.name == "_start_waiting_audio")
+    voice_audio_source = ast.get_source_segment(read("cogs/voice_support.py"), voice_audio_fn) or ""
+    assert 'self._configured_audio_path(cfg, "waiting_music_path")' in voice_audio_source
+    assert 'if cfg.get("waiting_music_enabled") else None' in voice_audio_source
+    assert "custom_opening_audio_path" not in voice_audio_source
+    assert "opening_audio_played" not in voice_audio_source
+    assert "nicht die Wartemusik im gemeinsamen Warteraum" in read("pulse_pro.py")
 
     # Voice Support starts queue audio immediately, recovers idle voice clients,
     # and maintains a persistent live status embed in the notification channel.
