@@ -13,7 +13,7 @@ import sqlite3
 import time
 import traceback
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from urllib.parse import quote, urlparse
 
@@ -1667,15 +1667,15 @@ def register(app):
                     time_label = event["start"].strftime("%H:%M") if event["start"].date() == day else "Ganztägig"
                 location = f' · {e(event["location"])}' if event["location"] and day == event["start"].date() else ""
                 chips.append(
-                    f'<div class="cal-event cal-{e(event["category"])}" title="{title}: {e(event["description"])}">'
+                    f'<div class="cal-event cal-{e(event["category"])}" title="{title}: {e(event["description"])}{location}">'
                     f'<span>{icon}</span><span class="cal-event-text">{title}</span>'
                     f'<span class="cal-event-time">{e(time_label)}</span></div>'
                 )
             more = f'<div class="cal-more">+{len(by_day[day_key]) - 3} weitere</div>' if len(by_day[day_key]) > 3 else ""
+            today_label = '<span class="cal-today-label">Heute</span>' if day == today else ""
             day_cells.append(
                 f'<div class="cal-day{today_class}{outside_class}"><div class="cal-day-top"><span class="cal-day-number">{day.day}</span>'
-                f'{"<span class=\"cal-today-label\">Heute</span>" if day == today else ""}</div>'
-                f'{"".join(chips)}{more}</div>'
+                f'{today_label}</div>{"".join(chips)}{more}</div>'
             )
 
         flash = str(request.query_params.get("msg") or "").strip()
