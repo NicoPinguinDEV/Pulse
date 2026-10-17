@@ -1060,6 +1060,24 @@ class VoiceSupport(commands.Cog):
             elapsed = max(0, int((now - start_dt).total_seconds()))
             duration = f"{elapsed // 60}:{elapsed % 60:02d}m"
             supporter_id = channel_id(latest.get("assigned_staff_id"))
+            try:
+                db.record_voice_support_case(
+                    case_id=case_id,
+                    guild_id=guild.id,
+                    user_id=user_id,
+                    user_name=latest.get("user_name") or (member.display_name if member else "Unbekannt"),
+                    assigned_staff_id=supporter_id or None,
+                    assigned_staff_name=latest.get("assigned_staff_name") or "",
+                    created_at=created_raw,
+                    support_started_at=start_raw,
+                    duration_seconds=elapsed,
+                    close_reason=reason,
+                    closed_by_id=closed_by.id if closed_by else None,
+                    closed_by_name=closed_by.display_name if closed_by else "",
+                    outside_opening_hours=bool(latest.get("outside_opening_hours")),
+                )
+            except Exception as exc:
+                print(f"⚠️ Voice-Support: Fall {case_id} konnte nicht für Teamstatistiken gespeichert werden: {exc}")
             case_tag = f"#S-{case_id[:9].upper()}"
 
             user_label = member.mention if member else str(latest.get("user_name") or "Unbekannter Bürger")
