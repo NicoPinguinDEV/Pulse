@@ -450,7 +450,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.9.3"' in version_source
+    assert 'PULSE_VERSION = "7.9.4"' in version_source
     archive_source = read("cogs/announcement_archive.py")
     parse("cogs/announcement_archive.py")
     archive_utils = read("pulse_announcement_utils.py")
@@ -1101,6 +1101,14 @@ def main() -> None:
     valid_workflow["actions"] = [{"type": "execute_shell", "message": "must be blocked"}]
     ok, errors, _ = validate_workflow_json(__import__("json").dumps(valid_workflow))
     assert not ok and errors
+
+    # The opening voice clip plays once, then the configured waiting music loops.
+    voice_audio_logic = read("cogs/voice_support.py")
+    assert 'case.get("opening_audio_played")' in voice_audio_logic
+    assert 'latest["opening_audio_played"] = True' in voice_audio_logic
+    assert 'self._configured_audio_path(cfg, "waiting_music_path")' in voice_audio_logic
+    assert "mark_opening_audio = True" in voice_audio_logic
+    assert "Wird beim ersten Wartenden einmal als Eröffnungsansage abgespielt." in read("pulse_pro.py")
 
     # Voice Support starts queue audio immediately, recovers idle voice clients,
     # and maintains a persistent live status embed in the notification channel.
