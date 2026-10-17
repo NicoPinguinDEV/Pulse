@@ -1427,6 +1427,19 @@ def register(app):
             hours[day] = {"enabled": form.get(f"hours_{day}_enabled") == "1", "start": start, "end": end}
         previous = db.get_setting("voice_support_config", {})
         previous = previous if isinstance(previous, dict) else {}
+        def valid_audio_signature(extension, data):
+            if extension == ".mp3":
+                return data.startswith(b"ID3") or (len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)
+            if extension == ".wav":
+                return data[:4] in {b"RIFF", b"RF64"} and data[8:12] == b"WAVE"
+            if extension == ".ogg":
+                return data.startswith(b"OggS")
+            if extension == ".flac":
+                return data.startswith(b"fLaC")
+            if extension == ".m4a":
+                return len(data) >= 12 and data[4:8] == b"ftyp"
+            return False
+
         music_path = str(previous.get("waiting_music_path") or "")
         waiting_music_upload = form.get("waiting_music_file")
         waiting_music_data = None
@@ -1466,19 +1479,6 @@ def register(app):
                     candidate.unlink()
             except (OSError, RuntimeError):
                 pass
-
-        def valid_audio_signature(extension, data):
-            if extension == ".mp3":
-                return data.startswith(b"ID3") or (len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)
-            if extension == ".wav":
-                return data[:4] in {b"RIFF", b"RF64"} and data[8:12] == b"WAVE"
-            if extension == ".ogg":
-                return data.startswith(b"OggS")
-            if extension == ".flac":
-                return data.startswith(b"fLaC")
-            if extension == ".m4a":
-                return len(data) >= 12 and data[4:8] == b"ftyp"
-            return False
 
         for audio_type, config_key, upload_key, remove_key in audio_specs:
             old_path = str(previous.get(config_key) or "").strip()
