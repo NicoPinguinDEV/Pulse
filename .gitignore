@@ -34,6 +34,7 @@ role_nickname_state.json
 # Runtime exports / generated files
 backups/
 transcripts/
+uploads/voice_support_audio/
 
 # Local tooling
 .vscode/
