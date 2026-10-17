@@ -1329,7 +1329,7 @@ def register(app):
                 <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="notes_enabled" value="1" {"checked" if cfg.get("notes_enabled", True) else ""}>Private Notiz-Threads pro Supportfall erstellen</label>
                 <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="use_existing_channels" value="1" {"checked" if cfg.get("use_existing_channels") else ""}>Eigene Kanäle verwenden, sofern ein passender leerer Prefix-Kanal existiert</label>
               </div></section>
-              <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">🕒 Öffnungszeiten</div><div class="pulse-section-sub">Außerhalb der Zeitfenster wird der Nutzer mit einer DM informiert und in seinen vorherigen Kanal zurückgeführt.</div></div></div><div class="pulse-card-b space-y-1">{"".join(schedule_rows)}</div></section>
+              <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">🕒 Öffnungszeiten</div><div class="pulse-section-sub">Außerhalb der Öffnungszeiten bleibt der Supportfall im gemeinsamen Warteraum offen. Die separate Ansage darunter wird einmal abgespielt; das Team kann den Fall weiterhin übernehmen.</div></div></div><div class="pulse-card-b space-y-1">{"".join(schedule_rows)}</div></section>
               <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">🧠 Bereitschaft & Schichtsynchronisierung</div><div class="pulse-section-sub">Keine zweite unabhängige Check-in-Uhr: Pulse nutzt die bestehenden Dashboard-Schichten. Start/Fortsetzen gibt die Bereitschaftsrolle; Pause/Ende nimmt sie weg.</div></div></div><div class="pulse-card-b grid md:grid-cols-2 gap-4">
                 <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="duty_mode" value="1" {"checked" if cfg.get("duty_mode") else ""}>Duty-/Bereitschaftsmodus aktivieren</label>
                 <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="duty_message_enabled" value="1" {"checked" if cfg.get("duty_message_enabled", True) else ""}>Bereitschaftsstatus im Check-in-Kanal automatisch aktualisieren</label>
@@ -1339,7 +1339,26 @@ def register(app):
               <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">⭐ Bewertungen & Wartemusik</div><div class="pulse-section-sub">Nach dem Support kann der Nutzer bewerten. Die Wartemusik braucht eine MP3-, OGG- oder WAV-Datei und FFmpeg auf dem Host.</div></div></div><div class="pulse-card-b grid md:grid-cols-2 gap-4">
                 <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="ratings_enabled" value="1" {"checked" if cfg.get("ratings_enabled", True) else ""}>Support-Bewertungen aktivieren</label>
                 <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="waiting_music_enabled" value="1" {"checked" if cfg.get("waiting_music_enabled") else ""}>Wartemusik aktivieren</label>
-                <label class="block text-xs font-bold md:col-span-2">Wartemusik-Datei<input type="file" name="waiting_music_file" accept=".mp3,.ogg,.wav,audio/mpeg,audio/ogg,audio/wav" class="pulse-input mt-2"><span class="pulse-section-sub mt-1">Aktuell hinterlegt: {e(os.path.basename(str(cfg.get('waiting_music_path') or 'Keine Datei')))}</span></label>
+                <label class="block text-xs font-bold md:col-span-2">Wartemusik-Datei (bestehende Einstellung)<input type="file" name="waiting_music_file" accept=".mp3,.ogg,.wav,audio/mpeg,audio/ogg,audio/wav" class="pulse-input mt-2"><span class="pulse-section-sub mt-1">Aktuell hinterlegt: {e(os.path.basename(str(cfg.get('waiting_music_path') or 'Keine Datei')))}</span></label>
+                <div class="pulse-card md:col-span-2">
+                  <div class="pulse-card-h"><div><div class="pulse-section-title">🔊 Eigene Support-Audios</div><div class="pulse-section-sub">Die beiden Audios werden separat gespeichert und über diesen Bildschirm geändert. Erlaubt: MP3, WAV, OGG, FLAC oder M4A · maximal 10 MB je Datei.</div></div></div>
+                  <div class="pulse-card-b grid md:grid-cols-2 gap-4">
+                    <div class="space-y-3">
+                      <div class="text-xs font-bold">🟢 Während der Supportzeiten</div>
+                      <div class="pulse-section-sub">Wird im privaten Support-Raum wiederholt, bis ein Teamler übernimmt. Ohne eigene Datei wird die vorhandene Wartemusik-Einstellung verwendet.</div>
+                      <div class="pulse-section-sub">Aktuell: <strong>{e(os.path.basename(str(cfg.get('custom_opening_audio_path') or 'Keine eigene Audio')))}</strong></div>
+                      <label class="block text-xs font-bold">Eigene Audio hochladen<input type="file" name="custom_opening_audio_file" accept=".mp3,.wav,.ogg,.flac,.m4a,audio/*" class="pulse-input mt-2"></label>
+                      <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="remove_custom_opening_audio" value="1"> Eigene Audio entfernen und auf Standard zurücksetzen</label>
+                    </div>
+                    <div class="space-y-3">
+                      <div class="text-xs font-bold">🌙 Außerhalb der Supportzeiten</div>
+                      <div class="pulse-section-sub">Wird einmal im gemeinsamen Warteraum abgespielt. Ohne eigene Datei bleibt die integrierte deutsche Standardansage aktiv.</div>
+                      <div class="pulse-section-sub">Aktuell: <strong>{e(os.path.basename(str(cfg.get('custom_after_hours_audio_path') or 'Deutsche Standardansage')))}</strong></div>
+                      <label class="block text-xs font-bold">Eigene Ansage hochladen<input type="file" name="custom_after_hours_audio_file" accept=".mp3,.wav,.ogg,.flac,.m4a,audio/*" class="pulse-input mt-2"></label>
+                      <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="remove_custom_after_hours_audio" value="1"> Eigene Ansage entfernen und Standardansage verwenden</label>
+                    </div>
+                  </div>
+                </div>
                 <div class="pulse-alert md:col-span-2"><strong>Wichtig zu Discord-Rechten</strong><div class="text-slate-400 mt-1">Pulse benötigt Kanäle verwalten, Kanäle ansehen, Mitglieder verschieben, Nachrichten senden, Embeds, private Threads verwalten und für Wartemusik Verbinden/Sprechen. Die Bot-Rolle muss hoch genug sein, um Support-Rollen zu verwalten.</div></div>
               </div></section>
               <button class="pulse-btn primary w-full">⚙ Support-System speichern</button>
@@ -1408,23 +1427,83 @@ def register(app):
         previous = db.get_setting("voice_support_config", {})
         previous = previous if isinstance(previous, dict) else {}
         music_path = str(previous.get("waiting_music_path") or "")
-        upload = form.get("waiting_music_file")
-        if upload and getattr(upload, "filename", ""):
-            original_name = os.path.basename(str(upload.filename))
-            extension = os.path.splitext(original_name)[1].lower()
-            if extension not in {".mp3", ".ogg", ".wav"}:
-                return ws.back("/voice-support", "Die Wartemusik muss MP3, OGG oder WAV sein.", False)
-            data = await upload.read(8 * 1024 * 1024 + 1)
-            if len(data) > 8 * 1024 * 1024:
-                return ws.back("/voice-support", "Die Wartemusik-Datei darf maximal 8 MB groß sein.", False)
-            asset_dir = os.path.join(ws.BASE_DIR, "assets")
-            os.makedirs(asset_dir, exist_ok=True)
-            music_path = os.path.join("assets", "support_wait" + extension)
-            with open(os.path.join(ws.BASE_DIR, music_path), "wb") as handle:
-                handle.write(data)
-        config = {
-            **previous,
-            "guild_id": c.guild.id, "active": enabled, "room_name": room_name, "channel_prefix": prefix,
+        # Validate both custom clips before writing either one so a bad second upload
+        # never leaves a half-updated audio configuration.
+        audio_specs = (
+            ("opening", "custom_opening_audio_path", "custom_opening_audio_file", "remove_custom_opening_audio"),
+            ("after_hours", "custom_after_hours_audio_path", "custom_after_hours_audio_file", "remove_custom_after_hours_audio"),
+        )
+        new_audio_paths = {}
+        prepared_audio = []
+        removed_audio_paths = []
+        audio_dir = ws.VOICE_SUPPORT_AUDIO_DIR.resolve()
+
+        def safe_remove_owned_audio(raw_path, audio_type):
+            raw = str(raw_path or "").strip()
+            if not raw:
+                return
+            try:
+                candidate = __import__("pathlib").Path(raw)
+                if not candidate.is_absolute():
+                    candidate = ws.BASE_DIR / candidate
+                candidate = candidate.resolve()
+                expected_prefix = f"{c.guild.id}_support_{audio_type}_"
+                if candidate.parent == audio_dir and candidate.name.startswith(expected_prefix) and candidate.is_file():
+                    candidate.unlink()
+            except (OSError, RuntimeError):
+                pass
+
+        def valid_audio_signature(extension, data):
+            if extension == ".mp3":
+                return data.startswith(b"ID3") or (len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)
+            if extension == ".wav":
+                return data[:4] in {b"RIFF", b"RF64"} and data[8:12] == b"WAVE"
+            if extension == ".ogg":
+                return data.startswith(b"OggS")
+            if extension == ".flac":
+                return data.startswith(b"fLaC")
+            if extension == ".m4a":
+                return len(data) >= 12 and data[4:8] == b"ftyp"
+            return False
+
+        for audio_type, config_key, upload_key, remove_key in audio_specs:
+            old_path = str(previous.get(config_key) or "").strip()
+            upload = form.get(upload_key)
+            if upload and getattr(upload, "filename", ""):
+                extension = os.path.splitext(os.path.basename(str(upload.filename)))[1].lower()
+                if extension not in ws.VOICE_SUPPORT_AUDIO_EXTENSIONS:
+                    return ws.back("/voice-support", "Audioformat nicht unterstützt. Erlaubt sind MP3, WAV, OGG, FLAC und M4A.", False)
+                data = await upload.read(ws.MAX_VOICE_SUPPORT_AUDIO_BYTES + 1)
+                if len(data) > ws.MAX_VOICE_SUPPORT_AUDIO_BYTES:
+                    return ws.back("/voice-support", "Eine Support-Audio darf maximal 10 MB groß sein.", False)
+                if len(data) < 100 or not valid_audio_signature(extension, data):
+                    return ws.back("/voice-support", "Eine Audio-Datei ist leer, beschädigt oder passt nicht zu ihrer Dateiendung.", False)
+                prepared_audio.append((audio_type, config_key, old_path, extension, data))
+                new_audio_paths[config_key] = None
+            elif form.get(remove_key) == "1":
+                new_audio_paths[config_key] = ""
+                if old_path:
+                    removed_audio_paths.append((old_path, audio_type))
+            else:
+                new_audio_paths[config_key] = old_path
+
+        written_audio_paths = []
+        try:
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            for audio_type, config_key, old_path, extension, data in prepared_audio:
+                target = audio_dir / f"{c.guild.id}_support_{audio_type}_{uuid.uuid4().hex[:8]}{extension}"
+                temporary = target.with_name(target.name + ".uploading")
+                temporary.write_bytes(data)
+                os.replace(temporary, target)
+                relative_path = target.resolve().relative_to(ws.BASE_DIR.resolve()).as_posix()
+                new_audio_paths[config_key] = relative_path
+                written_audio_paths.append((relative_path, audio_type))
+                if old_path:
+                    removed_audio_paths.append((old_path, audio_type))
+
+            config = {
+                **previous,
+                "guild_id": c.guild.id, "active": enabled, "room_name": room_name, "channel_prefix": prefix,
             "waiting_room_channel_id": waiting.id if isinstance(waiting, discord.VoiceChannel) else 0,
             "notification_channel_id": notify.id if isinstance(notify, discord.TextChannel) else 0,
             "support_role_id": support_role.id if support_role else 0,
@@ -1438,7 +1517,16 @@ def register(app):
             "ratings_enabled": form.get("ratings_enabled") == "1",
             "waiting_music_enabled": form.get("waiting_music_enabled") == "1", "waiting_music_path": music_path,
         }
+        if not music_path:
+            config.pop("waiting_music_path", None)
+        for config_key, stored_path in new_audio_paths.items():
+            if stored_path:
+                config[config_key] = stored_path
+            else:
+                config.pop(config_key, None)
         db.set_setting("voice_support_config", config)
+        for old_path, audio_type in removed_audio_paths:
+            safe_remove_owned_audio(old_path, audio_type)
         ws.log_audit(c.user.get("global_name") or c.user.get("username"), c.user["id"], "Voice-Support Konfiguration gespeichert", f"Aktiv={enabled}; Bereitschaft={duty_mode}; Kategorie={config['category_id']}")
         bot = getattr(request.app.state, "bot", None)
         cog = bot.get_cog("VoiceSupport") if bot else None
@@ -1446,6 +1534,11 @@ def register(app):
             await cog._reconcile_duty_roles(c.guild, config)
             await cog._refresh_duty_status(c.guild)
         return ws.back("/voice-support", "Voice-Support-Konfiguration gespeichert.", True)
+        except Exception as exc:
+            for new_path, audio_type in written_audio_paths:
+                safe_remove_owned_audio(new_path, audio_type)
+            print(f"⚠️ Voice-Support Konfiguration konnte nicht gespeichert werden: {type(exc).__name__}: {exc}")
+            return ws.back("/voice-support", "Die Konfiguration oder Audiodatei konnte nicht gespeichert werden. Bitte erneut versuchen.", False)
 
     # ---------------- Modern stats / calendar / settings / system / search ----------------
     async def stats_v5(request: Request, user_session: str=Cookie(None)):
