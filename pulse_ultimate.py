@@ -721,6 +721,10 @@ def page(ctx, active: str, title: str, subtitle: str, body: str, extra_js: str =
         ("legacy_tickets", "/tickets", "🎫 Tickets"),
         ("legacy_apps", "/applications", "📝 Bewerbungen"),
         ("system", "/ultimate/system", "🩺 System"),
+        ("copilot", "/ultimate/copilot", "🧠 Pulse Copilot"),
+        ("system_twin", "/ultimate/system-twin", "🪞 System-Zwilling"),
+        ("simulator", "/ultimate/simulator", "🧪 Was-wäre-wenn"),
+        ("sandbox", "/ultimate/sandbox", "🧫 Release-Sandbox"),
     ]
     links = "".join(
         f'<a class="nav-item {"active" if k == active else ""}" href="{p}">{label}</a>'
