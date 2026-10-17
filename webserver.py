@@ -5289,14 +5289,19 @@ async def manage_voice_support_audio(
     request: Request,
     audio_type: str = Form(...),
     audio_action: str = Form("upload"),
-    audio_file: UploadFile = File(None),
+    audio_file: UploadFile | None = File(None),
     user_session: str = Cookie(None),
 ):
     ctx = auth(request, user_session, perm="can_promote")
+    def audio_redirect(message, ok=True):
+        response = back("/team", message, ok)
+        response.headers["location"] = response.headers.get("location", "/team") + "#voice-audio"
+        return response
+
     if audio_type not in {"opening", "after_hours"}:
-        return back("/team", "Ungültiger Audio-Typ.", False)
+        return audio_redirect( "Ungültiger Audio-Typ.", False)
     if audio_action not in {"upload", "remove"}:
-        return back("/team", "Ungültige Audio-Aktion.", False)
+        return audio_redirect( "Ungültige Audio-Aktion.", False)
 
     config_key = "custom_opening_audio_path" if audio_type == "opening" else "custom_after_hours_audio_path"
     expected_prefix = f"{ctx.guild.id}_support_{audio_type}_"
@@ -5328,18 +5333,18 @@ async def manage_voice_support_audio(
         actor_name = ctx.member.display_name if ctx.member else str(ctx.user.get("global_name") or "Teamleitung")
         log_audit(actor_name, str(ctx.user["id"]), "Voice-Support Audio entfernt",
                   f"{'Während der Supportzeiten' if audio_type == 'opening' else 'Außerhalb der Supportzeiten'} · eigene Datei entfernt")
-        return back("/team", "Eigene Audio entfernt. Die Standardkonfiguration wird wieder verwendet.")
+        return audio_redirect( "Eigene Audio entfernt. Die Standardkonfiguration wird wieder verwendet.")
 
     if not audio_file or not audio_file.filename:
-        return back("/team", "Bitte zuerst eine Audiodatei auswählen.", False)
+        return audio_redirect( "Bitte zuerst eine Audiodatei auswählen.", False)
     extension = Path(audio_file.filename).suffix.lower()
     if extension not in VOICE_SUPPORT_AUDIO_EXTENSIONS:
-        return back("/team", "Dateiformat nicht unterstützt. Erlaubt sind MP3, WAV, OGG, FLAC und M4A.", False)
+        return audio_redirect( "Dateiformat nicht unterstützt. Erlaubt sind MP3, WAV, OGG, FLAC und M4A.", False)
 
     try:
         raw = await audio_file.read(MAX_VOICE_SUPPORT_AUDIO_BYTES + 1)
     except Exception:
-        return back("/team", "Die Audiodatei konnte nicht gelesen werden.", False)
+        return audio_redirect( "Die Audiodatei konnte nicht gelesen werden.", False)
     finally:
         try:
             await audio_file.close()
@@ -5347,9 +5352,9 @@ async def manage_voice_support_audio(
             pass
 
     if len(raw) > MAX_VOICE_SUPPORT_AUDIO_BYTES:
-        return back("/team", f"Die Audiodatei ist zu groß. Maximum: {MAX_VOICE_SUPPORT_AUDIO_BYTES // (1024 * 1024)} MB.", False)
+        return audio_redirect( f"Die Audiodatei ist zu groß. Maximum: {MAX_VOICE_SUPPORT_AUDIO_BYTES // (1024 * 1024)} MB.", False)
     if len(raw) < 100:
-        return back("/team", "Die Datei ist leer oder zu kurz, um eine gültige Audiodatei zu sein.", False)
+        return audio_redirect( "Die Datei ist leer oder zu kurz, um eine gültige Audiodatei zu sein.", False)
 
     def valid_audio_signature(ext, data):
         if ext == ".mp3":
@@ -5365,7 +5370,7 @@ async def manage_voice_support_audio(
         return False
 
     if not valid_audio_signature(extension, raw):
-        return back("/team", "Die Dateiendung passt nicht zum Audioinhalt oder die Datei ist beschädigt.", False)
+        return audio_redirect( "Die Dateiendung passt nicht zum Audioinhalt oder die Datei ist beschädigt.", False)
 
     try:
         VOICE_SUPPORT_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
@@ -5382,7 +5387,7 @@ async def manage_voice_support_audio(
         human_type = "Während der Supportzeiten" if audio_type == "opening" else "Außerhalb der Supportzeiten"
         log_audit(actor_name, str(ctx.user["id"]), "Voice-Support Audio gespeichert",
                   f"{human_type} · {target.name} · {len(raw)} Bytes")
-        return back("/team", f"{human_type}: Audiodatei erfolgreich gespeichert.")
+        return audio_redirect( f"{human_type}: Audiodatei erfolgreich gespeichert.")
     except (OSError, ValueError, RuntimeError) as exc:
         try:
             if "temporary" in locals() and temporary.exists():
@@ -5390,7 +5395,7 @@ async def manage_voice_support_audio(
         except OSError:
             pass
         print(f"⚠️ Voice-Support Audio-Upload fehlgeschlagen: {type(exc).__name__}: {exc}")
-        return back("/team", "Audio konnte nicht gespeichert werden. Prüfe den verfügbaren Speicherplatz.", False)
+        return audio_redirect( "Audio konnte nicht gespeichert werden. Prüfe den verfügbaren Speicherplatz.", False)
 
 
 # =============================================================
