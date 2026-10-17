@@ -559,6 +559,196 @@ APPLICATION_CAREERS = {
 }
 
 
+
+# Praxisaufgaben sind bewusst nicht automatisch benotet: Sie prüfen Kommunikation,
+# Priorisierung und Entscheidungsbegründung und werden im Bewerbungsbereich manuell bewertet.
+APPLICATION_PRACTICAL_TASKS = {
+    "low_team": [
+        {
+            "type": "text",
+            "title": "Support-Antwort schreiben",
+            "prompt": "Ein Spieler meldet RDM, ist wütend und verlangt eine Sofortsanktion. Er liefert zunächst nur einen kurzen Clip, der den Anfang der Situation nicht zeigt. Formuliere deine erste Antwort an ihn und nenne die nächsten Informationen, die du benötigst.",
+            "min_length": 80,
+            "review_guide": "Auf Neutralität, Deeskalation, konkrete Rückfragen, keine Vorverurteilung und nachvollziehbare Beweissicherung achten.",
+        },
+        {
+            "type": "ranking",
+            "title": "Prioritäten im Supportfall",
+            "prompt": "Ordne die Schritte von 1 (zuerst) bis 4 (zuletzt). Jeder Rang darf nur einmal vergeben werden.",
+            "items": [
+                "Den Vorwurf neutral aufnehmen und Beteiligte identifizieren",
+                "Relevante Zeitpunkte und vorhandene Belege sichern",
+                "Beide Seiten sachlich anhören und fehlenden Kontext klären",
+                "Erst danach begründet entscheiden und den Fall dokumentieren",
+            ],
+            "review_guide": "Sinnvolle Reihenfolge: Sachverhalt und Beteiligte klären, Belege sichern, Perspektiven prüfen, Entscheidung dokumentieren. Abweichungen anhand der Begründung im Freitext besprechen.",
+        },
+        {
+            "type": "text",
+            "title": "Fehlerkultur und Selbstkorrektur",
+            "prompt": "Du bemerkst, dass du einem Spieler im Ticket versehentlich eine falsche Regel genannt hast. Wie korrigierst du die Aussage, übernimmst Verantwortung und verhinderst, dass daraus eine falsche Entscheidung entsteht?",
+            "min_length": 60,
+            "review_guide": "Auf Transparenz, schnelle Korrektur, Rücksprache bei Unsicherheit und saubere Dokumentation achten.",
+        },
+    ],
+    "high_team": [
+        {
+            "type": "text",
+            "title": "Fallentscheidung mit Interessenkonflikt",
+            "prompt": "Ein Teammitglied wird beschuldigt, einen Supportfall zugunsten eines Freundes entschieden zu haben. Die Beteiligten widersprechen sich und ein Clip zeigt nur einen Teil des Gesprächs. Beschreibe deinen Ablauf von der ersten Sicherung bis zur begründeten Entscheidung. Gehe auch darauf ein, wie du Befangenheit vermeidest.",
+            "min_length": 140,
+            "review_guide": "Unabhängigkeit, Vertraulichkeit, vollständige Beweislage, Anhörung beider Seiten, Verhältnismäßigkeit, Dokumentation und geregelte Eskalation prüfen.",
+        },
+        {
+            "type": "ranking",
+            "title": "Leitungs-Priorisierung",
+            "prompt": "Ordne die Schritte von 1 (zuerst) bis 5 (zuletzt). Jeder Rang darf nur einmal vergeben werden.",
+            "items": [
+                "Eine akute Gefährdung oder laufenden Schaden begrenzen",
+                "Belege und Zeitlinie unverändert sichern",
+                "Befangenheit prüfen und eine unabhängige Prüfung festlegen",
+                "Betroffene vertraulich anhören und den Kontext vervollständigen",
+                "Verhältnismäßig entscheiden, begründen und nachhalten",
+            ],
+            "review_guide": "Akute Risiken dürfen zuerst eingedämmt werden; Belege sind früh zu sichern. Danach Unabhängigkeit und Anhörung gewährleisten und erst auf vollständiger Grundlage entscheiden.",
+        },
+        {
+            "type": "text",
+            "title": "Führungsnachricht formulieren",
+            "prompt": "Nach der Prüfung gibt es konkrete Hinweise auf einen Regelverstoß eines Teamlers. Schreibe eine kurze, sachliche Nachricht, mit der du das Gespräch eröffnest. Vermeide eine öffentliche Vorverurteilung und zeige, wie du dem Teamler Gelegenheit zur Stellungnahme gibst.",
+            "min_length": 100,
+            "review_guide": "Professioneller Ton, Vertraulichkeit, konkrete Fakten statt Gerüchte, faire Anhörung und klare nächste Schritte bewerten.",
+        },
+    ],
+    "leadership": [
+        {
+            "type": "text",
+            "title": "Führungsfall: Leistung, Konflikt und Fairness",
+            "prompt": "Ein erfahrener Teamler lässt wiederholt Tickets unbeantwortet und kritisiert Kollegen öffentlich. Andere fordern sofort seine Degradierung. Entwirf einen ausgewogenen Maßnahmenplan: Welche Fakten prüfst du, welche Sofortmaßnahmen sind gerechtfertigt, wie hörst du die Beteiligten an und woran machst du die spätere Entscheidung fest?",
+            "min_length": 160,
+            "review_guide": "Verhältnismäßigkeit, dokumentierte Muster statt Einzelmeinung, Anhörung, Schutz des Teams, klare Erwartungen, Frist zur Verbesserung und nachvollziehbare Nachkontrolle.",
+        },
+        {
+            "type": "ranking",
+            "title": "Krisenmanagement priorisieren",
+            "prompt": "Ordne die Schritte von 1 (zuerst) bis 5 (zuletzt). Jeder Rang darf nur einmal vergeben werden.",
+            "items": [
+                "Akuten Schaden stoppen und nötige Übergabe sicherstellen",
+                "Dokumentierte Fakten und Zeitpunkte sammeln",
+                "Betroffene getrennt und vertraulich anhören",
+                "Zuständigkeit und mögliche Befangenheit klären",
+                "Entscheidung, Verantwortliche und Kontrolltermin festhalten",
+            ],
+            "review_guide": "Akute Risiken und Kontinuität zuerst, danach Fakten sichern, unparteiisch anhören und Zuständigkeit prüfen; Entscheidung und Nachkontrolle dokumentieren.",
+        },
+        {
+            "type": "text",
+            "title": "Veränderung verständlich einführen",
+            "prompt": "Die Leitung ändert einen wichtigen Supportablauf. Ein Teil des Teams ignoriert die Neuerung, andere wenden sie falsch an. Wie kommunizierst du die Änderung, stellst Verständnis sicher und erkennst nach einer Woche, ob sie funktioniert?",
+            "min_length": 120,
+            "review_guide": "Klare Begründung und Zuständigkeiten, verständliche Anleitung, Rückfragen/Bestätigung, praxisnahe Schulung, messbare Prüfkriterien und Feedbackschleife bewerten.",
+        },
+    ],
+}
+
+
+def render_practical_tasks(career_path: str) -> str:
+    """Rendert szenariobasierte Textaufgaben und Priorisierungsübungen."""
+    tasks = APPLICATION_PRACTICAL_TASKS.get(career_path, [])
+    if not tasks:
+        return ""
+
+    groups: list[str] = []
+    for index, task in enumerate(tasks, start=1):
+        field_name = f"practical_{index}"
+        title = escape(str(task.get("title") or f"Praxisaufgabe {index}"))
+        prompt = escape(str(task.get("prompt") or ""))
+        if task.get("type") == "ranking":
+            items = list(task.get("items") or [])
+            ranking_options = (
+                '<option value="">Rang auswählen …</option>'
+                + "".join(f'<option value="{rank}">{rank}. Platz</option>' for rank in range(1, len(items) + 1))
+            )
+            controls = "".join(
+                '<label class="grid grid-cols-[1fr_7.5rem] items-center gap-3 rounded-xl border border-slate-200 '
+                'dark:border-slate-700 p-3">'
+                f'<span>{escape(str(item))}</span>'
+                f'<select name="{field_name}_{item_index}" required class="rounded-lg border border-slate-200 '
+                f'dark:border-slate-700 bg-white dark:bg-slate-900 p-2"><option value="">Rang …</option>'
+                + "".join(f'<option value="{rank}">{rank}</option>' for rank in range(1, len(items) + 1))
+                + '</select></label>'
+                for item_index, item in enumerate(items, start=1)
+            )
+            controls = f'<div class="grid gap-2">{controls}</div>'
+            footer = '<p class="text-[10px] text-slate-400">Jeder Rang darf nur einmal verwendet werden. Die Reihenfolge wird nicht automatisch als richtig oder falsch gewertet.</p>'
+        else:
+            minimum = max(30, min(500, int(task.get("min_length") or 60)))
+            controls = (
+                f'<label for="{field_name}" class="sr-only">{title}</label>'
+                f'<textarea id="{field_name}" name="{field_name}" required minlength="{minimum}" maxlength="2000" '
+                f'placeholder="Beschreibe dein Vorgehen konkret …" '
+                'class="w-full min-h-32 rounded-xl border border-slate-200 dark:border-slate-700 '
+                'bg-white dark:bg-slate-900 p-3 outline-none focus:border-indigo-500"></textarea>'
+                f'<p class="text-[10px] text-slate-400">Mindestens {minimum} Zeichen · Freitext wird vom Team gelesen.</p>'
+            )
+            footer = ""
+        groups.append(
+            '<fieldset class="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">'
+            f'<legend class="px-1 font-semibold text-sm">{index}. {title}</legend>'
+            f'<p class="text-xs text-slate-500 dark:text-slate-400">{prompt}</p>'
+            f'{controls}{footer}</fieldset>'
+        )
+
+    return (
+        '<div class="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-4 space-y-2">'
+        '<p class="font-bold text-sm">Praxis-Modul · echte Entscheidungen statt nur Testkreuze</p>'
+        '<p class="text-xs text-slate-500 dark:text-slate-400">Die Fallantworten werden nicht automatisch benotet. '
+        'Sie werden zusammen mit deiner Bewerbung gespeichert und von der zuständigen Leitung anhand einer Prüfhilfe bewertet.</p>'
+        f'<div class="grid gap-4 mt-4">{"".join(groups)}</div></div>'
+    )
+
+
+def grade_practical_tasks(career_path: str, submitted_form) -> dict:
+    """Validiert die Praxisantworten; die fachliche Bewertung bleibt beim Recruiting-Team."""
+    tasks = APPLICATION_PRACTICAL_TASKS.get(career_path)
+    if not tasks:
+        raise ValueError("Für diese Laufbahn sind keine Praxisaufgaben definiert.")
+
+    answers = []
+    for index, task in enumerate(tasks, start=1):
+        field_name = f"practical_{index}"
+        task_type = task.get("type")
+        if task_type == "ranking":
+            items = list(task.get("items") or [])
+            ranks = [
+                str(submitted_form.get(f"{field_name}_{item_index}", "")).strip()
+                for item_index in range(1, len(items) + 1)
+            ]
+            expected = {str(rank) for rank in range(1, len(items) + 1)}
+            if len(ranks) != len(items) or any(rank not in expected for rank in ranks):
+                raise ValueError(f"Bitte ordne alle Elemente bei „{task['title']}“.")
+            if len(set(ranks)) != len(ranks):
+                raise ValueError(f"Bei „{task['title']}“ darf jeder Rang nur einmal vorkommen.")
+            ordered = sorted(zip((int(rank) for rank in ranks), items), key=lambda pair: pair[0])
+            answer = "\n".join(f"{rank}. {item}" for rank, item in ordered)
+        else:
+            answer = str(submitted_form.get(field_name, "") or "").strip()
+            minimum = int(task.get("min_length") or 60)
+            if len(answer) < minimum:
+                raise ValueError(f"Bitte beantworte „{task['title']}“ ausführlicher (mindestens {minimum} Zeichen).")
+            if len(answer) > 2000:
+                raise ValueError(f"Die Antwort bei „{task['title']}“ ist zu lang (maximal 2.000 Zeichen).")
+        answers.append({
+            "title": str(task.get("title") or f"Praxisaufgabe {index}"),
+            "prompt": str(task.get("prompt") or ""),
+            "answer": answer,
+            "review_guide": str(task.get("review_guide") or ""),
+            "type": str(task_type or "text"),
+        })
+
+    return {"career_path": career_path, "answers": answers, "manual_review": True}
+
+
 def render_career_test(career_path: str) -> str:
     """Rendert Fragen und gemischte Antwortoptionen, niemals den Lösungsschlüssel."""
     career = APPLICATION_CAREERS.get(career_path)
