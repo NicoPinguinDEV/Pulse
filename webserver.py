@@ -33,7 +33,10 @@ import pulse_db as pulse_db
 from pulse_version import PULSE_VERSION
 
 from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
-from career_applications import APPLICATION_CAREERS, grade_career_test, render_career_test
+from career_applications import (
+    APPLICATION_CAREERS, APPLICATION_PRACTICAL_TASKS, grade_career_test,
+    grade_practical_tasks, render_career_test, render_practical_tasks,
+)
 from pulse_melonly import can_manage_melonly_type, rank_roblox_candidates, roblox_similarity_score
 
 try:
@@ -276,6 +279,15 @@ def load_config() -> dict:
     cfg.setdefault("dashboard_roles", {})
     cfg.setdefault("dashboard_user_roles", {})
     return cfg
+
+
+def application_module_states(config: dict | None = None) -> dict[str, bool]:
+    """Liefert den Aktivstatus der Bewerbungs-Laufbahnen; Alt-Konfigurationen bleiben aktiv."""
+    cfg = config if isinstance(config, dict) else load_config()
+    stored = cfg.get("application_modules", {})
+    if not isinstance(stored, dict):
+        stored = {}
+    return {key: bool(stored.get(key, True)) for key in APPLICATION_CAREERS}
 
 
 def load_meetings() -> dict:
@@ -6077,9 +6089,14 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
             <a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a>
         </div></body></html>"""
 
-    career_path = (request.query_params.get("career") or "").strip()
-    if career_path not in APPLICATION_CAREERS:
-        career_path = ""
+    requested_career_path = (request.query_params.get("career") or "").strip()
+    module_states = application_module_states(load_config())
+    if requested_career_path in APPLICATION_CAREERS and not module_states.get(requested_career_path, True):
+        return HTMLResponse(
+            simple_page("⏸️", "Bewerbung derzeit geschlossen", "Diese Laufbahn nimmt aktuell keine Bewerbungen an. Bitte wähle eine andere aktive Laufbahn oder schau später wieder vorbei.", '<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Aktive Laufbahnen</a>'),
+            status_code=404,
+        )
+    career_path = requested_career_path if requested_career_path in APPLICATION_CAREERS else ""
 
     applicant_name = applicant.get("global_name") or applicant.get("username") or "Discord-Mitglied"
     applicant_id = esc(applicant.get("id"))
@@ -6089,15 +6106,19 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
     if not career_path:
         career_cards = ""
         for key, career in APPLICATION_CAREERS.items():
+            if not module_states.get(key, True):
+                continue
             career_cards += f"""
             <a href="/apply?career={key}" class="block text-left rounded-2xl border border-slate-200 dark:border-slate-700 p-4 hover:border-indigo-500 hover:shadow-md transition">
                 <div class="flex items-center justify-between gap-3">
                     <h2 class="font-bold text-base">{esc(career["label"])}</h2>
-                    <span class="text-[10px] font-bold rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 px-2.5 py-1">Eignungstest</span>
+                    <span class="text-[10px] font-bold rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 px-2.5 py-1">Eignungstest + Praxis</span>
                 </div>
                 <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">{esc(career["description"])}</p>
-                <p class="text-[10px] text-slate-400 mt-3">{len(career["questions"])} Fragen · Richtwert zum Bestehen: {career["pass_percent"]}%</p>
+                <p class="text-[10px] text-slate-400 mt-3">{len(career["questions"])} Testfragen · {len(APPLICATION_PRACTICAL_TASKS.get(key, []))} Praxisaufgaben · Bestehens-Richtwert: {career["pass_percent"]}%</p>
             </a>"""
+        if not career_cards:
+            return HTMLResponse(simple_page("⏸️", "Aktuell keine Bewerbungen geöffnet", "Die Leitung hat vorübergehend alle Bewerbungsmodule deaktiviert. Bitte schau später wieder vorbei."), status_code=503)
         return f"""
         <!DOCTYPE html><html lang="de"><head>{get_head_html("Laufbahn wählen · Team-Bewerbung")}</head>
         <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen flex items-center justify-center p-4 font-sans">
@@ -6119,6 +6140,7 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
 
     career = APPLICATION_CAREERS[career_path]
     question_markup = render_career_test(career_path)
+    practical_markup = render_practical_tasks(career_path)
     return f"""
     <!DOCTYPE html><html lang="de"><head>{get_head_html("Online-Eignungstest · " + career["label"])}</head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen p-4 sm:p-6 font-sans">
@@ -6151,6 +6173,7 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
                         </div>
                         {question_markup}
                     </section>
+                    {practical_markup}
                     <button class="w-full bg-emerald-600 hover:bg-emerald-500 font-semibold py-3 rounded-xl text-white">Bewerbung und Test absenden</button>
                 </form>
                 <div class="text-center"><a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a></div>
