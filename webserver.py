@@ -6269,6 +6269,24 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     f'<details class="mt-3"><summary class="cursor-pointer text-xs font-semibold text-indigo-600 dark:text-indigo-300">'
                     f'Online-Testantworten anzeigen</summary><div class="grid gap-2 mt-3">{"".join(detail_parts)}</div></details>'
                 )
+        practical_answers = item.get("practical_answers", [])
+        practical_review_html = ""
+        if practical_answers:
+            practical_parts = []
+            for practical_index, detail in enumerate(practical_answers, start=1):
+                practical_parts.append(
+                    '<div class="rounded-xl bg-slate-50 dark:bg-[#0b0e14] border border-slate-200 dark:border-slate-800 p-3 space-y-2">'
+                    f'<p class="font-bold">{practical_index}. {esc(detail.get("title", "Praxisaufgabe"))}</p>'
+                    f'<p class="text-slate-600 dark:text-slate-300">{esc(detail.get("prompt", ""))}</p>'
+                    f'<div class="rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 whitespace-pre-wrap break-words">{esc(detail.get("answer", ""))}</div>'
+                    f'<p class="text-[10px] text-amber-600 dark:text-amber-300">Prüfhilfe: {esc(detail.get("review_guide", ""))}</p>'
+                    '</div>'
+                )
+            practical_review_html = (
+                '<details class="mt-3"><summary class="cursor-pointer text-xs font-semibold text-amber-600 dark:text-amber-300">'
+                'Praxisaufgaben prüfen · manuelle Bewertung erforderlich</summary><div class="grid gap-2 mt-3">'
+                + "".join(practical_parts) + '</div></details>'
+            )
         if show_history:
             hired = item.get("status") in {"hired", "accepted"}  # accepted = Altbestand aus früherer Version
             history_label = "✅ Eingestellt" if hired else "❌ Abgelehnt"
@@ -6315,6 +6333,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
             </div>
             <p class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800/80 whitespace-pre-wrap break-words">{esc(item.get('text'))}</p>
             {test_review_html}
+            {practical_review_html}
             <div class="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">{footer}</div>
         </div>"""
 
@@ -6323,13 +6342,90 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
         return f'<a href="{href}" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold {cls}">{label}</a>'
 
     empty = "Noch keine entschiedenen Bewerbungen." if show_history else "Keine offenen Bewerbungen vorhanden."
+    module_settings_link = (
+        '<a href="/applications/config" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white">⚙️ Module verwalten</a>'
+        if can_decide else ""
+    )
     body = f"""
-    <div class="flex items-center justify-between mb-6 max-w-3xl">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6 max-w-3xl">
         <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{'Bewerbungs-Verlauf' if show_history else 'Offene Bewerbungen'}</h1>
-        <div class="flex gap-2">{tab('Offen', '/applications', not show_history)}{tab('Verlauf', '/applications?view=history', show_history)}</div>
+        <div class="flex flex-wrap gap-2">{module_settings_link}{tab('Offen', '/applications', not show_history)}{tab('Verlauf', '/applications?view=history', show_history)}</div>
     </div>
     <div class="space-y-4 max-w-3xl">{apps_html or f"<p class='text-xs text-slate-400 italic {CARD} p-6'>{empty}</p>"}</div>"""
     return render_page("Bewerbungen", ctx, "apps", body)
+
+
+@app.get("/applications/config", response_class=HTMLResponse)
+async def application_modules_config_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None)
+    can_manage = bool(
+        ctx.perms.get("can_manage_applications")
+        or ctx.perms.get("can_promote")
+        or ctx.perms.get("is_admin")
+    )
+    if not can_manage:
+        raise HTTPException(status_code=403, detail="Dir fehlt die Berechtigung, Bewerbungsmodule zu verwalten.")
+
+    states = application_module_states(ctx.config)
+    module_cards = []
+    for key, career in APPLICATION_CAREERS.items():
+        enabled = states.get(key, True)
+        checkbox = "checked" if enabled else ""
+        status_class = "text-emerald-600 dark:text-emerald-400" if enabled else "text-amber-600 dark:text-amber-300"
+        status_label = "Aktiv" if enabled else "Pausiert"
+        module_cards.append(
+            f'<label class="{CARD} p-5 flex items-start gap-4 cursor-pointer hover:border-indigo-400 transition">'
+            f'<input type="checkbox" name="module_{esc(key)}" value="1" {checkbox} class="mt-1 h-4 w-4 accent-indigo-600">'
+            f'<span class="flex-1 min-w-0"><span class="flex flex-wrap items-center gap-2 font-bold">{esc(career["label"])}'
+            f'<span class="text-[10px] {status_class}">{status_label}</span></span>'
+            f'<span class="block text-xs text-slate-500 dark:text-slate-400 mt-2">{esc(career["description"])}</span>'
+            f'<span class="block text-[10px] text-slate-400 mt-3">{len(career["questions"])} automatische Testfragen · '
+            f'{len(APPLICATION_PRACTICAL_TASKS.get(key, []))} manuell geprüfte Praxisaufgaben</span></span></label>'
+        )
+    body = f"""
+    <div class="max-w-3xl space-y-5">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <div><h1 class="text-2xl font-bold text-slate-900 dark:text-white">Bewerbungsmodule</h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">Schalte jede Laufbahn unabhängig frei oder pausiere sie, ohne bestehende Bewerbungen zu löschen.</p></div>
+            <a href="/applications" class="px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700">← Zur Bewerbungsübersicht</a>
+        </div>
+        <form action="/applications/config" method="post" class="space-y-4">
+            <div class="grid gap-3">{"".join(module_cards)}</div>
+            <div class="rounded-2xl bg-indigo-500/10 border border-indigo-500/20 p-4 text-xs text-slate-500 dark:text-slate-300">
+                Ausgeschaltete Module verschwinden aus der öffentlichen Auswahl. Direkte Links und manipulierte Einreichungen werden serverseitig blockiert. Bereits eingereichte Bewerbungen bleiben erhalten.
+            </div>
+            <button class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-5 py-3 rounded-xl">Änderungen speichern</button>
+        </form>
+    </div>
+    """
+    return render_page("Bewerbungsmodule", ctx, "apps", body)
+
+
+@app.post("/applications/config")
+async def save_application_modules_config(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None)
+    can_manage = bool(
+        ctx.perms.get("can_manage_applications")
+        or ctx.perms.get("can_promote")
+        or ctx.perms.get("is_admin")
+    )
+    if not can_manage:
+        raise HTTPException(status_code=403, detail="Dir fehlt die Berechtigung, Bewerbungsmodule zu verwalten.")
+
+    form = await request.form()
+    states = {key: bool(form.get(f"module_{key}")) for key in APPLICATION_CAREERS}
+    ctx.config["application_modules"] = states
+    save_json(CONFIG_FILE, ctx.config)
+    enabled_count = sum(states.values())
+    log_audit(
+        ctx.user.get("global_name") or ctx.user.get("username") or "Unbekannt",
+        str(ctx.user.get("id") or ""),
+        "Bewerbungsmodule geändert",
+        ", ".join(f"{APPLICATION_CAREERS[key]['label']}: {'aktiv' if enabled else 'pausiert'}" for key, enabled in states.items()),
+    )
+    return back("/applications/config", f"Bewerbungsmodule gespeichert: {enabled_count} von {len(states)} aktiv.")
+
+
 
 # =============================================================
 # DISCORD BACKUP SYSTEM (nur Admins, mit Auto-Backup)
@@ -7959,6 +8055,8 @@ async def handle_action(
         back_link = '<a href="/apply" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800">Zurück</a>'
         if rate_limited(f"apply:{ip}"):
             return HTMLResponse(simple_page("⏳", "Zu viele Bewerbungen", "Bitte versuche es später erneut.", back_link), status_code=429)
+        if career_path not in APPLICATION_CAREERS or not application_module_states(load_config()).get(career_path, False):
+            return HTMLResponse(simple_page("⏸️", "Bewerbungsmodul geschlossen", "Für diese Laufbahn werden aktuell keine Bewerbungen angenommen.", back_link), status_code=403)
         apply_user = verify_payload(apply_session) if apply_session else None
         if not apply_user or apply_user.get("apply_exp", 0) < time.time() or str(apply_user.get("id")) != str(applicant_id):
             return HTMLResponse(simple_page("🔒", "Discord-Verknüpfung fehlt", "Bitte starte die Bewerbung über Mit Discord verbinden.", back_link), status_code=403)
@@ -7987,6 +8085,7 @@ async def handle_action(
                 for index in range(1, answer_count + 1)
             ]
             test_result = grade_career_test(career_path or "", submitted_answers)
+            practical_result = grade_practical_tasks(career_path or "", submitted_form)
         except ValueError as exc:
             return HTMLResponse(simple_page("⚠️", "Online-Test unvollständig", esc(str(exc)), back_link), status_code=400)
 
@@ -8007,7 +8106,10 @@ async def handle_action(
             "test_pass_percent": test_result["pass_percent"],
             "test_passed": test_result["passed"],
             "test_details": test_result["details"],
-            "test_version": 2,
+            "test_version": 3,
+            "practical_answers": practical_result["answers"],
+            "practical_review_status": "pending",
+            "practical_version": 1,
             "upvotes": [],
             "downvotes": [],
             "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
@@ -8018,7 +8120,7 @@ async def handle_action(
         result_text = (
             f"Deine Bewerbung wurde mit der Laufbahn {esc(test_result['career_label'])} gespeichert. "
             f"Online-Test: {test_result['score']}/{test_result['total']} richtig ({test_result['percent']} %), "
-            f"Status: {result_status}. Das Team prüft Motivation und Testergebnis gemeinsam."
+            f"Status: {result_status}. Deine Praxisaufgaben wurden ebenfalls gespeichert und werden vom Team manuell geprüft."
         )
         return HTMLResponse(simple_page("✅", "Bewerbung erfolgreich abgesendet!", result_text, back_link))
 
