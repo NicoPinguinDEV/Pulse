@@ -305,7 +305,8 @@ class ActivityCheckCog(commands.Cog):
         embed = discord.Embed(
             title="⟡ Activity Check",
             description=(
-                "Bitte bestätige deine Aktivität über den Button.\n\n"
+                "Bitte bestätige deine Aktivität über den Button.\n"
+                "Auch mit aktiver Abmeldung kannst du bestätigen, wenn du heute arbeitest.\n\n"
                 "🕐 Tagescheck · ✅ Bestätigung · 📊 Auswertung im Bot\n\n"
                 "Nicht reagiert = wird im Bericht als offen geführt. "
                 "Offene Bestätigungen werden um 20:00 Uhr geprüft."
