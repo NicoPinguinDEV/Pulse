@@ -124,6 +124,26 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_ticket_events_ticket ON ticket_events(ticket_id, created_at);
 
+            CREATE TABLE IF NOT EXISTS voice_support_case_history (
+                case_id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                user_name TEXT NOT NULL DEFAULT '',
+                assigned_staff_id TEXT,
+                assigned_staff_name TEXT DEFAULT '',
+                created_at TEXT,
+                support_started_at TEXT,
+                closed_at TEXT NOT NULL,
+                duration_seconds INTEGER NOT NULL DEFAULT 0,
+                close_reason TEXT DEFAULT '',
+                closed_by_id TEXT,
+                closed_by_name TEXT DEFAULT '',
+                outside_opening_hours INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_voice_support_history_staff_period
+                ON voice_support_case_history(guild_id, assigned_staff_id, closed_at);
+
+
             CREATE TABLE IF NOT EXISTS wiki_pages (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -614,6 +634,100 @@ def support_case_counts(start_at=None, end_at=None):
     with connect() as db:
         rows = db.execute(query, params).fetchall()
     return {str(row["user_id"]): int(row["total"] or 0) for row in rows}
+
+
+
+
+def record_voice_support_case(
+    *,
+    case_id,
+    guild_id,
+    user_id,
+    user_name,
+    assigned_staff_id,
+    assigned_staff_name,
+    created_at,
+    support_started_at,
+    duration_seconds,
+    close_reason,
+    closed_by_id=None,
+    closed_by_name="",
+    outside_opening_hours=False,
+):
+    """Persist one closed voice-support case, crediting the staff member who owned it."""
+    staff_id = str(assigned_staff_id or "").strip()
+    staff_id = staff_id if staff_id and staff_id != "0" else None
+    with connect() as db:
+        cur = db.execute(
+            """INSERT OR IGNORE INTO voice_support_case_history
+               (case_id,guild_id,user_id,user_name,assigned_staff_id,assigned_staff_name,
+                created_at,support_started_at,closed_at,duration_seconds,close_reason,
+                closed_by_id,closed_by_name,outside_opening_hours)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                str(case_id), str(guild_id), str(user_id), str(user_name or ""),
+                staff_id, str(assigned_staff_name or ""),
+                str(created_at or ""), str(support_started_at or ""),
+                _now(), max(0, int(duration_seconds or 0)), str(close_reason or "")[:1024],
+                str(closed_by_id) if closed_by_id else None, str(closed_by_name or ""),
+                1 if outside_opening_hours else 0,
+            ),
+        )
+        return cur.rowcount > 0
+
+
+def voice_support_case_counts(start_at=None, guild_id=None):
+    """Return completed voice-support case counts and durations per assigned staff member."""
+    query = """
+        SELECT assigned_staff_id AS user_id,
+               COUNT(*) AS completed,
+               COALESCE(SUM(duration_seconds), 0) AS duration_seconds_total
+        FROM voice_support_case_history
+        WHERE assigned_staff_id IS NOT NULL AND assigned_staff_id != ''
+    """
+    params = []
+    if start_at:
+        query += " AND closed_at >= ?"
+        params.append(str(start_at))
+    if guild_id:
+        query += " AND guild_id = ?"
+        params.append(str(guild_id))
+    query += " GROUP BY assigned_staff_id"
+    with connect() as db:
+        rows = db.execute(query, params).fetchall()
+    return {
+        str(row["user_id"]): {
+            "completed": int(row["completed"] or 0),
+            "duration_seconds_total": int(row["duration_seconds_total"] or 0),
+        }
+        for row in rows
+    }
+
+
+def ticket_member_activity_counts(start_at=None, guild_id=None):
+    """Return per-claimer closed tickets in the reporting period and currently open tickets."""
+    query = """
+        SELECT claimed_by_id AS user_id,
+               SUM(CASE WHEN status='closed' AND closed_at IS NOT NULL
+                         AND closed_at >= ? THEN 1 ELSE 0 END) AS completed,
+               SUM(CASE WHEN status != 'closed' THEN 1 ELSE 0 END) AS active
+        FROM tickets
+        WHERE claimed_by_id IS NOT NULL AND claimed_by_id != ''
+    """
+    params = [str(start_at or "0000-01-01T00:00:00+00:00")]
+    if guild_id:
+        query += " AND guild_id = ?"
+        params.append(str(guild_id))
+    query += " GROUP BY claimed_by_id"
+    with connect() as db:
+        rows = db.execute(query, params).fetchall()
+    return {
+        str(row["user_id"]): {
+            "completed": int(row["completed"] or 0),
+            "active": int(row["active"] or 0),
+        }
+        for row in rows
+    }
 
 
 def finish_support_case_period(actor_id, actor_name):
