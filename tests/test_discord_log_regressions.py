@@ -83,18 +83,15 @@ class DiscordLogRegressionTests(unittest.TestCase):
         self.assertIn("await self._start_waiting_audio(case, cfg)", loop)
         self.assertIn("case.get(\"outside_opening_hours\")", audio)
 
-    def test_voice_support_opening_clip_plays_once_then_music_loops(self):
+    def test_shared_waiting_room_uses_selected_music_not_spoken_opening_audio(self):
         source = read_source("cogs/voice_support.py")
         audio = get_method(source, "_start_waiting_audio")
-        open_case = get_method(source, "_open_case")
-        self.assertIn('case.get("opening_audio_played")', audio)
-        self.assertIn("mark_opening_audio = True", audio)
         self.assertIn('self._configured_audio_path(cfg, "waiting_music_path")', audio)
-        self.assertIn('latest["opening_audio_played"] = True', audio)
-        self.assertIn("audio_label", audio)
-        self.assertIn("intro_already_started", open_case)
-        self.assertIn('case["opening_audio_played"] = intro_already_started', open_case)
-        self.assertIn("existing_voice.is_playing()", open_case)
+        self.assertIn('if cfg.get("waiting_music_enabled") else None', audio)
+        self.assertNotIn("custom_opening_audio_path", audio)
+        self.assertNotIn("opening_audio_played", audio)
+        self.assertNotIn("Eröffnungsansage", audio)
+        self.assertIn('self._configured_audio_path(cfg, "custom_after_hours_audio_path")', audio)
 
     def test_voice_support_publishes_one_persistent_live_status(self):
         source = read_source("cogs/voice_support.py")
@@ -176,7 +173,7 @@ class DiscordLogRegressionTests(unittest.TestCase):
 
     def test_application_version_has_one_source_of_truth(self):
         version = read_source("pulse_version.py")
-        self.assertIn('PULSE_VERSION = "7.9.4"', version)
+        self.assertIn('PULSE_VERSION = "7.9.5"', version)
         self.assertIn("from pulse_version import PULSE_VERSION", read_source("webserver.py"))
         self.assertIn("from pulse_version import PULSE_VERSION", read_source("pulse_pro.py"))
 
