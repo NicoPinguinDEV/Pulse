@@ -112,6 +112,9 @@ SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
 MAX_SHIFT_HOURS = AUTO_SHIFT_END_HOURS
 AUTO_BACKUP_HOURS = float(os.getenv("AUTO_BACKUP_HOURS", "24")) # 0 = aus
 MAX_BACKUPS = int(os.getenv("MAX_BACKUPS", "30"))
+VOICE_SUPPORT_AUDIO_DIR = BASE_DIR / "uploads" / "voice_support_audio"
+MAX_VOICE_SUPPORT_AUDIO_BYTES = 10 * 1024 * 1024
+VOICE_SUPPORT_AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a"}
 COOKIE_SECURE = bool(PUBLIC_BASE_URL and PUBLIC_BASE_URL.startswith("https://"))
 
 DATA_FILE = "team_data.json"
@@ -4910,6 +4913,9 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     active = shifts_db["active_shifts"]
     loas = get_loas()
     team_db = load_json(DATA_FILE, {})
+    voice_audio_cfg = pulse_db.get_setting("voice_support_config", {})
+    if not isinstance(voice_audio_cfg, dict):
+        voice_audio_cfg = {}
     support_period_start = pulse_db.get_support_case_period_start()
     voice_support_counts = pulse_db.voice_support_case_counts(support_period_start, guild.id)
     voice_active_counts = active_voice_support_case_counts(guild.id)
@@ -5184,6 +5190,78 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
         else:
             hire_panel = f'<section class="{CARD} p-4 mb-6 text-sm text-amber-600">⚠️ Es sind keine gültigen Teamrollen konfiguriert. Bitte zuerst die Teamrollen in den Einstellungen festlegen.</section>'
 
+
+    voice_audio_editor = ""
+    if ctx.perms.get("can_promote") or ctx.perms.get("is_admin"):
+        def audio_status(config_key, fallback_text):
+            raw_path = str(voice_audio_cfg.get(config_key) or "").strip()
+            if not raw_path:
+                if config_key == "custom_opening_audio_path" and voice_audio_cfg.get("waiting_music_enabled") and voice_audio_cfg.get("waiting_music_path"):
+                    return "ℹ️ Keine eigene Datei. Die bisher konfigurierte Wartemusik bleibt als Rückfalloption aktiv."
+                return fallback_text
+            try:
+                candidate = Path(raw_path)
+                if not candidate.is_absolute():
+                    candidate = BASE_DIR / candidate
+                candidate = candidate.resolve()
+                if candidate.is_file():
+                    return f"✅ Eigene Audiodatei aktiv: {esc(candidate.name)} · {round(candidate.stat().st_size / 1024, 1)} KB"
+            except (OSError, RuntimeError):
+                pass
+            return "⚠️ Der gespeicherte Audiopfad ist nicht verfügbar. Bitte lade die Datei erneut hoch."
+
+        def audio_remove_form(audio_type, config_key):
+            if not str(voice_audio_cfg.get(config_key) or "").strip():
+                return ""
+            return f"""
+                <form action="/team/voice-support/audio" method="post" onsubmit="return confirm('Eigene Audio wirklich entfernen?')">
+                    <input type="hidden" name="audio_type" value="{audio_type}">
+                    <input type="hidden" name="audio_action" value="remove">
+                    <button class="px-3 py-2 rounded-xl text-xs font-semibold border border-rose-500/30 bg-rose-500/5 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10">Eigene Audio entfernen</button>
+                </form>"""
+
+        opening_audio_status = audio_status(
+            "custom_opening_audio_path",
+            "⚪ Keine eigene Audio eingerichtet. Während der Supportzeiten wird dann keine eigene Wartemeldung abgespielt."
+        )
+        after_hours_audio_status = audio_status(
+            "custom_after_hours_audio_path",
+            "✅ Eingebaute deutsche Standardansage aktiv."
+        )
+        voice_audio_editor = f"""
+        <section id="voice-audio" class="{CARD} p-5 md:p-6 mb-6 space-y-4">
+            <div>
+                <h2 class="text-base font-bold text-slate-900 dark:text-white">🔊 Voice-Support-Audios</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Eigene Audiodateien direkt hier verwalten. Änderungen werden gespeichert und vom Voice-Support ohne Änderung an den Öffnungszeiten verwendet. Erlaubt: MP3, WAV, OGG, FLAC oder M4A · maximal {MAX_VOICE_SUPPORT_AUDIO_BYTES // (1024 * 1024)} MB.</p>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div class="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                    <h3 class="text-sm font-bold text-slate-900 dark:text-white">🟢 Während der Supportzeiten</h3>
+                    <p class="text-xs text-slate-500">Wird im privaten Support-Sprachraum wiederholt, solange der Bürger auf einen Supporter wartet. Sobald ein Teamler übernimmt, stoppt die Wiedergabe.</p>
+                    <p class="text-xs font-semibold">{opening_audio_status}</p>
+                    <form action="/team/voice-support/audio" method="post" enctype="multipart/form-data" class="space-y-3">
+                        <input type="hidden" name="audio_type" value="opening">
+                        <input type="hidden" name="audio_action" value="upload">
+                        <input type="file" name="audio_file" accept=".mp3,.wav,.ogg,.flac,.m4a,audio/*" required class="block w-full text-xs text-slate-600 dark:text-slate-300">
+                        <button class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">Audio während Supportzeiten speichern</button>
+                    </form>
+                    {audio_remove_form("opening", "custom_opening_audio_path")}
+                </div>
+                <div class="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                    <h3 class="text-sm font-bold text-slate-900 dark:text-white">🌙 Außerhalb der Supportzeiten</h3>
+                    <p class="text-xs text-slate-500">Wird einmal im gemeinsamen Warteraum abgespielt, wenn ein neuer Supportfall außerhalb der Öffnungszeiten aufgenommen wird. Ohne eigene Datei bleibt die deutsche Standardansage aktiv.</p>
+                    <p class="text-xs font-semibold">{after_hours_audio_status}</p>
+                    <form action="/team/voice-support/audio" method="post" enctype="multipart/form-data" class="space-y-3">
+                        <input type="hidden" name="audio_type" value="after_hours">
+                        <input type="hidden" name="audio_action" value="upload">
+                        <input type="file" name="audio_file" accept=".mp3,.wav,.ogg,.flac,.m4a,audio/*" required class="block w-full text-xs text-slate-600 dark:text-slate-300">
+                        <button class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">Audio außerhalb Supportzeiten speichern</button>
+                    </form>
+                    {audio_remove_form("after_hours", "custom_after_hours_audio_path")}
+                </div>
+            </div>
+        </section>"""
+
     body = f"""
     <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
         <div>
@@ -5201,8 +5279,118 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
         </div>
     </div>
     {hire_panel}
+    {voice_audio_editor}
     <div class="space-y-3">{rows_html or f"<div class='text-center py-12 text-slate-400 text-sm {CARD}'>Keine Teammitglieder gefunden. Team-Rollen kannst du unter Einstellungen festlegen.</div>"}</div>"""
     return render_page("Teamliste", ctx, "team", body, head)
+
+
+@app.post("/team/voice-support/audio")
+async def manage_voice_support_audio(
+    request: Request,
+    audio_type: str = Form(...),
+    audio_action: str = Form("upload"),
+    audio_file: UploadFile = File(None),
+    user_session: str = Cookie(None),
+):
+    ctx = auth(request, user_session, perm="can_promote")
+    if audio_type not in {"opening", "after_hours"}:
+        return back("/team", "Ungültiger Audio-Typ.", False)
+    if audio_action not in {"upload", "remove"}:
+        return back("/team", "Ungültige Audio-Aktion.", False)
+
+    config_key = "custom_opening_audio_path" if audio_type == "opening" else "custom_after_hours_audio_path"
+    expected_prefix = f"{ctx.guild.id}_support_{audio_type}_"
+    audio_dir = VOICE_SUPPORT_AUDIO_DIR.resolve()
+
+    def remove_owned_audio(raw_path):
+        raw = str(raw_path or "").strip()
+        if not raw:
+            return
+        try:
+            candidate = Path(raw)
+            if not candidate.is_absolute():
+                candidate = BASE_DIR / candidate
+            candidate = candidate.resolve()
+            if candidate.parent == audio_dir and candidate.name.startswith(expected_prefix) and candidate.is_file():
+                candidate.unlink()
+        except (OSError, RuntimeError):
+            pass
+
+    config = pulse_db.get_setting("voice_support_config", {})
+    if not isinstance(config, dict):
+        config = {}
+    old_path = str(config.get(config_key) or "").strip()
+
+    if audio_action == "remove":
+        config.pop(config_key, None)
+        pulse_db.set_setting("voice_support_config", config)
+        remove_owned_audio(old_path)
+        actor_name = ctx.member.display_name if ctx.member else str(ctx.user.get("global_name") or "Teamleitung")
+        log_audit(actor_name, str(ctx.user["id"]), "Voice-Support Audio entfernt",
+                  f"{'Während der Supportzeiten' if audio_type == 'opening' else 'Außerhalb der Supportzeiten'} · eigene Datei entfernt")
+        return back("/team", "Eigene Audio entfernt. Die Standardkonfiguration wird wieder verwendet.")
+
+    if not audio_file or not audio_file.filename:
+        return back("/team", "Bitte zuerst eine Audiodatei auswählen.", False)
+    extension = Path(audio_file.filename).suffix.lower()
+    if extension not in VOICE_SUPPORT_AUDIO_EXTENSIONS:
+        return back("/team", "Dateiformat nicht unterstützt. Erlaubt sind MP3, WAV, OGG, FLAC und M4A.", False)
+
+    try:
+        raw = await audio_file.read(MAX_VOICE_SUPPORT_AUDIO_BYTES + 1)
+    except Exception:
+        return back("/team", "Die Audiodatei konnte nicht gelesen werden.", False)
+    finally:
+        try:
+            await audio_file.close()
+        except Exception:
+            pass
+
+    if len(raw) > MAX_VOICE_SUPPORT_AUDIO_BYTES:
+        return back("/team", f"Die Audiodatei ist zu groß. Maximum: {MAX_VOICE_SUPPORT_AUDIO_BYTES // (1024 * 1024)} MB.", False)
+    if len(raw) < 100:
+        return back("/team", "Die Datei ist leer oder zu kurz, um eine gültige Audiodatei zu sein.", False)
+
+    def valid_audio_signature(ext, data):
+        if ext == ".mp3":
+            return data.startswith(b"ID3") or (len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)
+        if ext == ".wav":
+            return data[:4] in {b"RIFF", b"RF64"} and data[8:12] == b"WAVE"
+        if ext == ".ogg":
+            return data.startswith(b"OggS")
+        if ext == ".flac":
+            return data.startswith(b"fLaC")
+        if ext == ".m4a":
+            return len(data) >= 12 and data[4:8] == b"ftyp"
+        return False
+
+    if not valid_audio_signature(extension, raw):
+        return back("/team", "Die Dateiendung passt nicht zum Audioinhalt oder die Datei ist beschädigt.", False)
+
+    try:
+        VOICE_SUPPORT_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+        target = VOICE_SUPPORT_AUDIO_DIR / f"{ctx.guild.id}_support_{audio_type}_{uuid.uuid4().hex[:8]}{extension}"
+        temporary = target.with_name(target.name + ".uploading")
+        temporary.write_bytes(raw)
+        os.replace(temporary, target)
+        relative_path = target.resolve().relative_to(BASE_DIR.resolve()).as_posix()
+        config[config_key] = relative_path
+        pulse_db.set_setting("voice_support_config", config)
+        if old_path and old_path != relative_path:
+            remove_owned_audio(old_path)
+        actor_name = ctx.member.display_name if ctx.member else str(ctx.user.get("global_name") or "Teamleitung")
+        human_type = "Während der Supportzeiten" if audio_type == "opening" else "Außerhalb der Supportzeiten"
+        log_audit(actor_name, str(ctx.user["id"]), "Voice-Support Audio gespeichert",
+                  f"{human_type} · {target.name} · {len(raw)} Bytes")
+        return back("/team", f"{human_type}: Audiodatei erfolgreich gespeichert.")
+    except (OSError, ValueError, RuntimeError) as exc:
+        try:
+            if "temporary" in locals() and temporary.exists():
+                temporary.unlink()
+        except OSError:
+            pass
+        print(f"⚠️ Voice-Support Audio-Upload fehlgeschlagen: {type(exc).__name__}: {exc}")
+        return back("/team", "Audio konnte nicht gespeichert werden. Prüfe den verfügbaren Speicherplatz.", False)
 
 
 # =============================================================
