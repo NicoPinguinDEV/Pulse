@@ -450,7 +450,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.9.1"' in version_source
+    assert 'PULSE_VERSION = "7.9.2"' in version_source
     archive_source = read("cogs/announcement_archive.py")
     parse("cogs/announcement_archive.py")
     archive_utils = read("pulse_announcement_utils.py")
@@ -1101,6 +1101,33 @@ def main() -> None:
     valid_workflow["actions"] = [{"type": "execute_shell", "message": "must be blocked"}]
     ok, errors, _ = validate_workflow_json(__import__("json").dumps(valid_workflow))
     assert not ok and errors
+
+    # Support claiming is independent of the transient on-duty role.
+    voice_claim = parse("cogs/voice_support.py")
+    support_source = read("cogs/voice_support.py")
+    support_method = next(
+        node for node in ast.walk(voice_claim)
+        if isinstance(node, ast.FunctionDef) and node.name == "_is_support_staff"
+    )
+    support_segment = ast.get_source_segment(support_source, support_method) or ""
+    assert 'cfg.get("support_role_id")' in support_segment
+    assert 'cfg.get("duty_role_id")' in support_segment
+    assert 'cfg.get("duty_mode")' not in support_segment
+
+    # User-facing menu and palette hide the three removed workflow items.
+    pulse_pro_source = read("pulse_pro.py")
+    sidebar_tree = ast.parse(pulse_pro_source)
+    sidebar_fn = next(node for node in ast.walk(sidebar_tree) if isinstance(node, ast.FunctionDef) and node.name == "patched_sidebar")
+    palette_fn = next(node for node in ast.walk(sidebar_tree) if isinstance(node, ast.FunctionDef) and node.name == "build_command_modal")
+    sidebar_text = ast.get_source_segment(pulse_pro_source, sidebar_fn) or ""
+    palette_text = ast.get_source_segment(pulse_pro_source, palette_fn) or ""
+    for removed_path in ("/tasks", "/approvals", "/handover"):
+        assert removed_path not in sidebar_text
+        assert removed_path not in palette_text
+    assert "cal-grid" in pulse_pro_source
+    assert 'name="starts_at" type="datetime-local"' in pulse_pro_source
+    assert "app.post('/calendar/create')(create_calendar_event_v5)" in pulse_pro_source
+    assert "CREATE TABLE IF NOT EXISTS calendar_events" in read("pulse_db.py")
 
     print("Pulse feature smoke test: OK")
 
