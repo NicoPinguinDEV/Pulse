@@ -21,6 +21,16 @@ from pulse_activity_utils import (
     leave_covers_date,
 )
 
+from pulse_intelligence import (
+    build_copilot_report,
+    build_findings,
+    memory_state,
+    simulate_scenario,
+    system_health,
+    ticket_is_overdue,
+    validate_workflow_json,
+)
+
 
 
 def read(name: str) -> str:
@@ -42,7 +52,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_db.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/voice_support.py", "pulse_voice_support_utils.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_team_protection.py"):
+    for name in ("main.py", "webserver.py", "pulse_db.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/voice_support.py", "pulse_voice_support_utils.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_intelligence.py", "pulse_team_protection.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -1054,6 +1064,43 @@ def main() -> None:
     assert "limit=None" not in messagedelete
     assert "await asyncio.sleep(1.1)" in messagedelete
     assert "amount > 100" in messagedelete
+
+    # Pulse Intelligence must remain deterministic, local-only, and non-mutating.
+    intelligence = read("pulse_intelligence.py")
+    assert "local_rules_no_external_ai" in intelligence
+    assert "register_pulse_intelligence" in web
+    assert '("/ultimate/copilot"' in intelligence or '"/ultimate/copilot"' in intelligence
+    assert '"/ultimate/system-twin"' in intelligence
+    assert '"/ultimate/sandbox"' in intelligence
+    assert "execute_shell" not in intelligence
+    assert memory_state(179.9)["level"] == 0
+    assert memory_state(180)["level"] == 1
+    assert memory_state(210)["level"] == 2
+    assert memory_state(230)["level"] == 3
+    test_now = datetime(2026, 10, 17, 12, 0, tzinfo=__import__("datetime").timezone.utc)
+    assert ticket_is_overdue({"status": "open", "priority": "urgent", "opened_at": "2026-10-17T11:00:00+00:00"}, test_now)
+    assert not ticket_is_overdue({"status": "closed", "priority": "urgent", "opened_at": "2026-10-17T10:00:00+00:00"}, test_now)
+    assert system_health([{"state": "ok"}, {"state": "warning"}])["status"] == "degraded"
+    intelligence_metrics = {
+        "open_tickets": 7, "urgent_tickets": 2, "ticket_sla_overdue": 1,
+        "overdue_tasks": 3, "open_cases": 4, "automation_failures_24h": 0,
+        "active_staff": 2, "rss_mb": 215,
+    }
+    report = build_copilot_report("Warum sind Tickets offen?", intelligence_metrics)
+    assert report["focus"] == "tickets" and report["mode"] == "local_rules_no_external_ai"
+    assert any(item["topic"] == "tickets" for item in build_findings(intelligence_metrics))
+    assert simulate_scenario("staff_absence", 100, intelligence_metrics)["status"] == "critical"
+    assert simulate_scenario("ram_spike", 20, intelligence_metrics)["status"] == "critical"
+    valid_workflow = {
+        "schema_version": 1, "name": "SLA reminder", "trigger": "ticket_overdue",
+        "conditions": [{"field": "priority", "operator": "in", "value": ["high", "urgent"]}],
+        "actions": [{"type": "notify_assignee", "message": "Please review"}], "enabled": False,
+    }
+    ok, errors, _ = validate_workflow_json(__import__("json").dumps(valid_workflow))
+    assert ok, errors
+    valid_workflow["actions"] = [{"type": "execute_shell", "message": "must be blocked"}]
+    ok, errors, _ = validate_workflow_json(__import__("json").dumps(valid_workflow))
+    assert not ok and errors
 
     print("Pulse feature smoke test: OK")
 
