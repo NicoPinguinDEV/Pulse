@@ -242,7 +242,12 @@ class VoiceSupport(commands.Cog):
             status = f"✅ **Übernommen von:** <@{staff_id}>"
             color = discord.Color.green()
         else:
-            status = "🟠 **Status:** Wartet auf Übernahme durch einen Supporter mit Bereitschaftsrolle"
+            support_label = (
+                "einem Supporter mit Bereitschaftsrolle"
+                if get_config().get("duty_mode")
+                else "einem Supporter"
+            )
+            status = f"🟠 **Status:** Wartet auf Übernahme durch {support_label}"
             color = discord.Color.orange()
         after_hours_note = (
             "\n⏰ **Außerhalb der Öffnungszeiten:** Der Fall wurde trotzdem regulär aufgenommen."
