@@ -70,6 +70,33 @@ class DiscordLogRegressionTests(unittest.TestCase):
         self.assertIn("Nur Teamler mit Support- oder Bereitschaftsrolle", claim)
         self.assertIn("Tritt zuerst einem normalen Sprachkanal bei", claim)
 
+    def test_voice_support_waiting_audio_recovers_stale_idle_connection(self):
+        source = read_source("cogs/voice_support.py")
+        audio = get_method(source, "_start_waiting_audio")
+        open_case = get_method(source, "_open_case")
+        loop = get_method(source, "music_loop")
+        self.assertIn("await voice_client.disconnect(force=True)", audio)
+        self.assertIn("if voice_client.is_playing():", audio)
+        self.assertIn("await channel.connect(self_deaf=True)", audio)
+        self.assertIn("voice_client.play(discord.FFmpegPCMAudio", audio)
+        self.assertIn("await self._start_waiting_audio(saved_case, cfg)", open_case)
+        self.assertIn("await self._start_waiting_audio(case, cfg)", loop)
+        self.assertIn("case.get(\"outside_opening_hours\")", audio)
+
+    def test_voice_support_publishes_one_persistent_live_status(self):
+        source = read_source("cogs/voice_support.py")
+        status = get_method(source, "_refresh_support_status")
+        open_case = get_method(source, "_open_case")
+        close_case = get_method(source, "_close_case")
+        status_loop = get_method(source, "duty_status_loop")
+        self.assertIn("🎧 Voice-Support · Aktueller Status", status)
+        self.assertIn('cfg.get("support_status_message_id")', status)
+        self.assertIn("⏳ Wartende Fälle", status)
+        self.assertIn("🎧 Laufende Gespräche", status)
+        self.assertIn("await self._refresh_support_status(guild)", open_case)
+        self.assertIn("await self._refresh_support_status", close_case)
+        self.assertIn("await self._refresh_support_status(guild)", status_loop)
+
     def test_requested_workflow_items_are_removed_from_normal_navigation(self):
         source = read_source("pulse_pro.py")
         sidebar = get_method(source, "patched_sidebar")
