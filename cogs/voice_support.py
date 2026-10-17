@@ -178,7 +178,7 @@ class TransferUserView(discord.ui.View):
 
 
 class VoiceSupport(commands.Cog):
-    """Opens private temporary voice rooms from a configured waiting room."""
+    """Manages a shared support waiting room, support cases and duty synchronization."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -735,9 +735,8 @@ class VoiceSupport(commands.Cog):
             cases = get_cases()
             case = cases.get(str(before.channel.id))
 
-            # After-hours cases stay in the shared waiting room and are indexed
-            # by their reserved private case room. Find that user's pending case
-            # when they leave the shared room; do not end it during staff pickup.
+            # Pending cases are indexed per user because everyone shares one room.
+            # Find the departing user's case and ignore the voice move used for pickup.
             if not (isinstance(case, dict) and str(case.get("guild_id")) == str(member.guild.id)):
                 case = next(
                     (
@@ -1295,8 +1294,8 @@ class VoiceSupport(commands.Cog):
                 ):
                     await vc.disconnect(force=True)
 
-        # The Team Dashboard can provide its own in-hours waiting audio. It is
-        # replayed while a citizen is waiting and stops as soon as a supporter joins.
+        # The Team Dashboard can provide waiting audio. It plays while at least
+        # one unclaimed citizen remains in the shared waiting room.
         music_path = self._configured_audio_path(cfg, "custom_opening_audio_path")
         if not music_path and cfg.get("waiting_music_enabled"):
             music_path = self._configured_audio_path(cfg, "waiting_music_path")
