@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+from pathlib import Path
 import sqlite3
 import time
 import traceback
@@ -1427,6 +1428,19 @@ def register(app):
         previous = db.get_setting("voice_support_config", {})
         previous = previous if isinstance(previous, dict) else {}
         music_path = str(previous.get("waiting_music_path") or "")
+        waiting_music_upload = form.get("waiting_music_file")
+        waiting_music_data = None
+        if waiting_music_upload and getattr(waiting_music_upload, "filename", ""):
+            music_extension = os.path.splitext(os.path.basename(str(waiting_music_upload.filename)))[1].lower()
+            if music_extension not in {".mp3", ".ogg", ".wav"}:
+                return ws.back("/voice-support", "Die Wartemusik muss MP3, OGG oder WAV sein.", False)
+            waiting_music_data = await waiting_music_upload.read(8 * 1024 * 1024 + 1)
+            if len(waiting_music_data) > 8 * 1024 * 1024:
+                return ws.back("/voice-support", "Die Wartemusik-Datei darf maximal 8 MB groß sein.", False)
+            if len(waiting_music_data) < 100 or not valid_audio_signature(music_extension, waiting_music_data):
+                return ws.back("/voice-support", "Die Wartemusik ist leer, beschädigt oder passt nicht zur Dateiendung.", False)
+            music_path = os.path.join("assets", "support_wait" + music_extension)
+
         # Validate both custom clips before writing either one so a bad second upload
         # never leaves a half-updated audio configuration.
         audio_specs = (
@@ -1443,7 +1457,7 @@ def register(app):
             if not raw:
                 return
             try:
-                candidate = __import__("pathlib").Path(raw)
+                candidate = Path(raw)
                 if not candidate.is_absolute():
                     candidate = ws.BASE_DIR / candidate
                 candidate = candidate.resolve()
@@ -1479,7 +1493,7 @@ def register(app):
                 if len(data) < 100 or not valid_audio_signature(extension, data):
                     return ws.back("/voice-support", "Eine Audio-Datei ist leer, beschädigt oder passt nicht zu ihrer Dateiendung.", False)
                 prepared_audio.append((audio_type, config_key, old_path, extension, data))
-                new_audio_paths[config_key] = None
+                new_audio_paths[config_key] = ""
             elif form.get(remove_key) == "1":
                 new_audio_paths[config_key] = ""
                 if old_path:
@@ -1489,13 +1503,18 @@ def register(app):
 
         written_audio_paths = []
         try:
+            if waiting_music_data is not None:
+                asset_dir = Path(ws.BASE_DIR) / "assets"
+                asset_dir.mkdir(parents=True, exist_ok=True)
+                (Path(ws.BASE_DIR) / music_path).write_bytes(waiting_music_data)
+
             audio_dir.mkdir(parents=True, exist_ok=True)
             for audio_type, config_key, old_path, extension, data in prepared_audio:
                 target = audio_dir / f"{c.guild.id}_support_{audio_type}_{uuid.uuid4().hex[:8]}{extension}"
                 temporary = target.with_name(target.name + ".uploading")
                 temporary.write_bytes(data)
                 os.replace(temporary, target)
-                relative_path = target.resolve().relative_to(ws.BASE_DIR.resolve()).as_posix()
+                relative_path = target.resolve().relative_to(Path(ws.BASE_DIR).resolve()).as_posix()
                 new_audio_paths[config_key] = relative_path
                 written_audio_paths.append((relative_path, audio_type))
                 if old_path:
@@ -1504,27 +1523,32 @@ def register(app):
             config = {
                 **previous,
                 "guild_id": c.guild.id, "active": enabled, "room_name": room_name, "channel_prefix": prefix,
-            "waiting_room_channel_id": waiting.id if isinstance(waiting, discord.VoiceChannel) else 0,
-            "notification_channel_id": notify.id if isinstance(notify, discord.TextChannel) else 0,
-            "support_role_id": support_role.id if support_role else 0,
-            "category_id": category.id if isinstance(category, discord.CategoryChannel) else 0,
-            "notes_enabled": form.get("notes_enabled") == "1",
-            "use_existing_channels": form.get("use_existing_channels") == "1",
-            "notification_enabled": notification_enabled,
-            "hours": hours,
-            "duty_mode": duty_mode, "checkin_channel_id": checkin.id if isinstance(checkin, discord.TextChannel) else 0,
-            "duty_role_id": duty_role.id if duty_role else 0, "duty_message_enabled": duty_message_enabled,
-            "ratings_enabled": form.get("ratings_enabled") == "1",
-            "waiting_music_enabled": form.get("waiting_music_enabled") == "1", "waiting_music_path": music_path,
-        }
-        if not music_path:
-            config.pop("waiting_music_path", None)
-        for config_key, stored_path in new_audio_paths.items():
-            if stored_path:
-                config[config_key] = stored_path
-            else:
-                config.pop(config_key, None)
-        db.set_setting("voice_support_config", config)
+                "waiting_room_channel_id": waiting.id if isinstance(waiting, discord.VoiceChannel) else 0,
+                "notification_channel_id": notify.id if isinstance(notify, discord.TextChannel) else 0,
+                "support_role_id": support_role.id if support_role else 0,
+                "category_id": category.id if isinstance(category, discord.CategoryChannel) else 0,
+                "notes_enabled": form.get("notes_enabled") == "1",
+                "use_existing_channels": form.get("use_existing_channels") == "1",
+                "notification_enabled": notification_enabled,
+                "hours": hours,
+                "duty_mode": duty_mode, "checkin_channel_id": checkin.id if isinstance(checkin, discord.TextChannel) else 0,
+                "duty_role_id": duty_role.id if duty_role else 0, "duty_message_enabled": duty_message_enabled,
+                "ratings_enabled": form.get("ratings_enabled") == "1",
+                "waiting_music_enabled": form.get("waiting_music_enabled") == "1",
+                "waiting_music_path": music_path,
+            }
+            for config_key, stored_path in new_audio_paths.items():
+                if stored_path:
+                    config[config_key] = stored_path
+                else:
+                    config.pop(config_key, None)
+            db.set_setting("voice_support_config", config)
+        except Exception as exc:
+            for new_path, audio_type in written_audio_paths:
+                safe_remove_owned_audio(new_path, audio_type)
+            print(f"⚠️ Voice-Support Konfiguration konnte nicht gespeichert werden: {type(exc).__name__}: {exc}")
+            return ws.back("/voice-support", "Die Konfiguration oder Audiodatei konnte nicht gespeichert werden. Bitte erneut versuchen.", False)
+
         for old_path, audio_type in removed_audio_paths:
             safe_remove_owned_audio(old_path, audio_type)
         ws.log_audit(c.user.get("global_name") or c.user.get("username"), c.user["id"], "Voice-Support Konfiguration gespeichert", f"Aktiv={enabled}; Bereitschaft={duty_mode}; Kategorie={config['category_id']}")
@@ -1534,11 +1558,6 @@ def register(app):
             await cog._reconcile_duty_roles(c.guild, config)
             await cog._refresh_duty_status(c.guild)
         return ws.back("/voice-support", "Voice-Support-Konfiguration gespeichert.", True)
-        except Exception as exc:
-            for new_path, audio_type in written_audio_paths:
-                safe_remove_owned_audio(new_path, audio_type)
-            print(f"⚠️ Voice-Support Konfiguration konnte nicht gespeichert werden: {type(exc).__name__}: {exc}")
-            return ws.back("/voice-support", "Die Konfiguration oder Audiodatei konnte nicht gespeichert werden. Bitte erneut versuchen.", False)
 
     # ---------------- Modern stats / calendar / settings / system / search ----------------
     async def stats_v5(request: Request, user_session: str=Cookie(None)):
