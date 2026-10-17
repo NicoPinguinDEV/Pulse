@@ -55,6 +55,30 @@ class ApplicationEligibilityTests(unittest.TestCase):
         self.assertIn('"test_version": 3', submit)
         self.assertNotIn('[answer_1, answer_2, answer_3, answer_4, answer_5, answer_6]', submit)
 
+    def test_application_form_is_a_guided_candidate_experience(self):
+        source = read_web()
+        public_page = function_source(source, "public_apply_page")
+        self.assertIn('data-apply-wizard novalidate', public_page)
+        self.assertIn('data-apply-step="0"', public_page)
+        self.assertIn('data-apply-step="1"', public_page)
+        self.assertIn('applicationProgressBar', public_page)
+        self.assertIn('applicationNext', public_page)
+        self.assertIn('validatePanel(panels[active])', public_page)
+        self.assertIn('Wird sicher übermittelt', public_page)
+
+    def test_application_review_is_permission_gated_and_validated(self):
+        source = read_web()
+        review = function_source(source, "save_application_review")
+        page = function_source(source, "applications_page")
+        self.assertIn('can_manage_applications', review)
+        self.assertIn('item.get("status") not in {"pending", "interview"}', review)
+        self.assertIn('if score not in range(1, 6)', review)
+        self.assertIn('reviews[reviewer_id] =', review)
+        self.assertIn('save_json(APPS_FILE, apps)', review)
+        self.assertIn('APPLICATION_REVIEW_CRITERIA', page)
+        self.assertIn('action="/applications/review"', page)
+        self.assertIn('★ Team-Score:', page)
+
     def test_notification_pings_only_the_configured_role(self):
         source = read_web()
         notifier = function_source(source, "notify_new_application")
