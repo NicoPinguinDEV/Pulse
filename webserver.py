@@ -2312,6 +2312,7 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
     main_items = [
         ("ultimate", "/ultimate", "⚡", "Command Center"),
         ("dashboard", "/dashboard", "🛡️", "Moderatoren-Panel"),
+        ("melonly", "/melonly", "🎮", "Melonly"),
         ("team", "/team", "👥", "Teamliste"),
         ("inbox", "/pulse-inbox", "📥", inbox_label),
         ("tasks", "/tasks", "📋", "Aufgaben"),
@@ -3542,14 +3543,149 @@ async def ultimate_dashboard(request: Request, user_session: str = Cookie(None))
 
 
 # =============================================================
-# MELOONLY ALIAS – öffnet das Moderationscenter im Dashboard
+# MELOONLY – eigenständige Spielerakte mit vollständiger Verlaufssuche
 # =============================================================
-@app.get("/melonly")
+@app.get("/melonly", response_class=HTMLResponse)
 async def melonly_alias(request: Request, user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
     if not (ctx.perms.get("can_warn") or ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung.")
-    return RedirectResponse(url="/dashboard#playerlog", status_code=303)
+
+    logs_db = load_json(LOGS_FILE, [])
+    query = str(request.query_params.get("player_history") or "").strip()[:80]
+    needle = query.lstrip("@").strip().casefold()
+    edit_log_id = str(request.query_params.get("edit_log") or "")
+
+    def player_name(log):
+        return str(log.get("target_user") or "").strip().lstrip("@").casefold()
+
+    def player_id(log):
+        rid = str(log.get("roblox_id") or "").strip()
+        return rid if rid.isdigit() else ""
+
+    matches = []
+    if needle:
+        if needle.isdigit():
+            candidates = [log for log in logs_db if player_id(log) == needle]
+        else:
+            candidates = []
+        if not candidates:
+            exact = [log for log in logs_db if player_name(log) == needle]
+            candidates = exact or [log for log in logs_db if needle in player_name(log)]
+        names = {player_name(log) for log in candidates if player_name(log)}
+        ids = {player_id(log) for log in candidates if player_id(log)}
+        matches = [
+            log for log in logs_db
+            if (player_name(log) and player_name(log) in names)
+            or (player_id(log) and player_id(log) in ids)
+        ]
+
+    searched = bool(needle)
+    selected_logs = list(reversed(matches if searched else logs_db[-50:]))
+    return_to = f"/melonly?player_history={quote(query, safe='')}" if searched else "/melonly"
+    search_param = f"player_history={quote(query, safe='')}&" if searched else ""
+
+    ban_count = sum(1 for log in logs_db if log.get("type") in {"Ban", "Ban BOLO"})
+    kick_count = sum(1 for log in logs_db if log.get("type") == "Kick")
+    note_count = sum(1 for log in logs_db if log.get("type") == "Notiz")
+
+    summary = ""
+    if searched:
+        names = sorted({str(log.get("target_user") or "").strip().lstrip("@") for log in matches if str(log.get("target_user") or "").strip()}, key=str.casefold)
+        display_names = ", ".join("@" + name for name in names[:4]) or query
+        if len(names) > 4:
+            display_names += f" (+{len(names) - 4} weitere)"
+        count_warn = sum(1 for log in matches if log.get("type") == "Warn")
+        count_kick = sum(1 for log in matches if log.get("type") == "Kick")
+        count_ban = sum(1 for log in matches if log.get("type") in {"Ban", "Ban BOLO"})
+        count_note = sum(1 for log in matches if log.get("type") == "Notiz")
+        summary = f"""
+        <div class="{CARD} p-4 space-y-3">
+          <div class="flex items-start justify-between gap-3">
+            <div><h2 class="font-bold text-sm">🔎 Spieler-Verlauf</h2><p class="text-xs text-slate-500 mt-1">{esc(display_names)}</p></div>
+            <span class="rounded-full px-3 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-xs font-bold">{len(matches)} Vorgänge</span>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div class="rounded-xl bg-slate-50 dark:bg-[#0b0e14] p-3"><div class="text-[10px] text-slate-500">Warns</div><div class="text-lg font-bold">{count_warn}</div></div>
+            <div class="rounded-xl bg-slate-50 dark:bg-[#0b0e14] p-3"><div class="text-[10px] text-slate-500">Kicks</div><div class="text-lg font-bold">{count_kick}</div></div>
+            <div class="rounded-xl bg-slate-50 dark:bg-[#0b0e14] p-3"><div class="text-[10px] text-slate-500">Bans / BOLOs</div><div class="text-lg font-bold">{count_ban}</div></div>
+            <div class="rounded-xl bg-slate-50 dark:bg-[#0b0e14] p-3"><div class="text-[10px] text-slate-500">Notizen</div><div class="text-lg font-bold">{count_note}</div></div>
+          </div>
+          <p class="text-[11px] text-slate-500">Alle gespeicherten Treffer werden gezeigt – nicht nur die letzten 50 Einträge.</p>
+        </div>"""
+
+    logs_html = ""
+    for log in selected_logs:
+        log_type = str(log.get("type") or "Log")
+        badge = LOG_TYPE_STYLE.get(log_type, "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200")
+        target = str(log.get("target_user") or "Unbekannt")
+        rid = str(log.get("roblox_id") or "N/A")
+        log_id = str(log.get("id") or "")
+        reason = str(log.get("reason") or "")
+        moderator = str(log.get("moderator") or "Unbekannt")
+        can_edit = can_manage_melonly_entry(ctx, log)
+        edit_link = (
+            f'<a href="/dashboard?{search_param}edit_log={quote(log_id, safe="")}#playerlog" class="text-indigo-500 hover:underline font-semibold">✏️ Bearbeiten</a>'
+            if can_edit else ""
+        )
+        delete_form = f"""
+          <form action="/log/delete" method="post" onsubmit="return confirm('Diesen Eintrag wirklich löschen?');">
+            <input type="hidden" name="log_id" value="{esc(log_id)}">
+            <input type="hidden" name="return_to" value="{esc(return_to)}">
+            <button class="text-rose-500 hover:underline font-semibold">🗑️ Löschen</button>
+          </form>""" if can_edit else ""
+        logs_html += f"""
+        <article class="{CARD} p-4 space-y-2">
+          <div class="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800/60 pb-2">
+            <div class="flex items-center gap-2 min-w-0"><span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border {badge}">{esc(log_type)}</span><span class="text-xs font-semibold break-all">{esc(target)}</span></div>
+            <span class="text-[10px] text-slate-400 font-mono shrink-0">{esc(log.get("created_at") or "Zeit unbekannt")}</span>
+          </div>
+          <div class="text-xs space-y-1"><div><span class="text-slate-400">Roblox ID:</span> <span class="font-mono">{esc(rid)}</span></div><div><span class="text-slate-400">Grund:</span> <span class="break-words">{esc(reason)}</span></div></div>
+          <div class="text-[10px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/40 flex justify-between items-center gap-3"><span>Moderator: {esc(moderator)}</span><span class="flex items-center gap-3">{edit_link}{delete_form}</span></div>
+        </article>"""
+
+    if not logs_html:
+        if searched:
+            logs_html = f'<div class="{CARD} p-8 text-center"><div class="text-3xl mb-2">🔎</div><div class="font-bold text-sm">Keine Einträge gefunden</div><p class="text-xs text-slate-500 mt-2">Zu „{esc(query)}“ wurden keine gespeicherten Vorgänge gefunden. Prüfe den @-Namen oder die Roblox-ID.</p></div>'
+        else:
+            logs_html = f'<div class="{CARD} p-8 text-center text-xs text-slate-500">Noch keine Spieler-Vorgänge gespeichert.</div>'
+
+    body = f"""
+    <div class="max-w-7xl mx-auto space-y-6">
+      <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <div><div class="text-[11px] font-semibold tracking-wide uppercase text-indigo-500 mb-1">Pulse TeamOS · Moderation</div><h1 class="text-2xl font-bold text-slate-900 dark:text-white">🛡️ Melonly</h1><p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Roblox-Spieler direkt suchen, ID übernehmen und Moderationsvorgänge sauber dokumentieren.</p></div>
+        <a href="/ultimate" class="inline-flex items-center justify-center px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold">← Übersicht</a>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        {stat_card("🚫", "Bans / BOLOs", ban_count, "rose")}{stat_card("🚪", "Kicks", kick_count, "amber")}{stat_card("📝", "Notizen", note_count, "indigo")}{stat_card("📚", "Alle Einträge", len(logs_db), "purple")}
+      </div>
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        <section class="xl:col-span-4">
+          <div class="{CARD} p-5 space-y-4" id="player-create">
+            <div><h2 class="text-base font-bold">🛡️ Spieler eintragen</h2><p class="text-xs text-slate-500 mt-1">Der Eintrag wird im Pulse-Moderationsprotokoll gespeichert.</p></div>
+            <form action="/log/create" method="post" class="space-y-3 text-xs">
+              <input type="hidden" name="return_to" value="{esc(return_to)}">
+              <div><label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Roblox Username *</label><input type="text" id="robloxUsernameInput" name="target_user" maxlength="50" list="robloxUserSuggestions" autocomplete="off" oninput="lookupRobloxUser(this.value)" onfocus="searchRobloxUsers(this.value)" placeholder="@Username" required class="{INPUT}"><div id="robloxSuggestionPanel" class="hidden mt-2 overflow-hidden rounded-xl border border-indigo-200 dark:border-indigo-800/70 bg-white dark:bg-[#10141f] shadow-sm" role="listbox" aria-label="Roblox-Spielervorschläge"></div><datalist id="robloxUserSuggestions"></datalist></div>
+              <div id="robloxUserPreview" class="hidden"></div>
+              <div><label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Roblox Player ID</label><input type="text" name="roblox_id" id="robloxIdInput" placeholder="z. B. 12345678" class="{INPUT}"></div>
+              <div><label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Aktion</label><select name="log_type" required class="{INPUT}"><option value="Warn">⚠️ Warn</option><option value="Kick">🚪 Kick</option><option value="Ban">🚫 Ban</option><option value="Ban BOLO">🚨 Ban BOLO</option><option value="Notiz">📝 Notiz</option></select></div>
+              <div><label class="block text-slate-600 dark:text-slate-400 mb-1 font-semibold">Grund</label><textarea name="reason" maxlength="1000" placeholder="Begründung / Notiz…" required class="{INPUT} h-24"></textarea></div>
+              <button class="w-full {BTN} py-3">✓ Spieler-Vorgang eintragen</button>
+              <p class="text-[10px] leading-relaxed text-slate-500">Ban/Kick sind hier Protokoll-Aktionen und keine automatische Roblox-API-Sperre.</p>
+            </form>
+          </div>
+        </section>
+        <section class="xl:col-span-8 space-y-4" id="playerlog">
+          <div class="flex items-center justify-between gap-3"><div><h2 class="text-lg font-bold">{"Spieler-Verlauf" if searched else "Letzte Spieler-Vorgänge"}</h2><p class="text-xs text-slate-500 mt-1">{"Alle passenden Einträge" if searched else "Die Übersicht zeigt die letzten 50 Vorgänge."}</p></div><a href="/export/logs" class="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold">📊 CSV</a></div>
+          <form action="/melonly" method="get" class="flex flex-col sm:flex-row gap-2"><input type="search" name="player_history" maxlength="80" value="{esc(query)}" placeholder="Roblox-@Name oder Spieler-ID eingeben…" required class="{INPUT} flex-1"><button type="submit" class="{BTN} px-4 py-2.5 text-xs shrink-0">🔎 Spieler suchen</button>{('<a href="/melonly#playerlog" class="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-center">Suche zurücksetzen</a>' if searched else '')}</form>
+          {summary}
+          <div class="space-y-3 max-h-[calc(100vh-240px)] overflow-y-auto pr-1">{logs_html}</div>
+          <p class="text-[10px] text-slate-400">{"Alle " + str(len(matches)) + " gespeicherten Vorgänge des Suchtreffers werden gezeigt." if searched else "Nutze die Suche, um den vollständigen Verlauf eines einzelnen Spielers aufzurufen."}</p>
+        </section>
+      </div>
+    </div>
+    """
+    return render_page("Melonly", ctx, "melonly", body, DASHBOARD_HEAD)
 
 # =============================================================
 # ACTION: SCHICHT-SYSTEM (Start / Pause / Fortsetzen / Ende)
@@ -3626,15 +3762,31 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), u
 # =============================================================
 # ACTION: LOGS ERSTELLEN & LÖSCHEN, CSV-EXPORT
 # =============================================================
+def safe_log_return_to(value: str) -> str:
+    """Allow only local dashboard/Melonly return paths; reject external redirects."""
+    value = str(value or "/dashboard").strip()
+    if value in {"/dashboard", "/melonly"}:
+        return value
+    for base in ("/dashboard", "/melonly"):
+        prefix = base + "?player_history="
+        if value.startswith(prefix):
+            raw_query = value.split("player_history=", 1)[1].split("#", 1)[0].split("&", 1)[0]
+            if re.fullmatch(r"[A-Za-z0-9_%@.+-]{1,240}", raw_query):
+                return f"{prefix}{raw_query}" + ("#playerlog" if base == "/dashboard" else "")
+    return "/dashboard"
+
+
 @app.post("/log/create")
 async def create_log(request: Request, target_user: str = Form(...), roblox_id: str = Form("N/A"),
-                     log_type: str = Form(...), reason: str = Form(...), user_session: str = Cookie(None)):
+                     log_type: str = Form(...), reason: str = Form(...),
+                     return_to: str = Form("/dashboard"), user_session: str = Cookie(None)):
+    return_to = safe_log_return_to(return_to)
     ctx = auth(request, user_session)
     target_user = target_user.strip()[:50]
     reason = reason.strip()[:1000]
     roblox_id = roblox_id.strip()
     if log_type not in VALID_LOG_TYPES or not target_user or not reason:
-        return back("/dashboard", "Ungültige Eingabe.", False)
+        return back(return_to, "Ungültige Eingabe.", False)
     if not can_manage_melonly_type(
         log_type,
         can_warn=bool(ctx.perms.get("can_warn")),
@@ -3667,7 +3819,7 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
         "Melonly-Eintrag erstellt",
         f"Spieler: {target_user} ({log_type})",
     )
-    return back("/dashboard", f"{log_type}-Log für {target_user} gespeichert.")
+    return back(return_to, f"{log_type}-Log für {target_user} gespeichert.")
 
 
 @app.post("/log/edit")
@@ -3681,17 +3833,7 @@ async def edit_log(
     return_to: str = Form("/dashboard"),
     user_session: str = Cookie(None),
 ):
-    if return_to == "/melonly":
-        return_to = "/melonly"
-    elif return_to.startswith("/dashboard?player_history="):
-        raw_history_query = return_to.split("player_history=", 1)[1].split("#", 1)[0].split("&", 1)[0]
-        return_to = (
-            f"/dashboard?player_history={raw_history_query}#playerlog"
-            if re.fullmatch(r"[A-Za-z0-9_%@.+-]{1,240}", raw_history_query)
-            else "/dashboard"
-        )
-    else:
-        return_to = "/dashboard"
+    return_to = safe_log_return_to(return_to)
     ctx = auth(request, user_session)
     logs_db = load_json(LOGS_FILE, [])
     entry = next((l for l in logs_db if l.get("id") == log_id), None)
@@ -3736,17 +3878,7 @@ async def delete_log(
     return_to: str = Form("/dashboard"),
     user_session: str = Cookie(None),
 ):
-    if return_to == "/melonly":
-        return_to = "/melonly"
-    elif return_to.startswith("/dashboard?player_history="):
-        raw_history_query = return_to.split("player_history=", 1)[1].split("#", 1)[0].split("&", 1)[0]
-        return_to = (
-            f"/dashboard?player_history={raw_history_query}#playerlog"
-            if re.fullmatch(r"[A-Za-z0-9_%@.+-]{1,240}", raw_history_query)
-            else "/dashboard"
-        )
-    else:
-        return_to = "/dashboard"
+    return_to = safe_log_return_to(return_to)
     ctx = auth(request, user_session)
     logs_db = load_json(LOGS_FILE, [])
     entry = next((l for l in logs_db if l.get("id") == log_id), None)
