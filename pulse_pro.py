@@ -1270,7 +1270,6 @@ def register(app):
             return f'<label class="block text-xs font-bold">{e(label)}<select name="{name}" class="pulse-input mt-2">{channel_options(items, selected, placeholder)}</select></label>'
         voice_channels = sorted(c.guild.voice_channels, key=lambda x: x.position)
         text_channels = sorted(c.guild.text_channels, key=lambda x: x.position)
-        categories = sorted(c.guild.categories, key=lambda x: x.position)
         roles = sorted([r for r in c.guild.roles if not r.is_default() and not r.managed], key=lambda x: x.position, reverse=True)
         role_options = ['<option value="0">— Keine Rolle —</option>']
         for role in roles:
@@ -1318,17 +1317,14 @@ def register(app):
         if is_admin:
             config_form = f'''
             <form action="/voice-support/save" method="post" enctype="multipart/form-data" class="space-y-5">
-              <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">🎧 Raumeinstellungen</div><div class="pulse-section-sub">Wenn jemand den Warteraum betritt, erstellt Pulse automatisch einen geschützten Sprach-Supportfall.</div></div></div><div class="pulse-card-b grid md:grid-cols-2 gap-4">
+              <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">🎧 Raumeinstellungen</div><div class="pulse-section-sub">Alle Nutzer bleiben im gemeinsamen Warteraum. Pulse erstellt pro Nutzer einen Supportfall, kündigt den Status im Benachrichtigungskanal an und erstellt keinen neuen Sprachkanal.</div></div></div><div class="pulse-card-b grid md:grid-cols-2 gap-4">
                 <label class="block text-xs font-bold">Support-Name<input name="room_name" class="pulse-input mt-2" required maxlength="60" value="{e(cfg.get('room_name') or 'Support')}"></label>
-                <label class="block text-xs font-bold">Kanalnamen-Prefix<input name="channel_prefix" class="pulse-input mt-2" required minlength="1" maxlength="15" value="{e(cfg.get('channel_prefix') or 'support')}"><span class="pulse-section-sub mt-1">Wird vor den Namen des Supportkanals gesetzt.</span></label>
                 {select_field("waiting_room_channel_id","Warteraum – Voice-Kanal",voice_channels,cfg.get("waiting_room_channel_id"),"Voice-Warteraum auswählen")}
                 {select_field("notification_channel_id","Benachrichtigungs-Kanal",text_channels,cfg.get("notification_channel_id"),"Textkanal auswählen")}
-                <label class="block text-xs font-bold">Support-Rolle<select name="support_role_id" class="pulse-input mt-2">{"".join(role_options)}</select><span class="pulse-section-sub mt-1">Wird außerhalb des Bereitschaftsmodus benachrichtigt und erhält Kanalzugriff.</span></label>
-                {select_field("category_id","Kategorie für Support-Voice",categories,cfg.get("category_id"),"Kategorie auswählen")}
+                <label class="block text-xs font-bold">Support-Rolle<select name="support_role_id" class="pulse-input mt-2">{"".join(role_options)}</select><span class="pulse-section-sub mt-1">Wird außerhalb des Bereitschaftsmodus bei neuen Supportfällen benachrichtigt.</span></label>
                 <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="active" value="1" {"checked" if cfg.get("active") else ""}>Support-System aktivieren</label>
                 <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="notification_enabled" value="1" {"checked" if cfg.get("notification_enabled", True) else ""}>Support geöffnet/geschlossen melden</label>
                 <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="notes_enabled" value="1" {"checked" if cfg.get("notes_enabled", True) else ""}>Private Notiz-Threads pro Supportfall erstellen</label>
-                <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="use_existing_channels" value="1" {"checked" if cfg.get("use_existing_channels") else ""}>Eigene Kanäle verwenden, sofern ein passender leerer Prefix-Kanal existiert</label>
               </div></section>
               <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">🕒 Öffnungszeiten</div><div class="pulse-section-sub">Außerhalb der Öffnungszeiten bleibt der Supportfall im gemeinsamen Warteraum offen. Die separate Ansage darunter wird einmal abgespielt; das Team kann den Fall weiterhin übernehmen.</div></div></div><div class="pulse-card-b space-y-1">{"".join(schedule_rows)}</div></section>
               <section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">🧠 Bereitschaft & Schichtsynchronisierung</div><div class="pulse-section-sub">Keine zweite unabhängige Check-in-Uhr: Pulse nutzt die bestehenden Dashboard-Schichten. Start/Fortsetzen gibt die Bereitschaftsrolle; Pause/Ende nimmt sie weg.</div></div></div><div class="pulse-card-b grid md:grid-cols-2 gap-4">
@@ -1373,10 +1369,10 @@ def register(app):
             duty_ids = [uid for uid, state in shifts.get("active_shifts", {}).items() if isinstance(state, dict) and state.get("status") == "online"]
         except Exception:
             pass
-        body = f'''<div class="pulse-topbar"><div><div class="pulse-section-title">🎧 Voice-Support</div><div class="pulse-section-sub">Sprach-Support, private Räume, Fallnotizen, Bewertungen und Bereitschaft – direkt mit Pulse-Dienstzeiten verbunden.</div></div><span class="pulse-pill {"good" if cfg.get("active") else "warn"}">{status}</span></div>
+        body = f'''<div class="pulse-topbar"><div><div class="pulse-section-title">🎧 Voice-Support</div><div class="pulse-section-sub">Gemeinsamer Warteraum, nachvollziehbare Supportfälle, Fallnotizen, Bewertungen und Bereitschaft – direkt mit Pulse-Dienstzeiten verbunden.</div></div><span class="pulse-pill {"good" if cfg.get("active") else "warn"}">{status}</span></div>
         <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🎧</div><div class="label">Offene Sprachfälle</div><div class="value">{len(cases)}</div></div><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Aktuell im Dienst</div><div class="value">{len(duty_ids)}</div></div><div class="pulse-stat"><div class="icon">⭐</div><div class="label">Bewertungen</div><div class="value">{len(rated)}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Bewertung</div><div class="value">{average_rating:.1f}/5</div></div></div>
         {config_form}
-        <section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">📞 Aktuelle Supportfälle</div><div class="pulse-section-sub">Räume werden automatisch entfernt, sobald sie leer sind; eigene Kanäle erhalten ihre ursprünglichen Berechtigungen zurück.</div></div><a href="/voice-support" class="pulse-btn ghost">↻ Aktualisieren</a></div><div class="pulse-card-b space-y-2">{"".join(case_rows) or '<div class="pulse-empty">Aktuell keine offenen Sprach-Supportfälle.</div>'}</div></section>'''
+        <section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">📞 Aktuelle Supportfälle</div><div class="pulse-section-sub">Wartende Bürger bleiben im gemeinsamen Warteraum. Nach Übernahme wird der Bürger in den Sprachkanal des Supporters verschoben; beim Abschluss werden temporäre Rechte bereinigt.</div></div><a href="/voice-support" class="pulse-btn ghost">↻ Aktualisieren</a></div><div class="pulse-card-b space-y-2">{"".join(case_rows) or '<div class="pulse-empty">Aktuell keine offenen Sprach-Supportfälle.</div>'}</div></section>'''
         return render_pro_page(ws, "Voice-Support", c, "voice-support", body)
 
     async def voice_support_save(request: Request, user_session: str=Cookie(None)):
@@ -1390,7 +1386,6 @@ def register(app):
         waiting = c.guild.get_channel(form_id("waiting_room_channel_id"))
         notify = c.guild.get_channel(form_id("notification_channel_id"))
         checkin = c.guild.get_channel(form_id("checkin_channel_id"))
-        category = c.guild.get_channel(form_id("category_id"))
         support_role = c.guild.get_role(form_id("support_role_id"))
         duty_role = c.guild.get_role(form_id("duty_role_id"))
         enabled = form.get("active") == "1"
@@ -1403,20 +1398,15 @@ def register(app):
             return ws.back("/voice-support", "Der Benachrichtigungskanal muss ein Textkanal sein.", False)
         if checkin and not isinstance(checkin, discord.TextChannel):
             return ws.back("/voice-support", "Der Check-in-Kanal muss ein Textkanal sein.", False)
-        if category and not isinstance(category, discord.CategoryChannel):
-            return ws.back("/voice-support", "Die Support-Kategorie muss eine Kategorie sein.", False)
         if support_role and (support_role.managed or support_role.is_default()):
             return ws.back("/voice-support", "Diese Support-Rolle kann nicht verwendet werden.", False)
         if duty_role and (duty_role.managed or duty_role.is_default()):
             return ws.back("/voice-support", "Diese Bereitschaftsrolle kann nicht verwendet werden.", False)
-        if enabled and (not isinstance(waiting, discord.VoiceChannel) or not isinstance(category, discord.CategoryChannel) or not support_role):
-            return ws.back("/voice-support", "Zum Aktivieren bitte Warteraum, Support-Kategorie und Support-Rolle auswählen.", False)
+        if enabled and (not isinstance(waiting, discord.VoiceChannel) or not support_role):
+            return ws.back("/voice-support", "Zum Aktivieren bitte einen gemeinsamen Warteraum und eine Support-Rolle auswählen.", False)
         if duty_mode and (not duty_role or (duty_message_enabled and not checkin)):
             return ws.back("/voice-support", "Für den Bereitschaftsmodus bitte Bereitschafts-Rolle und Check-in-Kanal auswählen.", False)
         room_name = str(form.get("room_name") or "Support").strip()[:60] or "Support"
-        prefix = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(form.get("channel_prefix") or "support").casefold()).strip("-_")[:15]
-        if not prefix:
-            return ws.back("/voice-support", "Der Kanalnamen-Prefix muss mindestens ein Buchstaben- oder Zahlzeichen enthalten.", False)
         hours = {}
         from cogs.voice_support import DAYS, DEFAULT_HOURS
         for day in DAYS:
@@ -1522,13 +1512,11 @@ def register(app):
 
             config = {
                 **previous,
-                "guild_id": c.guild.id, "active": enabled, "room_name": room_name, "channel_prefix": prefix,
+                "guild_id": c.guild.id, "active": enabled, "room_name": room_name,
                 "waiting_room_channel_id": waiting.id if isinstance(waiting, discord.VoiceChannel) else 0,
                 "notification_channel_id": notify.id if isinstance(notify, discord.TextChannel) else 0,
                 "support_role_id": support_role.id if support_role else 0,
-                "category_id": category.id if isinstance(category, discord.CategoryChannel) else 0,
                 "notes_enabled": form.get("notes_enabled") == "1",
-                "use_existing_channels": form.get("use_existing_channels") == "1",
                 "notification_enabled": notification_enabled,
                 "hours": hours,
                 "duty_mode": duty_mode, "checkin_channel_id": checkin.id if isinstance(checkin, discord.TextChannel) else 0,
@@ -1537,6 +1525,8 @@ def register(app):
                 "waiting_music_enabled": form.get("waiting_music_enabled") == "1",
                 "waiting_music_path": music_path,
             }
+            for obsolete_key in ("channel_prefix", "category_id", "use_existing_channels"):
+                config.pop(obsolete_key, None)
             for config_key, stored_path in new_audio_paths.items():
                 if stored_path:
                     config[config_key] = stored_path
@@ -1551,7 +1541,7 @@ def register(app):
 
         for old_path, audio_type in removed_audio_paths:
             safe_remove_owned_audio(old_path, audio_type)
-        ws.log_audit(c.user.get("global_name") or c.user.get("username"), c.user["id"], "Voice-Support Konfiguration gespeichert", f"Aktiv={enabled}; Bereitschaft={duty_mode}; Kategorie={config['category_id']}")
+        ws.log_audit(c.user.get("global_name") or c.user.get("username"), c.user["id"], "Voice-Support Konfiguration gespeichert", f"Aktiv={enabled}; Bereitschaft={duty_mode}; Warteraum={waiting.id if isinstance(waiting, discord.VoiceChannel) else 0}")
         bot = getattr(request.app.state, "bot", None)
         cog = bot.get_cog("VoiceSupport") if bot else None
         if cog and duty_mode:
