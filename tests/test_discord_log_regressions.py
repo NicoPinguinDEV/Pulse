@@ -35,6 +35,31 @@ class DiscordLogRegressionTests(unittest.TestCase):
         self.assertIn("except discord.NotFound", method)
         self.assertIn("except discord.HTTPException", method)
 
+    def test_team_member_can_start_shift_while_leave_remains_active(self):
+        shift_handler = get_method(read_source("webserver.py"), "handle_shift_action")
+        self.assertIn("leave_active = bool(loa and loa.get(\"active\"))", shift_handler)
+        self.assertIn("Schicht gestartet. Deine Abmeldung bleibt bis", shift_handler)
+        self.assertNotIn("beende erst deine Abmeldung", shift_handler)
+        self.assertIn("save_json(SHIFTS_FILE, shifts_db)", shift_handler)
+
+        teamlist_method = get_method(read_source("cogs/teamliste.py"), "create_team_embed")
+        self.assertIn("active_shifts = self.get_active_shift_map()", teamlist_method)
+        self.assertIn("Im Dienst (Abmeldung bis", teamlist_method)
+        self.assertIn("Abgemeldet (bis", teamlist_method)
+
+    def test_activity_check_is_still_confirmable_during_active_leave(self):
+        activity_source = read_source("cogs/activity_check.py")
+        confirm = get_method(activity_source, "confirm")
+        self.assertIn("INSERT OR REPLACE INTO responses", confirm)
+        self.assertNotIn("is_abgemeldet(", confirm)
+        self.assertIn(
+            "Auch mit aktiver Abmeldung kannst du bestätigen, wenn du heute arbeitest.",
+            activity_source,
+        )
+        warning_method = get_method(activity_source, "process_daily_warnings")
+        self.assertIn('if leave_status:', warning_method)
+        self.assertIn('set_warn_action(check_id, uid, "on_leave")', warning_method)
+
     def test_abmeldung_preflights_nickname_permissions_and_suppresses_retries(self):
         source = read_source("cogs/abmeldung.py")
         helper = get_method(source, "_can_edit_member_nickname")
@@ -76,7 +101,7 @@ class DiscordLogRegressionTests(unittest.TestCase):
 
     def test_application_version_has_one_source_of_truth(self):
         version = read_source("pulse_version.py")
-        self.assertIn('PULSE_VERSION = "7.9.0"', version)
+        self.assertIn('PULSE_VERSION = "7.9.1"', version)
         self.assertIn("from pulse_version import PULSE_VERSION", read_source("webserver.py"))
         self.assertIn("from pulse_version import PULSE_VERSION", read_source("pulse_pro.py"))
 

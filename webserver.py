@@ -3468,9 +3468,10 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), u
             return back("/dashboard", "Du hast bereits eine laufende Schicht.", False)
         if len(active_warns(user_entry(team_db, mod_id))) >= 5:
             return back("/dashboard", "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!", False)
+        # An active leave is informational, not a lock: team members may
+        # voluntarily work during an LOA without deleting or shortening it.
         loa = get_loas().get(mod_id)
-        if loa and loa["active"]:
-            return back("/dashboard", f"Du bist bis {fmt_date(loa['bis'])} abgemeldet – beende erst deine Abmeldung.", False)
+        leave_active = bool(loa and loa.get("active"))
         active[mod_id] = {
             "status": "online",
             "started_at_iso": now.isoformat(),
@@ -3478,7 +3479,12 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), u
             "date": now.strftime("%Y-%m-%d"),
             "accumulated_seconds": 0,
         }
-        msg = "Schicht gestartet – viel Erfolg!"
+        msg = (
+            f"Schicht gestartet. Deine Abmeldung bleibt bis {fmt_date(loa['bis'])} hinterlegt "
+            "und wird nicht automatisch beendet."
+            if leave_active
+            else "Schicht gestartet – viel Erfolg!"
+        )
 
     elif shift_action == "break" and shift and shift.get("status") == "online":
         shift["accumulated_seconds"] = shift_elapsed(shift)
