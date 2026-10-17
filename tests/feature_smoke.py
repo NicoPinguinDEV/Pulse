@@ -435,7 +435,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.24"' in version_source
+    assert 'PULSE_VERSION = "7.8.25"' in version_source
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
@@ -487,6 +487,15 @@ def main() -> None:
     assert '"pass_percent": 75' in career_applications
     assert '"pass_percent": 82' in career_applications
     assert '"pass_percent": 90' in career_applications
+    assert "APPLICATION_PRACTICAL_TASKS" in career_applications
+    assert "def render_practical_tasks(" in career_applications
+    assert "def grade_practical_tasks(" in career_applications
+    assert "def application_module_states(" in web
+    assert '@app.get("/applications/config"' in web
+    assert '@app.post("/applications/config"' in web
+    assert 'grade_practical_tasks(career_path or "", submitted_form)' in web
+    assert '"practical_answers": practical_result["answers"]' in web
+    assert "practical_review_html" in web
     oauth_helper = web.split("def oauth_redirect_uri(", 1)[1].split("\ndef oauth_cookie_secure(", 1)[0]
     assert "(REDIRECT_URI or APPLICATION_REDIRECT_URI) if application else REDIRECT_URI" in oauth_helper
     assert 'return f"{request_origin(request)}/callback"' in oauth_helper
