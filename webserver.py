@@ -6157,24 +6157,131 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
                     <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">{esc(career["description"])}</p>
                     <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-3">{len(career["questions"])} Fragen · Bestehens-Richtwert: {career["pass_percent"]}%</p>
                 </div>
-                <form action="/action" method="post" class="space-y-5 text-xs">
+                <form action="/action" method="post" class="space-y-5 text-xs" data-apply-wizard novalidate>
                     <input type="hidden" name="action" value="submit_application">
                     <input type="hidden" name="applicant_id" value="{applicant_id}">
                     <input type="hidden" name="applicant_name" value="{esc(applicant_name)}">
                     <input type="hidden" name="career_path" value="{career_path}">
-                    <section class="space-y-2">
+                    <div class="rounded-2xl border border-indigo-500/20 bg-gradient-to-r from-indigo-500/10 to-violet-500/10 p-4 space-y-3">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div><p class="text-[10px] uppercase tracking-widest font-bold text-indigo-500">Pulse Candidate Experience</p>
+                            <p id="applicationProgressLabel" class="text-sm font-bold mt-1">Dein Fortschritt · Vorbereitung</p></div>
+                            <span id="applicationProgressPercent" class="text-lg font-extrabold text-indigo-500">0%</span>
+                        </div>
+                        <div class="h-2 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800"><div id="applicationProgressBar" class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-300" style="width:0%"></div></div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <div data-apply-step-indicator="0" class="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-2"><p class="text-[10px] font-bold">01 · Profil</p><p class="text-[10px] text-slate-500 mt-1">Motivation</p></div>
+                            <div data-apply-step-indicator="1" class="rounded-xl border border-slate-200 dark:border-slate-700 p-2"><p class="text-[10px] font-bold">02 · Wissen</p><p class="text-[10px] text-slate-500 mt-1">Regeltest</p></div>
+                            <div data-apply-step-indicator="2" class="rounded-xl border border-slate-200 dark:border-slate-700 p-2"><p class="text-[10px] font-bold">03 · Praxis</p><p class="text-[10px] text-slate-500 mt-1">Fallsimulation</p></div>
+                        </div>
+                        <p class="text-[10px] text-slate-500 dark:text-slate-400">Deine Angaben bleiben bis zum Absenden in diesem Formular. Die Praxisantworten werden von Menschen geprüft — keine automatische Einstellungsentscheidung.</p>
+                    </div>
+                    <section data-apply-step="0" class="space-y-2">
                         <h2 class="font-bold text-base">1. Motivation</h2>
                         <label for="applicant_text" class="block text-slate-500 dark:text-slate-400">Warum möchtest du diese Laufbahn einschlagen? Beschreibe kurz deine Erfahrung, Stärken und Motivation.</label>
                         <textarea id="applicant_text" name="applicant_text" maxlength="2000" placeholder="Erzähle etwas über dich, deine Erfahrung und deine Motivation…" required class="{INPUT} h-32"></textarea>
                     </section>
-                    <section class="space-y-3">
+                    <section data-apply-step="1" class="space-y-3">
                         <div><h2 class="font-bold text-base">2. Online-Eignungstest</h2>
                             <p class="text-slate-500 dark:text-slate-400 mt-1">Beantworte alle Fragen. Das System prüft deine Antworten automatisch. Das Ergebnis ist eine Entscheidungshilfe und führt nicht allein automatisch zur Annahme oder Ablehnung.</p>
                         </div>
                         {question_markup}
                     </section>
                     {practical_markup}
-                    <button class="w-full bg-emerald-600 hover:bg-emerald-500 font-semibold py-3 rounded-xl text-white">Bewerbung und Test absenden</button>
+                    <div class="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                        <button type="button" id="applicationPrev" hidden class="px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 font-semibold">← Zurück</button>
+                        <span id="applicationStepLabel" class="text-[10px] text-slate-500 dark:text-slate-400">Schritt 1 von 3</span>
+                        <div class="ml-auto flex gap-2">
+                            <button type="button" id="applicationNext" hidden class="px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">Weiter <span aria-hidden="true">→</span></button>
+                            <button type="submit" id="applicationSubmit" class="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold text-white">Bewerbung abschicken ✓</button>
+                        </div>
+                    </div>
+                    <script>
+                    (function(){
+                        const form=document.querySelector('[data-apply-wizard]');
+                        if(!form)return;
+                        const panels=Array.from(form.querySelectorAll('[data-apply-step]'));
+                        const prev=document.getElementById('applicationPrev');
+                        const next=document.getElementById('applicationNext');
+                        const submit=document.getElementById('applicationSubmit');
+                        const stepLabel=document.getElementById('applicationStepLabel');
+                        const progressLabel=document.getElementById('applicationProgressLabel');
+                        const progressPercent=document.getElementById('applicationProgressPercent');
+                        const progressBar=document.getElementById('applicationProgressBar');
+                        const indicators=Array.from(form.querySelectorAll('[data-apply-step-indicator]'));
+                        const names=['Profil & Motivation','Regelwissen','Praxis-Simulation'];
+                        let active=0;
+                        function updateProgress(){
+                            const controls=Array.from(form.querySelectorAll('[required]'));
+                            const groups=new Map();
+                            controls.forEach((el,index)=>{
+                                const key=el.type==='radio'?'radio:'+el.name:(el.name||'field:'+index);
+                                if(!groups.has(key))groups.set(key,[]);
+                                groups.get(key).push(el);
+                            });
+                            let complete=0;
+                            groups.forEach((group)=>{
+                                const first=group[0];
+                                const done=first.type==='radio'?group.some(el=>el.checked):
+                                    first.tagName==='SELECT'?Boolean(first.value):
+                                    Boolean(String(first.value||'').trim())&&first.checkValidity();
+                                if(done)complete++;
+                            });
+                            const total=Math.max(1,groups.size);
+                            const pct=Math.round(complete/total*100);
+                            progressPercent.textContent=pct+'%';
+                            progressBar.style.width=pct+'%';
+                            progressLabel.textContent=complete+' von '+groups.size+' Pflichtfeldern erledigt';
+                        }
+                        function showStep(index){
+                            active=Math.max(0,Math.min(index,panels.length-1));
+                            panels.forEach((panel,i)=>panel.hidden=i!==active);
+                            prev.hidden=active===0;
+                            next.hidden=active===panels.length-1;
+                            submit.hidden=active!==panels.length-1;
+                            stepLabel.textContent='Schritt '+(active+1)+' von '+panels.length;
+                            progressLabel.dataset.activeStep=String(active);
+                            indicators.forEach((el,i)=>{
+                                el.classList.toggle('border-indigo-500/40',i===active);
+                                el.classList.toggle('bg-indigo-500/10',i===active);
+                                el.classList.toggle('border-slate-200',i!==active);
+                            });
+                            const heading=panels[active].querySelector('h2,legend');
+                            const label=heading?heading.textContent.trim():names[active];
+                            stepLabel.setAttribute('aria-label',label);
+                            window.scrollTo({top:0,behavior:'smooth'});
+                            updateProgress();
+                        }
+                        function firstInvalid(panel){
+                            return Array.from(panel.querySelectorAll('input,textarea,select')).find(el=>el.required&&!el.checkValidity());
+                        }
+                        function validatePanel(panel){
+                            const invalid=firstInvalid(panel);
+                            if(invalid){invalid.reportValidity();invalid.focus({preventScroll:true});return false;}
+                            return true;
+                        }
+                        prev.addEventListener('click',()=>showStep(active-1));
+                        next.addEventListener('click',()=>{
+                            if(validatePanel(panels[active]))showStep(active+1);
+                        });
+                        form.addEventListener('input',updateProgress);
+                        form.addEventListener('change',updateProgress);
+                        form.addEventListener('submit',event=>{
+                            for(let i=0;i<panels.length;i++){
+                                if(!validatePanel(panels[i])){
+                                    event.preventDefault();
+                                    showStep(i);
+                                    const invalid=firstInvalid(panels[i]);
+                                    if(invalid)invalid.reportValidity();
+                                    return;
+                                }
+                            }
+                            submit.disabled=true;
+                            submit.textContent='Wird sicher übermittelt …';
+                        });
+                        showStep(0);
+                    })();
+                    </script>
                 </form>
                 <div class="text-center"><a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a></div>
             </div>
