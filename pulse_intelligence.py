@@ -490,7 +490,7 @@ def build_components(metrics, warning_roles=None):
             "impact": "Warnstufen könnten nicht korrekt mit Discord-Rollen synchronisiert sein.",
         })
     ram = memory_state(metrics.get("rss_mb"))
-    ram_status = "critical" if ram["level"] >= 2 else "warning" if ram["level"] == 1 else "ok"
+    ram_status = "unknown" if metrics.get("rss_mb") is None else "critical" if ram["level"] >= 2 else "warning" if ram["level"] == 1 else "ok"
     items.append({
         "name": "Prozess-RAM", "state": ram_status,
         "detail": f"{metrics['rss_mb']:.1f} MB" if metrics.get("rss_mb") is not None else "Messwert nicht verfügbar",
@@ -552,7 +552,7 @@ def register(app):
         tiles = "".join(metric_card(label, value) for label, value in (
             ("Offene Tickets", metrics.get("open_tickets", 0)),
             ("SLA überfällig", metrics.get("ticket_sla_overdue", 0)),
-            ("Offene Aufgaben mit Frist", metrics.get("overdue_tasks", 0)),
+            ("Überfällige Aufgaben", metrics.get("overdue_tasks", 0)),
             ("Offene TeamOS-Fälle", metrics.get("open_cases", 0)),
         ))
         body = (
