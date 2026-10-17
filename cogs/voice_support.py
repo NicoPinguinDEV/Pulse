@@ -756,17 +756,6 @@ class VoiceSupport(commands.Cog):
         embed.add_field(name="👥 Teamstatus", value=availability, inline=False)
         embed.set_footer(text=SUPPORT_STATUS_FOOTER)
 
-        matches = []
-        try:
-            async for candidate in channel.history(limit=100):
-                if candidate.author.id != getattr(self.bot.user, "id", 0) or not candidate.embeds:
-                    continue
-                candidate_embed = candidate.embeds[0]
-                if candidate_embed.title == "🎧 Voice-Support · Aktueller Status" and candidate_embed.footer.text == SUPPORT_STATUS_FOOTER:
-                    matches.append(candidate)
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"⚠️ Voice-Support: Status-Verlauf konnte nicht geprüft werden: {exc}")
-
         valid_saved = (
             saved_message
             and saved_message.author.id == getattr(self.bot.user, "id", 0)
@@ -774,6 +763,20 @@ class VoiceSupport(commands.Cog):
             and saved_message.embeds[0].title == "🎧 Voice-Support · Aktueller Status"
             and saved_message.embeds[0].footer.text == SUPPORT_STATUS_FOOTER
         )
+        matches = []
+        # After the first successful write, the saved message ID is authoritative.
+        # Only scan history when that ID is missing/stale to avoid needless API calls.
+        if not valid_saved:
+            try:
+                async for candidate in channel.history(limit=100):
+                    if candidate.author.id != getattr(self.bot.user, "id", 0) or not candidate.embeds:
+                        continue
+                    candidate_embed = candidate.embeds[0]
+                    if candidate_embed.title == "🎧 Voice-Support · Aktueller Status" and candidate_embed.footer.text == SUPPORT_STATUS_FOOTER:
+                        matches.append(candidate)
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(f"⚠️ Voice-Support: Status-Verlauf konnte nicht geprüft werden: {exc}")
+
         message = saved_message if valid_saved else (matches[0] if matches else None)
         for duplicate in matches:
             if message and duplicate.id == message.id:
