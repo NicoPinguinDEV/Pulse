@@ -52,7 +52,7 @@ class ApplicationEligibilityTests(unittest.TestCase):
         self.assertIn("submitted_form = await request.form()", submit)
         self.assertIn('answer_count = len(career_definition["questions"]) if career_definition else 0', submit)
         self.assertIn('str(submitted_form.get(f"answer_{index}", ""))', submit)
-        self.assertIn('"test_version": 2', submit)
+        self.assertIn('"test_version": 3', submit)
         self.assertNotIn('[answer_1, answer_2, answer_3, answer_4, answer_5, answer_6]', submit)
 
     def test_notification_pings_only_the_configured_role(self):
