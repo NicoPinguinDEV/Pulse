@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sqlite3
 from pathlib import Path
 import discord
@@ -173,6 +174,26 @@ class TeamlisteCog(commands.Cog):
         except (sqlite3.Error, OSError, TypeError, ValueError):
             return {}
 
+    # Reads the shared shift record once per team-list refresh. An active shift
+    # takes precedence for display, while the leave remains recorded separately.
+    def get_active_shift_map(self) -> dict[int, str]:
+        try:
+            with open(BASE_DIR / "shifts.json", "r", encoding="utf-8") as file:
+                data = json.load(file)
+            active = data.get("active_shifts", {}) if isinstance(data, dict) else {}
+            if not isinstance(active, dict):
+                return {}
+            result = {}
+            for user_id, shift in active.items():
+                if not str(user_id).isdigit() or not isinstance(shift, dict):
+                    continue
+                status = str(shift.get("status") or "online").lower()
+                if status in {"online", "break"}:
+                    result[int(user_id)] = status
+            return result
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return {}
+
     # Legacy-Helfer für andere Aufrufer.
     def get_abmeldung_info(self, user_id: int) -> str | None:
         return self.get_abmeldungen_map().get(int(user_id))
@@ -209,13 +230,25 @@ class TeamlisteCog(commands.Cog):
 
             # Eine DB-Abfrage statt einer SQLite-Verbindung je Mitglied.
             abmeldungen = self.get_abmeldungen_map()
+            active_shifts = self.get_active_shift_map()
             for role in sorted_roles:
                 lines.append(f"❯ **{role.name}**")
 
                 if role.members:
                     for member in role.members:
                         bis_datum = abmeldungen.get(member.id)
-                        if bis_datum:
+                        shift_status = active_shifts.get(member.id)
+                        if shift_status == "online":
+                            status_text = (
+                                f"🟢 Im Dienst (Abmeldung bis {bis_datum} hinterlegt)"
+                                if bis_datum else "🟢 Im Dienst"
+                            )
+                        elif shift_status == "break":
+                            status_text = (
+                                f"☕ Pause (Abmeldung bis {bis_datum} hinterlegt)"
+                                if bis_datum else "☕ Pause"
+                            )
+                        elif bis_datum:
                             status_text = f"🌴 Abgemeldet (bis {bis_datum})"
                         else:
                             status_text = self.format_status(member.status)
