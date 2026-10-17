@@ -11,6 +11,7 @@ Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstz
 - Teamler-Schutz: erkennt massenhafte manuelle Warnungen, sperrt Warn-/Teamaktionen vorübergehend, protokolliert Vorfälle und entfernt bei wiederholtem Missbrauch automatisch Teamrollen (kein Server-Kick)
 - Automatische Discord-Namenspräfixe: die feste Pulse-Teamhierarchie entscheidet über den höchsten Rang (auch wenn Bürger-/VIP-Rollen in Discord höher einsortiert sind); Labels u. a. `PL ✗`, `Stv.PL ✗`, `L.DK ✗`, `Stv.SL ✗`, `L.MA ✗`, `L.Supervisor ✗`, `Sr.Mod ✗`; standardmäßig `Bürger ✗`, individuelle Präfixe für VIP- und andere Rollen, automatische Aktualisierung bei Rollenwechseln und Synchronisierung bestehender Mitglieder; manuelle Präfixe bleiben möglich
 - Teamliste mit Wochenstunden, Dienststatus, LOA, Warnungen und aktuellem Discord-Presence-Status
+- Schichtstart und Activity-Check-Bestätigung bleiben auch während einer eingetragenen Abmeldung möglich. Eine gestartete Schicht beendet die Abmeldung nicht; die Teamliste zeigt den tatsächlichen Dienststatus zusätzlich zur hinterlegten Abmeldung. Nicht bestätigte Activity Checks während einer aktiven Abmeldung führen weiterhin nicht zu einer automatischen Warnung.
 - Activity Check mit eingefrorenem Teilnehmer-Snapshot
 - Warnsystem 1/2/3/4/5 inklusive Discord-Warnrollen und Rücknahme-Historie
 - Beförderungen mit Pflicht-Probezeit (3 oder 7 Tage), automatische Rückstufung auf die vorherige Teamrolle bei Warn während der Probezeit und Team-Kick bei Warn für Test Supporter
