@@ -28,6 +28,7 @@ Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstz
 - Monatsberichte, CSV/JSON-Export und detailliertes Health/Security Center mit RAM-, KI-Cache- und Warteschlangen-Monitoring
 - Wiederverwendete HTTP-Verbindungspools für KI-/Social-Integrationen und Größenlimits beim Feed-Streaming
 - Vollständige Discord-Struktur- und Pulse-Backups mit Rollen/Kanalberechtigungen, Servereinstellungen, Mitgliedsrollen, SQLite/JSON-Daten, Ticket-Transkripten, validiertem JSON-Download/-Upload, automatischer Sicherheitskopie, sicherem additive Restore-Modus und optionaler exakter Wiederherstellung
+- Pulse Intelligence 7.9.0: lokaler regelbasierter Copilot ohne externe KI-API, System-Zwilling mit Abhängigkeits-/Auswirkungsübersicht, read-only Was-wäre-wenn-Simulationen für Ticketlast/Team-Ausfall/RAM sowie Workflow-Release-Sandbox mit JSON-Schema-Prüfung ohne Ausführung.
 - Digitale Dashboard-Zwischenrollen direkt in den Pulse-Pro-Einstellungen: interne Rechteprofile erstellen, konfigurieren und vorhandenen Discord-Teamrollen zuordnen, ohne Discord-Rollen oder Serverrechte zu ändern; plus granulare Permission-Overrides und Workflow Center mit Bedingungen/Aktionsketten
 
 ## Ressourcen- und RAM-Schutz
@@ -103,6 +104,7 @@ Vor dem Deploy:
 ```bash
 python -m compileall -q .
 python tests/feature_smoke.py
+python tests/test_pulse_intelligence.py
 python tests/smoke_test.py
 ```
 

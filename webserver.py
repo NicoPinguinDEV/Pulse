@@ -9388,3 +9388,9 @@ try:
     register_pulse_next(app)
 except Exception as _next_error:
     print(f"❌ Pulse TeamOS 2.0 Module konnten nicht registriert werden: {_next_error}")
+
+try:
+    from pulse_intelligence import register as register_pulse_intelligence
+    register_pulse_intelligence(app)
+except Exception as _intelligence_error:
+    print(f"❌ Pulse Intelligence Module konnten nicht registriert werden: {_intelligence_error}")
