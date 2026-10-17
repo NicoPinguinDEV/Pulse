@@ -42,6 +42,20 @@ def main() -> None:
         assert db.get_training(training)["questions"]
         assert db.save_attempt(training, 2, "Nico", 100, True)
 
+        event_id = db.create_calendar_event(
+            "Kalender-Smoke-Test",
+            "2026-10-17T16:00:00+00:00",
+            "2026-10-17T17:00:00+00:00",
+            "meeting",
+            "Discord",
+            "Event persistence regression",
+            1,
+            "Admin",
+        )
+        events = db.list_calendar_events("2026-10-17T00:00:00+00:00", "2026-10-18T00:00:00+00:00")
+        assert any(e["id"] == event_id and e["title"] == "Kalender-Smoke-Test" for e in events)
+        assert "calendar_events" in db.export_state()
+
         print("Pulse smoke test: OK")
     finally:
         shutil.rmtree(_BOOT, ignore_errors=True)

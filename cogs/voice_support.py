@@ -212,10 +212,24 @@ class VoiceSupport(commands.Cog):
         return None, None, cases
 
     def _is_support_staff(self, member: discord.Member, cfg: dict) -> bool:
+        """Accept support staff whether or not they are currently on duty.
+
+        The support role represents membership/eligibility; the duty role is a
+        live presence indicator. Treating the duty role as the only valid role
+        in duty mode incorrectly prevented off-duty support staff from claiming
+        queued cases. Claiming still requires joining a valid support voice room.
+        """
         if not isinstance(member, discord.Member) or member.bot:
             return False
-        role_id = channel_id(cfg.get("duty_role_id")) if cfg.get("duty_mode") else channel_id(cfg.get("support_role_id"))
-        return bool(role_id and any(role.id == role_id for role in member.roles))
+        eligible_role_ids = {
+            role_id
+            for role_id in (
+                channel_id(cfg.get("support_role_id")),
+                channel_id(cfg.get("duty_role_id")),
+            )
+            if role_id
+        }
+        return bool(eligible_role_ids and any(role.id in eligible_role_ids for role in member.roles))
 
     def _register_case_view(self, case_id: str, message_id: int = 0):
         case_id = str(case_id or "")
@@ -243,9 +257,8 @@ class VoiceSupport(commands.Cog):
             color = discord.Color.green()
         else:
             support_label = (
-                "einem Supporter mit Bereitschaftsrolle"
-                if get_config().get("duty_mode")
-                else "einem Supporter"
+                "einem berechtigten Supporter (auch außer Dienst)"
+
             )
             status = f"🟠 **Status:** Wartet auf Übernahme durch {support_label}"
             color = discord.Color.orange()
@@ -303,7 +316,7 @@ class VoiceSupport(commands.Cog):
             return
         actor = interaction.user
         if not self._is_support_staff(actor, cfg):
-            await interaction.response.send_message("Du benötigst die konfigurierte Support-/Bereitschaftsrolle, um Supportfälle zu verwalten.", ephemeral=True)
+            await interaction.response.send_message("Du benötigst die konfigurierte Supportrolle oder Bereitschaftsrolle, um Supportfälle zu verwalten. Eine aktive Dienstschicht ist nicht erforderlich.", ephemeral=True)
             return
 
         if action == "claim":
@@ -424,7 +437,7 @@ class VoiceSupport(commands.Cog):
         if key is None or not isinstance(case, dict):
             return False, "Dieser Supportfall ist bereits geschlossen."
         if not self._is_support_staff(staff, cfg):
-            return False, "Nur Teamler mit der konfigurierten Support-/Bereitschaftsrolle können Fälle übernehmen."
+            return False, "Nur Teamler mit Support- oder Bereitschaftsrolle können Fälle übernehmen. Du musst dafür nicht im Dienst sein."
         current_staff_id = channel_id(case.get("assigned_staff_id"))
         if current_staff_id and not transfer:
             current = staff.guild.get_member(current_staff_id)

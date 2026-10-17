@@ -218,6 +218,20 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_meeting_history_date ON meetings_history(date_time);
 
+            CREATE TABLE IF NOT EXISTS calendar_events (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                starts_at TEXT NOT NULL,
+                ends_at TEXT,
+                category TEXT DEFAULT 'event',
+                location TEXT DEFAULT '',
+                description TEXT DEFAULT '',
+                created_by_id TEXT NOT NULL,
+                created_by_name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_calendar_events_start ON calendar_events(starts_at);
+
             CREATE TABLE IF NOT EXISTS team_status (
                 user_id TEXT PRIMARY KEY,
                 user_name TEXT NOT NULL,
@@ -811,6 +825,43 @@ def meeting_history(limit=100):
         return [dict(r) for r in db.execute("SELECT * FROM meetings_history ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()]
 
 
+def create_calendar_event(title, starts_at, ends_at=None, category="event", location="", description="", creator_id="", creator_name=""):
+    """Persist a calendar event. Timestamps should be ISO-8601 UTC strings."""
+    with connect() as db:
+        event_id = make_id("cal")
+        db.execute(
+            """INSERT INTO calendar_events
+               (id,title,starts_at,ends_at,category,location,description,created_by_id,created_by_name,created_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                event_id, str(title).strip()[:120], str(starts_at),
+                str(ends_at) if ends_at else None, str(category or "event")[:40],
+                str(location or "")[:150], str(description or "")[:2000],
+                str(creator_id), str(creator_name or "Team")[:100], _now(),
+            ),
+        )
+        return event_id
+
+
+def list_calendar_events(start_at=None, end_at=None, limit=1000):
+    """List events overlapping [start_at, end_at), or the latest bounded collection."""
+    with connect() as db:
+        if start_at and end_at:
+            rows = db.execute(
+                """SELECT * FROM calendar_events
+                   WHERE (starts_at >= ? AND starts_at < ?)
+                      OR (ends_at IS NOT NULL AND starts_at < ? AND ends_at >= ?)
+                   ORDER BY starts_at ASC LIMIT ?""",
+                (str(start_at), str(end_at), str(end_at), str(start_at), max(1, min(int(limit), 2000))),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                "SELECT * FROM calendar_events ORDER BY starts_at ASC LIMIT ?",
+                (max(1, min(int(limit), 2000)),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+
 def achievements():
     with connect() as db:
         rows = db.execute("SELECT * FROM achievements ORDER BY id").fetchall()
@@ -1226,7 +1277,7 @@ def purge_old_notifications(days=90):
 
 TABLES = [
     "notifications", "tasks", "task_history", "tickets", "ticket_events", "wiki_pages", "achievements",
-    "achievement_progress", "trainings", "training_questions", "training_attempts", "meetings_history",
+    "achievement_progress", "trainings", "training_questions", "training_attempts", "meetings_history", "calendar_events",
     "team_status", "handover_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
 ]

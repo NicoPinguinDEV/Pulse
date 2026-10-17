@@ -13,7 +13,7 @@ import sqlite3
 import time
 import traceback
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from urllib.parse import quote, urlparse
 
@@ -192,10 +192,7 @@ def make_shell_helpers(ws):
             ("Workflow", [
                 ("tickets","/tickets","▣","Tickets",True,False),
                 ("voice-support","/voice-support","🎧","Sprach-Support",perms.get("can_manage_tickets") or perms.get("can_promote") or perms.get("is_admin"),False),
-                ("tasks","/tasks","□","Aufgaben",True,False),
                 ("applications","/applications","✎","Bewerbungen",True,False),
-                ("approvals","/approvals","✓","Freigaben",perms.get("can_promote") or perms.get("can_manage_applications") or perms.get("is_admin"),False),
-                ("handover","/handover","↪","Übergabe",True,False),
                 ("announcements","/announcements","✦","Ankündigungen",perms.get("can_manage_announcements") or perms.get("is_admin"),False),
             ]),
             ("Planung", [
@@ -255,7 +252,6 @@ def make_shell_helpers(ws):
 def build_command_modal(ws):
     items = [
         ("⌂", "Dashboard öffnen", "/dashboard"), ("◌", "Teamstatus", "/team-status"), ("✓", "Activity Check", "/activity-check"), ("🛡️", "Melonly", "/melonly"), ("▣", "Tickets", "/tickets"), ("🎧", "Sprach-Support", "/voice-support"),
-        ("□", "Aufgaben", "/tasks"), ("✓", "Freigaben", "/approvals"), ("↪", "Übergabe", "/handover"),
         ("✦", "Ankündigungen", "/announcements"), ("▤", "Meeting-Historie", "/meetings-history"), ("◇", "Schulungen", "/training"), ("▤", "Team-Wiki", "/wiki"),
         ("◒", "Analytics", "/stats"), ("◆", "Achievements", "/achievements"), ("🎛️", "Ticket-Panel-Builder", "/tickets/panels"), ("⚙", "Einstellungen", "/settings"),
     ]
@@ -765,9 +761,7 @@ def register(app):
         recent_html="".join(f'<div class="pulse-row"><div class="pulse-avatar">{e("EV" if ev["actor_name"]=="System" else initials(ev["actor_name"]))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(ev["payload_json"] if isinstance(ev["payload_json"],str) else ev["event_type"])}</div><div class="pulse-row-meta">{e(ev["actor_name"] or "System")} · {e(fmt_dt(ev["created_at"]))}</div></div></div>' for ev in events)
         duty_html="".join(f'<div class="pulse-row"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(m.display_name))}</div><div class="pulse-row-main"><div class="pulse-row-title truncate">{e(m.display_name)}</div><div class="pulse-row-meta">{e(member_role(m,ids))}</div></div></div><div class="text-right"><div>{pill("Pause" if sh.get("status")=="break" else "Im Dienst", "warn" if sh.get("status")=="break" else "good")}</div><div class="pulse-row-meta pulse-time">{ws.fmt_duration(ws.shift_elapsed(sh))}</div></div></div>' for m,sh in active_people[:10])
         urgent=""
-        if s["promos"]: urgent += f'<a href="/approvals" class="pulse-alert"><strong>✓ {len(s["promos"])} Beförderungsanträge</strong><div class="text-slate-400 mt-1">Warten auf Entscheidung.</div></a>'
         if s["apps"]: urgent += f'<a href="/applications" class="pulse-alert"><strong>✎ {s["apps"]} offene Bewerbungen</strong><div class="text-slate-400 mt-1">Bitte zeitnah bearbeiten.</div></a>'
-        if overdue: urgent += f'<a href="/tasks" class="pulse-alert"><strong>! {len(overdue)} überfällige Aufgaben</strong><div class="text-slate-400 mt-1">Fristen prüfen und Status aktualisieren.</div></a>'
         teamdb=ws.load_json(ws.DATA_FILE,{})
         active_warn_total=sum(len(ws.active_warns(v)) for v in teamdb.values() if isinstance(v,dict))
         critical_warn_people=sum(1 for v in teamdb.values() if isinstance(v,dict) and len(ws.active_warns(v)) >=5)
@@ -782,9 +776,9 @@ def register(app):
         shift_kind="good" if status=="online" else "warn" if status=="break" else ""
         shift_actions=(f'<form action="/shift/action" method="post" class="flex flex-wrap gap-2"><button name="shift_action" value="break" class="pulse-btn ghost">⏸ Pause</button><button name="shift_action" value="end" class="pulse-btn bad">⏹ Beenden</button></form>' if status=="online" else f'<form action="/shift/action" method="post" class="flex flex-wrap gap-2"><button name="shift_action" value="resume" class="pulse-btn good">▶ Fortsetzen</button><button name="shift_action" value="end" class="pulse-btn bad">⏹ Beenden</button></form>' if status=="break" else '<form action="/shift/action" method="post"><button name="shift_action" value="start" class="pulse-btn primary w-full">▶ Schicht starten</button></form>')
         body=f'''<div class="pulse-topbar"><div class="pulse-brand"><div class="pulse-brand-mark">P</div><div><div class="text-sm font-extrabold">Operations Center</div><div class="text-[10px] text-slate-400">Live-Übersicht · {e(c.guild.name)}</div></div></div><button onclick="pulseTogglePalette(true)" class="pulse-btn ghost hidden sm:inline-flex">⌕ Suchen <span class="pulse-key">Ctrl K</span></button><div class="flex items-center gap-2"><span class="pulse-pill good"><span class="pulse-status-dot bg-emerald-500"></span>System online</span><button onclick="pulseToggleTheme()" class="pulse-icon-btn">◐</button></div></div>
-        <section class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Willkommen zurück</div><div class="pulse-title">{e(c.user.get("global_name") or c.user.get("username"))}</div><div class="pulse-sub">Hier siehst du sofort, was für das Team ansteht: Support, Aufgaben, Abwesenheiten, Bewerbungen und deine eigene Aktivität.</div><div class="flex flex-wrap gap-2 mt-5"><a href="/team-status" class="pulse-btn" style="background:rgba(255,255,255,.1);color:white;border-color:rgba(255,255,255,.18)">◉ Teamstatus ansehen</a><a href="/handover" class="pulse-btn" style="background:rgba(255,255,255,.1);color:white;border-color:rgba(255,255,255,.18)">↪ Übergabe</a></div></div><div class="pulse-hero-box"><div class="label">DEINE WOCHEN-AKTIVITÄT</div><div class="value">{ws.fmt_duration(s["weekly"])}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{pct}%;background:white"></span></div><div class="text-[10px] mt-2 opacity-75">{pct}% von {goal:g}h Wochenziel</div></div></div></section>
-        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Team im Dienst</div><div class="value" data-live="active">{s["active"]}</div></div><div class="pulse-stat"><div class="icon">▣</div><div class="label">Offene Tickets</div><div class="value" data-live="open_tickets">{len(open_t)}</div></div><div class="pulse-stat"><div class="icon">✓</div><div class="label">Freigaben</div><div class="value" data-live="approvals">{len(s["promos"])}</div></div><div class="pulse-stat"><div class="icon">✎</div><div class="label">Bewerbungen</div><div class="value" data-live="applications">{s["apps"]}</div></div><div class="pulse-stat"><div class="icon">!</div><div class="label">Überfällige Aufgaben</div><div class="value" data-live="overdue_tasks">{len(overdue)}</div></div><div class="pulse-stat"><div class="icon">☾</div><div class="label">Aktive LOA</div><div class="value" data-live="loas">{s["loas"]}</div></div></div>
-        <div class="pulse-grid"><div class="space-y-4"><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">⏱ Schicht-Steuerung</div><div class="pulse-section-sub">Pausen werden nicht als Arbeitszeit gezählt.</div></div>{pill(shift_badge,shift_kind)}</div><div class="pulse-card-b"><div class="flex items-end justify-between gap-4"><div><div class="text-[10px] text-slate-400">Aktuelle Dauer</div><div id="v5ShiftTimer" class="text-3xl font-extrabold pulse-time mt-1">{ws.fmt_duration(elapsed)}</div></div><div class="text-right"><div class="text-[10px] text-slate-400">Status</div><div class="text-sm font-bold mt-1">{shift_badge}</div></div></div><div class="mt-4">{shift_actions}</div></div></section>{card('Aufmerksamkeit',urgent,'!')}{card('Live im Dienst',duty_html or '<div class="pulse-empty">Niemand ist aktuell im Dienst.</div>','◉')}</div><div class="space-y-4">{card('Meine Inbox',n_html,'◈')}{card('Letzte Aktivität',recent_html or '<div class="pulse-empty">Noch keine zentralen Events erfasst.</div>','↯')}<section class="pulse-card"><div class="pulse-card-b"><div class="flex items-center justify-between"><div><div class="pulse-section-title">⚡ Schnellaktionen</div><div class="pulse-section-sub">Häufige Aufgaben direkt öffnen.</div></div></div><div class="grid grid-cols-2 gap-2 mt-3"><a href="/tickets" class="pulse-btn ghost">▣ Tickets</a><a href="/tasks" class="pulse-btn ghost">□ Aufgabe</a><a href="/applications" class="pulse-btn ghost">✎ Bewerbung</a><a href="/handover" class="pulse-btn ghost">↪ Übergabe</a></div></div></section></div></div>'''
+        <section class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Willkommen zurück</div><div class="pulse-title">{e(c.user.get("global_name") or c.user.get("username"))}</div><div class="pulse-sub">Hier siehst du sofort, was für das Team ansteht: Support, Aufgaben, Abwesenheiten, Bewerbungen und deine eigene Aktivität.</div><div class="flex flex-wrap gap-2 mt-5"><a href="/team-status" class="pulse-btn" style="background:rgba(255,255,255,.1);color:white;border-color:rgba(255,255,255,.18)">◉ Teamstatus ansehen</a></div></div><div class="pulse-hero-box"><div class="label">DEINE WOCHEN-AKTIVITÄT</div><div class="value">{ws.fmt_duration(s["weekly"])}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{pct}%;background:white"></span></div><div class="text-[10px] mt-2 opacity-75">{pct}% von {goal:g}h Wochenziel</div></div></div></section>
+        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Team im Dienst</div><div class="value" data-live="active">{s["active"]}</div></div><div class="pulse-stat"><div class="icon">▣</div><div class="label">Offene Tickets</div><div class="value" data-live="open_tickets">{len(open_t)}</div></div><div class="pulse-stat"><div class="icon">✎</div><div class="label">Bewerbungen</div><div class="value" data-live="applications">{s["apps"]}</div></div><div class="pulse-stat"><div class="icon">☾</div><div class="label">Aktive LOA</div><div class="value" data-live="loas">{s["loas"]}</div></div></div>
+        <div class="pulse-grid"><div class="space-y-4"><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">⏱ Schicht-Steuerung</div><div class="pulse-section-sub">Pausen werden nicht als Arbeitszeit gezählt.</div></div>{pill(shift_badge,shift_kind)}</div><div class="pulse-card-b"><div class="flex items-end justify-between gap-4"><div><div class="text-[10px] text-slate-400">Aktuelle Dauer</div><div id="v5ShiftTimer" class="text-3xl font-extrabold pulse-time mt-1">{ws.fmt_duration(elapsed)}</div></div><div class="text-right"><div class="text-[10px] text-slate-400">Status</div><div class="text-sm font-bold mt-1">{shift_badge}</div></div></div><div class="mt-4">{shift_actions}</div></div></section>{card('Aufmerksamkeit',urgent,'!')}{card('Live im Dienst',duty_html or '<div class="pulse-empty">Niemand ist aktuell im Dienst.</div>','◉')}</div><div class="space-y-4">{card('Meine Inbox',n_html,'◈')}{card('Letzte Aktivität',recent_html or '<div class="pulse-empty">Noch keine zentralen Events erfasst.</div>','↯')}<section class="pulse-card"><div class="pulse-card-b"><div class="flex items-center justify-between"><div><div class="pulse-section-title">⚡ Schnellaktionen</div><div class="pulse-section-sub">Häufige Aufgaben direkt öffnen.</div></div></div><div class="grid grid-cols-2 gap-2 mt-3"><a href="/tickets" class="pulse-btn ghost">▣ Tickets</a><a href="/applications" class="pulse-btn ghost">✎ Bewerbung</a></div></div></section></div></div>'''
         head=f'''<script>document.addEventListener('DOMContentLoaded',()=>{{const el=document.getElementById('v5ShiftTimer');const base={elapsed};const running={str(status=='online').lower()};const t0=Date.now();function x(){{let s=base+(running?Math.floor((Date.now()-t0)/1000):0);el.textContent=Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m';}}x();if(running)setInterval(x,1000);}});</script>'''
         return render_pro_page(ws,'Operations Center',c,'dashboard',body,head)
 
@@ -1559,12 +1553,228 @@ def register(app):
         body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">◒ Team-Analytics</div><div class="pulse-section-sub">Zahlen für Planung, Support und Aktivität.</div></div><a href="/export/team.csv" class="pulse-btn ghost">⇩ CSV Export</a></div><div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Dienststunden</div><div class="value">{sum(int(h.get('duration_seconds',0)) for h in hist)/3600:.1f}h</div></div><div class="pulse-stat"><div class="icon">▣</div><div class="label">Tickets gesamt</div><div class="value">{len(s['tickets'])}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Ticketbewertung</div><div class="value">{avg:.1f}</div></div><div class="pulse-stat"><div class="icon">!</div><div class="label">Warnungen</div><div class="value">{sum(len(v.get('warns_list',[])) for v in ws.load_json(ws.DATA_FILE,{}).values() if isinstance(v,dict))}</div></div></div><div class="pulse-two">{card('Dienstzeit diese Woche',rows or '<div class="pulse-empty">Keine Daten.</div>','⏱')}{card('Support',f'<div class="grid grid-cols-2 gap-3"><div class="pulse-stat"><div class="label">Geschlossen</div><div class="value">{closed}</div></div><div class="pulse-stat"><div class="label">Offen</div><div class="value">{len(s["tickets"])-closed}</div></div></div>','▣')}</div>'''
         return render_pro_page(ws,'Analytics',c,'stats',body)
 
-    async def calendar_v5(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session); meetings=ws.load_meetings(); loas=ws.get_loas(); items=[]
-        if meetings.get('date_time') and meetings.get('date_time')!='Noch nicht angesetzt': items.append(('◫',meetings['date_time'],meetings['title'],'Meeting'))
-        for l in loas.values(): items.append(('☾',f'{l.get("von")} → {l.get("bis")}',l.get('name'),'LOA'))
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">□ Team-Kalender</div><div class="pulse-section-sub">Meetings und Abwesenheiten an einem Ort.</div></div><a href="/meetings" class="pulse-btn primary">◫ Meeting</a></div><div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3">{"".join(f'<article class="pulse-card p-5"><div class="text-2xl">{x[0]}</div><div class="pulse-section-title mt-3">{e(x[2])}</div><div class="text-xs text-indigo-500 mt-2">{e(x[1])}</div><div class="text-[10px] text-slate-400 mt-1">{e(x[3])}</div></article>' for x in items) or '<div class="pulse-empty col-span-full">Keine kommenden Termine.</div>'}</div>'''
+    async def calendar_v5(request: Request, user_session: str=Cookie(None), month: str=""):
+        c = cctx(request, user_session)
+        local_tz = ws.now_de().tzinfo
+        month_value = str(month or ws.now_de().strftime("%Y-%m"))[:7]
+        try:
+            month_date = datetime.strptime(month_value, "%Y-%m").date()
+        except (TypeError, ValueError):
+            month_date = ws.now_de().date()
+            month_value = month_date.strftime("%Y-%m")
+
+        first_day = month_date.replace(day=1)
+        grid_start = first_day - timedelta(days=first_day.weekday())
+        grid_end = grid_start + timedelta(days=42)
+        range_start = datetime.combine(grid_start, datetime.min.time(), tzinfo=local_tz).astimezone(timezone.utc).isoformat(timespec="seconds")
+        range_end = datetime.combine(grid_end, datetime.min.time(), tzinfo=local_tz).astimezone(timezone.utc).isoformat(timespec="seconds")
+
+        def parse_calendar_datetime(value):
+            if not value:
+                return None
+            raw = str(value).strip()
+            try:
+                parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                parsed = None
+                for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%Y", "%Y-%m-%d"):
+                    try:
+                        parsed = datetime.strptime(raw, fmt)
+                        break
+                    except ValueError:
+                        continue
+                if parsed is None:
+                    return None
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=local_tz)
+            return parsed.astimezone(local_tz)
+
+        calendar_events = []
+        for event in db.list_calendar_events(range_start, range_end, 2000):
+            start_dt = parse_calendar_datetime(event.get("starts_at"))
+            end_dt = parse_calendar_datetime(event.get("ends_at")) or start_dt
+            if start_dt is None:
+                continue
+            calendar_events.append({
+                "title": event.get("title") or "Event",
+                "category": event.get("category") or "event",
+                "location": event.get("location") or "",
+                "description": event.get("description") or "",
+                "start": start_dt,
+                "end": end_dt,
+                "source": "event",
+            })
+
+        # Keep the currently configured meeting visible as a calendar item too.
+        configured_meeting = ws.load_meetings()
+        meeting_start = parse_calendar_datetime(configured_meeting.get("date_time"))
+        if meeting_start and configured_meeting.get("date_time") != "Noch nicht angesetzt" and configured_meeting.get("title"):
+            calendar_events.append({
+                "title": configured_meeting["title"], "category": "meeting", "location": "",
+                "description": "", "start": meeting_start, "end": meeting_start, "source": "meeting",
+            })
+
+        # Leave entries remain visible as all-day spans without altering the LOA data.
+        try:
+            for leave in ws.get_loas().values():
+                start_leave = parse_calendar_datetime(leave.get("von"))
+                end_leave = parse_calendar_datetime(leave.get("bis")) or start_leave
+                if start_leave and end_leave and end_leave.date() >= grid_start and start_leave.date() < grid_end:
+                    calendar_events.append({
+                        "title": (leave.get("name") or "Team-Abmeldung"),
+                        "category": "leave", "location": "", "description": "Hinterlegte Abmeldung",
+                        "start": start_leave.replace(hour=0, minute=0, second=0, microsecond=0),
+                        "end": end_leave.replace(hour=23, minute=59, second=0, microsecond=0),
+                        "source": "leave",
+                    })
+        except Exception:
+            pass
+
+        by_day = {}
+        for offset in range(42):
+            day = grid_start + timedelta(days=offset)
+            day_events = []
+            for event in calendar_events:
+                if event["start"].date() <= day <= event["end"].date():
+                    day_events.append(event)
+            day_events.sort(key=lambda item: (item["start"], item["title"].casefold()))
+            by_day[day.isoformat()] = day_events
+
+        month_names = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"]
+        month_label = f"{month_names[month_date.month - 1]} {month_date.year}"
+        previous_month = (first_day - timedelta(days=1)).strftime("%Y-%m")
+        next_month = (first_day + timedelta(days=32)).replace(day=1).strftime("%Y-%m")
+        today = ws.now_de().date()
+        weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+        weekday_html = "".join(f'<div class="cal-weekday">{name}</div>' for name in weekdays)
+        day_cells = []
+        event_icons = {"event": "📌", "meeting": "◫", "training": "🎓", "announcement": "📢", "leave": "☾"}
+        for offset in range(42):
+            day = grid_start + timedelta(days=offset)
+            day_key = day.isoformat()
+            outside = day.month != month_date.month
+            today_class = " cal-today" if day == today else ""
+            outside_class = " cal-outside" if outside else ""
+            chips = []
+            for event in by_day[day_key][:3]:
+                icon = event_icons.get(event["category"], "📌")
+                title = e(event["title"])
+                if event["source"] == "leave":
+                    time_label = "Abwesenheit"
+                elif event["start"].date() == event["end"].date():
+                    time_label = event["start"].strftime("%H:%M")
+                else:
+                    time_label = event["start"].strftime("%H:%M") if event["start"].date() == day else "Ganztägig"
+                location = f' · {e(event["location"])}' if event["location"] and day == event["start"].date() else ""
+                chips.append(
+                    f'<div class="cal-event cal-{e(event["category"])}" title="{title}: {e(event["description"])}{location}">'
+                    f'<span>{icon}</span><span class="cal-event-text">{title}</span>'
+                    f'<span class="cal-event-time">{e(time_label)}</span></div>'
+                )
+            more = f'<div class="cal-more">+{len(by_day[day_key]) - 3} weitere</div>' if len(by_day[day_key]) > 3 else ""
+            today_label = '<span class="cal-today-label">Heute</span>' if day == today else ""
+            day_cells.append(
+                f'<div class="cal-day{today_class}{outside_class}"><div class="cal-day-top"><span class="cal-day-number">{day.day}</span>'
+                f'{today_label}</div>{"".join(chips)}{more}</div>'
+            )
+
+        flash = str(request.query_params.get("msg") or "").strip()
+        flash_html = f'<div class="pulse-alert mb-4">{e(flash)}</div>' if flash else ""
+        create_form = f'''<form action="/calendar/create" method="post" class="space-y-3">
+          <input type="hidden" name="month" value="{e(month_value)}">
+          <label class="block text-xs font-semibold">Event-Titel<input name="title" required maxlength="120" class="pulse-input mt-1" placeholder="z. B. Teammeeting oder Schulung"></label>
+          <label class="block text-xs font-semibold">Beginn<input name="starts_at" type="datetime-local" required class="pulse-input mt-1"></label>
+          <label class="block text-xs font-semibold">Ende (optional)<input name="ends_at" type="datetime-local" class="pulse-input mt-1"></label>
+          <label class="block text-xs font-semibold">Art<select name="category" class="pulse-input mt-1"><option value="event">Allgemeines Event</option><option value="meeting">Meeting</option><option value="training">Schulung</option><option value="announcement">Ankündigung</option></select></label>
+          <label class="block text-xs font-semibold">Ort / Discord-Kanal (optional)<input name="location" maxlength="150" class="pulse-input mt-1" placeholder="z. B. Discord: Besprechungsraum"></label>
+          <label class="block text-xs font-semibold">Beschreibung (optional)<textarea name="description" maxlength="2000" class="pulse-input pulse-textarea mt-1" placeholder="Details zum Termin ..."></textarea></label>
+          <button class="pulse-btn primary w-full">＋ Event eintragen</button>
+        </form>'''
+        calendar_css = '''<style>
+        .calendar-shell{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px}
+        .calendar-main{min-width:0}.cal-weekdays,.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+        .cal-weekday{padding:10px 6px;text-align:center;font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase}
+        .cal-day{min-height:118px;min-width:0;padding:7px;border:1px solid var(--border);background:var(--surface);margin:-.5px;overflow:hidden}
+        .cal-day-top{display:flex;align-items:center;justify-content:space-between;gap:3px;margin-bottom:6px}
+        .cal-day-number{font-size:11px;font-weight:800}.cal-today{position:relative;background:color-mix(in srgb,var(--p) 7%,var(--surface));border-color:var(--p)}
+        .cal-today-label{font-size:8px;color:var(--p);font-weight:800}.cal-outside{opacity:.48;background:var(--surface2)}
+        .cal-event{display:flex;align-items:center;gap:3px;margin:3px 0;padding:4px 5px;border-radius:5px;font-size:9px;background:rgba(91,92,240,.10);color:var(--text);min-width:0}
+        .cal-event-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}.cal-event-time{font-size:8px;color:var(--muted)}
+        .cal-meeting{background:rgba(18,183,106,.13)}.cal-training{background:rgba(14,165,233,.13)}.cal-announcement{background:rgba(247,144,9,.14)}.cal-leave{background:rgba(148,163,184,.18)}
+        .cal-more{font-size:8px;color:var(--muted);padding:2px 4px}.cal-nav{display:flex;align-items:center;gap:7px}.cal-nav a{border:1px solid var(--border);background:var(--surface2);border-radius:9px;padding:7px 10px;font-size:12px;font-weight:800}
+        @media(max-width:1050px){.calendar-shell{grid-template-columns:1fr}.calendar-form{order:-1}}
+        @media(max-width:720px){.calendar-scroll{overflow-x:auto;padding-bottom:8px}.calendar-main{min-width:680px}.cal-day{min-height:94px;padding:5px}.cal-event{font-size:8px}}
+        </style>'''
+        body = (
+            calendar_css + flash_html
+            + f'<div class="pulse-topbar"><div><div class="pulse-section-title">▦ Team-Kalender</div>'
+              f'<div class="pulse-section-sub">Monatsübersicht für Events, Meetings und Abmeldungen.</div></div>'
+              f'<div class="cal-nav"><a href="/calendar?month={previous_month}" aria-label="Vorheriger Monat">‹</a>'
+              f'<strong>{e(month_label)}</strong><a href="/calendar?month={next_month}" aria-label="Nächster Monat">›</a>'
+              f'<a href="/calendar" title="Zum aktuellen Monat">Heute</a></div></div>'
+            + '<div class="calendar-shell"><section class="calendar-main">'
+            + '<div class="pulse-card p-3 calendar-scroll"><div class="cal-weekdays">' + weekday_html + '</div>'
+            + '<div class="cal-grid">' + "".join(day_cells) + '</div></div></section>'
+            + f'<aside class="pulse-card p-5 calendar-form"><div class="pulse-section-title mb-1">＋ Neues Event</div>'
+              f'<div class="pulse-section-sub mb-4">Termine werden im Pulse-Datenbestand gespeichert.</div>{create_form}</aside></div>'
+        )
         return render_pro_page(ws,'Kalender',c,'calendar',body)
+
+    async def create_calendar_event_v5(
+        request: Request,
+        title: str = Form(...),
+        starts_at: str = Form(...),
+        ends_at: str = Form(""),
+        category: str = Form("event"),
+        location: str = Form(""),
+        description: str = Form(""),
+        month: str = Form(""),
+        user_session: str = Cookie(None),
+    ):
+        c = cctx(request, user_session)
+        title = str(title or "").strip()
+        location = str(location or "").strip()
+        description = str(description or "").strip()
+        category = str(category or "event").strip().lower()
+        safe_month = month if len(month) == 7 and month[4:5] == "-" and month[:4].isdigit() and month[5:7].isdigit() else ws.now_de().strftime("%Y-%m")
+        if not title or len(title) > 120:
+            return ws.back(f"/calendar?month={safe_month}", "Bitte einen Titel mit maximal 120 Zeichen angeben.", False)
+        if category not in {"event", "meeting", "training", "announcement"}:
+            return ws.back(f"/calendar?month={safe_month}", "Diese Event-Art wird nicht unterstützt.", False)
+        if len(location) > 150 or len(description) > 2000:
+            return ws.back(f"/calendar?month={safe_month}", "Ort oder Beschreibung ist zu lang.", False)
+
+        def localize(raw):
+            parsed = datetime.fromisoformat(str(raw).strip())
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=ws.now_de().tzinfo)
+            return parsed.astimezone(timezone.utc)
+
+        try:
+            start_dt = localize(starts_at)
+            end_dt = localize(ends_at) if str(ends_at or "").strip() else None
+        except (TypeError, ValueError, OverflowError):
+            return ws.back(f"/calendar?month={safe_month}", "Bitte gültige Start- und Endzeitpunkte auswählen.", False)
+        if end_dt and end_dt <= start_dt:
+            return ws.back(f"/calendar?month={safe_month}", "Das Ende muss nach dem Beginn liegen.", False)
+        if end_dt and end_dt - start_dt > timedelta(days=366):
+            return ws.back(f"/calendar?month={safe_month}", "Events dürfen höchstens 366 Tage dauern.", False)
+
+        try:
+            db.create_calendar_event(
+                title, start_dt.isoformat(timespec="seconds"),
+                end_dt.isoformat(timespec="seconds") if end_dt else None,
+                category, location, description, c.user.get("id"),
+                c.user.get("global_name") or c.user.get("username") or "Team",
+            )
+        except Exception:
+            return ws.back(f"/calendar?month={safe_month}", "Event konnte nicht gespeichert werden. Bitte erneut versuchen.", False)
+        ws.log_audit(
+            c.user.get("global_name") or c.user.get("username") or "Team",
+            c.user.get("id"), "Kalender-Event erstellt",
+            f"{title} · Beginn {start_dt.isoformat(timespec='minutes')}",
+        )
+        return ws.back(f"/calendar?month={safe_month}", "Event wurde erfolgreich eingetragen.", True)
 
     async def search_v5(request: Request, q: str="", user_session: str=Cookie(None)):
         c=cctx(request,user_session); q=(q or '').strip().lower(); results=[]
@@ -1573,16 +1783,12 @@ def register(app):
                 if q in f'{m.display_name} {m.name} {m.id}'.lower(): results.append(('◌',m.display_name,'Teammitglied',f'/member/{m.id}'))
             for t in db.list_tickets(limit=1000):
                 if q in f'{t["id"]} {t["user_name"]} {t["category"]}'.lower(): results.append(('▣',t['id'],'Ticket', '/tickets'))
-            for t in db.list_tasks(limit=1000):
-                if q in f'{t["title"]} {t["description"]} {t.get("assignee_name") or ""}'.lower(): results.append(('□',t['title'],'Aufgabe','/tasks'))
             for x in db.announcements(300):
                 if q in f'{x["title"]} {x["content"]}'.lower(): results.append(('✦',x['title'],'Ankündigung','/announcements'))
-            for x in db.list_handovers(300,True):
-                if q in f'{x["title"]} {x["content"]}'.lower(): results.append(('↪',x['title'],'Übergabe','/handover'))
             for x in db.wiki_pages():
                 if q in f'{x["title"]} {x["category"]} {x["content"]}'.lower(): results.append(('▤',x['title'],'Wiki',f'/wiki/{x["id"]}'))
         rows=''.join(f'<a href="{e(r[3])}" class="pulse-row"><div class="pulse-avatar">{r[0]}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(r[1])}</div><div class="pulse-row-meta">{e(r[2])}</div></div></a>' for r in results[:100])
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⌕ Globale Suche</div><div class="pulse-section-sub">Mitglieder, Tickets, Aufgaben, Wiki, Ankündigungen und Übergaben.</div></div></div><form class="pulse-search mb-4" style="max-width:none"><span>⌕</span><input autofocus name="q" value="{e(q)}" placeholder="Name, Discord-ID, Ticket-ID, Stichwort…"><button class="pulse-btn primary">Suchen</button></form><div class="space-y-2">{rows or ('<div class="pulse-empty">Keine Treffer.</div>' if q else '<div class="pulse-empty">Suche nach einem Begriff.</div>')}</div>'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⌕ Globale Suche</div><div class="pulse-section-sub">Mitglieder, Tickets, Wiki und Ankündigungen.</div></div></div><form class="pulse-search mb-4" style="max-width:none"><span>⌕</span><input autofocus name="q" value="{e(q)}" placeholder="Name, Discord-ID, Ticket-ID, Stichwort…"><button class="pulse-btn primary">Suchen</button></form><div class="space-y-2">{rows or ('<div class="pulse-empty">Keine Treffer.</div>' if q else '<div class="pulse-empty">Suche nach einem Begriff.</div>')}</div>'''
         return render_pro_page(ws,'Suche',c,'search',body)
 
     # ---------------- Professional member profile ----------------
@@ -1726,7 +1932,7 @@ def register(app):
         <section class="pulse-hero"><div class="flex flex-col md:flex-row md:items-center gap-5"><img src="{avatar}" class="w-16 h-16 rounded-2xl border border-white/20" alt=""><div class="flex-1"><div class="pulse-kicker">Teamakte</div><div class="pulse-title">{e(target.display_name)}</div><div class="pulse-sub">{e(role)} · Discord ID {e(target.id)} · 🗓️ Team seit {e(ws.team_since_for(target, entry))}</div></div><div class="pulse-hero-box min-w-[220px]"><div class="label">WOCHENAKTIVITÄT</div><div class="value">{ws.fmt_duration(weekly)}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{min(100,round(weekly/(max(0.5,float(c.config.get('weekly_goal_hours',3)))*3600)*100))}%;background:white"></span></div></div></div></section>
         <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{len(active_warns)}/5</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Zurückgezogen</div><div class="value">{len(revoked_warns)}</div></div><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Schichten</div><div class="value">{len(hist)}</div></div><div class="pulse-stat"><div class="icon">🎫</div><div class="label">Tickets</div><div class="value">{len(tickets)}</div></div></div>
         {actions_html}
-        <div class="pulse-grid"><div class="space-y-4">{card("Aktive Verwarnungen",active_html or '<div class="pulse-empty">Keine aktiven Verwarnungen.</div>','⚠')}{card("Warn-Historie",revoked_html or '<div class="pulse-empty">Keine zurückgezogenen Warnungen.</div>','↩')}{card("Notizen",note_html or '<div class="pulse-empty">Keine Notizen.</div>','📝')}{card("Aktivität",event_html or '<div class="pulse-empty">Noch keine zentralen Events.</div>','↯')}</div><div class="space-y-4">{card("Warnrollen-Status",role_pills,'⚙')}{card("Aufgaben",task_html or '<div class="pulse-empty">Keine Aufgaben.</div>','□')}{card("Tickets",ticket_html or '<div class="pulse-empty">Keine Tickets.</div>','🎫')}{quick}</div></div>'''
+        <div class="pulse-grid"><div class="space-y-4">{card("Aktive Verwarnungen",active_html or '<div class="pulse-empty">Keine aktiven Verwarnungen.</div>','⚠')}{card("Warn-Historie",revoked_html or '<div class="pulse-empty">Keine zurückgezogenen Warnungen.</div>','↩')}{card("Notizen",note_html or '<div class="pulse-empty">Keine Notizen.</div>','📝')}{card("Aktivität",event_html or '<div class="pulse-empty">Noch keine zentralen Events.</div>','↯')}</div><div class="space-y-4">{card("Warnrollen-Status",role_pills,'⚙')}{card("Tickets",ticket_html or '<div class="pulse-empty">Keine Tickets.</div>','🎫')}{quick}</div></div>'''
         return render_pro_page(ws,f'Teamakte · {target.display_name}',c,'team',body)
 
 
@@ -2387,6 +2593,7 @@ def register(app):
     remove_and_add(app,'/tickets/update',{'POST'},ticket_update_v5)
     remove_and_add(app,'/stats',{'GET'},stats_v5,response_class=HTMLResponse)
     remove_and_add(app,'/calendar',{'GET'},calendar_v5,response_class=HTMLResponse)
+    app.post('/calendar/create')(create_calendar_event_v5)
     remove_and_add(app,'/search',{'GET'},search_v5,response_class=HTMLResponse)
     remove_and_add(app,'/settings',{'GET'},settings_v5,response_class=HTMLResponse)
     remove_and_add(app,'/health',{'GET'},api_health,response_class=JSONResponse)

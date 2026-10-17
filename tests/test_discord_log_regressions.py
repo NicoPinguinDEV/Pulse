@@ -60,6 +60,39 @@ class DiscordLogRegressionTests(unittest.TestCase):
         self.assertIn('if leave_status:', warning_method)
         self.assertIn('set_warn_action(check_id, uid, "on_leave")', warning_method)
 
+    def test_voice_support_staff_can_claim_while_off_duty(self):
+        source = read_source("cogs/voice_support.py")
+        eligibility = get_method(source, "_is_support_staff")
+        claim = get_method(source, "_assign_case_locked")
+        self.assertIn('cfg.get("support_role_id")', eligibility)
+        self.assertIn('cfg.get("duty_role_id")', eligibility)
+        self.assertNotIn('cfg.get("duty_mode")', eligibility)
+        self.assertIn("Nur Teamler mit Support- oder Bereitschaftsrolle", claim)
+        self.assertIn("Tritt zuerst einem normalen Sprachkanal bei", claim)
+
+    def test_requested_workflow_items_are_removed_from_normal_navigation(self):
+        source = read_source("pulse_pro.py")
+        sidebar = get_method(source, "patched_sidebar")
+        palette = get_method(source, "build_command_modal")
+        for path in ("/tasks", "/approvals", "/handover"):
+            self.assertNotIn(path, sidebar)
+            self.assertNotIn(path, palette)
+        self.assertIn('("calendar","/calendar","□","Kalender",True,False)', sidebar)
+
+    def test_calendar_is_a_month_grid_with_persistent_event_creation(self):
+        source = read_source("pulse_pro.py")
+        calendar_page = get_method(source, "calendar_v5")
+        event_route = get_method(source, "create_calendar_event_v5")
+        database = read_source("pulse_db.py")
+        self.assertIn("range(42)", calendar_page)
+        self.assertIn("cal-grid", calendar_page)
+        self.assertIn('name="starts_at" type="datetime-local"', calendar_page)
+        self.assertIn("db.list_calendar_events", calendar_page)
+        self.assertIn("db.create_calendar_event", event_route)
+        self.assertIn("Das Ende muss nach dem Beginn liegen", event_route)
+        self.assertIn("CREATE TABLE IF NOT EXISTS calendar_events", database)
+        self.assertIn("app.post('/calendar/create')(create_calendar_event_v5)", source)
+
     def test_abmeldung_preflights_nickname_permissions_and_suppresses_retries(self):
         source = read_source("cogs/abmeldung.py")
         helper = get_method(source, "_can_edit_member_nickname")
@@ -101,7 +134,7 @@ class DiscordLogRegressionTests(unittest.TestCase):
 
     def test_application_version_has_one_source_of_truth(self):
         version = read_source("pulse_version.py")
-        self.assertIn('PULSE_VERSION = "7.9.1"', version)
+        self.assertIn('PULSE_VERSION = "7.9.2"', version)
         self.assertIn("from pulse_version import PULSE_VERSION", read_source("webserver.py"))
         self.assertIn("from pulse_version import PULSE_VERSION", read_source("pulse_pro.py"))
 
