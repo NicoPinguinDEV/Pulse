@@ -3771,7 +3771,7 @@ def safe_log_return_to(value: str) -> str:
         prefix = base + "?player_history="
         if value.startswith(prefix):
             raw_query = value.split("player_history=", 1)[1].split("#", 1)[0].split("&", 1)[0]
-            if re.fullmatch(r"[A-Za-z0-9_%@.+-]{1,240}", raw_query):
+            if re.fullmatch(r"[A-Za-z0-9_%@._+-]{1,240}", raw_query):
                 return f"{prefix}{raw_query}" + ("#playerlog" if base == "/dashboard" else "")
     return "/dashboard"
 
