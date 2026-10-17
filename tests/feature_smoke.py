@@ -864,18 +864,30 @@ def main() -> None:
     assert 'target_voice_id=0' in buero
     assert "Die DM-Auswahl bleibt zusätzlich bestehen" in buero
 
-    # Support cases are counted per person between manually confirmed team-meeting boundaries.
+    # Voice-support cases and tickets are attributed to individual team members.
+    # Meeting-boundary counts remain available for the meeting history/legacy report.
     pulse_db_source = read("pulse_db.py")
     assert "def get_support_case_period_start()" in pulse_db_source
     assert "def support_case_counts(start_at=None, end_at=None)" in pulse_db_source
     assert "def finish_support_case_period(actor_id, actor_name)" in pulse_db_source
     assert "support_case_period_history" in pulse_db_source
+    assert "def record_voice_support_case(" in pulse_db_source
+    assert "CREATE TABLE IF NOT EXISTS voice_support_case_history" in pulse_db_source
+    assert "def voice_support_case_counts(start_at=None, guild_id=None)" in pulse_db_source
+    assert "def ticket_member_activity_counts(start_at=None, guild_id=None)" in pulse_db_source
     assert "support_counts = pulse_db.support_case_counts(support_period_start)" in web
-    assert '"support_cases": support_counts.get(str(member.id), 0)' in web
-    assert "🎧 {m['support_cases']} Supportfälle" in web
-    assert "Supportfälle seit Teammeeting" in web
+    assert '"voice_cases_completed": int(voice_support_counts.get(str(member.id), {}).get("completed", 0))' in web
+    assert '"ticket_cases_completed": int(ticket_counts.get(str(member.id), {}).get("completed", 0))' in web
+    assert "🎧 {m['voice_cases_completed']} erledigt · {m['voice_cases_active']} offen" in web
+    assert "🎫 {m['ticket_cases_completed']} erledigt · {m['ticket_cases_active']} offen" in web
     assert 'value="reset_support_case_period"' in web
     assert '"reset_support_case_period": "can_promote"' in web
+    assert 'name="custom_opening_audio_file"' in pro
+    assert 'name="custom_after_hours_audio_file"' in pro
+    assert 'name="remove_custom_opening_audio"' in pro
+    assert 'name="remove_custom_after_hours_audio"' in pro
+    assert 'custom_opening_audio_path' in pro and 'custom_after_hours_audio_path' in pro
+    assert 'valid_audio_signature(music_extension, waiting_music_data)' in pro
 
     # The native Pulse ticket flow provisions panels in the six specified channels,
     # logs opened/claimed tickets, and exposes the management page on the Pulse site.
