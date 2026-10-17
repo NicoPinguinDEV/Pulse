@@ -705,29 +705,45 @@ def voice_support_case_counts(start_at=None, guild_id=None):
 
 
 def ticket_member_activity_counts(start_at=None, guild_id=None):
-    """Return per-claimer closed tickets in the reporting period and currently open tickets."""
-    query = """
-        SELECT claimed_by_id AS user_id,
-               SUM(CASE WHEN status='closed' AND closed_at IS NOT NULL
-                         AND closed_at >= ? THEN 1 ELSE 0 END) AS completed,
-               SUM(CASE WHEN status != 'closed' THEN 1 ELSE 0 END) AS active
-        FROM tickets
-        WHERE claimed_by_id IS NOT NULL AND claimed_by_id != ''
+    """Return tickets closed by each team member in the reporting period and their current assignments."""
+    boundary = str(start_at or "0000-01-01T00:00:00+00:00")
+    completed_query = """
+        SELECT e.actor_id AS user_id, COUNT(*) AS completed
+        FROM ticket_events e
+        JOIN tickets t ON t.id = e.ticket_id
+        WHERE e.event_type = 'closed'
+          AND e.actor_id IS NOT NULL AND e.actor_id != ''
+          AND e.created_at >= ?
     """
-    params = [str(start_at or "0000-01-01T00:00:00+00:00")]
+    completed_params = [boundary]
+    active_query = """
+        SELECT claimed_by_id AS user_id, COUNT(*) AS active
+        FROM tickets
+        WHERE status != 'closed'
+          AND claimed_by_id IS NOT NULL AND claimed_by_id != ''
+    """
+    active_params = []
     if guild_id:
-        query += " AND guild_id = ?"
-        params.append(str(guild_id))
-    query += " GROUP BY claimed_by_id"
+        completed_query += " AND t.guild_id = ?"
+        completed_params.append(str(guild_id))
+        active_query += " AND guild_id = ?"
+        active_params.append(str(guild_id))
+    completed_query += " GROUP BY e.actor_id"
+    active_query += " GROUP BY claimed_by_id"
     with connect() as db:
-        rows = db.execute(query, params).fetchall()
-    return {
-        str(row["user_id"]): {
+        completed_rows = db.execute(completed_query, completed_params).fetchall()
+        active_rows = db.execute(active_query, active_params).fetchall()
+    counts = {}
+    for row in completed_rows:
+        counts[str(row["user_id"])] = {
             "completed": int(row["completed"] or 0),
-            "active": int(row["active"] or 0),
+            "active": 0,
         }
-        for row in rows
-    }
+    for row in active_rows:
+        key = str(row["user_id"])
+        counts.setdefault(key, {"completed": 0, "active": 0})
+        counts[key]["active"] = int(row["active"] or 0)
+    return counts
 
 
 def finish_support_case_period(actor_id, actor_name):
