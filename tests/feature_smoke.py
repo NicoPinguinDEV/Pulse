@@ -154,7 +154,12 @@ def main() -> None:
     assert "Start/Fortsetzen gibt die Bereitschaftsrolle" in pro
     assert "private_thread" in voice_support
     assert "ratings_enabled" in voice_support
-    assert "use_existing_channels" in voice_support
+    # Every caller waits in the configured shared room; no per-user voice rooms are created.
+    assert 'case_key = f"waiting:{member.id}"' in voice_support
+    assert "Bitte einen gültigen gemeinsamen Support-Warteraum einstellen." in voice_support
+    assert "await guild.create_voice_channel(" not in voice_support
+    assert 'waiting_in_shared_room": True' in voice_support
+    assert "latest.get(\"waiting_in_shared_room\")" in voice_support
     assert "hours_" in pro
     assert "SUPPORT_REPORT_CHANNEL_ID = 1531443370172485703" in voice_support
     assert "class SupportCaseView" in voice_support
@@ -435,7 +440,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.27"' in version_source
+    assert 'PULSE_VERSION = "7.8.28"' in version_source
     archive_source = read("cogs/announcement_archive.py")
     parse("cogs/announcement_archive.py")
     archive_utils = read("pulse_announcement_utils.py")
