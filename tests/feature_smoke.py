@@ -435,7 +435,17 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.8.26"' in version_source
+    assert 'PULSE_VERSION = "7.8.27"' in version_source
+    archive_source = read("cogs/announcement_archive.py")
+    parse("cogs/announcement_archive.py")
+    archive_utils = read("pulse_announcement_utils.py")
+    parse("pulse_announcement_utils.py")
+    assert 'name="ankuendigung"' in archive_source
+    assert 'name="suchen"' in archive_source
+    assert 'name="erklaeren"' in archive_source
+    assert 'name="wiederholen"' in archive_source
+    assert "score_announcement" in archive_utils
+    assert "build_announcement_explanation" in archive_utils
     assert "from pulse_version import PULSE_VERSION" in web
     # The user-facing settings route is the Pulse Pro v5 override, so the Zwischenrollen
     # builder and its save/delete handlers must live there (not only in legacy webserver.py).
