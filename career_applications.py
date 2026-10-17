@@ -700,7 +700,7 @@ def render_practical_tasks(career_path: str) -> str:
         )
 
     return (
-        '<div class="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-4 space-y-2">'
+        '<div data-apply-step="2" class="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-4 space-y-2">'
         '<p class="font-bold text-sm">Praxis-Modul · echte Entscheidungen statt nur Testkreuze</p>'
         '<p class="text-xs text-slate-500 dark:text-slate-400">Die Fallantworten werden nicht automatisch benotet. '
         'Sie werden zusammen mit deiner Bewerbung gespeichert und von der zuständigen Leitung anhand einer Prüfhilfe bewertet.</p>'
