@@ -803,6 +803,20 @@ class VoiceSupport(commands.Cog):
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
+    def _configured_audio_path(self, cfg: dict, key: str) -> Path | None:
+        """Resolve a configured audio file without relying on the browser-supplied filename."""
+        raw = str(cfg.get(key) or "").strip()
+        if not raw:
+            return None
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = Path(__file__).resolve().parents[1] / candidate
+        try:
+            candidate = candidate.resolve()
+            return candidate if candidate.is_file() and candidate.stat().st_size > 0 else None
+        except (OSError, RuntimeError):
+            return None
+
     def _after_hours_audio_path(self) -> Path | None:
         """Decode the bundled spoken notice once, keeping runtime audio outside the repo."""
         cached = Path(tempfile.gettempdir()) / "pulse_voice_support_after_hours_v1.mp3"
@@ -1228,7 +1242,12 @@ class VoiceSupport(commands.Cog):
             ):
                 continue
 
-            notice_path = self._after_hours_audio_path()
+            # Prefer the file uploaded in the Team Dashboard; keep the built-in
+            # German spoken notice as a safe fallback until a custom clip is set.
+            notice_path = (
+                self._configured_audio_path(cfg, "custom_after_hours_audio_path")
+                or self._after_hours_audio_path()
+            )
             if notice_path is None:
                 continue
 
@@ -1285,13 +1304,11 @@ class VoiceSupport(commands.Cog):
                 ):
                     await vc.disconnect(force=True)
 
-        # Optional waiting music remains unchanged when configured in the dashboard.
-        music_path = None
-        audio_value = str(cfg.get("waiting_music_path") or "")
-        if cfg.get("waiting_music_enabled") and audio_value:
-            candidate = Path(__file__).resolve().parents[1] / audio_value
-            if candidate.is_file():
-                music_path = candidate
+        # The Team Dashboard can provide its own in-hours waiting audio. It is
+        # replayed while a citizen is waiting and stops as soon as a supporter joins.
+        music_path = self._configured_audio_path(cfg, "custom_opening_audio_path")
+        if not music_path and cfg.get("waiting_music_enabled"):
+            music_path = self._configured_audio_path(cfg, "waiting_music_path")
         if not music_path:
             return
 
