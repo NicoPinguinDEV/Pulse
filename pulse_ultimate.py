@@ -115,7 +115,9 @@ async def runtime_memory_guard(bot) -> None:
     """
     global _RAM_GUARD_LEVEL, _RAM_LAST_TREND_ALERT_AT
     try:
-        rss = process_rss_mb()
+        # Bot-Hosting limits the whole container, not only the Python process.
+        # Include child processes such as ffmpeg when cgroup accounting is available.
+        rss = container_memory_mb()
         if rss is None:
             return
         now_mono = time.monotonic()
@@ -135,7 +137,7 @@ async def runtime_memory_guard(bot) -> None:
                 labels = {1: "WARNUNG", 2: "KRITISCH", 3: "NOTFALLRESERVE"}
                 message = (
                     f"⚠️ **Pulse RAM-Schutz – {labels[level]}**\n"
-                    f"Gemessener Prozess-RAM: **{rss:.1f} MB / 250 MB**. "
+                    f"Gemessener Container-RAM: **{rss:.1f} MB / 250 MB**. "
                     "Schwellen: 180 MB Warnung, 210 MB kritisch, 230 MB Notfallreserve."
                 )
                 if level >= 2:
@@ -231,6 +233,26 @@ def process_rss_mb() -> Optional[float]:
         return round((resident_pages * page_size) / (1024 * 1024), 1)
     except (OSError, ValueError, IndexError, AttributeError):
         return None
+
+
+def container_memory_mb() -> Optional[float]:
+    """Return container-wide memory in MiB when cgroup accounting is available.
+
+    Bot-Hosting's limit applies to the container, which may include ffmpeg or
+    other child processes that are not reflected in /proc/self/statm.
+    Fall back to the Python process RSS on hosts without readable cgroup files.
+    """
+    for raw_path in (
+        "/sys/fs/cgroup/memory.current",              # cgroup v2
+        "/sys/fs/cgroup/memory/memory.usage_in_bytes", # cgroup v1
+    ):
+        try:
+            value = int(Path(raw_path).read_text(encoding="ascii").strip())
+            if value > 0:
+                return round(value / (1024 * 1024), 1)
+        except (OSError, ValueError):
+            continue
+    return process_rss_mb()
 
 
 def process_peak_rss_mb() -> Optional[float]:
@@ -2101,9 +2123,10 @@ window.setInterval(loadPulseMonitor, 15000);
             "version": getattr(webserver, "PULSE_VERSION", "unknown"),
             "python": platform.python_version(),
             "process_rss_mb": process_rss_mb(),
+            "container_memory_mb": container_memory_mb(),
             "process_peak_rss_mb": process_peak_rss_mb(),
             "ram_guard": {
-                "level": memory_guard_level(process_rss_mb()),
+                "level": memory_guard_level(container_memory_mb()),
                 "warn_mb": RAM_WARN_MB,
                 "critical_mb": RAM_CRITICAL_MB,
                 "emergency_mb": RAM_EMERGENCY_MB,
