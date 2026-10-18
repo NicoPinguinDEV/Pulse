@@ -607,6 +607,12 @@ def main() -> None:
     # Team rank and bulk role-management regression checks.
     assert '"/team/{user_id}/roles"' in web
     assert "async def team_role_manager_save" in web
+    # Grouped role manager keeps the same form contract for the guarded save handler.
+    role_page = read("pulse_role_manager.py")
+    parse("pulse_role_manager.py")
+    assert "render_role_manager(esc, ctx, member, team_role_ids)" in web
+    assert 'name="add_role_ids"' in role_page and 'name="remove_role_ids"' in role_page
+    assert 'name="action_reason"' in role_page and 'action="/team/{member.id}/roles"' in role_page
     assert "Mehrfach-Rollenänderung" in web
     assert "⚙️ Team-Update: Rollenänderung" in web
     assert "⬆️ Befördern" in web

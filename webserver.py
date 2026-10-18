@@ -5871,61 +5871,12 @@ async def team_role_manager(request: Request, user_id: int, user_session: str = 
     if not ctx.perms.get("is_admin") and actor_idx <= target_idx:
         raise HTTPException(status_code=403, detail="Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.")
 
-    roles = sorted(
-        [r for r in guild.roles if not r.is_default() and not r.managed],
-        key=lambda r: -r.position,
+    # Grouped, searchable manager; posts the same fields to the unchanged save handler below.
+    from pulse_role_manager import ROLE_CSS, render_role_manager
+    return render_page(
+        f"Rollenverwaltung · {member.display_name}", ctx, "team",
+        render_role_manager(esc, ctx, member, team_role_ids), ROLE_CSS,
     )
-    bot_top = getattr(guild.me, "top_role", None)
-    cards = []
-    for role in roles:
-        current = role in member.roles
-        if role == guild.default_role:
-            continue
-        if bot_top and role.position >= bot_top.position:
-            state = '<span class="text-[10px] text-rose-500 font-semibold">Bot kann diese Rolle nicht verwalten</span>'
-            checkbox = ""
-        elif not ctx.perms.get("is_admin") and role.position >= ctx.member.top_role.position:
-            state = '<span class="text-[10px] text-amber-500 font-semibold">Über deiner Rolle</span>'
-            checkbox = ""
-        else:
-            state = '<span class="text-[10px] text-emerald-500 font-semibold">verwaltbar</span>'
-            checkbox = f'<input type="checkbox" name="add_role_ids" value="{role.id}" class="w-4 h-4" {"checked" if False else ""}>'
-        remove_checkbox = ""
-        if current and role not in team_role_ids and checkbox:
-            remove_checkbox = f'<input type="checkbox" name="remove_role_ids" value="{role.id}" class="w-4 h-4">'
-        elif current and role in team_role_ids and checkbox:
-            remove_checkbox = f'<input type="checkbox" name="remove_role_ids" value="{role.id}" class="w-4 h-4">'
-        cards.append(
-            f'<div class="{CARD} p-4 grid md:grid-cols-[1fr_auto_auto] gap-3 items-center">'
-            f'<div><div class="font-semibold text-sm">{esc(role.name)}</div>'
-            f'<div class="text-[10px] text-slate-400 font-mono">ID {role.id} · Position {role.position} · {"Aktiv" if current else "Nicht vergeben"}</div></div>'
-            f'<label class="text-xs flex items-center gap-2 text-emerald-600"><input type="checkbox" name="add_role_ids" value="{role.id}" {"disabled" if not checkbox else ""}> Hinzufügen</label>'
-            f'<label class="text-xs flex items-center gap-2 text-rose-600"><input type="checkbox" name="remove_role_ids" value="{role.id}" {"disabled" if not current or not checkbox else ""}> Entfernen</label>'
-            f'</div>'
-        )
-
-    body=f"""
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-        <div>
-            <div class="text-xs text-slate-400 mb-1">Team / Rollenverwaltung</div>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">⚙ Rollen verwalten</h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">{esc(member.display_name)} · Mehrere Rollen gleichzeitig hinzufügen oder entfernen.</p>
-        </div>
-        <a href="/team" class="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold">← Zur Teamliste</a>
-    </div>
-    <form action="/team/{member.id}/roles" method="post" onsubmit="return confirm('Die ausgewählten Rollenänderungen wirklich anwenden?');">
-        <div class="grid gap-3">{''.join(cards)}</div>
-        <div class="{CARD} p-5 mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div class="flex-1">
-                <div class="font-bold text-sm">Änderung ausführen</div>
-                <div class="text-[11px] text-slate-500 mb-2">Alle Änderungen werden gemeinsam durchgeführt und im Team-Updates-Kanal protokolliert.</div>
-                <input type="text" name="action_reason" maxlength="500" placeholder="Pflichtangabe: Grund für die Rollenänderung..." required class="{INPUT}">
-            </div>
-            <button class="{BTN} px-5 py-2.5 text-xs whitespace-nowrap">💾 Rollen ändern</button>
-        </div>
-    </form>
-    """
-    return render_page(f"Rollenverwaltung · {member.display_name}", ctx, "team", body)
 
 
 @app.post("/team/{user_id}/roles")
