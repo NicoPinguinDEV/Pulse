@@ -1215,6 +1215,25 @@ def main() -> None:
     assert "_pulse_startup_report_sent" in pro_cog
     assert "self.pulse_failed_cogs.append(" in read("main.py")
 
+    # Ticket-Panel-Builder v2: images, live preview, per-category welcome + forms, automation.
+    builder = read("pulse_ticket_builder.py")
+    parse("pulse_ticket_builder.py")
+    parse("pulse_ticket_design.py")
+    assert "from pulse_ticket_builder import render_ticket_builder" in web
+    assert 'enctype="multipart/form-data"' in builder and 'name="builder_v2"' in builder
+    assert 'action="/tickets/panels/save"' in builder and 'action="/tickets/panels/publish"' in builder
+    assert 'action="/tickets/categories/save"' in builder and 'action="/tickets/automation"' in builder
+    assert "Erstelle mehrere unabhängige Ticket-Panels" in builder
+    assert "async def _store_ticket_panel_image(" in web and "detect_image_type(data)" in web
+    assert '@app.get("/tickets/panels/media/{filename}")' in web
+    assert "auth(request, user_session, admin=True)" in web.split('async def pulse_ticket_panel_media(')[1][:200]
+    assert "uploads/ticket_panels/" in read(".gitignore")
+    assert "def panel_files(panel" in tickets and "attachments=files" in tickets
+    assert "class TicketQuestionModal(Modal)" in tickets and "send_modal(TicketQuestionModal(" in tickets
+    assert 'custom_id="pulse_ticket_remind"' in tickets
+    assert "async def run_automation(self)" in tickets and "await self._edit_if_changed(" in tickets
+    assert '_ensure_column(db, "tickets", "automation_state"' in read("pulse_db.py")
+
     print("Pulse feature smoke test: OK")
 
 

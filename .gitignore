@@ -36,6 +36,7 @@ role_nickname_state.json
 backups/
 transcripts/
 uploads/voice_support_audio/
+uploads/ticket_panels/
 
 # Local tooling
 .vscode/

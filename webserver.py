@@ -4253,6 +4253,10 @@ async def pulse_tickets_dashboard(request: Request, user_session: str = Cookie(N
             status_code=403,
             headers={"Cache-Control": "no-store"},
         )
+    if request.url.path == "/tickets/panels":
+        # Visual builder (live Discord preview, images, welcome texts, forms, automation).
+        from pulse_ticket_builder import render_ticket_builder
+        return render_ticket_builder(request, ctx)
     guild = ctx.guild
     settings = pulse_ticket_config()
     category_registry = pulse_ticket_category_registry()
@@ -4718,6 +4722,21 @@ async def pulse_ticket_panel_save(
     footer: str = Form("Pulse Ticket-System"),
     panel_id: str = Form(""),
     category_keys: list[str] = Form(default=[]),
+    thumbnail_url: str = Form(""),
+    banner_url: str = Form(""),
+    use_server_icon: bool = Form(False),
+    show_load: bool = Form(False),
+    list_categories: bool = Form(False),
+    component_style: str = Form("select"),
+    placeholder: str = Form(""),
+    welcome_title: str = Form(""),
+    welcome_message: str = Form(""),
+    ping_roles: bool = Form(False),
+    remove_thumbnail: bool = Form(False),
+    remove_banner: bool = Form(False),
+    builder_v2: bool = Form(False),
+    thumbnail_upload: UploadFile | None = File(None),
+    banner_upload: UploadFile | None = File(None),
     user_session: str = Cookie(None),
 ):
     ctx = auth(request, user_session, admin=True)
@@ -4777,9 +4796,128 @@ async def pulse_ticket_panel_save(
         "footer": cleaned_footer or "Pulse Ticket-System",
         "category_keys": valid_keys,
     })
+    if builder_v2:
+        # Fields of the visual builder; older forms without them keep the stored values.
+        from pulse_ticket_design import normalize_panel
+        candidate = normalize_panel({
+            **existing,
+            "thumbnail_url": thumbnail_url, "banner_url": banner_url,
+            "use_server_icon": use_server_icon, "show_load": show_load,
+            "component_style": component_style, "placeholder": placeholder,
+            "welcome_title": str(welcome_title).strip()[:256],
+            "welcome_message": str(welcome_message).strip()[:3500],
+            "ping_roles": ping_roles,
+        })
+        if thumbnail_url.strip() and not candidate["thumbnail_url"]:
+            return back(f"/tickets/panels?panel={cleaned_panel_id}", "Die Thumbnail-URL muss mit https:// beginnen.", False)
+        if banner_url.strip() and not candidate["banner_url"]:
+            return back(f"/tickets/panels?panel={cleaned_panel_id}", "Die Banner-URL muss mit https:// beginnen.", False)
+        for key in ("thumbnail_url", "banner_url", "use_server_icon", "show_load", "component_style",
+                    "placeholder", "welcome_title", "welcome_message", "ping_roles"):
+            existing[key] = candidate[key]
+        existing["list_categories"] = bool(list_categories)
+        for kind, upload, remove in (("thumbnail", thumbnail_upload, remove_thumbnail), ("banner", banner_upload, remove_banner)):
+            file_key = f"{kind}_file"
+            if remove and existing.get(file_key):
+                _remove_ticket_panel_image(existing.get(file_key), cleaned_panel_id)
+                existing[file_key] = ""
+            if upload is not None and upload.filename:
+                stored, error = await _store_ticket_panel_image(upload, cleaned_panel_id, kind)
+                if error:
+                    return back(f"/tickets/panels?panel={cleaned_panel_id}", error, False)
+                if existing.get(file_key):
+                    _remove_ticket_panel_image(existing.get(file_key), cleaned_panel_id)
+                existing[file_key] = stored
     settings["ticket_panels"] = panels
     pulse_db.set_setting("ticket_system_config", settings)
-    return back("/tickets/panels", f"Panel „{cleaned_name}“ wurde gespeichert. Klicke auf „Panel veröffentlichen / aktualisieren“, um es in Discord anzuzeigen.", True)
+    target = f"/tickets/panels?panel={cleaned_panel_id}" if builder_v2 else "/tickets/panels"
+    return back(target, f"Panel „{cleaned_name}“ wurde gespeichert. Klicke auf „Panel veröffentlichen / aktualisieren“, um es in Discord anzuzeigen.", True)
+
+
+TICKET_PANEL_IMAGE_DIR = BASE_DIR / "uploads" / "ticket_panels"
+
+
+async def _store_ticket_panel_image(upload: UploadFile, panel_id: str, kind: str):
+    """Validate (signature + size) and store an uploaded panel image; returns (filename, error)."""
+    from pulse_ticket_design import MAX_PANEL_IMAGE_BYTES, detect_image_type
+    try:
+        data = await upload.read(MAX_PANEL_IMAGE_BYTES + 1)
+    finally:
+        await upload.close()
+    if len(data) > MAX_PANEL_IMAGE_BYTES:
+        return "", f"Das Bild ist zu groß (maximal {MAX_PANEL_IMAGE_BYTES // (1024 * 1024)} MB)."
+    ext = detect_image_type(data)
+    if not ext:
+        return "", "Nur PNG-, JPG-, GIF- oder WEBP-Bilder sind erlaubt."
+    safe_pid = re.sub(r"[^A-Za-z0-9_-]", "", panel_id)[:40] or "panel"
+    name = f"{safe_pid}_{kind}_{secrets.token_hex(4)}.{ext}"
+    TICKET_PANEL_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    (TICKET_PANEL_IMAGE_DIR / name).write_bytes(data)
+    return name, ""
+
+
+def _remove_ticket_panel_image(filename: str, panel_id: str):
+    """Delete only images this panel owns inside the panel image folder."""
+    safe_pid = re.sub(r"[^A-Za-z0-9_-]", "", str(panel_id))[:40] or "panel"
+    name = os.path.basename(str(filename or ""))
+    if not name.startswith(safe_pid + "_"):
+        return
+    path = (TICKET_PANEL_IMAGE_DIR / name).resolve()
+    if path.parent == TICKET_PANEL_IMAGE_DIR.resolve() and path.is_file():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+@app.get("/tickets/panels/media/{filename}")
+async def pulse_ticket_panel_media(request: Request, filename: str, user_session: str = Cookie(None)):
+    auth(request, user_session, admin=True)
+    name = os.path.basename(filename)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}\.(png|jpg|gif|webp)", name):
+        raise HTTPException(status_code=404, detail="Bild nicht gefunden.")
+    path = (TICKET_PANEL_IMAGE_DIR / name).resolve()
+    if path.parent != TICKET_PANEL_IMAGE_DIR.resolve() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Bild nicht gefunden.")
+    return FileResponse(path=str(path), headers={"Cache-Control": "private, max-age=300"})
+
+
+@app.post("/tickets/panels/duplicate")
+async def pulse_ticket_panel_duplicate(request: Request, panel_id: str = Form(...), user_session: str = Cookie(None)):
+    auth(request, user_session, admin=True)
+    settings = pulse_ticket_config()
+    panels = [p for p in settings.get("ticket_panels", []) if isinstance(p, dict)] if isinstance(settings.get("ticket_panels"), list) else []
+    source = next((p for p in panels if str(p.get("id") or "") == str(panel_id)), None)
+    if source is None:
+        return back("/tickets/panels", "Panel wurde nicht gefunden.", False)
+    copy = {k: v for k, v in source.items() if k not in {"message_id", "published_channel_id", "thumbnail_file", "banner_file"}}
+    copy["id"] = "panel_" + secrets.token_hex(6)
+    copy["name"] = (str(source.get("name") or "Panel") + " (Kopie)")[:80]
+    copy["created_at"] = datetime.utcnow().isoformat(timespec="seconds")
+    panels.append(copy)
+    settings["ticket_panels"] = panels
+    pulse_db.set_setting("ticket_system_config", settings)
+    return back(f"/tickets/panels?panel={copy['id']}", "Panel dupliziert. Hochgeladene Bilder bitte neu wählen.", True)
+
+
+@app.post("/tickets/automation")
+async def pulse_ticket_automation_save(
+    request: Request,
+    unclaimed_ping_minutes: int = Form(0),
+    staff_reply_hours: int = Form(0),
+    user_reminder_hours: int = Form(0),
+    auto_close_hours: int = Form(0),
+    user_session: str = Cookie(None),
+):
+    auth(request, user_session, admin=True)
+    from pulse_ticket_design import automation_settings
+    settings = pulse_ticket_config()
+    settings["automation"] = automation_settings({
+        "unclaimed_ping_minutes": unclaimed_ping_minutes, "staff_reply_hours": staff_reply_hours,
+        "user_reminder_hours": user_reminder_hours, "auto_close_hours": auto_close_hours,
+    })
+    pulse_db.set_setting("ticket_system_config", settings)
+    return back("/tickets/panels?tab=automation", "Ticket-Automatik gespeichert.", True)
 
 
 @app.post("/tickets/panels/publish")
@@ -4850,9 +4988,28 @@ async def pulse_ticket_category_save(
     group: str = Form("team"),
     category_id: str = Form(""),
     role_ids: list[str] = Form(default=[]),
+    welcome_title: str = Form(""),
+    button_style: str = Form("primary"),
+    builder_v2: bool = Form(False),
+    return_to: str = Form(""),
     user_session: str = Cookie(None),
 ):
     ctx = auth(request, user_session, admin=True)
+    if builder_v2:
+        # Questions arrive as q_label_1..5 (+placeholder/required/long) from the visual builder.
+        form = await request.form()
+        from pulse_ticket_design import BUTTON_STYLES, clean_questions
+        questions = clean_questions([
+            {
+                "label": form.get(f"q_label_{i}", ""),
+                "placeholder": form.get(f"q_placeholder_{i}", ""),
+                "required": bool(form.get(f"q_required_{i}")),
+                "long": bool(form.get(f"q_long_{i}")),
+            }
+            for i in range(1, 6)
+        ])
+        if button_style not in BUTTON_STYLES:
+            button_style = "primary"
     cleaned_name = str(name).strip()[:80]
     cleaned_prefix = str(prefix).strip().lower()
     cleaned_emoji = str(emoji).strip()[:100] or "🎫"
@@ -4914,6 +5071,18 @@ async def pulse_ticket_category_save(
         "opening_message": cleaned_opening,
         "active": True,
     }
+    previous = next((item for item in definitions if str(item.get("id") or "") == key), {})
+    if builder_v2:
+        category_value.update({
+            "welcome_title": str(welcome_title).strip()[:256],
+            "questions": questions,
+            "button_style": button_style,
+        })
+    else:
+        # Older forms don't send these fields; keep what the visual builder stored.
+        for extra in ("welcome_title", "questions", "button_style"):
+            if extra in previous:
+                category_value[extra] = previous[extra]
     replaced = False
     for index, item in enumerate(definitions):
         if str(item.get("id") or "") == key:
@@ -4924,7 +5093,8 @@ async def pulse_ticket_category_save(
         definitions.append(category_value)
     settings["ticket_categories"] = definitions
     pulse_db.set_setting("ticket_system_config", settings)
-    return back("/tickets/panels", f"Kategorie „{cleaned_name}“ wurde gespeichert und steht im Panel-Builder zur Auswahl.", True)
+    target = return_to if re.fullmatch(r"/tickets/panels(\?[A-Za-z0-9_=&-]{0,120})?", str(return_to or "")) else "/tickets/panels"
+    return back(target, f"Kategorie „{cleaned_name}“ wurde gespeichert und steht im Panel-Builder zur Auswahl.", True)
 
 
 @app.post("/tickets/categories/delete")

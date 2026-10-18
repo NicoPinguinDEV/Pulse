@@ -349,6 +349,11 @@ def init_db():
         _ensure_column(db, "tasks", "archived_at", "TEXT")
         _ensure_column(db, "tickets", "closed_by_id", "TEXT")
         _ensure_column(db, "tickets", "closed_by_name", "TEXT")
+        # Ticket automation (reminders/auto-close); nullable so existing rows stay valid.
+        _ensure_column(db, "tickets", "last_user_message_at", "TEXT")
+        _ensure_column(db, "tickets", "last_staff_message_at", "TEXT")
+        _ensure_column(db, "tickets", "automation_state", "TEXT DEFAULT '{}'")
+        _ensure_column(db, "tickets", "panel_id", "TEXT")
         _ensure_column(db, "promotion_requests", "requested_role_id", "TEXT")
         _ensure_column(db, "promotion_requests", "current_role_id", "TEXT")
         db.execute("CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(user_id, dedupe_key, created_at)")
@@ -495,6 +500,27 @@ def create_ticket(channel_id, guild_id, user_id, user_name, category, priority="
         )
         db.execute("INSERT INTO ticket_events VALUES (?,?,?,?,?,?,?)", (make_id("te"), tid, str(user_id), user_name, "opened", category, now))
         return tid
+
+
+def touch_ticket_activity(channel_id, kind: str):
+    """Record the latest creator ('user') or team ('staff') message in an open ticket."""
+    column = "last_user_message_at" if kind == "user" else "last_staff_message_at"
+    with connect() as db:
+        cur = db.execute(
+            f"UPDATE tickets SET {column}=? WHERE channel_id=? AND status!='closed'",
+            (_now(), str(channel_id)),
+        )
+        return bool(cur.rowcount)
+
+
+def set_ticket_automation_state(tid, state: dict):
+    with connect() as db:
+        db.execute("UPDATE tickets SET automation_state=? WHERE id=?", (json.dumps(state or {}, ensure_ascii=False), tid))
+
+
+def set_ticket_panel(tid, panel_id):
+    with connect() as db:
+        db.execute("UPDATE tickets SET panel_id=? WHERE id=?", (str(panel_id) if panel_id else None, tid))
 
 
 def get_ticket(ticket_id=None, channel_id=None):

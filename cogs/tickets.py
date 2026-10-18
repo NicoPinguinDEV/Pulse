@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
@@ -20,6 +21,20 @@ from pulse_db import (
     update_ticket_priority,
     get_setting,
     set_setting,
+    set_ticket_automation_state,
+    set_ticket_panel,
+    touch_ticket_activity,
+)
+from pulse_ticket_design import (
+    PANEL_IMAGE_DIR,
+    automation_actions,
+    automation_settings,
+    clean_questions,
+    load_state,
+    normalize_panel,
+    panel_signature,
+    render_placeholders,
+    welcome_texts,
 )
 
 os.makedirs("transcripts", exist_ok=True)
@@ -203,33 +218,69 @@ def can_manage_ticket(member, ticket) -> bool:
     return any(role.id in {r.id for r in category_roles(member.guild, key)} for role in member.roles)
 
 
-def build_panel_embed(guild, panel_config: dict | None = None) -> discord.Embed:
+def panel_image_path(filename: str) -> str | None:
+    """Absolute path of an uploaded panel image, or None if missing/unsafe."""
+    name = os.path.basename(str(filename or ""))
+    if not name or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}\.(png|jpg|gif|webp)", name):
+        return None
+    path = os.path.join(PANEL_IMAGE_DIR, name)
+    return path if os.path.isfile(path) else None
+
+
+def panel_files(panel: dict) -> list[discord.File]:
+    """Uploaded thumbnail/banner as message attachments (Discord needs no public URL then)."""
+    files = []
+    for key in ("thumbnail_file", "banner_file"):
+        path = panel_image_path(panel.get(key))
+        if path:
+            files.append(discord.File(path, filename=os.path.basename(path)))
+    return files
+
+
+def build_panel_embed(guild, panel_config: dict | None = None, image_urls: dict | None = None) -> discord.Embed:
     if isinstance(panel_config, dict):
-        panel_title = str(panel_config.get("title") or panel_config.get("name") or "Ticket-Support").strip()[:256]
-        panel_description = str(panel_config.get("description") or "Wähle unten eine passende Kategorie, um ein Ticket zu eröffnen.").strip()[:4000]
-        raw_color = str(panel_config.get("color") or "#5865F2").strip().lstrip("#")
+        panel = normalize_panel(panel_config)
+        panel_title = str(panel.get("title") or panel.get("name") or "Ticket-Support").strip()[:256]
+        panel_description = str(panel.get("description") or "Wähle unten eine passende Kategorie, um ein Ticket zu eröffnen.").strip()[:4000]
         try:
-            embed_color = discord.Color(int(raw_color[:6], 16))
+            embed_color = discord.Color(int(panel["color"].lstrip("#"), 16))
         except (TypeError, ValueError):
             embed_color = discord.Color.blurple()
         embed = discord.Embed(title=panel_title, description=panel_description, color=embed_color)
         definitions = ticket_category_definitions()
-        keys = panel_config.get("category_keys", [])
-        if not isinstance(keys, list):
-            keys = []
         lines = []
-        for key in keys[:25]:
+        for key in panel["category_keys"][:25]:
             definition = definitions.get(str(key))
             if not definition or not definition.get("active", True):
                 continue
-            name, _, emoji, _, _ = category_meta(str(key))
-            lines.append(f"{emoji} **{name}**")
+            name, _, emoji, maximum, _ = category_meta(str(key))
+            if panel.get("show_load"):
+                current = category_open_count(str(key))
+                load = f" · `{current}/{maximum}` offen" if maximum else f" · `{current}` offen"
+                lines.append(f"{emoji} **{name}**{load}")
+            elif panel_config.get("list_categories", True):
+                lines.append(f"{emoji} **{name}**")
         if lines:
-            embed.add_field(name="📂 Verfügbare Kategorien", value="\n".join(lines)[:1024], inline=False)
-        embed.set_footer(text=str(panel_config.get("footer") or "Pulse Ticket-System")[:2048])
+            title = "📊 Aktuelle Auslastung" if panel.get("show_load") else "📂 Verfügbare Kategorien"
+            embed.add_field(name=title, value="\n".join(lines)[:1024], inline=False)
+        embed.set_footer(text=str(panel.get("footer") or "Pulse Ticket-System")[:2048])
         embed.timestamp = discord.utils.utcnow()
-        if guild.icon:
-            embed.set_thumbnail(url=guild.icon.url)
+        # Images: freshly fetched message URLs (refresh) > uploaded file > external URL > server icon.
+        image_urls = image_urls or {}
+        thumb_file = panel_image_path(panel.get("thumbnail_file"))
+        banner_file = panel_image_path(panel.get("banner_file"))
+        thumbnail = image_urls.get("thumbnail") or (
+            f"attachment://{os.path.basename(thumb_file)}" if thumb_file else panel.get("thumbnail_url")
+        )
+        if not thumbnail and panel.get("use_server_icon") and guild.icon:
+            thumbnail = guild.icon.url
+        if thumbnail:
+            embed.set_thumbnail(url=thumbnail)
+        banner = image_urls.get("image") or (
+            f"attachment://{os.path.basename(banner_file)}" if banner_file else panel.get("banner_url")
+        )
+        if banner:
+            embed.set_image(url=banner)
         return embed
 
     lines = [
@@ -393,44 +444,300 @@ class TicketCloseModal(Modal, title="Ticket schließen"):
         if not ticket or ticket.get("status") == "closed":
             await interaction.response.send_message("Das Ticket ist bereits geschlossen.", ephemeral=True)
             return
-        channel = interaction.channel
         await interaction.response.send_message("🔒 Ticket wird archiviert …", ephemeral=True)
-        path = ""
-        try:
-            text = await transcript(channel)
-            local_name = f"{ticket['id']}.txt"
-            local_path = os.path.join("transcripts", local_name)
-            with open(local_path, "w", encoding="utf-8") as f:
-                f.write(text)
-            path = local_name
-            # Keep the transcript in the channel shortly so the team can verify it exists.
-            try:
-                await channel.send(file=discord.File(local_path, filename=local_name))
-            except Exception:
-                pass
-        except Exception as exc:
-            print(f"Transcript konnte nicht gespeichert werden: {exc}")
         reason = str(self.reason.value).strip()[:500]
-        if not close_ticket(ticket["id"], reason, path, self.actor.id, self.actor.display_name):
+        await archive_ticket(interaction.channel, ticket, self.actor.id, self.actor.display_name, reason)
+
+
+async def send_user_reminder(channel, ticket: dict, member, by: str | None = None, auto_close_hours: int = 0):
+    """Remind the creator in the ticket and by DM; DMs may be closed, which is fine."""
+    note = f"\nOhne Rückmeldung wird das Ticket in **{auto_close_hours} h** automatisch geschlossen." if auto_close_hours else ""
+    source = f" ({by})" if by else ""
+    try:
+        await channel.send(
+            f"🔔 {member.mention}, das Team wartet auf deine Rückmeldung{source}.{note}",
+            allowed_mentions=discord.AllowedMentions(users=[member], roles=False, everyone=False),
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+    try:
+        await member.send(
+            f"🔔 Erinnerung: In deinem Ticket `{ticket['id']}` auf **{channel.guild.name}** wartet das Team auf deine Antwort: {channel.mention}{note}"
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+
+async def archive_ticket(channel, ticket: dict, actor_id, actor_name: str, reason: str) -> bool:
+    """Save the transcript, close the ticket record, inform the creator and delete the channel."""
+    path = ""
+    try:
+        text = await transcript(channel)
+        local_name = f"{ticket['id']}.txt"
+        local_path = os.path.join("transcripts", local_name)
+        with open(local_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        path = local_name
+        # Keep the transcript in the channel shortly so the team can verify it exists.
+        try:
+            await channel.send(file=discord.File(local_path, filename=local_name))
+        except Exception:
+            pass
+    except Exception as exc:
+        print(f"Transcript konnte nicht gespeichert werden: {exc}")
+    if not close_ticket(ticket["id"], reason, path, actor_id, actor_name):
+        return False
+    record_event("ticket_closed", "ticket", ticket["id"], actor_id, actor_name, {"reason": reason})
+    try:
+        member = channel.guild.get_member(int(ticket["user_id"]))
+        if member:
+            dm = discord.Embed(title="🎫 Dein Ticket wurde geschlossen", color=discord.Color.blurple())
+            dm.description = f"Ticket `{ticket['id']}` wurde von **{actor_name}** geschlossen.\n\n**Grund:** {reason}"
+            await member.send(embed=dm)
+    except Exception:
+        pass
+    await asyncio.sleep(1)
+    try:
+        await channel.delete(reason=f"Pulse Ticket geschlossen von {actor_name}")
+    except Exception:
+        pass
+    return True
+
+
+def datetime_marker(value) -> str:
+    """Normalise a stored timestamp the same way automation_actions compares it."""
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return str(value or "")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+def find_panel(panel_id) -> dict | None:
+    if not panel_id:
+        return None
+    panels = ticket_config().get("ticket_panels", [])
+    for panel in panels if isinstance(panels, list) else []:
+        if isinstance(panel, dict) and str(panel.get("id")) == str(panel_id):
+            return normalize_panel(panel)
+    return None
+
+
+def _safe_component_id(value) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]", "", str(value))[:40] or "custom"
+
+
+async def start_ticket_flow(interaction: discord.Interaction, key: str, panel_id: str | None = None):
+    """Validate the request, show the category form if configured, then open the ticket."""
+    guild = interaction.guild
+    if not guild:
+        await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
+        return
+    if key == "__not_configured__":
+        await interaction.response.send_message("Dieses Panel ist noch nicht eingerichtet. Bitte melde dich beim Serverteam.", ephemeral=True)
+        return
+    definitions = ticket_category_definitions()
+    category_definition = definitions.get(key)
+    if not category_definition or not category_definition.get("active", True):
+        await interaction.response.send_message("Diese Kategorie ist nicht mehr verfügbar. Bitte wähle eine andere.", ephemeral=True)
+        return
+    label = category_meta(key)[0]
+
+    existing = None
+    for ticket in list_tickets(limit=2000):
+        if (
+            str(ticket.get("guild_id")) == str(guild.id)
+            and str(ticket.get("user_id")) == str(interaction.user.id)
+            and ticket.get("status") != "closed"
+        ):
+            existing = ticket
+            break
+    if existing:
+        channel = guild.get_channel(int(existing["channel_id"])) if existing.get("channel_id") else None
+        if channel:
+            await interaction.response.send_message(f"🎫 Du hast bereits ein offenes Ticket: {channel.mention}", ephemeral=True)
             return
-        record_event("ticket_closed", "ticket", ticket["id"], self.actor.id, self.actor.display_name, {"reason": reason})
+        close_ticket(existing["id"], "Verwaistes Ticket automatisch archiviert.", "", interaction.user.id, interaction.user.display_name)
+
+    if not category_roles(guild, key):
+        await interaction.response.send_message(
+            f"⚠️ **{label}** ist noch nicht vollständig eingerichtet. Weise dieser Kategorie zuerst mindestens eine gültige zuständige Rolle zu.",
+            ephemeral=True,
+        )
+        return
+
+    questions = clean_questions(category_definition.get("questions"))
+    if questions:
+        # A modal must be the first response, so it is shown before any defer.
+        await interaction.response.send_modal(TicketQuestionModal(key, panel_id, questions, label))
+        return
+    # Channel creation and log delivery may exceed Discord's initial response window.
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    await create_ticket_channel(interaction, key, panel_id, [])
+
+
+async def create_ticket_channel(interaction: discord.Interaction, key: str, panel_id: str | None, answers: list):
+    guild = interaction.guild
+    label, desc, emoji, maximum, group = category_meta(key)
+    category_definition = ticket_category_definitions().get(key, {})
+    panel = find_panel(panel_id) or {}
+    roles = category_roles(guild, key)
+    parent_id = category_definition.get("parent_category_id")
+    parent = None
+    try:
+        candidate = guild.get_channel(int(parent_id)) if parent_id else None
+        if isinstance(candidate, discord.CategoryChannel):
+            parent = candidate
+    except (TypeError, ValueError):
+        parent = None
+    if parent is None:
+        parent = discord.utils.get(guild.categories, name=TICKET_PARENT_NAME)
+    if not parent:
+        parent = await guild.create_category(TICKET_PARENT_NAME, reason="Pulse Ticket-System")
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            attach_files=True,
+            embed_links=True,
+        ),
+        guild.me: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            manage_channels=True,
+            manage_messages=True,
+            manage_permissions=True,
+            attach_files=True,
+            embed_links=True,
+        ),
+    }
+
+    for role in roles:
+        overwrites[role] = discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            manage_messages=True,
+            attach_files=True,
+            embed_links=True,
+        )
+
+    channel_prefix = str(category_definition.get("prefix") or key)
+    channel = await guild.create_text_channel(
+        f"ticket-{safe_channel_name(channel_prefix)}-{safe_channel_name(interaction.user.display_name)}",
+        category=parent,
+        overwrites=overwrites,
+        topic=f"Pulse Ticket | user:{interaction.user.id} | category:{key}",
+        reason=f"Pulse Ticket erstellt von {interaction.user}",
+    )
+    tid = create_ticket(channel.id, guild.id, interaction.user.id, interaction.user.display_name, key)
+    if panel_id:
+        set_ticket_panel(tid, panel_id)
+    cog = interaction.client.get_cog("Tickets")
+    if cog is not None:
+        cog.ticket_channel_ids.add(channel.id)
+
+    # Welcome: category text > panel default > Pulse default, with placeholders.
+    welcome_title, welcome_message = welcome_texts(panel, category_definition)
+    variables = dict(
+        user_mention=interaction.user.mention, user_name=interaction.user.display_name,
+        server=guild.name, category=label, ticket_id=tid,
+    )
+    try:
+        color = discord.Color(int(str(panel.get("color") or "#5865F2").lstrip("#"), 16))
+    except (TypeError, ValueError):
+        color = discord.Color.blurple()
+    embed = discord.Embed(
+        title=render_placeholders(welcome_title, **variables)[:256],
+        description=(
+            render_placeholders(welcome_message, **variables)[:3500]
+            + f"\n\n**Ticket-ID:** `{tid}`\n"
+            f"**Kategorie:** {emoji} {label}\n"
+            f"**Status:** 🟢 Offen · **Priorität:** 🟢 Normal\n"
+            f"**Bearbeiter:** Noch nicht übernommen"
+        ),
+        color=color,
+    )
+    for question, answer in answers[:5]:
+        embed.add_field(name=f"📝 {question}"[:256], value=(str(answer).strip() or "—")[:1024], inline=False)
+    if not answers:
+        embed.add_field(
+            name="📋 Vorgehen",
+            value="1. Anliegen erklären\n2. Rückfragen beantworten\n3. Lösung bestätigen\n4. Ticket über **Schließen** beenden",
+            inline=False,
+        )
+    embed.set_thumbnail(url=interaction.user.display_avatar.url)
+    embed.set_footer(text="Pulse Ticket-System • Ticket-Steuerung")
+    embed.timestamp = discord.utils.utcnow()
+    await channel.send(embed=embed, view=TicketControlView())
+
+    mentions = " ".join(role.mention for role in roles[:10])
+    if mentions and panel.get("ping_roles", True):
+        await channel.send(
+            f"📣 {mentions}\nNeues **{label}** von {interaction.user.mention}.",
+            allowed_mentions=discord.AllowedMentions(roles=True, users=True),
+        )
+
+    record_event(
+        "ticket_created",
+        "ticket",
+        tid,
+        interaction.user.id,
+        interaction.user.display_name,
+        {"category": key, "channel_id": channel.id, "panel_channel_id": interaction.channel.id, "panel_id": panel_id or ""},
+    )
+    created_ticket = get_ticket(ticket_id=tid)
+    if created_ticket:
+        await send_ticket_log(
+            interaction.client,
+            guild,
+            configured_ticket_log_channel_id("opened"),
+            title="🎫 Neues Ticket geöffnet",
+            description="Ein neues Ticket wurde über das Pulse-Ticketpanel erstellt.",
+            ticket=created_ticket,
+            actor=interaction.user,
+            color=discord.Color.green(),
+        )
+    await interaction.followup.send(f"✅ Dein Ticket wurde erstellt: {channel.mention}", ephemeral=True)
+
+
+class TicketQuestionModal(Modal):
+    """Category form (up to five questions) answered before the ticket channel is created."""
+
+    def __init__(self, key: str, panel_id: str | None, questions: list, label: str):
+        super().__init__(title=f"{label}"[:45] or "Ticket", timeout=600)
+        self.key = key
+        self.panel_id = panel_id
+        self.inputs = []
+        for question in questions[:5]:
+            field = TextInput(
+                label=question["label"][:45],
+                placeholder=question.get("placeholder") or None,
+                required=question.get("required", True),
+                style=discord.TextStyle.paragraph if question.get("long") else discord.TextStyle.short,
+                max_length=1000 if question.get("long") else 200,
+            )
+            self.add_item(field)
+            self.inputs.append((question["label"], field))
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        answers = [(label, str(field.value or "")) for label, field in self.inputs]
         try:
-            member = channel.guild.get_member(int(ticket["user_id"]))
-            if member:
-                dm = discord.Embed(title="🎫 Dein Ticket wurde geschlossen", color=discord.Color.blurple())
-                dm.description = f"Ticket `{ticket['id']}` wurde von **{self.actor.display_name}** geschlossen.\n\n**Grund:** {reason}"
-                await member.send(embed=dm)
-        except Exception:
-            pass
-        await asyncio.sleep(1)
-        try:
-            await channel.delete(reason=f"Pulse Ticket geschlossen von {self.actor}")
-        except Exception:
-            pass
+            await create_ticket_channel(interaction, self.key, self.panel_id, answers)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"⚠️ Pulse-Tickets: Ticket konnte nicht erstellt werden ({type(exc).__name__}).")
+            await interaction.followup.send("❌ Das Ticket konnte nicht erstellt werden. Bitte melde dich beim Team.", ephemeral=True)
 
 
 class TicketSelect(Select):
-    def __init__(self, panel_id: str | None = None, category_keys=None):
+    def __init__(self, panel_id: str | None = None, category_keys=None, placeholder: str | None = None):
         definitions = ticket_category_definitions()
         keys = category_keys if isinstance(category_keys, list) else list(definitions)
         options = []
@@ -455,7 +762,7 @@ class TicketSelect(Select):
             safe_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(panel_id))[:60] or "custom"
             custom_id = f"pulse_ticket_category_panel_{safe_id}"[:100]
         super().__init__(
-            placeholder="Wähle die passende Ticket-Kategorie …",
+            placeholder=(placeholder or "Wähle die passende Ticket-Kategorie …")[:150],
             min_values=1,
             max_values=1,
             options=options,
@@ -464,167 +771,46 @@ class TicketSelect(Select):
         self.panel_id = panel_id
 
     async def callback(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        if not guild:
-            await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
-            return
+        await start_ticket_flow(interaction, self.values[0], self.panel_id)
 
-        key = self.values[0]
-        if key == "__not_configured__":
-            await interaction.response.send_message("Dieses Panel ist noch nicht eingerichtet. Bitte melde dich beim Serverteam.", ephemeral=True)
-            return
-        label, desc, emoji, maximum, group = category_meta(key)
-        category_definition = ticket_category_definitions().get(key, {})
 
-        existing = None
-        for ticket in list_tickets(limit=2000):
-            if (
-                str(ticket.get("guild_id")) == str(guild.id)
-                and str(ticket.get("user_id")) == str(interaction.user.id)
-                and ticket.get("status") != "closed"
-            ):
-                existing = ticket
-                break
+class TicketCategoryButton(Button):
+    BUTTON_STYLES = {
+        "primary": discord.ButtonStyle.primary, "secondary": discord.ButtonStyle.secondary,
+        "success": discord.ButtonStyle.success, "danger": discord.ButtonStyle.danger,
+    }
 
-        if existing:
-            channel = guild.get_channel(int(existing["channel_id"])) if existing.get("channel_id") else None
-            if channel:
-                await interaction.response.send_message(
-                    f"🎫 Du hast bereits ein offenes Ticket: {channel.mention}",
-                    ephemeral=True,
-                )
-                return
-            close_ticket(existing["id"], "Verwaistes Ticket automatisch archiviert.", "", interaction.user.id, interaction.user.display_name)
-
-        roles = category_roles(guild, key)
-        if not roles:
-            await interaction.response.send_message(
-                f"⚠️ **{label}** ist noch nicht vollständig eingerichtet. Weise dieser Kategorie zuerst mindestens eine gültige zuständige Rolle zu.",
-                ephemeral=True,
-            )
-            return
-
-        # Discord requires a response within a few seconds; channel creation and log delivery
-        # may take longer, so defer only after all immediate validation errors are handled.
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        parent_id = category_definition.get("parent_category_id")
-        parent = None
-        try:
-            candidate = guild.get_channel(int(parent_id)) if parent_id else None
-            if isinstance(candidate, discord.CategoryChannel):
-                parent = candidate
-        except (TypeError, ValueError):
-            parent = None
-        if parent is None:
-            parent = discord.utils.get(guild.categories, name=TICKET_PARENT_NAME)
-        if not parent:
-            parent = await guild.create_category(TICKET_PARENT_NAME, reason="Pulse Ticket-System")
-
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                attach_files=True,
-                embed_links=True,
-            ),
-            guild.me: discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                manage_channels=True,
-                manage_messages=True,
-                manage_permissions=True,
-                attach_files=True,
-                embed_links=True,
-            ),
-        }
-
-        for role in roles:
-            overwrites[role] = discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                manage_messages=True,
-                attach_files=True,
-                embed_links=True,
-            )
-
-        channel_prefix = str(category_definition.get("prefix") or key)
-        channel = await guild.create_text_channel(
-            f"ticket-{safe_channel_name(channel_prefix)}-{safe_channel_name(interaction.user.display_name)}",
-            category=parent,
-            overwrites=overwrites,
-            topic=f"Pulse Ticket | user:{interaction.user.id} | category:{key}",
-            reason=f"Pulse Ticket erstellt von {interaction.user}",
+    def __init__(self, panel_id: str, key: str, definition: dict):
+        name, _, emoji, _, _ = category_meta(key)
+        super().__init__(
+            label=name[:80],
+            emoji=emoji or "🎫",
+            style=self.BUTTON_STYLES.get(str(definition.get("button_style") or "primary"), discord.ButtonStyle.primary),
+            custom_id=f"pulse_ticket_btn_{_safe_component_id(panel_id)}_{_safe_component_id(key)}"[:100],
         )
-        tid = create_ticket(channel.id, guild.id, interaction.user.id, interaction.user.display_name, key)
+        self.panel_id = panel_id
+        self.key = key
 
-        opening_text = str(category_definition.get("opening_message") or "").strip()[:1800]
-        if not opening_text:
-            opening_text = "Beschreibe dein Anliegen bitte möglichst vollständig. Ein zuständiges Teammitglied wird sich um dein Anliegen kümmern."
-        embed = discord.Embed(
-            title=f"{emoji} {label}",
-            description=(
-                f"Willkommen {interaction.user.mention}!\n\n"
-                f"{opening_text}\n\n"
-                f"**Ticket-ID:** `{tid}`\n"
-                f"**Kategorie:** {label}\n"
-                f"**Status:** 🟢 Offen\n"
-                f"**Priorität:** 🟢 Normal\n"
-                f"**Bearbeiter:** Noch nicht übernommen"
-            ),
-            color=discord.Color.blurple(),
-        )
-        embed.add_field(
-            name="📋 Vorgehen",
-            value="1. Anliegen erklären\n2. Rückfragen beantworten\n3. Lösung bestätigen\n4. Ticket über **Schließen** beenden",
-            inline=False,
-        )
-        embed.add_field(
-            name="🛡️ Hinweise",
-            value="Keine unnötigen Pings. Sensible Daten nur an zuständige Teammitglieder weitergeben.",
-            inline=False,
-        )
-        embed.set_footer(text="Pulse Ticket-System • Ticket-Steuerung")
-        embed.timestamp = discord.utils.utcnow()
-        await channel.send(embed=embed, view=TicketControlView())
-
-        mentions = " ".join(role.mention for role in roles[:10])
-        if mentions:
-            await channel.send(
-                f"📣 {mentions}\nNeues **{label}** von {interaction.user.mention}.",
-                allowed_mentions=discord.AllowedMentions(roles=True, users=True),
-            )
-
-        record_event(
-            "ticket_created",
-            "ticket",
-            tid,
-            interaction.user.id,
-            interaction.user.display_name,
-            {"category": key, "channel_id": channel.id, "panel_channel_id": interaction.channel.id},
-        )
-        created_ticket = get_ticket(ticket_id=tid)
-        if created_ticket:
-            await send_ticket_log(
-                interaction.client,
-                guild,
-                configured_ticket_log_channel_id("opened"),
-                title="🎫 Neues Ticket geöffnet",
-                description="Ein neues Ticket wurde über das Pulse-Ticketpanel erstellt.",
-                ticket=created_ticket,
-                actor=interaction.user,
-                color=discord.Color.green(),
-            )
-        await interaction.followup.send(f"✅ Dein Ticket wurde erstellt: {channel.mention}", ephemeral=True)
+    async def callback(self, interaction: discord.Interaction):
+        await start_ticket_flow(interaction, self.key, self.panel_id)
 
 
 class TicketView(View):
-    def __init__(self, panel_id: str | None = None, category_keys=None):
+    def __init__(self, panel_id: str | None = None, category_keys=None, style: str = "select", placeholder: str | None = None):
         super().__init__(timeout=None)
-        self.add_item(TicketSelect(panel_id=panel_id, category_keys=category_keys))
+        if style == "buttons" and panel_id:
+            definitions = ticket_category_definitions()
+            keys = [str(k) for k in (category_keys or []) if definitions.get(str(k), {}).get("active", True) and str(k) in definitions]
+            for key in keys[:25]:
+                self.add_item(TicketCategoryButton(str(panel_id), key, definitions[key]))
+            if keys:
+                return
+        self.add_item(TicketSelect(panel_id=panel_id, category_keys=category_keys, placeholder=placeholder))
+
+
+def panel_view(panel: dict) -> TicketView:
+    panel = normalize_panel(panel)
+    return TicketView(str(panel.get("id")), panel.get("category_keys", []), panel.get("component_style"), panel.get("placeholder"))
 
 
 class TicketControlView(View):
@@ -712,6 +898,23 @@ class TicketControlView(View):
         await refresh_ticket_embed(interaction.channel, get_ticket(ticket_id=t["id"]), TicketControlView())
         await interaction.response.send_message(f"🚦 Priorität: {priority_embed_value(next_priority)}", ephemeral=True)
 
+    @discord.ui.button(label="Erinnern", style=discord.ButtonStyle.secondary, emoji="🔔", custom_id="pulse_ticket_remind")
+    async def remind(self, interaction: discord.Interaction, button: Button):
+        """Team nudges the creator in the ticket and via DM (e.g. while waiting for an answer)."""
+        t = get_ticket(channel_id=interaction.channel.id)
+        if not t:
+            await interaction.response.send_message("Ticket nicht gefunden.", ephemeral=True)
+            return
+        if not is_team(interaction.user):
+            await interaction.response.send_message("❌ Nur Teammitglieder können erinnern.", ephemeral=True)
+            return
+        member = interaction.guild.get_member(int(t["user_id"])) if str(t.get("user_id") or "").isdigit() else None
+        if member is None:
+            await interaction.response.send_message("Der Ticket-Ersteller ist nicht mehr auf dem Server.", ephemeral=True)
+            return
+        await interaction.response.send_message("🔔 Erinnerung wurde gesendet.", ephemeral=True)
+        await send_user_reminder(interaction.channel, t, member, by=interaction.user.display_name)
+
     @discord.ui.button(label="Schließen", style=discord.ButtonStyle.danger, emoji="🔒", custom_id="pulse_ticket_close")
     async def close(self, interaction: discord.Interaction, button: Button):
         t = get_ticket(channel_id=interaction.channel.id)
@@ -727,6 +930,10 @@ class TicketControlView(View):
 class Tickets(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # Open ticket channels, used to record activity without a DB lookup per message.
+        self.ticket_channel_ids: set[int] = set()
+        # Last rendered state per panel message; unchanged panels are not edited (avoids 429s).
+        self._panel_signatures: dict[int, str] = {}
         self.panel_refresh.start()
 
     def cog_unload(self):
@@ -738,11 +945,106 @@ class Tickets(commands.Cog):
         for panel in ticket_config().get("ticket_panels", []):
             if not isinstance(panel, dict) or not panel.get("id"):
                 continue
-            self.bot.add_view(TicketView(str(panel["id"]), panel.get("category_keys", [])))
+            self.bot.add_view(panel_view(panel))
+        self.reload_ticket_channels()
+
+    def reload_ticket_channels(self):
+        self.ticket_channel_ids = {
+            int(t["channel_id"]) for t in list_tickets(limit=2000)
+            if t.get("status") != "closed" and str(t.get("channel_id") or "").isdigit()
+        }
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or not message.guild or message.channel.id not in self.ticket_channel_ids:
+            return
+        ticket = get_ticket(channel_id=message.channel.id)
+        if not ticket or ticket.get("status") == "closed":
+            self.ticket_channel_ids.discard(message.channel.id)
+            return
+        kind = "user" if str(message.author.id) == str(ticket.get("user_id")) else ("staff" if is_team(message.author) else None)
+        if kind:
+            await asyncio.to_thread(touch_ticket_activity, message.channel.id, kind)
+
+    async def _edit_if_changed(self, message: discord.Message, embed: discord.Embed, view: View):
+        """Edit a panel message only when its visible content changed."""
+        data = embed.to_dict()
+        data.pop("timestamp", None)
+        options = [
+            [getattr(o, "label", ""), getattr(o, "description", "")]
+            for item in view.children for o in getattr(item, "options", [])
+        ] + [getattr(item, "label", "") for item in view.children if isinstance(item, Button)]
+        signature = panel_signature({"embed": data, "options": options})
+        if self._panel_signatures.get(message.id) == signature:
+            return False
+        await message.edit(embed=embed, view=view)
+        self._panel_signatures[message.id] = signature
+        return True
 
     @tasks.loop(minutes=5)
     async def panel_refresh(self):
         await self.bot.wait_until_ready()
+        try:
+            await self.refresh_panels()
+        except Exception as exc:
+            print(f"⚠️ Pulse-Tickets: Panel-Aktualisierung fehlgeschlagen ({type(exc).__name__}: {exc}).")
+        try:
+            await self.run_automation()
+        except Exception as exc:
+            print(f"⚠️ Pulse-Tickets: Ticket-Automatik fehlgeschlagen ({type(exc).__name__}: {exc}).")
+
+    async def run_automation(self):
+        """Reminders and optional auto-close, reusing the existing 5-minute loop (no extra task)."""
+        settings = automation_settings(ticket_config().get("automation"))
+        if not any(settings.values()):
+            return
+        now = discord.utils.utcnow()
+        tickets = [t for t in list_tickets(limit=2000) if t.get("status") != "closed"]
+        self.ticket_channel_ids = {int(t["channel_id"]) for t in tickets if str(t.get("channel_id") or "").isdigit()}
+        for ticket in tickets:
+            actions = automation_actions(ticket, settings, now)
+            if not actions:
+                continue
+            guild = self.bot.get_guild(int(ticket.get("guild_id") or 0))
+            channel = guild.get_channel(int(ticket["channel_id"])) if guild and str(ticket.get("channel_id") or "").isdigit() else None
+            if not isinstance(channel, discord.TextChannel):
+                continue
+            state = load_state(ticket.get("automation_state"))
+            label = category_meta(ticket.get("category"))[0]
+            try:
+                if "remind_unclaimed" in actions:
+                    roles = category_roles(guild, str(ticket.get("category")))
+                    mentions = " ".join(r.mention for r in roles[:10])
+                    await channel.send(
+                        f"⏰ {mentions}\nDieses **{label}** wartet seit über {settings['unclaimed_ping_minutes']} Minuten auf eine Übernahme.",
+                        allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False),
+                    )
+                    state["unclaimed_ping"] = now.isoformat()
+                if "remind_staff" in actions:
+                    claimer = guild.get_member(int(ticket["claimed_by_id"])) if str(ticket.get("claimed_by_id") or "").isdigit() else None
+                    if claimer:
+                        await channel.send(
+                            f"⏳ {claimer.mention}, der Ersteller wartet seit über {settings['staff_reply_hours']} h auf eine Antwort.",
+                            allowed_mentions=discord.AllowedMentions(users=[claimer], roles=False, everyone=False),
+                        )
+                    state["staff_reminder_for"] = datetime_marker(ticket["last_user_message_at"])
+                if "remind_user" in actions:
+                    member = guild.get_member(int(ticket["user_id"])) if str(ticket.get("user_id") or "").isdigit() else None
+                    if member:
+                        await send_user_reminder(channel, ticket, member, auto_close_hours=settings["auto_close_hours"])
+                    state["user_reminder_for"] = datetime_marker(ticket["last_staff_message_at"])
+                    state["user_reminded_at"] = now.isoformat()
+                if "auto_close" in actions:
+                    set_ticket_automation_state(ticket["id"], state)
+                    await archive_ticket(channel, ticket, self.bot.user.id, "Pulse Automatik",
+                                         f"Automatisch geschlossen: keine Rückmeldung {settings['auto_close_hours']} h nach der Erinnerung.")
+                    self.ticket_channel_ids.discard(channel.id)
+                    continue
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(f"⚠️ Pulse-Tickets: Erinnerung für {ticket.get('id')} fehlgeschlagen ({type(exc).__name__}).")
+            set_ticket_automation_state(ticket["id"], state)
+
+    async def refresh_panels(self):
         settings = ticket_config()
         panels = settings.get("panel_messages", {})
         if not isinstance(panels, dict):
@@ -765,7 +1067,7 @@ class Tickets(commands.Cog):
                     if not isinstance(channel, discord.TextChannel):
                         continue
                     message = await channel.fetch_message(int(raw_message_id))
-                    await message.edit(embed=build_panel_embed(guild), view=TicketView())
+                    await self._edit_if_changed(message, build_panel_embed(guild), TicketView())
                 except discord.NotFound:
                     # A deleted panel must not stay broken forever. Re-create it in
                     # the same channel and persist the new message ID immediately.
@@ -809,7 +1111,14 @@ class Tickets(commands.Cog):
                         continue
                     message = await channel.fetch_message(message_id)
                     keys = panel.get("category_keys", [])
-                    await message.edit(embed=build_panel_embed(guild, panel), view=TicketView(str(panel["id"]), keys))
+                    # Uploaded images live as attachments of this message: reuse their fresh URLs
+                    # so the edit keeps them without re-uploading.
+                    existing = message.embeds[0] if message.embeds else None
+                    image_urls = {
+                        "thumbnail": existing.thumbnail.url if existing and existing.thumbnail and panel_image_path(panel.get("thumbnail_file")) else None,
+                        "image": existing.image.url if existing and existing.image and panel_image_path(panel.get("banner_file")) else None,
+                    }
+                    await self._edit_if_changed(message, build_panel_embed(guild, panel, image_urls), panel_view(panel))
                 except discord.NotFound:
                     # The dashboard publishing helper creates a replacement
                     # message and writes its new ID back into the settings.
@@ -878,16 +1187,19 @@ class Tickets(commands.Cog):
                     await old_message.delete(reason="Pulse-Ticketpanel im Dashboard in einen anderen Kanal verschoben")
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
                     pass
-        view = TicketView(str(panel["id"]), keys)
+        view = panel_view(panel)
+        # Explicit publish always re-uploads the images so a changed thumbnail/banner appears.
+        files = panel_files(panel)
         if message is None:
-            message = await channel.send(embed=build_panel_embed(guild, panel), view=view)
+            message = await channel.send(embed=build_panel_embed(guild, panel), view=view, files=files)
         else:
-            await message.edit(embed=build_panel_embed(guild, panel), view=view)
+            await message.edit(embed=build_panel_embed(guild, panel), view=view, attachments=files)
+        self._panel_signatures.pop(message.id, None)
         panel["message_id"] = message.id
         panel["published_channel_id"] = channel.id
         settings["ticket_panels"] = panels
         save_ticket_config(settings)
-        self.bot.add_view(TicketView(str(panel["id"]), keys))
+        self.bot.add_view(panel_view(panel))
         return {"channel": channel.mention, "message_id": message.id, "panel_name": str(panel.get("name") or panel.get("title") or "Panel")}
 
     async def setup_panels_for_guild(self, guild: discord.Guild) -> dict:
