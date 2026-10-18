@@ -20,6 +20,15 @@ import httpx
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from pulse_social_utils import (
+    announcement_text,
+    best_thumbnail,
+    detect_platform,
+    is_recent,
+    platform_meta,
+    profile_url,
+)
+
 TARGET_CHANNEL_ID = 1530972281893949521
 SOCIAL_PING_ROLE_ID = 1516838538702753943
 ROOT = Path(__file__).resolve().parent.parent
@@ -226,7 +235,26 @@ def parse_feed(xml_text: str) -> tuple[str, list[dict[str, str]]]:
         item_id = _child_text(node, {"guid", "id"}) or link
         published = _child_text(node, {"published", "pubdate", "updated", "date"})
         description = _child_text(node, {"description", "summary", "content", "encoded"})
+        if not description:
+            # YouTube nests the text in <media:group><media:description>.
+            for child in node.iter():
+                if child is not node and _tag_name(child.tag) == "description" and child.text:
+                    description = child.text.strip()
+                    break
         author = _child_text(node, {"author", "creator", "name"})
+        # Preview image: media:thumbnail / image enclosure / media:content (YouTube, RSSHub).
+        thumbnail = ""
+        for child in node.iter():
+            tag = _tag_name(child.tag)
+            url_attr = (child.attrib.get("url") or "").strip()
+            if not url_attr.startswith("https://"):
+                continue
+            if tag == "thumbnail" or (
+                tag in {"enclosure", "content"}
+                and (child.attrib.get("type", "").startswith("image/") or child.attrib.get("medium") == "image")
+            ):
+                thumbnail = url_attr
+                break
         if title and link.startswith(("https://", "http://")) and item_id:
             items.append({
                 "id": item_id[:500],
@@ -236,6 +264,7 @@ def parse_feed(xml_text: str) -> tuple[str, list[dict[str, str]]]:
                 "description": _clean_text(description, 600),
                 "raw_description": html.unescape(description)[:4000],
                 "author": _clean_text(author, 120),
+                "thumbnail": thumbnail[:1000],
             })
     unique: list[dict[str, str]] = []
     found: set[str] = set()
@@ -655,6 +684,196 @@ class SocialPromo(commands.Cog):
     async def before_poll_sources(self):
         await self.bot.wait_until_ready()
 
+    async def _target_channel(self):
+        channel = self.bot.get_channel(TARGET_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(TARGET_CHANNEL_ID)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+                print("⚠️ Social-Promo: Zielkanal %s nicht erreichbar (%s)." % (TARGET_CHANNEL_ID, type(exc).__name__))
+                return None
+        if not hasattr(channel, "send"):
+            print("⚠️ Social-Promo: Ziel-ID ist kein beschreibbarer Discord-Kanal.")
+            return None
+        return channel
+
+    def build_announcement(self, source: dict, item: dict, feed_title: str = ""):
+        """Professional creator announcement: role ping, creator line, big thumbnail, link buttons."""
+        platform = str(source.get("platform", "rss"))
+        label, color, emoji, _ = platform_meta(platform)
+        name = _clean_text(source.get("name") or source.get("feed_title") or feed_title or "Creator", 100)
+        creator_id = str(source.get("creator_id") or "")
+        creator_mention = f"<@{creator_id}>" if creator_id.isdigit() else ""
+        channel_url = profile_url(platform, source.get("source_key") or source.get("name", ""), source.get("feed_url", ""))
+        content = f"<@&{SOCIAL_PING_ROLE_ID}>\n" + announcement_text(name, platform, item["url"], creator_mention)
+
+        embed = discord.Embed(
+            title=item["title"][:256],
+            url=item["url"],
+            color=discord.Color(color),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_author(name=f"{name} · {label}"[:256], url=channel_url or None)
+        if item.get("description"):
+            embed.description = item["description"][:350] + ("…" if len(item["description"]) > 350 else "")
+        published = _parse_entry_date(item.get("published", ""))
+        embed.add_field(name="📺 Plattform", value=label, inline=True)
+        if creator_mention:
+            embed.add_field(name="🎥 Creator", value=creator_mention, inline=True)
+        if published:
+            embed.add_field(name="🕒 Veröffentlicht", value=f"<t:{int(published)}:R>", inline=True)
+        thumbnail = best_thumbnail(item, platform)
+        if thumbnail:
+            embed.set_image(url=thumbnail)
+        embed.set_footer(text="Pulse Creator-Ankündigung • Schau vorbei und lass ein Like da! 💙")
+
+        view = discord.ui.View(timeout=None)
+        view.add_item(discord.ui.Button(label="Jetzt ansehen", emoji=emoji, url=item["url"][:512]))
+        if channel_url:
+            view.add_item(discord.ui.Button(label="Kanal besuchen", emoji="👤", url=channel_url[:512]))
+        return content, embed, view
+
+    async def _announce(self, channel, source: dict, item: dict, feed_title: str = "") -> bool:
+        content, embed, view = self.build_announcement(source, item, feed_title)
+        try:
+            await channel.send(
+                content=content,
+                embed=embed,
+                view=view,
+                allowed_mentions=discord.AllowedMentions(
+                    # Ping only the notification role; the creator mention is shown without a ping.
+                    roles=[discord.Object(id=SOCIAL_PING_ROLE_ID)],
+                    users=False,
+                    everyone=False,
+                    replied_user=False,
+                ),
+            )
+            return True
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print("⚠️ Social-Promo: Ankündigung für %s konnte nicht gesendet werden (%s)." % (source.get("name"), type(exc).__name__))
+            return False
+
+    async def announce_latest(self, source_id: str) -> str:
+        """Re-announce the newest video of one source (test/manual trigger from the dashboard)."""
+        source = self.sources.get(str(source_id).upper())
+        if not source:
+            raise ValueError("Quelle nicht gefunden.")
+        feed_url, feed_title, items = await self._fetch_feed(str(source.get("feed_url", "")), str(source.get("platform", "rss")))
+        videos = [item for item in items if self._is_video_item(source, item)]
+        if not videos:
+            raise ValueError("Im Feed wurde noch kein Video gefunden.")
+        latest = max(videos, key=lambda item: _parse_entry_date(item.get("published", "")))
+        channel = await self._target_channel()
+        if channel is None or not await self._announce(channel, source, latest, feed_title):
+            raise ValueError("Der Ankündigungskanal ist nicht erreichbar oder Pulse darf dort nicht schreiben.")
+        return latest["title"]
+
+    async def add_source(self, platform: str, quelle: str, name: str | None, creator_id: str | None, added_by: str) -> tuple[dict, bool]:
+        """Validate a profile, resolve its feed and store it. Raises ValueError with a German message."""
+        if len(self.sources) >= MAX_SOURCES:
+            raise ValueError("Maximal %d Social-Quellen sind erlaubt." % MAX_SOURCES)
+        try:
+            feed_url, inferred_name = self._build_feed_url(platform, quelle)
+            if feed_url.startswith("RESOLVE_YOUTUBE:"):
+                channel_id = await self._resolve_youtube_handle(feed_url.split(":", 1)[1])
+                feed_url = "https://www.youtube.com/feeds/videos.xml?channel_id=" + channel_id
+            if not _is_public_https_url(feed_url):
+                raise ValueError("Die erzeugte Feed-Adresse ist keine erlaubte öffentliche HTTPS-Adresse.")
+            pending_feed = False
+            pending_feed_error = ""
+            try:
+                feed_url, feed_title, items = await self._fetch_feed(feed_url, platform)
+            except ValueError as exc:
+                # Save the validated profile route and let the poll retry a recovering mirror.
+                if platform in {"tiktok", "instagram", "twitch", "x"} and str(exc).startswith("Keine RSSHub-Instanz konnte den Feed abrufen"):
+                    pending_feed = True
+                    pending_feed_error = str(exc)[:700]
+                    feed_title, items = "", []
+                    print(
+                        "⚠️ Social-Promo: Quelle %s wird gespeichert; Feed momentan nicht erreichbar. "
+                        "Nächster automatischer Versuch in 5 Min. (%s)" % (inferred_name, pending_feed_error[:300])
+                    )
+                else:
+                    raise
+        except (httpx.HTTPError, ET.ParseError) as exc:
+            raise ValueError(_describe_fetch_error(exc, platform)[:850]) from exc
+        source_key = str(inferred_name or "").strip().lstrip("@").lower()
+        duplicate = next(
+            (
+                s for s in self.sources.values()
+                if s.get("feed_url") == feed_url
+                or (str(s.get("platform", "")) == platform and source_key
+                    and str(s.get("source_key") or s.get("name", "")).strip().lstrip("@").lower() == source_key)
+            ),
+            None,
+        )
+        if duplicate:
+            raise ValueError("Diese Quelle ist bereits eingetragen (ID: %s)." % duplicate["id"])
+        label = platform_meta(platform)[0]
+        now = datetime.now(timezone.utc)
+        source = {
+            "id": uuid.uuid4().hex[:8].upper(),
+            "platform": platform,
+            "platform_label": label,
+            "name": _clean_text((name or inferred_name or feed_title or label).strip(), 100),
+            "custom_name": bool(name and name.strip()),
+            "feed_title": _clean_text(feed_title, 100),
+            "feed_url": feed_url,
+            "creator_id": str(creator_id) if creator_id and str(creator_id).isdigit() else "",
+            "added_by": str(added_by),
+            "added_at": now.isoformat(timespec="seconds"),
+            "enabled": True,
+            "initialized": not pending_feed,
+            "feed_status": "pending" if pending_feed else "active",
+            "source_key": source_key,
+            "feed_failures": 1 if pending_feed else 0,
+            "retry_after": (now + timedelta(seconds=POLL_FAILURE_INITIAL_BACKOFF_SECONDS)).isoformat(timespec="seconds") if pending_feed else "",
+            "last_error": pending_feed_error,
+            "last_error_logged_at": now.isoformat(timespec="seconds") if pending_feed else "",
+            "seen_ids": [item["id"] for item in items][:MAX_SEEN_IDS],
+            "last_item": items[0]["id"] if items else "",
+            "last_checked": now.isoformat(timespec="seconds"),
+        }
+        self.sources[source["id"]] = source
+        try:
+            self._save_sources()
+        except OSError as exc:
+            self.sources.pop(source["id"], None)
+            raise ValueError("Die Quelle wurde geprüft, konnte aber nicht gespeichert werden. Prüfe Schreibrechte im Hosting.") from exc
+        return source, pending_feed
+
+    def set_enabled(self, source_id: str, enabled: bool) -> dict:
+        source = self.sources.get(str(source_id).upper())
+        if not source:
+            raise ValueError("Quelle nicht gefunden.")
+        source["enabled"] = bool(enabled)
+        self._save_sources()
+        return source
+
+    def update_source(self, source_id: str, name: str | None = None, creator_id: str | None = None) -> dict:
+        source = self.sources.get(str(source_id).upper())
+        if not source:
+            raise ValueError("Quelle nicht gefunden.")
+        if name is not None and name.strip():
+            source["name"] = _clean_text(name.strip(), 100)
+            source["custom_name"] = True
+        if creator_id is not None:
+            source["creator_id"] = str(creator_id) if str(creator_id).isdigit() else ""
+        self._save_sources()
+        return source
+
+    def remove_source(self, source_id: str) -> dict:
+        key = str(source_id).upper()
+        if key not in self.sources:
+            raise ValueError("Quelle nicht gefunden.")
+        removed = self.sources.pop(key)
+        try:
+            self._save_sources()
+        except OSError:
+            self.sources[key] = removed
+            raise ValueError("Die Quelle konnte nicht entfernt werden. Prüfe die Schreibrechte.")
+        return removed
+
     async def _poll_one(self, source_id: str, source: dict) -> None:
         feed_url = str(source.get("feed_url", ""))
         checked_at = datetime.now(timezone.utc)
@@ -729,49 +948,25 @@ class SocialPromo(commands.Cog):
             self._save_sources()
             return
 
+        now_ts = datetime.now(timezone.utc).timestamp()
         new_items = [
             item for item in items
-            if item["id"] not in stored_seen and self._is_video_item(source, item)
+            if item["id"] not in stored_seen
+            and self._is_video_item(source, item)
+            # Feeds sometimes resurface old uploads; never announce videos older than 3 days.
+            and is_recent(_parse_entry_date(item.get("published", "")), now_ts)
         ]
         if new_items:
             new_items = sorted(new_items, key=lambda item: _parse_entry_date(item.get("published", "")))
             new_items = new_items[-MAX_POSTS_PER_CYCLE:]
-            channel = self.bot.get_channel(TARGET_CHANNEL_ID)
+            channel = await self._target_channel()
             if channel is None:
-                try:
-                    channel = await self.bot.fetch_channel(TARGET_CHANNEL_ID)
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
-                    print("⚠️ Social-Promo: Zielkanal %s nicht erreichbar (%s)." % (TARGET_CHANNEL_ID, type(exc).__name__))
-                    return
-            if not hasattr(channel, "send"):
-                print("⚠️ Social-Promo: Ziel-ID ist kein beschreibbarer Discord-Kanal.")
                 return
-            display_name = _clean_text(source.get("name") or source.get("feed_title") or feed_title or "Social-Kanal", 100)
             for item in new_items:
-                embed = discord.Embed(
-                    title=("🎬 " + item["title"])[:256],
-                    url=item["url"],
-                    description="**Neuer Beitrag von " + display_name + "!**\nJetzt ansehen und unterstützen. 👇",
-                    color=discord.Color.from_rgb(239, 68, 68) if source.get("platform") in {"youtube", "tiktok"} else discord.Color.blurple(),
-                    timestamp=datetime.now(timezone.utc),
-                )
-                if item.get("description"):
-                    embed.add_field(name="Info", value=item["description"][:1024], inline=False)
-                embed.set_footer(text="Pulse Social Promo • " + str(source.get("platform_label") or source.get("platform", "Social")).upper())
-                try:
-                    await channel.send(
-                        content=f"<@&{SOCIAL_PING_ROLE_ID}>",
-                        embed=embed,
-                        allowed_mentions=discord.AllowedMentions(
-                            roles=[discord.Object(id=SOCIAL_PING_ROLE_ID)],
-                            users=False,
-                            everyone=False,
-                            replied_user=False,
-                        ),
-                    )
-                except (discord.Forbidden, discord.HTTPException) as exc:
-                    print("⚠️ Social-Promo: Nachricht für %s konnte nicht gesendet werden (%s)." % (display_name, type(exc).__name__))
+                if not await self._announce(channel, source, item, feed_title):
                     return
+                source["last_announced_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                source["announced_count"] = int(source.get("announced_count", 0) or 0) + 1
                 await asyncio.sleep(0.5)
 
         merged = current_ids + [x for x in source.get("seen_ids", []) if x not in current_ids]
@@ -782,10 +977,49 @@ class SocialPromo(commands.Cog):
             source["feed_title"] = _clean_text(feed_title, 100)
         self._save_sources()
 
+    async def _respond_added(self, interaction: discord.Interaction, platform: str, quelle: str, name: str | None, creator):
+        try:
+            source, pending = await self.add_source(platform, quelle, name, str(creator.id) if creator else None, str(interaction.user.id))
+        except ValueError as exc:
+            await interaction.followup.send("❌ Quelle nicht hinzugefügt: " + str(exc)[:850], ephemeral=True)
+            return
+        label = source["platform_label"]
+        lines = [
+            ("✅ **Creator verknüpft – Feed noch nicht erreichbar**" if pending else "✅ **Creator verknüpft**"),
+            f"**Plattform:** {label}",
+            f"**Name:** {source['name']}",
+            f"**ID:** {source['id']}",
+        ]
+        if creator:
+            lines.append(f"**Discord:** {creator.mention}")
+        if pending:
+            lines.append("\nPulse prüft die Quelle automatisch erneut. Sobald der Feed erreichbar ist, wird sie aktiviert.")
+        else:
+            lines.append(f"\nNeue Videos werden ab jetzt automatisch in <#{TARGET_CHANNEL_ID}> mit <@&{SOCIAL_PING_ROLE_ID}> angekündigt. Bereits veröffentlichte Videos werden nicht rückwirkend gepostet.")
+        await interaction.followup.send("\n".join(lines), ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.command(name="social_link", description="Creator per Link verknüpfen – neue Videos werden automatisch angekündigt")
+    @app_commands.describe(
+        link="Link zum Kanal/Profil, z. B. https://www.youtube.com/@name oder https://www.tiktok.com/@name",
+        creator="Optional: Discord-Mitglied, dem der Kanal gehört (wird in der Ankündigung genannt)",
+        name="Optionaler Anzeigename",
+    )
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def social_link(self, interaction: discord.Interaction, link: str, creator: discord.Member | None = None, name: str | None = None):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            platform, quelle = detect_platform(link)
+        except ValueError as exc:
+            await interaction.followup.send("❌ " + str(exc), ephemeral=True)
+            return
+        await self._respond_added(interaction, platform, quelle, name, creator)
+
     @app_commands.command(name="social_add", description="Automatische Video-/Social-Ankündigung hinzufügen")
     @app_commands.describe(
         quelle="YouTube-Kanal/Handle, Social-Profilname oder öffentliche RSS-/Atom-Feed-URL",
         name="Optionaler Anzeigename für die Discord-Werbung",
+        creator="Optional: Discord-Mitglied, dem der Kanal gehört",
     )
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -803,126 +1037,10 @@ class SocialPromo(commands.Cog):
         plattform: app_commands.Choice[str],
         quelle: str,
         name: str | None = None,
+        creator: discord.Member | None = None,
     ):
-        if len(self.sources) >= MAX_SOURCES:
-            await interaction.response.send_message("Maximal %d Social-Quellen sind erlaubt." % MAX_SOURCES, ephemeral=True)
-            return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        platform = plattform.value
-        try:
-            feed_url, inferred_name = self._build_feed_url(platform, quelle)
-            if feed_url.startswith("RESOLVE_YOUTUBE:"):
-                channel_id = await self._resolve_youtube_handle(feed_url.split(":", 1)[1])
-                feed_url = "https://www.youtube.com/feeds/videos.xml?channel_id=" + channel_id
-            if not _is_public_https_url(feed_url):
-                raise ValueError("Die erzeugte Feed-Adresse ist keine erlaubte öffentliche HTTPS-Adresse.")
-            pending_feed = False
-            pending_feed_error = ""
-            try:
-                feed_url, feed_title, items = await self._fetch_feed(feed_url, platform)
-            except ValueError as exc:
-                # Do not force admins to wait for a public RSSHub mirror to recover.
-                # Save the validated profile route and let the two-minute poll retry it.
-                if (
-                    platform in {"tiktok", "instagram", "twitch", "x"}
-                    and str(exc).startswith("Keine RSSHub-Instanz konnte den Feed abrufen")
-                ):
-                    pending_feed = True
-                    pending_feed_error = str(exc)[:700]
-                    feed_title, items = "", []
-                    print(
-                        "⚠️ Social-Promo: Quelle %s wird gespeichert; Feed momentan nicht erreichbar. "
-                        "Nächster automatischer Versuch in 5 Min. (%s)"
-                        % (inferred_name, pending_feed_error[:300])
-                    )
-                else:
-                    raise
-        except (ValueError, httpx.HTTPError, ET.ParseError) as exc:
-            if isinstance(exc, ValueError):
-                msg = str(exc)[:850]
-            else:
-                msg = _describe_fetch_error(exc, platform)[:850]
-                print(
-                    "⚠️ Social-Promo: Quelle konnte nicht hinzugefügt werden "
-                    f"(Plattform={platform}, Fehler={type(exc).__name__}): {msg}"
-                )
-            await interaction.followup.send("❌ Quelle nicht hinzugefügt: " + msg, ephemeral=True)
-            return
-        source_key = str(inferred_name or "").strip().lstrip("@").lower()
-        duplicate = next(
-            (
-                s for s in self.sources.values()
-                if s.get("feed_url") == feed_url
-                or (
-                    str(s.get("platform", "")) == platform
-                    and source_key
-                    and str(s.get("source_key") or s.get("name", "")).strip().lstrip("@").lower() == source_key
-                )
-            ),
-            None,
-        )
-        if duplicate:
-            await interaction.followup.send("Diese Quelle ist bereits eingetragen (ID: %s)." % duplicate["id"], ephemeral=True)
-            return
-        source_id = uuid.uuid4().hex[:8].upper()
-        label = {
-            "youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram",
-            "twitch": "Twitch", "x": "X / Twitter", "rss": "RSS/Atom",
-        }.get(platform, platform)
-        source = {
-            "id": source_id,
-            "platform": platform,
-            "platform_label": label,
-            "name": _clean_text((name or inferred_name or feed_title or label).strip(), 100),
-            "custom_name": bool(name and name.strip()),
-            "feed_title": _clean_text(feed_title, 100),
-            "feed_url": feed_url,
-            "added_by": str(interaction.user.id),
-            "added_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "enabled": True,
-            "initialized": not pending_feed,
-            "feed_status": "pending" if pending_feed else "active",
-            "source_key": str(inferred_name or "").strip().lstrip("@").lower(),
-            "feed_failures": 1 if pending_feed else 0,
-            "retry_after": (
-                (datetime.now(timezone.utc) + timedelta(seconds=POLL_FAILURE_INITIAL_BACKOFF_SECONDS))
-                .isoformat(timespec="seconds")
-                if pending_feed else ""
-            ),
-            "last_error": pending_feed_error,
-            "last_error_logged_at": datetime.now(timezone.utc).isoformat(timespec="seconds") if pending_feed else "",
-            "seen_ids": [item["id"] for item in items][:MAX_SEEN_IDS],
-            "last_item": items[0]["id"] if items else "",
-            "last_checked": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        }
-        self.sources[source_id] = source
-        try:
-            self._save_sources()
-        except OSError:
-            self.sources.pop(source_id, None)
-            await interaction.followup.send("❌ Die Quelle wurde geprüft, konnte aber nicht dauerhaft gespeichert werden. Prüfe Schreibrechte im Hosting.", ephemeral=True)
-            return
-        if pending_feed:
-            response_text = (
-                "✅ **Social-Quelle gespeichert – Feed noch nicht erreichbar**\n"
-                + "**Plattform:** " + label + "\n"
-                + "**Quelle:** " + source["name"] + "\n"
-                + "**ID:** " + source_id + "\n"
-                + "**Feed-Versuch:** " + feed_url + "\n\n"
-                + "Pulse prüft die Quelle automatisch alle zwei Minuten erneut. "
-                + "Sobald ein RSSHub-Server das Profil abrufen kann, wird die Quelle aktiviert. "
-                + "Bis dahin können keine neuen Videos erkannt oder beworben werden."
-            )
-        else:
-            response_text = (
-                "✅ **Social-Quelle hinzugefügt**\n"
-                + "**Plattform:** " + label + "\n"
-                + "**Quelle:** " + source["name"] + "\n"
-                + "**ID:** " + source_id + "\n"
-                + "**Feed:** " + feed_url + "\n\n"
-                + "Ab jetzt werden neue Einträge automatisch in <#" + str(TARGET_CHANNEL_ID) + "> beworben. Bereits veröffentlichte Einträge werden nicht rückwirkend gepostet."
-            )
-        await interaction.followup.send(response_text, ephemeral=True)
+        await self._respond_added(interaction, plattform.value, quelle, name, creator)
 
     @app_commands.command(name="social_list", description="Alle überwachten Social-Videoquellen anzeigen")
     @app_commands.guild_only()
@@ -992,15 +1110,19 @@ class SocialPromo(commands.Cog):
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             channel = self.bot.get_channel(TARGET_CHANNEL_ID) or await self.bot.fetch_channel(TARGET_CHANNEL_ID)
-            embed = discord.Embed(
-                title="✅ Social-Promo-Test",
-                description="Pulse kann den Ankündigungskanal erreichen. Neue Videos werden hier automatisch beworben.",
-                color=discord.Color.green(),
-                timestamp=datetime.now(timezone.utc),
-            )
+            # Show exactly how a real announcement looks, clearly marked as a test.
+            sample_source = {"platform": "youtube", "name": "Beispiel-Creator", "source_key": "youtube"}
+            sample_item = {
+                "title": "🧪 Testankündigung – so sehen neue Videos aus",
+                "url": "https://www.youtube.com/",
+                "description": "Dies ist eine Testnachricht von Pulse. Echte Ankündigungen enthalten Titel, Vorschaubild und Link des neuen Videos.",
+                "published": datetime.now(timezone.utc).isoformat(),
+            }
+            content, embed, view = self.build_announcement(sample_source, sample_item)
             await channel.send(
-                content=f"<@&{SOCIAL_PING_ROLE_ID}>",
+                content=content,
                 embed=embed,
+                view=view,
                 allowed_mentions=discord.AllowedMentions(
                     roles=[discord.Object(id=SOCIAL_PING_ROLE_ID)],
                     users=False,

@@ -198,6 +198,7 @@ def make_shell_helpers(ws):
                 ("voice-support","/voice-support","🎧","Sprach-Support",perms.get("can_manage_tickets") or perms.get("can_promote") or perms.get("is_admin"),False),
                 ("applications","/applications","✎","Bewerbungen",True,False),
                 ("announcements","/announcements","✦","Ankündigungen",perms.get("can_manage_announcements") or perms.get("is_admin"),False),
+                ("social","/social","📣","Social Media",perms.get("can_manage_announcements") or perms.get("is_admin"),False),
             ]),
             ("Planung", [
                 ("meetings","/meetings","◫","Meetings",True,False),

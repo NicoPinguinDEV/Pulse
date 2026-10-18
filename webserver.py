@@ -9838,3 +9838,9 @@ try:
     register_pulse_cockpit(app)
 except Exception as _cockpit_error:
     print(f"❌ Leitungs-Cockpit konnte nicht registriert werden: {_cockpit_error}")
+
+try:
+    from pulse_social_dashboard import register as register_pulse_social
+    register_pulse_social(app)
+except Exception as _social_error:
+    print(f"❌ Social-Media-Seite konnte nicht registriert werden: {_social_error}")

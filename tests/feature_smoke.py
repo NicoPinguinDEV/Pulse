@@ -1007,9 +1007,20 @@ def main() -> None:
     assert "limits=httpx.Limits(max_connections=5, max_keepalive_connections=3" in social
     assert "TARGET_CHANNEL_ID = 1530972281893949521" in social
     assert "SOCIAL_PING_ROLE_ID = 1516838538702753943" in social
-    assert 'content=f"<@&{SOCIAL_PING_ROLE_ID}>"' in social
-    assert "roles=[discord.Object(id=SOCIAL_PING_ROLE_ID)]" in social
-    assert social.count('content=f"<@&{SOCIAL_PING_ROLE_ID}>"') == 2
+    # Every announcement (real and test) is built in one place and pings only the creator role.
+    assert 'content = f"<@&{SOCIAL_PING_ROLE_ID}>\\n" + announcement_text(' in social
+    assert social.count("roles=[discord.Object(id=SOCIAL_PING_ROLE_ID)]") == 2
+    assert social.count("users=False") >= 2
+    assert "content, embed, view = self.build_announcement(" in social
+    assert 'name="social_link"' in social and "detect_platform(link)" in social
+    assert "and is_recent(_parse_entry_date(" in social
+    assert 'discord.ui.Button(label="Jetzt ansehen"' in social
+    social_web = read("pulse_social_dashboard.py")
+    parse("pulse_social_dashboard.py")
+    assert '@app.get("/social", response_class=HTMLResponse)' in social_web
+    assert 'ctx.perms.get("is_admin") or ctx.perms.get("can_manage_announcements")' in social_web
+    assert "from pulse_social_dashboard import register as register_pulse_social" in web
+    assert '("social","/social","📣","Social Media"' in read("pulse_pro.py")
     assert 'name="social_add"' in social
     assert 'name="social_list"' in social
     assert 'name="social_remove"' in social
