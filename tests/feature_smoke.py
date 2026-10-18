@@ -1177,6 +1177,18 @@ def main() -> None:
     assert "textarea{font-size:16px!important}" in pulse_pro_source
     assert ".nav{display:flex;gap:6px;overflow-x:auto" in suite_security
 
+    # Mein Pulse: personal start page, registered after the other modules and in all navigations.
+    home = read("pulse_home.py")
+    parse("pulse_home.py")
+    parse("pulse_home_utils.py")
+    assert '@app.get("/me", response_class=HTMLResponse)' in home
+    assert "ctx = ws.auth(request, user_session)" in home
+    assert 'name="return_to" value="/me"' in home
+    assert "from pulse_home import register as register_pulse_home" in web
+    assert 'target_page = return_to if return_to in {"/dashboard", "/me"} else "/dashboard"' in web
+    assert '("me","/me","★","Mein Pulse",True,False)' in pulse_pro_source
+    assert '("me", "/me", "★ Mein Pulse")' in ultimate_security
+
     print("Pulse feature smoke test: OK")
 
 

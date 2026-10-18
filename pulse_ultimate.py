@@ -714,6 +714,7 @@ def page(ctx, active: str, title: str, subtitle: str, body: str, extra_js: str =
     accent = esc(brand.get("accent") or "#6366f1")
     nav = [
         ("ultimate", "/ultimate", "⚡ Command Center"),
+        ("me", "/me", "★ Mein Pulse"),
         ("team", "/ultimate/team", "👥 Team"),
         ("cases", "/ultimate/cases", "🚨 Fälle"),
         ("roblox", "/ultimate/roblox", "🎮 Roblox"),

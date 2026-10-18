@@ -3691,8 +3691,11 @@ async def melonly_alias(request: Request, user_session: str = Cookie(None)):
 # ACTION: SCHICHT-SYSTEM (Start / Pause / Fortsetzen / Ende)
 # =============================================================
 @app.post("/shift/action")
-async def handle_shift_action(request: Request, shift_action: str = Form(...), user_session: str = Cookie(None)):
+async def handle_shift_action(request: Request, shift_action: str = Form(...), return_to: str = Form("/dashboard"),
+                              user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
+    # Only known local pages; never redirect to user-supplied external URLs.
+    target_page = return_to if return_to in {"/dashboard", "/me"} else "/dashboard"
     mod_id = ctx.user["id"]
     shifts_db = load_shifts()
     team_db = load_json(DATA_FILE, {})
@@ -3702,9 +3705,9 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), u
 
     if shift_action == "start":
         if shift:
-            return back("/dashboard", "Du hast bereits eine laufende Schicht.", False)
+            return back(target_page, "Du hast bereits eine laufende Schicht.", False)
         if len(active_warns(user_entry(team_db, mod_id))) >= 5:
-            return back("/dashboard", "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!", False)
+            return back(target_page, "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!", False)
         # An active leave is informational, not a lock: team members may
         # voluntarily work during an LOA without deleting or shortening it.
         loa = get_loas().get(mod_id)
@@ -3743,7 +3746,7 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), u
         del active[mod_id]
         msg = f"Schicht beendet – {fmt_duration(duration)} gutgeschrieben."
     else:
-        return back("/dashboard", "Diese Aktion ist gerade nicht möglich.", False)
+        return back(target_page, "Diese Aktion ist gerade nicht möglich.", False)
 
     save_json(SHIFTS_FILE, shifts_db)
     # Voice-Support-Bereitschaft is a view of this same shift state, not a
@@ -3756,7 +3759,7 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), u
             await voice_support._refresh_duty_status(ctx.guild)
     except Exception as exc:
         print(f"⚠️ Voice-Support: Bereitschaft konnte nach Schichtaktion nicht aktualisiert werden: {exc}")
-    return back("/dashboard", msg)
+    return back(target_page, msg)
 
 
 # =============================================================
@@ -9653,3 +9656,9 @@ try:
     register_pulse_intelligence(app)
 except Exception as _intelligence_error:
     print(f"❌ Pulse Intelligence Module konnten nicht registriert werden: {_intelligence_error}")
+
+try:
+    from pulse_home import register as register_pulse_home
+    register_pulse_home(app)
+except Exception as _home_error:
+    print(f"❌ Mein Pulse konnte nicht registriert werden: {_home_error}")
