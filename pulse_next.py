@@ -338,13 +338,9 @@ def progress(current, target):
         return 0
 
 def next_page(ctx, active, title, subtitle, body, search=True):
-    extra = """
-    <div class="pulse-mobile-actions">
-      <a href="/ultimate">⚡</a><a href="/ultimate/search">🔎</a><a href="/ultimate/team">👥</a><a href="/tasks">📋</a><a href="/ultimate/approvals">✅</a>
-    </div>
-    <style>.pulse-mobile-actions{display:none}@media(max-width:800px){.pulse-mobile-actions{display:flex;position:fixed;left:10px;right:10px;bottom:10px;z-index:20;justify-content:space-around;background:#0b1320f5;border:1px solid #ffffff15;border-radius:15px;padding:8px;backdrop-filter:blur(12px)}.pulse-mobile-actions a{font-size:20px;padding:6px 14px}}</style>
-    """
-    return u.page(ctx, active, title, subtitle, body, extra)
+    # The shared Pulse shell provides the mobile drawer and Ctrl+K palette, so the old
+    # dark floating action bar is no longer needed here.
+    return u.page(ctx, active, title, subtitle, body)
 
 def save_audit(ctx, action, target="", details=""):
     u.audit(ctx, action, target, target, details)

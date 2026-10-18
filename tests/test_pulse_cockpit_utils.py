@@ -32,6 +32,12 @@ class CockpitHelperTests(unittest.TestCase):
         self.assertEqual(this, (date(2026, 10, 12), date(2026, 10, 15)))
         self.assertEqual(prev, (date(2026, 10, 5), date(2026, 10, 8)))
 
+    def test_monday_report_uses_last_complete_week(self):
+        from pulse_cockpit_utils import previous_full_weeks
+        last, before = previous_full_weeks(date(2026, 10, 19))  # Monday
+        self.assertEqual(last, (date(2026, 10, 12), date(2026, 10, 18)))
+        self.assertEqual(before, (date(2026, 10, 5), date(2026, 10, 11)))
+
     def test_trend_labels(self):
         self.assertEqual(trend(150, 100), ("↑", "+50 %"))
         self.assertEqual(trend(50, 100), ("↓", "-50 %"))

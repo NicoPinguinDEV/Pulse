@@ -250,45 +250,29 @@ def nav(active, manager=False):
     return "".join('<a class="{}" href="{}">{}</a>'.format("active" if k==active else "",p,label) for k,p,label in items)
 
 def page(ctx,active,title,subtitle,body,js=""):
-    u=esc(ctx.user.get("global_name") or ctx.user.get("username") or ctx.user.get("id"))
-    initials=esc((u[:1] or "P").upper())
+    """Render a Suite page inside the shared Pulse shell (one navigation, light/dark)."""
+    web=__import__("webserver")
+    from pulse_design import legacy_page
     perms=getattr(ctx,"perms",{}) or {}
     has_leadership=bool(perms.get("can_promote") or perms.get("is_admin"))
     top_actions=(
-        '<a class=btn href=/ultimate>⚡ Command Center</a><a class="btn primary" href=/suite>Führung</a>'
+        '<button class=btn onclick=openSearch()>⌕ Suche</button><a class=btn href=/ultimate>⚡ Command Center</a><a class="btn primary" href=/suite>Führung</a>'
         if has_leadership else
-        '<a class="btn primary" href=/suite/tasks>Meine Aufgaben</a><a class=btn href=/suite/my-schedule>Mein Dienstplan</a>'
+        '<button class=btn onclick=openSearch()>⌕ Suche</button><a class="btn primary" href=/suite/tasks>Meine Aufgaben</a><a class=btn href=/suite/my-schedule>Mein Dienstplan</a>'
     )
-    html = (
-        """<!doctype html><html lang=de><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><meta name=theme-color content="#080d16"><title>"""
-        + esc(title)
-        + """ · Pulse</title><style>"""
-        + CSS
-        + """</style></head><body><div class=shell><aside class=side><div class=brand><div class=brand-mark>⚡</div><div><div class=brand-main>Pulse <span style="color:var(--a)">TeamOS</span></div><small>OPERATIONS SUITE · v7</small></div></div><nav class=nav>"""
-        + nav(active, has_leadership)
-        + """</nav><div class=side-bottom><div class=side-actions><button class=btn onclick=openSearch()>⌕ Suche</button><button class=btn onclick=accent()>✦ Akzent</button></div><div class=profile><div style="width:30px;height:30px;border-radius:10px;background:linear-gradient(135deg,var(--a),#06b6d4);display:grid;place-items:center;font-size:11px;font-weight:950">"""
-        + initials
-        + """</div><div style="min-width:0"><div style="font-size:11px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">"""
-        + u
-        + """</div><div class=tiny>Pulse TeamOS</div></div><span class=profile-dot title="Session aktiv"></span></div><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:8px;padding:0 3px"><span class=tiny>Session aktiv</span><a href=/logout class=tiny style="color:#cbd5e1">Abmelden ↗</a></div></div></aside><main class=main><div class=top><div><div class=kicker>Pulse TeamOS / Operations Suite</div><h1>"""
-        + esc(title)
-        + """</h1><div class=muted>"""
-        + esc(subtitle)
-        + """</div></div><div class=top-actions>""" + top_actions + """</div></div>"""
-        + body
-        + """</main></div><div id=search class=search><div><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px"><div><div class=kicker>Pulse Search</div><b>Alles im TeamOS finden</b></div><button class=btn onclick=closeSearch()>Esc</button></div><input id=sq class=input placeholder="Teamler, ID, Warn-ID, Ticket, Aufgabe, Bewerbung, Audit, Roblox …" oninput=doSearch(this.value)><div id=sr style="margin-top:8px"></div></div></div><script>
+    # Suite search stays available via its button; Ctrl+K opens the shared command palette.
+    scripts=(
+        """<div id=search class=pulse-search-overlay><div><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px"><div><div class="kicker" style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)">Pulse Search</div><b>Alles im TeamOS finden</b></div><button class="pulse-btn ghost" onclick=closeSearch()>Esc</button></div><input id=sq class=pulse-input placeholder="Teamler, ID, Warn-ID, Ticket, Aufgabe, Bewerbung, Audit, Roblox …" oninput=doSearch(this.value)><div id=sr style="margin-top:8px"></div></div></div><script>
 function openSearch(){document.getElementById('search').style.display='flex';document.getElementById('sq').focus()}
 function closeSearch(){document.getElementById('search').style.display='none'}
-document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()=='k'){e.preventDefault();openSearch()}if(e.key=='Escape')closeSearch()})
+document.addEventListener('keydown',e=>{if(e.key=='Escape')closeSearch()})
 document.getElementById('search').addEventListener('click',e=>{if(e.target.id=='search')closeSearch()})
-async function doSearch(q){if(q.trim().length<2){document.getElementById('sr').innerHTML='';return}document.getElementById('sr').innerHTML='<div class="card">Suche…</div>';try{let d=await (await fetch('/suite/api/search?q='+encodeURIComponent(q))).json();const h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),u=v=>String(v||'').startsWith('/')&&!String(v).startsWith('//')?String(v):'#';document.getElementById('sr').innerHTML=(d.results||[]).map(x=>'<a class=result href="'+h(u(x.url))+'"><b>'+h(x.title)+'</b><div class=tiny>'+h(x.type)+' · '+h(x.meta)+'</div></a>').join('')||'<div class=card>Keine Treffer.</div>'}catch(e){document.getElementById('sr').innerHTML='<div class="card">Suche nicht verfügbar.</div>'}}
-function accent(){let x=localStorage.getItem('pulse-accent')||'indigo';x=x==='indigo'?'cyan':x==='cyan'?'emerald':'indigo';localStorage.setItem('pulse-accent',x);location.reload()}
-(function(){let x=localStorage.getItem('pulse-accent'),m={cyan:'#06b6d4',indigo:'#6366f1',emerald:'#10b981'};if(x&&m[x])document.documentElement.style.setProperty('--a',m[x])})();
+async function doSearch(q){if(q.trim().length<2){document.getElementById('sr').innerHTML='';return}document.getElementById('sr').innerHTML='<div class="pulse-empty">Suche…</div>';try{let d=await (await fetch('/suite/api/search?q='+encodeURIComponent(q))).json();const h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),u=v=>String(v||'').startsWith('/')&&!String(v).startsWith('//')?String(v):'#';document.getElementById('sr').innerHTML=(d.results||[]).map(x=>'<a class=result href="'+h(u(x.url))+'"><b>'+h(x.title)+'</b><div class="text-[11px] text-slate-400">'+h(x.type)+' · '+h(x.meta)+'</div></a>').join('')||'<div class="pulse-empty">Keine Treffer.</div>'}catch(e){document.getElementById('sr').innerHTML='<div class="pulse-empty">Suche nicht verfügbar.</div>'}}
 """
         + js
-        + """</script></body></html>"""
+        + """</script>"""
     )
-    return HTMLResponse(html)
+    return legacy_page(web,ctx,"s:"+str(active),title,subtitle,body,actions=top_actions,scripts=scripts,kicker="Pulse TeamOS · Operations Suite")
 
 
 _ROUTES=False
@@ -779,9 +763,18 @@ class PulseSuite(commands.Cog):
         for uid,s in sh.get("active_shifts",{}).items():
             elapsed=web.shift_elapsed(s)
             if elapsed>=8*3600 and not setting("long_shift:"+str(uid)+":"+str(s.get("date")),False):
+                # Shift records carry no name; resolve it so leaders don't see a raw ID.
+                member=g.get_member(int(uid)) if str(uid).isdigit() else None
+                name=member.display_name if member else s.get("mod_name",uid)
                 for m in manager_cache:
-                    db.notify(m.id,"⏱ Ungewöhnlich lange Schicht",f"{s.get('mod_name',uid)} ist seit {secfmt(elapsed)} im Dienst. Prüfe bei Bedarf die Schicht.","warning","/suite/member/"+str(uid),f"longshift:{uid}:{s.get('date')}",86400)
+                    db.notify(m.id,"⏱ Ungewöhnlich lange Schicht",f"{name} ist seit {secfmt(elapsed)} im Dienst. Prüfe bei Bedarf die Schicht.","warning","/suite/member/"+str(uid),f"longshift:{uid}:{s.get('date')}",86400)
                 set_setting("long_shift:"+str(uid)+":"+str(s.get("date")),True)
+                # One friendly DM per shift: most long shifts are simply forgotten clock-outs.
+                if member:
+                    db.notify(member.id,"⏱ Noch im Dienst?",f"Deine Schicht läuft seit {secfmt(elapsed)}. Vergessen auszustempeln?","warning","/me",f"longshift-self:{uid}:{s.get('date')}",86400)
+                    link=f"\n👉 {PUBLIC_BASE_URL}/me" if PUBLIC_BASE_URL else ""
+                    try:await member.send(f"⏱ Hey {member.display_name}, deine Pulse-Schicht läuft schon seit **{secfmt(elapsed)}**. Falls du vergessen hast auszustempeln, beende sie bitte in Pulse.{link}")
+                    except (discord.Forbidden,discord.HTTPException):pass
 
     async def inactivity(self,g):
         # Alle Operationen in dieser Prüfung sind synchron (Discord-Cache,
@@ -821,8 +814,36 @@ class PulseSuite(commands.Cog):
         e=discord.Embed(title="📊 Pulse Daily Report",color=discord.Color.blurple());e.add_field(name="👥 Team",value=str(len(ms)));e.add_field(name="🟢 Aktiv",value=str(sum(str(m.status) in {"online","idle","dnd"} for m in ms)));e.add_field(name="⏱ Dienstzeit",value=secfmt(sec));e.add_field(name="🎫 Tickets",value=str(sum(x.get("status")!="closed" for x in db.list_tickets(limit=3000))));e.add_field(name="📝 Bewerbungen",value=str(sum(str(a.get("status","pending")) in {"pending","in_review","interview"} for a in web.load_json(web.APPS_FILE,{}).values())));e.add_field(name="⚠ Warnungen",value=str(sum(len(warns(m,web)) for m in ms)));await self._report(g,e)
 
     async def weekly_report(self,g):
-        web=__import__("webserver");ms=sorted(members(g,web),key=lambda m:weekly(m,web),reverse=True);e=discord.Embed(title="📈 Team-Wochenbericht",color=discord.Color.blurple())
-        for i,m in enumerate(ms[:10],1):e.add_field(name=("🥇 " if i==1 else "🥈 " if i==2 else "🥉 " if i==3 else "#"+str(i)+" ")+m.display_name,value=f"{secfmt(weekly(m,web))} · Score {team_score(m,web)['score']}/100",inline=False)
+        # Sent on Monday morning: summarise the last *complete* week (the running week
+        # has barely started) and compare it with the week before.
+        from pulse_cockpit_utils import previous_full_weeks,seconds_per_member,trend
+        web=__import__("webserver");ms=members(g,web);ids={str(m.id) for m in ms}
+        today=web.now_de().date();(ls,le),(ps,pe)=previous_full_weeks(today)
+        history=web.load_shifts().get("history",[])
+        last=seconds_per_member(history,ls,le);prev=seconds_per_member(history,ps,pe)
+        total=sum(v for k,v in last.items() if k in ids);total_prev=sum(v for k,v in prev.items() if k in ids)
+        active=sum(1 for k,v in last.items() if k in ids and v>0);active_prev=sum(1 for k,v in prev.items() if k in ids and v>0)
+        def closed_in(start,end):
+            n=0
+            for t in db.list_tickets(limit=3000):
+                d=local(t.get("closed_at"))
+                if d and start<=d.date()<=end:n+=1
+            return n
+        closed=closed_in(ls,le);closed_prev=closed_in(ps,pe)
+        goal=float(web.load_config().get("weekly_goal_hours",setting("weekly_goal_hours",3)) or 0)*3600
+        reached=sum(1 for m in ms if goal and last.get(str(m.id),0)>=goal)
+        def tr(a,b):arrow,label=trend(a,b);return f"{arrow} {label}"
+        e=discord.Embed(title="📈 Team-Wochenbericht",description=f"Woche **{ls.strftime('%d.%m.')} – {le.strftime('%d.%m.%Y')}** im Vergleich zur Vorwoche.",color=discord.Color.blurple())
+        e.add_field(name="⏱ Teamstunden",value=f"**{secfmt(total)}**\n{tr(total,total_prev)}")
+        e.add_field(name="👥 Aktive Teamler",value=f"**{active}/{len(ms)}**\n{tr(active,active_prev)}")
+        e.add_field(name="🎫 Tickets geschlossen",value=f"**{closed}**\n{tr(closed,closed_prev)}")
+        e.add_field(name="🎯 Wochenziel erreicht",value=f"**{reached}/{len(ms)}**",inline=True)
+        ranked=sorted((m for m in ms if last.get(str(m.id),0)>0),key=lambda m:last.get(str(m.id),0),reverse=True)[:5]
+        if ranked:e.add_field(name="🏆 Top 5 der Woche",value="\n".join(f"{['🥇','🥈','🥉','4.','5.'][i]} **{m.display_name}** · {secfmt(last.get(str(m.id),0))}" for i,m in enumerate(ranked)),inline=False)
+        inactive=sum(1 for m in ms if not last.get(str(m.id)) and not web.get_loas().get(str(m.id),{}).get("active"))
+        if inactive:e.add_field(name="💤 Ohne Schicht",value=f"{inactive} Teamler {'hatte' if inactive==1 else 'hatten'} letzte Woche keine Schicht (Abgemeldete ausgenommen).",inline=False)
+        if PUBLIC_BASE_URL:e.add_field(name="🔗 Details",value=f"[Leitungs-Cockpit öffnen]({PUBLIC_BASE_URL}/cockpit)",inline=False)
+        e.set_footer(text="Pulse TeamOS · automatischer Wochenbericht")
         await self._report(g,e)
 
     async def _report(self,g,e):

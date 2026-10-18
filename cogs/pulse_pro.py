@@ -184,6 +184,46 @@ class PulsePro(commands.Cog):
             await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"Pulse · {active} im Dienst"))
         except Exception:
             pass
+        await self.send_startup_report()
+
+    async def send_startup_report(self):
+        """Post one compact start report per process to the optional system alert channel."""
+        if getattr(self.bot, "_pulse_startup_report_sent", False):
+            return  # on_ready also fires after gateway reconnects
+        self.bot._pulse_startup_report_sent = True
+        raw_channel = os.getenv("PULSE_SYSTEM_ALERT_CHANNEL_ID", "").strip()
+        guild = self.guild()
+        if not raw_channel.isdigit() or not guild:
+            return
+        channel = guild.get_channel(int(raw_channel))
+        if channel is None:
+            print(f"⚠️ Start-Diagnose: Alert-Kanal {raw_channel} nicht gefunden.")
+            return
+        try:
+            import webserver
+            import pulse_ultimate
+            loaded = getattr(self.bot, "pulse_loaded_cogs", [])
+            failed = getattr(self.bot, "pulse_failed_cogs", [])
+            synced = getattr(self.bot, "pulse_synced_commands", None)
+            rss = pulse_ultimate.process_rss_mb()
+            ok = not failed and synced is not None
+            embed = discord.Embed(
+                title=("✅" if ok else "⚠️") + " Pulse gestartet",
+                description=f"Version **{getattr(webserver, 'PULSE_VERSION', '?')}** ist online.",
+                color=discord.Color.green() if ok else discord.Color.orange(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="Module", value=f"{len(loaded)} geladen" + (f", {len(failed)} Fehler" if failed else ""), inline=True)
+            embed.add_field(name="Slash Commands", value=str(synced) if synced is not None else "Sync fehlgeschlagen", inline=True)
+            embed.add_field(name="RAM", value=f"{rss:.0f} MB" if rss else "nicht messbar", inline=True)
+            if failed:
+                embed.add_field(name="Nicht geladen", value="\n".join(f"• {x}" for x in failed[:10])[:1000], inline=False)
+            embed.add_field(name="Dashboard", value=f"[Öffnen]({panel_url('/me')})", inline=False)
+            await channel.send(embed=embed)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"⚠️ Start-Diagnose konnte nicht gesendet werden: {type(exc).__name__}")
+        except Exception as exc:
+            print(f"⚠️ Start-Diagnose fehlgeschlagen: {type(exc).__name__}: {exc}")
 
     @app_commands.command(name="pulse", description="Öffnet Pulse und zeigt die wichtigsten Teamzahlen.")
     async def pulse(self, interaction: discord.Interaction):
@@ -207,13 +247,83 @@ class PulsePro(commands.Cog):
             embed.add_field(name="🎫 Offene Tickets", value=str(tickets), inline=True)
             embed.add_field(name="📋 Aktive Aufgaben", value=str(tasks_open), inline=True)
             embed.add_field(name="✓ Freigaben", value=str(promos), inline=True)
-            embed.add_field(name="🌐 Dashboard", value=f"[Pulse öffnen]({panel_url()})", inline=False)
+            # Personal block: the most common question is "how am I doing this week?".
+            uid = str(interaction.user.id)
+            own = shifts.get("active_shifts", {}).get(uid)
+            weekly = webserver.calculate_weekly_seconds(uid, shifts.get("history", []), shifts.get("active_shifts", {}))
+            goal = float(cfg.get("weekly_goal_hours", 3.0) or 0)
+            pct = min(100, int(weekly * 100 / (goal * 3600))) if goal else 100
+            state = {"online": "🟢 Im Dienst", "break": "☕ Pause"}.get(own.get("status") if own else "", "⚪ Nicht im Dienst")
+            my_tasks = len([x for x in db.list_tasks(assignee_id=interaction.user.id, limit=100) if x.get("status") not in ("done", "archived")])
+            embed.add_field(
+                name="👤 Deine Woche",
+                value=f"{state}\n⏱ {webserver.fmt_duration(weekly)} von {goal:g} h ({pct} %)\n📋 {my_tasks} offene Aufgaben",
+                inline=False,
+            )
+            embed.add_field(name="🌐 Dashboard", value=f"[Mein Pulse]({panel_url('/me')}) · [Übersicht]({panel_url()})", inline=False)
             embed.set_footer(text="Pulse Pro")
             await interaction.response.send_message(embed=embed, ephemeral=True)
         except Exception as exc:
             print(f"Pulse slash command error: {exc}")
             if not interaction.response.is_done():
                 await interaction.response.send_message("Pulse konnte gerade nicht geladen werden.", ephemeral=True)
+
+    @app_commands.command(name="pulse-hilfe", description="Zeigt alle Pulse-Befehle, passend zu deinen Rechten.")
+    async def pulse_help(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True)
+            return
+        import webserver
+        cfg = webserver.load_config()
+        perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, cfg)
+        if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
+            await interaction.response.send_message("❌ Du hast keinen Zugriff auf Pulse.", ephemeral=True)
+            return
+        leader = bool(perms.get("can_promote") or perms.get("is_admin"))
+        sections = [
+            ("👤 Für dich", [
+                ("/pulse", "Teamzahlen und deine Woche"),
+                ("/mytasks", "Deine offenen Aufgaben"),
+                ("/taskdone", "Aufgabe als erledigt markieren"),
+                ("/teamstatus", "Wer ist gerade online/im Dienst"),
+                ("/anmeldung", "Abmeldung (LOA) verwalten"),
+                ("/melden", "Vorfall an die Führung melden"),
+            ]),
+            ("🧭 Team", [
+                ("/memberinfo", "Kurzinfo zu einem Teammitglied"),
+                ("/pulse-ticket", "Ticket-Funktionen"),
+                ("/activity-check", "Activity Check"),
+            ]),
+        ]
+        if perms.get("can_warn") or leader:
+            sections.append(("⚠ Moderation", [
+                ("/warn", "Team-Warnung mit Beleg"),
+                ("/warns", "Warnungen ansehen"),
+                ("/warn-remove", "Warnung zurücknehmen (mit Grund)"),
+            ]))
+        if leader:
+            sections.append(("🛡 Führung", [
+                ("/teamtask", "Aufgabe zuweisen"),
+                ("/teamannounce", "Team-Ankündigung senden"),
+                ("/promote · /demote", "Rangwechsel mit Grund"),
+                ("/team-kick · /team-exit", "Nur Teamrollen entfernen – kein Server-Kick"),
+                ("/pulse-approve", "Zweitfreigabe erteilen"),
+            ]))
+        if perms.get("is_admin"):
+            sections.append(("⚙ Administration", [
+                ("/pulsehealth", "Systemstatus"),
+                ("/pulse-diagnose", "RAM, Datenbanken, Rollen und Kanäle prüfen"),
+                ("/pulse-lock · /pulse-unlock", "Notfall-Sperre"),
+            ]))
+        embed = discord.Embed(
+            title="📖 Pulse-Hilfe",
+            description=f"Alles Wichtige findest du auch im Dashboard: [Mein Pulse]({panel_url('/me')})",
+            color=discord.Color.blurple(),
+        )
+        for title, rows in sections:
+            embed.add_field(name=title, value="\n".join(f"`{cmd}` – {text}" for cmd, text in rows), inline=False)
+        embed.set_footer(text="Es werden nur Befehle angezeigt, die zu deinen Rechten passen.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="teamstatus", description="Zeigt den aktuellen Teamstatus.")
     async def teamstatus(self, interaction: discord.Interaction):

@@ -44,6 +44,10 @@ class CustomBot(commands.Bot):
         self.pulse_message_cache_limit = MESSAGE_CACHE_SIZE
         self._pulse_web_server = None
         self._pulse_web_server_task = None
+        # Startup report data (shown by the Pulse Pro cog in the alert channel).
+        self.pulse_loaded_cogs = []
+        self.pulse_failed_cogs = []
+        self.pulse_synced_commands = None
 
     async def setup_hook(self):
         # WICHTIG: Bot-Instanz an die Webserver-App übergeben
@@ -55,13 +59,16 @@ class CustomBot(commands.Bot):
                 if filename.endswith(".py") and not filename.startswith("__"):
                     try:
                         await self.load_extension(f"cogs.{filename[:-3]}")
+                        self.pulse_loaded_cogs.append(filename[:-3])
                         print(f"📦 Cog geladen: {filename[:-3]}")
                     except Exception as e:
+                        self.pulse_failed_cogs.append(f"{filename[:-3]}: {type(e).__name__}")
                         print(f"❌ Fehler beim Laden von {filename}: {e}")
 
         # Slash Commands synchronisieren
         try:
             synced = await self.tree.sync()
+            self.pulse_synced_commands = len(synced)
             print(f"🔄 {len(synced)} Slash Commands synchronisiert!")
         except Exception as e:
             print(f"❌ Fehler beim Sync: {e}")

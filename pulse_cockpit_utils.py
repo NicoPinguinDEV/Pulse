@@ -49,6 +49,13 @@ def week_to_date_windows(today: date) -> tuple[tuple[date, date], tuple[date, da
     return (start, today), (start - timedelta(days=7), today - timedelta(days=7))
 
 
+def previous_full_weeks(today: date) -> tuple[tuple[date, date], tuple[date, date]]:
+    """(last complete Mon–Sun week, the week before it) for a Monday-morning report."""
+    this_monday = today - timedelta(days=today.weekday())
+    last_start = this_monday - timedelta(days=7)
+    return (last_start, this_monday - timedelta(days=1)), (last_start - timedelta(days=7), last_start - timedelta(days=1))
+
+
 def trend(current: float, previous: float) -> tuple[str, str]:
     """Return (arrow, label) describing the change versus the previous period."""
     current = float(current or 0)

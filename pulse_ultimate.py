@@ -694,14 +694,9 @@ def add_case_event(case_id: str, ctx, event_type: str, details: str):
 
 
 def status_badge(status: str) -> str:
-    classes = {
-        "open": "background:#17173d;color:#c7d2fe",
-        "investigating": "background:#2a2110;color:#fde68a",
-        "waiting": "background:#17202f;color:#bae6fd",
-        "resolved": "background:#0c2415;color:#bbf7d0",
-        "closed": "background:#1f2937;color:#cbd5e1",
-    }
-    return f'<span class="badge" style="{classes.get(status, classes["open"])}">{esc(status)}</span>'
+    # Theme-aware classes from the shared design system (readable in light and dark mode).
+    classes = {"open": "blue", "investigating": "warn", "waiting": "blue", "resolved": "ok", "closed": ""}
+    return f'<span class="badge {classes.get(status, "blue")}">{esc(status)}</span>'
 
 
 def card(inner: str) -> str:
@@ -709,77 +704,15 @@ def card(inner: str) -> str:
 
 
 def page(ctx, active: str, title: str, subtitle: str, body: str, extra_js: str = "") -> HTMLResponse:
+    """Render an Ultimate/TeamOS page inside the shared Pulse shell (one navigation, light/dark)."""
     import webserver
-    brand = setting("branding", {}) or {}
-    accent = esc(brand.get("accent") or "#6366f1")
-    nav = [
-        ("ultimate", "/ultimate", "⚡ Command Center"),
-        ("me", "/me", "★ Mein Pulse"),
-        ("cockpit", "/cockpit", "◆ Leitungs-Cockpit"),
-        ("team", "/ultimate/team", "👥 Team"),
-        ("cases", "/ultimate/cases", "🚨 Fälle"),
-        ("roblox", "/ultimate/roblox", "🎮 Roblox"),
-        ("departments", "/ultimate/departments", "🏢 Abteilungen"),
-        ("calendar", "/ultimate/calendar", "🗓 Kalender"),
-        ("polls", "/ultimate/polls", "🗳 Abstimmungen"),
-        ("feedback", "/ultimate/feedback", "💬 Feedback"),
-        ("handover", "/ultimate/handovers", "🧭 Übergaben"),
-        ("automations", "/ultimate/automations", "🤖 Automationen"),
-        ("workflows", "/ultimate/workflows", "🧩 Workflows"),
-        ("approvals", "/ultimate/approvals", "✅ Freigaben"),
-        ("announcements", "/ultimate/announcements", "📢 Team-News"),
-        ("ideas", "/ultimate/ideas", "💡 Ideen"),
-        ("goals", "/ultimate/goals", "🎯 Ziele"),
-        ("analytics", "/ultimate/analytics", "📊 Analytics"),
-        ("scoreboard", "/ultimate/scoreboard", "🏆 Team-Score"),
-        ("support", "/ultimate/support", "🎫 SLA & Support"),
-        ("legacy_tasks", "/tasks", "📋 Aufgaben"),
-        ("tasks2", "/ultimate/tasks", "📋 Aufgaben 2.0"),
-        ("onboarding", "/ultimate/onboarding", "🧑‍💼 On/Offboarding"),
-        ("orgchart", "/ultimate/orgchart", "🏢 Organigramm"),
-        ("reports", "/ultimate/reports", "📑 Berichte"),
-        ("backup", "/ultimate/backup", "💾 Backup"),
-        ("permissions", "/ultimate/permissions", "🔐 Rechte"),
-        ("awards", "/ultimate/awards", "🏆 Awards"),
-        ("legacy_training", "/training", "🎓 Schulungen"),
-        ("legacy_tickets", "/tickets", "🎫 Tickets"),
-        ("legacy_apps", "/applications", "📝 Bewerbungen"),
-        ("system", "/ultimate/system", "🩺 System"),
-        ("copilot", "/ultimate/copilot", "🧠 Pulse Copilot"),
-        ("system_twin", "/ultimate/system-twin", "🪞 System-Zwilling"),
-        ("simulator", "/ultimate/simulator", "🧪 Was-wäre-wenn"),
-        ("sandbox", "/ultimate/sandbox", "🧫 Release-Sandbox"),
-    ]
-    links = "".join(
-        f'<a class="nav-item {"active" if k == active else ""}" href="{p}">{label}</a>'
-        for k, p, label in nav
+    from pulse_design import legacy_page
+
+    actions = '<a class="btn" href="/me">★ Mein Pulse</a><a class="btn primary" href="/ultimate">⚡ Command Center</a>'
+    return legacy_page(
+        webserver, ctx, f"u:{active}", title, subtitle, body,
+        actions=actions, scripts=extra_js, kicker="Pulse TeamOS · Command Center",
     )
-    u = esc(ctx.user.get("global_name") or ctx.user.get("username") or ctx.user.get("id"))
-    css = f"""
-    <style>
-      :root{{--pulse-accent:{accent};--bg:#070b12;--panel:#0d1725;--line:#1e2d40;--text:#f8fafc;--muted:#94a3b8}}
-      *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(900px 500px at 15% -10%,#6366f120,transparent 60%),linear-gradient(180deg,#060a10,#09111d);color:var(--text);font:14px Inter,system-ui,sans-serif}}
-      a{{text-decoration:none;color:inherit}}.shell{{display:flex;min-height:100vh}}.side{{position:fixed;inset:0 auto 0 0;width:250px;padding:18px;background:#060a10ee;border-right:1px solid var(--line);backdrop-filter:blur(12px);z-index:5;overflow-y:auto;overscroll-behavior:contain}}
-      .brand{{font-size:20px;font-weight:900;margin:4px 0 18px}}.brand small{{display:block;color:var(--muted);font-size:10px;margin-top:3px}}
-      .nav-item{{display:block;padding:9px 11px;border-radius:10px;color:#cbd5e1;margin:4px 0}}.nav-item:hover,.nav-item.active{{background:#6366f122;color:#fff}}
-      .main{{margin-left:250px;width:calc(100% - 250px);padding:26px;max-width:1800px}}.top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:18px}}
-      h1{{margin:0;font-size:27px}}.muted,.tiny{{color:var(--muted)}}.tiny{{font-size:11px}}.grid{{display:grid;gap:13px}}.g4{{grid-template-columns:repeat(4,1fr)}}.g3{{grid-template-columns:repeat(3,1fr)}}.g2{{grid-template-columns:repeat(2,1fr)}}
-      .card{{background:linear-gradient(180deg,#0f1928f0,#0a1220f0);border:1px solid #ffffff0d;border-radius:16px;padding:16px;box-shadow:0 18px 50px #0004}}.metric{{font-size:28px;font-weight:900;margin:5px 0}}
-      .row{{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px;border:1px solid #ffffff0d;border-radius:10px;background:#08111d;margin:7px 0}}
-      .badge{{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:800}}.btn{{display:inline-block;border:1px solid var(--line);background:#111b2a;color:#e2e8f0;border-radius:10px;padding:8px 11px;font-weight:800;cursor:pointer}}.primary{{background:var(--pulse-accent);border-color:transparent;color:white}}
-      .danger{{background:#2b1116;color:#fecaca}}.input,.select,.ta{{width:100%;padding:10px;border-radius:10px;border:1px solid #2a394e;background:#08111d;color:#fff;outline:none}}.ta{{min-height:110px;resize:vertical}}
-      .form{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}}.span2{{grid-column:span 2}}.table{{width:100%;border-collapse:collapse}}.table th,.table td{{padding:9px;border-bottom:1px solid #ffffff0c;text-align:left;font-size:12px}}
-      .progress{{height:8px;background:#172234;border-radius:999px;overflow:hidden}}.progress>div{{height:100%;background:var(--pulse-accent)}}.pill{{border:1px solid var(--line);border-radius:999px;padding:4px 7px;font-size:10px;font-weight:800}}
-      @media(max-width:1100px){{.g4{{grid-template-columns:repeat(2,1fr)}}}}@media(max-width:800px){{.side{{position:static;width:100%;border-right:0;border-bottom:1px solid var(--line)}}.shell{{display:block}}.main{{margin:0;width:100%;padding:15px}}.g4{{grid-template-columns:repeat(2,minmax(0,1fr))}}.g3,.g2,.form{{grid-template-columns:1fr}}.span2{{grid-column:auto}}.top{{flex-direction:column}}
-        .side{{padding:12px;overflow:visible}}.brand{{margin:0 0 10px}}.side nav{{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px;scrollbar-width:thin}}.nav-item{{flex:0 0 auto;margin:0;white-space:nowrap;padding:10px 12px}}
-        .row{{flex-wrap:wrap}}.card{{overflow-x:auto}}h1{{font-size:23px}}.input,.select,.ta{{font-size:16px}}}}
-    </style>
-    """
-    body_html = f"""<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Pulse</title>{css}</head>
-    <body><div class="shell"><aside class="side"><div class="brand">⚡ Pulse <span style="color:var(--pulse-accent)">Ultimate</span><small>TeamOS Control Center</small></div>
-    <nav>{links}</nav><div class="tiny" style="margin-top:16px">Angemeldet als <b>{u}</b></div></aside>
-    <main class="main"><div class="top"><div><h1>{esc(title)}</h1><div class="muted">{esc(subtitle)}</div></div><div><a class="btn" href="/dashboard">Altes Dashboard</a> <a class="btn primary" href="/ultimate">Command Center</a></div></div>{body}</main></div>{extra_js}</body></html>"""
-    return HTMLResponse(body_html)
 
 
 def validate_api_key(token: str) -> bool:

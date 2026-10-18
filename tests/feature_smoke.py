@@ -1171,11 +1171,16 @@ def main() -> None:
     assert "data = await file.read()\n" not in ultimate_security
     assert "pulse_team_export.csv'); open(path" not in pulse_pro_source
 
-    # Phone/tablet: scrollable sidebar, swipeable nav strip and 16px inputs (no iOS zoom).
-    assert "z-index:5;overflow-y:auto" in ultimate_security
-    assert ".side nav{{display:flex;gap:6px;overflow-x:auto" in ultimate_security
+    # Phone/tablet: 16px inputs (no iOS zoom). Ultimate and Suite now render inside the
+    # shared shell (scrollable drawer sidebar), so they need no separate mobile navigation.
     assert "textarea{font-size:16px!important}" in pulse_pro_source
-    assert ".nav{display:flex;gap:6px;overflow-x:auto" in suite_security
+    design = read("pulse_design.py")
+    parse("pulse_design.py")
+    assert "def legacy_page(" in design and ".pulse-legacy .card{" in design
+    assert "return legacy_page(" in ultimate_security and "return legacy_page(" in suite_security
+    assert 'f"u:{active}"' in ultimate_security and '"s:"+str(active)' in suite_security
+    assert "from pulse_design import SUITE_NAV, ULTIMATE_NAV, visible_nav" in pulse_pro_source
+    assert ".pulse-legacy .input,.pulse-legacy .select,.pulse-legacy .ta{font-size:16px}" in design
 
     # Mein Pulse: personal start page, registered after the other modules and in all navigations.
     home = read("pulse_home.py")
@@ -1187,7 +1192,6 @@ def main() -> None:
     assert "from pulse_home import register as register_pulse_home" in web
     assert 'target_page = return_to if return_to in {"/dashboard", "/me"} else "/dashboard"' in web
     assert '("me","/me","★","Mein Pulse",True,False)' in pulse_pro_source
-    assert '("me", "/me", "★ Mein Pulse")' in ultimate_security
 
     # Leitungs-Cockpit: leadership-only, server-side authorisation and one-click shift end.
     cockpit = read("pulse_cockpit.py")
@@ -1198,6 +1202,18 @@ def main() -> None:
     assert 'action="/shift/admin-end"' in cockpit
     assert "from pulse_cockpit import register as register_pulse_cockpit" in web
     assert '("cockpit","/cockpit","◆","Leitungs-Cockpit",perms.get("can_promote") or perms.get("is_admin"),False)' in pulse_pro_source
+
+    # Bot: Monday report covers the completed week, long shifts get a friendly self-DM with
+    # the real name, /pulse-hilfe is permission-aware and a single start report is posted.
+    suite_bot = read("cogs/pulse_suite.py")
+    pro_cog = read("cogs/pulse_pro.py")
+    assert "(ls,le),(ps,pe)=previous_full_weeks(today)" in suite_bot
+    assert "name=member.display_name if member else s.get(\"mod_name\",uid)" in suite_bot
+    assert "longshift-self:" in suite_bot and "except (discord.Forbidden,discord.HTTPException):pass" in suite_bot
+    assert '@app_commands.command(name="pulse-hilfe"' in pro_cog
+    assert 'if perms.get("is_admin"):\n            sections.append(("⚙ Administration"' in pro_cog
+    assert "_pulse_startup_report_sent" in pro_cog
+    assert "self.pulse_failed_cogs.append(" in read("main.py")
 
     print("Pulse feature smoke test: OK")
 
