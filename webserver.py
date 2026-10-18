@@ -9662,3 +9662,9 @@ try:
     register_pulse_home(app)
 except Exception as _home_error:
     print(f"❌ Mein Pulse konnte nicht registriert werden: {_home_error}")
+
+try:
+    from pulse_cockpit import register as register_pulse_cockpit
+    register_pulse_cockpit(app)
+except Exception as _cockpit_error:
+    print(f"❌ Leitungs-Cockpit konnte nicht registriert werden: {_cockpit_error}")

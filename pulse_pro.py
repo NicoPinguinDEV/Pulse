@@ -183,6 +183,7 @@ def make_shell_helpers(ws):
         groups = [
             ("Arbeitsbereich", [
                 ("me","/me","★","Mein Pulse",True,False),
+                ("cockpit","/cockpit","◆","Leitungs-Cockpit",perms.get("can_promote") or perms.get("is_admin"),False),
                 ("dashboard","/dashboard","⌂","Übersicht",True,False),
                 ("inbox","/pulse-inbox","◈","Inbox",True,False),
                 ("team-status","/team-status","◉","Teamstatus",perms.get("can_view_team_status",True),False),
@@ -253,7 +254,7 @@ def make_shell_helpers(ws):
 
 def build_command_modal(ws):
     items = [
-        ("★", "Mein Pulse", "/me"), ("⌂", "Dashboard öffnen", "/dashboard"),("◌", "Teamstatus", "/team-status"), ("✓", "Activity Check", "/activity-check"), ("🛡️", "Melonly", "/melonly"), ("▣", "Tickets", "/tickets"), ("🎧", "Sprach-Support", "/voice-support"),
+        ("★", "Mein Pulse", "/me"), ("◆", "Leitungs-Cockpit", "/cockpit"),("⌂", "Dashboard öffnen", "/dashboard"),("◌", "Teamstatus", "/team-status"), ("✓", "Activity Check", "/activity-check"), ("🛡️", "Melonly", "/melonly"), ("▣", "Tickets", "/tickets"), ("🎧", "Sprach-Support", "/voice-support"),
         ("✦", "Ankündigungen", "/announcements"), ("▤", "Meeting-Historie", "/meetings-history"), ("◇", "Schulungen", "/training"), ("▤", "Team-Wiki", "/wiki"),
         ("◒", "Analytics", "/stats"), ("◆", "Achievements", "/achievements"), ("🎛️", "Ticket-Panel-Builder", "/tickets/panels"), ("⚙", "Einstellungen", "/settings"),
     ]

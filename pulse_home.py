@@ -218,7 +218,11 @@ def register(app) -> None:
             unclaimed = sum(1 for t in db.list_tickets(limit=300) if t.get("status") == "open" and not t.get("claimed_by_id"))
             if unclaimed:
                 waiting += f'<a href="/tickets" class="pulse-alert block"><strong>▣ {unclaimed} Tickets ohne Bearbeiter</strong></a>'
-        waiting_card = card("⏳ Wartet auf dich", waiting) if waiting else ""
+        cockpit_link = (
+            '<a href="/cockpit" class="text-[11px] text-indigo-500">Cockpit →</a>'
+            if perms.get("can_promote") or perms.get("is_admin") else ""
+        )
+        waiting_card = card("⏳ Wartet auf dich", waiting, cockpit_link) if waiting else ""
 
         body = f'''
         {hero}

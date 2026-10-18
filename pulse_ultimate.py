@@ -715,6 +715,7 @@ def page(ctx, active: str, title: str, subtitle: str, body: str, extra_js: str =
     nav = [
         ("ultimate", "/ultimate", "⚡ Command Center"),
         ("me", "/me", "★ Mein Pulse"),
+        ("cockpit", "/cockpit", "◆ Leitungs-Cockpit"),
         ("team", "/ultimate/team", "👥 Team"),
         ("cases", "/ultimate/cases", "🚨 Fälle"),
         ("roblox", "/ultimate/roblox", "🎮 Roblox"),

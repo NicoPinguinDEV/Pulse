@@ -1189,6 +1189,16 @@ def main() -> None:
     assert '("me","/me","★","Mein Pulse",True,False)' in pulse_pro_source
     assert '("me", "/me", "★ Mein Pulse")' in ultimate_security
 
+    # Leitungs-Cockpit: leadership-only, server-side authorisation and one-click shift end.
+    cockpit = read("pulse_cockpit.py")
+    parse("pulse_cockpit.py")
+    parse("pulse_cockpit_utils.py")
+    assert '@app.get("/cockpit", response_class=HTMLResponse)' in cockpit
+    assert 'if not (ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):' in cockpit
+    assert 'action="/shift/admin-end"' in cockpit
+    assert "from pulse_cockpit import register as register_pulse_cockpit" in web
+    assert '("cockpit","/cockpit","◆","Leitungs-Cockpit",perms.get("can_promote") or perms.get("is_admin"),False)' in pulse_pro_source
+
     print("Pulse feature smoke test: OK")
 
 
