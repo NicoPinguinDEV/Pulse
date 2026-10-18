@@ -757,7 +757,7 @@ def page(ctx, active: str, title: str, subtitle: str, body: str, extra_js: str =
     <style>
       :root{{--pulse-accent:{accent};--bg:#070b12;--panel:#0d1725;--line:#1e2d40;--text:#f8fafc;--muted:#94a3b8}}
       *{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(900px 500px at 15% -10%,#6366f120,transparent 60%),linear-gradient(180deg,#060a10,#09111d);color:var(--text);font:14px Inter,system-ui,sans-serif}}
-      a{{text-decoration:none;color:inherit}}.shell{{display:flex;min-height:100vh}}.side{{position:fixed;inset:0 auto 0 0;width:250px;padding:18px;background:#060a10ee;border-right:1px solid var(--line);backdrop-filter:blur(12px);z-index:5}}
+      a{{text-decoration:none;color:inherit}}.shell{{display:flex;min-height:100vh}}.side{{position:fixed;inset:0 auto 0 0;width:250px;padding:18px;background:#060a10ee;border-right:1px solid var(--line);backdrop-filter:blur(12px);z-index:5;overflow-y:auto;overscroll-behavior:contain}}
       .brand{{font-size:20px;font-weight:900;margin:4px 0 18px}}.brand small{{display:block;color:var(--muted);font-size:10px;margin-top:3px}}
       .nav-item{{display:block;padding:9px 11px;border-radius:10px;color:#cbd5e1;margin:4px 0}}.nav-item:hover,.nav-item.active{{background:#6366f122;color:#fff}}
       .main{{margin-left:250px;width:calc(100% - 250px);padding:26px;max-width:1800px}}.top{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:18px}}
@@ -768,7 +768,9 @@ def page(ctx, active: str, title: str, subtitle: str, body: str, extra_js: str =
       .danger{{background:#2b1116;color:#fecaca}}.input,.select,.ta{{width:100%;padding:10px;border-radius:10px;border:1px solid #2a394e;background:#08111d;color:#fff;outline:none}}.ta{{min-height:110px;resize:vertical}}
       .form{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}}.span2{{grid-column:span 2}}.table{{width:100%;border-collapse:collapse}}.table th,.table td{{padding:9px;border-bottom:1px solid #ffffff0c;text-align:left;font-size:12px}}
       .progress{{height:8px;background:#172234;border-radius:999px;overflow:hidden}}.progress>div{{height:100%;background:var(--pulse-accent)}}.pill{{border:1px solid var(--line);border-radius:999px;padding:4px 7px;font-size:10px;font-weight:800}}
-      @media(max-width:1100px){{.g4{{grid-template-columns:repeat(2,1fr)}}}}@media(max-width:800px){{.side{{position:static;width:100%;border-right:0;border-bottom:1px solid var(--line)}}.shell{{display:block}}.main{{margin:0;width:100%;padding:15px}}.g4,.g3,.g2,.form{{grid-template-columns:1fr}}.span2{{grid-column:auto}}.top{{flex-direction:column}}}}
+      @media(max-width:1100px){{.g4{{grid-template-columns:repeat(2,1fr)}}}}@media(max-width:800px){{.side{{position:static;width:100%;border-right:0;border-bottom:1px solid var(--line)}}.shell{{display:block}}.main{{margin:0;width:100%;padding:15px}}.g4{{grid-template-columns:repeat(2,minmax(0,1fr))}}.g3,.g2,.form{{grid-template-columns:1fr}}.span2{{grid-column:auto}}.top{{flex-direction:column}}
+        .side{{padding:12px;overflow:visible}}.brand{{margin:0 0 10px}}.side nav{{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px;scrollbar-width:thin}}.nav-item{{flex:0 0 auto;margin:0;white-space:nowrap;padding:10px 12px}}
+        .row{{flex-wrap:wrap}}.card{{overflow-x:auto}}h1{{font-size:23px}}.input,.select,.ta{{font-size:16px}}}}
     </style>
     """
     body_html = f"""<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Pulse</title>{css}</head>
@@ -1134,8 +1136,15 @@ def register(app) -> None:
         user_session: str = Cookie(None),
     ):
         ctx = ctx_auth(request, user_session, manager=True)
+        with cx() as c:
+            if not c.execute("SELECT 1 FROM ultimate_cases WHERE id=?", (case_id,)).fetchone():
+                raise HTTPException(404, "Fall nicht gefunden.")
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", file.filename or "upload.bin")[:120]
-        data = await file.read()
+        # Read at most limit+1 bytes so an oversized upload cannot exhaust the 250 MB RAM budget.
+        try:
+            data = await file.read(MAX_UPLOAD_BYTES + 1)
+        finally:
+            await file.close()
         if len(data) > MAX_UPLOAD_BYTES:
             raise HTTPException(413, "Datei ist größer als 10 MB.")
         digest = hashlib.sha256(data).hexdigest()
@@ -1332,7 +1341,7 @@ def register(app) -> None:
                 (iso(),),
             ).fetchall()]
         items = "".join(
-            card(f"<div class=row><div><b>{esc(x['title'])}</b><div class=tiny>{esc(x['kind'])} · {esc(x['start_at'])}</div></div><a class='btn' href='/ultimate/calendar/{x['id']}/delete'>Löschen</a></div><div class=tiny>{esc(x['description'])}</div>")
+            card(f"<div class=row><div><b>{esc(x['title'])}</b><div class=tiny>{esc(x['kind'])} · {esc(x['start_at'])}</div></div><form method='post' action='/ultimate/calendar/{esc(x['id'])}/delete' style='margin:0'><button class='btn' type='submit'>Löschen</button></form></div><div class=tiny>{esc(x['description'])}</div>")
             for x in rows
         )
         body = f"""<div class="card"><h3>🗓 Termin erstellen</h3><form class="form" method="post" action="/ultimate/calendar/create">
@@ -1368,6 +1377,12 @@ def register(app) -> None:
         return RedirectResponse("/ultimate/calendar", status_code=303)
 
     @app.get("/ultimate/calendar/{event_id}/delete")
+    async def ultimate_calendar_delete_link(request: Request, event_id: str, user_session: str = Cookie(None)):
+        # Old bookmarks/links must not delete anything: deleting via GET is CSRF-prone.
+        ctx_auth(request, user_session, manager=True)
+        return RedirectResponse("/ultimate/calendar", status_code=303)
+
+    @app.post("/ultimate/calendar/{event_id}/delete")
     async def ultimate_calendar_delete(request: Request, event_id: str, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session, manager=True)
         with cx() as c:

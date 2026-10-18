@@ -1158,6 +1158,25 @@ def main() -> None:
     assert "app.post('/calendar/create')(create_calendar_event_v5)" in pulse_pro_source
     assert "CREATE TABLE IF NOT EXISTS calendar_events" in read("pulse_db.py")
 
+    # Security hardening: search results are escaped before innerHTML (stored XSS via
+    # Discord names/warn reasons), deletes are never triggered by GET links, and
+    # evidence uploads are read with a size cap instead of fully into RAM.
+    suite_security = read("cogs/pulse_suite.py")
+    assert "'+x.title+'" not in suite_security
+    assert "h(x.title)" in suite_security and "h(u(x.url))" in suite_security
+    ultimate_security = read("pulse_ultimate.py")
+    assert '@app.post("/ultimate/calendar/{event_id}/delete")' in ultimate_security
+    assert "href='/ultimate/calendar/{x['id']}/delete'" not in ultimate_security
+    assert "await file.read(MAX_UPLOAD_BYTES + 1)" in ultimate_security
+    assert "data = await file.read()\n" not in ultimate_security
+    assert "pulse_team_export.csv'); open(path" not in pulse_pro_source
+
+    # Phone/tablet: scrollable sidebar, swipeable nav strip and 16px inputs (no iOS zoom).
+    assert "z-index:5;overflow-y:auto" in ultimate_security
+    assert ".side nav{{display:flex;gap:6px;overflow-x:auto" in ultimate_security
+    assert "textarea{font-size:16px!important}" in pulse_pro_source
+    assert ".nav{display:flex;gap:6px;overflow-x:auto" in suite_security
+
     print("Pulse feature smoke test: OK")
 
 
