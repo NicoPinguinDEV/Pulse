@@ -406,7 +406,38 @@ async def transcript(channel):
     return "\n".join(rows)
 
 
+STATUS_FIELDS = ("Status", "Priorität", "Bearbeiter")
+
+
 async def refresh_ticket_embed(channel, ticket: dict, control_view=None):
+    status = "✅ Geschlossen" if ticket.get("status") == "closed" else "🔵 In Bearbeitung" if ticket.get("claimed_by_id") else "🟢 Offen"
+    values = {
+        "Status": status,
+        "Priorität": priority_embed_value(ticket.get("priority", "normal")),
+        "Bearbeiter": ticket.get("claimed_by_name") or "Noch nicht übernommen",
+    }
+    # Update only the status fields of the welcome message so its text, form answers
+    # and images stay intact (older tickets without these fields use the classic embed).
+    try:
+        async for m in channel.history(limit=20, oldest_first=True):
+            if m.author.id == channel.guild.me.id and m.embeds:
+                embed = m.embeds[0].copy()
+                names = [field.name for field in embed.fields]
+                if all(name in names for name in STATUS_FIELDS):
+                    for index, field in enumerate(embed.fields):
+                        if field.name in values:
+                            embed.set_field_at(index, name=field.name, value=values[field.name], inline=True)
+                    if ticket.get("priority") == "urgent":
+                        embed.color = discord.Color.red()
+                    await m.edit(embed=embed, view=control_view or TicketControlView())
+                    return
+                break
+    except Exception:
+        pass
+    await _refresh_classic_ticket_embed(channel, ticket, control_view)
+
+
+async def _refresh_classic_ticket_embed(channel, ticket: dict, control_view=None):
     label, _, emoji, _, _ = category_meta(ticket.get("category"))
     embed = discord.Embed(
         title=f"{emoji} {label} – Ticket",
@@ -657,13 +688,14 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
         title=render_placeholders(welcome_title, **variables)[:256],
         description=(
             render_placeholders(welcome_message, **variables)[:3500]
-            + f"\n\n**Ticket-ID:** `{tid}`\n"
-            f"**Kategorie:** {emoji} {label}\n"
-            f"**Status:** 🟢 Offen · **Priorität:** 🟢 Normal\n"
-            f"**Bearbeiter:** Noch nicht übernommen"
+            + f"\n\n**Ticket-ID:** `{tid}` · **Kategorie:** {emoji} {label}"
         ),
         color=color,
     )
+    # Status fields are updated in place on claim/priority changes (see refresh_ticket_embed).
+    embed.add_field(name="Status", value="🟢 Offen", inline=True)
+    embed.add_field(name="Priorität", value="🟢 Normal", inline=True)
+    embed.add_field(name="Bearbeiter", value="Noch nicht übernommen", inline=True)
     for question, answer in answers[:5]:
         embed.add_field(name=f"📝 {question}"[:256], value=(str(answer).strip() or "—")[:1024], inline=False)
     if not answers:
@@ -672,10 +704,25 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
             value="1. Anliegen erklären\n2. Rückfragen beantworten\n3. Lösung bestätigen\n4. Ticket über **Schließen** beenden",
             inline=False,
         )
-    embed.set_thumbnail(url=interaction.user.display_avatar.url)
+    # Welcome images (same options as the panel): uploaded file > URL > creator avatar.
+    welcome_files = []
+    thumb_path = panel_image_path(panel.get("welcome_thumbnail_file"))
+    banner_path = panel_image_path(panel.get("welcome_banner_file"))
+    if thumb_path:
+        welcome_files.append(discord.File(thumb_path, filename=os.path.basename(thumb_path)))
+        embed.set_thumbnail(url=f"attachment://{os.path.basename(thumb_path)}")
+    elif panel.get("welcome_thumbnail_url"):
+        embed.set_thumbnail(url=panel["welcome_thumbnail_url"])
+    elif panel.get("welcome_use_avatar", True):
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+    if banner_path:
+        welcome_files.append(discord.File(banner_path, filename=os.path.basename(banner_path)))
+        embed.set_image(url=f"attachment://{os.path.basename(banner_path)}")
+    elif panel.get("welcome_banner_url"):
+        embed.set_image(url=panel["welcome_banner_url"])
     embed.set_footer(text="Pulse Ticket-System • Ticket-Steuerung")
     embed.timestamp = discord.utils.utcnow()
-    await channel.send(embed=embed, view=TicketControlView())
+    await channel.send(embed=embed, view=TicketControlView(), files=welcome_files)
 
     mentions = " ".join(role.mention for role in roles[:10])
     if mentions and panel.get("ping_roles", True):

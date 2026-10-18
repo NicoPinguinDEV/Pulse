@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 
 from pulse_ticket_design import (
     AUTOMATION_DEFAULTS,
+    IMAGE_KINDS,
     PLACEHOLDER_HELP,
     automation_settings,
     clean_questions,
@@ -104,6 +105,7 @@ PREVIEW_JS = r"""
     const url = ($('[name='+kind+'_url]')||{}).value || '';
     if (/^https:\/\//.test(url)) return url;
     if (kind === 'thumbnail' && $('[name=use_server_icon]') && $('[name=use_server_icon]').checked) return data.serverIcon || '';
+    if (kind === 'welcome_thumbnail' && $('[name=welcome_use_avatar]') && $('[name=welcome_use_avatar]').checked) return data.avatar || '';
     return '';
   }
   function render(){
@@ -137,9 +139,13 @@ PREVIEW_JS = r"""
     const wm = $('[name=welcome_message]').value || 'Willkommen {user}! Beschreibe dein Anliegen bitte möglichst vollständig.';
     const fill = s => s.replaceAll('{user}','@Max').replaceAll('{user_name}','Max').replaceAll('{server}',data.server).replaceAll('{category}', cats[0] ? cats[0].name : 'Support').replaceAll('{ticket_id}','ticket_ab12cd34');
     document.getElementById('dcWelcome').style.borderLeftColor = color;
-    document.getElementById('dcWelcome').innerHTML = '<div class="dc-title">'+esc(fill(wt))+'</div><div class="dc-desc">'+md(fill(wm))+'<br><b>Ticket-ID:</b> <code>ticket_ab12cd34</code></div>';
+    const wThumb = imageSrc('welcome_thumbnail'), wBanner = imageSrc('welcome_banner');
+    document.getElementById('dcWelcome').innerHTML = '<div class="dc-title">'+esc(fill(wt))+'</div>' +
+      (wThumb ? '<img class="dc-thumb" src="'+esc(wThumb)+'" alt="">' : '') +
+      '<div class="dc-desc">'+md(fill(wm))+'<br><b>Ticket-ID:</b> <code>ticket_ab12cd34</code></div>' +
+      (wBanner ? '<img class="dc-image" src="'+esc(wBanner)+'" alt="">' : '');
     const d = $('[name=description]'); document.getElementById('descCount').textContent = d.value.length + ' / 4000';
-    ['thumbnail','banner'].forEach(k => { const el = document.getElementById(k+'Thumb'); const src = imageSrc(k); el.style.backgroundImage = src ? 'url("'+src.replace(/"/g,'%22')+'")' : 'none'; el.textContent = src ? '' : 'Kein Bild'; });
+    ['thumbnail','banner','welcome_thumbnail','welcome_banner'].forEach(k => { const el = document.getElementById(k+'Thumb'); const src = imageSrc(k); el.style.backgroundImage = src ? 'url("'+src.replace(/"/g,'%22')+'")' : 'none'; el.textContent = src ? '' : 'Kein Bild'; });
   }
   f.addEventListener('input', render); f.addEventListener('change', render);
   document.querySelectorAll('.tb-chip').forEach(chip => chip.addEventListener('click', () => {
@@ -241,7 +247,7 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
             )
             media = {
                 kind: (f"/tickets/panels/media/{e(panel[kind + '_file'])}" if panel.get(kind + "_file") else "")
-                for kind in ("thumbnail", "banner")
+                for kind in IMAGE_KINDS
             }
 
             def image_block(kind, label, hint):
@@ -261,7 +267,8 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
                 for k, m in active_categories
             }
             tb_data = {"categories": categories_json, "media": media, "server": guild.name,
-                       "serverIcon": guild.icon.url if getattr(guild, "icon", None) else ""}
+                       "serverIcon": guild.icon.url if getattr(guild, "icon", None) else "",
+                       "avatar": "https://cdn.discordapp.com/embed/avatars/0.png"}
             publish_box = (
                 f'<form method="post" action="/tickets/panels/publish" class="mt-3"><input type="hidden" name="panel_id" value="{e(pid)}">'
                 f'<button class="pulse-btn primary w-full" type="submit">🚀 In Discord veröffentlichen / aktualisieren</button></form>'
@@ -299,6 +306,9 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
     <label class="wide">Titel der Begrüßung<input name="welcome_title" value="{e(panel["welcome_title"])}" maxlength="256" placeholder="z. B. 🎓 Willkommen zur Weiterbildung"></label>
     <label class="wide">Begrüßungsnachricht<textarea name="welcome_message" maxlength="3500" rows="6" placeholder="Willkommen {{user}}! …">{e(panel["welcome_message"])}</textarea></label>
     <div class="wide">{chips}<span class="text-[11px] text-slate-400"> ← Platzhalter anklicken</span></div>
+    <div class="wide grid gap-3">{image_block("welcome_thumbnail", "Bild oben rechts in der Begrüßung", "Leer = Profilbild des Ticket-Erstellers (wenn unten aktiviert).")}
+    <label class="tb-check"><input type="checkbox" name="welcome_use_avatar" {"checked" if panel["welcome_use_avatar"] else ""}> Profilbild des Erstellers verwenden, wenn kein Bild gesetzt ist</label>
+    {image_block("welcome_banner", "Banner unten in der Begrüßung", "Breitformat, z. B. 1200×400 – z. B. dasselbe Banner wie beim Panel.")}</div>
     <label class="tb-check wide"><input type="checkbox" name="ping_roles" {"checked" if panel["ping_roles"] else ""}> Zuständige Rollen beim Öffnen pingen</label>
    </div></div>
   <div class="flex gap-2 flex-wrap"><button class="pulse-btn primary" type="submit">💾 Panel speichern</button><a class="pulse-btn ghost" href="/tickets/panels">Abbrechen</a></div>

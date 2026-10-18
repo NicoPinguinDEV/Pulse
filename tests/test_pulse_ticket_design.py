@@ -38,6 +38,17 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(panel["component_style"], "buttons")
         self.assertTrue(panel["use_server_icon"])
 
+    def test_welcome_images_are_sanitised_like_panel_images(self):
+        panel = normalize_panel({
+            "welcome_banner_file": "panel_x_welcome_banner_ab12.gif", "welcome_thumbnail_file": "../x.png",
+            "welcome_banner_url": "ftp://x", "welcome_thumbnail_url": "https://cdn.example/t.png",
+        })
+        self.assertEqual(panel["welcome_banner_file"], "panel_x_welcome_banner_ab12.gif")
+        self.assertEqual(panel["welcome_thumbnail_file"], "")
+        self.assertEqual(panel["welcome_banner_url"], "")
+        self.assertEqual(panel["welcome_thumbnail_url"], "https://cdn.example/t.png")
+        self.assertTrue(panel["welcome_use_avatar"])
+
     def test_questions_are_limited_to_five_and_need_a_label(self):
         raw = [{"label": f"Frage {i}"} for i in range(8)] + [{"label": "  "}]
         questions = clean_questions(raw)

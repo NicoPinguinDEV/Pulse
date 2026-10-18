@@ -1250,6 +1250,12 @@ def main() -> None:
     assert 'custom_id="pulse_ticket_remind"' in tickets
     assert "async def run_automation(self)" in tickets and "await self._edit_if_changed(" in tickets
     assert '_ensure_column(db, "tickets", "automation_state"' in read("pulse_db.py")
+    # Welcome message images and in-place status updates (welcome text/images survive a claim).
+    assert 'image_block("welcome_banner"' in builder and 'name="welcome_use_avatar"' in builder
+    assert "welcome_banner_upload: UploadFile | None = File(None)" in web
+    assert 'await channel.send(embed=embed, view=TicketControlView(), files=welcome_files)' in tickets
+    assert 'STATUS_FIELDS = ("Status", "Priorität", "Bearbeiter")' in tickets
+    assert "embed.set_field_at(index, name=field.name" in tickets
 
     print("Pulse feature smoke test: OK")
 

@@ -4737,6 +4737,13 @@ async def pulse_ticket_panel_save(
     builder_v2: bool = Form(False),
     thumbnail_upload: UploadFile | None = File(None),
     banner_upload: UploadFile | None = File(None),
+    welcome_thumbnail_url: str = Form(""),
+    welcome_banner_url: str = Form(""),
+    welcome_use_avatar: bool = Form(False),
+    remove_welcome_thumbnail: bool = Form(False),
+    remove_welcome_banner: bool = Form(False),
+    welcome_thumbnail_upload: UploadFile | None = File(None),
+    welcome_banner_upload: UploadFile | None = File(None),
     user_session: str = Cookie(None),
 ):
     ctx = auth(request, user_session, admin=True)
@@ -4807,16 +4814,24 @@ async def pulse_ticket_panel_save(
             "welcome_title": str(welcome_title).strip()[:256],
             "welcome_message": str(welcome_message).strip()[:3500],
             "ping_roles": ping_roles,
+            "welcome_thumbnail_url": welcome_thumbnail_url, "welcome_banner_url": welcome_banner_url,
+            "welcome_use_avatar": welcome_use_avatar,
         })
-        if thumbnail_url.strip() and not candidate["thumbnail_url"]:
-            return back(f"/tickets/panels?panel={cleaned_panel_id}", "Die Thumbnail-URL muss mit https:// beginnen.", False)
-        if banner_url.strip() and not candidate["banner_url"]:
-            return back(f"/tickets/panels?panel={cleaned_panel_id}", "Die Banner-URL muss mit https:// beginnen.", False)
+        for key, raw_url in (("thumbnail_url", thumbnail_url), ("banner_url", banner_url),
+                             ("welcome_thumbnail_url", welcome_thumbnail_url), ("welcome_banner_url", welcome_banner_url)):
+            if raw_url.strip() and not candidate[key]:
+                return back(f"/tickets/panels?panel={cleaned_panel_id}", "Bild-URLs müssen mit https:// beginnen.", False)
         for key in ("thumbnail_url", "banner_url", "use_server_icon", "show_load", "component_style",
-                    "placeholder", "welcome_title", "welcome_message", "ping_roles"):
+                    "placeholder", "welcome_title", "welcome_message", "ping_roles",
+                    "welcome_thumbnail_url", "welcome_banner_url", "welcome_use_avatar"):
             existing[key] = candidate[key]
         existing["list_categories"] = bool(list_categories)
-        for kind, upload, remove in (("thumbnail", thumbnail_upload, remove_thumbnail), ("banner", banner_upload, remove_banner)):
+        for kind, upload, remove in (
+            ("thumbnail", thumbnail_upload, remove_thumbnail),
+            ("banner", banner_upload, remove_banner),
+            ("welcome_thumbnail", welcome_thumbnail_upload, remove_welcome_thumbnail),
+            ("welcome_banner", welcome_banner_upload, remove_welcome_banner),
+        ):
             file_key = f"{kind}_file"
             if remove and existing.get(file_key):
                 _remove_ticket_panel_image(existing.get(file_key), cleaned_panel_id)
@@ -4890,7 +4905,7 @@ async def pulse_ticket_panel_duplicate(request: Request, panel_id: str = Form(..
     source = next((p for p in panels if str(p.get("id") or "") == str(panel_id)), None)
     if source is None:
         return back("/tickets/panels", "Panel wurde nicht gefunden.", False)
-    copy = {k: v for k, v in source.items() if k not in {"message_id", "published_channel_id", "thumbnail_file", "banner_file"}}
+    copy = {k: v for k, v in source.items() if k not in {"message_id", "published_channel_id", "thumbnail_file", "banner_file", "welcome_thumbnail_file", "welcome_banner_file"}}
     copy["id"] = "panel_" + secrets.token_hex(6)
     copy["name"] = (str(source.get("name") or "Panel") + " (Kopie)")[:80]
     copy["created_at"] = datetime.utcnow().isoformat(timespec="seconds")

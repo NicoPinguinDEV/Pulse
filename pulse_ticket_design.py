@@ -32,7 +32,15 @@ PANEL_DEFAULTS = {
     "welcome_title": "",
     "welcome_message": "",
     "ping_roles": True,
+    # Images of the welcome message inside a new ticket (same options as the panel).
+    "welcome_thumbnail_file": "",
+    "welcome_banner_file": "",
+    "welcome_thumbnail_url": "",
+    "welcome_banner_url": "",
+    "welcome_use_avatar": True,
 }
+
+IMAGE_KINDS = ("thumbnail", "banner", "welcome_thumbnail", "welcome_banner")
 
 AUTOMATION_DEFAULTS = {
     "unclaimed_ping_minutes": 30,     # 0 = aus: zuständige Rollen erinnern, wenn niemand übernimmt
@@ -66,17 +74,16 @@ def normalize_panel(raw: dict | None) -> dict:
     panel = dict(PANEL_DEFAULTS)
     panel.update({k: v for k, v in raw.items() if v is not None})
     panel["color"] = _clean_color(panel.get("color"))
-    panel["thumbnail_url"] = _clean_url(panel.get("thumbnail_url"))
-    panel["banner_url"] = _clean_url(panel.get("banner_url"))
-    for key in ("thumbnail_file", "banner_file"):
-        name = str(panel.get(key) or "")
-        panel[key] = name if re.fullmatch(r"[A-Za-z0-9_-]{1,80}\.(png|jpg|gif|webp)", name) else ""
+    for kind in IMAGE_KINDS:
+        panel[f"{kind}_url"] = _clean_url(panel.get(f"{kind}_url"))
+        name = str(panel.get(f"{kind}_file") or "")
+        panel[f"{kind}_file"] = name if re.fullmatch(r"[A-Za-z0-9_-]{1,80}\.(png|jpg|gif|webp)", name) else ""
     if panel.get("component_style") not in ("select", "buttons"):
         panel["component_style"] = "select"
     panel["placeholder"] = str(panel.get("placeholder") or PANEL_DEFAULTS["placeholder"])[:150]
     keys = panel.get("category_keys")
     panel["category_keys"] = [str(k) for k in keys][:25] if isinstance(keys, list) else []
-    for key in ("use_server_icon", "show_load", "ping_roles"):
+    for key in ("use_server_icon", "show_load", "ping_roles", "welcome_use_avatar"):
         panel[key] = bool(panel.get(key))
     return panel
 
