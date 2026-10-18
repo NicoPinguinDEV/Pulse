@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import discord
 from discord.ext import commands
+
+from pulse_channel_rename_utils import rename_wait_seconds
 
 STATS_CATEGORY_ID = 1536812484462256179
 REFRESH_DEBOUNCE_SECONDS = 3
@@ -44,6 +47,9 @@ class ServerStatsVoiceChannels(commands.Cog):
         self._category: discord.CategoryChannel | None = None
         self._refresh_task: asyncio.Task | None = None
         self._refresh_requested = False
+        # Monotonic time of the last rename per stats channel (at most four entries).
+        self._last_rename_at: dict[int, float] = {}
+        self._deferred_refresh_task: asyncio.Task | None = None
 
     async def _get_category(self) -> discord.CategoryChannel | None:
         category = self.bot.get_channel(STATS_CATEGORY_ID)
@@ -86,6 +92,19 @@ class ServerStatsVoiceChannels(commands.Cog):
             # An event might have arrived while the loop was being finalized.
             if self._refresh_requested:
                 self.schedule_refresh()
+
+    def _schedule_deferred_refresh(self, delay: float) -> None:
+        """Retry throttled renames once the per-channel rename window has passed."""
+        if self._deferred_refresh_task is not None and not self._deferred_refresh_task.done():
+            return
+
+        async def wait_then_refresh() -> None:
+            await asyncio.sleep(delay + 1)
+            self.schedule_refresh()
+
+        self._deferred_refresh_task = asyncio.create_task(
+            wait_then_refresh(), name="pulse-server-stats-deferred-refresh"
+        )
 
     @staticmethod
     def _current_counts(guild: discord.Guild) -> dict[str, int]:
@@ -133,6 +152,7 @@ class ServerStatsVoiceChannels(commands.Cog):
         guild = category.guild
         counts = self._current_counts(guild)
         overwrite_template = locked_overwrites(category, guild)
+        next_rename_wait: float | None = None
 
         for _key, prefix, count_key in STAT_DEFINITIONS:
             desired_name = self._target_name(prefix, counts[count_key])
@@ -158,6 +178,14 @@ class ServerStatsVoiceChannels(commands.Cog):
                 else:
                     await self._ensure_locked(channel)
                     if channel.name != desired_name:
+                        wait = rename_wait_seconds(
+                            self._last_rename_at.get(channel.id), time.monotonic()
+                        )
+                        if wait > 0:
+                            # Discord answers early renames with a long 429; retry later instead.
+                            next_rename_wait = wait if next_rename_wait is None else min(next_rename_wait, wait)
+                            continue
+                        self._last_rename_at[channel.id] = time.monotonic()
                         await channel.edit(
                             name=desired_name,
                             reason="Pulse: Server-Statistik aktualisiert",
@@ -169,6 +197,9 @@ class ServerStatsVoiceChannels(commands.Cog):
                 )
             except discord.HTTPException as exc:
                 print(f"⚠️ Server-Stats: '{desired_name}' konnte nicht aktualisiert werden: {exc}")
+
+        if next_rename_wait is not None:
+            self._schedule_deferred_refresh(next_rename_wait)
 
         # Channel create/rename updates the bot's cache, but refresh the category
         # reference so subsequent events see the newly created channels.
@@ -217,6 +248,8 @@ class ServerStatsVoiceChannels(commands.Cog):
     async def cog_unload(self) -> None:
         if self._refresh_task and not self._refresh_task.done():
             self._refresh_task.cancel()
+        if self._deferred_refresh_task and not self._deferred_refresh_task.done():
+            self._deferred_refresh_task.cancel()
 
 
 async def setup(bot: commands.Bot) -> None:

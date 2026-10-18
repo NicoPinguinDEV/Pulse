@@ -206,6 +206,10 @@ def main() -> None:
     assert "async def on_member_remove" in server_stats
     assert "async def on_member_update" in server_stats
     assert "REFRESH_DEBOUNCE_SECONDS = 3" in server_stats
+    # Discord allows two renames per channel per ten minutes; throttle instead of 429.
+    assert "from pulse_channel_rename_utils import rename_wait_seconds" in server_stats
+    assert "self._schedule_deferred_refresh(next_rename_wait)" in server_stats
+    assert "CHANNEL_RENAME_MIN_INTERVAL_SECONDS = 300.0" in read("pulse_channel_rename_utils.py")
 
     # Role nickname prefixes validate, format and restore Discord-sized names.
     nickname_utils = read("pulse_nickname_utils.py")
