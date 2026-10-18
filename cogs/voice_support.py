@@ -321,8 +321,12 @@ class VoiceSupport(commands.Cog):
             return
 
         if action == "claim":
+            # Claiming may perform several Discord API operations and exceed
+            # Discord's 3-second initial-interaction deadline. Acknowledge the
+            # button first; the interaction token remains valid for the follow-up.
+            await interaction.response.defer(ephemeral=True, thinking=True)
             ok, message = await self._assign_case(case_id, actor, transfer=False)
-            await interaction.response.send_message(message, ephemeral=True)
+            await interaction.followup.send(message, ephemeral=True)
             if ok:
                 _, updated, _ = self._find_case_by_id(case_id)
                 if updated:
