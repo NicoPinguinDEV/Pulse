@@ -12,13 +12,13 @@ import time
 from datetime import datetime, timezone
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 import pulse_db
 from pulse_embed_design import to_discord_embed
 from pulse_verification import (
     BUTTON_CUSTOM_ID, CITIZEN_ROLE_ID, SETTING_KEY, UNVERIFIED_ROLE_ID, add_error, banner_path, build_panel_spec,
-    normalize_settings, plan_join, plan_verify, role_problems,
+    normalize_settings, plan_join, plan_reminder, plan_verify, reminder_content, role_problems,
 )
 
 CLICK_COOLDOWN_SECONDS = 5
@@ -80,6 +80,12 @@ class Verification(commands.Cog):
         self.base_dir: str | None = None
         # Persistent view: Discord routes clicks on old panel messages to this callback after restarts.
         bot.add_view(VerifyView(self))
+        # Light 5-minute check; the actual ping interval comes from the settings (default 60 min).
+        if hasattr(bot, "wait_until_ready"):
+            self.reminder_loop.start()
+
+    def cog_unload(self):
+        self.reminder_loop.cancel()
 
     # ------------------------------------------------------------------ helpers
     def _bounded(self, mapping: dict, key: int, value) -> None:
@@ -189,6 +195,67 @@ class Verification(commands.Cog):
                     return "partial"
             await self._reply(interaction, "✅ Verifikation abgeschlossen – willkommen! Du siehst jetzt alle freigegebenen Bereiche.")
             return "verified"
+
+    # ------------------------------------------------------------------ reminder
+    @tasks.loop(minutes=5)
+    async def reminder_loop(self):
+        guild = self.bot.get_guild(self.guild_id) if self.guild_id else None
+        if guild is not None:
+            try:
+                await self.run_reminder(guild)
+            except Exception as exc:  # never let one failure stop the loop
+                print(f"⚠️ Verifikations-Erinnerung fehlgeschlagen: {type(exc).__name__}: {exc}")
+
+    @reminder_loop.before_loop
+    async def _before_reminder(self):
+        await self.bot.wait_until_ready()
+
+    async def run_reminder(self, guild: discord.Guild, *, now: datetime | None = None) -> str:
+        """Post one reminder ping and delete the previous one, so the channel stays tidy."""
+        now = now or datetime.now(timezone.utc)
+        settings = await asyncio.to_thread(load_settings)
+        role = guild.get_role(UNVERIFIED_ROLE_ID)
+        count = len(getattr(role, "members", []) or []) if role else 0
+        try:
+            last = datetime.fromisoformat(settings["reminder_last_at"]).timestamp() if settings["reminder_last_at"] else None
+        except ValueError:
+            last = None
+        decision = plan_reminder(settings, now_ts=now.timestamp(), last_ts=last, unverified_count=count)
+        if decision in ("off", "wait"):
+            return decision
+        channel = guild.get_channel(int(settings["channel_id"]))
+        if channel is None or not hasattr(channel, "send"):
+            return "no_channel"
+        if decision == "send" and role is not None and not role.mentionable:
+            perms = channel.permissions_for(guild.me) if guild.me else None
+            if perms is not None and not getattr(perms, "mention_everyone", False):
+                await self.record_error("Erinnerung ohne Ping: Die Unverifiziert-Rolle ist nicht erwähnbar und Pulse fehlt „@everyone, @here und alle Rollen erwähnen“.")
+        async with self._settings_lock:
+            settings = await asyncio.to_thread(load_settings)
+            if settings["reminder_message_id"]:
+                try:
+                    old = await channel.fetch_message(int(settings["reminder_message_id"]))
+                    await old.delete()
+                except discord.NotFound:
+                    pass
+                except discord.HTTPException as exc:
+                    print(f"⚠️ Alte Verifikations-Erinnerung nicht gelöscht: HTTP {exc.status}")
+                settings["reminder_message_id"] = ""
+            if decision == "send":
+                try:
+                    message = await channel.send(
+                        reminder_content(settings, role_id=UNVERIFIED_ROLE_ID, guild_id=guild.id),
+                        allowed_mentions=discord.AllowedMentions(everyone=False, users=False,
+                                                                 roles=[discord.Object(id=UNVERIFIED_ROLE_ID)]),
+                        suppress_embeds=True,
+                    )
+                    settings["reminder_message_id"] = str(message.id)
+                except discord.HTTPException as exc:
+                    # Remember the attempt anyway so a broken channel never causes a retry storm.
+                    print(f"⚠️ Verifikations-Erinnerung nicht gesendet: HTTP {exc.status}")
+                settings["reminder_last_at"] = now.isoformat(timespec="seconds")
+            await asyncio.to_thread(save_settings, settings)
+        return "sent" if decision == "send" else "cleaned"
 
     # ------------------------------------------------------------------ panel
     async def publish_panel(self, guild: discord.Guild) -> dict:

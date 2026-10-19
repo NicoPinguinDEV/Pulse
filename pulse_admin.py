@@ -222,6 +222,14 @@ def register(app) -> None:
                                  guild, banner_href)
         preview += f'<div style="margin-top:8px"><span style="display:inline-block;background:#248046;color:#fff;border-radius:4px;padding:6px 14px;font-size:13px;font-weight:600">✅ {e(vset["button_label"])}</span></div>'
         active = vset["enabled"] and vset["channel_id"]
+        unverified_role = guild.get_role(verification.UNVERIFIED_ROLE_ID) if hasattr(guild, "get_role") else None
+        waiting = len(getattr(unverified_role, "members", []) or []) if unverified_role else 0
+        reminder_state = f" Aktuell unverifiziert: <strong>{waiting}</strong>."
+        if vset.get("reminder_last_at"):
+            reminder_state += f" Letzte Erinnerung: {e(vset['reminder_last_at'][:16].replace('T', ' '))} UTC."
+        if unverified_role is not None and not getattr(unverified_role, "mentionable", True):
+            reminder_state += (" ⚠️ Die Rolle ist nicht erwähnbar – Pulse braucht dann das Recht „@everyone, @here und alle Rollen"
+                               " erwähnen“ im Kanal, sonst kommt der Ping nicht an.")
         return f'''
 <section class="pulse-card" id="verification"><div class="pulse-card-h"><div class="pulse-section-title">🛡️ Verifikation neuer Mitglieder</div>
  <span class="pulse-pill {"good" if active else ""}">{"aktiv" if active else "aus"}</span></div>
@@ -242,6 +250,15 @@ def register(app) -> None:
      <input class="pulse-input" name="banner_url" maxlength="1500" value="{e(vset["banner_url"])}" placeholder="…oder öffentliche Bild-URL (https://)">
      {remove_banner_box}
      <div class="text-[11px] text-slate-400">PNG, JPG, GIF oder WEBP bis {MAX_BANNER_BYTES // (1024 * 1024)} MB. Ein hochgeladenes Bild hat Vorrang vor der URL und wird als Anhang mitgeschickt. Nach dem Speichern „Panel veröffentlichen / aktualisieren“ klicken, damit Discord das neue Banner zeigt.</div>
+    </div>
+    <div class="grid gap-2 rounded-xl border border-slate-200 dark:border-slate-800 p-3">
+     <div class="text-xs font-bold">🔔 Erinnerung für Unverifizierte</div>
+     <label class="pulse-check"><input type="checkbox" name="reminder_enabled" value="1"{" checked" if vset["reminder_enabled"] else ""}> Unverifizierte regelmäßig im Verifikationskanal erwähnen</label>
+     <div class="grid sm:grid-cols-3 gap-3">
+      <label class="grid gap-1 text-xs font-semibold">Alle … Minuten<input class="pulse-input" type="number" name="reminder_minutes" min="{verification.REMINDER_MIN_MINUTES}" max="{verification.REMINDER_MAX_MINUTES}" value="{vset["reminder_minutes"]}"></label>
+      <label class="grid gap-1 text-xs font-semibold sm:col-span-2">Text<input class="pulse-input" name="reminder_text" maxlength="300" value="{e(vset["reminder_text"])}"></label>
+     </div>
+     <div class="text-[11px] text-slate-400">Es steht immer nur <strong>eine</strong> Erinnerung im Kanal: Pulse löscht die vorherige, bevor es eine neue sendet. Ist niemand mehr unverifiziert, wird nicht gepingt und die letzte Erinnerung entfernt. Gepingt wird ausschließlich die Unverifiziert-Rolle.{reminder_state}</div>
     </div>
     <button class="pulse-btn primary" type="submit">💾 Verifikation speichern</button>
    </form>
@@ -484,6 +501,9 @@ def register(app) -> None:
             # Publication state and diagnostics are owned by the bot; never reset them from the form.
             "message_id": current["message_id"], "published_channel_id": current["published_channel_id"],
             "errors": current["errors"], "banner_file": current["banner_file"],
+            "reminder_enabled": form.get("reminder_enabled") == "1",
+            "reminder_minutes": form.get("reminder_minutes", ""), "reminder_text": form.get("reminder_text", ""),
+            "reminder_message_id": current["reminder_message_id"], "reminder_last_at": current["reminder_last_at"],
         })
         problems = verification.validate_settings(candidate, raw_banner)
         upload = form.get("banner_upload")

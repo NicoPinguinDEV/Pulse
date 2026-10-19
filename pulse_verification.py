@@ -41,7 +41,15 @@ DEFAULTS = {
     "message_id": "",
     "published_channel_id": "",
     "errors": [],
+    # Reminder ping for unverified members (one message at a time, old one is deleted).
+    "reminder_enabled": True,
+    "reminder_minutes": 60,
+    "reminder_text": "👋 Du bist noch nicht verifiziert? Klicke oben im Panel auf **„Jetzt verifizieren“**, um alle Kanäle freizuschalten.",
+    "reminder_message_id": "",
+    "reminder_last_at": "",
 }
+REMINDER_MIN_MINUTES = 15
+REMINDER_MAX_MINUTES = 24 * 60
 
 
 def _snowflake(value) -> str:
@@ -67,7 +75,44 @@ def normalize_settings(raw) -> dict:
         "message_id": _snowflake(raw.get("message_id")),
         "published_channel_id": _snowflake(raw.get("published_channel_id")),
         "errors": errors,
+        "reminder_enabled": bool(raw.get("reminder_enabled", DEFAULTS["reminder_enabled"])),
+        "reminder_minutes": _minutes(raw.get("reminder_minutes")),
+        "reminder_text": _reminder_text(raw.get("reminder_text")),
+        "reminder_message_id": _snowflake(raw.get("reminder_message_id")),
+        "reminder_last_at": str(raw.get("reminder_last_at") or "")[:40],
     }
+
+
+def _minutes(value) -> int:
+    try:
+        minutes = int(str(value).strip())
+    except (TypeError, ValueError):
+        return DEFAULTS["reminder_minutes"]
+    return max(REMINDER_MIN_MINUTES, min(REMINDER_MAX_MINUTES, minutes))
+
+
+def _reminder_text(value) -> str:
+    text = re.sub(r"[ \t]+", " ", str(value or "").replace("\r\n", "\n")).strip()
+    # The role ping is added by Pulse itself; never allow extra mass/role pings from the text.
+    return truncate(neutralize_mentions(text), 300) if text else DEFAULTS["reminder_text"]
+
+
+def plan_reminder(settings: dict, *, now_ts: float, last_ts: float | None, unverified_count: int) -> str:
+    """'send', 'cleanup' (nobody left – remove the old reminder) or 'wait'/'off'."""
+    if not (settings["enabled"] and settings["reminder_enabled"] and settings["channel_id"] and settings["message_id"]):
+        return "off"
+    if unverified_count <= 0:
+        return "cleanup" if settings.get("reminder_message_id") else "wait"
+    if last_ts is not None and now_ts - last_ts < settings["reminder_minutes"] * 60:
+        return "wait"
+    return "send"
+
+
+def reminder_content(settings: dict, *, role_id: int, guild_id: int | str = "") -> str:
+    panel_link = ""
+    if guild_id and settings.get("message_id") and settings.get("published_channel_id"):
+        panel_link = f"\n➡️ https://discord.com/channels/{guild_id}/{settings['published_channel_id']}/{settings['message_id']}"
+    return truncate(f"<@&{role_id}> {settings['reminder_text']}{panel_link}", 2000)
 
 
 def validate_settings(settings: dict, raw_banner_url: str = "") -> list[str]:

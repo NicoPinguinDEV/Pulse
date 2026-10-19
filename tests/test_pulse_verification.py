@@ -372,5 +372,114 @@ class PublishTests(Base):
             asyncio.run(self.cog.publish_panel(FakeGuild(channel=FakeChannel())))
 
 
+class ReminderChannel:
+    def __init__(self, delete_error=None):
+        self.id = 111111111111111111
+        self.name = "verifizierung"
+        self.messages = {}
+        self.sent = []
+        self.deleted = []
+        self.delete_error = delete_error
+
+    def permissions_for(self, _):
+        return SimpleNamespace(send_messages=True, mention_everyone=False)
+
+    async def fetch_message(self, message_id):
+        if message_id not in self.messages:
+            raise http_error(discord.NotFound, 404)
+        return self.messages[message_id]
+
+    async def send(self, content=None, **kwargs):
+        message_id = 800000000000000000 + len(self.sent)
+        channel = self
+
+        class Msg:
+            id = message_id
+
+            async def delete(self_inner):
+                if channel.delete_error:
+                    raise channel.delete_error
+                channel.deleted.append(message_id)
+                channel.messages.pop(message_id, None)
+
+        self.messages[message_id] = Msg()
+        self.sent.append((content, kwargs))
+        return self.messages[message_id]
+
+
+class ReminderTests(Base):
+    def setUp(self):
+        super().setUp()
+        pulse_db.set_setting(v.SETTING_KEY, {"enabled": True, "channel_id": "111111111111111111",
+                                             "message_id": "900000000000000001", "published_channel_id": "111111111111111111"})
+        self.channel = ReminderChannel()
+        role = FakeRole(UNVERIFIED, 5)
+        role.members = [object(), object()]
+        role.mentionable = True
+        self.role = role
+        self.guild = FakeGuild(roles={UNVERIFIED: role, CITIZEN: FakeRole(CITIZEN, 6)}, channel=self.channel)
+
+    def run_at(self, minute):
+        from datetime import datetime, timedelta, timezone
+        now = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc) + timedelta(minutes=minute)
+        return asyncio.run(self.cog.run_reminder(self.guild, now=now))
+
+    def test_pings_only_the_unverified_role_once_per_interval(self):
+        self.assertEqual(self.run_at(0), "sent")
+        content, kwargs = self.channel.sent[0]
+        self.assertTrue(content.startswith(f"<@&{UNVERIFIED}>"))
+        mentions = kwargs["allowed_mentions"]
+        self.assertFalse(mentions.everyone)
+        self.assertFalse(mentions.users)
+        self.assertEqual([r.id for r in mentions.roles], [UNVERIFIED])
+        self.assertEqual(self.run_at(30), "wait")
+        self.assertEqual(len(self.channel.sent), 1)
+
+    def test_only_one_reminder_stays_in_the_channel(self):
+        self.run_at(0)
+        self.run_at(61)
+        self.run_at(122)
+        self.assertEqual(len(self.channel.sent), 3)
+        self.assertEqual(len(self.channel.messages), 1)
+        self.assertEqual(len(self.channel.deleted), 2)
+
+    def test_nobody_unverified_means_no_ping_and_cleanup(self):
+        self.run_at(0)
+        self.role.members = []
+        self.assertEqual(self.run_at(61), "cleaned")
+        self.assertEqual(self.channel.messages, {})
+        self.assertEqual(self.run_at(200), "wait")
+        self.assertEqual(len(self.channel.sent), 1)
+
+    def test_off_when_disabled_or_panel_unpublished(self):
+        pulse_db.set_setting(v.SETTING_KEY, {"enabled": True, "channel_id": "111111111111111111", "reminder_enabled": False,
+                                             "message_id": "900000000000000001"})
+        self.assertEqual(self.run_at(0), "off")
+        pulse_db.set_setting(v.SETTING_KEY, {"enabled": True, "channel_id": "111111111111111111"})
+        self.assertEqual(self.run_at(0), "off")
+        self.assertEqual(self.channel.sent, [])
+
+    def test_restart_does_not_ping_again_early(self):
+        self.run_at(0)
+        restarted_bot = FakeBot()
+        with patch.object(cog_module, "_guild_id", return_value=GUILD_ID):
+            self.cog = cog_module.Verification(restarted_bot)
+        self.assertEqual(self.run_at(10), "wait")
+        self.assertEqual(len(self.channel.sent), 1)
+
+    def test_text_cannot_add_mass_pings_and_interval_is_bounded(self):
+        s = v.normalize_settings({"reminder_text": "@everyone <@&1> los", "reminder_minutes": "1"})
+        self.assertNotIn("@everyone", s["reminder_text"])
+        self.assertNotIn("<@&1>", s["reminder_text"])
+        self.assertEqual(s["reminder_minutes"], v.REMINDER_MIN_MINUTES)
+        self.assertEqual(v.normalize_settings({"reminder_minutes": "99999"})["reminder_minutes"], v.REMINDER_MAX_MINUTES)
+        self.assertEqual(v.normalize_settings({"reminder_minutes": "abc"})["reminder_minutes"], 60)
+
+    def test_not_mentionable_role_is_reported(self):
+        self.role.mentionable = False
+        self.run_at(0)
+        self.assertIn("nicht erwähnbar", self.stored_errors()[-1]["text"])
+
+
 if __name__ == "__main__":
     unittest.main()
