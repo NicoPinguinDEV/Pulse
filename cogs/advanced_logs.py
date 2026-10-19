@@ -1,4 +1,5 @@
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord.ext import commands
 
 class AdvancedLogs(commands.Cog):
@@ -15,7 +16,7 @@ class AdvancedLogs(commands.Cog):
             return
         channel = await self.get_log_channel(before.guild)
         if channel:
-            embed = discord.Embed(title="Nachricht bearbeitet", color=discord.Color.orange(), timestamp=discord.utils.utcnow())
+            embed = discord.Embed(title="Nachricht bearbeitet", color=_pulse_color("warning"), timestamp=discord.utils.utcnow())
             embed.add_field(name="Autor", value=before.author.mention, inline=False)
             embed.add_field(name="Vorher", value=before.content[:1024] or "Kein Text", inline=False)
             embed.add_field(name="Nachher", value=after.content[:1024] or "Kein Text", inline=False)
@@ -28,10 +29,10 @@ class AdvancedLogs(commands.Cog):
             return
         
         if before.channel is None and after.channel is not None:
-            embed = discord.Embed(title=" Sprachkanal betreten", description=f"{member.mention} hat **{after.channel.name}** betreten.", color=discord.Color.green(), timestamp=discord.utils.utcnow())
+            embed = discord.Embed(title=" Sprachkanal betreten", description=f"{member.mention} hat **{after.channel.name}** betreten.", color=_pulse_color("success"), timestamp=discord.utils.utcnow())
             await channel.send(embed=embed)
         elif before.channel is not None and after.channel is None:
-            embed = discord.Embed(title=" Sprachkanal verlassen", description=f"{member.mention} hat **{before.channel.name}** verlassen.", color=discord.Color.red(), timestamp=discord.utils.utcnow())
+            embed = discord.Embed(title=" Sprachkanal verlassen", description=f"{member.mention} hat **{before.channel.name}** verlassen.", color=_pulse_color("danger"), timestamp=discord.utils.utcnow())
             await channel.send(embed=embed)
 
     @commands.Cog.listener()
@@ -41,7 +42,7 @@ class AdvancedLogs(commands.Cog):
             if channel:
                 added = [r.mention for r in after.roles if r not in before.roles]
                 removed = [r.mention for r in before.roles if r not in after.roles]
-                embed = discord.Embed(title="Rollen geändert", color=discord.Color.blue(), timestamp=discord.utils.utcnow())
+                embed = discord.Embed(title="Rollen geändert", color=_pulse_color("info"), timestamp=discord.utils.utcnow())
                 embed.add_field(name="Mitglied", value=after.mention, inline=False)
                 if added:
                     embed.add_field(name="Hinzugefügt", value=", ".join(added), inline=False)

@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from urllib.parse import quote, urlparse
 
 import discord
+from pulse_embed_design import color as _pulse_color
 from fastapi import Cookie, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -197,8 +198,6 @@ def make_shell_helpers(ws):
                 ("tickets","/tickets","▣","Tickets",True,False),
                 ("voice-support","/voice-support","🎧","Sprach-Support",perms.get("can_manage_tickets") or perms.get("can_promote") or perms.get("is_admin"),False),
                 ("applications","/applications","✎","Bewerbungen",True,False),
-                ("announcements","/announcements","✦","Ankündigungen",perms.get("can_manage_announcements") or perms.get("is_admin"),False),
-                ("social","/social","📣","Social Media",perms.get("can_manage_announcements") or perms.get("is_admin"),False),
             ]),
             ("Planung", [
                 ("meetings","/meetings","◫","Meetings",True,False),
@@ -213,7 +212,19 @@ def make_shell_helpers(ws):
                 ("achievements","/achievements","◆","Achievements",True,False),
             ]),
         ]
+        # Two clearly separated areas: daily team work vs. administration/configuration.
+        # The switch only mirrors permissions; every admin route authorizes server-side.
+        from pulse_admin import ADMIN_PAGE_KEYS, admin_sections
+        admin_entries = admin_sections(perms)
+        admin_mode = bool(admin_entries) and current_page in ADMIN_PAGE_KEYS
         nav = []
+        if admin_entries:
+            nav.append('<div class="pulse-area-switch" role="tablist">'
+                       f'<a href="/me" role="tab" class="{"" if admin_mode else "on"}" aria-selected="{"false" if admin_mode else "true"}">👥 Team</a>'
+                       f'<a href="/admin" role="tab" class="{"on" if admin_mode else ""}" aria-selected="{"true" if admin_mode else "false"}">🛠 Verwaltung</a></div>')
+        if admin_mode:
+            groups = [("Verwaltung", [("admin", "/admin", "◆", "Übersicht", True, False)]
+                       + [(key, href, icon, label, True, False) for key, href, icon, label, _ in admin_entries])]
         for group, items in groups:
             visible = [x for x in items if x[4]]
             if not visible: continue
@@ -225,22 +236,21 @@ def make_shell_helpers(ws):
         # sidebar; their sections collapse and open automatically when one of their pages is active.
         from pulse_design import SUITE_NAV, ULTIMATE_NAV, visible_nav
         leader = bool(perms.get("can_promote") or perms.get("is_admin"))
-        for prefix, group, items in (("u", "Command Center", ULTIMATE_NAV), ("s", "Operations Suite", SUITE_NAV)):
+        for prefix, group, items in (() if admin_mode else (("u", "Command Center", ULTIMATE_NAV), ("s", "Operations Suite", SUITE_NAV))):
             entries = visible_nav(items, leader)
             if not entries: continue
             is_open = str(current_page).startswith(prefix + ":")
             links = "".join(nav_item(f"{prefix}:{key}", href, label.split(" ", 1)[0], label.split(" ", 1)[1] if " " in label else label, current_page == f"{prefix}:{key}") for key, href, label, _ in entries)
             nav.append(f'<details class="pulse-nav-group mt-4"{" open" if is_open else ""}><summary class="px-2 mb-2 text-[9px] font-bold uppercase tracking-[.14em] text-slate-400">{group}</summary><div class="pulse-sidebar-sub">{links}</div></details>')
-        if perms.get("is_admin"):
-            nav.append('<div class="px-2 mt-4 mb-2 text-[9px] font-bold uppercase tracking-[.14em] text-slate-400">Administration</div>')
-            for key,href,icon,label in [("ticket-panels","/tickets/panels","▣","Ticket-Panel-Builder"),("settings","/settings","⚙","Einstellungen"),("backups","/backups","◉","Backups"),("system","/system","♥","Systemstatus")]:
-                nav.append(nav_item(key,href,icon,label,current_page==key))
         user_name = ws.esc(current_user.get("global_name") or current_user.get("username") or "Team")
         avatar_id=current_user.get("avatar"); user_id=current_user.get("id")
         avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_id}.png" if avatar_id and user_id else "https://cdn.discordapp.com/embed/avatars/0.png"
         return f'''<style>
         #pulseSidebar{{transition:transform .18s ease,width .18s ease}}#pulseSidebar .nav-active{{background:linear-gradient(90deg,rgba(91,92,240,.12),rgba(124,58,237,.06));color:#5b5cf0;border:1px solid rgba(91,92,240,.14);box-shadow:0 7px 20px rgba(91,92,240,.07)}}
-        .dark #pulseSidebar .nav-active{{color:#a8abff}}@media(min-width:768px){{#pulseSidebar{{display:flex!important}}#pulseMobileBtn,#pulseBackdrop{{display:none!important}}}}
+        .dark #pulseSidebar .nav-active{{color:#a8abff}}
+        .pulse-area-switch{{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:rgba(148,163,184,.12);margin-bottom:6px}}
+        .pulse-area-switch a{{text-align:center;font-size:11px;font-weight:800;padding:8px 6px;border-radius:10px;color:#64748b}}
+        .pulse-area-switch a.on{{background:#fff;color:#4f46e5;box-shadow:0 2px 8px rgba(15,23,42,.08)}}.dark .pulse-area-switch a.on{{background:#1b2133;color:#a8abff}}@media(min-width:768px){{#pulseSidebar{{display:flex!important}}#pulseMobileBtn,#pulseBackdrop{{display:none!important}}}}
         </style>
         <button id="pulseMobileBtn" onclick="pulseOpenNav()" class="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white dark:bg-[#111522] border border-slate-200 dark:border-slate-700 shadow-lg">☰</button>
         <div id="pulseBackdrop" onclick="pulseCloseNav()" class="hidden fixed inset-0 bg-black/55 z-40"></div>
@@ -264,18 +274,24 @@ def make_shell_helpers(ws):
     ws.log_audit = patched_log
 
 
-def build_command_modal(ws):
+def build_command_modal(ws, perms=None):
     items = [
         ("★", "Mein Pulse", "/me"), ("◆", "Leitungs-Cockpit", "/cockpit"),("⌂", "Dashboard öffnen", "/dashboard"),("◌", "Teamstatus", "/team-status"), ("✓", "Activity Check", "/activity-check"), ("🛡️", "Melonly", "/melonly"), ("▣", "Tickets", "/tickets"), ("🎧", "Sprach-Support", "/voice-support"),
-        ("✦", "Ankündigungen", "/announcements"), ("▤", "Meeting-Historie", "/meetings-history"), ("◇", "Schulungen", "/training"), ("▤", "Team-Wiki", "/wiki"),
-        ("◒", "Analytics", "/stats"), ("◆", "Achievements", "/achievements"), ("🎛️", "Ticket-Panel-Builder", "/tickets/panels"), ("⚙", "Einstellungen", "/settings"),
+        ("▤", "Meeting-Historie", "/meetings-history"), ("◇", "Schulungen", "/training"), ("▤", "Team-Wiki", "/wiki"),
+        ("◒", "Analytics", "/stats"), ("◆", "Achievements", "/achievements"),
     ]
+    # Administration shortcuts only for people who may open them (routes check again server-side).
+    from pulse_admin import admin_sections
+    sections = admin_sections(perms or {})
+    if sections:
+        items.append(("🛠", "Verwaltung", "/admin"))
+        items.extend((icon, label, href) for _, href, icon, label, _ in sections)
     rows = "".join(f'<a href="{u}" class="pulse-command-item"><span class="pulse-avatar">{i}</span><span>{t}</span><span class="pulse-key">Öffnen</span></a>' for i,t,u in items)
     return f'''<div id="pulseCommandModal" class="pulse-modal-backdrop"><div class="pulse-modal"><div class="pulse-modal-head"><div><div class="text-sm font-extrabold">Pulse Schnellzugriff</div><div class="text-[10px] text-slate-400 mt-0.5">Navigation ohne Umwege</div></div><button onclick="pulseTogglePalette(false)" class="pulse-icon-btn">✕</button></div><div class="p-3"><div class="pulse-search" style="max-width:none"><span>⌕</span><input id="pulseCmdFilter" oninput="pulseFilterCmd(this.value)" autofocus placeholder="Bereich suchen…"></div></div><div id="pulseCmdList" class="pulse-command-list">{rows}</div></div></div><script>function pulseFilterCmd(v){{v=v.toLowerCase();document.querySelectorAll('#pulseCmdList .pulse-command-item').forEach(x=>x.style.display=x.textContent.toLowerCase().includes(v)?'':'none')}}</script>'''
 
 
 def render_pro_page(ws, title, ctx, page, body, extra=""):
-    body = '<div class="pulse-shell">' + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung</div></div>' + build_command_modal(ws)
+    body = '<div class="pulse-shell">' + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung</div></div>' + build_command_modal(ws, getattr(ctx, "perms", None))
     return ws.render_page(title, ctx, page, body, extra)
 
 
@@ -487,7 +503,7 @@ def register(app):
 
 
     async def team_update(guild, title, content, color=None):
-        color = color or discord.Color.blurple()
+        color = color or _pulse_color("info")
         channel = guild.get_channel(ws.TEAM_UPDATE_CHANNEL_ID)
         if not channel:
             print(f"Team-Updates-Kanal nicht erreichbar: {ws.TEAM_UPDATE_CHANNEL_ID}")
@@ -1134,8 +1150,8 @@ def register(app):
     async def create_announcement(request: Request, title: str=Form(...), content: str=Form(...), kind: str=Form('info'), user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None); manager=c.perms.get('can_manage_announcements') or c.perms.get('can_promote') or c.perms.get('is_admin')
         if not manager: raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
-        colors={'info':discord.Color.blurple(),'success':discord.Color.green(),'warning':discord.Color.orange(),'critical':discord.Color.red()}
-        msg=await team_update(c.guild,title.strip()[:160],content.strip()[:4000],colors.get(kind,discord.Color.blurple()))
+        colors={'info':_pulse_color("info"),'success':_pulse_color("success"),'warning':_pulse_color("warning"),'critical':_pulse_color("danger")}
+        msg=await team_update(c.guild,title.strip()[:160],content.strip()[:4000],colors.get(kind,_pulse_color("info")))
         aid=db.create_announcement(title.strip()[:160],content.strip()[:4000],c.user['id'],c.user.get('global_name') or 'Team',kind,getattr(msg,'id',None))
         db.record_event('announcement_created','announcement',aid,c.user['id'],c.user.get('global_name') or 'Team',{'kind':kind,'sent':bool(msg)})
         ws.log_audit(c.user.get('global_name'),c.user['id'],'Ankündigung Gesendet',title.strip()[:160])

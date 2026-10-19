@@ -6,6 +6,7 @@ from pathlib import Path
 import zoneinfo
 
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -311,7 +312,7 @@ class ActivityCheckCog(commands.Cog):
                 "Nicht reagiert = wird im Bericht als offen geführt. "
                 "Offene Bestätigungen werden um 20:00 Uhr geprüft."
             ),
-            color=discord.Color.blurple(),
+            color=_pulse_color("info"),
         )
         embed.set_footer(text=f"{channel.guild.name} • {today}")
         role_ping = role.mention if role else ""
@@ -616,7 +617,7 @@ class ActivityCheckCog(commands.Cog):
                         guild,
                         "⚠️ Team-Warn: Activity Check nicht bestätigt",
                         f"{member.mention} hat den Activity Check nicht bis 20:00 bestätigt und war nicht abgemeldet.",
-                        discord.Color.orange(),
+                        _pulse_color("warning"),
                         target=f"{member.mention}\nWarn-Stufe: {count}/5",
                         action="Automatische Activity-Check-Verwarnung",
                         actor=SYSTEM_ACTOR,
@@ -750,7 +751,7 @@ class ActivityCheckCog(commands.Cog):
             value = ", ".join(m.display_name for m in items) or "—"
             return value if len(value) <= 1000 else value[:997] + "…"
 
-        embed = discord.Embed(title=f"📊 Activity Check · {today}", color=discord.Color.blurple())
+        embed = discord.Embed(title=f"📊 Activity Check · {today}", color=_pulse_color("info"))
         embed.add_field(name=f"✅ Bestätigt · {len(confirmed)}", value=names(confirmed), inline=False)
         embed.add_field(name=f"⏳ Noch offen · {len(open_members)}", value=names(open_members), inline=False)
         embed.set_footer(text="Für die vollständige Liste: Pulse Dashboard → Activity Check")

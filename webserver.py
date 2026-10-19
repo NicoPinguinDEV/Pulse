@@ -29,6 +29,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import discord
+from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
 from pulse_version import PULSE_VERSION
 
@@ -439,17 +440,17 @@ async def _notify_team_safety_incident(guild, actor, target, config: dict, decis
         )
         audit_action = "Teamler-Schutz: automatischer Team-Kick" if kicked and kicked.get("ok") else "Teamler-Schutz: Team-Kick fehlgeschlagen"
         title = "🚨 Teamler-Schutz: Automatischer Team-Kick"
-        color = discord.Color.red()
+        color = _pulse_color("danger")
     elif action == "duplicate":
         status_text = "Doppelte Anfrage wurde blockiert; keine Verwarnung erstellt."
         audit_action = "Teamler-Schutz: doppelte Warnanfrage blockiert"
         title = "⚠️ Teamler-Schutz: Doppelte Warnanfrage"
-        color = discord.Color.orange()
+        color = _pulse_color("warning")
     else:
         status_text = f"Warnrechte für diesen Moderator bis {until} gesperrt. Der aktuelle Warnversuch wurde blockiert."
         audit_action = "Teamler-Schutz: Verwarnungssperre aktiviert"
         title = "🛡️ Teamler-Schutz: Verdächtige Warnaktivität"
-        color = discord.Color.orange()
+        color = _pulse_color("warning")
 
     try:
         log_audit(
@@ -618,7 +619,7 @@ async def enforce_high_impact_warning_approval(
             f"Die Warnung durch {getattr(actor, 'mention', actor_name)} gegen "
             f"{getattr(target, 'mention', target_name)} wurde nicht eingetragen, weil sie eine automatische "
             "Rang-/Team-Sanktion auslösen würde.",
-            discord.Color.orange(),
+            _pulse_color("warning"),
             actor="Pulse – Teamler-Schutz",
             target=getattr(target, "mention", target_name),
             action="Hochrisiko-Verwarnung blockiert",
@@ -1055,7 +1056,7 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
                     guild,
                     "⚠️ Team-Warn: Schicht nicht beendet",
                     f"{member.mention} hat die Schicht nach 24 Stunden nicht beendet.",
-                    discord.Color.orange(),
+                    _pulse_color("warning"),
                     target=f"{member.mention}\nWarn-Stufe: {count}/5",
                     action=f"Automatische Schicht-Verwarnung {count}/5",
                     actor=system_actor,
@@ -1139,7 +1140,7 @@ async def send_team_update_embed(guild, title, description, color=None, *, field
     """Einheitliches professionelles Embed für alle Team-Updates."""
     if not guild:
         return None
-    color = color or discord.Color.blurple()
+    color = color or _pulse_color("info")
     channel = guild.get_channel(TEAM_UPDATE_CHANNEL_ID)
     if not channel:
         print(f"Team-Updates-Kanal nicht gefunden oder Bot hat keinen Zugriff: {TEAM_UPDATE_CHANNEL_ID}")
@@ -1507,7 +1508,7 @@ async def process_probation_warning(
                     guild,
                     "🚨 Team-Update: Test-Supporter-Team-Kick",
                     f"{member.mention} wurde nach einer Team-Verwarnung automatisch aus dem Team entfernt.",
-                    discord.Color.red(),
+                    _pulse_color("danger"),
                     target=member.mention,
                     action="Test-Supporter-Team-Kick",
                     actor="Pulse – Test-Supporter-Schutz",
@@ -1604,7 +1605,7 @@ async def process_probation_warning(
             guild,
             "⚠️ Team-Update: Probezeit-Rückstufung",
             f"{member.mention} erhielt während der Probezeit eine Team-Warnung; die vorherige Rolle wurde wiederhergestellt.",
-            discord.Color.orange(),
+            _pulse_color("warning"),
             target=member.mention,
             action="Probezeit-Rückstufung",
             actor="Pulse – Probezeit-Automatik",
@@ -1853,7 +1854,7 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
                 "✅ Team-Update: Warn-Folgen aufgehoben",
                 f"Für {member.mention} sind keine aktiven Team-Warnungen mehr vorhanden. "
                 "Automatisch gespeicherte Downrank-/Team-Kick-Folgen wurden geprüft und gegebenenfalls zurückgenommen.",
-                discord.Color.green(),
+                _pulse_color("success"),
                 target=member.mention,
                 action="Warn-Folgen aufgehoben",
                 actor="Pulse – automatische Warn-Ablaufkontrolle",
@@ -4180,9 +4181,9 @@ def _ticket_dashboard_embed(ticket: dict, actor, kind: str, guild) -> discord.Em
     embed = discord.Embed(
         title=titles.get(kind, "🎫 Pulse-Ticket aktualisiert"),
         description=descriptions.get(kind, "Ein Pulse-Ticket wurde aktualisiert."),
-        color=discord.Color.green() if kind in {"created", "reopened"} else (
-            discord.Color.red() if kind == "closed" else (
-                discord.Color.orange() if kind == "priority" else discord.Color.blurple()
+        color=_pulse_color("success") if kind in {"created", "reopened"} else (
+            _pulse_color("danger") if kind == "closed" else (
+                _pulse_color("warning") if kind == "priority" else _pulse_color("info")
             )
         ),
         timestamp=discord.utils.utcnow(),
@@ -5252,7 +5253,7 @@ async def pulse_tickets_dashboard_action(
             embed = discord.Embed(
                 title=f"{emoji} {label} – Ticket erneut geöffnet",
                 description=f"Dieses Ticket wurde von {ctx.member.mention} erneut geöffnet. Der bisherige Verlauf bleibt in der Transcript-Datei erhalten.",
-                color=discord.Color.green(),
+                color=_pulse_color("success"),
                 timestamp=discord.utils.utcnow(),
             )
             embed.add_field(name="Ticket-ID", value=str(ticket_id), inline=True)
@@ -5352,7 +5353,7 @@ async def pulse_tickets_dashboard_action(
         try:
             owner = ctx.guild.get_member(int(ticket.get("user_id") or 0))
             if owner:
-                dm = discord.Embed(title="🎫 Dein Ticket wurde geschlossen", color=discord.Color.blurple())
+                dm = discord.Embed(title="🎫 Dein Ticket wurde geschlossen", color=_pulse_color("info"))
                 dm.description = f"Ticket {ticket_id} wurde von {actor_name} geschlossen.\n\nGrund: {reason}"
                 await owner.send(embed=dm)
         except (discord.Forbidden, discord.HTTPException, ValueError):
@@ -5992,7 +5993,7 @@ async def team_role_manager_save(
             guild,
             "⚙️ Team-Update: Rollenänderung",
             f"{member.mention} wurde über die Pulse-Rollenverwaltung geändert.",
-            discord.Color.blurple(),
+            _pulse_color("info"),
             target=member.mention,
             action="Mehrfach-Rollenänderung",
             actor=actor,
@@ -6450,7 +6451,7 @@ async def notify_new_application(request: Request, application_id: str, applicat
     embed = discord.Embed(
         title="📝 Neue Bewerbung eingegangen",
         description="Eine neue Bewerbung wurde über das externe Pulse-Bewerbungsformular eingereicht.",
-        color=discord.Color.blurple(),
+        color=_pulse_color("info"),
         timestamp=now_de(),
     )
     embed.add_field(name="Bewerber", value=f"{esc(applicant_name)}\nDiscord-ID: `{esc(applicant_id)}`", inline=True)
@@ -8056,7 +8057,7 @@ async def auto_backup_loop():
                                 "Eine vollständige Pulse-Panel-Sicherung wurde erstellt. "
                                 "Die lokale Kopie bleibt zusätzlich im Dashboard unter /backups verfügbar."
                             ),
-                            color=discord.Color.green() if size <= 7_500_000 else discord.Color.orange(),
+                            color=_pulse_color("success") if size <= 7_500_000 else _pulse_color("warning"),
                             timestamp=now_de(),
                         )
                         embed.add_field(name="Datei", value=os.path.basename(name), inline=False)
@@ -8914,7 +8915,7 @@ async def handle_action(
             guild,
             "🎉 Team-Update: Manuelle Einstellung",
             f"{target.mention} wurde manuell in das Team aufgenommen.",
-            discord.Color.green(),
+            _pulse_color("success"),
             target=target.mention,
             action="Manuelle Einstellung",
             actor=actor,
@@ -9006,7 +9007,7 @@ async def handle_action(
                     "🚪 Team-Update: Team-Kick",
                     f"{member.mention} wurde aus dem Team entfernt. Die übrigen Rollen wurden entfernt; "
                     f"die Person bleibt auf dem Discord-Server.",
-                    discord.Color.red(),
+                    _pulse_color("danger"),
                     target=member.mention,
                     action="Team-Kick",
                     actor=actor,
@@ -9077,7 +9078,7 @@ async def handle_action(
                     guild,
                     "⬆️ Team-Update: Beförderung",
                     f"{member.mention} wurde befördert.",
-                    discord.Color.green(),
+                    _pulse_color("success"),
                     target=member.mention,
                     action="Beförderung",
                     actor=actor,
@@ -9103,7 +9104,7 @@ async def handle_action(
                     guild,
                     "⬇️ Team-Update: Degradierung",
                     f"{member.mention} wurde degradiert.",
-                    discord.Color.orange(),
+                    _pulse_color("warning"),
                     target=member.mention,
                     action="Degradierung",
                     actor=actor,
@@ -9118,7 +9119,7 @@ async def handle_action(
                 guild,
                 "⬇️ Team-Update: Teamrolle entfernt",
                 f"{member.mention} hat keine Teamrolle mehr.",
-                discord.Color.red(),
+                _pulse_color("danger"),
                 target=member.mention,
                 action="Teamrolle entfernt",
                 actor=actor,
@@ -9190,7 +9191,7 @@ async def handle_action(
                 guild,
                 "⚠️ Team-Update: Verwarnung",
                 f"{m.mention} hat eine neue Verwarnung erhalten.",
-                discord.Color.orange(),
+                _pulse_color("warning"),
                 target=f"{m.mention}\nWarn-Stufe: {count}/5",
                 action=f"Verwarnung {count}/5",
                 actor=actor,
@@ -9227,7 +9228,7 @@ async def handle_action(
                     guild,
                     "🚨 Team-Update: 5 Verwarnungen",
                     f"**Mitglied:** {m.mention} ({m.display_name})\n**Status:** Automatisch aus dem Team entfernt.",
-                    discord.Color.red(),
+                    _pulse_color("danger"),
                     target=m.mention,
                     action="Warn-Schwelle 5/5",
                     actor=actor,
@@ -9313,7 +9314,7 @@ async def handle_action(
             guild,
             "✅ Team-Update: Verwarnung zurückgezogen",
             f"Die Verwarnung von {m.mention} wurde durch das Team-Dashboard zurückgezogen.",
-            discord.Color.green(),
+            _pulse_color("success"),
             target=f"{m.mention}\nAktive Warnungen: {count}/5",
             action="Warn zurückgezogen",
             actor=actor,
@@ -9478,7 +9479,7 @@ async def handle_action(
                 guild,
                 "🎙️ Bewerbungsgespräch erforderlich",
                 f"{applicant.mention} wurde zum verpflichtenden Bewerbungsgespräch eingeladen. Eine Einstellung ist noch nicht erfolgt.",
-                discord.Color.blurple(),
+                _pulse_color("info"),
                 target=applicant.mention,
                 action="Zum Bewerbungsgespräch eingeladen",
                 actor=actor,
@@ -9570,7 +9571,7 @@ async def handle_action(
                 guild,
                 "🎉 Team-Update: Einstellung nach Bewerbungsgespräch",
                 f"{applicant.mention} wurde nach dem verpflichtenden Bewerbungsgespräch eingestellt.",
-                discord.Color.green(),
+                _pulse_color("success"),
                 target=applicant.mention,
                 action="Einstellung nach Bewerbungsgespräch",
                 actor=actor,
@@ -9616,7 +9617,7 @@ async def handle_action(
             guild,
             "📄 Team-Update: Bewerbung abgelehnt",
             f"Die Bewerbung von **{item.get('name','Unbekannt')}** wurde abgelehnt.",
-            discord.Color.red(),
+            _pulse_color("danger"),
             target=item.get("name","Unbekannt"),
             action="Bewerbung nach Gespräch abgelehnt" if decision == "reject_after_interview" else "Bewerbung abgelehnt",
             actor=actor,
@@ -9676,7 +9677,7 @@ async def handle_action(
         log_audit(actor, actor_id, "Meeting Aktualisiert", title)
         if announce:
             await send_team_update_embed(guild, "🎙️ Teambesprechung angesetzt",
-                f"**{title}**\n📅 {when}\n{meetings['description']}\n\nZu-/Absagen im Dashboard unter *Teambesprechung*.", discord.Color.blurple())
+                f"**{title}**\n📅 {when}\n{meetings['description']}\n\nZu-/Absagen im Dashboard unter *Teambesprechung*.", _pulse_color("info"))
         return back("/meetings", "Besprechung gespeichert.")
 
     if action == "reset_support_case_period":
@@ -9841,3 +9842,9 @@ try:
     register_pulse_social(app)
 except Exception as _social_error:
     print(f"❌ Social-Media-Seite konnte nicht registriert werden: {_social_error}")
+
+try:
+    from pulse_admin import register as register_pulse_admin
+    register_pulse_admin(app)
+except Exception as _admin_error:
+    print(f"❌ Verwaltungsbereich konnte nicht registriert werden: {_admin_error}")

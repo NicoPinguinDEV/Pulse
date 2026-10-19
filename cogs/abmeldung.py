@@ -4,6 +4,7 @@ from typing import Optional
 from pathlib import Path
 
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -492,7 +493,7 @@ class AbmeldungCog(commands.Cog):
             embed = discord.Embed(
                 title="📌 AKTUELLE ABMELDUNGEN"
                 + (f" · Seite {index}/{len(chunks)}" if len(chunks) > 1 else ""),
-                color=discord.Color.red(),
+                color=_pulse_color("danger"),
                 timestamp=datetime.now(),
             )
 

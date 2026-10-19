@@ -2,6 +2,7 @@ import sqlite3
 import re
 import unicodedata
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
 
@@ -451,7 +452,7 @@ class BueroSelect(discord.ui.Select):
 
         embed = discord.Embed(
             title="🛎️ Neue Warteraum-Anfrage",
-            color=discord.Color.gold()
+            color=_pulse_color("highlight")
         )
         embed.add_field(name="Nutzer", value=interaction.user.mention, inline=True)
         embed.add_field(name="Status", value="⏳ Wartet auf Übernahme...", inline=False)
@@ -540,7 +541,7 @@ class BueroSystemCog(commands.Cog):
         embed = discord.Embed(
             title="🛎️ Neue Büro-Anfrage",
             description=f"**{member.display_name}** ist dem Büro-Warteraum beigetreten und wartet auf Unterstützung.",
-            color=discord.Color.gold(),
+            color=_pulse_color("highlight"),
         )
         embed.add_field(name="Nutzer", value=member.mention, inline=True)
         embed.add_field(name="Warteraum", value=waiting_room.mention, inline=True)
@@ -642,7 +643,7 @@ class BueroSystemCog(commands.Cog):
                 embed = discord.Embed(
                     title="🏢 Büro-Warteraum",
                     description=f"Willkommen im Warteraum auf **{member.guild.name}**!\nBitte wähle unten aus, in welches Büro du möchtest.",
-                    color=discord.Color.blue()
+                    color=_pulse_color("info")
                 )
                 await member.send(embed=embed, view=DMSelectView(office_channels, member.guild.id))
             except discord.Forbidden:

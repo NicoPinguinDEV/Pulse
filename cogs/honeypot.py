@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord.ext import commands
 
 HONEYPOT_CHANNEL_ID = 1560397792751657053
@@ -19,7 +20,7 @@ def build_honeypot_embed() -> discord.Embed:
             "Wenn du diesen Kanal versehentlich geöffnet hast, verlasse ihn einfach wieder. "
             "Antworte nicht und sende keine Testnachricht."
         ),
-        color=discord.Color.dark_red(),
+        color=_pulse_color("danger"),
     )
     embed.add_field(
         name="Wichtig",

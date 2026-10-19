@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
 
@@ -311,7 +312,7 @@ class AnnouncementArchive(commands.Cog):
         embed = discord.Embed(
             title=f"🧾 Einfach erklärt: {title[:230]}",
             description=explanation[:4000],
-            color=discord.Color.blurple(),
+            color=_pulse_color("info"),
         )
         embed.add_field(
             name="Original-Ankündigung",

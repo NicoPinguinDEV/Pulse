@@ -10,6 +10,7 @@ import os
 from datetime import datetime, timezone
 
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
 
@@ -87,7 +88,7 @@ class BackupCog(commands.Cog):
                     "Serverstruktur, Rollen/Kanalrechte und Pulse-Daten wurden gesichert. "
                     "Die JSON-Datei liegt außerdem im Dashboard unter /backups."
                 ),
-                color=discord.Color.green(),
+                color=_pulse_color("success"),
                 timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(name="Datei", value=os.path.basename(path), inline=False)
@@ -100,7 +101,7 @@ class BackupCog(commands.Cog):
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
             else:
-                embed.color = discord.Color.orange()
+                embed.color = _pulse_color("warning")
                 embed.add_field(
                     name="Discord-Anhang",
                     value="Die Datei ist für einen sicheren Upload zu groß; sie bleibt lokal gespeichert.",

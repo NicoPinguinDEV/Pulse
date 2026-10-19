@@ -37,6 +37,7 @@ backups/
 transcripts/
 uploads/voice_support_audio/
 uploads/ticket_panels/
+uploads/welcome_banners/
 
 # Local tooling
 .vscode/

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import discord
+from pulse_embed_design import color as _pulse_color
 import httpx
 from discord import app_commands
 from discord.ext import commands
@@ -405,7 +406,7 @@ class AIModeration(commands.Cog):
                 f"Für **{len(review_items)} gespeicherte Beispiel(e)** folgen darunter einzelne Prüffälle "
                 "mit den passenden manuellen Aktionsbuttons. Bitte öffne und prüfe den Originaltext vor jeder Entscheidung."
             ),
-            color=discord.Color.orange(),
+            color=_pulse_color("warning"),
             timestamp=ended_at,
         )
         embed.add_field(
@@ -893,17 +894,17 @@ class AIModeration(commands.Cog):
         manual_outage = bool(case.get("manual_outage"))
         severity = case.get("severity", "low")
         color = (
-            discord.Color.orange()
+            _pulse_color("warning")
             if manual_outage
             else {
-                "low": discord.Color.blurple(),
-                "medium": discord.Color.orange(),
-                "high": discord.Color.red(),
-                "critical": discord.Color.dark_red(),
-            }.get(severity, discord.Color.blurple())
+                "low": _pulse_color("info"),
+                "medium": _pulse_color("warning"),
+                "high": _pulse_color("danger"),
+                "critical": _pulse_color("danger"),
+            }.get(severity, _pulse_color("info"))
         )
         if resolved:
-            color = discord.Color.dark_grey()
+            color = _pulse_color("neutral")
         mention = f"<@{case['user_id']}>"
         if manual_outage:
             description = (
@@ -1083,7 +1084,7 @@ class AIModeration(commands.Cog):
             guild,
             "⚠️ KI-Moderation: Team-Warn bestätigt",
             f"{member.mention} hat nach menschlicher Prüfung eine Team-Warnung erhalten.",
-            discord.Color.orange(),
+            _pulse_color("warning"),
             target=f"{member.mention}\nWarn-Stufe: {count}/5",
             action=f"KI-Moderationswarnung {count}/5",
             actor=reviewer.display_name,

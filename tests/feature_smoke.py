@@ -983,9 +983,11 @@ def main() -> None:
     assert "def ticket_category_definitions()" in tickets
     assert "from pulse_version import PULSE_VERSION" in web
     assert "Panel-Builder" in web
-    # Main dashboard administration navigation must expose the standalone builder directly.
-    assert '("ticket-panels","/tickets/panels","▣","Ticket-Panel-Builder")' in pro_melonly
-    assert '("🎛️", "Ticket-Panel-Builder", "/tickets/panels")' in pro_melonly
+    # The Verwaltung area (sidebar switch + command palette) exposes the standalone builder to admins.
+    admin_area = read("pulse_admin.py")
+    assert '("ticket-panels", "/tickets/panels", "🎛️", "Ticket-Panels"' in admin_area
+    assert "from pulse_admin import ADMIN_PAGE_KEYS, admin_sections" in pro_melonly
+    assert "items.extend((icon, label, href) for _, href, icon, label, _ in sections)" in pro_melonly
     assert '@app.get("/tickets/panels", response_class=HTMLResponse)' in web
     assert 'href="/tickets/panels#panel-builder"' in web
     assert 'id="panel-builder"' in web
@@ -1026,7 +1028,7 @@ def main() -> None:
     assert '@app.get("/social", response_class=HTMLResponse)' in social_web
     assert 'ctx.perms.get("is_admin") or ctx.perms.get("can_manage_announcements")' in social_web
     assert "from pulse_social_dashboard import register as register_pulse_social" in web
-    assert '("social","/social","📣","Social Media"' in read("pulse_pro.py")
+    assert '("social", "/social", "📣", "Social Media"' in read("pulse_admin.py")
     assert 'name="social_add"' in social
     assert 'name="social_list"' in social
     assert 'name="social_remove"' in social

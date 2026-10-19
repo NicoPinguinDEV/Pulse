@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord.ext import commands, tasks
 import pulse_db as db
 from pulse_voice_support_utils import DEFAULT_HOURS, DAYS, DAY_NAMES, shift_is_online, support_open_now
@@ -255,14 +256,14 @@ class VoiceSupport(commands.Cog):
         active_channel_label = "Warteraum" if waiting_in_shared_room else "Sprachkanal"
         if staff_id:
             status = f"✅ **Übernommen von:** <@{staff_id}>"
-            color = discord.Color.green()
+            color = _pulse_color("success")
         else:
             support_label = (
                 "einem berechtigten Supporter (auch außer Dienst)"
 
             )
             status = f"🟠 **Status:** Wartet auf Übernahme durch {support_label}"
-            color = discord.Color.orange()
+            color = _pulse_color("warning")
         after_hours_note = (
             "\n⏰ **Außerhalb der Öffnungszeiten:** Der Fall wurde trotzdem regulär aufgenommen."
             if case.get("outside_opening_hours") else ""
@@ -630,7 +631,7 @@ class VoiceSupport(commands.Cog):
         embed = discord.Embed(
             title="🧠 Support-Bereitschaft",
             description="\n".join(names) if names else "🔴 Aktuell ist niemand im Support-Dienst.",
-            color=discord.Color.green() if staff else discord.Color.orange(),
+            color=_pulse_color("success") if staff else _pulse_color("warning"),
         )
         embed.add_field(name="Dienstquelle", value="Automatisch mit den Pulse-Dashboard-Schichten synchronisiert", inline=False)
         embed.set_footer(text="Pulse Voice-Support · Automatisch aktualisiert")
@@ -737,15 +738,15 @@ class VoiceSupport(commands.Cog):
         if not cfg.get("active"):
             state = "🔴 Deaktiviert"
             detail = "Der Voice-Support ist im Dashboard deaktiviert."
-            color = discord.Color.dark_grey()
+            color = _pulse_color("neutral")
         elif now_open:
             state = "🟢 Geöffnet"
             detail = "Der Voice-Support ist innerhalb der eingestellten Öffnungszeiten."
-            color = discord.Color.green()
+            color = _pulse_color("success")
         else:
             state = "🌙 Außerhalb der Öffnungszeiten"
             detail = "Supportanfragen werden weiterhin aufgenommen und bleiben im gemeinsamen Warteraum."
-            color = discord.Color.orange()
+            color = _pulse_color("warning")
 
         embed = discord.Embed(
             title="🎧 Voice-Support · Aktueller Status",
@@ -951,7 +952,7 @@ class VoiceSupport(commands.Cog):
                     embed=discord.Embed(
                         title="⏰ Support außerhalb der Öffnungszeiten",
                         description=f"{member.mention} hat den Warteraum betreten, aber es ist kein Supportfenster geöffnet.",
-                        color=discord.Color.orange(),
+                        color=_pulse_color("warning"),
                     ),
                     allowed_mentions=discord.AllowedMentions(users=True, roles=False),
                 )
@@ -1283,7 +1284,7 @@ class VoiceSupport(commands.Cog):
                 embed=discord.Embed(
                     title="📝 Support-Notizen",
                     description=f"Fall {case['case_id']} · {member.display_name} · Sprachkanal {case['channel_id']}\nHier Gesprächsverlauf, Maßnahmen und Übergabe dokumentieren.",
-                    color=discord.Color.blurple(),
+                    color=_pulse_color("info"),
                 ),
                 allowed_mentions=discord.AllowedMentions.none(),
             )
@@ -1445,7 +1446,7 @@ class VoiceSupport(commands.Cog):
             result_embed = discord.Embed(
                 title="✅ Support Fall beendet",
                 description=result_description,
-                color=discord.Color.green() if supporter_id and reason == "Supportfall vom Team beendet" else discord.Color.dark_grey(),
+                color=_pulse_color("success") if supporter_id and reason == "Supportfall vom Team beendet" else _pulse_color("neutral"),
                 timestamp=discord.utils.utcnow(),
             )
             result_embed.add_field(name="CaseID", value=case_tag, inline=True)
@@ -1514,7 +1515,7 @@ class VoiceSupport(commands.Cog):
         db.set_setting(PENDING_KEY, pending[-500:])
         try:
             await member.send(
-                embed=discord.Embed(title="⭐ Wie war dein Support?", description=f"Bewerte Fall **{case_id}** bitte mit 1 bis 5 Sternen.", color=discord.Color.blurple()),
+                embed=discord.Embed(title="⭐ Wie war dein Support?", description=f"Bewerte Fall **{case_id}** bitte mit 1 bis 5 Sternen.", color=_pulse_color("info")),
                 view=RatingView(case_id, member.id),
             )
         except (discord.Forbidden, discord.HTTPException):

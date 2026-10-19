@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Discord-Auftritt, Willkommen/Abschied und Verwaltungsbereich (Oktober 2026)
+
+- Zentrales Embed-Designsystem (`pulse_embed_design.py`) mit semantischer, im Dashboard änderbarer Farbpalette; alle fest verdrahteten Embed-Farben in 19 Dateien umgestellt.
+- Neues Willkommen-/Abschiedssystem (`cogs/welcome.py`, `pulse_welcome.py`): Profilbild oben rechts, eigenes Banner unten (Upload oder https-URL), Platzhalter mit Validierung, kontrollierte Erwähnung, Testnachricht.
+- Neuer Verwaltungsbereich `/admin` mit Sidebar-Umschalter „Team | Verwaltung“; Discord-Auftritt unter `/admin/discord`. Bestehende URLs bleiben gültig.
+- Schnellsuche zeigt Verwaltungslinks nur noch berechtigten Personen.
+- Details: `docs/PULSE_DISCORD_DESIGN.md`.
+
 ## Version 7.8.27 – Alte Ankündigungen finden, erklären und wiederholen
 
 - Neuer Slash-Command-Bereich /ankuendigung mit Admin-Einrichtung des ursprünglichen Ankündigungskanals.

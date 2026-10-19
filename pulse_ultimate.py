@@ -31,6 +31,7 @@ from typing import Optional
 from collections import deque
 
 import discord
+from pulse_embed_design import color as _pulse_color
 from fastapi import Cookie, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
@@ -2185,7 +2186,7 @@ async def _run_automation(bot, automation: dict):
         desc = "\n".join(f"{i}. {m.display_name} · {score}/100" for i,(score,m) in enumerate(top,1)) or "Keine Teamdaten"
         channel = guild.get_channel(TEAM_UPDATE_CHANNEL_ID)
         if channel:
-            embed = discord.Embed(title="📊 Pulse Team-Report", description=desc, color=discord.Color.blurple())
+            embed = discord.Embed(title="📊 Pulse Team-Report", description=desc, color=_pulse_color("info"))
             await channel.send(embed=embed)
         return f"report {len(top)}"
 

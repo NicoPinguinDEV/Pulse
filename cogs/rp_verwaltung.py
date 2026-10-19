@@ -1,5 +1,6 @@
 import sqlite3
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
 
@@ -154,7 +155,7 @@ class RPVerwaltungCog(commands.Cog):
         embed = discord.Embed(
             title="💻 Roleplay Verwaltung",
             description="Nutze das Menü unten, um das RP offiziell zu starten oder zu beenden.",
-            color=discord.Color.red()
+            color=_pulse_color("danger")
         )
         
         if interaction.guild.icon:

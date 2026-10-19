@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timezone
 
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
 from discord.ui import Button, Modal, Select, TextInput, View
@@ -245,7 +246,7 @@ def build_panel_embed(guild, panel_config: dict | None = None, image_urls: dict 
         try:
             embed_color = discord.Color(int(panel["color"].lstrip("#"), 16))
         except (TypeError, ValueError):
-            embed_color = discord.Color.blurple()
+            embed_color = _pulse_color("info")
         embed = discord.Embed(title=panel_title, description=panel_description, color=embed_color)
         definitions = ticket_category_definitions()
         lines = []
@@ -310,7 +311,7 @@ def build_panel_embed(guild, panel_config: dict | None = None, image_urls: dict 
         maximum = meta[3]
         percent = int((current / maximum) * 100) if maximum else 0
         lines.append(f"- <:ut_low:1360768000239769621> **{meta[0]}:** Verfügbar `{current}/{maximum}` ({percent}%)")
-    embed = discord.Embed(title="<:ticket:1360768000235409559> Ticket-Support", description="\n".join(lines), color=discord.Color.blurple())
+    embed = discord.Embed(title="<:ticket:1360768000235409559> Ticket-Support", description="\n".join(lines), color=_pulse_color("info"))
     embed.add_field(name="🔐 Privat & sicher", value="Tickets sind nur für den Ersteller und die zuständigen Bearbeiter sichtbar.", inline=True)
     embed.add_field(name="⚡ Schnelle Bearbeitung", value="Tickets können übernommen, priorisiert und strukturiert abgeschlossen werden.", inline=True)
     embed.set_footer(text="Pulse Ticket-System • Bochum RP")
@@ -370,7 +371,7 @@ async def send_ticket_log(
     embed = discord.Embed(
         title=title,
         description=description,
-        color=color or discord.Color.blurple(),
+        color=color or _pulse_color("info"),
         timestamp=discord.utils.utcnow(),
     )
     embed.add_field(name="Ticket-ID", value=f"`{ticket.get('id', 'unbekannt')}`", inline=True)
@@ -428,7 +429,7 @@ async def refresh_ticket_embed(channel, ticket: dict, control_view=None):
                         if field.name in values:
                             embed.set_field_at(index, name=field.name, value=values[field.name], inline=True)
                     if ticket.get("priority") == "urgent":
-                        embed.color = discord.Color.red()
+                        embed.color = _pulse_color("danger")
                     await m.edit(embed=embed, view=control_view or TicketControlView())
                     return
                 break
@@ -442,8 +443,8 @@ async def _refresh_classic_ticket_embed(channel, ticket: dict, control_view=None
     embed = discord.Embed(
         title=f"{emoji} {label} – Ticket",
         description=f"Ticket-ID: `{ticket['id']}`\nAnliegen: **{ticket['user_name']}**",
-        color=discord.Color.red() if ticket.get("priority") == "urgent" else (
-            CATEGORY_META.get(ticket.get("category"), CATEGORY_META["support"])[3] and discord.Color.blurple()
+        color=_pulse_color("danger") if ticket.get("priority") == "urgent" else (
+            CATEGORY_META.get(ticket.get("category"), CATEGORY_META["support"])[3] and _pulse_color("info")
         ),
     )
     status = "✅ Geschlossen" if ticket.get("status") == "closed" else "🔵 In Bearbeitung" if ticket.get("claimed_by_id") else "🟢 Offen"
@@ -522,7 +523,7 @@ async def archive_ticket(channel, ticket: dict, actor_id, actor_name: str, reaso
     try:
         member = channel.guild.get_member(int(ticket["user_id"]))
         if member:
-            dm = discord.Embed(title="🎫 Dein Ticket wurde geschlossen", color=discord.Color.blurple())
+            dm = discord.Embed(title="🎫 Dein Ticket wurde geschlossen", color=_pulse_color("info"))
             dm.description = f"Ticket `{ticket['id']}` wurde von **{actor_name}** geschlossen.\n\n**Grund:** {reason}"
             await member.send(embed=dm)
     except Exception:
@@ -683,7 +684,7 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
     try:
         color = discord.Color(int(str(panel.get("color") or "#5865F2").lstrip("#"), 16))
     except (TypeError, ValueError):
-        color = discord.Color.blurple()
+        color = _pulse_color("info")
     embed = discord.Embed(
         title=render_placeholders(welcome_title, **variables)[:256],
         description=(
@@ -749,7 +750,7 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
             description="Ein neues Ticket wurde über das Pulse-Ticketpanel erstellt.",
             ticket=created_ticket,
             actor=interaction.user,
-            color=discord.Color.green(),
+            color=_pulse_color("success"),
         )
     await interaction.followup.send(f"✅ Dein Ticket wurde erstellt: {channel.mention}", ephemeral=True)
 
@@ -898,7 +899,7 @@ class TicketControlView(View):
                 description="Ein Teammitglied hat ein Pulse-Ticket beansprucht.",
                 ticket=latest,
                 actor=interaction.user,
-                color=discord.Color.blue(),
+                color=_pulse_color("info"),
             )
             try:
                 await interaction.channel.send(
@@ -1372,7 +1373,7 @@ class Tickets(commands.Cog):
         embed = discord.Embed(
             title="📊 Pulse Ticket-Auslastung",
             description="\n".join(lines),
-            color=discord.Color.blurple(),
+            color=_pulse_color("info"),
             timestamp=discord.utils.utcnow(),
         )
         embed.add_field(name="🎫 Gesamt", value=str(len(items)), inline=True)

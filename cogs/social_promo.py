@@ -16,6 +16,7 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import parse_qs, quote, urlparse
 
 import discord
+from pulse_embed_design import color as _pulse_color
 import httpx
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -1064,7 +1065,7 @@ class SocialPromo(commands.Cog):
                 + _clean_text(source.get("name", "Unbenannt"), 100) + "** ("
                 + str(source.get("platform_label", source.get("platform", "Social"))) + ")"
             )
-        embed = discord.Embed(title="📡 Social-Promo · Quellen", description="\n".join(lines), color=discord.Color.blurple())
+        embed = discord.Embed(title="📡 Social-Promo · Quellen", description="\n".join(lines), color=_pulse_color("info"))
         embed.add_field(name="Ankündigungskanal", value="<#" + str(TARGET_CHANNEL_ID) + ">", inline=False)
         embed.set_footer(text="Verwaltung: /social_add · /social_remove · /social_toggle · /social_test")
         await interaction.response.send_message(embed=embed, ephemeral=True)

@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
 from fastapi import Cookie, Form, HTTPException, Request
@@ -541,7 +542,7 @@ def register_routes():
 
     @app.post("/suite/news/create")
     async def news_create(request:Request,title:str=Form(...),kind:str=Form(...),content:str=Form(...),user_session:str=Cookie(None)):
-        ctx=auth(request,user_session,manager=True);aid=db.create_announcement(title[:160],content[:4000],ctx.user["id"],ctx.user.get("global_name",""),kind);color=discord.Color.green() if kind=="success" else discord.Color.red() if kind=="urgent" else discord.Color.orange() if kind=="warning" else discord.Color.blurple();await webserver.send_team_update_embed(ctx.guild,title,content,color,actor=ctx.user.get("global_name",""),action="Team-News");audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),aid,title,"announcement_created",kind);return RedirectResponse("/suite/news",303)
+        ctx=auth(request,user_session,manager=True);aid=db.create_announcement(title[:160],content[:4000],ctx.user["id"],ctx.user.get("global_name",""),kind);color=_pulse_color("success") if kind=="success" else _pulse_color("danger") if kind=="urgent" else _pulse_color("warning") if kind=="warning" else _pulse_color("info");await webserver.send_team_update_embed(ctx.guild,title,content,color,actor=ctx.user.get("global_name",""),action="Team-News");audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),aid,title,"announcement_created",kind);return RedirectResponse("/suite/news",303)
 
     @app.get("/suite/audit",response_class=HTMLResponse)
     async def audit_page(request:Request,user_session:str=Cookie(None)):
@@ -811,7 +812,7 @@ class PulseSuite(commands.Cog):
 
     async def daily(self,g):
         web=__import__("webserver");ms=members(g,web);sh=web.load_shifts();d=now().date().isoformat();sec=sum(int(x.get("duration_seconds",0)) for x in sh.get("history",[]) if x.get("date")==d)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==d)
-        e=discord.Embed(title="📊 Pulse Daily Report",color=discord.Color.blurple());e.add_field(name="👥 Team",value=str(len(ms)));e.add_field(name="🟢 Aktiv",value=str(sum(str(m.status) in {"online","idle","dnd"} for m in ms)));e.add_field(name="⏱ Dienstzeit",value=secfmt(sec));e.add_field(name="🎫 Tickets",value=str(sum(x.get("status")!="closed" for x in db.list_tickets(limit=3000))));e.add_field(name="📝 Bewerbungen",value=str(sum(str(a.get("status","pending")) in {"pending","in_review","interview"} for a in web.load_json(web.APPS_FILE,{}).values())));e.add_field(name="⚠ Warnungen",value=str(sum(len(warns(m,web)) for m in ms)));await self._report(g,e)
+        e=discord.Embed(title="📊 Pulse Daily Report",color=_pulse_color("info"));e.add_field(name="👥 Team",value=str(len(ms)));e.add_field(name="🟢 Aktiv",value=str(sum(str(m.status) in {"online","idle","dnd"} for m in ms)));e.add_field(name="⏱ Dienstzeit",value=secfmt(sec));e.add_field(name="🎫 Tickets",value=str(sum(x.get("status")!="closed" for x in db.list_tickets(limit=3000))));e.add_field(name="📝 Bewerbungen",value=str(sum(str(a.get("status","pending")) in {"pending","in_review","interview"} for a in web.load_json(web.APPS_FILE,{}).values())));e.add_field(name="⚠ Warnungen",value=str(sum(len(warns(m,web)) for m in ms)));await self._report(g,e)
 
     async def weekly_report(self,g):
         # Sent on Monday morning: summarise the last *complete* week (the running week
@@ -833,7 +834,7 @@ class PulseSuite(commands.Cog):
         goal=float(web.load_config().get("weekly_goal_hours",setting("weekly_goal_hours",3)) or 0)*3600
         reached=sum(1 for m in ms if goal and last.get(str(m.id),0)>=goal)
         def tr(a,b):arrow,label=trend(a,b);return f"{arrow} {label}"
-        e=discord.Embed(title="📈 Team-Wochenbericht",description=f"Woche **{ls.strftime('%d.%m.')} – {le.strftime('%d.%m.%Y')}** im Vergleich zur Vorwoche.",color=discord.Color.blurple())
+        e=discord.Embed(title="📈 Team-Wochenbericht",description=f"Woche **{ls.strftime('%d.%m.')} – {le.strftime('%d.%m.%Y')}** im Vergleich zur Vorwoche.",color=_pulse_color("info"))
         e.add_field(name="⏱ Teamstunden",value=f"**{secfmt(total)}**\n{tr(total,total_prev)}")
         e.add_field(name="👥 Aktive Teamler",value=f"**{active}/{len(ms)}**\n{tr(active,active_prev)}")
         e.add_field(name="🎫 Tickets geschlossen",value=f"**{closed}**\n{tr(closed,closed_prev)}")
@@ -869,7 +870,7 @@ class PulseSuite(commands.Cog):
                 if not r["ok"]:issues.append(f"Warn {r['level']}: {r['detail']}")
         except Exception as e:issues.append("Warnrollentest: "+str(e))
         fp=hashlib.sha256("|".join(sorted(issues)).encode()).hexdigest();old=setting("role_health_fp","")
-        if issues and fp!=old:await self._report(g,discord.Embed(title="🛡️ Pulse Rollen-Sicherheitsprüfung",description="\n".join("🔴 "+x for x in issues),color=discord.Color.red()));set_setting("role_health_fp",fp)
+        if issues and fp!=old:await self._report(g,discord.Embed(title="🛡️ Pulse Rollen-Sicherheitsprüfung",description="\n".join("🔴 "+x for x in issues),color=_pulse_color("danger")));set_setting("role_health_fp",fp)
         elif not issues and old:set_setting("role_health_fp","")
 
     def safe_target(self,i,m):
@@ -948,7 +949,7 @@ class PulseSuite(commands.Cog):
                 interaction.guild,
                 f"📣 Team-Update: {label}",
                 f"{member.mention} erhielt einen neuen Teamrang.",
-                discord.Color.green() if action == "promote" else discord.Color.orange(),
+                _pulse_color("success") if action == "promote" else _pulse_color("warning"),
                 actor=interaction.user,
                 target=member,
                 action=label,
@@ -1037,7 +1038,7 @@ class PulseSuite(commands.Cog):
                 i.guild,
                 "⚠️ Team-Warnung",
                 f"{member.mention} erhielt eine Warnung.",
-                discord.Color.orange(),
+                _pulse_color("warning"),
                 actor=i.user,
                 target=member,
                 action="Warnung",
@@ -1065,7 +1066,7 @@ class PulseSuite(commands.Cog):
     async def warns_cmd(self,i,member:discord.Member):
         web=__import__("webserver")
         if not allowed(i,"warn",web):return await i.response.send_message("❌ Kein Zugriff.",ephemeral=True)
-        ws=warns(member,web);e=discord.Embed(title=f"⚠ Warnungen · {member.display_name}",description="\n".join(f'{x["id"]} · {x.get("date")} · {x.get("reason")}' for x in ws) or "Keine aktiven Warnungen.",color=discord.Color.orange());await i.response.send_message(embed=e,ephemeral=True)
+        ws=warns(member,web);e=discord.Embed(title=f"⚠ Warnungen · {member.display_name}",description="\n".join(f'{x["id"]} · {x.get("date")} · {x.get("reason")}' for x in ws) or "Keine aktiven Warnungen.",color=_pulse_color("warning"));await i.response.send_message(embed=e,ephemeral=True)
 
     @app_commands.command(name="warn-remove",description="Zieht eine Warnung nach Bestätigung zurück.")
     async def warn_remove(self,i,member:discord.Member,warn_id:str,grund:str=""):
@@ -1322,7 +1323,7 @@ class PulseSuite(commands.Cog):
         if not allowed(i,"pulse-ticket",web):return await i.response.send_message("❌ Kein Zugriff.",ephemeral=True)
         tid=db.create_ticket(str(i.channel.id),str(i.guild.id),str(i.user.id),i.user.display_name,kategorie[:80],prioritaet);ms=sorted(managers(i.guild,web),key=lambda m:sum(t.get("status")!="closed" for t in db.list_tickets(limit=3000,claimed_by_id=m.id)))
         if ms:db.notify(ms[0].id,"🎫 Ticket zugewiesen",f"{tid} · {kategorie}","warning","/tickets",f"auto:{tid}",21600)
-        e=discord.Embed(title=f"🎫 Fall {tid}",description=beschreibung[:3500],color=discord.Color.blurple());e.add_field(name="Kategorie",value=kategorie[:80]);e.add_field(name="Priorität",value=prioritaet);await i.response.send_message(embed=e,view=TicketView(tid));audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_created",kategorie)
+        e=discord.Embed(title=f"🎫 Fall {tid}",description=beschreibung[:3500],color=_pulse_color("info"));e.add_field(name="Kategorie",value=kategorie[:80]);e.add_field(name="Priorität",value=prioritaet);await i.response.send_message(embed=e,view=TicketView(tid));audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_created",kategorie)
 
     @app_commands.command(name="melden",description="Erstellt einen internen Modmail-/Meldungsfall.")
     async def melden(self,i,kategorie:str,beschreibung:str,prioritaet:str="normal"):

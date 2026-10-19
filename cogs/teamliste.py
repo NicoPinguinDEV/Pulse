@@ -3,6 +3,7 @@ import json
 import sqlite3
 from pathlib import Path
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -266,7 +267,7 @@ class TeamlisteCog(commands.Cog):
         embed = discord.Embed(
             title=f"{title} | {guild.name.upper()}",
             description=description_text[:4000],
-            color=discord.Color.red(),
+            color=_pulse_color("danger"),
         )
 
         if guild.icon:

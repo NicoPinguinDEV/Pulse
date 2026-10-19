@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import discord
+from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -210,7 +211,7 @@ class PulsePro(commands.Cog):
             embed = discord.Embed(
                 title=("✅" if ok else "⚠️") + " Pulse gestartet",
                 description=f"Version **{getattr(webserver, 'PULSE_VERSION', '?')}** ist online.",
-                color=discord.Color.green() if ok else discord.Color.orange(),
+                color=_pulse_color("success") if ok else _pulse_color("warning"),
                 timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(name="Module", value=f"{len(loaded)} geladen" + (f", {len(failed)} Fehler" if failed else ""), inline=True)
@@ -242,7 +243,7 @@ class PulsePro(commands.Cog):
             tickets = len([x for x in db.list_tickets(limit=1000) if x.get("status") != "closed"])
             tasks_open = len([x for x in db.list_tasks(limit=1000) if x.get("status") in ("open", "in_progress")])
             promos = len(db.promotion_requests("pending", 100))
-            embed = discord.Embed(title="⚡ Pulse TeamOS", description="Zentrale Teamverwaltung", color=discord.Color.blurple())
+            embed = discord.Embed(title="⚡ Pulse TeamOS", description="Zentrale Teamverwaltung", color=_pulse_color("info"))
             embed.add_field(name="🟢 Im Dienst", value=str(active), inline=True)
             embed.add_field(name="🎫 Offene Tickets", value=str(tickets), inline=True)
             embed.add_field(name="📋 Aktive Aufgaben", value=str(tasks_open), inline=True)
@@ -318,7 +319,7 @@ class PulsePro(commands.Cog):
         embed = discord.Embed(
             title="📖 Pulse-Hilfe",
             description=f"Alles Wichtige findest du auch im Dashboard: [Mein Pulse]({panel_url('/me')})",
-            color=discord.Color.blurple(),
+            color=_pulse_color("info"),
         )
         for title, rows in sections:
             embed.add_field(name=title, value="\n".join(f"`{cmd}` – {text}" for cmd, text in rows), inline=False)
@@ -352,7 +353,7 @@ class PulsePro(commands.Cog):
                     break
             lines.append(f"{presence}{shift_state} · **{m.display_name}**{activity}")
         text = "\n".join(lines[:40]) or "Keine Teammitglieder gefunden."
-        embed = discord.Embed(title="◉ Pulse Teamstatus", description=text, color=discord.Color.blurple())
+        embed = discord.Embed(title="◉ Pulse Teamstatus", description=text, color=_pulse_color("info"))
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="mytasks", description="Zeigt deine offenen Pulse-Aufgaben.")
@@ -371,7 +372,7 @@ class PulsePro(commands.Cog):
         if not rows:
             await interaction.response.send_message("✅ Du hast aktuell keine offenen Aufgaben.", ephemeral=True)
             return
-        embed = discord.Embed(title="📋 Meine Aufgaben", color=discord.Color.blurple())
+        embed = discord.Embed(title="📋 Meine Aufgaben", color=_pulse_color("info"))
         for task in rows[:8]:
             pr = {"urgent":"🚨","high":"🟠","normal":"🟢","low":"⚪"}.get(task.get("priority"),"•")
             embed.add_field(name=f"{pr} {task['title']}", value=f"{task.get('description') or 'Keine Beschreibung'}\n`{task['id']}`", inline=False)
@@ -393,7 +394,7 @@ class PulsePro(commands.Cog):
         if not title or not message:
             await interaction.response.send_message("Titel und Nachricht dürfen nicht leer sein.", ephemeral=True); return
         aid=db.create_announcement(title,message,interaction.user.id,interaction.user.display_name,kind)
-        color=discord.Color.red() if kind=="urgent" else discord.Color.orange() if kind=="warning" else discord.Color.blurple()
+        color=_pulse_color("danger") if kind=="urgent" else _pulse_color("warning") if kind=="warning" else _pulse_color("info")
         sent=await webserver.send_team_update_embed(interaction.guild,title,message,color)
         for m in self.team_members(interaction.guild):
             if m.id != interaction.user.id:
@@ -459,7 +460,7 @@ class PulsePro(commands.Cog):
         sec=webserver.calculate_weekly_seconds(str(member.id),shifts.get("history",[]),shifts.get("active_shifts",{}))
         tickets=len([t for t in db.list_tickets(limit=2000) if str(t.get("claimed_by_id"))==str(member.id)])
         tasks=len([t for t in db.list_tasks(assignee_id=member.id,limit=200,include_archived=True)])
-        embed=discord.Embed(title=f"👤 {member.display_name}",description=f"[Teamakte öffnen]({panel_url(f'/member/{member.id}')})",color=discord.Color.blurple())
+        embed=discord.Embed(title=f"👤 {member.display_name}",description=f"[Teamakte öffnen]({panel_url(f'/member/{member.id}')})",color=_pulse_color("info"))
         embed.add_field(name="Rolle",value=webserver.member_role(member,cfg.get("team_role_ids",[])),inline=True); embed.add_field(name="Wochenzeit",value=webserver.fmt_duration(sec),inline=True); embed.add_field(name="Schichten",value=str(len(hist)),inline=True)
         embed.add_field(name="Tickets bearbeitet",value=str(tickets),inline=True); embed.add_field(name="Aufgaben",value=str(tasks),inline=True); embed.add_field(name="Status",value="🟢 Im Dienst" if str(member.id) in shifts.get("active_shifts",{}) else "⚪ Offline",inline=True)
         await interaction.response.send_message(embed=embed,ephemeral=True)
@@ -494,7 +495,7 @@ class PulsePro(commands.Cog):
                 cx.execute("SELECT 1")
         except Exception:
             db_ok = False
-        embed = discord.Embed(title="♥ Pulse Systemstatus", color=discord.Color.green() if bot_ready and db_ok else discord.Color.orange())
+        embed = discord.Embed(title="♥ Pulse Systemstatus", color=_pulse_color("success") if bot_ready and db_ok else _pulse_color("warning"))
         embed.add_field(name="Bot", value="🟢 Online" if bot_ready else "🔴 Offline", inline=True)
         embed.add_field(name="Datenbank", value="🟢 OK" if db_ok else "🔴 Fehler", inline=True)
         embed.add_field(name="Cogs", value=str(len(self.bot.extensions)), inline=True)
@@ -643,8 +644,8 @@ class PulsePro(commands.Cog):
         warnings = ram_level == 1 or role_ok < 5 or not bot_permissions_ready or any(
             row.startswith(("🔴", "🟡")) for row in channel_checks
         )
-        color = discord.Color.red() if critical else (
-            discord.Color.orange() if warnings else discord.Color.green()
+        color = _pulse_color("danger") if critical else (
+            _pulse_color("warning") if warnings else _pulse_color("success")
         )
         embed = discord.Embed(
             title="🩺 Pulse – Systemdiagnose",
