@@ -332,6 +332,8 @@ def register(app):
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        # Internal team dashboard: search engines (seen in the access log) must not index it.
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
         response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
         response.headers.setdefault("Cache-Control", "no-store" if request.method != "GET" or request.url.path.startswith("/api/") else "private, max-age=0, must-revalidate")
         return response
@@ -1091,11 +1093,15 @@ def register(app):
         </div>
         {card("Discord-Teamstatus",team_html,"◉")}
         """
-        head="<script>\nasync function refreshDiscordStatuses(){try{const r=await fetch('/api/team/discord-status',{credentials:'same-origin',cache:'no-store'});const d=await r.json();if(!d.ok)return;const counts={online:0,idle:0,dnd:0,offline:0};for(const x of d.members){counts[x.status]=(counts[x.status]||0)+1;const p=document.querySelector('[data-status-pill=\"'+x.id+'\"]');const l=document.querySelector('[data-status-label=\"'+x.id+'\"]');if(p)p.innerHTML=x.pill;if(l)l.textContent=x.label;}['online','idle','dnd','offline'].forEach(k=>{const el=document.getElementById('count'+k.charAt(0).toUpperCase()+k.slice(1));if(el)el.textContent=counts[k]||0;});}catch(e){}}\nrefreshDiscordStatuses();setInterval(refreshDiscordStatuses,10000);\n</script>"
+        head="<script>\nlet pulseStatusTimer=null;async function refreshDiscordStatuses(){try{const r=await fetch('/api/team/discord-status',{credentials:'same-origin',cache:'no-store'});if(r.status===401||r.status===403){if(pulseStatusTimer)clearInterval(pulseStatusTimer);return;}const d=await r.json();if(!d.ok)return;const counts={online:0,idle:0,dnd:0,offline:0};for(const x of d.members){counts[x.status]=(counts[x.status]||0)+1;const p=document.querySelector('[data-status-pill=\"'+x.id+'\"]');const l=document.querySelector('[data-status-label=\"'+x.id+'\"]');if(p)p.innerHTML=x.pill;if(l)l.textContent=x.label;}['online','idle','dnd','offline'].forEach(k=>{const el=document.getElementById('count'+k.charAt(0).toUpperCase()+k.slice(1));if(el)el.textContent=counts[k]||0;});}catch(e){}}\nrefreshDiscordStatuses();pulseStatusTimer=setInterval(refreshDiscordStatuses,10000);\n</script>"
         return render_pro_page(ws,"Teamstatus",c,"team-status",body,head)
 
     async def discord_status_api(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session,perm="can_view_team_status")
+        # Same rule as the /team-status page itself; otherwise leaders saw the page while its
+        # live refresh failed with 403 every 10 seconds.
+        c=cctx(request,user_session,perm=None)
+        if not (c.perms.get("can_view_team_status") or c.perms.get("can_promote") or c.perms.get("is_admin")):
+            raise HTTPException(403,"Dafür fehlt dir die Berechtigung für den Teamstatus.")
         ids=c.config.get("team_role_ids",[]); members=team(c.guild,ids)
         mapping={"online":("🟢","Online","good"),"idle":("🟡","Abwesend / AFK","warn"),"dnd":("🔴","Nicht stören","bad"),"offline":("⚪","Offline","")}
         out=[]
@@ -2639,6 +2645,10 @@ def register(app):
     remove_and_add(app,'/melonly',{'GET'},melonly_page,response_class=HTMLResponse)
     remove_and_add(app,'/shift/admin-end',{'POST'},admin_end_shift)
     remove_and_add(app,'/api/team/discord-status',{'GET'},discord_status_api,response_class=JSONResponse)
+
+    async def robots_txt():
+        return Response("User-agent: *\nDisallow: /\n", media_type="text/plain")
+    remove_and_add(app,'/robots.txt',{'GET'},robots_txt)
     app.post('/team-status/set')(set_team_status)
     app.get('/activity-check',response_class=HTMLResponse)(activity_check_page)
     app.post('/activity-check/setup')(activity_check_setup)

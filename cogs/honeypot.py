@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import discord
-from pulse_embed_design import color as _pulse_color
+from pulse_embed_design import color as _pulse_color, is_modern
 from discord.ext import commands
 
+from pulse_discord_style import card_info, edit_styled, is_v2, same_content, send_styled
+
 HONEYPOT_CHANNEL_ID = 1560397792751657053
+# Former (visible) footer marker – still recognised so the old warning is replaced, never duplicated.
 HONEYPOT_WARNING_MARKER = "PULSE_HONEYPOT_WARNING_V1"
+HONEYPOT_FOOTER = "🛡️ Pulse Sicherheitssystem · Honeypot"
+HONEYPOT_FOOTERS = {HONEYPOT_WARNING_MARKER, HONEYPOT_FOOTER}
 
 
 def build_honeypot_embed() -> discord.Embed:
@@ -14,20 +19,23 @@ def build_honeypot_embed() -> discord.Embed:
     embed = discord.Embed(
         title="🚨 HONEYPOT – HIER AUF KEINEN FALL SCHREIBEN!",
         description=(
-            "**Dieser Kanal ist ausschließlich eine Sicherheitsfalle.**\n\n"
+            "**Dieser Kanal ist ausschließlich eine Sicherheitsfalle gegen Spam-Bots und gehackte Accounts.**\n\n"
             "⛔ **Schreibe hier keine Nachricht – auch nicht zum Testen.**\n"
-            "Jede Nachricht in diesem Kanal löst automatisch einen **permanenten Server-Ban** aus.\n\n"
-            "Wenn du diesen Kanal versehentlich geöffnet hast, verlasse ihn einfach wieder. "
-            "Antworte nicht und sende keine Testnachricht."
+            "Jede Nachricht in diesem Kanal löst automatisch einen **permanenten Server-Ban** aus."
         ),
         color=_pulse_color("danger"),
     )
     embed.add_field(
-        name="Wichtig",
-        value="**Nichts senden. Keine Texte, Emojis, Befehle oder Testnachrichten.**",
+        name="🔨 Was passiert, wenn du hier schreibst?",
+        value="Die Nachricht wird gelöscht und dein Account **sofort und dauerhaft gebannt** – ohne Vorwarnung.",
         inline=False,
     )
-    embed.set_footer(text=HONEYPOT_WARNING_MARKER)
+    embed.add_field(
+        name="✅ Was solltest du tun?",
+        value="Nichts. Verlasse den Kanal einfach wieder – **keine Texte, Emojis, Befehle oder Testnachrichten.**",
+        inline=False,
+    )
+    embed.set_footer(text=HONEYPOT_FOOTER)
     return embed
 
 
@@ -59,14 +67,17 @@ class Honeypot(commands.Cog):
             print(f"🚨 Honeypot: {HONEYPOT_CHANNEL_ID} ist kein erreichbarer Textkanal.")
             return
 
+        warnings = []
         try:
             async for message in channel.history(limit=50):
+                info = card_info(message)
                 if (
                     self.bot.user
                     and message.author.id == self.bot.user.id
-                    and any(embed.footer.text == HONEYPOT_WARNING_MARKER for embed in message.embeds)
+                    and info
+                    and info["footer"] in HONEYPOT_FOOTERS
                 ):
-                    return
+                    warnings.append(message)
         except discord.Forbidden:
             # Still post the warning if sending is allowed; the missing history
             # permission will be visible to admins in the hosting logs.
@@ -77,8 +88,33 @@ class Honeypot(commands.Cog):
         except discord.HTTPException as exc:
             print(f"⚠️ Honeypot: Warn-Embed-Prüfung fehlgeschlagen: {exc}")
 
+        embed = build_honeypot_embed()
+        keep = warnings[0] if warnings else None  # history is newest first
+        for duplicate in warnings[1:]:
+            try:
+                await duplicate.delete()
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
+        if keep is not None and is_v2(keep) != is_modern():
+            # Embed and container cannot be converted: replace the warning exactly once.
+            try:
+                await keep.delete()
+            except discord.NotFound:
+                pass
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(f"⚠️ Honeypot: alte Warnung konnte nicht ersetzt werden: {exc}")
+                return
+            keep = None
+        if keep is not None:
+            if not same_content(keep, embed):
+                try:
+                    await edit_styled(keep, embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    print(f"⚠️ Honeypot: Warnung konnte nicht aktualisiert werden: {exc}")
+            return
+
         try:
-            await channel.send(embed=build_honeypot_embed())
+            await send_styled(channel, embed=embed, allowed_mentions=discord.AllowedMentions.none())
             print(f"🚨 Honeypot-Warnung wurde in Kanal {HONEYPOT_CHANNEL_ID} sichergestellt.")
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(
