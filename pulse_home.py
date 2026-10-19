@@ -218,6 +218,23 @@ def register(app) -> None:
             unclaimed = sum(1 for t in db.list_tickets(limit=300) if t.get("status") == "open" and not t.get("claimed_by_id"))
             if unclaimed:
                 waiting += f'<a href="/tickets" class="pulse-alert block"><strong>▣ {unclaimed} Tickets ohne Bearbeiter</strong></a>'
+        # ---- Meine Tickets: who is waiting on whom, with the reason (same rules as /tickets) ----
+        from pulse_ticket_design import automation_settings
+        from pulse_ticket_triage import triage
+        ticket_settings = automation_settings(ws.pulse_ticket_config().get("automation"))
+        triaged = sorted(((t, triage(t, now, ticket_settings)) for t in my_tickets), key=lambda pair: pair[1]["sort_key"])
+        ticket_rows = "".join(
+            f'<div class="pulse-row" style="flex-wrap:wrap"><div class="pulse-row-main" style="flex:1;min-width:160px">'
+            f'<div class="pulse-row-title">{e(t.get("user_name") or "Ticket")}</div>'
+            f'<div class="pulse-row-meta {"text-rose-500" if info["overdue"] else ""}">{e(info["reason"])}</div>'
+            f'<div class="pulse-row-meta text-indigo-500">→ {e(info["next_step"])}</div></div>'
+            + (f'<a class="pulse-btn ghost" target="_blank" rel="noopener" href="https://discord.com/channels/{ctx.guild.id}/{e(t.get("channel_id"))}">Öffnen ↗</a>'
+               if str(t.get("channel_id") or "").isdigit() else "")
+            + "</div>"
+            for t, info in triaged[:5]
+        ) or '<div class="pulse-empty">Du bearbeitest gerade keine Tickets.</div>'
+        tickets_card = card("🎫 Meine Tickets", ticket_rows, '<a href="/tickets?status=mine" class="text-[11px] text-indigo-500">Alle →</a>')
+
         cockpit_link = (
             '<a href="/cockpit" class="text-[11px] text-indigo-500">Cockpit →</a>'
             if perms.get("can_promote") or perms.get("is_admin") else ""
@@ -230,6 +247,7 @@ def register(app) -> None:
         <div class="pulse-grid">
           <div class="space-y-5">
             {card("📈 Meine Woche", progress, '<a href="/stats" class="text-[11px] text-indigo-500">Analytics →</a>')}
+            {tickets_card}
             {card("📋 Meine Aufgaben", task_html, '<a href="/tasks" class="text-[11px] text-indigo-500">Alle →</a>')}
           </div>
           <div class="space-y-5">

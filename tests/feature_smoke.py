@@ -1257,6 +1257,20 @@ def main() -> None:
     assert 'STATUS_FIELDS = ("Status", "Priorität", "Bearbeiter")' in tickets
     assert "embed.set_field_at(index, name=field.name" in tickets
 
+    # Ticket-Zentrale: triage + actions through the existing, server-authorised /tickets/action route.
+    center = read("pulse_ticket_center.py")
+    parse("pulse_ticket_center.py")
+    parse("pulse_ticket_triage.py")
+    assert "return render_ticket_center(ws, c, request, render_pro_page)" in read("pulse_pro.py")
+    for action in ("claim", "unclaim", "priority", "close", "reopen"):
+        assert f'name="action" value="{action}"' in center, action
+    assert 'action="/tickets/action"' in center and 'name="reason" class="pulse-input" required' in center
+    assert "PAGE_SIZE = 25" in center and "selected.sort(key=lambda pair: pair[1][\"sort_key\"])" in center
+    assert 'auth(request, user_session, perm="can_manage_tickets")' in web
+    # Mein Pulse lists own tickets with the same triage; shift end summarises open work.
+    assert "from pulse_ticket_triage import triage" in read("pulse_home.py")
+    assert "msg += shift_end_open_items_text(mod_id, now)" in web
+
     print("Pulse feature smoke test: OK")
 
 

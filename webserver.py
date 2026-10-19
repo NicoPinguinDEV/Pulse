@@ -3690,6 +3690,26 @@ async def melonly_alias(request: Request, user_session: str = Cookie(None)):
 # =============================================================
 # ACTION: SCHICHT-SYSTEM (Start / Pause / Fortsetzen / Ende)
 # =============================================================
+def shift_end_open_items_text(mod_id: str, now: datetime) -> str:
+    """Short summary of open work at shift end: claimed open tickets and overdue tasks."""
+    tickets = [t for t in pulse_db.list_tickets(claimed_by_id=mod_id, limit=50) if t.get("status") != "closed"]
+    overdue = 0
+    for task in pulse_db.list_tasks(assignee_id=mod_id, limit=100):
+        if task.get("status") in ("done", "archived") or not task.get("due_at"):
+            continue
+        try:
+            if parse_dt(str(task["due_at"]).replace("Z", "+00:00")) < now:
+                overdue += 1
+        except (TypeError, ValueError):
+            continue
+    parts = []
+    if tickets:
+        parts.append(f"{len(tickets)} übernommene Ticket{'s' if len(tickets) != 1 else ''} noch offen – bei Bedarf freigeben oder übergeben")
+    if overdue:
+        parts.append(f"{overdue} überfällige Aufgabe{'n' if overdue != 1 else ''}")
+    return (" Noch offen: " + "; ".join(parts) + ".") if parts else " Keine offenen Tickets oder überfälligen Aufgaben – sauberer Abschluss! ✅"
+
+
 @app.post("/shift/action")
 async def handle_shift_action(request: Request, shift_action: str = Form(...), return_to: str = Form("/dashboard"),
                               user_session: str = Cookie(None)):
@@ -3745,6 +3765,11 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), r
         })
         del active[mod_id]
         msg = f"Schicht beendet – {fmt_duration(duration)} gutgeschrieben."
+        # Handover hint (never blocks ending the shift): what is still open for this person.
+        try:
+            msg += shift_end_open_items_text(mod_id, now)
+        except Exception as exc:
+            print(f"⚠️ Schichtende-Übersicht nicht verfügbar: {type(exc).__name__}")
     else:
         return back(target_page, "Diese Aktion ist gerade nicht möglich.", False)
 
