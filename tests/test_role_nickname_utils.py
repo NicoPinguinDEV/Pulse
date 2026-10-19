@@ -222,6 +222,8 @@ class RoleNicknamePrefixTests(unittest.TestCase):
         self.assertEqual(strip_pulse_prefixes("Stv.TL ✗ Max"), "Max")
         self.assertEqual(strip_pulse_prefixes("Bürger ✗ Lena"), "Lena")
         self.assertEqual(strip_pulse_prefixes("Eigen ✗ Tom", ["Eigen ✗"]), "Tom")
+        # After verification the temporary prefix must not stack ('Bürger ✗ Unverifiziert ✗ Max').
+        self.assertEqual(strip_pulse_prefixes("Unverifiziert ✗ Max"), "Max")
 
     def test_ordinary_names_with_cross_are_kept(self):
         self.assertEqual(strip_pulse_prefixes("Dawo"), "Dawo")

@@ -180,6 +180,15 @@ class AbmeldungCog(commands.Cog):
         conn.commit()
         conn.close()
 
+        # Repair dashboard entries stored with shifted columns (idempotent, backup first).
+        try:
+            from pulse_absence_repair import repair_shifted_absences
+            result = repair_shifted_absences(DB_NAME)
+            if result["repaired"]:
+                print(f"🛠️ {result['repaired']} Abmeldung(en) mit vertauschten Spalten repariert. Sicherung: {result['backup']}")
+        except Exception as exc:
+            print(f"⚠️ Abmeldungs-Reparatur übersprungen: {type(exc).__name__}: {exc}")
+
     def set_config(self, key: str, value: int):
         conn = sqlite3.connect(DB_NAME)
         try:

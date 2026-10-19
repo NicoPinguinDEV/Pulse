@@ -371,7 +371,7 @@ def strip_legacy_rank_prefix(name: object) -> str | None:
 
 _PULSE_PREFIX_LABELS = {
     _role_label_key(label)
-    for label in (*_ROLE_PREFIX_ABBREVIATIONS.values(), *_TEAM_ROLE_PREFIX_ORDER, "Bürger", "VIP", "Team")
+    for label in (*_ROLE_PREFIX_ABBREVIATIONS.values(), *_TEAM_ROLE_PREFIX_ORDER, "Bürger", "VIP", "Team", "Unverifiziert")
 }
 
 

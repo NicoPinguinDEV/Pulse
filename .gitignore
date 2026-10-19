@@ -43,3 +43,6 @@ uploads/welcome_banners/
 .vscode/
 .idea/
 .DS_Store
+
+# Automatic safety copies before data repairs
+*.vor-reparatur-*.bak

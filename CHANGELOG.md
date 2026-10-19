@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Verifikation neuer Mitglieder und Datenreparatur (Oktober 2026)
+
+- Neues Verifikationssystem (`cogs/verification.py`, `pulse_verification.py`): Unverifiziert-Rolle beim Beitritt, persistenter Button vergibt die Bürgerrolle (sichere Reihenfolge, idempotent, Rechte-/Hierarchieprüfung, Fehlerprotokoll). Konfiguration, Vorschau und Panel-Veröffentlichung unter Verwaltung → Discord-Auftritt. Standardmäßig aus.
+- Einmalige, idempotente Reparatur von Dashboard-Abmeldungen mit vertauschten Spalten (`pulse_absence_repair.py`), mit Dateisicherung vor der ersten Änderung.
+- Namenspräfix „Unverifiziert ✗“ stapelt nach der Verifikation nicht.
+
 ## Discord-Auftritt, Willkommen/Abschied und Verwaltungsbereich (Oktober 2026)
 
 - Zentrales Embed-Designsystem (`pulse_embed_design.py`) mit semantischer, im Dashboard änderbarer Farbpalette; alle fest verdrahteten Embed-Farben in 19 Dateien umgestellt.

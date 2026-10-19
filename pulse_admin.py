@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 import pulse_db
 from pulse_embed_design import DEFAULT_COLORS, branding, normalize_hex, save_branding
+import pulse_verification as verification
 from pulse_welcome import (
     BANNER_DIR, KINDS, MAX_BANNER_BYTES, PLACEHOLDERS, SETTING_KEY, build_member_message,
     normalize_settings, sample_member, validate_settings,
@@ -35,7 +36,7 @@ def admin_sections(perms: dict) -> list[tuple]:
     is_admin = bool(perms.get("is_admin"))
     announcements = is_admin or bool(perms.get("can_manage_announcements"))
     sections = [
-        ("admin-discord", "/admin/discord", "🎨", "Discord-Auftritt", "Embed-Design, Willkommen & Abschied, Banner", is_admin),
+        ("admin-discord", "/admin/discord", "🎨", "Discord-Auftritt", "Verifikation, Willkommen & Abschied, Embed-Design", is_admin),
         ("ticket-panels", "/tickets/panels", "🎛️", "Ticket-Panels", "Panels, Kategorien, Begrüßungen, Formulare", is_admin),
         ("announcements", "/announcements", "📢", "Ankündigungen", "Globale Team- und Servernachrichten", announcements),
         ("social", "/social", "📣", "Social Media", "Creator-Kanäle und Video-Ankündigungen", announcements),
@@ -165,6 +166,9 @@ def register(app) -> None:
         for kind, label in (("welcome", "Willkommen"), ("leave", "Abschied")):
             on = settings[kind]["enabled"] and settings[kind]["channel_id"]
             status.append(f'<span class="pulse-pill {"good" if on else ""}">{"🟢" if on else "⚪"} {label}</span>')
+        vset = verification.normalize_settings(pulse_db.get_setting(verification.SETTING_KEY, {}))
+        v_on = vset["enabled"] and vset["channel_id"]
+        status.append(f'<span class="pulse-pill {"good" if v_on else ""}">{"🟢" if v_on else "⚪"} Verifikation</span>')
         body = f'''{PREVIEW_CSS}
 <div class="pulse-hero"><div class="pulse-hero-grid"><div>
  <div class="pulse-kicker">Verwaltung</div><div class="pulse-title">Konfiguration &amp; Systembetrieb</div>
@@ -175,7 +179,73 @@ def register(app) -> None:
         return HTMLResponse(render_pro_page(ws, "Verwaltung", ctx, "admin", body))
 
     # ------------------------------------------------------------------ Discord-Auftritt
-    def discord_page(ctx, settings: dict, brand: dict, errors: list[str] | None = None) -> HTMLResponse:
+    def load_verification() -> dict:
+        return verification.normalize_settings(pulse_db.get_setting(verification.SETTING_KEY, {}))
+
+    def verification_status(guild) -> list[str]:
+        """Role/permission problems, computed from the live guild (empty = ready)."""
+        try:
+            from cogs.verification import problems_for
+            return problems_for(guild)
+        except Exception:
+            return ["Rollenstatus konnte nicht geprüft werden (Bot nicht bereit)."]
+
+    def verification_section(ctx, vset: dict, verrors: list[str] | None) -> str:
+        guild = ctx.guild
+        problems = verification_status(guild)
+
+        def role_line(role_id, label):
+            role = guild.get_role(role_id) if hasattr(guild, "get_role") else None
+            mark = "🟢" if role else "🔴"
+            return f'<div>{mark} {label}: <strong>{e(getattr(role, "name", None) or "nicht gefunden")}</strong> <span class="text-slate-400">({role_id})</span></div>'
+
+        status_rows = role_line(verification.UNVERIFIED_ROLE_ID, "Beim Beitritt") + role_line(verification.CITIZEN_ROLE_ID, "Nach Verifikation")
+        problem_html = "".join(f"<li>{e(p)}</li>" for p in problems)
+        problem_box = (f'<div class="pulse-alert mt-2" style="border-color:rgba(240,68,56,.35)"><strong>Noch nicht bereit:</strong><ul class="list-disc pl-5 mt-1">{problem_html}</ul></div>'
+                       if problems else '<div class="text-xs text-emerald-500 mt-2">✓ Rollen vorhanden, Pulse darf sie vergeben.</div>')
+        err_alert = ""
+        if verrors:
+            err_alert = ('<div class="pulse-alert" style="border-color:rgba(240,68,56,.35)"><strong>Nicht gespeichert:</strong><ul class="list-disc pl-5 mt-1">'
+                         + "".join(f"<li>{e(x)}</li>" for x in verrors) + "</ul></div>")
+        recent = "".join(f'<li><span class="text-slate-400">{e(str(x.get("at", ""))[:16].replace("T", " "))}</span> {e(x.get("text", ""))}</li>'
+                         for x in reversed(vset.get("errors", [])))
+        recent_html = (f'<details class="mt-3"><summary class="text-xs font-semibold cursor-pointer text-amber-500">Letzte Probleme ({len(vset["errors"])})</summary><ul class="text-[11px] mt-2 space-y-1">{recent}</ul></details>'
+                       if recent else "")
+        published = ""
+        if vset.get("message_id") and vset.get("published_channel_id"):
+            link = f"https://discord.com/channels/{e(getattr(guild, 'id', ''))}/{e(vset['published_channel_id'])}/{e(vset['message_id'])}"
+            published = f'<a class="text-xs text-indigo-500 font-semibold" href="{link}" target="_blank" rel="noopener">Veröffentlichte Nachricht öffnen ↗</a>'
+        preview = render_preview({"spec": verification.build_panel_spec(vset, icon_url=""), "content": ""}, guild)
+        preview += f'<div style="margin-top:8px"><span style="display:inline-block;background:#248046;color:#fff;border-radius:4px;padding:6px 14px;font-size:13px;font-weight:600">✅ {e(vset["button_label"])}</span></div>'
+        active = vset["enabled"] and vset["channel_id"]
+        return f'''
+<section class="pulse-card" id="verification"><div class="pulse-card-h"><div class="pulse-section-title">🛡️ Verifikation neuer Mitglieder</div>
+ <span class="pulse-pill {"good" if active else ""}">{"aktiv" if active else "aus"}</span></div>
+ <div class="pulse-card-b">{err_alert}<div class="grid lg:grid-cols-2 gap-5">
+  <div>
+   <div class="text-xs space-y-1">{status_rows}</div>{problem_box}
+   <form method="post" action="/admin/discord/verification" class="grid gap-3 mt-4">
+    <label class="pulse-check"><input type="checkbox" name="enabled" value="1"{" checked" if vset["enabled"] else ""}> Verifikation aktiv (Rolle beim Beitritt + Button)</label>
+    <label class="grid gap-1 text-xs font-semibold">Verifikationskanal<select class="pulse-input" name="channel_id">{channel_options(guild, vset["channel_id"])}</select></label>
+    <label class="grid gap-1 text-xs font-semibold">Titel<input class="pulse-input" name="title" maxlength="256" value="{e(vset["title"])}"></label>
+    <label class="grid gap-1 text-xs font-semibold">Text<textarea class="pulse-input" name="description" rows="8" maxlength="3500">{e(vset["description"])}</textarea></label>
+    <div class="grid sm:grid-cols-2 gap-3">
+     <label class="grid gap-1 text-xs font-semibold">Button-Text<input class="pulse-input" name="button_label" maxlength="80" value="{e(vset["button_label"])}"></label>
+     <label class="grid gap-1 text-xs font-semibold">Banner-URL (optional)<input class="pulse-input" name="banner_url" maxlength="1500" value="{e(vset["banner_url"])}" placeholder="https://…"></label>
+    </div>
+    <button class="pulse-btn primary" type="submit">💾 Verifikation speichern</button>
+   </form>
+   <form method="post" action="/admin/discord/verification/publish" class="mt-3 flex flex-wrap items-center gap-3" onsubmit="return confirm('Verifikations-Panel jetzt im gespeicherten Kanal veröffentlichen bzw. aktualisieren?')">
+    <button class="pulse-btn ghost" type="submit">📌 Panel veröffentlichen / aktualisieren</button>{published}
+   </form>
+   <p class="text-[11px] text-slate-400 mt-2">Reihenfolge: Kanal speichern → Panel veröffentlichen → Verifikation aktivieren. Beim Veröffentlichen wird die bestehende Nachricht bearbeitet; nur wenn sie gelöscht wurde, entsteht eine neue. Prüfe in Discord, dass die Unverifiziert-Rolle nur Begrüßung, Regeln und Verifikation sehen kann.</p>
+   {recent_html}
+  </div>
+  <div><div class="text-xs font-bold mb-2">Vorschau (wird nicht gesendet)</div><div class="dc-wrap">{preview}</div></div>
+ </div></div></section>'''
+
+    def discord_page(ctx, settings: dict, brand: dict, errors: list[str] | None = None,
+                     vset: dict | None = None, verrors: list[str] | None = None) -> HTMLResponse:
         guild = ctx.guild
         alert = ""
         if errors:
@@ -243,7 +313,8 @@ def register(app) -> None:
  <div class="pulse-hero-box"><div class="label">Platzhalter</div><div class="text-[11px] mt-2 leading-6">{placeholder_help}</div></div>
 </div></div>
 {alert}
-<form method="post" action="/admin/discord/welcome" enctype="multipart/form-data" class="space-y-5">
+{verification_section(ctx, vset or load_verification(), verrors)}
+<form method="post" action="/admin/discord/welcome" enctype="multipart/form-data" class="space-y-5 mt-5">
  {kind_form("welcome")}
  {kind_form("leave")}
  <section class="pulse-card"><div class="pulse-card-b flex flex-wrap items-center gap-3">
@@ -389,6 +460,51 @@ def register(app) -> None:
         if not ok:
             return ws.back("/admin/discord", f"Test fehlgeschlagen: {error}", False)
         return ws.back("/admin/discord", "Testnachricht wurde gesendet.", True)
+
+    @app.post("/admin/discord/verification", response_class=HTMLResponse)
+    async def admin_verification_save(request: Request, user_session: str = Cookie(None)):
+        ctx = admin_ctx(request, user_session)
+        form = await request.form()
+        current = load_verification()
+        raw_banner = str(form.get("banner_url", "") or "")
+        candidate = verification.normalize_settings({
+            "enabled": form.get("enabled") == "1", "channel_id": form.get("channel_id", ""),
+            "title": form.get("title", ""), "description": form.get("description", ""),
+            "button_label": form.get("button_label", ""), "banner_url": raw_banner,
+            # Publication state and diagnostics are owned by the bot; never reset them from the form.
+            "message_id": current["message_id"], "published_channel_id": current["published_channel_id"],
+            "errors": current["errors"],
+        })
+        problems = verification.validate_settings(candidate, raw_banner)
+        channel_id = candidate["channel_id"]
+        if channel_id and ctx.guild.get_channel(int(channel_id)) is None:
+            problems.append("Der gewählte Kanal gehört nicht zu diesem Server.")
+        if problems:
+            return discord_page(ctx, load_settings(), branding(), vset=candidate, verrors=problems)
+        pulse_db.set_setting(verification.SETTING_KEY, candidate)
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Verifikation geändert",
+                     f"Verifikation {'aktiv' if candidate['enabled'] else 'aus'}, Kanal {channel_id or '–'}")
+        note = "" if candidate["message_id"] else " Denk daran, das Panel zu veröffentlichen."
+        return ws.back("/admin/discord#verification", "Verifikation gespeichert." + note, True)
+
+    @app.post("/admin/discord/verification/publish")
+    async def admin_verification_publish(request: Request, user_session: str = Cookie(None)):
+        ctx = admin_ctx(request, user_session)
+        if ws.rate_limited(f"verify-publish:{ctx.user['id']}", limit=5, window=300):
+            return ws.back("/admin/discord#verification", "Bitte kurz warten – höchstens 5 Veröffentlichungen in 5 Minuten.", False)
+        bot = getattr(request.app.state, "bot", None)
+        cog = bot.get_cog("Verification") if bot else None
+        if cog is None:
+            return ws.back("/admin/discord#verification", "Das Verifikationsmodul ist im Bot nicht geladen – bitte Bot neu starten.", False)
+        try:
+            result = await cog.publish_panel(ctx.guild)
+        except ValueError as exc:
+            return ws.back("/admin/discord#verification", str(exc), False)
+        except Exception as exc:
+            return ws.back("/admin/discord#verification", f"Veröffentlichen fehlgeschlagen ({type(exc).__name__}).", False)
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Verifikations-Panel veröffentlicht",
+                     f"{result['action']} in {result['channel']}")
+        return ws.back("/admin/discord#verification", f"Panel {result['action']} in {result['channel']}.", True)
 
     @app.get("/admin/discord/banner/{filename}")
     async def admin_discord_banner(request: Request, filename: str, user_session: str = Cookie(None)):

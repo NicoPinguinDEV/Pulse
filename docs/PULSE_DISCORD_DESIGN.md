@@ -36,6 +36,15 @@ Alle 116 bisher fest verdrahteten Farbaufrufe in 19 Dateien nutzen jetzt die Pal
 - **Pings:** Nur das neue Mitglied, und nur wenn „Erwähnen“ aktiv ist (`allowed_mentions`). `@everyone`/`@here`/Rollen werden aus Vorlagen und Namen entschärft. Abschied pingt nie.
 - **Standard:** beide Nachrichten **aus**, bis ein Admin Kanal und Schalter setzt.
 
+## 2a. Verifikation neuer Mitglieder
+
+- **Rollen (vom Betreiber vorgegeben, fest im Code):** Unverifiziert `1532762237284913363` (beim Beitritt), Bürger `1531303733311307997` (nach Klick).
+- **Ablauf:** Beitritt → Unverifiziert-Rolle. Klick auf „Jetzt verifizieren“ → Pulse vergibt **zuerst** die Bürgerrolle und entfernt **danach** die Unverifiziert-Rolle. Schlägt die Bürgerrolle fehl, bleibt die Schutzrolle bestehen. Rückmeldung immer ephemer.
+- **Robust:** persistenter Button (`custom_id` `pulse:verify:v1`, nach Neustart funktionsfähig), Klick-Sperre je Mitglied, 5-s-Cooldown, 60-s-Duplikatschutz beim Beitritt, nur der konfigurierte Server, Rollen werden nie aus Nutzereingaben übernommen.
+- **Voraussetzungen in Discord:** Pulse braucht „Rollen verwalten“, und die höchste Pulse-Rolle muss **über** beiden Rollen liegen. Kanalrechte so setzen, dass die Unverifiziert-Rolle nur Begrüßung, Regeln und Verifikation sieht – Pulse ändert Kanalrechte bewusst nicht automatisch.
+- **Einrichtung:** Verwaltung → Discord-Auftritt → Verifikation: Kanal + Texte speichern → „Panel veröffentlichen“ → „Verifikation aktiv“ anhaken → speichern. Standard ist **aus**, damit niemand eingesperrt wird, bevor das Panel existiert.
+- **Diagnose:** Rollenstatus und Rechteprobleme werden live angezeigt; die letzten 10 Fehler (ohne Namen) erscheinen unter „Letzte Probleme“.
+
 ## 3. Team und Verwaltung
 
 - Sidebar-Umschalter **„👥 Team | 🛠 Verwaltung“**. Die Verwaltung erscheint nur, wenn mindestens ein Verwaltungsbereich erlaubt ist.

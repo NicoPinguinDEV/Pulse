@@ -163,6 +163,35 @@ class AdminRouteTests(unittest.TestCase):
             self.client.post("/admin/discord/branding", data={"reset": "1"}, follow_redirects=False)
             self.assertEqual(pulse_db.get_setting("discord_branding")["footer_text"], "© BOCHUM RP | V1 · Pulse TeamOS")
 
+    def test_verification_config_is_admin_only(self):
+        with self.as_user(TEAMLER):
+            for url in ("/admin/discord/verification", "/admin/discord/verification/publish"):
+                self.assertEqual(self.client.post(url, data={"enabled": "1", "channel_id": str(CHANNEL.id)},
+                                                  follow_redirects=False).status_code, 403)
+        self.assertIsNone(pulse_db.get_setting("verification_config", None))
+
+    def test_verification_save_validates_and_keeps_publication_state(self):
+        pulse_db.set_setting("verification_config", {"message_id": "900000000000000001", "published_channel_id": str(CHANNEL.id)})
+        with self.as_user(ADMIN):
+            bad = self.client.post("/admin/discord/verification", data={"enabled": "1", "channel_id": ""})
+            self.assertIn("Verifikationskanal", bad.text)
+            foreign = self.client.post("/admin/discord/verification", data={"channel_id": "999999999999999999"})
+            self.assertIn("gehört nicht zu diesem Server", foreign.text)
+            ok = self.client.post("/admin/discord/verification", data={"enabled": "1", "channel_id": str(CHANNEL.id),
+                                                                       "title": "Bitte verifizieren", "button_label": "Los"},
+                                  follow_redirects=False)
+        self.assertEqual(ok.status_code, 303)
+        saved = pulse_db.get_setting("verification_config")
+        self.assertTrue(saved["enabled"])
+        self.assertEqual(saved["button_label"], "Los")
+        self.assertEqual(saved["message_id"], "900000000000000001")
+
+    def test_verification_publish_without_running_bot_fails_cleanly(self):
+        with self.as_user(ADMIN):
+            response = self.client.post("/admin/discord/verification/publish", follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("t=err", response.headers["location"])
+
     def test_test_message_requires_saved_channel(self):
         with self.as_user(ADMIN):
             response = self.client.post("/admin/discord/test", data={"kind": "welcome"}, follow_redirects=False)
