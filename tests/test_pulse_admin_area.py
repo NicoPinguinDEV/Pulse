@@ -186,6 +186,35 @@ class AdminRouteTests(unittest.TestCase):
         self.assertEqual(saved["button_label"], "Los")
         self.assertEqual(saved["message_id"], "900000000000000001")
 
+    def test_verification_banner_upload_replace_and_remove(self):
+        data = {"channel_id": str(CHANNEL.id), "title": "Verify"}
+        folder = Path(self.tmp.name) / "uploads" / "welcome_banners"
+        with self.as_user(ADMIN):
+            self.client.post("/admin/discord/verification", data=data,
+                             files={"banner_upload": ("banner.png", PNG, "image/png")}, follow_redirects=False)
+            first = pulse_db.get_setting("verification_config")["banner_file"]
+            self.assertRegex(first, r"^verify_banner_[0-9a-f]{8}\.png$")
+            self.assertTrue((folder / first).is_file())
+            self.assertEqual(self.client.get(f"/admin/discord/banner/{first}").status_code, 200)
+            self.assertIn(f"/admin/discord/banner/{first}", self.client.get("/admin/discord").text)
+            # replacing deletes the old file
+            self.client.post("/admin/discord/verification", data=data,
+                             files={"banner_upload": ("neu.png", PNG, "image/png")}, follow_redirects=False)
+            second = pulse_db.get_setting("verification_config")["banner_file"]
+            self.assertNotEqual(first, second)
+            self.assertFalse((folder / first).exists())
+            # saving without a file keeps the banner
+            self.client.post("/admin/discord/verification", data=data, follow_redirects=False)
+            self.assertEqual(pulse_db.get_setting("verification_config")["banner_file"], second)
+            # invalid upload is rejected, banner unchanged
+            bad = self.client.post("/admin/discord/verification", data=data,
+                                   files={"banner_upload": ("x.png", b"not an image", "image/png")})
+            self.assertIn("nur PNG", bad.text)
+            self.assertEqual(pulse_db.get_setting("verification_config")["banner_file"], second)
+            self.client.post("/admin/discord/verification", data=dict(data, remove_banner="1"), follow_redirects=False)
+        self.assertEqual(pulse_db.get_setting("verification_config")["banner_file"], "")
+        self.assertFalse((folder / second).exists())
+
     def test_verification_publish_without_running_bot_fails_cleanly(self):
         with self.as_user(ADMIN):
             response = self.client.post("/admin/discord/verification/publish", follow_redirects=False)

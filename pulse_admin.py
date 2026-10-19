@@ -215,7 +215,11 @@ def register(app) -> None:
         if vset.get("message_id") and vset.get("published_channel_id"):
             link = f"https://discord.com/channels/{e(getattr(guild, 'id', ''))}/{e(vset['published_channel_id'])}/{e(vset['message_id'])}"
             published = f'<a class="text-xs text-indigo-500 font-semibold" href="{link}" target="_blank" rel="noopener">Veröffentlichte Nachricht öffnen ↗</a>'
-        preview = render_preview({"spec": verification.build_panel_spec(vset, icon_url=""), "content": ""}, guild)
+        banner_href = f"/admin/discord/banner/{e(vset['banner_file'])}" if vset.get("banner_file") else ""
+        remove_banner_box = ('<label class="pulse-check"><input type="checkbox" name="remove_banner" value="1"> Hochgeladenes Banner entfernen</label>'
+                             if vset.get("banner_file") else "")
+        preview = render_preview({"spec": verification.build_panel_spec(vset, icon_url="", base_dir=str(ws.BASE_DIR)), "content": ""},
+                                 guild, banner_href)
         preview += f'<div style="margin-top:8px"><span style="display:inline-block;background:#248046;color:#fff;border-radius:4px;padding:6px 14px;font-size:13px;font-weight:600">✅ {e(vset["button_label"])}</span></div>'
         active = vset["enabled"] and vset["channel_id"]
         return f'''
@@ -224,14 +228,20 @@ def register(app) -> None:
  <div class="pulse-card-b">{err_alert}<div class="grid lg:grid-cols-2 gap-5">
   <div>
    <div class="text-xs space-y-1">{status_rows}</div>{problem_box}
-   <form method="post" action="/admin/discord/verification" class="grid gap-3 mt-4">
+   <form method="post" action="/admin/discord/verification" enctype="multipart/form-data" class="grid gap-3 mt-4">
     <label class="pulse-check"><input type="checkbox" name="enabled" value="1"{" checked" if vset["enabled"] else ""}> Verifikation aktiv (Rolle beim Beitritt + Button)</label>
     <label class="grid gap-1 text-xs font-semibold">Verifikationskanal<select class="pulse-input" name="channel_id">{channel_options(guild, vset["channel_id"])}</select></label>
     <label class="grid gap-1 text-xs font-semibold">Titel<input class="pulse-input" name="title" maxlength="256" value="{e(vset["title"])}"></label>
     <label class="grid gap-1 text-xs font-semibold">Text<textarea class="pulse-input" name="description" rows="8" maxlength="3500">{e(vset["description"])}</textarea></label>
     <div class="grid sm:grid-cols-2 gap-3">
      <label class="grid gap-1 text-xs font-semibold">Button-Text<input class="pulse-input" name="button_label" maxlength="80" value="{e(vset["button_label"])}"></label>
-     <label class="grid gap-1 text-xs font-semibold">Banner-URL (optional)<input class="pulse-input" name="banner_url" maxlength="1500" value="{e(vset["banner_url"])}" placeholder="https://…"></label>
+    </div>
+    <div class="grid gap-2 rounded-xl border border-slate-200 dark:border-slate-800 p-3">
+     <div class="text-xs font-bold">Banner (großes Bild unten)</div>
+     <input type="file" name="banner_upload" accept="image/png,image/jpeg,image/gif,image/webp" class="text-xs">
+     <input class="pulse-input" name="banner_url" maxlength="1500" value="{e(vset["banner_url"])}" placeholder="…oder öffentliche Bild-URL (https://)">
+     {remove_banner_box}
+     <div class="text-[11px] text-slate-400">PNG, JPG, GIF oder WEBP bis {MAX_BANNER_BYTES // (1024 * 1024)} MB. Ein hochgeladenes Bild hat Vorrang vor der URL und wird als Anhang mitgeschickt. Nach dem Speichern „Panel veröffentlichen / aktualisieren“ klicken, damit Discord das neue Banner zeigt.</div>
     </div>
     <button class="pulse-btn primary" type="submit">💾 Verifikation speichern</button>
    </form>
@@ -473,18 +483,35 @@ def register(app) -> None:
             "button_label": form.get("button_label", ""), "banner_url": raw_banner,
             # Publication state and diagnostics are owned by the bot; never reset them from the form.
             "message_id": current["message_id"], "published_channel_id": current["published_channel_id"],
-            "errors": current["errors"],
+            "errors": current["errors"], "banner_file": current["banner_file"],
         })
         problems = verification.validate_settings(candidate, raw_banner)
+        upload = form.get("banner_upload")
         channel_id = candidate["channel_id"]
         if channel_id and ctx.guild.get_channel(int(channel_id)) is None:
             problems.append("Der gewählte Kanal gehört nicht zu diesem Server.")
         if problems:
+            if upload is not None and hasattr(upload, "close"):
+                await upload.close()
             return discord_page(ctx, load_settings(), branding(), vset=candidate, verrors=problems)
+        replaced = []
+        if form.get("remove_banner") == "1" and candidate["banner_file"]:
+            replaced.append(candidate["banner_file"])
+            candidate["banner_file"] = ""
+        if upload is not None and getattr(upload, "filename", ""):
+            stored, error = await store_banner(upload, "verify")
+            if error:
+                return discord_page(ctx, load_settings(), branding(), vset=candidate, verrors=[error])
+            if candidate["banner_file"]:
+                replaced.append(candidate["banner_file"])
+            candidate["banner_file"] = stored
         pulse_db.set_setting(verification.SETTING_KEY, candidate)
+        for name in replaced:
+            remove_banner(name)
         ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Verifikation geändert",
                      f"Verifikation {'aktiv' if candidate['enabled'] else 'aus'}, Kanal {channel_id or '–'}")
-        note = "" if candidate["message_id"] else " Denk daran, das Panel zu veröffentlichen."
+        note = (" Klicke auf „Panel veröffentlichen / aktualisieren“, damit Discord die Änderung zeigt."
+                if candidate["message_id"] else " Denk daran, das Panel zu veröffentlichen.")
         return ws.back("/admin/discord#verification", "Verifikation gespeichert." + note, True)
 
     @app.post("/admin/discord/verification/publish")
@@ -510,7 +537,7 @@ def register(app) -> None:
     async def admin_discord_banner(request: Request, filename: str, user_session: str = Cookie(None)):
         admin_ctx(request, user_session)
         name = os.path.basename(filename)
-        if not re.fullmatch(r"(welcome|leave)_banner_[0-9a-f]{8}\.(png|jpg|gif|webp)", name):
+        if not re.fullmatch(r"(welcome|leave|verify)_banner_[0-9a-f]{8}\.(png|jpg|gif|webp)", name):
             raise HTTPException(status_code=404, detail="Bild nicht gefunden.")
         path = (banner_root() / name).resolve()
         if path.parent != banner_root().resolve() or not path.is_file():

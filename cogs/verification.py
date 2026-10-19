@@ -7,6 +7,7 @@ working after restarts. Role IDs are fixed by the operator (see pulse_verificati
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from datetime import datetime, timezone
 
@@ -16,7 +17,7 @@ from discord.ext import commands
 import pulse_db
 from pulse_embed_design import to_discord_embed
 from pulse_verification import (
-    BUTTON_CUSTOM_ID, CITIZEN_ROLE_ID, SETTING_KEY, UNVERIFIED_ROLE_ID, add_error, build_panel_spec,
+    BUTTON_CUSTOM_ID, CITIZEN_ROLE_ID, SETTING_KEY, UNVERIFIED_ROLE_ID, add_error, banner_path, build_panel_spec,
     normalize_settings, plan_join, plan_verify, role_problems,
 )
 
@@ -76,6 +77,7 @@ class Verification(commands.Cog):
         self._recent_joins: dict[int, float] = {}
         self._settings_lock = asyncio.Lock()
         self.guild_id = _guild_id()
+        self.base_dir: str | None = None
         # Persistent view: Discord routes clicks on old panel messages to this callback after restarts.
         bot.add_view(VerifyView(self))
 
@@ -202,7 +204,14 @@ class Verification(commands.Cog):
             if perms is not None and not (perms.send_messages and perms.embed_links):
                 raise ValueError(f"Pulse fehlen in #{channel.name} die Rechte „Nachrichten senden“ und/oder „Links einbetten“.")
             icon = guild.icon.url if getattr(guild, "icon", None) else ""
-            embed = to_discord_embed(build_panel_spec(settings, icon_url=icon))
+            if self.base_dir is None:
+                import webserver
+                self.base_dir = str(webserver.BASE_DIR)
+            banner = banner_path(settings, self.base_dir)
+            if banner and perms is not None and not getattr(perms, "attach_files", True):
+                raise ValueError(f"Pulse fehlt in #{channel.name} das Recht „Dateien anhängen“ für das hochgeladene Banner.")
+            embed = to_discord_embed(build_panel_spec(settings, icon_url=icon, base_dir=self.base_dir))
+            files = [discord.File(banner, filename=os.path.basename(banner))] if banner else []
             view = VerifyView(self, settings["button_label"])
             message = None
             if settings["message_id"] and settings["published_channel_id"] == str(channel.id):
@@ -213,10 +222,11 @@ class Verification(commands.Cog):
                 except discord.HTTPException as exc:
                     raise ValueError(f"Die bestehende Panel-Nachricht konnte nicht geladen werden (HTTP {exc.status}). Es wurde keine neue erstellt.") from exc
             if message is not None:
-                await message.edit(embed=embed, view=view)
+                # attachments= replaces old uploads, so a changed or removed banner is updated too.
+                await message.edit(embed=embed, view=view, attachments=files)
                 action = "aktualisiert"
             else:
-                message = await channel.send(embed=embed, view=view, allowed_mentions=discord.AllowedMentions.none())
+                message = await channel.send(embed=embed, view=view, files=files, allowed_mentions=discord.AllowedMentions.none())
                 action = "veröffentlicht"
             settings["message_id"] = str(message.id)
             settings["published_channel_id"] = str(channel.id)

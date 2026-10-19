@@ -284,6 +284,7 @@ class FakeMessage:
 
     async def edit(self, **kwargs):
         self.edits += 1
+        self.last_edit = kwargs
 
 
 class FakeChannel:
@@ -312,6 +313,37 @@ class FakeChannel:
 
 
 class PublishTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.cog.base_dir = self.tmp.name
+
+    def test_uploaded_banner_is_attached_on_send_and_edit(self):
+        folder = Path(self.tmp.name) / "uploads" / "welcome_banners"
+        folder.mkdir(parents=True)
+        (folder / "verify_banner_0a1b2c3d.png").write_bytes(bytes([0x89]) + b"PNG\r\n\x1a\n")
+        pulse_db.set_setting(v.SETTING_KEY, {"enabled": True, "channel_id": "111111111111111111",
+                                             "banner_file": "verify_banner_0a1b2c3d.png", "banner_url": "https://x.example/a.png"})
+        channel = FakeChannel()
+        guild = FakeGuild(channel=channel)
+        asyncio.run(self.cog.publish_panel(guild))
+        sent = channel.sent[0]
+        self.assertEqual([f.filename for f in sent["files"]], ["verify_banner_0a1b2c3d.png"])
+        self.assertEqual(sent["embed"].image.url, "attachment://verify_banner_0a1b2c3d.png")
+        asyncio.run(self.cog.publish_panel(guild))
+        self.assertEqual([f.filename for f in channel.existing.last_edit["attachments"]], ["verify_banner_0a1b2c3d.png"])
+
+    def test_without_upload_the_url_banner_is_used_and_no_file_sent(self):
+        pulse_db.set_setting(v.SETTING_KEY, {"enabled": True, "channel_id": "111111111111111111",
+                                             "banner_url": "https://x.example/a.png"})
+        channel = FakeChannel()
+        asyncio.run(self.cog.publish_panel(FakeGuild(channel=channel)))
+        self.assertEqual(channel.sent[0]["files"], [])
+        self.assertEqual(channel.sent[0]["embed"].image.url, "https://x.example/a.png")
+
+    def test_unsafe_banner_file_name_is_ignored(self):
+        s = v.normalize_settings({"banner_file": "../../pulse.db"})
+        self.assertEqual(s["banner_file"], "")
+
     def test_8_publish_edits_existing_message_instead_of_duplicating(self):
         channel = FakeChannel()
         guild = FakeGuild(channel=channel)

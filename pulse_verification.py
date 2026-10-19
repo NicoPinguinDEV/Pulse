@@ -9,6 +9,7 @@ cogs/verification.py performs the Discord calls; everything decided here is pure
 """
 from __future__ import annotations
 
+import os
 import re
 
 from pulse_embed_design import build_embed_spec, neutralize_mentions, safe_image_url, truncate
@@ -18,6 +19,8 @@ UNVERIFIED_ROLE_ID = 1532762237284913363
 CITIZEN_ROLE_ID = 1531303733311307997
 BUTTON_CUSTOM_ID = "pulse:verify:v1"
 MAX_ERRORS = 10
+BANNER_DIR = os.path.join("uploads", "welcome_banners")
+_BANNER_NAME_RE = re.compile(r"verify_banner_[0-9a-f]{8}\.(png|jpg|gif|webp)")
 
 DEFAULTS = {
     "enabled": False,          # join role + button only act after an admin enables it
@@ -34,6 +37,7 @@ DEFAULTS = {
     ),
     "button_label": "Jetzt verifizieren",
     "banner_url": "",
+    "banner_file": "",
     "message_id": "",
     "published_channel_id": "",
     "errors": [],
@@ -59,6 +63,7 @@ def normalize_settings(raw) -> dict:
         "description": truncate(description, 3500) if description else DEFAULTS["description"],
         "button_label": truncate(label, 80) if label else DEFAULTS["button_label"],
         "banner_url": safe_image_url(banner) if banner.startswith("https://") else "",
+        "banner_file": str(raw.get("banner_file") or "") if _BANNER_NAME_RE.fullmatch(str(raw.get("banner_file") or "")) else "",
         "message_id": _snowflake(raw.get("message_id")),
         "published_channel_id": _snowflake(raw.get("published_channel_id")),
         "errors": errors,
@@ -127,12 +132,24 @@ def role_problems(*, bot_manage_roles: bool, bot_top_position: int, roles: dict)
 
 
 # --------------------------------------------------------------------------- panel
-def build_panel_spec(settings: dict, *, icon_url: str = "") -> dict:
+def banner_path(settings: dict, base_dir: str = "") -> str | None:
+    """Absolute path of the uploaded banner, or None if unset/missing/unsafe."""
+    name = os.path.basename(str(settings.get("banner_file") or ""))
+    if not _BANNER_NAME_RE.fullmatch(name):
+        return None
+    path = os.path.join(base_dir, BANNER_DIR, name) if base_dir else os.path.join(BANNER_DIR, name)
+    return path if os.path.isfile(path) else None
+
+
+def build_panel_spec(settings: dict, *, icon_url: str = "", base_dir: str = "") -> dict:
+    """An uploaded banner wins over the URL and is sent as attachment (no public URL needed)."""
+    uploaded = banner_path(settings, base_dir)
+    image = f"attachment://{os.path.basename(uploaded)}" if uploaded else settings.get("banner_url", "")
     return build_embed_spec(
         "info",
         title=neutralize_mentions(settings["title"]),
         description=neutralize_mentions(settings["description"]),
         thumbnail_url=icon_url,
-        image_url=settings.get("banner_url", ""),
+        image_url=image,
         footer=None,
     )
