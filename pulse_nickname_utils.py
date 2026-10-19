@@ -369,6 +369,49 @@ def strip_legacy_rank_prefix(name: object) -> str | None:
     return nickname or None
 
 
+_PULSE_PREFIX_LABELS = {
+    _role_label_key(label)
+    for label in (*_ROLE_PREFIX_ABBREVIATIONS.values(), *_TEAM_ROLE_PREFIX_ORDER, "Bürger", "VIP", "Team")
+}
+
+
+def strip_pulse_prefixes(name: object, extra_prefixes=(), max_layers: int = 4) -> str | None:
+    """Remove Pulse-generated rank prefixes ('L.Mod ✗ …'), including stacked ones.
+
+    After a rank change the previous prefix is no longer derived from the member's
+    current roles; without this it stayed in the name ('Jr.Admin ✗ L.Mod ✗ Dawo').
+    Only labels Pulse itself generates (or configured prefixes) are removed, so
+    ordinary names containing '✗' are left alone.
+    """
+    nickname = str(name or "").strip()
+    extra = {str(p).strip() for p in extra_prefixes if str(p or "").strip()}
+    for _ in range(max_layers):
+        if nickname.startswith(EX_TEAMLER_PREFIX + " "):
+            nickname = nickname[len(EX_TEAMLER_PREFIX) + 1:].strip()
+            continue
+        configured = next((p for p in sorted(extra, key=len, reverse=True) if nickname.startswith(p + " ")), None)
+        if configured:
+            nickname = nickname[len(configured) + 1:].strip()
+            continue
+        match = re.match(r"^(?P<label>[^✗]{1,24}?)\s*✗\s+(?P<rest>\S.*)$", nickname)
+        if not match or _role_label_key(match.group("label")) not in _PULSE_PREFIX_LABELS:
+            break
+        nickname = match.group("rest").strip()
+    return nickname or None
+
+
+_DATE_ONLY_RE = re.compile(r"^\s*(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\.\d{1,2}\.\d{2,4})\s*$")
+
+
+def looks_like_date_only(name: object) -> bool:
+    """True for values like '2026-10-19' or '19.10.2026' – never a real nickname.
+
+    An older dashboard absence insert stored the end date as original_nick;
+    such values must not be restored as a member's name.
+    """
+    return bool(_DATE_ONLY_RE.match(str(name or "")))
+
+
 def strip_known_prefix(name: object, prefixes) -> str | None:
     """Remove one known configured prefix from the beginning of a nickname."""
     nickname = str(name or "")

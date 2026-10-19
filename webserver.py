@@ -9361,8 +9361,14 @@ async def handle_action(
         m = guild.get_member(target)
         display_n = m.display_name if m else f"User-{target}"
         conn = sqlite3.connect(DB_ABMELDUNGEN)
-        conn.execute("INSERT OR REPLACE INTO abmeldungen VALUES (?, ?, ?, ?, ?, ?, ?)",
-                     (target, display_n, (loa_reason or "Kein Grund").strip()[:300], loa_start, loa_end, display_n, GUILD_ID))
+        # Named columns: migrated databases have 'von' appended at the end, so a
+        # positional insert stored the end date as original_nick (nickname became a date).
+        # original_nick is the real Discord nickname, like the slash command stores it.
+        conn.execute(
+            "INSERT OR REPLACE INTO abmeldungen(user_id,user_name,grund,von,bis,original_nick,guild_id) VALUES (?,?,?,?,?,?,?)",
+            (target, display_n, (loa_reason or "Kein Grund").strip()[:300], loa_start, loa_end,
+             (m.nick if m else None), GUILD_ID),
+        )
         conn.commit()
         conn.close()
         log_audit(actor, actor_id, "LOA Eingetragen", f"{display_n} bis {loa_end}")

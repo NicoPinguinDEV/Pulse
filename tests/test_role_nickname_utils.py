@@ -7,10 +7,12 @@ from pulse_nickname_utils import (
     MAX_DISCORD_NICKNAME_LENGTH,
     automatic_role_prefix,
     format_prefixed_nickname,
+    looks_like_date_only,
     normalize_role_prefix,
     select_highest_role_prefix,
     strip_known_prefix,
     strip_legacy_rank_prefix,
+    strip_pulse_prefixes,
 )
 
 
@@ -212,6 +214,47 @@ class RoleNicknamePrefixTests(unittest.TestCase):
             strip_known_prefix("VIP ✗ Bürger ✗ Nico", ["VIP ✗", "Bürger ✗"]),
             "Bürger ✗ Nico",
         )
+
+    def test_old_pulse_prefix_is_removed_after_rank_change(self):
+        # Live bug: 'Jr.Admin ✗ L.Mod ✗ Dawo' after a promotion from L.Mod.
+        self.assertEqual(strip_pulse_prefixes("L.Mod ✗ Dawo"), "Dawo")
+        self.assertEqual(strip_pulse_prefixes("Jr.Admin ✗ L.Mod ✗ Dawo"), "Dawo")
+        self.assertEqual(strip_pulse_prefixes("Stv.TL ✗ Max"), "Max")
+        self.assertEqual(strip_pulse_prefixes("Bürger ✗ Lena"), "Lena")
+        self.assertEqual(strip_pulse_prefixes("Eigen ✗ Tom", ["Eigen ✗"]), "Tom")
+
+    def test_ordinary_names_with_cross_are_kept(self):
+        self.assertEqual(strip_pulse_prefixes("Dawo"), "Dawo")
+        self.assertEqual(strip_pulse_prefixes("Max ✗ Mustermann"), "Max ✗ Mustermann")
+        self.assertEqual(strip_pulse_prefixes("Mod"), "Mod")
+        self.assertIsNone(strip_pulse_prefixes(None))
+
+    def test_date_is_never_a_nickname(self):
+        # Live bug: 'Stv.TL ✗ 2026-10-19' after a dashboard absence expired.
+        self.assertTrue(looks_like_date_only("2026-10-19"))
+        self.assertTrue(looks_like_date_only(" 19.10.2026 "))
+        self.assertFalse(looks_like_date_only("Max 2026"))
+        self.assertFalse(looks_like_date_only("0_69m"))
+        self.assertFalse(looks_like_date_only(None))
+
+
+class DashboardAbsenceInsertTests(unittest.TestCase):
+    def test_dashboard_insert_uses_named_columns_on_migrated_table(self):
+        import pathlib
+        import sqlite3
+
+        source = pathlib.Path(__file__).resolve().parents[1].joinpath("webserver.py").read_text(encoding="utf-8")
+        self.assertNotIn("INSERT OR REPLACE INTO abmeldungen VALUES", source)
+        # Migrated layout: 'von' was appended last by ALTER TABLE.
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE abmeldungen (user_id INTEGER PRIMARY KEY, user_name TEXT, grund TEXT, bis TEXT, original_nick TEXT, guild_id INTEGER)")
+        conn.execute("ALTER TABLE abmeldungen ADD COLUMN von TEXT DEFAULT ''")
+        conn.execute(
+            "INSERT OR REPLACE INTO abmeldungen(user_id,user_name,grund,von,bis,original_nick,guild_id) VALUES (?,?,?,?,?,?,?)",
+            (1, "Max", "Urlaub", "2026-10-10", "2026-10-19", "Max", 5),
+        )
+        row = conn.execute("SELECT von, bis, original_nick FROM abmeldungen").fetchone()
+        self.assertEqual(row, ("2026-10-10", "2026-10-19", "Max"))
 
 
 if __name__ == "__main__":

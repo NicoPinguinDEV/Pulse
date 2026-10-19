@@ -13,10 +13,12 @@ from discord.ext import commands
 from pulse_nickname_utils import (
     automatic_role_prefix,
     format_prefixed_nickname,
+    looks_like_date_only,
     normalize_role_prefix,
     select_highest_role_prefix,
     strip_known_prefix,
     strip_legacy_rank_prefix,
+    strip_pulse_prefixes,
 )
 from webserver import GUILD_ID, load_config
 
@@ -262,9 +264,19 @@ class RoleNicknamePrefixes(commands.Cog):
             # Older nicknames may already contain a manual rank tag, e.g.
             # 'Sr.-Sup メ Dawo' or 'Owner メ Phillip'. Remove it before applying
             # the real highest-role prefix, including from saved nickname state.
-            cleaned_base_name = strip_legacy_rank_prefix(base_name) or member.name
+            # Pulse's own prefixes of a previous rank ('L.Mod ✗') are removed too,
+            # otherwise a rank change stacked them ('Jr.Admin ✗ L.Mod ✗ Dawo').
+            own_prefixes = list(prefixes.values()) + [config.get("nickname_default_prefix", "Bürger ✗")]
+
+            def _clean(value):
+                value = strip_pulse_prefixes(value, own_prefixes)
+                value = strip_legacy_rank_prefix(value)
+                # A bare date is a damaged absence restore, never a real name.
+                return None if not value or looks_like_date_only(value) else value
+
+            cleaned_base_name = _clean(base_name) or member.name
             if isinstance(original_nick, str) and original_nick.strip():
-                original_nick = strip_legacy_rank_prefix(original_nick) or member.name
+                original_nick = _clean(original_nick) or member.name
             base_name = cleaned_base_name
 
             try:

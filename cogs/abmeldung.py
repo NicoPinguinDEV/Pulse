@@ -7,6 +7,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from pulse_nickname_utils import looks_like_date_only
+
 DB_NAME = str(Path(__file__).resolve().parents[1] / "abmeldungen.db")
 
 
@@ -357,6 +359,10 @@ class AbmeldungCog(commands.Cog):
                 except discord.HTTPException as exc:
                     print(f"⚠️ Abmeldungsrolle konnte nicht entfernt werden: {exc}")
 
+        if looks_like_date_only(original_nick):
+            # Older dashboard entries stored the end date as original_nick.
+            # Only remove the absence suffix instead of renaming the member to a date.
+            original_nick = (member.nick or "").replace(" | Abgemeldet", "").strip() or None
         if member.nick != original_nick and self._can_edit_member_nickname(guild, member):
             try:
                 await member.edit(nick=original_nick, reason="Pulse: Abmeldung beendet")
