@@ -278,22 +278,25 @@ def apply_brand_footer(embed, extra: str = ""):
 
 
 # --------------------------------------------------------------------------- modern layout
-def layout_text_blocks(spec: dict, *, mention_line: str = "") -> dict:
-    """Pure text plan for the modern container, trimmed to Discord's 4000-character total."""
-    head = f"### {spec['title']}" if spec.get("title") else ""
+def layout_text_blocks(spec: dict, *, mention_line: str = "", heading: str = "###", reserved: int = 0) -> dict:
+    """Pure text plan for the modern container, trimmed to Discord's 4000-character total.
+
+    reserved: characters already used by extra blocks (e.g. the ticket load section).
+    """
+    head = f"{heading} {spec['title']}" if spec.get("title") else ""
     body = spec.get("description") or ""
     fields = [f"**{name}**\n{value}" for name, value, _ in spec.get("fields", [])]
     footer = spec.get("footer") or ""
     stamp = discord_timestamp(spec.get("timestamp"), "f") if spec.get("timestamp") else ""
     footer_line = f"-# {footer}{' · ' + stamp if stamp else ''}" if (footer or stamp) else ""
-    fixed = len(head) + len(mention_line) + sum(len(f) for f in fields) + len(footer_line) + 8
+    fixed = len(head) + len(mention_line) + sum(len(f) for f in fields) + len(footer_line) + reserved + 8
     body = truncate(body, max(0, LAYOUT_TEXT_LIMIT - fixed))
     main = "\n".join(part for part in (mention_line, head, body) if part)
     return {"main": main, "fields": fields, "footer": footer_line}
 
 
 def layout_from_spec(spec: dict, *, mention_line: str = "", action_items=(), action_rows=(), view=None,
-                     brand: dict | None = None):
+                     brand: dict | None = None, heading: str = "###", extra_blocks=(), rows_outside: bool = False):
     """Discord Components V2 message (container with text, avatar on the right, banner, footer).
 
     action_items: buttons placed in an action row inside the container (e.g. verification).
@@ -303,7 +306,9 @@ def layout_from_spec(spec: dict, *, mention_line: str = "", action_items=(), act
     from discord import ui
 
     brand = brand or branding()
-    blocks = layout_text_blocks(spec, mention_line=mention_line)
+    extra_blocks = [truncate(b, 2500) for b in extra_blocks if b]
+    blocks = layout_text_blocks(spec, mention_line=mention_line, heading=heading,
+                                reserved=sum(len(b) for b in extra_blocks))
     children = []
     if spec.get("thumbnail_url"):
         children.append(ui.Section(ui.TextDisplay(blocks["main"] or "\u200b"), accessory=ui.Thumbnail(spec["thumbnail_url"])))
@@ -311,19 +316,26 @@ def layout_from_spec(spec: dict, *, mention_line: str = "", action_items=(), act
         children.append(ui.TextDisplay(blocks["main"]))
     for field in blocks["fields"]:
         children.append(ui.TextDisplay(field))
+    for block in extra_blocks:
+        children.append(ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large))
+        children.append(ui.TextDisplay(block))
     if spec.get("image_url"):
         children.append(ui.MediaGallery(discord.MediaGalleryItem(spec["image_url"])))
     if action_items:
         children.append(ui.ActionRow(*action_items))
-    for row in action_rows:
-        if row:
-            children.append(ui.ActionRow(*row))
+    rows = [ui.ActionRow(*row) for row in action_rows if row]
+    if not rows_outside:
+        children.extend(rows)
     if blocks["footer"]:
         children.append(ui.Separator(visible=True, spacing=discord.SeparatorSpacing.small))
         children.append(ui.TextDisplay(blocks["footer"]))
     accent = spec["color"] if brand.get("accent_bar") else None
     layout = view if view is not None else ui.LayoutView(timeout=None)
     layout.add_item(ui.Container(*children, accent_colour=accent))
+    if rows_outside:
+        # Like GalaxyBot panels: the selection menu sits directly below the card.
+        for row in rows:
+            layout.add_item(row)
     return layout
 
 

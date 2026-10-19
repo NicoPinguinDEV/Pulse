@@ -115,5 +115,54 @@ class AutomationTests(unittest.TestCase):
         self.assertEqual(automation_actions(ticket, off, NOW), [])
 
 
+class PanelLoadTests(unittest.TestCase):
+    def test_load_line_like_galaxybot(self):
+        from pulse_ticket_design import load_line
+        self.assertEqual(load_line("Immobilie Beantragen", "🏠", 3, 5), "- 🟡 🏠 **Immobilie Beantragen:** Verfügbar `3/5` (60 %)")
+        self.assertEqual(load_line("Verkauf", "💰", 0, 5), "- 🟢 💰 **Verkauf:** Verfügbar `0/5` (0 %)")
+        self.assertEqual(load_line("Bug", "⚙️", 5, 5), "- 🔴 ⚙️ **Bug:** Ausgelastet `5/5` (100 %)")
+        self.assertEqual(load_line("Bug", "⚙️", 7, 5), "- 🔴 ⚙️ **Bug:** Ausgelastet `7/5` (100 %)")
+        self.assertEqual(load_line("Frei", "🎫", 2, 0), "- 🟢 🎫 **Frei:** `2` offen")
+
+    def test_category_block(self):
+        from pulse_ticket_design import category_block
+        entries = [("Support", "🎫", 1, 10)]
+        self.assertIn("### 📊 Ticket-Auslastung", category_block(entries, show_load=True))
+        self.assertIn("Verfügbar `1/10` (10 %)", category_block(entries, show_load=True))
+        self.assertEqual(category_block(entries, show_load=False), "### 📂 Verfügbare Kategorien\n- 🎫 **Support**")
+        self.assertEqual(category_block(entries, show_load=False, list_categories=False), "")
+        self.assertEqual(category_block([], show_load=True), "")
+
+
+class PanelLayoutTests(unittest.TestCase):
+    def test_modern_panel_structure(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from cogs import tickets
+        panel = {"id": "immo", "title": "🏠 IMMOBILIEN-CENTER", "description": "Willkommen!", "show_load": True,
+                 "category_keys": ["support", "bug"], "banner_url": "https://example.com/b.png", "footer": "Immobilienverwaltung"}
+        with patch.object(tickets, "category_open_count", side_effect=lambda key: {"support": 3, "bug": 5}[key]):
+            layout = tickets.build_panel_layout(SimpleNamespace(icon=None), panel, tickets.panel_view(panel))
+        components = layout.to_components()
+        self.assertEqual([c["type"] for c in components], [17, 1])  # card, then the menu below it
+        inner = components[0]["components"]
+        self.assertEqual([c["type"] for c in inner], [10, 14, 10, 12, 14, 10])
+        self.assertTrue(inner[0]["content"].startswith("## 🏠 IMMOBILIEN-CENTER"))
+        self.assertIn("Verfügbar `3/10` (30 %)", inner[2]["content"])
+        self.assertIn("Ausgelastet `5/5` (100 %)", inner[2]["content"])
+        self.assertEqual(inner[-1]["content"], "-# Immobilienverwaltung")  # no timestamp on a pinned panel
+        self.assertTrue(layout.is_persistent())
+
+    def test_classic_panel_uses_same_load_lines(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from cogs import tickets
+        panel = {"id": "immo", "title": "T", "show_load": True, "category_keys": ["support"]}
+        with patch.object(tickets, "category_open_count", return_value=4):
+            embed = tickets.build_panel_embed(SimpleNamespace(icon=None), panel)
+        self.assertEqual(embed.fields[0].name, "📊 Ticket-Auslastung")
+        self.assertIn("Verfügbar `4/10` (40 %)", embed.fields[0].value)
+
+
 if __name__ == "__main__":
     unittest.main()

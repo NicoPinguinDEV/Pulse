@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 
 import discord
 from pulse_embed_design import color as _pulse_color, is_modern
-from pulse_discord_style import edit_styled, is_v2, message_texts, send_styled
+from pulse_discord_style import edit_styled, embed_to_spec, is_v2, message_texts, send_styled, view_rows
+from pulse_embed_design import layout_from_spec
 import pulse_db as _pulse_db
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -28,6 +29,7 @@ from pulse_db import (
     set_ticket_panel,
     touch_ticket_activity,
 )
+from pulse_ticket_design import category_block, load_line
 from pulse_ticket_design import (
     PANEL_IMAGE_DIR,
     automation_actions,
@@ -240,6 +242,32 @@ def panel_files(panel: dict) -> list[discord.File]:
     return files
 
 
+def panel_entries(panel: dict) -> list[tuple]:
+    """(name, emoji, open tickets, maximum) for every active category of a panel."""
+    definitions = ticket_category_definitions()
+    entries = []
+    for key in panel.get("category_keys", [])[:25]:
+        definition = definitions.get(str(key))
+        if not definition or not definition.get("active", True):
+            continue
+        name, _, emoji, maximum, _ = category_meta(str(key))
+        entries.append((name, emoji, category_open_count(str(key)) if panel.get("show_load") else 0, maximum))
+    return entries
+
+
+def build_panel_layout(guild, panel_config: dict, view, image_urls: dict | None = None):
+    """Modern ticket panel like GalaxyBot: big title, text, load section, banner, footer, menu below."""
+    panel = normalize_panel(panel_config)
+    embed = build_panel_embed(guild, panel_config, image_urls)
+    spec = embed_to_spec(embed)
+    spec["fields"] = []
+    spec["timestamp"] = None  # a pinned panel needs no "today at …" footer
+    block = category_block(panel_entries(panel), show_load=bool(panel.get("show_load")),
+                           list_categories=bool(panel_config.get("list_categories", True)))
+    return layout_from_spec(spec, heading="##", extra_blocks=[block] if block else [],
+                            action_rows=view_rows(view), rows_outside=True)
+
+
 def build_panel_embed(guild, panel_config: dict | None = None, image_urls: dict | None = None) -> discord.Embed:
     if isinstance(panel_config, dict):
         panel = normalize_panel(panel_config)
@@ -250,21 +278,15 @@ def build_panel_embed(guild, panel_config: dict | None = None, image_urls: dict 
         except (TypeError, ValueError):
             embed_color = _pulse_color("info")
         embed = discord.Embed(title=panel_title, description=panel_description, color=embed_color)
-        definitions = ticket_category_definitions()
-        lines = []
-        for key in panel["category_keys"][:25]:
-            definition = definitions.get(str(key))
-            if not definition or not definition.get("active", True):
-                continue
-            name, _, emoji, maximum, _ = category_meta(str(key))
-            if panel.get("show_load"):
-                current = category_open_count(str(key))
-                load = f" · `{current}/{maximum}` offen" if maximum else f" · `{current}` offen"
-                lines.append(f"{emoji} **{name}**{load}")
-            elif panel_config.get("list_categories", True):
-                lines.append(f"{emoji} **{name}**")
+        entries = panel_entries(panel)
+        if panel.get("show_load"):
+            lines = [load_line(*entry) for entry in entries]
+        elif panel_config.get("list_categories", True):
+            lines = [f"{emoji} **{name}**" for name, emoji, _, _ in entries]
+        else:
+            lines = []
         if lines:
-            title = "📊 Aktuelle Auslastung" if panel.get("show_load") else "📂 Verfügbare Kategorien"
+            title = "📊 Ticket-Auslastung" if panel.get("show_load") else "📂 Verfügbare Kategorien"
             embed.add_field(name=title, value="\n".join(lines)[:1024], inline=False)
         embed.set_footer(text=str(panel.get("footer") or "Pulse Ticket-System")[:2048])
         embed.timestamp = discord.utils.utcnow()
@@ -1063,7 +1085,7 @@ class Tickets(commands.Cog):
         if kind:
             await asyncio.to_thread(touch_ticket_activity, message.channel.id, kind)
 
-    async def _edit_if_changed(self, message: discord.Message, embed: discord.Embed, view: View, files=None):
+    async def _edit_if_changed(self, message: discord.Message, embed: discord.Embed, view: View, files=None, layout=None):
         """Edit a panel message only when its visible content changed."""
         data = embed.to_dict()
         data.pop("timestamp", None)
@@ -1075,7 +1097,7 @@ class Tickets(commands.Cog):
         if self._panel_signatures.get(message.id) == signature:
             return False
         extra = {"attachments": files} if (files and is_v2(message)) else {}
-        await edit_styled(message, embed=embed, view=view, **extra)
+        await edit_styled(message, embed=embed, view=view, layout=layout if is_v2(message) else None, **extra)
         self._panel_signatures[message.id] = signature
         return True
 
@@ -1218,7 +1240,8 @@ class Tickets(commands.Cog):
                         "image": existing.image.url if existing and existing.image and panel_image_path(panel.get("banner_file")) else None,
                     }
                     await self._edit_if_changed(message, build_panel_embed(guild, panel, image_urls), panel_view(panel),
-                                                files=panel_files(panel) if is_v2(message) else None)
+                                                files=panel_files(panel) if is_v2(message) else None,
+                                                layout=build_panel_layout(guild, panel, panel_view(panel)) if is_v2(message) else None)
                 except discord.NotFound:
                     # The dashboard publishing helper creates a replacement
                     # message and writes its new ID back into the settings.
@@ -1297,10 +1320,13 @@ class Tickets(commands.Cog):
             except discord.NotFound:
                 pass
             message = None
+        layout = build_panel_layout(guild, panel, panel_view(panel)) if is_modern() else None
         if message is None:
-            message = await send_styled(channel, embed=build_panel_embed(guild, panel), view=view, files=files)
+            message = await send_styled(channel, embed=build_panel_embed(guild, panel), view=view, files=files, layout=layout)
         else:
-            await edit_styled(message, embed=build_panel_embed(guild, panel), view=view, attachments=files)
+            if is_v2(message) and layout is None:
+                layout = build_panel_layout(guild, panel, panel_view(panel))
+            await edit_styled(message, embed=build_panel_embed(guild, panel), view=view, attachments=files, layout=layout)
         self._panel_signatures.pop(message.id, None)
         panel["message_id"] = message.id
         panel["published_channel_id"] = channel.id

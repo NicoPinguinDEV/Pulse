@@ -66,12 +66,29 @@ BUILDER_CSS = """
 .dc-select{margin-top:8px;max-width:520px;background:#1e1f22;border-radius:4px;padding:10px 12px;color:#949ba4;display:flex;justify-content:space-between}
 .dc-buttons{margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;max-width:520px}
 .dc-btn{border-radius:4px;padding:6px 14px;font-size:13px;font-weight:500;color:#fff;background:#5865f2}
+.dc-modern{border-left:0!important;border:1px solid #3f4147;background:#393a41;border-radius:8px;display:block}
+.dc-modern .dc-title{font-size:20px;font-weight:800;margin-bottom:6px}.dc-modern .dc-thumb{float:right;margin:0 0 8px 12px}
+.dc-modern .dc-sep{height:1px;background:#4e5058;margin:14px 0}.dc-modern .dc-image{margin-top:12px;display:block}
+.dc-modern .dc-footer{margin-top:4px}.dc-modern h3{font-size:16px;color:#fff;margin:0 0 6px}
 .dc-btn.secondary{background:#4e5058}.dc-btn.success{background:#248046}.dc-btn.danger{background:#da373c}
 .tb-q{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto;gap:8px;align-items:center;margin-bottom:8px}
 @media(max-width:1100px){.tb-grid{grid-template-columns:1fr}.tb-sticky{position:static}}
 @media(max-width:700px){.tb-form,.tb-cats,.tb-img{grid-template-columns:1fr}.tb-img .thumb{width:100%;height:110px}.dc{padding:10px}.dc-ava{display:none}.dc-msg{gap:0}.dc-embed{padding:10px 12px}.dc-thumb{width:56px;height:56px}.tb-q{grid-template-columns:1fr 1fr}.tb-panel{flex-wrap:wrap}}
 </style>
 """
+
+def _modern_style() -> bool:
+    try:
+        from pulse_embed_design import is_modern
+        return is_modern()
+    except Exception:
+        return False
+
+
+def _load_intro() -> str:
+    from pulse_ticket_design import LOAD_INTRO
+    return LOAD_INTRO
+
 
 PREVIEW_JS = r"""
 <script>
@@ -115,11 +132,31 @@ PREVIEW_JS = r"""
     const style = $('[name=component_style]').value;
     const thumb = imageSrc('thumbnail'), banner = imageSrc('banner');
     let fields = '';
-    if (cats.length && ($('[name=list_categories]').checked || $('[name=show_load]').checked)) {
+    const pct = c => c.max ? Math.min(100, Math.floor(c.open * 100 / c.max)) : 0;
+    const light = c => !c.max ? '🟢' : (pct(c) < 50 ? '🟢' : pct(c) < 80 ? '🟡' : '🔴');
+    const loadLine = c => '• '+light(c)+' '+esc(c.emoji)+' <b style="display:inline;color:#fff">'+esc(c.name)+':</b> ' +
+      (c.max ? (c.open >= c.max ? 'Ausgelastet' : 'Verfügbar')+' <code>'+c.open+'/'+c.max+'</code> ('+pct(c)+' %)' : '<code>'+c.open+'</code> offen');
+    if (data.modern) {
       const load = $('[name=show_load]').checked;
-      fields = '<div class="dc-field"><b>'+(load ? '📊 Aktuelle Auslastung' : '📂 Verfügbare Kategorien')+'</b>' +
-        cats.map(c => esc(c.emoji)+' <b style="display:inline;color:#dbdee1">'+esc(c.name)+'</b>'+(load ? ' · <code>'+c.open+(c.max ? '/'+c.max : '')+'</code> offen' : '')).join('<br>') + '</div>';
+      let block = '';
+      if (cats.length && load) block = '<h3>📊 Ticket-Auslastung</h3>'+esc(data.loadIntro)+'<br><br>'+cats.map(loadLine).join('<br>');
+      else if (cats.length && $('[name=list_categories]').checked) block = '<h3>📂 Verfügbare Kategorien</h3>'+cats.map(c => '• '+esc(c.emoji)+' <b style="display:inline;color:#fff">'+esc(c.name)+'</b>').join('<br>');
+      const box = document.getElementById('dcEmbed');
+      box.className = 'dc-embed dc-modern';
+      box.style.borderLeftColor = '';
+      box.innerHTML = (thumb ? '<img class="dc-thumb" src="'+esc(thumb)+'" alt="">' : '') +
+        '<div class="dc-title">'+esc($('[name=title]').value)+'</div>' +
+        '<div class="dc-desc">'+md($('[name=description]').value)+'</div>' +
+        (block ? '<div class="dc-sep"></div><div class="dc-desc">'+block+'</div>' : '') +
+        (banner ? '<img class="dc-image" src="'+esc(banner)+'" alt="">' : '') +
+        '<div class="dc-sep"></div><div class="dc-footer">'+esc($('[name=footer]').value)+'</div>';
     }
+    if (!data.modern && cats.length && ($('[name=list_categories]').checked || $('[name=show_load]').checked)) {
+      const load = $('[name=show_load]').checked;
+      fields = '<div class="dc-field"><b>'+(load ? '📊 Ticket-Auslastung' : '📂 Verfügbare Kategorien')+'</b>' +
+        cats.map(c => load ? loadLine(c).slice(2) : esc(c.emoji)+' <b style="display:inline;color:#dbdee1">'+esc(c.name)+'</b>').join('<br>') + '</div>';
+    }
+    if (!data.modern) {
     document.getElementById('dcEmbed').style.borderLeftColor = color;
     document.getElementById('dcEmbed').innerHTML =
       '<div class="dc-title">'+esc($('[name=title]').value)+'</div>' +
@@ -127,6 +164,7 @@ PREVIEW_JS = r"""
       '<div class="dc-desc">'+md($('[name=description]').value)+'</div>' + fields +
       (banner ? '<img class="dc-image" src="'+esc(banner)+'" alt="">' : '') +
       '<div class="dc-footer">'+esc($('[name=footer]').value)+' • Heute</div>';
+    }
     const comp = document.getElementById('dcComponents');
     if (style === 'buttons' && cats.length) {
       comp.className = 'dc-buttons';
@@ -268,7 +306,8 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
             }
             tb_data = {"categories": categories_json, "media": media, "server": guild.name,
                        "serverIcon": guild.icon.url if getattr(guild, "icon", None) else "",
-                       "avatar": "https://cdn.discordapp.com/embed/avatars/0.png"}
+                       "avatar": "https://cdn.discordapp.com/embed/avatars/0.png",
+                       "modern": _modern_style(), "loadIntro": _load_intro()}
             publish_box = (
                 f'<form method="post" action="/tickets/panels/publish" class="mt-3"><input type="hidden" name="panel_id" value="{e(pid)}">'
                 f'<button class="pulse-btn primary w-full" type="submit">🚀 In Discord veröffentlichen / aktualisieren</button></form>'

@@ -162,8 +162,12 @@ def same_content(message, embed: discord.Embed) -> bool:
 
 # --------------------------------------------------------------------------- sending
 async def send_styled(destination, *, content: str | None = None, embed: discord.Embed | None = None,
-                      view=None, files=None, file=None, allowed_mentions=None, modern: bool | None = None, **kwargs):
-    """Send an embed message in the configured style. Without an embed, nothing changes."""
+                      view=None, files=None, file=None, allowed_mentions=None, modern: bool | None = None,
+                      layout=None, **kwargs):
+    """Send an embed message in the configured style. Without an embed, nothing changes.
+
+    layout: a ready-made LayoutView for messages with their own modern design (ticket panels).
+    """
     use_modern = is_modern() if modern is None else modern
     extra = dict(kwargs)
     if files is not None:
@@ -184,7 +188,7 @@ async def send_styled(destination, *, content: str | None = None, embed: discord
         # Mentions inside an embed never pinged; in a container they would. Only allow what the
         # former plain-text content pinged, never the embed text.
         extra["allowed_mentions"] = mentions_from_content(content)
-    return await destination.send(view=layout_from_embed(embed, content=content, view=view), **extra)
+    return await destination.send(view=layout or layout_from_embed(embed, content=content, view=view), **extra)
 
 
 def mentions_from_content(content: str | None) -> discord.AllowedMentions:
@@ -195,7 +199,8 @@ def mentions_from_content(content: str | None) -> discord.AllowedMentions:
     return discord.AllowedMentions(everyone=False, users=users or False, roles=roles or False, replied_user=False)
 
 
-async def edit_styled(message, *, embed=MISSING, content=MISSING, view=MISSING, allowed_mentions=None, **kwargs):
+async def edit_styled(message, *, embed=MISSING, content=MISSING, view=MISSING, allowed_mentions=None, layout=None,
+                      **kwargs):
     """Edit keeping the message's own format (embed stays embed, container stays container).
 
     Arguments that are not passed stay unchanged on classic messages. A container is always
@@ -208,7 +213,9 @@ async def edit_styled(message, *, embed=MISSING, content=MISSING, view=MISSING, 
         extra.setdefault("allowed_mentions", discord.AllowedMentions.none())
         text = content if isinstance(content, str) else ""
         rows_view = view if view not in (MISSING, None) else None
-        if isinstance(embed, discord.Embed):
+        if layout is not None:
+            pass
+        elif isinstance(embed, discord.Embed):
             layout = layout_from_embed(embed, content=text, view=rows_view)
         else:
             layout = text_layout(text or "–")

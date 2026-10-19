@@ -221,3 +221,42 @@ def automation_actions(ticket: dict, settings: dict, now: datetime) -> list[str]
 def panel_signature(payload: dict) -> str:
     """Stable fingerprint of what a panel message shows, to skip needless Discord edits."""
     return json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+
+
+LOAD_INTRO = (
+    "Hier siehst du die aktuelle Auslastung unserer Tickets. Bei höherer Auslastung kann die "
+    "Bearbeitung etwas länger dauern – ein Ticket kannst du trotzdem jederzeit eröffnen."
+)
+
+
+def load_indicator(current: int, maximum: int) -> str:
+    """Traffic light for one category: green < 50 %, yellow < 80 %, red from 80 % (or full)."""
+    if not maximum:
+        return "🟢"
+    percent = current * 100 // maximum
+    return "🟢" if percent < 50 else "🟡" if percent < 80 else "🔴"
+
+
+def load_line(name: str, emoji: str, current: int, maximum: int) -> str:
+    """'- 🟢 🎫 **Support:** Verfügbar `3/5` (60 %)' – the format known from GalaxyBot panels."""
+    current = max(0, int(current or 0))
+    maximum = max(0, int(maximum or 0))
+    label = f"{emoji} **{name}:**".strip()
+    if not maximum:
+        return f"- {load_indicator(current, maximum)} {label} `{current}` offen"
+    percent = min(100, current * 100 // maximum)
+    state = "Ausgelastet" if current >= maximum else "Verfügbar"
+    return f"- {load_indicator(current, maximum)} {label} {state} `{current}/{maximum}` ({percent} %)"
+
+
+def category_block(entries, *, show_load: bool, list_categories: bool = True) -> str:
+    """Text block below the panel description. entries: (name, emoji, current, maximum)."""
+    entries = list(entries)
+    if not entries:
+        return ""
+    if show_load:
+        lines = [load_line(*entry) for entry in entries]
+        return "### 📊 Ticket-Auslastung\n" + LOAD_INTRO + "\n\n" + "\n".join(lines)
+    if list_categories:
+        return "### 📂 Verfügbare Kategorien\n" + "\n".join(f"- {emoji} **{name}**" for name, emoji, _, _ in entries)
+    return ""
