@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import discord
+from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -220,7 +221,7 @@ class PulsePro(commands.Cog):
             if failed:
                 embed.add_field(name="Nicht geladen", value="\n".join(f"• {x}" for x in failed[:10])[:1000], inline=False)
             embed.add_field(name="Dashboard", value=f"[Öffnen]({panel_url('/me')})", inline=False)
-            await channel.send(embed=embed)
+            await send_styled(channel, embed=embed)
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(f"⚠️ Start-Diagnose konnte nicht gesendet werden: {type(exc).__name__}")
         except Exception as exc:

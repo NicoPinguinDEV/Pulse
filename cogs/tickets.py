@@ -6,7 +6,9 @@ import re
 from datetime import datetime, timezone
 
 import discord
-from pulse_embed_design import color as _pulse_color
+from pulse_embed_design import color as _pulse_color, is_modern
+from pulse_discord_style import edit_styled, is_v2, message_texts, send_styled
+import pulse_db as _pulse_db
 from discord import app_commands
 from discord.ext import commands, tasks
 from discord.ui import Button, Modal, Select, TextInput, View
@@ -387,7 +389,7 @@ async def send_ticket_log(
         embed.url = f"https://discord.com/channels/{guild.id}/{channel_id}"
     embed.set_footer(text="Pulse Ticket-System • Ereignisprotokoll")
     try:
-        await destination.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        await send_styled(destination, embed=embed, allowed_mentions=discord.AllowedMentions.none())
         return True
     except (discord.Forbidden, discord.HTTPException) as exc:
         print(f"⚠️ Pulse-Tickets: Protokoll in {destination_id} fehlgeschlagen ({type(exc).__name__}).")
@@ -403,11 +405,44 @@ async def transcript(channel):
             text += " | Anhänge: " + ", ".join(a.url for a in m.attachments)
         if m.embeds:
             text += " | Embeds: " + ", ".join((e.title or "Embed") for e in m.embeds)
+        elif is_v2(m):
+            text += " | Inhalt: " + " / ".join(t.replace("\n", " ") for t in message_texts(m))[:2000]
         rows.append(f"[{stamp}] {m.author} ({m.author.id}): {text}")
     return "\n".join(rows)
 
 
 STATUS_FIELDS = ("Status", "Priorität", "Bearbeiter")
+TICKET_CARD_PREFIX = "ticket_card:"
+
+
+def save_ticket_card(ticket_id: str, embed: discord.Embed, files: list[str]) -> None:
+    """Remember the welcome card of a container ticket so status updates can rebuild it."""
+    try:
+        _pulse_db.set_setting(TICKET_CARD_PREFIX + str(ticket_id), {"embed": embed.to_dict(), "files": files[:4]})
+    except Exception as exc:
+        print(f"⚠️ Pulse-Tickets: Ticketkarte {ticket_id} nicht gespeichert ({type(exc).__name__}).")
+
+
+def load_ticket_card(ticket_id: str):
+    try:
+        card = _pulse_db.get_setting(TICKET_CARD_PREFIX + str(ticket_id), None)
+    except Exception:
+        return None, []
+    if not isinstance(card, dict) or not isinstance(card.get("embed"), dict):
+        return None, []
+    files = []
+    for name in card.get("files", []):
+        path = panel_image_path(name)
+        if path:
+            files.append(discord.File(path, filename=os.path.basename(path)))
+    return discord.Embed.from_dict(card["embed"]), files
+
+
+def drop_ticket_card(ticket_id: str) -> None:
+    try:
+        _pulse_db.delete_setting(TICKET_CARD_PREFIX + str(ticket_id))
+    except Exception:
+        pass
 
 
 async def refresh_ticket_embed(channel, ticket: dict, control_view=None):
@@ -421,20 +456,30 @@ async def refresh_ticket_embed(channel, ticket: dict, control_view=None):
     # and images stay intact (older tickets without these fields use the classic embed).
     try:
         async for m in channel.history(limit=20, oldest_first=True):
-            if m.author.id == channel.guild.me.id and m.embeds:
+            if m.author.id != channel.guild.me.id or not (m.embeds or is_v2(m)):
+                continue
+            files = []
+            if m.embeds:
                 embed = m.embeds[0].copy()
-                names = [field.name for field in embed.fields]
-                if all(name in names for name in STATUS_FIELDS):
-                    for index, field in enumerate(embed.fields):
-                        if field.name in values:
-                            embed.set_field_at(index, name=field.name, value=values[field.name], inline=True)
-                    if ticket.get("priority") == "urgent":
-                        embed.color = _pulse_color("danger")
-                    await m.edit(embed=embed, view=control_view or TicketControlView())
-                    return
-                break
-    except Exception:
-        pass
+            else:
+                embed, files = load_ticket_card(ticket.get("id"))
+                if embed is None:
+                    break
+            names = [field.name for field in embed.fields]
+            if all(name in names for name in STATUS_FIELDS):
+                for index, field in enumerate(embed.fields):
+                    if field.name in values:
+                        embed.set_field_at(index, name=field.name, value=values[field.name], inline=True)
+                if ticket.get("priority") == "urgent":
+                    embed.color = _pulse_color("danger")
+                extra = {"attachments": files} if files else {}
+                await edit_styled(m, embed=embed, view=control_view or TicketControlView(), **extra)
+                if is_v2(m):
+                    save_ticket_card(ticket.get("id"), embed, [f.filename for f in files])
+                return
+            break
+    except Exception as exc:
+        print(f"⚠️ Pulse-Tickets: Ticketstatus konnte nicht aktualisiert werden ({type(exc).__name__}).")
     await _refresh_classic_ticket_embed(channel, ticket, control_view)
 
 
@@ -456,8 +501,8 @@ async def _refresh_classic_ticket_embed(channel, ticket: dict, control_view=None
     # The setup message is the first bot message in a new ticket.
     try:
         async for m in channel.history(limit=20, oldest_first=True):
-            if m.author.id == channel.guild.me.id and m.embeds:
-                await m.edit(embed=embed, view=control_view or TicketControlView())
+            if m.author.id == channel.guild.me.id and (m.embeds or is_v2(m)):
+                await edit_styled(m, embed=embed, view=control_view or TicketControlView())
                 return
     except Exception:
         pass
@@ -519,13 +564,14 @@ async def archive_ticket(channel, ticket: dict, actor_id, actor_name: str, reaso
         print(f"Transcript konnte nicht gespeichert werden: {exc}")
     if not close_ticket(ticket["id"], reason, path, actor_id, actor_name):
         return False
+    drop_ticket_card(ticket["id"])
     record_event("ticket_closed", "ticket", ticket["id"], actor_id, actor_name, {"reason": reason})
     try:
         member = channel.guild.get_member(int(ticket["user_id"]))
         if member:
             dm = discord.Embed(title="🎫 Dein Ticket wurde geschlossen", color=_pulse_color("info"))
             dm.description = f"Ticket `{ticket['id']}` wurde von **{actor_name}** geschlossen.\n\n**Grund:** {reason}"
-            await member.send(embed=dm)
+            await send_styled(member, embed=dm)
     except Exception:
         pass
     await asyncio.sleep(1)
@@ -723,7 +769,10 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
         embed.set_image(url=panel["welcome_banner_url"])
     embed.set_footer(text="Pulse Ticket-System • Ticket-Steuerung")
     embed.timestamp = discord.utils.utcnow()
-    await channel.send(embed=embed, view=TicketControlView(), files=welcome_files)
+    welcome_message = await send_styled(channel, embed=embed, view=TicketControlView(), files=welcome_files,
+                                        allowed_mentions=discord.AllowedMentions.none())
+    if is_v2(welcome_message):
+        save_ticket_card(tid, embed, [f.filename for f in welcome_files])
 
     mentions = " ".join(role.mention for role in roles[:10])
     if mentions and panel.get("ping_roles", True):
@@ -1014,7 +1063,7 @@ class Tickets(commands.Cog):
         if kind:
             await asyncio.to_thread(touch_ticket_activity, message.channel.id, kind)
 
-    async def _edit_if_changed(self, message: discord.Message, embed: discord.Embed, view: View):
+    async def _edit_if_changed(self, message: discord.Message, embed: discord.Embed, view: View, files=None):
         """Edit a panel message only when its visible content changed."""
         data = embed.to_dict()
         data.pop("timestamp", None)
@@ -1025,7 +1074,8 @@ class Tickets(commands.Cog):
         signature = panel_signature({"embed": data, "options": options})
         if self._panel_signatures.get(message.id) == signature:
             return False
-        await message.edit(embed=embed, view=view)
+        extra = {"attachments": files} if (files and is_v2(message)) else {}
+        await edit_styled(message, embed=embed, view=view, **extra)
         self._panel_signatures[message.id] = signature
         return True
 
@@ -1124,7 +1174,8 @@ class Tickets(commands.Cog):
                         print(f"Ticket-Panel {raw_channel_id} fehlt; der Kanal ist nicht erreichbar.")
                         continue
                     try:
-                        replacement = await channel.send(
+                        replacement = await send_styled(
+                            channel,
                             embed=build_panel_embed(guild),
                             view=TicketView(),
                         )
@@ -1166,7 +1217,8 @@ class Tickets(commands.Cog):
                         "thumbnail": existing.thumbnail.url if existing and existing.thumbnail and panel_image_path(panel.get("thumbnail_file")) else None,
                         "image": existing.image.url if existing and existing.image and panel_image_path(panel.get("banner_file")) else None,
                     }
-                    await self._edit_if_changed(message, build_panel_embed(guild, panel, image_urls), panel_view(panel))
+                    await self._edit_if_changed(message, build_panel_embed(guild, panel, image_urls), panel_view(panel),
+                                                files=panel_files(panel) if is_v2(message) else None)
                 except discord.NotFound:
                     # The dashboard publishing helper creates a replacement
                     # message and writes its new ID back into the settings.
@@ -1195,7 +1247,7 @@ class Tickets(commands.Cog):
             await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
-        message = await interaction.channel.send(embed=build_panel_embed(interaction.guild), view=TicketView())
+        message = await send_styled(interaction.channel, embed=build_panel_embed(interaction.guild), view=TicketView())
         settings = ticket_config()
         settings.update({"panel_channel_id": interaction.channel.id, "panel_message_id": message.id})
         save_ticket_config(settings)
@@ -1238,10 +1290,17 @@ class Tickets(commands.Cog):
         view = panel_view(panel)
         # Explicit publish always re-uploads the images so a changed thumbnail/banner appears.
         files = panel_files(panel)
+        if message is not None and is_v2(message) != is_modern():
+            # Discord cannot convert embed <-> container: replace the panel exactly once.
+            try:
+                await message.delete()
+            except discord.NotFound:
+                pass
+            message = None
         if message is None:
-            message = await channel.send(embed=build_panel_embed(guild, panel), view=view, files=files)
+            message = await send_styled(channel, embed=build_panel_embed(guild, panel), view=view, files=files)
         else:
-            await message.edit(embed=build_panel_embed(guild, panel), view=view, attachments=files)
+            await edit_styled(message, embed=build_panel_embed(guild, panel), view=view, attachments=files)
         self._panel_signatures.pop(message.id, None)
         panel["message_id"] = message.id
         panel["published_channel_id"] = channel.id
@@ -1300,10 +1359,16 @@ class Tickets(commands.Cog):
                         message = await channel.fetch_message(int(old_message_id))
                     except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
                         message = None
+                if message is not None and is_v2(message) != is_modern():
+                    try:
+                        await message.delete()
+                    except discord.NotFound:
+                        pass
+                    message = None
                 if message is None:
-                    message = await channel.send(embed=build_panel_embed(guild), view=TicketView())
+                    message = await send_styled(channel, embed=build_panel_embed(guild), view=TicketView())
                 else:
-                    await message.edit(embed=build_panel_embed(guild), view=TicketView())
+                    await edit_styled(message, embed=build_panel_embed(guild), view=TicketView())
                 panels[str(channel_id)] = message.id
                 successes.append(channel.mention)
             except (discord.Forbidden, discord.HTTPException) as exc:
@@ -1390,7 +1455,7 @@ class Tickets(commands.Cog):
             await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
-        message = await interaction.channel.send(embed=build_panel_embed(interaction.guild), view=TicketView())
+        message = await send_styled(interaction.channel, embed=build_panel_embed(interaction.guild), view=TicketView())
         settings = ticket_config()
         settings.update({"panel_channel_id": interaction.channel.id, "panel_message_id": message.id})
         save_ticket_config(settings)
@@ -1399,7 +1464,7 @@ class Tickets(commands.Cog):
     @commands.command(name="ticketsetup")
     @commands.has_permissions(administrator=True)
     async def legacy_ticketsetup(self, ctx):
-        message = await ctx.send(embed=build_panel_embed(ctx.guild), view=TicketView())
+        message = await send_styled(ctx, embed=build_panel_embed(ctx.guild), view=TicketView())
         settings = ticket_config()
         settings.update({"panel_channel_id": ctx.channel.id, "panel_message_id": message.id})
         save_ticket_config(settings)

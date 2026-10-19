@@ -29,6 +29,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import discord
+from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
 from pulse_version import PULSE_VERSION
@@ -1126,7 +1127,7 @@ async def send_dm_notification(user_or_member, message: str, embed: discord.Embe
         return False
     try:
         if embed:
-            await user_or_member.send(content=message, embed=embed)
+            await send_styled(user_or_member, content=message, embed=embed)
         else:
             await user_or_member.send(content=message)
         return True
@@ -1176,7 +1177,7 @@ async def send_team_update_embed(guild, title, description, color=None, *, field
             except Exception:
                 pass
         embed.set_footer(text="Pulse TeamOS • Team-Updates")
-        return await channel.send(embed=embed)
+        return await send_styled(channel, embed=embed)
     except Exception as e:
         print(f"Fehler beim Senden des Team-Updates in Discord: {e}")
         return None
@@ -5259,7 +5260,7 @@ async def pulse_tickets_dashboard_action(
             embed.add_field(name="Ticket-ID", value=str(ticket_id), inline=True)
             embed.add_field(name="Ersteller", value=str(updated.get("user_name") or "Unbekannt"), inline=True)
             embed.add_field(name="Status", value="🟢 Offen", inline=True)
-            await channel.send(embed=embed, view=TicketControlView())
+            await send_styled(channel, embed=embed, view=TicketControlView(), allowed_mentions=discord.AllowedMentions.none())
             pulse_db.record_event("ticket_reopened_dashboard", "ticket", ticket_id, actor_id, actor_name, {"channel_id": channel.id})
             await _send_pulse_ticket_log(bot, ctx.guild, "reopened", updated, ctx.member)
             return back("/tickets?status=open", f"Ticket {ticket_id} wurde wieder geöffnet.")
@@ -5355,7 +5356,7 @@ async def pulse_tickets_dashboard_action(
             if owner:
                 dm = discord.Embed(title="🎫 Dein Ticket wurde geschlossen", color=_pulse_color("info"))
                 dm.description = f"Ticket {ticket_id} wurde von {actor_name} geschlossen.\n\nGrund: {reason}"
-                await owner.send(embed=dm)
+                await send_styled(owner, embed=dm)
         except (discord.Forbidden, discord.HTTPException, ValueError):
             pass
         try:
@@ -6466,7 +6467,8 @@ async def notify_new_application(request: Request, application_id: str, applicat
 
     content = alert_role.mention if alert_role else f"<@&{APPLICATION_ALERT_ROLE_ID}>"
     try:
-        await channel.send(
+        await send_styled(
+            channel,
             content=content,
             embed=embed,
             allowed_mentions=discord.AllowedMentions(
@@ -8064,7 +8066,8 @@ async def auto_backup_loop():
                         embed.add_field(name="Größe", value=f"{size / (1024 * 1024):.2f} MiB", inline=True)
                         try:
                             if size <= 7_500_000:
-                                await channel.send(
+                                await send_styled(
+                                    channel,
                                     embed=embed,
                                     file=discord.File(full_path, filename=os.path.basename(name)),
                                     allowed_mentions=discord.AllowedMentions.none(),
@@ -8075,7 +8078,8 @@ async def auto_backup_loop():
                                     value="Upload übersprungen: Datei ist zu groß. Nur die lokale Sicherung wurde erstellt.",
                                     inline=False,
                                 )
-                                await channel.send(
+                                await send_styled(
+                                    channel,
                                     embed=embed,
                                     allowed_mentions=discord.AllowedMentions.none(),
                                 )

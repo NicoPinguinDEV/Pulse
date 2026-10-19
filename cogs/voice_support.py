@@ -12,7 +12,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import discord
-from pulse_embed_design import color as _pulse_color
+from pulse_embed_design import color as _pulse_color, is_modern
+from pulse_discord_style import card_info, edit_styled, is_v2, layout_from_embed, respond_edit_styled, same_content, send_styled
 from discord.ext import commands, tasks
 import pulse_db as db
 from pulse_voice_support_utils import DEFAULT_HOURS, DAYS, DAY_NAMES, shift_is_online, support_open_now
@@ -122,9 +123,7 @@ class RatingButton(discord.ui.Button):
         })
         db.set_setting(RATINGS_KEY, ratings[-1000:])
         db.set_setting(PENDING_KEY, [x for x in pending if not (isinstance(x, dict) and str(x.get("case_id")) == self.case_id)])
-        await interaction.response.edit_message(
-            content=f"✅ Danke! Du hast **{self.rating}/5 Sterne** vergeben.", view=None
-        )
+        await respond_edit_styled(interaction, text=f"✅ Danke! Du hast **{self.rating}/5 Sterne** vergeben.", view=None)
 
 
 class RatingView(discord.ui.View):
@@ -298,7 +297,8 @@ class VoiceSupport(commands.Cog):
             return
         try:
             message = await destination.fetch_message(message_id)
-            await message.edit(
+            await edit_styled(
+                message,
                 embed=self._case_notification_embed(guild, case),
                 view=SupportCaseView(self, str(case.get("case_id", ""))),
                 allowed_mentions=discord.AllowedMentions.none(),
@@ -645,21 +645,22 @@ class VoiceSupport(commands.Cog):
                 saved_message = None
         try:
             async for candidate in channel.history(limit=100):
-                if candidate.author.id != getattr(self.bot.user, "id", 0) or not candidate.embeds:
+                if candidate.author.id != getattr(self.bot.user, "id", 0):
                     continue
-                candidate_embed = candidate.embeds[0]
-                if candidate_embed.title == "🧠 Support-Bereitschaft" and candidate_embed.footer.text == DUTY_STATUS_FOOTER:
+                info = card_info(candidate)
+                if info and info["title"] == "🧠 Support-Bereitschaft" and info["footer"] == DUTY_STATUS_FOOTER:
                     matches.append(candidate)
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(f"⚠️ Voice-Support: Verlauf zur Duplikatprüfung nicht lesbar: {exc}")
 
         msg = None
+        saved_info = card_info(saved_message) if saved_message else None
         if (
             saved_message
             and saved_message.author.id == getattr(self.bot.user, "id", 0)
-            and saved_message.embeds
-            and saved_message.embeds[0].title == "🧠 Support-Bereitschaft"
-            and saved_message.embeds[0].footer.text == DUTY_STATUS_FOOTER
+            and saved_info
+            and saved_info["title"] == "🧠 Support-Bereitschaft"
+            and saved_info["footer"] == DUTY_STATUS_FOOTER
         ):
             msg = saved_message
         elif matches:
@@ -676,15 +677,22 @@ class VoiceSupport(commands.Cog):
                 pass
 
         try:
-            if msg and msg.embeds and msg.embeds[0].to_dict() == embed.to_dict():
+            if msg and is_v2(msg) != is_modern():
+                # Style changed: embed and container cannot be converted, replace the board once.
+                try:
+                    await msg.delete()
+                except discord.NotFound:
+                    pass
+                msg = None
+            if msg and same_content(msg, embed):
                 if channel_id(cfg.get("duty_status_message_id")) != msg.id:
                     cfg["duty_status_message_id"] = msg.id
                     db.set_setting(CONFIG_KEY, cfg)
                 return
             if msg:
-                await msg.edit(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                await edit_styled(msg, embed=embed, allowed_mentions=discord.AllowedMentions.none())
             else:
-                msg = await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                msg = await send_styled(channel, embed=embed, allowed_mentions=discord.AllowedMentions.none())
             cfg["duty_status_message_id"] = msg.id
             db.set_setting(CONFIG_KEY, cfg)
         except (discord.Forbidden, discord.HTTPException) as exc:
@@ -769,20 +777,36 @@ class VoiceSupport(commands.Cog):
 
         if saved_partial is not None:
             try:
-                await saved_partial.edit(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                # Without history access the saved message's format is unknown; edit in the
+                # configured style. Discord rejects a format change, then the board is replaced once.
+                if is_modern():
+                    await saved_partial.edit(content=None, embeds=[], view=layout_from_embed(embed),
+                                             allowed_mentions=discord.AllowedMentions.none())
+                else:
+                    await saved_partial.edit(embed=embed, allowed_mentions=discord.AllowedMentions.none())
                 return
             except discord.NotFound:
                 saved_partial = None
             except (discord.Forbidden, discord.HTTPException) as exc:
-                print(f"⚠️ Voice-Support: gespeicherter Live-Status konnte nicht editiert werden: {exc}")
+                if getattr(exc, "status", 0) != 400:
+                    print(f"⚠️ Voice-Support: gespeicherter Live-Status konnte nicht editiert werden: {exc}")
+                    return
+                try:
+                    await saved_partial.delete()
+                    replacement = await send_styled(channel, embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                    cfg["support_status_message_id"] = replacement.id
+                    db.set_setting(CONFIG_KEY, cfg)
+                except (discord.Forbidden, discord.HTTPException) as replace_exc:
+                    print(f"⚠️ Voice-Support: Live-Status konnte nicht ersetzt werden: {replace_exc}")
                 return
 
+        saved_info = card_info(saved_message) if saved_message else None
         valid_saved = (
             saved_message
             and saved_message.author.id == getattr(self.bot.user, "id", 0)
-            and saved_message.embeds
-            and saved_message.embeds[0].title == "🎧 Voice-Support · Aktueller Status"
-            and saved_message.embeds[0].footer.text == SUPPORT_STATUS_FOOTER
+            and saved_info
+            and saved_info["title"] == "🎧 Voice-Support · Aktueller Status"
+            and saved_info["footer"] == SUPPORT_STATUS_FOOTER
         )
         matches = []
         # After the first successful write, the saved message ID is authoritative.
@@ -790,10 +814,10 @@ class VoiceSupport(commands.Cog):
         if not valid_saved:
             try:
                 async for candidate in channel.history(limit=100):
-                    if candidate.author.id != getattr(self.bot.user, "id", 0) or not candidate.embeds:
+                    if candidate.author.id != getattr(self.bot.user, "id", 0):
                         continue
-                    candidate_embed = candidate.embeds[0]
-                    if candidate_embed.title == "🎧 Voice-Support · Aktueller Status" and candidate_embed.footer.text == SUPPORT_STATUS_FOOTER:
+                    info = card_info(candidate)
+                    if info and info["title"] == "🎧 Voice-Support · Aktueller Status" and info["footer"] == SUPPORT_STATUS_FOOTER:
                         matches.append(candidate)
             except (discord.Forbidden, discord.HTTPException) as exc:
                 print(f"⚠️ Voice-Support: Status-Verlauf konnte nicht geprüft werden: {exc}")
@@ -808,15 +832,21 @@ class VoiceSupport(commands.Cog):
                 pass
 
         try:
-            if message and message.embeds and message.embeds[0].to_dict() == embed.to_dict():
+            if message and is_v2(message) != is_modern():
+                try:
+                    await message.delete()
+                except discord.NotFound:
+                    pass
+                message = None
+            if message and same_content(message, embed):
                 if channel_id(cfg.get("support_status_message_id")) != message.id:
                     cfg["support_status_message_id"] = message.id
                     db.set_setting(CONFIG_KEY, cfg)
                 return
             if message:
-                await message.edit(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                await edit_styled(message, embed=embed, allowed_mentions=discord.AllowedMentions.none())
             else:
-                message = await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                message = await send_styled(channel, embed=embed, allowed_mentions=discord.AllowedMentions.none())
             if channel_id(cfg.get("support_status_message_id")) != message.id:
                 cfg["support_status_message_id"] = message.id
                 db.set_setting(CONFIG_KEY, cfg)
@@ -948,13 +978,14 @@ class VoiceSupport(commands.Cog):
         destination = member.guild.get_channel(channel_id(cfg.get("notification_channel_id")))
         if isinstance(destination, discord.TextChannel) and cfg.get("notification_enabled", True):
             try:
-                await destination.send(
+                await send_styled(
+                    destination,
                     embed=discord.Embed(
                         title="⏰ Support außerhalb der Öffnungszeiten",
                         description=f"{member.mention} hat den Warteraum betreten, aber es ist kein Supportfenster geöffnet.",
                         color=_pulse_color("warning"),
                     ),
-                    allowed_mentions=discord.AllowedMentions(users=True, roles=False),
+                    allowed_mentions=discord.AllowedMentions.none(),
                 )
             except (discord.Forbidden, discord.HTTPException):
                 pass
@@ -1244,11 +1275,12 @@ class VoiceSupport(commands.Cog):
         if isinstance(destination, discord.TextChannel) and cfg.get("notification_enabled", True):
             embed = self._case_notification_embed(guild, case)
             try:
-                message = await destination.send(
+                message = await send_styled(
+                    destination,
                     content=ping,
                     embed=embed,
                     view=SupportCaseView(self, case_id),
-                    allowed_mentions=discord.AllowedMentions(roles=True, users=False),
+                    allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False),
                 )
                 case["notification_message_id"] = message.id
                 self._register_case_view(case_id, message.id)
@@ -1280,7 +1312,8 @@ class VoiceSupport(commands.Cog):
                     await thread.add_user(person)
                 except (discord.Forbidden, discord.HTTPException):
                     pass
-            await thread.send(
+            await send_styled(
+                thread,
                 embed=discord.Embed(
                     title="📝 Support-Notizen",
                     description=f"Fall {case['case_id']} · {member.display_name} · Sprachkanal {case['channel_id']}\nHier Gesprächsverlauf, Maßnahmen und Übergabe dokumentieren.",
@@ -1470,14 +1503,15 @@ class VoiceSupport(commands.Cog):
                         notification_message = None
                 try:
                     if notification_message:
-                        await notification_message.edit(
+                        await edit_styled(
+                            notification_message,
                             content=None,
                             embed=result_embed,
                             view=None,
                             allowed_mentions=discord.AllowedMentions.none(),
                         )
                     elif notification.id != SUPPORT_REPORT_CHANNEL_ID:
-                        await notification.send(embed=result_embed, allowed_mentions=discord.AllowedMentions.none())
+                        await send_styled(notification, embed=result_embed, allowed_mentions=discord.AllowedMentions.none())
                 except (discord.Forbidden, discord.HTTPException) as exc:
                     print(f"⚠️ Voice-Support: Abschlussmeldung im Benachrichtigungskanal fehlgeschlagen: {exc}")
 
@@ -1486,7 +1520,7 @@ class VoiceSupport(commands.Cog):
                 already_posted_in_report = isinstance(notification, discord.TextChannel) and notification.id == report.id and notification_message is not None
                 if not already_posted_in_report:
                     try:
-                        await report.send(embed=result_embed, allowed_mentions=discord.AllowedMentions.none())
+                        await send_styled(report, embed=result_embed, allowed_mentions=discord.AllowedMentions.none())
                     except (discord.Forbidden, discord.HTTPException) as exc:
                         print(f"⚠️ Voice-Support: Abschlussprotokoll in Kanal {SUPPORT_REPORT_CHANNEL_ID} fehlgeschlagen: {exc}")
             else:
@@ -1514,7 +1548,8 @@ class VoiceSupport(commands.Cog):
         pending.append({"case_id": case_id, "user_id": str(member.id)})
         db.set_setting(PENDING_KEY, pending[-500:])
         try:
-            await member.send(
+            await send_styled(
+                member,
                 embed=discord.Embed(title="⭐ Wie war dein Support?", description=f"Bewerte Fall **{case_id}** bitte mit 1 bis 5 Sternen.", color=_pulse_color("info")),
                 view=RatingView(case_id, member.id),
             )

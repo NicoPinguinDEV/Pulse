@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import discord
+from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -850,7 +851,7 @@ class PulseSuite(commands.Cog):
     async def _report(self,g,e):
         cid=int(setting("report_channel_id",0) or 0) or getattr(__import__("webserver"),"TEAM_UPDATE_CHANNEL_ID",0);ch=g.get_channel(cid) if cid else None
         if ch:
-            try:await ch.send(embed=e)
+            try:await send_styled(ch, embed=e)
             except Exception:pass
 
     async def update_presence(self,g):

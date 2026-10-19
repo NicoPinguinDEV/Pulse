@@ -182,7 +182,9 @@ def main() -> None:
     assert "async def _restore_member_overwrite" in voice_support
     assert "channel.history(limit=100)" in voice_support
     assert "await duplicate.delete()" in voice_support
-    assert "await report.send(embed=result_embed" in voice_support
+    assert "await send_styled(report, embed=result_embed" in voice_support
+    # Board recognition works for embeds and modern containers (no duplicate status posts).
+    assert "info = card_info(candidate)" in voice_support and "same_content(message, embed)" in voice_support
     assert "vorhandenen Fall fortsetzen" not in voice_support
     assert 'reason="Bürger hat den Supportkanal verlassen und erneut den Warteraum betreten"' in voice_support
     assert "async def _refresh_duty_status_locked" in voice_support
@@ -1255,7 +1257,8 @@ def main() -> None:
     # Welcome message images and in-place status updates (welcome text/images survive a claim).
     assert 'image_block("welcome_banner"' in builder and 'name="welcome_use_avatar"' in builder
     assert "welcome_banner_upload: UploadFile | None = File(None)" in web
-    assert 'await channel.send(embed=embed, view=TicketControlView(), files=welcome_files)' in tickets
+    assert 'welcome_message = await send_styled(channel, embed=embed, view=TicketControlView(), files=welcome_files' in tickets
+    assert 'save_ticket_card(tid, embed' in tickets and 'load_ticket_card(ticket.get("id"))' in tickets
     assert 'STATUS_FIELDS = ("Status", "Priorität", "Bearbeiter")' in tickets
     assert "embed.set_field_at(index, name=field.name" in tickets
 

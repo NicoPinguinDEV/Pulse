@@ -292,7 +292,8 @@ def layout_text_blocks(spec: dict, *, mention_line: str = "") -> dict:
     return {"main": main, "fields": fields, "footer": footer_line}
 
 
-def layout_from_spec(spec: dict, *, mention_line: str = "", action_items=(), view=None, brand: dict | None = None):
+def layout_from_spec(spec: dict, *, mention_line: str = "", action_items=(), action_rows=(), view=None,
+                     brand: dict | None = None):
     """Discord Components V2 message (container with text, avatar on the right, banner, footer).
 
     action_items: buttons placed in an action row inside the container (e.g. verification).
@@ -314,6 +315,9 @@ def layout_from_spec(spec: dict, *, mention_line: str = "", action_items=(), vie
         children.append(ui.MediaGallery(discord.MediaGalleryItem(spec["image_url"])))
     if action_items:
         children.append(ui.ActionRow(*action_items))
+    for row in action_rows:
+        if row:
+            children.append(ui.ActionRow(*row))
     if blocks["footer"]:
         children.append(ui.Separator(visible=True, spacing=discord.SeparatorSpacing.small))
         children.append(ui.TextDisplay(blocks["footer"]))

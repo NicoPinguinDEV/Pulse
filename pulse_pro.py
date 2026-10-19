@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from urllib.parse import quote, urlparse
 
 import discord
+from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 from fastapi import Cookie, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -511,7 +512,7 @@ def register(app):
         embed=discord.Embed(title=title,description=content,color=color,timestamp=discord.utils.utcnow())
         embed.set_footer(text=f"{guild.name} · Pulse TeamOS")
         try:
-            return await channel.send(embed=embed)
+            return await send_styled(channel, embed=embed)
         except Exception as exc:
             print(f"Team-Update konnte nicht gesendet werden: {exc}")
             return None

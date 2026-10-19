@@ -84,7 +84,7 @@ class ApplicationEligibilityTests(unittest.TestCase):
         notifier = function_source(source, "notify_new_application")
         self.assertIn("APPLICATION_ALERT_CHANNEL_ID", notifier)
         self.assertIn("APPLICATION_ALERT_ROLE_ID", notifier)
-        self.assertIn("await channel.send(", notifier)
+        self.assertIn("await send_styled(", notifier)
         self.assertIn("discord.AllowedMentions(", notifier)
         self.assertIn("roles=[alert_role] if alert_role else []", notifier)
         self.assertIn("users=False", notifier)

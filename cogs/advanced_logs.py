@@ -1,4 +1,5 @@
 import discord
+from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 from discord.ext import commands
 
@@ -20,7 +21,7 @@ class AdvancedLogs(commands.Cog):
             embed.add_field(name="Autor", value=before.author.mention, inline=False)
             embed.add_field(name="Vorher", value=before.content[:1024] or "Kein Text", inline=False)
             embed.add_field(name="Nachher", value=after.content[:1024] or "Kein Text", inline=False)
-            await channel.send(embed=embed)
+            await send_styled(channel, embed=embed)
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -30,10 +31,10 @@ class AdvancedLogs(commands.Cog):
         
         if before.channel is None and after.channel is not None:
             embed = discord.Embed(title=" Sprachkanal betreten", description=f"{member.mention} hat **{after.channel.name}** betreten.", color=_pulse_color("success"), timestamp=discord.utils.utcnow())
-            await channel.send(embed=embed)
+            await send_styled(channel, embed=embed)
         elif before.channel is not None and after.channel is None:
             embed = discord.Embed(title=" Sprachkanal verlassen", description=f"{member.mention} hat **{before.channel.name}** verlassen.", color=_pulse_color("danger"), timestamp=discord.utils.utcnow())
-            await channel.send(embed=embed)
+            await send_styled(channel, embed=embed)
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
@@ -48,7 +49,7 @@ class AdvancedLogs(commands.Cog):
                     embed.add_field(name="Hinzugefügt", value=", ".join(added), inline=False)
                 if removed:
                     embed.add_field(name="Entfernt", value=", ".join(removed), inline=False)
-                await channel.send(embed=embed)
+                await send_styled(channel, embed=embed)
 
 async def setup(bot):
     await bot.add_cog(AdvancedLogs(bot))

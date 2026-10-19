@@ -1062,6 +1062,12 @@ def set_setting(key, value):
         db.execute("INSERT OR REPLACE INTO settings(key,value_json) VALUES (?,?)", (key, json.dumps(value, ensure_ascii=False)))
 
 
+def delete_setting(key):
+    """Remove one settings key (used for short-lived per-ticket data); no-op if missing."""
+    with connect() as db:
+        db.execute("DELETE FROM settings WHERE key=?", (key,))
+
+
 def get_team_safety_state(guild_id, actor_id, now_ts=None):
     """Return the persistent moderator safety state for one actor, if recorded."""
     import time

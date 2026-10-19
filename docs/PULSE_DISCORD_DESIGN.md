@@ -33,7 +33,10 @@ Alle 116 bisher fest verdrahteten Farbaufrufe in 19 Dateien nutzen jetzt die Pal
 - Baustein: `layout_from_spec()` in `pulse_embed_design.py` (gleiche Daten wie das Embed, Textgrenze 4000 Zeichen wird eingehalten).
 - Umgestellt: Willkommen, Abschied, Verifikations-Panel (Button sitzt im Container, persistent nach Neustart). Umschaltbar in *Verwaltung → Discord-Auftritt → Embed-Design → Nachrichten-Stil*.
 - Discord kann eine Nachricht nicht zwischen Embed und Container umwandeln: Beim Stilwechsel ersetzt „Panel veröffentlichen“ das alte Verifikations-Panel genau einmal.
-- Noch nicht umgestellt: Tickets, Teamaktionen, Logs, Voice-Support (nächste Etappe mit demselben Baustein).
+- Ebenfalls umgestellt (über `pulse_discord_style.py`): **Tickets** (Panels, Ticket-Steuerung, Protokolle, Schließ-DM), **Teamaktionen** (Team-Updates, Bewerbungsmeldung, Backup-Kopie, Start-Diagnose, Suite-Berichte, DMs), **Voice-Support** (Bereitschaft, Live-Status, Fallmeldungen mit Buttons, Abschlussprotokoll, Notizen, Bewertungs-DM) und **Logs** (`advanced_logs`).
+- Regeln: Neue Nachrichten folgen dem gewählten Stil. Bearbeitungen behalten das Format der bestehenden Nachricht, damit laufende Tickets und Fälle funktionieren. Einzel-Tafeln und Panels werden nach einem Stilwechsel genau einmal ersetzt. Erwähnungen im Kartentext pingen nie, nur die Pings, die vorher schon im Nachrichtentext standen. Titel und Fußzeile werden aus Embed und Container erkannt (Duplikatschutz). Transkripte enthalten Container-Text.
+- Ticket-Steuerung im Container: Die Kartendaten liegen kurzzeitig in `pulse.db` (`ticket_card:<id>`) und werden beim Schließen gelöscht.
+- Bewusst unverändert: kurze ephemere Antworten, Social-Video-Ankündigungen (Plattformfarbe), KI-Moderations-Prüffälle, Teamliste und Abmeldungsliste (eigene Änderungsprüfung).
 
 ## 2. Willkommen & Abschied
 
