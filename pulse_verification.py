@@ -40,6 +40,7 @@ DEFAULTS = {
     "banner_file": "",
     "message_id": "",
     "published_channel_id": "",
+    "panel_style": "classic",  # layout of the published message (classic embed or modern container)
     "errors": [],
     # Reminder ping for unverified members (one message at a time, old one is deleted).
     "reminder_enabled": True,
@@ -74,6 +75,7 @@ def normalize_settings(raw) -> dict:
         "banner_file": str(raw.get("banner_file") or "") if _BANNER_NAME_RE.fullmatch(str(raw.get("banner_file") or "")) else "",
         "message_id": _snowflake(raw.get("message_id")),
         "published_channel_id": _snowflake(raw.get("published_channel_id")),
+        "panel_style": raw.get("panel_style") if raw.get("panel_style") in ("classic", "modern") else "classic",
         "errors": errors,
         "reminder_enabled": bool(raw.get("reminder_enabled", DEFAULTS["reminder_enabled"])),
         "reminder_minutes": _minutes(raw.get("reminder_minutes")),

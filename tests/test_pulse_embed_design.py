@@ -82,5 +82,46 @@ class LimitAndSafetyTests(unittest.TestCase):
         self.assertTrue(embed.footer.text)
 
 
+class ModernLayoutTests(unittest.TestCase):
+    def test_style_defaults_and_validation(self):
+        self.assertEqual(d.normalize_branding({})["style"], "modern")
+        self.assertFalse(d.normalize_branding({})["accent_bar"])
+        self.assertEqual(d.normalize_branding({"style": "neon"})["style"], "modern")
+        self.assertEqual(d.normalize_branding({"style": "classic"})["style"], "classic")
+
+    def test_layout_structure_like_galaxybot(self):
+        import json
+        brand = d.normalize_branding({})
+        spec = d.build_embed_spec("success", title="Willkommen", description="Hallo <@1>", fields=[("Regeln", "<#2>")],
+                                  thumbnail_url="https://a.example/avatar.png", image_url="https://a.example/banner.png",
+                                  brand=brand)
+        container = json.loads(json.dumps(d.layout_from_spec(spec, brand=brand).to_components()))[0]
+        self.assertEqual(container["type"], 17)
+        self.assertIsNone(container["accent_color"])
+        types = [c["type"] for c in container["components"]]
+        self.assertEqual(types, [9, 10, 12, 14, 10])  # section+avatar, field, banner, separator, footer
+        self.assertTrue(container["components"][0]["components"][0]["content"].startswith("### Willkommen"))
+        self.assertEqual(container["components"][0]["accessory"]["media"]["url"], "https://a.example/avatar.png")
+        self.assertTrue(container["components"][-1]["content"].startswith("-# "))
+        with_bar = d.normalize_branding({"accent_bar": True})
+        bar = json.loads(json.dumps(d.layout_from_spec(spec, brand=with_bar).to_components()))[0]
+        self.assertEqual(bar["accent_color"], spec["color"])
+
+    def test_layout_without_avatar_or_banner(self):
+        import json
+        brand = d.normalize_branding({})
+        spec = d.build_embed_spec("info", title="T", description="x", brand=brand)
+        types = [c["type"] for c in json.loads(json.dumps(d.layout_from_spec(spec, brand=brand).to_components()))[0]["components"]]
+        self.assertEqual(types, [10, 14, 10])
+
+    def test_total_text_stays_within_4000(self):
+        brand = d.normalize_branding({})
+        spec = d.build_embed_spec("info", title="T" * 250, description="D" * 4096,
+                                  fields=[("N" * 200, "V" * 1000)] * 3, brand=brand)
+        blocks = d.layout_text_blocks(spec, mention_line="<@1>")
+        total = len(blocks["main"]) + sum(len(f) for f in blocks["fields"]) + len(blocks["footer"])
+        self.assertLessEqual(total, d.LAYOUT_TEXT_LIMIT)
+
+
 if __name__ == "__main__":
     unittest.main()

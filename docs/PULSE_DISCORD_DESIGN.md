@@ -28,6 +28,13 @@ Alle 116 bisher fest verdrahteten Farbaufrufe in 19 Dateien nutzen jetzt die Pal
 2. Logs (`advanced_logs.py`) auf Audit-Layout (Actor/Target-Felder, Zeitstempel) umstellen.
 3. Danach erneute Suche nach `discord.Embed(` ohne Footer.
 
+### Stil „Modern“ (Components V2, wie GalaxyBot)
+- Standard seit Oktober 2026: Nachrichten erscheinen als Discord-**Container** statt als Embed – Überschrift, Text, Profilbild rechts, Banner als Bild-Galerie, Trennlinie und kleine Fußzeile; optional farbiger Rand links.
+- Baustein: `layout_from_spec()` in `pulse_embed_design.py` (gleiche Daten wie das Embed, Textgrenze 4000 Zeichen wird eingehalten).
+- Umgestellt: Willkommen, Abschied, Verifikations-Panel (Button sitzt im Container, persistent nach Neustart). Umschaltbar in *Verwaltung → Discord-Auftritt → Embed-Design → Nachrichten-Stil*.
+- Discord kann eine Nachricht nicht zwischen Embed und Container umwandeln: Beim Stilwechsel ersetzt „Panel veröffentlichen“ das alte Verifikations-Panel genau einmal.
+- Noch nicht umgestellt: Tickets, Teamaktionen, Logs, Voice-Support (nächste Etappe mit demselben Baustein).
+
 ## 2. Willkommen & Abschied
 
 - **Bot:** `cogs/welcome.py` – einziger Sender für Beitritt/Austritt; 60-s-Duplikatschutz pro Mitglied, keine Wiederholungsversuche, fehlende Rechte/Kanäle werden höchstens stündlich protokolliert.

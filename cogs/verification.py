@@ -15,7 +15,7 @@ import discord
 from discord.ext import commands, tasks
 
 import pulse_db
-from pulse_embed_design import to_discord_embed
+from pulse_embed_design import branding, layout_from_spec, to_discord_embed
 from pulse_verification import (
     BUTTON_CUSTOM_ID, CITIZEN_ROLE_ID, SETTING_KEY, UNVERIFIED_ROLE_ID, add_error, banner_path, build_panel_spec,
     normalize_settings, plan_join, plan_reminder, plan_verify, reminder_content, role_problems,
@@ -69,6 +69,16 @@ class VerifyView(discord.ui.View):
         self.add_item(VerifyButton(cog, label))
 
 
+def verify_layout(cog: "Verification", spec: dict | None = None, label: str = "Jetzt verifizieren") -> discord.ui.LayoutView:
+    """Modern (Components V2) panel; without spec it only carries the persistent button."""
+    button = VerifyButton(cog, label)
+    if spec is None:
+        layout = discord.ui.LayoutView(timeout=None)
+        layout.add_item(discord.ui.ActionRow(button))
+        return layout
+    return layout_from_spec(spec, action_items=[button])
+
+
 class Verification(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -79,7 +89,12 @@ class Verification(commands.Cog):
         self.guild_id = _guild_id()
         self.base_dir: str | None = None
         # Persistent view: Discord routes clicks on old panel messages to this callback after restarts.
-        bot.add_view(VerifyView(self))
+        # Register the layout type the published panel actually uses.
+        try:
+            published_style = load_settings()["panel_style"]
+        except Exception:
+            published_style = "classic"
+        bot.add_view(verify_layout(self) if published_style == "modern" else VerifyView(self))
         # Light 5-minute check; the actual ping interval comes from the settings (default 60 min).
         if hasattr(bot, "wait_until_ready"):
             self.reminder_loop.start()
@@ -277,9 +292,15 @@ class Verification(commands.Cog):
             banner = banner_path(settings, self.base_dir)
             if banner and perms is not None and not getattr(perms, "attach_files", True):
                 raise ValueError(f"Pulse fehlt in #{channel.name} das Recht „Dateien anhängen“ für das hochgeladene Banner.")
-            embed = to_discord_embed(build_panel_spec(settings, icon_url=icon, base_dir=self.base_dir))
+            spec = build_panel_spec(settings, icon_url=icon, base_dir=self.base_dir)
             files = [discord.File(banner, filename=os.path.basename(banner))] if banner else []
-            view = VerifyView(self, settings["button_label"])
+            style = branding().get("style", "modern")
+            if style == "modern":
+                view = verify_layout(self, spec, settings["button_label"])
+                payload = {"view": view}
+            else:
+                view = VerifyView(self, settings["button_label"])
+                payload = {"embed": to_discord_embed(spec), "view": view}
             message = None
             if settings["message_id"] and settings["published_channel_id"] == str(channel.id):
                 try:
@@ -288,13 +309,22 @@ class Verification(commands.Cog):
                     message = None
                 except discord.HTTPException as exc:
                     raise ValueError(f"Die bestehende Panel-Nachricht konnte nicht geladen werden (HTTP {exc.status}). Es wurde keine neue erstellt.") from exc
+            if message is not None and settings["panel_style"] != style:
+                # Discord cannot convert a message between embed and Components V2 layout:
+                # replace the old panel exactly once instead of editing it.
+                try:
+                    await message.delete()
+                except discord.NotFound:
+                    pass
+                message = None
             if message is not None:
                 # attachments= replaces old uploads, so a changed or removed banner is updated too.
-                await message.edit(embed=embed, view=view, attachments=files)
+                await message.edit(attachments=files, **payload)
                 action = "aktualisiert"
             else:
-                message = await channel.send(embed=embed, view=view, files=files, allowed_mentions=discord.AllowedMentions.none())
+                message = await channel.send(files=files, allowed_mentions=discord.AllowedMentions.none(), **payload)
                 action = "veröffentlicht"
+            settings["panel_style"] = style
             settings["message_id"] = str(message.id)
             settings["published_channel_id"] = str(channel.id)
             await asyncio.to_thread(save_settings, settings)

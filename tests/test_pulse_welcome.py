@@ -6,7 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import json
+
 import discord
+
+import pulse_embed_design
 
 import pulse_welcome as w
 from cogs import welcome as cog_module
@@ -164,14 +168,28 @@ class CogTests(unittest.TestCase):
         self.run_handle(channel, times=3)
         self.assertEqual(len(channel.sent), 1)
         sent = channel.sent[0]
-        self.assertEqual(sent["content"], "<@42>")
+        # Modern style (default): Components V2 container, ping inside the text, no embed/content.
+        self.assertNotIn("embed", sent)
+        self.assertNotIn("content", sent)
+        layout = json.dumps(sent["view"].to_components())
+        self.assertIn("<@42>", layout)
+        self.assertEqual(json.loads(layout)[0]["type"], 17)  # container
         self.assertFalse(sent["allowed_mentions"].everyone)
         self.assertFalse(sent["allowed_mentions"].roles)
+        self.assertEqual([u.id for u in sent["allowed_mentions"].users], [42])
+
+    def test_classic_style_still_sends_embed(self):
+        channel = FakeChannel()
+        classic = pulse_embed_design.normalize_branding({"style": "classic"})
+        with patch.object(pulse_embed_design, "branding", return_value=classic):
+            self.run_handle(channel)
+        self.assertEqual(channel.sent[0]["content"], "<@42>")
+        self.assertIsNotNone(channel.sent[0]["embed"])
 
     def test_leave_sends_without_ping(self):
         channel = FakeChannel()
         self.run_handle(channel, kind="leave")
-        self.assertIsNone(channel.sent[0]["content"])
+        self.assertNotIn("content", channel.sent[0])
         self.assertFalse(channel.sent[0]["allowed_mentions"].users)
 
     def test_disabled_or_bot_sends_nothing(self):

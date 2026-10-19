@@ -38,7 +38,13 @@ DEFAULT_BRANDING = {
     "brand_name": "Pulse TeamOS",
     "footer_text": "© BOCHUM RP | V1 · Pulse TeamOS",
     "colors": dict(DEFAULT_COLORS),
+    # "modern" = Discord Components V2 container (like GalaxyBot), "classic" = embed.
+    "style": "modern",
+    "accent_bar": False,
 }
+STYLES = ("modern", "classic")
+# Components V2: all text of one message together may not exceed 4000 characters.
+LAYOUT_TEXT_LIMIT = 4000
 
 # Discord hard limits (https://discord.com/developers/docs/resources/message#embed-object-embed-limits)
 LIMITS = {
@@ -67,6 +73,8 @@ def normalize_branding(raw) -> dict:
         "brand_name": brand_name or DEFAULT_BRANDING["brand_name"],
         "footer_text": footer or DEFAULT_BRANDING["footer_text"],
         "colors": {key: normalize_hex(colors_raw.get(key), default) for key, default in DEFAULT_COLORS.items()},
+        "style": raw.get("style") if raw.get("style") in STYLES else DEFAULT_BRANDING["style"],
+        "accent_bar": bool(raw.get("accent_bar", DEFAULT_BRANDING["accent_bar"])),
     }
 
 
@@ -267,3 +275,53 @@ def apply_brand_footer(embed, extra: str = ""):
     except Exception:
         pass
     return embed
+
+
+# --------------------------------------------------------------------------- modern layout
+def layout_text_blocks(spec: dict, *, mention_line: str = "") -> dict:
+    """Pure text plan for the modern container, trimmed to Discord's 4000-character total."""
+    head = f"### {spec['title']}" if spec.get("title") else ""
+    body = spec.get("description") or ""
+    fields = [f"**{name}**\n{value}" for name, value, _ in spec.get("fields", [])]
+    footer = spec.get("footer") or ""
+    stamp = discord_timestamp(spec.get("timestamp"), "f") if spec.get("timestamp") else ""
+    footer_line = f"-# {footer}{' · ' + stamp if stamp else ''}" if (footer or stamp) else ""
+    fixed = len(head) + len(mention_line) + sum(len(f) for f in fields) + len(footer_line) + 8
+    body = truncate(body, max(0, LAYOUT_TEXT_LIMIT - fixed))
+    main = "\n".join(part for part in (mention_line, head, body) if part)
+    return {"main": main, "fields": fields, "footer": footer_line}
+
+
+def layout_from_spec(spec: dict, *, mention_line: str = "", action_items=(), view=None, brand: dict | None = None):
+    """Discord Components V2 message (container with text, avatar on the right, banner, footer).
+
+    action_items: buttons placed in an action row inside the container (e.g. verification).
+    view: an existing LayoutView to fill (persistent views); a new one is created otherwise.
+    """
+    import discord
+    from discord import ui
+
+    brand = brand or branding()
+    blocks = layout_text_blocks(spec, mention_line=mention_line)
+    children = []
+    if spec.get("thumbnail_url"):
+        children.append(ui.Section(ui.TextDisplay(blocks["main"] or "\u200b"), accessory=ui.Thumbnail(spec["thumbnail_url"])))
+    elif blocks["main"]:
+        children.append(ui.TextDisplay(blocks["main"]))
+    for field in blocks["fields"]:
+        children.append(ui.TextDisplay(field))
+    if spec.get("image_url"):
+        children.append(ui.MediaGallery(discord.MediaGalleryItem(spec["image_url"])))
+    if action_items:
+        children.append(ui.ActionRow(*action_items))
+    if blocks["footer"]:
+        children.append(ui.Separator(visible=True, spacing=discord.SeparatorSpacing.small))
+        children.append(ui.TextDisplay(blocks["footer"]))
+    accent = spec["color"] if brand.get("accent_bar") else None
+    layout = view if view is not None else ui.LayoutView(timeout=None)
+    layout.add_item(ui.Container(*children, accent_colour=accent))
+    return layout
+
+
+def is_modern(brand: dict | None = None) -> bool:
+    return (brand or branding()).get("style") == "modern"

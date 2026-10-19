@@ -80,7 +80,8 @@ def _inline_markdown(text: str, guild=None) -> str:
     return out.replace("\n", "<br>")
 
 
-def render_preview(payload: dict | None, guild=None, banner_href: str = "") -> str:
+def render_preview(payload: dict | None, guild=None, banner_href: str = "", button_label: str = "") -> str:
+    """HTML mock of the Discord message in the currently selected style."""
     if not payload:
         return '<div class="pulse-empty">Keine Vorschau verfügbar.</div>'
     spec = payload["spec"]
@@ -93,6 +94,20 @@ def render_preview(payload: dict | None, guild=None, banner_href: str = "") -> s
     )
     thumb = f'<img class="dc-thumb" src="{_E(spec["thumbnail_url"])}" alt="Profilbild">' if spec.get("thumbnail_url") else ""
     img = f'<img class="dc-image" src="{_E(image)}" alt="Banner">' if image else '<div class="dc-noimage">Kein Banner gesetzt – das Embed bleibt ohne großes Bild.</div>'
+    button = (f'<div style="margin-top:10px"><span class="dc-button">✅ {_E(button_label)}</span></div>' if button_label else "")
+    brand = branding()
+    if brand.get("style") == "modern":
+        # Components V2: no separate content and (by default) no colored bar – like GalaxyBot.
+        mention = payload.get("content") or ""
+        mention_html = f'{_inline_markdown(mention, guild)}<br>' if mention and mention not in spec["description"] else ""
+        accent = f"border-left:4px solid #{spec['color']:06x};" if brand.get("accent_bar") else ""
+        img_modern = f'<img class="dc-image" src="{_E(image)}" alt="Banner">' if image else ""
+        return f'''<div class="dc-embed dc-modern" style="{accent}">
+ <div class="dc-body"><div class="dc-main">{mention_html}
+  <div class="dc-title dc-h3">{_E(spec["title"])}</div>
+  <div class="dc-desc">{_inline_markdown(spec["description"], guild)}</div>{fields}
+ </div>{thumb}</div>{img_modern}{button}
+ <div class="dc-sep"></div><div class="dc-footer">{_E(spec["footer"])}</div></div>'''
     content = f'<div class="dc-content">{_inline_markdown(payload.get("content"), guild)}</div>' if payload.get("content") else ""
     return f'''{content}<div class="dc-embed" style="border-left-color:#{spec["color"]:06x}">
  <div class="dc-body"><div class="dc-main">
@@ -106,6 +121,9 @@ PREVIEW_CSS = """<style>
 .dc-wrap{background:#313338;border-radius:14px;padding:14px;color:#dbdee1;font-size:13px;line-height:1.45}
 .dc-content{margin-bottom:6px}.dc-mention{background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 2px}
 .dc-embed{background:#2b2d31;border-left:4px solid #5b5cf0;border-radius:4px;padding:10px 14px 12px;max-width:520px}
+.dc-modern{border-left:0;border:1px solid #3f4147;background:#393a41;border-radius:8px;padding:14px 16px}
+.dc-h3{font-size:16px;font-weight:800}.dc-sep{height:1px;background:#4e5058;margin:12px 0 8px}
+.dc-button{display:inline-block;background:#248046;color:#fff;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600}
 .dc-body{display:flex;gap:14px;justify-content:space-between}.dc-main{min-width:0;flex:1}
 .dc-title{font-weight:700;color:#f2f3f5;margin-bottom:6px;word-break:break-word}.dc-desc{word-break:break-word}
 .dc-thumb{width:72px;height:72px;border-radius:6px;object-fit:cover;flex-shrink:0}
@@ -220,7 +238,11 @@ def register(app) -> None:
                              if vset.get("banner_file") else "")
         preview = render_preview({"spec": verification.build_panel_spec(vset, icon_url="", base_dir=str(ws.BASE_DIR)), "content": ""},
                                  guild, banner_href)
-        preview += f'<div style="margin-top:8px"><span style="display:inline-block;background:#248046;color:#fff;border-radius:4px;padding:6px 14px;font-size:13px;font-weight:600">✅ {e(vset["button_label"])}</span></div>'
+        if branding().get("style") == "modern":
+            preview = render_preview({"spec": verification.build_panel_spec(vset, icon_url="", base_dir=str(ws.BASE_DIR)), "content": ""},
+                                     guild, banner_href, button_label=vset["button_label"])
+        else:
+            preview += f'<div style="margin-top:8px"><span class="dc-button">✅ {e(vset["button_label"])}</span></div>'
         active = vset["enabled"] and vset["channel_id"]
         unverified_role = guild.get_role(verification.UNVERIFIED_ROLE_ID) if hasattr(guild, "get_role") else None
         waiting = len(getattr(unverified_role, "members", []) or []) if unverified_role else 0
@@ -360,6 +382,13 @@ def register(app) -> None:
    <label class="grid gap-1 text-xs font-semibold">Markenname<input class="pulse-input" name="brand_name" maxlength="60" value="{e(brand["brand_name"])}"></label>
    <label class="grid gap-1 text-xs font-semibold">Footer-Text<input class="pulse-input" name="footer_text" maxlength="160" value="{e(brand["footer_text"])}"></label>
   </div>
+  <div class="grid sm:grid-cols-2 gap-3">
+   <label class="grid gap-1 text-xs font-semibold">Nachrichten-Stil<select class="pulse-input" name="style">
+    <option value="modern"{" selected" if brand["style"] == "modern" else ""}>✨ Modern – Container wie GalaxyBot (empfohlen)</option>
+    <option value="classic"{" selected" if brand["style"] == "classic" else ""}>Klassisch – Discord-Embed mit Farbbalken</option></select></label>
+   <label class="pulse-check" style="align-self:end;padding-bottom:10px"><input type="checkbox" name="accent_bar" value="1"{" checked" if brand["accent_bar"] else ""}> Farbigen Rand links auch im modernen Stil zeigen</label>
+  </div>
+  <p class="text-[11px] text-slate-400">Der Stil gilt für Willkommen, Abschied und das Verifikations-Panel. Nach einem Stilwechsel das Verifikations-Panel einmal neu veröffentlichen – Pulse ersetzt dann die alte Nachricht.</p>
   <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">{colors}</div>
   <div class="flex flex-wrap gap-2"><button class="pulse-btn primary" type="submit">💾 Design speichern</button>
    <button class="pulse-btn ghost" type="submit" name="reset" value="1" onclick="return confirm('Farben und Footer auf den Pulse-Standard zurücksetzen?')">↺ Standard wiederherstellen</button></div>
@@ -457,7 +486,8 @@ def register(app) -> None:
             value = save_branding({})
         else:
             raw = {"brand_name": form.get("brand_name", ""), "footer_text": form.get("footer_text", ""),
-                   "colors": {key: form.get(f"color_{key}", "") for key in DEFAULT_COLORS}}
+                   "colors": {key: form.get(f"color_{key}", "") for key in DEFAULT_COLORS},
+                   "style": form.get("style", "modern"), "accent_bar": form.get("accent_bar") == "1"}
             invalid = [key for key, value in raw["colors"].items() if str(value).strip() and not normalize_hex(value, "")]
             if invalid:
                 return ws.back("/admin/discord", "Ungültige Farbe – bitte den Farbwähler verwenden.", False)

@@ -9,7 +9,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import json
+
 import discord
+
+import pulse_embed_design
 
 import pulse_db
 import pulse_verification as v
@@ -286,6 +290,9 @@ class FakeMessage:
         self.edits += 1
         self.last_edit = kwargs
 
+    async def delete(self):
+        self.deleted = True
+
 
 class FakeChannel:
     def __init__(self, existing=None, fetch_error=None):
@@ -328,7 +335,9 @@ class PublishTests(Base):
         asyncio.run(self.cog.publish_panel(guild))
         sent = channel.sent[0]
         self.assertEqual([f.filename for f in sent["files"]], ["verify_banner_0a1b2c3d.png"])
-        self.assertEqual(sent["embed"].image.url, "attachment://verify_banner_0a1b2c3d.png")
+        layout = json.dumps(sent["view"].to_components())
+        self.assertIn("attachment://verify_banner_0a1b2c3d.png", layout)
+        self.assertIn("pulse:verify:v1", layout)
         asyncio.run(self.cog.publish_panel(guild))
         self.assertEqual([f.filename for f in channel.existing.last_edit["attachments"]], ["verify_banner_0a1b2c3d.png"])
 
@@ -338,7 +347,35 @@ class PublishTests(Base):
         channel = FakeChannel()
         asyncio.run(self.cog.publish_panel(FakeGuild(channel=channel)))
         self.assertEqual(channel.sent[0]["files"], [])
-        self.assertEqual(channel.sent[0]["embed"].image.url, "https://x.example/a.png")
+        self.assertIn("https://x.example/a.png", json.dumps(channel.sent[0]["view"].to_components()))
+
+    def test_classic_style_uses_embed_and_style_switch_replaces_panel_once(self):
+        classic = pulse_embed_design.normalize_branding({"style": "classic"})
+        channel = FakeChannel()
+        guild = FakeGuild(channel=channel)
+        with patch.object(pulse_embed_design, "branding", return_value=classic), \
+                patch.object(cog_module, "branding", return_value=classic):
+            asyncio.run(self.cog.publish_panel(guild))
+        self.assertIsNotNone(channel.sent[0]["embed"])
+        old = channel.existing
+        result = asyncio.run(self.cog.publish_panel(guild))  # default style is modern now
+        self.assertEqual(result["action"], "veröffentlicht")
+        self.assertTrue(getattr(old, "deleted", False))
+        self.assertEqual(len(channel.sent), 2)
+        self.assertIn("view", channel.sent[1])
+        self.assertEqual(v.normalize_settings(pulse_db.get_setting(v.SETTING_KEY, {}))["panel_style"], "modern")
+        asyncio.run(self.cog.publish_panel(guild))  # same style again: edit, no new message
+        self.assertEqual(len(channel.sent), 2)
+
+    def test_modern_persistent_layout_is_registered_after_restart(self):
+        pulse_db.set_setting(v.SETTING_KEY, {"enabled": True, "panel_style": "modern"})
+        bot = FakeBot()
+        with patch.object(cog_module, "_guild_id", return_value=GUILD_ID):
+            cog_module.Verification(bot)
+        view = bot.views[0]
+        self.assertIsInstance(view, discord.ui.LayoutView)
+        self.assertTrue(view.is_persistent())
+        self.assertIn("pulse:verify:v1", json.dumps(view.to_components()))
 
     def test_unsafe_banner_file_name_is_ignored(self):
         s = v.normalize_settings({"banner_file": "../../pulse.db"})

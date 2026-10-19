@@ -14,7 +14,7 @@ import discord
 from discord.ext import commands
 
 import pulse_db
-from pulse_embed_design import to_discord_embed
+from pulse_embed_design import is_modern, layout_from_spec, to_discord_embed
 from pulse_welcome import SETTING_KEY, build_member_message, normalize_settings
 
 DEDUPE_SECONDS = 60
@@ -54,7 +54,6 @@ async def send_member_message(bot, guild: discord.Guild, payload: dict) -> tuple
             missing.append("Dateien anhängen")
         if missing:
             return False, f"Pulse fehlen im Kanal #{channel.name} Rechte: {', '.join(missing)}."
-    embed = to_discord_embed(payload["spec"])
     files = []
     if payload.get("banner_file"):
         files.append(discord.File(payload["banner_file"], filename=payload["attachment_name"]))
@@ -62,8 +61,15 @@ async def send_member_message(bot, guild: discord.Guild, payload: dict) -> tuple
         everyone=False, roles=False,
         users=[discord.Object(id=payload["mention_user_id"])] if payload.get("mention_user_id") else False,
     )
+    if is_modern():
+        # Components V2 has no separate content: the ping lives inside the container text.
+        content = payload.get("content") or ""
+        mention_line = content if content and content not in payload["spec"]["description"] else ""
+        send_kwargs = {"view": layout_from_spec(payload["spec"], mention_line=mention_line)}
+    else:
+        send_kwargs = {"content": payload.get("content") or None, "embed": to_discord_embed(payload["spec"])}
     try:
-        await channel.send(content=payload.get("content") or None, embed=embed, files=files, allowed_mentions=allowed)
+        await channel.send(files=files, allowed_mentions=allowed, **send_kwargs)
     except discord.Forbidden:
         return False, f"Discord hat das Senden in #{channel.name} verweigert (Rechte/Rollenhierarchie prüfen)."
     except discord.HTTPException as exc:
