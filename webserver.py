@@ -3,6 +3,7 @@
 # =============================================================
 import asyncio
 import base64
+import copy
 import csv
 import hashlib
 import hmac
@@ -18,7 +19,7 @@ import threading
 import time
 import uuid
 import zipfile
-from datetime import datetime, timedelta
+from datetime import date as date_cls, datetime, timedelta
 from collections import OrderedDict
 from types import SimpleNamespace
 from typing import List
@@ -310,8 +311,14 @@ def load_json(filepath, default):
     return default
 
 
+def abspath_corrupt_free(filepath) -> bool:
+    return os.path.abspath(filepath) not in _CORRUPT_JSON
+
+
 def save_json(filepath, data):
     with _io_lock:
+        if os.path.abspath(filepath) == os.path.abspath(CONFIG_FILE):
+            _CONFIG_CACHE.update(key=None, data=None)  # P-04: invalidate on every write
         problem = _CORRUPT_JSON.get(os.path.abspath(filepath))
         if problem:
             raise JsonWriteBlocked(problem)
@@ -334,8 +341,28 @@ def save_json(filepath, data):
             pass
 
 
+_CONFIG_CACHE: dict = {"key": None, "data": None}
+
+
+def _config_cache_key():
+    try:
+        st = os.stat(CONFIG_FILE)
+    except OSError:
+        return None
+    return (os.path.abspath(CONFIG_FILE), st.st_mtime_ns, st.st_size)
+
+
 def load_config() -> dict:
-    cfg = load_json(CONFIG_FILE, {})
+    # P-04: config.json is read on every authenticated request – parse it only when the file changed.
+    # Callers get their own copy, so changing it without save_json never leaks into the cache.
+    with _io_lock:
+        key = _config_cache_key()
+        if key is not None and key == _CONFIG_CACHE["key"] and abspath_corrupt_free(CONFIG_FILE):
+            cfg = copy.deepcopy(_CONFIG_CACHE["data"])
+        else:
+            cfg = load_json(CONFIG_FILE, {})
+            if key is not None and isinstance(cfg, dict) and abspath_corrupt_free(CONFIG_FILE):
+                _CONFIG_CACHE.update(key=key, data=copy.deepcopy(cfg))
     cfg.setdefault("team_role_ids", [])
     cfg.setdefault("weekly_goal_hours", 3.0)
     cfg.setdefault("permissions", {})
@@ -1007,8 +1034,22 @@ def shift_elapsed(shift: dict) -> int:
     return total
 
 
+def load_shifts_raw() -> dict:
+    """shifts.json exactly as stored (no auto-close)."""
+    db = load_json(SHIFTS_FILE, {})
+    if not isinstance(db, dict):
+        db = {}
+    db.setdefault("active_shifts", {})
+    db.setdefault("history", [])
+    return db
+
+
 def load_shifts() -> dict:
-    """Lädt Schichten und beendet vergessene Schichten nach 24 Stunden."""
+    """Lädt Schichten; vergessene Schichten (> 24 h) erscheinen bereits als beendet.
+
+    P-05: this is a pure read – the auto-close is only *shown* here and persisted by
+    process_overdue_shifts (housekeeping) or by the next regular save of shifts.json.
+    """
     db = load_json(SHIFTS_FILE, {})
     db.setdefault("active_shifts", {})
     db.setdefault("history", [])
@@ -1034,8 +1075,6 @@ def load_shifts() -> dict:
         })
         del db["active_shifts"][uid]
         changed = True
-    if changed:
-        save_json(SHIFTS_FILE, db)
     return db
 
 
@@ -1047,7 +1086,7 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
         return report
 
     cfg = config or load_config()
-    shifts_db = load_shifts()
+    shifts_db = load_shifts_raw()  # P-05: the stored state – this function persists the auto-close itself
     active = shifts_db.setdefault("active_shifts", {})
     history = shifts_db.setdefault("history", [])
     now = now_de()
@@ -1227,16 +1266,41 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
     return report
 
 
-def calculate_weekly_seconds(mod_id, history, active_shifts=None) -> int:
-    total = 0
-    ws = week_start()
+_ISO_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_WEEKLY_MEMO: dict = {"key": None, "history": None, "totals": {}}
+_WEEKLY_MEMO_SECONDS = 5
+
+
+def _in_week(date_value, start: datetime, start_text: str) -> bool:
+    if isinstance(date_value, str) and _ISO_DAY_RE.match(date_value):
+        # fast C parser; rejects invalid days like strptime does (e.g. 2026-13-01)
+        return date_cls.fromisoformat(date_value) >= start.date()
+    return datetime.strptime(date_value, "%Y-%m-%d") >= start  # legacy values (e.g. 2026-1-5); errors propagate
+
+
+def weekly_history_totals(history) -> dict:
+    """P-03: seconds of finished shifts in the current week, per member – one pass over the history.
+    Kept for a few seconds for the same list object, so pages looping over all members pay once."""
+    start = week_start()
+    key = (id(history), len(history), start, int(time.time() // _WEEKLY_MEMO_SECONDS))
+    if _WEEKLY_MEMO["history"] is history and _WEEKLY_MEMO["key"] == key:
+        return _WEEKLY_MEMO["totals"]
+    start_text = start.strftime("%Y-%m-%d")
+    totals: dict = {}
     for entry in history:
-        if str(entry.get("mod_id")) == str(mod_id):
-            try:
-                if datetime.strptime(entry.get("date"), "%Y-%m-%d") >= ws:
-                    total += int(entry.get("duration_seconds", 0))
-            except Exception:
-                pass
+        try:
+            if _in_week(entry.get("date"), start, start_text):
+                uid = str(entry.get("mod_id"))
+                totals[uid] = totals.get(uid, 0) + int(entry.get("duration_seconds", 0))
+        except Exception:
+            pass
+    _WEEKLY_MEMO.update(key=key, history=history, totals=totals)
+    return totals
+
+
+def calculate_weekly_seconds(mod_id, history, active_shifts=None) -> int:
+    ws = week_start()
+    total = weekly_history_totals(history).get(str(mod_id), 0)
     s = (active_shifts or {}).get(str(mod_id))
     if s:
         try:

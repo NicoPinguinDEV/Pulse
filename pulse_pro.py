@@ -1578,8 +1578,8 @@ def register(app):
 
     # ---------------- Modern stats / calendar / settings / system / search ----------------
     async def stats_v5(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session,perm='can_view_analytics'); s=work_stats(c); members=team(c.guild,c.config.get('team_role_ids',[])); hist=ws.load_shifts().get('history',[]); week=[]
-        for m in members: week.append((ws.calculate_weekly_seconds(str(m.id),hist,ws.load_shifts().get('active_shifts',{})),m.display_name))
+        c=cctx(request,user_session,perm='can_view_analytics'); s=work_stats(c); members=team(c.guild,c.config.get('team_role_ids',[])); shifts=ws.load_shifts(); hist=shifts.get('history',[]); active=shifts.get('active_shifts',{}); week=[]
+        for m in members: week.append((ws.calculate_weekly_seconds(str(m.id),hist,active),m.display_name))  # P-03: shifts loaded once
         week.sort(reverse=True); maxs=max([x[0] for x in week],default=1)
         rows=''.join(f'<div class="pulse-row"><div class="flex items-center gap-3"><div class="pulse-avatar">{e(initials(n))}</div><div><div class="pulse-row-title">{e(n)}</div><div class="pulse-progress mt-2 w-[180px]"><span style="width:{round(v/maxs*100)}%"></span></div></div></div><div class="pulse-time font-bold">{ws.fmt_duration(v)}</div></div>' for v,n in week[:20])
         closed=sum(1 for t in s['tickets'] if t['status']=='closed'); rated=[t['rating'] for t in s['tickets'] if t.get('rating')]; avg=sum(rated)/len(rated) if rated else 0
