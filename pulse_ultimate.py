@@ -41,7 +41,14 @@ from pulse_safety import memory_guard_level as _policy_memory_guard_level
 BASE = Path(__file__).resolve().parent
 ATTACHMENTS_DIR = BASE / "attachments"
 ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
-ULTIMATE_DB = BASE / "pulse.db"
+ULTIMATE_DB = BASE / "pulse.db"  # kept for compatibility; use ultimate_db() (D-05)
+
+
+def ultimate_db() -> Path:
+    """D-05: the same database file as pulse_db (honours PULSE_DB_PATH) – never a second pulse.db."""
+    return Path(os.path.abspath(db.DB_PATH))
+
+
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 TEAM_UPDATE_CHANNEL_ID = 1531132354272170115
 
@@ -286,7 +293,7 @@ def uid(prefix: str) -> str:
 
 
 def cx():
-    c = sqlite3.connect(ULTIMATE_DB, timeout=3)
+    c = sqlite3.connect(ultimate_db(), timeout=3)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA busy_timeout=3000")
     return c

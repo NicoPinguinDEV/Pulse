@@ -60,7 +60,7 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 def cx():
-    c = sqlite3.connect(u.ULTIMATE_DB, timeout=15)
+    c = sqlite3.connect(u.ultimate_db(), timeout=15)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA busy_timeout=15000")
     c.execute("PRAGMA journal_mode=WAL")
@@ -542,7 +542,7 @@ def create_backup():
     setup_next()
     ts = now().strftime("%Y%m%d_%H%M%S")
     target = BACKUP_DIR / f"pulse_backup_{ts}.zip"
-    db_path = Path(u.ULTIMATE_DB)
+    db_path = Path(u.ultimate_db())
     try:
         with u.cx() as c:
             c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -591,7 +591,7 @@ def restore_backup(path):
             shutil.copyfileobj(src,dst)
         with cx() as c:
             c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        os.replace(tmp,u.ULTIMATE_DB)
+        os.replace(tmp,u.ultimate_db())
         # Restore the small JSON runtime stores that were captured with the DB.
         json_names = {"team_data.json","config.json","applications.json","shifts.json","logs.json","audit_logs.json","meetings.json"}
         for name in json_names:
