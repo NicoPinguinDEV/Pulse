@@ -178,10 +178,24 @@ PREVIEW_JS = r"""
     const fill = s => s.replaceAll('{user}','@Max').replaceAll('{user_name}','Max').replaceAll('{server}',data.server).replaceAll('{category}', cats[0] ? cats[0].name : 'Support').replaceAll('{ticket_id}','ticket_ab12cd34');
     document.getElementById('dcWelcome').style.borderLeftColor = color;
     const wThumb = imageSrc('welcome_thumbnail'), wBanner = imageSrc('welcome_banner');
+    if (data.modern) {
+      const w = document.getElementById('dcWelcome');
+      w.className = 'dc-embed dc-modern';
+      w.style.borderLeftColor = '';
+      const cat = cats[0] || {emoji: '🎫', name: 'Support'};
+      w.innerHTML = (wThumb ? '<img class="dc-thumb" src="'+esc(wThumb)+'" alt="">' : '') +
+        '<div class="dc-title">'+esc(fill(wt))+'</div><div class="dc-desc">'+md(fill(wm))+'</div>' +
+        '<div class="dc-sep"></div><div class="dc-desc"><h3>📋 So geht es weiter</h3>1. Anliegen erklären<br>2. Rückfragen beantworten<br>3. Lösung bestätigen<br>4. Ticket über <b>Schließen</b> beenden</div>' +
+        '<div class="dc-sep"></div><div class="dc-desc"><h3>📌 Ticket-Übersicht</h3><b>Status:</b> 🟢 Offen<br>• 🆔 <b>Ticket-ID:</b> <code>ticket_ab12cd34</code><br>• 🏷️ <b>Kategorie:</b> '+esc(cat.emoji)+' '+esc(cat.name)+'<br>• 👤 <b>Ersteller:</b> @Max<br>• 🚦 <b>Priorität:</b> 🟢 Normal<br>• 🧑‍💼 <b>Bearbeiter:</b> Noch nicht übernommen</div>' +
+        (wBanner ? '<img class="dc-image" src="'+esc(wBanner)+'" alt="">' : '') +
+        '<div class="dc-buttons" style="margin-top:10px"><span class="dc-btn success">📥 Übernehmen</span><span class="dc-btn secondary">↩️ Freigeben</span><span class="dc-btn secondary">🚦 Priorität</span><span class="dc-btn secondary">🔔 Erinnern</span><span class="dc-btn danger">🔒 Schließen</span></div>' +
+        '<div class="dc-sep"></div><div class="dc-footer">Pulse Ticket-System • Ticket-Steuerung</div>';
+    } else {
     document.getElementById('dcWelcome').innerHTML = '<div class="dc-title">'+esc(fill(wt))+'</div>' +
       (wThumb ? '<img class="dc-thumb" src="'+esc(wThumb)+'" alt="">' : '') +
       '<div class="dc-desc">'+md(fill(wm))+'<br><b>Ticket-ID:</b> <code>ticket_ab12cd34</code></div>' +
       (wBanner ? '<img class="dc-image" src="'+esc(wBanner)+'" alt="">' : '');
+    }
     const d = $('[name=description]'); document.getElementById('descCount').textContent = d.value.length + ' / 4000';
     ['thumbnail','banner','welcome_thumbnail','welcome_banner'].forEach(k => { const el = document.getElementById(k+'Thumb'); const src = imageSrc(k); el.style.backgroundImage = src ? 'url("'+src.replace(/"/g,'%22')+'")' : 'none'; el.textContent = src ? '' : 'Kein Bild'; });
   }
@@ -375,6 +389,8 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
             role_opts = "".join(f'<option value="{r.id}" {"selected" if str(r.id) in selected_roles else ""}>{e(r.name)}</option>' for r in roles)
             parent_opts = '<option value="">Standard-Ticketkategorie verwenden</option>' + "".join(
                 f'<option value="{c.id}" {"selected" if str(c.id) == str(meta.get("parent_category_id") or "") else ""}>📁 {e(c.name)}</option>' for c in parents)
+            claimed_opts = '<option value="">Nicht verschieben</option>' + "".join(
+                f'<option value="{c.id}" {"selected" if str(c.id) == str(meta.get("claimed_category_id") or "") else ""}>📁 {e(c.name)}</option>' for c in parents)
             group_opts = "".join(f'<option value="{v}" {"selected" if str(meta.get("group") or "team") == v else ""}>{l}</option>'
                                  for v, l in (("team", "Support-Team"), ("highteam", "Highteam"), ("leadership", "Führungsebene")))
             style_opts = "".join(f'<option value="{v}" {"selected" if str(meta.get("button_style") or "primary") == v else ""}>{l}</option>'
@@ -407,7 +423,8 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
  <label class="wide">Beschreibung im Auswahlmenü<input name="description" value="{e(meta.get("description") or "")}" maxlength="100" required></label>
  <label>Präfix für Ticketkanäle<input name="prefix" value="{e(meta.get("prefix") or "")}" pattern="[a-zA-Z0-9_-]{{1,24}}" maxlength="24" required placeholder="weiterbildung"></label>
  <label>Max. offene Tickets (0 = unbegrenzt)<input type="number" name="max_open" min="0" max="1000" value="{int(meta.get("max_open") or 0)}"></label>
- <label>Discord-Zielkategorie<select name="parent_category_id">{parent_opts}</select></label>
+ <label>Discord-Kategorie für neue Tickets<select name="parent_category_id">{parent_opts}</select></label>
+ <label>Discord-Kategorie nach Übernahme<select name="claimed_category_id">{claimed_opts}</select></label>
  <label>Bearbeitungsbereich<select name="group">{group_opts}</select></label>
  <label>Zuständige Rollen<select name="role_ids" multiple size="5">{role_opts}</select></label>
  <label>Button-Farbe (Buttons-Modus)<select name="button_style">{style_opts}</select></label>

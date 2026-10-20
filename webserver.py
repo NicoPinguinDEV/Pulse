@@ -4240,15 +4240,10 @@ async def _refresh_pulse_ticket_discord_state(channel, ticket: dict):
     if not isinstance(channel, discord.TextChannel):
         return
     try:
-        from cogs.tickets import TicketControlView, refresh_ticket_embed
-        view = TicketControlView()
-        claimed_by = ticket.get("claimed_by_name") or "Teammitglied"
-        claimed = bool(ticket.get("claimed_by_id"))
-        for item in view.children:
-            if getattr(item, "custom_id", None) == "pulse_ticket_claim":
-                item.disabled = claimed
-                item.label = (f"Übernommen · {claimed_by}"[:80] if claimed else "Übernehmen")
-        await refresh_ticket_embed(channel, ticket, view)
+        from cogs.tickets import move_ticket_channel, refresh_ticket_embed
+        await refresh_ticket_embed(channel, ticket)
+        if ticket.get("status") != "closed":
+            await move_ticket_channel(channel, ticket, claimed=bool(ticket.get("claimed_by_id")))
     except Exception as exc:
         print(f"⚠️ Pulse-Tickets: Discord-Anzeige konnte nicht mit dem Dashboard synchronisiert werden ({type(exc).__name__}).")
 
@@ -5026,6 +5021,7 @@ async def pulse_ticket_category_save(
     description: str = Form(...),
     max_open: int = Form(0),
     parent_category_id: str = Form(""),
+    claimed_category_id: str = Form(""),
     opening_message: str = Form(""),
     group: str = Form("team"),
     category_id: str = Form(""),
@@ -5076,6 +5072,16 @@ async def pulse_ticket_category_save(
         if not isinstance(parent, discord.CategoryChannel) or parent.guild.id != ctx.guild.id:
             return back("/tickets/panels", "Die ausgewählte Ticket-Zielkategorie gehört nicht zu diesem Server.", False)
 
+    claimed_id = 0
+    if str(claimed_category_id or "").strip():
+        try:
+            claimed_id = int(claimed_category_id)
+        except (TypeError, ValueError):
+            return back("/tickets/panels", "Ungültige Discord-Kategorie für übernommene Tickets.", False)
+        claimed_parent = ctx.guild.get_channel(claimed_id)
+        if not isinstance(claimed_parent, discord.CategoryChannel) or claimed_parent.guild.id != ctx.guild.id:
+            return back("/tickets/panels", "Die Kategorie für übernommene Tickets gehört nicht zu diesem Server.", False)
+
     role_values = []
     for raw in role_ids:
         try:
@@ -5110,6 +5116,7 @@ async def pulse_ticket_category_save(
         "group": group,
         "role_ids": role_values,
         "parent_category_id": parent_id,
+        "claimed_category_id": claimed_id,
         "opening_message": cleaned_opening,
         "active": True,
     }
@@ -5122,7 +5129,7 @@ async def pulse_ticket_category_save(
         })
     else:
         # Older forms don't send these fields; keep what the visual builder stored.
-        for extra in ("welcome_title", "questions", "button_style"):
+        for extra in ("welcome_title", "questions", "button_style", "claimed_category_id"):
             if extra in previous:
                 category_value[extra] = previous[extra]
     replaced = False

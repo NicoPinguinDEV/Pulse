@@ -1258,7 +1258,8 @@ def main() -> None:
     assert 'image_block("welcome_banner"' in builder and 'name="welcome_use_avatar"' in builder
     assert "welcome_banner_upload: UploadFile | None = File(None)" in web
     assert 'welcome_message = await send_styled(channel, embed=embed, view=TicketControlView(), files=welcome_files' in tickets
-    assert 'save_ticket_card(tid, embed' in tickets and 'load_ticket_card(ticket.get("id"))' in tickets
+    assert 'save_ticket_card(tid, embed' in tickets and 'load_ticket_card(ticket.get("id"), with_meta=True)' in tickets
+    assert 'async def move_ticket_channel(channel, ticket: dict, *, claimed: bool)' in tickets and 'sync_permissions=False' in tickets
     assert 'STATUS_FIELDS = ("Status", "Priorität", "Bearbeiter")' in tickets
     assert "embed.set_field_at(index, name=field.name" in tickets
 

@@ -144,7 +144,7 @@ def ticket_category_definitions() -> dict:
         key: {
             "id": key, "name": meta[0], "description": meta[1], "emoji": meta[2],
             "max_open": meta[3], "group": meta[4], "prefix": key,
-            "role_ids": [], "parent_category_id": 0, "opening_message": "", "active": True,
+            "role_ids": [], "parent_category_id": 0, "claimed_category_id": 0, "opening_message": "", "active": True,
             "builtin": True,
         }
         for key, meta in CATEGORY_META.items()
@@ -160,7 +160,7 @@ def ticket_category_definitions() -> dict:
             continue
         base = definitions.get(key, {
             "id": key, "name": "", "description": "", "emoji": "🎫", "max_open": 0,
-            "group": "team", "prefix": key, "role_ids": [], "parent_category_id": 0,
+            "group": "team", "prefix": key, "role_ids": [], "parent_category_id": 0, "claimed_category_id": 0,
             "opening_message": "", "active": True, "builtin": False,
         })
         base.update(item)
@@ -437,27 +437,101 @@ STATUS_FIELDS = ("Status", "Priorität", "Bearbeiter")
 TICKET_CARD_PREFIX = "ticket_card:"
 
 
-def save_ticket_card(ticket_id: str, embed: discord.Embed, files: list[str]) -> None:
+def save_ticket_card(ticket_id: str, embed: discord.Embed, files: list[str], meta: dict | None = None) -> None:
     """Remember the welcome card of a container ticket so status updates can rebuild it."""
     try:
-        _pulse_db.set_setting(TICKET_CARD_PREFIX + str(ticket_id), {"embed": embed.to_dict(), "files": files[:4]})
+        previous = _pulse_db.get_setting(TICKET_CARD_PREFIX + str(ticket_id), None)
+        if meta is None and isinstance(previous, dict):
+            meta = previous.get("meta")
+        _pulse_db.set_setting(TICKET_CARD_PREFIX + str(ticket_id),
+                              {"embed": embed.to_dict(), "files": files[:4], "meta": meta or {}})
     except Exception as exc:
         print(f"⚠️ Pulse-Tickets: Ticketkarte {ticket_id} nicht gespeichert ({type(exc).__name__}).")
 
 
-def load_ticket_card(ticket_id: str):
+def load_ticket_card(ticket_id: str, *, with_meta: bool = False):
     try:
         card = _pulse_db.get_setting(TICKET_CARD_PREFIX + str(ticket_id), None)
     except Exception:
-        return None, []
+        card = None
     if not isinstance(card, dict) or not isinstance(card.get("embed"), dict):
-        return None, []
+        return (None, [], {}) if with_meta else (None, [])
     files = []
     for name in card.get("files", []):
         path = panel_image_path(name)
         if path:
             files.append(discord.File(path, filename=os.path.basename(path)))
-    return discord.Embed.from_dict(card["embed"]), files
+    embed = discord.Embed.from_dict(card["embed"])
+    meta = card.get("meta") if isinstance(card.get("meta"), dict) else {}
+    return (embed, files, meta) if with_meta else (embed, files)
+
+
+def control_view_for(ticket: dict) -> "TicketControlView":
+    """A fresh control view showing the claim state. Never hand the persistent, registered
+    instance to a layout conversion: its buttons would be re-parented and later clicks in
+    other tickets could no longer be dispatched."""
+    view = TicketControlView()
+    claimed = bool(ticket.get("claimed_by_id"))
+    for item in view.children:
+        if getattr(item, "custom_id", None) == "pulse_ticket_claim":
+            item.disabled = claimed
+            item.label = (f"Übernommen · {ticket.get('claimed_by_name') or 'Teammitglied'}"[:80] if claimed else "Übernehmen")
+    return view
+
+
+def build_ticket_welcome_layout(embed: discord.Embed, view, meta: dict):
+    """Ticket welcome like GalaxyBot: title, text, form answers, overview with status, banner, buttons."""
+    spec = embed_to_spec(embed)
+    welcome = (embed.description or "").split("\n\n**Ticket-ID:**", 1)[0]
+    fields = {f.name: f.value for f in embed.fields}
+    answers = [(f.name[1:].strip(), f.value) for f in embed.fields if f.name.startswith("📝")]
+    blocks = []
+    if answers:
+        blocks.append("### 📝 Deine Angaben\n" + "\n".join(
+            f"**{question}**\n> " + str(answer).replace("\n", "\n> ") for question, answer in answers))
+    elif fields.get("📋 Vorgehen"):
+        blocks.append("### 📋 So geht es weiter\n" + fields["📋 Vorgehen"])
+    overview = [f"**Status:** {fields.get('Status', '🟢 Offen')}"]
+    if meta.get("ticket_id"):
+        overview.append(f"- 🆔 **Ticket-ID:** `{meta['ticket_id']}`")
+    if meta.get("category"):
+        overview.append(f"- 🏷️ **Kategorie:** {meta.get('emoji', '')} {meta['category']}".replace("  ", " "))
+    if str(meta.get("creator_id") or "").isdigit():
+        overview.append(f"- 👤 **Ersteller:** <@{meta['creator_id']}>")
+    overview.append(f"- 🚦 **Priorität:** {fields.get('Priorität', '🟢 Normal')}")
+    overview.append(f"- 🧑‍💼 **Bearbeiter:** {fields.get('Bearbeiter', 'Noch nicht übernommen')}")
+    blocks.append("### 📌 Ticket-Übersicht\n" + "\n".join(overview))
+    spec.update(description=welcome, fields=[])
+    return layout_from_spec(spec, heading="##", extra_blocks=blocks, action_rows=view_rows(view))
+
+
+async def move_ticket_channel(channel, ticket: dict, *, claimed: bool) -> str:
+    """Move the ticket into the Discord category configured for its state.
+
+    claimed=True → "Kategorie nach Übernahme", claimed=False → creation category.
+    Permissions are kept (sync_permissions=False), so the ticket stays private.
+    Returns a short status for logs/tests; never raises.
+    """
+    definition = ticket_category_definitions().get(str(ticket.get("category")), {})
+    raw = definition.get("claimed_category_id" if claimed else "parent_category_id")
+    try:
+        target = channel.guild.get_channel(int(raw)) if raw else None
+    except (TypeError, ValueError):
+        target = None
+    if not isinstance(target, discord.CategoryChannel):
+        return "not_configured"
+    if getattr(channel, "category_id", None) == target.id:
+        return "unchanged"
+    if len(target.channels) >= 50:
+        print(f"⚠️ Pulse-Tickets: Kategorie {target.id} ist voll (50 Kanäle); Ticket {ticket.get('id')} bleibt.")
+        return "full"
+    try:
+        await channel.edit(category=target, sync_permissions=False,
+                           reason=f"Pulse: Ticket {'übernommen' if claimed else 'freigegeben'}")
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        print(f"⚠️ Pulse-Tickets: Ticket {ticket.get('id')} konnte nicht verschoben werden ({type(exc).__name__}).")
+        return "failed"
+    return "moved"
 
 
 def drop_ticket_card(ticket_id: str) -> None:
@@ -468,6 +542,8 @@ def drop_ticket_card(ticket_id: str) -> None:
 
 
 async def refresh_ticket_embed(channel, ticket: dict, control_view=None):
+    # control_view is accepted for compatibility; a fresh copy with the current state is used.
+    control_view = control_view_for(ticket)
     status = "✅ Geschlossen" if ticket.get("status") == "closed" else "🔵 In Bearbeitung" if ticket.get("claimed_by_id") else "🟢 Offen"
     values = {
         "Status": status,
@@ -480,11 +556,11 @@ async def refresh_ticket_embed(channel, ticket: dict, control_view=None):
         async for m in channel.history(limit=20, oldest_first=True):
             if m.author.id != channel.guild.me.id or not (m.embeds or is_v2(m)):
                 continue
-            files = []
+            files, meta = [], {}
             if m.embeds:
                 embed = m.embeds[0].copy()
             else:
-                embed, files = load_ticket_card(ticket.get("id"))
+                embed, files, meta = load_ticket_card(ticket.get("id"), with_meta=True)
                 if embed is None:
                     break
             names = [field.name for field in embed.fields]
@@ -495,6 +571,8 @@ async def refresh_ticket_embed(channel, ticket: dict, control_view=None):
                 if ticket.get("priority") == "urgent":
                     embed.color = _pulse_color("danger")
                 extra = {"attachments": files} if files else {}
+                if is_v2(m) and meta:
+                    extra["layout"] = build_ticket_welcome_layout(embed, control_view_for(ticket), meta)
                 await edit_styled(m, embed=embed, view=control_view or TicketControlView(), **extra)
                 if is_v2(m):
                     save_ticket_card(ticket.get("id"), embed, [f.filename for f in files])
@@ -791,10 +869,12 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
         embed.set_image(url=panel["welcome_banner_url"])
     embed.set_footer(text="Pulse Ticket-System • Ticket-Steuerung")
     embed.timestamp = discord.utils.utcnow()
+    card_meta = {"ticket_id": tid, "category": label, "emoji": emoji, "creator_id": str(interaction.user.id)}
+    welcome_layout = build_ticket_welcome_layout(embed, TicketControlView(), card_meta) if is_modern() else None
     welcome_message = await send_styled(channel, embed=embed, view=TicketControlView(), files=welcome_files,
-                                        allowed_mentions=discord.AllowedMentions.none())
+                                        allowed_mentions=discord.AllowedMentions.none(), layout=welcome_layout)
     if is_v2(welcome_message):
-        save_ticket_card(tid, embed, [f.filename for f in welcome_files])
+        save_ticket_card(tid, embed, [f.filename for f in welcome_files], card_meta)
 
     mentions = " ".join(role.mention for role in roles[:10])
     if mentions and panel.get("ping_roles", True):
@@ -954,13 +1034,12 @@ class TicketControlView(View):
         # Follow-up logging and message updates can exceed Discord's initial response window.
         await interaction.response.defer(ephemeral=True, thinking=True)
         latest = get_ticket(ticket_id=t["id"])
-        button.disabled = True
-        button.label = f"Übernommen · {interaction.user.display_name}"[:80]
         try:
             if latest:
-                await refresh_ticket_embed(interaction.channel, latest, self)
-        except Exception:
-            pass
+                await refresh_ticket_embed(interaction.channel, latest)
+                await move_ticket_channel(interaction.channel, latest, claimed=True)
+        except Exception as exc:
+            print(f"⚠️ Pulse-Tickets: Übernahme-Anzeige nicht aktualisiert ({type(exc).__name__}).")
         if latest:
             await send_ticket_log(
                 interaction.client,
@@ -997,8 +1076,10 @@ class TicketControlView(View):
             await interaction.response.send_message("Du kannst nur dein eigenes Ticket freigeben (Admins dürfen übernehmen).", ephemeral=True)
             return
         if unclaim_ticket(t["id"], interaction.user.id, interaction.user.display_name):
-            await refresh_ticket_embed(interaction.channel, get_ticket(ticket_id=t["id"]), TicketControlView())
             await interaction.response.send_message("↩️ Ticket wurde freigegeben.", ephemeral=True)
+            latest = get_ticket(ticket_id=t["id"])
+            await refresh_ticket_embed(interaction.channel, latest)
+            await move_ticket_channel(interaction.channel, latest, claimed=False)
         else:
             await interaction.response.send_message("Ticket konnte nicht freigegeben werden.", ephemeral=True)
 
