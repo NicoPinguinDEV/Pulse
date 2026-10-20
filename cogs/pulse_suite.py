@@ -663,20 +663,45 @@ def achievement_text(m,web):
             if ok:c.execute("INSERT OR IGNORE INTO suite_achievements VALUES(?,?,?)",(key,str(m.id),iso()))
     return " · ".join(("✅ " if ok else "⏳ ")+em+" "+name for em,name,ok in items)
 
+class _AnsweredResponse:
+    """K-09: the click is answered at once; later `response.*` calls of a callback edit that answer instead."""
+    def __init__(self,i):self._i=i
+    def is_done(self):return True
+    async def edit_message(self,**kwargs):return await self._i.edit_original_response(**kwargs)
+    async def send_message(self,content=None,**kwargs):
+        kwargs.pop("ephemeral",None);return await self._i.followup.send(content,ephemeral=True,**kwargs)
+    async def defer(self,**_):return None
+
+class _AnsweredInteraction:
+    def __init__(self,i):self._i=i;self.response=_AnsweredResponse(i)
+    def __getattr__(self,name):return getattr(self._i,name)
+
 class Confirm(discord.ui.View):
-    def __init__(self,owner,callback):super().__init__(timeout=45);self.owner=owner;self.cb=callback
+    def __init__(self,owner,callback,key=None,origin=None):
+        super().__init__(timeout=45);self.owner=owner;self.cb=callback;self.key=key;self.origin=origin;self.used=False
+    async def on_timeout(self):
+        # K-09: expired confirmations say so instead of leaving clickable buttons that fail.
+        if self.used or self.origin is None:return
+        try:await self.origin.edit_original_response(content="⌛ Bestätigung abgelaufen – es wurde nichts ausgeführt.",view=None)
+        except (discord.HTTPException,AttributeError):pass
     @discord.ui.button(label="Bestätigen",style=discord.ButtonStyle.danger,emoji="✅")
     async def yes(self,i,b):
         if i.user.id!=self.owner:return await i.response.send_message("Nur der Ersteller kann bestätigen.",ephemeral=True)
-        try:await self.cb(i)
+        if self.used:return await i.response.send_message("⏳ Wird bereits ausgeführt.",ephemeral=True)
+        self.used=True;self.stop()
+        if self.key and (locked() or not allowed(i,self.key,__import__("webserver"))):
+            return await i.response.edit_message(content="❌ Abgebrochen: Berechtigung fehlt oder Pulse Emergency Lock ist aktiv.",embed=None,view=None)
+        await i.response.edit_message(content="⏳ Wird ausgeführt …",embed=None,view=None)
+        try:await self.cb(_AnsweredInteraction(i))
         except Exception as e:
-            if i.response.is_done():await i.followup.send("❌ "+str(e),ephemeral=True)
-            else:await i.response.send_message("❌ "+str(e),ephemeral=True)
-        self.stop()
+            error_id=uuid.uuid4().hex[:6].upper();print(f"❌ Pulse Suite: Bestätigung fehlgeschlagen [Fehler-ID {error_id}]: {type(e).__name__}: {e}")
+            try:await i.edit_original_response(content=f"❌ Dabei ist ein Fehler aufgetreten. Fehler-ID **{error_id}** – das Team findet sie im Log.")
+            except discord.HTTPException:pass
     @discord.ui.button(label="Abbrechen",style=discord.ButtonStyle.secondary,emoji="❌")
     async def no(self,i,b):
         if i.user.id!=self.owner:return await i.response.send_message("Nur der Ersteller kann abbrechen.",ephemeral=True)
-        await i.response.edit_message(content="❌ Abgebrochen.",embed=None,view=None);self.stop()
+        if self.used:return await i.response.send_message("⏳ Wird bereits ausgeführt.",ephemeral=True)
+        self.used=True;await i.response.edit_message(content="❌ Abgebrochen.",embed=None,view=None);self.stop()
 
 async def suite_ticket_action(i,action,tid):
     web=__import__("webserver")
@@ -1101,7 +1126,7 @@ class PulseSuite(commands.Cog):
             if not consequence_report.get("ok"):
                 result_text += "\n⚠️ Eine automatische Warnfolge ist fehlgeschlagen; Führungsebene prüfen."
             await x.response.edit_message(content=result_text,embed=None,view=None)
-        await i.response.send_message(f"⚠️ {member.display_name}\n{grund}\n\nWirklich verwarnen?",view=Confirm(i.user.id,do),ephemeral=True)
+        await i.response.send_message(f"⚠️ {member.display_name}\n{grund}\n\nWirklich verwarnen?",view=Confirm(i.user.id,do,key="warn",origin=i),ephemeral=True)
 
     @app_commands.command(name="warns",description="Zeigt aktive Warnungen eines Teammitglieds.")
     async def warns_cmd(self,i,member:discord.Member):
@@ -1139,7 +1164,7 @@ class PulseSuite(commands.Cog):
             await x.response.edit_message(content=result_text,embed=None,view=None)
         await i.response.send_message(
             f"Warnung {warn_id} von {member.display_name} wirklich zurückziehen?\nGrund: {grund.strip()}",
-            view=Confirm(i.user.id,do),
+            view=Confirm(i.user.id,do,key="warn-remove",origin=i),
             ephemeral=True,
         )
 
@@ -1161,7 +1186,7 @@ class PulseSuite(commands.Cog):
             await x.response.edit_message(content="🔐 Server-Kick "+aid+" vorbereitet. Eine andere berechtigte Führungskraft muss ihn mit /pulse-approve freigeben.",embed=None,view=None)
         await i.response.send_message(
             f"🚨 **Server-Kick**\n{member.display_name} wird nach einer zweiten Freigabe vom Discord-Server entfernt.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
-            view=Confirm(i.user.id,do),
+            view=Confirm(i.user.id,do,key="kick",origin=i),
             ephemeral=True,
         )
 
@@ -1185,7 +1210,7 @@ class PulseSuite(commands.Cog):
             await x.response.edit_message(content="🔐 Team-Kick "+aid+" vorbereitet. Die Person bleibt auf dem Discord-Server; eine andere berechtigte Führungskraft muss freigeben.",embed=None,view=None)
         await i.response.send_message(
             f"🚪 **Team-Kick**\n{member.display_name} verliert nach einer zweiten Freigabe die konfigurierten Teamrollen, wird aber nicht vom Server gekickt.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
-            view=Confirm(i.user.id,do),
+            view=Confirm(i.user.id,do,key="team-kick",origin=i),
             ephemeral=True,
         )
 
@@ -1207,7 +1232,7 @@ class PulseSuite(commands.Cog):
             await x.response.edit_message(content="🔐 Server-Kick "+aid+" vorbereitet. Eine andere berechtigte Führungskraft muss ihn mit /pulse-approve freigeben.",embed=None,view=None)
         await i.response.send_message(
             f"🚨 **Server-Kick**\n{member.display_name} wird nach einer zweiten Freigabe vom Discord-Server entfernt.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
-            view=Confirm(i.user.id,do),
+            view=Confirm(i.user.id,do,key="server-exit",origin=i),
             ephemeral=True,
         )
 
@@ -1231,7 +1256,7 @@ class PulseSuite(commands.Cog):
             await x.response.edit_message(content="🔐 Team-Offboarding "+aid+" vorbereitet. Die Person bleibt auf dem Server; eine andere berechtigte Führungskraft muss freigeben.",embed=None,view=None)
         await i.response.send_message(
             f"🚪 **Team-Offboarding**\n{member.display_name} verliert nach einer zweiten Freigabe die konfigurierten Teamrollen.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
-            view=Confirm(i.user.id,do),
+            view=Confirm(i.user.id,do,key="team-exit",origin=i),
             ephemeral=True,
         )
 
@@ -1248,7 +1273,7 @@ class PulseSuite(commands.Cog):
             await self._confirm_rank_change(x,member,rolle,grund.strip()[:1000],"promote",web,role_ids)
         await i.response.send_message(
             f"📈 **Beförderung vorbereiten**\n{member.display_name}: **{rolle.name}**\nGrund: {grund.strip()}\n\nBestehende Team-Rangrollen werden durch den neuen Rang ersetzt. Fortfahren?",
-            view=Confirm(i.user.id,do),
+            view=Confirm(i.user.id,do,key="promote",origin=i),
             ephemeral=True,
         )
 
@@ -1265,7 +1290,7 @@ class PulseSuite(commands.Cog):
             await self._confirm_rank_change(x,member,rolle,grund.strip()[:1000],"demote",web,role_ids)
         await i.response.send_message(
             f"📉 **Degradierung vorbereiten**\n{member.display_name}: **{rolle.name}**\nGrund: {grund.strip()}\n\nBestehende Team-Rangrollen werden durch den neuen Rang ersetzt. Fortfahren?",
-            view=Confirm(i.user.id,do),
+            view=Confirm(i.user.id,do,key="demote",origin=i),
             ephemeral=True,
         )
 
