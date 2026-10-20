@@ -860,14 +860,17 @@ def verify_session_token(token: str | None, typ: str) -> dict | None:
 
 # K-01 / E-12: application sessions last 3 hours and are renewed while the applicant is active.
 APPLY_SESSION_SECONDS = 3 * 3600
+APPLY_SESSION_MAX_SECONDS = 12 * 3600  # absolute limit after the Discord login, renewals never go beyond it
 APPLY_RETURN_COOKIE = "apply_return_career"
 
 
 def set_apply_session_cookie(response, request: Request, applicant: dict) -> None:
+    now = int(time.time())
     session = {key: applicant.get(key) for key in ("id", "username", "global_name", "avatar")}
-    session["apply_exp"] = int(time.time() + APPLY_SESSION_SECONDS)
+    session["login_at"] = int(applicant.get("login_at") or now)
+    session["apply_exp"] = min(now + APPLY_SESSION_SECONDS, session["login_at"] + APPLY_SESSION_MAX_SECONDS)
     response.set_cookie("apply_session", sign_payload(session, typ=TOKEN_APPLY), httponly=True, samesite="lax",
-                        secure=oauth_cookie_secure(request), max_age=APPLY_SESSION_SECONDS)
+                        secure=oauth_cookie_secure(request), max_age=max(0, session["apply_exp"] - now))
 
 
 def apply_return_path(request: Request) -> str:

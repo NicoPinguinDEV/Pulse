@@ -39,6 +39,19 @@ class ApplySessionTests(unittest.TestCase):
         self.assertGreater(renewed["apply_exp"], time.time() + 3 * 3600 - 60)
         self.assertEqual(renewed["typ"], ws.TOKEN_APPLY)
 
+    def test_renewal_never_exceeds_twelve_hours_after_login(self):
+        login_at = int(time.time()) - 11 * 3600  # logged in 11 h ago
+        token = ws.sign_payload({"id": "4242", "apply_exp": int(time.time() + 600), "login_at": login_at}, typ=ws.TOKEN_APPLY)
+        self.client.cookies.set("apply_session", token)
+        renewed = ws.verify_session_token(self.client.post("/apply/keepalive").cookies.get("apply_session"), ws.TOKEN_APPLY)
+        self.assertEqual(renewed["apply_exp"], login_at + 12 * 3600)
+        self.assertEqual(renewed["login_at"], login_at)
+        # after 12 h the session is over and the draft page asks for a new login
+        self.client.cookies.clear()
+        self.client.cookies.set("apply_session", ws.sign_payload(
+            {"id": "4242", "apply_exp": login_at + 12 * 3600 - 13 * 3600, "login_at": login_at - 3600}, typ=ws.TOKEN_APPLY))
+        self.assertEqual(self.client.post("/apply/keepalive").status_code, 401)
+
     def test_form_has_browser_draft_and_keepalive(self):
         self.client.cookies.set("apply_session", apply_token())
         html = self.client.get(f"/apply?career={CAREER}").text

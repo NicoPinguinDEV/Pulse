@@ -135,7 +135,17 @@ class RPTests(unittest.TestCase):
         self.channel.send = forbidden
         interaction = self.select(FakeInteraction(self.channel, member()), perms={"is_admin": True})
         self.assertIn("nicht senden", interaction.response.messages[-1][0])
-        self.assertNotIn(1, rp._LAST_ANNOUNCEMENT)
+        self.assertEqual(rp._LAST_ANNOUNCEMENT, {})
+
+    def test_stop_right_after_start_is_allowed(self):
+        self.select(FakeInteraction(self.channel, member()), perms={"is_admin": True})
+        modal = rp.RPStopModal()
+        modal.uhrzeit._value = "18:00"
+        interaction = FakeInteraction(self.channel, member())
+        with patch.object(rp, "_member_perms", return_value={"is_admin": True}), patch.object(rp, "_audit", lambda *a, **k: None):
+            asyncio.run(modal.on_submit(interaction))
+        self.assertEqual(len(self.channel.sent), 2)
+        self.assertIn("18:00 Uhr", self.channel.sent[1][0])
 
     def test_configured_extra_role_may_use_panel(self):
         pulse_db.set_setting(rp.ROLE_SETTING_KEY, [10])

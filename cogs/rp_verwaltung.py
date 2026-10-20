@@ -13,7 +13,7 @@ DB_NAME = "rp_verwaltung.db"
 # K-02: who may use the panel besides admins and leaders (can_promote) – role IDs set in the dashboard.
 ROLE_SETTING_KEY = "rp_panel_role_ids"
 ANNOUNCE_COOLDOWN_SECONDS = 60
-_LAST_ANNOUNCEMENT: dict[int, float] = {}
+_LAST_ANNOUNCEMENT: dict[tuple[int, str], float] = {}  # cooldown per guild and action (start/stop)
 
 # --- DATENBANK HELFER ---
 def init_db():
@@ -110,7 +110,8 @@ async def send_rp_announcement(interaction: discord.Interaction, content: str, a
         await _reply(interaction, "❌ Du bist nicht berechtigt, RP-Ankündigungen zu senden.")
         return
     now = time.monotonic()
-    last = _LAST_ANNOUNCEMENT.get(guild.id)
+    cooldown_key = (guild.id, action)  # "RP Stop" right after "RP Start" stays possible
+    last = _LAST_ANNOUNCEMENT.get(cooldown_key)
     if last is not None and now - last < ANNOUNCE_COOLDOWN_SECONDS:
         await _reply(interaction, f"⏳ Bitte warte noch {int(ANNOUNCE_COOLDOWN_SECONDS - (now - last)) + 1} s – gerade wurde schon angekündigt.")
         return
@@ -126,7 +127,7 @@ async def send_rp_announcement(interaction: discord.Interaction, content: str, a
         await interaction.followup.send("❌ Kein Ankündigungskanal eingerichtet oder Kanal nicht gefunden. "
                                         "Bitte /setup_rp erneut ausführen.", ephemeral=True)
         return
-    _LAST_ANNOUNCEMENT[guild.id] = now  # reserved now (no double announcement), released again on failure
+    _LAST_ANNOUNCEMENT[cooldown_key] = now  # reserved now (no double announcement), released again on failure
 
     # Only Pulse's own previous announcement is removed – never messages of other people.
     previous_id = get_config("last_announcement_message_id")
@@ -144,9 +145,9 @@ async def send_rp_announcement(interaction: discord.Interaction, content: str, a
         )
     except (discord.Forbidden, discord.HTTPException) as exc:
         if last is None:
-            _LAST_ANNOUNCEMENT.pop(guild.id, None)
+            _LAST_ANNOUNCEMENT.pop(cooldown_key, None)
         else:
-            _LAST_ANNOUNCEMENT[guild.id] = last
+            _LAST_ANNOUNCEMENT[cooldown_key] = last
         await interaction.followup.send(f"❌ Pulse konnte in {ch.mention} nicht senden ({type(exc).__name__}). "
                                         "Bitte Kanalrechte prüfen.", ephemeral=True)
         return

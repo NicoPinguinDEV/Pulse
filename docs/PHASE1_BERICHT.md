@@ -27,7 +27,7 @@ Stand: 20.10.2026.
 **Gates (venv `Q:\venv`, Python 3.14, ohne Discord-Verbindung):**
 `python -m compileall -q .` → OK · `python tests/feature_smoke.py` → „Pulse feature smoke test: OK“ ·
 `python tests/test_pulse_intelligence.py` → OK · `python tests/smoke_test.py` → „Pulse smoke test: OK“ ·
-`python -m unittest discover -s tests` → **343 Tests OK** (Phase 0: 275).
+`python -m unittest discover -s tests` → **345 Tests OK** (Phase 0: 275).
 
 Review durch einen Subagenten mit frischem Kontext: 4 mittlere und 7 geringe Befunde, keine kritischen. Behoben in 41293d9: `*.corrupt-*` war nicht ignoriert, Merge arbeitete je Warnung statt je Feld, Activity-Check-Warnlauf war nicht umgestellt, RP-Sendefehler blieb unbeantwortet, mehrfaches Umbenennen, K-12-Validierung. Offen: siehe Abschnitte 3–5.
 
@@ -64,11 +64,11 @@ Review durch einen Subagenten mit frischem Kontext: 4 mittlere und 7 geringe Bef
   - Log-Kanal: Senden, Einbetten und Dateien anhängen.
 - **Speicherplatz:** Ticket-Anhänge bis 8 MB werden laut E-7 unbegrenzt unter `transcripts/<id>_anhaenge/` aufbewahrt. `transcripts/` ist laut Datenlandkarte in keinem Backup, das ist Thema für Phase 2.
 - **Auto-Warnläufe** schreiben jetzt pro Mitglied frisch nach. Die Warnstufe wird aus dem eigenen Stand berechnet; eine Warnung, die in derselben Sekunde parallel entsteht, kann die Stufe um eins verfehlen. Verloren geht keine Warnung.
-- **Bewerbungsentwürfe** liegen unverschlüsselt im Browser-Speicher (Risiko an geteilten PCs). Die gleitende Sitzung hat keine absolute Obergrenze.
+- **Bewerbungsentwürfe** liegen unverschlüsselt im Browser-Speicher (Risiko an geteilten PCs). Die gleitende Sitzung endet spätestens 12 h nach dem Login.
 
-## 5. Offene Fragen an dich
+## 5. Entscheidungen (beantwortet am 20.10.2026) und offene Frage
 
-1. **Transkripte im Log-Kanal:** Jedes Transkript wird jetzt auch in den Protokollkanal „übernommene Tickets“ hochgeladen, so steht es im Plan, auch für vertrauliche Kategorien (Highteam, Führungsebene). Wer kann diesen Kanal sehen? Sollen vertrauliche Kategorien ausgenommen werden?
-2. **RP-Cooldown:** Er gilt global (60 s zwischen zwei Ankündigungen, auch Start → Stop). Passt das, oder soll er kürzer sein bzw. nur je Aktion gelten?
-3. **Bewerbungssitzung:** Soll es eine absolute Obergrenze geben (z. B. 12 h), auch wenn weiter geschrieben wird?
-4. **Freigabe:** Darf ich den Branch nach `main` mergen und pushen? Bot-Hosting übernimmt `main` beim nächsten Neustart. Vorschlag laut DOC-04: danach Version 7.10.0 und CHANGELOG-Eintrag.
+- **Transkripte im Log-Kanal:** alle hochladen, auch vertrauliche Kategorien – bleibt wie umgesetzt. Voraussetzung: den Protokollkanal „übernommene Tickets“ nur für die Leitung sichtbar halten.
+- **RP-Cooldown:** 60 s **je Aktion** – „RP Stop“ direkt nach „RP Start“ ist möglich (Commit „Phase 1 Entscheidungen“, Test `test_stop_right_after_start_is_allowed`).
+- **Bewerbungssitzung:** gleitend 3 h, **höchstens 12 h nach dem Discord-Login**; danach erneuter Login, der Entwurf bleibt im Browser (Test `test_renewal_never_exceeds_twelve_hours_after_login`).
+- **Offen – Freigabe:** Darf ich den Branch nach `main` mergen und pushen? Bot-Hosting übernimmt `main` beim nächsten Neustart. Vorschlag laut DOC-04: danach Version 7.10.0 und CHANGELOG-Eintrag.
