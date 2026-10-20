@@ -466,6 +466,21 @@ def load_ticket_card(ticket_id: str, *, with_meta: bool = False):
     return (embed, files, meta) if with_meta else (embed, files)
 
 
+def welcome_banner_choice(category: dict, panel: dict) -> tuple[str | None, str]:
+    """Banner of the ticket welcome: category upload > category URL > panel upload > panel URL."""
+    path = panel_image_path((category or {}).get("welcome_banner_file"))
+    if path:
+        return path, ""
+    url = str((category or {}).get("welcome_banner_url") or "")
+    if url.startswith("https://"):
+        return None, url
+    path = panel_image_path((panel or {}).get("welcome_banner_file"))
+    if path:
+        return path, ""
+    url = str((panel or {}).get("welcome_banner_url") or "")
+    return None, url if url.startswith("https://") else ""
+
+
 def control_view_for(ticket: dict) -> "TicketControlView":
     """A fresh control view showing the claim state. Never hand the persistent, registered
     instance to a layout conversion: its buttons would be re-parented and later clicks in
@@ -854,7 +869,7 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
     # Welcome images (same options as the panel): uploaded file > URL > creator avatar.
     welcome_files = []
     thumb_path = panel_image_path(panel.get("welcome_thumbnail_file"))
-    banner_path = panel_image_path(panel.get("welcome_banner_file"))
+    banner_path, banner_url = welcome_banner_choice(category_definition, panel)
     if thumb_path:
         welcome_files.append(discord.File(thumb_path, filename=os.path.basename(thumb_path)))
         embed.set_thumbnail(url=f"attachment://{os.path.basename(thumb_path)}")
@@ -865,8 +880,8 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
     if banner_path:
         welcome_files.append(discord.File(banner_path, filename=os.path.basename(banner_path)))
         embed.set_image(url=f"attachment://{os.path.basename(banner_path)}")
-    elif panel.get("welcome_banner_url"):
-        embed.set_image(url=panel["welcome_banner_url"])
+    elif banner_url:
+        embed.set_image(url=banner_url)
     embed.set_footer(text="Pulse Ticket-System • Ticket-Steuerung")
     embed.timestamp = discord.utils.utcnow()
     card_meta = {"ticket_id": tid, "category": label, "emoji": emoji, "creator_id": str(interaction.user.id)}

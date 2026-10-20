@@ -204,6 +204,60 @@ class CategorySaveTests(unittest.TestCase):
         self.post(category_id=key)  # older form without the field
         self.assertEqual(self.saved()["claimed_category_id"], 222)
 
+    def post_files(self, files=None, **extra):
+        perms = {k: True for k in self.ws.PERM_KEYS}
+        perms["is_admin"] = True
+        ctx = SimpleNamespace(user={"id": "1", "global_name": "A"}, guild=self.guild, guild_name="G", perms=perms,
+                              config={}, member=None, msg="", msg_ok=True)
+        data = {"name": "Highteam", "prefix": "highteam", "emoji": "💢", "description": "Vertraulich", "max_open": "3",
+                "group": "team", "category_id": "", "parent_category_id": "111", "builder_v2": "1"}
+        data.update(extra)
+        with patch.object(self.ws, "auth", lambda *a, **k: ctx), patch.object(self.ws, "log_audit", lambda *a, **k: None):
+            return self.client.post("/tickets/categories/save", data=data, files=files or {}, follow_redirects=False)
+
+    def test_category_banner_upload_replace_remove(self):
+        png = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+        with patch.object(self.ws, "TICKET_PANEL_IMAGE_DIR", Path(self.tmp.name) / "panels"):
+            self.post_files({"welcome_banner_upload": ("b.png", png, "image/png")})
+            first = self.saved()["welcome_banner_file"]
+            key = self.saved()["id"]
+            self.assertTrue(first.startswith(f"cat-{key}_welcome_banner_"))
+            self.assertTrue((Path(self.tmp.name) / "panels" / first).is_file())
+            self.post_files({"welcome_banner_upload": ("c.png", png, "image/png")}, category_id=key)
+            second = self.saved()["welcome_banner_file"]
+            self.assertNotEqual(first, second)
+            self.assertFalse((Path(self.tmp.name) / "panels" / first).exists())
+            self.post_files(category_id=key)  # saving without a file keeps it
+            self.assertEqual(self.saved()["welcome_banner_file"], second)
+            bad = self.post_files({"welcome_banner_upload": ("x.png", b"kein bild", "image/png")}, category_id=key)
+            self.assertIn("t=err", bad.headers["location"])
+            self.post_files(category_id=key, remove_welcome_banner="1")
+            self.assertEqual(self.saved()["welcome_banner_file"], "")
+            self.assertFalse((Path(self.tmp.name) / "panels" / second).exists())
+
+    def test_category_banner_url_validation(self):
+        bad = self.post_files(welcome_banner_url="http://unsicher.example/b.png")
+        self.assertIn("t=err", bad.headers["location"])
+        self.post_files(welcome_banner_url="https://cdn.example/b.png")
+        self.assertEqual(self.saved()["welcome_banner_url"], "https://cdn.example/b.png")
+
+
+class BannerChoiceTests(unittest.TestCase):
+    def test_category_banner_wins_over_panel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("cat-x_welcome_banner_aa.png", "panel_welcome_banner_bb.png"):
+                (Path(tmp) / name).write_bytes(b"x")
+            with patch.object(tickets, "PANEL_IMAGE_DIR", tmp):
+                choose = tickets.welcome_banner_choice
+                cat_file = {"welcome_banner_file": "cat-x_welcome_banner_aa.png"}
+                panel_file = {"welcome_banner_file": "panel_welcome_banner_bb.png", "welcome_banner_url": "https://p.example/b.png"}
+                self.assertTrue(choose(cat_file, panel_file)[0].endswith("cat-x_welcome_banner_aa.png"))
+                self.assertEqual(choose({"welcome_banner_url": "https://c.example/b.png"}, panel_file), (None, "https://c.example/b.png"))
+                self.assertTrue(choose({}, panel_file)[0].endswith("panel_welcome_banner_bb.png"))
+                self.assertEqual(choose({}, {"welcome_banner_url": "https://p.example/b.png"}), (None, "https://p.example/b.png"))
+                self.assertEqual(choose({"welcome_banner_url": "javascript:x"}, {}), (None, ""))
+                self.assertEqual(choose({"welcome_banner_file": "../../pulse.db"}, {}), (None, ""))
+
 
 if __name__ == "__main__":
     unittest.main()

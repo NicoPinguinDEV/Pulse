@@ -177,7 +177,7 @@ PREVIEW_JS = r"""
     const wm = $('[name=welcome_message]').value || 'Willkommen {user}! Beschreibe dein Anliegen bitte möglichst vollständig.';
     const fill = s => s.replaceAll('{user}','@Max').replaceAll('{user_name}','Max').replaceAll('{server}',data.server).replaceAll('{category}', cats[0] ? cats[0].name : 'Support').replaceAll('{ticket_id}','ticket_ab12cd34');
     document.getElementById('dcWelcome').style.borderLeftColor = color;
-    const wThumb = imageSrc('welcome_thumbnail'), wBanner = imageSrc('welcome_banner');
+    const wThumb = imageSrc('welcome_thumbnail'), wBanner = (cats[0] && cats[0].banner) || imageSrc('welcome_banner');
     if (data.modern) {
       const w = document.getElementById('dcWelcome');
       w.className = 'dc-embed dc-modern';
@@ -315,7 +315,9 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
             chips = "".join(f'<span class="tb-chip" data-value="{e(k)}" title="{e(v)}">{e(k)}</span>' for k, v in PLACEHOLDER_HELP)
             categories_json = {
                 k: {"name": str(m.get("name") or k), "emoji": str(m.get("emoji") or "🎫"), "open": open_counts.get(k, 0),
-                    "max": int(m.get("max_open") or 0), "button_style": str(m.get("button_style") or "primary")}
+                    "max": int(m.get("max_open") or 0), "button_style": str(m.get("button_style") or "primary"),
+                    "banner": (f"/tickets/panels/media/{m['welcome_banner_file']}" if m.get("welcome_banner_file")
+                               else str(m.get("welcome_banner_url") or ""))}
                 for k, m in active_categories
             }
             tb_data = {"categories": categories_json, "media": media, "server": guild.name,
@@ -408,6 +410,19 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
             delete = "" if is_new or meta.get("builtin") else (
                 f'<form method="post" action="/tickets/categories/delete" onsubmit="return confirm(\'Diese eigene Kategorie wirklich löschen?\')" class="mt-2">'
                 f'<input type="hidden" name="category_id" value="{e(key)}"><button class="pulse-btn bad" type="submit">Eigene Kategorie löschen</button></form>')
+            current_banner = meta.get("welcome_banner_file")
+            banner_src = (f"/tickets/panels/media/{e(current_banner)}" if current_banner
+                          else e(meta.get("welcome_banner_url") or ""))
+            banner_style = f' style="background-image:url(&quot;{banner_src}&quot;)"' if banner_src else ""
+            banner_remove = ('<label class="tb-check" style="margin-top:6px"><input type="checkbox" name="remove_welcome_banner" value="1"> Hochgeladenes Banner entfernen</label>'
+                             if current_banner else "")
+            banner_block = (
+                f'<div class="tb-img banner wide"><div class="thumb"{banner_style}>{"" if banner_src else "Panel-Banner wird verwendet"}</div><div class="grid gap-2">'
+                f'<b class="text-xs">🖼️ Banner dieser Kategorie (Begrüßung im Ticket)</b>'
+                f'<span class="text-[11px] text-slate-400">Großes Bild unten in der Begrüßung, z. B. „HIGHTEAM TICKET“. PNG, JPG, GIF oder WEBP bis 8 MB. Leer = Banner des Panels.</span>'
+                f'<input type="file" name="welcome_banner_upload" accept="image/png,image/jpeg,image/gif,image/webp">'
+                f'<input name="welcome_banner_url" value="{e(meta.get("welcome_banner_url") or "")}" placeholder="oder Bild-URL (https://…)" maxlength="500">{banner_remove}</div></div>'
+            )
             anchor = "new-category" if is_new else f"cat-{e(key)}"
             title = "➕ Neue Kategorie anlegen" if is_new else f'{e(meta.get("emoji") or "🎫")} {e(meta.get("name") or key)}'
             tags = "" if is_new else (
@@ -416,7 +431,7 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
                 f'<span class="tb-tag">{"eigene Begrüßung" if (meta.get("opening_message") or meta.get("welcome_title")) else "Panel-Begrüßung"}</span>')
             return f'''
 <details class="tb-card" id="{anchor}"><summary class="flex justify-between items-center gap-3 cursor-pointer"><b>{title}</b><span class="flex gap-1">{tags}</span></summary>
-<form method="post" action="/tickets/categories/save" class="tb-form mt-4">
+<form method="post" action="/tickets/categories/save" class="tb-form mt-4" enctype="multipart/form-data">
  <input type="hidden" name="builder_v2" value="1"><input type="hidden" name="category_id" value="{e(key)}"><input type="hidden" name="return_to" value="/tickets/panels?tab=categories">
  <label>Name<input name="name" value="{e(meta.get("name") or "")}" maxlength="80" required placeholder="z. B. Weiterbildung zum Sup"></label>
  <label>Emoji<input name="emoji" value="{e(meta.get("emoji") or "🎫")}" maxlength="100" required></label>
@@ -429,6 +444,7 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
  <label>Zuständige Rollen<select name="role_ids" multiple size="5">{role_opts}</select></label>
  <label>Button-Farbe (Buttons-Modus)<select name="button_style">{style_opts}</select></label>
  <label class="wide">Begrüßungstitel im Ticket<input name="welcome_title" value="{e(meta.get("welcome_title") or "")}" maxlength="256" placeholder="leer = Panel-Begrüßung"></label>
+ {banner_block}
  <label class="wide">Begrüßungsnachricht im Ticket<textarea name="opening_message" maxlength="1800" rows="5" placeholder="leer = Panel-Begrüßung. Platzhalter: {{user}}, {{user_name}}, {{server}}, {{category}}, {{ticket_id}}">{e(meta.get("opening_message") or "")}</textarea></label>
  <div class="wide"><b class="text-xs">Formular vor dem Öffnen (bis zu 5 Fragen)</b><p class="text-[11px] text-slate-400 mb-2">Die Antworten erscheinen in der Begrüßung des Tickets – das Team hat sofort alle Infos.</p>{q_rows}</div>
  <div class="wide"><button class="pulse-btn primary" type="submit">{"Kategorie erstellen" if is_new else "Kategorie speichern"}</button></div>

@@ -5030,9 +5030,15 @@ async def pulse_ticket_category_save(
     button_style: str = Form("primary"),
     builder_v2: bool = Form(False),
     return_to: str = Form(""),
+    welcome_banner_url: str = Form(""),
+    remove_welcome_banner: str = Form(""),
+    welcome_banner_upload: UploadFile | None = File(None),
     user_session: str = Cookie(None),
 ):
     ctx = auth(request, user_session, admin=True)
+    cleaned_banner_url = str(welcome_banner_url or "").strip()[:500]
+    if cleaned_banner_url and not re.fullmatch(r"https://[^\s<>\"']{4,500}", cleaned_banner_url):
+        return back("/tickets/panels?tab=categories", "Die Banner-URL muss mit https:// beginnen.", False)
     if builder_v2:
         # Questions arrive as q_label_1..5 (+placeholder/required/long) from the visual builder.
         form = await request.form()
@@ -5126,10 +5132,25 @@ async def pulse_ticket_category_save(
             "welcome_title": str(welcome_title).strip()[:256],
             "questions": questions,
             "button_style": button_style,
+            "welcome_banner_url": cleaned_banner_url,
+            "welcome_banner_file": str(previous.get("welcome_banner_file") or ""),
         })
+        # Own welcome banner per category (uploaded file > URL > panel banner).
+        owner = f"cat-{key}"
+        if remove_welcome_banner and category_value["welcome_banner_file"]:
+            _remove_ticket_panel_image(category_value["welcome_banner_file"], owner)
+            category_value["welcome_banner_file"] = ""
+        if welcome_banner_upload is not None and welcome_banner_upload.filename:
+            stored, error = await _store_ticket_panel_image(welcome_banner_upload, owner, "welcome_banner")
+            if error:
+                return back("/tickets/panels?tab=categories", error, False)
+            if category_value["welcome_banner_file"]:
+                _remove_ticket_panel_image(category_value["welcome_banner_file"], owner)
+            category_value["welcome_banner_file"] = stored
     else:
         # Older forms don't send these fields; keep what the visual builder stored.
-        for extra in ("welcome_title", "questions", "button_style", "claimed_category_id"):
+        for extra in ("welcome_title", "questions", "button_style", "claimed_category_id",
+                      "welcome_banner_url", "welcome_banner_file"):
             if extra in previous:
                 category_value[extra] = previous[extra]
     replaced = False
@@ -5165,6 +5186,9 @@ async def pulse_ticket_category_delete(
         if str(item.get("id") or "") == str(category_id):
             # Keep metadata so already-open or historic tickets retain their privacy and display labels.
             item["active"] = False
+            if item.get("welcome_banner_file"):
+                _remove_ticket_panel_image(item["welcome_banner_file"], f"cat-{category_id}")
+                item["welcome_banner_file"] = ""
             found = True
             break
     if not found:
