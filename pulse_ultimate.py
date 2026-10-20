@@ -2327,7 +2327,7 @@ async def automation_loop(bot):
         except asyncio.CancelledError:
             return
         except Exception as exc:
-            pulse_jobs.record_error("Automation (60 s)", exc, already_counted=True)  # was swallowed without any log before
+            pulse_jobs.record_error("Automation (60 s)", exc, already_counted=getattr(exc, "_pulse_job_counted", False))  # was swallowed without any log before
             await asyncio.sleep(60)
 
 

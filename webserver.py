@@ -399,16 +399,27 @@ def _config_cache_key():
 
 
 def load_config() -> dict:
-    # P-04: config.json is read on every authenticated request – parse it only when the file changed.
-    # Callers get their own copy, so changing it without save_json never leaks into the cache.
-    with _io_lock:
-        key = _config_cache_key()
-        if key is not None and key == _CONFIG_CACHE["key"] and abspath_corrupt_free(CONFIG_FILE):
-            cfg = copy.deepcopy(_CONFIG_CACHE["data"])
-        else:
-            cfg = load_json(CONFIG_FILE, {})
-            if key is not None and isinstance(cfg, dict) and abspath_corrupt_free(CONFIG_FILE):
-                _CONFIG_CACHE.update(key=key, data=copy.deepcopy(cfg))
+    # P-04: config.json is read on every authenticated request – the file is only read from disk when it
+    # changed (mtime/size). The raw bytes are cached and parsed per call (json.loads is several times
+    # cheaper than deepcopy), so every caller gets its own object and changes never leak into the cache.
+    key = _config_cache_key()
+    cached = _CONFIG_CACHE["data"] if key is not None and key == _CONFIG_CACHE["key"] else None
+    cfg = None
+    if cached is not None and abspath_corrupt_free(CONFIG_FILE):
+        try:
+            cfg = json.loads(cached)
+        except ValueError:
+            cfg = None
+    if cfg is None:
+        cfg = load_json(CONFIG_FILE, {})  # marks a corrupt file (K-05) exactly as before
+        if key is not None and isinstance(cfg, dict) and abspath_corrupt_free(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "rb") as fh:
+                    raw = fh.read()
+                if _config_cache_key() == key:  # unchanged while reading
+                    _CONFIG_CACHE.update(key=key, data=raw)
+            except OSError:
+                pass
     cfg.setdefault("team_role_ids", [])
     cfg.setdefault("weekly_goal_hours", 3.0)
     cfg.setdefault("permissions", {})

@@ -63,7 +63,7 @@ class Honeypot(commands.Cog):
     async def on_ready(self):
         """Ensure the warning embed exists without posting a duplicate on reconnect."""
         from pulse_ready import first_ready
-        if not first_ready(self.bot, "honeypot-card"):  # P-08: one history scan per process
+        if not first_ready(self.bot, "honeypot-card", min_interval=3600):  # P-08: at most hourly (card deleted -> back after reconnect)
             return
         channel = await self._get_honeypot_channel()
         if channel is None or not hasattr(channel, "send") or not hasattr(channel, "history"):

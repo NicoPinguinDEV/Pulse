@@ -39,6 +39,10 @@ async def job(name: str, interval_seconds: float | None = None):
             entry["failures"] += 1
             entry["last_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
             entry["last_error_at"] = _now_iso()
+            try:
+                exc._pulse_job_counted = True  # record_error must not count/log it twice
+            except AttributeError:
+                pass
             import pulse_logging
             pulse_logging.report_error(f"job.{name}", entry["last_error"])
         raise

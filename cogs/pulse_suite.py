@@ -233,6 +233,7 @@ def allowed(i,key,web):
                         source=f"Slash /{key}",
                     ),
                     name="team-safety-incident",
+                    critical=True,
                 )
             except RuntimeError:
                 pass

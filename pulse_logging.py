@@ -1,6 +1,7 @@
 """P-10 (Grundlage): central logging with a size-limited rotating file and a ring buffer of recent errors.
 
-* `setup()` (main.py) configures the "pulse" logger once: console + `logs/pulse.log` (1 MB × 3 files).
+* `setup()` (main.py) configures the "pulse" logger once: `logs/pulse.log` (1 MB × 3 files). The console
+  output stays the existing print() lines (no duplicate messages: propagation is switched off).
 * `report_error()` is used by the new error paths (dashboard errors, slash commands, background tasks
   and jobs). The last 200 errors are kept in memory for the system status – bounded for the RAM budget.
 * Never pass tokens, secrets or message contents of users; texts are cut to 300 characters.
@@ -25,6 +26,7 @@ def setup(base_dir: str | None = None, level: int = logging.INFO) -> logging.Log
     if _CONFIGURED:
         return logger
     logger.setLevel(level)
+    logger.propagate = False
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:
         folder = os.path.join(base_dir or os.getcwd(), "logs")

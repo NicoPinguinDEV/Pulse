@@ -110,7 +110,6 @@ def init_db():
                 closed_by_name TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status, priority, opened_at);
-CREATE INDEX IF NOT EXISTS idx_tickets_user ON tickets(user_id, guild_id, status);
             CREATE INDEX IF NOT EXISTS idx_tickets_claimed ON tickets(claimed_by_id, status);
             CREATE INDEX IF NOT EXISTS idx_tickets_user ON tickets(user_id, opened_at DESC);
 

@@ -27,13 +27,20 @@ def _done(task: asyncio.Task) -> None:
         traceback.print_exception(type(exc), exc, exc.__traceback__)
 
 
-def spawn(coro, *, name: str | None = None, loop: asyncio.AbstractEventLoop | None = None) -> asyncio.Task | None:
-    """Schedule `coro` on the running (or given) loop and keep it alive until it finishes."""
-    if len(_RUNNING) >= MAX_RUNNING:
+def spawn(coro, *, name: str | None = None, loop: asyncio.AbstractEventLoop | None = None,
+          critical: bool = False) -> asyncio.Task | None:
+    """Schedule `coro` on the running (or given) loop and keep it alive until it finishes.
+
+    `critical=True` (e.g. security alerts) is never dropped by the MAX_RUNNING limit."""
+    if len(_RUNNING) >= MAX_RUNNING and not critical:
         coro.close()
         print(f"⚠️ Hintergrundaufgabe {name or '?'} verworfen: bereits {MAX_RUNNING} Aufgaben aktiv.")
         return None
-    target = loop or asyncio.get_running_loop()
+    try:
+        target = loop or asyncio.get_running_loop()
+    except RuntimeError:
+        coro.close()  # no loop: close instead of leaving a never-awaited coroutine
+        raise
     task = target.create_task(coro, name=name)
     _RUNNING.add(task)
     task.add_done_callback(_done)
