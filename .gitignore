@@ -46,3 +46,13 @@ uploads/welcome_banners/
 
 # Automatic safety copies before data repairs
 *.vor-reparatur-*.bak
+
+# K-15: further runtime data (member/evidence data – never commit)
+social_promo_sources.json
+ai_moderation_cases.json
+pulse_announcement_archive.json
+attachments/
+uploads/
+*.restore.tmp*
+*.db-shm
+*.json.tmp

@@ -29,3 +29,12 @@ role_nickname_state.json
 *.json.tmp
 backups
 transcripts
+
+# K-15: runtime data must not be baked into the image
+pulse_announcement_archive.json
+social_promo_sources.json
+ai_moderation_cases.json
+uploads
+attachments
+*.restore.tmp*
+*.vor-reparatur-*.bak
