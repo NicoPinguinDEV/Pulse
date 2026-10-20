@@ -2574,6 +2574,12 @@ def register(app):
         for wr in ws.warning_role_health(c.guild,c.config):
             checks.append((f'Warn-Rolle {wr["level"]}',wr["ok"],f'{wr["role"].name if wr["role"] else "nicht gefunden"} · {wr["detail"]}'))
         checks.append(('Backups',os.path.isdir(ws.BACKUP_DIR),'Backup-Verzeichnis'))
+        try:
+            from cogs.advanced_logs import log_channel_status
+            log_problem=log_channel_status(c.guild)
+        except Exception:
+            log_problem='Status nicht prüfbar'
+        checks.append(('Moderations-Log',not log_problem,log_problem or 'Log-Kanal eingerichtet'))
         expected=set()
         try: expected={n[:-3] for n in os.listdir(os.path.join(ws.BASE_DIR,'cogs')) if n.endswith('.py') and n!='__init__.py'}
         except Exception: pass

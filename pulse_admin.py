@@ -293,6 +293,37 @@ def register(app) -> None:
   <div><div class="text-xs font-bold mb-2">Vorschau (wird nicht gesendet)</div><div class="dc-wrap">{preview}</div></div>
  </div></div></section>'''
 
+    # K-12 / K-02: moderation log channel and who may use the RP panel (besides admins and leaders).
+    def selectable_roles(guild) -> list:
+        guild_id = getattr(guild, "id", None)
+        roles = [r for r in (getattr(guild, "roles", []) or [])
+                 if getattr(r, "id", None) != guild_id and not getattr(r, "managed", False)]
+        return sorted(roles, key=lambda r: getattr(r, "position", 0), reverse=True)
+
+    def logs_section(ctx) -> str:
+        from cogs.advanced_logs import LOG_SETTING_KEY, log_channel_status
+        from cogs.rp_verwaltung import ROLE_SETTING_KEY
+        guild = ctx.guild
+        log_id = str(pulse_db.get_setting(LOG_SETTING_KEY, "") or "")
+        rp_roles = {str(v) for v in (pulse_db.get_setting(ROLE_SETTING_KEY, []) or [])}
+        problem = log_channel_status(guild)
+        state = (f'<div class="text-xs text-amber-500 mt-1">⚠️ {e(problem)}</div>' if problem
+                 else '<div class="text-xs text-emerald-500 mt-1">✓ Protokolliert Bearbeitungen, Voice- und Rollenänderungen.</div>')
+        role_boxes = "".join(
+            f'<label class="pulse-check"><input type="checkbox" name="rp_role_ids" value="{r.id}"{" checked" if str(r.id) in rp_roles else ""}> {e(r.name)}</label>'
+            for r in selectable_roles(guild)) or '<div class="text-[11px] text-slate-400">Keine Rollen gefunden (Bot nicht bereit?).</div>'
+        return f'''
+<form method="post" action="/admin/discord/logs" class="mt-5">
+<section class="pulse-card" id="logs"><div class="pulse-card-h"><div class="pulse-section-title">📜 Moderations-Log &amp; RP-Panel</div>
+ <span class="pulse-pill {"" if problem else "good"}">{"aus" if problem else "aktiv"}</span></div>
+ <div class="pulse-card-b grid lg:grid-cols-2 gap-5">
+  <div><label class="grid gap-1 text-xs font-semibold">Log-Kanal (Bearbeitungen, Voice, Rollen)<select class="pulse-input" name="log_channel_id">{channel_options(guild, log_id)}</select></label>{state}</div>
+  <div><div class="text-xs font-semibold mb-1">Zusätzliche Rollen für das RP-Panel (RP Start/Stop)</div>
+   <div class="grid gap-1 max-h-48 overflow-auto rounded-xl border border-slate-200 dark:border-slate-800 p-2">{role_boxes}</div>
+   <div class="text-[11px] text-slate-400 mt-1">Admins und Leitung (Beförderungsrecht) dürfen immer. Alle anderen nur mit einer der gewählten Rollen.</div></div>
+  <div><button class="pulse-btn primary" type="submit">💾 Log &amp; RP-Panel speichern</button></div>
+ </div></section></form>'''
+
     def discord_page(ctx, settings: dict, brand: dict, errors: list[str] | None = None,
                      vset: dict | None = None, verrors: list[str] | None = None) -> HTMLResponse:
         guild = ctx.guild
@@ -363,6 +394,7 @@ def register(app) -> None:
 </div></div>
 {alert}
 {verification_section(ctx, vset or load_verification(), verrors)}
+{logs_section(ctx)}
 <form method="post" action="/admin/discord/welcome" enctype="multipart/form-data" class="space-y-5 mt-5">
  {kind_form("welcome")}
  {kind_form("leave")}
@@ -488,6 +520,24 @@ def register(app) -> None:
         ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Embed-Design geändert",
                      f"Footer: {value['footer_text']}")
         return ws.back("/admin/discord", "Embed-Design gespeichert.", True)
+
+    @app.post("/admin/discord/logs")
+    async def admin_discord_logs(request: Request, user_session: str = Cookie(None)):
+        ctx = admin_ctx(request, user_session)
+        from cogs.advanced_logs import LOG_SETTING_KEY
+        from cogs.rp_verwaltung import ROLE_SETTING_KEY
+        form = await request.form()
+        guild = ctx.guild
+        raw_channel = str(form.get("log_channel_id", "") or "").strip()
+        if raw_channel and (not raw_channel.isdigit() or guild.get_channel(int(raw_channel)) is None):
+            return ws.back("/admin/discord#logs", "Der Log-Kanal gehört nicht zu diesem Server.", False)
+        known = {str(r.id) for r in selectable_roles(guild)}
+        role_ids = [rid for rid in dict.fromkeys(str(v) for v in form.getlist("rp_role_ids")) if rid in known]
+        pulse_db.set_setting(LOG_SETTING_KEY, raw_channel)
+        pulse_db.set_setting(ROLE_SETTING_KEY, role_ids)
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Log & RP-Panel geändert",
+                     f"Log-Kanal {raw_channel or 'aus'}, RP-Rollen {', '.join(role_ids) or 'keine'}")
+        return ws.back("/admin/discord#logs", "Moderations-Log und RP-Panel gespeichert.", True)
 
     @app.post("/admin/discord/test")
     async def admin_discord_test(request: Request, kind: str = Form(...), user_session: str = Cookie(None)):
