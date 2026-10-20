@@ -8406,72 +8406,74 @@ def safe_backup_path(filename: str):
 async def auto_backup_loop():
     if AUTO_BACKUP_HOURS <= 0:
         return
+    import pulse_jobs  # P-06: the auto-backup check is visible in the job registry
     while True:
         await asyncio.sleep(300)
         try:
-            bot = getattr(app.state, "bot", None)
-            guild = bot.get_guild(GUILD_ID) if bot else None
-            if guild:
-                times = [
-                    os.path.getmtime(os.path.join(BACKUP_DIR, f))
-                    for f in os.listdir(BACKUP_DIR)
-                    if BACKUP_NAME_RE.fullmatch(f)
-                ]
-                if not times or time.time() - max(times) > AUTO_BACKUP_HOURS * 3600:
-                    name = await create_backup_file_async(guild, "auto_")
-                    log_audit("System", "0", "Auto-Backup", name)
-                    await run_auto_full_backup(guild)  # D-01/D-04: complete ZIP, retention, weekly restore test
+            async with pulse_jobs.job("Auto-Backup-Prüfung (5 min)", 300):
+                bot = getattr(app.state, "bot", None)
+                guild = bot.get_guild(GUILD_ID) if bot else None
+                if guild:
+                    times = [
+                        os.path.getmtime(os.path.join(BACKUP_DIR, f))
+                        for f in os.listdir(BACKUP_DIR)
+                        if BACKUP_NAME_RE.fullmatch(f)
+                    ]
+                    if not times or time.time() - max(times) > AUTO_BACKUP_HOURS * 3600:
+                        name = await create_backup_file_async(guild, "auto_")
+                        log_audit("System", "0", "Auto-Backup", name)
+                        await run_auto_full_backup(guild)  # D-01/D-04: complete ZIP, retention, weekly restore test
 
-                    # Optional off-host copy. The local backup remains valid even
-                    # when Discord uploads fail or the attachment exceeds the cap.
-                    raw_channel_id = os.getenv("PULSE_BACKUP_DISCORD_CHANNEL_ID", "").strip()
-                    if not raw_channel_id:
-                        raw_channel_id = str(load_config().get("backup_discord_channel_id", "") or "")
-                    try:
-                        channel_id = int(raw_channel_id)
-                    except (TypeError, ValueError):
-                        channel_id = 0
-                    channel = (bot.get_channel(channel_id) or guild.get_channel(channel_id)) if channel_id else None
-                    if channel and hasattr(channel, "send"):
-                        full_path = os.path.join(BACKUP_DIR, name)
-                        size = os.path.getsize(full_path)
-                        embed = discord.Embed(
-                            title="💾 Automatische Pulse-Sicherung",
-                            description=(
-                                "Eine vollständige Pulse-Panel-Sicherung wurde erstellt. "
-                                "Die lokale Kopie bleibt zusätzlich im Dashboard unter /backups verfügbar."
-                            ),
-                            color=_pulse_color("success") if size <= 7_500_000 else _pulse_color("warning"),
-                            timestamp=now_de(),
-                        )
-                        embed.add_field(name="Datei", value=os.path.basename(name), inline=False)
-                        embed.add_field(name="Größe", value=f"{size / (1024 * 1024):.2f} MiB", inline=True)
+                        # Optional off-host copy. The local backup remains valid even
+                        # when Discord uploads fail or the attachment exceeds the cap.
+                        raw_channel_id = os.getenv("PULSE_BACKUP_DISCORD_CHANNEL_ID", "").strip()
+                        if not raw_channel_id:
+                            raw_channel_id = str(load_config().get("backup_discord_channel_id", "") or "")
                         try:
-                            if size <= 7_500_000:
-                                await send_styled(
-                                    channel,
-                                    embed=embed,
-                                    file=discord.File(full_path, filename=os.path.basename(name)),
-                                    allowed_mentions=discord.AllowedMentions.none(),
-                                )
-                            else:
-                                embed.add_field(
-                                    name="Offsite-Kopie",
-                                    value="Upload übersprungen: Datei ist zu groß. Nur die lokale Sicherung wurde erstellt.",
-                                    inline=False,
-                                )
-                                await send_styled(
-                                    channel,
-                                    embed=embed,
-                                    allowed_mentions=discord.AllowedMentions.none(),
-                                )
-                            log_audit("System", "0", "Auto-Backup Discord-Kopie", f"{name} · {size} Bytes")
-                        except (discord.Forbidden, discord.HTTPException, OSError) as upload_error:
-                            log_audit(
-                                "System", "0", "Auto-Backup Upload Fehler",
-                                f"{name} · {type(upload_error).__name__}",
+                            channel_id = int(raw_channel_id)
+                        except (TypeError, ValueError):
+                            channel_id = 0
+                        channel = (bot.get_channel(channel_id) or guild.get_channel(channel_id)) if channel_id else None
+                        if channel and hasattr(channel, "send"):
+                            full_path = os.path.join(BACKUP_DIR, name)
+                            size = os.path.getsize(full_path)
+                            embed = discord.Embed(
+                                title="💾 Automatische Pulse-Sicherung",
+                                description=(
+                                    "Eine vollständige Pulse-Panel-Sicherung wurde erstellt. "
+                                    "Die lokale Kopie bleibt zusätzlich im Dashboard unter /backups verfügbar."
+                                ),
+                                color=_pulse_color("success") if size <= 7_500_000 else _pulse_color("warning"),
+                                timestamp=now_de(),
                             )
-                            print(f"⚠️ Auto-Backup ist lokal vorhanden; Discord-Kopie fehlgeschlagen ({type(upload_error).__name__}).")
+                            embed.add_field(name="Datei", value=os.path.basename(name), inline=False)
+                            embed.add_field(name="Größe", value=f"{size / (1024 * 1024):.2f} MiB", inline=True)
+                            try:
+                                if size <= 7_500_000:
+                                    await send_styled(
+                                        channel,
+                                        embed=embed,
+                                        file=discord.File(full_path, filename=os.path.basename(name)),
+                                        allowed_mentions=discord.AllowedMentions.none(),
+                                    )
+                                else:
+                                    embed.add_field(
+                                        name="Offsite-Kopie",
+                                        value="Upload übersprungen: Datei ist zu groß. Nur die lokale Sicherung wurde erstellt.",
+                                        inline=False,
+                                    )
+                                    await send_styled(
+                                        channel,
+                                        embed=embed,
+                                        allowed_mentions=discord.AllowedMentions.none(),
+                                    )
+                                log_audit("System", "0", "Auto-Backup Discord-Kopie", f"{name} · {size} Bytes")
+                            except (discord.Forbidden, discord.HTTPException, OSError) as upload_error:
+                                log_audit(
+                                    "System", "0", "Auto-Backup Upload Fehler",
+                                    f"{name} · {type(upload_error).__name__}",
+                                )
+                                print(f"⚠️ Auto-Backup ist lokal vorhanden; Discord-Kopie fehlgeschlagen ({type(upload_error).__name__}).")
         except Exception as e:
             print(f"Auto-Backup fehlgeschlagen: {type(e).__name__}: {e}")
 

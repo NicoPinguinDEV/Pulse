@@ -18,6 +18,7 @@ Jeder dieser Handler wird beim Start registriert und danach durch eine neuere Ve
 | `/achievements`, `/calendar`, `/stats`, `/tasks`, `/search`, `/pulse-inbox`, `/meetings-history` | jeweils `pulse_features.*_page` | `pulse_pro.*_v5` | löschen |
 | `POST /tasks/update`, `/tickets/update`, `/pulse-inbox/read`, `/backup/restore` | `pulse_features.*` | `pulse_pro.*` bzw. `webserver.restore_backup` | löschen |
 | `/health`, `/manifest.webmanifest`, `/sw.js` | `pulse_features.*` | `pulse_pro.*` | löschen |
+| – (Hintergrundschleife) | `pulse_features.housekeeping` – wird nie gestartet, `pulse_pro` hat die aktive Housekeeping-Schleife | `cogs/pulse_pro.housekeeping_loop` | löschen |
 | `GET /ultimate` (doppelt registriert) | `pulse_ultimate` (2. Treffer) | `webserver` (1. Treffer) | den nie erreichten Zweig löschen |
 
 ## B. Gleiche Aufgabe unter mehreren Adressen (sichtbar für Nutzer)
