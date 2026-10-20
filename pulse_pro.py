@@ -2608,6 +2608,15 @@ def register(app):
             checks.append(('Restore-Test',bool(test.get('ok')),(('bestanden · ' if test.get('ok') else 'fehlgeschlagen · ')+ws.display(test.get('at'))+('' if test.get('ok') else ' · '+'; '.join(test.get('problems',[]))[:160])) if test else 'läuft automatisch einmal pro Woche'))
         except Exception:
             pass
+        try:
+            import pulse_consistency  # D-10 report only, D-07 growth watch
+            for finding in pulse_consistency.check(ws,c.guild):
+                checks.append((f"Konsistenz · {finding['area']}",finding['ok'],finding['text']))
+            for item in pulse_consistency.growth(ws.BASE_DIR):
+                if not item['ok']:
+                    checks.append((f"Dateigröße · {item['name']}",False,f"{item['size']/(1024*1024):.1f} MB – wird bei fast jeder Seite komplett gelesen (Auslagerung in A-05)"))
+        except Exception as exc:
+            checks.append(('Konsistenz',False,f'Prüfung fehlgeschlagen ({type(exc).__name__})'))
         for problem in ws.corrupt_json_files().values():
             checks.append(('Datendatei',False,f'{problem} – Schreiben gesperrt'))
         expected=set()
