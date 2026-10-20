@@ -87,84 +87,84 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 ## 4. Phase 1 – Kritische Fehler & Sicherheit
 
-- [ ] **K-01 Bewerbungsportal: lange Bewerbungen gehen verloren** [Nachgewiesen]
+- [x] **K-01 Bewerbungsportal: lange Bewerbungen gehen verloren** [Nachgewiesen] — **erledigt:** 0bc6e2b – `tests/test_apply_session.py` (6 Tests): Sitzung 3 h gleitend, Entwurf im Browser, abgelaufene Sitzung → Login führt zur Laufbahn zurück, Fehlerseiten verlinken das ausgefüllte Formular.
   - *Befund:* Die Bewerbungssitzung gilt nur 30 Minuten (`webserver.py:2718` `apply_exp = jetzt + 1800`, Cookie `max_age=1800` in `:2727` und `:6802`). Der Eignungstest hat 12/22/30 Fragen plus Praxisaufgaben und Motivation. Wer länger braucht, bekommt beim Absenden „Discord-Verknüpfung fehlt“ (`:8775`) – alle Antworten sind weg: Fehlerseiten verlinken nur zurück auf ein leeres `/apply`, und global ist `Cache-Control: no-store` gesetzt (`:192`). Dasselbe bei Rate-Limit, Validierungsfehler im Test (`:8803`) usw.
   - *Umsetzung:* Sitzung nach E-12 verlängern bzw. gleitend erneuern; Entwurf automatisch im Browser speichern (localStorage je Discord-ID + Laufbahn, in try/catch, nach erfolgreichem Absenden löschen); jede Fehlerseite bietet „Zurück zum Formular – deine Antworten sind noch da“; Anzeige der Restzeit + „Sitzung verlängern“ (erneuter Discord-Login ohne Datenverlust). Serverseitige Prüfungen (Rolle, Score, Module) bleiben unverändert.
   - *Fertig wenn:* Tests – abgelaufene Sitzung → Entwurf bleibt, nach erneutem Login wiederhergestellt; Validierungsfehler → Eingaben erhalten; Score weiterhin nicht manipulierbar.
 
-- [ ] **K-02 RP-Verwaltung: jeder Panel-Nutzer kann @everyone auslösen und Nachrichten löschen** [Nachgewiesen]
+- [x] **K-02 RP-Verwaltung: jeder Panel-Nutzer kann @everyone auslösen und Nachrichten löschen** [Nachgewiesen] — **erledigt:** 823837c – `tests/test_rp_verwaltung.py` (7 Tests): Unberechtigte bekommen eine ephemere Absage, nichts wird gesendet/gelöscht; nur die eigene letzte Ankündigung wird entfernt.
   - *Befund:* `RPSelect.callback` (`cogs/rp_verwaltung.py:113`) und `RPStopModal.on_submit` prüfen keine Rolle. Wer das Panel sieht, sendet eine @everyone-Ankündigung; vorher löscht `send_rp_announcement` per `ch.purge(limit=10)` (`:52`) die letzten 10 Nachrichten **beliebiger Autoren**; ist kein Kanal gespeichert, fällt es auf den aktuellen Kanal zurück (`:47`). Die Uhrzeit aus dem Modal landet ungefiltert in der @everyone-Nachricht.
   - *Umsetzung:* Rechteprüfung (Standard: Admin oder `can_promote`, Rollen im Dashboard konfigurierbar – frag mich, falls unklar ist, wer das Panel heute bedient), Cooldown, nur die eigene letzte Ankündigung löschen (Nachrichten-ID speichern) statt `purge`, kein Fallback-Kanal (klare Fehlermeldung), Eingabe prüfen (Uhrzeit oder „Offen“) und Erwähnungen entschärfen, `AllowedMentions(everyone=True)` nur für genau diese Nachricht, Audit-Eintrag.
   - *Fertig wenn:* Test mit Fake-Interaction – Unberechtigte bekommen eine ephemere Ablehnung, es wird nichts gesendet oder gelöscht.
 
-- [ ] **K-03 Session-Secret und Token-Typen** [Nachgewiesen]
+- [x] **K-03 Session-Secret und Token-Typen** [Nachgewiesen] — **erledigt:** 31840e0 + 6aacfb5 – `tests/test_session_tokens.py` (7 Tests): Platzhalter/zu kurze Secrets werden nicht genutzt, Dashboard- und Bewerbungs-Token nicht austauschbar, aktiver Systemstatus zeigt das Problem.
   - *Befund:* `_load_secret()` (`webserver.py:717`) übernimmt `SESSION_SECRET` ungeprüft – auch den Platzhalter `change-me-to-a-long-random-secret` aus `.env.example`. Ist er gesetzt, kann jeder `user_session`-Cookies für beliebige Discord-IDs signieren (Server-Owner-ID = Vollzugriff). Außerdem werden `user_session` und `apply_session` mit demselben Schlüssel ohne Typ-Feld signiert; unterschieden wird nur über `exp` vs. `apply_exp`.
   - *Umsetzung:* Platzhalter und zu kurze Secrets (< 32 Zeichen) nach E-10 behandeln, Warnung in Systemstatus und `/pulse-diagnose`; neue Tokens mit `typ` und Ausstellungszeit; alte Tokens bis zu ihrem Ablauf weiter akzeptieren. Prüfe in der echten `.env`, ob der Platzhalter steht – nur per `grep -c`, nichts ausgeben.
   - *Fertig wenn:* Tests – Platzhalter wird nicht verwendet; ein Bewerbungs-Token wird als Dashboard-Token abgelehnt und umgekehrt; bestehende gültige Sitzungen funktionieren weiter.
 
-- [ ] **K-04 Verlorene Änderungen durch parallele Aktionen (Race Condition)** [Nachgewiesen]
+- [x] **K-04 Verlorene Änderungen durch parallele Aktionen (Race Condition)** [Nachgewiesen] — **erledigt:** a769a3a + 41293d9 – `tests/test_concurrent_writes.py` (8 Tests): zwei überlappende Warn-Abläufe mit `asyncio.sleep` behalten beide Warnungen; Schicht-, Activity-Check- und Voice-Fall-Schreibvorgänge verlieren nichts. **Teilumsetzung**, Reststellen im Phasenbericht.
   - *Befund:* Warnung im Dashboard: `team_db = load_json(DATA_FILE)` (`webserver.py:9214`) → zwei `await`s (`:9220`, `:9226`) → `save_json` (`:9239`) → weitere `await`s mit Discord-Rollenänderungen (`:9241–9242`) → erneutes `save_json` des **alten Schnappschusses** (`:9243`). Gleiches Muster in `/warn` (`cogs/pulse_suite.py:1001–1037`), in `process_overdue_shifts` (`webserver.py:911`) und bei Warn-Rücknahme/Rangwechseln. Überlappen zwei Aktionen (zwei Leitungen verwarnen gleichzeitig, automatische Schicht-Warnung, Notiz), überschreibt die zweite die erste → Warnungen/Notizen verschwinden. [Prüfen] Gleiches Risiko beim Voice-Support: die Pro-Fall-Locks (`_case_action_lock`) schützen nicht den gemeinsamen `voice_support_cases`-Blob, der nach mehreren `await`s komplett zurückgeschrieben wird (`cogs/voice_support.py` z. B. `:491`, `:511`, `:540`).
   - *Umsetzung:* zentraler Helfer (z. B. `async with store.mutate(DATA_FILE) as data:`) mit `asyncio.Lock` je Datei/Schlüssel; Laden → Ändern → Speichern ohne `await` dazwischen; Discord-Aufrufe vor oder nach dem kritischen Abschnitt; Folgeänderungen als eigenes `mutate`. Alle schreibenden Stellen für `team_data.json`, `applications.json`, `shifts.json`, `meetings.json` und den Voice-Support-Blob umstellen (Fundstellen per Subagent sammeln).
   - *Fertig wenn:* Nebenläufigkeitstest (zwei Coroutinen mit künstlichem `await asyncio.sleep(...)` dazwischen) verliert keine Warnung und keinen Fall; alle bestehenden Tests grün.
 
-- [ ] **K-05 Beschädigte JSON-Datei wird still mit Standardwerten überschrieben** [Nachgewiesen]
+- [x] **K-05 Beschädigte JSON-Datei wird still mit Standardwerten überschrieben** [Nachgewiesen] — **erledigt:** 751d491 – `tests/test_json_safety.py` (4 Tests): kaputte `config.json` wird gesichert (`.corrupt-…`), nicht überschrieben, Dashboard zeigt 503-Hinweis, Systemstatus listet die Datei.
   - *Befund:* `load_json` (`webserver.py:256`) liefert bei jedem Lese-/Parse-Fehler still den Default (`{}`/`[]`); das nächste `save_json` überschreibt dann z. B. `config.json` (Rollen, Rechte, Einstellungen) oder `team_data.json` (alle Warnungen) mit fast leeren Daten. `save_json` (`:267`) schreibt ohne `flush`/`fsync` vor `os.replace` – nach Stromausfall oder hartem Container-Stopp ist eine leere Datei möglich.
   - *Umsetzung:* Parse-Fehler → Datei als `<name>.corrupt-<zeitstempel>` sichern, laut loggen + Systemalarm, Schreibzugriffe auf diese Datei sperren (sichtbarer Degraded-Modus) statt überschreiben; `fsync` für Datei und Verzeichnis.
   - *Fertig wenn:* Test – kaputte `config.json` wird nicht überschrieben, Sicherungskopie existiert, verständliche Meldung im Dashboard.
 
-- [ ] **K-06 Ticket-Kanal wird gelöscht, obwohl das Transkript fehlschlug** [Nachgewiesen]
+- [x] **K-06 Ticket-Kanal wird gelöscht, obwohl das Transkript fehlschlug** [Nachgewiesen] — **erledigt:** fd0177c – `tests/test_ticket_archive.py` (3 Tests): `history()` schlägt fehl → Kanal bleibt, Ticket bleibt offen; Erfolg → Transkript + Anhänge ≤ 8 MB gesichert, Upload in den Log-Kanal.
   - *Befund:* `archive_ticket` (`cogs/tickets.py:690`) fängt Fehler beim Transkript ab, schließt das Ticket trotzdem und löscht den Kanal → Verlauf unwiederbringlich weg. `transcript()` (`:448`) speichert Anhänge nur als Discord-CDN-Links; diese signierten Links laufen ab.
   - *Umsetzung:* ohne gespeichertes Transkript **kein** Löschen – Kanal sperren und umbenennen (`geschlossen-…`), Team informieren, Knopf „Erneut archivieren“; Transkript zusätzlich in den Ticket-Log-Kanal hochladen; Anhänge bis zu einem Größenlimit mitsichern (E-7); optional lesbares HTML-Transkript.
   - *Fertig wenn:* Test mit Fake-Kanal, dessen `history()` fehlschlägt → Kanal bleibt bestehen, Ticketstatus nachvollziehbar.
 
-- [ ] **K-07 Buttons funktionieren nach einem Neustart nicht mehr** [Nachgewiesen]
+- [x] **K-07 Buttons funktionieren nach einem Neustart nicht mehr** [Nachgewiesen] — **erledigt:** 8a5014b – `tests/test_persistent_buttons.py` (5 Tests): Handler für neue (`pulse:suite-ticket:…`) und alte custom_ids nach simuliertem Neustart; Büro-Anfrage wird aus der DB wiederhergestellt.
   - *Befund:* `TicketView` in `cogs/pulse_suite.py:681` (interne Fälle aus `/pulse-ticket`) hat `timeout=None`, aber keine `custom_id`s und wird nie per `add_view` registriert. `BueroUebernehmenView` (`cogs/buero_system.py:251`) speichert Nutzer und Büro im Objekt, nutzt eine feste `custom_id` (`buero_uebernehmen_btn`) und wird nach einem Neustart ebenfalls nicht registriert. Folge nach jedem Deploy: „Interaktion fehlgeschlagen“ auf allen offenen Fällen und Büro-Anfragen.
   - *Umsetzung:* `discord.ui.DynamicItem` mit dem Zustand in der `custom_id` (z. B. `pulse:suite-ticket:claim:<id>`, `pulse:buero:take:<user>:<kanal>`), Registrierung per `bot.add_dynamic_items(...)`; Fallback für bereits gepostete alte Nachrichten (alte `custom_id` erkennen, Zustand aus DB/Nachricht ableiten oder freundlich auf eine neue Anfrage verweisen). Alle übrigen Views prüfen und als Tabelle im Bericht aufführen.
   - *Fertig wenn:* Test – nach simuliertem Neustart gibt es Handler für neue und alte `custom_id`s.
 
-- [ ] **K-08 Der globale Slash-Fehlerhandler wird nie aufgerufen** [Nachgewiesen]
+- [x] **K-08 Der globale Slash-Fehlerhandler wird nie aufgerufen** [Nachgewiesen] — **erledigt:** 1d0f5d3 – `tests/test_command_errors.py` (5 Tests): jeder Slash-Fehler wird beantwortet, unerwartete Fehler mit Fehler-ID.
   - *Befund:* `cogs/pulse_pro.py:470` registriert `on_app_command_error` als Listener – dieses Event dispatcht discord.py nicht (nur `app_command_completion`). Fehler und fehlende Rechte aus `app_commands.checks.has_permissions(...)` landen nur im Log; Nutzer sehen „Die Anwendung reagiert nicht“.
   - *Umsetzung:* Handler über `bot.tree.error` bzw. eine eigene `CommandTree`-Unterklasse in `main.py`: `MissingPermissions`, `CheckFailure`, `CommandOnCooldown`, `TransformerError` → passende ephemere Meldung; sonst Fehler-ID + Log (P-10); je nach `interaction.response.is_done()` per Followup.
   - *Fertig wenn:* Unit-Test mit Fake-Interaction für jede Fehlerart.
 
-- [ ] **K-09 Bestätigungsdialoge (Warnung, Kick, Rangwechsel) laufen in Discord-Timeouts** [Nachgewiesen]
+- [x] **K-09 Bestätigungsdialoge (Warnung, Kick, Rangwechsel) laufen in Discord-Timeouts** [Nachgewiesen] — **erledigt:** 1470120 – `tests/test_confirm_dialog.py` (4 Tests): Antwort kommt vor der Arbeit, Doppelklick erzeugt keine zweite Aktion, Rechte werden beim Klick neu geprüft, Ablauf wird angezeigt.
   - *Befund:* Die `Confirm`-Callbacks in `cogs/pulse_suite.py` (z. B. `/warn`, `:994–1063`) führen mehrere Discord-Aufrufe aus (Rollen, Team-Update, DM), **bevor** sie die Interaktion beantworten (`x.response.edit_message` erst in `:1063`). Dauert das wegen Rate-Limits länger als 3 s: „Interaktion fehlgeschlagen“, obwohl die Warnung gespeichert ist – Gefahr doppelter Warnungen. `Confirm` (`:666`) hat kein `on_timeout` (Buttons bleiben klickbar und schlagen fehl), zeigt rohe Exception-Texte (`str(e)`) und prüft Rechte/Notfallsperre beim Klick nicht erneut.
   - *Umsetzung:* sofort `edit_message(content="⏳ Wird ausgeführt …", view=None)` bzw. `defer`, danach `edit_original_response`; `on_timeout` deaktiviert die Buttons; generische Fehlermeldung mit Fehler-ID; `allowed()`/`locked()` beim Bestätigen erneut prüfen; ein Klick = genau eine Aktion.
   - *Fertig wenn:* Test mit verzögertem Fake-Discord – Antwort kommt vor der Arbeit; Doppelklick erzeugt keine zweite Warnung.
 
-- [ ] **K-10 Voice-Support-Audio im Docker-Image nicht lauffähig** [Nachgewiesen]
+- [x] **K-10 Voice-Support-Audio im Docker-Image nicht lauffähig** [Nachgewiesen] — **erledigt:** 63a7743 – `tests/test_audio_check.py` (3 Tests); Prüfskript `python pulse_audio_check.py`. Im gebauten Container **nicht ausführbar** (kein Docker auf dem Entwicklungsrechner); lokal: ffmpeg fehlt, opus OK.
   - *Befund:* `cogs/voice_support.py:1122` nutzt `discord.FFmpegPCMAudio` → braucht das Programm `ffmpeg` und die Bibliothek `libopus`. Das `Dockerfile` (python:3.14-slim) installiert nur `ca-certificates`. Auf dem VPS fallen Ansage und Wartemusik damit aus.
   - *Umsetzung:* `ffmpeg` und `libopus0` installieren; Start-Diagnose (`shutil.which("ffmpeg")`, `discord.opus.is_loaded()`) in Systemstatus und `/pulse-diagnose`; klare Log-Meldung statt stillem Ausfall.
   - *Fertig wenn:* Prüfskript im gebauten Container meldet ffmpeg und opus OK (ohne Docker: als „nicht ausführbar“ berichten).
 
-- [ ] **K-11 Honeypot bannt jeden – ohne Spam aufzuräumen** [Nachgewiesen, Umsetzung nach E-1]
+- [x] **K-11 Honeypot bannt jeden – ohne Spam aufzuräumen** [Nachgewiesen, Umsetzung nach E-1] — **verworfen: Entscheidung E-1** (Honeypot bleibt wie bisher).
   - *Befund:* `cogs/honeypot.py:167` `guild.ban(author, reason=…)` ohne Ausnahme für Team/Admins und ohne `delete_message_seconds` → ein Fehlklick eines Teamlers = Bann; Spam eines gehackten Kontos in anderen Kanälen bleibt stehen. Protokolliert wird nur per `print`.
   - *Umsetzung:* Ausnahmen (Teamrollen/Admins → nur löschen + Alarm), `delete_message_seconds`, optional Softban, Eintrag im Mod-Log, Liste der Auslösungen im Dashboard mit „Entbannen“, Mehrfachauslösung pro Nutzer entprellen.
   - *Fertig wenn:* Tests für Teamler, normales Mitglied, Webhook.
 
-- [ ] **K-12 Das Log-Modul protokolliert nie** [Nachgewiesen]
+- [x] **K-12 Das Log-Modul protokolliert nie** [Nachgewiesen] — **erledigt:** 08cbd5b – `tests/test_advanced_logs.py` (3 Tests): konfigurierter Kanal erhält Logs, ohne Kanal einmaliger Hinweis + Zeile im Systemstatus.
   - *Befund:* `cogs/advanced_logs.py:9` `self.log_channel_id = 0` (fest im Code) → `get_log_channel` liefert immer `None`; Bearbeitungen, Voice- und Rollenänderungen werden nirgends protokolliert, obwohl `docs/PULSE_DISCORD_DESIGN.md` das Modul als umgestellt führt.
   - *Umsetzung:* Log-Kanal in Verwaltung → Discord-Auftritt konfigurierbar (Setting in `pulse.db`); Ausbau in BOT-02.
   - *Fertig wenn:* Test – konfigurierter Kanal erhält Logs; nicht konfiguriert → einmaliger Hinweis im Systemstatus statt Stille.
 
-- [ ] **K-13 Abhängigkeiten** [Nachgewiesen/Prüfen]
+- [x] **K-13 Abhängigkeiten** [Nachgewiesen/Prüfen] — **erledigt:** f7730d8 – `tests/test_dependencies.py`: `discord.py>=2.6,<3`, `tzdata`, alle 63 Module importierbar.
   - `requirements.txt` erlaubt `discord.py>=2.3`, der Code nutzt aber `ui.LayoutView`/`ui.Container` (Components V2, erst ab discord.py 2.6) → Untergrenze `>=2.6` (prüfen, welche Version produktiv läuft).
   - [Prüfen] Zeitzonendaten: `cogs/activity_check.py:24` und `pulse_activity_utils.py:8` laden `ZoneInfo("Europe/Berlin")` beim Import – fehlen die IANA-Daten im Container, lädt der ganze Cog nicht; `webserver.py:159` fällt dagegen still auf die Container-Zeitzone (meist UTC) zurück (falsche Uhrzeiten). → `tzdata` in die Requirements + Start-Check.
   - *Fertig wenn:* frische venv mit den Requirements importiert alle Module; Test für den Zeitzonen-Fallback.
 
-- [ ] **K-14 CSV-Formel-Injection in Exporten** [Nachgewiesen]
+- [x] **K-14 CSV-Formel-Injection in Exporten** [Nachgewiesen] — **erledigt:** efea9dc – `tests/test_phase1_security.py`: beide CSV-Exporte neutralisieren `=`/`+`/`-`/`@`-Zellen.
   - *Befund:* `/export/team.csv` (`pulse_pro.py:2589`) und `/ultimate/reports.csv` (`pulse_next.py:1041`) schreiben Discord-Anzeigenamen ungeschützt; ein Nickname wie `=HYPERLINK(…)` wird in Excel als Formel ausgeführt. `csv_safe` existiert bereits (`webserver.py:3945`).
   - *Umsetzung:* alle CSV-Exporte über `csv_safe`. *Fertig wenn:* Test mit gefährlichem Namen.
 
-- [ ] **K-15 Personenbezogene Laufzeitdaten können ins öffentliche Repo geraten** [Nachgewiesen]
+- [x] **K-15 Personenbezogene Laufzeitdaten können ins öffentliche Repo geraten** [Nachgewiesen] — **erledigt:** 6db9cf8 – `tests/test_ignore_files.py`: Laufzeitdateien von `.gitignore` und `.dockerignore` erfasst, keine im Git.
   - *Befund:* Der VPS-Checkout ist gleichzeitig Datenverzeichnis (`compose.yaml`: `./:/app`). `.gitignore` deckt `attachments/` (Beweis-Uploads der Fälle, `pulse_ultimate.py:42`), `ai_moderation_cases.json` (markierte Nachrichten), `social_promo_sources.json` und `*.restore.tmp` nicht ab; `.dockerignore` außerdem nicht `uploads/` und `attachments/`. Ein `git add -A` auf dem Server würde Beweise und Mitgliederdaten veröffentlichen.
   - *Umsetzung:* beide Ignore-Dateien ergänzen; Test, der alle Laufzeitpfade aus der Datenlandkarte per `git check-ignore` prüft. Langfristig D-06.
 
-- [ ] **K-16 Routen-Snapshot als Schutz** [Nachgewiesen]
+- [x] **K-16 Routen-Snapshot als Schutz** [Nachgewiesen] — **erledigt:** 1af2fc9 – `tests/test_route_snapshot.py` (3 Tests): jede Methode+Pfad einmal (bekannt: `GET /ultimate` bis A-01), aktive Handler == `docs/routen_snapshot.json`.
   - *Befund:* Welche Implementierung einer Seite aktiv ist, hängt von der Registrierungsreihenfolge am Ende von `webserver.py` und von `remove_and_add` ab; `GET /ultimate` ist doppelt registriert.
   - *Umsetzung (jetzt nur Absicherung):* Test, der nach vollständiger Registrierung prüft, dass jede Kombination aus Pfad und Methode genau einmal existiert und die erwarteten Handler aktiv sind (Snapshot aus P0-2); tote Handler mit Kommentar markieren. Aufräumen in A-01.
 
-- [ ] **K-17 Öffentliche API-Dokumentation** [Nachgewiesen in P0-2, neu]
+- [x] **K-17 Öffentliche API-Dokumentation** [Nachgewiesen in P0-2, neu] — **erledigt:** 4a0cac3 – `tests/test_phase1_security.py`: `/docs`, `/redoc`, `/openapi.json` liefern 404.
   - *Befund:* FastAPI liefert `/docs`, `/docs/oauth2-redirect`, `/redoc` und `/openapi.json` ohne Login aus – alle 266 Endpunkte mit Parametern sind für jeden sichtbar.
   - *Umsetzung:* `docs_url=None, redoc_url=None, openapi_url=None` (optional für Admins hinter `auth(..., admin=True)` wieder bereitstellen).
   - *Fertig wenn:* Test – die vier Pfade liefern ohne Login 404 bzw. Login-Redirect.
