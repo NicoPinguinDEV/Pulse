@@ -324,6 +324,8 @@ def init_runtime() -> None:
     os.makedirs(BACKUP_DIR, exist_ok=True)
     init_db()
     pulse_db.init_db()
+    import pulse_migrations  # A-05: versioned migrations (backup before the first pending one)
+    pulse_migrations.run(os.path.abspath(pulse_db.DB_PATH), os.path.abspath(BACKUP_DIR))
     _session_key()  # computes SESSION_SECRET_PROBLEM for the system status
     _RUNTIME_READY = True
 
