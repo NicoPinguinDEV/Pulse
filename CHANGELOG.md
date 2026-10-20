@@ -1,5 +1,19 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.12.0 – Phase 3: Performance & Stabilität (Oktober 2026)
+
+Details und Testnachweise: `docs/PHASE3_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
+
+- **Schnelleres Dashboard (P-02, P-03, P-04):** Live-Zahlen höchstens alle 15 s für alle zusammen berechnet, keine Abfragen aus Hintergrund-Tabs, Backoff bei Fehlern; Wochenstunden in einem Durchlauf statt pro Mitglied; `config.json` nur bei Änderung neu gelesen.
+- **Lesen ohne Schreiben (P-05):** Seiten speichern keine Schichten mehr; vergessene Schichten werden angezeigt und im Automatiklauf beendet.
+- **Event-Loop (P-01):** Verzögerung wird gemessen (Warnung ab 250 ms, Systemstatus); 30 SQLite-Verbindungen werden jetzt sauber geschlossen.
+- **Hintergrundjobs (P-06, P-07):** Registry ohne eigene Schleife mit Läufen, Dauer und letztem Fehler im Systemstatus; Automationszyklus verschluckt keine Fehler mehr; Hintergrundaufgaben gehen nicht verloren.
+- **Nach Reconnects (P-08):** Start-Arbeit (Warnrollen-Abgleich, Security-Check, Honeypot-Karte) nicht bei jedem Reconnect.
+- **Slash-Befehle (P-09):** Sync nur bei geändertem Befehlsbaum; Knopf „Jetzt synchronisieren“ im Systemstatus; `PULSE_FORCE_COMMAND_SYNC`.
+- **Fehler (P-10, P-11, P-12):** Fehlerseite mit Fehler-ID statt „Internal Server Error“; robuster Discord-Login (Rate-Limit, Ausfall, Zeitüberschreitung); `logs/pulse.log` (max. 4 MB) und die letzten Fehler im Systemstatus.
+- **Tickets (P-13):** Zwei schnelle Klicks erzeugen kein zweites Ticket; indizierte Suche nach offenen Tickets.
+- **Speicher (P-14):** Systemstatus zeigt gemessenen Arbeitsspeicher, Mitglieder im Cache und Presence-Status.
+
 ## Version 7.11.0 – Phase 2: Datenintegrität, Backups, Datenschutz (Oktober 2026)
 
 Details und Testnachweise: `docs/PHASE2_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
