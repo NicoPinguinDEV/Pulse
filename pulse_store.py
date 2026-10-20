@@ -28,7 +28,8 @@ def _merge_list(before: list, ours: list, current: list, id_key: str) -> list:
         if key in b and b[key] == item:
             continue  # unchanged by us → current version wins
         if key in positions:
-            result[positions[key]] = copy.deepcopy(item)
+            # field-level merge: e.g. a revocation written meanwhile survives our consequence update
+            result[positions[key]] = merge_entry(b.get(key, {}), item, result[positions[key]])
         else:
             positions[key] = len(result)
             result.append(copy.deepcopy(item))

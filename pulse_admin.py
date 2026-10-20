@@ -529,9 +529,12 @@ def register(app) -> None:
         form = await request.form()
         guild = ctx.guild
         raw_channel = str(form.get("log_channel_id", "") or "").strip()
-        if raw_channel and (not raw_channel.isdigit() or guild.get_channel(int(raw_channel)) is None):
-            return ws.back("/admin/discord#logs", "Der Log-Kanal gehört nicht zu diesem Server.", False)
+        if raw_channel and (not raw_channel.isdigit()
+                            or not any(str(c.id) == raw_channel for c in (getattr(guild, "text_channels", []) or []))):
+            return ws.back("/admin/discord#logs", "Der Log-Kanal muss ein Textkanal dieses Servers sein.", False)
         known = {str(r.id) for r in selectable_roles(guild)}
+        if not known:  # role cache not ready – never wipe the stored roles by accident
+            return ws.back("/admin/discord#logs", "Rollen konnten nicht geladen werden (Bot nicht bereit). Nichts gespeichert.", False)
         role_ids = [rid for rid in dict.fromkeys(str(v) for v in form.getlist("rp_role_ids")) if rid in known]
         pulse_db.set_setting(LOG_SETTING_KEY, raw_channel)
         pulse_db.set_setting(ROLE_SETTING_KEY, role_ids)

@@ -88,10 +88,12 @@ async def keep_channel_after_failure(channel, ticket: dict, error: str) -> None:
     """Instead of deleting: rename, lock for the creator and explain how to retry."""
     ticket_id = str(ticket.get("id") or "ticket")
     reason = "Pulse: Transkript fehlgeschlagen, Kanal bleibt erhalten"
-    try:
-        await channel.edit(name=f"geschlossen-{_safe(ticket_id, 'ticket')}"[:100].lower(), reason=reason)
-    except (discord.Forbidden, discord.HTTPException):
-        pass
+    new_name = f"geschlossen-{_safe(ticket_id, 'ticket')}"[:100].lower()
+    if str(getattr(channel, "name", "")) != new_name:  # Discord allows only 2 renames per 10 minutes
+        try:
+            await channel.edit(name=new_name, reason=reason)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
     try:
         creator = channel.guild.get_member(int(ticket.get("user_id") or 0))
         if creator is not None:

@@ -535,8 +535,16 @@ class ActivityCheckCog(commands.Cog):
                 continue
 
             try:
+                # K-04: fresh entry per member (Discord calls above may have taken long) and merge-on-save.
+                team_db = ws.load_json(ws.DATA_FILE, {})
+                if not isinstance(team_db, dict):
+                    team_db = {}
                 entry = ws.user_entry(team_db, str(uid))
+                tracker = ws.track_member_entry(uid, entry)
                 warnings = entry.setdefault("warns_list", [])
+                if warn is not None:
+                    # Use the warning object of the fresh entry, so later changes are committed.
+                    warn = next((item for item in warnings if isinstance(item, dict) and item.get("id") == warn.get("id")), warn)
                 if warn is None:
                     count_before = len(ws.active_warns(entry))
                     if count_before >= 5:
@@ -586,7 +594,7 @@ class ActivityCheckCog(commands.Cog):
                         "activity_consequences_applied": False,
                     }
                     warnings.append(warn)
-                    ws.save_json(ws.DATA_FILE, team_db)
+                    tracker.commit()
                     set_warn_action(check_id, uid, "processing", warning_id)
 
                 count = len(ws.active_warns(entry))
@@ -604,7 +612,7 @@ class ActivityCheckCog(commands.Cog):
                         warn["activity_consequences_error"] = "; ".join(
                             str(item) for item in consequence_report.get("actions", []) if item
                         )[:500]
-                    ws.save_json(ws.DATA_FILE, team_db)
+                    tracker.commit()
 
                 role_report = await ws.sync_warn_roles(guild, member, count, cfg)
                 if not role_report.get("ok", False):
@@ -630,7 +638,7 @@ class ActivityCheckCog(commands.Cog):
                     )
                     if update is not None:
                         warn["activity_team_update_sent"] = True
-                        ws.save_json(ws.DATA_FILE, team_db)
+                        tracker.commit()
 
                 if not warn.get("activity_dm_attempted"):
                     consequence_text = "; ".join(
@@ -643,7 +651,7 @@ class ActivityCheckCog(commands.Cog):
                         f"**Grund:** {warn.get('reason')}\n**Von:** {SYSTEM_ACTOR}{suffix}",
                     )
                     warn["activity_dm_attempted"] = True
-                    ws.save_json(ws.DATA_FILE, team_db)
+                    tracker.commit()
 
                 if not warn.get("activity_audit_logged"):
                     ws.log_audit(
@@ -653,7 +661,7 @@ class ActivityCheckCog(commands.Cog):
                         f"{member.display_name} ({uid}) · {count}/5 · Check {check_id} vom {check_date}: {warn.get('reason')}",
                     )
                     warn["activity_audit_logged"] = True
-                    ws.save_json(ws.DATA_FILE, team_db)
+                    tracker.commit()
 
                 set_warn_action(check_id, uid, "issued", warning_id)
                 report["warned"] += 1

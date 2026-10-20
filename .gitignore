@@ -54,5 +54,6 @@ pulse_announcement_archive.json
 attachments/
 uploads/
 *.restore.tmp*
+*.corrupt-*
 *.db-shm
 *.json.tmp

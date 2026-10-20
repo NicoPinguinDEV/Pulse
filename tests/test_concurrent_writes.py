@@ -28,11 +28,41 @@ class MergeTests(unittest.TestCase):
         merged = merge_entry(before, ours, current)
         self.assertEqual(merged["warns_list"], [{"id": "w1", "active": False}, {"id": "w3"}])
 
+    def test_revocation_meanwhile_survives_our_consequence_update(self):
+        before = {"warns_list": [{"id": "w1", "active": True}]}
+        ours = {"warns_list": [{"id": "w1", "active": True, "consequences": {"role": 1}}]}
+        current = {"warns_list": [{"id": "w1", "active": False, "revoked_by": "Leitung"}]}
+        merged = merge_entry(before, ours, current)["warns_list"][0]
+        self.assertEqual(merged, {"id": "w1", "active": False, "revoked_by": "Leitung", "consequences": {"role": 1}})
+
     def test_notes_without_ids_keep_concurrent_additions(self):
         before = {"notes": [{"text": "a"}]}
         ours = {"notes": [{"text": "a"}, {"text": "unsere"}]}
         current = {"notes": [{"text": "a"}, {"text": "andere"}]}
         self.assertEqual(merge_entry(before, ours, current)["notes"], [{"text": "a"}, {"text": "unsere"}, {"text": "andere"}])
+
+
+class CallSiteTests(unittest.TestCase):
+    """The flows that await Discord between load and save must use merge-on-save (no stale snapshot)."""
+
+    def block(self, path, start, end):
+        source = (Path(__file__).resolve().parents[1] / path).read_text(encoding="utf-8")
+        begin = source.index(start)
+        return source[begin:source.index(end, begin + len(start))]
+
+    def test_converted_flows_do_not_save_stale_team_data(self):
+        cases = [
+            ("webserver.py", "async def process_overdue_shifts(", "def calculate_weekly_seconds("),
+            ("webserver.py", 'if action == "warn_with_proof":', 'if action == "remove_warn":'),
+            ("webserver.py", 'if action == "remove_warn":', 'if action == "add_note":'),
+            ("cogs/pulse_suite.py", '@app_commands.command(name="warn",', '@app_commands.command(name="warns",'),
+            ("cogs/activity_check.py", "# K-04: fresh entry per member", "except Exception as exc:"),
+        ]
+        for path, start, end in cases:
+            block = self.block(path, start, end)
+            with self.subTest(path=path, start=start):
+                self.assertNotRegex(block, r"save_json\((ws\.|web\.)?DATA_FILE")
+                self.assertIn("commit()", block)
 
 
 class ConcurrencyTests(unittest.TestCase):

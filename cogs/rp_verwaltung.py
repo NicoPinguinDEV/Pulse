@@ -126,7 +126,7 @@ async def send_rp_announcement(interaction: discord.Interaction, content: str, a
         await interaction.followup.send("❌ Kein Ankündigungskanal eingerichtet oder Kanal nicht gefunden. "
                                         "Bitte /setup_rp erneut ausführen.", ephemeral=True)
         return
-    _LAST_ANNOUNCEMENT[guild.id] = now
+    _LAST_ANNOUNCEMENT[guild.id] = now  # reserved now (no double announcement), released again on failure
 
     # Only Pulse's own previous announcement is removed – never messages of other people.
     previous_id = get_config("last_announcement_message_id")
@@ -137,10 +137,19 @@ async def send_rp_announcement(interaction: discord.Interaction, content: str, a
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
 
-    message = await ch.send(
-        content=content,
-        allowed_mentions=discord.AllowedMentions(everyone=True, users=False, roles=False),
-    )
+    try:
+        message = await ch.send(
+            content=content,
+            allowed_mentions=discord.AllowedMentions(everyone=True, users=False, roles=False),
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        if last is None:
+            _LAST_ANNOUNCEMENT.pop(guild.id, None)
+        else:
+            _LAST_ANNOUNCEMENT[guild.id] = last
+        await interaction.followup.send(f"❌ Pulse konnte in {ch.mention} nicht senden ({type(exc).__name__}). "
+                                        "Bitte Kanalrechte prüfen.", ephemeral=True)
+        return
     set_config("last_announcement_message_id", int(message.id))
     _audit(interaction.user, action, f"Kanal {ch.id}")
     await interaction.followup.send(f"✅ RP-Ankündigung wurde erfolgreich in {ch.mention} gesendet!", ephemeral=True)

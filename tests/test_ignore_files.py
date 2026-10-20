@@ -14,6 +14,7 @@ RUNTIME_PATHS = [
     "ai_moderation_cases.json",
     "pulse.db", "abmeldungen.db", "activity_check.db", "pulse_suite.db", "teamliste.db", "buero_system.db",
     "rp_verwaltung.db", "flaggenquiz.db", "pulse.db-wal", "pulse.db-shm", "pulse.restore.tmp.db",
+    "team_data.json.corrupt-20261020-120000", "config.json.corrupt-20261020-120000",
     "config.json.tmp", "abmeldungen.db.vor-reparatur-20261020-120000.bak",
     "uploads/ticket_panels/panel_x_banner_aa.png", "uploads/welcome_banners/welcome_banner_aa.png",
     "uploads/voice_support_audio/opening.mp3", "uploads/anything/new.bin",

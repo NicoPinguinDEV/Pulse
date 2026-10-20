@@ -129,6 +129,14 @@ class RPTests(unittest.TestCase):
         self.assertEqual(len(self.channel.sent), 2)  # cooldown
         self.assertIn("Bitte warte", interaction.response.messages[-1][0])
 
+    def test_send_failure_answers_and_releases_cooldown(self):
+        async def forbidden(**_):
+            raise discord.Forbidden(SimpleNamespace(status=403, reason="x"), "no access")
+        self.channel.send = forbidden
+        interaction = self.select(FakeInteraction(self.channel, member()), perms={"is_admin": True})
+        self.assertIn("nicht senden", interaction.response.messages[-1][0])
+        self.assertNotIn(1, rp._LAST_ANNOUNCEMENT)
+
     def test_configured_extra_role_may_use_panel(self):
         pulse_db.set_setting(rp.ROLE_SETTING_KEY, [10])
         self.select(FakeInteraction(self.channel, member(rid=10)))

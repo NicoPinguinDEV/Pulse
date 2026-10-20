@@ -37,4 +37,5 @@ ai_moderation_cases.json
 uploads
 attachments
 *.restore.tmp*
+*.corrupt-*
 *.vor-reparatur-*.bak
