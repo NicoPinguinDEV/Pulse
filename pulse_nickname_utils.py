@@ -24,14 +24,29 @@ def normalize_role_prefix(value: object) -> str:
     return prefix
 
 
-def format_prefixed_nickname(prefix: object, base_name: object) -> str:
-    """Format 'Prefix ✗ Name' within Discord's 32-character nickname limit."""
+# Added by the absence system (cogs/abmeldung.py); the prefix sync must keep it,
+# otherwise both systems rename each other every 15 minutes.
+ABSENCE_SUFFIX = " | Abgemeldet"
+
+
+def split_absence_suffix(nickname: object) -> tuple[str | None, str]:
+    """('MA ✗ Richy', ' | Abgemeldet') for 'MA ✗ Richy | Abgemeldet'; suffix '' otherwise."""
+    if nickname is None:
+        return None, ""
+    text = str(nickname)
+    if text.endswith(ABSENCE_SUFFIX):
+        return text[: -len(ABSENCE_SUFFIX)].rstrip() or None, ABSENCE_SUFFIX
+    return text, ""
+
+
+def format_prefixed_nickname(prefix: object, base_name: object, suffix: str = "") -> str:
+    """Format 'Prefix ✗ Name[suffix]' within Discord's 32-character nickname limit."""
     clean_prefix = normalize_role_prefix(prefix)
     name = str(base_name or "").strip() or "Mitglied"
-    available = MAX_DISCORD_NICKNAME_LENGTH - len(clean_prefix) - 1
+    available = MAX_DISCORD_NICKNAME_LENGTH - len(clean_prefix) - 1 - len(suffix)
     if available < 1:
         raise ValueError("Der Präfix lässt keinen Platz für den Namen.")
-    return f"{clean_prefix} {name[:available]}"
+    return f"{clean_prefix} {name[:available].rstrip()}{suffix}"
 
 
 

@@ -16,6 +16,7 @@ from pulse_nickname_utils import (
     looks_like_date_only,
     normalize_role_prefix,
     select_highest_role_prefix,
+    split_absence_suffix,
     strip_known_prefix,
     strip_legacy_rank_prefix,
     strip_pulse_prefixes,
@@ -184,6 +185,8 @@ class RoleNicknamePrefixes(commands.Cog):
         prefixes = self._valid_prefix_map(config)
         state = await self._get_member_state(member.id)
         current_nick = member.nick
+        # Keep the absence marker of cogs/abmeldung.py instead of fighting over it.
+        absence_suffix = split_absence_suffix(current_nick)[1]
         saved_prefix = str(state.get("applied_prefix") or "") if state else ""
         still_has_our_prefix = bool(
             current_nick is not None
@@ -269,6 +272,7 @@ class RoleNicknamePrefixes(commands.Cog):
             own_prefixes = list(prefixes.values()) + [config.get("nickname_default_prefix", "Bürger ✗")]
 
             def _clean(value):
+                value = split_absence_suffix(value)[0]
                 value = strip_pulse_prefixes(value, own_prefixes)
                 value = strip_legacy_rank_prefix(value)
                 # A bare date is a damaged absence restore, never a real name.
@@ -280,7 +284,7 @@ class RoleNicknamePrefixes(commands.Cog):
             base_name = cleaned_base_name
 
             try:
-                target_nick = format_prefixed_nickname(prefix, base_name)
+                target_nick = format_prefixed_nickname(prefix, base_name, absence_suffix)
             except ValueError as exc:
                 print(f"⚠️ Namenspräfix für {role_label} ({role_id}) ungültig: {exc}")
                 return "failed"
@@ -304,7 +308,8 @@ class RoleNicknamePrefixes(commands.Cog):
                     reason=f"Pulse: automatischer Namenspräfix für {role_label}",
                 )
                 print(
-                    f"🏷️ Namenspräfix angewendet: {member} ({member.id}) · {role_label} → {target_nick}"
+                    f"🏷️ Namenspräfix angewendet: {member} ({member.id}) · {role_label} · "
+                    f"{current_nick or '(kein Spitzname)'} → {target_nick}"
                 )
                 return "updated"
             except discord.Forbidden:
@@ -324,6 +329,9 @@ class RoleNicknamePrefixes(commands.Cog):
 
         if still_has_our_prefix:
             original_nick = state.get("original_nick")
+            if absence_suffix:
+                core = str(original_nick or member.name)
+                original_nick = core[: 32 - len(absence_suffix)].rstrip() + absence_suffix
             try:
                 if current_nick != original_nick:
                     await member.edit(
