@@ -11,6 +11,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import pulse_db as db
+from pulse_time import parse_timestamp
 
 
 GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "0") or 0)
@@ -113,9 +114,9 @@ class PulsePro(commands.Cog):
                 for aid, app_data in apps.items():
                     if app_data.get("status") != "pending":
                         continue
-                    created_raw = str(app_data.get("created_at", ""))
-                    created = datetime.strptime(created_raw, "%d.%m.%Y %H:%M").replace(tzinfo=timezone.utc)
-                    if (now - created).total_seconds() < 172800:
+                    # D-09: tolerant parser (Berlin time, any stored format); unreadable dates are skipped.
+                    created = parse_timestamp(app_data.get("created_at"))
+                    if created is None or (now - created).total_seconds() < 172800:
                         continue
                     for manager in manager_cache:
                         db.notify(manager.id, "📝 Bewerbung wartet", f"Bewerbung {aid} von {app_data.get('name','Unbekannt')} wartet seit über 48 Stunden.", "warning", "/applications", f"stale-application:{aid}", 86400)

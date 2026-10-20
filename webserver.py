@@ -34,6 +34,7 @@ from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
 from pulse_version import PULSE_VERSION
+from pulse_time import parse_timestamp
 
 from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
 from career_applications import (
@@ -8920,10 +8921,9 @@ def team_since_for(member, entry=None) -> str:
         for item in apps.values() if isinstance(apps, dict) else []:
             if str(item.get("user_id")) != str(member.id) or str(item.get("status")) not in {"hired", "accepted"}:
                 continue
-            try:
-                candidates.append(datetime.strptime(str(item.get("decided_at") or ""), "%d.%m.%Y %H:%M"))
-            except Exception:
-                pass
+            decided = parse_timestamp(item.get("decided_at"))  # D-09: every stored format
+            if decided is not None:
+                candidates.append(decided)
         if candidates:
             return min(candidates).strftime("%d.%m.%Y")
     except Exception:

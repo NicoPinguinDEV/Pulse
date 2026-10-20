@@ -10,6 +10,7 @@ from fastapi import Request, Form, Cookie, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 
 import pulse_db as db
+from pulse_time import parse_timestamp
 
 
 def register(app):
@@ -341,8 +342,8 @@ def register(app):
                 for aid,a in apps.items():
                     if a.get('status')=='pending':
                         try:
-                            created=datetime.strptime(a.get('created_at',''),'%d.%m.%Y %H:%M')
-                            if (datetime.now()-created).total_seconds() >= 48*3600:
+                            created=parse_timestamp(a.get('created_at'))  # D-09
+                            if created and (datetime.now(created.tzinfo)-created).total_seconds() >= 48*3600:
                                 for m in managers: db.notify(m.id,'📝 Bewerbung wartet seit 48h+',f"Bewerbung {aid} von {a.get('name','Unbekannt')} wartet auf Bearbeitung.",'warning','/applications')
                         except Exception:
                             pass
