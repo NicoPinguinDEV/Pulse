@@ -858,6 +858,24 @@ def verify_session_token(token: str | None, typ: str) -> dict | None:
     return data
 
 
+# K-01 / E-12: application sessions last 3 hours and are renewed while the applicant is active.
+APPLY_SESSION_SECONDS = 3 * 3600
+APPLY_RETURN_COOKIE = "apply_return_career"
+
+
+def set_apply_session_cookie(response, request: Request, applicant: dict) -> None:
+    session = {key: applicant.get(key) for key in ("id", "username", "global_name", "avatar")}
+    session["apply_exp"] = int(time.time() + APPLY_SESSION_SECONDS)
+    response.set_cookie("apply_session", sign_payload(session, typ=TOKEN_APPLY), httponly=True, samesite="lax",
+                        secure=oauth_cookie_secure(request), max_age=APPLY_SESSION_SECONDS)
+
+
+def apply_return_path(request: Request) -> str:
+    """Where to land after the Discord login: back on the chosen career form if it was remembered."""
+    career = str(request.cookies.get(APPLY_RETURN_COOKIE) or "")
+    return f"/apply?career={quote(career)}" if career in APPLICATION_CAREERS else "/apply"
+
+
 def get_current_user(user_session: str = Cookie(None)) -> dict:
     """Vorher konnte JEDER den Cookie selbst schreiben (= Login als beliebiger User). Jetzt signiert."""
     data = verify_session_token(user_session, TOKEN_DASHBOARD)
@@ -2829,18 +2847,12 @@ async def callback(request: Request, code: str = None, state: str = None, error:
             "username": user_data.get("username"),
             "global_name": user_data.get("global_name") or user_data.get("username"),
             "avatar": user_data.get("avatar"),
-            "apply_exp": int(time.time() + 1800),
         }
         response = RedirectResponse(url="/apply", status_code=303)
-        response.set_cookie(
-            "apply_session",
-            sign_payload(application_session, typ=TOKEN_APPLY),
-            httponly=True,
-            samesite="lax",
-            secure=oauth_cookie_secure(request),
-            max_age=1800,
-        )
+        response.headers["location"] = apply_return_path(request)
+        set_apply_session_cookie(response, request, application_session)
         response.delete_cookie("apply_oauth_state")
+        response.delete_cookie(APPLY_RETURN_COOKIE)
         return response
 
     # Nur Mitglieder mit Dashboard-Recht dürfen überhaupt eine Session bekommen
@@ -6642,6 +6654,72 @@ async def notify_new_application(request: Request, application_id: str, applicat
 # =============================================================
 # ROUTE: ÖFFENTLICHES BEWERBUNGSFORMULAR MIT LAUFBAHN-TEST
 # =============================================================
+def apply_draft_key(applicant_id, career_path: str) -> str:
+    return f"pulse:apply-draft:v1:{applicant_id}:{career_path}"
+
+
+# K-01: browser-side draft (localStorage, per Discord ID + career) and session keep-alive.
+APPLY_DRAFT_SCRIPT = """
+<div id="applyDraftNote" hidden class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-[11px]"></div>
+<div id="applySessionNote" hidden class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11px]"></div>
+<script>
+(function(){
+  const form=document.querySelector('[data-apply-wizard]'); if(!form)return;
+  const KEY=__KEY__, LOGIN=__LOGIN__;
+  const note=document.getElementById('applyDraftNote'), sess=document.getElementById('applySessionNote');
+  const skip=new Set(['action','applicant_id','applicant_name','career_path']);
+  const fields=()=>Array.from(form.querySelectorAll('input,textarea,select')).filter(el=>el.name&&!skip.has(el.name));
+  function store(){
+    try{
+      const data={};
+      fields().forEach(el=>{
+        if(el.type==='radio'||el.type==='checkbox'){ if(el.checked)(data[el.name]=data[el.name]||[]).push(el.value); }
+        else data[el.name]=el.value;
+      });
+      localStorage.setItem(KEY,JSON.stringify({at:Date.now(),data:data}));
+    }catch(_){}
+  }
+  function restore(){
+    try{
+      const raw=localStorage.getItem(KEY); if(!raw)return false;
+      const saved=(JSON.parse(raw)||{}).data||{}; let n=0;
+      fields().forEach(el=>{
+        if(!(el.name in saved))return;
+        const v=saved[el.name];
+        if(el.type==='radio'||el.type==='checkbox')el.checked=Array.isArray(v)&&v.indexOf(el.value)>=0;
+        else el.value=v;
+        n++;
+      });
+      return n>0;
+    }catch(_){return false;}
+  }
+  let timer=null, active=false;
+  form.addEventListener('input',()=>{active=true;clearTimeout(timer);timer=setTimeout(store,400);});
+  form.addEventListener('change',()=>{active=true;store();});
+  form.addEventListener('submit',store);
+  if(restore()){
+    note.hidden=false;
+    note.textContent='💾 Dein gespeicherter Entwurf wurde wiederhergestellt.';
+    form.dispatchEvent(new Event('change'));
+  }
+  async function keepAlive(){
+    if(!active)return; active=false;
+    try{
+      const r=await fetch('/apply/keepalive',{method:'POST',credentials:'same-origin'});
+      if(r.status===401){
+        sess.hidden=false;
+        sess.innerHTML='⌛ Deine Sitzung ist abgelaufen. Deine Antworten sind in diesem Browser gespeichert. '
+          +'<a class="underline font-semibold" href="'+LOGIN+'">Neu mit Discord verbinden</a> – danach ist alles wieder da.';
+      }
+    }catch(_){}
+  }
+  setInterval(keepAlive,10*60*1000);
+})();
+</script>"""
+
+APPLY_DRAFT_CLEAR_SCRIPT = "<script>try{localStorage.removeItem(__KEY__)}catch(_){}</script>"
+
+
 @app.get("/apply", response_class=HTMLResponse)
 async def public_apply_page(request: Request, apply_session: str = Cookie(None)):
     bot = getattr(request.app.state, "bot", None)
@@ -6727,7 +6805,10 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
     career = APPLICATION_CAREERS[career_path]
     question_markup = render_career_test(career_path)
     practical_markup = render_practical_tasks(career_path)
-    return f"""
+    draft_script = (APPLY_DRAFT_SCRIPT
+                    .replace("__KEY__", json.dumps(apply_draft_key(applicant.get("id"), career_path)))
+                    .replace("__LOGIN__", json.dumps(f"/apply/login?career={quote(career_path)}")))
+    page = f"""
     <!DOCTYPE html><html lang="de"><head>{get_head_html("Online-Eignungstest · " + career["label"])}</head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen p-4 sm:p-6 font-sans">
         <main class="mx-auto w-full max-w-3xl space-y-5">
@@ -6869,14 +6950,18 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
                     }})();
                     </script>
                 </form>
+                {draft_script}
                 <div class="text-center"><a href="/" class="text-xs text-slate-400 hover:underline">← Zurück</a></div>
             </div>
         </main>
     </body></html>"""
+    response = HTMLResponse(page)
+    set_apply_session_cookie(response, request, applicant)  # sliding 3-hour session (E-12)
+    return response
 
 
 @app.get("/apply/login")
-async def apply_login(request: Request):
+async def apply_login(request: Request, career: str = ""):
     state = secrets.token_urlsafe(24)
     redirect_apply = oauth_redirect_uri(request, application=True)
     url = (f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}"
@@ -6884,6 +6969,8 @@ async def apply_login(request: Request):
            f"&response_type=code&scope=identify&state={state}")
     response=RedirectResponse(url=url,status_code=303)
     response.set_cookie("apply_oauth_state",state,max_age=600,httponly=True,samesite="lax",secure=oauth_cookie_secure(request))
+    if career in APPLICATION_CAREERS:
+        response.set_cookie(APPLY_RETURN_COOKIE,career,max_age=600,httponly=True,samesite="lax",secure=oauth_cookie_secure(request))
     return response
 
 
@@ -6898,8 +6985,19 @@ async def apply_callback(request: Request, code: str=None, state: str=None, erro
         token=tr.json().get('access_token')
         if not token: return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen','Discord konnte den Login nicht bestätigen.',retry),status_code=400)
         ud=(await client.get('https://discord.com/api/v10/users/@me',headers={'Authorization':f'Bearer {token}'})).json()
-    session={'id':str(ud.get('id')),'username':ud.get('username'),'global_name':ud.get('global_name') or ud.get('username'),'avatar':ud.get('avatar'),'apply_exp':int(time.time()+1800)}
-    response=RedirectResponse('/apply',status_code=303); response.set_cookie('apply_session',sign_payload(session, typ=TOKEN_APPLY),httponly=True,samesite='lax',secure=oauth_cookie_secure(request),max_age=1800); response.delete_cookie('apply_oauth_state'); return response
+    session={'id':str(ud.get('id')),'username':ud.get('username'),'global_name':ud.get('global_name') or ud.get('username'),'avatar':ud.get('avatar')}
+    response=RedirectResponse(apply_return_path(request),status_code=303); set_apply_session_cookie(response, request, session); response.delete_cookie('apply_oauth_state'); response.delete_cookie(APPLY_RETURN_COOKIE); return response
+
+
+@app.post("/apply/keepalive")
+async def apply_keepalive(request: Request, apply_session: str = Cookie(None)):
+    """K-01: renews the 3-hour application session while the applicant is typing (sliding expiry)."""
+    applicant = verify_session_token(apply_session, TOKEN_APPLY)
+    if not applicant:
+        return JSONResponse({"ok": False, "expired": True}, status_code=401)
+    response = JSONResponse({"ok": True, "expires_in": APPLY_SESSION_SECONDS})
+    set_apply_session_cookie(response, request, applicant)
+    return response
 
 
 # =============================================================
@@ -8866,14 +8964,22 @@ async def handle_action(
     # ---------- Öffentliche Bewerbung inklusive serverseitig bewerteten Laufbahn-Test ----------
     if action == "submit_application":
         ip = request.client.host if request.client else "unknown"
-        back_link = '<a href="/apply" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800">Zurück</a>'
+        # K-01: every error page leads back to the same career form; the browser draft refills it.
+        return_career = career_path if career_path in APPLICATION_CAREERS else ""
+        form_url = f"/apply?career={quote(return_career)}" if return_career else "/apply"
+        back_link = (f'<a href="{form_url}" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800">'
+                     'Zurück zum Formular – deine Antworten sind noch da</a>')
+        login_link = (f'<a href="/apply/login?career={quote(return_career)}" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">'
+                      'Neu mit Discord verbinden – deine Antworten bleiben erhalten</a>')
         if rate_limited(f"apply:{ip}"):
             return HTMLResponse(simple_page("⏳", "Zu viele Bewerbungen", "Bitte versuche es später erneut.", back_link), status_code=429)
         if career_path not in APPLICATION_CAREERS or not application_module_states(load_config()).get(career_path, False):
             return HTMLResponse(simple_page("⏸️", "Bewerbungsmodul geschlossen", "Für diese Laufbahn werden aktuell keine Bewerbungen angenommen.", back_link), status_code=403)
         apply_user = verify_session_token(apply_session, TOKEN_APPLY)
         if not apply_user or str(apply_user.get("id")) != str(applicant_id):
-            return HTMLResponse(simple_page("🔒", "Discord-Verknüpfung fehlt", "Bitte starte die Bewerbung über Mit Discord verbinden.", back_link), status_code=403)
+            return HTMLResponse(simple_page("🔒", "Discord-Verknüpfung fehlt",
+                                            "Deine Sitzung ist abgelaufen oder fehlt. Deine Antworten sind in diesem Browser gespeichert – "
+                                            "nach dem erneuten Verbinden mit Discord ist alles wieder da.", login_link), status_code=403)
         eligible, eligibility_status, eligibility_role, eligibility_message = await verify_application_member(
             request, apply_user.get("id")
         )
@@ -8936,7 +9042,9 @@ async def handle_action(
             f"Online-Test: {test_result['score']}/{test_result['total']} richtig ({test_result['percent']} %), "
             f"Status: {result_status}. Deine Praxisaufgaben wurden ebenfalls gespeichert und werden vom Team manuell geprüft."
         )
-        return HTMLResponse(simple_page("✅", "Bewerbung erfolgreich abgesendet!", result_text, back_link))
+        clear_draft = APPLY_DRAFT_CLEAR_SCRIPT.replace("__KEY__", json.dumps(apply_draft_key(applicant_id, career_path)))
+        return HTMLResponse(simple_page("✅", "Bewerbung erfolgreich abgesendet!", result_text,
+                                        '<a href="/apply" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800">Zurück</a>' + clear_draft))
 
     # ---------- Ab hier: Login + Recht je nach Aktion ----------
     required = ACTION_PERMS.get(action)
