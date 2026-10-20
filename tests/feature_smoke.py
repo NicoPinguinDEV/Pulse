@@ -1245,7 +1245,7 @@ def main() -> None:
     assert 'action="/tickets/panels/save"' in builder and 'action="/tickets/panels/publish"' in builder
     assert 'action="/tickets/categories/save"' in builder and 'action="/tickets/automation"' in builder
     assert "Erstelle mehrere unabhängige Ticket-Panels" in builder
-    assert "async def _store_ticket_panel_image(" in web and "detect_image_type(data)" in web
+    assert "async def _store_ticket_panel_image(" in web and "detect=detect_image_type" in web and "save_image_upload(" in web
     assert '@app.get("/tickets/panels/media/{filename}")' in web
     assert "auth(request, user_session, admin=True)" in web.split('async def pulse_ticket_panel_media(')[1][:200]
     assert "uploads/ticket_panels/" in read(".gitignore")

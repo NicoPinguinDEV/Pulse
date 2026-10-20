@@ -129,6 +129,14 @@ async def runtime_memory_guard(bot) -> None:
         previous = _RAM_GUARD_LEVEL
         level = memory_guard_level(rss, current_level=previous)
         messages: list[str] = []
+        if level >= 1:
+            # Freed heap pages (e.g. after image uploads) stay counted until glibc returns
+            # them; trimming each guard cycle lets the hysteresis fall back to normal.
+            try:
+                from pulse_uploads import release_freed_memory
+                release_freed_memory()
+            except Exception:
+                pass
 
         if level != previous:
             _RAM_GUARD_LEVEL = level
@@ -152,6 +160,12 @@ async def runtime_memory_guard(bot) -> None:
                         pass
                     collected = gc.collect()
                     message += f"\nCache-Bereinigung und GC ausgeführt ({collected} Objekte gefunden)."
+                    try:
+                        from pulse_uploads import release_freed_memory
+                        if release_freed_memory():
+                            message += " Freigegebener Speicher wurde an das System zurückgegeben."
+                    except Exception:
+                        pass
                 messages.append(message)
 
         # Growth alert: at least 30 minutes of samples, normalised to MB/hour.

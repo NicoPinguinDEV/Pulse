@@ -4877,20 +4877,15 @@ TICKET_PANEL_IMAGE_DIR = BASE_DIR / "uploads" / "ticket_panels"
 async def _store_ticket_panel_image(upload: UploadFile, panel_id: str, kind: str):
     """Validate (signature + size) and store an uploaded panel image; returns (filename, error)."""
     from pulse_ticket_design import MAX_PANEL_IMAGE_BYTES, detect_image_type
-    try:
-        data = await upload.read(MAX_PANEL_IMAGE_BYTES + 1)
-    finally:
-        await upload.close()
-    if len(data) > MAX_PANEL_IMAGE_BYTES:
-        return "", f"Das Bild ist zu groß (maximal {MAX_PANEL_IMAGE_BYTES // (1024 * 1024)} MB)."
-    ext = detect_image_type(data)
-    if not ext:
-        return "", "Nur PNG-, JPG-, GIF- oder WEBP-Bilder sind erlaubt."
+    from pulse_uploads import save_image_upload
     safe_pid = re.sub(r"[^A-Za-z0-9_-]", "", panel_id)[:40] or "panel"
-    name = f"{safe_pid}_{kind}_{secrets.token_hex(4)}.{ext}"
-    TICKET_PANEL_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    (TICKET_PANEL_IMAGE_DIR / name).write_bytes(data)
-    return name, ""
+    # Streamed to disk in chunks: a full 8 MB read per image pushed the container RAM up.
+    return await save_image_upload(
+        upload, TICKET_PANEL_IMAGE_DIR, lambda ext: f"{safe_pid}_{kind}_{secrets.token_hex(4)}.{ext}",
+        MAX_PANEL_IMAGE_BYTES, detect=detect_image_type,
+        too_large=f"Das Bild ist zu groß (maximal {MAX_PANEL_IMAGE_BYTES // (1024 * 1024)} MB).",
+        wrong_type="Nur PNG-, JPG-, GIF- oder WEBP-Bilder sind erlaubt.",
+    )
 
 
 def _remove_ticket_panel_image(filename: str, panel_id: str):

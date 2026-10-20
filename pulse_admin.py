@@ -402,21 +402,14 @@ def register(app) -> None:
         return discord_page(ctx, load_settings(), branding())
 
     async def store_banner(upload: UploadFile, kind: str):
-        try:
-            data = await upload.read(MAX_BANNER_BYTES + 1)
-        finally:
-            await upload.close()
-        if len(data) > MAX_BANNER_BYTES:
-            return "", f"Das Banner ist zu groß (maximal {MAX_BANNER_BYTES // (1024 * 1024)} MB)."
-        ext = detect_image_type(data)
-        if not ext:
-            return "", "Als Banner sind nur PNG-, JPG-, GIF- oder WEBP-Bilder erlaubt."
-        name = f"{kind}_banner_{secrets.token_hex(4)}.{ext}"
-        banner_root().mkdir(parents=True, exist_ok=True)
-        temporary = banner_root() / (name + ".uploading")
-        temporary.write_bytes(data)
-        os.replace(temporary, banner_root() / name)
-        return name, ""
+        from pulse_uploads import save_image_upload
+        # Streamed to disk in chunks instead of reading up to 8 MB into RAM.
+        return await save_image_upload(
+            upload, banner_root(), lambda ext: f"{kind}_banner_{secrets.token_hex(4)}.{ext}",
+            MAX_BANNER_BYTES, detect=detect_image_type,
+            too_large=f"Das Banner ist zu groß (maximal {MAX_BANNER_BYTES // (1024 * 1024)} MB).",
+            wrong_type="Als Banner sind nur PNG-, JPG-, GIF- oder WEBP-Bilder erlaubt.",
+        )
 
     def remove_banner(name: str):
         path = (banner_root() / os.path.basename(str(name or ""))).resolve()
