@@ -1260,6 +1260,8 @@ def main() -> None:
     assert 'welcome_message = await send_styled(channel, embed=embed, view=TicketControlView(), files=welcome_files' in tickets
     assert 'save_ticket_card(tid, embed' in tickets and 'load_ticket_card(ticket.get("id"), with_meta=True)' in tickets
     assert 'async def move_ticket_channel(channel, ticket: dict, *, claimed: bool)' in tickets and 'sync_permissions=False' in tickets
+    # Role picker rows must beat the generic '.tb-form label{display:grid}' rule (otherwise names collapse into bars).
+    assert '.tb-form label.tb-role{display:flex!important' in read('pulse_ticket_builder.py')
     assert 'STATUS_FIELDS = ("Status", "Priorität", "Bearbeiter")' in tickets
     assert "embed.set_field_at(index, name=field.name" in tickets
 

@@ -34,10 +34,14 @@ BUILDER_CSS = """
 .tb-form input:not([type=checkbox]):not([type=color]):not([type=file]),.tb-form select,.tb-form textarea{width:100%;border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:12px;padding:10px 12px;font-size:13px;outline:0}
 .tb-form textarea{min-height:110px;resize:vertical;font-family:inherit}
 .tb-form input:focus,.tb-form select:focus,.tb-form textarea:focus{border-color:#9296f6;box-shadow:0 0 0 4px rgba(91,92,240,.08)}
-.tb-roles{display:grid;gap:6px;margin-top:6px}.tb-role-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;max-height:220px;overflow:auto;padding:6px;border:1px solid var(--border);border-radius:12px;background:var(--surface2)}
-.tb-role{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;padding:6px 8px;border-radius:9px;cursor:pointer;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.tb-role:hover{background:rgba(91,92,240,.08)}.tb-role input{flex:0 0 auto}.tb-role .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
-.tb-role:has(input:checked){background:rgba(91,92,240,.14);outline:1px solid rgba(91,92,240,.35)}
+.tb-roles{display:grid;gap:6px;margin-top:6px}
+.tb-form .tb-role-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px;max-height:240px;overflow-y:auto;overflow-x:hidden;padding:6px;border:1px solid var(--border);border-radius:12px;background:var(--surface2)}
+.tb-form label.tb-role{display:flex!important;flex-direction:row;align-items:center;gap:8px!important;font-size:12px;font-weight:600;padding:7px 9px;border-radius:9px;cursor:pointer;min-width:0;line-height:1.25}
+.tb-form label.tb-role:hover{background:rgba(91,92,240,.08)}
+.tb-form label.tb-role input[type=checkbox]{flex:0 0 auto;width:15px;height:15px;margin:0;accent-color:#5b5cf0}
+.tb-form label.tb-role .dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
+.tb-form label.tb-role .name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.tb-form label.tb-role:has(input:checked){background:rgba(91,92,240,.16);outline:1px solid rgba(91,92,240,.4)}
 .tb-check{display:flex!important;align-items:center;gap:9px!important;font-weight:600!important;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface2);cursor:pointer}
 .tb-check input{width:16px;height:16px;accent-color:#5b5cf0}
 .tb-cats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
@@ -407,8 +411,8 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
             def role_picker(field, selected, hint):
                 color = lambda r: f"#{r.color.value:06x}" if getattr(r, "color", None) and r.color.value else "#99aab5"
                 items = "".join(
-                    f'<label class="tb-role" data-name="{e(r.name.casefold())}"><input type="checkbox" name="{field}" value="{r.id}"'
-                    f'{" checked" if str(r.id) in selected else ""}><span class="dot" style="background:{color(r)}"></span>{e(r.name)}</label>'
+                    f'<label class="tb-role" title="{e(r.name)}" data-name="{e(r.name.casefold())}"><input type="checkbox" name="{field}" value="{r.id}"'
+                    f'{" checked" if str(r.id) in selected else ""}><span class="dot" style="background:{color(r)}"></span><span class="name">{e(r.name)}</span></label>'
                     for r in roles)
                 return (f'<div class="tb-roles"><input type="search" class="tb-role-filter" placeholder="Rolle suchen …" '
                         f'oninput="pulseFilterRoles(this)"><div class="tb-role-list">{items}</div>'
