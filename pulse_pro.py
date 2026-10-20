@@ -2567,7 +2567,7 @@ def register(app):
         except Exception: db_ok=False
         checks.append(('SQLite',db_ok,'Abfragen'))
         checks.append(('OAuth',bool(ws.CLIENT_ID and ws.CLIENT_SECRET),'Discord OAuth'))
-        checks.append(('Session Secret',bool(os.getenv('SESSION_SECRET') or os.path.exists(ws.SECRET_FILE)),'Cookie-Signing'))
+        checks.append(('Session Secret',not ws.SESSION_SECRET_PROBLEM,ws.SESSION_SECRET_PROBLEM or 'Cookie-Signing'))
         checks.append(('Teamrollen',bool(c.config.get('team_role_ids')),'Konfiguration'))
         team_channel=c.guild.get_channel(ws.TEAM_UPDATE_CHANNEL_ID)
         checks.append(('Team-Updates-Kanal',bool(team_channel),'ID 1531132354272170115'))

@@ -41,6 +41,17 @@ class SecretTests(unittest.TestCase):
         self.assertEqual(problem, "")
 
 
+class SystemPageTests(unittest.TestCase):
+    def test_active_system_page_shows_secret_problem(self):
+        # /system is served by pulse_pro.system_v5 (the pulse_features handler is displaced).
+        from fastapi.testclient import TestClient
+        from tests.test_pulse_admin_area import ADMIN, fake_auth_for
+        with patch.object(ws, "auth", fake_auth_for(ADMIN)), \
+                patch.object(ws, "SESSION_SECRET_PROBLEM", "SESSION_SECRET ist ein Platzhalter"):
+            html = TestClient(ws.app).get("/system").text
+        self.assertIn("SESSION_SECRET ist ein Platzhalter", html)
+
+
 class TokenTypeTests(unittest.TestCase):
     def test_dashboard_and_apply_tokens_are_not_interchangeable(self):
         now = time.time()
