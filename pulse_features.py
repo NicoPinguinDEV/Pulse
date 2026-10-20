@@ -300,6 +300,7 @@ def register(app):
         c=ctx(request,user_session,perm=None,admin=True)
         checks=[]
         checks.append(('🟢','Bot','Online' if getattr(c.guild,'id',0)==c.guild.id else 'Unbekannt'))
+        checks.append(('🔴' if ws.SESSION_SECRET_PROBLEM else '🟢','Session-Secret',ws.SESSION_SECRET_PROBLEM or 'eigenes, ausreichend langes Secret'))
         for name,ok,detail in [('Datenbank',os.path.exists(db.DB_PATH),'pulse.db'),('Teamdaten',os.path.exists(ws.DATA_FILE),ws.DATA_FILE),('Backups',os.path.isdir(ws.BACKUP_DIR),ws.BACKUP_DIR),('OAuth',bool(ws.CLIENT_ID and ws.CLIENT_SECRET), 'Discord OAuth'),('Warnrollen',all(c.guild.get_role(r) for r in ws.WARN_ROLE_IDS.values()), 'WARN_ROLE_*')]: checks.append(('🟢' if ok else '🔴',name,'OK' if ok else 'Konfiguration prüfen'))
         rows=''.join(f'<div class="flex justify-between p-3 rounded-xl bg-slate-50 dark:bg-[#0b0e14] border border-slate-200 dark:border-slate-800 text-xs"><span>{i} {esc(n)}</span><b>{esc(d)}</b></div>' for i,n,d in checks)
         body=f'<h1 class="text-2xl font-bold mb-2">🩺 Systemstatus</h1><p class="text-xs text-slate-500 mb-5">Konfigurations- und Verbindungscheck.</p><div class="space-y-2">{rows}</div>'

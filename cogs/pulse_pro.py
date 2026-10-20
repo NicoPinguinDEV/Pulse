@@ -583,6 +583,8 @@ class PulsePro(commands.Cog):
                 status = "🟡 Nachrichten möglich, Embeds nicht erlaubt"
             channel_checks.append(f"{status} · {label} · {channel.mention}")
 
+        if getattr(webserver, "SESSION_SECRET_PROBLEM", ""):
+            channel_checks.insert(0, f"🔴 Sicherheit · {webserver.SESSION_SECRET_PROBLEM}")
         waiting_channel = interaction.guild.get_channel(office_waiting_id)
         if waiting_channel is None:
             try:

@@ -724,10 +724,31 @@ def safe_url(url: str) -> str:
     return url if urlparse(url).scheme in ("http", "https") else ""
 
 
+SESSION_SECRET_PLACEHOLDERS = {"change-me-to-a-long-random-secret", "change-me", "changeme", "secret"}
+SESSION_SECRET_MIN_LENGTH = 32
+# Shown in the system status and /pulse-diagnose; empty when everything is fine.
+SESSION_SECRET_PROBLEM = ""
+
+
 def _load_secret() -> bytes:
-    env = os.getenv("SESSION_SECRET")
+    """K-03: never sign sessions with the .env.example placeholder or a short secret.
+
+    Decision E-10: fall back to the generated .session_secret and warn loudly (everybody is
+    logged out once) instead of refusing to start.
+    """
+    global SESSION_SECRET_PROBLEM
+    SESSION_SECRET_PROBLEM = ""
+    env = (os.getenv("SESSION_SECRET") or "").strip()
     if env:
-        return env.encode()
+        if env.lower() in SESSION_SECRET_PLACEHOLDERS:
+            SESSION_SECRET_PROBLEM = ("SESSION_SECRET ist noch der Platzhalter aus .env.example – "
+                                      "Pulse nutzt stattdessen die erzeugte .session_secret. Bitte ein eigenes langes Secret setzen.")
+        elif len(env) < SESSION_SECRET_MIN_LENGTH:
+            SESSION_SECRET_PROBLEM = (f"SESSION_SECRET ist zu kurz (< {SESSION_SECRET_MIN_LENGTH} Zeichen) – "
+                                      "Pulse nutzt stattdessen die erzeugte .session_secret.")
+        else:
+            return env.encode()
+        print(f"🔴 SICHERHEIT: {SESSION_SECRET_PROBLEM}")
     if os.path.exists(SECRET_FILE):
         with open(SECRET_FILE, "rb") as f:
             key = f.read().strip()
@@ -746,7 +767,15 @@ def _load_secret() -> bytes:
 SESSION_KEY = _load_secret()
 
 
-def sign_payload(data: dict) -> str:
+TOKEN_DASHBOARD = "dashboard"
+TOKEN_APPLY = "apply"
+_TOKEN_EXPIRY_KEY = {TOKEN_DASHBOARD: "exp", TOKEN_APPLY: "apply_exp"}
+
+
+def sign_payload(data: dict, typ: str | None = None) -> str:
+    if typ:
+        # K-03: typed tokens with issue time; a token of one kind is never accepted as the other.
+        data = {**data, "typ": typ, "iat": int(time.time())}
     raw = base64.urlsafe_b64encode(json.dumps(data, separators=(",", ":")).encode()).decode().rstrip("=")
     sig = hmac.new(SESSION_KEY, raw.encode(), hashlib.sha256).hexdigest()
     return f"{raw}.{sig}"
@@ -763,10 +792,29 @@ def verify_payload(token: str):
         return None
 
 
+def verify_session_token(token: str | None, typ: str) -> dict | None:
+    """Valid, unexpired token of exactly this kind. Untyped (pre-K-03) tokens are accepted by
+    their former expiry field until they run out, so nobody is logged out by the update."""
+    data = verify_payload(token) if token else None
+    if not isinstance(data, dict) or not data.get("id"):
+        return None
+    expiry_key = _TOKEN_EXPIRY_KEY[typ]
+    token_type = data.get("typ")
+    if token_type is not None and token_type != typ:
+        return None
+    if token_type is None:
+        other_key = next(k for t, k in _TOKEN_EXPIRY_KEY.items() if t != typ)
+        if expiry_key not in data or other_key in data:
+            return None
+    if float(data.get(expiry_key, 0) or 0) < time.time():
+        return None
+    return data
+
+
 def get_current_user(user_session: str = Cookie(None)) -> dict:
     """Vorher konnte JEDER den Cookie selbst schreiben (= Login als beliebiger User). Jetzt signiert."""
-    data = verify_payload(user_session) if user_session else None
-    if not data or data.get("exp", 0) < time.time() or not data.get("id"):
+    data = verify_session_token(user_session, TOKEN_DASHBOARD)
+    if not data:
         raise HTTPException(status_code=303, headers={"Location": "/"})
     return data
 
@@ -2634,7 +2682,7 @@ async def healthz(request: Request):
 # =============================================================
 @app.get("/", response_class=HTMLResponse)
 async def home(user_session: str = Cookie(None)):
-    if user_session and verify_payload(user_session):
+    if user_session and verify_session_token(user_session, TOKEN_DASHBOARD):
         return RedirectResponse(url="/ultimate", status_code=303)
     return f"""
     <!DOCTYPE html>
@@ -2730,7 +2778,7 @@ async def callback(request: Request, code: str = None, state: str = None, error:
         response = RedirectResponse(url="/apply", status_code=303)
         response.set_cookie(
             "apply_session",
-            sign_payload(application_session),
+            sign_payload(application_session, typ=TOKEN_APPLY),
             httponly=True,
             samesite="lax",
             secure=oauth_cookie_secure(request),
@@ -2759,7 +2807,7 @@ async def callback(request: Request, code: str = None, state: str = None, error:
     response = RedirectResponse(url="/ultimate", status_code=303)
     response.set_cookie(
         "user_session",
-        sign_payload(session),
+        sign_payload(session, typ=TOKEN_DASHBOARD),
         httponly=True,
         samesite="lax",
         secure=oauth_cookie_secure(request),
@@ -6556,9 +6604,7 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
     application_guild = bot.get_guild(GUILD_ID) if bot else None
     required_role_obj = application_guild.get_role(APPLICATION_REQUIRED_ROLE_ID) if application_guild else None
     required_role_display = esc(required_role_obj.name if required_role_obj else f"Discord-Rolle {APPLICATION_REQUIRED_ROLE_ID}")
-    applicant = verify_payload(apply_session) if apply_session else None
-    if applicant and applicant.get("apply_exp", 0) < time.time():
-        applicant = None
+    applicant = verify_session_token(apply_session, TOKEN_APPLY)
     if applicant:
         eligible, eligibility_status, eligibility_role, eligibility_message = await verify_application_member(
             request, applicant.get("id")
@@ -6809,7 +6855,7 @@ async def apply_callback(request: Request, code: str=None, state: str=None, erro
         if not token: return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen','Discord konnte den Login nicht bestätigen.',retry),status_code=400)
         ud=(await client.get('https://discord.com/api/v10/users/@me',headers={'Authorization':f'Bearer {token}'})).json()
     session={'id':str(ud.get('id')),'username':ud.get('username'),'global_name':ud.get('global_name') or ud.get('username'),'avatar':ud.get('avatar'),'apply_exp':int(time.time()+1800)}
-    response=RedirectResponse('/apply',status_code=303); response.set_cookie('apply_session',sign_payload(session),httponly=True,samesite='lax',secure=oauth_cookie_secure(request),max_age=1800); response.delete_cookie('apply_oauth_state'); return response
+    response=RedirectResponse('/apply',status_code=303); response.set_cookie('apply_session',sign_payload(session, typ=TOKEN_APPLY),httponly=True,samesite='lax',secure=oauth_cookie_secure(request),max_age=1800); response.delete_cookie('apply_oauth_state'); return response
 
 
 # =============================================================
@@ -8781,8 +8827,8 @@ async def handle_action(
             return HTMLResponse(simple_page("⏳", "Zu viele Bewerbungen", "Bitte versuche es später erneut.", back_link), status_code=429)
         if career_path not in APPLICATION_CAREERS or not application_module_states(load_config()).get(career_path, False):
             return HTMLResponse(simple_page("⏸️", "Bewerbungsmodul geschlossen", "Für diese Laufbahn werden aktuell keine Bewerbungen angenommen.", back_link), status_code=403)
-        apply_user = verify_payload(apply_session) if apply_session else None
-        if not apply_user or apply_user.get("apply_exp", 0) < time.time() or str(apply_user.get("id")) != str(applicant_id):
+        apply_user = verify_session_token(apply_session, TOKEN_APPLY)
+        if not apply_user or str(apply_user.get("id")) != str(applicant_id):
             return HTMLResponse(simple_page("🔒", "Discord-Verknüpfung fehlt", "Bitte starte die Bewerbung über Mit Discord verbinden.", back_link), status_code=403)
         eligible, eligibility_status, eligibility_role, eligibility_message = await verify_application_member(
             request, apply_user.get("id")
