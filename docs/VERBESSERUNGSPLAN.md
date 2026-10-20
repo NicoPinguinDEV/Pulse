@@ -1,0 +1,371 @@
+# Pulse TeamOS – Verbesserungsauftrag für Claude Code
+**Discord-Bot + Team-Dashboard · © BOCHUM RP | V1**
+
+> **Analysegrundlage:** `main` @ `8d66bdf` (pulse_version 7.9.7), Stand 20.10.2026. Zeilenangaben sind Orientierung – such im Zweifel nach dem Funktions- oder Variablennamen.
+> **Kennzeichnung:** **[Nachgewiesen]** im Code belegt · **[Prüfen]** begründeter Verdacht, erst verifizieren · **[Idee]** neue Funktion, nur nach Freigabe und abschaltbar.
+
+---
+
+## 0. Auftrag
+
+Mach Pulse in abgesicherten Phasen zuverlässiger, sicherer, schneller und übersichtlicher – **ohne eine bestehende Funktion, URL, Slash-Command, `custom_id` oder Datenzeile zu verlieren** – und baue danach gezielt neue Funktionen für Bot und Dashboard aus.
+
+`CLAUDE.md` gilt vollständig. Lies vor der ersten Änderung zusätzlich `docs/CLAUDE_CODE_HANDOFF.md`, `docs/PULSE_INNOVATION_ROADMAP.md` und `docs/PULSE_DISCORD_DESIGN.md`. Widerspricht dieser Auftrag `CLAUDE.md`, gilt `CLAUDE.md`, bis ich ausdrücklich etwas anderes entscheide.
+
+---
+
+## 1. Arbeitsregeln für diesen Auftrag
+
+1. **Plan-Datei = dein Gedächtnis.** Liegt dieser Auftrag noch nicht als `docs/VERBESSERUNGSPLAN.md` im Repo, lege ihn dort unverändert an (erster Commit). Pflege pro Punkt `[ ]` → `[x]` mit Commit-Hash und einem Satz Testnachweis, bzw. `verworfen: <Grund>`. Startet eine neue Session oder wird der Kontext knapp: zuerst diese Datei lesen, dann beim ersten offenen Punkt weitermachen.
+2. **Phasen nacheinander.** Phase fertig = Prüfungen grün + Review + Phasenbericht (Abschnitt 13) → **STOPP**, auf mein OK warten. Innerhalb einer Phase darfst du die Reihenfolge nach Abhängigkeiten ändern.
+3. **Git:** ein Branch pro Phase (`verbesserung/phase-1-kritisch`, …), ein kleiner Commit pro Punkt, deutsche Commit-Nachricht mit ID (z. B. `K-04: Warnungen gehen bei parallelen Aktionen nicht mehr verloren`). **Kein Push, kein Merge nach `main`, kein Deployment** ohne meine ausdrückliche Freigabe.
+4. **Erst belegen, dann ändern.** [Prüfen]-Punkte zuerst verifizieren (Code-Pfad, Test, Reproduktion). Stimmt ein Punkt nicht: im Plan als verworfen markieren, nicht trotzdem umbauen.
+5. **Fehler test-first:** wo machbar zuerst ein fehlschlagender Regressionstest, dann der Fix. Tests verbinden sich nie mit echtem Discord und ändern keine Live-Daten (Fakes, Temp-Verzeichnisse, gepatchte Pfade – Vorbild: `tests/test_pulse_admin_area.py`).
+6. **Prüfungen** je Punkt (die relevanten Tests) und je Phase (alle):
+   ```bash
+   python -m compileall -q .
+   python tests/feature_smoke.py
+   python tests/test_pulse_intelligence.py
+   python tests/smoke_test.py
+   python -m unittest discover -s tests -p 'test_*.py'
+   ```
+   Vorher eine venv mit Python 3.14 (notfalls 3.13, dann im Bericht vermerken) und `pip install -r requirements.txt`. Ergebnisse immer mit echtem Output berichten; was nicht ausführbar war, ehrlich als solches melden.
+7. **`tests/feature_smoke.py` richtig behandeln:** Rund 820 der 911 Asserts prüfen nur, ob ein bestimmter String im **Quelltext** einer Datei steht (`assert "…" in read("datei.py")`). Bricht ein Umbau so einen Assert, baust du den String nicht einfach wieder ein: Absicht klären, durch einen Verhaltenstest ersetzen, im Bericht nennen.
+8. **Falle „toter Code“:** Viele Seiten aus `webserver.py` werden zur Laufzeit ersetzt (`/dashboard`, `/member/{user_id}`, `/settings`, `/melonly`, `/tickets` u. a. durch `pulse_pro.py` via `remove_and_add`). `GET /ultimate` ist doppelt registriert – nach statischer Analyse ist `webserver.py:3344` aktiv und die Version in `pulse_ultimate.py:751` wird nie erreicht (P0-2 bestätigt das am laufenden Objekt). Prüfe vor jeder Seitenänderung in `docs/ROUTEN.md` (Phase 0), welcher Handler wirklich aktiv ist – sonst reparierst du toten Code.
+9. **Kontext schonen:** `webserver.py` (~9.900 Zeilen), `pulse_pro.py` (~2.700), `pulse_ultimate.py` (~2.300), `cogs/voice_support.py`, `cogs/tickets.py`, `cogs/pulse_suite.py` nie komplett einlesen, sondern gezielt suchen. Breite Recherchen („alle Stellen, die `team_data.json` schreiben“) an Subagents geben; die Änderungen machst du selbst.
+10. **Review vor Phasenabschluss:** Ein Subagent mit frischem Kontext prüft den Phasen-Diff gegen diesen Plan – nur Korrektheit, Sicherheit, verlorene Funktionen, fehlende Tests; keine Stilfragen.
+11. **Kompatibilität:** URLs, Formularfelder, Slash-Command-Namen, `custom_id`s, JSON-Schlüssel, DB-Spalten und die festen Discord-IDs bleiben gültig. Wo etwas umbenannt oder zusammengelegt wird: Weiterleitung, Alias oder Lese-Fallback **plus** Test.
+12. **Nicht tun:** Massenformatierung, Big-Bang-Rewrites, neue kostenpflichtige Dienste, Sanktionen durch KI, Laufzeitdaten löschen, `.env`-Inhalte ausgeben (höchstens zählen/vergleichen, z. B. `grep -c`, ohne Werte zu zeigen).
+
+---
+
+## 2. Entscheidungen, die du mir gebündelt stellst
+
+Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur Antwort arbeitest du nur an Punkten, die nicht davon abhängen. *Kursiv* = mein Vorschlag.
+
+- **E-1 Honeypot (K-11):** Teamler/Admins ausnehmen? Ban oder Softban? Wie viele Stunden Nachrichten mitlöschen? *Team ausnehmen (nur löschen + Alarm), Ban mit 1 h Nachrichtenlöschung, Entbannen-Knopf im Dashboard.*
+- **E-2 Vergessene Schichten:** Nach 24 h automatisch beendete Schichten werden heute mit bis zu 24 h gutgeschrieben (`webserver.py:898` und `:937`, `min(shift_elapsed, 24 h)`). Wie viel soll zählen? *0 h, bis eine Führungskraft die echte Dauer bestätigt.*
+- **E-3 Teamakte:** Jeder mit Dashboard-Zugang sieht alle Warnungen (auch zurückgenommene, mit Grund) und internen Notizen anderer Teamler (`member_v5`, `pulse_pro.py:1828`). So lassen? *Notizen nur mit `can_add_notes`/Leitung; Warnungen nur die betroffene Person selbst und `can_warn`.*
+- **E-4 Standardrechte:** Nie konfigurierte Teamrollen bekommen automatisch „Dashboard + Analytics“ (`webserver.py:781`) – Analytics umfasst Team-Exporte (CSV/JSON inkl. Warnungszahlen). *Nur Dashboard, Analytics nur explizit.*
+- **E-5 RAM-Budget:** Gilt die 250-MB-Grenze aus `CLAUDE.md` weiter, oder läuft Pulse inzwischen auf dem VPS (`VPS_DEPLOYMENT.md` empfiehlt 4–8 GB)? Davon hängen Caches, SSE und der Presence-Intent ab.
+- **E-6 Doppelte Seiten (U-01):** Welche Variante wird jeweils führend? *Du legst mir eine Tabelle „alt → neu“ vor, bevor irgendetwas zusammengeführt wird.*
+- **E-7 Ticket-Transkripte:** Anhänge mitsichern (Speicherbedarf)? Aufbewahrungsdauer?
+- **E-8 Bürger-Moderation:** Soll Pulse Timeout/Kick/Ban für normale Mitglieder mit Fallakte bekommen – oder macht das ein anderer Bot?
+- **E-9 Datenschutz:** Aufbewahrungsfristen (Bewerbungen, Transkripte, KI-Moderationsfälle, Audit) und verantwortlicher Kontakt für den Hinweis auf `/apply`.
+- **E-10 Session-Secret (K-03):** Wird der Platzhalter erkannt – Start verweigern oder auf die generierte `.session_secret` ausweichen (alle werden einmal abgemeldet)? *Ausweichen + laute Warnung.*
+- **E-11 Slash-Befehle (BOT-04):** In Gruppen ordnen, alte Namen eine Übergangszeit als Alias? Prefix-Altbefehle `!ticketsetup`/`!ticketstats` entfernen?
+- **E-12 Bewerbungsportal (K-01):** Sitzungsdauer? Entwürfe nur im Browser oder zusätzlich serverseitig? *3 h gleitend, Entwurf im Browser.*
+
+---
+
+## 3. Phase 0 – Bestandsaufnahme (nur `docs/` und `tools/` ändern)
+
+- [ ] **P0-1 Baseline** nach `CLAUDE.md` §6: Branch, offene Änderungen, Version, Testlauf mit Ergebnis, Doku-Abweichungen (z. B. nennt `CLAUDE.md` Commit `b1019dc`; `CHANGELOG.md` beginnt mit unversionierten Abschnitten, letzte Versionsüberschrift ist 7.8.27; README nennt „Pulse Intelligence 7.9.0“).
+- [ ] **P0-2 Routen-Landkarte** `docs/ROUTEN.md`, erzeugt von einem Skript unter `tools/` (importiert `webserver` mit Temp-Daten wie die Tests): alle effektiven Routen mit Methode, Pfad, Modul/Funktion und Rechteprüfung (`auth(...)`, `ctx_auth`, `cctx`, `require_perm` – soweit ableitbar) sowie alle verdrängten Handler. Meine statische Zählung: ~260 Routen, eine echte Doppelung (`GET /ultimate`), viele per `remove_and_add` (`pulse_pro.py:299`) verdrängte Altversionen. Achtung: `remove_and_add` entfernt **alle Methoden** eines Pfads, nicht nur die ersetzte.
+- [ ] **P0-3 Datenlandkarte** `docs/DATENLANDKARTE.md`: jede Datei/Tabelle mit Besitzer-Modul, schreibenden Stellen, Wachstum und Abdeckung durch die beiden Backup-Systeme. Bekannt: 8 SQLite-Dateien (`pulse.db`, `abmeldungen.db`, `activity_check.db`, `pulse_suite.db`, `teamliste.db`, `buero_system.db`, `rp_verwaltung.db`, `flaggenquiz.db`), 11 JSON-Dateien (`config`, `team_data`, `applications`, `shifts`, `logs`, `audit_logs`, `meetings`, `pulse_announcement_archive`, `role_nickname_state`, `social_promo_sources`, `ai_moderation_cases`), Ordner `uploads/*`, `attachments/`, `transcripts/`, `backups/`, dazu `.session_secret`.
+- [ ] **P0-4 Jobs & Rechte:** alle Hintergrundschleifen (heute 13 `@tasks.loop`s in 10 Cogs – u. a. `voice_support` alle 8 s und 1 min, `activity_check` 1 min/5 min/06:00 – plus eigene Endlosschleifen: Ultimate-Automation, Auto-Backup, Server-Statistik) mit Intervall und Fehlerbehandlung; alle Rechte-Schlüssel mit Herkunft (siehe A-03).
+- [ ] **P0-5** Bericht + Fragen E-1 bis E-12 → **STOPP**.
+
+---
+
+## 4. Phase 1 – Kritische Fehler & Sicherheit
+
+- [ ] **K-01 Bewerbungsportal: lange Bewerbungen gehen verloren** [Nachgewiesen]
+  - *Befund:* Die Bewerbungssitzung gilt nur 30 Minuten (`webserver.py:2718` `apply_exp = jetzt + 1800`, Cookie `max_age=1800` in `:2727` und `:6802`). Der Eignungstest hat 12/22/30 Fragen plus Praxisaufgaben und Motivation. Wer länger braucht, bekommt beim Absenden „Discord-Verknüpfung fehlt“ (`:8775`) – alle Antworten sind weg: Fehlerseiten verlinken nur zurück auf ein leeres `/apply`, und global ist `Cache-Control: no-store` gesetzt (`:192`). Dasselbe bei Rate-Limit, Validierungsfehler im Test (`:8803`) usw.
+  - *Umsetzung:* Sitzung nach E-12 verlängern bzw. gleitend erneuern; Entwurf automatisch im Browser speichern (localStorage je Discord-ID + Laufbahn, in try/catch, nach erfolgreichem Absenden löschen); jede Fehlerseite bietet „Zurück zum Formular – deine Antworten sind noch da“; Anzeige der Restzeit + „Sitzung verlängern“ (erneuter Discord-Login ohne Datenverlust). Serverseitige Prüfungen (Rolle, Score, Module) bleiben unverändert.
+  - *Fertig wenn:* Tests – abgelaufene Sitzung → Entwurf bleibt, nach erneutem Login wiederhergestellt; Validierungsfehler → Eingaben erhalten; Score weiterhin nicht manipulierbar.
+
+- [ ] **K-02 RP-Verwaltung: jeder Panel-Nutzer kann @everyone auslösen und Nachrichten löschen** [Nachgewiesen]
+  - *Befund:* `RPSelect.callback` (`cogs/rp_verwaltung.py:113`) und `RPStopModal.on_submit` prüfen keine Rolle. Wer das Panel sieht, sendet eine @everyone-Ankündigung; vorher löscht `send_rp_announcement` per `ch.purge(limit=10)` (`:52`) die letzten 10 Nachrichten **beliebiger Autoren**; ist kein Kanal gespeichert, fällt es auf den aktuellen Kanal zurück (`:47`). Die Uhrzeit aus dem Modal landet ungefiltert in der @everyone-Nachricht.
+  - *Umsetzung:* Rechteprüfung (Standard: Admin oder `can_promote`, Rollen im Dashboard konfigurierbar – frag mich, falls unklar ist, wer das Panel heute bedient), Cooldown, nur die eigene letzte Ankündigung löschen (Nachrichten-ID speichern) statt `purge`, kein Fallback-Kanal (klare Fehlermeldung), Eingabe prüfen (Uhrzeit oder „Offen“) und Erwähnungen entschärfen, `AllowedMentions(everyone=True)` nur für genau diese Nachricht, Audit-Eintrag.
+  - *Fertig wenn:* Test mit Fake-Interaction – Unberechtigte bekommen eine ephemere Ablehnung, es wird nichts gesendet oder gelöscht.
+
+- [ ] **K-03 Session-Secret und Token-Typen** [Nachgewiesen]
+  - *Befund:* `_load_secret()` (`webserver.py:717`) übernimmt `SESSION_SECRET` ungeprüft – auch den Platzhalter `change-me-to-a-long-random-secret` aus `.env.example`. Ist er gesetzt, kann jeder `user_session`-Cookies für beliebige Discord-IDs signieren (Server-Owner-ID = Vollzugriff). Außerdem werden `user_session` und `apply_session` mit demselben Schlüssel ohne Typ-Feld signiert; unterschieden wird nur über `exp` vs. `apply_exp`.
+  - *Umsetzung:* Platzhalter und zu kurze Secrets (< 32 Zeichen) nach E-10 behandeln, Warnung in Systemstatus und `/pulse-diagnose`; neue Tokens mit `typ` und Ausstellungszeit; alte Tokens bis zu ihrem Ablauf weiter akzeptieren. Prüfe in der echten `.env`, ob der Platzhalter steht – nur per `grep -c`, nichts ausgeben.
+  - *Fertig wenn:* Tests – Platzhalter wird nicht verwendet; ein Bewerbungs-Token wird als Dashboard-Token abgelehnt und umgekehrt; bestehende gültige Sitzungen funktionieren weiter.
+
+- [ ] **K-04 Verlorene Änderungen durch parallele Aktionen (Race Condition)** [Nachgewiesen]
+  - *Befund:* Warnung im Dashboard: `team_db = load_json(DATA_FILE)` (`webserver.py:9214`) → zwei `await`s (`:9220`, `:9226`) → `save_json` (`:9239`) → weitere `await`s mit Discord-Rollenänderungen (`:9241–9242`) → erneutes `save_json` des **alten Schnappschusses** (`:9243`). Gleiches Muster in `/warn` (`cogs/pulse_suite.py:1001–1037`), in `process_overdue_shifts` (`webserver.py:911`) und bei Warn-Rücknahme/Rangwechseln. Überlappen zwei Aktionen (zwei Leitungen verwarnen gleichzeitig, automatische Schicht-Warnung, Notiz), überschreibt die zweite die erste → Warnungen/Notizen verschwinden. [Prüfen] Gleiches Risiko beim Voice-Support: die Pro-Fall-Locks (`_case_action_lock`) schützen nicht den gemeinsamen `voice_support_cases`-Blob, der nach mehreren `await`s komplett zurückgeschrieben wird (`cogs/voice_support.py` z. B. `:491`, `:511`, `:540`).
+  - *Umsetzung:* zentraler Helfer (z. B. `async with store.mutate(DATA_FILE) as data:`) mit `asyncio.Lock` je Datei/Schlüssel; Laden → Ändern → Speichern ohne `await` dazwischen; Discord-Aufrufe vor oder nach dem kritischen Abschnitt; Folgeänderungen als eigenes `mutate`. Alle schreibenden Stellen für `team_data.json`, `applications.json`, `shifts.json`, `meetings.json` und den Voice-Support-Blob umstellen (Fundstellen per Subagent sammeln).
+  - *Fertig wenn:* Nebenläufigkeitstest (zwei Coroutinen mit künstlichem `await asyncio.sleep(...)` dazwischen) verliert keine Warnung und keinen Fall; alle bestehenden Tests grün.
+
+- [ ] **K-05 Beschädigte JSON-Datei wird still mit Standardwerten überschrieben** [Nachgewiesen]
+  - *Befund:* `load_json` (`webserver.py:256`) liefert bei jedem Lese-/Parse-Fehler still den Default (`{}`/`[]`); das nächste `save_json` überschreibt dann z. B. `config.json` (Rollen, Rechte, Einstellungen) oder `team_data.json` (alle Warnungen) mit fast leeren Daten. `save_json` (`:267`) schreibt ohne `flush`/`fsync` vor `os.replace` – nach Stromausfall oder hartem Container-Stopp ist eine leere Datei möglich.
+  - *Umsetzung:* Parse-Fehler → Datei als `<name>.corrupt-<zeitstempel>` sichern, laut loggen + Systemalarm, Schreibzugriffe auf diese Datei sperren (sichtbarer Degraded-Modus) statt überschreiben; `fsync` für Datei und Verzeichnis.
+  - *Fertig wenn:* Test – kaputte `config.json` wird nicht überschrieben, Sicherungskopie existiert, verständliche Meldung im Dashboard.
+
+- [ ] **K-06 Ticket-Kanal wird gelöscht, obwohl das Transkript fehlschlug** [Nachgewiesen]
+  - *Befund:* `archive_ticket` (`cogs/tickets.py:690`) fängt Fehler beim Transkript ab, schließt das Ticket trotzdem und löscht den Kanal → Verlauf unwiederbringlich weg. `transcript()` (`:448`) speichert Anhänge nur als Discord-CDN-Links; diese signierten Links laufen ab.
+  - *Umsetzung:* ohne gespeichertes Transkript **kein** Löschen – Kanal sperren und umbenennen (`geschlossen-…`), Team informieren, Knopf „Erneut archivieren“; Transkript zusätzlich in den Ticket-Log-Kanal hochladen; Anhänge bis zu einem Größenlimit mitsichern (E-7); optional lesbares HTML-Transkript.
+  - *Fertig wenn:* Test mit Fake-Kanal, dessen `history()` fehlschlägt → Kanal bleibt bestehen, Ticketstatus nachvollziehbar.
+
+- [ ] **K-07 Buttons funktionieren nach einem Neustart nicht mehr** [Nachgewiesen]
+  - *Befund:* `TicketView` in `cogs/pulse_suite.py:681` (interne Fälle aus `/pulse-ticket`) hat `timeout=None`, aber keine `custom_id`s und wird nie per `add_view` registriert. `BueroUebernehmenView` (`cogs/buero_system.py:251`) speichert Nutzer und Büro im Objekt, nutzt eine feste `custom_id` (`buero_uebernehmen_btn`) und wird nach einem Neustart ebenfalls nicht registriert. Folge nach jedem Deploy: „Interaktion fehlgeschlagen“ auf allen offenen Fällen und Büro-Anfragen.
+  - *Umsetzung:* `discord.ui.DynamicItem` mit dem Zustand in der `custom_id` (z. B. `pulse:suite-ticket:claim:<id>`, `pulse:buero:take:<user>:<kanal>`), Registrierung per `bot.add_dynamic_items(...)`; Fallback für bereits gepostete alte Nachrichten (alte `custom_id` erkennen, Zustand aus DB/Nachricht ableiten oder freundlich auf eine neue Anfrage verweisen). Alle übrigen Views prüfen und als Tabelle im Bericht aufführen.
+  - *Fertig wenn:* Test – nach simuliertem Neustart gibt es Handler für neue und alte `custom_id`s.
+
+- [ ] **K-08 Der globale Slash-Fehlerhandler wird nie aufgerufen** [Nachgewiesen]
+  - *Befund:* `cogs/pulse_pro.py:470` registriert `on_app_command_error` als Listener – dieses Event dispatcht discord.py nicht (nur `app_command_completion`). Fehler und fehlende Rechte aus `app_commands.checks.has_permissions(...)` landen nur im Log; Nutzer sehen „Die Anwendung reagiert nicht“.
+  - *Umsetzung:* Handler über `bot.tree.error` bzw. eine eigene `CommandTree`-Unterklasse in `main.py`: `MissingPermissions`, `CheckFailure`, `CommandOnCooldown`, `TransformerError` → passende ephemere Meldung; sonst Fehler-ID + Log (P-10); je nach `interaction.response.is_done()` per Followup.
+  - *Fertig wenn:* Unit-Test mit Fake-Interaction für jede Fehlerart.
+
+- [ ] **K-09 Bestätigungsdialoge (Warnung, Kick, Rangwechsel) laufen in Discord-Timeouts** [Nachgewiesen]
+  - *Befund:* Die `Confirm`-Callbacks in `cogs/pulse_suite.py` (z. B. `/warn`, `:994–1063`) führen mehrere Discord-Aufrufe aus (Rollen, Team-Update, DM), **bevor** sie die Interaktion beantworten (`x.response.edit_message` erst in `:1063`). Dauert das wegen Rate-Limits länger als 3 s: „Interaktion fehlgeschlagen“, obwohl die Warnung gespeichert ist – Gefahr doppelter Warnungen. `Confirm` (`:666`) hat kein `on_timeout` (Buttons bleiben klickbar und schlagen fehl), zeigt rohe Exception-Texte (`str(e)`) und prüft Rechte/Notfallsperre beim Klick nicht erneut.
+  - *Umsetzung:* sofort `edit_message(content="⏳ Wird ausgeführt …", view=None)` bzw. `defer`, danach `edit_original_response`; `on_timeout` deaktiviert die Buttons; generische Fehlermeldung mit Fehler-ID; `allowed()`/`locked()` beim Bestätigen erneut prüfen; ein Klick = genau eine Aktion.
+  - *Fertig wenn:* Test mit verzögertem Fake-Discord – Antwort kommt vor der Arbeit; Doppelklick erzeugt keine zweite Warnung.
+
+- [ ] **K-10 Voice-Support-Audio im Docker-Image nicht lauffähig** [Nachgewiesen]
+  - *Befund:* `cogs/voice_support.py:1122` nutzt `discord.FFmpegPCMAudio` → braucht das Programm `ffmpeg` und die Bibliothek `libopus`. Das `Dockerfile` (python:3.14-slim) installiert nur `ca-certificates`. Auf dem VPS fallen Ansage und Wartemusik damit aus.
+  - *Umsetzung:* `ffmpeg` und `libopus0` installieren; Start-Diagnose (`shutil.which("ffmpeg")`, `discord.opus.is_loaded()`) in Systemstatus und `/pulse-diagnose`; klare Log-Meldung statt stillem Ausfall.
+  - *Fertig wenn:* Prüfskript im gebauten Container meldet ffmpeg und opus OK (ohne Docker: als „nicht ausführbar“ berichten).
+
+- [ ] **K-11 Honeypot bannt jeden – ohne Spam aufzuräumen** [Nachgewiesen, Umsetzung nach E-1]
+  - *Befund:* `cogs/honeypot.py:167` `guild.ban(author, reason=…)` ohne Ausnahme für Team/Admins und ohne `delete_message_seconds` → ein Fehlklick eines Teamlers = Bann; Spam eines gehackten Kontos in anderen Kanälen bleibt stehen. Protokolliert wird nur per `print`.
+  - *Umsetzung:* Ausnahmen (Teamrollen/Admins → nur löschen + Alarm), `delete_message_seconds`, optional Softban, Eintrag im Mod-Log, Liste der Auslösungen im Dashboard mit „Entbannen“, Mehrfachauslösung pro Nutzer entprellen.
+  - *Fertig wenn:* Tests für Teamler, normales Mitglied, Webhook.
+
+- [ ] **K-12 Das Log-Modul protokolliert nie** [Nachgewiesen]
+  - *Befund:* `cogs/advanced_logs.py:9` `self.log_channel_id = 0` (fest im Code) → `get_log_channel` liefert immer `None`; Bearbeitungen, Voice- und Rollenänderungen werden nirgends protokolliert, obwohl `docs/PULSE_DISCORD_DESIGN.md` das Modul als umgestellt führt.
+  - *Umsetzung:* Log-Kanal in Verwaltung → Discord-Auftritt konfigurierbar (Setting in `pulse.db`); Ausbau in BOT-02.
+  - *Fertig wenn:* Test – konfigurierter Kanal erhält Logs; nicht konfiguriert → einmaliger Hinweis im Systemstatus statt Stille.
+
+- [ ] **K-13 Abhängigkeiten** [Nachgewiesen/Prüfen]
+  - `requirements.txt` erlaubt `discord.py>=2.3`, der Code nutzt aber `ui.LayoutView`/`ui.Container` (Components V2, erst ab discord.py 2.6) → Untergrenze `>=2.6` (prüfen, welche Version produktiv läuft).
+  - [Prüfen] Zeitzonendaten: `cogs/activity_check.py:24` und `pulse_activity_utils.py:8` laden `ZoneInfo("Europe/Berlin")` beim Import – fehlen die IANA-Daten im Container, lädt der ganze Cog nicht; `webserver.py:159` fällt dagegen still auf die Container-Zeitzone (meist UTC) zurück (falsche Uhrzeiten). → `tzdata` in die Requirements + Start-Check.
+  - *Fertig wenn:* frische venv mit den Requirements importiert alle Module; Test für den Zeitzonen-Fallback.
+
+- [ ] **K-14 CSV-Formel-Injection in Exporten** [Nachgewiesen]
+  - *Befund:* `/export/team.csv` (`pulse_pro.py:2589`) und `/ultimate/reports.csv` (`pulse_next.py:1041`) schreiben Discord-Anzeigenamen ungeschützt; ein Nickname wie `=HYPERLINK(…)` wird in Excel als Formel ausgeführt. `csv_safe` existiert bereits (`webserver.py:3945`).
+  - *Umsetzung:* alle CSV-Exporte über `csv_safe`. *Fertig wenn:* Test mit gefährlichem Namen.
+
+- [ ] **K-15 Personenbezogene Laufzeitdaten können ins öffentliche Repo geraten** [Nachgewiesen]
+  - *Befund:* Der VPS-Checkout ist gleichzeitig Datenverzeichnis (`compose.yaml`: `./:/app`). `.gitignore` deckt `attachments/` (Beweis-Uploads der Fälle, `pulse_ultimate.py:42`), `ai_moderation_cases.json` (markierte Nachrichten), `social_promo_sources.json` und `*.restore.tmp` nicht ab; `.dockerignore` außerdem nicht `uploads/` und `attachments/`. Ein `git add -A` auf dem Server würde Beweise und Mitgliederdaten veröffentlichen.
+  - *Umsetzung:* beide Ignore-Dateien ergänzen; Test, der alle Laufzeitpfade aus der Datenlandkarte per `git check-ignore` prüft. Langfristig D-06.
+
+- [ ] **K-16 Routen-Snapshot als Schutz** [Nachgewiesen]
+  - *Befund:* Welche Implementierung einer Seite aktiv ist, hängt von der Registrierungsreihenfolge am Ende von `webserver.py` und von `remove_and_add` ab; `GET /ultimate` ist doppelt registriert.
+  - *Umsetzung (jetzt nur Absicherung):* Test, der nach vollständiger Registrierung prüft, dass jede Kombination aus Pfad und Methode genau einmal existiert und die erwarteten Handler aktiv sind (Snapshot aus P0-2); tote Handler mit Kommentar markieren. Aufräumen in A-01.
+
+---
+
+## 5. Phase 2 – Datenintegrität, Backups, Datenschutz
+
+- [ ] **D-01 Ein vollständiges Backup** [Nachgewiesen]
+  - *Befund:* Zwei Backup-Systeme mit unterschiedlichen Lücken – zusammen sichern sie trotzdem nicht alles.
+    - JSON-Backup `/backups` (`build_backup`, `webserver.py:7214`): enthält 6 JSON-Dateien, `pulse_db.export_state()` und `activity_check.db`. Es fehlen `audit_logs.json`, `pulse_announcement_archive.json`, `role_nickname_state.json`, `social_promo_sources.json`, `ai_moderation_cases.json`, die Datenbanken `pulse_suite.db` (Dienstplan, Bewerbungsgespräche, Meldefälle aus `/melden`, Suite-Einstellungen), `teamliste.db`, `buero_system.db`, `rp_verwaltung.db`, `flaggenquiz.db` sowie alle Uploads und Beweise. `export_state` (`pulse_db.py:1310`, `TABLES`) exportiert nur 22 Tabellen – `voice_support_case_history` und die rund 35 `next_*`/`ultimate_*`-Tabellen in **derselben** `pulse.db` (Fälle, Abteilungen, Umfragen, Workflows, Rechte-Overrides, API-Schlüssel …) fehlen. Transkripte über 2 MB bzw. über 10 MB gesamt werden still übersprungen.
+    - ZIP-Backup `/ultimate/backup` (`pulse_next.py:541`): ganze `pulse.db` + 7 JSON-Dateien + Anhänge – aber ohne `abmeldungen.db`, `activity_check.db`, die fünf weiteren Datenbanken, Uploads und Transkripte.
+  - *Umsetzung:* **ein** Format (ZIP mit `manifest.json`: Format-Version, Pulse-Version, Dateiliste, SHA-256, Größen), das alles aus der Datenlandkarte enthält; SQLite-Schnappschüsse über `sqlite3.Connection.backup()` (konsistent auch im WAL-Modus); Discord-Struktur wie bisher; Größenbudget mit sichtbarer Warnung statt stillem Auslassen; beide bisherigen Formate bleiben importierbar; Restore mit Probelauf/Diff-Vorschau (Roadmap P1) und automatischer Sicherheitskopie davor.
+  - *Fertig wenn:* Roundtrip-Test (Backup → Restore in Temp-Verzeichnis → alle Dateien und Tabellen identisch) und ein Test, der neue Tabellen/Dateien ohne Backup-Eintrag als Fehler meldet.
+
+- [ ] **D-02 Sicheres Wiederherstellen** [Nachgewiesen]
+  - *Befund:* `restore_backup` (`pulse_next.py:584`) ersetzt die laufende `pulse.db` per `os.replace` (`:594`), während Bot, Dashboard und Schleifen Verbindungen öffnen und WAL-Dateien existieren – Korruptions- und Mischstand-Risiko; die JSON-Dateien werden danach einzeln ersetzt.
+  - *Umsetzung:* Wartungsmodus (F-04) an → Schreibzugriffe und Jobs pausieren → Restore per Backup-API in die bestehende Datei → `PRAGMA integrity_check` → Wartungsmodus aus; alles im Audit-Log.
+
+- [ ] **D-03 Backups blockieren den Bot nicht** [Nachgewiesen]
+  - *Befund:* `create_backup()` (ZIP mit bis zu 250 MB Anhängen) läuft synchron in einer async-Route (`pulse_next.py:1060`) und blockiert Event-Loop und Discord-Heartbeat. `build_backup` läuft per `asyncio.to_thread` (`webserver.py:7480`), iteriert dort aber `guild.members`/`roles`/`channels` – die discord.py-Caches sind nicht threadsicher.
+  - *Umsetzung:* Discord-Schnappschuss im Event-Loop (nur Daten kopieren), Datei- und ZIP-Arbeit im Thread; Fortschritt und Ergebnis im Dashboard.
+
+- [ ] **D-04 Externe Kopie & automatischer Restore-Test** [Idee]
+  - Aufbewahrung nach Schema (z. B. 7 täglich / 4 wöchentlich / 6 monatlich); Kopie außerhalb des Servers (der vorhandene private Discord-Kanal-Upload, optional S3-kompatibel – nur konfigurierbar, kein Pflichtdienst); wöchentlicher automatischer Restore-Test in ein Temp-Verzeichnis, Ergebnis im Systemstatus.
+
+- [ ] **D-05 Ein einziger Datenbankpfad** [Nachgewiesen]
+  - `PULSE_DB_PATH` gilt nur in `pulse_db.py`; `pulse_ultimate.py:44` (`ULTIMATE_DB = BASE / "pulse.db"`) und damit `pulse_next.py` nutzen fest `pulse.db` → bei abweichendem Pfad entstehen zwei verschiedene Datenbanken. Eine Quelle für alle Module + Test.
+
+- [ ] **D-06 Daten vom Code trennen** [Idee]
+  - `PULSE_DATA_DIR` (Default = heutiges Verzeichnis, damit nichts bricht), alle Pfade darüber auflösen; optionale, idempotente Migration mit Backup vorher; im Docker-Setup Daten auf eigenem Volume statt `./:/app`. Voraussetzung für sichere Deploys (O-03).
+
+- [ ] **D-07 Wachsende Dateien begrenzen** [Nachgewiesen]
+  - `shifts.json` (die `history` wird nie gekürzt), `logs.json` und `applications.json` wachsen unbegrenzt und werden bei fast jeder Seite komplett geparst (P-03, P-05). Schrittweise nach SQLite (A-05) oder archivieren (z. B. Jahresdateien) – mit Migration, Lese-Fallback und Backup davor.
+
+- [ ] **D-08 Datenschutz (DSGVO)** [Idee, nach E-3 und E-9]
+  - Datenschutzhinweis auf `/apply` (welche Daten, Zweck, wer sieht sie, wie lange); konfigurierbare Aufbewahrungsfristen mit automatischer, protokollierter Bereinigung; Export „Alles über Discord-ID X“ (Auskunft) und geprüfte Löschung; Hinweis auf externe KI-Verarbeitung, sobald KI-Moderation oder KI-Support aktiv sind; Sichtbarkeit der Teamakte nach E-3.
+
+- [ ] **D-09 Zeitstempel vereinheitlichen** [Nachgewiesen]
+  - Heute gemischt: `%d.%m.%Y %H:%M` (Warnungen, Bewerbungen), `%d.%m.%Y %H:%M:%S` (Audit), `%Y-%m-%d` (Schichten), ISO mit Berlin-Offset, ISO in UTC (`pulse_db._now`), naive `datetime.now()`. Neue Daten: ISO 8601 mit Zeitzone; ein toleranter Parser für alle Altformate; Anzeige in Europe/Berlin. Keine Massenumschreibung alter Daten ohne Backup und Test.
+
+- [ ] **D-10 Konsistenz-Diagnose** [Idee, Roadmap P2] – nur berichtend: aktive Schichten ohne Mitglied, offene Tickets ohne Kanal, Warnrollen ≠ aktive Warnungen, Abmeldungen mit Ende vor Beginn, verwaiste Voice-Fälle, Panels ohne Nachricht. Ergebnis im Systemstatus, keine automatische Korrektur.
+
+---
+
+## 6. Phase 3 – Performance & Stabilität
+
+- [ ] **P-01 Event-Loop entlasten** [Nachgewiesen]
+  - Bot und Dashboard teilen sich einen Event-Loop. Synchrones SQLite (`pulse_db.connect`: globales `RLock`, `timeout=15`, `busy_timeout=3000`), synchrones JSON-Lesen/Schreiben und Datei-I/O laufen direkt in async-Routen, Listenern und Loops. Ein langsamer Schreibzugriff friert Dashboard **und** Discord-Gateway ein.
+  - Erst messen: Event-Loop-Verzögerung im bestehenden Automationszyklus (`pulse_ultimate.automation_loop`) erfassen und ab ~250 ms protokollieren. Dann heiße Pfade über `asyncio.to_thread` bzw. eine kleine DB-Fassade. Verbindungen mit `contextlib.closing` schließen – `with sqlite3.connect(...) as c` beendet nur die Transaktion, nicht die Verbindung.
+
+- [ ] **P-02 Live-Abfrage verbilligen** [Nachgewiesen]
+  - Jede offene Dashboard-Seite fragt alle 30 s `/api/pulse/live` ab (`pulse_pro.py:72`, auch in Hintergrund-Tabs). `api_live` (`:2597`) ruft `work_stats` (`:354`) auf, das jedes Mal `shifts.json`, `logs.json`, `applications.json`, Abmeldungen, 2.000 Tickets und 2.000 Aufgaben lädt.
+  - Geteilter Server-Cache (10–15 s), Polling pausieren bei `document.visibilityState === "hidden"`, Backoff bei Fehlern; später optional SSE (E-5).
+
+- [ ] **P-03 Statistik ohne Mehrfachladen** [Nachgewiesen]
+  - `stats_v5` (`pulse_pro.py:1582`) ruft `ws.load_shifts()` **in der Schleife pro Teammitglied** auf. `calculate_weekly_seconds` (`webserver.py:1099`) durchläuft pro Mitglied die gesamte ungekürzte Historie mit `strptime` je Eintrag (Mitglieder × Historie) und wird an ~15 Stellen genutzt.
+  - Einmal laden, einmal nach Mitglied/Woche gruppieren, kurz cachen. *Fertig wenn:* Test belegt identische Ergebnisse.
+
+- [ ] **P-04 `load_config()` cachen** [Nachgewiesen] – liest und parst `config.json` bei jeder angemeldeten Anfrage (`auth`, `webserver.py:816`). Cache über Datei-mtime, Invalidierung bei jedem Speichern.
+
+- [ ] **P-05 Lesen ohne Schreiben** [Nachgewiesen] – `load_shifts()` (`webserver.py:879`) beendet beim Lesen überfällige Schichten und schreibt dabei; es wird an ~40 Stellen aufgerufen (Seiten, Loops, Befehle). Auto-Beenden nur noch im Automationszyklus (`process_overdue_shifts` existiert), die Lesefunktion ohne Seiteneffekt.
+
+- [ ] **P-06 Job-Registry** [Nachgewiesen/Idee] – 13 `@tasks.loop`s plus eigene Endlosschleifen; `automation_loop` (`pulse_ultimate.py:2272`) verschluckt jede Exception ohne Log (`:2316`). Kleine Registry (Name, Intervall, letzter Lauf, Dauer, letzter Fehler, nächster Lauf) im Systemstatus; Fehler je Job isoliert und geloggt; Jitter. Keine zusätzliche Dauerschleife (`CLAUDE.md` §4) – bestehende Loops schrittweise anmelden.
+
+- [ ] **P-07 Hintergrund-Tasks absichern** [Nachgewiesen] – `create_task` ohne gehaltene Referenz (z. B. `cogs/pulse_suite.py:227`): der Task kann vom Garbage Collector eingesammelt werden, Fehler gehen verloren. Zentraler `spawn()`-Helfer (Referenz-Set + Fehler-Logging).
+
+- [ ] **P-08 `on_ready`-Arbeit nur einmal** [Nachgewiesen] – `on_ready` feuert nach Reconnects erneut. Betroffen u. a.: `main.py:113` (Warnrollen-Abgleich über alle Mitglieder), `cogs/honeypot.py`, `cogs/server_stats.py`, `cogs/pulse_suite.py` (Security-Check), `cogs/voice_support.py`, `cogs/flaggenquiz.py`, `cogs/pulse_pro.py`. Einmal pro Prozess (Flag) oder `setup_hook`/`cog_load` + `wait_until_ready`.
+
+- [ ] **P-09 Slash-Command-Sync** [Nachgewiesen] – `main.py:70` synchronisiert bei jedem Start global. Besser: Hash des Befehlsbaums speichern und nur bei Änderung syncen; für den einen Server `tree.copy_global_to(guild=…)` + `tree.sync(guild=…)` (sofort sichtbar) – vorher klären, wie doppelte Einträge (global + Server) vermieden werden; manueller Sync-Knopf für Admins.
+
+- [ ] **P-10 Logging statt `print`** [Nachgewiesen] – ~320 `print()`-Aufrufe, das `logging`-Modul wird nirgends genutzt; dazu ~290 `except Exception`-Blöcke, viele davon mit `pass`. Logger je Modul, Level, einheitliches Format mit Zeit, begrenzter `RotatingFileHandler`, Fehler-ID; Ringpuffer der letzten 200 Fehler für den Systemstatus. Stille `except … pass` dort, wo Fehler relevant sind, durch geloggte Behandlung ersetzen. Nie Tokens, Secrets oder Nachrichteninhalte von Nutzern loggen.
+
+- [ ] **P-11 Freundliche Fehlerseite** [Nachgewiesen] – unerwartete Exceptions liefern „Internal Server Error“. Globaler Handler mit Fehlerseite + Fehler-ID; Traceback nur ins Log.
+
+- [ ] **P-12 OAuth robust** [Nachgewiesen] – `callback` (`webserver.py:2699–2705`) prüft weder Statuscode noch JSON-Fehler und setzt keine expliziten Timeouts; ein Discord-429/5xx wird zum 500er. Status prüfen, Timeouts setzen, verständliche Meldung mit „erneut versuchen“.
+
+- [ ] **P-13 Keine doppelten Tickets** [Nachgewiesen] – `start_ticket_flow` (`cogs/tickets.py:769`) lädt 2.000 Tickets und filtert in Python; zwei schnelle Klicks können zwei Tickets erzeugen. Indizierte Abfrage + Sperre pro Nutzer, bis der Kanal existiert.
+
+- [ ] **P-14 Speicher messen statt schätzen** [Prüfen, nach E-5] – tatsächliche Kosten von Presence-Intent und Member-Cache messen (Startbericht/Systemstatus), bevor etwas geändert wird; den Doku-Widerspruch 250 MB vs. 4–8 GB auflösen.
+
+---
+
+## 7. Phase 4 – Architektur & Wartbarkeit (schrittweise, testgesichert)
+
+- [ ] **A-01 Module statt Überschreiben** [Nachgewiesen] – Die Versionsschichten v4 (`pulse_features`) → v5 (`pulse_pro`) → `pulse_ultimate` → TeamOS 2.0 (`pulse_next`) → `pulse_intelligence` → Suite (`cogs/pulse_suite.py`) ersetzen sich gegenseitig per `remove_and_add` und Monkeypatching (`pulse_pro.make_shell_helpers` überschreibt `ws.compute_perms`, `ws.log_audit`, `ws.get_sidebar_html`, `ws.get_head_html`). Ziel: je Fachbereich ein Modul mit `APIRouter`, feste Registrierungsreihenfolge, keine Laufzeit-Ersetzungen. Tote Handler erst löschen, wenn der Routen-Snapshot (K-16) belegt, dass sie unerreichbar sind. Bereich für Bereich, jeweils mit Snapshot-Test (gleiche URLs, Methoden, Rechte).
+
+- [ ] **A-02 `webserver.py` zerlegen** [Nachgewiesen] – ~9.900 Zeilen. Reihenfolge: Konstanten/IDs (Werte unverändert, z. B. `pulse_ids.py`) → Auth/Session → Persistenz-Helfer → UI-Bausteine → Routen je Bereich. Die Sammelroute `POST /action` (`webserver.py:8711`, 51 Parameter, über 20 Aktionen von Bewerbung bis Rechteverwaltung) in eigene Endpunkte aufteilen; `/action` nimmt alte Formulare weiter an und delegiert.
+
+- [ ] **A-03 Ein Rechte-Modell** [Nachgewiesen] – heute vier Ebenen: `config.permissions` je Discord-Rolle (`compute_perms`, `webserver.py:764`), Dashboard-Profile `dashboard_roles` (+ `EXTRA_PERMS` in `pulse_pro.patched_compute`, `:130`), Nutzer-Overrides `next_permission_overrides` (`pulse_next.has_perm`, `:264`) und Slash-Befehlsrollen `command_roles` (`cogs/pulse_suite.py:237`) – plus implizite Vererbungen (`can_promote` ⇒ Bewerbungen, Tickets, Ankündigungen, Beförderungen) an mehreren Stellen. [Prüfen] `patched_compute` übernimmt `EXTRA_PERMS` aus `config.permissions` für **jede** Rolle des Mitglieds, das Original nur für Teamrollen → Verstoß gegen deny-by-default. Ziel: `effective_permissions(member)` mit Herkunft je Recht, eine Stelle für Vererbungen, Seite „Wer darf was?“ (F-01) und ein Test, der für jede Route prüft: nicht angemeldet → Login-Redirect, ohne Recht → 403.
+
+- [ ] **A-04 Keine Seiteneffekte beim Import** [Nachgewiesen] – `import webserver` legt `abmeldungen.db` an (`webserver.py:248`), erstellt `backups/` (`:156`) und ggf. `.session_secret` (`:736`); `pulse_db` legt beim Import `pulse.db` an. Explizite Initialisierung beim Start (FastAPI-`lifespan` statt des veralteten `@app.on_event`, `webserver.py:8148`).
+
+- [ ] **A-05 Persistenz zusammenführen** [Idee] – neue Daten nur noch in `pulse.db`; versionierte, idempotente Migrationen (`schema_migrations`), Backup vor jeder Migration; JSON → SQLite Datei für Datei mit Lese-Fallback und Rückweg; die kleinen Datenbanken (`rp_verwaltung.db`, `buero_system.db`, `flaggenquiz.db`, `teamliste.db`, `pulse_suite.db`) später in `pulse.db` überführen.
+
+- [ ] **A-06 Templates mit Autoescape** [Idee] – HTML entsteht in f-Strings (das Escaping über `esc()`/`e()` ist heute meist sauber). Neue und grundlegend überarbeitete Seiten mit Jinja2 + Autoescape; keine Komplettumstellung.
+
+- [ ] **A-07 Code-Qualität** [Idee] – `ruff` mit konservativem Regelset (ungenutzte Imports/Variablen, `except:` ohne Typ, veränderbare Default-Argumente …) in der CI, zunächst nur für geänderte Dateien; Formatierung nur für angefasste Funktionen; Typ-Hinweise in neuen Modulen.
+
+- [ ] **A-08 Testbasis** [Idee] – zentrale Discord-Fakes (`tests/fakes.py`: Guild, Member, Role, Channel, Interaction mit Response/Followup), Routen-×-Rollen-Matrix, Nebenläufigkeitstests (K-04), Backup-Roundtrip (D-01); Quelltext-String-Asserts in `feature_smoke.py` schrittweise durch Verhaltenstests ersetzen.
+
+- [ ] **A-09 IDs zentral und konfigurierbar** [Idee] – alle festen Kanal- und Rollen-IDs an einem Ort (Werte unverändert); wo sinnvoll im Dashboard überschreibbar mit Fallback auf die festen Werte (z. B. Log-Kanal, Honeypot-Kanal, RP-Ankündigungskanal).
+
+---
+
+## 8. Phase 5 – Team-Dashboard: Bedienung & Design
+
+- [ ] **U-01 Navigation aufräumen** [Nachgewiesen, nach E-6] – Leitungen sehen ~66 Navigationseinträge (20 im Hauptbereich + 31 „Command Center“ + 15 „Operations Suite“; `pulse_pro.py` `patched_sidebar`, `pulse_design.py`), und viele Funktionen existieren mehrfach als eigene Seiten: Kalender 3× (`/calendar`, `/ultimate/calendar`, `/suite/calendar` – **drei getrennte Tabellen**, ein Termin erscheint nur im Kalender, in dem er angelegt wurde), Aufgaben 3×, Suche 3×, Team 3×, Team-News 3×, Erfolge/Awards 3×, System 3×, Fälle/Meldungen 2×, Analytics 2×, Übergaben 2×, Freigaben 2×, Backup 2×, Schulungen 2×, Recruiting 2×. Ziel: ~6 Gruppen (Mein Bereich · Team · Support · Recruiting · Planung · Auswertung) + Verwaltung; je Funktion eine kanonische Seite; alte URLs per 308 weiterleiten; Daten zuerst lesend zusammenführen (z. B. ein Kalender zeigt alle drei Quellen), Migration erst nach Freigabe. Checkliste „alte Seite → neue Stelle“ in `docs/ROUTEN.md` – keine Funktion darf verschwinden.
+
+- [ ] **U-02 Eine Startseite** [Nachgewiesen] – Login und `/` leiten auf `/ultimate`, die Navigation beginnt aber mit „Mein Pulse“ (`/me`). Pro Nutzer wählbare Startseite, Standard `/me`.
+
+- [ ] **U-03 Tailwind ohne Play-CDN** [Nachgewiesen] – `webserver.py:2267` lädt `https://cdn.tailwindcss.com`; das ist laut Tailwind nur für die Entwicklung gedacht (Kompilierung im Browser, Flackern beim Laden, unversionierte Fremdabhängigkeit, kein SRI möglich). CSS einmalig mit der Tailwind-Standalone-CLI bauen (kein Node nötig) und als `/static/pulse.css` mit Cache-Headern ausliefern; große Inline-Blöcke (`PRO_CSS`, `LEGACY_CSS`, Inline-JS) in statische Dateien. Vorher/Nachher per Screenshot vergleichen.
+
+- [ ] **U-04 Formulare** [Nachgewiesen] – Fehler kommen als Redirect mit `?msg=` zurück, Eingaben sind weg. Fehler inline am Feld, Eingaben erhalten, Absenden-Knopf gegen Doppelklick sperren, Ladezustand, einheitliche Bestätigung für destruktive Aktionen.
+
+- [ ] **U-05 Listen** [Idee] – Pagination, Filter, Sortierung und Suche für Audit, Ticket-Historie, Bewerbungs-Historie, Warnungen und Logs; einheitlicher CSV-Export über `csv_safe`.
+
+- [ ] **U-06 Barrierefreiheit** [Idee] – `aria-label` für Icon-Buttons (☰, ⌕, Emoji-Navigation), sichtbarer Fokus, Kontraste in Hell und Dunkel, Tastaturbedienung der Schnellsuche, `prefers-reduced-motion`.
+
+- [ ] **U-07 Mobil** [Idee] – Tabellen auf schmalen Displays als Karten, Touch-Ziele ≥ 44 px, Sidebar-Verhalten; Screenshots bei 375 px, 768 px und Desktop.
+
+- [ ] **U-08 Live-Ansichten** [Idee, nach E-5] – Ticket-Warteschlange, Voice-Warteraum und Teamstatus mit SSE oder sichtbarkeitsabhängigem Polling, Anzeige „zuletzt aktualisiert“.
+
+- [ ] **U-09 Einheitliche Zustände** [Idee] – Leer-, Fehler- und Ladezustände als gemeinsame Komponente; relative Zeiten („vor 5 Min.“) mit exaktem Tooltip.
+
+- [ ] **U-10 Teamakte als Zeitleiste** [Idee, nach E-3] – Warnungen, Beförderungen, Schichten, Tickets, Voice-Fälle, Schulungen und Notizen chronologisch; heute verteilt auf `/member/{id}`, `/ultimate/person/{id}`, `/ultimate/team/{id}` und `/suite/member/{id}` → zusammenführen.
+
+- [ ] **U-11 Benachrichtigungen** [Idee] – Inbox-Einstellungen je Nutzer (welche Ereignisse, optional als Discord-DM), Gruppierung, „alle gelesen“, Ruhezeiten (BOT-12).
+
+- [ ] **U-12 Ein Systemstatus** [Nachgewiesen/Idee] – `/system`, `/ultimate/system`, `/ultimate/health-detail`, `/ultimate/security` und Verwaltung → System zu einer Seite zusammenführen: Gateway-Latenz, Event-Loop-Verzögerung (P-01), RAM-Verlauf, Jobs (P-06), letzte Fehler (P-10), Backups + letzter Restore-Test (D-04), ffmpeg/opus (K-10), Zeitzonendaten (K-13), Konfigurationsprüfung (fehlende Kanäle/Rollen, Bot-Rollen-Hierarchie, Platzhalter-Secret, Pflichtwerte der `.env`), Cog-Ladefehler (`main.py` sammelt sie schon in `pulse_failed_cogs`).
+
+- [ ] **U-13 Sicherheits-Header** [Nachgewiesen] – zwei Middlewares setzen widersprüchliche Werte (`webserver.py:183` vs. `pulse_pro.py:313`, z. B. `Referrer-Policy`, `Cache-Control`) → eine. Content-Security-Policy schrittweise (sofort: `frame-ancestors 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`; Nonces nach U-03). Der Origin-Check (`pulse_pro.py:313`) greift nur, wenn ein `Origin`-Header da ist → `Referer`-Fallback ergänzen. Logout als POST.
+
+- [ ] **U-14 Sitzungen & API-Schlüssel** [Idee] – serverseitige Sitzungsliste (Gerät, letzte Aktivität) mit „überall abmelden“, automatischer Widerruf bei Team-Austritt, Idle-Timeout; API-Schlüssel (`ultimate_api_keys`) mit Scopes, Ablaufdatum, `last_used_at` und Rate-Limit.
+
+---
+
+## 9. Phase 6 – Discord-Bot: Bedienung & Funktionen
+
+- [ ] **BOT-01 Grundregeln für Interaktionen** [Nachgewiesen/Idee] – ein Helfer für alle Buttons, Modals und Befehle: bei mehr als ~1 s Arbeit sofort `defer`, ephemere Fehler mit Fehler-ID, Rechte beim Klick erneut prüfen, `on_timeout` deaktiviert Buttons, Cooldown gegen Doppelklicks. Globaler `allowed_mentions`-Standard im Bot (`everyone=False, roles=False`) – vorher **alle** gewollten Pings inventarisieren und explizit freigeben (Recruiting-Ping, Verifizierungs-Erinnerung, Ticket-Ping-Rollen, Büro-Rollen, RP-Ankündigung, `/team-ping`).
+
+- [ ] **BOT-02 Protokollierung ausbauen** [Idee, baut auf K-12] – gelöschte Nachrichten (inkl. Anhangsnamen), Bearbeitungen, Beitritt/Austritt mit Kontoalter, Bans/Unbans/Timeouts/Kicks mit Täter über `on_audit_log_entry_create` (Bot braucht „Audit-Log anzeigen“), Rollen- und Nickname-Änderungen, Kanal- und Rollenänderungen, Voice-Bewegungen (abschaltbar, gedrosselt). Kategorien auf eigene Kanäle verteilbar, Ignorierlisten (Kanäle/Rollen/Bots), Sammelversand gegen Rate-Limits, moderner Container-Stil.
+
+- [ ] **BOT-03 Dienst-Panel in Discord** [Idee] – Schichten lassen sich heute nur im Dashboard starten, pausieren und beenden (`POST /shift/action`). Persistentes Panel + `/dienst start|pause|weiter|ende|status` mit derselben Logik und Datenquelle (inkl. der Abmeldungsregeln aus der README), Bereitschaftsrolle wie bisher, Erinnerung „Schicht läuft seit X h“ deutlich vor der 24-h-Grenze.
+
+- [ ] **BOT-04 Slash-Befehle ordnen** [Nachgewiesen, nach E-11] – rund 70 Befehle mit gemischter Benennung (`ticketpanels_setup`, `setup_buero`, `team-kick`, `pulse-diagnose`, `pulsehealth` …) plus Prefix-Altbefehle. Gruppen (`/team …`, `/ticket …`, `/pulse …`, `/setup …`), alte Namen übergangsweise als Alias, `default_permissions`, damit normale Mitglieder Verwaltungsbefehle gar nicht sehen; `/pulse-hilfe` automatisch aus Befehlsbaum und Rechten erzeugen; Discord-Limit von 100 Befehlen im Blick behalten.
+
+- [ ] **BOT-05 Eine Logik für Teamaktionen** [Nachgewiesen] – Warnen ist doppelt implementiert (Dashboard `webserver.py:9193`, Slash `/warn` `cogs/pulse_suite.py:987`); ebenso Warn-Rücknahme und Rangwechsel. Slash-Warnungen gelten fest 7 Tage ohne Beweis, im Dashboard sind 1–365 Tage + Beweis-Link möglich. Eine gemeinsame Domänenfunktion je Aktion (Prüfungen, Speichern über K-04, Rollen, Folgen, Team-Update, DM, Audit) für beide Wege; `/warn` bekommt optionale Dauer und Beweis. [Prüfen] ob die Slash-Rücknahme dieselben Warnfolgen aufhebt wie das Dashboard.
+
+- [ ] **BOT-06 Tickets** [Idee] – Schnellantworten je Kategorie (Roadmap P2), Übergabe mit Pflicht-Notiz (Roadmap P2), Ticket-Sperre für Missbrauch (mit Ablauf), Tags, sichtbarer SLA-Timer, lesbares HTML-Transkript im Dashboard, Auswertung der Bewertungen je Kategorie und Teamler.
+
+- [ ] **BOT-07 Voice-Support** [Idee] – Warteposition und geschätzte Wartezeit für den Bürger; außerhalb der Öffnungszeiten das Angebot „Ticket statt Warten“; Supporter-Statistik im Dashboard; sichtbarer Hinweis, wenn Audio nicht verfügbar ist (K-10). Die Blob-Race aus K-04 hier mit absichern.
+
+- [ ] **BOT-08 Raid- und Spam-Frühwarnung** [Idee] – viele Beitritte/neue Konten in kurzer Zeit, Massen-Erwähnungen, identische Nachrichten in vielen Kanälen → Alarm an das Team mit Handlungsvorschlägen. Keine automatische Änderung von Kanalrechten (laut Roadmap bewusst verworfen).
+
+- [ ] **BOT-09 Bürger-Moderation** [Idee, nur nach E-8] – `/mod timeout|kick|ban|warn` mit Fall-ID, Beweis, Ablauf, DM-Vorlage, Einspruch per Ticket und Fallakte im Dashboard; dieselben Hierarchie- und Audit-Regeln wie bei Teamaktionen.
+
+- [ ] **BOT-10 Bewerbungs-Kommunikation** [Idee] – DMs mit Vorlagen für Eingang, Gesprächseinladung (Termin im Kalender + Erinnerung) und Ergebnis; mehrere Prüfer mit Bewertungsrubrik (Roadmap P3).
+
+- [ ] **BOT-11 On- und Offboarding** [Idee] – die vorhandene Onboarding-Aufgabe (`cogs/pulse_suite.py` ~`:1393`) zur Checkliste ausbauen (Rollen, Kanäle, Pflichtschulungen, Mentor, Probezeit); Offboarding-Checkliste bei Team-Kick/-Exit.
+
+- [ ] **BOT-12 Ruhezeiten** [Idee, Roadmap P3] – Erinnerungs-DMs nicht nachts (konfigurierbar, z. B. 23–8 Uhr), mehrere Hinweise bündeln.
+
+- [ ] **BOT-13 Status-Anzeige an einer Stelle** [Nachgewiesen] – die Bot-Präsenz wird an drei Stellen gesetzt (`main.py:116`, `cogs/pulse_pro.py:168/186`, `cogs/pulse_suite.py:858`). Eine Stelle, z. B. „N im Dienst · M Tickets offen“, höchstens alle paar Minuten aktualisiert.
+
+- [ ] **BOT-14 Panel-Übersicht** [Idee] – die Verwaltung zeigt alle persistenten Panels (Tickets, Verifizierung, RP-Verwaltung, Büro, Abmeldung, Activity Check, Honeypot-Warnung, Quiz) mit Kanal, Nachrichten-Link, Stil, letzter Aktualisierung und dem Knopf „neu veröffentlichen/reparieren“.
+
+---
+
+## 10. Phase 7 – Neue Funktionen [Idee] (jeweils abschaltbar, Standard aus, Reihenfolge nach meinem OK)
+
+- [ ] **F-01 „Wer darf was?“** – Rechte-Matrix und Simulation für eine bestimmte Person (Roadmap P2), Grundlage A-03.
+- [ ] **F-02 Kanal-Sichtprüfung für Unverifizierte** – nur lesend, Warnliste (Roadmap P1).
+- [ ] **F-03 Einstellungs-Historie** – wer hat wann welche Einstellung geändert, mit Diff und „zurücksetzen“.
+- [ ] **F-04 Wartungsmodus** – Banner im Dashboard, Schreibaktionen gesperrt, Bot-Automationen pausiert (Voraussetzung für D-02 und Migrationen).
+- [ ] **F-05 Kapazitäts-Heatmap** – Ticket- und Voice-Aufkommen gegen Dienstzeiten je Wochentag und Stunde, Hinweise für den Dienstplan.
+- [ ] **F-06 Beförderungs-Reife (nur Hinweis)** – konfigurierbare Kriterien je Rang (Stunden, Tickets, Bewertungen, Pflichtschulungen, Warnfreiheit, Probezeit); entschieden wird immer von Menschen über den bestehenden 4-Augen-Ablauf.
+- [ ] **F-07 Bewerbungs-Pipeline als Board** – Eingang → Prüfung → Gespräch → Probezeit → Team/abgelehnt, mit Vorlagen und Fristen.
+- [ ] **F-08 Öffentliche Statusseite (optional)** – Support offen/geschlossen, Länge der Warteschlange, RP-Status (Start/Stop); ohne personenbezogene Daten.
+- [ ] **F-09 Spiel-Anbindung (optional)** – nur falls euer Roblox-Spiel eine offizielle API bietet (Serverstatus, Spielerzahl); Schlüssel optional in der `.env`, ohne Schlüssel bleibt alles wie bisher.
+- [ ] **F-10 „Mein Monat“** – persönlicher Rückblick in `/me` (Stunden, Tickets, Bewertungen, Schulungen, Erfolge), optional als DM am Monatsanfang (Opt-in).
+
+---
+
+## 11. Phase 8 – Deployment, CI & Betrieb
+
+- [ ] **O-01 Dockerfile** [Nachgewiesen] – `ffmpeg` + `libopus0` (K-10), Zeitzonendaten, eigener Nicht-root-Benutzer, `HEALTHCHECK` auf `/healthz`, `.dockerignore` um `uploads/` und `attachments/` ergänzen.
+
+- [ ] **O-02 Compose & HTTPS** [Nachgewiesen/Prüfen] – `compose.yaml` veröffentlicht Port 25095 direkt, einen Reverse-Proxy mit HTTPS gibt es in der Konfiguration nicht. Vorschlag: Pulse nur an `127.0.0.1` bzw. ein internes Netz binden, Reverse-Proxy (z. B. Caddy mit automatischen Zertifikaten) davor, Uvicorn `proxy_headers`/`forwarded_allow_ips` passend setzen. [Prüfen] Sonst sehen IP-Rate-Limits nur die Proxy-IP: das Bewerbungslimit (`rate_limited(f"apply:{ip}")`, 3 pro Stunde, `webserver.py:8770`) gälte dann für **alle** Bewerber gemeinsam. Ressourcenlimit passend zu E-5.
+
+- [ ] **O-03 Deploy-Workflow** [Nachgewiesen] – `.github/workflows/deploy-vps.yml` deployt `origin/main` (`git reset --hard origin/main`) statt des getesteten Commits (`github.event.workflow_run.head_sha`); bei schnellen Pushes kann so Ungetestetes live gehen. Außerdem fehlen Backup vor dem Deploy, Health-Check danach, Rollback und eine Concurrency-Gruppe. Ergänzen: Checkout des getesteten SHA, Daten-Backup vorher (Format aus D-01), `/healthz` muss innerhalb einer Frist 200 liefern, sonst automatischer Rollback auf den vorherigen Stand; Meldung in den Alert-Kanal.
+
+- [ ] **O-04 CI** [Idee] – Abhängigkeiten mit Lock-Datei und Hashes (z. B. pip-tools), Dependabot oder Renovate, `pip-audit`, `ruff` (A-07), Secret-Scan (z. B. gitleaks), Coverage-Bericht.
+
+- [ ] **O-05 Git-Hygiene** [Nachgewiesen] – 15 getrackte `__pycache__/*.pyc` (Python 3.13) per `git rm --cached` in einem eigenen Commit entfernen (Handoff §9.8).
+
+- [ ] **O-06 Konfiguration** [Nachgewiesen] – `.env.example` enthält `MAX_SHIFT_HOURS=12`, der Code ignoriert den Wert (fest 24 h, `webserver.py:117`) → korrigieren und erklären. Im Code gelesen, aber nicht dokumentiert: `SESSION_DAYS`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `PULSE_REPORT_CHANNEL_ID`, `PULSE_RSSHUB_BASE_URL`, `PULSE_SUPPORT_TEMPLATES_FILE`, `SUPPORT_KNOWLEDGE_FILE`, `PULSE_AI_MODERATION_CASES_FILE`, `PULSE_AI_MODERATION_OUTAGE_NOTICE_INTERVAL_SECONDS`, `PULSE_SOCIAL_PROMO_FILE`. Start-Validierung aller Variablen (Typ, Bereich, Pflicht) mit klarer Meldung in Log und Systemstatus.
+
+- [ ] **O-07 Überwachung** [Idee] – `/healthz` um Gateway-Latenz und „letzter erfolgreicher Job“ erweitern; gedrosselte Alarme im `PULSE_SYSTEM_ALERT_CHANNEL_ID` bei Cog-Ladefehlern, Backup- und DB-Fehlern sowie Job-Ausfällen; optional externer Uptime-Check.
+
+---
+
+## 12. Phase 9 – Dokumentation
+
+- [ ] **DOC-01** README, CHANGELOG, `CLAUDE.md` und Handoff auf den echten Stand bringen (Versions- und Commit-Angaben, neue Module, entfernte Altpfade).
+- [ ] **DOC-02** Architekturübersicht als Mermaid-Diagramm (Module, Datenflüsse, Datenablagen) in `docs/ARCHITEKTUR.md`.
+- [ ] **DOC-03** Betriebshandbuch `docs/BETRIEB.md`: Backup, Restore mit Probelauf, Deploy, Rollback, Wartungsmodus, Fehlersuche.
+- [ ] **DOC-04** Pro Phase ein CHANGELOG-Eintrag; `pulse_version.py` erst nach meinem OK erhöhen (Vorschlag: 7.10.0 nach Phase 1).
+
+---
+
+## 13. Phasenbericht – Format
+
+1. **Erledigt:** ID → Commit → Testnachweis (Befehl + echtes Ergebnis)
+2. **Verhalten vorher → nachher**, so formuliert, dass ich es ohne Code verstehe
+3. **Verworfen oder verschoben**, jeweils mit Grund
+4. **Risiken und Schritte außerhalb des Codes** (Discord-Rechte/Rollenreihenfolge, Developer Portal, `.env`, Hosting)
+5. **Offene Fragen** an mich
+
+## 14. Definition of Done (pro Punkt)
+
+Verifiziert · Test vorhanden und grün · keine Funktion entfernt · URLs, Befehle und IDs kompatibel · keine Secrets im Diff · `.env.example` und Doku aktualisiert, falls betroffen · Plan-Datei abgehakt.
+
+## 15. Start
+
+Beginne jetzt mit **Phase 0**. Ändere in Phase 0 nur `docs/` und `tools/`. Melde dich danach mit Baseline, Routen- und Datenlandkarte und den Fragen E-1 bis E-12.
