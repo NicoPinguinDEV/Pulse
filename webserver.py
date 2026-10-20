@@ -8708,7 +8708,9 @@ def full_backup_status() -> dict:
     import pulse_backup
     backups = pulse_backup.list_backups(full_backup_dir())
     test = pulse_db.get_setting(FULL_BACKUP_RESTORE_TEST_KEY, {}) or {}
-    return {"latest": backups[0].name if backups else "", "count": len(backups), "restore_test": test}
+    total = sum(p.stat().st_size for p in backups)
+    return {"latest": backups[0].name if backups else "", "count": len(backups), "restore_test": test,
+            "total_mb": round(total / (1024 * 1024), 1), "total_ok": total <= pulse_backup.TOTAL_MAX_BYTES}
 
 
 async def run_auto_full_backup(guild) -> None:
@@ -8722,6 +8724,13 @@ async def run_auto_full_backup(guild) -> None:
         if free < needed:
             log_audit("System", "0", "Komplett-Backup übersprungen", f"Zu wenig Speicher frei ({free // (1024 * 1024)} MB)")
             print("⚠️ Komplett-Backup übersprungen: zu wenig freier Speicherplatz.")
+            return
+        await asyncio.to_thread(pulse_backup.prune_auto_backups, full_backup_dir())
+        if pulse_backup.total_size(full_backup_dir()) > pulse_backup.TOTAL_MAX_BYTES:
+            log_audit("System", "0", "Komplett-Backup übersprungen",
+                      f"Gesamtgröße der Sicherungen über {pulse_backup.TOTAL_MAX_BYTES // (1024 * 1024)} MB (PULSE_BACKUP_TOTAL_MAX_MB) – "
+                      "bitte alte manuelle Sicherungen löschen")
+            print("⚠️ Komplett-Backup übersprungen: Gesamtgrenze der Sicherungen erreicht.")
             return
         path, manifest = await create_full_backup_async(guild, "auto_")
         removed = await asyncio.to_thread(pulse_backup.prune_auto_backups, full_backup_dir())
@@ -8850,7 +8859,8 @@ async def full_backup_restore(request: Request, filename: str = Form(...), confi
     actor = ctx.user.get("global_name") or ctx.user.get("username")
     log_audit(actor, ctx.user["id"], "Komplett-Wiederherstellung gestartet", os.path.basename(path))
     try:
-        report = await asyncio.to_thread(pulse_backup.restore_full_backup, path, BASE_DIR, full_backup_dir())
+        # The JSON I/O lock is held while files are written, so no load-modify-save can interleave.
+        report = await asyncio.to_thread(pulse_backup.restore_full_backup, path, BASE_DIR, full_backup_dir(), lock=_io_lock)
     except Exception as exc:
         log_audit(actor, ctx.user["id"], "Komplett-Wiederherstellung fehlgeschlagen", f"{type(exc).__name__}: {str(exc)[:200]}")
         return back("/backups", f"Wiederherstellung fehlgeschlagen: {str(exc)[:240]}", False)
@@ -8858,7 +8868,9 @@ async def full_backup_restore(request: Request, filename: str = Form(...), confi
                f"JSON: {len(report['json'])} · Dateien: {report['files']}")
     log_audit(actor, ctx.user["id"], "Komplett-Wiederherstellung abgeschlossen", details)
     return back("/backups", f"Pulse-Daten wiederhergestellt ({len(report['databases'])} Datenbanken, {len(report['json'])} JSON-Dateien, "
-                            f"{report['files']} Dateien). Sicherheitskopie: {report['safety_backup']}.")
+                            f"{report['files']} Dateien). Sicherheitskopie: {report['safety_backup']}. "
+                            "Bitte den Bot jetzt neu starten, damit Module mit Zwischenspeicher (Social Media, KI-Moderation) "
+                            "die wiederhergestellten Daten laden.")
 
 
 @app.post("/backup/full/delete")

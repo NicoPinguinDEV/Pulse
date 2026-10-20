@@ -594,8 +594,8 @@ def restore_backup(path):
         import pulse_backup
         try:
             pulse_backup.restore_sqlite_file(tmp, u.ultimate_db())
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
+        except (ValueError, sqlite3.DatabaseError) as exc:
+            raise HTTPException(400, f"Backup-Datenbank nicht verwendbar: {exc}")
         finally:
             try:
                 os.remove(tmp)

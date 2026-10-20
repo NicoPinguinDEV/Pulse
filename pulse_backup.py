@@ -16,6 +16,7 @@ This module never touches Discord and is safe to run in a worker thread.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -70,6 +71,26 @@ def sqlite_path(base_dir, name: str) -> Path:
     return Path(base_dir) / name
 
 
+_JSON_ENV = {"social_promo_sources.json": "PULSE_SOCIAL_PROMO_FILE", "ai_moderation_cases.json": "PULSE_AI_MODERATION_CASES_FILE"}
+
+
+def json_path(base_dir, name: str) -> Path:
+    """JSON stores whose location can be moved by an environment variable are backed up from there."""
+    override = os.getenv(_JSON_ENV.get(name, ""), "").strip() if name in _JSON_ENV else ""
+    return Path(override) if override else Path(base_dir) / name
+
+
+def kind_of(name: str) -> str:
+    """The kind of an archive entry comes from its path – never from the (editable) manifest."""
+    if name.startswith("db/"):
+        return "sqlite"
+    if name.startswith("json/"):
+        return "json"
+    if name.startswith("files/"):
+        return "file"
+    return "other"
+
+
 def _sha256(path) -> str:
     digest = hashlib.sha256()
     with open(path, "rb") as fh:
@@ -121,14 +142,20 @@ def create_full_backup(base_dir, backup_dir, *, discord_structure: dict | None =
                 "files": [], "skipped": [], "warnings": [], "excluded": EXCLUDED}
 
     def add(zf, source, arcname, kind):
-        zf.write(source, arcname)
-        manifest["files"].append({"name": arcname, "kind": kind, "size": os.path.getsize(source), "sha256": _sha256(source)})
+        digest, size = hashlib.sha256(), 0
+        with open(source, "rb") as src, zf.open(arcname, "w", force_zip64=True) as dst:
+            for block in iter(lambda: src.read(_CHUNK), b""):
+                digest.update(block)
+                size += len(block)
+                dst.write(block)
+        manifest["files"].append({"name": arcname, "kind": kind, "size": size, "sha256": digest.hexdigest()})
 
     with tempfile.TemporaryDirectory(prefix="pulse-backup-") as tmp, \
             zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
         for name in SQLITE_FILES:
             source = sqlite_path(base_dir, name)
             if not source.is_file():
+                manifest["skipped"].append({"name": f"db/{name}", "reason": "nicht vorhanden"})
                 continue
             snap = Path(tmp) / name
             try:
@@ -140,7 +167,7 @@ def create_full_backup(base_dir, backup_dir, *, discord_structure: dict | None =
             add(zf, snap, f"db/{name}", "sqlite")
             snap.unlink()
         for name in JSON_FILES:
-            source = base_dir / name
+            source = json_path(base_dir, name)
             if source.is_file():
                 add(zf, source, f"json/{name}", "json")
         used = 0
@@ -213,7 +240,7 @@ def _target_for(base_dir, name: str) -> Path | None:
     if name.startswith("db/") and name[3:] in SQLITE_FILES:
         return sqlite_path(base_dir, name[3:])
     if name.startswith("json/") and name[5:] in JSON_FILES:
-        return Path(base_dir) / name[5:]
+        return json_path(base_dir, name[5:])
     if name.startswith("files/"):
         rel = PurePosixPath(name[6:])
         if rel.parts and rel.parts[0] in FOLDERS and _safe_member(name):
@@ -240,7 +267,7 @@ def preview_restore(path, base_dir) -> dict:
             target = _target_for(base_dir, name)
             if target is None:
                 continue
-            if entry["kind"] == "sqlite":
+            if kind_of(name) == "sqlite":
                 extracted = Path(tmp) / Path(name).name
                 with zf.open(name) as src, open(extracted, "wb") as dst:
                     shutil.copyfileobj(src, dst, _CHUNK)
@@ -257,13 +284,6 @@ def preview_restore(path, base_dir) -> dict:
                 status = "unverändert" if _sha256(target) == entry["sha256"] else "geändert"
             result["files"].append({"name": name, "status": status, "size": entry.get("size", 0)})
     return result
-
-
-def _restore_sqlite(zf, name: str, target: Path, tmp: str) -> None:
-    extracted = Path(tmp) / Path(name).name
-    with zf.open(name) as src, open(extracted, "wb") as dst:
-        shutil.copyfileobj(src, dst, _CHUNK)
-    restore_sqlite_file(extracted, target)
 
 
 def restore_sqlite_file(extracted, target) -> None:
@@ -285,45 +305,88 @@ def restore_sqlite_file(extracted, target) -> None:
         raise ValueError(f"{target.name} nach der Wiederherstellung fehlerhaft ({check})")
 
 
-def restore_full_backup(path, base_dir, backup_dir, *, include_files: bool = True) -> dict:
-    """Restore data from a complete backup. Returns a report; raises ValueError before any change if invalid."""
+def _stage(zf, manifest, base_dir, tmp, include_files: bool) -> list[tuple]:
+    """Phase 1: extract every entry to a temp dir and check it. Nothing live is touched."""
+    staged = []
+    for entry in manifest["files"]:
+        name = entry["name"]
+        kind, target = kind_of(name), _target_for(base_dir, name)
+        if target is None or (kind == "file" and not include_files):
+            continue
+        extracted = Path(tmp) / f"{len(staged):05d}_{Path(name).name}"
+        with zf.open(name) as src, open(extracted, "wb") as dst:
+            shutil.copyfileobj(src, dst, _CHUNK)
+        if kind == "sqlite":
+            check = _integrity(extracted)
+            if check != "ok":
+                raise ValueError(f"{Path(name).name} im Backup ist beschädigt ({check})")
+        elif kind == "json":
+            try:
+                json.loads(extracted.read_text(encoding="utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ValueError(f"{Path(name).name} im Backup ist kein gültiges JSON") from exc
+        staged.append((kind, extracted, target))
+    return staged
+
+
+def _apply(staged, report) -> None:
+    """Phase 2: write the checked files into place (databases via backup API, files atomically)."""
+    for kind, extracted, target in staged:
+        if kind == "sqlite":
+            restore_sqlite_file(extracted, target)
+            report["databases"].append(target.name)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            partial = target.with_name(target.name + ".restore.tmp")
+            shutil.copyfile(extracted, partial)
+            with open(partial, "rb+") as fh:
+                os.fsync(fh.fileno())
+            os.replace(partial, target)
+            if kind == "json":
+                report["json"].append(target.name)
+            else:
+                report["files"] += 1
+
+
+def _restore_from(path, base_dir, include_files, lock) -> dict:
+    manifest = read_manifest(path)
+    report = {"databases": [], "json": [], "files": 0, "pulse_version": manifest.get("pulse_version")}
+    with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-restore-") as tmp:
+        staged = _stage(zf, manifest, base_dir, tmp, include_files)
+        with (lock if lock is not None else contextlib.nullcontext()):
+            _apply(staged, report)
+    return report
+
+
+def restore_full_backup(path, base_dir, backup_dir, *, include_files: bool = True, lock=None) -> dict:
+    """Restore data from a complete backup. Returns a report; raises ValueError with a clear message.
+
+    Every entry is extracted and checked first; only then is anything written. `lock` (the JSON I/O lock
+    of the dashboard) is held while writing so no load-modify-save of another flow can interleave. If
+    writing fails part-way, the safety backup taken before is restored automatically.
+    """
     if not _RESTORE_LOCK.acquire(blocking=False):
         raise ValueError("Es läuft bereits eine Wiederherstellung.")
     try:
-        manifest = read_manifest(path)
         problems = verify_full_backup(path)
         if problems:
             raise ValueError("Backup unvollständig oder verändert: " + "; ".join(problems[:5]))
         safety, _ = create_full_backup(base_dir, backup_dir, prefix="pre_restore_")
-        report = {"safety_backup": safety.name, "databases": [], "json": [], "files": 0, "pulse_version": manifest.get("pulse_version")}
         _MAINTENANCE.set()
         try:
-            with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-restore-") as tmp:
-                for entry in manifest["files"]:
-                    name = entry["name"]
-                    target = _target_for(base_dir, name)
-                    if target is None:
-                        continue
-                    if entry["kind"] == "sqlite":
-                        _restore_sqlite(zf, name, target, tmp)
-                        report["databases"].append(target.name)
-                    elif entry["kind"] == "json":
-                        partial = target.with_name(target.name + ".restore.tmp")
-                        with zf.open(name) as src, open(partial, "wb") as dst:
-                            shutil.copyfileobj(src, dst, _CHUNK)
-                            dst.flush()
-                            os.fsync(dst.fileno())
-                        os.replace(partial, target)
-                        report["json"].append(target.name)
-                    elif entry["kind"] == "file" and include_files:
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        partial = target.with_name(target.name + ".restore.tmp")
-                        with zf.open(name) as src, open(partial, "wb") as dst:
-                            shutil.copyfileobj(src, dst, _CHUNK)
-                        os.replace(partial, target)
-                        report["files"] += 1
+            try:
+                report = _restore_from(path, base_dir, include_files, lock)
+            except Exception as exc:
+                try:
+                    _restore_from(safety, base_dir, include_files, lock)
+                except Exception as rollback_exc:
+                    raise ValueError(f"Wiederherstellung abgebrochen ({exc}); automatisches Zurücksetzen fehlgeschlagen "
+                                     f"({type(rollback_exc).__name__}) – bitte Sicherheitskopie {safety.name} wiederherstellen.") from exc
+                raise ValueError(f"Wiederherstellung abgebrochen ({exc}); der vorherige Stand wurde aus {safety.name} "
+                                 "zurückgespielt.") from exc
         finally:
             _MAINTENANCE.clear()
+        report["safety_backup"] = safety.name
         return report
     finally:
         _RESTORE_LOCK.release()
@@ -338,7 +401,7 @@ def restore_test(path) -> dict:
             manifest = read_manifest(path)
             with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-restoretest-") as tmp:
                 for entry in manifest["files"]:
-                    if entry["kind"] != "sqlite":
+                    if kind_of(entry["name"]) != "sqlite":
                         continue
                     extracted = Path(tmp) / Path(entry["name"]).name
                     with zf.open(entry["name"]) as src, open(extracted, "wb") as dst:
@@ -378,12 +441,23 @@ def retention_keep(names_with_time: list[tuple[str, datetime]], daily: int = 7, 
     return keep
 
 
+SAFETY_COPIES_KEPT = 3
+TOTAL_MAX_BYTES = int(float(os.getenv("PULSE_BACKUP_TOTAL_MAX_MB", "4000")) * 1024 * 1024)
+
+
+def total_size(backup_dir) -> int:
+    return sum(p.stat().st_size for p in list_backups(backup_dir))
+
+
 def prune_auto_backups(backup_dir, **limits) -> list[str]:
-    """Delete automatic full backups outside the retention scheme; manual and safety backups are kept."""
-    autos = [(p, datetime.fromtimestamp(p.stat().st_mtime)) for p in list_backups(backup_dir) if p.name.startswith("pulse_full_auto_")]
+    """Delete automatic full backups outside the retention scheme and all but the newest safety copies.
+    Manually created backups are never deleted automatically."""
+    backups = list_backups(backup_dir)
+    autos = [(p, datetime.fromtimestamp(p.stat().st_mtime)) for p in backups if p.name.startswith("pulse_full_auto_")]
     keep = retention_keep([(p.name, t) for p, t in autos], **limits)
+    keep |= {p.name for p in [b for b in backups if b.name.startswith("pulse_full_pre_restore_")][:SAFETY_COPIES_KEPT]}
     removed = []
-    for path, _ in autos:
+    for path in [p for p, _ in autos] + [b for b in backups if b.name.startswith("pulse_full_pre_restore_")]:
         if path.name not in keep:
             try:
                 path.unlink()

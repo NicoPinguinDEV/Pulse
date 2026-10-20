@@ -2604,7 +2604,7 @@ def register(app):
         checks.append(('Voice-Audio (ffmpeg/opus)',audio['ok'],audio['message']))
         try:
             backup_state=ws.full_backup_status(); test=backup_state['restore_test'] or {}
-            checks.append(('Komplett-Backup',bool(backup_state['latest']),backup_state['latest'] or 'noch keins – unter Backups erstellen'))
+            checks.append(('Komplett-Backup',bool(backup_state['latest']) and backup_state['total_ok'],(backup_state['latest'] or 'noch keins – unter Backups erstellen')+f" · {backup_state['count']} Sicherungen, {backup_state['total_mb']} MB"+('' if backup_state['total_ok'] else ' – Gesamtgrenze erreicht, Auto-Backup pausiert')))
             checks.append(('Restore-Test',bool(test.get('ok')),(('bestanden · ' if test.get('ok') else 'fehlgeschlagen · ')+ws.display(test.get('at'))+('' if test.get('ok') else ' · '+'; '.join(test.get('problems',[]))[:160])) if test else 'läuft automatisch einmal pro Woche'))
         except Exception:
             pass

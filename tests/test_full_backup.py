@@ -82,6 +82,53 @@ class FullBackupTests(unittest.TestCase):
             pulse_backup.restore_full_backup(tampered, self.base, self.backups)
         self.assertIn("w1", (self.base / "team_data.json").read_text(encoding="utf-8"))
 
+    def test_failure_while_writing_rolls_back_automatically(self):
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        self.cons[0].execute("INSERT INTO t(v) VALUES ('nach dem backup')")
+        self.cons[0].commit()
+        real = pulse_backup.restore_sqlite_file
+        calls = []
+
+        def flaky(extracted, target):
+            calls.append(target)
+            if len(calls) == 2:  # second database of the backup fails (e.g. locked)
+                raise OSError("gesperrt")
+            return real(extracted, target)
+        with patch.object(pulse_backup, "restore_sqlite_file", flaky):
+            with self.assertRaises(ValueError) as ctx:
+                pulse_backup.restore_full_backup(path, self.base, self.backups)
+        self.assertIn("zurückgespielt", str(ctx.exception))
+        # rollback restored the state from right before the restore (3 rows), not the backup (2)
+        self.assertEqual(self.cons[0].execute("SELECT COUNT(*) FROM t").fetchone()[0], 3)
+        self.assertFalse(pulse_backup.maintenance_active())
+
+    def test_kind_comes_from_path_not_manifest(self):
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        forged = self.backups / "pulse_full_20260102_000000.zip"
+        with zipfile.ZipFile(path) as src, zipfile.ZipFile(forged, "w") as dst:
+            for item in src.infolist():
+                data = src.read(item.filename)
+                if item.filename == "manifest.json":
+                    manifest = json.loads(data)
+                    for entry in manifest["files"]:
+                        entry["kind"] = "file"
+                    data = json.dumps(manifest).encode()
+                dst.writestr(item, data)
+        self.cons[0].execute("INSERT INTO t(v) VALUES ('x')")
+        self.cons[0].commit()
+        report = pulse_backup.restore_full_backup(forged, self.base, self.backups)
+        self.assertIn("pulse.db", report["databases"])  # still restored through the SQLite backup API
+        self.assertEqual(self.cons[0].execute("SELECT COUNT(*) FROM t").fetchone()[0], 2)
+
+    def test_safety_copies_are_thinned_out(self):
+        for _ in range(5):
+            pulse_backup.create_full_backup(self.base, self.backups, prefix="pre_restore_")
+        pulse_backup.create_full_backup(self.base, self.backups)  # manual – never pruned
+        pulse_backup.prune_auto_backups(self.backups)
+        names = [p.name for p in pulse_backup.list_backups(self.backups)]
+        self.assertEqual(sum("pre_restore_" in n for n in names), pulse_backup.SAFETY_COPIES_KEPT)
+        self.assertEqual(sum("pre_restore_" not in n for n in names), 1)
+
     def test_size_budget_is_visible_not_silent(self):
         _, manifest = pulse_backup.create_full_backup(self.base, self.backups, budget_bytes=50)
         self.assertTrue(manifest["skipped"])
