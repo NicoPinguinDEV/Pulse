@@ -1065,6 +1065,7 @@ class PulseSuite(commands.Cog):
                 )
             td=web.load_json(web.DATA_FILE,{})
             e=web.user_entry(td,str(member.id))
+            tracker=web.track_member_entry(member.id,e)  # K-04: merge-on-save after awaits
             current_count=len(web.active_warns(e))
             if current_count >= 5:
                 return await x.response.edit_message(
@@ -1095,11 +1096,11 @@ class PulseSuite(commands.Cog):
                 "revoked_reason":"",
             }
             e.setdefault("warns_list",[]).append(w)
-            web.save_json(web.DATA_FILE,td)
+            tracker.commit()
             count=len(web.active_warns(e))
             role_report=await web.sync_warn_roles(i.guild,member,count,config)
             consequence_report=await web.apply_warn_consequences(i.guild,member,w,count,config,entry=e)
-            web.save_json(web.DATA_FILE,td)
+            tracker.commit()
             await web.send_team_update_embed(
                 i.guild,
                 "⚠️ Team-Warnung",

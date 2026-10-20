@@ -1071,9 +1071,6 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
         save_json(SHIFTS_FILE, shifts_db)
 
     team_role_ids = {int(value) for value in cfg.get("team_role_ids", []) if str(value).isdigit()}
-    team_db = load_json(DATA_FILE, {})
-    if not isinstance(team_db, dict):
-        team_db = {}
     system_actor = "Pulse – automatische Schichtkontrolle"
     reason = "Automatische Team-Verwarnung: Die Schicht wurde nicht innerhalb von 24 Stunden beendet."
 
@@ -1085,7 +1082,7 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
         uid = str(shift_event.get("mod_id") or "")
         if not event_id or not uid.isdigit():
             shift_event["auto_warn_status"] = "invalid_shift_record"
-            save_json(SHIFTS_FILE, shifts_db)
+            commit_shift_event(shift_event)
             continue
 
         member = guild.get_member(int(uid))
@@ -1094,7 +1091,7 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
                 member = await guild.fetch_member(int(uid))
             except discord.NotFound:
                 shift_event["auto_warn_status"] = "member_left_server"
-                save_json(SHIFTS_FILE, shifts_db)
+                commit_shift_event(shift_event)
                 continue
             except Exception as exc:
                 shift_event["auto_warn_error"] = str(exc)[:400]
@@ -1102,10 +1099,13 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
                 continue
         if member.bot:
             shift_event["auto_warn_status"] = "not_team_member"
-            save_json(SHIFTS_FILE, shifts_db)
+            commit_shift_event(shift_event)
             continue
 
-        entry = user_entry(team_db, uid)
+        # K-04: fresh entry per member (earlier awaits may have taken long) and merge-on-save.
+        team_db = load_json(DATA_FILE, {})
+        entry = user_entry(team_db if isinstance(team_db, dict) else {}, uid)
+        tracker = track_member_entry(uid, entry)
         warnings = entry.setdefault("warns_list", [])
         existing_warn = next(
             (item for item in warnings if isinstance(item, dict) and item.get("source_shift_id") == event_id),
@@ -1115,23 +1115,23 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
             count = len(active_warns(entry))
             await sync_warn_roles(guild, member, count, cfg)
             await apply_warn_consequences(guild, member, existing_warn, count, cfg, entry=entry)
-            save_json(DATA_FILE, team_db)
+            tracker.commit()
             shift_event["auto_warn_status"] = "issued"
             shift_event["auto_warn_issued_at"] = shift_event.get("auto_warn_issued_at") or now.isoformat(timespec="seconds")
             shift_event.pop("auto_warn_error", None)
-            save_json(SHIFTS_FILE, shifts_db)
+            commit_shift_event(shift_event)
             continue
 
         if team_role_ids and not any(role.id in team_role_ids for role in member.roles):
             shift_event["auto_warn_status"] = "not_team_member"
-            save_json(SHIFTS_FILE, shifts_db)
+            commit_shift_event(shift_event)
             continue
 
         count_before = len(active_warns(entry))
         if count_before >= 5:
             shift_event["auto_warn_status"] = "max_warns"
             shift_event["auto_warn_processed_at"] = now.isoformat(timespec="seconds")
-            save_json(SHIFTS_FILE, shifts_db)
+            commit_shift_event(shift_event)
             report["max_warns"] += 1
             log_audit(system_actor, "system", "Automatische Schicht-Warnung nicht möglich",
                       f"{member.display_name} ({member.id}) hat bereits 5 aktive Warnungen; Schicht {event_id}.")
@@ -1169,12 +1169,12 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
         }
         warnings.append(warn)
         count = len(active_warns(entry))
-        save_json(DATA_FILE, team_db)
+        tracker.commit()
 
         try:
             role_report = await sync_warn_roles(guild, member, count, cfg)
             consequence_report = await apply_warn_consequences(guild, member, warn, count, cfg, entry=entry)
-            save_json(DATA_FILE, team_db)
+            tracker.commit()
             try:
                 await send_team_update_embed(
                     guild,
@@ -1209,11 +1209,11 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
             shift_event["auto_warn_issued_at"] = now.isoformat(timespec="seconds")
             shift_event.pop("auto_warn_error", None)
             report["warned"] += 1
-            save_json(SHIFTS_FILE, shifts_db)
+            commit_shift_event(shift_event)
         except Exception as exc:
             shift_event["auto_warn_error"] = str(exc)[:400]
             report["failed"] += 1
-            save_json(SHIFTS_FILE, shifts_db)
+            commit_shift_event(shift_event)
             print(f"Automatische Schicht-Warnung fehlgeschlagen für {uid}: {exc}")
 
     return report
@@ -8861,6 +8861,45 @@ def user_entry(team_db: dict, key: str) -> dict:
     return entry
 
 
+def commit_member_entry(uid, before: dict, ours: dict) -> dict:
+    """K-04: merge our changes of one member into the *current* team_data.json (no await inside)."""
+    from pulse_store import merge_entry
+    with _io_lock:
+        team_db = load_json(DATA_FILE, {})
+        if not isinstance(team_db, dict):
+            team_db = {}
+        merged = merge_entry(before, ours, user_entry(team_db, str(uid)))
+        team_db[str(uid)] = merged
+        save_json(DATA_FILE, team_db)
+        return merged
+
+
+def track_member_entry(uid, entry: dict):
+    """Snapshot of a member entry; `.commit()` writes only our changes back (see pulse_store)."""
+    from pulse_store import EntryTracker
+    return EntryTracker(uid, entry, commit_member_entry)
+
+
+def commit_shift_event(event: dict) -> None:
+    """K-04: store one changed history event without writing back a stale copy of all shifts."""
+    event_id = event.get("shift_event_id")
+    identity = (event.get("mod_id"), event.get("started_at_iso"), event.get("ended_at_iso"))
+    with _io_lock:
+        shifts_db = load_json(SHIFTS_FILE, {})
+        history = shifts_db.setdefault("history", [])
+        for pos, item in enumerate(history):
+            if not isinstance(item, dict):
+                continue
+            same = (item.get("shift_event_id") == event_id) if event_id else (
+                (item.get("mod_id"), item.get("started_at_iso"), item.get("ended_at_iso")) == identity)
+            if same:
+                history[pos] = dict(event)
+                break
+        else:
+            return
+        save_json(SHIFTS_FILE, shifts_db)
+
+
 def team_since_for(member, entry=None) -> str:
     """Bestmögliches Team-Eintrittsdatum aus Pulse-Historie bzw. Discord."""
     entry = entry if isinstance(entry, dict) else {}
@@ -9421,6 +9460,7 @@ async def handle_action(
 
         team_db = load_json(DATA_FILE, {})
         entry = user_entry(team_db, str(user_id))
+        tracker = track_member_entry(user_id, entry)  # K-04: merge-on-save after awaits
         current_count = len(active_warns(entry))
         if current_count >= 5:
             return back(member_url, "Dieses Teammitglied hat bereits die maximale Anzahl von 5 aktiven Verwarnungen.", False)
@@ -9444,11 +9484,11 @@ async def handle_action(
             "active": True, "revoked_at": None, "revoked_by": None, "revoked_reason": "",
         })
         count = len(active_warns(entry))
-        save_json(DATA_FILE, team_db)
+        tracker.commit()
         log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/5): {reason}")
         role_report = await sync_warn_roles(guild, m, count, config)
         consequence_report = await apply_warn_consequences(guild, m, entry["warns_list"][-1], count, config, entry=entry)
-        save_json(DATA_FILE, team_db)
+        tracker.commit()
         if m:
             await send_team_update_embed(
                 guild,
@@ -9513,6 +9553,7 @@ async def handle_action(
             return back(member_url, "Ungültige Anfrage.", False)
         team_db = load_json(DATA_FILE, {})
         entry = user_entry(team_db, str(user_id))
+        tracker = track_member_entry(user_id, entry)  # K-04: merge-on-save after awaits
         m = guild.get_member(user_id)
         if not m:
             return back(member_url, "Mitglied nicht gefunden.", False)
@@ -9529,7 +9570,7 @@ async def handle_action(
         target["revoked_by"] = actor
         target["revoked_reason"] = revoke_reason
         count = len(active_warns(entry))
-        save_json(DATA_FILE, team_db)
+        tracker.commit()
 
         original_reason = str(target.get("reason") or "Kein Grund")
         original_by = str(target.get("by") or "System")
@@ -9570,7 +9611,7 @@ async def handle_action(
                 temp_remove_failed = True
                 temp_roles_to_keep.append(restriction)
         target.setdefault("consequences", {})["temporary_roles"] = temp_roles if temp_remove_failed else temp_roles_to_keep
-        save_json(DATA_FILE, team_db)
+        tracker.commit()
         role_report = await sync_warn_roles(guild, m, count, config)
 
         await send_team_update_embed(

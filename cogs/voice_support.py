@@ -205,6 +205,16 @@ class VoiceSupport(commands.Cog):
     def _case_action_lock(self, case_id: str) -> asyncio.Lock:
         return self._case_action_locks.setdefault(str(case_id), asyncio.Lock())
 
+    def _store_case(self, case: dict, key: str) -> None:
+        """K-04: write one case into the *current* blob (no await in between) instead of a stale copy
+        of all cases – otherwise cases opened by others during Discord calls would vanish."""
+        fresh = get_cases()
+        case_id = str(case.get("case_id", ""))
+        for old_key in [k for k, v in fresh.items() if isinstance(v, dict) and str(v.get("case_id", "")) == case_id]:
+            fresh.pop(old_key, None)
+        fresh[str(key)] = case
+        db.set_setting(CASES_KEY, fresh)
+
     def _find_case_by_id(self, case_id: str):
         cases = get_cases()
         for key, value in cases.items():
@@ -507,8 +517,7 @@ class VoiceSupport(commands.Cog):
                 f"Pulse Voice-Support: fehlgeschlagene Übernahme von Fall {case_id} zurückgerollt",
             )
             case.pop("claiming_staff_id", None)
-            cases[key] = case
-            db.set_setting(CASES_KEY, cases)
+            self._store_case(case, key)
             return False, f"Übernahme fehlgeschlagen. Prüfe „Mitglieder verschieben“ und die Voice-Berechtigungen des Bots. ({type(exc).__name__})"
 
         if previous_channel_id and previous_channel_id != target.id:
@@ -536,8 +545,7 @@ class VoiceSupport(commands.Cog):
         case["staff_joined"] = True
         if private_channel_id and private_channel_id != target.id:
             case["private_channel_id"] = private_channel_id
-        cases[str(target.id)] = case
-        db.set_setting(CASES_KEY, cases)
+        self._store_case(case, str(target.id))
 
         await self._cleanup_private_case_room(guild, case)
         await self._disconnect_music(target.id)
