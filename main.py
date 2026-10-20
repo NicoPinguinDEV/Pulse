@@ -138,7 +138,7 @@ class CustomBot(commands.Bot):
             return
         try:
             from webserver import load_config, reconcile_warning_roles
-            guild = self.get_guild(int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616")))
+            guild = self.get_guild(int(os.getenv("DISCORD_GUILD_ID", str(__import__("pulse_ids").GUILD_ID))))
             report = await reconcile_warning_roles(guild, load_config())
             print(
                 f"🛡️ Warnrollen abgeglichen: {report['checked']} geprüft, "

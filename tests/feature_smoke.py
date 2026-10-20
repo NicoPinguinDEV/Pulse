@@ -142,7 +142,9 @@ def main() -> None:
 
     # Honeypot: ensure the configured channel warns clearly and automatically bans authors.
     honeypot = read("cogs/honeypot.py")
-    assert "HONEYPOT_CHANNEL_ID = 1560397792751657053" in honeypot
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "HONEYPOT_CHANNEL_ID = 1560397792751657053" in read("pulse_ids.py")
+    assert "HONEYPOT_CHANNEL_ID = _pulse_ids.HONEYPOT_CHANNEL_ID" in honeypot
     assert "HONEYPOT – HIER AUF KEINEN FALL SCHREIBEN!" in honeypot
     assert "permanenten Server-Ban" in honeypot
     assert "async def on_ready(self)" in honeypot
@@ -174,7 +176,9 @@ def main() -> None:
     assert 'waiting_in_shared_room": True' in voice_support
     assert "latest.get(\"waiting_in_shared_room\")" in voice_support
     assert "hours_" in pro
-    assert "SUPPORT_REPORT_CHANNEL_ID = 1531443370172485703" in voice_support
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "SUPPORT_REPORT_CHANNEL_ID = 1531443370172485703" in read("pulse_ids.py")
+    assert "SUPPORT_REPORT_CHANNEL_ID = _pulse_ids.SUPPORT_REPORT_CHANNEL_ID" in voice_support
     assert "class SupportCaseView" in voice_support
     assert "class TransferUserSelect" in voice_support
     assert "async def handle_case_action" in voice_support
@@ -196,7 +200,9 @@ def main() -> None:
 
     # Server-statistics voice channels: maintain the three required non-joinable stats.
     server_stats = read("cogs/server_stats.py")
-    assert "STATS_CATEGORY_ID = 1536812484462256179" in server_stats
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "STATS_CATEGORY_ID = 1536812484462256179" in read("pulse_ids.py")
+    assert "STATS_CATEGORY_ID = _pulse_ids.STATS_CATEGORY_ID" in server_stats
     assert '"👤・Mitglieder: ", "member_count"' in server_stats
     assert '"💎・Boosts: ", "premium_subscription_count"' in server_stats
     assert '"🤖・Bots: ", "bot_count"' in server_stats
@@ -241,7 +247,9 @@ def main() -> None:
     assert "select_highest_role_prefix" in nickname_utils
     assert "_TEAM_ROLE_PREFIX_ORDER" in nickname_utils
     assert "role_position" in nickname_utils
-    assert "EX_TEAMLER_ROLE_ID = 1489912887949394082" in nickname_utils
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "EX_TEAMLER_ROLE_ID = 1489912887949394082" in read("pulse_ids.py")
+    assert "EX_TEAMLER_ROLE_ID = _pulse_ids.EX_TEAMLER_ROLE_ID" in nickname_utils
     assert 'EX_TEAMLER_PREFIX = "𝐄𝐗 𝐓𝐄𝐀𝐌𝐋𝐄𝐑 ✗"' in nickname_utils
     assert "automatic_role_prefix" in nickname_utils
     assert "role.id, role.position, role.name, role.is_default()" in nickname_cog
@@ -284,7 +292,9 @@ def main() -> None:
 
     # Warning lifetime, probation and automatic penalty cleanup regressions.
     assert "DEFAULT_AUTO_WARN_DURATION_DAYS = 7" in web
-    assert "TEST_SUPPORTER_ROLE_ID = 1498397925817188518" in web
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "TEST_SUPPORTER_ROLE_ID = 1498397925817188518" in read("pulse_ids.py")
+    assert "TEST_SUPPORTER_ROLE_ID = _pulse_ids.TEST_SUPPORTER_ROLE_ID" in web
     assert "VALID_PROBATION_DAYS = (3, 7)" in web
     assert "def warning_is_expired(" in web
     assert "def cleanup_expired_team_warnings(" in web
@@ -321,7 +331,9 @@ def main() -> None:
     # Dashboard Team-Kick must reset the member's roles to exactly the two
     # configured post-kick roles, and must never kick the member from Discord.
     assert "Team-Kick" in web
-    assert "TEAM_KICK_KEEP_ROLE_IDS = (1531303733311307997, 1489912887949394082)" in web
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "TEAM_KICK_KEEP_ROLE_IDS = (1531303733311307997, 1489912887949394082)" in read("pulse_ids.py")
+    assert "TEAM_KICK_KEEP_ROLE_IDS = _pulse_ids.TEAM_KICK_KEEP_ROLE_IDS" in web
     kick_start = web.index('            if action == "kick":')
     kick_end = web.index('            if action == "promote":', kick_start)
     kick_block = web[kick_start:kick_end]
@@ -427,7 +439,9 @@ def main() -> None:
         and isinstance(node.targets[0], ast.Name)
         and isinstance(node.value, ast.Constant)
     }
-    assert constants.get("TEAM_UPDATE_CHANNEL_ID") == 1531132354272170115
+    # A-09: TEAM_UPDATE_CHANNEL_ID is taken from pulse_ids.py (value unchanged)
+    assert "TEAM_UPDATE_CHANNEL_ID = _pulse_ids.TEAM_UPDATE_CHANNEL_ID" in web
+    assert "TEAM_UPDATE_CHANNEL_ID = 1531132354272170115" in read("pulse_ids.py")
     assert "async def remove_warn" not in web  # action is intentionally centralized
     assert 'if action == "remove_warn":' in web
     assert "active_warns(entry)" in web
@@ -448,8 +462,9 @@ def main() -> None:
         "1556344459422081045",
         "1556344484198088814",
     ):
-        assert role_id in web
-    assert "5: 1556344484198088814" in web
+        assert role_id in read("pulse_ids.py")  # A-09: IDs live in pulse_ids.py
+    assert "5: 1556344484198088814" in read("pulse_ids.py")
+    assert "WARN_ROLE_IDS = _pulse_ids.WARN_ROLE_IDS" in web
     assert '"count": max(0, min(int(count or 0), 5))' in web
     assert "current_count >= 5" in web
     assert "for level in sorted(ids):" in web
@@ -496,10 +511,18 @@ def main() -> None:
     assert "all_role_permissions_disabled" in pro_melonly
 
     # Public recruitment submissions are gated by a live Discord role check on both GET and POST.
-    assert "APPLICATION_REQUIRED_ROLE_ID = 1531303733311307997" in web
-    assert "APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720" in web
-    assert "APPLICATION_ALERT_ROLE_ID = 1531300183088824340" in web
-    assert "APPLICATION_ROLE_ID = 1496070682126188604" in web
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "APPLICATION_REQUIRED_ROLE_ID = 1531303733311307997" in read("pulse_ids.py")
+    assert "APPLICATION_REQUIRED_ROLE_ID = _pulse_ids.APPLICATION_REQUIRED_ROLE_ID" in web
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720" in read("pulse_ids.py")
+    assert "APPLICATION_ALERT_CHANNEL_ID = _pulse_ids.APPLICATION_ALERT_CHANNEL_ID" in web
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "APPLICATION_ALERT_ROLE_ID = 1531300183088824340" in read("pulse_ids.py")
+    assert "APPLICATION_ALERT_ROLE_ID = _pulse_ids.APPLICATION_ALERT_ROLE_ID" in web
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "APPLICATION_ROLE_ID = 1496070682126188604" in read("pulse_ids.py")
+    assert "APPLICATION_ROLE_ID = _pulse_ids.APPLICATION_ROLE_ID" in web
     active_application_statuses = web.split("active_application_statuses =", 1)[1].split("\n", 1)[0]
     assert '"pending", "interview"' in active_application_statuses
     accept_start = web.index('if decision == "accept":')
@@ -624,7 +647,7 @@ def main() -> None:
     assert "⚙️ Team-Update: Rollenänderung" in web
     assert "⬆️ Befördern" in web
     assert "⬇️ Degradieren" in web
-    assert "1531132354272170115" in web
+    assert "1531132354272170115" in read("pulse_ids.py")  # A-09
     # Manual team hiring: resolve ID/name safely, assign only a configured rank role,
     # require a reason, respect role hierarchy, notify the member, and log the change.
     assert 'name="target_user_id"' in web
@@ -761,7 +784,9 @@ def main() -> None:
     for source_name in ("cogs/ai_moderation.py", "cogs/backups.py", "cogs/pulse_suite.py"):
         parse(source_name)
     assert "ModerationReviewView" in ai_mod
-    assert "MODERATION_DECISION_ROLE_ID = 1510345520529412188" in ai_mod
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "MODERATION_DECISION_ROLE_ID = 1510345520529412188" in read("pulse_ids.py")
+    assert "MODERATION_DECISION_ROLE_ID = _pulse_ids.MODERATION_DECISION_ROLE_ID" in ai_mod
     assert "human" not in ai_mod.lower() or "mensch" in ai_mod.lower()
     assert "backup_discord_channel_id" in backups
     assert "create_backup_file" in backups
@@ -890,7 +915,8 @@ def main() -> None:
     assert 'get_config(f"office_role_{target_voice_id}")' in buero
     assert "content=content" in buero
     assert "DEFAULT_OFFICE_ROLE_IDS: dict[int, tuple[int, ...]]" in buero
-    assert "1541048940504555603: (1529263871003726005, 1552036094239842436)" in buero
+    assert "1541048940504555603: (1529263871003726005, 1552036094239842436)" in read("pulse_ids.py")  # A-09
+    assert "DEFAULT_OFFICE_ROLE_IDS: dict[int, tuple[int, ...]] = _pulse_ids.OFFICE_ROLE_IDS" in buero
     assert "office_roles = office_roles_for(guild, target_vc_id)" in buero
     assert "roles=office_roles" in buero
     for office_id in (
@@ -899,7 +925,7 @@ def main() -> None:
         1541494047548379317, 1510377962774728815, 1505245108654571540,
         1535312722344804432, 1535392546476527738, 1559580826025599056,
     ):
-        assert f"{office_id}:" in buero, f"Büro-Ping-Zuordnung fehlt: {office_id}"
+        assert f"{office_id}:" in read("pulse_ids.py"), f"Büro-Ping-Zuordnung fehlt: {office_id}"  # A-09
     assert "name=\"buero_rolle_setzen\"" in buero
     assert "await delete_pending_ping(self.bot, member.id)" in buero
     assert "await waiting_member.move_to(target_channel" in buero
@@ -912,8 +938,12 @@ def main() -> None:
     assert "guild_member.voice.channel.id != warteraum_id" in buero
     # On entering the configured/default waiting room, Pulse immediately posts
     # a persistent actionable ping; the existing DM office-selection remains.
-    assert "DEFAULT_WAITING_ROOM_ID = 1528821871057965067" in buero
-    assert "DEFAULT_PING_CHANNEL_ID = 1560211874602160218" in buero
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "OFFICE_WAITING_ROOM_ID = 1528821871057965067" in read("pulse_ids.py")
+    assert "DEFAULT_WAITING_ROOM_ID = _pulse_ids.OFFICE_WAITING_ROOM_ID" in buero
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "OFFICE_PING_CHANNEL_ID = 1560211874602160218" in read("pulse_ids.py")
+    assert "DEFAULT_PING_CHANNEL_ID = _pulse_ids.OFFICE_PING_CHANNEL_ID" in buero
     assert "OFFICE_CONFIG_VERSION = 3" in buero
     assert "migrate_office_config()" in buero
     assert "await self._send_arrival_ping(member, after.channel)" in buero
@@ -956,9 +986,13 @@ def main() -> None:
         1511390378752741386, 1494338404224340179, 1494397389635719269,
         1488972966774706186, 1559242374658662602, 1488699195157254436,
     ):
-        assert str(channel_id) in tickets, f"Ticketpanel-Kanal fehlt: {channel_id}"
-    assert "DEFAULT_TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503" in tickets
-    assert "DEFAULT_TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778" in tickets
+        assert str(channel_id) in read("pulse_ids.py"), f"Ticketpanel-Kanal fehlt: {channel_id}"  # A-09
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503" in read("pulse_ids.py")
+    assert "DEFAULT_TICKET_OPEN_LOG_CHANNEL_ID = _pulse_ids.TICKET_OPEN_LOG_CHANNEL_ID" in tickets
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778" in read("pulse_ids.py")
+    assert "DEFAULT_TICKET_CLAIM_LOG_CHANNEL_ID = _pulse_ids.TICKET_CLAIM_LOG_CHANNEL_ID" in tickets
     assert 'name="ticketpanels_setup"' in tickets
     assert "await send_ticket_log(" in tickets
     assert 'title="🎫 Neues Ticket geöffnet"' in tickets
@@ -1021,8 +1055,12 @@ def main() -> None:
     assert 'self._http_client.stream("GET", url)' in social
     assert "self._http_client: httpx.AsyncClient | None = None" in social
     assert "limits=httpx.Limits(max_connections=5, max_keepalive_connections=3" in social
-    assert "TARGET_CHANNEL_ID = 1530972281893949521" in social
-    assert "SOCIAL_PING_ROLE_ID = 1516838538702753943" in social
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "SOCIAL_TARGET_CHANNEL_ID = 1530972281893949521" in read("pulse_ids.py")
+    assert "TARGET_CHANNEL_ID = _pulse_ids.SOCIAL_TARGET_CHANNEL_ID" in social
+    # A-09: value lives in pulse_ids.py, the module takes it from there
+    assert "SOCIAL_PING_ROLE_ID = 1516838538702753943" in read("pulse_ids.py")
+    assert "SOCIAL_PING_ROLE_ID = _pulse_ids.SOCIAL_PING_ROLE_ID" in social
     # Every announcement (real and test) is built in one place and pings only the creator role.
     assert 'content = f"<@&{SOCIAL_PING_ROLE_ID}>\\n" + announcement_text(' in social
     assert social.count("roles=[discord.Object(id=SOCIAL_PING_ROLE_ID)]") == 2

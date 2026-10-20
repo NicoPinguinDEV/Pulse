@@ -45,6 +45,7 @@ from career_applications import (
     grade_practical_tasks, render_career_test, render_practical_tasks,
 )
 from pulse_melonly import can_manage_melonly_type, rank_roblox_candidates, roblox_similarity_score
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 try:
     from zoneinfo import ZoneInfo
@@ -137,28 +138,22 @@ def oauth_redirect_uri(request: Request, application: bool = False) -> str:
 
 def oauth_cookie_secure(request: Request) -> bool:
     return oauth_redirect_uri(request).startswith("https://") or oauth_redirect_uri(request, application=True).startswith("https://")
-GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616"))
-APPLICATION_REQUIRED_ROLE_ID = 1531303733311307997
-APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720
-APPLICATION_ALERT_ROLE_ID = 1531300183088824340
-APPLICATION_ROLE_ID = 1496070682126188604  # Bewerberolle bis zum abgeschlossenen Bewerbungsgespräch
+GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", str(_pulse_ids.GUILD_ID)))
+APPLICATION_REQUIRED_ROLE_ID = _pulse_ids.APPLICATION_REQUIRED_ROLE_ID
+APPLICATION_ALERT_CHANNEL_ID = _pulse_ids.APPLICATION_ALERT_CHANNEL_ID
+APPLICATION_ALERT_ROLE_ID = _pulse_ids.APPLICATION_ALERT_ROLE_ID
+APPLICATION_ROLE_ID = _pulse_ids.APPLICATION_ROLE_ID  # Bewerberolle bis zum abgeschlossenen Bewerbungsgespräch
 TEAM_UPDATE_CHANNEL_NAME = os.getenv("TEAM_UPDATE_CHANNEL_NAME", "╚『⚡』𝐓𝐞𝐚𝐦-𝐔𝐩𝐝𝐚𝐭𝐞𝐬")
-TEAM_UPDATE_CHANNEL_ID = 1531132354272170115  # zentraler Team-Updates-Kanal
+TEAM_UPDATE_CHANNEL_ID = _pulse_ids.TEAM_UPDATE_CHANNEL_ID  # zentraler Team-Updates-Kanal
 # Nach einem manuellen Team-Kick bleiben ausschließlich diese beiden Rollen erhalten.
-TEAM_KICK_KEEP_ROLE_IDS = (1531303733311307997, 1489912887949394082)
+TEAM_KICK_KEEP_ROLE_IDS = _pulse_ids.TEAM_KICK_KEEP_ROLE_IDS
 
-WARN_ROLE_IDS = {
-    1: 1489221948348043395,
-    2: 1489222076370780232,
-    3: 1531760107971416135,
-    4: 1556344459422081045,
-    5: 1556344484198088814,
-}
-WARN_UPRANK_LOCK_ROLE_ID = 1506055179362107494
-WARN_IC_LOCK_ROLE_ID = 1506054747554189472
+WARN_ROLE_IDS = _pulse_ids.WARN_ROLE_IDS
+WARN_UPRANK_LOCK_ROLE_ID = _pulse_ids.WARN_UPRANK_LOCK_ROLE_ID
+WARN_IC_LOCK_ROLE_ID = _pulse_ids.WARN_IC_LOCK_ROLE_ID
 WARN_TEMP_ROLE_DAYS = 7
 DEFAULT_AUTO_WARN_DURATION_DAYS = 7
-TEST_SUPPORTER_ROLE_ID = 1498397925817188518
+TEST_SUPPORTER_ROLE_ID = _pulse_ids.TEST_SUPPORTER_ROLE_ID
 VALID_PROBATION_DAYS = (3, 7)
 SYNC_WARN_ROLES = os.getenv("SYNC_WARN_ROLES", "1") == "1"      # Warn-Rollen automatisch vergeben
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
@@ -4298,16 +4293,9 @@ async def warn_roles_api(request: Request, user_session: str = Cookie(None)):
 # =============================================================
 # PULSE-EIGENES TICKETSYSTEM (Dashboard)
 # =============================================================
-PULSE_TICKET_DEFAULT_PANEL_CHANNEL_IDS = (
-    1511390378752741386,
-    1494338404224340179,
-    1494397389635719269,
-    1488972966774706186,
-    1559242374658662602,
-    1488699195157254436,
-)
-PULSE_TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503
-PULSE_TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778
+PULSE_TICKET_DEFAULT_PANEL_CHANNEL_IDS = _pulse_ids.TICKET_PANEL_CHANNEL_IDS
+PULSE_TICKET_OPEN_LOG_CHANNEL_ID = _pulse_ids.TICKET_OPEN_LOG_CHANNEL_ID
+PULSE_TICKET_CLAIM_LOG_CHANNEL_ID = _pulse_ids.TICKET_CLAIM_LOG_CHANNEL_ID
 PULSE_TICKET_META = {
     "support": ("Allgemeiner Support", "🎫"),
     "bug": ("Bug melden", "⚙️"),

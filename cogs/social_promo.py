@@ -20,6 +20,7 @@ from pulse_embed_design import color as _pulse_color
 import httpx
 from discord import app_commands
 from discord.ext import commands, tasks
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 from pulse_social_utils import (
     announcement_text,
@@ -30,8 +31,8 @@ from pulse_social_utils import (
     profile_url,
 )
 
-TARGET_CHANNEL_ID = 1530972281893949521
-SOCIAL_PING_ROLE_ID = 1516838538702753943
+TARGET_CHANNEL_ID = _pulse_ids.SOCIAL_TARGET_CHANNEL_ID
+SOCIAL_PING_ROLE_ID = _pulse_ids.SOCIAL_PING_ROLE_ID
 ROOT = Path(__file__).resolve().parent.parent
 DATA_FILE = Path(os.getenv("PULSE_SOCIAL_PROMO_FILE", str(ROOT / "social_promo_sources.json")))
 RSSHUB_BASE_URL = os.getenv("PULSE_RSSHUB_BASE_URL", "https://rsshub.app").strip().rstrip("/")

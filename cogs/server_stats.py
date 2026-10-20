@@ -8,8 +8,9 @@ import discord
 from discord.ext import commands
 
 from pulse_channel_rename_utils import rename_wait_seconds
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
-STATS_CATEGORY_ID = 1536812484462256179
+STATS_CATEGORY_ID = _pulse_ids.STATS_CATEGORY_ID
 REFRESH_DEBOUNCE_SECONDS = 3
 
 # Prefixes stay stable as the numbers change, so restarts never create duplicates.

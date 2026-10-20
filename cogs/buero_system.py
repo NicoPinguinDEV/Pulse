@@ -6,33 +6,21 @@ import discord
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 DB_NAME = "buero_system.db"
 
 # Aktuelle Server-Zuordnung für das Büro-System. Die bestehende /setup_buero-
 # Konfiguration bleibt weiterhin änderbar; die Version-Migration korrigiert einmalig
 # veraltete IDs aus älteren Deployments.
-DEFAULT_WAITING_ROOM_ID = 1528821871057965067
-DEFAULT_PING_CHANNEL_ID = 1560211874602160218
+DEFAULT_WAITING_ROOM_ID = _pulse_ids.OFFICE_WAITING_ROOM_ID
+DEFAULT_PING_CHANNEL_ID = _pulse_ids.OFFICE_PING_CHANNEL_ID
 OFFICE_CONFIG_VERSION = 3
 
 # Explizite Rollen-Zuordnung pro Zielbüro. Mehrere Rollen pro Büro sind möglich.
 # Diese IDs werden nach der Auswahl in der DM gepingt; die Warteraum-Anfrage
 # selbst bleibt weiterhin bestehen und wird beim Verlassen des Warteraums gelöscht.
-DEFAULT_OFFICE_ROLE_IDS: dict[int, tuple[int, ...]] = {
-    1541048940504555603: (1529263871003726005, 1552036094239842436),
-    1541038737188724996: (1488968787800752298,),
-    1508167060444942487: (1510287224300638271,),
-    1505243897603948635: (1488968681231745074,),
-    1523012037888970894: (1489608498328113344,),
-    1535286753584218292: (1504951078788272288,),
-    1541494047548379317: (1537046970722680952,),
-    1510377962774728815: (1510219918958661722,),
-    1505245108654571540: (1488968538667483176,),
-    1535312722344804432: (1545749842863591464,),
-    1535392546476527738: (1531369673658990642,),
-    1559580826025599056: (1556379740196175992,),
-}
+DEFAULT_OFFICE_ROLE_IDS: dict[int, tuple[int, ...]] = _pulse_ids.OFFICE_ROLE_IDS
 
 # --- DATENBANK HELFER ---
 def init_db():

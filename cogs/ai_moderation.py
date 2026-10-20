@@ -16,6 +16,7 @@ from pulse_embed_design import color as _pulse_color
 import httpx
 from discord import app_commands
 from discord.ext import commands
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 from pulse_ai_resilience import (
     provider_pause_remaining,
@@ -24,9 +25,9 @@ from pulse_ai_resilience import (
     record_provider_success,
 )
 
-DEFAULT_GUILD_ID = 1474514929351524616
-CITIZEN_ROLE_IDS = {1531303733311307997, 1531459374004834424}
-MODERATION_DECISION_ROLE_ID = 1510345520529412188
+DEFAULT_GUILD_ID = _pulse_ids.GUILD_ID
+CITIZEN_ROLE_IDS = set(_pulse_ids.AI_CITIZEN_ROLE_IDS)
+MODERATION_DECISION_ROLE_ID = _pulse_ids.MODERATION_DECISION_ROLE_ID
 ROOT = Path(__file__).resolve().parent.parent
 CASES_PATH = Path(os.getenv("PULSE_AI_MODERATION_CASES_FILE", str(ROOT / "ai_moderation_cases.json")))
 

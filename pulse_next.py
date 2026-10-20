@@ -641,7 +641,7 @@ async def run_workflows(bot=None):
             condition=json.loads(w["condition_json"] or "{}")
             actions=json.loads(w["actions_json"] or "[]")
             guild = getattr(bot,"get_guild",lambda _ : None)(
-                int(os.getenv("DISCORD_GUILD_ID","1474514929351524616"))
+                int(os.getenv("DISCORD_GUILD_ID",str(__import__("pulse_ids").GUILD_ID)))
             ) if bot else None
             if not guild:
                 continue

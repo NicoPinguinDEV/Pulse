@@ -13,10 +13,11 @@ import os
 import re
 
 from pulse_embed_design import build_embed_spec, neutralize_mentions, safe_image_url, truncate
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 SETTING_KEY = "verification_config"
-UNVERIFIED_ROLE_ID = 1532762237284913363
-CITIZEN_ROLE_ID = 1531303733311307997
+UNVERIFIED_ROLE_ID = _pulse_ids.UNVERIFIED_ROLE_ID
+CITIZEN_ROLE_ID = _pulse_ids.CITIZEN_ROLE_ID
 BUTTON_CUSTOM_ID = "pulse:verify:v1"
 MAX_ERRORS = 10
 BANNER_DIR = os.path.join("uploads", "welcome_banners")

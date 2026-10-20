@@ -40,7 +40,7 @@ class PulseNextEvents(commands.Cog):
         # Team score/profile maintenance performs synchronous SQLite work.
         # Never run it on Discord's event loop: setup()/member_stats() can
         # initialize tables and execute multiple queries, blocking heartbeats.
-        guild = self.bot.get_guild(int(__import__("os").getenv("DISCORD_GUILD_ID", "1474514929351524616")))
+        guild = self.bot.get_guild(int(__import__("os").getenv("DISCORD_GUILD_ID", str(__import__("pulse_ids").GUILD_ID))))
         await asyncio.to_thread(self._housekeeping_sync, guild)
 
     def _housekeeping_sync(self, guild: discord.Guild | None) -> None:

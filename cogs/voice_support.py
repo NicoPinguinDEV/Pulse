@@ -18,12 +18,13 @@ from discord.ext import commands, tasks
 import pulse_db as db
 from pulse_jobs import tracked
 from pulse_voice_support_utils import DEFAULT_HOURS, DAYS, DAY_NAMES, shift_is_online, support_open_now
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 CONFIG_KEY = "voice_support_config"
 CASES_KEY = "voice_support_cases"
 RATINGS_KEY = "voice_support_ratings"
 PENDING_KEY = "voice_support_pending_ratings"
-SUPPORT_REPORT_CHANNEL_ID = 1531443370172485703
+SUPPORT_REPORT_CHANNEL_ID = _pulse_ids.SUPPORT_REPORT_CHANNEL_ID
 DUTY_STATUS_FOOTER = "Pulse Voice-Support · Automatisch aktualisiert"
 SUPPORT_STATUS_FOOTER = "Pulse Voice-Support · Live-Status"
 def get_config() -> dict:

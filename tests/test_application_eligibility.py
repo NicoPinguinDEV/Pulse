@@ -20,12 +20,18 @@ def function_source(source: str, name: str) -> str:
     raise AssertionError(f"Function {name!r} was not found")
 
 
+IDS = (Path(__file__).resolve().parents[1] / "pulse_ids.py").read_text(encoding="utf-8")
+
+
 class ApplicationEligibilityTests(unittest.TestCase):
     def test_requested_role_and_notification_targets_are_configured(self):
         source = read_web()
-        self.assertIn("APPLICATION_REQUIRED_ROLE_ID = 1531303733311307997", source)
-        self.assertIn("APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720", source)
-        self.assertIn("APPLICATION_ALERT_ROLE_ID = 1531300183088824340", source)
+        self.assertIn("APPLICATION_REQUIRED_ROLE_ID = 1531303733311307997", IDS)  # A-09: value in pulse_ids.py
+        self.assertIn("APPLICATION_REQUIRED_ROLE_ID = _pulse_ids.APPLICATION_REQUIRED_ROLE_ID", source)
+        self.assertIn("APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720", IDS)  # A-09: value in pulse_ids.py
+        self.assertIn("APPLICATION_ALERT_CHANNEL_ID = _pulse_ids.APPLICATION_ALERT_CHANNEL_ID", source)
+        self.assertIn("APPLICATION_ALERT_ROLE_ID = 1531300183088824340", IDS)  # A-09: value in pulse_ids.py
+        self.assertIn("APPLICATION_ALERT_ROLE_ID = _pulse_ids.APPLICATION_ALERT_ROLE_ID", source)
 
     def test_form_page_requires_live_member_role_check(self):
         source = read_web()
@@ -98,7 +104,8 @@ class ApplicationEligibilityTests(unittest.TestCase):
 
     def test_accepting_application_only_invites_to_mandatory_interview(self):
         source = read_web()
-        self.assertIn("APPLICATION_ROLE_ID = 1496070682126188604", source)
+        self.assertIn("APPLICATION_ROLE_ID = 1496070682126188604", IDS)  # A-09: value in pulse_ids.py
+        self.assertIn("APPLICATION_ROLE_ID = _pulse_ids.APPLICATION_ROLE_ID", source)
         handler = function_source(source, "handle_action")
         self.assertIn('"pending": {"accept", "reject"}', handler)
         self.assertIn('"interview": {"hire_after_interview", "reject_after_interview"}', handler)

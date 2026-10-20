@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import re
 import unicodedata
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 MAX_DISCORD_NICKNAME_LENGTH = 32
 MAX_ROLE_PREFIX_LENGTH = 24
 
 # This role marks members who have left the team. It must override every active rank.
-EX_TEAMLER_ROLE_ID = 1489912887949394082
+EX_TEAMLER_ROLE_ID = _pulse_ids.EX_TEAMLER_ROLE_ID
 EX_TEAMLER_PREFIX = "𝐄𝐗 𝐓𝐄𝐀𝐌𝐋𝐄𝐑 ✗"
 
 

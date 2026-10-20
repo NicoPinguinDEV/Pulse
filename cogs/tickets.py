@@ -31,6 +31,7 @@ from pulse_db import (
 )
 from pulse_ticket_design import category_block, load_line, ticket_channel_name
 from pulse_transcripts import TranscriptError, archive_transcript, keep_channel_after_failure
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 from pulse_ticket_design import (
     PANEL_IMAGE_DIR,
     automation_actions,
@@ -46,19 +47,12 @@ from pulse_ticket_design import (
 os.makedirs("transcripts", exist_ok=True)
 
 TICKET_PARENT_NAME = "🎫・Tickets"
-TEAM_UPDATE_CHANNEL_ID = 1531132354272170115
+TEAM_UPDATE_CHANNEL_ID = _pulse_ids.TEAM_UPDATE_CHANNEL_ID
 
 # Native Pulse ticket panel sources and lifecycle logs (no external ticket bot).
-TICKET_PANEL_CHANNEL_IDS = (
-    1511390378752741386,
-    1494338404224340179,
-    1494397389635719269,
-    1488972966774706186,
-    1559242374658662602,
-    1488699195157254436,
-)
-DEFAULT_TICKET_OPEN_LOG_CHANNEL_ID = 1543914075308818503
-DEFAULT_TICKET_CLAIM_LOG_CHANNEL_ID = 1535025111722098778
+TICKET_PANEL_CHANNEL_IDS = _pulse_ids.TICKET_PANEL_CHANNEL_IDS
+DEFAULT_TICKET_OPEN_LOG_CHANNEL_ID = _pulse_ids.TICKET_OPEN_LOG_CHANNEL_ID
+DEFAULT_TICKET_CLAIM_LOG_CHANNEL_ID = _pulse_ids.TICKET_CLAIM_LOG_CHANNEL_ID
 
 
 def configured_panel_channel_ids() -> tuple[int, ...]:

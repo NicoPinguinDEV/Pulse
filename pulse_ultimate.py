@@ -37,6 +37,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
 from pulse_safety import memory_guard_level as _policy_memory_guard_level
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 BASE = Path(__file__).resolve().parent
 ATTACHMENTS_DIR = BASE / "attachments"
@@ -50,7 +51,7 @@ def ultimate_db() -> Path:
 
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-TEAM_UPDATE_CHANNEL_ID = 1531132354272170115
+TEAM_UPDATE_CHANNEL_ID = _pulse_ids.TEAM_UPDATE_CHANNEL_ID
 
 _PRIORITY = {"low": 0, "normal": 1, "high": 2, "urgent": 3}
 _CASE_STATUSES = ("open", "investigating", "waiting", "resolved", "closed")

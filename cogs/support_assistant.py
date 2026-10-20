@@ -14,6 +14,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from pulse_support_rules import fit_response, should_answer
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 from pulse_ai_resilience import (
     provider_pause_remaining,
     provider_request_slot,
@@ -21,7 +22,7 @@ from pulse_ai_resilience import (
     record_provider_success,
 )
 
-DEFAULT_SUPPORT_CHANNEL_ID = 1493649456086782083
+DEFAULT_SUPPORT_CHANNEL_ID = _pulse_ids.SUPPORT_CHANNEL_ID
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 

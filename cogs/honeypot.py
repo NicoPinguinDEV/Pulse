@@ -6,8 +6,9 @@ from pulse_embed_design import color as _pulse_color, is_modern
 from discord.ext import commands
 
 from pulse_discord_style import card_info, edit_styled, is_v2, same_content, send_styled
+import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
-HONEYPOT_CHANNEL_ID = 1560397792751657053
+HONEYPOT_CHANNEL_ID = _pulse_ids.HONEYPOT_CHANNEL_ID
 # Former (visible) footer marker – still recognised so the old warning is replaced, never duplicated.
 HONEYPOT_WARNING_MARKER = "PULSE_HONEYPOT_WARNING_V1"
 HONEYPOT_FOOTER = "🛡️ Pulse Sicherheitssystem · Honeypot"
