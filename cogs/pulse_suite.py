@@ -678,26 +678,66 @@ class Confirm(discord.ui.View):
         if i.user.id!=self.owner:return await i.response.send_message("Nur der Ersteller kann abbrechen.",ephemeral=True)
         await i.response.edit_message(content="❌ Abgebrochen.",embed=None,view=None);self.stop()
 
-class TicketView(discord.ui.View):
-    def __init__(self,tid):super().__init__(timeout=None);self.tid=tid
-    @discord.ui.button(label="Ticket übernehmen",style=discord.ButtonStyle.success,emoji="🎫")
-    async def claim(self,i,b):
-        web=__import__("webserver")
+async def suite_ticket_action(i,action,tid):
+    web=__import__("webserver")
+    if action=="claim":
         if not allowed(i,"pulse-ticket",web):return await i.response.send_message("❌ Keine Berechtigung.",ephemeral=True)
-        db.claim_ticket(self.tid,i.user.id,i.user.display_name);audit(i.guild.id,i.user.id,i.user.display_name,self.tid,"","ticket_claimed","Ticket übernommen");await i.response.send_message("✅ Ticket übernommen.",ephemeral=True)
-    @discord.ui.button(label="Schließen",style=discord.ButtonStyle.danger,emoji="🔒")
-    async def close(self,i,b):
-        web=__import__("webserver")
+        db.claim_ticket(tid,i.user.id,i.user.display_name);audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_claimed","Ticket übernommen");await i.response.send_message("✅ Ticket übernommen.",ephemeral=True)
+    elif action=="close":
         if not allowed(i,"pulse-ticket",web):return await i.response.send_message("❌ Keine Berechtigung.",ephemeral=True)
-        db.close_ticket(self.tid,"Per Discord geschlossen",closed_by_id=i.user.id,closed_by_name=i.user.display_name);audit(i.guild.id,i.user.id,i.user.display_name,self.tid,"","ticket_closed","Ticket geschlossen");await i.response.send_message("✅ Ticket geschlossen.",ephemeral=True)
-    @discord.ui.button(label="Übergeben",style=discord.ButtonStyle.secondary,emoji="👤")
-    async def transfer(self,i,b):
-        web=__import__("webserver");ms=[m for m in managers(i.guild,web) if m.id!=i.user.id]
+        db.close_ticket(tid,"Per Discord geschlossen",closed_by_id=i.user.id,closed_by_name=i.user.display_name);audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_closed","Ticket geschlossen");await i.response.send_message("✅ Ticket geschlossen.",ephemeral=True)
+    elif action=="transfer":
+        ms=[m for m in managers(i.guild,web) if m.id!=i.user.id]
         if not allowed(i,"pulse-ticket",web) or not ms:return await i.response.send_message("❌ Keine Berechtigung / keine weitere Führung.",ephemeral=True)
-        m=min(ms,key=lambda x:sum(t.get("status")!="closed" for t in db.list_tickets(limit=3000,claimed_by_id=x.id)));db.claim_ticket(self.tid,m.id,m.display_name);db.notify(m.id,"👤 Ticket übergeben",f"{self.tid} wurde dir zugewiesen.","info","/tickets",f"transfer:{self.tid}:{m.id}",21600);audit(i.guild.id,i.user.id,i.user.display_name,self.tid,"","ticket_transferred",m.display_name);await i.response.send_message("✅ Ticket übergeben.",ephemeral=True)
+        m=min(ms,key=lambda x:sum(t.get("status")!="closed" for t in db.list_tickets(limit=3000,claimed_by_id=x.id)));db.claim_ticket(tid,m.id,m.display_name);db.notify(m.id,"👤 Ticket übergeben",f"{tid} wurde dir zugewiesen.","info","/tickets",f"transfer:{tid}:{m.id}",21600);audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_transferred",m.display_name);await i.response.send_message("✅ Ticket übergeben.",ephemeral=True)
+
+# K-07: the case ID lives in the custom_id, so the buttons keep working after a restart.
+SUITE_TICKET_BUTTONS={"claim":("Ticket übernehmen",discord.ButtonStyle.success,"🎫"),"close":("Schließen",discord.ButtonStyle.danger,"🔒"),"transfer":("Übergeben",discord.ButtonStyle.secondary,"👤")}
+SUITE_TICKET_LABEL_ACTIONS={label:action for action,(label,_,_) in SUITE_TICKET_BUTTONS.items()}
+SUITE_TICKET_TITLE="🎫 Fall "
+
+class SuiteTicketButton(discord.ui.DynamicItem[discord.ui.Button],template=r"pulse:suite-ticket:(?P<action>claim|close|transfer):(?P<tid>[A-Za-z0-9_-]{1,60})"):
+    def __init__(self,action,tid):
+        label,style,emoji=SUITE_TICKET_BUTTONS[action]
+        super().__init__(discord.ui.Button(label=label,style=style,emoji=emoji,custom_id=f"pulse:suite-ticket:{action}:{tid}"))
+        self.action=action;self.tid=tid
+    @classmethod
+    async def from_custom_id(cls,interaction,item,match):return cls(match["action"],match["tid"])
+    async def callback(self,i):await suite_ticket_action(i,self.action,self.tid)
+
+class TicketView(discord.ui.View):
+    def __init__(self,tid):
+        super().__init__(timeout=None);self.tid=tid
+        for action in SUITE_TICKET_BUTTONS:self.add_item(SuiteTicketButton(action,tid))
+
+def legacy_suite_ticket_action(message,custom_id):
+    """(action, case id) for a button of a case posted before K-07 (random custom_id), else None."""
+    embeds=getattr(message,"embeds",None) or []
+    title=str(getattr(embeds[0],"title","") or "") if embeds else ""
+    if not title.startswith(SUITE_TICKET_TITLE) or str(custom_id).startswith("pulse:"):return None
+    for row in getattr(message,"components",None) or []:
+        for child in getattr(row,"children",None) or []:
+            if getattr(child,"custom_id",None)==custom_id and getattr(child,"label",None) in SUITE_TICKET_LABEL_ACTIONS:
+                return SUITE_TICKET_LABEL_ACTIONS[child.label],title[len(SUITE_TICKET_TITLE):].strip()
+    return None
 
 class PulseSuite(commands.Cog):
     def __init__(self,bot):self.bot=bot;init_db();seed();register_routes();self.auto.start()
+
+    async def cog_load(self):
+        self.bot.add_dynamic_items(SuiteTicketButton)
+
+    async def cog_unload(self):
+        self.bot.remove_dynamic_items(SuiteTicketButton)
+
+    @commands.Cog.listener()
+    async def on_interaction(self,i):
+        # K-07 fallback: case messages from before the update carry random custom_ids that no view knows after a restart.
+        if i.type!=discord.InteractionType.component or i.message is None or getattr(i.message.author,"id",None)!=getattr(self.bot.user,"id",None):return
+        legacy=legacy_suite_ticket_action(i.message,(i.data or {}).get("custom_id",""))
+        if not legacy:return
+        try:await suite_ticket_action(i,*legacy)
+        except discord.HTTPException as e:print("⚠️ Pulse Suite: alter Fall-Button fehlgeschlagen:",type(e).__name__)
 
     def guild(self):return self.bot.get_guild(GUILD_ID) if GUILD_ID else (self.bot.guilds[0] if self.bot.guilds else None)
 

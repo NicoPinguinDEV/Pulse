@@ -118,6 +118,16 @@ def get_pending_request(user_id: int):
         return dict(row) if row else None
 
 
+def get_pending_request_by_message(message_id: int):
+    init_db()
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM pending_requests WHERE message_id = ?", (int(message_id),)
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def clear_pending_request(user_id: int, message_id: int | None = None):
     init_db()
     with sqlite3.connect(DB_NAME) as conn:
@@ -255,6 +265,19 @@ class BueroUebernehmenView(discord.ui.View):
         self.waiting_user_id = waiting_user_id
         self.target_voice_id = target_voice_id
 
+    async def _request_state(self, interaction: discord.Interaction):
+        """(waiting user, target voice). K-07: the stateless view registered at startup reads it from the DB."""
+        if self.waiting_user_id:
+            return self.waiting_user_id, self.target_voice_id
+        request = get_pending_request_by_message(interaction.message.id) if interaction.message else None
+        if not request:
+            await interaction.response.send_message(
+                "ℹ️ Diese Büro-Anfrage ist nicht mehr aktiv. Die Person kann einfach erneut den Warteraum betreten.",
+                ephemeral=True
+            )
+            return None
+        return int(request["user_id"]), int(request["target_voice_id"] or 0)
+
     @discord.ui.button(
         label="Übernehmen",
         style=discord.ButtonStyle.green,
@@ -266,7 +289,11 @@ class BueroUebernehmenView(discord.ui.View):
         if guild is None:
             await interaction.response.send_message("❌ Diese Aktion ist nur auf dem Server verfügbar.", ephemeral=True)
             return
-        waiting_member = guild.get_member(self.waiting_user_id)
+        state = await self._request_state(interaction)
+        if state is None:
+            return
+        waiting_user_id, target_voice_id = state
+        waiting_member = guild.get_member(waiting_user_id)
         team_member = interaction.user
 
         # Nur Teamler/Administratoren dürfen Anfragen übernehmen.
@@ -291,7 +318,7 @@ class BueroUebernehmenView(discord.ui.View):
         ):
             await delete_pending_ping(
                 self.bot,
-                self.waiting_user_id,
+                waiting_user_id,
                 expected_message_id=interaction.message.id,
                 fallback_message=interaction.message,
             )
@@ -301,7 +328,7 @@ class BueroUebernehmenView(discord.ui.View):
             )
             return
 
-        target_channel = guild.get_channel(self.target_voice_id) if self.target_voice_id else None
+        target_channel = guild.get_channel(target_voice_id) if target_voice_id else None
         if not isinstance(target_channel, discord.VoiceChannel):
             if not getattr(team_member, "voice", None) or not team_member.voice.channel:
                 await interaction.response.send_message(
@@ -318,7 +345,7 @@ class BueroUebernehmenView(discord.ui.View):
             # the waiting room. This second cleanup is safe if the listener won the race.
             await delete_pending_ping(
                 self.bot,
-                self.waiting_user_id,
+                waiting_user_id,
                 expected_message_id=interaction.message.id,
                 fallback_message=interaction.message,
             )
@@ -372,10 +399,14 @@ class BueroUebernehmenView(discord.ui.View):
             )
             return
 
+        state = await self._request_state(interaction)
+        if state is None:
+            return
+        waiting_user_id = state[0]
         await interaction.response.defer(ephemeral=True, thinking=True)
         removed = await delete_pending_ping(
             self.bot,
-            self.waiting_user_id,
+            waiting_user_id,
             expected_message_id=interaction.message.id,
             fallback_message=interaction.message,
         )
@@ -524,6 +555,10 @@ class BueroSystemCog(commands.Cog):
         self.bot = bot
         init_db()
         migrate_office_config()
+
+    async def cog_load(self):
+        # K-07: stateless handler for "buero_uebernehmen_btn" on pings posted before a restart.
+        self.bot.add_view(BueroUebernehmenView(self.bot, 0, 0))
 
     async def _send_arrival_ping(self, member: discord.Member, waiting_room: discord.VoiceChannel):
         """Publish an immediate office request on entry, even before the DM selection."""
