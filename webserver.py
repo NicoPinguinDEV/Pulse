@@ -17,6 +17,7 @@ import sqlite3
 import threading
 import time
 import uuid
+import zipfile
 from datetime import datetime, timedelta
 from collections import OrderedDict
 from types import SimpleNamespace
@@ -34,7 +35,7 @@ from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
 from pulse_version import PULSE_VERSION
-from pulse_time import parse_timestamp
+from pulse_time import display, parse_timestamp
 
 from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
 from career_applications import (
@@ -314,6 +315,9 @@ def save_json(filepath, data):
         problem = _CORRUPT_JSON.get(os.path.abspath(filepath))
         if problem:
             raise JsonWriteBlocked(problem)
+        import pulse_backup
+        if pulse_backup.maintenance_active():  # D-02: a restore is replacing the data files right now
+            raise JsonWriteBlocked("Wartungsmodus – eine Wiederherstellung läuft gerade")
         tmp = f"{filepath}.tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
@@ -7415,6 +7419,11 @@ def _channel_dict(ch):
 
 def build_backup(guild, guild_icon_base64: str | None = None) -> dict:
     """Build a JSON-safe snapshot of Pulse data and Discord's restorable structure."""
+    return add_panel_data(build_discord_structure(guild, guild_icon_base64))
+
+
+def build_discord_structure(guild, guild_icon_base64: str | None = None) -> dict:
+    """D-03: Discord part of the backup – reads discord.py caches, so it runs in the event loop."""
     icon = getattr(guild, "icon", None)
     data = {
         "backup_version": 3,
@@ -7487,6 +7496,11 @@ def build_backup(guild, guild_icon_base64: str | None = None) -> dict:
         for member in guild.members
     ]
 
+    return data
+
+
+def add_panel_data(data: dict) -> dict:
+    """D-03: file/database part of the backup – no Discord objects, safe in a worker thread."""
     backup_defaults = {
         "team_data": {}, "config": {}, "logs": [],
         "shifts": {}, "meetings": {}, "applications": {},
@@ -7679,7 +7693,9 @@ async def create_backup_file_async(guild, prefix: str = "") -> str:
         except Exception as exc:
             print(f"⚠️ Server-Icon konnte nicht gesichert werden ({type(exc).__name__}).")
     filename = f"{prefix}backup_{now_de().strftime('%Y-%m-%d_%H-%M-%S_%f')}.json"
-    snapshot = await asyncio.to_thread(build_backup, guild, icon_base64)
+    # D-03: discord.py caches are not thread-safe – copy the structure in the loop, files in a thread.
+    snapshot = build_discord_structure(guild, icon_base64)
+    await asyncio.to_thread(add_panel_data, snapshot)
     path = os.path.join(BACKUP_DIR, filename)
     await asyncio.to_thread(save_json, path, snapshot)
     for warning in snapshot.get("snapshot_warnings", []):
@@ -8292,6 +8308,7 @@ async def auto_backup_loop():
                 if not times or time.time() - max(times) > AUTO_BACKUP_HOURS * 3600:
                     name = await create_backup_file_async(guild, "auto_")
                     log_audit("System", "0", "Auto-Backup", name)
+                    await run_auto_full_backup(guild)  # D-01/D-04: complete ZIP, retention, weekly restore test
 
                     # Optional off-host copy. The local backup remains valid even
                     # when Discord uploads fail or the attachment exceeds the cap.
@@ -8425,6 +8442,7 @@ async def backups_page(request: Request, user_session: str = Cookie(None)):
                 <button class="{BTN} text-xs py-3 px-5">💾 Server + Pulse sichern</button>
             </form>
         </div>
+        {full_backup_section()}
         <div class="{CARD} p-4 flex flex-col gap-3">
             <h2 class="font-bold text-slate-900 dark:text-white text-sm">📤 Backup hochladen</h2>
             <p class="text-xs text-slate-500 dark:text-slate-400">Importiert ein zuvor von Pulse heruntergeladenes JSON-Backup (max. {MAX_BACKUP_UPLOAD_BYTES // (1024 * 1024)} MiB). Das Backup muss zu diesem Discord-Server gehören und wird vor dem Speichern geprüft.</p>
@@ -8649,6 +8667,204 @@ async def delete_backup(request: Request, filename: str = Form(...), user_sessio
     os.remove(path)
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Backup Gelöscht", f"Filename: {os.path.basename(path)}")
     return back("/backups", "Backup gelöscht.")
+
+
+# =============================================================
+# D-01..D-04: Komplett-Backup (ZIP mit Manifest) – alle Datenbanken, JSON-Dateien und Uploads
+# =============================================================
+FULL_BACKUP_RESTORE_TEST_KEY = "backup_restore_test"
+FULL_BACKUP_RESTORE_TEST_DAYS = 7
+FULL_BACKUP_MIN_FREE_BYTES = 200 * 1024 * 1024
+
+
+def full_backup_dir() -> str:
+    return os.path.abspath(BACKUP_DIR)
+
+
+def safe_full_backup_path(filename: str):
+    import pulse_backup
+    name = os.path.basename(filename or "")
+    if not pulse_backup.NAME_RE.fullmatch(name):
+        return None
+    path = os.path.join(full_backup_dir(), name)
+    return path if os.path.isfile(path) else None
+
+
+async def create_full_backup_async(guild, prefix: str = ""):
+    """D-03: Discord structure is copied in the event loop, all file/ZIP work runs in a thread."""
+    import pulse_backup
+    structure = build_discord_structure(guild) if guild is not None else None
+    return await asyncio.to_thread(pulse_backup.create_full_backup, BASE_DIR, full_backup_dir(),
+                                   discord_structure=structure, prefix=prefix)
+
+
+def full_backup_status() -> dict:
+    """Latest complete backup and the last automatic restore test (for system status)."""
+    import pulse_backup
+    backups = pulse_backup.list_backups(full_backup_dir())
+    test = pulse_db.get_setting(FULL_BACKUP_RESTORE_TEST_KEY, {}) or {}
+    return {"latest": backups[0].name if backups else "", "count": len(backups), "restore_test": test}
+
+
+async def run_auto_full_backup(guild) -> None:
+    """Called from the existing auto-backup loop (no extra loop): backup, retention, weekly restore test."""
+    import pulse_backup
+    try:
+        os.makedirs(full_backup_dir(), exist_ok=True)
+        free = shutil.disk_usage(full_backup_dir()).free
+        latest = pulse_backup.list_backups(full_backup_dir())
+        needed = FULL_BACKUP_MIN_FREE_BYTES + (2 * latest[0].stat().st_size if latest else 0)
+        if free < needed:
+            log_audit("System", "0", "Komplett-Backup übersprungen", f"Zu wenig Speicher frei ({free // (1024 * 1024)} MB)")
+            print("⚠️ Komplett-Backup übersprungen: zu wenig freier Speicherplatz.")
+            return
+        path, manifest = await create_full_backup_async(guild, "auto_")
+        removed = await asyncio.to_thread(pulse_backup.prune_auto_backups, full_backup_dir())
+        details = f"{path.name} · {len(manifest['files'])} Dateien · {len(removed)} alte entfernt"
+        if manifest["warnings"]:
+            details += " · Hinweise: " + "; ".join(manifest["warnings"])[:300]
+            print("⚠️ Komplett-Backup: " + "; ".join(manifest["warnings"]))
+        log_audit("System", "0", "Komplett-Backup", details)
+        last = parse_timestamp((pulse_db.get_setting(FULL_BACKUP_RESTORE_TEST_KEY, {}) or {}).get("at"))
+        if last is None or (datetime.now(last.tzinfo) - last).days >= FULL_BACKUP_RESTORE_TEST_DAYS:
+            result = await asyncio.to_thread(pulse_backup.restore_test, path)
+            pulse_db.set_setting(FULL_BACKUP_RESTORE_TEST_KEY, result)
+            log_audit("System", "0", "Restore-Test " + ("bestanden" if result["ok"] else "FEHLGESCHLAGEN"),
+                      f"{result['backup']} · " + ("; ".join(result["problems"])[:300] or "alle Datenbanken intakt"))
+            if not result["ok"]:
+                print("🔴 Restore-Test fehlgeschlagen: " + "; ".join(result["problems"])[:300])
+    except Exception as exc:
+        print(f"⚠️ Komplett-Backup fehlgeschlagen: {type(exc).__name__}: {exc}")
+
+
+def full_backup_section() -> str:
+    import pulse_backup
+    rows = ""
+    for path in pulse_backup.list_backups(full_backup_dir())[:40]:
+        created = datetime.fromtimestamp(path.stat().st_mtime).strftime("%d.%m.%Y %H:%M")
+        tag = " · AUTO" if "_auto_" in path.name else (" · SICHERHEITSKOPIE" if "_pre_restore_" in path.name else "")
+        rows += f"""
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-slate-200 dark:border-slate-800 pt-3">
+            <div><div class="font-mono text-xs break-all">{esc(path.name)}{tag}</div>
+                 <div class="text-[11px] text-slate-400">{created} · {round(path.stat().st_size / (1024 * 1024), 2)} MB</div></div>
+            <div class="flex flex-wrap gap-2">
+                <a href="/backup/full/download/{esc(path.name)}" class="bg-slate-100 dark:bg-slate-800 text-xs px-3 py-2 rounded-xl">📥 ZIP</a>
+                <a href="/backup/full/preview/{esc(path.name)}" class="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs px-3 py-2 rounded-xl">🔍 Probelauf / Wiederherstellen</a>
+                <form action="/backup/full/delete" method="post" onsubmit="return confirm('Komplett-Backup endgültig löschen?');">
+                    <input type="hidden" name="filename" value="{esc(path.name)}">
+                    <button class="bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3 py-2 rounded-xl">🗑️</button></form>
+            </div>
+        </div>"""
+    status = full_backup_status()
+    test = status["restore_test"]
+    test_line = ("Noch kein automatischer Restore-Test." if not test else
+                 f"Letzter Restore-Test: {esc(display(test.get('at')))} · {'✅ bestanden' if test.get('ok') else '❌ fehlgeschlagen: ' + esc('; '.join(test.get('problems', []))[:200])}")
+    return f"""
+        <div class="{CARD} p-4 flex flex-col gap-3">
+            <h2 class="font-bold text-slate-900 dark:text-white text-sm">🗄️ Komplett-Backup (alle Pulse-Daten)</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Ein ZIP mit allen Datenbanken ({len(pulse_backup.SQLITE_FILES)}), allen JSON-Dateien ({len(pulse_backup.JSON_FILES)}), Uploads, Beweisen und Transkripten plus Prüfsummen-Manifest und Discord-Struktur. Nicht enthalten: <code>.env</code> und <code>.session_secret</code>. Automatisch mit jeder Auto-Sicherung; aufbewahrt werden 7 tägliche, 4 wöchentliche und 6 monatliche. {test_line}</p>
+            <form action="/backup/full/create" method="post"><button class="{BTN} text-xs py-3 px-5">🗄️ Komplett-Backup jetzt erstellen</button></form>
+            {rows or '<div class="text-xs text-slate-400">Noch kein Komplett-Backup vorhanden.</div>'}
+        </div>"""
+
+
+@app.post("/backup/full/create")
+async def full_backup_create(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None, admin=True)
+    try:
+        path, manifest = await create_full_backup_async(ctx.guild)
+    except Exception as exc:
+        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Komplett-Backup fehlgeschlagen", type(exc).__name__)
+        return back("/backups", f"Komplett-Backup fehlgeschlagen ({type(exc).__name__}). Vorhandene Sicherungen bleiben unverändert.", False)
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Komplett-Backup erstellt", f"{path.name} · {len(manifest['files'])} Dateien")
+    hint = (" Hinweis: " + "; ".join(manifest["warnings"])) if manifest["warnings"] else ""
+    return back("/backups", f"Komplett-Backup erstellt: {path.name} ({len(manifest['files'])} Dateien).{hint}", not manifest["warnings"])
+
+
+@app.get("/backup/full/download/{filename}")
+async def full_backup_download(request: Request, filename: str, user_session: str = Cookie(None)):
+    auth(request, user_session, perm=None, admin=True)
+    path = safe_full_backup_path(filename)
+    if not path:
+        raise HTTPException(status_code=404, detail="Backup nicht gefunden.")
+    return FileResponse(path, media_type="application/zip", filename=os.path.basename(path))
+
+
+@app.get("/backup/full/preview/{filename}", response_class=HTMLResponse)
+async def full_backup_preview(request: Request, filename: str, user_session: str = Cookie(None)):
+    """D-01/D-02: dry run – shows what a restore would change. Writes nothing."""
+    import pulse_backup
+    ctx = auth(request, user_session, perm=None, admin=True)
+    path = safe_full_backup_path(filename)
+    if not path:
+        raise HTTPException(status_code=404, detail="Backup nicht gefunden.")
+    try:
+        preview = await asyncio.to_thread(pulse_backup.preview_restore, path, BASE_DIR)
+    except (ValueError, OSError, zipfile.BadZipFile) as exc:
+        return back("/backups", f"Backup nicht lesbar: {str(exc)[:200]}", False)
+    manifest = preview["manifest"]
+    changed = [f for f in preview["files"] if f["status"] != "unverändert"]
+    file_rows = "".join(f'<tr><td class="py-1 pr-3 font-mono break-all">{esc(f["name"])}</td><td>{esc(f["status"])}</td></tr>' for f in changed[:300])
+    table_rows = "".join(f'<tr><td class="py-1 pr-3 font-mono">{esc(t["db"])} · {esc(t["table"])}</td><td>{esc(t["current"])} → {esc(t["backup"])}</td></tr>' for t in preview["tables"][:300])
+    problems = "".join(f"<li>{esc(p)}</li>" for p in preview["problems"])
+    problem_box = (f'<div class="rounded-xl border border-rose-500/40 bg-rose-500/5 p-3 text-xs"><strong>Backup fehlerhaft – Wiederherstellung gesperrt:</strong><ul class="list-disc pl-5">{problems}</ul></div>'
+                   if problems else "")
+    restore_form = "" if problems else f"""
+        <form action="/backup/full/restore" method="post" class="{CARD} p-4 flex flex-col gap-3" onsubmit="return confirm('Pulse-Daten jetzt aus diesem Backup wiederherstellen?');">
+            <input type="hidden" name="filename" value="{esc(os.path.basename(path))}">
+            <p class="text-xs text-slate-500 dark:text-slate-400">Vorher wird automatisch eine Sicherheitskopie des aktuellen Stands angelegt. Datenbanken werden in die laufenden Dateien kopiert und auf Integrität geprüft; Uploads werden ergänzt, aber nichts gelöscht. Die Discord-Struktur (Rollen/Kanäle) wird hier <strong>nicht</strong> verändert.</p>
+            <label class="text-xs font-semibold">Zur Bestätigung <code>WIEDERHERSTELLEN</code> eingeben<input name="confirm" class="{INPUT} mt-1" autocomplete="off" required></label>
+            <button class="self-start bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs px-4 py-2 rounded-xl font-semibold">↩️ Pulse-Daten wiederherstellen</button>
+        </form>"""
+    skipped = len(manifest.get("skipped", []))
+    body = f"""
+    <div class="max-w-4xl space-y-4">
+        <a href="/backups" class="text-xs text-indigo-500">← Backups</a>
+        <h1 class="text-2xl font-bold">Probelauf: {esc(os.path.basename(path))}</h1>
+        <p class="text-xs text-slate-500">Erstellt {esc(display(manifest.get("created_at")))} mit Pulse {esc(manifest.get("pulse_version"))} · {len(manifest.get("files", []))} Dateien · {skipped} wegen Größenbudget/Fehler nicht enthalten.</p>
+        {problem_box}
+        <div class="{CARD} p-4"><h2 class="font-bold text-sm mb-2">Tabellen mit anderer Zeilenzahl (jetzt → Backup)</h2>
+            <table class="text-xs w-full">{table_rows or '<tr><td class="text-slate-400">Keine Unterschiede in den Zeilenzahlen.</td></tr>'}</table></div>
+        <div class="{CARD} p-4"><h2 class="font-bold text-sm mb-2">Dateien, die sich ändern oder neu entstehen ({len(changed)})</h2>
+            <table class="text-xs w-full">{file_rows or '<tr><td class="text-slate-400">Keine Dateiänderungen.</td></tr>'}</table></div>
+        {restore_form}
+    </div>"""
+    return render_page("Backup-Probelauf", ctx, "backups", body)
+
+
+@app.post("/backup/full/restore")
+async def full_backup_restore(request: Request, filename: str = Form(...), confirm: str = Form(""),
+                              user_session: str = Cookie(None)):
+    import pulse_backup
+    ctx = auth(request, user_session, perm=None, admin=True)
+    path = safe_full_backup_path(filename)
+    if not path:
+        return back("/backups", "Backup nicht gefunden.", False)
+    if confirm.strip() != "WIEDERHERSTELLEN":
+        return back(f"/backup/full/preview/{os.path.basename(path)}", "Bitte zur Bestätigung WIEDERHERSTELLEN eingeben.", False)
+    actor = ctx.user.get("global_name") or ctx.user.get("username")
+    log_audit(actor, ctx.user["id"], "Komplett-Wiederherstellung gestartet", os.path.basename(path))
+    try:
+        report = await asyncio.to_thread(pulse_backup.restore_full_backup, path, BASE_DIR, full_backup_dir())
+    except Exception as exc:
+        log_audit(actor, ctx.user["id"], "Komplett-Wiederherstellung fehlgeschlagen", f"{type(exc).__name__}: {str(exc)[:200]}")
+        return back("/backups", f"Wiederherstellung fehlgeschlagen: {str(exc)[:240]}", False)
+    details = (f"{os.path.basename(path)} · Sicherheitskopie {report['safety_backup']} · DBs: {', '.join(report['databases'])} · "
+               f"JSON: {len(report['json'])} · Dateien: {report['files']}")
+    log_audit(actor, ctx.user["id"], "Komplett-Wiederherstellung abgeschlossen", details)
+    return back("/backups", f"Pulse-Daten wiederhergestellt ({len(report['databases'])} Datenbanken, {len(report['json'])} JSON-Dateien, "
+                            f"{report['files']} Dateien). Sicherheitskopie: {report['safety_backup']}.")
+
+
+@app.post("/backup/full/delete")
+async def full_backup_delete(request: Request, filename: str = Form(...), user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None, admin=True)
+    path = safe_full_backup_path(filename)
+    if not path:
+        return back("/backups", "Backup nicht gefunden.", False)
+    os.remove(path)
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Komplett-Backup gelöscht", os.path.basename(path))
+    return back("/backups", "Komplett-Backup gelöscht.")
 
 # =============================================================
 # ROUTE: EINSTELLUNGEN, RECHTE & AUDIT-LOG (nur Admins)

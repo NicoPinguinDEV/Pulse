@@ -7,6 +7,7 @@ telemetry without replacing legacy Pulse modules.
 """
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import json
@@ -589,9 +590,17 @@ def restore_backup(path):
         tmp = BASE/"pulse.restore.tmp.db"
         with z.open("pulse.db") as src, open(tmp,"wb") as dst:
             shutil.copyfileobj(src,dst)
-        with cx() as c:
-            c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        os.replace(tmp,u.ultimate_db())
+        # D-02: copy into the live database with the backup API instead of os.replace under open connections.
+        import pulse_backup
+        try:
+            pulse_backup.restore_sqlite_file(tmp, u.ultimate_db())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
         # Restore the small JSON runtime stores that were captured with the DB.
         json_names = {"team_data.json","config.json","applications.json","shifts.json","logs.json","audit_logs.json","meetings.json"}
         for name in json_names:
@@ -1057,7 +1066,7 @@ def register(app):
     @app.post("/ultimate/backup/create")
     async def backup_create(request:Request,user_session:str=Cookie(None)):
         ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_manage_backups")
-        p=create_backup(); save_audit(ctx,"Backup erstellt","",p.name)
+        p=await asyncio.to_thread(create_backup); save_audit(ctx,"Backup erstellt","",p.name)  # D-03: not in the event loop
         return RedirectResponse("/ultimate/backup",status_code=303)
 
     @app.get("/ultimate/backup/{name}")
@@ -1072,7 +1081,7 @@ def register(app):
         ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_manage_backups")
         if confirm!="RESTORE": raise HTTPException(400,"Bestätigung muss RESTORE lauten.")
         p=safe_backup_file(name)
-        restore_backup(p); save_audit(ctx,"Backup wiederhergestellt","",p.name)
+        await asyncio.to_thread(restore_backup,p); save_audit(ctx,"Backup wiederhergestellt","",p.name)
         return RedirectResponse("/ultimate/system",status_code=303)
 
     @app.get("/ultimate/workflows", response_class=HTMLResponse)

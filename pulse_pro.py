@@ -2586,6 +2586,12 @@ def register(app):
         except Exception:
             audio={'ok':False,'message':'Status nicht prüfbar'}
         checks.append(('Voice-Audio (ffmpeg/opus)',audio['ok'],audio['message']))
+        try:
+            backup_state=ws.full_backup_status(); test=backup_state['restore_test'] or {}
+            checks.append(('Komplett-Backup',bool(backup_state['latest']),backup_state['latest'] or 'noch keins – unter Backups erstellen'))
+            checks.append(('Restore-Test',bool(test.get('ok')),(('bestanden · ' if test.get('ok') else 'fehlgeschlagen · ')+ws.display(test.get('at'))+('' if test.get('ok') else ' · '+'; '.join(test.get('problems',[]))[:160])) if test else 'läuft automatisch einmal pro Woche'))
+        except Exception:
+            pass
         for problem in ws.corrupt_json_files().values():
             checks.append(('Datendatei',False,f'{problem} – Schreiben gesperrt'))
         expected=set()
