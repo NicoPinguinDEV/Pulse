@@ -157,4 +157,6 @@ if __name__ == "__main__":
     if not TOKEN:
         print("❌ FEHLER: Kein DISCORD_TOKEN in der .env-Datei gefunden!")
     else:
+        from webserver import init_runtime
+        init_runtime()  # A-04: databases, folders and session secret are created here, not on import
         bot.run(TOKEN)

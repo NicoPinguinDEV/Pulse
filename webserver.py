@@ -3,6 +3,7 @@
 # =============================================================
 import asyncio
 import base64
+import contextlib
 import copy
 import csv
 import hashlib
@@ -198,7 +199,6 @@ DASHBOARD_PERMISSION_LABELS = (
     ("can_view_analytics", "Statistiken und Auswertungen sehen"),
 )
 
-os.makedirs(BACKUP_DIR, exist_ok=True)
 
 def _load_panel_timezone():
     """K-13: Europe/Berlin (or PANEL_TIMEZONE). Without IANA data (tzdata) we fall back to the
@@ -215,7 +215,19 @@ def _load_panel_timezone():
 TZ = _load_panel_timezone()
 
 # K-17: no public API documentation (/docs, /redoc, /openapi.json listed every endpoint without login).
-app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION, docs_url=None, redoc_url=None, openapi_url=None)
+@contextlib.asynccontextmanager
+async def _lifespan(_app):
+    """A-04: FastAPI lifespan instead of the deprecated @app.on_event handlers."""
+    init_runtime()
+    await _start_background_tasks()
+    try:
+        yield
+    finally:
+        await _stop_background_tasks()
+
+
+app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION, docs_url=None, redoc_url=None, openapi_url=None,
+              lifespan=_lifespan)
 
 
 # Small inline favicon avoids the browser's recurring default /favicon.ico 404.
@@ -300,7 +312,20 @@ def init_db():
     conn.close()
 
 
-init_db()
+_RUNTIME_READY = False
+
+
+def init_runtime() -> None:
+    """A-04: create runtime files explicitly at start (main.py / app lifespan) instead of on import.
+    Idempotent. Importing webserver (tests, tools) no longer creates databases, folders or secrets."""
+    global _RUNTIME_READY
+    if _RUNTIME_READY:
+        return
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    init_db()
+    pulse_db.init_db()
+    _session_key()  # computes SESSION_SECRET_PROBLEM for the system status
+    _RUNTIME_READY = True
 
 # =============================================================
 # DATEI-HELFER (thread-safe + atomares Schreiben)
@@ -895,7 +920,15 @@ def _load_secret() -> bytes:
     return key
 
 
-SESSION_KEY = _load_secret()
+SESSION_KEY: bytes | None = None
+
+
+def _session_key() -> bytes:
+    """A-04: the signing key is loaded (and .session_secret created) on first use, not on import."""
+    global SESSION_KEY
+    if SESSION_KEY is None:
+        SESSION_KEY = _load_secret()
+    return SESSION_KEY
 
 
 TOKEN_DASHBOARD = "dashboard"
@@ -908,14 +941,14 @@ def sign_payload(data: dict, typ: str | None = None) -> str:
         # K-03: typed tokens with issue time; a token of one kind is never accepted as the other.
         data = {**data, "typ": typ, "iat": int(time.time())}
     raw = base64.urlsafe_b64encode(json.dumps(data, separators=(",", ":")).encode()).decode().rstrip("=")
-    sig = hmac.new(SESSION_KEY, raw.encode(), hashlib.sha256).hexdigest()
+    sig = hmac.new(_session_key(), raw.encode(), hashlib.sha256).hexdigest()
     return f"{raw}.{sig}"
 
 
 def verify_payload(token: str):
     try:
         raw, sig = token.rsplit(".", 1)
-        expected = hmac.new(SESSION_KEY, raw.encode(), hashlib.sha256).hexdigest()
+        expected = hmac.new(_session_key(), raw.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, expected):
             return None
         return json.loads(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode())
@@ -8441,7 +8474,6 @@ async def auto_backup_loop():
             print(f"Auto-Backup fehlgeschlagen: {type(e).__name__}: {e}")
 
 
-@app.on_event("startup")
 async def _start_background_tasks():
     # Initialise one small shared HTTP pool and keep the backup worker singular.
     _roblox_http_client()
@@ -8450,7 +8482,6 @@ async def _start_background_tasks():
         app.state.backup_task = asyncio.create_task(auto_backup_loop())
 
 
-@app.on_event("shutdown")
 async def _stop_background_tasks():
     task = getattr(app.state, "backup_task", None)
     if task is not None and not task.done():

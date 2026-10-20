@@ -1354,4 +1354,4 @@ def import_state(state):
                 db.execute(f"INSERT OR REPLACE INTO {table} ({','.join(usable)}) VALUES ({','.join('?' for _ in usable)})", vals)
 
 
-init_db()
+# A-04: no init_db() on import – webserver.init_runtime() creates the tables at start.
