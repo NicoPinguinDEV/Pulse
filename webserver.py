@@ -5490,27 +5490,15 @@ async def pulse_tickets_dashboard_action(
             return back("/tickets", "Dafür fehlt dir die Berechtigung.", False)
         if not isinstance(channel, discord.TextChannel):
             return back("/tickets", "Der Ticketkanal ist nicht erreichbar; das Ticket wurde nicht verändert.", False)
-        lines = []
+        # K-06: without a complete transcript the channel is kept and the ticket stays open.
+        from pulse_transcripts import TranscriptError, archive_transcript, keep_channel_after_failure
+        log_channel = ctx.guild.get_channel(pulse_ticket_log_channel_id("closed"))
         try:
-            async for message in channel.history(limit=1000, oldest_first=True):
-                stamp = message.created_at.strftime("%d.%m.%Y %H:%M:%S")
-                line = message.content or "[kein Text]"
-                if message.attachments:
-                    line += " | Anhänge: " + ", ".join(att.url for att in message.attachments)
-                if message.embeds:
-                    line += " | Embeds: " + ", ".join(embed.title or "Embed" for embed in message.embeds)
-                lines.append(f"[{stamp}] {message.author} ({message.author.id}): {line}")
-        except (discord.Forbidden, discord.HTTPException):
-            lines.append("[Transkript konnte von Pulse nicht vollständig gelesen werden.]")
-        os.makedirs("transcripts", exist_ok=True)
-        transcript_name = f"{ticket['id']}.txt"
-        transcript_path = os.path.join("transcripts", transcript_name)
-        with open(transcript_path, "w", encoding="utf-8") as handle:
-            handle.write("\n".join(lines))
-        try:
-            await channel.send(file=discord.File(transcript_path, filename=transcript_name))
-        except (discord.Forbidden, discord.HTTPException):
-            pass
+            transcript_name = await archive_transcript(channel, ticket["id"], log_channel=log_channel)
+        except TranscriptError as exc:
+            pulse_db.record_event("ticket_archive_failed", "ticket", ticket_id, actor_id, actor_name, {"error": str(exc)})
+            await keep_channel_after_failure(channel, ticket, str(exc))
+            return back("/tickets", f"Ticket {ticket_id} nicht geschlossen: {exc}. Der Kanal bleibt erhalten.", False)
         if not pulse_db.close_ticket(ticket["id"], reason, transcript_name, actor_id, actor_name):
             return back("/tickets", "Ticket konnte nicht geschlossen werden.", False)
         closed = pulse_db.get_ticket(ticket_id=ticket_id) or ticket

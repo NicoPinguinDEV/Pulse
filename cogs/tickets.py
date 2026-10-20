@@ -30,6 +30,7 @@ from pulse_db import (
     touch_ticket_activity,
 )
 from pulse_ticket_design import category_block, load_line, ticket_channel_name
+from pulse_transcripts import TranscriptError, archive_transcript, keep_channel_after_failure
 from pulse_ticket_design import (
     PANEL_IMAGE_DIR,
     automation_actions,
@@ -665,7 +666,10 @@ class TicketCloseModal(Modal, title="Ticket schließen"):
             return
         await interaction.response.send_message("🔒 Ticket wird archiviert …", ephemeral=True)
         reason = str(self.reason.value).strip()[:500]
-        await archive_ticket(interaction.channel, ticket, self.actor.id, self.actor.display_name, reason)
+        if not await archive_ticket(interaction.channel, ticket, self.actor.id, self.actor.display_name, reason,
+                                    bot=interaction.client):
+            await interaction.followup.send("⚠️ Archivierung fehlgeschlagen – der Kanal bleibt erhalten. Details stehen im Ticket.",
+                                            ephemeral=True)
 
 
 async def send_user_reminder(channel, ticket: dict, member, by: str | None = None, auto_close_hours: int = 0):
@@ -687,23 +691,21 @@ async def send_user_reminder(channel, ticket: dict, member, by: str | None = Non
         pass
 
 
-async def archive_ticket(channel, ticket: dict, actor_id, actor_name: str, reason: str) -> bool:
-    """Save the transcript, close the ticket record, inform the creator and delete the channel."""
-    path = ""
+async def archive_ticket(channel, ticket: dict, actor_id, actor_name: str, reason: str, bot=None) -> bool:
+    """Save the transcript, close the ticket record, inform the creator and delete the channel.
+
+    K-06: without a stored transcript the channel is kept (renamed, locked) and the ticket stays open.
+    """
+    log_channel = None
+    if bot is not None:
+        log_channel = await _resolve_text_channel(bot, channel.guild, configured_ticket_log_channel_id("claimed"))
     try:
-        text = await transcript(channel)
-        local_name = f"{ticket['id']}.txt"
-        local_path = os.path.join("transcripts", local_name)
-        with open(local_path, "w", encoding="utf-8") as f:
-            f.write(text)
-        path = local_name
-        # Keep the transcript in the channel shortly so the team can verify it exists.
-        try:
-            await channel.send(file=discord.File(local_path, filename=local_name))
-        except Exception:
-            pass
-    except Exception as exc:
-        print(f"Transcript konnte nicht gespeichert werden: {exc}")
+        path = await archive_transcript(channel, ticket["id"], log_channel=log_channel)
+    except TranscriptError as exc:
+        print(f"⚠️ Pulse-Tickets: Ticket {ticket['id']} nicht archiviert – {exc}. Kanal bleibt erhalten.")
+        record_event("ticket_archive_failed", "ticket", ticket["id"], actor_id, actor_name, {"error": str(exc)})
+        await keep_channel_after_failure(channel, ticket, str(exc))
+        return False
     if not close_ticket(ticket["id"], reason, path, actor_id, actor_name):
         return False
     drop_ticket_card(ticket["id"])
@@ -1280,7 +1282,8 @@ class Tickets(commands.Cog):
                 if "auto_close" in actions:
                     set_ticket_automation_state(ticket["id"], state)
                     await archive_ticket(channel, ticket, self.bot.user.id, "Pulse Automatik",
-                                         f"Automatisch geschlossen: keine Rückmeldung {settings['auto_close_hours']} h nach der Erinnerung.")
+                                         f"Automatisch geschlossen: keine Rückmeldung {settings['auto_close_hours']} h nach der Erinnerung.",
+                                         bot=self.bot)
                     self.ticket_channel_ids.discard(channel.id)
                     continue
             except (discord.Forbidden, discord.HTTPException) as exc:
