@@ -1,5 +1,23 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.13.0 – Phase 4: Architektur & Wartbarkeit (Oktober 2026)
+
+Details und Testnachweise: `docs/PHASE4_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
+
+> **⚠️ Rechteänderung – bitte nach dem Update unter „Einstellungen & Rechte“ prüfen:**
+> - Dashboard-Rechte kommen **nur noch über Teamrollen** und die ihnen zugeordneten Dashboard-Profile. Bisher wirkten die Zusatzrechte (Ankündigungen, Übergaben, Beförderungsanträge, Teamstatus, Activity Check, Melonly-Kick/Ban/BOLO) auch über Rollen, die keine Teamrolle (mehr) sind – das war eine Sicherheitslücke und ist geschlossen.
+> - **Nie konfigurierte Teamrollen** geben nur noch „Dashboard sehen“; „Analytics ansehen“ (inkl. Team-Exporte) nur noch, wenn es ausdrücklich gesetzt ist (Entscheidung E-4).
+> - Admins und der Serverinhaber haben weiterhin alle Rechte; die Vererbung über das Beförderungsrecht ist unverändert.
+
+- **Ein Rechte-Modell (A-03):** eine Stelle (`pulse_permissions.py`) berechnet alle Dashboard-Rechte samt Herkunft; kein Überschreiben zur Laufzeit mehr; Test-Matrix: ohne Login liefert keine Seite Inhalt und keine schreibende Route ändert etwas.
+- **Fehler behoben:** Speichern einer digitalen Zwischenrolle endete nach dem Speichern mit einer Fehlerseite und ohne Audit-Eintrag.
+- **Feste IDs zentral (A-09):** alle Kanal-, Rollen- und Server-IDs in `pulse_ids.py` (Werte unverändert, per Test gesichert).
+- **Start ohne Import-Seiteneffekte (A-04, Teil):** Dateien und Tabellen werden beim Start angelegt; FastAPI-`lifespan` statt veralteter Start-Ereignisse.
+- **Migrationen (A-05, Grundlage):** versioniert, einmalig, Sicherung vorher, bei Fehlern vollständig zurückgerollt.
+- **Qualität (A-07, A-08):** `ruff` mit konservativem Regelset; CI installiert jetzt die Abhängigkeiten und prüft mit ruff; gemeinsame Discord-Testattrappen.
+- **Systemstatus:** auch die Auto-Backup-Prüfung erscheint in der Job-Übersicht.
+- **Vorbereitet:** Entscheidungsvorlage für doppelte Seiten (`docs/SEITEN_ALT_NEU.md`) – noch nichts zusammengeführt.
+
 ## Version 7.12.0 – Phase 3: Performance & Stabilität (Oktober 2026)
 
 Details und Testnachweise: `docs/PHASE3_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
