@@ -1,5 +1,19 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.11.0 – Phase 2: Datenintegrität, Backups, Datenschutz (Oktober 2026)
+
+Details und Testnachweise: `docs/PHASE2_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
+
+- **Komplett-Backup (D-01):** ein ZIP mit allen 8 Datenbanken (konsistente SQLite-Kopie), allen JSON-Dateien, Uploads, Beweisen, Transkripten und der Discord-Struktur, mit Prüfsummen-Manifest; Größenbudget sichtbar statt stillem Auslassen; ohne `.env`/`.session_secret`. Neu unter Verwaltung → Backups.
+- **Sicheres Wiederherstellen (D-02):** Probelauf mit Vorschau, Bestätigung per Eingabe, Sicherheitskopie davor, alles wird vor dem Schreiben geprüft, bei Fehlern automatischer Rollback; `/ultimate/backup` überschreibt die laufende Datenbank nicht mehr per Dateitausch.
+- **Kein Blockieren (D-03):** Backups laufen im Hintergrund-Thread, Discord-Daten werden im Event-Loop gelesen.
+- **Aufbewahrung & Restore-Test (D-04):** Auto-Komplett-Backup im bestehenden Backup-Lauf, 7 täglich / 4 wöchentlich / 6 monatlich, wöchentlicher Restore-Test, Gesamtgrenze `PULSE_BACKUP_TOTAL_MAX_MB`.
+- **Ein Datenbankpfad (D-05):** `PULSE_DB_PATH` gilt für alle Module.
+- **Datenschutz (D-08):** Teamakte, Suche, Teamliste und `/ultimate` zeigen Warnungen nur der Person selbst und Verwarnungsberechtigten, Notizen nur Notizberechtigten und der Leitung (E-3); Datenschutzhinweis im Bewerbungsformular; neue Seite Verwaltung → Datenschutz mit Aufbewahrungsfristen (Standard aus) und Auskunfts-Export je Discord-ID.
+- **Zeitstempel (D-09):** ein toleranter Parser für alle gespeicherten Formate; Bewerbungs-Erinnerungen rechnen wieder in Berliner Zeit.
+- **Konsistenz-Diagnose (D-10) und Wachstumsüberwachung (D-07, Teil):** Systemstatus meldet verwaiste Schichten/Tickets/Voice-Fälle, unpassende Warnrollen, fehlerhafte Abmeldungen, übergroße Datendateien sowie letztes Backup und Restore-Test.
+- **Neue optionale Einstellungen:** `PULSE_BACKUP_MAX_MB` (500), `PULSE_BACKUP_TOTAL_MAX_MB` (4000).
+
 ## Version 7.10.0 – Phase 1: Kritische Fehler & Sicherheit (Oktober 2026)
 
 Details und Testnachweise: `docs/PHASE1_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
