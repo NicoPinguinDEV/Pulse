@@ -74,6 +74,51 @@ def request_origin(request: Request) -> str:
         return f"{scheme}://{forwarded_host}".rstrip("/")
     return str(request.base_url).rstrip("/")
 
+OAUTH_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+
+
+def _oauth_problem(response) -> str | None:
+    if response.status_code == 429:
+        return "Discord begrenzt gerade die Anmeldungen. Bitte in einer Minute erneut versuchen."
+    if response.status_code >= 500:
+        return "Discord ist gerade nicht erreichbar. Bitte gleich erneut versuchen."
+    if response.status_code != 200:
+        return "Discord hat den Login abgelehnt (Anmeldecode abgelaufen?). Bitte erneut anmelden."
+    return None
+
+
+async def discord_oauth_identify(code: str, redirect_uri: str) -> tuple[dict | None, str]:
+    """P-12: exchange the OAuth code and read the user. Returns (user, "") or (None, user-facing message).
+    Status codes, invalid JSON and timeouts are handled – never an unhandled 500."""
+    try:
+        async with httpx.AsyncClient(timeout=OAUTH_TIMEOUT) as client:
+            token_res = await client.post(
+                "https://discord.com/api/v10/oauth2/token",
+                data={"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "grant_type": "authorization_code",
+                      "code": code, "redirect_uri": redirect_uri},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            problem = _oauth_problem(token_res)
+            if problem:
+                return None, problem
+            access_token = (token_res.json() or {}).get("access_token")
+            if not access_token:
+                return None, "Discord hat den Login abgelehnt. Bitte erneut versuchen."
+            user_res = await client.get("https://discord.com/api/v10/users/@me",
+                                        headers={"Authorization": f"Bearer {access_token}"})
+            problem = _oauth_problem(user_res)
+            if problem:
+                return None, problem
+            user = user_res.json()
+    except httpx.TimeoutException:
+        return None, "Discord hat nicht rechtzeitig geantwortet. Bitte erneut versuchen."
+    except (httpx.HTTPError, ValueError):
+        return None, "Die Verbindung zu Discord ist fehlgeschlagen. Bitte erneut versuchen."
+    if not isinstance(user, dict) or not str(user.get("id") or "").isdigit():
+        return None, "Discord hat keine gültigen Kontodaten geliefert. Bitte erneut versuchen."
+    return user, ""
+
+
 def oauth_redirect_uri(request: Request, application: bool = False) -> str:
     """Gibt eine explizit konfigurierte Callback-URL zurück.
 
@@ -2632,6 +2677,24 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
 
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, exc: Exception):
+    """P-11: friendly page with an error ID instead of "Internal Server Error"; the traceback goes to the log only."""
+    import traceback as _traceback
+    error_id = secrets.token_hex(3).upper()
+    print(f"❌ Dashboard-Fehler [Fehler-ID {error_id}] {request.method} {request.url.path}: {type(exc).__name__}: {exc}")
+    _traceback.print_exception(type(exc), exc, exc.__traceback__)
+    wants_json = request.url.path.startswith(("/api/", "/ultimate/api/", "/suite/api/")) or \
+        "application/json" in request.headers.get("accept", "")
+    if wants_json:
+        return JSONResponse({"detail": "Interner Fehler", "error_id": error_id}, status_code=500)
+    links = ('<a href="/dashboard" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zum Dashboard</a>'
+             '<a href="javascript:history.back()" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800">Zurück</a>')
+    return HTMLResponse(simple_page("⚠️", "Da ist etwas schiefgelaufen",
+                                    f"Ein unerwarteter Fehler ist aufgetreten. Fehler-ID {error_id} – das Team findet sie im Log. "
+                                    "Deine letzte Aktion wurde eventuell nicht ausgeführt.", links), status_code=500)
+
+
 @app.exception_handler(JsonWriteBlocked)
 async def json_write_blocked_handler(request: Request, exc: JsonWriteBlocked):
     links = '<a href="/system" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Systemstatus</a>'
@@ -2898,20 +2961,11 @@ async def callback(request: Request, code: str = None, state: str = None, error:
         title = "Bewerbungs-Login fehlgeschlagen" if apply_oauth_state else "Login fehlgeschlagen"
         return HTMLResponse(simple_page("❌", title, "Ungültiger Sicherheits-Token. Bitte erneut anmelden.", retry), status_code=400)
 
-    async with httpx.AsyncClient() as client:
-        redirect_uri = oauth_redirect_uri(request, application=application_flow)
-        token_res = await client.post(
-            "https://discord.com/api/v10/oauth2/token",
-            data={"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "grant_type": "authorization_code",
-                  "code": code, "redirect_uri": redirect_uri},
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        access_token = token_res.json().get("access_token")
-        if not access_token:
-            title = "Bewerbungs-Login fehlgeschlagen" if application_flow else "Login fehlgeschlagen"
-            return HTMLResponse(simple_page("❌", title, "Discord hat den Login abgelehnt. Bitte erneut versuchen.", retry))
-        user_data = (await client.get("https://discord.com/api/v10/users/@me",
-                                      headers={"Authorization": f"Bearer {access_token}"})).json()
+    redirect_uri = oauth_redirect_uri(request, application=application_flow)
+    user_data, problem = await discord_oauth_identify(code, redirect_uri)  # P-12
+    if user_data is None:
+        title = "Bewerbungs-Login fehlgeschlagen" if application_flow else "Login fehlgeschlagen"
+        return HTMLResponse(simple_page("❌", title, problem, retry), status_code=502)
 
     if application_flow:
         application_session = {
@@ -7057,11 +7111,8 @@ async def apply_callback(request: Request, code: str=None, state: str=None, erro
     if error or not code or not state or not apply_oauth_state or not hmac.compare_digest(state,apply_oauth_state):
         return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen','Bitte erneut versuchen.',retry),status_code=400)
     redirect_apply=oauth_redirect_uri(request, application=True)
-    async with httpx.AsyncClient() as client:
-        tr=await client.post('https://discord.com/api/v10/oauth2/token',data={'client_id':CLIENT_ID,'client_secret':CLIENT_SECRET,'grant_type':'authorization_code','code':code,'redirect_uri':redirect_apply},headers={'Content-Type':'application/x-www-form-urlencoded'})
-        token=tr.json().get('access_token')
-        if not token: return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen','Discord konnte den Login nicht bestätigen.',retry),status_code=400)
-        ud=(await client.get('https://discord.com/api/v10/users/@me',headers={'Authorization':f'Bearer {token}'})).json()
+    ud, problem = await discord_oauth_identify(code, redirect_apply)  # P-12
+    if ud is None: return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen',problem,retry),status_code=502)
     session={'id':str(ud.get('id')),'username':ud.get('username'),'global_name':ud.get('global_name') or ud.get('username'),'avatar':ud.get('avatar')}
     response=RedirectResponse(apply_return_path(request),status_code=303); set_apply_session_cookie(response, request, session); response.delete_cookie('apply_oauth_state'); response.delete_cookie(APPLY_RETURN_COOKIE); return response
 

@@ -95,5 +95,114 @@ class CommandSyncTests(unittest.TestCase):
             self.assertTrue(asyncio.run(pulse_command_sync.sync_commands(changed, force=True))["synced"])
 
 
+class ErrorPageTests(unittest.TestCase):
+    def test_unexpected_error_shows_id_not_traceback(self):
+        from fastapi.testclient import TestClient
+        import webserver as ws
+
+        @ws.app.get("/__test_boom")
+        async def boom():
+            raise RuntimeError("geheimes Detail")
+
+        @ws.app.get("/api/__test_boom")
+        async def boom_api():
+            raise RuntimeError("geheimes Detail")
+        try:
+            client = TestClient(ws.app, raise_server_exceptions=False)
+            with patch("builtins.print"), patch("traceback.print_exception"):
+                page = client.get("/__test_boom")
+                api = client.get("/api/__test_boom")
+        finally:
+            ws.app.router.routes = [r for r in ws.app.router.routes if "__test_boom" not in getattr(r, "path", "")]
+        self.assertEqual(page.status_code, 500)
+        self.assertIn("Fehler-ID", page.text)
+        self.assertNotIn("geheimes Detail", page.text)
+        self.assertEqual(api.status_code, 500)
+        self.assertIn("error_id", api.json())
+
+
+class OAuthTests(unittest.TestCase):
+    def run_with(self, responses=None, error=None):
+        import httpx
+        import webserver as ws
+
+        class FakeClient:
+            def __init__(self, *a, **k):
+                self.responses = list(responses or [])
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, *a, **k):
+                if error:
+                    raise error
+                return self.responses.pop(0)
+
+            async def get(self, *a, **k):
+                return self.responses.pop(0)
+        with patch.object(ws.httpx, "AsyncClient", FakeClient):
+            return asyncio.run(ws.discord_oauth_identify("code", "https://x/callback"))
+
+    def response(self, status, payload):
+        return SimpleNamespace(status_code=status, json=lambda: payload)
+
+    def test_rate_limit_timeout_and_success(self):
+        import httpx
+        user, problem = self.run_with([self.response(429, {})])
+        self.assertIsNone(user)
+        self.assertIn("in einer Minute", problem)
+        user, problem = self.run_with(error=httpx.ConnectTimeout("t"))
+        self.assertIn("rechtzeitig", problem)
+        user, problem = self.run_with([self.response(503, {})])
+        self.assertIn("nicht erreichbar", problem)
+        user, problem = self.run_with([self.response(200, {"access_token": "a"}), self.response(200, {"id": "123", "username": "max"})])
+        self.assertEqual(user["id"], "123")
+        self.assertEqual(problem, "")
+
+
+class TicketDedupeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.db = patch.object(pulse_db, "DB_PATH", str(Path(self.tmp.name) / "pulse.db"))
+        self.db.start()
+        pulse_db.init_db()
+
+    def tearDown(self):
+        self.db.stop()
+        self.tmp.cleanup()
+
+    def test_indexed_lookup(self):
+        pulse_db.create_ticket(10, 1, 42, "Max", "support")
+        self.assertEqual(pulse_db.open_ticket_for_user(1, 42)["channel_id"], "10")
+        self.assertIsNone(pulse_db.open_ticket_for_user(1, 43))
+        self.assertIsNone(pulse_db.open_ticket_for_user(2, 42))
+
+    def test_two_fast_clicks_create_one_ticket(self):
+        from cogs import tickets
+        created, messages = [], []
+
+        async def slow_create(interaction, key, panel_id, answers):
+            await asyncio.sleep(0.02)
+            created.append(key)
+
+        def interaction():
+            async def send(text, ephemeral=False):
+                messages.append(text)
+            return SimpleNamespace(guild=SimpleNamespace(id=1, get_channel=lambda _: None),
+                                   user=SimpleNamespace(id=42), followup=SimpleNamespace(send=send))
+
+        async def scenario():
+            await asyncio.gather(tickets.create_ticket_channel(interaction(), "support", None, []),
+                                 tickets.create_ticket_channel(interaction(), "support", None, []))
+        with patch.object(tickets, "_create_ticket_channel", slow_create):
+            asyncio.run(scenario())
+        self.assertEqual(created, ["support"])
+        self.assertIn("gerade erstellt", messages[0])
+        self.assertEqual(tickets._OPENING_TICKETS, set())
+
+
 if __name__ == "__main__":
     unittest.main()

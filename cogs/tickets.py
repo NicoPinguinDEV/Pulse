@@ -767,15 +767,10 @@ async def start_ticket_flow(interaction: discord.Interaction, key: str, panel_id
         return
     label = category_meta(key)[0]
 
-    existing = None
-    for ticket in list_tickets(limit=2000):
-        if (
-            str(ticket.get("guild_id")) == str(guild.id)
-            and str(ticket.get("user_id")) == str(interaction.user.id)
-            and ticket.get("status") != "closed"
-        ):
-            existing = ticket
-            break
+    existing = _pulse_db.open_ticket_for_user(guild.id, interaction.user.id)  # P-13: indexed lookup
+    if (guild.id, interaction.user.id) in _OPENING_TICKETS:
+        await interaction.response.send_message("⏳ Dein Ticket wird gerade erstellt – einen Moment bitte.", ephemeral=True)
+        return
     if existing:
         channel = guild.get_channel(int(existing["channel_id"])) if existing.get("channel_id") else None
         if channel:
@@ -800,7 +795,29 @@ async def start_ticket_flow(interaction: discord.Interaction, key: str, panel_id
     await create_ticket_channel(interaction, key, panel_id, [])
 
 
+# P-13: one ticket creation per user at a time (two fast clicks must not create two channels).
+_OPENING_TICKETS: set[tuple[int, int]] = set()
+
+
 async def create_ticket_channel(interaction: discord.Interaction, key: str, panel_id: str | None, answers: list):
+    guild = interaction.guild
+    lock_key = (guild.id, interaction.user.id)
+    if lock_key in _OPENING_TICKETS:
+        await interaction.followup.send("⏳ Dein Ticket wird gerade erstellt – einen Moment bitte.", ephemeral=True)
+        return
+    existing = _pulse_db.open_ticket_for_user(guild.id, interaction.user.id)
+    channel = guild.get_channel(int(existing["channel_id"])) if existing and str(existing.get("channel_id") or "").isdigit() else None
+    if channel is not None:
+        await interaction.followup.send(f"🎫 Du hast bereits ein offenes Ticket: {channel.mention}", ephemeral=True)
+        return
+    _OPENING_TICKETS.add(lock_key)
+    try:
+        await _create_ticket_channel(interaction, key, panel_id, answers)
+    finally:
+        _OPENING_TICKETS.discard(lock_key)
+
+
+async def _create_ticket_channel(interaction: discord.Interaction, key: str, panel_id: str | None, answers: list):
     guild = interaction.guild
     label, desc, emoji, maximum, group = category_meta(key)
     category_definition = ticket_category_definitions().get(key, {})

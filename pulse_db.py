@@ -110,6 +110,7 @@ def init_db():
                 closed_by_name TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status, priority, opened_at);
+CREATE INDEX IF NOT EXISTS idx_tickets_user ON tickets(user_id, guild_id, status);
             CREATE INDEX IF NOT EXISTS idx_tickets_claimed ON tickets(claimed_by_id, status);
             CREATE INDEX IF NOT EXISTS idx_tickets_user ON tickets(user_id, opened_at DESC);
 
@@ -526,6 +527,16 @@ def set_ticket_panel(tid, panel_id):
 def get_ticket(ticket_id=None, channel_id=None):
     with connect() as db:
         row = db.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone() if ticket_id else db.execute("SELECT * FROM tickets WHERE channel_id=?", (str(channel_id),)).fetchone()
+        return dict(row) if row else None
+
+
+def open_ticket_for_user(guild_id, user_id):
+    """P-13: the user's open ticket via index instead of filtering thousands of rows in Python."""
+    with connect() as db:
+        row = db.execute(
+            "SELECT * FROM tickets WHERE user_id=? AND guild_id=? AND status!='closed' ORDER BY opened_at DESC LIMIT 1",
+            (str(user_id), str(guild_id)),
+        ).fetchone()
         return dict(row) if row else None
 
 
