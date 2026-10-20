@@ -125,6 +125,7 @@ def main() -> int:
     import webserver  # noqa: E402  (registriert alle Module am Dateiende)
     # Die Operations Suite registriert ihre Seiten erst beim Laden des Cogs (PulseSuite.__init__).
     import cogs.pulse_suite as suite  # noqa: E402
+    suite.DB_PATH = str(Path(tmp) / "pulse_suite.db")  # never touch the real suite database
     suite.register_routes()
 
     routes = effective_routes(webserver.app)
