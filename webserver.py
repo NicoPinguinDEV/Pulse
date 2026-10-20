@@ -9158,7 +9158,7 @@ def team_since_for(member, entry=None) -> str:
             if decided is not None:
                 candidates.append(decided)
         if candidates:
-            return min(candidates).strftime("%d.%m.%Y")
+            return display(min(candidates), with_time=False)  # Berlin date
     except Exception:
         pass
 

@@ -8,6 +8,7 @@ Every route authorizes server-side; the navigation only mirrors these checks.
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import os
 import re
@@ -584,7 +585,7 @@ def register(app) -> None:
         uid = str(discord_id or "").strip()
         if not re.fullmatch(r"[0-9]{15,22}", uid):
             return ws.back("/admin/privacy", "Bitte eine gültige Discord-ID eingeben.", False)
-        data = pulse_retention.export_person(ws, uid)
+        data = await asyncio.to_thread(pulse_retention.export_person, ws, uid)  # file/DB scan off the event loop
         ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Datenauskunft exportiert", f"Discord-ID {uid}")
         return Response(_json.dumps(data, ensure_ascii=False, indent=2, default=str), media_type="application/json",
                         headers={"Content-Disposition": f'attachment; filename="pulse_auskunft_{uid}.json"'})

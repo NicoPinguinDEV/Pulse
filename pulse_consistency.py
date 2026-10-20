@@ -54,7 +54,7 @@ def check(ws, guild) -> list[dict]:
         member = _member(guild, uid)
         if member is None or not isinstance(entry, dict):
             continue
-        count = len(ws.active_warns(dict(entry)))
+        count = min(len(ws.active_warns(dict(entry))), 5)  # sync_warn_roles caps at level 5
         held = {level for level, rid in role_ids.items() if any(r.id == rid for r in getattr(member, "roles", []))}
         expected = {count} if count in role_ids else set()
         if held != expected:

@@ -174,6 +174,35 @@ class RetentionTests(unittest.TestCase):
         self.assertIn("Datenbereinigung (Aufbewahrungsfristen)", actions)
         self.assertFalse(pulse_retention.due_today())
 
+    def test_hired_applications_are_kept_for_team_since(self):
+        import pulse_retention
+        apps = {"eingestellt": {"status": "hired", "decided_at": "01.01.2020 10:00"},
+                "abgelehnt": {"status": "rejected", "decided_at": "01.01.2020 10:00"}}
+        self.assertEqual(pulse_retention.expired_applications(apps, 183, self.now), ["abgelehnt"])
+
+    def test_failure_is_recorded_once_per_day(self):
+        import pulse_retention
+        pulse_retention.save_settings({"enabled": True})
+        self.pulse_backup.create_full_backup(ws.BASE_DIR, ws.full_backup_dir())
+        with patch.object(ws, "save_json", side_effect=ws.JsonWriteBlocked("gesperrt")):
+            report = pulse_retention.run(ws, __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
+        self.assertFalse(report["ran"])
+        self.assertIn("fehlgeschlagen", report["reason"])
+        self.assertFalse(pulse_retention.due_today())
+
+    def test_export_covers_all_databases(self):
+        import json as _json
+        import sqlite3
+        import pulse_retention
+        con = sqlite3.connect(Path(ws.BASE_DIR) / "pulse_suite.db")
+        con.execute("CREATE TABLE suite_members(user_id TEXT, notes TEXT)")
+        con.execute("INSERT INTO suite_members VALUES ('100000000000000001','Notiz')")
+        con.commit()
+        con.close()
+        data = pulse_retention.export_person(ws, "100000000000000001")
+        self.assertEqual(data["databases"]["pulse_suite.db"]["suite_members"][0]["notes"], "Notiz")
+        _json.dumps(data, default=str)
+
     def test_export_and_admin_routes(self):
         import json as _json
         client = TestClient(ws.app)
