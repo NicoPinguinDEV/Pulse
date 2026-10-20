@@ -160,7 +160,8 @@ try:
 except Exception:
     TZ = None
 
-app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION)
+# K-17: no public API documentation (/docs, /redoc, /openapi.json listed every endpoint without login).
+app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION, docs_url=None, redoc_url=None, openapi_url=None)
 
 
 # Small inline favicon avoids the browser's recurring default /favicon.ico 404.
