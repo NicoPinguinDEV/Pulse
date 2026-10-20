@@ -6813,6 +6813,8 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
     career = APPLICATION_CAREERS[career_path]
     question_markup = render_career_test(career_path)
     practical_markup = render_practical_tasks(career_path)
+    import pulse_retention
+    privacy_notice = pulse_retention.privacy_notice_html(esc)  # D-08
     draft_script = (APPLY_DRAFT_SCRIPT
                     .replace("__KEY__", json.dumps(apply_draft_key(applicant.get("id"), career_path)))
                     .replace("__LOGIN__", json.dumps(f"/apply/login?career={quote(career_path)}")))
@@ -6863,6 +6865,7 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
                         {question_markup}
                     </section>
                     {practical_markup}
+                    {privacy_notice}
                     <div class="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                         <button type="button" id="applicationPrev" hidden class="px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 font-semibold">← Zurück</button>
                         <span id="applicationStepLabel" class="text-[10px] text-slate-500 dark:text-slate-400">Schritt 1 von 3</span>

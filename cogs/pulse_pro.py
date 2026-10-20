@@ -1,6 +1,7 @@
 """Pulse Pro Discord layer: commands, presence and housekeeping automation."""
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -90,6 +91,15 @@ class PulsePro(commands.Cog):
             if now.hour == 3 and now.minute < 5:
                 try: db.purge_old_notifications(90)
                 except Exception: pass
+            try:
+                # D-08: retention periods (off by default) – at most once a day, in a worker thread.
+                import pulse_retention
+                if pulse_retention.due_today(now):
+                    report = await asyncio.to_thread(pulse_retention.run, webserver, now)
+                    if report.get("ran"):
+                        print(f"🔒 Datenbereinigung: {report['applications']} Bewerbungen, {report['audit']} Audit-Einträge entfernt.")
+            except Exception as exc:
+                print(f"⚠️ Datenbereinigung fehlgeschlagen: {type(exc).__name__}")
             overdue = [t for t in db.list_tasks(limit=1000) if t.get("due_at") and t.get("status") not in ("done", "archived")]
             for task in overdue:
                 try:

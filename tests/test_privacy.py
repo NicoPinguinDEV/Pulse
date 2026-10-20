@@ -79,5 +79,79 @@ class TeamFileVisibilityTests(unittest.TestCase):
         self.assertIn("Interne Notiz XYZ", html)
 
 
+class RetentionTests(unittest.TestCase):
+    def setUp(self):
+        import pulse_backup
+        self.pulse_backup = pulse_backup
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        base = Path(self.tmp.name)
+        self.patches = [patch.object(pulse_db, "DB_PATH", str(base / "pulse.db")),
+                        patch.object(ws, "APPS_FILE", str(base / "applications.json")),
+                        patch.object(ws, "AUDIT_FILE", str(base / "audit_logs.json")),
+                        patch.object(ws, "DATA_FILE", str(base / "team_data.json")),
+                        patch.object(ws, "SHIFTS_FILE", str(base / "shifts.json")),
+                        patch.object(ws, "DB_ABMELDUNGEN", str(base / "abmeldungen.db")),
+                        patch.object(ws, "BACKUP_DIR", str(base / "backups")),
+                        patch.object(ws, "BASE_DIR", base)]
+        for p in self.patches:
+            p.start()
+        pulse_db.init_db()
+        ws.save_json(ws.APPS_FILE, {
+            "alt_abgelehnt": {"user_id": "1", "status": "rejected", "created_at": "01.01.2025 10:00", "decided_at": "02.01.2025 10:00"},
+            "alt_offen": {"user_id": "2", "status": "pending", "created_at": "01.01.2025 10:00"},
+            "neu": {"user_id": "3", "status": "hired", "created_at": "01.10.2026 10:00", "decided_at": "05.10.2026 10:00"},
+        })
+        ws.save_json(ws.AUDIT_FILE, [{"timestamp": "01.01.2023 10:00:00", "actor_id": "1", "action": "alt"},
+                                     {"timestamp": "01.10.2026 10:00:00", "actor_id": "1", "action": "neu"}])
+        self.now = __import__("datetime").datetime(2026, 10, 20, tzinfo=__import__("datetime").timezone.utc)
+
+    def tearDown(self):
+        for p in reversed(self.patches):
+            p.stop()
+        self.tmp.cleanup()
+
+    def test_off_by_default_and_needs_fresh_backup(self):
+        import pulse_retention
+        self.assertFalse(pulse_retention.load_settings()["enabled"])
+        self.assertFalse(pulse_retention.run(ws, self.now)["ran"])
+        self.assertEqual(pulse_retention.plan(ws, now=self.now), {"applications": 1, "audit": 1})
+        pulse_retention.save_settings({"enabled": True})
+        with patch.object(ws, "log_audit", lambda *a, **k: None):
+            report = pulse_retention.run(ws, self.now)
+        self.assertFalse(report["ran"])
+        self.assertIn("Komplett-Backup", report["reason"])
+        self.assertEqual(len(ws.load_json(ws.APPS_FILE, {})), 3)
+
+    def test_cleanup_keeps_open_and_recent_and_is_logged(self):
+        import pulse_retention
+        pulse_retention.save_settings({"enabled": True})
+        self.pulse_backup.create_full_backup(ws.BASE_DIR, ws.full_backup_dir())
+        report = pulse_retention.run(ws, __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
+        self.assertTrue(report["ran"])
+        self.assertEqual(sorted(ws.load_json(ws.APPS_FILE, {})), ["alt_offen", "neu"])
+        actions = [e["action"] for e in ws.load_json(ws.AUDIT_FILE, [])]
+        self.assertNotIn("alt", actions)
+        self.assertIn("Datenbereinigung (Aufbewahrungsfristen)", actions)
+        self.assertFalse(pulse_retention.due_today())
+
+    def test_export_and_admin_routes(self):
+        import json as _json
+        client = TestClient(ws.app)
+        with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
+            self.assertEqual(client.get("/admin/privacy").status_code, 403)
+            self.assertEqual(client.get("/admin/privacy/export?discord_id=100000000000000001").status_code, 403)
+        with patch.object(ws, "auth", fake_auth_for(ADMIN)):
+            self.assertIn("Aufbewahrungsfristen", client.get("/admin/privacy").text)
+            saved = client.post("/admin/privacy", data={"enabled": "1", "applications_days": "183", "audit_days": "730",
+                                                        "contact": "Leitung per Ticket"}, follow_redirects=False)
+            self.assertIn("t=ok", saved.headers["location"])
+            ws.save_json(ws.APPS_FILE, {"a": {"user_id": "100000000000000001", "status": "pending"}})
+            export = client.get("/admin/privacy/export?discord_id=100000000000000001")
+        self.assertEqual(export.status_code, 200)
+        self.assertIn("a", _json.loads(export.text)["applications"])
+        import pulse_retention
+        self.assertIn("Leitung per Ticket", pulse_retention.privacy_notice_html(ws.esc))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,7 @@ from pulse_welcome import (
 # Pages that belong to the administration area (sidebar switches to "Verwaltung").
 ADMIN_PAGE_KEYS = frozenset({
     "admin", "admin-discord", "ticket-panels", "settings", "backups", "system", "announcements", "social",
+    "admin-privacy",
 })
 
 
@@ -42,6 +43,7 @@ def admin_sections(perms: dict) -> list[tuple]:
         ("social", "/social", "📣", "Social Media", "Creator-Kanäle und Video-Ankündigungen", announcements),
         ("settings", "/settings", "⚙", "Einstellungen & Rechte", "Rollen, Dashboard-Rechte, Module, Kanäle", is_admin),
         ("backups", "/backups", "🗄", "Backups", "Sicherungen erstellen und wiederherstellen", is_admin),
+        ("admin-privacy", "/admin/privacy", "🔒", "Datenschutz", "Aufbewahrungsfristen, Auskunft, Hinweis", is_admin),
         ("system", "/system", "♥", "Systemstatus", "Health, RAM, Diagnose", is_admin),
     ]
     return [s[:5] for s in sections if s[5]]
@@ -520,6 +522,72 @@ def register(app) -> None:
         ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Embed-Design geändert",
                      f"Footer: {value['footer_text']}")
         return ws.back("/admin/discord", "Embed-Design gespeichert.", True)
+
+    # ------------------------------------------------------------------ Datenschutz (D-08)
+    @app.get("/admin/privacy", response_class=HTMLResponse)
+    async def admin_privacy(request: Request, user_session: str = Cookie(None)):
+        import pulse_retention
+        ctx = admin_ctx(request, user_session)
+        settings = pulse_retention.load_settings()
+        preview = pulse_retention.plan(ws, settings)
+        backup = pulse_retention.recent_full_backup(ws)
+        last = settings.get("last_report") or {}
+        last_line = (f'Letzte Bereinigung {e(settings["last_run"])}: {e(last.get("applications", 0))} Bewerbungen, '
+                     f'{e(last.get("audit", 0))} Audit-Einträge.' if settings.get("last_run") else "Noch keine Bereinigung gelaufen.")
+        backup_line = (f'<span class="text-emerald-500">✓ Aktuelles Komplett-Backup: {e(backup)}</span>' if backup else
+                       '<span class="text-amber-500">⚠️ Kein Komplett-Backup der letzten 2 Tage – die Bereinigung wartet, bis eins existiert (Verwaltung → Backups).</span>')
+        body = f'''
+<div class="pulse-crumb"><a href="/admin">Verwaltung</a> › Datenschutz</div>
+<div class="pulse-hero"><div><div class="pulse-kicker">Verwaltung · Datenschutz</div><div class="pulse-title">Aufbewahrung &amp; Auskunft</div>
+ <div class="pulse-sub">Fristen nach eurer Entscheidung (E-9). Standard: aus. Bereinigt wird höchstens einmal täglich, nur mit frischem Komplett-Backup, und jede Bereinigung steht im Audit-Log.</div></div></div>
+<form method="post" action="/admin/privacy" class="mt-5"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🗓️ Aufbewahrungsfristen</div>
+ <span class="pulse-pill {"good" if settings["enabled"] else ""}">{"aktiv" if settings["enabled"] else "aus"}</span></div>
+ <div class="pulse-card-b grid gap-3">
+  <label class="pulse-check"><input type="checkbox" name="enabled" value="1"{" checked" if settings["enabled"] else ""}> Automatische Bereinigung aktivieren</label>
+  <div class="grid sm:grid-cols-2 gap-3">
+   <label class="grid gap-1 text-xs font-semibold">Abgeschlossene Bewerbungen löschen nach (Tagen)<input class="pulse-input" type="number" name="applications_days" min="30" max="3650" value="{settings["applications_days"]}"></label>
+   <label class="grid gap-1 text-xs font-semibold">Audit-Log-Einträge löschen nach (Tagen)<input class="pulse-input" type="number" name="audit_days" min="90" max="3650" value="{settings["audit_days"]}"></label>
+  </div>
+  <label class="grid gap-1 text-xs font-semibold">Kontakt für Auskunft/Löschung (steht im Hinweis auf /apply)<input class="pulse-input" name="contact" maxlength="300" value="{e(settings["contact"])}" placeholder="z. B. die Serverleitung über ein Support-Ticket"></label>
+  <div class="text-[11px] text-slate-400">Mit diesen Werten würden jetzt <strong>{preview["applications"]}</strong> Bewerbungen und <strong>{preview["audit"]}</strong> Audit-Einträge entfernt. Offene Bewerbungen (wartend/Gespräch) werden nie gelöscht. KI-Moderationsfälle löscht Pulse bereits nach 30 Tagen; Ticket-Transkripte bleiben unbegrenzt (E-7). {backup_line} {last_line}</div>
+  <div><button class="pulse-btn primary" type="submit">💾 Speichern</button></div>
+ </div></section></form>
+<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📄 Auskunft: alle Daten zu einer Discord-ID</div></div>
+ <div class="pulse-card-b"><form method="get" action="/admin/privacy/export" class="flex flex-wrap gap-2">
+  <input class="pulse-input" name="discord_id" pattern="[0-9]{{15,22}}" required placeholder="Discord-ID">
+  <button class="pulse-btn ghost" type="submit">⬇️ JSON herunterladen</button></form>
+  <p class="text-[11px] text-slate-400 mt-2">Enthält Teamakte, Bewerbungen, Schichten, Abmeldungen, Tickets, Ereignisse und eigene Audit-Einträge. Der Export wird im Audit-Log vermerkt. Löschen einzelner Personen erfolgt weiterhin bewusst von Hand.</p>
+ </div></section>'''
+        return HTMLResponse(render_pro_page(ws, "Datenschutz", ctx, "admin-privacy", body))
+
+    @app.post("/admin/privacy")
+    async def admin_privacy_save(request: Request, user_session: str = Cookie(None)):
+        import pulse_retention
+        ctx = admin_ctx(request, user_session)
+        form = await request.form()
+        try:
+            values = {"enabled": form.get("enabled") == "1", "applications_days": int(form.get("applications_days") or 0),
+                      "audit_days": int(form.get("audit_days") or 0), "contact": str(form.get("contact") or "").strip()[:300]}
+        except ValueError:
+            return ws.back("/admin/privacy", "Bitte ganze Zahlen für die Fristen eingeben.", False)
+        saved = pulse_retention.save_settings(values)
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Datenschutz-Einstellungen geändert",
+                     f"Bereinigung {'an' if saved['enabled'] else 'aus'} · Bewerbungen {saved['applications_days']} Tage · Audit {saved['audit_days']} Tage")
+        return ws.back("/admin/privacy", "Datenschutz-Einstellungen gespeichert.", True)
+
+    @app.get("/admin/privacy/export")
+    async def admin_privacy_export(request: Request, discord_id: str = "", user_session: str = Cookie(None)):
+        import json as _json
+        import pulse_retention
+        from fastapi.responses import Response
+        ctx = admin_ctx(request, user_session)
+        uid = str(discord_id or "").strip()
+        if not re.fullmatch(r"[0-9]{15,22}", uid):
+            return ws.back("/admin/privacy", "Bitte eine gültige Discord-ID eingeben.", False)
+        data = pulse_retention.export_person(ws, uid)
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Datenauskunft exportiert", f"Discord-ID {uid}")
+        return Response(_json.dumps(data, ensure_ascii=False, indent=2, default=str), media_type="application/json",
+                        headers={"Content-Disposition": f'attachment; filename="pulse_auskunft_{uid}.json"'})
 
     @app.post("/admin/discord/logs")
     async def admin_discord_logs(request: Request, user_session: str = Cookie(None)):
