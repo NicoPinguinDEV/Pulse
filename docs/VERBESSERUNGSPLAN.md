@@ -56,6 +56,23 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 - **E-11 Slash-Befehle (BOT-04):** In Gruppen ordnen, alte Namen eine Übergangszeit als Alias? Prefix-Altbefehle `!ticketsetup`/`!ticketstats` entfernen?
 - **E-12 Bewerbungsportal (K-01):** Sitzungsdauer? Entwürfe nur im Browser oder zusätzlich serverseitig? *3 h gleitend, Entwurf im Browser.*
 
+### Entscheidungen (beantwortet am 20.10.2026)
+
+| Frage | Entscheidung |
+|---|---|
+| E-1 Honeypot | **Alles wie bisher** – jeder wird gebannt, ohne Nachrichtenlöschung; K-11 entfällt bis auf Protokollierung (nur nach erneuter Freigabe). |
+| E-2 Vergessene Schichten | **0 h bis eine Führungskraft die echte Dauer bestätigt.** |
+| E-3 Teamakte | **Eingeschränkt:** Notizen nur `can_add_notes`/Leitung; Warnungen nur die Person selbst und `can_warn`. |
+| E-4 Standardrechte | **Nur Dashboard**; Analytics nur explizit. |
+| E-5 RAM | **Bot-Hosting, 250 MB bleibt verbindlich.** |
+| E-6 Doppelte Seiten | **Erst Tabelle „alt → neu“ vorlegen**, Entscheidung je Funktion. |
+| E-7 Transkripte | **Anhänge bis 8 MB mitsichern, unbegrenzt aufbewahren.** |
+| E-8 Bürger-Moderation | **Ja, mit Fallakte** (BOT-09, abschaltbar, Standard aus). |
+| E-9 Fristen | **Bewerbungen 6 Monate, KI-Moderationsfälle 3 Monate, Audit 2 Jahre** (Bereinigung protokolliert, Standard aus bis zur Aktivierung). Offen: verantwortlicher Kontakt für den Hinweis auf `/apply`. |
+| E-10 Session-Secret | **Ausweichen auf `.session_secret` + laute Warnung.** |
+| E-11 Slash-Befehle | **Gruppen + alte Namen als Alias**; `!ticketsetup`/`!ticketstats` entfernen. |
+| E-12 Bewerbungsportal | **3 h gleitend, Entwurf nur im Browser.** |
+
 ---
 
 ## 3. Phase 0 – Bestandsaufnahme (nur `docs/` und `tools/` ändern)
@@ -64,7 +81,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 - [x] **P0-2 Routen-Landkarte** (aa0076a: 266 Routen, 1 Doppelung, 21 verdrängt; neu: /docs, /redoc, /openapi.json öffentlich → K-17) `docs/ROUTEN.md`, erzeugt von einem Skript unter `tools/` (importiert `webserver` mit Temp-Daten wie die Tests): alle effektiven Routen mit Methode, Pfad, Modul/Funktion und Rechteprüfung (`auth(...)`, `ctx_auth`, `cctx`, `require_perm` – soweit ableitbar) sowie alle verdrängten Handler. Meine statische Zählung: ~260 Routen, eine echte Doppelung (`GET /ultimate`), viele per `remove_and_add` (`pulse_pro.py:299`) verdrängte Altversionen. Achtung: `remove_and_add` entfernt **alle Methoden** eines Pfads, nicht nur die ersetzte.
 - [x] **P0-3 Datenlandkarte** (f9bfd91: 59 von 81 Tabellen fehlen im JSON-Backup, 5 DBs + uploads/ in keinem Backup) `docs/DATENLANDKARTE.md`: jede Datei/Tabelle mit Besitzer-Modul, schreibenden Stellen, Wachstum und Abdeckung durch die beiden Backup-Systeme. Bekannt: 8 SQLite-Dateien (`pulse.db`, `abmeldungen.db`, `activity_check.db`, `pulse_suite.db`, `teamliste.db`, `buero_system.db`, `rp_verwaltung.db`, `flaggenquiz.db`), 11 JSON-Dateien (`config`, `team_data`, `applications`, `shifts`, `logs`, `audit_logs`, `meetings`, `pulse_announcement_archive`, `role_nickname_state`, `social_promo_sources`, `ai_moderation_cases`), Ordner `uploads/*`, `attachments/`, `transcripts/`, `backups/`, dazu `.session_secret`.
 - [x] **P0-4 Jobs & Rechte:** (fb12a06: 13 Loops, 4 Dauerschleifen, 11 create_task, 20 Rechte-Schlüssel; A-03 bestätigt) alle Hintergrundschleifen (heute 13 `@tasks.loop`s in 10 Cogs – u. a. `voice_support` alle 8 s und 1 min, `activity_check` 1 min/5 min/06:00 – plus eigene Endlosschleifen: Ultimate-Automation, Auto-Backup, Server-Statistik) mit Intervall und Fehlerbehandlung; alle Rechte-Schlüssel mit Herkunft (siehe A-03).
-- [ ] **P0-5** Bericht + Fragen E-1 bis E-12 → **STOPP**.
+- [x] **P0-5** Bericht + Fragen E-1 bis E-12 → **STOPP**. (Bericht `docs/PHASE0_BERICHT.md`, Entscheidungen in Abschnitt 2 eingetragen)
 
 ---
 
