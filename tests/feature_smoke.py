@@ -456,7 +456,7 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.9.7"' in version_source
+    assert 'PULSE_VERSION = "7.10.0"' in version_source
     archive_source = read("cogs/announcement_archive.py")
     parse("cogs/announcement_archive.py")
     archive_utils = read("pulse_announcement_utils.py")

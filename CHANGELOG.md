@@ -1,5 +1,20 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.10.0 – Phase 1: Kritische Fehler & Sicherheit (Oktober 2026)
+
+Details und Testnachweise: `docs/PHASE1_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
+
+- **Bewerbungsportal (K-01):** Sitzung 3 h gleitend (höchstens 12 h nach dem Login), Entwurf wird im Browser gespeichert, Fehlerseiten und erneuter Login führen zurück zum ausgefüllten Formular.
+- **RP-Verwaltung (K-02):** nur Admins, Leitung und freigegebene Rollen; kein Löschen fremder Nachrichten mehr, nur die eigene letzte Ankündigung; 60 s Abstand je Aktion; Uhrzeit wird geprüft; kein Ausweichen in den falschen Kanal.
+- **Sicherheit (K-03, K-14, K-17):** Platzhalter- oder zu kurzes Session-Secret wird nicht genutzt; Dashboard- und Bewerbungs-Login sind getrennte Token-Typen; CSV-Exporte gegen Formel-Injection geschützt; `/docs`, `/redoc`, `/openapi.json` nicht mehr öffentlich.
+- **Gleichzeitige Aktionen (K-04):** Warnungen, Rücknahmen, Schicht- und Activity-Check-Warnungen sowie Voice-Support-Übernahmen schreiben nur noch ihre eigenen Änderungen zurück.
+- **Datendateien (K-05):** beschädigte JSON-Datei wird gesichert (`.corrupt-…`) statt mit Standardwerten überschrieben; Schreiben mit `fsync`.
+- **Tickets (K-06):** ohne gespeichertes Transkript wird der Kanal nicht gelöscht (umbenannt und gesperrt); Anhänge bis 8 MB werden gesichert; Transkript zusätzlich im Ticket-Log-Kanal.
+- **Buttons nach Neustart (K-07):** Fall-Buttons aus `/pulse-ticket` und Büro-Anfragen funktionieren nach Neustarts, auch auf alten Nachrichten.
+- **Fehlermeldungen (K-08, K-09):** jeder Slash-Fehler wird beantwortet (Fehler-ID); Bestätigungsdialoge antworten sofort, führen genau eine Aktion aus, prüfen Rechte erneut und zeigen den Ablauf an.
+- **Betrieb (K-10, K-12, K-13, K-15, K-16):** ffmpeg/libopus im Docker-Image und Audio-Diagnose; Moderations-Log-Kanal im Dashboard einstellbar; `discord.py>=2.6` und `tzdata`; Laufzeitdaten aus Git/Image ausgeschlossen; Routen-Snapshot-Test.
+- **Neue Einstellungen:** Verwaltung → Discord-Auftritt → „Moderations-Log & RP-Panel“.
+
 ## Verifikation neuer Mitglieder und Datenreparatur (Oktober 2026)
 
 - Neues Verifikationssystem (`cogs/verification.py`, `pulse_verification.py`): Unverifiziert-Rolle beim Beitritt, persistenter Button vergibt die Bürgerrolle (sichere Reihenfolge, idempotent, Rechte-/Hierarchieprüfung, Fehlerprotokoll). Konfiguration, Vorschau und Panel-Veröffentlichung unter Verwaltung → Discord-Auftritt. Standardmäßig aus.
