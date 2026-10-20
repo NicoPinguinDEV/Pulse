@@ -348,12 +348,13 @@ def register(app):
                         except Exception:
                             pass
                 # Offene Tickets über 30 Minuten einmal täglich markieren.
+                bot=getattr(app.state,'bot',None); guild=bot.get_guild(ws.GUILD_ID) if bot else None  # was an undefined `c` (A-07)
                 for t in db.list_tickets(limit=500):
                     if t.get('status')=='closed': continue
                     try:
                         opened=datetime.fromisoformat(t['opened_at'].replace('Z','+00:00'))
                         if (datetime.now(opened.tzinfo)-opened).total_seconds() >= 30*60:
-                            targets=([c.guild.get_member(int(t['claimed_by_id']))] if t.get('claimed_by_id') else managers)
+                            targets=([guild.get_member(int(t['claimed_by_id'])) if guild else None] if t.get('claimed_by_id') else managers)
                             for m in [x for x in targets if x]: db.notify(m.id,'🎫 Ticket wartet seit 30+ Minuten',f"{t['id']} · {t['category']} · {t['user_name']}",'warning','/tickets')
                     except Exception:
                         pass

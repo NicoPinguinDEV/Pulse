@@ -1,0 +1,15 @@
+# A-07: conservative lint rules, applied first to the modules written during the improvement phases.
+# Extend `include` file by file when a module is touched – no mass reformatting (plan rule).
+target-version = "py312"
+line-length = 140
+include = [
+    "pulse_audio_check.py", "pulse_backup.py", "pulse_command_errors.py", "pulse_command_sync.py",
+    "pulse_consistency.py", "pulse_ids.py", "pulse_jobs.py", "pulse_logging.py", "pulse_permissions.py",
+    "pulse_ready.py", "pulse_retention.py", "pulse_store.py", "pulse_tasks.py", "pulse_time.py",
+    "pulse_transcripts.py",
+]
+
+[lint]
+# E9/F63/F7/F82: syntax and undefined names · F401/F841: unused imports/variables
+# E722: bare except · B006: mutable default argument
+select = ["E9", "F63", "F7", "F82", "F401", "F841", "E722", "B006"]

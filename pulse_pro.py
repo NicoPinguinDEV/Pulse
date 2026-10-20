@@ -41,6 +41,28 @@ EXTRA_PERMS = (
     "can_moderate_bolo",
 )
 
+# Labels of the dashboard permissions (settings page and the audit text when a profile is saved).
+PERMISSION_LABELS = {
+    'can_view_dashboard':'Dashboard öffnen',
+    'can_warn':'Melonly: Warn',
+    'can_moderate_kicks':'Melonly: Kick',
+    'can_moderate_bans':'Melonly: Ban',
+    'can_moderate_bolo':'Melonly: Ban-BOLO',
+    'can_add_notes':'Melonly: Notizen',
+    'can_promote':'Teamaktionen (Befördern/Degradieren)',
+    'can_manage_tickets':'Tickets verwalten',
+    'can_manage_applications':'Bewerbungen verwalten',
+    'can_manage_tasks':'Aufgaben verwalten',
+    'can_manage_training':'Schulungen verwalten',
+    'can_manage_wiki':'Team-Wiki verwalten',
+    'can_view_analytics':'Analytics ansehen',
+    'can_manage_announcements':'Ankündigungen verwalten',
+    'can_manage_handover':'Übergaben verwalten',
+    'can_manage_promotions':'Beförderungsanträge verwalten',
+    'can_view_team_status':'Teamstatus ansehen/verwalten',
+    'can_manage_checkins':'Activity Check verwalten',
+}
+
 PRO_CSS = r"""
 <style>
 :root{--p:#5b5cf0;--p2:#7c3aed;--bg:#f5f7fb;--surface:#fff;--surface2:#f8fafc;--border:#e8ebf3;--text:#111827;--muted:#667085;--good:#12b76a;--warn:#f79009;--bad:#f04438;--shadow:0 18px 50px rgba(15,23,42,.08)}
@@ -2081,26 +2103,7 @@ def register(app):
             if migrated or preserved:
                 profile_notice=f'<section class="pulse-alert mb-5"><strong>🔐 Rollen-Hierarchie korrigiert.</strong><div class="text-slate-400 mt-1">{migrated} unveränderte Standardprofile wurden aktualisiert; {preserved} manuell angepasste Profile blieben erhalten. PK liegt jetzt über Teamleitung.</div></section>'
         cfg=c.config.get('permissions',{})
-        permission_labels={
-            'can_view_dashboard':'Dashboard öffnen',
-            'can_warn':'Melonly: Warn',
-            'can_moderate_kicks':'Melonly: Kick',
-            'can_moderate_bans':'Melonly: Ban',
-            'can_moderate_bolo':'Melonly: Ban-BOLO',
-            'can_add_notes':'Melonly: Notizen',
-            'can_promote':'Teamaktionen (Befördern/Degradieren)',
-            'can_manage_tickets':'Tickets verwalten',
-            'can_manage_applications':'Bewerbungen verwalten',
-            'can_manage_tasks':'Aufgaben verwalten',
-            'can_manage_training':'Schulungen verwalten',
-            'can_manage_wiki':'Team-Wiki verwalten',
-            'can_view_analytics':'Analytics ansehen',
-            'can_manage_announcements':'Ankündigungen verwalten',
-            'can_manage_handover':'Übergaben verwalten',
-            'can_manage_promotions':'Beförderungsanträge verwalten',
-            'can_view_team_status':'Teamstatus ansehen/verwalten',
-            'can_manage_checkins':'Activity Check verwalten',
-        }
+        permission_labels=PERMISSION_LABELS
         permission_fields=[(key,permission_labels.get(key,key.replace('can_','').replace('_',' ').title())) for key in (*ws.PERM_KEYS,*EXTRA_PERMS)]
         cards=[]
         for rid in role_ids:
@@ -2347,7 +2350,7 @@ def register(app):
         }
         ws.save_json(ws.CONFIG_FILE,c.config)
         mapped_names=", ".join(c.guild.get_role(rid).name for rid in valid_roles) or "keine Teamrolle"
-        enabled=", ".join(permission_labels.get(key,key) for key in permission_keys if permissions.get(key)) or "keine Rechte"
+        enabled=", ".join(PERMISSION_LABELS.get(key,key) for key in permission_keys if permissions.get(key)) or "keine Rechte"  # was an undefined name (A-07)
         ws.log_audit(
             c.user.get('global_name') or c.user.get('username'),c.user['id'],
             "Digitale Zwischenrolle gespeichert",

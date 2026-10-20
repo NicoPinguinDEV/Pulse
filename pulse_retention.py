@@ -17,7 +17,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 import pulse_db
-from pulse_time import age_days, parse_timestamp
+from pulse_time import age_days
 
 SETTING_KEY = "data_retention"
 DEFAULTS = {"enabled": False, "applications_days": 183, "audit_days": 730, "contact": "", "last_run": "", "last_report": {}}
