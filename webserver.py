@@ -5026,6 +5026,8 @@ async def pulse_ticket_category_save(
     group: str = Form("team"),
     category_id: str = Form(""),
     role_ids: list[str] = Form(default=[]),
+    ping_role_ids: list[str] = Form(default=[]),
+    ping_roles_field: str = Form(""),
     welcome_title: str = Form(""),
     button_style: str = Form("primary"),
     builder_v2: bool = Form(False),
@@ -5100,6 +5102,20 @@ async def pulse_ticket_category_save(
         if role_id not in role_values:
             role_values.append(role_id)
 
+    ping_values = []
+    for raw in ping_role_ids:
+        try:
+            ping_id = int(raw)
+        except (TypeError, ValueError):
+            return back("/tickets/panels?tab=categories", "Ungültige Ping-Rolle.", False)
+        ping_role = ctx.guild.get_role(ping_id)
+        if ping_role is None or ping_role.is_default() or ping_role.managed:
+            return back("/tickets/panels?tab=categories", "Bitte wähle als Ping nur normale Serverrollen (kein @everyone, keine Bot-Rollen).", False)
+        if ping_id not in ping_values:
+            ping_values.append(ping_id)
+    if len(ping_values) > 10:
+        return back("/tickets/panels?tab=categories", "Höchstens 10 Ping-Rollen pro Kategorie.", False)
+
     registry = pulse_ticket_category_registry()
     key = str(category_id or "").strip()
     if key:
@@ -5127,6 +5143,11 @@ async def pulse_ticket_category_save(
         "active": True,
     }
     previous = next((item for item in definitions if str(item.get("id") or "") == key), {})
+    if ping_roles_field:
+        # The builder sends this marker, so an empty selection really means "nobody is pinged".
+        category_value["ping_role_ids"] = ping_values
+    elif "ping_role_ids" in previous:
+        category_value["ping_role_ids"] = previous["ping_role_ids"]
     if builder_v2:
         category_value.update({
             "welcome_title": str(welcome_title).strip()[:256],

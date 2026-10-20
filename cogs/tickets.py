@@ -216,6 +216,26 @@ def category_roles(guild, key: str):
     return configured_role_ids(guild, group)
 
 
+def category_ping_roles(guild, key: str):
+    """Roles mentioned when a ticket opens or waits too long.
+
+    Explicitly chosen per category (any number, empty = no ping). Categories saved
+    before this option existed keep the former behaviour: their responsible roles.
+    """
+    definition = ticket_category_definitions().get(str(key), {})
+    if "ping_role_ids" not in definition:
+        return category_roles(guild, key)
+    roles = []
+    for raw in definition.get("ping_role_ids") or []:
+        try:
+            role = guild.get_role(int(raw))
+        except (TypeError, ValueError):
+            role = None
+        if role and not role.managed and not role.is_default() and role not in roles:
+            roles.append(role)
+    return roles
+
+
 def can_manage_ticket(member, ticket) -> bool:
     if member.guild_permissions.administrator:
         return True
@@ -891,11 +911,12 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
     if is_v2(welcome_message):
         save_ticket_card(tid, embed, [f.filename for f in welcome_files], card_meta)
 
-    mentions = " ".join(role.mention for role in roles[:10])
+    ping_roles = category_ping_roles(guild, key)[:10]
+    mentions = " ".join(role.mention for role in ping_roles)
     if mentions and panel.get("ping_roles", True):
         await channel.send(
             f"📣 {mentions}\nNeues **{label}** von {interaction.user.mention}.",
-            allowed_mentions=discord.AllowedMentions(roles=True, users=True),
+            allowed_mentions=discord.AllowedMentions(roles=ping_roles, users=[interaction.user], everyone=False),
         )
 
     record_event(
@@ -1229,11 +1250,11 @@ class Tickets(commands.Cog):
             label = category_meta(ticket.get("category"))[0]
             try:
                 if "remind_unclaimed" in actions:
-                    roles = category_roles(guild, str(ticket.get("category")))
-                    mentions = " ".join(r.mention for r in roles[:10])
+                    roles = category_ping_roles(guild, str(ticket.get("category")))[:10]
+                    mentions = " ".join(r.mention for r in roles)
                     await channel.send(
-                        f"⏰ {mentions}\nDieses **{label}** wartet seit über {settings['unclaimed_ping_minutes']} Minuten auf eine Übernahme.",
-                        allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False),
+                        f"⏰ {mentions}\nDieses **{label}** wartet seit über {settings['unclaimed_ping_minutes']} Minuten auf eine Übernahme.".replace("⏰ \n", "⏰ "),
+                        allowed_mentions=discord.AllowedMentions(roles=roles, users=False, everyone=False),
                     )
                     state["unclaimed_ping"] = now.isoformat()
                 if "remind_staff" in actions:

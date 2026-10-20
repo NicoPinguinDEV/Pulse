@@ -235,11 +235,51 @@ class CategorySaveTests(unittest.TestCase):
             self.assertEqual(self.saved()["welcome_banner_file"], "")
             self.assertFalse((Path(self.tmp.name) / "panels" / second).exists())
 
+    def test_ping_roles_saved_cleared_and_kept_for_old_forms(self):
+        roles = {1: SimpleNamespace(id=1, is_default=lambda: False, managed=False),
+                 2: SimpleNamespace(id=2, is_default=lambda: False, managed=False),
+                 9: SimpleNamespace(id=9, is_default=lambda: False, managed=True)}
+        self.guild.get_role = lambda rid: roles.get(rid)
+        self.post_files(ping_roles_field="1", ping_role_ids=["1", "2"])
+        self.assertEqual(self.saved()["ping_role_ids"], [1, 2])
+        key = self.saved()["id"]
+        bad = self.post_files(category_id=key, ping_roles_field="1", ping_role_ids=["9"])
+        self.assertIn("t=err", bad.headers["location"])
+        self.post(category_id=key)  # older form without the picker keeps the selection
+        self.assertEqual(self.saved()["ping_role_ids"], [1, 2])
+        self.post_files(category_id=key, ping_roles_field="1")  # nothing ticked = nobody pinged
+        self.assertEqual(self.saved()["ping_role_ids"], [])
+
     def test_category_banner_url_validation(self):
         bad = self.post_files(welcome_banner_url="http://unsicher.example/b.png")
         self.assertIn("t=err", bad.headers["location"])
         self.post_files(welcome_banner_url="https://cdn.example/b.png")
         self.assertEqual(self.saved()["welcome_banner_url"], "https://cdn.example/b.png")
+
+
+class PingRoleTests(unittest.TestCase):
+    def roles(self):
+        def role(rid, managed=False, default=False):
+            return SimpleNamespace(id=rid, managed=managed, is_default=lambda: default, mention=f"<@&{rid}>")
+        table = {1: role(1), 2: role(2), 3: role(3, managed=True), 4: role(4)}
+        return SimpleNamespace(get_role=lambda rid: table.get(rid))
+
+    def test_explicit_ping_roles_are_used_exactly(self):
+        guild = self.roles()
+        defs = {"support": {"id": "support", "role_ids": [1], "ping_role_ids": [2, 4, 3, "x", 2]}}
+        with patch.object(tickets, "ticket_category_definitions", return_value=defs):
+            self.assertEqual([r.id for r in tickets.category_ping_roles(guild, "support")], [2, 4])
+
+    def test_empty_selection_means_no_ping(self):
+        defs = {"support": {"id": "support", "role_ids": [1], "ping_role_ids": []}}
+        with patch.object(tickets, "ticket_category_definitions", return_value=defs):
+            self.assertEqual(tickets.category_ping_roles(self.roles(), "support"), [])
+
+    def test_unsaved_categories_keep_former_behaviour(self):
+        defs = {"support": {"id": "support", "role_ids": [1]}}
+        with patch.object(tickets, "ticket_category_definitions", return_value=defs), \
+                patch.object(tickets, "category_roles", return_value=["responsible"]):
+            self.assertEqual(tickets.category_ping_roles(self.roles(), "support"), ["responsible"])
 
 
 class BannerChoiceTests(unittest.TestCase):

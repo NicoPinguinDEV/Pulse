@@ -34,6 +34,10 @@ BUILDER_CSS = """
 .tb-form input:not([type=checkbox]):not([type=color]):not([type=file]),.tb-form select,.tb-form textarea{width:100%;border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:12px;padding:10px 12px;font-size:13px;outline:0}
 .tb-form textarea{min-height:110px;resize:vertical;font-family:inherit}
 .tb-form input:focus,.tb-form select:focus,.tb-form textarea:focus{border-color:#9296f6;box-shadow:0 0 0 4px rgba(91,92,240,.08)}
+.tb-roles{display:grid;gap:6px;margin-top:6px}.tb-role-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;max-height:220px;overflow:auto;padding:6px;border:1px solid var(--border);border-radius:12px;background:var(--surface2)}
+.tb-role{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;padding:6px 8px;border-radius:9px;cursor:pointer;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.tb-role:hover{background:rgba(91,92,240,.08)}.tb-role input{flex:0 0 auto}.tb-role .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.tb-role:has(input:checked){background:rgba(91,92,240,.14);outline:1px solid rgba(91,92,240,.35)}
 .tb-check{display:flex!important;align-items:center;gap:9px!important;font-weight:600!important;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface2);cursor:pointer}
 .tb-check input{width:16px;height:16px;accent-color:#5b5cf0}
 .tb-cats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
@@ -89,6 +93,13 @@ def _load_intro() -> str:
     from pulse_ticket_design import LOAD_INTRO
     return LOAD_INTRO
 
+
+ROLE_PICKER_JS = r"""
+<script>
+function pulseFilterRoles(input){const q=input.value.trim().toLowerCase();input.parentElement.querySelectorAll('.tb-role').forEach(l=>{l.style.display=!q||l.dataset.name.includes(q)?'':'none'})}
+document.addEventListener('change',ev=>{const box=ev.target.closest&&ev.target.closest('.tb-roles');if(box){const c=box.querySelector('.tb-role-count');if(c)c.textContent=box.querySelectorAll('input[type=checkbox]:checked').length}});
+</script>
+"""
 
 PREVIEW_JS = r"""
 <script>
@@ -388,7 +399,24 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
         def category_form(key, meta):
             is_new = not key
             selected_roles = {str(v) for v in (meta.get("role_ids") or []) if str(v).isdigit()}
-            role_opts = "".join(f'<option value="{r.id}" {"selected" if str(r.id) in selected_roles else ""}>{e(r.name)}</option>' for r in roles)
+            if "ping_role_ids" in meta:
+                selected_pings = {str(v) for v in (meta.get("ping_role_ids") or []) if str(v).isdigit()}
+            else:
+                selected_pings = set(selected_roles)  # former behaviour: responsible roles were pinged
+
+            def role_picker(field, selected, hint):
+                color = lambda r: f"#{r.color.value:06x}" if getattr(r, "color", None) and r.color.value else "#99aab5"
+                items = "".join(
+                    f'<label class="tb-role" data-name="{e(r.name.casefold())}"><input type="checkbox" name="{field}" value="{r.id}"'
+                    f'{" checked" if str(r.id) in selected else ""}><span class="dot" style="background:{color(r)}"></span>{e(r.name)}</label>'
+                    for r in roles)
+                return (f'<div class="tb-roles"><input type="search" class="tb-role-filter" placeholder="Rolle suchen …" '
+                        f'oninput="pulseFilterRoles(this)"><div class="tb-role-list">{items}</div>'
+                        f'<span class="text-[11px] text-slate-400">{hint} · <b class="tb-role-count">{len(selected)}</b> ausgewählt</span></div>')
+
+            role_opts = role_picker("role_ids", selected_roles, "Dürfen das Ticket sehen und bearbeiten")
+            ping_opts = role_picker("ping_role_ids", selected_pings,
+                                    "Werden beim Öffnen und bei der Übernahme-Erinnerung erwähnt; nichts ausgewählt = kein Ping")
             parent_opts = '<option value="">Standard-Ticketkategorie verwenden</option>' + "".join(
                 f'<option value="{c.id}" {"selected" if str(c.id) == str(meta.get("parent_category_id") or "") else ""}>📁 {e(c.name)}</option>' for c in parents)
             claimed_opts = '<option value="">Nicht verschieben</option>' + "".join(
@@ -441,7 +469,9 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
  <label>Discord-Kategorie für neue Tickets<select name="parent_category_id">{parent_opts}</select></label>
  <label>Discord-Kategorie nach Übernahme<select name="claimed_category_id">{claimed_opts}</select></label>
  <label>Bearbeitungsbereich<select name="group">{group_opts}</select></label>
- <label>Zuständige Rollen<select name="role_ids" multiple size="5">{role_opts}</select></label>
+ <div class="wide"><b class="text-xs">👥 Zuständige Rollen</b>{role_opts}</div>
+ <div class="wide"><b class="text-xs">🔔 Rollen, die gepingt werden</b><input type="hidden" name="ping_roles_field" value="1">{ping_opts}
+  <p class="text-[11px] text-slate-400 mt-1">Gepingte Rollen sehen das Ticket nur, wenn sie auch zuständig sind. Nicht erwähnbare Rollen brauchen bei Pulse das Recht „@everyone, @here und alle Rollen erwähnen“.</p></div>
  <label>Button-Farbe (Buttons-Modus)<select name="button_style">{style_opts}</select></label>
  <label class="wide">Begrüßungstitel im Ticket<input name="welcome_title" value="{e(meta.get("welcome_title") or "")}" maxlength="256" placeholder="leer = Panel-Begrüßung"></label>
  {banner_block}
@@ -493,5 +523,5 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
         '<div class="actions"><a class="btn" href="/tickets">← Ticket-Zentrale</a></div></div>'
         f'<nav class="tb-tabs">{tabs}</nav>{body}</div>{scripts}'
     )
-    html = render_pro_page(ws, "Ticket-Panel-Builder", ctx, "ticket-panels", content, LEGACY_CSS + BUILDER_CSS)
+    html = render_pro_page(ws, "Ticket-Panel-Builder", ctx, "ticket-panels", content, LEGACY_CSS + BUILDER_CSS + ROLE_PICKER_JS)
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
