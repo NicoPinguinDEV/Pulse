@@ -1,10 +1,19 @@
+import re
 import sqlite3
+import time
+
 import discord
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
 
+import pulse_db
+
 DB_NAME = "rp_verwaltung.db"
+# K-02: who may use the panel besides admins and leaders (can_promote) – role IDs set in the dashboard.
+ROLE_SETTING_KEY = "rp_panel_role_ids"
+ANNOUNCE_COOLDOWN_SECONDS = 60
+_LAST_ANNOUNCEMENT: dict[int, float] = {}
 
 # --- DATENBANK HELFER ---
 def init_db():
@@ -36,34 +45,105 @@ def get_config(key: str):
     conn.close()
     return row[0] if row else None
 
+
+# --- RECHTE & EINGABEN (K-02) ---
+def _member_perms(guild, member) -> dict:
+    try:
+        import webserver
+        perms, _ = webserver.compute_perms(guild, member.id, webserver.load_config())
+        return perms
+    except Exception:
+        return {}
+
+
+def allowed_role_ids() -> set[int]:
+    try:
+        raw = pulse_db.get_setting(ROLE_SETTING_KEY, []) or []
+    except Exception:
+        raw = []
+    return {int(v) for v in raw if str(v).isdigit()}
+
+
+def can_use_rp_panel(guild, member) -> bool:
+    if getattr(getattr(member, "guild_permissions", None), "administrator", False):
+        return True
+    perms = _member_perms(guild, member)
+    if perms.get("is_admin") or perms.get("can_promote"):
+        return True
+    extra = allowed_role_ids()
+    return bool(extra and any(getattr(role, "id", 0) in extra for role in getattr(member, "roles", [])))
+
+
+def normalize_rp_time(value: str) -> str | None:
+    """'14:30' / '9.05 Uhr' → 'HH:MM Uhr', 'offen' → 'Offen'; anything else (incl. mentions) → None."""
+    text = str(value or "").strip()
+    if text.casefold() == "offen":
+        return "Offen"
+    match = re.fullmatch(r"(\d{1,2})[:.](\d{2})(\s*uhr)?", text, re.IGNORECASE)
+    if not match:
+        return None
+    hour, minute = int(match.group(1)), int(match.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return f"{hour:02d}:{minute:02d} Uhr"
+
+
+def _audit(member, action: str, details: str) -> None:
+    try:
+        import webserver
+        webserver.log_audit(getattr(member, "display_name", "?"), str(getattr(member, "id", "")), action, details)
+    except Exception as exc:
+        print(f"⚠️ RP-Verwaltung: Audit-Eintrag fehlgeschlagen ({type(exc).__name__}).")
+
+
+async def _reply(interaction: discord.Interaction, text: str):
+    if interaction.response.is_done():
+        await interaction.followup.send(text, ephemeral=True)
+    else:
+        await interaction.response.send_message(text, ephemeral=True)
+
+
 # --- HELFER ZUM SENDEN DER ANKÜNDIGUNG ---
-async def send_rp_announcement(interaction: discord.Interaction, content: str):
-    # 1. Sofort als verarbeitet markieren, um den 3-Sekunden-Timeout zu verhindern
+async def send_rp_announcement(interaction: discord.Interaction, content: str, action: str = "RP-Ankündigung"):
+    guild = interaction.guild
+    if guild is None or not can_use_rp_panel(guild, interaction.user):
+        await _reply(interaction, "❌ Du bist nicht berechtigt, RP-Ankündigungen zu senden.")
+        return
+    now = time.monotonic()
+    last = _LAST_ANNOUNCEMENT.get(guild.id)
+    if last is not None and now - last < ANNOUNCE_COOLDOWN_SECONDS:
+        await _reply(interaction, f"⏳ Bitte warte noch {int(ANNOUNCE_COOLDOWN_SECONDS - (now - last)) + 1} s – gerade wurde schon angekündigt.")
+        return
+
+    # Sofort als verarbeitet markieren, um den 3-Sekunden-Timeout zu verhindern
     if not interaction.response.is_done():
         await interaction.response.defer(ephemeral=True)
 
     channel_id = get_config("announcement_channel_id")
-    target_channel = interaction.guild.get_channel(channel_id) if (channel_id and interaction.guild) else None
-    ch = target_channel or interaction.channel
+    ch = guild.get_channel(int(channel_id)) if channel_id else None
+    if ch is None:
+        # No fallback to the current channel: an @everyone must only go where it was configured.
+        await interaction.followup.send("❌ Kein Ankündigungskanal eingerichtet oder Kanal nicht gefunden. "
+                                        "Bitte /setup_rp erneut ausführen.", ephemeral=True)
+        return
+    _LAST_ANNOUNCEMENT[guild.id] = now
 
-    if ch:
-        # 2. Alte Nachrichten im Zielkanal löschen
+    # Only Pulse's own previous announcement is removed – never messages of other people.
+    previous_id = get_config("last_announcement_message_id")
+    if previous_id:
         try:
-            await ch.purge(limit=10)
-        except Exception:
+            old = await ch.fetch_message(int(previous_id))
+            await old.delete()
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
 
-        # 3. Neue Ankündigung senden
-        await ch.send(
-            content=content,
-            allowed_mentions=discord.AllowedMentions(everyone=True)
-        )
-
-        # 4. Bestätigung via followup senden
-        await interaction.followup.send(
-            f"✅ RP-Ankündigung wurde erfolgreich in {ch.mention} gesendet!",
-            ephemeral=True
-        )
+    message = await ch.send(
+        content=content,
+        allowed_mentions=discord.AllowedMentions(everyone=True, users=False, roles=False),
+    )
+    set_config("last_announcement_message_id", int(message.id))
+    _audit(interaction.user, action, f"Kanal {ch.id}")
+    await interaction.followup.send(f"✅ RP-Ankündigung wurde erfolgreich in {ch.mention} gesendet!", ephemeral=True)
 
 # --- POP-UP FENSTER FÜR RP STOP (Uhrzeit abfragen) ---
 class RPStopModal(discord.ui.Modal, title="RP Stop - Nächster RP Start"):
@@ -75,15 +155,22 @@ class RPStopModal(discord.ui.Modal, title="RP Stop - Nächster RP Start"):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
+        if interaction.guild is None or not can_use_rp_panel(interaction.guild, interaction.user):
+            await _reply(interaction, "❌ Du bist nicht berechtigt, RP-Ankündigungen zu senden.")
+            return
+        start = normalize_rp_time(self.uhrzeit.value)
+        if start is None:
+            await _reply(interaction, "❌ Bitte eine Uhrzeit wie **14:30** oder **Offen** eingeben.")
+            return
         msg_content = (
             "#  ⛔  RP Stop  ⛔  \n\n"
             "> **Das RP wird hiermit offiziell gestoppt!**\n"
             "> ***Informationen zu dem folgenden Tag***\n"
-            f"> **⏰ Geplanter RP-Start: {self.uhrzeit.value}** \n"
+            f"> **⏰ Geplanter RP-Start: {start}** \n"
             "> # Kommt gerne morgen wieder auf den Server!\n"
             "@everyone"
         )
-        await send_rp_announcement(interaction, msg_content)
+        await send_rp_announcement(interaction, msg_content, "RP Stop angekündigt")
 
 # --- DROPDOWN MENÜ ---
 class RPSelect(discord.ui.Select):
@@ -111,6 +198,9 @@ class RPSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        if interaction.guild is None or not can_use_rp_panel(interaction.guild, interaction.user):
+            await _reply(interaction, "❌ Du bist nicht berechtigt, RP-Ankündigungen zu senden.")
+            return
         # RP START ANKÜNDIGUNG
         if self.values[0] == "rp_start":
             msg_content = (
@@ -121,7 +211,7 @@ class RPSelect(discord.ui.Select):
                 "> # Kommt gerne auf den Server!\n"
                 "@everyone"
             )
-            await send_rp_announcement(interaction, msg_content)
+            await send_rp_announcement(interaction, msg_content, "RP Start angekündigt")
 
         # RP STOP ANKÜNDIGUNG (Öffnet Modal für Uhrzeit)
         elif self.values[0] == "rp_stop":
@@ -157,13 +247,14 @@ class RPVerwaltungCog(commands.Cog):
             description="Nutze das Menü unten, um das RP offiziell zu starten oder zu beenden.",
             color=_pulse_color("danger")
         )
-        
+
         if interaction.guild.icon:
             embed.set_thumbnail(url=interaction.guild.icon.url)
 
         await interaction.channel.send(embed=embed, view=RPView())
         await interaction.response.send_message(
-            f"✅ RP-Verwaltungs-Panel wurde erstellt!\n📢 Ankündigungen werden in {target_ch.mention} gesendet.",
+            f"✅ RP-Verwaltungs-Panel wurde erstellt!\n📢 Ankündigungen werden in {target_ch.mention} gesendet.\n"
+            "🔐 Bedienen dürfen Admins, Leitung (Beförderungsrecht) und die in der Verwaltung freigegebenen Rollen.",
             ephemeral=True
         )
 
