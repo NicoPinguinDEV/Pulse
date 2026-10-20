@@ -5611,7 +5611,9 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             "team_rank_idx": team_rank(member, team_role_ids), "pos": top.position,
             "team_since": team_since_for(member, team_db.get(str(member.id)) if isinstance(team_db, dict) else None),
             "color": role_hex(top),
-            "warns": len(active_warns(user_entry(team_db, str(member.id)))) if isinstance(team_db, dict) else 0,
+            # E-3: the warning badge is only shown to the person themself and can_warn/admins.
+            "warns": (len(active_warns(user_entry(team_db, str(member.id)))) if isinstance(team_db, dict) else 0)
+                     if can_see_warnings(ctx.perms, ctx.user.get("id"), member.id) else 0,
             "hrs": hrs, "reached": hrs >= weekly_goal, "on_loa": on_loa,
             "voice_cases_completed": int(voice_support_counts.get(str(member.id), {}).get("completed", 0)),
             "voice_cases_active": voice_active_counts.get(str(member.id), 0),
@@ -9082,6 +9084,18 @@ def user_entry(team_db: dict, key: str) -> dict:
         entry.setdefault(k, v)
     normalize_warns(entry)
     return entry
+
+
+def can_see_warnings(perms: dict, viewer_id, target_id) -> bool:
+    """E-3 / D-08: team warnings (incl. count and reason) only for the person themself, can_warn and admins."""
+    perms = perms or {}
+    return str(viewer_id) == str(target_id) or bool(perms.get("can_warn") or perms.get("is_admin"))
+
+
+def can_see_notes(perms: dict) -> bool:
+    """E-3 / D-08: internal team notes only for can_add_notes, leadership (can_promote) and admins."""
+    perms = perms or {}
+    return bool(perms.get("can_add_notes") or perms.get("can_promote") or perms.get("is_admin"))
 
 
 def commit_member_entry(uid, before: dict, ours: dict) -> dict:

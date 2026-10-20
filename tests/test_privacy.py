@@ -79,6 +79,46 @@ class TeamFileVisibilityTests(unittest.TestCase):
         self.assertIn("Interne Notiz XYZ", html)
 
 
+class WarningLeakTests(unittest.TestCase):
+    """E-3 also applies to search, team lists and the Suite file – not only /member."""
+
+    def setUp(self):
+        from cogs import pulse_suite
+        self.suite = pulse_suite
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        base = Path(self.tmp.name)
+        self.patches = [patch.object(pulse_db, "DB_PATH", str(base / "pulse.db")),
+                        patch.object(ws, "DATA_FILE", str(base / "team_data.json")),
+                        patch.object(ws, "APPS_FILE", str(base / "applications.json")),
+                        patch.object(pulse_suite, "DB_PATH", str(base / "suite.db"))]
+        for p in self.patches:
+            p.start()
+        pulse_db.init_db()
+        pulse_suite.init_db()
+        ws.save_json(ws.DATA_FILE, {"555": {"warns_list": [{"id": "w1", "reason": "Geheimer Warngrund"}]}})
+
+    def tearDown(self):
+        for p in reversed(self.patches):
+            p.stop()
+        self.tmp.cleanup()
+
+    def search(self, perms, user_id="123"):
+        ctx = SimpleNamespace(guild=guild_with_target(), perms=perms, user={"id": user_id})
+        return [r for r in self.suite.search_all("geheim", ctx) if r["type"] == "Warnung"]
+
+    def test_search_hides_other_peoples_warnings(self):
+        self.assertEqual(self.search(TEAMLER), [])
+        self.assertEqual(len(self.search(TEAMLER, user_id="555")), 1)  # own warning
+        self.assertEqual(len(self.search(dict(TEAMLER, can_warn=True))), 1)
+
+    def test_helpers(self):
+        self.assertFalse(ws.can_see_warnings(TEAMLER, "1", "2"))
+        self.assertTrue(ws.can_see_warnings(TEAMLER, "2", 2))
+        self.assertTrue(ws.can_see_warnings(dict(TEAMLER, can_warn=True), "1", "2"))
+        self.assertFalse(ws.can_see_notes(TEAMLER))
+        self.assertTrue(ws.can_see_notes(dict(TEAMLER, can_promote=True)))
+
+
 class RetentionTests(unittest.TestCase):
     def setUp(self):
         import pulse_backup

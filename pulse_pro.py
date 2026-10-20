@@ -1826,10 +1826,10 @@ def register(app):
 
     # ---------------- Professional member profile ----------------
     def can_see_member_warnings(c,target_id):
-        return str(target_id)==str(c.user.get('id')) or bool(c.perms.get('can_warn') or c.perms.get('is_admin'))
+        return ws.can_see_warnings(c.perms,c.user.get('id'),target_id)
 
     def can_see_member_notes(c):
-        return bool(c.perms.get('can_add_notes') or c.perms.get('can_promote') or c.perms.get('is_admin'))
+        return ws.can_see_notes(c.perms)
 
     async def member_v5(request: Request, user_id: int, user_session: str=Cookie(None)):
         c=cctx(request,user_session)

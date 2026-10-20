@@ -862,10 +862,11 @@ def register(app) -> None:
             s = member_stats(m)
             p = s["profile"]
             status = p.get("internal_status", "available")
+            warn_text = f'{s["warnings"]}/5' if __import__("webserver").can_see_warnings(ctx.perms, ctx.user.get("id"), m.id) else "—"  # E-3
             rows.append(
                 f'<div class="card"><div class="row"><div><b>{esc(m.display_name)}</b><div class="tiny">@{esc(m.name)}</div></div>'
                 f'<span class="pill">{esc(status)}</span></div><div class="tiny">Score</div><div class="metric">{s["score"]}/100</div>'
-                f'<div class="tiny">Woche: {s["weekly_seconds"]//3600}h {(s["weekly_seconds"]%3600)//60}m · Warnungen: {s["warnings"]}/5</div>'
+                f'<div class="tiny">Woche: {s["weekly_seconds"]//3600}h {(s["weekly_seconds"]%3600)//60}m · Warnungen: {warn_text}</div>'
                 f'<div style="margin-top:10px"><div class="progress"><div style="width:{s["activity_pct"]}%"></div></div></div>'
                 f'<div style="margin-top:10px"><a class="btn primary" href="/ultimate/team/{m.id}">Teamakte</a></div></div>'
             )
@@ -928,7 +929,7 @@ def register(app) -> None:
         body = f"""<div class="grid g4">
             {card(f"<div class=tiny>Team-Score</div><div class=metric>{s['score']}/100</div>")}
             {card(f"<div class=tiny>Wochenzeit</div><div class=metric>{s['weekly_seconds']//3600}h {(s['weekly_seconds']%3600)//60}m</div>")}
-            {card(f"<div class=tiny>Warnungen</div><div class=metric>{s['warnings']}/5</div>")}
+            {card(f"<div class=tiny>Warnungen</div><div class=metric>{s['warnings'] if __import__('webserver').can_see_warnings(ctx.perms, ctx.user.get('id'), member.id) else '—'}{'/5' if __import__('webserver').can_see_warnings(ctx.perms, ctx.user.get('id'), member.id) else ''}</div>")}
             {card(f"<div class=tiny>Fälle</div><div class=metric>{case_count}</div>")}
         </div>
         <div class="grid g2" style="margin-top:13px">
@@ -1810,7 +1811,8 @@ window.setInterval(loadPulseMonitor, 15000);
             rows.append({
                 "id": m.id, "name": m.display_name, "discord_status": str(m.status),
                 "score": s["score"], "weekly_seconds": s["weekly_seconds"],
-                "warnings": s["warnings"], "activity_pct": s["activity_pct"],
+                "warnings": s["warnings"] if __import__("webserver").can_see_warnings(ctx.perms, ctx.user.get("id"), m.id) else None,  # E-3
+                "activity_pct": s["activity_pct"],
                 "internal_status": s["profile"].get("internal_status", "available"),
             })
         rows.sort(key=lambda x: (-x["score"], x["name"].lower()))
