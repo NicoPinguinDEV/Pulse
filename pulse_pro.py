@@ -1825,6 +1825,12 @@ def register(app):
         return render_pro_page(ws,'Suche',c,'search',body)
 
     # ---------------- Professional member profile ----------------
+    def can_see_member_warnings(c,target_id):
+        return str(target_id)==str(c.user.get('id')) or bool(c.perms.get('can_warn') or c.perms.get('is_admin'))
+
+    def can_see_member_notes(c):
+        return bool(c.perms.get('can_add_notes') or c.perms.get('can_promote') or c.perms.get('is_admin'))
+
     async def member_v5(request: Request, user_id: int, user_session: str=Cookie(None)):
         c=cctx(request,user_session)
         target=c.guild.get_member(user_id)
@@ -1961,11 +1967,21 @@ def register(app):
         '''
         status='Im Dienst' if active and active.get('status')=='online' else 'Pause' if active else 'Offline'
         status_kind='good' if active and active.get('status')=='online' else 'warn' if active else ''
+        # D-08 / E-3: warnings only for the person themself and can_warn; notes only for can_add_notes and leadership.
+        can_see_warns=can_see_member_warnings(c,target.id)
+        can_see_notes=can_see_member_notes(c)
+        hidden='<div class="pulse-empty">🔒 Nur für die Person selbst und Berechtigte sichtbar.</div>'
+        if not can_see_warns:
+            active_html=revoked_html=''; active_warns=revoked_warns=[]
+        if not can_see_notes:
+            note_html=''
+        warn_count=f'{len(active_warns)}/5' if can_see_warns else '—'
+        revoked_count=str(len(revoked_warns)) if can_see_warns else '—'
         body=f'''<div class="pulse-topbar"><div><a href="/team" class="pulse-btn ghost">← Team</a><a href="/warns" class="pulse-btn ghost ml-2">⚠ Warnzentrale</a></div><div class="flex items-center gap-2">{pill(status,status_kind)}</div></div>
         <section class="pulse-hero"><div class="flex flex-col md:flex-row md:items-center gap-5"><img src="{avatar}" class="w-16 h-16 rounded-2xl border border-white/20" alt=""><div class="flex-1"><div class="pulse-kicker">Teamakte</div><div class="pulse-title">{e(target.display_name)}</div><div class="pulse-sub">{e(role)} · Discord ID {e(target.id)} · 🗓️ Team seit {e(ws.team_since_for(target, entry))}</div></div><div class="pulse-hero-box min-w-[220px]"><div class="label">WOCHENAKTIVITÄT</div><div class="value">{ws.fmt_duration(weekly)}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{min(100,round(weekly/(max(0.5,float(c.config.get('weekly_goal_hours',3)))*3600)*100))}%;background:white"></span></div></div></div></section>
-        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{len(active_warns)}/5</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Zurückgezogen</div><div class="value">{len(revoked_warns)}</div></div><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Schichten</div><div class="value">{len(hist)}</div></div><div class="pulse-stat"><div class="icon">🎫</div><div class="label">Tickets</div><div class="value">{len(tickets)}</div></div></div>
+        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{warn_count}</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Zurückgezogen</div><div class="value">{revoked_count}</div></div><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Schichten</div><div class="value">{len(hist)}</div></div><div class="pulse-stat"><div class="icon">🎫</div><div class="label">Tickets</div><div class="value">{len(tickets)}</div></div></div>
         {actions_html}
-        <div class="pulse-grid"><div class="space-y-4">{card("Aktive Verwarnungen",active_html or '<div class="pulse-empty">Keine aktiven Verwarnungen.</div>','⚠')}{card("Warn-Historie",revoked_html or '<div class="pulse-empty">Keine zurückgezogenen Warnungen.</div>','↩')}{card("Notizen",note_html or '<div class="pulse-empty">Keine Notizen.</div>','📝')}{card("Aktivität",event_html or '<div class="pulse-empty">Noch keine zentralen Events.</div>','↯')}</div><div class="space-y-4">{card("Warnrollen-Status",role_pills,'⚙')}{card("Tickets",ticket_html or '<div class="pulse-empty">Keine Tickets.</div>','🎫')}{quick}</div></div>'''
+        <div class="pulse-grid"><div class="space-y-4">{card("Aktive Verwarnungen",(active_html or '<div class="pulse-empty">Keine aktiven Verwarnungen.</div>') if can_see_warns else hidden,'⚠')}{card("Warn-Historie",(revoked_html or '<div class="pulse-empty">Keine zurückgezogenen Warnungen.</div>') if can_see_warns else hidden,'↩')}{card("Notizen",(note_html or '<div class="pulse-empty">Keine Notizen.</div>') if can_see_notes else hidden,'📝')}{card("Aktivität",event_html or '<div class="pulse-empty">Noch keine zentralen Events.</div>','↯')}</div><div class="space-y-4">{card("Warnrollen-Status",role_pills,'⚙')}{card("Tickets",ticket_html or '<div class="pulse-empty">Keine Tickets.</div>','🎫')}{quick}</div></div>'''
         return render_pro_page(ws,f'Teamakte · {target.display_name}',c,'team',body)
 
 
