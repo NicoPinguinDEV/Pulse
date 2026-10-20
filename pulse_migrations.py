@@ -17,6 +17,7 @@ from typing import Callable
 
 Migration = tuple[str, Callable[[sqlite3.Connection], None]]
 MIGRATIONS: list[Migration] = []
+KEEP_BACKUPS = 5  # newest pre-migration copies that are kept
 
 
 def _applied(con: sqlite3.Connection) -> set[str]:
@@ -28,13 +29,20 @@ def _backup(db_path: str, backup_dir: str, name: str) -> str:
     os.makedirs(backup_dir, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)[:60]
-    target = os.path.join(backup_dir, f"pre_migration_{safe}_{stamp}.db")
+    target = os.path.join(backup_dir, f"pre_migration_{safe}_{stamp}_{os.getpid()}_{datetime.now().microsecond}.db")
     src, dst = sqlite3.connect(db_path), sqlite3.connect(target)
     try:
         src.backup(dst)
     finally:
         dst.close()
         src.close()
+    old = sorted((f for f in os.listdir(backup_dir) if f.startswith("pre_migration_") and f.endswith(".db")),
+                 key=lambda f: os.path.getmtime(os.path.join(backup_dir, f)), reverse=True)
+    for name in old[KEEP_BACKUPS:]:
+        try:
+            os.remove(os.path.join(backup_dir, name))
+        except OSError:
+            pass
     return target
 
 
@@ -44,21 +52,25 @@ def run(db_path: str, backup_dir: str, migrations: list[Migration] | None = None
     report = {"applied": [], "backup": "", "failed": ""}
     if not migrations:
         return report
-    con = sqlite3.connect(db_path, timeout=30)
+    # Explicit transactions: in its default mode sqlite3 does not wrap CREATE/ALTER in a transaction,
+    # so a failed migration would leave half a schema behind. SQLite itself can roll DDL back.
+    con = sqlite3.connect(db_path, timeout=30, isolation_level=None)
     try:
         done = _applied(con)
-        con.commit()
         pending = [(name, fn) for name, fn in migrations if name not in done]
         if not pending:
             return report
         report["backup"] = _backup(db_path, backup_dir, pending[0][0])
         for name, fn in pending:
             try:
-                with con:  # one transaction per migration
-                    fn(con)
-                    con.execute("INSERT INTO schema_migrations(name, applied_at) VALUES (?, ?)",
-                                (name, datetime.now(timezone.utc).isoformat(timespec="seconds")))
+                con.execute("BEGIN")
+                fn(con)
+                con.execute("INSERT INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+                            (name, datetime.now(timezone.utc).isoformat(timespec="seconds")))
+                con.execute("COMMIT")
             except Exception as exc:
+                if con.in_transaction:
+                    con.execute("ROLLBACK")
                 report["failed"] = f"{name}: {type(exc).__name__}: {exc}"
                 print(f"🔴 Migration {name} fehlgeschlagen – Sicherung: {report['backup']} ({type(exc).__name__}: {exc})")
                 break

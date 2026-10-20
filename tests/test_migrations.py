@@ -53,6 +53,29 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(report["applied"], [])
         self.assertEqual(self.rows(), ["alt"])
 
+    def test_failed_schema_change_is_rolled_back_and_retried(self):
+        def ddl_then_fail(con):
+            con.execute("CREATE TABLE neu(x TEXT)")
+            con.execute("ALTER TABLE t ADD COLUMN extra TEXT")
+            raise ValueError("abbruch")
+        with patch("builtins.print"):
+            report = pulse_migrations.run(self.db, self.backups, [("001_ddl", ddl_then_fail)])
+        self.assertIn("001_ddl", report["failed"])
+        con = sqlite3.connect(self.db)
+        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        columns = [r[1] for r in con.execute("PRAGMA table_info(t)")]
+        con.close()
+        self.assertNotIn("neu", tables)          # schema change undone …
+        self.assertNotIn("extra", columns)
+        fixed = [("001_ddl", lambda c: c.execute("CREATE TABLE neu(x TEXT)"))]
+        self.assertEqual(pulse_migrations.run(self.db, self.backups, fixed)["applied"], ["001_ddl"])  # … so a retry works
+
+    def test_only_the_newest_pre_migration_backups_are_kept(self):
+        for i in range(pulse_migrations.KEEP_BACKUPS + 3):
+            pulse_migrations.run(self.db, self.backups, [(f"{i:03d}", lambda c: None)])
+        kept = [n for n in os.listdir(self.backups) if n.startswith("pre_migration_")]
+        self.assertEqual(len(kept), pulse_migrations.KEEP_BACKUPS)
+
     def test_no_migrations_no_backup(self):
         self.assertEqual(pulse_migrations.run(self.db, self.backups, []), {"applied": [], "backup": "", "failed": ""})
         self.assertFalse(os.path.exists(self.backups))

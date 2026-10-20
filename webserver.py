@@ -317,7 +317,9 @@ _RUNTIME_READY = False
 
 def init_runtime() -> None:
     """A-04: create runtime files explicitly at start (main.py / app lifespan) instead of on import.
-    Idempotent. Importing webserver (tests, tools) no longer creates databases, folders or secrets."""
+    Idempotent. webserver itself no longer creates abmeldungen.db, backups/ or .session_secret on import;
+    the modules registered at its end (pulse_pro, pulse_features, pulse_next, …) still create pulse.db
+    tables while registering – to be moved here step by step (A-02/A-04)."""
     global _RUNTIME_READY
     if _RUNTIME_READY:
         return

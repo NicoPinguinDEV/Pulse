@@ -67,6 +67,11 @@ class PermissionModelTests(unittest.TestCase):
         self.assertIn("Dashboard-Profil Support-Profil", info["permissions"]["can_manage_tickets"])
         self.assertEqual(info["permissions"]["can_warn"], [])
 
+    def test_permission_keys_are_maintained_in_one_place(self):
+        import pulse_pro
+        self.assertEqual(tuple(ws.PERM_KEYS), perms.BASE_KEYS)
+        self.assertEqual(tuple(pulse_pro.EXTRA_PERMS), perms.EXTRA_KEYS)
+
     def test_webserver_uses_the_model_without_runtime_patch(self):
         m = member(OTHER)
         self.assertEqual(ws.compute_perms(guild_with(m), m.id, CONFIG)[0], self.compute(m))
@@ -76,6 +81,9 @@ class PermissionModelTests(unittest.TestCase):
 
 PUBLIC_GET = {"/", "/favicon.ico", "/callback", "/apply", "/health", "/healthz", "/manifest.webmanifest", "/sw.js",
               "/robots.txt", "/ultimate/status", "/apply/callback", "/apply/login", "/login"}
+# Write routes that are public on purpose: the application portal (own session check inside) and the
+# central /action handler (unknown actions are refused with 400 before login; real ones: see test).
+PUBLIC_WRITE = {"/apply/keepalive", "/action"}
 ADMIN_ONLY = ("/admin", "/admin/discord", "/admin/privacy", "/backups", "/settings", "/system")
 
 
@@ -102,6 +110,35 @@ class RouteMatrixTests(unittest.TestCase):
             if status not in (302, 303, 307, 401, 403, 422, 503):
                 leaks.append((path, status))
         self.assertEqual(leaks, [], "Seiten ohne Login erreichbar")
+
+    def test_no_login_never_changes_anything(self):
+        """Every write route, called with complete dummy form data but without a session, must refuse."""
+        import re
+        accepted = []
+        for route in ws.app.routes:
+            methods = (getattr(route, "methods", set()) or set()) & {"POST", "PUT", "PATCH", "DELETE"}
+            if not methods or route.path in PUBLIC_WRITE:
+                continue
+            dependant = getattr(route, "dependant", None)
+            data, files = {}, {}
+            for param in (dependant.body_params if dependant else []):
+                if "UploadFile" in str(getattr(param.field_info, "annotation", "")):
+                    files[param.alias] = ("x.txt", b"x", "text/plain")
+                else:
+                    data[param.alias] = "1"
+            query = {p.alias: "1" for p in (dependant.query_params if dependant else [])}
+            path = re.sub(r"\{[^}]+\}", "1", route.path)
+            for method in methods:
+                status = self.client.request(method, path, data=data or None, files=files or None,
+                                             params=query or None, follow_redirects=False).status_code
+                if status not in (302, 303, 307, 401, 403):
+                    accepted.append((method, route.path, status))
+        self.assertEqual(accepted, [], "schreibende Route ohne Login nicht abgewiesen")
+
+    def test_action_with_real_action_requires_login(self):
+        for action in ("warn_with_proof", "remove_warn", "promote", "save_team_roles", "add_note"):
+            status = self.client.post("/action", data={"action": action, "user_id": "1"}, follow_redirects=False).status_code
+            self.assertIn(status, (303, 401, 403), action)
 
     def test_admin_pages_refuse_plain_team_members(self):
         from tests.test_pulse_admin_area import TEAMLER, fake_auth_for
