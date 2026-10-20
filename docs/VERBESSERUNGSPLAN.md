@@ -173,40 +173,40 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 ## 5. Phase 2 – Datenintegrität, Backups, Datenschutz
 
-- [ ] **D-01 Ein vollständiges Backup** [Nachgewiesen]
+- [x] **D-01 Ein vollständiges Backup** [Nachgewiesen] — **erledigt:** 924cf5f + 1397a03 – `tests/test_full_backup.py`: Roundtrip (Backup → Änderung → Restore) stellt Datenbanken, JSON, Uploads und Transkripte identisch wieder her; ein Test meldet neue `*.db`/`*.json` ohne Backup-Eintrag.
   - *Befund:* Zwei Backup-Systeme mit unterschiedlichen Lücken – zusammen sichern sie trotzdem nicht alles.
     - JSON-Backup `/backups` (`build_backup`, `webserver.py:7214`): enthält 6 JSON-Dateien, `pulse_db.export_state()` und `activity_check.db`. Es fehlen `audit_logs.json`, `pulse_announcement_archive.json`, `role_nickname_state.json`, `social_promo_sources.json`, `ai_moderation_cases.json`, die Datenbanken `pulse_suite.db` (Dienstplan, Bewerbungsgespräche, Meldefälle aus `/melden`, Suite-Einstellungen), `teamliste.db`, `buero_system.db`, `rp_verwaltung.db`, `flaggenquiz.db` sowie alle Uploads und Beweise. `export_state` (`pulse_db.py:1310`, `TABLES`) exportiert nur 22 Tabellen – `voice_support_case_history` und die rund 35 `next_*`/`ultimate_*`-Tabellen in **derselben** `pulse.db` (Fälle, Abteilungen, Umfragen, Workflows, Rechte-Overrides, API-Schlüssel …) fehlen. Transkripte über 2 MB bzw. über 10 MB gesamt werden still übersprungen.
     - ZIP-Backup `/ultimate/backup` (`pulse_next.py:541`): ganze `pulse.db` + 7 JSON-Dateien + Anhänge – aber ohne `abmeldungen.db`, `activity_check.db`, die fünf weiteren Datenbanken, Uploads und Transkripte.
   - *Umsetzung:* **ein** Format (ZIP mit `manifest.json`: Format-Version, Pulse-Version, Dateiliste, SHA-256, Größen), das alles aus der Datenlandkarte enthält; SQLite-Schnappschüsse über `sqlite3.Connection.backup()` (konsistent auch im WAL-Modus); Discord-Struktur wie bisher; Größenbudget mit sichtbarer Warnung statt stillem Auslassen; beide bisherigen Formate bleiben importierbar; Restore mit Probelauf/Diff-Vorschau (Roadmap P1) und automatischer Sicherheitskopie davor.
   - *Fertig wenn:* Roundtrip-Test (Backup → Restore in Temp-Verzeichnis → alle Dateien und Tabellen identisch) und ein Test, der neue Tabellen/Dateien ohne Backup-Eintrag als Fehler meldet.
 
-- [ ] **D-02 Sicheres Wiederherstellen** [Nachgewiesen]
+- [x] **D-02 Sicheres Wiederherstellen** [Nachgewiesen] — **erledigt:** 924cf5f – Probelauf mit Diff, Restore nur nach Eingabe `WIEDERHERSTELLEN`, Sicherheitskopie davor, Prüfsummen + `integrity_check`, Backup-API statt `os.replace` (auch `/ultimate/backup`), manipuliertes Backup wird vor jeder Änderung abgelehnt.
   - *Befund:* `restore_backup` (`pulse_next.py:584`) ersetzt die laufende `pulse.db` per `os.replace` (`:594`), während Bot, Dashboard und Schleifen Verbindungen öffnen und WAL-Dateien existieren – Korruptions- und Mischstand-Risiko; die JSON-Dateien werden danach einzeln ersetzt.
   - *Umsetzung:* Wartungsmodus (F-04) an → Schreibzugriffe und Jobs pausieren → Restore per Backup-API in die bestehende Datei → `PRAGMA integrity_check` → Wartungsmodus aus; alles im Audit-Log.
 
-- [ ] **D-03 Backups blockieren den Bot nicht** [Nachgewiesen]
+- [x] **D-03 Backups blockieren den Bot nicht** [Nachgewiesen] — **erledigt:** 924cf5f – Discord-Struktur im Event-Loop, Datei-/ZIP-Arbeit im Thread; Verhaltenstest prüft die Threads.
   - *Befund:* `create_backup()` (ZIP mit bis zu 250 MB Anhängen) läuft synchron in einer async-Route (`pulse_next.py:1060`) und blockiert Event-Loop und Discord-Heartbeat. `build_backup` läuft per `asyncio.to_thread` (`webserver.py:7480`), iteriert dort aber `guild.members`/`roles`/`channels` – die discord.py-Caches sind nicht threadsicher.
   - *Umsetzung:* Discord-Schnappschuss im Event-Loop (nur Daten kopieren), Datei- und ZIP-Arbeit im Thread; Fortschritt und Ergebnis im Dashboard.
 
-- [ ] **D-04 Externe Kopie & automatischer Restore-Test** [Idee]
+- [x] **D-04 Externe Kopie & automatischer Restore-Test** [Idee] — **erledigt:** 924cf5f – Komplett-Backup im bestehenden Auto-Lauf, Aufbewahrung 7/4/6, wöchentlicher Restore-Test, Ergebnis im Systemstatus; externe Kopie bleibt der vorhandene Discord-Upload des JSON-Backups (Komplett-ZIP meist zu groß für Discord).
   - Aufbewahrung nach Schema (z. B. 7 täglich / 4 wöchentlich / 6 monatlich); Kopie außerhalb des Servers (der vorhandene private Discord-Kanal-Upload, optional S3-kompatibel – nur konfigurierbar, kein Pflichtdienst); wöchentlicher automatischer Restore-Test in ein Temp-Verzeichnis, Ergebnis im Systemstatus.
 
-- [ ] **D-05 Ein einziger Datenbankpfad** [Nachgewiesen]
+- [x] **D-05 Ein einziger Datenbankpfad** [Nachgewiesen] — **erledigt:** a25ed3a – `tests/test_db_path.py`: eigener Pfad und `PULSE_DB_PATH` gelten für alle Module.
   - `PULSE_DB_PATH` gilt nur in `pulse_db.py`; `pulse_ultimate.py:44` (`ULTIMATE_DB = BASE / "pulse.db"`) und damit `pulse_next.py` nutzen fest `pulse.db` → bei abweichendem Pfad entstehen zwei verschiedene Datenbanken. Eine Quelle für alle Module + Test.
 
-- [ ] **D-06 Daten vom Code trennen** [Idee]
+- [ ] **D-06 Daten vom Code trennen** [Idee] — **verschoben nach Phase 8 (O-03):** Bot-Hosting startet aus dem Repo-Verzeichnis ohne Docker-Volume; `PULSE_DATA_DIR` betrifft die Pfade von rund 20 Modulen und lohnt sich erst zusammen mit dem Deploy-Umbau.
   - `PULSE_DATA_DIR` (Default = heutiges Verzeichnis, damit nichts bricht), alle Pfade darüber auflösen; optionale, idempotente Migration mit Backup vorher; im Docker-Setup Daten auf eigenem Volume statt `./:/app`. Voraussetzung für sichere Deploys (O-03).
 
-- [ ] **D-07 Wachsende Dateien begrenzen** [Nachgewiesen]
+- [ ] **D-07 Wachsende Dateien begrenzen** [Nachgewiesen] — **verschoben (Teil erledigt):** 8fb2ce1 – Größenwarnung im Systemstatus ab 5 MB; das Auslagern selbst folgt mit A-05, weil 31 Stellen die Schicht-Historie für Gesamtwerte lesen und ein Archiv Zahlen verändern würde.
   - `shifts.json` (die `history` wird nie gekürzt), `logs.json` und `applications.json` wachsen unbegrenzt und werden bei fast jeder Seite komplett geparst (P-03, P-05). Schrittweise nach SQLite (A-05) oder archivieren (z. B. Jahresdateien) – mit Migration, Lese-Fallback und Backup davor.
 
-- [ ] **D-08 Datenschutz (DSGVO)** [Idee, nach E-3 und E-9]
+- [x] **D-08 Datenschutz (DSGVO)** [Idee, nach E-3 und E-9] — **erledigt:** ff42797, 46af453, e841115, 04f63b9 – `tests/test_privacy.py` (14): Teamakte nach E-3, Fristen standardmäßig aus und nur mit frischem Backup, offene Bewerbungen bleiben, Bereinigung protokolliert, Auskunft je Discord-ID, Hinweis auf `/apply`.
   - Datenschutzhinweis auf `/apply` (welche Daten, Zweck, wer sieht sie, wie lange); konfigurierbare Aufbewahrungsfristen mit automatischer, protokollierter Bereinigung; Export „Alles über Discord-ID X“ (Auskunft) und geprüfte Löschung; Hinweis auf externe KI-Verarbeitung, sobald KI-Moderation oder KI-Support aktiv sind; Sichtbarkeit der Teamakte nach E-3.
 
-- [ ] **D-09 Zeitstempel vereinheitlichen** [Nachgewiesen]
+- [ ] **D-09 Zeitstempel vereinheitlichen** [Nachgewiesen] — **teilweise:** 5597f26 – `tests/test_pulse_time.py`: toleranter Parser für alle Altformate, Anzeige in Berlin-Zeit, drei Leser umgestellt; neue Daten werden noch in den bisherigen Formaten geschrieben (Umstellung der Schreibstellen mit A-05, damit keine Anzeige bricht).
   - Heute gemischt: `%d.%m.%Y %H:%M` (Warnungen, Bewerbungen), `%d.%m.%Y %H:%M:%S` (Audit), `%Y-%m-%d` (Schichten), ISO mit Berlin-Offset, ISO in UTC (`pulse_db._now`), naive `datetime.now()`. Neue Daten: ISO 8601 mit Zeitzone; ein toleranter Parser für alle Altformate; Anzeige in Europe/Berlin. Keine Massenumschreibung alter Daten ohne Backup und Test.
 
-- [ ] **D-10 Konsistenz-Diagnose** [Idee, Roadmap P2] – nur berichtend: aktive Schichten ohne Mitglied, offene Tickets ohne Kanal, Warnrollen ≠ aktive Warnungen, Abmeldungen mit Ende vor Beginn, verwaiste Voice-Fälle, Panels ohne Nachricht. Ergebnis im Systemstatus, keine automatische Korrektur.
+- [x] **D-10 Konsistenz-Diagnose** [Idee, Roadmap P2] – nur berichtend: aktive Schichten ohne Mitglied, offene Tickets ohne Kanal, Warnrollen ≠ aktive Warnungen, Abmeldungen mit Ende vor Beginn, verwaiste Voice-Fälle, Panels ohne Nachricht. Ergebnis im Systemstatus, keine automatische Korrektur. — **erledigt:** 8fb2ce1 – `tests/test_consistency.py`: verwaiste Schichten/Tickets/Voice-Fälle, falsche Warnrollen, Abmeldungen mit Ende vor Beginn werden gemeldet, nichts wird geändert.
 
 ---
 
