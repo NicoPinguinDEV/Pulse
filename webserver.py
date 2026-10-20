@@ -155,10 +155,19 @@ DASHBOARD_PERMISSION_LABELS = (
 
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
-try:
-    TZ = ZoneInfo(os.getenv("PANEL_TIMEZONE", "Europe/Berlin")) if ZoneInfo else None
-except Exception:
-    TZ = None
+def _load_panel_timezone():
+    """K-13: Europe/Berlin (or PANEL_TIMEZONE). Without IANA data (tzdata) we fall back to the
+    container time zone – loudly, because shift and absence times would otherwise be off."""
+    name = os.getenv("PANEL_TIMEZONE", "Europe/Berlin")
+    try:
+        return ZoneInfo(name) if ZoneInfo else None
+    except Exception as exc:
+        print(f"⚠️ Zeitzone {name!r} nicht verfügbar ({type(exc).__name__}) – Uhrzeiten nutzen die "
+              "Container-Zeitzone. Paket 'tzdata' installieren (steht in requirements.txt).")
+        return None
+
+
+TZ = _load_panel_timezone()
 
 # K-17: no public API documentation (/docs, /redoc, /openapi.json listed every endpoint without login).
 app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION, docs_url=None, redoc_url=None, openapi_url=None)
