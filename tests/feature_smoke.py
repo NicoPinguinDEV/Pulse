@@ -310,7 +310,8 @@ def main() -> None:
     assert '"save_dashboard_role": "admin"' in web
     assert '"delete_dashboard_role": "admin"' in web
     assert '"discord_role_ids": valid_role_ids' in web
-    assert "mapped_ids & member_role_ids & configured_team_role_ids" in web
+    # A-03: the rule now lives in pulse_permissions (behaviour test: tests/test_permissions.py).
+    assert "& member_role_ids & team_ids" in read("pulse_permissions.py")
     assert "Zugeordnete Discord-Teamrollen" in web
     assert "Dashboard-Profile dürfen nur vorhandene, konfigurierte Discord-Teamrollen verwenden." in web
     assert 'if action == "assign_dashboard_role":' not in web
@@ -476,8 +477,9 @@ def main() -> None:
     assert "Digitale Zwischenrollen" in pro_melonly
     assert 'dashboard_role_cfg = c.config.get("dashboard_roles", {})' in pro_melonly
     assert 'name="dashboard_discord_roles"' in pro_melonly
-    assert "dashboard_profile.get(\"discord_role_ids\", [])" in pro_melonly
-    assert "mapped_ids & team_ids & member_role_ids" in pro_melonly
+    # A-03: profile permissions are computed in pulse_permissions (only via the member's team roles);
+    # behaviour test: tests/test_permissions.py::test_profiles_only_through_team_roles_and_inheritance
+    assert 'profile.get("discord_role_ids", [])' in read("pulse_permissions.py")
     assert "app.post('/settings/dashboard-profile/save')(settings_dashboard_profile_save)" in pro_melonly
     assert "app.post('/settings/dashboard-profile/delete')(settings_dashboard_profile_delete)" in pro_melonly
     assert "from pulse_version import PULSE_VERSION" in pro_melonly

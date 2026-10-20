@@ -127,50 +127,11 @@ def status_meta(status: str):
 def make_shell_helpers(ws):
     old_head = ws.get_head_html
     old_sidebar = ws.get_sidebar_html
-    old_compute = ws.compute_perms
     old_log = ws.log_audit
 
     def patched_head(title: str):
         return old_head(title) + '<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#5b5cf0"><meta name="mobile-web-app-capable" content="yes">' + PRO_CSS + PRO_JS
 
-    def patched_compute(guild, user_id, config):
-        perms, member = old_compute(guild, user_id, config)
-        for key in EXTRA_PERMS:
-            perms.setdefault(key, False)
-        if perms.get("is_admin"):
-            for key in EXTRA_PERMS:
-                perms[key] = True
-        else:
-            cfg = config.get("permissions", {})
-            member_roles = getattr(member, "roles", []) if member else []
-            for role in member_roles:
-                rp = cfg.get(str(role.id), {})
-                for key in EXTRA_PERMS:
-                    if rp.get(key):
-                        perms[key] = True
-
-            # Digitale Pulse-Zwischenrollen verknüpfen interne Rechteprofile mit
-            # konfigurierten Discord-Teamrollen; alle Mitglieder erben die Rechte automatisch.
-            team_ids = {int(value) for value in config.get("team_role_ids", []) if str(value).isdigit()}
-            member_role_ids = {int(role.id) for role in member_roles}
-            for dashboard_profile in config.get("dashboard_roles", {}).values():
-                if not isinstance(dashboard_profile, dict):
-                    continue
-                mapped_ids = {
-                    int(value) for value in dashboard_profile.get("discord_role_ids", [])
-                    if str(value).isdigit()
-                }
-                if not (mapped_ids & team_ids & member_role_ids):
-                    continue
-                profile_permissions = dashboard_profile.get("permissions", {})
-                for key in EXTRA_PERMS:
-                    if profile_permissions.get(key):
-                        perms[key] = True
-
-            if perms.get("can_promote"):
-                perms["can_manage_announcements"] = True
-                perms["can_manage_promotions"] = True
-        return perms, member
 
     def patched_log(actor_name, actor_id, action, details):
         old_log(actor_name, actor_id, action, details)
@@ -277,7 +238,7 @@ def make_shell_helpers(ws):
 
     ws.get_head_html = patched_head
     ws.get_sidebar_html = patched_sidebar
-    ws.compute_perms = patched_compute
+    # A-03: ws.compute_perms is no longer replaced at runtime – pulse_permissions covers the extra permissions.
     ws.log_audit = patched_log
 
 

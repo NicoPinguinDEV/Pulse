@@ -977,55 +977,10 @@ def get_current_user(user_session: str = Cookie(None)) -> dict:
 
 
 def compute_perms(guild, user_id, config):
-    perms = {k: False for k in PERM_KEYS}
-    perms["is_admin"] = False
-    try:
-        member = guild.get_member(int(user_id))
-    except Exception:
-        member = None
-    if not member:
-        return perms, None
-    if member.id == guild.owner_id or member.guild_permissions.administrator:
-        return {**{k: True for k in PERM_KEYS}, "is_admin": True}, member
-    team_ids = config.get("team_role_ids", [])
-    cfg = config.get("permissions", {})
-    for role in member.roles:
-        if role.id not in team_ids:
-            continue
-        rp = cfg.get(str(role.id))
-        if rp is None:  # Rolle noch nie konfiguriert -> Standard: Dashboard + Analytics
-            rp = {"can_view_dashboard": True, "can_view_analytics": True}
-        for k in PERM_KEYS:
-            if rp.get(k):
-                perms[k] = True
-
-    # Interne Dashboard-Profile werden Discord-Teamrollen zugeordnet.
-    # Alle Mitglieder mit mindestens einer zugeordneten Rolle erhalten deren Rechte.
-    # Diese Profile verändern weder Discord-Rollen noch is_admin/Serverrechte.
-    dashboard_roles = config.get("dashboard_roles", {})
-    member_role_ids = {int(role.id) for role in member.roles}
-    configured_team_role_ids = {
-        int(value) for value in team_ids if str(value).isdigit()
-    }
-    for profile in dashboard_roles.values():
-        if not isinstance(profile, dict):
-            continue
-        mapped_ids = {
-            int(value) for value in profile.get("discord_role_ids", [])
-            if str(value).isdigit()
-        }
-        if not (mapped_ids & member_role_ids & configured_team_role_ids):
-            continue
-        role_permissions = profile.get("permissions", {})
-        for k in PERM_KEYS:
-            if role_permissions.get(k):
-                perms[k] = True
-
-    # Bestehende Manager-Konfigurationen bleiben kompatibel mit den neuen Modulen.
-    if perms.get("can_promote"):
-        perms["can_manage_applications"] = True
-        perms["can_manage_tickets"] = True
-    return perms, member
+    """A-03: one permission model (pulse_permissions) – team roles only, inheritance in one place,
+    extra Pulse permissions included. Contract unchanged: (perms dict incl. is_admin, member)."""
+    import pulse_permissions
+    return pulse_permissions.compute(guild, user_id, config)
 
 
 def auth(request: Request, user_session, perm="can_view_dashboard", admin=False):
