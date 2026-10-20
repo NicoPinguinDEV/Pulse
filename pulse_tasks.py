@@ -22,6 +22,8 @@ def _done(task: asyncio.Task) -> None:
     if exc is not None:
         error_id = secrets.token_hex(3).upper()
         print(f"❌ Hintergrundaufgabe {task.get_name()} fehlgeschlagen [Fehler-ID {error_id}]: {type(exc).__name__}: {exc}")
+        import pulse_logging
+        pulse_logging.report_error(f"task.{task.get_name()}", f"{type(exc).__name__}: {exc}", error_id)
         traceback.print_exception(type(exc), exc, exc.__traceback__)
 
 

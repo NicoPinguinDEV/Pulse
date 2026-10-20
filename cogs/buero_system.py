@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 import re
 import unicodedata
 import discord
@@ -99,7 +100,7 @@ async def resolve_ping_channel(guild: discord.Guild, channel_id: int | None = No
 def save_pending_request(user_id: int, guild_id: int, ping_channel_id: int,
                          message_id: int, target_voice_id: int):
     init_db()
-    with sqlite3.connect(DB_NAME) as conn:
+    with closing(sqlite3.connect(DB_NAME)) as conn, conn:
         conn.execute(
             """INSERT OR REPLACE INTO pending_requests
                (user_id, guild_id, ping_channel_id, message_id, target_voice_id)
@@ -110,7 +111,7 @@ def save_pending_request(user_id: int, guild_id: int, ping_channel_id: int,
 
 def get_pending_request(user_id: int):
     init_db()
-    with sqlite3.connect(DB_NAME) as conn:
+    with closing(sqlite3.connect(DB_NAME)) as conn, conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM pending_requests WHERE user_id = ?", (user_id,)
@@ -120,7 +121,7 @@ def get_pending_request(user_id: int):
 
 def get_pending_request_by_message(message_id: int):
     init_db()
-    with sqlite3.connect(DB_NAME) as conn:
+    with closing(sqlite3.connect(DB_NAME)) as conn, conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM pending_requests WHERE message_id = ?", (int(message_id),)
@@ -130,7 +131,7 @@ def get_pending_request_by_message(message_id: int):
 
 def clear_pending_request(user_id: int, message_id: int | None = None):
     init_db()
-    with sqlite3.connect(DB_NAME) as conn:
+    with closing(sqlite3.connect(DB_NAME)) as conn, conn:
         if message_id is None:
             conn.execute("DELETE FROM pending_requests WHERE user_id = ?", (user_id,))
         else:

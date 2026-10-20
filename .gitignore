@@ -55,5 +55,6 @@ attachments/
 uploads/
 *.restore.tmp*
 *.corrupt-*
+logs/
 *.db-shm
 *.json.tmp

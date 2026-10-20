@@ -16,6 +16,7 @@ from pulse_embed_design import color as _pulse_color, is_modern
 from pulse_discord_style import card_info, edit_styled, is_v2, layout_from_embed, respond_edit_styled, same_content, send_styled
 from discord.ext import commands, tasks
 import pulse_db as db
+from pulse_jobs import tracked
 from pulse_voice_support_utils import DEFAULT_HOURS, DAYS, DAY_NAMES, shift_is_online, support_open_now
 
 CONFIG_KEY = "voice_support_config"
@@ -1589,6 +1590,7 @@ class VoiceSupport(commands.Cog):
                     pass
 
     @tasks.loop(minutes=1)
+    @tracked("Voice-Support Bereitschaft (1 min)", 60)  # P-06
     async def duty_status_loop(self):
         cfg = get_config()
         guild = self._guild()
@@ -1607,6 +1609,7 @@ class VoiceSupport(commands.Cog):
         await self.bot.wait_until_ready()
 
     @tasks.loop(seconds=8)
+    @tracked("Voice-Support Musik (8 s)", 8)  # P-06
     async def music_loop(self):
         cfg = get_config()
         if not cfg.get("active"):

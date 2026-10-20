@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import pulse_db as db
+from pulse_jobs import tracked
 from pulse_time import parse_timestamp
 
 
@@ -58,6 +59,7 @@ class PulsePro(commands.Cog):
             return []
 
     @tasks.loop(minutes=5)
+    @tracked("Housekeeping (5 min)", 300)  # P-06
     async def housekeeping_loop(self):
         guild = self.guild()
         if not guild:

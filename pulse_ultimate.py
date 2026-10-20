@@ -2279,9 +2279,11 @@ async def _run_automation(bot, automation: dict):
 
 
 async def automation_loop(bot):
+    import pulse_jobs  # P-06/P-01: registry and loop-lag measurement piggyback on this existing loop
     setup()
     while True:
         try:
+          async with pulse_jobs.job("Automation (60 s)", 60):
             # Memory guard piggybacks on this existing loop; no extra worker is added.
             await runtime_memory_guard(bot)
             # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren
@@ -2319,10 +2321,13 @@ async def automation_loop(bot):
                         "UPDATE ultimate_automations SET last_run_at=?,next_run_at=? WHERE id=?",
                         (iso(), iso(next_run), automation["id"]),
                     )
-            await asyncio.sleep(60)
+          started = asyncio.get_running_loop().time()
+          await asyncio.sleep(60)
+          pulse_jobs.record_loop_lag(60, asyncio.get_running_loop().time() - started)
         except asyncio.CancelledError:
             return
-        except Exception:
+        except Exception as exc:
+            pulse_jobs.record_error("Automation (60 s)", exc, already_counted=True)  # was swallowed without any log before
             await asyncio.sleep(60)
 
 

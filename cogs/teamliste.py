@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 import discord
 from pulse_embed_design import color as _pulse_color
@@ -169,7 +170,7 @@ class TeamlisteCog(commands.Cog):
     # Liest Abmeldungen einmal pro Listenaktualisierung statt pro Teammitglied.
     def get_abmeldungen_map(self) -> dict[int, str]:
         try:
-            with sqlite3.connect(ABMELDUNGEN_DB, timeout=3) as conn:
+            with closing(sqlite3.connect(ABMELDUNGEN_DB, timeout=3)) as conn, conn:
                 rows = conn.execute("SELECT user_id, bis FROM abmeldungen").fetchall()
             return {int(user_id): str(bis) for user_id, bis in rows if user_id is not None}
         except (sqlite3.Error, OSError, TypeError, ValueError):

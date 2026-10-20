@@ -3,12 +3,14 @@ import os
 from pathlib import Path
 import discord
 from pulse_command_errors import PulseCommandTree
+import pulse_logging
 from discord.ext import commands
 from dotenv import load_dotenv
 import uvicorn
 
 BASE_DIR = Path(__file__).resolve().parent
 os.chdir(BASE_DIR)
+pulse_logging.setup(str(BASE_DIR))  # P-10: logs/pulse.log (1 MB x 3) + error ring buffer
 
 # .env muss vor dem Import von webserver/pulse_db geladen sein, da diese
 # Module ihre Konfiguration beim Import lesen.

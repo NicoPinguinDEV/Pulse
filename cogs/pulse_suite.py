@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import sqlite3
+from contextlib import closing
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -18,6 +19,7 @@ from fastapi import Cookie, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
+from pulse_jobs import tracked
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -335,7 +337,7 @@ def register_routes():
         with cx() as c:ps=[dict(x) for x in c.execute("SELECT * FROM suite_promotions WHERE target_id=? ORDER BY created_at DESC",(str(member_id),)).fetchall()];aud=[dict(x) for x in c.execute("SELECT * FROM suite_audit WHERE target_id=? OR actor_id=? ORDER BY rowid DESC LIMIT 80",(str(member_id),str(member_id))).fetchall()]
         ticks=[x for x in db.list_tickets(limit=3000) if str(x.get("user_id"))==str(member_id) or str(x.get("claimed_by_id"))==str(member_id)];tasks_=db.list_tasks(assignee_id=member_id,limit=1000,include_archived=True);sh=web.load_shifts();hist=[x for x in sh.get("history",[]) if str(x.get("mod_id"))==str(member_id)];last=hist[-1].get("ended_at_iso") if hist else "—"
         try:
-            with sqlite3.connect(os.path.join(BASE,"activity_check.db")) as c:act=c.execute("SELECT COUNT(*) FROM responses WHERE user_id=?",(member_id,)).fetchone()[0]
+            with closing(sqlite3.connect(os.path.join(BASE,"activity_check.db"))) as c, c:act=c.execute("SELECT COUNT(*) FROM responses WHERE user_id=?",(member_id,)).fetchone()[0]
         except Exception:act=0
         tabs=[("o","Übersicht"),("t","Dienstzeit"),("w","Warnungen"),("ti","Tickets"),("ta","Aufgaben"),("n","Notizen"),("p","Beförderungen"),("a","Audit")]
         panes=f'<div>{''.join(f"<button class=btn onclick=tab(\'{k}\')>{v}</button> " for k,v in tabs)}</div><div id=o class=pane style="margin-top:13px"><div class="grid g4"><div class=card><div class=tiny>Eintritt</div><b>{esc(sm.get("joined_at","—"))}</b></div><div class=card><div class=tiny>Position</div><b>{esc(m.top_role.name)}</b></div><div class=card><div class=tiny>Beförderungen</div><b>{sum(x.get("status")=="approved" for x in ps)}</b></div><div class=card><div class=tiny>Degradierungen</div><b>{sum(x.get("action")=="demote" for x in aud)}</b></div><div class=card><div class=tiny>Gesamtzeit</div><b>{secfmt(total_time(m,web))}</b></div><div class=card><div class=tiny>Woche</div><b>{secfmt(weekly(m,web))}</b></div><div class=card><div class=tiny>Letzte Aktivität</div><b>{esc(last)}</b></div><div class=card><div class=tiny>Letzter Login</div><b>{esc(sm.get("last_seen","—"))}</b></div><div class=card><div class=tiny>Letzter Activity Check</div><b>{act} bestätigt</b></div><div class=card><div class=tiny>Interne Bewertung</div><b>{esc(sm.get("internal_rating",80))}/100</b></div><div class=card><div class=tiny>Rangfortschritt</div><b>{rank_progress(m,web)}%</b></div><div class=card><div class=tiny>Team Score</div><b>{s["score"]}/100</b><div class=tiny>Aktivität {s["activity"]} · Zuverlässigkeit {s["reliability"]} · Support {s["support"]} · Disziplin {s["discipline"]}</div></div></div></div><div id=t class=pane style="display:none"><div class=card><div class=metric>{secfmt(total_time(m,web))}</div><div class=muted>Woche {secfmt(weekly(m,web))} · Schichten {len(hist)}</div></div></div><div id=w class=pane style="display:none"><div class=card>{(''.join(f"<div class=row><span>{esc(x.get('id'))} · {esc(x.get('date'))}<br>{esc(x.get('reason'))}</span><span class=badge>{'Aktiv' if x.get('active',True) else 'Zurückgezogen'}</span></div>" for x in entry.get("warns_list",[])) or "Keine Warnungen.") if web.can_see_warnings(ctx.perms,ctx.user.get("id"),member_id) else "🔒 Nur für die Person selbst und Verwarnungsberechtigte sichtbar."}</div></div><div id=ti class=pane style="display:none"><div class=card>{''.join(f"<div class=row><b>{esc(x.get('id'))}</b><span>{esc(x.get('status'))} · {esc(x.get('category'))}</span></div>" for x in ticks) or "Keine Tickets."}</div></div><div id=ta class=pane style="display:none"><div class=card>{''.join(f"<div class=row><a href=/suite/task/{x['id']}><b>{esc(x.get('title'))}</b></a><span>{esc(x.get('status'))}</span></div>" for x in tasks_) or "Keine Aufgaben."}</div></div><div id=n class=pane style="display:none"><div class=card><form method=post action=/suite/member/{member_id}/note><textarea class=ta name=note>{esc(sm.get('notes',''))}</textarea><button class="btn primary">Notiz speichern</button></form></div></div><div id=p class=pane style="display:none"><div class=card>{''.join(f"<div class=row><span>{esc(x.get('current_role'))} → {esc(x.get('target_role'))}</span><b>{esc(x.get('status'))}</b></div>" for x in ps) or "Keine Vorgänge."}</div></div><div id=a class=pane style="display:none"><div class=card>{''.join(f"<div class=event><b>{esc(x.get('action'))}</b> · {esc(x.get('occurred_at'))}<div class=tiny>{esc(x.get('details'))} · {esc(x.get('request_id'))}</div></div>" for x in aud) or "Keine Audits."}</div></div>'
@@ -770,6 +772,7 @@ class PulseSuite(commands.Cog):
     def guild(self):return self.bot.get_guild(GUILD_ID) if GUILD_ID else (self.bot.guilds[0] if self.bot.guilds else None)
 
     @tasks.loop(minutes=5)
+    @tracked("Suite-Automatik (5 min)",300)  # P-06
     async def auto(self):
         g=self.guild()
         if not g:return
@@ -815,7 +818,7 @@ class PulseSuite(commands.Cog):
         path=os.path.join(BASE,"activity_check.db")
         if not os.path.exists(path):return
         try:
-            with sqlite3.connect(path) as c:
+            with closing(sqlite3.connect(path)) as c, c:
                 c.row_factory=sqlite3.Row;x=c.execute("SELECT * FROM checks WHERE guild_id=? ORDER BY id DESC LIMIT 1",(g.id,)).fetchone()
                 if not x:return
                 created=local(x["created_at"]);age=(now()-created).total_seconds() if created else 0;opened={r[0] for r in c.execute("SELECT user_id FROM check_members WHERE check_id=? AND user_id NOT IN (SELECT user_id FROM responses WHERE check_id=?)",(x["id"],x["id"])).fetchall()}

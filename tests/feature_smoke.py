@@ -5,6 +5,7 @@ Stdlib-only; complements the compileall CI check.
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -84,11 +85,13 @@ def main() -> None:
     assert "source_activity_check_id" in activity_cog
     assert "source_activity_user_id" in activity_cog
     assert "activity_warning_due(now)" in activity_cog
-    assert "@tasks.loop(minutes=1)\n    async def activity_warning_check" in activity_cog
+    # P-06: the loops carry a @tracked registry decorator; the schedule itself is checked on the real
+    # tasks.Loop objects in tests/test_stability.py (ActivityScheduleTests).
+    assert re.search(r"@tasks\.loop\(minutes=1\)\n(    @tracked\([^\n]*\n)?    async def activity_warning_check", activity_cog)
     assert "Activity Check Snapshot repariert" in activity_cog
     assert "leave_status is None" in activity_cog
-    assert "@tasks.loop(time=datetime_time(hour=6, minute=0, tzinfo=BERLIN_TZ))\n    async def daily_activity_check" in activity_cog
-    assert "@tasks.loop(minutes=5)\n    async def activity_check_recovery" in activity_cog
+    assert re.search(r"@tasks\.loop\(time=datetime_time\(hour=6, minute=0, tzinfo=BERLIN_TZ\)\)\n(    @tracked\([^\n]*\n)?    async def daily_activity_check", activity_cog)
+    assert re.search(r"@tasks\.loop\(minutes=5\)\n(    @tracked\([^\n]*\n)?    async def activity_check_recovery", activity_cog)
     assert "self._check_creation_lock = asyncio.Lock()" in activity_cog
     assert "await self._run_daily_activity_check()" in activity_cog
     assert "or now.hour >= 20" in activity_cog

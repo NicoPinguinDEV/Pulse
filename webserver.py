@@ -15,6 +15,7 @@ import re
 import secrets
 import shutil
 import sqlite3
+from contextlib import closing
 import threading
 import time
 import uuid
@@ -2683,6 +2684,8 @@ async def unexpected_error_handler(request: Request, exc: Exception):
     import traceback as _traceback
     error_id = secrets.token_hex(3).upper()
     print(f"❌ Dashboard-Fehler [Fehler-ID {error_id}] {request.method} {request.url.path}: {type(exc).__name__}: {exc}")
+    import pulse_logging
+    pulse_logging.report_error(f"web.{request.method} {request.url.path}", f"{type(exc).__name__}: {exc}", error_id)
     _traceback.print_exception(type(exc), exc, exc.__traceback__)
     wants_json = request.url.path.startswith(("/api/", "/ultimate/api/", "/suite/api/")) or \
         "application/json" in request.headers.get("accept", "")
@@ -4225,7 +4228,7 @@ def get_activity_today(guild_id: int):
     if not os.path.exists(ACTIVITY_DB):
         return empty
     try:
-        with sqlite3.connect(ACTIVITY_DB) as conn:
+        with closing(sqlite3.connect(ACTIVITY_DB)) as conn, conn:
             row = conn.execute(
                 "SELECT id FROM checks WHERE guild_id=? AND check_date=?",
                 (guild_id, today),
@@ -7644,7 +7647,7 @@ def add_panel_data(data: dict) -> dict:
         if not os.path.isfile(db_path):
             continue
         try:
-            with sqlite3.connect(db_path, timeout=3.0) as checkpoint_db:
+            with closing(sqlite3.connect(db_path, timeout=3.0)) as checkpoint_db, checkpoint_db:
                 checkpoint_db.execute("PRAGMA wal_checkpoint(FULL)")
             if os.path.getsize(db_path) <= 20 * 1024 * 1024:
                 with open(db_path, "rb") as fh:
@@ -7675,7 +7678,7 @@ def add_panel_data(data: dict) -> dict:
     data["panel_data"]["transcripts"] = transcripts
 
     try:
-        with sqlite3.connect(DB_ABMELDUNGEN, timeout=3.0) as conn:
+        with closing(sqlite3.connect(DB_ABMELDUNGEN, timeout=3.0)) as conn, conn:
             rows = conn.execute(
                 "SELECT user_id,user_name,grund,von,bis,original_nick,guild_id FROM abmeldungen"
             ).fetchall()
@@ -8719,7 +8722,7 @@ async def restore_backup(
             pulse_db.import_state(_remap_backup_ids(panel["pulse_db"], id_remap))
 
         if isinstance(panel.get("loas"), list):
-            with sqlite3.connect(DB_ABMELDUNGEN, timeout=5.0) as conn:
+            with closing(sqlite3.connect(DB_ABMELDUNGEN, timeout=5.0)) as conn, conn:
                 conn.execute("DELETE FROM abmeldungen")
                 conn.executemany(
                     "INSERT OR REPLACE INTO abmeldungen(user_id,user_name,grund,von,bis,original_nick,guild_id) VALUES (?,?,?,?,?,?,?)",

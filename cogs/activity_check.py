@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, time as datetime_time
 from pathlib import Path
 import zoneinfo
@@ -9,6 +10,7 @@ import discord
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
+from pulse_jobs import tracked
 
 from pulse_activity_utils import (
     activity_action_is_terminal,
@@ -27,7 +29,7 @@ WARNING_CHANNEL_ACTION = "activity-check-warning"
 
 
 def init_db():
-    with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+    with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE IF NOT EXISTS checks (
@@ -75,7 +77,7 @@ def init_db():
 
 
 def set_config(key, value):
-    with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+    with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
         conn.execute(
             "INSERT OR REPLACE INTO config(key,value) VALUES(?,?)",
             (key, str(value)),
@@ -83,7 +85,7 @@ def set_config(key, value):
 
 
 def get_config(key):
-    with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+    with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
         row = conn.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
         return row[0] if row else None
 
@@ -91,7 +93,7 @@ def get_config(key):
 def set_warn_action(check_id: int, user_id: int, status: str, warning_id: str | None = None, error: str = ""):
     """Persist each member's warning outcome so retries never create duplicate warnings."""
     now = datetime.now(BERLIN_TZ).isoformat(timespec="seconds")
-    with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+    with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
         conn.execute(
             """INSERT INTO activity_warn_actions
                (check_id,user_id,status,warning_id,updated_at,error)
@@ -106,7 +108,7 @@ def set_warn_action(check_id: int, user_id: int, status: str, warning_id: str | 
 
 
 def get_warn_action(check_id: int, user_id: int):
-    with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+    with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT status,warning_id,error FROM activity_warn_actions WHERE check_id=? AND user_id=?",
@@ -118,7 +120,7 @@ def get_warn_action(check_id: int, user_id: int):
 def is_abgemeldet(user_id: int, check_date: str) -> bool | None:
     """Query the shared Abmeldungsmodul DB; return None on read errors so we can retry."""
     try:
-        with sqlite3.connect(ABMELDUNGEN_DB, timeout=3.0) as conn:
+        with closing(sqlite3.connect(ABMELDUNGEN_DB, timeout=3.0)) as conn, conn:
             rows = conn.execute(
                 "SELECT von,bis FROM abmeldungen WHERE user_id=?",
                 (int(user_id),),
@@ -159,7 +161,7 @@ class ActivityView(discord.ui.View):
             if not check_id:
                 response_text = "⚠️ Dieser Activity Check ist nicht mehr aktiv."
             else:
-                with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+                with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
                     check_row = conn.execute(
                         "SELECT snapshot_version FROM checks WHERE id=?",
                         (int(check_id),),
@@ -236,7 +238,7 @@ class ActivityCheckCog(commands.Cog):
         self.activity_warning_check.cancel()
 
     def current_check_id(self, message_id):
-        with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+        with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
             row = conn.execute(
                 "SELECT id FROM checks WHERE message_id=?",
                 (int(message_id),),
@@ -252,7 +254,7 @@ class ActivityCheckCog(commands.Cog):
         if channel is None or not getattr(channel, "guild", None):
             return None
         today = datetime.now(BERLIN_TZ).date().isoformat()
-        with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+        with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
             existing = conn.execute(
                 "SELECT id,snapshot_version FROM checks WHERE guild_id=? AND check_date=?",
                 (channel.guild.id, today),
@@ -273,7 +275,7 @@ class ActivityCheckCog(commands.Cog):
                 repaired_members = await self.eligible_members(channel.guild, role)
                 if repaired_members:
                     repaired_at = datetime.now(BERLIN_TZ).isoformat(timespec="seconds")
-                    with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+                    with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
                         conn.execute(
                             "UPDATE checks SET snapshot_version=1 WHERE id=? AND snapshot_version<1",
                             (int(existing[0]),),
@@ -324,7 +326,7 @@ class ActivityCheckCog(commands.Cog):
         )
         now = datetime.now(BERLIN_TZ).isoformat(timespec="seconds")
         try:
-            with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+            with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
                 cursor = conn.execute(
                     """INSERT INTO checks
                        (guild_id,channel_id,message_id,check_date,created_at,snapshot_version)
@@ -364,12 +366,14 @@ class ActivityCheckCog(commands.Cog):
         return message
 
     @tasks.loop(time=datetime_time(hour=6, minute=0, tzinfo=BERLIN_TZ))
+    @tracked("Activity-Check täglich (06:00)", 86400)  # P-06
     async def daily_activity_check(self):
         """Send the day's Activity Check at exactly 06:00 Europe/Berlin."""
         await self.bot.wait_until_ready()
         await self._run_daily_activity_check()
 
     @tasks.loop(minutes=5)
+    @tracked("Activity-Check Nachholen (5 min)", 300)  # P-06
     async def activity_check_recovery(self):
         """Recover a missed daily check after restart, but never create one after 20:00."""
         await self.bot.wait_until_ready()
@@ -406,6 +410,7 @@ class ActivityCheckCog(commands.Cog):
             print(f"⚠️ Activity Check: Tagescheck konnte nicht erstellt werden ({type(exc).__name__}: {exc}).")
 
     @tasks.loop(minutes=1)
+    @tracked("Activity-Check Warnungen (1 min)", 60)  # P-06
     async def activity_warning_check(self):
         await self.bot.wait_until_ready()
         now = datetime.now(BERLIN_TZ)
@@ -425,7 +430,7 @@ class ActivityCheckCog(commands.Cog):
         if not activity_warning_due(now):
             return {"status": "not_due", "warned": 0, "failed": 0}
         check_date = now.date().isoformat()
-        with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+        with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
             conn.row_factory = sqlite3.Row
             check = conn.execute(
                 "SELECT id,snapshot_version FROM checks WHERE guild_id=? AND check_date=?",
@@ -721,7 +726,7 @@ class ActivityCheckCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def activity_status(self, interaction):
         today = datetime.now(BERLIN_TZ).date().isoformat()
-        with sqlite3.connect(DB_NAME, timeout=5.0) as conn:
+        with closing(sqlite3.connect(DB_NAME, timeout=5.0)) as conn, conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT id,snapshot_version FROM checks WHERE guild_id=? AND check_date=?",

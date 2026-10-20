@@ -95,6 +95,96 @@ class CommandSyncTests(unittest.TestCase):
             self.assertTrue(asyncio.run(pulse_command_sync.sync_commands(changed, force=True))["synced"])
 
 
+class JobRegistryTests(unittest.TestCase):
+    def test_runs_errors_and_lag_are_recorded(self):
+        import pulse_jobs
+
+        @pulse_jobs.tracked("test-job", 60)
+        async def ok():
+            return 1
+
+        @pulse_jobs.tracked("test-job-fail", 60)
+        async def fail():
+            raise ValueError("kaputt")
+        self.assertEqual(asyncio.run(ok()), 1)
+        with self.assertRaises(ValueError):
+            asyncio.run(fail())
+        jobs = {j["name"]: j for j in pulse_jobs.snapshot()["jobs"]}
+        self.assertEqual(jobs["test-job"]["runs"], 1)
+        self.assertTrue(jobs["test-job"]["last_ok"])
+        self.assertEqual(jobs["test-job-fail"]["failures"], 1)
+        self.assertIn("ValueError", jobs["test-job-fail"]["last_error"])
+        with patch("builtins.print") as printed:
+            pulse_jobs.record_loop_lag(60, 60.5)
+        self.assertTrue(printed.called)
+        self.assertGreaterEqual(pulse_jobs.snapshot()["lag"]["max"], 0.5)
+
+    def test_system_page_lists_jobs_memory_and_sync_button(self):
+        from fastapi.testclient import TestClient
+        import pulse_jobs
+        import webserver as ws
+        from tests.test_pulse_admin_area import ADMIN, fake_auth_for
+        asyncio.run(pulse_jobs.tracked("Sichtbarer Job", 60)(lambda: asyncio.sleep(0))())
+        with patch.object(ws, "auth", fake_auth_for(ADMIN)):
+            html = TestClient(ws.app).get("/system").text
+        self.assertIn("Sichtbarer Job", html)
+        self.assertIn("Event-Loop", html)
+        self.assertIn("Arbeitsspeicher", html)
+        self.assertIn("/admin/commands/sync", html)
+
+
+class ActivityScheduleTests(unittest.TestCase):
+    def test_registered_loops_keep_their_schedule(self):
+        from datetime import time as dtime
+        from cogs.activity_check import ActivityCheckCog, BERLIN_TZ
+        self.assertEqual(ActivityCheckCog.activity_warning_check.minutes, 1)
+        self.assertEqual(ActivityCheckCog.activity_check_recovery.minutes, 5)
+        self.assertEqual(ActivityCheckCog.daily_activity_check.time, [dtime(hour=6, minute=0, tzinfo=BERLIN_TZ)])
+
+
+class ErrorBufferTests(unittest.TestCase):
+    def test_recent_errors_are_bounded_and_shown(self):
+        import pulse_logging
+        from fastapi.testclient import TestClient
+        import webserver as ws
+        from tests.test_pulse_admin_area import ADMIN, fake_auth_for
+        for i in range(pulse_logging.MAX_RECENT + 5):
+            pulse_logging.report_error("test", f"Fehler {i}", "ABC123")
+        self.assertEqual(len(pulse_logging._RECENT), pulse_logging.MAX_RECENT)
+        self.assertEqual(pulse_logging.recent(1)[0]["message"], f"Fehler {pulse_logging.MAX_RECENT + 4}")
+        with patch.object(ws, "auth", fake_auth_for(ADMIN)):
+            html = TestClient(ws.app).get("/system").text
+        self.assertIn("Letzte Fehler", html)
+        self.assertIn("ABC123", html)
+
+
+class LiveCacheTests(unittest.TestCase):
+    def test_live_numbers_computed_once_within_15_seconds(self):
+        from fastapi.testclient import TestClient
+        import webserver as ws
+        from tests.test_pulse_admin_area import TEAMLER, fake_auth_for
+        route = next(r for r in ws.app.routes if getattr(r, "path", "") == "/api/pulse/live")
+        cache = route.endpoint.__code__.co_freevars
+        self.assertIn("LIVE_CACHE", cache)
+        cell = route.endpoint.__closure__[cache.index("LIVE_CACHE")].cell_contents
+        cell.update(at=0.0, data=None)
+        calls = []
+        numbers = route.endpoint.__closure__[cache.index("live_numbers")]
+        real = numbers.cell_contents
+        numbers.cell_contents = lambda c: calls.append(1) or {"ok": True, "active": 3}
+        try:
+            with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
+                client = TestClient(ws.app)
+                first = client.get("/api/pulse/live").json()
+                client.get("/api/pulse/live")
+        finally:
+            numbers.cell_contents = real
+            cell.update(at=0.0, data=None)
+        self.assertEqual(calls, [1])
+        self.assertEqual(first["active"], 3)
+        self.assertIn("now", first)
+
+
 class ErrorPageTests(unittest.TestCase):
     def test_unexpected_error_shows_id_not_traceback(self):
         from fastapi.testclient import TestClient

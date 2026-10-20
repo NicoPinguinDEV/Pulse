@@ -48,6 +48,8 @@ async def handle_app_command_error(interaction: discord.Interaction, error: Exce
     if error_id:
         cause = getattr(error, "original", error)
         print(f"❌ Slash-Befehl /{command} fehlgeschlagen [Fehler-ID {error_id}]: {type(cause).__name__}: {cause}")
+        import pulse_logging
+        pulse_logging.report_error(f"slash./{command}", f"{type(cause).__name__}: {cause}", error_id)
         traceback.print_exception(type(cause), cause, cause.__traceback__)
     try:
         if interaction.response.is_done():

@@ -10,6 +10,7 @@ import re
 import shutil
 from pathlib import Path
 import sqlite3
+from contextlib import closing
 import time
 import traceback
 import uuid
@@ -68,8 +69,13 @@ PRO_JS = r"""
   window.pulseToggleTheme=function(){const d=document.documentElement; const dark=d.classList.contains('dark'); d.classList.toggle('dark',!dark); localStorage.theme=dark?'light':'dark';};
   document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();pulseTogglePalette(true)} if(e.key==='Escape')pulseTogglePalette(false)});
   document.addEventListener('click',e=>{const modal=$('#pulseCommandModal'); if(e.target===modal)pulseTogglePalette(false);});
-  function live(){fetch('/api/pulse/live',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{if(!d)return; $$('[data-live]').forEach(el=>{const k=el.dataset.live;if(d[k]!==undefined)el.textContent=d[k]}); if(d.now){$$('[data-live-time]').forEach(el=>el.textContent=d.now)}}).catch(()=>{});}
-  setInterval(live,30000); window.pulseLive=live;
+  // P-02: no polling in background tabs, back-off after errors (30 s -> max. 5 min).
+  let liveDelay=30000, liveTimer=null;
+  function liveSchedule(){clearTimeout(liveTimer); liveTimer=setTimeout(live,liveDelay);}
+  function live(){if(document.visibilityState==='hidden'){liveSchedule();return;}
+    fetch('/api/pulse/live',{credentials:'same-origin'}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json();}).then(d=>{liveDelay=30000; $$('[data-live]').forEach(el=>{const k=el.dataset.live;if(d[k]!==undefined)el.textContent=d[k]}); if(d.now){$$('[data-live-time]').forEach(el=>el.textContent=d.now)}}).catch(()=>{liveDelay=Math.min(liveDelay*2,300000);}).finally(liveSchedule);}
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')live();});
+  liveSchedule(); window.pulseLive=live;
   if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
   const forms=$$('form[data-confirm]'); forms.forEach(f=>f.addEventListener('submit',e=>{if(!confirm(f.dataset.confirm))e.preventDefault()}));
 })();
@@ -351,6 +357,8 @@ def register(app):
     def member_role(m, ids):
         roles = [r for r in m.roles if r.id in ids]
         return max(roles, key=lambda r:r.position).name if roles else "Team"
+    LIVE_CACHE={'at':0.0,'data':None}; LIVE_CACHE_SECONDS=15
+
     def work_stats(c):
         shifts=ws.load_shifts(); active=shifts.get("active_shifts",{}); hist=shifts.get("history",[])
         logs=ws.load_json(ws.LOGS_FILE,[]); apps=ws.load_json(ws.APPS_FILE,{}); loas=ws.get_loas()
@@ -841,7 +849,7 @@ def register(app):
         except Exception: selected_date=today
         check=None; responded={}; snapshot=[]; legacy=False; snapshot_version=0
         try:
-            with sqlite3.connect(ws.ACTIVITY_DB) as ax:
+            with closing(sqlite3.connect(ws.ACTIVITY_DB)) as ax, ax:
                 ax.row_factory=sqlite3.Row
                 check=ax.execute("SELECT * FROM checks WHERE guild_id=? AND check_date=?",(c.guild.id,selected_date)).fetchone()
                 if check:
@@ -856,7 +864,7 @@ def register(app):
             legacy=True
             role=None
             try:
-                with sqlite3.connect(ws.ACTIVITY_DB) as ax:
+                with closing(sqlite3.connect(ws.ACTIVITY_DB)) as ax, ax:
                     rr=ax.execute("SELECT value FROM config WHERE key='activity_role_id'").fetchone()
                     if rr and rr[0]: role=c.guild.get_role(int(rr[0]))
             except Exception: pass
@@ -864,7 +872,7 @@ def register(app):
             snapshot=[{"user_id":m.id,"user_name":m.display_name,"role_name":member_role(m,c.config.get("team_role_ids",[]))} for m in members]
         history=[]
         try:
-            with sqlite3.connect(ws.ACTIVITY_DB) as hx:
+            with closing(sqlite3.connect(ws.ACTIVITY_DB)) as hx, hx:
                 hx.row_factory=sqlite3.Row
                 history=[dict(r) for r in hx.execute("SELECT id,check_date,created_at,message_id FROM checks WHERE guild_id=? ORDER BY check_date DESC LIMIT 60",(c.guild.id,)).fetchall()]
                 for h in history:
@@ -1000,7 +1008,7 @@ def register(app):
             activity_module.set_config("activity_role_id",role.id if role else 0)
 
             today=ws.now_de().date().isoformat()
-            with sqlite3.connect(ws.ACTIVITY_DB,timeout=5.0) as ax:
+            with closing(sqlite3.connect(ws.ACTIVITY_DB,timeout=5.0)) as ax, ax:
                 ax.row_factory=sqlite3.Row
                 existing=ax.execute(
                     "SELECT id,snapshot_version FROM checks WHERE guild_id=? AND check_date=?",
@@ -1026,7 +1034,7 @@ def register(app):
             except Exception as exc:
                 return ws.back("/activity-check",f"Activity Check konnte nicht erstellt werden: {type(exc).__name__}: {exc}",False)
 
-            with sqlite3.connect(ws.ACTIVITY_DB,timeout=5.0) as ax:
+            with closing(sqlite3.connect(ws.ACTIVITY_DB,timeout=5.0)) as ax, ax:
                 ax.row_factory=sqlite3.Row
                 saved=ax.execute(
                     "SELECT id,snapshot_version,message_id FROM checks WHERE guild_id=? AND check_date=?",
@@ -2059,7 +2067,7 @@ def register(app):
         flag_points=0
         try:
             import sqlite3
-            with sqlite3.connect('flaggenquiz.db') as cx:
+            with closing(sqlite3.connect('flaggenquiz.db')) as cx, cx:
                 row=cx.execute('SELECT points FROM quiz_scores WHERE guild_id=? AND user_id=?',(c.guild.id,int(uid))).fetchone(); flag_points=int(row[0]) if row else 0
         except Exception: pass
         metrics={'shifts':shift_count,'hours':hours,'tickets_closed':tickets_closed,'meetings':meeting_count,'flag_correct':flag_points,'handovers':handovers,'tasks_done':tasks_done}
@@ -2617,6 +2625,27 @@ def register(app):
                     checks.append((f"Dateigröße · {item['name']}",False,f"{item['size']/(1024*1024):.1f} MB – wird bei fast jeder Seite komplett gelesen (Auslagerung in A-05)"))
         except Exception as exc:
             checks.append(('Konsistenz',False,f'Prüfung fehlgeschlagen ({type(exc).__name__})'))
+        try:
+            # P-14: measured, not estimated – RSS, peak and what the member/presence caches hold.
+            import pulse_ultimate as pu
+            rss=pu.process_rss_mb(); peak=pu.process_peak_rss_mb(); container=pu.container_memory_mb()
+            members=len(getattr(c.guild,'members',[]) or []); intents=getattr(bot,'intents',None)
+            with_presence=sum(1 for m in (getattr(c.guild,'members',[]) or []) if str(getattr(m,'status','offline'))!='offline')
+            detail=(f"Prozess {rss:.0f} MB" if rss else "Prozess unbekannt")+(f" · Spitze {peak:.0f} MB" if peak else "")+(f" · Container {container:.0f} MB" if container else "")
+            detail+=f" · {members} Mitglieder im Cache · Presence-Intent {'an' if getattr(intents,'presences',False) else 'aus'} ({with_presence} online)"
+            checks.append(('Arbeitsspeicher (Limit 250 MB)',not rss or rss<180,detail))
+        except Exception:
+            pass
+        try:
+            import pulse_jobs  # P-06 / P-01
+            state=pulse_jobs.snapshot(); lag=state['lag']
+            checks.append(('Event-Loop',lag['max']<1.0,f"letzte Verzögerung {lag['last']*1000:.0f} ms · Maximum {lag['max']*1000:.0f} ms · {lag['warnings']}× über 250 ms"))
+            for j in state['jobs']:
+                healthy=not j.get('last_error_at') or (j.get('last_ok','')>j.get('last_error_at',''))
+                detail=f"{j['runs']} Läufe · zuletzt {j['last_duration']:.2f} s"+(f" · Fehler: {j['last_error']}" if j.get('last_error') else '')
+                checks.append((f"Job · {j['name']}",healthy,detail))
+        except Exception:
+            pass
         for problem in ws.corrupt_json_files().values():
             checks.append(('Datendatei',False,f'{problem} – Schreiben gesperrt'))
         expected=set()
@@ -2628,7 +2657,7 @@ def register(app):
         missing=sorted(expected-loaded); checks.append(('Cogs',not missing,f'{len(loaded)}/{len(expected)} geladen' + (f' · fehlt: {", ".join(missing[:3])}' if missing else '')))
         total,used,free=shutil.disk_usage(ws.BASE_DIR); checks.append(('Speicher',free>200*1024*1024,f'{free/1024/1024:.0f} MB frei'))
         rows=''.join(f'<div class="pulse-row"><div class="flex items-center gap-2"><span class="pulse-status-dot {"bg-emerald-500" if ok else "bg-rose-500"}"></span><div class="pulse-row-title">{e(name)}</div></div><div class="text-right"><div class="text-[11px] font-semibold">{e(detail)}</div><div class="pulse-row-meta">{"OK" if ok else "Prüfen"}</div></div></div>' for name,ok,detail in checks)
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">♥ Systemstatus</div><div class="pulse-section-sub">Live-Prüfung der wichtigsten Pulse-Komponenten.</div></div><span class="pulse-pill {'good' if all(x[1] for x in checks) else 'warn'}">{'Alles grün' if all(x[1] for x in checks) else 'Prüfung nötig'}</span></div>{card('System-Checks',rows,'♥')}{card('Slash-Befehle','<form method="post" action="/admin/commands/sync" onsubmit="return confirm(&#39;Slash-Befehle jetzt bei Discord synchronisieren?&#39;)"><p class="text-xs text-slate-400 mb-2">Pulse synchronisiert nur noch, wenn sich Befehle geändert haben. Fehlen Befehle in Discord, hier manuell auslösen.</p><button class="pulse-btn ghost">🔄 Jetzt synchronisieren</button></form>','🔄')}'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">♥ Systemstatus</div><div class="pulse-section-sub">Live-Prüfung der wichtigsten Pulse-Komponenten.</div></div><span class="pulse-pill {'good' if all(x[1] for x in checks) else 'warn'}">{'Alles grün' if all(x[1] for x in checks) else 'Prüfung nötig'}</span></div>{card('System-Checks',rows,'♥')}{card('Letzte Fehler',''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(x["source"])}</div><div class="pulse-row-meta">{e(ws.display(x["at"]))} · {e(x["error_id"] or "–")} · {e(x["message"])}</div></div></div>' for x in __import__('pulse_logging').recent(20)) or '<div class="pulse-empty">Keine Fehler seit dem Start.</div>','⚠')}{card('Slash-Befehle','<form method="post" action="/admin/commands/sync" onsubmit="return confirm(&#39;Slash-Befehle jetzt bei Discord synchronisieren?&#39;)"><p class="text-xs text-slate-400 mb-2">Pulse synchronisiert nur noch, wenn sich Befehle geändert haben. Fehlen Befehle in Discord, hier manuell auslösen.</p><button class="pulse-btn ghost">🔄 Jetzt synchronisieren</button></form>','🔄')}'''
         return render_pro_page(ws,'Systemstatus',c,'system',body)
 
     async def team_export(request: Request, user_session: str=Cookie(None)):
@@ -2639,11 +2668,18 @@ def register(app):
         # Serve from memory: a shared file in the backup folder raced between parallel exports.
         data=buf.getvalue().encode('utf-8-sig'); return Response(content=data,media_type='text/csv; charset=utf-8',headers={'Content-Disposition':'attachment; filename="pulse_team_export.csv"'})
 
-    async def api_live(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session); s=work_stats(c); now=ws.now_de().strftime('%H:%M:%S'); open_t=sum(1 for x in s['tickets'] if x['status']!='closed'); overdue=0
+    def live_numbers(c):
+        s=work_stats(c); open_t=sum(1 for x in s['tickets'] if x['status']!='closed'); overdue=0
         for t in s['tasks']:
             d=parse_due(t.get('due_at')); overdue += int(bool(d and d<datetime.now().astimezone() and t.get('status') not in ('done','archived')))
-        return JSONResponse({'ok':True,'active':s['active'],'open_tickets':open_t,'overdue_tasks':overdue,'approvals':len(s['promos']),'applications':s['apps'],'loas':s['loas'],'now':now})
+        return {'ok':True,'active':s['active'],'open_tickets':open_t,'overdue_tasks':overdue,'approvals':len(s['promos']),'applications':s['apps'],'loas':s['loas']}
+
+    async def api_live(request: Request, user_session: str=Cookie(None)):
+        # P-02: the numbers are the same for everyone – compute at most every 15 s, off the event loop.
+        c=cctx(request,user_session); now=ws.now_de().strftime('%H:%M:%S')
+        if LIVE_CACHE['data'] is None or time.monotonic()-LIVE_CACHE['at']>LIVE_CACHE_SECONDS:
+            LIVE_CACHE['data']=await asyncio.to_thread(live_numbers,c); LIVE_CACHE['at']=time.monotonic()
+        return JSONResponse({**LIVE_CACHE['data'],'now':now})
 
     async def api_health(request: Request):
         bot=getattr(request.app.state,'bot',None)

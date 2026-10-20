@@ -38,4 +38,5 @@ uploads
 attachments
 *.restore.tmp*
 *.corrupt-*
+logs
 *.vor-reparatur-*.bak
