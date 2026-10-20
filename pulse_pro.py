@@ -2580,6 +2580,12 @@ def register(app):
         except Exception:
             log_problem='Status nicht prüfbar'
         checks.append(('Moderations-Log',not log_problem,log_problem or 'Log-Kanal eingerichtet'))
+        try:
+            from pulse_audio_check import audio_status
+            audio=audio_status()
+        except Exception:
+            audio={'ok':False,'message':'Status nicht prüfbar'}
+        checks.append(('Voice-Audio (ffmpeg/opus)',audio['ok'],audio['message']))
         for problem in ws.corrupt_json_files().values():
             checks.append(('Datendatei',False,f'{problem} – Schreiben gesperrt'))
         expected=set()

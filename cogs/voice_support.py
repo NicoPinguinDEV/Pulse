@@ -880,6 +880,13 @@ class VoiceSupport(commands.Cog):
             if isinstance(case, dict) and channel_id(case.get("notification_message_id")):
                 self._register_case_view(str(case.get("case_id", "")), channel_id(case.get("notification_message_id")))
         print("🎧 Pulse Voice-Support geladen · Bereitschaft und Supportfall-Buttons sind synchronisiert.")
+        try:
+            from pulse_audio_check import audio_status
+            audio = audio_status()
+            if not audio["ok"]:
+                print(f"⚠️ Voice-Support: {audio['message']}.")
+        except Exception:
+            pass
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):

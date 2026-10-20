@@ -576,6 +576,12 @@ class PulsePro(commands.Cog):
 
         if getattr(webserver, "SESSION_SECRET_PROBLEM", ""):
             channel_checks.insert(0, f"🔴 Sicherheit · {webserver.SESSION_SECRET_PROBLEM}")
+        try:
+            from pulse_audio_check import audio_status
+            audio = audio_status()
+            channel_checks.append(f"{'🟢' if audio['ok'] else '🟡'} Voice-Audio · {audio['message']}")
+        except Exception:
+            pass
         waiting_channel = interaction.guild.get_channel(office_waiting_id)
         if waiting_channel is None:
             try:
