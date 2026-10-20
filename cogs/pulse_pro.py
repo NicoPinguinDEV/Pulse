@@ -466,17 +466,8 @@ class PulsePro(commands.Cog):
         embed.add_field(name="Tickets bearbeitet",value=str(tickets),inline=True); embed.add_field(name="Aufgaben",value=str(tasks),inline=True); embed.add_field(name="Status",value="🟢 Im Dienst" if str(member.id) in shifts.get("active_shifts",{}) else "⚪ Offline",inline=True)
         await interaction.response.send_message(embed=embed,ephemeral=True)
 
-    @commands.Cog.listener()
-    async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        print(f"⚠️ Pulse App-Command Fehler: {error!r}")
-        try:
-            message="❌ Dabei ist ein unerwarteter Fehler aufgetreten. Bitte prüfe die Pulse-Konfiguration oder das Systemlog."
-            if interaction.response.is_done():
-                await interaction.followup.send(message, ephemeral=True)
-            else:
-                await interaction.response.send_message(message, ephemeral=True)
-        except Exception:
-            pass
+    # K-08: slash-command errors are handled by pulse_command_errors.PulseCommandTree (main.py).
+    # The former `on_app_command_error` listener here was never dispatched by discord.py.
 
     @app_commands.command(name="pulsehealth", description="Zeigt den Systemstatus von Pulse.")
     async def pulsehealth(self, interaction: discord.Interaction):

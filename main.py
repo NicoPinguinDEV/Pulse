@@ -2,6 +2,7 @@ import asyncio
 import os
 from pathlib import Path
 import discord
+from pulse_command_errors import PulseCommandTree
 from discord.ext import commands
 from dotenv import load_dotenv
 import uvicorn
@@ -29,6 +30,8 @@ except (TypeError, ValueError):
 
 
 class CustomBot(commands.Bot):
+    # K-08: answers every failed slash command (discord.py routes them to CommandTree.on_error).
+    TREE_CLASS = PulseCommandTree
 
     def __init__(self):
         intents = discord.Intents.default()
@@ -40,6 +43,7 @@ class CustomBot(commands.Bot):
             command_prefix="!",
             intents=intents,
             max_messages=MESSAGE_CACHE_SIZE,
+            tree_cls=self.TREE_CLASS,
         )
         self.pulse_message_cache_limit = MESSAGE_CACHE_SIZE
         self._pulse_web_server = None
