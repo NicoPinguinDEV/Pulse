@@ -2580,6 +2580,8 @@ def register(app):
         except Exception:
             log_problem='Status nicht prüfbar'
         checks.append(('Moderations-Log',not log_problem,log_problem or 'Log-Kanal eingerichtet'))
+        for problem in ws.corrupt_json_files().values():
+            checks.append(('Datendatei',False,f'{problem} – Schreiben gesperrt'))
         expected=set()
         try: expected={n[:-3] for n in os.listdir(os.path.join(ws.BASE_DIR,'cogs')) if n.endswith('.py') and n!='__init__.py'}
         except Exception: pass

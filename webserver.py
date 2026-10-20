@@ -12,6 +12,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import threading
 import time
@@ -263,23 +264,69 @@ init_db()
 _io_lock = threading.RLock()
 
 
+# K-05: files that could not be read/parsed. Writing them is blocked so defaults never overwrite real data.
+_CORRUPT_JSON: dict[str, str] = {}
+
+
+class JsonWriteBlocked(RuntimeError):
+    """Raised by save_json for a file that is marked corrupt (degraded mode)."""
+
+
+def corrupt_json_files() -> dict[str, str]:
+    with _io_lock:
+        return dict(_CORRUPT_JSON)
+
+
+def _mark_corrupt(filepath, exc) -> None:
+    key = os.path.abspath(filepath)
+    if key in _CORRUPT_JSON:
+        return
+    backup = ""
+    if isinstance(exc, ValueError):  # JSONDecodeError / UnicodeDecodeError – keep an untouched copy
+        backup = f"{filepath}.corrupt-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        try:
+            shutil.copy2(filepath, backup)
+        except OSError:
+            backup = ""
+    _CORRUPT_JSON[key] = (f"{os.path.basename(filepath)} ist beschädigt ({type(exc).__name__})"
+                          + (f" – Sicherung: {os.path.basename(backup)}" if backup else ""))
+    print(f"🔴 DATEN: {_CORRUPT_JSON[key]}. Pulse schreibt diese Datei nicht mehr, bis sie repariert "
+          "oder aus einem Backup wiederhergestellt ist.")
+
+
 def load_json(filepath, default):
     with _io_lock:
         if os.path.exists(filepath):
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
+                    data = json.load(f)
+            except Exception as exc:
+                _mark_corrupt(filepath, exc)
                 return default
+            _CORRUPT_JSON.pop(os.path.abspath(filepath), None)  # repaired by hand → writable again
+            return data
     return default
 
 
 def save_json(filepath, data):
     with _io_lock:
+        problem = _CORRUPT_JSON.get(os.path.abspath(filepath))
+        if problem:
+            raise JsonWriteBlocked(problem)
         tmp = f"{filepath}.tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, filepath)  # verhindert kaputte Dateien bei Absturz
+        try:  # persist the rename itself (not supported on Windows)
+            dir_fd = os.open(os.path.dirname(os.path.abspath(filepath)), os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass
 
 
 def load_config() -> dict:
@@ -2493,6 +2540,15 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return HTMLResponse(simple_page(icons[exc.status_code], f"Fehler {exc.status_code}", str(exc.detail), links),
                             status_code=exc.status_code)
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+
+@app.exception_handler(JsonWriteBlocked)
+async def json_write_blocked_handler(request: Request, exc: JsonWriteBlocked):
+    links = '<a href="/system" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Systemstatus</a>'
+    return HTMLResponse(simple_page("🛑", "Änderung nicht gespeichert",
+                                    f"{exc}. Die Änderung wurde nicht gespeichert, damit keine Daten verloren gehen. "
+                                    "Bitte die Datei reparieren oder aus einem Backup wiederherstellen.", links),
+                        status_code=503)
 
 
 # =============================================================
