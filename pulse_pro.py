@@ -2590,7 +2590,7 @@ def register(app):
         c=cctx(request,user_session,perm='can_view_analytics'); buf=io.StringIO(); w=csv.writer(buf); w.writerow(['Discord ID','Name','Rolle','Wochenstunden','Aktueller Status','Warnungen'])
         shifts=ws.load_shifts(); teamdb=ws.load_json(ws.DATA_FILE,{}); ids=c.config.get('team_role_ids',[])
         for m in team(c.guild,ids):
-            sec=ws.calculate_weekly_seconds(str(m.id),shifts.get('history',[]),shifts.get('active_shifts',{})); warns=len(ws.active_warns(teamdb.get(str(m.id),{}))); st='Im Dienst' if str(m.id) in shifts.get('active_shifts',{}) else 'Offline'; w.writerow([m.id,m.display_name,member_role(m,ids),f'{sec/3600:.2f}',st,warns])
+            sec=ws.calculate_weekly_seconds(str(m.id),shifts.get('history',[]),shifts.get('active_shifts',{})); warns=len(ws.active_warns(teamdb.get(str(m.id),{}))); st='Im Dienst' if str(m.id) in shifts.get('active_shifts',{}) else 'Offline'; w.writerow([ws.csv_safe(v) for v in (m.id,m.display_name,member_role(m,ids),f'{sec/3600:.2f}',st,warns)])
         # Serve from memory: a shared file in the backup folder raced between parallel exports.
         data=buf.getvalue().encode('utf-8-sig'); return Response(content=data,media_type='text/csv; charset=utf-8',headers={'Content-Disposition':'attachment; filename="pulse_team_export.csv"'})
 

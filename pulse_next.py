@@ -1043,7 +1043,7 @@ def register(app):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics"); require_perm(ctx,"can_view_analytics")
         output=io.StringIO(); writer=csv.writer(output); writer.writerow(["ID","Name","Status","Score","Wochenstunden","Gesamtstunden","Tickets","Warnungen","Training"])
         for m,s in all_stats(ctx.guild):
-            writer.writerow([m.id,m.display_name,str(m.status),s["score"],round(s["weekly_seconds"]/3600,2),round(s["total_seconds"]/3600,2),s["closed_tickets"],s["warnings"],s["training_passed"]])
+            writer.writerow([__import__("webserver").csv_safe(v) for v in (m.id,m.display_name,str(m.status),s["score"],round(s["weekly_seconds"]/3600,2),round(s["total_seconds"]/3600,2),s["closed_tickets"],s["warnings"],s["training_passed"])])
         return HTMLResponse(output.getvalue(),headers={"Content-Type":"text/csv; charset=utf-8","Content-Disposition":"attachment; filename=pulse_team_report.csv"})
 
     @app.get("/ultimate/backup", response_class=HTMLResponse)
