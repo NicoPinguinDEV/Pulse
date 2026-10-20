@@ -134,6 +134,26 @@ class PanelLoadTests(unittest.TestCase):
         self.assertEqual(category_block([], show_load=True), "")
 
 
+class ChannelNameTests(unittest.TestCase):
+    def test_example_from_the_server(self):
+        from pulse_ticket_design import ticket_channel_name
+        self.assertEqual(ticket_channel_name("🤝", "Partnerschaft", "maxim789583574247784466788"),
+                         "『🤝』𝐏𝐚𝐫𝐭𝐧𝐞𝐫𝐬𝐜𝐡𝐚𝐟𝐭-𝐓𝐢𝐜𝐤𝐞𝐭-maxim789583574247784466788")
+
+    def test_no_double_ticket_umlauts_and_clean_user(self):
+        from pulse_ticket_design import ticket_channel_name
+        self.assertEqual(ticket_channel_name("💢", "Highteam Ticket", "Dawo.Jaso"), "『💢』𝐇𝐢𝐠𝐡𝐭𝐞𝐚𝐦-𝐓𝐢𝐜𝐤𝐞𝐭-dawojaso")
+        self.assertEqual(ticket_channel_name("🐬", "Führungsebene", "x"), "『🐬』𝐅ü𝐡𝐫𝐮𝐧𝐠𝐬𝐞𝐛𝐞𝐧𝐞-𝐓𝐢𝐜𝐤𝐞𝐭-x")
+        self.assertEqual(ticket_channel_name("🎫", "Support", "!!!"), "『🎫』𝐒𝐮𝐩𝐩𝐨𝐫𝐭-𝐓𝐢𝐜𝐤𝐞𝐭-user")
+
+    def test_custom_emoji_falls_back_and_limit_is_respected(self):
+        from pulse_ticket_design import _utf16_len, ticket_channel_name
+        self.assertTrue(ticket_channel_name("<:ticket:1360768000235409559>", "Support", "a").startswith("『🎫』"))
+        long_name = ticket_channel_name("🏠", "Sehr langer Kategoriename für Immobilien Beantragungen", "u" * 40, "-r1a2b")
+        self.assertLessEqual(_utf16_len(long_name), 100)
+        self.assertTrue(long_name.endswith("-r1a2b"))
+
+
 class PanelLayoutTests(unittest.TestCase):
     def test_modern_panel_structure(self):
         from types import SimpleNamespace

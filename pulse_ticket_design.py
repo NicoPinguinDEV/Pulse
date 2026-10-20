@@ -260,3 +260,71 @@ def category_block(entries, *, show_load: bool, list_categories: bool = True) ->
     if list_categories:
         return "### 📂 Verfügbare Kategorien\n" + "\n".join(f"- {emoji} **{name}**" for name, emoji, _, _ in entries)
     return ""
+
+
+# --------------------------------------------------------------------------- channel names
+_BOLD_UPPER, _BOLD_LOWER, _BOLD_DIGIT = 0x1D400, 0x1D41A, 0x1D7CE
+CHANNEL_NAME_LIMIT = 100  # Discord limit; bold letters count double (UTF-16), so we measure that way
+
+
+def fancy_bold(text: str) -> str:
+    """'Partnerschaft' → '𝐏𝐚𝐫𝐭𝐧𝐞𝐫𝐬𝐜𝐡𝐚𝐟𝐭'. Umlauts/ß have no bold form and stay readable."""
+    out = []
+    for char in str(text or ""):
+        if "A" <= char <= "Z":
+            out.append(chr(_BOLD_UPPER + ord(char) - ord("A")))
+        elif "a" <= char <= "z":
+            out.append(chr(_BOLD_LOWER + ord(char) - ord("a")))
+        elif "0" <= char <= "9":
+            out.append(chr(_BOLD_DIGIT + ord(char) - ord("0")))
+        else:
+            out.append(char)
+    return "".join(out)
+
+
+def _utf16_len(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
+
+
+def channel_emoji(emoji: str) -> str:
+    """Unicode emoji only – custom Discord emojis (<:name:id>) cannot be used in channel names."""
+    value = str(emoji or "").strip()
+    if not value or "<" in value or ":" in value or len(value) > 8 or re.search(r"[A-Za-z0-9]", value):
+        return "🎫"
+    return value
+
+
+def channel_label(label: str) -> str:
+    """Category label for the channel: letters, digits, umlauts; spaces become dashes."""
+    value = re.sub(r"[^0-9A-Za-zÄÖÜäöüß \-]+", "", str(label or "")).strip()
+    value = re.sub(r"[\s\-]+", "-", value).strip("-")
+    return value[:40] or "Support"
+
+
+def channel_user(name: str) -> str:
+    value = re.sub(r"[^a-z0-9_]+", "", str(name or "").lower())
+    return value[:32] or "user"
+
+
+def ticket_channel_name(emoji: str, label: str, username: str, suffix: str = "") -> str:
+    """'『🤝』𝐏𝐚𝐫𝐭𝐧𝐞𝐫𝐬𝐜𝐡𝐚𝐟𝐭-𝐓𝐢𝐜𝐤𝐞𝐭-maxim' – fits Discord's 100-character limit."""
+    clean_label = channel_label(label)
+    words = clean_label.split("-")
+    if words and words[-1].casefold() != "ticket":
+        words.append("Ticket")  # "Highteam Ticket" must not become "…-Ticket-Ticket"
+    head = f"『{channel_emoji(emoji)}』"
+    user = channel_user(username)
+    suffix = re.sub(r"[^a-z0-9_-]+", "", str(suffix or "").lower())[:12]
+
+    def build(label_words, user_part):
+        return f"{head}{fancy_bold('-'.join(label_words))}-{user_part}{suffix}"
+
+    name = build(words, user)
+    while _utf16_len(name) > CHANNEL_NAME_LIMIT and len(user) > 6:
+        user = user[:-1]
+        name = build(words, user)
+    while _utf16_len(name) > CHANNEL_NAME_LIMIT and len("-".join(words)) > 6:
+        joined = "-".join(words)[:-1].rstrip("-")
+        words = joined.split("-")
+        name = build(words, user)
+    return name

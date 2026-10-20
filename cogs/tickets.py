@@ -29,7 +29,7 @@ from pulse_db import (
     set_ticket_panel,
     touch_ticket_activity,
 )
-from pulse_ticket_design import category_block, load_line
+from pulse_ticket_design import category_block, load_line, ticket_channel_name
 from pulse_ticket_design import (
     PANEL_IMAGE_DIR,
     automation_actions,
@@ -370,6 +370,13 @@ def is_team(member) -> bool:
         return True
     ids = set(web_cfg().get("team_role_ids", []))
     return any(r.id in ids for r in getattr(member, "roles", []))
+
+
+def category_channel_name(definition: dict, username: str, suffix: str = "") -> str:
+    """'『🤝』𝐏𝐚𝐫𝐭𝐧𝐞𝐫𝐬𝐜𝐡𝐚𝐟𝐭-𝐓𝐢𝐜𝐤𝐞𝐭-maxim' – own short label per category, else its name."""
+    definition = definition or {}
+    label = str(definition.get("channel_label") or definition.get("name") or "Support")
+    return ticket_channel_name(str(definition.get("emoji") or "🎫"), label, username, suffix)
 
 
 def safe_channel_name(name: str) -> str:
@@ -841,9 +848,8 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
             embed_links=True,
         )
 
-    channel_prefix = str(category_definition.get("prefix") or key)
     channel = await guild.create_text_channel(
-        f"ticket-{safe_channel_name(channel_prefix)}-{safe_channel_name(interaction.user.display_name)}",
+        category_channel_name(category_definition, interaction.user.name),
         category=parent,
         overwrites=overwrites,
         topic=f"Pulse Ticket | user:{interaction.user.id} | category:{key}",

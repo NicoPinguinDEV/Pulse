@@ -85,6 +85,12 @@ BUILDER_CSS = """
 </style>
 """
 
+def channel_preview(meta: dict) -> str:
+    from pulse_ticket_design import ticket_channel_name
+    label = meta.get("channel_label") or meta.get("name") or "Support"
+    return ticket_channel_name(meta.get("emoji") or "🎫", label, "maxim")
+
+
 def _modern_style() -> bool:
     try:
         from pulse_embed_design import is_modern
@@ -100,6 +106,14 @@ def _load_intro() -> str:
 
 ROLE_PICKER_JS = r"""
 <script>
+function pulseBold(t){let o='';for(const ch of t){const c=ch.codePointAt(0);if(c>=65&&c<=90)o+=String.fromCodePoint(0x1D400+c-65);else if(c>=97&&c<=122)o+=String.fromCodePoint(0x1D41A+c-97);else if(c>=48&&c<=57)o+=String.fromCodePoint(0x1D7CE+c-48);else o+=ch}return o}
+function pulseChannelPreview(input){const form=input.closest('form');const box=form&&form.querySelector('.tb-channel-preview');if(!box)return;
+ const emojiInput=form.querySelector('[name=emoji]');let emoji=(emojiInput&&emojiInput.value.trim())||box.dataset.emoji||'🎫';if(/[<:A-Za-z0-9]/.test(emoji)||emoji.length>8)emoji='🎫';
+ const nameInput=form.querySelector('[name=name]');let label=(form.querySelector('[name=channel_label]').value.trim()||(nameInput&&nameInput.value.trim())||'Support');
+ label=label.replace(/[^0-9A-Za-zÄÖÜäöüß \-]+/g,'').replace(/[\s-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40)||'Support';
+ const words=label.split('-');if(words[words.length-1].toLowerCase()!=='ticket')words.push('Ticket');
+ box.querySelector('.tb-channel-name').textContent='『'+emoji+'』'+pulseBold(words.join('-'))+'-maxim'}
+document.addEventListener('input',ev=>{if(ev.target&&(ev.target.name==='emoji'||ev.target.name==='name')){const f=ev.target.closest('form');const l=f&&f.querySelector('.tb-channel-label');if(l)pulseChannelPreview(l)}});
 function pulseFilterRoles(input){const q=input.value.trim().toLowerCase();input.parentElement.querySelectorAll('.tb-role').forEach(l=>{l.style.display=!q||l.dataset.name.includes(q)?'':'none'})}
 document.addEventListener('change',ev=>{const box=ev.target.closest&&ev.target.closest('.tb-roles');if(box){const c=box.querySelector('.tb-role-count');if(c)c.textContent=box.querySelectorAll('input[type=checkbox]:checked').length}});
 </script>
@@ -468,7 +482,9 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
  <label>Name<input name="name" value="{e(meta.get("name") or "")}" maxlength="80" required placeholder="z. B. Weiterbildung zum Sup"></label>
  <label>Emoji<input name="emoji" value="{e(meta.get("emoji") or "🎫")}" maxlength="100" required></label>
  <label class="wide">Beschreibung im Auswahlmenü<input name="description" value="{e(meta.get("description") or "")}" maxlength="100" required></label>
- <label>Präfix für Ticketkanäle<input name="prefix" value="{e(meta.get("prefix") or "")}" pattern="[a-zA-Z0-9_-]{{1,24}}" maxlength="24" required placeholder="weiterbildung"></label>
+ <label>Name im Ticket-Kanal<input name="channel_label" class="tb-channel-label" value="{e(meta.get("channel_label") or "")}" maxlength="40" placeholder="{e(meta.get("name") or "z. B. Partnerschaft")}" oninput="pulseChannelPreview(this)"></label>
+ <label>Interner Kurzname (Logs)<input name="prefix" value="{e(meta.get("prefix") or "")}" pattern="[a-zA-Z0-9_-]{{1,24}}" maxlength="24" required placeholder="partnerschaft"></label>
+ <div class="wide tb-channel-preview" data-emoji="{e(meta.get("emoji") or "🎫")}" data-name="{e(meta.get("name") or "")}"><span class="text-[11px] text-slate-400">Kanalname-Vorschau:</span> <code class="tb-channel-name">{e(channel_preview(meta))}</code></div>
  <label>Max. offene Tickets (0 = unbegrenzt)<input type="number" name="max_open" min="0" max="1000" value="{int(meta.get("max_open") or 0)}"></label>
  <label>Discord-Kategorie für neue Tickets<select name="parent_category_id">{parent_opts}</select></label>
  <label>Discord-Kategorie nach Übernahme<select name="claimed_category_id">{claimed_opts}</select></label>

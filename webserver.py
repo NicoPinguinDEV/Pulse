@@ -5027,6 +5027,7 @@ async def pulse_ticket_category_save(
     category_id: str = Form(""),
     role_ids: list[str] = Form(default=[]),
     ping_role_ids: list[str] = Form(default=[]),
+    channel_label: str = Form(""),
     ping_roles_field: str = Form(""),
     welcome_title: str = Form(""),
     button_style: str = Form("primary"),
@@ -5155,6 +5156,7 @@ async def pulse_ticket_category_save(
             "button_style": button_style,
             "welcome_banner_url": cleaned_banner_url,
             "welcome_banner_file": str(previous.get("welcome_banner_file") or ""),
+            "channel_label": re.sub(r"\s+", " ", str(channel_label or "")).strip()[:40],
         })
         # Own welcome banner per category (uploaded file > URL > panel banner).
         owner = f"cat-{key}"
@@ -5171,7 +5173,7 @@ async def pulse_ticket_category_save(
     else:
         # Older forms don't send these fields; keep what the visual builder stored.
         for extra in ("welcome_title", "questions", "button_style", "claimed_category_id",
-                      "welcome_banner_url", "welcome_banner_file"):
+                      "welcome_banner_url", "welcome_banner_file", "channel_label"):
             if extra in previous:
                 category_value[extra] = previous[extra]
     replaced = False
@@ -5271,7 +5273,7 @@ async def pulse_tickets_dashboard_action(
         if ticket.get("status") != "closed":
             return back("/tickets", "Nur geschlossene Tickets können wieder geöffnet werden.", False)
         try:
-            from cogs.tickets import TICKET_PARENT_NAME, TicketControlView, category_meta, category_roles, safe_channel_name
+            from cogs.tickets import TICKET_PARENT_NAME, TicketControlView, category_channel_name, category_meta, category_roles, safe_channel_name, ticket_category_definitions
             owner = ctx.guild.get_member(int(ticket.get("user_id") or 0))
             if owner is None:
                 try:
@@ -5292,7 +5294,9 @@ async def pulse_tickets_dashboard_action(
                 overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_messages=True, attach_files=True, embed_links=True)
             short_id = re.sub(r"[^a-zA-Z0-9]", "", str(ticket.get("id") or ""))[-8:] or "ticket"
             channel = await ctx.guild.create_text_channel(
-                f"ticket-{safe_channel_name(str(ticket.get('category') or 'support'))}-{safe_channel_name(str(ticket.get('user_name') or 'user'))}-r{short_id}"[:95],
+                category_channel_name(ticket_category_definitions().get(str(ticket.get("category") or "support"), {}),
+                                      getattr(owner, "name", None) or str(ticket.get("user_name") or "user"),
+                                      f"-r{short_id[-4:].lower()}"),
                 category=parent,
                 overwrites=overwrites,
                 topic=f"Pulse Ticket | ticket:{ticket_id} | user:{ticket.get('user_id')} | category:{ticket.get('category')}",

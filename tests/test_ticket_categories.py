@@ -250,6 +250,16 @@ class CategorySaveTests(unittest.TestCase):
         self.post_files(category_id=key, ping_roles_field="1")  # nothing ticked = nobody pinged
         self.assertEqual(self.saved()["ping_role_ids"], [])
 
+    def test_channel_label_saved_and_used(self):
+        self.post_files(channel_label="  Partnerschaft  ", emoji="🤝")
+        saved = self.saved()
+        self.assertEqual(saved["channel_label"], "Partnerschaft")
+        self.assertEqual(tickets.category_channel_name(saved, "Maxim_78"), "『🤝』𝐏𝐚𝐫𝐭𝐧𝐞𝐫𝐬𝐜𝐡𝐚𝐟𝐭-𝐓𝐢𝐜𝐤𝐞𝐭-maxim_78")
+        self.post(category_id=saved["id"])  # older form keeps the label
+        self.assertEqual(self.saved()["channel_label"], "Partnerschaft")
+        # Without an own label the category name is used.
+        self.assertEqual(tickets.category_channel_name({"name": "Highteam", "emoji": "💢"}, "a"), "『💢』𝐇𝐢𝐠𝐡𝐭𝐞𝐚𝐦-𝐓𝐢𝐜𝐤𝐞𝐭-a")
+
     def test_category_banner_url_validation(self):
         bad = self.post_files(welcome_banner_url="http://unsicher.example/b.png")
         self.assertIn("t=err", bad.headers["location"])
