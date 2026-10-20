@@ -209,6 +209,9 @@ class ServerStatsVoiceChannels(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
+        from pulse_ready import first_ready
+        if not first_ready(self.bot, "server-stats", min_interval=600):  # P-08: joins/leaves refresh anyway
+            return
         self.schedule_refresh()
         print(f"📊 Server-Statistik-Sprachkanäle für Kategorie {STATS_CATEGORY_ID} aktiviert.")
 

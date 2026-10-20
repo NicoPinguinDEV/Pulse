@@ -62,6 +62,9 @@ class Honeypot(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         """Ensure the warning embed exists without posting a duplicate on reconnect."""
+        from pulse_ready import first_ready
+        if not first_ready(self.bot, "honeypot-card"):  # P-08: one history scan per process
+            return
         channel = await self._get_honeypot_channel()
         if channel is None or not hasattr(channel, "send") or not hasattr(channel, "history"):
             print(f"🚨 Honeypot: {HONEYPOT_CHANNEL_ID} ist kein erreichbarer Textkanal.")

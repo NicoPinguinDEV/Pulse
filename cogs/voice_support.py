@@ -863,6 +863,10 @@ class VoiceSupport(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        from pulse_ready import first_ready
+        # P-08: reconcile once, and again only after a longer outage (> 10 min since the last run).
+        if not first_ready(self.bot, "voice-support-ready", min_interval=600):
+            return
         cfg = get_config()
         gid = channel_id(cfg.get("guild_id"))
         guild = self.bot.get_guild(gid) if gid else None
@@ -1124,9 +1128,9 @@ class VoiceSupport(commands.Cog):
                         return
 
                     def schedule_next():
-                        task = loop.create_task(
-                            self._continue_waiting_audio(guild_id, voice_room_id, case_id)
-                        )
+                        from pulse_tasks import spawn  # P-07: keep a reference, log failures
+                        spawn(self._continue_waiting_audio(guild_id, voice_room_id, case_id),
+                              name="voice-support-audio", loop=loop)
 
                     try:
                         loop.call_soon_threadsafe(schedule_next)

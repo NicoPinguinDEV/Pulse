@@ -150,6 +150,7 @@
  "GET /wiki/{page_id} -> pulse_features.register.<locals>.wiki_detail",
  "POST /action -> webserver.handle_action",
  "POST /activity-check/setup -> pulse_pro.register.<locals>.activity_check_setup",
+ "POST /admin/commands/sync -> pulse_admin.register.<locals>.admin_commands_sync",
  "POST /admin/discord/branding -> pulse_admin.register.<locals>.admin_discord_branding",
  "POST /admin/discord/logs -> pulse_admin.register.<locals>.admin_discord_logs",
  "POST /admin/discord/test -> pulse_admin.register.<locals>.admin_discord_test",

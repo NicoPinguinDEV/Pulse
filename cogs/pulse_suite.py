@@ -224,11 +224,13 @@ def allowed(i,key,web):
             # allowed() is synchronous, so schedule the Discord-side lockout alert /
             # automatic team-role removal on the active gateway event loop.
             try:
-                asyncio.get_running_loop().create_task(
+                from pulse_tasks import spawn  # P-07: referenced and logged, not fire-and-forget
+                spawn(
                     web._notify_team_safety_incident(
                         i.guild, i.user, i.user, web.load_config(), decision,
                         source=f"Slash /{key}",
-                    )
+                    ),
+                    name="team-safety-incident",
                 )
             except RuntimeError:
                 pass
@@ -1038,6 +1040,8 @@ class PulseSuite(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        from pulse_ready import first_ready
+        if not first_ready(self.bot,"suite-security-check"):return  # P-08
         g=self.guild()
         if g:
             try:await self.security_check(g)

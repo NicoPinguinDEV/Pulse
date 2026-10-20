@@ -349,6 +349,9 @@ class FlaggenQuizCog(commands.Cog):
 
   @commands.Cog.listener()
   async def on_ready(self):
+    from pulse_ready import first_ready
+    if not first_ready(self.bot, "flaggenquiz-restore"):  # P-08
+      return
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT guild_id, channel_id, current_flag FROM quiz_config")

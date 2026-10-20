@@ -590,6 +590,21 @@ def register(app) -> None:
         return Response(_json.dumps(data, ensure_ascii=False, indent=2, default=str), media_type="application/json",
                         headers={"Content-Disposition": f'attachment; filename="pulse_auskunft_{uid}.json"'})
 
+    @app.post("/admin/commands/sync")
+    async def admin_commands_sync(request: Request, user_session: str = Cookie(None)):
+        """P-09: manual slash-command sync (normally only when the command tree changed)."""
+        from pulse_command_sync import sync_commands
+        ctx = admin_ctx(request, user_session)
+        bot = getattr(request.app.state, "bot", None)
+        if bot is None:
+            return ws.back("/system", "Der Bot ist nicht verbunden – Sync nicht möglich.", False)
+        try:
+            result = await sync_commands(bot.tree, force=True)
+        except Exception as exc:
+            return ws.back("/system", f"Sync fehlgeschlagen ({type(exc).__name__}). Discord begrenzt Syncs – später erneut versuchen.", False)
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Slash-Befehle synchronisiert", f"{result['count']} Befehle")
+        return ws.back("/system", f"{result['count']} Slash-Befehle synchronisiert.", True)
+
     @app.post("/admin/discord/logs")
     async def admin_discord_logs(request: Request, user_session: str = Cookie(None)):
         ctx = admin_ctx(request, user_session)

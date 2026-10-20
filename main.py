@@ -70,10 +70,15 @@ class CustomBot(commands.Bot):
                         print(f"❌ Fehler beim Laden von {filename}: {e}")
 
         # Slash Commands synchronisieren
+        # P-09: only when the command tree changed (or PULSE_FORCE_COMMAND_SYNC=1 / admin button).
         try:
-            synced = await self.tree.sync()
-            self.pulse_synced_commands = len(synced)
-            print(f"🔄 {len(synced)} Slash Commands synchronisiert!")
+            from pulse_command_sync import sync_commands
+            result = await sync_commands(self.tree)
+            self.pulse_synced_commands = result["count"]
+            if result["synced"]:
+                print(f"🔄 {result['count']} Slash Commands synchronisiert ({result['reason']}).")
+            else:
+                print(f"🔄 Slash Commands unverändert ({result['count']}) – kein Sync nötig.")
         except Exception as e:
             print(f"❌ Fehler beim Sync: {e}")
 
@@ -126,6 +131,9 @@ class CustomBot(commands.Bot):
             print("🎮 Discord Presence: Pulse TeamOS")
         except Exception as exc:
             print(f"⚠️ Discord Presence konnte nicht gesetzt werden: {exc}")
+        from pulse_ready import first_ready
+        if not first_ready(self, "warn-role-reconcile"):  # P-08: not again after every reconnect
+            return
         try:
             from webserver import load_config, reconcile_warning_roles
             guild = self.get_guild(int(os.getenv("DISCORD_GUILD_ID", "1474514929351524616")))
