@@ -4075,13 +4075,13 @@ def shift_end_open_items_text(mod_id: str, now: datetime) -> str:
     return (" Noch offen: " + "; ".join(parts) + ".") if parts else " Keine offenen Tickets oder überfälligen Aufgaben – sauberer Abschluss! ✅"
 
 
-@app.post("/shift/action")
-async def handle_shift_action(request: Request, shift_action: str = Form(...), return_to: str = Form("/dashboard"),
-                              user_session: str = Cookie(None)):
-    ctx = auth(request, user_session)
-    # Only known local pages; never redirect to user-supplied external URLs.
-    target_page = return_to if return_to in {"/dashboard", "/me"} else "/dashboard"
-    mod_id = ctx.user["id"]
+SHIFT_ACTIONS = ("start", "break", "resume", "end")
+
+
+def apply_shift_action(mod_id, shift_action: str) -> tuple[bool, str]:
+    """BOT-03: start/pause/resume/end one person's shift – the single logic for the dashboard, the Discord
+    panel and /dienst. Synchronous on purpose: load and save happen without an await in between."""
+    mod_id = str(mod_id)
     shifts_db = load_shifts()
     team_db = load_json(DATA_FILE, {})
     active = shifts_db["active_shifts"]
@@ -4090,9 +4090,9 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), r
 
     if shift_action == "start":
         if shift:
-            return back(target_page, "Du hast bereits eine laufende Schicht.", False)
+            return False, "Du hast bereits eine laufende Schicht."
         if len(active_warns(user_entry(team_db, mod_id))) >= 5:
-            return back(target_page, "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!", False)
+            return False, "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!"
         # An active leave is informational, not a lock: team members may
         # voluntarily work during an LOA without deleting or shortening it.
         loa = get_loas().get(mod_id)
@@ -4136,19 +4136,45 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), r
         except Exception as exc:
             print(f"⚠️ Schichtende-Übersicht nicht verfügbar: {type(exc).__name__}")
     else:
-        return back(target_page, "Diese Aktion ist gerade nicht möglich.", False)
+        return False, "Diese Aktion ist gerade nicht möglich."
 
     save_json(SHIFTS_FILE, shifts_db)
-    # Voice-Support-Bereitschaft is a view of this same shift state, not a
-    # second independent check-in. Keep its Discord role and status post in sync.
+    return True, msg
+
+
+def shift_status_text(mod_id) -> str:
+    """One line for /dienst status and the panel answer."""
+    shifts = load_shifts()
+    shift = shifts.get("active_shifts", {}).get(str(mod_id))
+    week = fmt_duration(calculate_weekly_seconds(str(mod_id), shifts.get("history", []), shifts.get("active_shifts", {})))
+    if not shift:
+        return f"Du bist nicht im Dienst. Diese Woche: {week}."
+    state = "im Dienst" if shift.get("status") == "online" else "in der Pause"
+    return f"Du bist {state} seit {fmt_duration(shift_elapsed(shift))}. Diese Woche: {week}."
+
+
+async def sync_duty_after_shift(bot, guild, mod_id) -> None:
+    """Voice-Support-Bereitschaft is a view of this same shift state, not a second independent check-in.
+    Keep its Discord role and status post in sync (dashboard and Discord use this)."""
     try:
-        bot = getattr(request.app.state, "bot", None)
         voice_support = bot.get_cog("VoiceSupport") if bot else None
-        if voice_support:
-            await voice_support.sync_member_duty_role(ctx.guild, mod_id)
-            await voice_support._refresh_duty_status(ctx.guild)
+        if voice_support and guild:
+            await voice_support.sync_member_duty_role(guild, str(mod_id))
+            await voice_support._refresh_duty_status(guild)
     except Exception as exc:
         print(f"⚠️ Voice-Support: Bereitschaft konnte nach Schichtaktion nicht aktualisiert werden: {exc}")
+
+
+@app.post("/shift/action")
+async def handle_shift_action(request: Request, shift_action: str = Form(...), return_to: str = Form("/dashboard"),
+                              user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    # Only known local pages; never redirect to user-supplied external URLs.
+    target_page = return_to if return_to in {"/dashboard", "/me"} else "/dashboard"
+    ok, msg = apply_shift_action(ctx.user["id"], shift_action)  # BOT-03: same logic as the Discord panel
+    if not ok:
+        return back(target_page, msg, False)
+    await sync_duty_after_shift(getattr(request.app.state, "bot", None), ctx.guild, ctx.user["id"])
     return back(target_page, msg)
 
 

@@ -36,7 +36,9 @@ class DiscordLogRegressionTests(unittest.TestCase):
         self.assertIn("except discord.HTTPException", method)
 
     def test_team_member_can_start_shift_while_leave_remains_active(self):
-        shift_handler = get_method(read_source("webserver.py"), "handle_shift_action")
+        # BOT-03: the logic moved from the route into apply_shift_action (shared with the Discord panel);
+        # behaviour with an active leave: tests/test_dienst.py::test_start_during_leave_keeps_the_leave
+        shift_handler = get_method(read_source("webserver.py"), "apply_shift_action")
         self.assertIn("leave_active = bool(loa and loa.get(\"active\"))", shift_handler)
         self.assertIn("Schicht gestartet. Deine Abmeldung bleibt bis", shift_handler)
         self.assertNotIn("beende erst deine Abmeldung", shift_handler)

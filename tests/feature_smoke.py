@@ -162,8 +162,11 @@ def main() -> None:
     assert "await self._reconcile_duty_roles(guild, cfg)" in voice_support
     assert "def support_open_now(" in voice_support_utils
     assert "def shift_is_online(" in voice_support_utils
-    assert "await voice_support.sync_member_duty_role(ctx.guild, mod_id)" in web
-    assert "await voice_support._refresh_duty_status(ctx.guild)" in web
+    # BOT-03: dashboard and Discord panel share sync_duty_after_shift
+    # (behaviour: tests/test_dienst.py::test_discord_path_checks_rights_on_every_click)
+    assert "await voice_support.sync_member_duty_role(guild, str(mod_id))" in web
+    assert "await voice_support._refresh_duty_status(guild)" in web
+    assert "await sync_duty_after_shift(" in web
     assert '("voice-support","/voice-support","🎧","Sprach-Support"' in pro
     assert "voice_support_v5" in pro and "/voice-support/save" in pro
     assert "Start/Fortsetzen gibt die Bereitschaftsrolle" in pro

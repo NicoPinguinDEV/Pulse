@@ -875,8 +875,14 @@ class PulseSuite(commands.Cog):
                 if member:
                     db.notify(member.id,"⏱ Noch im Dienst?",f"Deine Schicht läuft seit {secfmt(elapsed)}. Vergessen auszustempeln?","warning","/me",f"longshift-self:{uid}:{s.get('date')}",86400)
                     link=f"\n👉 {PUBLIC_BASE_URL}/me" if PUBLIC_BASE_URL else ""
-                    try:await member.send(f"⏱ Hey {member.display_name}, deine Pulse-Schicht läuft schon seit **{secfmt(elapsed)}**. Falls du vergessen hast auszustempeln, beende sie bitte in Pulse.{link}")
+                    try:await member.send(f"⏱ Hey {member.display_name}, deine Pulse-Schicht läuft schon seit **{secfmt(elapsed)}**. Falls du vergessen hast auszustempeln, beende sie mit `/dienst ende` oder in Pulse.{link}")
                     except (discord.Forbidden,discord.HTTPException):pass
+            # BOT-03: a second, clear reminder well before the automatic end (inbox; DM per the person's settings, U-11)
+            limit_h=int(getattr(web,"AUTO_SHIFT_END_HOURS",24))
+            if elapsed>=(limit_h-4)*3600 and not setting("long_shift_late:"+str(uid)+":"+str(s.get("date")),False):
+                set_setting("long_shift_late:"+str(uid)+":"+str(s.get("date")),True)
+                if str(uid).isdigit():
+                    db.notify(int(uid),"⏱ Schicht endet bald automatisch",f"Deine Schicht läuft seit {secfmt(elapsed)} und wird nach {limit_h} h automatisch beendet. Beende sie mit /dienst ende oder im Dashboard.","warning","/me",f"longshift-late:{uid}:{s.get('date')}",86400)
 
     async def inactivity(self,g):
         # Alle Operationen in dieser Prüfung sind synchron (Discord-Cache,
