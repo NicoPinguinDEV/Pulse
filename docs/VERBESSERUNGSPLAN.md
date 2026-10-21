@@ -316,6 +316,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 - [ ] **BOT-05 Eine Logik für Teamaktionen** [Nachgewiesen] – Warnen ist doppelt implementiert (Dashboard `webserver.py:9193`, Slash `/warn` `cogs/pulse_suite.py:987`); ebenso Warn-Rücknahme und Rangwechsel. Slash-Warnungen gelten fest 7 Tage ohne Beweis, im Dashboard sind 1–365 Tage + Beweis-Link möglich. Eine gemeinsame Domänenfunktion je Aktion (Prüfungen, Speichern über K-04, Rollen, Folgen, Team-Update, DM, Audit) für beide Wege; `/warn` bekommt optionale Dauer und Beweis. [Prüfen] ob die Slash-Rücknahme dieselben Warnfolgen aufhebt wie das Dashboard.
 
 - [ ] **BOT-06 Tickets** [Idee] – Schnellantworten je Kategorie (Roadmap P2), Übergabe mit Pflicht-Notiz (Roadmap P2), Ticket-Sperre für Missbrauch (mit Ablauf), Tags, sichtbarer SLA-Timer, lesbares HTML-Transkript im Dashboard, Auswertung der Bewertungen je Kategorie und Teamler.
+  - **Teilfortschritt (noch offen):** Die Ticket-Zentrale bietet eine HTML-Ansicht des Transkripts mit escaped Klartext; der bestehende TXT-Download bleibt unverändert verfügbar. Der Rest von BOT-06 (Schnellantworten, Pflichtnotiz bei Übergabe, Sperre mit Ablauf, Tags und Kennzahlen) ist weiterhin offen.
 
 - [ ] **BOT-07 Voice-Support** [Idee] – Warteposition und geschätzte Wartezeit für den Bürger; außerhalb der Öffnungszeiten das Angebot „Ticket statt Warten“; Supporter-Statistik im Dashboard; sichtbarer Hinweis, wenn Audio nicht verfügbar ist (K-10). Die Blob-Race aus K-04 hier mit absichern.
 

@@ -25,6 +25,48 @@ def _safe(name: str, fallback: str = "datei") -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", str(name or ""))[:80].strip("._") or fallback
 
 
+def render_html_transcript(ticket_id: str, transcript_text: str) -> str:
+    """Render a stored plain-text transcript as a safe, readable HTML document.
+
+    Transcript lines are treated strictly as text, never as markup. This is also
+    used for legacy transcripts so they do not need to be regenerated or migrated.
+    """
+    from html import escape
+
+    safe_ticket_id = escape(str(ticket_id or "Unbekannt"))
+    lines = str(transcript_text or "").splitlines() or ["(Transkript ist leer.)"]
+    items = "\\n".join(f"<li><pre>{escape(line)}</pre></li>" for line in lines)
+    return f"""<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Pulse · Ticket {safe_ticket_id} · Transkript</title>
+<style>
+:root{{font-family:Inter,system-ui,-apple-system,sans-serif;color-scheme:light dark}}
+body{{margin:0;background:#0b0e14;color:#e5e7eb;line-height:1.55}}
+header,main,footer{{width:min(100% - 32px,1000px);margin-inline:auto}}
+header{{padding:28px 0 18px;border-bottom:1px solid #293244}}
+.kicker{{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:#9ca3af;font-weight:700}}
+h1{{font-size:clamp(22px,4vw,32px);margin:6px 0}}
+.summary{{font-size:13px;color:#9ca3af}}
+ol{{list-style:none;padding:0;margin:20px 0}}
+li{{margin:0 0 10px;padding:13px 15px;border:1px solid #293244;border-radius:12px;background:#141824}}
+pre{{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:13px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace}}
+footer{{border-top:1px solid #293244;padding:16px 0 28px;color:#9ca3af;font-size:11px}}
+@media print{{body{{background:#fff;color:#111}}li{{background:#fff;border-color:#ddd;break-inside:avoid}}header,footer{{border-color:#ddd}}}}
+</style>
+</head>
+<body>
+<header><div class="kicker">Pulse TeamOS · Ticket-Transkript</div><h1>Ticket {safe_ticket_id}</h1><div class="summary">{len(lines)} Textzeilen · Inhalte werden als Klartext angezeigt.</div></header>
+<main><ol>{items}</ol></main>
+<footer>Automatisch archiviert von Pulse. Nachrichteninhalte werden zur Sicherheit nicht als HTML ausgeführt.</footer>
+</body>
+</html>
+"""
+
+
 async def build_transcript(channel, ticket_id: str, base_dir: str = "") -> tuple[str, int]:
     """(transcript text, number of attachments saved). History errors propagate to the caller."""
     rows, saved = [], 0

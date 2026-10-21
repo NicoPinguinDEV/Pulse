@@ -112,7 +112,10 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
             )
         if info["state"] == "closed":
             if t.get("transcript_path"):
-                actions.append(f'<a class="pulse-btn ghost" href="/ticket/transcript/{quote(os.path.basename(str(t.get("transcript_path"))))}">📄 Transkript</a>')
+                transcript_name = os.path.basename(str(t.get("transcript_path")))
+                encoded_name = quote(transcript_name)
+                actions.append(f'<a class="pulse-btn ghost" href="/ticket/transcript/{encoded_name}?format=html">🌐 HTML-Transkript</a>')
+                actions.append(f'<a class="pulse-btn ghost" href="/ticket/transcript/{encoded_name}">📄 TXT</a>')
             if manager:
                 actions.append(f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{tid}"><input type="hidden" name="action" value="reopen"><button class="pulse-btn ghost">🔓 Wieder öffnen</button></form>')
         detail = (

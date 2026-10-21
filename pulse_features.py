@@ -138,6 +138,18 @@ def register(app):
         safe=os.path.basename(filename)
         path=os.path.join('transcripts',safe)
         if not safe.endswith('.txt') or not os.path.isfile(path): raise HTTPException(404,'Transcript nicht gefunden.')
+        if request.query_params.get('format','').lower() == 'html':
+            from pulse_transcripts import render_html_transcript
+            try:
+                with open(path, encoding='utf-8') as handle:
+                    text = handle.read()
+            except (OSError, UnicodeDecodeError) as exc:
+                raise HTTPException(404,'Transcript nicht lesbar.') from exc
+            return HTMLResponse(
+                render_html_transcript(os.path.splitext(safe)[0], text),
+                headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'},
+            )
+        # Backwards-compatible: the existing URL still downloads plain text by default.
         return __import__('fastapi').responses.FileResponse(path,filename=safe,media_type='text/plain')
 
     @app.post("/tickets/rate")
