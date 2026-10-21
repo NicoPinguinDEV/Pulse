@@ -154,13 +154,13 @@ def _delivery_status(user_id: str, message: tuple, prefs: dict | None = None) ->
 def _render_dm(messages: list[tuple], base_url: str) -> str:
     count = len(messages)
     noun = "Hinweis" if count == 1 else "Hinweise"
-    header = f"**Pulse TeamOS · {count} {noun}**\\n\\n"
+    header = f"**Pulse TeamOS · {count} {noun}**\n\n"
     remaining = MAX_DM_MESSAGE_CHARS - len(header)
     parts = []
     for title, body, url in messages:
-        separator = "\\n\\n" if parts else ""
-        title_line = f"**{title}**\\n"
-        link = f"\\n{base_url.rstrip('/')}{url}" if base_url and url.startswith("/") else ""
+        separator = "\n\n" if parts else ""
+        title_line = f"**{title}**\n"
+        link = f"\n{base_url.rstrip('/')}{url}" if base_url and url.startswith("/") else ""
         link = link[:260]
         budget = max(0, remaining - len(separator) - len(title_line) - len(link))
         text = str(body or "")
@@ -285,6 +285,7 @@ async def drain_dms(bot, base_url: str = "", limit: int = DM_BATCH) -> dict:
             if not send_now:
                 continue
 
+            actual_send_items = list(send_now)
             try:
                 user = bot.get_user(int(user_id))
                 if user is None:
@@ -304,18 +305,19 @@ async def drain_dms(bot, base_url: str = "", limit: int = DM_BATCH) -> dict:
                         deferred += 1
                     else:
                         still_allowed.append(message)
-                if not still_allowed:
+                actual_send_items = still_allowed
+                if not actual_send_items:
                     continue
-                await user.send(_render_dm(still_allowed, base_url))
+                await user.send(_render_dm(actual_send_items, base_url))
                 sent += 1
             except discord.Forbidden:
-                skipped += len(send_now)  # DMs closed; inbox notifications remain
+                skipped += len(actual_send_items)  # DMs closed; inbox notifications remain
                 # There is no point attempting remaining chunks for this user.
                 skipped += sum(len(rest) for rest in chunks[chunk_index + 1:])
                 break
             except discord.HTTPException as exc:
                 if getattr(exc, "status", None) == 429:
-                    unsent = [(user_id, message) for message in send_now]
+                    unsent = [(user_id, message) for message in actual_send_items]
                     for rest in chunks[chunk_index + 1:]:
                         unsent.extend((user_id, message) for message in rest)
                     for later_user, later_messages in group_list[group_index + 1:]:
@@ -323,9 +325,9 @@ async def drain_dms(bot, base_url: str = "", limit: int = DM_BATCH) -> dict:
                     _requeue_front(unsent)
                     rate_limited = True
                     break
-                skipped += len(send_now)
+                skipped += len(actual_send_items)
             except (ValueError, TypeError):
-                skipped += len(send_now)
+                skipped += len(actual_send_items)
 
         if rate_limited:
             break
