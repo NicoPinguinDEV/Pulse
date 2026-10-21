@@ -283,10 +283,13 @@ def main() -> None:
     assert "async def enforce_team_warn_protection(" in web
     assert "async def enforce_high_impact_warning_approval(" in web
     assert "high_impact_warning_reason(" in web
-    assert "await web.enforce_high_impact_warning_approval(" in read("cogs/pulse_suite.py")
+    # BOT-05: /warn delegates to webserver.issue_team_warning, which runs both checks
+    # (behaviour: tests/test_team_warning_domain.py::test_slash_path_goes_through_protection_and_approval)
+    assert "web.issue_team_warning(" in read("cogs/pulse_suite.py")
+    assert "await enforce_high_impact_warning_approval(" in web
     assert "async def enforce_team_safety_action_lockout(" in web
     assert "_apply_team_safety_team_kick" in web
-    assert "await web.enforce_team_warn_protection(" in read("cogs/pulse_suite.py")
+    assert "await enforce_team_warn_protection(" in web  # reached by /warn via issue_team_warning (BOT-05)
     assert "active warning lockout" not in read("cogs/pulse_suite.py")
     assert 'if key in {"warn-remove","server-exit","team-exit","kick","team-kick","promote","demote"}:' in read("cogs/pulse_suite.py")
 
@@ -367,8 +370,10 @@ def main() -> None:
     assert "rank_role_ids_after_change(" in suite_actions
     assert "if r.id in planned_ids and not r.is_default()" in suite_actions
     assert "Keine andere berechtigte Führungskraft" in suite_actions
-    assert '("Warn-Stufe",f"{count}/5")' in suite_actions
-    assert 'str(count)+"/5), gültig für "+str(duration_days)' in suite_actions
+    # BOT-05: warn level in the team update and validity in the slash reply now come from the shared
+    # domain function (behaviour: tests/test_team_warning_domain.py::test_team_update_and_reply_show_level_and_validity)
+    assert 'target=f"{member.mention}\\nWarn-Stufe: {count}/5"' in web
+    assert '" Gültig bis "+w["expires_at"][:10]' in suite_actions
     assert "manager_cache=managers(g,web)" in suite_actions
     assert "task_snapshot=db.list_tasks(limit=1000,include_archived=True)" in suite_actions
     assert "ticket_snapshot=db.list_tickets(limit=2000)" in suite_actions

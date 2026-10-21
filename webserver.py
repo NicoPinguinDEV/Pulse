@@ -9412,6 +9412,227 @@ def migrate_warning_data():
 migrate_warning_data()
 
 
+# ---------- BOT-05: one logic for team warnings (dashboard and slash commands) ----------
+WARN_MIN_DAYS, WARN_MAX_DAYS = 1, 365
+
+
+async def issue_team_warning(guild, *, actor_member, actor_name: str, actor_id: str, member, reason: str,
+                             duration_days: int, proof: str = "", config: dict | None = None,
+                             actor_is_admin: bool = False, source: str = "Dashboard") -> dict:
+    """Checks, stores (K-04 merge), sets warn roles and consequences, posts the team update, DMs the
+    person and escalates 5/5 to leadership. Returns {"ok", "message", "warn", "count", "role_report",
+    "consequence_report"}; ok=False before anything was stored means the warning was refused."""
+    config = config if config is not None else load_config()
+    team_role_ids = config.get("team_role_ids", [])
+    reason = (reason or "").strip()[:500]
+    refused = lambda message: {"ok": False, "stored": False, "message": message}
+    if not reason:
+        return refused("Bitte einen Grund angeben.")
+    try:
+        duration_days = int(duration_days)
+    except (TypeError, ValueError):
+        duration_days = 0
+    if not WARN_MIN_DAYS <= duration_days <= WARN_MAX_DAYS:
+        return refused(f"Die Warn-Gültigkeit muss zwischen {WARN_MIN_DAYS} und {WARN_MAX_DAYS} Tagen liegen.")
+    if member is None:
+        return refused("Mitglied nicht gefunden.")
+    if member.bot:
+        return refused("Bots können keine Team-Verwarnung erhalten.")
+    if str(member.id) == str(actor_id):
+        return refused("Du kannst dir selbst keine Team-Verwarnung geben.")
+    if team_role_ids and not any(r.id in team_role_ids for r in member.roles):
+        return refused("Team-Verwarnungen können nur an Teammitglieder vergeben werden.")
+    if not actor_is_admin and actor_member:
+        actor_rank = team_rank(actor_member, team_role_ids)
+        target_rank = team_rank(member, team_role_ids)
+        if target_rank >= 0 and (actor_rank < 0 or target_rank >= actor_rank):
+            return refused("Du darfst keine Team-Warnung an ein Mitglied mit gleichem oder höherem Teamrang vergeben.")
+
+    team_db = load_json(DATA_FILE, {})
+    entry = user_entry(team_db, str(member.id))
+    tracker = track_member_entry(member.id, entry)  # K-04: merge-on-save after awaits
+    current_count = len(active_warns(entry))
+    if current_count >= 5:
+        return refused("Dieses Teammitglied hat bereits die maximale Anzahl von 5 aktiven Verwarnungen.")
+    allowed_warn, protection_message = await enforce_team_warn_protection(guild, actor_member, member, config, source=source)
+    if not allowed_warn:
+        return refused(protection_message)
+    allowed_impact, impact_message = await enforce_high_impact_warning_approval(
+        guild, actor_member, member, entry, current_count, config, source=source,
+    )
+    if not allowed_impact:
+        return refused(impact_message)
+
+    proof_url = safe_url(proof)
+    warn = {
+        "id": f"warn_{uuid.uuid4().hex[:6]}", "reason": reason, "proof": proof_url,
+        "by": actor_name, "date": now_de().strftime("%d.%m.%Y %H:%M"),
+        "duration_days": duration_days,
+        "expires_at": (now_de() + timedelta(days=duration_days)).isoformat(timespec="seconds"),
+        "active": True, "revoked_at": None, "revoked_by": None, "revoked_reason": "",
+    }
+    entry["warns_list"].append(warn)
+    count = len(active_warns(entry))
+    tracker.commit()
+    log_audit(actor_name, actor_id, "Verwarnung", f"User-ID {member.id} ({count}/5): {reason}")
+    role_report = await sync_warn_roles(guild, member, count, config)
+    consequence_report = await apply_warn_consequences(guild, member, warn, count, config, entry=entry)
+    tracker.commit()
+    await send_team_update_embed(
+        guild,
+        "⚠️ Team-Update: Verwarnung",
+        f"{member.mention} hat eine neue Verwarnung erhalten.",
+        _pulse_color("warning"),
+        target=f"{member.mention}\nWarn-Stufe: {count}/5",
+        action=f"Verwarnung {count}/5",
+        actor=actor_name,
+        fields=[
+            ("Grund", reason, False),
+            ("Beweis", proof_url or "Kein Beweis-Link", False),
+            ("Gültig bis", warn["expires_at"], True),
+            ("Quelle", source, True),
+            ("Discord-Warnrolle", f"✅ {role_report.get('role').mention}" if role_report.get("ok") and role_report.get("role") else (f"✅ keine Warnrolle bei 0" if count == 0 else f"❌ {role_report.get('message')}"), False),
+        ],
+        thumbnail=member.display_avatar.url,
+    )
+    consequence_text = "; ".join(x for x in consequence_report.get("actions", []) if x)
+    dm_suffix = f"\n**Automatische Folge:** {consequence_text}" if consequence_text else ""
+    await send_dm_notification(member, f"⚠️ Du hast eine Verwarnung erhalten ({count}/5)!\n**Grund:** {reason}\n**Von:** {actor_name}{dm_suffix}")
+    if count >= 5:
+        # Führungskräfte erhalten zusätzlich eine Pulse-Inbox-Meldung.
+        for manager in guild.members:
+            if manager.bot or manager.id == member.id:
+                continue
+            manager_perms, _ = compute_perms(guild, manager.id, config)
+            if manager_perms.get("can_promote") or manager_perms.get("is_admin"):
+                try:
+                    pulse_db.notify(manager.id, "🚨 5/5 Team-Warnungen",
+                                    f"{member.display_name} hat 5 aktive Verwarnungen. Bitte Fall prüfen.",
+                                    "warning", "/warns", f"warn-escalation:{member.id}:{count}", 86400)
+                except Exception as exc:
+                    print(f"Warn-Eskalationsbenachrichtigung fehlgeschlagen: {exc}")
+        await send_team_update_embed(
+            guild,
+            "🚨 Team-Update: 5 Verwarnungen",
+            f"**Mitglied:** {member.mention} ({member.display_name})\n**Status:** Automatisch aus dem Team entfernt.",
+            _pulse_color("danger"),
+            target=member.mention,
+            action="Warn-Schwelle 5/5",
+            actor=actor_name,
+            fields=[("Warnrollen-Sync", "✅ Erfolgreich" if role_report.get("ok") else f"❌ {role_report.get('message')}")],
+            thumbnail=member.display_avatar.url,
+        )
+    ok = bool(role_report.get("ok") and consequence_report.get("ok"))
+    if ok:
+        message = f"Verwarnung eingetragen ({count}/5). Automatische Folge ausgeführt."
+    else:
+        problems = []
+        if not role_report.get("ok"):
+            problems.append(f"Warnrolle: {role_report.get('message')}")
+        if not consequence_report.get("ok"):
+            problems.extend(consequence_report.get("actions", []))
+        suffix = " · ".join(x for x in problems if x) or "Eine automatische Folge konnte nicht vollständig ausgeführt werden."
+        message = f"Verwarnung eingetragen ({count}/5), aber: {suffix}"
+    return {"ok": ok, "stored": True, "message": message, "warn": warn, "count": count,
+            "role_report": role_report, "consequence_report": consequence_report}
+
+
+async def revoke_team_warning(guild, *, member, warn_id: str, revoke_reason: str, actor_name: str, actor_id: str,
+                              config: dict | None = None, source: str = "Team-Dashboard") -> dict:
+    """Withdraws one warning: marks it, lifts its temporary consequences (unless another active warning
+    still justifies them), syncs warn roles, posts the team update and writes the audit."""
+    config = config if config is not None else load_config()
+    revoke_reason = (revoke_reason or "").strip()[:500]
+    if member is None:
+        return {"ok": False, "stored": False, "message": "Mitglied nicht gefunden."}
+    if not revoke_reason:
+        return {"ok": False, "stored": False, "message": "Bitte einen Grund für die Rücknahme der Verwarnung angeben."}
+    team_db = load_json(DATA_FILE, {})
+    entry = user_entry(team_db, str(member.id))
+    tracker = track_member_entry(member.id, entry)  # K-04: merge-on-save after awaits
+    target = next((w for w in entry["warns_list"] if str(w.get("id")) == str(warn_id)), None)
+    if target is None or not target.get("active", True) or target.get("revoked_at"):
+        return {"ok": False, "stored": False,
+                "message": "Diese Verwarnung wurde bereits zurückgezogen oder ist nicht mehr vorhanden. Bitte die Seite aktualisieren."}
+    target["active"] = False
+    target["revoked_at"] = now_de().strftime("%d.%m.%Y %H:%M")
+    target["revoked_by"] = actor_name
+    target["revoked_reason"] = revoke_reason
+    count = len(active_warns(entry))
+    tracker.commit()
+
+    original_reason = str(target.get("reason") or "Kein Grund")
+    original_by = str(target.get("by") or "System")
+    original_date = str(target.get("date") or "N/A")
+    # Temporäre Folgen dieser konkreten Warnung beim Zurückziehen sofort entfernen.
+    temp_roles = (target.get("consequences") or {}).get("temporary_roles", [])
+    temp_remove_failed = False
+    temp_roles_to_keep = []
+    for restriction in temp_roles:
+        role_id = int(restriction.get("role_id", 0) or 0)
+        role = guild.get_role(role_id)
+        if not role:
+            continue
+        # A different active warning keeps temporary punishments in place,
+        # even if the warning that originally granted the role was revoked.
+        other_active_warning = any(
+            other is not target
+            and isinstance(other, dict)
+            and other.get("active", True)
+            and not other.get("revoked_at")
+            and not warning_is_expired(other)
+            for other in entry.get("warns_list", [])
+        )
+        if other_active_warning:
+            temp_roles_to_keep.append(restriction)
+            continue
+        try:
+            if role in member.roles:
+                if guild.me and (not guild.me.guild_permissions.manage_roles or role.position >= guild.me.top_role.position):
+                    temp_remove_failed = True
+                    temp_roles_to_keep.append(restriction)
+                    continue
+                await member.remove_roles(role, reason=f"Warn zurückgezogen · {revoke_reason}")
+        except discord.Forbidden:
+            temp_remove_failed = True
+            temp_roles_to_keep.append(restriction)
+        except Exception:
+            temp_remove_failed = True
+            temp_roles_to_keep.append(restriction)
+    target.setdefault("consequences", {})["temporary_roles"] = temp_roles if temp_remove_failed else temp_roles_to_keep
+    tracker.commit()
+    role_report = await sync_warn_roles(guild, member, count, config)
+
+    await send_team_update_embed(
+        guild,
+        "✅ Team-Update: Verwarnung zurückgezogen",
+        f"Die Verwarnung von {member.mention} wurde durch {source} zurückgezogen.",
+        _pulse_color("success"),
+        target=f"{member.mention}\nAktive Warnungen: {count}/5",
+        action="Warn zurückgezogen",
+        actor=actor_name,
+        fields=[
+            ("Ursprünglicher Grund", original_reason, False),
+            ("Ausgestellt von", original_by, True),
+            ("Ausgestellt am", original_date, True),
+            ("Rücknahmegrund", revoke_reason, False),
+            ("Warn-ID", warn_id, True),
+            ("Discord-Warnrolle", "✅ Synchronisiert" if role_report.get("ok") else f"❌ {role_report.get('message')}"),
+        ],
+        thumbnail=member.display_avatar.url,
+    )
+    log_audit(actor_name, actor_id, "Warn Zurückgezogen",
+              f"User-ID {member.id}, Warn-ID {warn_id}, Grund: {original_reason}, Rücknahme: {revoke_reason}")
+    if role_report.get("ok") and not temp_remove_failed:
+        message = f"Verwarnung zurückgezogen ({count}/5)."
+    elif not role_report.get("ok"):
+        message = f"Verwarnung zurückgezogen ({count}/5), aber Discord-Warnrolle konnte nicht synchronisiert werden: {role_report.get('message')}"
+    else:
+        message = f"Verwarnung zurückgezogen ({count}/5), aber eine temporäre Sperrrolle konnte nicht entfernt werden – Rollenhierarchie prüfen."
+    return {"ok": bool(role_report.get("ok")) and not temp_remove_failed, "stored": True, "message": message,
+            "count": count, "role_report": role_report}
+
+
 @app.post("/action")
 async def handle_action(
     request: Request,
@@ -9905,205 +10126,23 @@ async def handle_action(
 
     # ---------- Verwarnungen ----------
     if action == "warn_with_proof":
-        reason = (warn_reason or "").strip()[:500]
-        if not user_id or not reason:
+        if not user_id or not (warn_reason or "").strip():
             return back(member_url, "Bitte einen Grund angeben.", False)
-        if warn_duration_days is None or not 1 <= int(warn_duration_days) <= 365:
-            return back(member_url, "Die Warn-Gültigkeit muss zwischen 1 und 365 Tagen liegen.", False)
-        m = guild.get_member(user_id)
-        if not m:
-            return back(member_url, "Mitglied nicht gefunden.", False)
-        if m.bot:
-            return back(member_url, "Bots können keine Team-Verwarnung erhalten.", False)
-        if str(m.id) == actor_id:
-            return back(member_url, "Du kannst dir selbst keine Team-Verwarnung geben.", False)
-        if team_role_ids and not any(r.id in team_role_ids for r in m.roles):
-            return back(member_url, "Team-Verwarnungen können nur an Teammitglieder vergeben werden.", False)
-        if not ctx.perms.get("is_admin") and ctx.member:
-            actor_rank = team_rank(ctx.member, team_role_ids)
-            target_rank = team_rank(m, team_role_ids)
-            if target_rank >= 0 and (actor_rank < 0 or target_rank >= actor_rank):
-                return back(member_url, "Du darfst keine Team-Warnung an ein Mitglied mit gleichem oder höherem Teamrang vergeben.", False)
-
-        team_db = load_json(DATA_FILE, {})
-        entry = user_entry(team_db, str(user_id))
-        tracker = track_member_entry(user_id, entry)  # K-04: merge-on-save after awaits
-        current_count = len(active_warns(entry))
-        if current_count >= 5:
-            return back(member_url, "Dieses Teammitglied hat bereits die maximale Anzahl von 5 aktiven Verwarnungen.", False)
-
-        allowed_warn, protection_message = await enforce_team_warn_protection(
-            guild, ctx.member or guild.get_member(int(actor_id)), m, config, source="Dashboard",
+        result = await issue_team_warning(  # BOT-05: same logic as /warn
+            guild, actor_member=ctx.member or guild.get_member(int(actor_id)), actor_name=actor, actor_id=actor_id,
+            member=guild.get_member(user_id), reason=warn_reason, duration_days=warn_duration_days, proof=warn_proof,
+            config=config, actor_is_admin=bool(ctx.perms.get("is_admin")), source="Dashboard",
         )
-        if not allowed_warn:
-            return back(member_url, protection_message, False)
-        actor_member = ctx.member or guild.get_member(int(actor_id))
-        allowed_impact, impact_message = await enforce_high_impact_warning_approval(
-            guild, actor_member, m, entry, current_count, config, source="Dashboard",
-        )
-        if not allowed_impact:
-            return back(member_url, impact_message, False)
-        entry["warns_list"].append({
-            "id": f"warn_{uuid.uuid4().hex[:6]}", "reason": reason, "proof": safe_url(warn_proof),
-            "by": actor, "date": now_de().strftime("%d.%m.%Y %H:%M"),
-            "duration_days": int(warn_duration_days),
-            "expires_at": (now_de() + timedelta(days=int(warn_duration_days))).isoformat(timespec="seconds"),
-            "active": True, "revoked_at": None, "revoked_by": None, "revoked_reason": "",
-        })
-        count = len(active_warns(entry))
-        tracker.commit()
-        log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/5): {reason}")
-        role_report = await sync_warn_roles(guild, m, count, config)
-        consequence_report = await apply_warn_consequences(guild, m, entry["warns_list"][-1], count, config, entry=entry)
-        tracker.commit()
-        if m:
-            await send_team_update_embed(
-                guild,
-                "⚠️ Team-Update: Verwarnung",
-                f"{m.mention} hat eine neue Verwarnung erhalten.",
-                _pulse_color("warning"),
-                target=f"{m.mention}\nWarn-Stufe: {count}/5",
-                action=f"Verwarnung {count}/5",
-                actor=actor,
-                fields=[
-                    ("Grund", reason, False),
-                    ("Beweis", safe_url(warn_proof) or "Kein Beweis-Link", False),
-                    ("Discord-Warnrolle", f"✅ {role_report.get('role').mention}" if role_report.get("ok") and role_report.get("role") else (f"✅ keine Warnrolle bei 0" if count == 0 else f"❌ {role_report.get('message')}"), False),
-                ],
-                thumbnail=m.display_avatar.url,
-            )
-            consequence_text = "; ".join(x for x in consequence_report.get("actions", []) if x)
-            dm_suffix = f"\n**Automatische Folge:** {consequence_text}" if consequence_text else ""
-            await send_dm_notification(m, f"⚠️ Du hast eine Verwarnung erhalten ({count}/5)!\n**Grund:** {reason}\n**Von:** {actor}{dm_suffix}")
-            if count >= 5:
-                # Führungskräfte erhalten zusätzlich eine Pulse-Inbox-Meldung.
-                for manager in guild.members:
-                    if manager.bot or manager.id == m.id:
-                        continue
-                    manager_perms, _ = compute_perms(guild, manager.id, config)
-                    if manager_perms.get("can_promote") or manager_perms.get("is_admin"):
-                        try:
-                            pulse_db.notify(
-                                manager.id,
-                                "🚨 5/5 Team-Warnungen",
-                                f"{m.display_name} hat 5 aktive Verwarnungen. Bitte Fall prüfen.",
-                                "warning",
-                                "/warns",
-                                f"warn-escalation:{m.id}:{count}",
-                                86400,
-                            )
-                        except Exception as exc:
-                            print(f"Warn-Eskalationsbenachrichtigung fehlgeschlagen: {exc}")
-                await send_team_update_embed(
-                    guild,
-                    "🚨 Team-Update: 5 Verwarnungen",
-                    f"**Mitglied:** {m.mention} ({m.display_name})\n**Status:** Automatisch aus dem Team entfernt.",
-                    _pulse_color("danger"),
-                    target=m.mention,
-                    action="Warn-Schwelle 5/5",
-                    actor=actor,
-                    fields=[("Warnrollen-Sync", "✅ Erfolgreich" if role_report.get("ok") else f"❌ {role_report.get('message')}")],
-                    thumbnail=m.display_avatar.url,
-                )
-        if role_report.get("ok") and consequence_report.get("ok"):
-            return back(member_url, f"Verwarnung eingetragen ({count}/5). Automatische Folge ausgeführt.")
-        problems = []
-        if not role_report.get("ok"):
-            problems.append(f"Warnrolle: {role_report.get('message')}")
-        if not consequence_report.get("ok"):
-            problems.extend(consequence_report.get("actions", []))
-        suffix = " · ".join(x for x in problems if x) or "Eine automatische Folge konnte nicht vollständig ausgeführt werden."
-        return back(member_url, f"Verwarnung eingetragen ({count}/5), aber: {suffix}", False)
+        return back(member_url, result["message"], result["ok"])
 
     if action == "remove_warn":
         if not user_id or not warn_id:
             return back(member_url, "Ungültige Anfrage.", False)
-        team_db = load_json(DATA_FILE, {})
-        entry = user_entry(team_db, str(user_id))
-        tracker = track_member_entry(user_id, entry)  # K-04: merge-on-save after awaits
-        m = guild.get_member(user_id)
-        if not m:
-            return back(member_url, "Mitglied nicht gefunden.", False)
-
-        target = next((w for w in entry["warns_list"] if str(w.get("id")) == str(warn_id)), None)
-        if target is None or not target.get("active", True) or target.get("revoked_at"):
-            return back(member_url, "Diese Verwarnung wurde bereits zurückgezogen oder ist nicht mehr vorhanden. Bitte die Seite aktualisieren.", False)
-
-        revoke_reason = (warn_revoke_reason or "").strip()[:500]
-        if not revoke_reason:
-            return back(member_url, "Bitte einen Grund für die Rücknahme der Verwarnung angeben.", False)
-        target["active"] = False
-        target["revoked_at"] = now_de().strftime("%d.%m.%Y %H:%M")
-        target["revoked_by"] = actor
-        target["revoked_reason"] = revoke_reason
-        count = len(active_warns(entry))
-        tracker.commit()
-
-        original_reason = str(target.get("reason") or "Kein Grund")
-        original_by = str(target.get("by") or "System")
-        original_date = str(target.get("date") or "N/A")
-        # Temporäre Folgen dieser konkreten Warnung beim Zurückziehen sofort entfernen.
-        temp_roles = (target.get("consequences") or {}).get("temporary_roles", [])
-        temp_remove_failed = False
-        temp_roles_to_keep = []
-        for restriction in temp_roles:
-            role_id = int(restriction.get("role_id", 0) or 0)
-            role = guild.get_role(role_id)
-            if not role:
-                continue
-            # A different active warning keeps temporary punishments in place,
-            # even if the warning that originally granted the role was revoked.
-            other_active_warning = any(
-                other is not target
-                and isinstance(other, dict)
-                and other.get("active", True)
-                and not other.get("revoked_at")
-                and not warning_is_expired(other)
-                for other in entry.get("warns_list", [])
-            )
-            if other_active_warning:
-                temp_roles_to_keep.append(restriction)
-                continue
-            try:
-                if role in m.roles:
-                    if guild.me and (not guild.me.guild_permissions.manage_roles or role.position >= guild.me.top_role.position):
-                        temp_remove_failed = True
-                        temp_roles_to_keep.append(restriction)
-                        continue
-                    await m.remove_roles(role, reason=f"Warn zurückgezogen · {revoke_reason}")
-            except discord.Forbidden:
-                temp_remove_failed = True
-                temp_roles_to_keep.append(restriction)
-            except Exception:
-                temp_remove_failed = True
-                temp_roles_to_keep.append(restriction)
-        target.setdefault("consequences", {})["temporary_roles"] = temp_roles if temp_remove_failed else temp_roles_to_keep
-        tracker.commit()
-        role_report = await sync_warn_roles(guild, m, count, config)
-
-        await send_team_update_embed(
-            guild,
-            "✅ Team-Update: Verwarnung zurückgezogen",
-            f"Die Verwarnung von {m.mention} wurde durch das Team-Dashboard zurückgezogen.",
-            _pulse_color("success"),
-            target=f"{m.mention}\nAktive Warnungen: {count}/5",
-            action="Warn zurückgezogen",
-            actor=actor,
-            fields=[
-                ("Ursprünglicher Grund", original_reason, False),
-                ("Ausgestellt von", original_by, True),
-                ("Ausgestellt am", original_date, True),
-                ("Rücknahmegrund", revoke_reason, False),
-                ("Warn-ID", warn_id, True),
-                ("Discord-Warnrolle", "✅ Synchronisiert" if role_report.get("ok") else f"❌ {role_report.get('message')}"),
-            ],
-            thumbnail=m.display_avatar.url,
+        result = await revoke_team_warning(  # BOT-05: same logic as /warn-remove
+            guild, member=guild.get_member(user_id), warn_id=warn_id, revoke_reason=warn_revoke_reason,
+            actor_name=actor, actor_id=actor_id, config=config,
         )
-        log_audit(actor, actor_id, "Warn Zurückgezogen",
-                  f"User-ID {user_id}, Warn-ID {warn_id}, Grund: {original_reason}, Rücknahme: {revoke_reason}")
-        if role_report.get("ok"):
-            return back(member_url, f"Verwarnung zurückgezogen ({count}/5).")
-        return back(member_url, f"Verwarnung zurückgezogen ({count}/5), aber Discord-Warnrolle konnte nicht synchronisiert werden: {role_report.get('message')}", False)
+        return back(member_url, result["message"], result["ok"])
 
 
     if action == "add_note":
