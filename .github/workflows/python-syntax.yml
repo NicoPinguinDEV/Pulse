@@ -19,10 +19,12 @@ jobs:
       - name: Abhaengigkeiten installieren
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt ruff==0.6.9
+          python -m pip install -r requirements.txt ruff==0.6.9 pip-audit coverage
       - name: Lint (ruff, konservativ - siehe ruff.toml)
         run: |
           python -m ruff check .
+      - name: Abhängigkeiten auf bekannte Sicherheitslücken prüfen
+        run: python -m pip_audit -r requirements.txt
       - name: Python-Syntax prüfen
         run: |
           python -m compileall -q .
@@ -32,4 +34,5 @@ jobs:
         run: |
           python tests/feature_smoke.py
           python tests/smoke_test.py
-          python -m unittest discover -s tests -p 'test_*.py'
+          coverage run -m unittest discover -s tests -p 'test_*.py'
+          coverage report
