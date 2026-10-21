@@ -64,6 +64,7 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
             if needle in " ".join(str(x or "") for x in (
                 t.get("id"), t.get("user_name"), t.get("user_id"), t.get("claimed_by_name"),
                 (registry.get(str(t.get("category"))) or {}).get("name"), t.get("close_reason"),
+                ", ".join(db.ticket_tags_from_state(t.get("automation_state"))),
             )).casefold()
         ]
     selected.sort(key=lambda pair: pair[1]["sort_key"])
@@ -118,10 +119,27 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
                 actions.append(f'<a class="pulse-btn ghost" href="/ticket/transcript/{encoded_name}">📄 TXT</a>')
             if manager:
                 actions.append(f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{tid}"><input type="hidden" name="action" value="reopen"><button class="pulse-btn ghost">🔓 Wieder öffnen</button></form>')
+        ticket_tags = db.ticket_tags_from_state(t.get("automation_state"))
+        tags_html = (
+            '<div class="flex flex-wrap gap-1 mt-2">' +
+            "".join(f'<span class="pulse-pill">{e(tag)}</span>' for tag in ticket_tags) +
+            '</div>'
+        ) if ticket_tags else ""
+        if manager:
+            current_tags = e(", ".join(ticket_tags))
+            actions.append(
+                f'<form method="post" action="/tickets/action" class="flex flex-wrap gap-1 items-center">'
+                f'<input type="hidden" name="ticket_id" value="{tid}">'
+                f'<input type="hidden" name="action" value="tags">'
+                f'<input name="tags" value="{current_tags}" maxlength="250" class="pulse-input !w-44 !py-2 !text-xs" '
+                f'aria-label="Ticket-Tags" placeholder="Tags, kommasepariert">'
+                f'<button class="pulse-btn ghost" aria-label="Ticket-Tags speichern">🏷️ Tags</button></form>'
+            )
         detail = (
             f'<div class="text-[11px] mt-1 {"text-rose-500" if info["overdue"] else "text-slate-400"}">{e(info["reason"])}</div>'
             + (f'<div class="text-[11px] text-indigo-500 mt-0.5">Nächster Schritt: {e(info["next_step"])}</div>' if info["state"] != "closed" else "")
             + (f'<div class="text-[11px] text-slate-400 mt-0.5">Grund: {e(t.get("close_reason"))}</div>' if info["state"] == "closed" and t.get("close_reason") else "")
+            + tags_html
         )
         return (
             f'<article class="pulse-row tc-row {"tc-overdue" if info["overdue"] else ""}">'

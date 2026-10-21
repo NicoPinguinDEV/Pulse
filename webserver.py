@@ -5550,6 +5550,7 @@ async def pulse_tickets_dashboard_action(
     action: str = Form(...),
     reason: str = Form(""),
     priority: str = Form("normal"),
+    tags: str = Form(""),
     user_session: str = Cookie(None),
 ):
     ctx = auth(request, user_session, perm="can_manage_tickets")
@@ -5624,6 +5625,25 @@ async def pulse_tickets_dashboard_action(
         except (discord.Forbidden, discord.HTTPException, ImportError) as exc:
             print(f"⚠️ Pulse-Tickets: Wiederöffnung fehlgeschlagen ({type(exc).__name__}).")
             return back("/tickets?status=closed", "Ticket konnte nicht wieder geöffnet werden. Prüfe die Bot-Rechte.", False)
+
+    if action == "tags":
+        try:
+            saved_tags = pulse_db.set_ticket_tags(
+                ticket_id, tags, actor_id=actor_id, actor_name=actor_name,
+            )
+        except ValueError as exc:
+            return back(f"/tickets?status={('closed' if ticket.get('status') == 'closed' else 'active')}",
+                        str(exc), False)
+        if saved_tags is None:
+            return back("/tickets", "Ticket wurde nicht gefunden.", False)
+        pulse_db.record_event(
+            "ticket_tags_dashboard", "ticket", ticket_id, actor_id, actor_name,
+            {"tags": saved_tags},
+        )
+        return back(
+            f"/tickets?status={('closed' if ticket.get('status') == 'closed' else 'active')}",
+            "Tags entfernt." if not saved_tags else "Ticket-Tags gespeichert: " + ", ".join(saved_tags),
+        )
 
     if ticket.get("status") == "closed":
         return back("/tickets?status=closed", "Dieses Ticket ist bereits geschlossen.", False)

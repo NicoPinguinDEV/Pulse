@@ -522,6 +522,85 @@ def touch_ticket_activity(channel_id, kind: str):
         return bool(cur.rowcount)
 
 
+
+def normalize_ticket_tags(tags, *, max_tags=8, max_length=24):
+    """Normalize a list or comma-separated tag string without silently overflowing limits."""
+    if isinstance(tags, str):
+        raw_values = tags.split(",")
+    elif isinstance(tags, (list, tuple, set)):
+        raw_values = list(tags)
+    else:
+        raise ValueError("Tags müssen als Liste oder kommaseparierter Text angegeben werden.")
+    normalized = []
+    seen = set()
+    for raw in raw_values:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        if len(value) > max_length:
+            raise ValueError(f"Ein Ticket-Tag darf höchstens {max_length} Zeichen haben.")
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(value)
+        if len(normalized) > max_tags:
+            raise ValueError(f"Pro Ticket sind höchstens {max_tags} Tags erlaubt.")
+    return normalized
+
+
+def ticket_tags_from_state(raw_state):
+    """Read tags from a ticket's existing automation JSON without losing its other fields."""
+    if isinstance(raw_state, dict):
+        state = raw_state
+    else:
+        try:
+            state = json.loads(raw_state or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return []
+    if not isinstance(state, dict):
+        return []
+    try:
+        return normalize_ticket_tags(state.get("tags", []))
+    except ValueError:
+        return []
+
+
+def set_ticket_tags(tid, tags, actor_id=None, actor_name=None):
+    """Atomically save ticket tags inside its existing automation_state and audit the change."""
+    normalized = normalize_ticket_tags(tags)
+    with connect() as db:
+        row = db.execute(
+            "SELECT automation_state FROM tickets WHERE id=?",
+            (str(tid),),
+        ).fetchone()
+        if not row:
+            return None
+        raw = row["automation_state"] if "automation_state" in row.keys() else "{}"
+        try:
+            state = json.loads(raw or "{}")
+        except (TypeError, json.JSONDecodeError) as exc:
+            # Preserve malformed data for inspection; never replace unknown state with defaults.
+            raise ValueError("Ticket-Automationsdaten sind beschädigt; Tags wurden nicht gespeichert.") from exc
+        if not isinstance(state, dict):
+            raise ValueError("Ticket-Automationsdaten sind ungültig; Tags wurden nicht gespeichert.")
+        state["tags"] = normalized
+        now = _now()
+        db.execute(
+            "UPDATE tickets SET automation_state=? WHERE id=?",
+            (json.dumps(state, ensure_ascii=False), str(tid)),
+        )
+        db.execute(
+            "INSERT INTO ticket_events VALUES (?,?,?,?,?,?,?)",
+            (
+                make_id("te"), str(tid), str(actor_id or "0"),
+                str(actor_name or "System")[:100], "tags",
+                ", ".join(normalized) if normalized else "(alle Tags entfernt)", now,
+            ),
+        )
+    return normalized
+
+
 def set_ticket_automation_state(tid, state: dict):
     with connect() as db:
         db.execute("UPDATE tickets SET automation_state=? WHERE id=?", (json.dumps(state or {}, ensure_ascii=False), tid))
