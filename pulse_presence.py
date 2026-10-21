@@ -12,6 +12,11 @@ _LAST_AT_ATTR = "_pulse_presence_last_at"
 _LAST_NAME_ATTR = "_pulse_presence_last_name"
 
 
+def _monotonic() -> float:
+    """Clock seam for deterministic tests without patching asyncio's event-loop clock."""
+    return time.monotonic()
+
+
 def _log_failure(operation: str, exc: Exception) -> None:
     try:
         import pulse_logging
@@ -39,7 +44,7 @@ async def update_presence(bot) -> bool:
         setattr(bot, _LOCK_ATTR, lock)
 
     async with lock:
-        now = time.monotonic()
+        now = _monotonic()
         last_at = getattr(bot, _LAST_AT_ATTR, None)
         if last_at is not None and now - last_at < MIN_PRESENCE_INTERVAL_SECONDS:
             return False
