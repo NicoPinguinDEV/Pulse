@@ -6443,8 +6443,8 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
     history = [h for h in shifts_db["history"] if str(h.get("mod_id")) == str(user_id)][-8:]
     shifts_html = "".join(f"""
         <div class="flex justify-between text-xs bg-slate-50 dark:bg-[#0b0e14] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800">
-            <span class="text-slate-500">{esc(fmt_date(h.get('date')))}{' · automatisch beendet' if h.get('auto_closed') else ''}</span>
-            <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">{fmt_duration(h.get('duration_seconds', 0))}</span>
+            <span class="text-slate-500">{esc(fmt_date(h.get('date')))}{' · automatisch beendet · unbestätigt (0 h)' if h.get('auto_closed') and not h.get('duration_confirmed') else (' · automatisch beendet · bestätigt' if h.get('auto_closed') else '')}</span>
+            <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">{fmt_duration(credited_shift_seconds(h))}</span>
         </div>""" for h in reversed(history))
 
     actions_html = ""
