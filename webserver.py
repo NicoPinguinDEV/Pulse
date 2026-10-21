@@ -5652,6 +5652,61 @@ async def pulse_ticket_transcript_view(request: Request, ticket_id: str, user_se
     return HTMLResponse(render_pro_page(sys.modules[__name__], f"Transkript {ticket_id}", ctx, "tickets", body))
 
 
+def _mod_case_ctx(request, user_session):
+    ctx = auth(request, user_session, perm=None)
+    if not (ctx.perms.get("is_admin") or ctx.perms.get("can_moderate_kicks") or ctx.perms.get("can_moderate_bans")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir ein Moderationsrecht.")
+    return ctx
+
+
+@app.get("/mod-cases", response_class=HTMLResponse)
+async def mod_cases_page(request: Request, user_session: str = Cookie(None)):
+    """BOT-09: case file of the citizen moderation (/mod …) – search, pages, CSV."""
+    import pulse_lists
+    import pulse_mod_cases as mc
+    from pulse_pro import render_pro_page
+    ctx = _mod_case_ctx(request, user_session)
+    params = pulse_lists.params(request.query_params)
+    rows = pulse_lists.search(mc.list_cases(), params["q"],
+                              lambda c: f"{c['id']} {c['target_name']} {c['target_id']} {c['reason']} {c['actor_name']} {c['action']}")
+    page_rows, meta = pulse_lists.paginate(rows, params["page"], params["per"])
+    state = {"active": ("aktiv", "warn"), "expired": ("abgelaufen", "good"), "failed": ("fehlgeschlagen", "bad")}
+    items = "".join(
+        f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title"><code>{esc(c["id"])}</code> · '
+        f'{esc(mc.ACTIONS.get(c["action"], c["action"]))} · {esc(c["target_name"])} <span class="pulse-row-meta">({esc(c["target_id"])})</span> '
+        f'<span class="pulse-pill {state.get(c["status"], ("", ""))[1]}">{esc(state.get(c["status"], (c["status"], ""))[0])}</span></div>'
+        f'<div class="pulse-row-meta">{time_tag(c["created_at"])} · von {esc(c["actor_name"])}'
+        f'{" · bis " + esc(str(c["expires_at"])[:16].replace("T", " ")) + " UTC" if c.get("expires_at") else ""}'
+        f'{" · DM zugestellt" if c.get("dm_sent") else " · keine DM"}</div>'
+        f'<div class="text-xs mt-1">{esc(c["reason"])}</div>'
+        + (f'<div class="text-xs mt-1">Beweis: <a class="text-indigo-500" rel="noopener noreferrer" target="_blank" href="{esc(safe_url(c["proof"]))}">{esc(c["proof"][:80])}</a></div>'
+           if c.get("proof") and safe_url(c["proof"]) else "")
+        + '</div></div>' for c in page_rows) or empty_state("Noch keine Moderationsfälle.", "⚖")
+    q = params["q"]
+    body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">⚖ Bürger-Moderation</div>'
+            f'<div class="pulse-section-sub">Fallakte aller /mod-Aktionen. Neue Fälle entstehen nur in Discord über /mod warn|timeout|kick|ban.</div></div>'
+            f'<a class="pulse-btn ghost" href="/mod-cases.csv{("?q=" + quote(q)) if q else ""}">⬇ CSV</a></div>'
+            f'<section class="pulse-card"><div class="pulse-card-b"><form method="get" class="pulse-search mb-4" role="search" style="max-width:none">'
+            f'<span>⌕</span><input name="q" value="{esc(q)}" aria-label="Fälle durchsuchen" placeholder="Fall-ID, Name, Grund, Moderator…"><button class="pulse-btn primary">Suchen</button></form>'
+            f'<div class="space-y-2">{items}</div>{pulse_lists.pager("/mod-cases", meta, {"q": q})}</div></section>')
+    import sys
+    return HTMLResponse(render_pro_page(sys.modules[__name__], "Bürger-Moderation", ctx, "mod-cases", body))
+
+
+@app.get("/mod-cases.csv")
+async def mod_cases_csv(request: Request, user_session: str = Cookie(None)):
+    import pulse_lists
+    import pulse_mod_cases as mc
+    ctx = _mod_case_ctx(request, user_session)
+    q = str(request.query_params.get("q") or "")
+    rows = pulse_lists.search(mc.list_cases(), q, lambda c: f"{c['id']} {c['target_name']} {c['target_id']} {c['reason']} {c['actor_name']} {c['action']}")
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Moderationsfälle exportiert", f"{len(rows)} Fälle")
+    return pulse_lists.csv_response(f"pulse_moderation_{now_de().strftime('%Y-%m-%d')}.csv",
+                                    ["Fall", "Aktion", "Person", "Discord-ID", "Grund", "Beweis", "Bis", "Moderator", "Erstellt", "Status"],
+                                    [(c["id"], mc.ACTIONS.get(c["action"], c["action"]), c["target_name"], c["target_id"], c["reason"],
+                                      c.get("proof"), c.get("expires_at"), c["actor_name"], c["created_at"], c["status"]) for c in rows])
+
+
 @app.get("/tickets/tools", response_class=HTMLResponse)
 async def pulse_ticket_tools(request: Request, user_session: str = Cookie(None)):
     """BOT-06: quick replies (admins edit), ticket bans (ticket team), rating report."""
@@ -5664,7 +5719,6 @@ async def pulse_ticket_tools(request: Request, user_session: str = Cookie(None))
         categories = [(key, category_meta(key)[0]) for key in ticket_category_definitions()]
     except Exception:
         categories = []
-    replies = tx.load_replies()
     reply_blocks = "".join(
         f'<label class="grid gap-1 text-xs font-semibold">{esc(label)}'
         f'<textarea class="pulse-input pulse-textarea" name="replies_{esc(key)}" rows="3" placeholder="Titel | Text (eine Antwort pro Zeile)"'

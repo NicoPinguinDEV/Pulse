@@ -2334,6 +2334,13 @@ async def automation_loop(bot):
                     await pulse_notify_prefs.drain_dms(bot, os.getenv("PUBLIC_BASE_URL", ""))
             except Exception as exc:
                 print(f"⚠️ Benachrichtigungs-DMs konnten nicht gesendet werden: {type(exc).__name__}")
+            # BOT-09: lift time-limited citizen bans whose expiry has passed (same loop, no new worker).
+            try:
+                from cogs.mod_cases import lift_expired_bans
+                if bot:
+                    await lift_expired_bans(bot)
+            except Exception as exc:
+                print(f"⚠️ Befristete Bans konnten nicht geprüft werden: {type(exc).__name__}")
             # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren
             # auch nach einem Neustart zuverlässig automatisch enden.
             try:

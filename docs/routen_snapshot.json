@@ -45,6 +45,8 @@
  "GET /meetings-history -> pulse_pro.register.<locals>.meetings_history_v5",
  "GET /melonly -> pulse_pro.register.<locals>.melonly_page",
  "GET /member/{user_id} -> pulse_pro.register.<locals>.member_v5",
+ "GET /mod-cases -> webserver.mod_cases_page",
+ "GET /mod-cases.csv -> webserver.mod_cases_csv",
  "GET /promotions -> pulse_pro.register.<locals>.promotions_page",
  "GET /pulse-inbox -> pulse_pro.register.<locals>.inbox_v5",
  "GET /robots.txt -> pulse_pro.register.<locals>.robots_txt",

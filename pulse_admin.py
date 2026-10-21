@@ -41,6 +41,8 @@ def admin_sections(perms: dict) -> list[tuple]:
         ("admin-discord", "/admin/discord", "🎨", "Discord-Auftritt", "Verifikation, Willkommen & Abschied, Embed-Design", is_admin),
         ("ticket-panels", "/tickets/panels", "🎛️", "Ticket-Panels", "Panels, Kategorien, Begrüßungen, Formulare", is_admin),
         ("admin-panels", "/admin/panels", "▦", "Discord-Panels", "Alle Panels, Status, neu veröffentlichen", is_admin),
+        ("mod-cases", "/mod-cases", "⚖", "Bürger-Moderation", "Fallakte: Verwarnungen, Timeouts, Kicks, Bans",
+         is_admin or bool(perms.get("can_moderate_kicks") or perms.get("can_moderate_bans"))),
         ("announcements", "/announcements", "📢", "Ankündigungen", "Globale Team- und Servernachrichten", announcements),
         ("social", "/social", "📣", "Social Media", "Creator-Kanäle und Video-Ankündigungen", announcements),
         ("settings", "/settings", "⚙", "Einstellungen & Rechte", "Rollen, Dashboard-Rechte, Module, Kanäle", is_admin),
