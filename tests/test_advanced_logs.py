@@ -14,12 +14,12 @@ from cogs import advanced_logs
 from tests.test_pulse_admin_area import ADMIN, CHANNEL, GUILD, TEAMLER, fake_auth_for
 
 
-def fake_message(content, guild):
+def fake_message(content, guild, channel=CHANNEL):
     return SimpleNamespace(
         id=987654321,
         content=content,
         guild=guild,
-        channel=CHANNEL,
+        channel=channel,
         attachments=[],
         author=SimpleNamespace(id=1, bot=False, mention="<@1>", roles=[]),
     )
@@ -37,7 +37,18 @@ class AdvancedLogsTests(unittest.TestCase):
         pulse_db.init_db()
         advanced_logs._HINT_SHOWN = False
         self.sent = []
-        # The minimal fake channel used by the dashboard tests has no send method.
+        # Each event test gets isolated guild/channel objects. The dashboard route below
+        # still uses the shared admin-test fixture and its temporary send method.
+        self.channel = SimpleNamespace(
+            id=CHANNEL.id, name=CHANNEL.name, position=CHANNEL.position,
+            send=lambda *args, **kwargs: None,
+        )
+        self.guild = SimpleNamespace(
+            **dict(
+                vars(GUILD), channels=[self.channel], text_channels=[self.channel],
+                get_channel=lambda channel_id: self.channel if int(channel_id) == self.channel.id else None,
+            )
+        )
         self._channel_had_send = hasattr(CHANNEL, "send")
         if not self._channel_had_send:
             CHANNEL.send = lambda *args, **kwargs: None
@@ -57,13 +68,13 @@ class AdvancedLogsTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def edit(self):
-        asyncio.run(self.cog.on_message_edit(fake_message("alt", GUILD), fake_message("neu", GUILD)))
+        asyncio.run(self.cog.on_message_edit(fake_message("alt", self.guild, self.channel), fake_message("neu", self.guild, self.channel)))
 
     def test_configured_channel_receives_logs(self):
-        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(self.channel.id))
         self.edit()
         self.assertEqual(len(self.sent), 1)
-        self.assertIs(self.sent[0][0], CHANNEL)
+        self.assertIs(self.sent[0][0], self.channel)
         logged_embed=self.sent[0][1]["embed"]
         self.assertEqual(logged_embed.title, "Nachricht bearbeitet")
         self.assertNotIn("alt", logged_embed.description or "")
@@ -80,8 +91,8 @@ class AdvancedLogsTests(unittest.TestCase):
         self.assertIn("nicht eingerichtet", advanced_logs.log_channel_status(GUILD))
 
     def test_deleted_message_records_attachment_names_but_not_body(self):
-        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
-        message = fake_message("PRIVATE MESSAGE BODY", GUILD)
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(self.channel.id))
+        message = fake_message("PRIVATE MESSAGE BODY", self.guild, self.channel)
         message.attachments = [SimpleNamespace(filename="evidence.png"), SimpleNamespace(filename="report.pdf")]
 
         asyncio.run(self.cog.on_message_delete(message))
@@ -95,15 +106,15 @@ class AdvancedLogsTests(unittest.TestCase):
         self.assertNotIn("PRIVATE MESSAGE BODY", serialized)
 
     def test_disabled_log_category_is_respected(self):
-        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(self.channel.id))
         pulse_db.set_setting(advanced_logs.LOG_CONFIG_SETTING_KEY, {"enabled": {"messages": False}})
-        asyncio.run(self.cog.on_message_delete(fake_message("not retained", GUILD)))
+        asyncio.run(self.cog.on_message_delete(fake_message("not retained", self.guild, self.channel)))
         self.assertEqual(self.sent, [])
 
     def test_voice_channel_move_is_recorded(self):
-        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(self.channel.id))
         member = SimpleNamespace(
-            id=1, mention="<@1>", bot=False, roles=[], guild=GUILD,
+            id=1, mention="<@1>", bot=False, roles=[], guild=self.guild,
         )
         old = SimpleNamespace(channel=SimpleNamespace(id=200, name="Support-Warteraum"))
         new = SimpleNamespace(channel=SimpleNamespace(id=201, name="Support"))
@@ -114,11 +125,11 @@ class AdvancedLogsTests(unittest.TestCase):
         self.assertIn("Support", self.sent[0][1]["embed"].description)
 
     def test_audit_event_includes_actor_target_and_reason(self):
-        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(self.channel.id))
         actor = SimpleNamespace(id=2, mention="<@2>", bot=False, roles=[])
         target = SimpleNamespace(id=3, mention="<@3>", bot=False, roles=[])
         entry = SimpleNamespace(
-            guild=GUILD,
+            guild=self.guild,
             action=SimpleNamespace(name="ban"),
             target=target,
             user=actor,
@@ -151,7 +162,7 @@ class AdvancedLogsTests(unittest.TestCase):
 
         with patch.object(ws, "auth", auth(ADMIN)):
             self.assertIn("Moderations-Log nicht eingerichtet", client.get("/system").text)
-        data = {"log_channel_id": str(CHANNEL.id), "rp_role_ids": [str(role.id), "999"]}
+        data = {"log_channel_id": str(self.channel.id), "rp_role_ids": [str(role.id), "999"]}
         with patch.object(ws, "auth", auth(TEAMLER)):
             self.assertEqual(client.post("/admin/discord/logs", data=data, follow_redirects=False).status_code, 403)
         self.assertIsNone(pulse_db.get_setting(advanced_logs.LOG_SETTING_KEY, None))
@@ -161,20 +172,20 @@ class AdvancedLogsTests(unittest.TestCase):
             ok = client.post("/admin/discord/logs", data=data, follow_redirects=False)
             self.assertIn("t=ok", ok.headers["location"])
             html = client.get("/admin/discord").text
-        self.assertEqual(pulse_db.get_setting(advanced_logs.LOG_SETTING_KEY), str(CHANNEL.id))
+        self.assertEqual(pulse_db.get_setting(advanced_logs.LOG_SETTING_KEY), str(self.channel.id))
         self.assertEqual(pulse_db.get_setting("rp_panel_role_ids"), [str(role.id)])  # unknown role dropped
         self.assertIn("Moderations-Log", html)
         self.assertIn("Leitstelle", html)
 
         # The advanced log controls are saved through the protected settings handler.
         settings_data = {
-            "main_log_channel_id": str(CHANNEL.id),
+            "main_log_channel_id": str(self.channel.id),
             "log_enabled_messages": "1",
             "log_enabled_members": "1",
-            "log_channel_messages": str(CHANNEL.id),
+            "log_channel_messages": str(self.channel.id),
             "log_channel_members": "0",
             "log_ignore_bots": "1",
-            "log_ignore_channels": [str(CHANNEL.id)],
+            "log_ignore_channels": [str(self.channel.id)],
             "log_ignore_roles": [str(role.id)],
         }
         with patch.object(ws, "auth", auth(TEAMLER)):
@@ -183,7 +194,7 @@ class AdvancedLogsTests(unittest.TestCase):
         with patch.object(ws, "auth", auth(ADMIN)):
             saved = client.post("/settings/advanced-logs/save", data=settings_data, follow_redirects=False)
         self.assertEqual(saved.status_code, 303)
-        self.assertEqual(pulse_db.get_setting(advanced_logs.LOG_SETTING_KEY), str(CHANNEL.id))
+        self.assertEqual(pulse_db.get_setting(advanced_logs.LOG_SETTING_KEY), str(self.channel.id))
         saved_cfg = pulse_db.get_setting(advanced_logs.LOG_CONFIG_SETTING_KEY)
         self.assertTrue(saved_cfg["enabled"]["messages"])
         self.assertTrue(saved_cfg["enabled"]["members"])
