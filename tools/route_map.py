@@ -49,7 +49,7 @@ def _auth_kind(source: str) -> str:
         if extra:
             result += " (+ " + ", ".join(sorted(set(extra))[:4]) + ")"
         return result
-    if re.search(r"validate_api_key\(|X-Pulse-API-Key", source):
+    if re.search(r"validate_api_key\(|require_api_key\(|X-Pulse-API-Key", source):
         return "API-Schlüssel (X-Pulse-API-Key)"
     if re.search(r"get_current_user\(|apply_session|_apply_user\(", source):
         return "Session (eigene Prüfung)"

@@ -48,6 +48,10 @@ def build(*, warns=(), shifts=(), tickets=(), tasks=(), events=(), notes=(), sho
         items.append(_item("task", _at(t.get("updated_at") or t.get("created_at")), f"Aufgabe: {t.get('title') or '–'}",
                            t.get("status") or "", "/tasks"))
     for ev in events:
+        kind = str(ev.get("event_type") or "").lower()
+        # E-3: an event about a warning or note would reveal it – same rule as the warnings/notes themselves.
+        if ("warn" in kind and not show_warns) or ("note" in kind and not show_notes):
+            continue
         items.append(_item("event", _at(ev.get("created_at")), str(ev.get("event_type") or "Ereignis").replace("_", " "),
                            ev.get("actor_name") or "System"))
     if show_notes:

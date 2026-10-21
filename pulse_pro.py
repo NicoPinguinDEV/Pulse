@@ -118,7 +118,8 @@ PRO_JS = r"""
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',liveStart); else liveStart();
   window.pulseLive=live;
   if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
-  const forms=$$('form[data-confirm]'); forms.forEach(f=>f.addEventListener('submit',e=>{if(!confirm(f.dataset.confirm))e.preventDefault()}));
+  // Delegated: this script runs in <head>, a direct lookup found no forms (log delete and shift end had no question).
+  document.addEventListener('submit',e=>{const f=e.target; if(f instanceof HTMLFormElement&&f.dataset.confirm&&!confirm(f.dataset.confirm))e.preventDefault();},true);
 
   // U-04: no double submit, visible progress; inputs survive an error redirect (?t=err)
   const FORM_KEY='pulse:form:'+location.pathname;
@@ -153,7 +154,8 @@ PRO_JS = r"""
   function rel(iso){const t=new Date(iso); if(isNaN(t))return null; const s=Math.round((Date.now()-t)/1000); const a=Math.abs(s), f=s>=0?'vor ':'in ';
     if(a<45)return s>=0?'gerade eben':'gleich'; if(a<3600)return f+Math.round(a/60)+' Min.'; if(a<86400)return f+Math.round(a/3600)+' Std.'; if(a<86400*30)return f+Math.round(a/86400)+' Tg.'; return null;}
   function relTimes(){$$('time[data-relative]').forEach(el=>{const r=rel(el.getAttribute('datetime')); if(r)el.textContent=r;});}
-  relTimes(); setInterval(relTimes,60000);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',relTimes); else relTimes();
+  setInterval(relTimes,60000);
 })();
 </script>
 """
@@ -1143,7 +1145,7 @@ def register(app):
         </div>
         {card("Discord-Teamstatus",team_html,"◉")}
         """
-        head="<script>\nlet pulseStatusTimer=null;async function refreshDiscordStatuses(){try{const r=await fetch('/api/team/discord-status',{credentials:'same-origin',cache:'no-store'});if(r.status===401||r.status===403){clearTimeout(pulseStatusTimer);pulseStatusTimer=null;return;}const d=await r.json();if(!d.ok)return false;const t=document.getElementById('statusUpdated');if(t)t.textContent=new Date().toLocaleTimeString('de-DE');const counts={online:0,idle:0,dnd:0,offline:0};for(const x of d.members){counts[x.status]=(counts[x.status]||0)+1;const p=document.querySelector('[data-status-pill=\"'+x.id+'\"]');const l=document.querySelector('[data-status-label=\"'+x.id+'\"]');if(p)p.innerHTML=x.pill;if(l)l.textContent=x.label;}['online','idle','dnd','offline'].forEach(k=>{const el=document.getElementById('count'+k.charAt(0).toUpperCase()+k.slice(1));if(el)el.textContent=counts[k]||0;});return true;}catch(e){return false;}}\nlet pulseStatusDelay=10000;function scheduleStatuses(){clearTimeout(pulseStatusTimer);pulseStatusTimer=setTimeout(async()=>{if(document.visibilityState!=='hidden'){const ok=await refreshDiscordStatuses();pulseStatusDelay=ok===false?Math.min(pulseStatusDelay*2,300000):10000;}if(pulseStatusTimer!==null)scheduleStatuses();},pulseStatusDelay);}\ndocument.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshDiscordStatuses();});\nrefreshDiscordStatuses();scheduleStatuses();\n</script>"
+        head="<script>\nlet pulseStatusTimer=null;async function refreshDiscordStatuses(){try{const r=await fetch('/api/team/discord-status',{credentials:'same-origin',cache:'no-store'});if(r.status===401||r.status===403||r.redirected){clearTimeout(pulseStatusTimer);pulseStatusTimer=null;return;}const d=await r.json();if(!d.ok)return false;const t=document.getElementById('statusUpdated');if(t)t.textContent=new Date().toLocaleTimeString('de-DE');const counts={online:0,idle:0,dnd:0,offline:0};for(const x of d.members){counts[x.status]=(counts[x.status]||0)+1;const p=document.querySelector('[data-status-pill=\"'+x.id+'\"]');const l=document.querySelector('[data-status-label=\"'+x.id+'\"]');if(p)p.innerHTML=x.pill;if(l)l.textContent=x.label;}['online','idle','dnd','offline'].forEach(k=>{const el=document.getElementById('count'+k.charAt(0).toUpperCase()+k.slice(1));if(el)el.textContent=counts[k]||0;});return true;}catch(e){return false;}}\nlet pulseStatusDelay=10000;function scheduleStatuses(){clearTimeout(pulseStatusTimer);pulseStatusTimer=setTimeout(async()=>{if(document.visibilityState!=='hidden'){const ok=await refreshDiscordStatuses();pulseStatusDelay=ok===false?Math.min(pulseStatusDelay*2,300000):10000;}if(pulseStatusTimer!==null)scheduleStatuses();},pulseStatusDelay);}\ndocument.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshDiscordStatuses();});\nrefreshDiscordStatuses();scheduleStatuses();\n</script>"
         return render_pro_page(ws,"Teamstatus",c,"team-status",body,head)
 
     async def discord_status_api(request: Request, user_session: str=Cookie(None)):
@@ -2034,7 +2036,8 @@ def register(app):
         <div class="pulse-grid"><div class="space-y-4">{card("Aktive Verwarnungen",(active_html or '<div class="pulse-empty">Keine aktiven Verwarnungen.</div>') if can_see_warns else hidden,'⚠')}{card("Warn-Historie",(revoked_html or '<div class="pulse-empty">Keine zurückgezogenen Warnungen.</div>') if can_see_warns else hidden,'↩')}{card("Notizen",(note_html or '<div class="pulse-empty">Keine Notizen.</div>') if can_see_notes else hidden,'📝')}{card("Aktivität",event_html or '<div class="pulse-empty">Noch keine zentralen Events.</div>','↯')}</div><div class="space-y-4">{card("Warnrollen-Status",role_pills,'⚙')}{card("Tickets",ticket_html or '<div class="pulse-empty">Keine Tickets.</div>','🎫')}{quick}</div></div>'''
         # U-10: everything chronologically in one place; E-3 is applied inside pulse_timeline.build as well.
         import pulse_timeline
-        all_events=[x for x in db.events(limit=2000) if str(x.get('actor_id'))==str(target.id) or (x.get('target_type')=='user' and str(x.get('target_id'))==str(target.id))]
+        # Events by the person and about them (team protection uses 'team_member', the suite audit 'suite').
+        all_events=[x for x in db.events(limit=2000) if str(x.get('actor_id'))==str(target.id) or (x.get('target_type') in ('user','team_member','suite') and str(x.get('target_id'))==str(target.id))]
         timeline=pulse_timeline.build(warns=warns,shifts=hist,tickets=tickets,tasks=tasks,events=all_events,notes=entry.get('notes',[]),
                                       show_warns=can_see_warns,show_notes=can_see_notes,user_id=target.id)
         body+=f'<section class="pulse-card mt-4" id="zeitleiste"><div class="pulse-card-h"><div><div class="pulse-section-title">🕓 Zeitleiste</div><div class="pulse-section-sub">Warnungen, Schichten, Tickets, Aufgaben, Ereignisse und Notizen – neueste zuerst.</div></div></div><div class="pulse-card-b">{pulse_timeline.render(timeline,f"/member/{target.id}",request.query_params.get("tl",""),ws.time_tag)}</div></section>'

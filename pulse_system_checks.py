@@ -8,8 +8,9 @@ import os
 
 import pulse_ids
 
-# Without these Pulse cannot log in to Discord or sign dashboard sessions.
-REQUIRED_ENV = ("DISCORD_TOKEN", "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "SESSION_SECRET")
+# Without these Pulse cannot log in to Discord or run the dashboard login. SESSION_SECRET is not listed:
+# Pulse falls back to a generated .session_secret, and the system page checks it via SESSION_SECRET_PROBLEM.
+REQUIRED_ENV = ("DISCORD_TOKEN", "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET")
 # One of these is needed so the OAuth redirect points back to this dashboard.
 REDIRECT_ENV = ("DISCORD_REDIRECT_URI", "PUBLIC_BASE_URL")
 # Roles Pulse hands out or takes away itself; the bot's highest role must sit above them.

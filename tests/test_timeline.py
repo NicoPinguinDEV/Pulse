@@ -34,6 +34,16 @@ class TimelineTests(unittest.TestCase):
         self.assertNotIn("Zu spät", html)
         self.assertNotIn("zuverlässig", html)
 
+    def test_events_about_warnings_follow_e3(self):
+        d = data()
+        d["events"] = [{"event_type": "warning_created", "created_at": "2026-10-06T08:00:00+00:00"},
+                       {"event_type": "team_high_impact_warning_blocked", "created_at": "2026-10-06T09:00:00+00:00"},
+                       {"event_type": "promotion_decided", "created_at": "2026-10-06T10:00:00+00:00"}]
+        hidden = [i["title"] for i in tl.build(**d, show_warns=False, show_notes=False, user_id="7") if i["kind"] == "event"]
+        self.assertEqual(hidden, ["promotion decided"])
+        shown = [i for i in tl.build(**d, show_warns=True, show_notes=True, user_id="7") if i["kind"] == "event"]
+        self.assertEqual(len(shown), 3)
+
     def test_render_filters_and_escapes(self):
         d = data()
         d["tasks"] = [{"title": "<script>x</script>", "created_at": "2026-10-04T08:00:00+00:00"}]

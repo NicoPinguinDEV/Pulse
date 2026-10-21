@@ -42,7 +42,8 @@ class SystemCheckTests(unittest.TestCase):
         self.assertNotIn(secret, detail)
         name, ok, detail = sc.env_values({"DISCORD_TOKEN": secret})
         self.assertFalse(ok)
-        self.assertIn("SESSION_SECRET", detail)
+        self.assertIn("DISCORD_CLIENT_SECRET", detail)
+        self.assertNotIn("SESSION_SECRET,", detail)  # has its own check with the .session_secret fallback
         self.assertIn("PUBLIC_BASE_URL", detail)
         self.assertNotIn(secret, detail)
 

@@ -1000,18 +1000,25 @@ def apply_return_path(request: Request) -> str:
 
 def get_current_user(user_session: str = Cookie(None)) -> dict:
     """Vorher konnte JEDER den Cookie selbst schreiben (= Login als beliebiger User). Jetzt signiert."""
-    data = verify_session_token(user_session, TOKEN_DASHBOARD)
+    data = dashboard_session(user_session)
     if not data:
         raise HTTPException(status_code=303, headers={"Location": "/"})
+    return data
+
+
+def dashboard_session(user_session) -> dict | None:
+    """Signed, unexpired dashboard token whose server-side session is still alive (U-14).
+    "/" and every protected page must use the same check, otherwise they redirect to each other forever."""
+    data = verify_session_token(user_session, TOKEN_DASHBOARD) if user_session else None
+    if not data:
+        return None
     try:
-        import pulse_sessions  # U-14: revoked, idle or signed out everywhere → log in again
+        import pulse_sessions  # revoked, idle or signed out everywhere → log in again
         valid = pulse_sessions.is_valid(data)
     except Exception as exc:  # the signed cookie stays the primary check; a DB hiccup must not lock everyone out
         print(f"⚠️ Sitzungsprüfung nicht möglich: {type(exc).__name__}")
         valid = True
-    if not valid:
-        raise HTTPException(status_code=303, headers={"Location": "/"})
-    return data
+    return data if valid else None
 
 
 def compute_perms(guild, user_id, config):
@@ -2968,10 +2975,10 @@ async def static_pulse_css():
 
 @app.get("/", response_class=HTMLResponse)
 async def home(user_session: str = Cookie(None)):
-    session = verify_session_token(user_session, TOKEN_DASHBOARD) if user_session else None
+    session = dashboard_session(user_session)  # same check as every protected page (no redirect loop)
     if session:
         return RedirectResponse(url=start_page_for(session.get("id")), status_code=303)
-    return f"""
+    page = f"""
     <!DOCTYPE html>
     <html lang="de">
     <head>{get_head_html("Bochum RP Panel Login")}</head>
@@ -2997,6 +3004,10 @@ async def home(user_session: str = Cookie(None)):
     </body>
     </html>
     """
+    response = HTMLResponse(page)
+    if user_session:
+        response.delete_cookie(key="user_session")  # ended or revoked session: clear it, show the login
+    return response
 
 
 @app.get("/login")

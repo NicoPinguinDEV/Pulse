@@ -3,8 +3,9 @@ idle timeout, automatic revocation when someone leaves the team.
 
 The signed cookie stays the carrier; new logins additionally get a session id (`sid`) that must exist
 here and must not be revoked or idle. Cookies issued before this update have no `sid`: they stay valid
-until their own expiry unless the person uses "überall abmelden" (that also invalidates every older
-cookie through `revoked_before`). Nothing secret is stored – only a shortened user agent.
+until their own expiry unless the person signs out other devices or everywhere (both end them through
+`revoked_before`, which only applies to cookies without `sid`). Nothing secret is stored – only a
+shortened user agent.
 """
 from __future__ import annotations
 
@@ -60,15 +61,15 @@ def is_valid(token: dict, now: float | None = None) -> bool:
     """Checks a verified dashboard token against the server-side state and records activity."""
     now = time.time() if now is None else now
     user_id = str(token.get("id"))
-    try:
-        revoked_before = float(_db().get_setting(f"sessions_revoked_before:{user_id}", "0") or 0)
-    except (TypeError, ValueError):
-        revoked_before = 0.0
-    if revoked_before and float(token.get("iat") or 0) <= revoked_before:
-        return False
     sid = token.get("sid")
     if not sid:
-        return True  # cookie from before U-14 – valid until its own expiry
+        # Cookie from before U-14: valid until its own expiry unless the person signed out elsewhere.
+        # (Only these cookies use revoked_before – new logins always have their own revocable session.)
+        try:
+            revoked_before = float(_db().get_setting(f"sessions_revoked_before:{user_id}", "0") or 0)
+        except (TypeError, ValueError):
+            revoked_before = 0.0
+        return not (revoked_before and float(token.get("iat") or 0) <= revoked_before)
     with _db().connect() as db:
         _init(db)
         row = db.execute("SELECT user_id,last_seen,revoked_at FROM dashboard_sessions WHERE sid=?", (str(sid),)).fetchone()
@@ -99,13 +100,12 @@ def revoke(user_id, sid: str, reason: str = "abgemeldet") -> bool:
 
 
 def revoke_all(user_id, reason: str = "überall abgemeldet", keep_sid: str | None = None) -> int:
-    """Revokes every session; without keep_sid also every older cookie (incl. those without sid)."""
+    """Revokes every session except keep_sid, and every older cookie without sid."""
     now = time.time()
     with _db().connect() as db:
         _init(db)
         cur = db.execute("UPDATE dashboard_sessions SET revoked_at=?, revoke_reason=? WHERE user_id=? AND revoked_at IS NULL AND sid IS NOT ?",
                          (now, reason, str(user_id), keep_sid))
         count = cur.rowcount
-    if not keep_sid:
-        _db().set_setting(f"sessions_revoked_before:{user_id}", str(int(now)))
+    _db().set_setting(f"sessions_revoked_before:{user_id}", str(int(now)))
     return count

@@ -38,6 +38,9 @@ class SharedAssetsTests(unittest.TestCase):
         self.assertIn("DOMContentLoaded", js)           # runs after the forms exist
         self.assertIn("dataset.busy='1'", js)           # no double submit
         self.assertIn("'password'", js)                 # passwords are never stored
+        # review: the script runs in <head> – these must not depend on elements existing yet
+        self.assertIn("f.dataset.confirm&&!confirm(f.dataset.confirm)", js)
+        self.assertIn("addEventListener('DOMContentLoaded',relTimes)", js)
 
     def test_accessibility_and_mobile_css(self):
         css = pulse_pro.PRO_CSS

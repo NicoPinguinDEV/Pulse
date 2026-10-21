@@ -65,13 +65,16 @@ class SessionTests(TempDb):
 
     def test_revoke_all_also_ends_old_cookies_keep_current(self):
         a, b = pulse_sessions.create("7"), pulse_sessions.create("7")
+        old = token(iat=int(time.time()) - 5)[1]
+        self.assertTrue(pulse_sessions.is_valid(old))
         self.assertEqual(pulse_sessions.revoke_all("7", keep_sid=a), 1)
         self.assertTrue(pulse_sessions.is_valid(token(sid=a)[1]))
         self.assertFalse(pulse_sessions.is_valid(token(sid=b)[1]))
-        old = token(iat=int(time.time()) - 5)[1]
+        self.assertFalse(pulse_sessions.is_valid(old))  # review: "andere Geräte" must also end pre-U-14 cookies
         pulse_sessions.revoke_all("7")
-        self.assertFalse(pulse_sessions.is_valid(old))
         self.assertFalse(pulse_sessions.is_valid(token(sid=a)[1]))
+        fresh = pulse_sessions.create("7")              # review: a login in the same second stays valid
+        self.assertTrue(pulse_sessions.is_valid(token(sid=fresh)[1]))
 
     def test_logout_and_cookie_check(self):
         sid = pulse_sessions.create("7")
@@ -82,6 +85,22 @@ class SessionTests(TempDb):
         client.post("/logout", follow_redirects=False)
         with self.assertRaises(ws.HTTPException):
             ws.get_current_user(signed)  # the copied cookie is useless after logout
+
+    def test_ended_session_lands_on_login_not_in_a_redirect_loop(self):
+        # Review finding: "/" only checked the signature and sent the user to the start page, which
+        # rejected the revoked session and sent them back to "/" – ERR_TOO_MANY_REDIRECTS.
+        sid = pulse_sessions.create("7")
+        signed, _ = token(sid=sid)
+        pulse_sessions.revoke("7", sid)
+        client = TestClient(ws.app, raise_server_exceptions=False)
+        client.cookies.set("user_session", signed)
+        response = client.get("/", follow_redirects=False)
+        self.assertEqual(response.status_code, 200)               # login page instead of 303 → /me
+        self.assertIn('user_session=""', response.headers.get("set-cookie", ""))  # dead cookie removed
+        client.cookies.set("user_session", signed)
+        chain = client.get("/me")                                # following redirects must end on the login page
+        self.assertEqual(chain.status_code, 200)
+        self.assertLessEqual(len(chain.history), 2)
 
     def test_team_exit_revokes(self):
         sid = pulse_sessions.create("7")
