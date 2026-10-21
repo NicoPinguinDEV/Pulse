@@ -22,6 +22,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import pulse_db as db
 from pulse_jobs import tracked
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
+from pulse_team_warning import build_warning_record, revoke_warning_record
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE, "pulse_suite.db")
@@ -1250,7 +1251,14 @@ class PulseSuite(commands.Cog):
         await i.response.send_message("⚡ Pulse Operations Suite\n"+(PUBLIC_BASE_URL+"/suite" if PUBLIC_BASE_URL else "/suite"),ephemeral=True)
 
     @app_commands.command(name="warn",description="Verwarnt ein Teammitglied nach Bestätigung.")
-    async def warn_cmd(self,i,member:discord.Member,grund:str):
+    async def warn_cmd(
+        self,
+        i,
+        member: discord.Member,
+        grund: str,
+        dauer_tage: app_commands.Range[int, 1, 365] = 7,
+        beweis: app_commands.Range[str, 0, 500] = "",
+    ):
         web=__import__("webserver")
         if not allowed(i,"warn",web) or locked() or not self.safe_target(i,member) or member not in members(i.guild,web):return await i.response.send_message("❌ Warnung nicht erlaubt.",ephemeral=True)
         grund = str(grund or "").strip()
@@ -1281,21 +1289,18 @@ class PulseSuite(commands.Cog):
                 return await x.response.edit_message(
                     content="❌ " + impact_message, embed=None, view=None,
                 )
-            issued_at=web.now_de()
-            duration_days=web.DEFAULT_AUTO_WARN_DURATION_DAYS
-            w={
-                "id":"warn_"+uuid.uuid4().hex[:10],
-                "reason":grund[:1000],
-                "proof":"",
-                "by":i.user.display_name,
-                "date":issued_at.strftime("%d.%m.%Y %H:%M"),
-                "duration_days":duration_days,
-                "expires_at":(issued_at+web.timedelta(days=duration_days)).isoformat(timespec="seconds"),
-                "active":True,
-                "revoked_at":None,
-                "revoked_by":None,
-                "revoked_reason":"",
-            }
+            issued_at = web.now_de()
+            duration_days = int(dauer_tage or web.DEFAULT_AUTO_WARN_DURATION_DAYS)
+            proof = web.safe_url(str(beweis or "").strip())
+            w = build_warning_record(
+                warning_id="warn_" + uuid.uuid4().hex[:10],
+                reason=grund[:1000],
+                proof=proof,
+                by=i.user.display_name,
+                issued_at=issued_at,
+                duration_days=duration_days,
+                max_reason_length=1000,
+            )
             e.setdefault("warns_list",[]).append(w)
             tracker.commit()
             count=len(web.active_warns(e))
@@ -1328,7 +1333,18 @@ class PulseSuite(commands.Cog):
             if not consequence_report.get("ok"):
                 result_text += "\n⚠️ Eine automatische Warnfolge ist fehlgeschlagen; Führungsebene prüfen."
             await x.response.edit_message(content=result_text,embed=None,view=None)
-        await i.response.send_message(f"⚠️ {member.display_name}\n{grund}\n\nWirklich verwarnen?",view=Confirm(i.user.id,do,key="warn",origin=i),ephemeral=True)
+        confirmation = (
+            f"⚠️ **Team-Warnung für {member.display_name}**\n"
+            f"**Grund:** {grund}\n"
+            f"**Gültigkeit:** {int(dauer_tage or 7)} Tage"
+            + (f"\n**Beweis:** {web.safe_url(str(beweis or '').strip())}" if web.safe_url(str(beweis or '').strip()) else "")
+            + "\n\nWirklich verwarnen?"
+        )
+        await i.response.send_message(
+            confirmation,
+            view=Confirm(i.user.id, do, key="warn", origin=i),
+            ephemeral=True,
+        )
 
     @app_commands.command(name="warns",description="Zeigt aktive Warnungen eines Teammitglieds.")
     async def warns_cmd(self,i,member:discord.Member):
@@ -1352,10 +1368,19 @@ class PulseSuite(commands.Cog):
             current_warn=next((z for z in current_entry.get("warns_list",[]) if z.get("id")==warn_id and z.get("active",True)),None)
             if not current_warn:
                 return await x.response.edit_message(content="❌ Diese Warnung ist nicht mehr aktiv.",embed=None,view=None)
-            current_warn["active"]=False
-            current_warn["revoked_at"]=iso()
-            current_warn["revoked_by"]=i.user.display_name
-            current_warn["revoked_reason"]=grund.strip()[:1000]
+            current_warn = revoke_warning_record(
+                current_entry,
+                warning_id=str(warn_id),
+                revoked_at=iso(),
+                revoked_by=i.user.display_name,
+                reason=grund.strip()[:1000],
+            )
+            if current_warn is None:
+                return await x.response.edit_message(
+                    content="❌ Diese Warnung ist nicht mehr aktiv.",
+                    embed=None,
+                    view=None,
+                )
             web.save_json(web.DATA_FILE,current_data)
             count=len(web.active_warns(current_entry))
             role_report=await web.sync_warn_roles(i.guild,member,count,web.load_config())

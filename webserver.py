@@ -39,6 +39,7 @@ from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
 from pulse_version import PULSE_VERSION
 from pulse_time import display, parse_timestamp
+from pulse_team_warning import build_warning_record, revoke_warning_record
 
 from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
 from career_applications import (
@@ -9891,13 +9892,17 @@ async def handle_action(
         )
         if not allowed_impact:
             return back(member_url, impact_message, False)
-        entry["warns_list"].append({
-            "id": f"warn_{uuid.uuid4().hex[:6]}", "reason": reason, "proof": safe_url(warn_proof),
-            "by": actor, "date": now_de().strftime("%d.%m.%Y %H:%M"),
-            "duration_days": int(warn_duration_days),
-            "expires_at": (now_de() + timedelta(days=int(warn_duration_days))).isoformat(timespec="seconds"),
-            "active": True, "revoked_at": None, "revoked_by": None, "revoked_reason": "",
-        })
+        issued_at = now_de()
+        warning_record = build_warning_record(
+            warning_id=f"warn_{uuid.uuid4().hex[:6]}",
+            reason=reason,
+            proof=safe_url(warn_proof),
+            by=actor,
+            issued_at=issued_at,
+            duration_days=int(warn_duration_days),
+            max_reason_length=500,
+        )
+        entry["warns_list"].append(warning_record)
         count = len(active_warns(entry))
         tracker.commit()
         log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/5): {reason}")
@@ -9980,10 +9985,15 @@ async def handle_action(
         revoke_reason = (warn_revoke_reason or "").strip()[:500]
         if not revoke_reason:
             return back(member_url, "Bitte einen Grund für die Rücknahme der Verwarnung angeben.", False)
-        target["active"] = False
-        target["revoked_at"] = now_de().strftime("%d.%m.%Y %H:%M")
-        target["revoked_by"] = actor
-        target["revoked_reason"] = revoke_reason
+        target = revoke_warning_record(
+            entry,
+            warning_id=str(warn_id),
+            revoked_at=now_de().strftime("%d.%m.%Y %H:%M"),
+            revoked_by=actor,
+            reason=revoke_reason,
+        )
+        if target is None:
+            return back(member_url, "Diese Verwarnung wurde bereits zurückgezogen. Bitte die Seite aktualisieren.", False)
         count = len(active_warns(entry))
         tracker.commit()
 
