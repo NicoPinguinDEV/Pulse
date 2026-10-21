@@ -31,7 +31,7 @@ from pulse_welcome import (
 
 # Pages that belong to the administration area (sidebar switches to "Verwaltung").
 ADMIN_PAGE_KEYS = frozenset({
-    "admin", "admin-discord", "admin-panels", "ticket-panels", "settings", "backups", "system", "announcements", "social",
+    "admin", "admin-discord", "admin-panels", "admin-permissions", "ticket-panels", "settings", "backups", "system", "announcements", "social",
     "admin-privacy",
 })
 
@@ -43,6 +43,7 @@ def admin_sections(perms: dict) -> list[tuple]:
     sections = [
         ("admin-discord", "/admin/discord", "🎨", "Discord-Auftritt", "Verifikation, Willkommen & Abschied, Embed-Design", is_admin),
         ("admin-panels", "/admin/panels", "🧩", "Panel-Übersicht", "Persistente Discord-Panels prüfen und reparieren", is_admin),
+        ("admin-permissions", "/admin/permissions", "🔐", "Wer darf was?", "Effektive Rechte einer Person samt Herkunft simulieren", is_admin),
         ("ticket-panels", "/tickets/panels", "🎛️", "Ticket-Panels", "Panels, Kategorien, Begrüßungen, Formulare", is_admin),
         ("announcements", "/announcements", "📢", "Ankündigungen", "Globale Team- und Servernachrichten", announcements),
         ("social", "/social", "📣", "Social Media", "Creator-Kanäle und Video-Ankündigungen", announcements),
@@ -1113,6 +1114,104 @@ def register(app) -> None:
         ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Abmeldungsliste repariert",
                      f"{result['action']} · {result['channel'].mention}")
         return ws.back("/admin/panels", f"Abmeldungsliste {result['action']} in {result['channel'].mention}.", True)
+
+
+    @app.get("/admin/permissions", response_class=HTMLResponse)
+    async def admin_permissions_page(request: Request, user_session: str = Cookie(None)):
+        """F-01: explain effective dashboard permissions without changing roles or settings."""
+        ctx = admin_ctx(request, user_session)
+        target_id = str(request.query_params.get("user_id") or "").strip()[:32]
+        result_html = ""
+        error_html = ""
+
+        if target_id:
+            if not target_id.isdecimal() or not (1 <= int(target_id) <= (2**64 - 1)):
+                error_html = '<div class="pulse-alert"><strong>Ungültige Discord-ID.</strong> Bitte ausschließlich die numerische Benutzer-ID eingeben.</div>'
+            else:
+                import pulse_permissions
+                from pulse_pro import PERMISSION_LABELS
+
+                details = pulse_permissions.explain(ctx.guild, int(target_id), ws.load_config())
+                if not details.get("member"):
+                    error_html = (
+                        '<div class="pulse-alert"><strong>Mitglied nicht verfügbar.</strong> '
+                        'Die Person wurde im aktuellen Discord-Mitglieder-Cache nicht gefunden. '
+                        'Es wurden keine Rechte vergeben oder verändert.</div>'
+                    )
+                else:
+                    member = ctx.guild.get_member(int(target_id))
+                    display_name = (
+                        getattr(member, "display_name", None)
+                        or getattr(member, "global_name", None)
+                        or getattr(member, "name", None)
+                        or f"Benutzer-ID {target_id}"
+                    )
+                    role_labels = []
+                    for role in getattr(member, "roles", []) or []:
+                        role_labels.append(f'<span class="pulse-pill">{e(getattr(role, "name", role.id))}</span>')
+                    role_summary = " ".join(role_labels) or '<span class="text-xs text-slate-400">Keine Rollen im Cache verfügbar.</span>'
+                    rows = []
+                    granted = 0
+                    denied = 0
+                    for key, origins in details.get("permissions", {}).items():
+                        origins = origins if isinstance(origins, list) else []
+                        label = PERMISSION_LABELS.get(key, key.replace("_", " ").title())
+                        if origins:
+                            granted += 1
+                            state = '<span class="pulse-pill good">Freigegeben</span>'
+                            origin_html = "<br>".join(e(origin) for origin in origins)
+                        else:
+                            denied += 1
+                            state = '<span class="pulse-pill">Nicht freigegeben</span>'
+                            origin_html = '<span class="text-xs text-slate-400">Keine Quelle erteilt dieses Recht.</span>'
+                        rows.append(
+                            f'<tr><td class="py-2 pr-3 font-semibold">{e(label)}</td>'
+                            f'<td class="py-2 pr-3">{state}</td>'
+                            f'<td class="py-2 text-xs">{origin_html}</td></tr>'
+                        )
+                    admin_badge = (
+                        '<span class="pulse-pill good">Server-Administrator</span>'
+                        if details.get("is_admin") else
+                        '<span class="pulse-pill">Kein Administrator</span>'
+                    )
+                    result_html = f'''
+<section class="pulse-card mt-4">
+  <div class="pulse-card-h"><div>
+    <div class="pulse-section-title">{e(display_name)} · Rechte-Simulation</div>
+    <div class="pulse-section-sub">Discord-ID: <code>{e(target_id)}</code></div>
+  </div>{admin_badge}</div>
+  <div class="pulse-card-b space-y-4">
+    <div class="flex flex-wrap gap-2">
+      <span class="pulse-pill good">{granted} Rechte freigegeben</span>
+      <span class="pulse-pill">{denied} Rechte nicht freigegeben</span>
+    </div>
+    <div><div class="text-xs font-bold mb-2">Discord-Rollen</div><div class="flex flex-wrap gap-2">{role_summary}</div></div>
+    <div class="overflow-x-auto"><table class="pulse-table"><thead><tr>
+      <th>Dashboard-Berechtigung</th><th>Status</th><th>Woher kommt das Recht?</th>
+    </tr></thead><tbody>{"".join(rows)}</tbody></table></div>
+    <p class="text-[11px] text-slate-400">Nur lesende Simulation. Die Seite ändert weder Discord-Rollen noch Pulse-Berechtigungen. Explizite Rechte und geerbte Rechte werden mit ihrer Herkunft angezeigt.</p>
+  </div>
+</section>'''
+
+        body = f'''
+<div class="pulse-topbar">
+  <div><div class="pulse-section-title">🔐 Wer darf was?</div>
+  <div class="pulse-section-sub">Effektive Berechtigungen für eine Discord-Person prüfen – inklusive Teamrolle, digitalem Dashboard-Profil und geerbten Rechten.</div></div>
+  <a href="/admin" class="pulse-btn ghost">← Verwaltung</a>
+</div>
+<section class="pulse-card"><div class="pulse-card-b">
+  <form method="get" action="/admin/permissions" class="flex flex-col sm:flex-row gap-3">
+    <label class="flex-1 text-xs font-bold">Discord-Benutzer-ID
+      <input class="pulse-input mt-2" name="user_id" inputmode="numeric" pattern="[0-9]+" maxlength="32"
+             autocomplete="off" required value="{e(target_id)}" placeholder="z. B. 123456789012345678">
+    </label>
+    <button class="pulse-btn primary self-end">Rechte simulieren</button>
+  </form>
+</div></section>
+{error_html}
+{result_html}
+'''
+        return HTMLResponse(render_pro_page(ws, "Wer darf was?", ctx, "admin-permissions", body))
 
     @app.get("/admin/discord/banner/{filename}")
     async def admin_discord_banner(request: Request, filename: str, user_session: str = Cookie(None)):

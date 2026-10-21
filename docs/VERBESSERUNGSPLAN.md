@@ -339,7 +339,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 ## 10. Phase 7 – Neue Funktionen [Idee] (jeweils abschaltbar, Standard aus, Reihenfolge nach meinem OK)
 
-- [ ] **F-01 „Wer darf was?“** – Rechte-Matrix und Simulation für eine bestimmte Person (Roadmap P2), Grundlage A-03.
+- [x] **F-01 „Wer darf was?“** — umgesetzt: `/admin/permissions` nutzt `pulse_permissions.explain()` für eine nur lesende Berechtigungs-Simulation je Discord-ID. Zeigt jedes Dashboard-Recht als freigegeben/nicht freigegeben mit Herkunft (Teamrolle, Dashboard-Profil, Vererbung), die gecachten Discord-Rollen und den Admin-Status. Unbekannte IDs erhalten einen klaren Hinweis; es werden keine Rollen oder Einstellungen geändert. Tests in `tests/test_pulse_admin_area.py` und `tests/test_permissions.py` (Admin-only, Herkunft und Deny-by-default).
 - [ ] **F-02 Kanal-Sichtprüfung für Unverifizierte** – nur lesend, Warnliste (Roadmap P1).
 - [ ] **F-03 Einstellungs-Historie** – wer hat wann welche Einstellung geändert, mit Diff und „zurücksetzen“.
 - [ ] **F-04 Wartungsmodus** – Banner im Dashboard, Schreibaktionen gesperrt, Bot-Automationen pausiert (Voraussetzung für D-02 und Migrationen).

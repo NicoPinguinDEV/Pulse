@@ -77,7 +77,7 @@ class AdminRouteTests(unittest.TestCase):
     def test_teamler_cannot_reach_administration(self):
         with self.as_user(TEAMLER):
             for method, url in (("get", "/admin"), ("get", "/admin/discord"), ("post", "/admin/discord/welcome"),
-                                ("post", "/admin/discord/branding"), ("get", "/admin/discord/banner/welcome_banner_0a1b2c3d.png")):
+                                ("post", "/admin/discord/branding"), ("get", "/admin/discord/banner/welcome_banner_0a1b2c3d.png"), ("get", "/admin/permissions")):
                 response = getattr(self.client, method)(url, follow_redirects=False)
                 self.assertEqual(response.status_code, 403, url)
             response = self.client.post("/admin/discord/test", data={"kind": "welcome"}, follow_redirects=False)
@@ -225,6 +225,34 @@ class AdminRouteTests(unittest.TestCase):
         with self.as_user(ADMIN):
             response = self.client.post("/admin/discord/test", data={"kind": "welcome"}, follow_redirects=False)
         self.assertIn("t=err", response.headers["location"])
+
+
+    def test_permissions_matrix_is_admin_only_and_shows_origin(self):
+        import pulse_permissions
+
+        permission_rows = {key: [] for key in pulse_permissions.ALL_KEYS}
+        permission_rows["can_manage_tickets"] = ["Teamrolle Support", "geerbt von can_promote"]
+        simulated = {"is_admin": False, "member": True, "permissions": permission_rows}
+        with (
+            self.as_user(TEAMLER),
+        ):
+            denied = self.client.get("/admin/permissions", follow_redirects=False)
+        self.assertEqual(denied.status_code, 403)
+
+        with (
+            self.as_user(ADMIN),
+            patch("pulse_permissions.explain", return_value=simulated),
+            patch.object(ws, "load_config", return_value={"team_role_ids": []}),
+        ):
+            response = self.client.get("/admin/permissions?user_id=123456789012345678")
+
+        self.assertEqual(response.status_code, 200, response.text[-1000:])
+        self.assertIn("Wer darf was?", response.text)
+        self.assertIn("Tickets verwalten", response.text)
+        self.assertIn("Teamrolle Support", response.text)
+        self.assertIn("geerbt von can_promote", response.text)
+        self.assertIn("Nicht freigegeben", response.text)
+        self.assertIn("Nur lesende Simulation", response.text)
 
     def test_panel_inventory_renders_dynamic_channel_link_without_bot(self):
         import cogs.activity_check as activity_module

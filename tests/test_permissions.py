@@ -85,7 +85,7 @@ PUBLIC_GET = {"/", "/favicon.ico", "/callback", "/apply", "/health", "/healthz",
 # Write routes that are public on purpose: the application portal (own session check inside) and the
 # central /action handler (unknown actions are refused with 400 before login; real ones: see test).
 PUBLIC_WRITE = {"/apply/keepalive", "/action"}
-ADMIN_ONLY = ("/admin", "/admin/discord", "/admin/privacy", "/backups", "/settings", "/system")
+ADMIN_ONLY = ("/admin", "/admin/discord", "/admin/permissions", "/admin/privacy", "/backups", "/settings", "/system")
 
 
 class RouteMatrixTests(unittest.TestCase):
