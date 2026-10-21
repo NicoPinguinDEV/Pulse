@@ -39,7 +39,7 @@ from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
 from pulse_version import PULSE_VERSION
 from pulse_time import display, parse_timestamp
-from pulse_team_warning import build_warning_record, revoke_warning_record
+from pulse_team_warning import build_warning_record, revoke_warning_record, issue_team_warning
 from pulse_warning_consequences import revoke_temporary_warning_roles
 
 from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
@@ -9878,38 +9878,29 @@ async def handle_action(
         team_db = load_json(DATA_FILE, {})
         entry = user_entry(team_db, str(user_id))
         tracker = track_member_entry(user_id, entry)  # K-04: merge-on-save after awaits
-        current_count = len(active_warns(entry))
-        if current_count >= 5:
-            return back(member_url, "Dieses Teammitglied hat bereits die maximale Anzahl von 5 aktiven Verwarnungen.", False)
-
-        allowed_warn, protection_message = await enforce_team_warn_protection(
-            guild, ctx.member or guild.get_member(int(actor_id)), m, config, source="Dashboard",
-        )
-        if not allowed_warn:
-            return back(member_url, protection_message, False)
-        actor_member = ctx.member or guild.get_member(int(actor_id))
-        allowed_impact, impact_message = await enforce_high_impact_warning_approval(
-            guild, actor_member, m, entry, current_count, config, source="Dashboard",
-        )
-        if not allowed_impact:
-            return back(member_url, impact_message, False)
-        issued_at = now_de()
-        warning_record = build_warning_record(
+        warning_result = await issue_team_warning(
+            web=__import__("webserver"),
+            guild=guild,
+            actor_member=ctx.member or guild.get_member(int(actor_id)),
+            target=m,
+            entry=entry,
+            tracker=tracker,
             warning_id=f"warn_{uuid.uuid4().hex[:6]}",
             reason=reason,
             proof=safe_url(warn_proof),
             by=actor,
-            issued_at=issued_at,
             duration_days=int(warn_duration_days),
             max_reason_length=500,
+            config=config,
+            source="Dashboard",
         )
-        entry["warns_list"].append(warning_record)
-        count = len(active_warns(entry))
-        tracker.commit()
+        if not warning_result["ok"]:
+            return back(member_url, warning_result["message"], False)
+        warning_record = warning_result["warning"]
+        count = warning_result["count"]
+        role_report = warning_result["role_report"]
+        consequence_report = warning_result["consequence_report"]
         log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/5): {reason}")
-        role_report = await sync_warn_roles(guild, m, count, config)
-        consequence_report = await apply_warn_consequences(guild, m, entry["warns_list"][-1], count, config, entry=entry)
-        tracker.commit()
         if m:
             await send_team_update_embed(
                 guild,

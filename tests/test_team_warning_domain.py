@@ -72,3 +72,85 @@ class TeamWarningDomainTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedIssueWarningTests(unittest.IsolatedAsyncioTestCase):
+    class FakeTracker:
+        def __init__(self):
+            self.commits = 0
+        def commit(self):
+            self.commits += 1
+
+    class FakeWeb:
+        def __init__(self, *, allow_protection=True, allow_impact=True):
+            self.allow_protection = allow_protection
+            self.allow_impact = allow_impact
+            self.roles_synced = []
+            self.consequences_applied = []
+        def active_warns(self, entry):
+            return [warning for warning in entry.get("warns_list", []) if warning.get("active", True)]
+        def now_de(self):
+            return datetime(2026, 10, 21, 17, 30, tzinfo=timezone.utc)
+        async def enforce_team_warn_protection(self, guild, actor, target, config, *, source):
+            return self.allow_protection, "Schutzprüfung blockiert"
+        async def enforce_high_impact_warning_approval(self, guild, actor, target, entry, count, config, *, source):
+            return self.allow_impact, "Zweitfreigabe fehlt"
+        async def sync_warn_roles(self, guild, target, count, config):
+            self.roles_synced.append(count)
+            return {"ok": True}
+        async def apply_warn_consequences(self, guild, target, warning, count, config, *, entry):
+            self.consequences_applied.append(warning["id"])
+            return {"ok": True, "actions": []}
+
+    async def test_shared_flow_creates_warning_and_synchronizes_roles_and_consequences(self):
+        from pulse_team_warning import issue_team_warning
+        web = self.FakeWeb()
+        entry = {"warns_list": []}
+        tracker = self.FakeTracker()
+        result = await issue_team_warning(
+            web=web, guild=object(), actor_member=object(), target=object(),
+            entry=entry, tracker=tracker, warning_id="warn_shared",
+            reason="Verständlicher Grund", proof="https://example.test/proof",
+            by="Leitung", duration_days=21, max_reason_length=1000,
+            config={}, source="test",
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(entry["warns_list"][0]["duration_days"], 21)
+        self.assertEqual(entry["warns_list"][0]["proof"], "https://example.test/proof")
+        self.assertEqual(tracker.commits, 2)
+        self.assertEqual(web.roles_synced, [1])
+        self.assertEqual(web.consequences_applied, ["warn_shared"])
+
+    async def test_blocked_protection_does_not_write_or_synchronize(self):
+        from pulse_team_warning import issue_team_warning
+        web = self.FakeWeb(allow_protection=False)
+        entry = {"warns_list": []}
+        tracker = self.FakeTracker()
+        result = await issue_team_warning(
+            web=web, guild=object(), actor_member=object(), target=object(),
+            entry=entry, tracker=tracker, warning_id="warn_blocked",
+            reason="Verständlicher Grund", proof="", by="Leitung",
+            duration_days=7, max_reason_length=1000, config={}, source="test",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["message"], "Schutzprüfung blockiert")
+        self.assertEqual(entry["warns_list"], [])
+        self.assertEqual(tracker.commits, 0)
+        self.assertEqual(web.roles_synced, [])
+
+    async def test_five_active_warnings_stop_before_approval(self):
+        from pulse_team_warning import issue_team_warning
+        web = self.FakeWeb()
+        entry = {"warns_list": [{"id": f"w{number}", "active": True} for number in range(5)]}
+        tracker = self.FakeTracker()
+        result = await issue_team_warning(
+            web=web, guild=object(), actor_member=object(), target=object(),
+            entry=entry, tracker=tracker, warning_id="warn_limit",
+            reason="Verständlicher Grund", proof="", by="Leitung",
+            duration_days=7, max_reason_length=1000, config={}, source="test",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(len(entry["warns_list"]), 5)
+        self.assertEqual(tracker.commits, 0)
+        self.assertEqual(web.roles_synced, [])

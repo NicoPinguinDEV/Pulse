@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import pulse_db as db
 from pulse_jobs import tracked
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
-from pulse_team_warning import build_warning_record, revoke_warning_record
+from pulse_team_warning import build_warning_record, revoke_warning_record, issue_team_warning
 from pulse_warning_consequences import revoke_temporary_warning_roles
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1266,48 +1266,38 @@ class PulseSuite(commands.Cog):
         if len(grund) < 5:
             return await i.response.send_message("❌ Bitte gib einen nachvollziehbaren Pflichtgrund mit mindestens 5 Zeichen an.",ephemeral=True)
         async def do(x):
-            allowed_warn, protection_message = await web.enforce_team_warn_protection(
-                i.guild, i.user, member, web.load_config(), source="Slash /warn",
-            )
-            if not allowed_warn:
-                return await x.response.edit_message(
-                    content="❌ " + protection_message, embed=None, view=None,
-                )
-            td=web.load_json(web.DATA_FILE,{})
-            e=web.user_entry(td,str(member.id))
-            tracker=web.track_member_entry(member.id,e)  # K-04: merge-on-save after awaits
-            current_count=len(web.active_warns(e))
-            if current_count >= 5:
-                return await x.response.edit_message(
-                    content="❌ Dieses Teammitglied hat bereits 5 aktive Verwarnungen.",
-                    embed=None, view=None,
-                )
-            config=web.load_config()
-            allowed_impact, impact_message = await web.enforce_high_impact_warning_approval(
-                i.guild, i.user, member, e, current_count, config, source="Slash /warn",
-            )
-            if not allowed_impact:
-                return await x.response.edit_message(
-                    content="❌ " + impact_message, embed=None, view=None,
-                )
-            issued_at = web.now_de()
+            td = web.load_json(web.DATA_FILE, {})
+            e = web.user_entry(td, str(member.id))
+            tracker = web.track_member_entry(member.id, e)  # Snapshot before any domain mutation.
+            config = web.load_config()
             duration_days = int(dauer_tage or web.DEFAULT_AUTO_WARN_DURATION_DAYS)
             proof = web.safe_url(str(beweis or "").strip())
-            w = build_warning_record(
+            warning_result = await issue_team_warning(
+                web=web,
+                guild=i.guild,
+                actor_member=i.user,
+                target=member,
+                entry=e,
+                tracker=tracker,
                 warning_id="warn_" + uuid.uuid4().hex[:10],
                 reason=grund[:1000],
                 proof=proof,
                 by=i.user.display_name,
-                issued_at=issued_at,
                 duration_days=duration_days,
                 max_reason_length=1000,
+                config=config,
+                source="Slash /warn",
             )
-            e.setdefault("warns_list",[]).append(w)
-            tracker.commit()
-            count=len(web.active_warns(e))
-            role_report=await web.sync_warn_roles(i.guild,member,count,config)
-            consequence_report=await web.apply_warn_consequences(i.guild,member,w,count,config,entry=e)
-            tracker.commit()
+            if not warning_result["ok"]:
+                return await x.response.edit_message(
+                    content="❌ " + warning_result["message"],
+                    embed=None,
+                    view=None,
+                )
+            w = warning_result["warning"]
+            count = warning_result["count"]
+            role_report = warning_result["role_report"]
+            consequence_report = warning_result["consequence_report"]
             await web.send_team_update_embed(
                 i.guild,
                 "⚠️ Team-Warnung",
