@@ -1,5 +1,35 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.14.0 – Phase 5: Dashboard & Bedienung (Oktober 2026)
+
+Details und Testnachweise: `docs/PHASE5_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
+
+> **Hinweise nach dem Update:**
+> - Nach dem Login öffnet sich jetzt **„Mein Pulse“** statt des Command Centers. Wer lieber eine andere Seite möchte, wählt sie unter „Mein Pulse → Meine Startseite“.
+> - Dashboard-Sitzungen enden nach **24 h ohne Aktivität** (einstellbar über die neue optionale `.env`-Variable `PULSE_SESSION_IDLE_HOURS`). Bestehende Logins bleiben gültig.
+> - Wer das Team verlässt (Team-Kick, Rollen entfernt, Server verlassen), wird beim nächsten Seitenaufruf abgemeldet.
+> - Abmelden geht nur noch per Knopf (POST); alte `/logout`-Links zeigen eine Bestätigung.
+
+- **Eigene Startseite (U-02).**
+- **Systemstatus (U-12):** zeigt jetzt auch Discord-Latenz und Cogs, die nicht laden. Dazu kommen fehlende Zeitzonendaten, feste Rollen/Kanäle, die es nicht mehr gibt, die Rollenhierarchie des Bots und fehlende Pflicht-Einträge in `.env` (nur Namen, nie Werte).
+- **Schneller und ohne Fremd-CDN (U-03):** das Dashboard-CSS ist vorgebaut und wird von Pulse selbst ausgeliefert (40 KB, gecacht). Optisch bleibt alles gleich, das Flackern beim Laden entfällt.
+- **Benachrichtigungen (U-11):** in der Inbox Bereiche abwählen, optional Discord-DM, Ruhezeiten, Filter nach Bereich.
+- **Sitzungen & API-Schlüssel (U-14):**
+  - „Meine Sitzungen“ zeigt Geräte und letzte Aktivität. Man kann einzelne Geräte, alle anderen oder sich überall abmelden.
+  - API-Schlüssel haben Bereiche, ein Ablaufdatum, „zuletzt benutzt“ und ein Limit von 120 Anfragen pro Minute. Bestehende Schlüssel funktionieren unverändert.
+- **Listen (U-05):** Audit Center und Verwarnungszentrale sind jetzt seitenweise, mit CSV-Export. Das Audit Center erreicht mehr Historie, und die Warnsuche findet auch Namen mit „&“.
+- **Teamakte (U-10):** neue Zeitleiste mit Warnungen, Schichten, Tickets, Aufgaben, Ereignissen und Notizen, filterbar. Sichtbar nur nach den bisherigen Rechten (E-3).
+- **Live-Ansichten (U-08):** Ticket-Warteschlange und Voice-Warteraum aktualisieren sich live mit „zuletzt aktualisiert“. Der Teamstatus fragt in Hintergrund-Tabs nicht mehr ab.
+- **Bedienung (U-04, U-06, U-07, U-09):**
+  - Eingaben bleiben nach einem Fehler erhalten, Doppelklicks sind gesperrt, Fehlermeldungen bleiben stehen.
+  - Bessere Tastatur- und Screenreader-Bedienung, größere Touch-Ziele auf dem Handy.
+  - Einheitliche Leerzustände und relative Zeiten.
+- **Sicherheit (U-13):** eine einheitliche Sicherheits-Middleware mit Content-Security-Policy-Basis und Herkunftsprüfung auch ohne Origin-Header.
+- **Fehler behoben:**
+  - `/stats` stürzte ab, solange in der Woche noch niemand Dienstzeit hatte.
+  - Die Rückfragen „Melonly-Log löschen?“ und „Schicht wirklich beenden?“ erschienen nie.
+  - Meldungen nach dem Speichern gingen auf Seiten mit Sprungmarke verloren.
+
 ## Version 7.13.0 – Phase 4: Architektur & Wartbarkeit (Oktober 2026)
 
 Details und Testnachweise: `docs/PHASE4_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
