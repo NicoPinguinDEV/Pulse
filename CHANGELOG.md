@@ -1,5 +1,31 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.15.0 – Phase 6: Discord-Bot – Bedienung & Funktionen (Oktober 2026)
+
+Details und Testnachweise: `docs/PHASE6_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
+
+> **Hinweise nach dem Update:**
+> - Pulse synchronisiert die Slash-Befehle einmal neu. Neue Gruppen `/team`, `/setup`, `/dienst`, `/ticket`, `/mod` erscheinen; alle alten Befehlsnamen funktionieren weiter. Einrichtungsbefehle sehen normale Mitglieder nicht mehr.
+> - `/promote` verlangt jetzt eine Probezeit (3/7 Tage), wie im Dashboard.
+> - Für Täter im Moderations-Log braucht der Bot „Audit-Log anzeigen“, für `/mod` die passenden Discord-Moderationsrechte.
+> - Neue optionale `.env`-Werte: `PULSE_RAID_WATCH` und die Raid-Schwellen (siehe `.env.example`).
+
+- **Eine Logik für Teamaktionen (BOT-05):** Warnen, Rücknahme, Beförderung und Degradierung laufen im Dashboard und per Slash gleich. Behoben: `/warn-remove` hob Sperren nicht auf, `/promote` ohne Probezeit, `/warn` ohne Dauer/Beweis/DM/Eskalation.
+- **Buttons & Pings (BOT-01):** Fehlermeldungen mit Fehler-ID, Doppelklick-Sperre; `@everyone`/Rollen-Pings nur noch, wo sie gewollt sind.
+- **Dienst in Discord (BOT-03):** `/dienst start|pause|weiter|ende|status` und ein Dienst-Panel; zweite Erinnerung 4 h vor dem Auto-Ende.
+- **Befehle (BOT-04):** Gruppen, `/pulse-hilfe` aus dem Befehlsbaum, Verwaltungsbefehle ausgeblendet.
+- **Ruhezeiten (BOT-12):** Erinnerungs-DMs nicht zwischen 23 und 8 Uhr, danach gebündelt.
+- **Bot-Status (BOT-13):** „N im Dienst · M Tickets offen“ an einer Stelle.
+- **Discord-Panels (BOT-14):** Übersicht mit Status, Link und Neuveröffentlichen.
+- **Frühwarnung (BOT-08):** Alarm bei Beitrittswellen, neuen Konten, Massen-Erwähnungen und Kopier-Spam, ohne automatische Änderung.
+- **Protokollierung (BOT-02):** gelöschte Nachrichten, Beitritt/Austritt mit Kontoalter, Bans/Kicks/Timeouts mit Täter, Rollen, Kanäle, Voice; eigene Kanäle je Kategorie, Ignorierlisten, Sammelversand.
+- **Tickets (BOT-06):** Schnellantworten, Übergabe mit Pflichtnotiz, Ticket-Sperre, Tags, Bewertungsauswertung, lesbare Transkripte.
+- **Voice-Support (BOT-07):** Warteposition und Wartezeit-Schätzung, „Ticket statt Warten“, Supporter-Statistik, Audio-Hinweis.
+- **Bürger-Moderation (BOT-09):** `/mod warn|timeout|kick|ban|akte` mit Fallakte (Pulse-Recht und Discord-Recht nötig).
+- **Bewerbungen (BOT-10):** Vorlagen, Eingangs-DM, Gesprächstermin mit Kalendereintrag und Erinnerung.
+- **On-/Offboarding (BOT-11):** Checklisten bei Teambeitritt und -austritt, Mentor.
+- **Review-Fixes:** Der Log-Versand bleibt nach Fehlern nicht mehr stehen, die DM-Warteschlange verliert nichts, abgelaufene `/mod`-Bans heben keine fremden Bans auf, u. a.
+
 ## Version 7.14.0 – Phase 5: Dashboard & Bedienung (Oktober 2026)
 
 Details und Testnachweise: `docs/PHASE5_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
