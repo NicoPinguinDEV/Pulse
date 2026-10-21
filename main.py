@@ -104,8 +104,11 @@ class CustomBot(commands.Bot):
             print(f"⚠️ Pulse Ultimate Automation Engine konnte nicht gestartet werden: {e}")
 
         # Webserver im Hintergrund starten
+        # O-02: behind a reverse proxy (Caddy) the real client IP comes from X-Forwarded-For – trusted only from
+        # PULSE_FORWARDED_ALLOW_IPS (default 127.0.0.1), otherwise anyone could fake it to dodge rate limits.
         config = uvicorn.Config(
-            app=app, host="0.0.0.0", port=PORT, log_level="info"
+            app=app, host=os.getenv("PULSE_BIND_HOST", "0.0.0.0"), port=PORT, log_level="info",
+            proxy_headers=True, forwarded_allow_ips=os.getenv("PULSE_FORWARDED_ALLOW_IPS", "127.0.0.1"),
         )
         server = uvicorn.Server(config)
         self._pulse_web_server = server
