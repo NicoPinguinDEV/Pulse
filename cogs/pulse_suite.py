@@ -1369,6 +1369,8 @@ class PulseSuite(commands.Cog):
             current_warn=next((z for z in current_entry.get("warns_list",[]) if z.get("id")==warn_id and z.get("active",True)),None)
             if not current_warn:
                 return await x.response.edit_message(content="❌ Diese Warnung ist nicht mehr aktiv.",embed=None,view=None)
+            # Capture the pre-mutation snapshot first, so merge-on-save sees the revocation.
+            tracker = web.track_member_entry(member.id, current_entry)
             current_warn = revoke_warning_record(
                 current_entry,
                 warning_id=str(warn_id),
@@ -1382,7 +1384,6 @@ class PulseSuite(commands.Cog):
                     embed=None,
                     view=None,
                 )
-            tracker = web.track_member_entry(member.id, current_entry)
             tracker.commit()
             count = len(web.active_warns(current_entry))
             temporary_roles_ok = await revoke_temporary_warning_roles(
