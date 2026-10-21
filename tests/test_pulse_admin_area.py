@@ -227,6 +227,35 @@ class AdminRouteTests(unittest.TestCase):
         self.assertIn("t=err", response.headers["location"])
 
 
+    def test_visibility_audit_is_admin_only_and_renders_read_only_report(self):
+        role = SimpleNamespace(id=987654321098765432, name="Unverifiziert")
+        report = {
+            "available": True, "reason": "",
+            "visible_count": 1, "review_count": 1, "hidden_count": 2, "unknown_count": 0,
+            "rows": [{
+                "channel_id": CHANNEL.id, "name": "willkommen", "kind": "TextChannel",
+                "position": 1, "viewable": True, "expected_visible": False,
+                "needs_review": True, "error": "",
+            }],
+        }
+        with self.as_user(TEAMLER):
+            denied = self.client.get("/admin/visibility", follow_redirects=False)
+        self.assertEqual(denied.status_code, 403)
+
+        with (
+            self.as_user(ADMIN),
+            patch.object(GUILD, "get_role", return_value=role),
+            patch("pulse_visibility_audit.audit_unverified_visibility", return_value=report),
+            patch("pulse_db.get_setting", side_effect=lambda key, default=None: {"channel_id": str(CHANNEL.id)} if key == "verification_config" else default),
+        ):
+            response = self.client.get("/admin/visibility")
+
+        self.assertEqual(response.status_code, 200, response.text[-1000:])
+        self.assertIn("Kanal-Sichtprüfung für Unverifizierte", response.text)
+        self.assertIn("Sichtbar · prüfen", response.text)
+        self.assertIn("Nur lesende Prüfung", response.text)
+        self.assertIn("werden keine Rollen", response.text.lower())
+
     def test_permissions_matrix_is_admin_only_and_shows_origin(self):
         import pulse_permissions
 

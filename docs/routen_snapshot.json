@@ -9,6 +9,7 @@
  "GET /admin/permissions -> pulse_admin.register.<locals>.admin_permissions_page",
  "GET /admin/privacy -> pulse_admin.register.<locals>.admin_privacy",
  "GET /admin/privacy/export -> pulse_admin.register.<locals>.admin_privacy_export",
+ "GET /admin/visibility -> pulse_admin.register.<locals>.admin_visibility_page",
  "GET /announcements -> pulse_pro.register.<locals>.announcements_page",
  "GET /api/pulse/live -> pulse_pro.register.<locals>.api_live",
  "GET /api/roblox-search -> webserver.roblox_search",

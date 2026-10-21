@@ -31,7 +31,7 @@ from pulse_welcome import (
 
 # Pages that belong to the administration area (sidebar switches to "Verwaltung").
 ADMIN_PAGE_KEYS = frozenset({
-    "admin", "admin-discord", "admin-panels", "admin-permissions", "ticket-panels", "settings", "backups", "system", "announcements", "social",
+    "admin", "admin-discord", "admin-panels", "admin-permissions", "admin-visibility", "ticket-panels", "settings", "backups", "system", "announcements", "social",
     "admin-privacy",
 })
 
@@ -44,6 +44,7 @@ def admin_sections(perms: dict) -> list[tuple]:
         ("admin-discord", "/admin/discord", "🎨", "Discord-Auftritt", "Verifikation, Willkommen & Abschied, Embed-Design", is_admin),
         ("admin-panels", "/admin/panels", "🧩", "Panel-Übersicht", "Persistente Discord-Panels prüfen und reparieren", is_admin),
         ("admin-permissions", "/admin/permissions", "🔐", "Wer darf was?", "Effektive Rechte einer Person samt Herkunft simulieren", is_admin),
+        ("admin-visibility", "/admin/visibility", "👁️", "Kanal-Sichtprüfung", "Sichtbarkeit für Unverifiziert lesend prüfen", is_admin),
         ("ticket-panels", "/tickets/panels", "🎛️", "Ticket-Panels", "Panels, Kategorien, Begrüßungen, Formulare", is_admin),
         ("announcements", "/announcements", "📢", "Ankündigungen", "Globale Team- und Servernachrichten", announcements),
         ("social", "/social", "📣", "Social Media", "Creator-Kanäle und Video-Ankündigungen", announcements),
@@ -1212,6 +1213,91 @@ def register(app) -> None:
 {result_html}
 '''
         return HTMLResponse(render_pro_page(ws, "Wer darf was?", ctx, "admin-permissions", body))
+
+    @app.get("/admin/visibility", response_class=HTMLResponse)
+    async def admin_visibility_page(request: Request, user_session: str = Cookie(None)):
+        """F-02: inspect unverified-member channel visibility without changing Discord."""
+        ctx = admin_ctx(request, user_session)
+        from pulse_visibility_audit import audit_unverified_visibility
+
+        role = ctx.guild.get_role(verification.UNVERIFIED_ROLE_ID)
+        settings = verification.normalize_settings(
+            pulse_db.get_setting(verification.SETTING_KEY, {})
+        )
+        expected_visible_ids = {
+            value for value in (settings.get("channel_id"), settings.get("published_channel_id"))
+            if str(value or "").isdigit() and int(value or 0) > 0
+        }
+        report = audit_unverified_visibility(
+            getattr(ctx.guild, "channels", []) or [],
+            role,
+            expected_visible_channel_ids=expected_visible_ids,
+        )
+        expected_text = (
+            ", ".join(str(value) for value in sorted(expected_visible_ids))
+            if expected_visible_ids else "Kein Verifikationskanal gespeichert"
+        )
+        if not report["available"]:
+            status_box = (
+                '<div class="pulse-alert"><strong>Prüfung nicht verfügbar.</strong> '
+                + e(report["reason"])
+                + '</div>'
+            )
+            table_html = ""
+        else:
+            status_box = f"""
+<div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
+  <div class="pulse-stat"><div class="label">Sichtbar</div><div class="value">{report["visible_count"]}</div></div>
+  <div class="pulse-stat"><div class="label">Zur Prüfung markiert</div><div class="value">{report["review_count"]}</div></div>
+  <div class="pulse-stat"><div class="label">Verborgen</div><div class="value">{report["hidden_count"]}</div></div>
+  <div class="pulse-stat"><div class="label">Nicht prüfbar</div><div class="value">{report["unknown_count"]}</div></div>
+</div>"""
+            body_rows = []
+            for item in report["rows"]:
+                channel_id = item["channel_id"]
+                channel_link = (
+                    f'<a class="pulse-btn ghost" target="_blank" rel="noopener noreferrer" href="https://discord.com/channels/{ctx.guild.id}/{channel_id}">Kanal öffnen ↗</a>'
+                    if channel_id > 0 else ""
+                )
+                if item["viewable"] is True:
+                    if item["needs_review"]:
+                        state = '<span class="pulse-pill warn">Sichtbar · prüfen</span>'
+                        explanation = "Für Unverifizierte sichtbar; bitte prüfen, ob dies beabsichtigt ist."
+                    elif item["expected_visible"]:
+                        state = '<span class="pulse-pill good">Erwartet sichtbar</span>'
+                        explanation = "Als Verifikations-/Onboarding-Kanal konfiguriert."
+                    else:
+                        state = '<span class="pulse-pill good">Sichtbar</span>'
+                        explanation = "Keine Auffälligkeit nach der aktuellen Prüfung."
+                elif item["viewable"] is False:
+                    state = '<span class="pulse-pill">Verborgen</span>'
+                    explanation = "Die Rolle kann diesen Kanal laut Discord-Permissions nicht sehen."
+                else:
+                    state = '<span class="pulse-pill">Nicht prüfbar</span>'
+                    explanation = f"Discord-Permissions konnten nicht gelesen werden ({e(item.get('error') or 'unbekannt')})."
+                body_rows.append(
+                    f'<tr><td class="py-2 pr-3"><div class="font-semibold">{e(item["name"])}</div>'
+                    f'<div class="text-[10px] text-slate-400">{e(item["kind"])} · ID {e(channel_id)}</div></td>'
+                    f'<td class="py-2 pr-3">{state}<div class="text-[10px] text-slate-400 mt-1">{e(explanation)}</div></td>'
+                    f'<td class="py-2">{channel_link}</td></tr>'
+                )
+            table_html = (
+                '<div class="overflow-x-auto"><table class="pulse-table"><thead><tr>'
+                '<th>Kanal</th><th>Sichtbarkeit für Unverifiziert</th><th>Link</th>'
+                '</tr></thead><tbody>' + "".join(body_rows) + '</tbody></table></div>'
+            )
+
+        body = f"""
+<div class="pulse-topbar">
+  <div><div class="pulse-section-title">👁️ Kanal-Sichtprüfung für Unverifizierte</div>
+  <div class="pulse-section-sub">Nur lesende Prüfung der effektiven Discord-Sichtbarkeit für die Unverifiziert-Rolle. Es werden keine Rollen, Kanalrechte oder Overwrites geändert.</div></div>
+  <a href="/admin" class="pulse-btn ghost">← Verwaltung</a>
+</div>
+<div class="pulse-alert mb-4"><strong>Hinweis:</strong> „Sichtbar · prüfen“ ist ein Prüfhinweis, keine automatische Feststellung einer Fehlkonfiguration. Öffentliche Regeln oder Onboarding-Kanäle können absichtlich sichtbar sein. Erwartete Verifikations-Kanäle: {e(expected_text)}.</div>
+{status_box}
+<section class="pulse-card mt-4"><div class="pulse-card-b">{table_html or '<div class="pulse-empty">Keine Kanäle zur Anzeige verfügbar.</div>'}</div></section>
+"""
+        return HTMLResponse(render_pro_page(ws, "Kanal-Sichtprüfung", ctx, "admin-visibility", body))
 
     @app.get("/admin/discord/banner/{filename}")
     async def admin_discord_banner(request: Request, filename: str, user_session: str = Cookie(None)):
