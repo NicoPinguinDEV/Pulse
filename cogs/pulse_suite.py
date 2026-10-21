@@ -953,8 +953,10 @@ class PulseSuite(commands.Cog):
             try:await send_styled(ch, embed=e)
             except Exception:pass
 
-    async def update_presence(self,g):
-        x=sum(s.get("status") in {"online","break"} for s in __import__("webserver").load_shifts().get("active_shifts",{}).values());await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching,name=f"Pulse · {x} im Dienst"))
+    async def update_presence(self, g):
+        """Delegate status changes to the shared, throttled presence service."""
+        import pulse_presence
+        return await pulse_presence.update_presence(self.bot)
 
     async def security_check(self,g):
         web=__import__("webserver");issues=[]
