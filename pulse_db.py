@@ -379,6 +379,12 @@ def make_id(prefix):
 
 
 def notify(user_id, title, body, kind="info", url="/pulse-inbox", dedupe_key=None, dedupe_window_seconds=21600):
+    # U-11: personal preferences – a muted category is stored as already read, DMs are optional.
+    try:
+        import pulse_notify_prefs
+        decision = pulse_notify_prefs.decide(user_id, url, title)
+    except Exception:
+        decision = {"unread": True, "dm": False}
     with connect() as db:
         uid = str(user_id)
         if dedupe_key:
@@ -390,10 +396,13 @@ def notify(user_id, title, body, kind="info", url="/pulse-inbox", dedupe_key=Non
                 return existing[0]
         nid = make_id("notif")
         db.execute(
-            "INSERT INTO notifications(id,user_id,title,body,kind,url,read_at,created_at,dedupe_key) VALUES (?,?,?,?,?,?,NULL,?,?)",
-            (nid, uid, title, body, kind, url, _now(), str(dedupe_key) if dedupe_key else None),
+            "INSERT INTO notifications(id,user_id,title,body,kind,url,read_at,created_at,dedupe_key) VALUES (?,?,?,?,?,?,?,?,?)",
+            (nid, uid, title, body, kind, url, None if decision["unread"] else _now(), _now(),
+             str(dedupe_key) if dedupe_key else None),
         )
-        return nid
+    if decision["dm"]:
+        pulse_notify_prefs.queue_dm(uid, title, body, url)
+    return nid
 
 
 def notifications(user_id, limit=50):

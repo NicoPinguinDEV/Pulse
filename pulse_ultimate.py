@@ -2287,6 +2287,13 @@ async def automation_loop(bot):
           async with pulse_jobs.job("Automation (60 s)", 60):
             # Memory guard piggybacks on this existing loop; no extra worker is added.
             await runtime_memory_guard(bot)
+            # U-11: opt-in notification DMs, bounded batch per run on this existing loop.
+            try:
+                import pulse_notify_prefs
+                if bot and pulse_notify_prefs.pending_dms():
+                    await pulse_notify_prefs.drain_dms(bot, os.getenv("PUBLIC_BASE_URL", ""))
+            except Exception as exc:
+                print(f"⚠️ Benachrichtigungs-DMs konnten nicht gesendet werden: {type(exc).__name__}")
             # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren
             # auch nach einem Neustart zuverlässig automatisch enden.
             try:

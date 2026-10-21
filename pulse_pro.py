@@ -829,13 +829,35 @@ def register(app):
 
     # ---------------- Inbox ----------------
     async def inbox_v5(request: Request, user_session: str=Cookie(None)):
+        import pulse_notify_prefs as np  # U-11: grouping and personal settings
         c=cctx(request,user_session); notices=db.notifications(c.user['id'],120)
         unread=sum(1 for n in notices if not n.get('read_at'))
+        groups={}
+        for n in notices: n['_cat']=np.category_for(n.get('url'),n.get('title')); groups.setdefault(n['_cat'],[0,0]); groups[n['_cat']][0]+=1; groups[n['_cat']][1]+=int(not n.get('read_at'))
+        labels=dict({k:v[0] for k,v in np.CATEGORIES.items()},system='⚙️ System')
+        selected=request.query_params.get('cat') or ''
+        if selected not in labels: selected=''
+        chips=''.join(f'<a href="/pulse-inbox{"?cat="+k if k else ""}" class="pulse-pill {"good" if k==selected else ""}"{" aria-current=\"page\"" if k==selected else ""}>{e(lbl)}{(" · "+str(cnt)) if cnt else ""}</a>' for k,lbl,cnt in [('', 'Alle', unread)]+[(k,labels[k],groups[k][1]) for k in labels if k in groups])
+        prefs=np.load(c.user['id'])
+        hours=lambda name,val:f'<select name="{name}" class="pulse-input" style="width:auto;min-width:6.5rem" aria-label="{"Ruhezeit von" if name=="quiet_from" else "Ruhezeit bis"}"><option value="">–</option>'+''.join(f'<option value="{h}"{" selected" if val==h else ""}>{h:02d}:00</option>' for h in range(24))+'</select>'
+        mute_boxes=''.join(f'<label class="flex items-center gap-2 text-xs"><input type="checkbox" name="show" value="{k}"{"" if k in prefs["muted"] else " checked"}> {e(lbl)}</label>' for k,(lbl,_w) in np.CATEGORIES.items())
+        settings_html=(f'<form method="post" action="/pulse-inbox/settings" class="space-y-3"><div class="text-xs text-slate-400">Abgewählte Bereiche landen still als „gelesen“ in der Inbox. System-Hinweise kommen immer.</div>'
+                       f'<div class="grid sm:grid-cols-2 gap-2">{mute_boxes}</div>'
+                       f'<label class="flex items-center gap-2 text-xs"><input type="checkbox" name="dm" value="1"{" checked" if prefs["dm"] else ""}> Zusätzlich als Discord-DM</label>'
+                       f'<div class="flex flex-wrap items-center gap-2 text-xs"><span>Ruhezeit (keine DMs):</span>{hours("quiet_from",prefs["quiet_from"])}<span>bis</span>{hours("quiet_to",prefs["quiet_to"])}</div>'
+                       f'<button class="pulse-btn ghost" type="submit">Einstellungen speichern</button></form>')
+        if selected: notices=[n for n in notices if n['_cat']==selected]
         def notice_row(n):
             action = '' if n.get('read_at') else f'<form action="/pulse-inbox/read/{e(n.get("id"))}" method="post"><button title="Als gelesen markieren" class="pulse-icon-btn">✓</button></form>'
             return f'<div class="pulse-row"><a href="{e(n.get("url") or "/pulse-inbox")}" class="flex items-center gap-3 min-w-0 flex-1"><div class="pulse-avatar">{e((n.get("title") or "?")[:1])}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(n.get("title"))}</div><div class="pulse-row-meta">{e(n.get("body"))} · {e(fmt_dt(n.get("created_at")))}</div></div>{pill("Neu", "bad") if not n.get("read_at") else pill("Gelesen")}</a>{action}</div>'
         feed=''.join(notice_row(n) for n in notices)
-        return render_pro_page(ws,'Pulse Inbox',c,'inbox',f'''<div class="pulse-topbar"><div><div class="pulse-section-title">◈ Pulse Inbox</div><div class="pulse-section-sub">Zentrale Benachrichtigungen für deinen Arbeitsalltag.</div></div><div class="flex items-center gap-2"><span class="pulse-pill {'bad' if unread else 'good'}">{unread} ungelesen</span><form action="/pulse-inbox/read" method="post"><button class="pulse-btn ghost">✓ Alle lesen</button></form></div></div><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">Deine Nachrichten</div><div class="pulse-section-sub">Neue Ereignisse, Erinnerungen und Aufgaben.</div></div></div><div class="pulse-card-b space-y-2">{feed or '<div class="pulse-empty">Postfach ist leer.</div>'}</div></section>''')
+        return render_pro_page(ws,'Pulse Inbox',c,'inbox',f'''<div class="pulse-topbar"><div><div class="pulse-section-title">◈ Pulse Inbox</div><div class="pulse-section-sub">Zentrale Benachrichtigungen für deinen Arbeitsalltag.</div></div><div class="flex items-center gap-2"><span class="pulse-pill {'bad' if unread else 'good'}">{unread} ungelesen</span><form action="/pulse-inbox/read" method="post"><button class="pulse-btn ghost">✓ Alle lesen</button></form></div></div><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">Deine Nachrichten</div><div class="pulse-section-sub">Neue Ereignisse, Erinnerungen und Aufgaben.</div></div></div><div class="pulse-card-b space-y-2"><nav class="flex flex-wrap gap-2 mb-3" aria-label="Nach Bereich filtern">{chips}</nav>{feed or ws.empty_state('Postfach ist leer.' if not selected else 'In diesem Bereich gibt es nichts.','📭')}</div></section><section class="pulse-card mt-4"><div class="pulse-card-h"><div><div class="pulse-section-title">⚙ Benachrichtigungen einstellen</div><div class="pulse-section-sub">Welche Bereiche, ob als Discord-DM und wann Ruhe ist.</div></div></div><div class="pulse-card-b">{settings_html}</div></section>''')
+
+    async def inbox_settings(request: Request, user_session: str=Cookie(None)):
+        import pulse_notify_prefs as np  # U-11
+        c=cctx(request,user_session); form=await request.form(); shown=set(form.getlist('show'))
+        np.save(c.user['id'],{'muted':[k for k in np.CATEGORIES if k not in shown],'dm':form.get('dm')=='1','quiet_from':form.get('quiet_from'),'quiet_to':form.get('quiet_to')})
+        return ws.back('/pulse-inbox','Benachrichtigungs-Einstellungen gespeichert.')
 
     async def inbox_read_all(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session); db.mark_notifications_read(c.user['id']); return ws.back('/pulse-inbox','Benachrichtigungen als gelesen markiert.')
@@ -2689,6 +2711,7 @@ def register(app):
     remove_and_add(app,'/pulse-inbox',{'GET'},inbox_v5,response_class=HTMLResponse)
     remove_and_add(app,'/pulse-inbox/read/{nid}',{'POST'},inbox_read_one)
     remove_and_add(app,'/pulse-inbox/read',{'POST'},inbox_read_all)
+    remove_and_add(app,'/pulse-inbox/settings',{'POST'},inbox_settings)
     remove_and_add(app,'/tasks',{'GET'},tasks_v5,response_class=HTMLResponse)
     remove_and_add(app,'/tasks/update',{'POST'},update_task_v5)
     remove_and_add(app,'/tickets',{'GET'},tickets_v5,response_class=HTMLResponse)
