@@ -283,14 +283,14 @@ def main() -> None:
     assert "async def enforce_team_warn_protection(" in web
     assert "async def enforce_high_impact_warning_approval(" in web
     assert "high_impact_warning_reason(" in web
-    assert "await web.enforce_high_impact_warning_approval(" in read("cogs/pulse_suite.py")
     assert "async def enforce_team_safety_action_lockout(" in web
     assert "_apply_team_safety_team_kick" in web
-    assert "await web.enforce_team_warn_protection(" in read("cogs/pulse_suite.py")
     assert "active warning lockout" not in read("cogs/pulse_suite.py")
     assert 'if key in {"warn-remove","server-exit","team-exit","kick","team-kick","promote","demote"}:' in read("cogs/pulse_suite.py")
 
     # Warning lifetime, probation and automatic penalty cleanup regressions.
+    # BOT-05: warning creation/revocation behavior is covered with fake actions, not source-text assertions.
+    parse("tests/test_team_warning_domain.py")
     assert "DEFAULT_AUTO_WARN_DURATION_DAYS = 7" in web
     # A-09: value lives in pulse_ids.py, the module takes it from there
     assert "TEST_SUPPORTER_ROLE_ID = 1498397925817188518" in read("pulse_ids.py")
