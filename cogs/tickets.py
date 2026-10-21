@@ -2003,11 +2003,6 @@ class Tickets(commands.Cog):
                 ephemeral=True,
                 allowed_mentions=discord.AllowedMentions.none(),
             )
-        pulse_db.record_event(
-            "ticket_member_lock_removed", "member", str(mitglied.id),
-            interaction.user.id, interaction.user.display_name,
-            {"reason": str(record.get("reason") or ""), "original_expires_at": str(record.get("expires_at") or "")},
-        )
         await interaction.response.send_message(
             f"🔓 Die Ticket-Sperre für {mitglied.mention} wurde aufgehoben. Bestehende Tickets waren davon nicht betroffen.",
             ephemeral=True,
