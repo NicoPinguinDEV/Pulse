@@ -1274,7 +1274,7 @@ def main() -> None:
     pro_cog = read("cogs/pulse_pro.py")
     assert "(ls,le),(ps,pe)=previous_full_weeks(today)" in suite_bot
     assert "name=member.display_name if member else s.get(\"mod_name\",uid)" in suite_bot
-    assert "longshift-self:" in suite_bot and "except (discord.Forbidden,discord.HTTPException):pass" in suite_bot
+    # BOT-12 reminder delivery is now verified behaviorally in test_reminder_quiet_hours.py.
     assert '@app_commands.command(name="pulse-hilfe"' in pro_cog
     assert 'if perms.get("is_admin"):\n            sections.append(("⚙ Administration"' in pro_cog
     assert "_pulse_startup_report_sent" in pro_cog
