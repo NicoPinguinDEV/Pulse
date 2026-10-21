@@ -1462,6 +1462,22 @@ def register(app):
         rating_rows = rating_rows if isinstance(rating_rows, list) else []
         rated = [int(x.get("rating", 0)) for x in rating_rows if isinstance(x, dict) and str(x.get("rating", "")).isdigit() and 1 <= int(x.get("rating", 0)) <= 5]
         average_rating = (sum(rated) / len(rated)) if rated else 0
+        supporter_counts = db.voice_support_case_counts(guild_id=c.guild.id)
+        supporter_stats_rows = []
+        for supporter_id, counts in sorted(
+            supporter_counts.items(),
+            key=lambda item: (-int(item[1].get("completed", 0) or 0), str(item[0])),
+        )[:10]:
+            supporter = c.guild.get_member(int(supporter_id)) if str(supporter_id).isdigit() else None
+            supporter_name = e(supporter.display_name if supporter else f"Teammitglied {supporter_id}")
+            completed = max(0, int(counts.get("completed", 0) or 0))
+            hours_total = max(0, int(counts.get("duration_seconds_total", 0) or 0)) / 3600
+            supporter_stats_rows.append(
+                f'<div class="pulse-row"><div class="pulse-avatar">🎧</div>'
+                f'<div class="pulse-row-main"><div class="pulse-row-title">{supporter_name}</div>'
+                f'<div class="pulse-row-meta">{completed} abgeschlossene Gespräche · {hours_total:.1f} Std. Gesprächszeit</div></div></div>'
+            )
+        supporter_stats_html = "".join(supporter_stats_rows) or '<div class="pulse-empty">Noch keine abgeschlossenen Supportfälle zum Auswerten.</div>'
         is_admin = bool(c.perms.get("is_admin"))
         config_form = ""
         if is_admin:
@@ -1471,6 +1487,7 @@ def register(app):
                 <label class="block text-xs font-bold">Support-Name<input name="room_name" class="pulse-input mt-2" required maxlength="60" value="{e(cfg.get('room_name') or 'Support')}"></label>
                 {select_field("waiting_room_channel_id","Warteraum – Voice-Kanal",voice_channels,cfg.get("waiting_room_channel_id"),"Voice-Warteraum auswählen")}
                 {select_field("notification_channel_id","Benachrichtigungs-Kanal",text_channels,cfg.get("notification_channel_id"),"Textkanal auswählen")}
+                {select_field("ticket_panel_channel_id","Ticket-Panel als Alternative außerhalb der Öffnungszeiten",text_channels,cfg.get("ticket_panel_channel_id"),"Optional: Ticket-Panel auswählen")}
                 <label class="block text-xs font-bold">Support-Rolle<select name="support_role_id" class="pulse-input mt-2">{"".join(role_options)}</select><span class="pulse-section-sub mt-1">Wird außerhalb des Bereitschaftsmodus bei neuen Supportfällen benachrichtigt.</span></label>
                 <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="active" value="1" {"checked" if cfg.get("active") else ""}>Support-System aktivieren</label>
                 <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="notification_enabled" value="1" {"checked" if cfg.get("notification_enabled", True) else ""}>Supportfall-Meldungen und Live-Status aktivieren</label>
@@ -1512,6 +1529,18 @@ def register(app):
             </form>'''
         else:
             config_form = '<div class="pulse-alert"><strong>Nur Ansicht</strong><div class="text-slate-400 mt-1">Die Support-Konfiguration kann nur von Dashboard-Administratoren geändert werden.</div></div>'
+        try:
+            from pulse_audio_check import audio_status
+            audio = audio_status()
+            audio_notice = "" if audio["ok"] else (
+                f'<div class="pulse-alert mb-4"><strong>⚠️ Voice-Audio nicht verfügbar</strong>'
+                f'<div class="mt-1">{e(audio["message"])}</div></div>'
+            )
+        except Exception as exc:
+            audio_notice = (
+                f'<div class="pulse-alert mb-4"><strong>⚠️ Voice-Audio-Status nicht prüfbar</strong>'
+                f'<div class="mt-1">{e(type(exc).__name__)}</div></div>'
+            )
         status = "🟢 Aktiv" if cfg.get("active") else "⚪ Deaktiviert"
         duty_ids = []
         try:
@@ -1521,8 +1550,10 @@ def register(app):
             pass
         body = f'''<div class="pulse-topbar"><div><div class="pulse-section-title">🎧 Voice-Support</div><div class="pulse-section-sub">Gemeinsamer Warteraum, nachvollziehbare Supportfälle, Fallnotizen, Bewertungen und Bereitschaft – direkt mit Pulse-Dienstzeiten verbunden.</div></div><span class="pulse-pill {"good" if cfg.get("active") else "warn"}">{status}</span></div><div class="pulse-live-strip pulse-row-meta mb-3" data-live-view role="status" aria-live="polite"><span class="pulse-status-dot bg-emerald-500" aria-hidden="true"></span> Live: <b data-live="voice_waiting">…</b> im Warteraum · zuletzt aktualisiert <span data-live-time>…</span><span class="pulse-live-error"> · Verbindung gestört, neuer Versuch läuft</span></div>
         <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🎧</div><div class="label">Offene Sprachfälle</div><div class="value">{len(cases)}</div></div><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Aktuell im Dienst</div><div class="value">{len(duty_ids)}</div></div><div class="pulse-stat"><div class="icon">⭐</div><div class="label">Bewertungen</div><div class="value">{len(rated)}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Bewertung</div><div class="value">{average_rating:.1f}/5</div></div></div>
+        {audio_notice}
         {config_form}
-        <section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">📞 Aktuelle Supportfälle</div><div class="pulse-section-sub">Wartende Bürger bleiben im gemeinsamen Warteraum. Nach Übernahme wird der Bürger in den Sprachkanal des Supporters verschoben; beim Abschluss werden temporäre Rechte bereinigt.</div></div><a href="/voice-support" class="pulse-btn ghost">↻ Aktualisieren</a></div><div class="pulse-card-b space-y-2">{"".join(case_rows) or '<div class="pulse-empty">Aktuell keine offenen Sprach-Supportfälle.</div>'}</div></section>'''
+        <section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">📞 Aktuelle Supportfälle</div><div class="pulse-section-sub">Wartende Bürger bleiben im gemeinsamen Warteraum. Nach Übernahme wird der Bürger in den Sprachkanal des Supporters verschoben; beim Abschluss werden temporäre Rechte bereinigt.</div></div><a href="/voice-support" class="pulse-btn ghost">↻ Aktualisieren</a></div><div class="pulse-card-b space-y-2">{"".join(case_rows) or '<div class="pulse-empty">Aktuell keine offenen Sprach-Supportfälle.</div>'}</div></section>
+        <section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">📈 Supporter-Statistik</div><div class="pulse-section-sub">Abgeschlossene Gespräche und dokumentierte Gesprächszeit aus der Support-Fallhistorie.</div></div></div><div class="pulse-card-b space-y-2">{supporter_stats_html}</div></section>'''
         return render_pro_page(ws, "Voice-Support", c, "voice-support", body)
 
     async def voice_support_save(request: Request, user_session: str=Cookie(None)):
@@ -1535,6 +1566,7 @@ def register(app):
                 return 0
         waiting = c.guild.get_channel(form_id("waiting_room_channel_id"))
         notify = c.guild.get_channel(form_id("notification_channel_id"))
+        ticket_panel = c.guild.get_channel(form_id("ticket_panel_channel_id"))
         checkin = c.guild.get_channel(form_id("checkin_channel_id"))
         support_role = c.guild.get_role(form_id("support_role_id"))
         duty_role = c.guild.get_role(form_id("duty_role_id"))
@@ -1548,6 +1580,8 @@ def register(app):
             return ws.back("/voice-support", "Der Benachrichtigungskanal muss ein Textkanal sein.", False)
         if checkin and not isinstance(checkin, discord.TextChannel):
             return ws.back("/voice-support", "Der Check-in-Kanal muss ein Textkanal sein.", False)
+        if ticket_panel and not isinstance(ticket_panel, discord.TextChannel):
+            return ws.back("/voice-support", "Das Ticket-Panel muss ein Textkanal sein.", False)
         if support_role and (support_role.managed or support_role.is_default()):
             return ws.back("/voice-support", "Diese Support-Rolle kann nicht verwendet werden.", False)
         if duty_role and (duty_role.managed or duty_role.is_default()):
@@ -1665,6 +1699,7 @@ def register(app):
                 "guild_id": c.guild.id, "active": enabled, "room_name": room_name,
                 "waiting_room_channel_id": waiting.id if isinstance(waiting, discord.VoiceChannel) else 0,
                 "notification_channel_id": notify.id if isinstance(notify, discord.TextChannel) else 0,
+                "ticket_panel_channel_id": ticket_panel.id if isinstance(ticket_panel, discord.TextChannel) else 0,
                 "support_role_id": support_role.id if support_role else 0,
                 "notes_enabled": form.get("notes_enabled") == "1",
                 "notification_enabled": notification_enabled,

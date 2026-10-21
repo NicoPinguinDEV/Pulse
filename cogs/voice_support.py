@@ -18,7 +18,7 @@ from pulse_discord_style import card_info, edit_styled, is_v2, layout_from_embed
 from discord.ext import commands, tasks
 import pulse_db as db
 from pulse_jobs import tracked
-from pulse_voice_support_utils import DEFAULT_HOURS, DAYS, DAY_NAMES, shift_is_online, support_open_now
+from pulse_voice_support_utils import (DEFAULT_HOURS, DAYS, DAY_NAMES, estimate_wait_seconds, format_wait_estimate, queue_position, shift_is_online, support_open_now)
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 CONFIG_KEY = "voice_support_config"
@@ -255,6 +255,68 @@ class VoiceSupport(commands.Cog):
         except (ValueError, RuntimeError) as exc:
             print(f"⚠️ Voice-Support: Buttons für Fall {case_id} konnten nicht registriert werden: {exc}")
 
+    def _queue_metrics(self, guild_id, case_id: str):
+        """Calculate a transparent best-effort queue position and duration estimate."""
+        position = queue_position(get_cases(), str(case_id), guild_id)
+        if position is None:
+            return None, None
+        try:
+            staff_counts = db.voice_support_case_counts(guild_id=guild_id)
+            completed = sum(int(item.get("completed", 0) or 0) for item in staff_counts.values())
+            duration = sum(int(item.get("duration_seconds_total", 0) or 0) for item in staff_counts.values())
+            average = duration / completed if completed > 0 and duration > 0 else None
+        except Exception as exc:
+            print(f"⚠️ Voice-Support: Wartezeit-Historie nicht verfügbar ({type(exc).__name__}).")
+            average = None
+        current = [
+            item for item in get_cases().values()
+            if isinstance(item, dict)
+            and str(item.get("guild_id")) == str(guild_id)
+            and channel_id(item.get("assigned_staff_id")) > 0
+        ]
+        estimate = estimate_wait_seconds(position, average, max(1, len(current)))
+        return position, estimate
+
+    async def _send_citizen_queue_notice(self, member: discord.Member, case: dict, cfg: dict) -> bool:
+        """Send one case-opening DM, respecting the shared and personal quiet windows."""
+        try:
+            from pulse_notify_prefs import global_quiet_hours, in_quiet_hours, load as load_notify_prefs
+            preferences = load_notify_prefs(member.id)
+            if global_quiet_hours() or in_quiet_hours(preferences):
+                return False
+        except Exception as exc:
+            # Fail closed for proactive messages if the preference/time subsystem is unavailable.
+            print(f"⚠️ Voice-Support: Warteinfo wegen nicht prüfbarer Ruhezeit ausgelassen ({type(exc).__name__}).")
+            return False
+
+        guild = member.guild
+        position, wait_seconds = self._queue_metrics(guild.id, str(case.get("case_id") or ""))
+        embed = discord.Embed(
+            title="🎧 Deine Voice-Support-Anfrage ist eingegangen",
+            description=(
+                "Du bleibst im gemeinsamen Support-Warteraum. Bitte verlasse ihn nicht, "
+                "wenn du weiterhin auf einen Supporter warten möchtest. Die Wartezeit ist ein unverbindlicher Richtwert."
+            ),
+            color=_pulse_color("info"),
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="Fall", value=f"#S-{str(case.get('case_id') or '')[:9].upper()}", inline=True)
+        embed.add_field(name="Warteposition", value=f"{position}. Person" if position else "Wird ermittelt", inline=True)
+        embed.add_field(name="Geschätzte Wartezeit", value=format_wait_estimate(wait_seconds), inline=True)
+        if case.get("outside_opening_hours"):
+            ticket_channel = guild.get_channel(channel_id(cfg.get("ticket_panel_channel_id")))
+            detail = "Der Support ist außerhalb der Öffnungszeiten. Du kannst im Warteraum bleiben oder später wiederkommen."
+            if isinstance(ticket_channel, discord.TextChannel):
+                url = f"https://discord.com/channels/{guild.id}/{ticket_channel.id}"
+                detail += f"\n\n**Alternative:** [Jetzt das Ticket-Panel öffnen]({url})"
+            embed.add_field(name="⏰ Außerhalb der Öffnungszeiten", value=detail[:1024], inline=False)
+        try:
+            await member.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            return True
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"⚠️ Voice-Support: Warteinfo für {member.id} konnte nicht per DM gesendet werden ({type(exc).__name__}).")
+            return False
+
     def _case_notification_embed(self, guild: discord.Guild, case: dict) -> discord.Embed:
         user_id = channel_id(case.get("user_id"))
         staff_id = channel_id(case.get("assigned_staff_id"))
@@ -296,6 +358,11 @@ class VoiceSupport(commands.Cog):
         embed.add_field(name="Erstellt am", value=str(case.get("created_at") or "Unbekannt"), inline=True)
         if staff_id:
             embed.add_field(name="Supporter", value=f"<@{staff_id}>", inline=True)
+        elif waiting_in_shared_room:
+            position, wait_seconds = self._queue_metrics(guild.id, case_id)
+            if position is not None:
+                embed.add_field(name="Warteposition", value=f"{position}. Person", inline=True)
+                embed.add_field(name="Geschätzte Wartezeit", value=format_wait_estimate(wait_seconds), inline=True)
         embed.set_footer(text=f"Pulse Voice-Support · Fall {case_id}")
         return embed
 
@@ -1283,9 +1350,7 @@ class VoiceSupport(commands.Cog):
         # Several people can wait in the same channel, so store each pending case
         # under a unique user key instead of using the shared channel ID as the key.
         case_key = f"waiting:{member.id}"
-        cases = get_cases()
-        cases[case_key] = case
-        db.set_setting(CASES_KEY, cases)
+        self._store_case(case, case_key)
 
         # Do not create or move the citizen into a new voice channel here.
         # The citizen remains in the configured shared waiting room until a
@@ -1314,6 +1379,7 @@ class VoiceSupport(commands.Cog):
             except (discord.Forbidden, discord.HTTPException) as exc:
                 print(f"⚠️ Voice-Support: Supportmeldung/Notizthread fehlgeschlagen: {exc}")
 
+        await self._send_citizen_queue_notice(member, case, cfg)
         await self._refresh_support_status(guild)
         # Join/play immediately on the voice-state event; music_loop remains the
         # retry mechanism if Discord is finishing an older voice connection.
@@ -1344,14 +1410,12 @@ class VoiceSupport(commands.Cog):
                 allowed_mentions=discord.AllowedMentions.none(),
             )
             case["note_thread_id"] = thread.id
-            _, _, cases = self._find_case_by_id(str(case.get("case_id", "")))
             case_key = (
                 f"waiting:{channel_id(case.get('user_id'))}"
                 if case.get("waiting_in_shared_room")
                 else str(channel_id(case.get("channel_id")))
             )
-            cases[case_key] = case
-            db.set_setting(CASES_KEY, cases)
+            self._store_case(case, case_key)
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(f"⚠️ Voice-Support: Notiz-Thread konnte nicht erstellt werden: {exc}")
 
