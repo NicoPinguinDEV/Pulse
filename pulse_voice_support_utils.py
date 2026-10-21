@@ -1,6 +1,7 @@
 """Pure voice-support scheduling helpers; intentionally has no Discord dependency."""
 from __future__ import annotations
 
+import math
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
