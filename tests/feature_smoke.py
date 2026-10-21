@@ -53,7 +53,7 @@ def assert_function_is_async(name: str, function_name: str) -> None:
 
 
 def main() -> None:
-    for name in ("main.py", "webserver.py", "pulse_db.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/voice_support.py", "pulse_voice_support_utils.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_intelligence.py", "pulse_team_protection.py"):
+    for name in ("main.py", "webserver.py", "pulse_db.py", "pulse_pro.py", "pulse_version.py", "pulse_nickname_utils.py", "cogs/role_nickname_prefixes.py", "cogs/honeypot.py", "cogs/server_stats.py", "cogs/voice_support.py", "pulse_voice_support_utils.py", "cogs/pulse_pro.py", "pulse_ultimate.py", "pulse_ai_resilience.py", "pulse_safety.py", "pulse_melonly.py", "pulse_shift_utils.py", "pulse_shift_actions.py", "pulse_activity_utils.py", "cogs/activity_check.py", "cogs/abmeldung.py", "pulse_intelligence.py", "pulse_team_protection.py"):
         parse(name)
 
     web = read("webserver.py")
@@ -61,6 +61,7 @@ def main() -> None:
     main = read("main.py")
     web = read("webserver.py")
     shift_utils = read("pulse_shift_utils.py")
+    shift_actions = read("pulse_shift_actions.py")
     # Activity Check: use the same absolute database files in the bot and web app,
     # preserve empty-vs-legacy snapshots, and issue idempotent 20:00 warnings.
     activity_utils = read("pulse_activity_utils.py")
@@ -1321,7 +1322,7 @@ def main() -> None:
     assert 'auth(request, user_session, perm="can_manage_tickets")' in web
     # Mein Pulse lists own tickets with the same triage; shift end summarises open work.
     assert "from pulse_ticket_triage import triage" in read("pulse_home.py")
-    assert "msg += shift_end_open_items_text(mod_id, now)" in web
+    # BOT-03: shift-end handover text is behavior-tested in tests/test_shift_actions.py.
 
     print("Pulse feature smoke test: OK")
 
