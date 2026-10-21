@@ -39,7 +39,7 @@ from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
 from pulse_version import PULSE_VERSION
 from pulse_time import display, parse_timestamp
-from pulse_team_warning import build_warning_record, revoke_warning_record, issue_team_warning
+from pulse_team_warning import revoke_warning_record, issue_team_warning
 from pulse_warning_consequences import revoke_temporary_warning_roles
 
 from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id

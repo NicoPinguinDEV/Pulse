@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import pulse_db as db
 from pulse_jobs import tracked
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
-from pulse_team_warning import build_warning_record, revoke_warning_record, issue_team_warning
+from pulse_team_warning import revoke_warning_record, issue_team_warning
 from pulse_warning_consequences import revoke_temporary_warning_roles
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
