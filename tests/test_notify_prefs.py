@@ -1,5 +1,6 @@
 """U-11: notification preferences – muting, quiet hours, opt-in DMs (fake bot), inbox grouping and settings."""
 import asyncio
+import os
 import tempfile
 import time
 import unittest
@@ -45,6 +46,26 @@ class PreferenceTests(TempDb):
         self.assertFalse(np.in_quiet_hours(prefs, datetime(2026, 1, 1, 12)))
         self.assertFalse(np.in_quiet_hours(np.normalize({"quiet_from": 5, "quiet_to": 5})))
 
+    def test_global_quiet_window_wraps_midnight_and_is_configurable(self):
+        with patch.dict(os.environ, {
+            "PULSE_DM_QUIET_FROM": "23",
+            "PULSE_DM_QUIET_TO": "8",
+        }):
+            self.assertTrue(np.global_quiet_hours(datetime(2026, 1, 1, 23, 30)))
+            self.assertTrue(np.global_quiet_hours(datetime(2026, 1, 2, 7, 59)))
+            self.assertFalse(np.global_quiet_hours(datetime(2026, 1, 2, 8, 0)))
+        with patch.dict(os.environ, {
+            "PULSE_DM_QUIET_FROM": "1",
+            "PULSE_DM_QUIET_TO": "6",
+        }):
+            self.assertTrue(np.global_quiet_hours(datetime(2026, 1, 2, 3, 0)))
+            self.assertFalse(np.global_quiet_hours(datetime(2026, 1, 2, 12, 0)))
+        with patch.dict(os.environ, {
+            "PULSE_DM_QUIET_FROM": "6",
+            "PULSE_DM_QUIET_TO": "6",
+        }):
+            self.assertFalse(np.global_quiet_hours(datetime(2026, 1, 2, 6, 0)))
+
     def test_normalize_rejects_unknown_values(self):
         prefs = np.normalize({"muted": ["tickets", "system", "evil"], "quiet_from": "99", "quiet_to": 3})
         self.assertEqual(prefs["muted"], ["tickets"])
@@ -68,7 +89,10 @@ class PreferenceTests(TempDb):
         pulse_db.notify("1", "Aufgabe", "z", url="/tasks")
         self.assertEqual(np.pending_dms(), 1)
         always_quiet = np.normalize({"dm": True, "quiet_from": 0, "quiet_to": 23})
-        self.assertFalse(np.decide("1", "/tasks", prefs=always_quiet, now=datetime(2026, 1, 1, 10))["dm"])
+        with patch.object(np, "global_quiet_hours", return_value=False):
+            self.assertEqual(np._delivery_status(
+                "1", ("Aufgabe", "z", "/tasks"), prefs=always_quiet
+            ), "quiet")
 
 
 class FakeUser:
@@ -116,6 +140,27 @@ class DrainTests(TempDb):
         self.assertIn("https://pulse.example/tickets", user.sent[0])
         self.assertIn("https://pulse.example/tasks", user.sent[0])
         self.assertEqual(result["pending"], 0)
+
+    def test_global_quiet_hours_defer_opt_in_dms_until_daytime(self):
+        user = FakeUser()
+        bot = SimpleNamespace(get_user=lambda uid: user, fetch_user=None)
+        np.save("1", {"dm": True})
+        pulse_db.notify("1", "Noch im Dienst?", "Bitte ausstempeln.", url="/me")
+        self.assertEqual(np.pending_dms(), 1)
+
+        with patch.object(np, "global_quiet_hours", return_value=True):
+            night_result = asyncio.run(np.drain_dms(bot))
+        self.assertEqual(night_result["sent"], 0)
+        self.assertEqual(night_result["deferred"], 1)
+        self.assertEqual(night_result["pending"], 1)
+        self.assertEqual(user.sent, [])
+
+        with patch.object(np, "global_quiet_hours", return_value=False):
+            day_result = asyncio.run(np.drain_dms(bot))
+        self.assertEqual(day_result["sent"], 1)
+        self.assertEqual(day_result["pending"], 0)
+        self.assertEqual(len(user.sent), 1)
+        self.assertIn("Noch im Dienst?", user.sent[0])
 
     def test_large_notifications_are_split_without_losing_later_items(self):
         user = FakeUser()
