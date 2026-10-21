@@ -3,7 +3,7 @@
 Automatisch erzeugt von `python tools/route_map.py` aus dem laufenden FastAPI-Objekt (nicht von Hand bearbeiten).
 Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, `admin_ctx`, `perm=`) – Hinweis, kein Beweis.
 
-- **Effektive Routen (Methode × Pfad):** 284
+- **Effektive Routen (Methode × Pfad):** 289
 - **Doppelt registriert:** 1 → `GET /ultimate`
 - **Im Quelltext registriert, zur Laufzeit verdrängt:** 21
 - **Ohne erkennbare Prüfung:** 13 (Login/OAuth/Health/Bewerbungsportal/öffentliche Seiten – einzeln prüfen)
@@ -69,7 +69,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/activity-check` | `pulse_pro.register.<locals>.activity_check_page` | pulse_pro.py:888 | can_manage_checkins |
 | POST | `/activity-check/setup` | `pulse_pro.register.<locals>.activity_check_setup` | pulse_pro.py:1014 | can_manage_checkins |
 
-### `/admin` (13)
+### `/admin` (18)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
@@ -77,12 +77,17 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | POST | `/admin/commands/sync` | `pulse_admin.register.<locals>.admin_commands_sync` | pulse_admin.py:593 | Admin |
 | GET | `/admin/discord` | `pulse_admin.register.<locals>.admin_discord` | pulse_admin.py:434 | Admin |
 | GET | `/admin/discord/banner/{filename}` | `pulse_admin.register.<locals>.admin_discord_banner` | pulse_admin.py:716 | Admin |
+| GET | `/admin/panels` | `pulse_admin.register.<locals>.admin_panels_page` | pulse_admin.py:866 | Admin |
 | POST | `/admin/discord/branding` | `pulse_admin.register.<locals>.admin_discord_branding` | pulse_admin.py:509 | Admin |
 | POST | `/admin/discord/logs` | `pulse_admin.register.<locals>.admin_discord_logs` | pulse_admin.py:608 | Admin |
 | POST | `/admin/discord/test` | `pulse_admin.register.<locals>.admin_discord_test` | pulse_admin.py:629 | Admin |
 | POST | `/admin/discord/verification` | `pulse_admin.register.<locals>.admin_verification_save` | pulse_admin.py:651 | Admin |
 | POST | `/admin/discord/verification/publish` | `pulse_admin.register.<locals>.admin_verification_publish` | pulse_admin.py:697 | Admin |
 | POST | `/admin/discord/welcome` | `pulse_admin.register.<locals>.admin_discord_welcome` | pulse_admin.py:457 | Admin |
+| POST | `/admin/panels/repair/abmeldung` | `pulse_admin.register.<locals>.admin_panels_repair_abmeldung` | pulse_admin.py:1099 | Admin |
+| POST | `/admin/panels/repair/rp` | `pulse_admin.register.<locals>.admin_panels_repair_rp` | pulse_admin.py:1080 | Admin |
+| POST | `/admin/panels/repair/ticket` | `pulse_admin.register.<locals>.admin_panels_repair_ticket` | pulse_admin.py:1042 | Admin |
+| POST | `/admin/panels/repair/ticket-default` | `pulse_admin.register.<locals>.admin_panels_repair_ticket_default` | pulse_admin.py:1061 | Admin |
 | GET | `/admin/privacy` | `pulse_admin.register.<locals>.admin_privacy` | pulse_admin.py:528 | Admin |
 | POST | `/admin/privacy` | `pulse_admin.register.<locals>.admin_privacy_save` | pulse_admin.py:564 | Admin |
 | GET | `/admin/privacy/export` | `pulse_admin.register.<locals>.admin_privacy_export` | pulse_admin.py:579 | Admin |

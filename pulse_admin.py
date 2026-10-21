@@ -849,7 +849,7 @@ def register(app) -> None:
         if channel is not None:
             channel_link = (
                 f'<a class="text-xs text-indigo-400 font-semibold" '
-                f'href="https://discord.com/channels/{ctx.guild.id}/{channel.id}" target="_blank" rel="noopener">'
+                f'href="https://discord.com/channels/{guild.id}/{channel.id}" target="_blank" rel="noopener">'
                 f'#{e(getattr(channel, "name", "Kanal"))} öffnen ↗</a>'
             )
         return f'''

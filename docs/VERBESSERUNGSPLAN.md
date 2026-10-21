@@ -333,7 +333,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 - [x] **BOT-13 Status-Anzeige an einer Stelle** — **erledigt:** `pulse_presence.update_presence` ist die zentrale Quelle, zählt `online`/`break`, liest Datei-I/O in einem Worker, überspringt unveränderte Werte und begrenzt Updates auf höchstens eines je 180 Sekunden; keine zusätzliche Schleife. Tests in `tests/test_presence.py`. GitHub Actions Run [`39641703262`](https://github.com/NicoPinguinDEV/Pulse/actions/runs/39641703262): Python 3.14.8, Ruff, `compileall`, Feature-Smoke, **518 Tests OK**.
 
-- [ ] **BOT-14 Panel-Übersicht** [Idee] – die Verwaltung zeigt alle persistenten Panels (Tickets, Verifizierung, RP-Verwaltung, Büro, Abmeldung, Activity Check, Honeypot-Warnung, Quiz) mit Kanal, Nachrichten-Link, Stil, letzter Aktualisierung und dem Knopf „neu veröffentlichen/reparieren“.
+- [x] **BOT-14 Panel-Übersicht** — umgesetzt in `pulse_admin.py` (Panel-Inventar mit Kanal-/Nachrichten-Link, Status und Stil; Reparatur für Verifikation, benutzerdefinierte/Standard-Tickets, RP-Panel und Abmeldungsliste; dynamische Büro-/Honeypot-/Quiz-/Activity-Check-Hinweise statt gefährlicher Duplikate). `tests/test_pulse_admin_area.py` prüft Admin-Route, dynamischen Kanal-Link und Darstellung ohne laufenden Bot. CI: neuer Lauf folgt nach diesem Commit. Live-Discord-Reparaturen wurden nicht ausgeführt.
 
 ---
 

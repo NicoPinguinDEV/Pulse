@@ -226,6 +226,25 @@ class AdminRouteTests(unittest.TestCase):
             response = self.client.post("/admin/discord/test", data={"kind": "welcome"}, follow_redirects=False)
         self.assertIn("t=err", response.headers["location"])
 
+    def test_panel_inventory_renders_dynamic_channel_link_without_bot(self):
+        import cogs.activity_check as activity_module
+        import cogs.buero_system as office_module
+
+        activity_db = str(Path(self.tmp.name) / "activity_check.db")
+        with (
+            self.as_user(ADMIN),
+            patch.object(activity_module, "DB_NAME", activity_db),
+            patch.object(office_module, "get_config", return_value=CHANNEL.id),
+        ):
+            response = self.client.get("/admin/panels")
+
+        self.assertEqual(response.status_code, 200, response.text[-1000:])
+        self.assertIn("Panel-Übersicht", response.text)
+        self.assertIn("Büro-Anfragen", response.text)
+        self.assertIn(f"https://discord.com/channels/{GUILD.id}/{CHANNEL.id}", response.text)
+        self.assertIn("Standard-Ticketpanel", response.text)
+
+
 
 if __name__ == "__main__":
     unittest.main()
