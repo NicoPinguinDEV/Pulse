@@ -41,6 +41,15 @@ class HeaderTests(unittest.TestCase):
         self.assertFalse(pulse_security.same_origin_ok("POST", {**h, "origin": "null", "referer": "https://x.example/"}))
 
 
+class BackRedirectTests(unittest.TestCase):
+    def test_message_goes_before_the_anchor(self):
+        # before: /admin/discord#logs?msg=… – the browser treated the message as part of the anchor
+        self.assertEqual(ws.back("/admin/discord#logs", "Fehler", False).headers["location"],
+                         "/admin/discord?msg=Fehler&t=err#logs")
+        self.assertEqual(ws.back("/x?a=1#s", "ok").headers["location"], "/x?a=1&msg=ok&t=ok#s")
+        self.assertEqual(ws.back("/plain").headers["location"], "/plain")
+
+
 class LogoutTests(unittest.TestCase):
     def test_get_only_asks_post_logs_out(self):
         client = TestClient(ws.app, raise_server_exceptions=False)

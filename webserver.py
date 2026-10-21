@@ -1034,7 +1034,9 @@ def auth(request: Request, user_session, perm="can_view_dashboard", admin=False)
 
 def back(url: str, msg: str = None, ok: bool = True):
     if msg:
-        url = f"{url}{'&' if '?' in url else '?'}msg={quote(msg)}&t={'ok' if ok else 'err'}"
+        # The message must come before an anchor (#logs), otherwise the browser treats it as part of the anchor.
+        base, sep, anchor = url.partition("#")
+        url = f"{base}{'&' if '?' in base else '?'}msg={quote(msg)}&t={'ok' if ok else 'err'}{sep}{anchor}"
     return RedirectResponse(url=url, status_code=303)
 
 
@@ -2630,11 +2632,14 @@ def render_page(title: str, ctx, page: str, body: str, extra_head: str = "") -> 
     if ctx.msg:
         color = BADGE_OK if ctx.msg_ok else BADGE_BAD
         icon = "✅" if ctx.msg_ok else "⚠️"
-        toast = (f'<div id="toast" class="mb-5 border {color} rounded-xl px-4 py-3 text-xs font-semibold flex items-center justify-between">'
+        # U-04: the message sticks to the top of the viewport (forms scroll back to their position after
+        # submitting) and errors stay until closed instead of vanishing after 6 seconds.
+        auto_close = 'setTimeout(()=>{const t=document.getElementById("toast"); if(t) t.remove();}, 6000);' if ctx.msg_ok else ""
+        toast = (f'<div id="toast" role="{"status" if ctx.msg_ok else "alert"}" class="pulse-toast mb-5 rounded-xl shadow-lg">'
+                 f'<div class="border {color} rounded-xl px-4 py-3 text-xs font-semibold flex items-center justify-between gap-3">'
                  f'<span>{icon} {esc(ctx.msg)}</span>'
-                 f'<button onclick="this.parentElement.remove()" class="opacity-60 hover:opacity-100">✕</button></div>'
-                 '<script>setTimeout(()=>{const t=document.getElementById("toast"); if(t) t.remove();}, 6000);'
-                 'history.replaceState(null,"",location.pathname);</script>')
+                 f'<button onclick="document.getElementById(\'toast\').remove()" class="opacity-60 hover:opacity-100" aria-label="Meldung schließen">✕</button></div></div>'
+                 f'<script>{auto_close}history.replaceState(null,"",location.pathname+location.hash);</script>')
     return f"""<!DOCTYPE html>
     <html lang="de">
     <head>{get_head_html(f"{title} - {ctx.guild_name}")}{extra_head}</head>
@@ -2646,6 +2651,20 @@ def render_page(title: str, ctx, page: str, body: str, extra_head: str = "") -> 
         </main>
     </body>
     </html>"""
+
+
+def time_tag(value) -> str:
+    """U-09: a time shown as "vor 5 Min." in the browser, with the exact Berlin time as tooltip/fallback."""
+    parsed = parse_timestamp(value)
+    if parsed is None:
+        return esc(str(value or "–"))
+    exact = display(parsed)
+    return f'<time datetime="{esc(parsed.isoformat())}" data-relative title="{esc(exact)}">{esc(exact)}</time>'
+
+
+def empty_state(text: str, icon: str = "📭") -> str:
+    """U-09: one look for "nothing here yet" across pages."""
+    return f'<div class="pulse-empty-state" role="status"><span class="icon" aria-hidden="true">{icon}</span><span>{esc(text)}</span></div>'
 
 
 def simple_page(icon: str, title: str, message: str, links: str = "") -> str:

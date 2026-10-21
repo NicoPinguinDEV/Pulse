@@ -80,6 +80,18 @@ html{scroll-behavior:smooth}body{background:radial-gradient(circle at 10% -10%,r
 @media(max-width:767px){.pulse-topbar{padding-left:62px}}
 @media(max-width:800px){input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{font-size:16px!important}.pulse-card-b{overflow-x:auto}.pulse-row{flex-wrap:wrap}.pulse-card-h{flex-wrap:wrap}.pulse-search{display:none}.pulse-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pulse-two{grid-template-columns:1fr}.pulse-title{font-size:25px}.pulse-topbar{top:7px}.pulse-hero{padding:22px;border-radius:20px}}
 @media(max-width:520px){.pulse-stat-grid{grid-template-columns:1fr 1fr;gap:9px}.pulse-stat{padding:12px}.pulse-stat .value{font-size:18px}.pulse-hero-box .value{font-size:22px}.pulse-btn{font-size:11px;padding:9px 10px}}
+/* U-06: visible keyboard focus and reduced motion */
+:focus-visible{outline:2px solid var(--p);outline-offset:2px;border-radius:8px}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+/* U-07: touch targets >= 44 px and tables that scroll instead of breaking the layout on phones */
+@media (max-width:640px){.pulse-btn,.pulse-input,.pulse-check,button,select{min-height:44px}.pulse-card table,main table{display:block;max-width:100%;overflow-x:auto}}
+/* U-04 / U-09: submit in progress, shared empty state, relative times */
+button[data-busy="1"]{opacity:.65;cursor:progress}
+.pulse-empty-state{display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px 12px;text-align:center;color:var(--muted);font-size:12px}
+.pulse-empty-state .icon{font-size:22px}
+time[data-relative]{cursor:help}
+.pulse-toast{position:sticky;top:12px;z-index:45;background:var(--surface)}
+@media (max-width:767px){.pulse-toast{top:62px}}
 </style>
 """
 
@@ -100,6 +112,41 @@ PRO_JS = r"""
   liveSchedule(); window.pulseLive=live;
   if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
   const forms=$$('form[data-confirm]'); forms.forEach(f=>f.addEventListener('submit',e=>{if(!confirm(f.dataset.confirm))e.preventDefault()}));
+
+  // U-04: no double submit, visible progress; inputs survive an error redirect (?t=err)
+  const FORM_KEY='pulse:form:'+location.pathname;
+  const params=new URLSearchParams(location.search);
+  function formId(f,i){return (f.getAttribute('action')||location.pathname)+'#'+i;}
+  function restorable(el){return el.name&&!['hidden','password','file','submit','button'].includes(el.type)&&!el.closest('[data-no-restore]');}
+  function restoreForms(){  // runs after the page is parsed (this script lives in <head>)
+    try{
+      if(params.get('t')==='err'){
+        const saved=JSON.parse(sessionStorage.getItem(FORM_KEY)||'{}');
+        $$('form').forEach((f,i)=>{const data=saved[formId(f,i)]; if(!data)return;
+          Array.from(f.elements).filter(restorable).forEach(el=>{if(!(el.name in data))return; const v=data[el.name];
+            if(el.type==='checkbox'||el.type==='radio')el.checked=Array.isArray(v)?v.includes(el.value):!!v;
+            else if(el.tagName==='SELECT'&&!Array.from(el.options).some(o=>o.value===v)){}
+            else el.value=v;});});
+      }
+      if(params.get('t')==='ok')sessionStorage.removeItem(FORM_KEY);
+    }catch(_){}
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',restoreForms); else restoreForms();
+  document.addEventListener('submit',e=>{
+    const f=e.target; if(!(f instanceof HTMLFormElement))return;
+    setTimeout(()=>{ if(e.defaultPrevented)return;
+      try{const all=JSON.parse(sessionStorage.getItem(FORM_KEY)||'{}'); const i=$$('form').indexOf(f); const data={};
+        Array.from(f.elements).filter(restorable).forEach(el=>{if(el.type==='checkbox'||el.type==='radio'){if(el.checked)(data[el.name]=data[el.name]||[]).push(el.value);}else data[el.name]=el.value;});
+        all[formId(f,i)]=data; sessionStorage.setItem(FORM_KEY,JSON.stringify(all));}catch(_){}
+      $$('button[type=submit],button:not([type])',f).forEach(b=>{b.dataset.busy='1'; b.disabled=true; b.dataset.label=b.innerHTML; b.innerHTML='⏳ '+b.innerHTML;});
+      setTimeout(()=>$$('button[data-busy="1"]',f).forEach(b=>{b.disabled=false; b.dataset.busy=''; if(b.dataset.label)b.innerHTML=b.dataset.label;}),8000);
+    },0);
+  });
+  // U-09: relative times ("vor 5 Min.") with the exact time as tooltip
+  function rel(iso){const t=new Date(iso); if(isNaN(t))return null; const s=Math.round((Date.now()-t)/1000); const a=Math.abs(s), f=s>=0?'vor ':'in ';
+    if(a<45)return s>=0?'gerade eben':'gleich'; if(a<3600)return f+Math.round(a/60)+' Min.'; if(a<86400)return f+Math.round(a/3600)+' Std.'; if(a<86400*30)return f+Math.round(a/86400)+' Tg.'; return null;}
+  function relTimes(){$$('time[data-relative]').forEach(el=>{const r=rel(el.getAttribute('datetime')); if(r)el.textContent=r;});}
+  relTimes(); setInterval(relTimes,60000);
 })();
 </script>
 """
@@ -242,7 +289,7 @@ def make_shell_helpers(ws):
         .pulse-area-switch a{{text-align:center;font-size:11px;font-weight:800;padding:8px 6px;border-radius:10px;color:#64748b}}
         .pulse-area-switch a.on{{background:#fff;color:#4f46e5;box-shadow:0 2px 8px rgba(15,23,42,.08)}}.dark .pulse-area-switch a.on{{background:#1b2133;color:#a8abff}}@media(min-width:768px){{#pulseSidebar{{display:flex!important}}#pulseMobileBtn,#pulseBackdrop{{display:none!important}}}}
         </style>
-        <button id="pulseMobileBtn" onclick="pulseOpenNav()" class="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white dark:bg-[#111522] border border-slate-200 dark:border-slate-700 shadow-lg">☰</button>
+        <button id="pulseMobileBtn" onclick="pulseOpenNav()" aria-label="Navigation öffnen" class="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white dark:bg-[#111522] border border-slate-200 dark:border-slate-700 shadow-lg">☰</button>
         <div id="pulseBackdrop" onclick="pulseCloseNav()" class="hidden fixed inset-0 bg-black/55 z-40"></div>
         <aside id="pulseSidebar" class="hidden fixed md:sticky top-0 left-0 z-50 h-screen w-[276px] overflow-y-auto bg-white dark:bg-[#111522] border-r border-slate-200 dark:border-slate-800 flex-col justify-between p-4 shrink-0">
           <div>
@@ -277,7 +324,7 @@ def build_command_modal(ws, perms=None):
         items.append(("🛠", "Verwaltung", "/admin"))
         items.extend((icon, label, href) for _, href, icon, label, _ in sections)
     rows = "".join(f'<a href="{u}" class="pulse-command-item"><span class="pulse-avatar">{i}</span><span>{t}</span><span class="pulse-key">Öffnen</span></a>' for i,t,u in items)
-    return f'''<div id="pulseCommandModal" class="pulse-modal-backdrop"><div class="pulse-modal"><div class="pulse-modal-head"><div><div class="text-sm font-extrabold">Pulse Schnellzugriff</div><div class="text-[10px] text-slate-400 mt-0.5">Navigation ohne Umwege</div></div><button onclick="pulseTogglePalette(false)" class="pulse-icon-btn">✕</button></div><div class="p-3"><div class="pulse-search" style="max-width:none"><span>⌕</span><input id="pulseCmdFilter" oninput="pulseFilterCmd(this.value)" autofocus placeholder="Bereich suchen…"></div></div><div id="pulseCmdList" class="pulse-command-list">{rows}</div></div></div><script>function pulseFilterCmd(v){{v=v.toLowerCase();document.querySelectorAll('#pulseCmdList .pulse-command-item').forEach(x=>x.style.display=x.textContent.toLowerCase().includes(v)?'':'none')}}</script>'''
+    return f'''<div id="pulseCommandModal" class="pulse-modal-backdrop"><div class="pulse-modal"><div class="pulse-modal-head"><div><div class="text-sm font-extrabold">Pulse Schnellzugriff</div><div class="text-[10px] text-slate-400 mt-0.5">Navigation ohne Umwege</div></div><button onclick="pulseTogglePalette(false)" class="pulse-icon-btn" aria-label="Schnellzugriff schließen">✕</button></div><div class="p-3"><div class="pulse-search" style="max-width:none"><span>⌕</span><input id="pulseCmdFilter" oninput="pulseFilterCmd(this.value)" autofocus placeholder="Bereich suchen…"></div></div><div id="pulseCmdList" class="pulse-command-list">{rows}</div></div></div><script>function pulseFilterCmd(v){{v=v.toLowerCase();document.querySelectorAll('#pulseCmdList .pulse-command-item').forEach(x=>x.style.display=x.textContent.toLowerCase().includes(v)?'':'none')}}</script>'''
 
 
 def render_pro_page(ws, title, ctx, page, body, extra=""):
@@ -2594,7 +2641,7 @@ def register(app):
         missing=sorted(expected-loaded); checks.append(('Cogs',not missing,f'{len(loaded)}/{len(expected)} geladen' + (f' · fehlt: {", ".join(missing[:3])}' if missing else '')))
         total,used,free=shutil.disk_usage(ws.BASE_DIR); checks.append(('Speicher',free>200*1024*1024,f'{free/1024/1024:.0f} MB frei'))
         rows=''.join(f'<div class="pulse-row"><div class="flex items-center gap-2"><span class="pulse-status-dot {"bg-emerald-500" if ok else "bg-rose-500"}"></span><div class="pulse-row-title">{e(name)}</div></div><div class="text-right"><div class="text-[11px] font-semibold">{e(detail)}</div><div class="pulse-row-meta">{"OK" if ok else "Prüfen"}</div></div></div>' for name,ok,detail in checks)
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">♥ Systemstatus</div><div class="pulse-section-sub">Live-Prüfung der wichtigsten Pulse-Komponenten.</div></div><span class="pulse-pill {'good' if all(x[1] for x in checks) else 'warn'}">{'Alles grün' if all(x[1] for x in checks) else 'Prüfung nötig'}</span></div>{card('System-Checks',rows,'♥')}{card('Letzte Fehler',''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(x["source"])}</div><div class="pulse-row-meta">{e(ws.display(x["at"]))} · {e(x["error_id"] or "–")} · {e(x["message"])}</div></div></div>' for x in __import__('pulse_logging').recent(20)) or '<div class="pulse-empty">Keine Fehler seit dem Start.</div>','⚠')}{card('Slash-Befehle','<form method="post" action="/admin/commands/sync" onsubmit="return confirm(&#39;Slash-Befehle jetzt bei Discord synchronisieren?&#39;)"><p class="text-xs text-slate-400 mb-2">Pulse synchronisiert nur noch, wenn sich Befehle geändert haben. Fehlen Befehle in Discord, hier manuell auslösen.</p><button class="pulse-btn ghost">🔄 Jetzt synchronisieren</button></form>','🔄')}'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">♥ Systemstatus</div><div class="pulse-section-sub">Live-Prüfung der wichtigsten Pulse-Komponenten.</div></div><span class="pulse-pill {'good' if all(x[1] for x in checks) else 'warn'}">{'Alles grün' if all(x[1] for x in checks) else 'Prüfung nötig'}</span></div>{card('System-Checks',rows,'♥')}{card('Letzte Fehler',''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(x["source"])}</div><div class="pulse-row-meta">{ws.time_tag(x["at"])} · {e(x["error_id"] or "–")} · {e(x["message"])}</div></div></div>' for x in __import__('pulse_logging').recent(20)) or ws.empty_state('Keine Fehler seit dem Start.','✅'),'⚠')}{card('Slash-Befehle','<form method="post" action="/admin/commands/sync" onsubmit="return confirm(&#39;Slash-Befehle jetzt bei Discord synchronisieren?&#39;)"><p class="text-xs text-slate-400 mb-2">Pulse synchronisiert nur noch, wenn sich Befehle geändert haben. Fehlen Befehle in Discord, hier manuell auslösen.</p><button class="pulse-btn ghost">🔄 Jetzt synchronisieren</button></form>','🔄')}'''
         return render_pro_page(ws,'Systemstatus',c,'system',body)
 
     async def team_export(request: Request, user_session: str=Cookie(None)):
