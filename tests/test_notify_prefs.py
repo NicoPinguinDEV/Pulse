@@ -86,6 +86,8 @@ class DrainTests(TempDb):
         ok, closed = FakeUser(), FakeUser(discord.Forbidden(SimpleNamespace(status=403, reason="x"), "closed"))
         users = {1: ok, 2: closed}
         bot = SimpleNamespace(get_user=lambda uid: users.get(uid), fetch_user=None)
+        np.save("1", {"dm": True})
+        np.save("2", {"dm": True})
         np.queue_dm("1", "Titel", "Text", "/tasks")
         np.queue_dm("2", "Titel", "Text", "/tasks")
         result = asyncio.run(np.drain_dms(bot, "https://pulse.example"))
@@ -94,8 +96,61 @@ class DrainTests(TempDb):
 
         limited = FakeUser(discord.HTTPException(SimpleNamespace(status=429, reason="x"), "slow down"))
         bot = SimpleNamespace(get_user=lambda uid: limited, fetch_user=None)
+        np.save("3", {"dm": True})
         np.queue_dm("3", "T", "B", "/x")
-        self.assertEqual(asyncio.run(np.drain_dms(bot))["pending"], 1)  # waits for the next run
+        self.assertEqual(asyncio.run(np.drain_dms(bot))["pending"], 1)  # waits for the next run)
+
+    def test_same_user_notifications_are_bundled(self):
+        user = FakeUser()
+        bot = SimpleNamespace(get_user=lambda uid: user, fetch_user=None)
+        np.save("1", {"dm": True})
+        pulse_db.notify("1", "Neues Ticket", "Ein Ticket wartet.", url="/tickets")
+        pulse_db.notify("1", "Aufgabe überfällig", "Eine Aufgabe ist fällig.", url="/tasks")
+
+        result = asyncio.run(np.drain_dms(bot, "https://pulse.example"))
+
+        self.assertEqual(result["sent"], 1)
+        self.assertEqual(len(user.sent), 1)
+        self.assertIn("Neues Ticket", user.sent[0])
+        self.assertIn("Aufgabe überfällig", user.sent[0])
+        self.assertIn("https://pulse.example/tickets", user.sent[0])
+        self.assertIn("https://pulse.example/tasks", user.sent[0])
+        self.assertEqual(result["pending"], 0)
+
+    def test_queued_dm_is_deferred_if_quiet_hours_start_before_delivery(self):
+        user = FakeUser()
+        bot = SimpleNamespace(get_user=lambda uid: user, fetch_user=None)
+        np.save("1", {"dm": True, "quiet_from": 22, "quiet_to": 7})
+        with patch.object(ws, "now_de", return_value=datetime(2026, 1, 1, 12)):
+            pulse_db.notify("1", "Aufgabe", "Bitte prüfen.", url="/tasks")
+        self.assertEqual(np.pending_dms(), 1)
+
+        with patch.object(ws, "now_de", return_value=datetime(2026, 1, 1, 23)):
+            night_result = asyncio.run(np.drain_dms(bot))
+        self.assertEqual(night_result["sent"], 0)
+        self.assertEqual(night_result["deferred"], 1)
+        self.assertEqual(night_result["pending"], 1)
+        self.assertEqual(user.sent, [])
+
+        with patch.object(ws, "now_de", return_value=datetime(2026, 1, 2, 12)):
+            day_result = asyncio.run(np.drain_dms(bot))
+        self.assertEqual(day_result["sent"], 1)
+        self.assertEqual(day_result["pending"], 0)
+        self.assertEqual(len(user.sent), 1)
+
+    def test_dm_opt_out_after_queue_prevents_delivery(self):
+        user = FakeUser()
+        bot = SimpleNamespace(get_user=lambda uid: user, fetch_user=None)
+        np.save("1", {"dm": True})
+        pulse_db.notify("1", "Aufgabe", "Bitte prüfen.", url="/tasks")
+        np.save("1", {"dm": False})
+
+        result = asyncio.run(np.drain_dms(bot))
+
+        self.assertEqual(result["sent"], 0)
+        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(user.sent, [])
+        self.assertEqual(result["pending"], 0)
 
     def test_queue_is_bounded(self):
         for i in range(np.DM_QUEUE_MAX + 50):
