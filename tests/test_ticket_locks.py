@@ -49,7 +49,6 @@ class TicketLockTests(unittest.TestCase):
         record = pulse_ticket_locks.release_lock(100, 200, actor_id=3, actor_name="Leitung")
         self.assertEqual(record["user_id"], "200")
         self.assertIsNone(pulse_ticket_locks.get_lock(100, 200, now=self.now))
-        events = pulse_db._connect if False else None  # keep the test focused on persisted setting/state transition
         self.assertIsNone(pulse_db.get_setting("ticket_lock:100:200"))
 
     def test_invalid_expiry_fails_closed_and_admin_can_clear(self):
