@@ -7,6 +7,7 @@ from fastapi import Cookie, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 import pulse_db as db
+import pulse_flags
 from pulse_home_utils import (
     WEEKDAY_SHORT,
     daily_seconds,
@@ -250,7 +251,9 @@ def register(app) -> None:
                            f'<select id="startPage" name="start_page" class="pulse-input flex-1">{start_options}</select>'
                            f'<button class="pulse-btn ghost" type="submit">Speichern</button></form>'
                            f'<p class="text-[11px] text-slate-400 mt-2">Diese Seite öffnet sich nach dem Login.</p>'
-                           f'<a href="/me/sessions" class="text-[11px] text-indigo-500 mt-2 inline-block">🔐 Meine Sitzungen verwalten →</a>')
+                           f'<a href="/me/sessions" class="text-[11px] text-indigo-500 mt-2 inline-block">🔐 Meine Sitzungen verwalten →</a>'
+                           + (' <a href="/me/month" class="text-[11px] text-indigo-500 mt-2 inline-block">📅 Mein Monat →</a>'
+                              if pulse_flags.enabled("my_month") else ""))
         body = f'''
         {hero}
         <div class="pulse-stat-grid">{stat_html}</div>

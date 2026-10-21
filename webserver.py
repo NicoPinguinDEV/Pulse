@@ -384,9 +384,17 @@ def abspath_corrupt_free(filepath) -> bool:
 
 
 def save_json(filepath, data):
+    import pulse_settings_history
     with _io_lock:
+        config_before = None
         if os.path.abspath(filepath) == os.path.abspath(CONFIG_FILE):
             _CONFIG_CACHE.update(key=None, data=None)  # P-04: invalidate on every write
+            if pulse_settings_history.wanted():  # F-03: previous config only when a dashboard change is recorded
+                try:
+                    with open(filepath, encoding="utf-8") as f:
+                        config_before = json.load(f)
+                except (OSError, ValueError):
+                    config_before = {}
         problem = _CORRUPT_JSON.get(os.path.abspath(filepath))
         if problem:
             raise JsonWriteBlocked(problem)
@@ -399,6 +407,8 @@ def save_json(filepath, data):
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, filepath)  # verhindert kaputte Dateien bei Absturz
+        if config_before is not None:
+            pulse_settings_history.record_config(config_before, data)
         try:  # persist the rename itself (not supported on Windows)
             dir_fd = os.open(os.path.dirname(os.path.abspath(filepath)), os.O_RDONLY)
             try:
@@ -1028,6 +1038,14 @@ def compute_perms(guild, user_id, config):
     return pulse_permissions.compute(guild, user_id, config)
 
 
+def _set_request_actor(user: dict) -> None:
+    try:
+        import pulse_settings_history
+        pulse_settings_history.set_actor(user.get("id"), user.get("global_name") or user.get("username") or "")
+    except Exception:
+        pass
+
+
 def auth(request: Request, user_session, perm="can_view_dashboard", admin=False):
     """Zentrale Prüfung: Login gültig? Noch auf dem Server? Hat die Rolle das Recht?"""
     user = get_current_user(user_session)
@@ -1051,6 +1069,10 @@ def auth(request: Request, user_session, perm="can_view_dashboard", admin=False)
         raise HTTPException(status_code=403, detail="Dieser Bereich ist nur für Administratoren.")
     if perm and not perms.get(perm):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung.")
+    import pulse_flags
+    if pulse_flags.blocks_write(request.method, request.url.path, perms.get("is_admin")):  # F-04
+        raise HTTPException(status_code=503, detail="Wartungsmodus: Änderungen sind gerade gesperrt. Ansehen geht weiterhin.")
+    _set_request_actor(user)  # F-03: who changes settings during this request
     return SimpleNamespace(
         user=user, guild=guild, guild_name=guild.name, perms=perms, config=config, member=member,
         msg=request.query_params.get("msg", ""), msg_ok=request.query_params.get("t", "ok") != "err",
@@ -7693,7 +7715,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     <button name="vote" value="down" class="{'bg-rose-600 text-white' if voted_down else 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'} text-xs px-3 py-1.5 rounded-xl transition shadow-sm font-medium">👎 Dagegen</button>
                 </form>{decide}"""
         apps_html += f"""
-        <div class="{CARD} p-5 space-y-3.5">
+        <div id="app-{esc(app_id)}" class="{CARD} p-5 space-y-3.5">
             <div class="flex justify-between items-center">
                 <div>
                     <h3 class="font-bold text-slate-900 dark:text-white text-sm">{esc(item.get('name'))}</h3>
@@ -11089,3 +11111,9 @@ try:
     register_pulse_admin(app)
 except Exception as _admin_error:
     print(f"❌ Verwaltungsbereich konnte nicht registriert werden: {_admin_error}")
+
+try:
+    from pulse_phase7 import register as register_pulse_phase7
+    register_pulse_phase7(app)
+except Exception as _phase7_error:
+    print(f"❌ Neue Funktionen (Phase 7) konnten nicht registriert werden: {_phase7_error}")

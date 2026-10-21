@@ -1083,8 +1083,12 @@ def get_setting(key, default=None):
 
 
 def set_setting(key, value):
+    import pulse_settings_history  # F-03: only reads the previous value when a dashboard change is recorded
+    previous = get_setting(key) if pulse_settings_history.wanted() else None
     with connect() as db:
         db.execute("INSERT OR REPLACE INTO settings(key,value_json) VALUES (?,?)", (key, json.dumps(value, ensure_ascii=False)))
+    if pulse_settings_history.wanted():
+        pulse_settings_history.record("setting", key, previous, value)
 
 
 def delete_setting(key):

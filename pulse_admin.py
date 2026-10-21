@@ -29,7 +29,8 @@ from pulse_welcome import (
 # Pages that belong to the administration area (sidebar switches to "Verwaltung").
 ADMIN_PAGE_KEYS = frozenset({
     "admin", "admin-discord", "ticket-panels", "settings", "backups", "system", "announcements", "social",
-    "admin-privacy",
+    "admin-privacy", "admin-features", "admin-rights", "admin-visibility", "admin-settings-history",
+    "team-capacity", "team-readiness", "applications-board",
 })
 
 
@@ -52,6 +53,11 @@ def admin_sections(perms: dict) -> list[tuple]:
         ("admin-privacy", "/admin/privacy", "🔒", "Datenschutz", "Aufbewahrungsfristen, Auskunft, Hinweis", is_admin),
         ("system", "/system", "♥", "Systemstatus", "Health, RAM, Diagnose", is_admin),
     ]
+    try:  # Phase 7: switched-on functions appear here; the switch page itself only for admins
+        import pulse_phase7
+        sections += pulse_phase7.sections(perms or {})
+    except Exception as exc:
+        print(f"⚠️ Phase-7-Bereiche nicht verfügbar: {type(exc).__name__}")
     return [s[:5] for s in sections if s[5]]
 
 

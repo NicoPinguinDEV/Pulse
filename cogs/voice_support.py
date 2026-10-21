@@ -1624,7 +1624,7 @@ class VoiceSupport(commands.Cog):
                     pass
 
     @tasks.loop(minutes=1)
-    @tracked("Voice-Support Bereitschaft (1 min)", 60)  # P-06
+    @tracked("Voice-Support Bereitschaft (1 min)", 60, pausable=False)  # P-06
     async def duty_status_loop(self):
         cfg = get_config()
         guild = self._guild()
@@ -1643,7 +1643,7 @@ class VoiceSupport(commands.Cog):
         await self.bot.wait_until_ready()
 
     @tasks.loop(seconds=8)
-    @tracked("Voice-Support Musik (8 s)", 8)  # P-06
+    @tracked("Voice-Support Musik (8 s)", 8, pausable=False)  # P-06
     async def music_loop(self):
         cfg = get_config()
         if not cfg.get("active"):

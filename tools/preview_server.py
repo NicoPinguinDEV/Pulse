@@ -54,6 +54,13 @@ def main() -> int:
     guild = FakeGuild(gid=ws.GUILD_ID, members=members, roles=[team, lead],
                       channels=[FakeChannel(10, "allgemein"), FakeChannel(11, "team-logs")], owner_id=1)
     guild.categories = []
+    import discord  # Phase 7: @everyone with real permissions for the visibility check, a bot for /status
+    guild.default_role = SimpleNamespace(id=guild.id, name="@everyone", permissions=discord.Permissions(view_channel=True))
+    for role in guild.roles:
+        role.permissions = discord.Permissions.none()
+    for channel in guild.channels:
+        channel.overwrites = {}
+    ws.app.state.bot = SimpleNamespace(get_guild=lambda _: guild, get_user=lambda _: None, cogs={})
     ws.init_runtime()
     ws.save_json(ws.CONFIG_FILE, {"team_role_ids": [100, 101],
                                   "permissions": {"101": {k: True for k in ws.PERM_KEYS}}})

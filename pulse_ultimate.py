@@ -2319,6 +2319,73 @@ async def _run_automation(bot, automation: dict):
     return "unsupported action"
 
 
+async def _automation_cycle(bot):
+    """One run of the 60-second automation work (everything except the memory guard)."""
+    # U-11: opt-in notification DMs, bounded batch per run on this existing loop.
+    try:
+        import pulse_notify_prefs
+        if bot and pulse_notify_prefs.pending_dms():
+            await pulse_notify_prefs.drain_dms(bot, os.getenv("PUBLIC_BASE_URL", ""))
+    except Exception as exc:
+        print(f"⚠️ Benachrichtigungs-DMs konnten nicht gesendet werden: {type(exc).__name__}")
+    # F-10: monthly review DMs for people who opted in (first days of a month, once; same loop).
+    try:
+        import webserver
+        import pulse_phase7
+        pulse_phase7.queue_month_reviews(webserver)
+    except Exception as exc:
+        print(f"⚠️ Monatsrückblick konnte nicht vorbereitet werden: {type(exc).__name__}")
+    # BOT-09: lift time-limited citizen bans whose expiry has passed (same loop, no new worker).
+    try:
+        from cogs.mod_cases import lift_expired_bans
+        if bot:
+            await lift_expired_bans(bot)
+    except Exception as exc:
+        print(f"⚠️ Befristete Bans konnten nicht geprüft werden: {type(exc).__name__}")
+    # BOT-10: reminder DM about an hour before a scheduled application interview (same loop).
+    try:
+        import webserver
+        if bot:
+            await webserver.send_interview_reminders(bot)
+    except Exception as exc:
+        print(f"⚠️ Gesprächserinnerungen konnten nicht gesendet werden: {type(exc).__name__}")
+    # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren
+    # auch nach einem Neustart zuverlässig automatisch enden.
+    try:
+        import webserver
+        guild = bot.get_guild(webserver.GUILD_ID) if bot else None
+        if guild:
+            await webserver.cleanup_expired_warn_restrictions(guild, webserver.load_config())
+    except Exception as exc:
+        print(f"⚠️ Warn-Folgerollen konnten nicht bereinigt werden: {exc}")
+
+    now = utcnow()
+    with cx() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT * FROM ultimate_automations WHERE enabled=1 AND next_run_at<=?",
+            (iso(now),),
+        ).fetchall()]
+    for automation in rows:
+        run_id = uid("run")
+        started = iso()
+        try:
+            result = await _run_automation(bot, automation)
+            run_status = "success"
+        except Exception as exc:
+            result = str(exc)
+            run_status = "error"
+        with cx() as c:
+            c.execute(
+                "INSERT INTO ultimate_automation_runs VALUES(?,?,?,?,?,?)",
+                (run_id, automation["id"], run_status, result[:3000], started, iso()),
+            )
+            next_run = now + timedelta(minutes=max(5, int(automation["interval_minutes"])))
+            c.execute(
+                "UPDATE ultimate_automations SET last_run_at=?,next_run_at=? WHERE id=?",
+                (iso(), iso(next_run), automation["id"]),
+            )
+
+
 async def automation_loop(bot):
     import pulse_jobs  # P-06/P-01: registry and loop-lag measurement piggyback on this existing loop
     setup()
@@ -2327,62 +2394,10 @@ async def automation_loop(bot):
           async with pulse_jobs.job("Automation (60 s)", 60):
             # Memory guard piggybacks on this existing loop; no extra worker is added.
             await runtime_memory_guard(bot)
-            # U-11: opt-in notification DMs, bounded batch per run on this existing loop.
-            try:
-                import pulse_notify_prefs
-                if bot and pulse_notify_prefs.pending_dms():
-                    await pulse_notify_prefs.drain_dms(bot, os.getenv("PUBLIC_BASE_URL", ""))
-            except Exception as exc:
-                print(f"⚠️ Benachrichtigungs-DMs konnten nicht gesendet werden: {type(exc).__name__}")
-            # BOT-09: lift time-limited citizen bans whose expiry has passed (same loop, no new worker).
-            try:
-                from cogs.mod_cases import lift_expired_bans
-                if bot:
-                    await lift_expired_bans(bot)
-            except Exception as exc:
-                print(f"⚠️ Befristete Bans konnten nicht geprüft werden: {type(exc).__name__}")
-            # BOT-10: reminder DM about an hour before a scheduled application interview (same loop).
-            try:
-                import webserver
-                if bot:
-                    await webserver.send_interview_reminders(bot)
-            except Exception as exc:
-                print(f"⚠️ Gesprächserinnerungen konnten nicht gesendet werden: {type(exc).__name__}")
-            # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren
-            # auch nach einem Neustart zuverlässig automatisch enden.
-            try:
-                import webserver
-                guild = bot.get_guild(webserver.GUILD_ID) if bot else None
-                if guild:
-                    await webserver.cleanup_expired_warn_restrictions(guild, webserver.load_config())
-            except Exception as exc:
-                print(f"⚠️ Warn-Folgerollen konnten nicht bereinigt werden: {exc}")
-
-            now = utcnow()
-            with cx() as c:
-                rows = [dict(r) for r in c.execute(
-                    "SELECT * FROM ultimate_automations WHERE enabled=1 AND next_run_at<=?",
-                    (iso(now),),
-                ).fetchall()]
-            for automation in rows:
-                run_id = uid("run")
-                started = iso()
-                try:
-                    result = await _run_automation(bot, automation)
-                    run_status = "success"
-                except Exception as exc:
-                    result = str(exc)
-                    run_status = "error"
-                with cx() as c:
-                    c.execute(
-                        "INSERT INTO ultimate_automation_runs VALUES(?,?,?,?,?,?)",
-                        (run_id, automation["id"], run_status, result[:3000], started, iso()),
-                    )
-                    next_run = now + timedelta(minutes=max(5, int(automation["interval_minutes"])))
-                    c.execute(
-                        "UPDATE ultimate_automations SET last_run_at=?,next_run_at=? WHERE id=?",
-                        (iso(), iso(next_run), automation["id"]),
-                    )
+            # F-04: maintenance mode pauses the bot automations; the memory guard above keeps running.
+            import pulse_flags
+            if not pulse_flags.automations_paused():
+                await _automation_cycle(bot)
           started = asyncio.get_running_loop().time()
           await asyncio.sleep(60)
           pulse_jobs.record_loop_lag(60, asyncio.get_running_loop().time() - started)

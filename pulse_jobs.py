@@ -51,11 +51,17 @@ async def job(name: str, interval_seconds: float | None = None):
         entry["last_duration"] = round(time.monotonic() - started, 3)
 
 
-def tracked(name: str, interval_seconds: float | None = None):
-    """Decorator for `@tasks.loop` bodies: every run is recorded in the registry."""
+def tracked(name: str, interval_seconds: float | None = None, pausable: bool = True):
+    """Decorator for `@tasks.loop` bodies: every run is recorded in the registry.
+    pausable=False: live support (voice queue, music) keeps running in maintenance mode (F-04)."""
     def decorate(fn):
         @functools.wraps(fn)
         async def wrapper(*args, **kwargs):
+            import pulse_flags
+            if pausable and pulse_flags.automations_paused():  # F-04: maintenance mode skips the run (recorded, not an error)
+                _JOBS.setdefault(name, {"name": name, "interval": interval_seconds, "runs": 0, "failures": 0, "last_start": "",
+                                        "last_duration": 0.0, "last_error": "", "last_error_at": ""})["paused_at"] = _now_iso()
+                return None
             async with job(name, interval_seconds):
                 return await fn(*args, **kwargs)
         return wrapper

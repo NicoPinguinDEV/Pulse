@@ -347,7 +347,8 @@ def voice_waiting(guild) -> int:
 
 
 def render_pro_page(ws, title, ctx, page, body, extra=""):
-    body = '<div class="pulse-shell">' + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung</div></div>' + build_command_modal(ws, getattr(ctx, "perms", None))
+    import pulse_flags
+    body = '<div class="pulse-shell">' + pulse_flags.banner_html(ws.esc) + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung</div></div>' + build_command_modal(ws, getattr(ctx, "perms", None))
     return ws.render_page(title, ctx, page, body, extra)
 
 
