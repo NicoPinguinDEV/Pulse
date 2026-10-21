@@ -139,6 +139,19 @@ class QuietTimeTests(TempDb):
         self.assertIn("Erinnerung A", user.sent[0])
         self.assertIn("Erinnerung B", user.sent[0])
 
+    def test_unexpected_error_loses_nothing(self):
+        # review finding: an exception outside the handled types emptied the whole queue
+        np.queue_dm("1", "A", "a", "")
+        np.queue_dm("2", "B", "b", "")
+
+        class Boom:
+            async def send(self, text):
+                raise RuntimeError("network")
+        with self.assertRaises(RuntimeError):
+            asyncio.run(np.drain_dms(self.bot({1: Boom(), 2: FakeUser()}), now=datetime(2026, 1, 1, 12)))
+        self.assertEqual(np.pending_dms(), 2)
+        self.assertEqual([item[0] for item in np._dm_queue], ["1", "2"])   # same order as before
+
     def test_personal_quiet_time_also_holds(self):
         np.save("1", {"quiet_from": 20, "quiet_to": 22})
         user = FakeUser()

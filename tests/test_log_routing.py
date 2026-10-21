@@ -121,6 +121,53 @@ class CogTests(unittest.TestCase):
         self.assertEqual(len(self.log.sent), 2)          # 10 + 2 instead of 12 messages
         self.assertEqual(len(self.log.sent[0].kwargs["embeds"]), 10)
 
+    def test_failed_batch_does_not_stall_the_channel(self):
+        # review finding: after one failed send the channel was never flushed again until a restart
+        calls = []
+
+        async def flaky(*a, embeds=None, **k):
+            calls.append(len(embeds or []))
+            if len(calls) == 1:
+                raise discord.HTTPException(SimpleNamespace(status=400, reason="x"), "bad")
+        self.log.send = flaky
+
+        async def go():
+            with patch.object(lc, "BATCH_SECONDS", 0.01):
+                for n in range(12):
+                    await self.cog.log(self.guild, "channels", discord.Embed(title=f"E{n}"))
+                await asyncio.sleep(0.05)
+                for n in range(3):
+                    await self.cog.log(self.guild, "channels", discord.Embed(title=f"N{n}"))
+                await asyncio.sleep(0.05)
+        asyncio.run(go())
+        self.assertEqual(calls, [10, 2, 3])   # first batch dropped and reported, the rest still goes out
+
+    def test_rate_limit_keeps_the_batch(self):
+        calls = []
+
+        async def limited(*a, embeds=None, **k):
+            calls.append(len(embeds or []))
+            if len(calls) == 1:
+                raise discord.HTTPException(SimpleNamespace(status=429, reason="x"), "slow")
+        self.log.send = limited
+
+        async def go():
+            with patch.object(lc, "BATCH_SECONDS", 0.01), patch.object(lc, "RETRY_SECONDS", 0.01):
+                for n in range(3):
+                    await self.cog.log(self.guild, "channels", discord.Embed(title=f"E{n}"))
+                await asyncio.sleep(0.1)
+        asyncio.run(go())
+        self.assertEqual(calls, [3, 3])        # same batch again after the pause
+
+    def test_batches_respect_the_6000_character_limit(self):
+        buf = lc.LogBuffer()
+        for n in range(10):
+            buf.add(1, "x" * 2000)
+        self.assertEqual(len(buf.take(1, max_chars=lc.MESSAGE_CHARS)), 2)
+        big = lc.LogBuffer()
+        big.add(1, "y" * 9000)
+        self.assertEqual(len(big.take(1, max_chars=lc.MESSAGE_CHARS)), 1)   # a single entry always goes
+
     def test_audit_log_ban_with_actor(self):
         entry = SimpleNamespace(action=discord.AuditLogAction.ban, target=SimpleNamespace(mention="<@9>"),
                                 user=SimpleNamespace(mention="<@1>"), reason="Spam", guild=self.guild, changes=None)

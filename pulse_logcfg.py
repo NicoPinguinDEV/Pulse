@@ -24,6 +24,8 @@ BATCH_SECONDS = 3.0
 BATCH_MAX = 10           # embeds per Discord message
 BUFFER_MAX = 200         # per channel; older entries drop out first
 VOICE_THROTTLE = 10.0    # seconds per person
+MESSAGE_CHARS = 5800     # Discord allows 6000 characters across all embeds of one message
+RETRY_SECONDS = 30.0     # after a rate limit
 
 
 def _ids(values) -> list[int]:
@@ -106,11 +108,25 @@ class LogBuffer:
         queue.append(item)
         return first
 
-    def take(self, channel_id: int) -> list:
+    def take(self, channel_id: int, max_chars: int | None = None, size=len) -> list:
+        """Up to BATCH_MAX entries; with max_chars also at most that many characters in total (at least one entry)."""
         queue = self.queues.get(int(channel_id))
         if not queue:
             return []
-        return [queue.popleft() for _ in range(min(BATCH_MAX, len(queue)))]
+        out, total = [], 0
+        while queue and len(out) < BATCH_MAX:
+            length = size(queue[0]) if max_chars else 0
+            if out and max_chars and total + length > max_chars:
+                break
+            out.append(queue.popleft())
+            total += length
+        return out
+
+    def push_front(self, channel_id: int, items: list) -> None:
+        """Put a batch back (rate limit) – in its original order, ahead of newer entries."""
+        queue = self.queues.setdefault(int(channel_id), deque(maxlen=BUFFER_MAX))
+        for item in reversed(items):
+            queue.appendleft(item)
 
     def pending(self, channel_id: int) -> int:
         return len(self.queues.get(int(channel_id)) or ())

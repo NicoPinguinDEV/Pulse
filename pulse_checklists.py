@@ -102,8 +102,9 @@ def set_mentor(checklist_id: str, mentor_id, mentor_name: str, actor_name: str) 
         db.execute("UPDATE team_checklists SET mentor_id=?, mentor_name=? WHERE id=?", (str(mentor_id), mentor_name, checklist_id))
     if "mentor" not in item["done"]:
         toggle(checklist_id, "mentor", actor_name)
+    # link to the team file: mentors are team members and may lack the leadership right for /team/checklists
     pulse_db.notify(mentor_id, "🤝 Du bist Mentor", f"Du begleitest {item['user_name']} beim Einstieg ins Team.", "info",
-                    "/team/checklists", f"mentor:{item['user_id']}", 86400)
+                    f"/member/{item['user_id']}", f"mentor:{item['user_id']}", 86400)
     return get(checklist_id)
 
 

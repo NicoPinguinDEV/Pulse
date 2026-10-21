@@ -102,6 +102,25 @@ class BlockedOpenTests(TempDb):
         self.assertIn("keine neuen Tickets", sent[0])
 
 
+class SlashBanTargetTests(TempDb):
+    def test_team_members_bots_and_self_cannot_be_ticket_banned(self):
+        from cogs import ticket_tools
+        replies = []
+
+        async def send_message(text, **kw):
+            replies.append(text)
+        actor = SimpleNamespace(id=1, display_name="Lena")
+        teammate = SimpleNamespace(id=2, bot=False, display_name="Max", roles=[SimpleNamespace(id=5)])
+        interaction = SimpleNamespace(guild=SimpleNamespace(id=1), user=actor, response=SimpleNamespace(send_message=send_message))
+        cog = ticket_tools.TicketTools.__new__(ticket_tools.TicketTools)
+        with patch.object(ticket_tools, "may_manage", lambda i: True), patch.object(ws, "load_config", lambda: {"team_role_ids": [5]}):
+            asyncio.run(ticket_tools.TicketTools.sperre.callback(cog, interaction, teammate, 3, "Missbrauch der Tickets"))
+            myself = SimpleNamespace(id=1, bot=False, display_name="Lena", roles=[])
+            asyncio.run(ticket_tools.TicketTools.sperre.callback(cog, interaction, myself, 3, "Selbstversuch xx"))
+        self.assertTrue(all("nur für Bürger" in r for r in replies))
+        self.assertIsNone(tx.block_for(2))
+
+
 async def _record(sent, args):
     sent.append(args[0])
 

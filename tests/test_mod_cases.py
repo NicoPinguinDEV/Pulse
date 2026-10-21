@@ -122,13 +122,47 @@ class CogTests(TempDb):
     def test_expired_ban_is_lifted_once(self):
         from cogs.mod_cases import lift_expired_bans
         case = mc.create_case(1, member(3, 1), "ban", "Wiederholter Spam", "", 1, member(2, 5))
-        guild = SimpleNamespace(unban=AsyncMock())
+        guild = SimpleNamespace(unban=AsyncMock(), fetch_ban=AsyncMock(return_value=SimpleNamespace(reason=f"{case['id']} · Mod: Spam")))
         bot = SimpleNamespace(get_guild=lambda gid: guild)
         future = datetime.now(timezone.utc) + timedelta(minutes=5)
         with patch.object(mc, "_now", lambda: future):
             self.assertEqual(asyncio.run(lift_expired_bans(bot)), 1)
             self.assertEqual(asyncio.run(lift_expired_bans(bot)), 0)
         self.assertEqual(mc.get_case(case["id"])["status"], "expired")
+
+    def test_newer_ban_by_hand_is_not_lifted(self):
+        # review finding: an expired Pulse case lifted a later permanent ban set by hand
+        from cogs.mod_cases import lift_expired_bans
+        case = mc.create_case(1, member(3, 1), "ban", "Wiederholter Spam", "", 1, member(2, 5))
+        guild = SimpleNamespace(unban=AsyncMock(), fetch_ban=AsyncMock(return_value=SimpleNamespace(reason="Dauerhaft: Betrug")))
+        future = datetime.now(timezone.utc) + timedelta(minutes=5)
+        with patch.object(mc, "_now", lambda: future):
+            self.assertEqual(asyncio.run(lift_expired_bans(SimpleNamespace(get_guild=lambda gid: guild))), 0)
+        guild.unban.assert_not_awaited()
+        self.assertEqual(mc.get_case(case["id"])["status"], "expired")
+
+    def test_forbidden_unban_is_marked_once(self):
+        from cogs.mod_cases import lift_expired_bans
+        case = mc.create_case(1, member(3, 1), "ban", "Wiederholter Spam", "", 1, member(2, 5))
+        guild = SimpleNamespace(fetch_ban=AsyncMock(return_value=SimpleNamespace(reason=case["id"])),
+                                unban=AsyncMock(side_effect=discord.Forbidden(SimpleNamespace(status=403, reason="x"), "no")))
+        future = datetime.now(timezone.utc) + timedelta(minutes=5)
+        with patch.object(mc, "_now", lambda: future):
+            asyncio.run(lift_expired_bans(SimpleNamespace(get_guild=lambda gid: guild)))
+            asyncio.run(lift_expired_bans(SimpleNamespace(get_guild=lambda gid: guild)))
+        self.assertEqual(guild.unban.await_count, 1)                    # no retry every minute
+        self.assertEqual(mc.get_case(case["id"])["status"], "failed")
+
+    def test_refused_timeout_sends_no_dm(self):
+        from cogs.mod_cases import ModCases
+        target = member(3, 10)
+        target.timeout = AsyncMock(side_effect=discord.Forbidden(SimpleNamespace(status=403, reason="x"), "no"))
+        interaction, _ = self.interaction(member(2, 20))
+
+        async def respond(text):
+            pass
+        asyncio.run(ModCases.__new__(ModCases)._execute(interaction, "timeout", target, "Spam im Chat", "", 30, respond))
+        target.send.assert_not_awaited()
 
     def test_no_automatic_trigger(self):
         source = (Path(mc.__file__).parent / "cogs" / "mod_cases.py").read_text(encoding="utf-8")

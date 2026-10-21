@@ -888,6 +888,12 @@ def create_calendar_event(title, starts_at, ends_at=None, category="event", loca
         return event_id
 
 
+def delete_calendar_event(event_id) -> bool:
+    """BOT-10: replace an interview date instead of leaving the old one in the calendar."""
+    with connect() as db:
+        return db.execute("DELETE FROM calendar_events WHERE id=?", (str(event_id),)).rowcount > 0
+
+
 def list_calendar_events(start_at=None, end_at=None, limit=1000):
     """List events overlapping [start_at, end_at), or the latest bounded collection."""
     with connect() as db:

@@ -90,6 +90,8 @@ class PageTests(TempDb):
             self.assertIn("Onboarding · Max", page.text)
             self.assertIn("Lena", page.text)
             client.post("/team/checklists/toggle", data={"checklist_id": item["id"], "step": "roles"}, follow_redirects=False)
+            bad = client.post("/team/checklists/mentor", data={"checklist_id": item["id"], "mentor_id": "99"}, follow_redirects=False)
+            self.assertIn("t=err", bad.headers["location"])                # not a team member
             done = client.post("/team/checklists/mentor", data={"checklist_id": item["id"], "mentor_id": "3"}, follow_redirects=False)
             self.assertIn("t=ok", done.headers["location"])
         item = pc.get(item["id"])

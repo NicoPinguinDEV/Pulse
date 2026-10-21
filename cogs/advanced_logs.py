@@ -48,6 +48,8 @@ class AdvancedLogs(commands.Cog):
         self.bot = bot
         self.buffer = pulse_logcfg.LogBuffer()
         self.voice_throttle = pulse_logcfg.Throttle(pulse_logcfg.VOICE_THROTTLE)
+        self._scheduled: set[int] = set()
+        self._tasks: set = set()
 
     @property
     def log_channel_id(self) -> int:
@@ -67,22 +69,46 @@ class AdvancedLogs(commands.Cog):
         return guild.get_channel(channel_id)
 
     async def _send(self, channel, embed):
-        """Queue the entry; the first one schedules a single flush a few seconds later (no permanent loop)."""
-        if self.buffer.add(channel.id, embed):
-            asyncio.get_running_loop().call_later(
-                pulse_logcfg.BATCH_SECONDS, lambda: asyncio.ensure_future(self._flush(channel)))
+        """Queue the entry and make sure exactly one flush is scheduled for this channel (no permanent loop)."""
+        self.buffer.add(channel.id, embed)
+        self._schedule(channel, pulse_logcfg.BATCH_SECONDS)
+
+    def _schedule(self, channel, delay: float):
+        if channel.id in self._scheduled:
+            return
+        self._scheduled.add(channel.id)
+        loop = asyncio.get_running_loop()
+
+        def start():
+            task = loop.create_task(self._flush(channel))
+            self._tasks.add(task)  # keep a reference until it is done
+            task.add_done_callback(self._tasks.discard)
+        loop.call_later(delay, start)
 
     async def _flush(self, channel):
-        while self.buffer.pending(channel.id):
-            batch = self.buffer.take(channel.id)
-            try:
-                if len(batch) == 1:
-                    await send_styled(channel, embed=batch[0])
-                else:
-                    await channel.send(embeds=batch, allowed_mentions=discord.AllowedMentions.none())
-            except (discord.Forbidden, discord.HTTPException) as exc:
-                print(f"⚠️ Moderations-Log: Senden fehlgeschlagen ({type(exc).__name__}).")
-                return
+        """Send everything queued for this channel. Review fix: the scheduled flag is always cleared, a rate limit
+        reschedules, any other error drops only the failed batch – so logging can never stall until a restart."""
+        retry = None
+        try:
+            while self.buffer.pending(channel.id):
+                batch = self.buffer.take(channel.id, max_chars=pulse_logcfg.MESSAGE_CHARS, size=len)  # Discord: 6000/message
+                try:
+                    if len(batch) == 1:
+                        await send_styled(channel, embed=batch[0])
+                    else:
+                        await channel.send(embeds=batch, allowed_mentions=discord.AllowedMentions.none())
+                except discord.HTTPException as exc:
+                    if getattr(exc, "status", None) == 429:
+                        self.buffer.push_front(channel.id, batch)
+                        retry = pulse_logcfg.RETRY_SECONDS
+                        break
+                    print(f"⚠️ Moderations-Log: {len(batch)} Einträge verworfen ({type(exc).__name__}).")
+                except Exception as exc:  # never let one bad entry stop the channel's log
+                    print(f"⚠️ Moderations-Log: {len(batch)} Einträge verworfen ({type(exc).__name__}).")
+        finally:
+            self._scheduled.discard(channel.id)
+        if retry is not None or self.buffer.pending(channel.id):
+            self._schedule(channel, retry or pulse_logcfg.BATCH_SECONDS)
 
     async def log(self, guild, category: str, embed: discord.Embed):
         channel = await self.get_log_channel(guild, category)
@@ -220,8 +246,7 @@ class AdvancedLogs(commands.Cog):
             changes.append(f"Name: {before.name} → {after.name}")
         if before.permissions != after.permissions:
             changes.append("Berechtigungen geändert")
-        if before.position != after.position:
-            return  # position shifts come in bulk when one role moves – not useful in the log
+        # position shifts alone come in bulk when one role moves – not logged; name/rights changes still are
         if changes:
             await self._structure(after.guild, "roles", "Rolle geändert", "info", f"{after.mention}\n" + "\n".join(changes))
 

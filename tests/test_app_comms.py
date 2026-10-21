@@ -46,6 +46,8 @@ class TemplateTests(TempDb):
         self.assertEqual(ac.load()["hired"], ac.DEFAULTS["hired"])   # emptied → built-in text
         ac.save({})
         self.assertEqual(ac.load()["received"], ac.DEFAULTS["received"])
+        ac.save({"received": "{server:>99999999} {id!r}"})                 # review fix: no format specs
+        self.assertEqual(ac.render("received", server="S", id="1"), "{server:>99999999} {id!r}")
 
     def test_slot_and_reminders(self):
         tz = timezone(timedelta(hours=2))
@@ -80,6 +82,12 @@ class RouteTests(TempDb):
         self.assertTrue(item["interview_at"].startswith(future))
         self.assertFalse(item["interview_reminded"])
         self.assertEqual(len(pulse_db.list_calendar_events()), 1)
+        later = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M")
+        with patch.object(ws, "auth", fake_auth_for(ADMIN)), patch.object(ws, "dm_applicant", AsyncMock(return_value=True)):
+            client.post("/applications/interview-slot", data={"app_id": "app_1", "interview_at": later}, follow_redirects=False)
+        events = pulse_db.list_calendar_events()
+        self.assertEqual(len(events), 1)                                # review fix: changed date replaces the entry
+        self.assertTrue(ws.load_json(ws.APPS_FILE, {})["app_1"]["interview_at"].startswith(later))
 
     def test_reminder_is_sent_once(self):
         soon = (datetime.now(timezone.utc) + timedelta(minutes=20)).isoformat()

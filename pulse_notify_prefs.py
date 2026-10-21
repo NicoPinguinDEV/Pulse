@@ -167,26 +167,33 @@ async def drain_dms(bot, base_url: str = "", limit: int = DM_BATCH, now: datetim
         per_user.setdefault(item[0], []).append(item[1:])
     held = len(waiting)
     stop = False
-    for user_id in order:
-        notes = per_user[user_id]
-        if stop or sent + skipped >= limit:
-            waiting.extend((user_id, *n) for n in notes)
-            continue
-        batch, rest = notes[:BUNDLE_MAX], notes[BUNDLE_MAX:]
-        waiting.extend((user_id, *n) for n in rest)
-        try:
-            user = bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
-            await user.send(bundle_text(batch, base_url))
-            sent += 1
-        except discord.Forbidden:
-            skipped += 1  # DMs closed – the inbox entry is still there
-        except discord.HTTPException as exc:
-            if getattr(exc, "status", None) == 429:
-                waiting.extend((user_id, *n) for n in batch)
-                stop = True
+    try:
+        for user_id in order:
+            notes = per_user[user_id]
+            if stop or sent + skipped >= limit:
                 continue
-            skipped += 1
-        except (ValueError, TypeError):
-            skipped += 1
-    _dm_queue.extend(waiting)  # bounded deque: the oldest drop out first, the inbox keeps everything
+            batch, rest = notes[:BUNDLE_MAX], notes[BUNDLE_MAX:]
+            try:
+                user = bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
+                await user.send(bundle_text(batch, base_url))
+                sent += 1
+            except discord.Forbidden:
+                skipped += 1  # DMs closed – the inbox entry is still there
+            except discord.HTTPException as exc:
+                if getattr(exc, "status", None) == 429:
+                    stop = True
+                    continue
+                skipped += 1
+            except (ValueError, TypeError):
+                skipped += 1
+            per_user[user_id] = rest  # only the part beyond this bundle stays for later
+    finally:
+        # Review fix: whatever was not handled (unexpected error, rate limit, limit reached) goes back first,
+        # ahead of notes queued while we were awaiting – nothing is lost and the order stays oldest-first.
+        newer = list(_dm_queue)
+        _dm_queue.clear()
+        _dm_queue.extend(waiting)
+        for user_id in order:
+            _dm_queue.extend((user_id, *n) for n in per_user[user_id])
+        _dm_queue.extend(newer)  # bounded deque: the oldest drop out first, the inbox keeps everything
     return {"sent": sent, "skipped": skipped, "held": held, "pending": len(_dm_queue)}

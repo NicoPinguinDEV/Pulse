@@ -110,12 +110,17 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
         if not may_manage(interaction):
             await deny(interaction, "Nur das Ticket-Team kann Ticket-Sperren setzen.")
             return
+        import webserver
+        team_ids = {int(x) for x in webserver.load_config().get("team_role_ids", []) if str(x).isdigit()}
+        if mitglied.bot or mitglied.id == interaction.user.id or any(r.id in team_ids for r in getattr(mitglied, "roles", [])):
+            # review fix: ticket bans are for citizens – not for the team, bots or oneself
+            await deny(interaction, "Ticket-Sperren gelten nur für Bürger – nicht für Teammitglieder, Bots oder dich selbst.")
+            return
         try:
             entry = tx.block(mitglied.id, tage, grund, interaction.user.display_name)
         except ValueError as exc:
             await deny(interaction, str(exc))
             return
-        import webserver
         webserver.log_audit(interaction.user.display_name, str(interaction.user.id), "Ticket-Sperre",
                             f"{mitglied.display_name} ({mitglied.id}) bis {entry['until'][:10]}: {entry['reason']}")
         await interaction.response.send_message(f"🚫 {mitglied.display_name} kann bis {entry['until'][:10]} keine neuen Tickets öffnen.",

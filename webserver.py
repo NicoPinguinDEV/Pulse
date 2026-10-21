@@ -5727,8 +5727,12 @@ async def team_checklists_mentor(request: Request, user_session: str = Cookie(No
     form = await request.form()
     mentor_id = str(form.get("mentor_id") or "")
     mentor = ctx.guild.get_member(int(mentor_id)) if mentor_id.isdigit() else None
-    if mentor is None:
-        return back("/team/checklists", "Bitte ein Teammitglied als Mentor wählen.", False)
+    checklist = pc.get(str(form.get("checklist_id") or ""))
+    team_ids = {int(x) for x in ctx.config.get("team_role_ids", []) if str(x).isdigit()}
+    # review fix: only a team member, and not the person being onboarded
+    if mentor is None or mentor.bot or not any(r.id in team_ids for r in mentor.roles) \
+            or (checklist and str(checklist["user_id"]) == str(mentor.id)):
+        return back("/team/checklists", "Bitte ein anderes Teammitglied als Mentor wählen.", False)
     actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
     try:
         item = pc.set_mentor(str(form.get("checklist_id") or ""), mentor.id, mentor.display_name, actor)
@@ -7789,11 +7793,13 @@ async def application_interview_slot(request: Request, user_session: str = Cooki
     item["interview_scheduled_by"] = actor
     item["interview_scheduled_by_id"] = str(ctx.user["id"])
     item["interview_reminded"] = False
-    save_json(APPS_FILE, apps)
+    if item.get("interview_event_id"):  # review fix: a changed date replaces the old calendar entry
+        pulse_db.delete_calendar_event(item["interview_event_id"])
     termin = when.strftime("%d.%m.%Y %H:%M")
-    pulse_db.create_calendar_event(f"Bewerbungsgespräch {item.get('name') or app_id}"[:120], when.astimezone(_UTC).isoformat(timespec="seconds"),
+    item["interview_event_id"] = pulse_db.create_calendar_event(f"Bewerbungsgespräch {item.get('name') or app_id}"[:120], when.astimezone(_UTC).isoformat(timespec="seconds"),
                                    (when + timedelta(minutes=30)).astimezone(_UTC).isoformat(timespec="seconds"),
                                    "event", "Discord", f"Bewerbung {app_id}", ctx.user["id"], actor)
+    save_json(APPS_FILE, apps)  # still no await between loading and saving
     sent = await dm_applicant(request, item.get("user_id"), "scheduled", id=app_id, termin=termin)
     log_audit(actor, ctx.user["id"], "Bewerbungsgespräch geplant", f"{app_id} · {termin}")
     return back("/applications", f"Gesprächstermin {termin} gespeichert" + ("" if sent else " – DM an den Bewerber nicht zustellbar") + ".", sent)
@@ -9908,7 +9914,7 @@ async def issue_team_warning(guild, *, actor_member, actor_name: str, actor_id: 
     "consequence_report"}; ok=False before anything was stored means the warning was refused."""
     config = config if config is not None else load_config()
     team_role_ids = config.get("team_role_ids", [])
-    reason = (reason or "").strip()[:500]
+    reason = (reason or "").strip()[:1000]  # /warn allowed 1000 before BOT-05 (review fix); the dashboard field stays at 500
     refused = lambda message: {"ok": False, "stored": False, "message": message}
     if not reason:
         return refused("Bitte einen Grund angeben.")

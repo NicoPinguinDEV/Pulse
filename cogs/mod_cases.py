@@ -77,12 +77,16 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
         appeal = (mc.appeal_text(interaction.guild.id, case["id"]) if action != "ban"
                   else f"Schreibe dem Serverteam per Direktnachricht und nenne die Fall-ID {case['id']}.")
         dm_ok = False
-        try:
-            await target.send(mc.dm_text(case, interaction.guild.name, appeal))
-            mc.mark(case["id"], dm_sent=1)
-            dm_ok = True
-        except (discord.Forbidden, discord.HTTPException):
-            pass
+
+        async def send_dm() -> bool:
+            try:
+                await target.send(mc.dm_text(case, interaction.guild.name, appeal))
+                mc.mark(case["id"], dm_sent=1)
+                return True
+            except (discord.Forbidden, discord.HTTPException):
+                return False
+        if action in ("kick", "ban"):  # afterwards the person can no longer be reached
+            dm_ok = await send_dm()
         reason = f"{case['id']} · {interaction.user.display_name}: {case['reason']}"[:512]
         try:
             if action == "timeout":
@@ -95,6 +99,8 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
             mc.mark(case["id"], status="failed", close_note=type(exc).__name__)
             await respond(f"❌ Discord hat die Aktion verweigert ({type(exc).__name__}). Fall {case['id']} ist als fehlgeschlagen vermerkt.")
             return
+        if action in ("warn", "timeout"):  # review fix: no "Timeout"-DM when Discord refused the timeout
+            dm_ok = await send_dm()
         webserver.log_audit(interaction.user.display_name, str(interaction.user.id), f"Bürger-Moderation: {mc.ACTIONS[action]}",
                             f"{case['id']} · {target.display_name} ({target.id}) · {case['reason']}"
                             + (f" · bis {case['expires_at']}" if case.get("expires_at") else ""))
@@ -123,6 +129,14 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
 
     async def _confirm_then(self, interaction, action, mitglied, grund, beweis, minutes):
         async def run(button_interaction):
+            import webserver
+            # review fix: up to 60 s may have passed – check rights and rank again before acting
+            problem = ("" if mc.may_moderate(action, pulse_perms(interaction.guild, interaction.user.id), interaction.user.guild_permissions)
+                       else "Dir fehlt inzwischen das nötige Recht.") or mc.target_problem(
+                interaction.user, mitglied, interaction.guild, webserver.load_config().get("team_role_ids", []))
+            if problem:
+                await button_interaction.edit_original_response(content="❌ " + problem + " Es wurde nichts ausgeführt.")
+                return
             await self._execute(interaction, action, mitglied, grund, beweis, minutes,
                                 lambda text: button_interaction.edit_original_response(content=text))
         label = mc.ACTIONS[action]
@@ -165,13 +179,24 @@ async def lift_expired_bans(bot) -> int:
         guild = bot.get_guild(int(case["guild_id"]))
         if guild is None:
             continue
+        now = mc._now().isoformat(timespec="seconds")
+        target = discord.Object(id=int(case["target_id"]))
         try:
-            await guild.unban(discord.Object(id=int(case["target_id"])), reason=f"{case['id']}: befristeter Ban abgelaufen")
-            mc.mark(case["id"], status="expired", closed_at=mc._now().isoformat(timespec="seconds"), closed_by="Pulse (Ablauf)")
+            ban = await guild.fetch_ban(target)
+            # Review fix: if the person was unbanned and banned again outside this case, that newer ban is not ours.
+            if not str(getattr(ban, "reason", "") or "").startswith(case["id"]):
+                mc.mark(case["id"], status="expired", closed_at=now, closed_by="Pulse (Ban wurde zwischenzeitlich ersetzt)")
+                continue
+            await guild.unban(target, reason=f"{case['id']}: befristeter Ban abgelaufen")
+            mc.mark(case["id"], status="expired", closed_at=now, closed_by="Pulse (Ablauf)")
             lifted += 1
         except discord.NotFound:
-            mc.mark(case["id"], status="expired", closed_at=mc._now().isoformat(timespec="seconds"), closed_by="Pulse (bereits entbannt)")
-        except (discord.Forbidden, discord.HTTPException) as exc:
+            mc.mark(case["id"], status="expired", closed_at=now, closed_by="Pulse (bereits entbannt)")
+        except discord.Forbidden:
+            # no retry every minute: the case is marked and shows up in the case file
+            mc.mark(case["id"], status="failed", close_note="Ablauf: Pulse darf nicht entbannen (Rechte prüfen)")
+            print(f"⚠️ Bürger-Moderation: Ban {case['id']} konnte nicht aufgehoben werden (Forbidden) – Fall als fehlgeschlagen markiert.")
+        except discord.HTTPException as exc:
             print(f"⚠️ Bürger-Moderation: Ban {case['id']} konnte nicht aufgehoben werden ({type(exc).__name__}).")
     return lifted
 

@@ -6,6 +6,7 @@ shortly before the interview (sent by the existing automation loop).
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 TEMPLATES_KEY = "application_dm_templates"
@@ -29,11 +30,6 @@ LABELS = {"received": "Eingang", "interview": "Freigabe zum Gespräch", "schedul
 PLACEHOLDERS = "{server}, {id}, {rolle}, {termin}"
 
 
-class _Safe(dict):
-    def __missing__(self, key):
-        return "{" + key + "}"
-
-
 def load() -> dict:
     import pulse_db
     stored = pulse_db.get_setting(TEMPLATES_KEY, {}) or {}
@@ -49,9 +45,14 @@ def save(values: dict) -> dict:
     return load()
 
 
+_PLACEHOLDER = re.compile(r"\{(\w+)\}")
+
+
 def render(key: str, **values) -> str:
-    """Template with placeholders filled; unknown placeholders stay visible instead of failing."""
-    return load()[key].format_map(_Safe({k: str(v) for k, v in values.items()}))[:1900]
+    """Template with placeholders filled; unknown placeholders stay visible instead of failing.
+    Only plain {name} is replaced – no format specs such as {server:>99999} (review fix: memory)."""
+    known = {k: str(v) for k, v in values.items()}
+    return _PLACEHOLDER.sub(lambda m: known.get(m.group(1), m.group(0)), load()[key])[:1900]
 
 
 def parse_slot(value: str, tz) -> datetime:

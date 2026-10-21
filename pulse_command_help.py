@@ -15,7 +15,7 @@ MANAGE_GUILD = {
     "setup_teamliste", "ticketpanels_setup", "ticketsetup", "ticketpanel", "ticketrole", "ticketlog",
     "backup_erstellen", "social_add", "social_remove", "social_toggle", "social_test", "social_link", "social_list",
     "supportbot_test", "supportbot_status", "aimod_status", "test_activitycheck", "pulse-lock", "pulse-unlock",
-    "pulse-permission", "pulse-panel", "pulse-diagnose", "pulsehealth",
+    "pulse-permission", "pulse-diagnose", "pulsehealth",
 }
 MANAGE_ROLES = {"teamrollen_hinzufuegen", "teamrolle_entfernen", "teamliste_leeren", "update_teamliste", "buero_rolle_setzen"}
 MANAGE_MESSAGES = {"messagedelete"}
