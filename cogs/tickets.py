@@ -1773,11 +1773,65 @@ class Tickets(commands.Cog):
             await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
-        message = await send_styled(interaction.channel, embed=build_panel_embed(interaction.guild), view=TicketView())
+        try:
+            result = await self.publish_default_panel_for_guild(interaction.guild, interaction.channel)
+        except (ValueError, discord.Forbidden, discord.HTTPException) as exc:
+            return await interaction.followup.send(
+                f"❌ Ticket-Panel konnte nicht erstellt/aktualisiert werden ({type(exc).__name__}).",
+                ephemeral=True,
+            )
+        await interaction.followup.send(
+            f"✅ Professionelles Ticket-Panel {result['action']} in {result['channel'].mention}. Die Auslastung wird automatisch aktualisiert.",
+            ephemeral=True,
+        )
+
+    async def publish_default_panel_for_guild(
+        self, guild: discord.Guild, target_channel: discord.TextChannel | None = None,
+    ) -> dict:
+        """Repair the tracked legacy/default panel; never duplicate it on an API permission error."""
         settings = ticket_config()
-        settings.update({"panel_channel_id": interaction.channel.id, "panel_message_id": message.id})
+        old_channel_id = int(settings.get("panel_channel_id") or 0)
+        old_message_id = int(settings.get("panel_message_id") or 0)
+        channel = target_channel or guild.get_channel(old_channel_id)
+        if channel is None:
+            raise ValueError("Ticket-Panel-Kanal ist nicht gespeichert oder nicht mehr erreichbar. Bitte /ticketpanel im Zielkanal ausführen.")
+        if getattr(channel, "guild", None) != guild or not hasattr(channel, "send"):
+            raise ValueError("Der Ticket-Panel-Kanal gehört nicht zu diesem Server oder kann keine Nachrichten senden.")
+
+        message = None
+        if old_message_id and old_channel_id == channel.id:
+            try:
+                message = await channel.fetch_message(old_message_id)
+            except discord.NotFound:
+                message = None
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                raise ValueError(f"Die gespeicherte Ticket-Panel-Nachricht konnte nicht geprüft werden ({type(exc).__name__}); es wurde keine neue erstellt.") from exc
+
+        if message is not None:
+            await edit_styled(message, embed=build_panel_embed(guild), view=TicketView())
+            action = "aktualisiert"
+        else:
+            message = await send_styled(
+                channel,
+                embed=build_panel_embed(guild),
+                view=TicketView(),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            action = "veröffentlicht"
+
+        if old_channel_id and old_message_id and old_channel_id != channel.id:
+            old_channel = guild.get_channel(old_channel_id)
+            if old_channel is not None:
+                try:
+                    old_message = await old_channel.fetch_message(old_message_id)
+                    await old_message.delete(reason="Pulse-Ticketpanel wurde durch /ticketpanel in einen anderen Kanal verschoben")
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
+
+        settings.update({"panel_channel_id": channel.id, "panel_message_id": message.id})
         save_ticket_config(settings)
-        await interaction.followup.send("✅ Professionelles Ticket-Panel eingerichtet. Die Auslastung wird automatisch aktualisiert.", ephemeral=True)
+        self.bot.add_view(TicketView())
+        return {"action": action, "channel": channel, "message_id": message.id, "updated_at": message.edited_at or message.created_at}
 
     async def publish_panel_for_guild(self, guild: discord.Guild, panel_id: str) -> dict:
         """Send or edit one configured custom Pulse panel in its selected channel."""
