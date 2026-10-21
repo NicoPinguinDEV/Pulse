@@ -31,11 +31,14 @@ class PresenceTests(unittest.TestCase):
         fake_webserver = SimpleNamespace(load_shifts=lambda: shifts)
         bot = FakeBot()
 
+        async def scenario():
+            self.assertTrue(await pulse_presence.update_presence(bot))
+            self.assertFalse(await pulse_presence.update_presence(bot))
+
         with patch.dict(sys.modules, {"webserver": fake_webserver}), patch(
-            "pulse_presence.time.monotonic", side_effect=[1000.0, 1001.0]
+            "pulse_presence._monotonic", side_effect=[1000.0, 1001.0]
         ):
-            self.assertTrue(asyncio.run(pulse_presence.update_presence(bot)))
-            self.assertFalse(asyncio.run(pulse_presence.update_presence(bot)))
+            asyncio.run(scenario())
 
         self.assertEqual(bot.activities, ["Pulse · 2 im Dienst"])
 
@@ -44,13 +47,16 @@ class PresenceTests(unittest.TestCase):
         fake_webserver = SimpleNamespace(load_shifts=lambda: shifts)
         bot = FakeBot()
 
-        with patch.dict(sys.modules, {"webserver": fake_webserver}), patch(
-            "pulse_presence.time.monotonic", side_effect=[2000.0, 2001.0, 2181.0]
-        ):
-            self.assertTrue(asyncio.run(pulse_presence.update_presence(bot)))
+        async def scenario():
+            self.assertTrue(await pulse_presence.update_presence(bot))
             shifts["active_shifts"]["2"] = {"status": "break"}
-            self.assertFalse(asyncio.run(pulse_presence.update_presence(bot)))
-            self.assertTrue(asyncio.run(pulse_presence.update_presence(bot)))
+            self.assertFalse(await pulse_presence.update_presence(bot))
+            self.assertTrue(await pulse_presence.update_presence(bot))
+
+        with patch.dict(sys.modules, {"webserver": fake_webserver}), patch(
+            "pulse_presence._monotonic", side_effect=[2000.0, 2001.0, 2181.0]
+        ):
+            asyncio.run(scenario())
 
         self.assertEqual(bot.activities, ["Pulse · 1 im Dienst", "Pulse · 2 im Dienst"])
 
