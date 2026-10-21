@@ -844,7 +844,7 @@ def register(app) -> None:
   </div>
 </article>'''
 
-    def panel_info_card(title: str, family: str, detail: str, channel=None) -> str:
+    def panel_info_card(guild, title: str, family: str, detail: str, channel=None) -> str:
         channel_link = ""
         if channel is not None:
             channel_link = (
@@ -904,7 +904,7 @@ def register(app) -> None:
             ))
         if not custom_panels:
             cards.append(panel_info_card(
-                "Eigene Ticket-Panels", "Ticket-System",
+                guild, "Eigene Ticket-Panels", "Ticket-System",
                 "Noch keine benutzerdefinierten Panels in den Einstellungen. Panels und Kategorien auf /tickets/panels konfigurieren."
             ))
 
@@ -974,12 +974,12 @@ def register(app) -> None:
                 ))
             else:
                 cards.append(panel_info_card(
-                    "Activity Check", "Team-Aktivität",
+                    guild, "Activity Check", "Team-Aktivität",
                     "Noch kein Activity-Check-Datensatz für diesen Server. Tagesrunden werden vom bestehenden Zeitplan oder bewusst per /test_activitycheck erstellt."
                 ))
         except (sqlite3.Error, OSError, ImportError) as exc:
             errors.append(f"Activity Check: {type(exc).__name__}")
-            cards.append(panel_info_card("Activity Check", "Team-Aktivität", "Status der letzten Runde konnte nicht aus der lokalen Datenbank gelesen werden."))
+            cards.append(panel_info_card(guild, "Activity Check", "Team-Aktivität", "Status der letzten Runde konnte nicht aus der lokalen Datenbank gelesen werden."))
 
         # These modules create per-request/per-round messages or protect a channel; they do not own one stable panel message ID.
         office_id = None
@@ -990,7 +990,7 @@ def register(app) -> None:
             pass
         office_channel = guild.get_channel(int(office_id)) if str(office_id or "").isdigit() else None
         cards.append(panel_info_card(
-            "Büro-Anfragen", "Büro / Support",
+            guild, "Büro-Anfragen", "Büro / Support",
             "Jede Anfrage erzeugt eine eigene Nachricht mit Übernehmen-Button. Es gibt kein einzelnes globales Panel, das sich sicher neu veröffentlichen ließe.",
             office_channel,
         ))
@@ -1001,7 +1001,7 @@ def register(app) -> None:
         except Exception:
             honeypot_channel = None
         cards.append(panel_info_card(
-            "Honeypot-Warnkanal", "Sicherheit",
+            guild, "Honeypot-Warnkanal", "Sicherheit",
             "Dies ist ein Sicherheitskanal und kein gewöhnliches Panel. Eine generische Neuveröffentlichung könnte die Schutzfunktion nicht reparieren.",
             honeypot_channel,
         ))
@@ -1017,7 +1017,7 @@ def register(app) -> None:
                     quiz_detail += f" Aktuelle Runde: {quiz_config[1]}."
         except Exception:
             quiz_detail += " Die Quiz-Konfiguration konnte nicht gelesen werden."
-        cards.append(panel_info_card("Flaggenquiz", "Interaktives Spiel", quiz_detail, quiz_channel))
+        cards.append(panel_info_card(guild, "Flaggenquiz", "Interaktives Spiel", quiz_detail, quiz_channel))
 
         issues = (
             f'<div class="pulse-alert mb-4"><strong>Hinweise zur Prüfung:</strong><ul class="list-disc pl-5 mt-1">'
