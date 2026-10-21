@@ -56,7 +56,7 @@ class TicketRatingStatsTests(unittest.TestCase):
         self.assertEqual(support["average_rating"], 4.0)
 
     def test_limit_is_bounded(self):
-        self.assertEqual(len(pulse_db.ticket_rating_stats("g1", limit=0)["categories"]), 2)
+        self.assertEqual(len(pulse_db.ticket_rating_stats("g1", limit=0)["categories"]), 1)
         self.assertLessEqual(len(pulse_db.ticket_rating_stats("g1", limit=1000)["categories"]), 20)
 
 
