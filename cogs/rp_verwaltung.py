@@ -242,6 +242,60 @@ class RPVerwaltungCog(commands.Cog):
     async def cog_load(self):
         self.bot.add_view(RPView())
 
+    @staticmethod
+    def _panel_embed(guild: discord.Guild) -> discord.Embed:
+        embed = discord.Embed(
+            title="💻 Roleplay Verwaltung",
+            description="Nutze das Menü unten, um das RP offiziell zu starten oder zu beenden.",
+            color=_pulse_color("danger"),
+        )
+        if getattr(guild, "icon", None):
+            embed.set_thumbnail(url=guild.icon.url)
+        return embed
+
+    async def publish_panel(self, guild: discord.Guild, target_channel: discord.TextChannel | None = None) -> dict:
+        """Repair or publish the one tracked RP-control panel without creating duplicates."""
+        channel_id = int(target_channel.id if target_channel else (get_config("panel_channel_id") or 0))
+        channel = guild.get_channel(channel_id) if channel_id else None
+        if channel is None:
+            raise ValueError("RP-Panel-Kanal ist nicht gespeichert oder nicht mehr erreichbar. Bitte /setup_rp im Zielkanal ausführen.")
+        if not hasattr(channel, "send") or getattr(channel, "guild", None) != guild:
+            raise ValueError("Der konfigurierte RP-Panel-Kanal gehört nicht zu diesem Server.")
+
+        old_channel_id = int(get_config("panel_channel_id") or 0)
+        old_message_id = int(get_config("panel_message_id") or 0)
+        message = None
+        if old_channel_id == channel.id and old_message_id:
+            try:
+                message = await channel.fetch_message(old_message_id)
+            except discord.NotFound:
+                message = None
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                raise ValueError(f"Die gespeicherte RP-Panel-Nachricht konnte nicht geprüft werden ({type(exc).__name__}); es wurde keine neue erstellt.") from exc
+
+        if message is not None:
+            await message.edit(embed=self._panel_embed(guild), view=RPView())
+            action = "aktualisiert"
+        else:
+            message = await channel.send(embed=self._panel_embed(guild), view=RPView(), allowed_mentions=discord.AllowedMentions.none())
+            action = "veröffentlicht"
+
+        # If an admin explicitly re-runs /setup_rp in another channel, first publish
+        # the replacement successfully, then best-effort remove the old tracked message.
+        if old_channel_id and old_message_id and old_channel_id != channel.id:
+            old_channel = guild.get_channel(old_channel_id)
+            if old_channel is not None:
+                try:
+                    old_message = await old_channel.fetch_message(old_message_id)
+                    await old_message.delete(reason="Pulse-RP-Panel wurde durch /setup_rp in einen anderen Kanal verschoben")
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
+
+        set_config("panel_channel_id", channel.id)
+        set_config("panel_message_id", message.id)
+        self.bot.add_view(RPView())
+        return {"action": action, "channel": channel, "message_id": message.id}
+
     @app_commands.command(name="setup_rp", description="[Admin] Erstellt das RP-Verwaltungs-Dashboard")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(
@@ -252,20 +306,19 @@ class RPVerwaltungCog(commands.Cog):
         target_ch = ankündigungs_kanal or interaction.channel
         set_config("announcement_channel_id", target_ch.id)
 
-        embed = discord.Embed(
-            title="💻 Roleplay Verwaltung",
-            description="Nutze das Menü unten, um das RP offiziell zu starten oder zu beenden.",
-            color=_pulse_color("danger")
-        )
-
-        if interaction.guild.icon:
-            embed.set_thumbnail(url=interaction.guild.icon.url)
-
-        await interaction.channel.send(embed=embed, view=RPView())
-        await interaction.response.send_message(
-            f"✅ RP-Verwaltungs-Panel wurde erstellt!\n📢 Ankündigungen werden in {target_ch.mention} gesendet.\n"
+        await interaction.response.defer(ephemeral=True)
+        try:
+            result = await self.publish_panel(interaction.guild, interaction.channel)
+        except (ValueError, discord.Forbidden, discord.HTTPException) as exc:
+            return await interaction.followup.send(
+                f"❌ RP-Panel konnte nicht erstellt/aktualisiert werden ({type(exc).__name__}).",
+                ephemeral=True,
+            )
+        await interaction.followup.send(
+            f"✅ RP-Panel {result['action']} in {result['channel'].mention}.\n"
+            f"📢 Ankündigungen werden in {target_ch.mention} gesendet.\n"
             "🔐 Bedienen dürfen Admins, Leitung (Beförderungsrecht) und die in der Verwaltung freigegebenen Rollen.",
-            ephemeral=True
+            ephemeral=True,
         )
 
 async def setup(bot: commands.Bot):
