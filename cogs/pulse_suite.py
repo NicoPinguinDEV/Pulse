@@ -779,14 +779,172 @@ def legacy_suite_ticket_action(message,custom_id):
                 return SUITE_TICKET_LABEL_ACTIONS[child.label],title[len(SUITE_TICKET_TITLE):].strip()
     return None
 
+class ShiftControlView(discord.ui.View):
+    """Persistent self-service shift controls; access is checked on every click."""
+
+    def __init__(self, cog):
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(label="Start", emoji="▶️", style=discord.ButtonStyle.success,
+                       custom_id="pulse:dienst:start")
+    async def start_shift(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog._run_shift_action_interaction(interaction, "start")
+
+    @discord.ui.button(label="Pause", emoji="⏸️", style=discord.ButtonStyle.secondary,
+                       custom_id="pulse:dienst:pause")
+    async def pause_shift(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog._run_shift_action_interaction(interaction, "break")
+
+    @discord.ui.button(label="Weiter", emoji="⏯️", style=discord.ButtonStyle.success,
+                       custom_id="pulse:dienst:weiter")
+    async def resume_shift(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog._run_shift_action_interaction(interaction, "resume")
+
+    @discord.ui.button(label="Beenden", emoji="⏹️", style=discord.ButtonStyle.danger,
+                       custom_id="pulse:dienst:ende")
+    async def end_shift(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog._run_shift_action_interaction(interaction, "end")
+
+    @discord.ui.button(label="Status", emoji="📊", style=discord.ButtonStyle.primary,
+                       custom_id="pulse:dienst:status")
+    async def show_status(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog._show_shift_status(interaction)
+
+
 class PulseSuite(commands.Cog):
-    def __init__(self,bot):self.bot=bot;init_db();seed();register_routes();self.auto.start()
+    dienst = app_commands.Group(name="dienst", description="Eigene Schicht in Pulse verwalten.")
+
+    def __init__(self,bot):
+        self.bot=bot
+        self._shift_control_view = None
+        init_db();seed();register_routes();self.auto.start()
 
     async def cog_load(self):
         self.bot.add_dynamic_items(SuiteTicketButton)
+        self._shift_control_view = ShiftControlView(self)
+        self.bot.add_view(self._shift_control_view)
 
     async def cog_unload(self):
         self.bot.remove_dynamic_items(SuiteTicketButton)
+        if self._shift_control_view is not None:
+            try:
+                self.bot.remove_view(self._shift_control_view)
+            except (AttributeError, ValueError):
+                pass
+            self._shift_control_view = None
+
+    def _shift_access(self, interaction: discord.Interaction, *, manage_panel: bool = False) -> bool:
+        if interaction.guild is None:
+            return False
+        try:
+            web = __import__("webserver")
+            config = web.load_config()
+            permissions, _ = web.compute_perms(interaction.guild, interaction.user.id, config)
+            if manage_panel:
+                return bool(permissions.get("can_promote") or permissions.get("is_admin"))
+            team_role_ids = set()
+            for raw in config.get("team_role_ids", []):
+                try:
+                    team_role_ids.add(int(raw))
+                except (TypeError, ValueError):
+                    continue
+            user_role_ids = {int(role.id) for role in getattr(interaction.user, "roles", [])}
+            return bool(user_role_ids & team_role_ids) or bool(permissions.get("is_admin"))
+        except Exception as exc:
+            print(f"⚠️ Dienstberechtigung konnte nicht geprüft werden ({type(exc).__name__}).")
+            return False
+
+    async def _sync_shift_duty(self, interaction: discord.Interaction) -> None:
+        try:
+            voice_support = self.bot.get_cog("VoiceSupport")
+            if voice_support:
+                await voice_support.sync_member_duty_role(interaction.guild, str(interaction.user.id))
+                await voice_support._refresh_duty_status(interaction.guild)
+        except Exception as exc:
+            print(f"⚠️ Voice-Support konnte den Dienststatus nicht aktualisieren ({type(exc).__name__}).")
+
+    async def _show_shift_status(self, interaction: discord.Interaction) -> None:
+        if not self._shift_access(interaction):
+            await interaction.response.send_message("❌ Nur Teammitglieder dürfen ihren Dienststatus abrufen.", ephemeral=True)
+            return
+        try:
+            from pulse_shift_actions import get_shift_status
+            status = await asyncio.to_thread(get_shift_status, str(interaction.user.id))
+            web = __import__("webserver")
+            labels = {"online": "🟢 Im Dienst", "break": "🟡 In Pause", "offline": "⚪ Außer Dienst"}
+            if not status["active"]:
+                text = "Du hast aktuell keine laufende Schicht."
+            else:
+                text = f"{labels.get(status['status'], '⚪ Unbekannter Status')} · {web.fmt_duration(status['duration_seconds'])}"
+            await interaction.response.send_message(f"📊 **Dein Dienststatus:** {text}", ephemeral=True)
+        except Exception as exc:
+            print(f"⚠️ Dienststatus konnte nicht gelesen werden ({type(exc).__name__}).")
+            await interaction.response.send_message("⚠️ Dein Dienststatus konnte gerade nicht gelesen werden.", ephemeral=True)
+
+    async def _run_shift_action_interaction(self, interaction: discord.Interaction, action: str) -> None:
+        if not self._shift_access(interaction):
+            await interaction.response.send_message("❌ Nur Teammitglieder dürfen ihre Schicht steuern.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            from pulse_shift_actions import apply_shift_action
+            result = await asyncio.to_thread(apply_shift_action, str(interaction.user.id), action)
+        except Exception as exc:
+            print(f"⚠️ Dienstaktion fehlgeschlagen ({type(exc).__name__}).")
+            await interaction.followup.send("⚠️ Die Dienstaktion ist fehlgeschlagen. Bitte prüfe den Systemstatus.", ephemeral=True)
+            return
+        if not result.get("ok"):
+            await interaction.followup.send(f"ℹ️ {result.get('message', 'Aktion nicht möglich.')}", ephemeral=True)
+            return
+        await self._sync_shift_duty(interaction)
+        await interaction.followup.send(f"✅ {result['message']}", ephemeral=True)
+
+    @dienst.command(name="start", description="Eigene Schicht starten.")
+    async def dienst_start(self, interaction: discord.Interaction):
+        await self._run_shift_action_interaction(interaction, "start")
+
+    @dienst.command(name="pause", description="Eigene Schicht pausieren.")
+    async def dienst_pause(self, interaction: discord.Interaction):
+        await self._run_shift_action_interaction(interaction, "break")
+
+    @dienst.command(name="weiter", description="Eigene pausierte Schicht fortsetzen.")
+    async def dienst_weiter(self, interaction: discord.Interaction):
+        await self._run_shift_action_interaction(interaction, "resume")
+
+    @dienst.command(name="ende", description="Eigene Schicht beenden.")
+    async def dienst_ende(self, interaction: discord.Interaction):
+        await self._run_shift_action_interaction(interaction, "end")
+
+    @dienst.command(name="status", description="Eigenen Dienststatus abrufen.")
+    async def dienst_status(self, interaction: discord.Interaction):
+        await self._show_shift_status(interaction)
+
+    @dienst.command(name="panel", description="Persistentes Dienst-Panel in diesem Kanal veröffentlichen.")
+    async def dienst_panel(self, interaction: discord.Interaction):
+        if not self._shift_access(interaction, manage_panel=True):
+            await interaction.response.send_message("❌ Zum Veröffentlichen des Dienst-Panels brauchst du Leitungsrechte.", ephemeral=True)
+            return
+        channel = interaction.channel
+        if channel is None or not callable(getattr(channel, "send", None)):
+            await interaction.response.send_message("❌ In diesem Kanal kann kein Dienst-Panel veröffentlicht werden.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            embed = discord.Embed(
+                title="Pulse TeamOS · Dienststeuerung",
+                description="Nutze die Buttons für deine eigene Schicht. Deine Rechte und Warnungsgrenzen werden bei jedem Klick erneut geprüft.",
+                color=_pulse_color("info"),
+            )
+            message = await channel.send(
+                embed=embed,
+                view=ShiftControlView(self),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            await interaction.followup.send(f"✅ Persistentes Dienst-Panel erstellt: {message.jump_url}", ephemeral=True)
+        except Exception as exc:
+            print(f"⚠️ Dienst-Panel konnte nicht veröffentlicht werden ({type(exc).__name__}).")
+            await interaction.followup.send("⚠️ Das Dienst-Panel konnte nicht veröffentlicht werden.", ephemeral=True)
 
     @commands.Cog.listener()
     async def on_interaction(self,i):
