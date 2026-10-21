@@ -1,7 +1,7 @@
 # Pulse TeamOS – Verbesserungsauftrag für Claude Code
 **Discord-Bot + Team-Dashboard · © BOCHUM RP | V1**
 
-> **Analysegrundlage:** `main` @ `8d66bdf` (pulse_version 7.9.7), Stand 20.10.2026. Zeilenangaben sind Orientierung – such im Zweifel nach dem Funktions- oder Variablennamen.
+> **Analysegrundlage aktualisiert:** `main` @ `4047fcc` (pulse_version 7.14.0), Stand 21.10.2026. Der Entwicklungsbranch `verbesserung/phase-6-bot` und Draft-PR #40 enthalten unveröffentlichte Änderungen; diese sind nicht als produktiver Stand zu behandeln.
 > **Kennzeichnung:** **[Nachgewiesen]** im Code belegt · **[Prüfen]** begründeter Verdacht, erst verifizieren · **[Idee]** neue Funktion, nur nach Freigabe und abschaltbar.
 
 ---
@@ -354,17 +354,17 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 ## 11. Phase 8 – Deployment, CI & Betrieb
 
-- [ ] **O-01 Dockerfile** [Nachgewiesen] – `ffmpeg` + `libopus0` (K-10), Zeitzonendaten, eigener Nicht-root-Benutzer, `HEALTHCHECK` auf `/healthz`, `.dockerignore` um `uploads/` und `attachments/` ergänzen.
+- [ ] **O-01 Dockerfile** [Nachgewiesen] — **teilweise umgesetzt:** `4ad92d8` ergänzt `tzdata` und einen Container-`HEALTHCHECK` auf `/healthz`; `ffmpeg`/`libopus0` waren bereits vorhanden. Ein Nicht-root-Benutzer bleibt offen, weil `compose.yaml` aktuell das ganze Arbeitsverzeichnis (`./:/app`) bind-mountet und damit Schreibzugriffe auf Laufzeitdaten brechen könnten. Erst D-06/D-07 lösen, dann Nutzerwechsel sicher testen.
 
 - [ ] **O-02 Compose & HTTPS** [Nachgewiesen/Prüfen] – `compose.yaml` veröffentlicht Port 25095 direkt, einen Reverse-Proxy mit HTTPS gibt es in der Konfiguration nicht. Vorschlag: Pulse nur an `127.0.0.1` bzw. ein internes Netz binden, Reverse-Proxy (z. B. Caddy mit automatischen Zertifikaten) davor, Uvicorn `proxy_headers`/`forwarded_allow_ips` passend setzen. [Prüfen] Sonst sehen IP-Rate-Limits nur die Proxy-IP: das Bewerbungslimit (`rate_limited(f"apply:{ip}")`, 3 pro Stunde, `webserver.py:8770`) gälte dann für **alle** Bewerber gemeinsam. Ressourcenlimit passend zu E-5.
 
-- [ ] **O-03 Deploy-Workflow** [Nachgewiesen] – `.github/workflows/deploy-vps.yml` deployt `origin/main` (`git reset --hard origin/main`) statt des getesteten Commits (`github.event.workflow_run.head_sha`); bei schnellen Pushes kann so Ungetestetes live gehen. Außerdem fehlen Backup vor dem Deploy, Health-Check danach, Rollback und eine Concurrency-Gruppe. Ergänzen: Checkout des getesteten SHA, Daten-Backup vorher (Format aus D-01), `/healthz` muss innerhalb einer Frist 200 liefern, sonst automatischer Rollback auf den vorherigen Stand; Meldung in den Alert-Kanal.
+- [ ] **O-03 Deploy-Workflow** [Nachgewiesen] — **teilweise umgesetzt, noch nicht ausgeliefert:** `9e3a6a6`/`60e61dd` verwenden die geprüfte Commit-SHA statt blind `origin/main`, sperren parallele Deploys, prüfen für manuelle Starts zusätzlich einen erfolgreichen Push-CI-Lauf exakt derselben SHA und begrenzen den Workflow auf `main`. `tools/deploy_remote.sh` erstellt vor dem Codewechsel ein privates Pre-Deploy-Backup, prüft den Speicher, führt Build/Start aus, wartet auf `/healthz` und versucht bei Fehlern den Rollback. CI prüft `bash -n`; der Lauf `39656394932` bestand mit 551 Tests. Offen: keine echte VPS-Probe, kein Discord-Alarm über `PULSE_SYSTEM_ALERT_CHANNEL_ID`; Secrets und Zielpfad müssen vor Aktivierung geprüft werden. Kein Deploy von diesem Branch.
 
-- [ ] **O-04 CI** [Idee] – Abhängigkeiten mit Lock-Datei und Hashes (z. B. pip-tools), Dependabot oder Renovate, `pip-audit`, `ruff` (A-07), Secret-Scan (z. B. gitleaks), Coverage-Bericht.
+- [ ] **O-04 CI** [Idee] — **teilweise umgesetzt:** `17591f9` ergänzt wöchentliche Dependabot-Updates für pip und GitHub Actions; CI führt Ruff, Syntax-, Smoke- und Regressionstests sowie `bash -n tools/deploy_remote.sh` aus. Offen: reproduzierbare Lock-Datei mit Hashes, `pip-audit`, Secret-Scan (z. B. gitleaks) und Coverage-Bericht; Abhängigkeiten wurden noch nicht neu gepinnt.
 
-- [ ] **O-05 Git-Hygiene** [Nachgewiesen] – 15 getrackte `__pycache__/*.pyc` (Python 3.13) per `git rm --cached` in einem eigenen Commit entfernen (Handoff §9.8).
+- [x] **O-05 Git-Hygiene** — erledigt in `26e988a`: 15 getrackte Python-Bytecode-Dateien aus `__pycache__/` entfernt. `.gitignore` ignoriert Bytecode bereits; CI-Lauf `39656394932`: Syntax, Ruff, Deployment-Shell und **551 Tests OK**.
 
-- [ ] **O-06 Konfiguration** [Nachgewiesen] – `.env.example` enthält `MAX_SHIFT_HOURS=12`, der Code ignoriert den Wert (fest 24 h, `webserver.py:117`) → korrigieren und erklären. Im Code gelesen, aber nicht dokumentiert: `SESSION_DAYS`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `PULSE_REPORT_CHANNEL_ID`, `PULSE_RSSHUB_BASE_URL`, `PULSE_SUPPORT_TEMPLATES_FILE`, `SUPPORT_KNOWLEDGE_FILE`, `PULSE_AI_MODERATION_CASES_FILE`, `PULSE_AI_MODERATION_OUTAGE_NOTICE_INTERVAL_SECONDS`, `PULSE_SOCIAL_PROMO_FILE`. Start-Validierung aller Variablen (Typ, Bereich, Pflicht) mit klarer Meldung in Log und Systemstatus.
+- [ ] **O-06 Konfiguration** [Nachgewiesen] — **teilweise:** `7a71605` liest `MAX_SHIFT_HOURS`, validiert 0,5–24 Stunden (Fallback 12 h) und nutzt den Wert nur als Obergrenze für die manuell bestätigte Dauer; automatisches Beenden bleibt nach 24 h. Legacy-Autoabschlüsse werden bis zur Bestätigung mit 0 h angerechnet. Tests in `tests/test_pulse_shift_utils.py`. Offen: weitere Umgebungsvariablen (`SESSION_DAYS`, OpenAI/RSSHub-/Dateipfade, Report-/Alert-Kanäle usw.) inventarisieren und Typ/Bereich/Pflicht beim Start vollständig validieren.
 
 - [ ] **O-07 Überwachung** [Idee] – `/healthz` um Gateway-Latenz und „letzter erfolgreicher Job“ erweitern; gedrosselte Alarme im `PULSE_SYSTEM_ALERT_CHANNEL_ID` bei Cog-Ladefehlern, Backup- und DB-Fehlern sowie Job-Ausfällen; optional externer Uptime-Check.
 
@@ -372,10 +372,10 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 ## 12. Phase 9 – Dokumentation
 
-- [ ] **DOC-01** README, CHANGELOG, `CLAUDE.md` und Handoff auf den echten Stand bringen (Versions- und Commit-Angaben, neue Module, entfernte Altpfade).
-- [ ] **DOC-02** Architekturübersicht als Mermaid-Diagramm (Module, Datenflüsse, Datenablagen) in `docs/ARCHITEKTUR.md`.
-- [ ] **DOC-03** Betriebshandbuch `docs/BETRIEB.md`: Backup, Restore mit Probelauf, Deploy, Rollback, Wartungsmodus, Fehlersuche.
-- [ ] **DOC-04** Pro Phase ein CHANGELOG-Eintrag; `pulse_version.py` erst nach meinem OK erhöhen (Vorschlag: 7.10.0 nach Phase 1).
+- [x] **DOC-01** — erledigt für den derzeitigen Stand: `README.md`, `CHANGELOG.md`, `CLAUDE.md` und `docs/CLAUDE_CODE_HANDOFF.md` unterscheiden `main` 7.14.0 von den unveröffentlichten Phase-6-Arbeiten; keine Versionsnummer wurde erhöht.
+- [x] **DOC-02** — erledigt in `17591f9`: `docs/ARCHITEKTUR.md` enthält eine Mermaid-Übersicht, Modulverantwortlichkeiten, Datenablagen und ausdrücklich offene Architekturarbeiten; CI-Lauf `39655555421` erfolgreich.
+- [x] **DOC-03** — erledigt im Zwischenstand `17591f9`/`82f8dba`: `docs/BETRIEB.md` dokumentiert Start, Healthcheck, Backup/Restore-Probelauf, Deploy/Rollback und Fehlersuche; `VPS_DEPLOYMENT.md` beschreibt das neue Verfahren samt Grenze: vor Merge nicht aktiv.
+- [ ] **DOC-04** — **teilweise:** `CHANGELOG.md` hat einen klar gekennzeichneten, unveröffentlichten Phase-6-Abschnitt. Ein finaler Phasen-Eintrag und eine Versionsänderung bleiben offen, bis alle Phase-6-Punkte geprüft sind und die Release-Freigabe vorliegt.
 
 ---
 
