@@ -4082,63 +4082,11 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), r
     # Only known local pages; never redirect to user-supplied external URLs.
     target_page = return_to if return_to in {"/dashboard", "/me"} else "/dashboard"
     mod_id = ctx.user["id"]
-    shifts_db = load_shifts()
-    team_db = load_json(DATA_FILE, {})
-    active = shifts_db["active_shifts"]
-    shift = active.get(mod_id)
-    now = now_de()
-
-    if shift_action == "start":
-        if shift:
-            return back(target_page, "Du hast bereits eine laufende Schicht.", False)
-        if len(active_warns(user_entry(team_db, mod_id))) >= 5:
-            return back(target_page, "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!", False)
-        # An active leave is informational, not a lock: team members may
-        # voluntarily work during an LOA without deleting or shortening it.
-        loa = get_loas().get(mod_id)
-        leave_active = bool(loa and loa.get("active"))
-        active[mod_id] = {
-            "status": "online",
-            "started_at_iso": now.isoformat(),
-            "segment_start_iso": now.isoformat(),
-            "date": now.strftime("%Y-%m-%d"),
-            "accumulated_seconds": 0,
-        }
-        msg = (
-            f"Schicht gestartet. Deine Abmeldung bleibt bis {fmt_date(loa['bis'])} hinterlegt "
-            "und wird nicht automatisch beendet."
-            if leave_active
-            else "Schicht gestartet – viel Erfolg!"
-        )
-
-    elif shift_action == "break" and shift and shift.get("status") == "online":
-        shift["accumulated_seconds"] = shift_elapsed(shift)
-        shift["status"] = "break"
-        shift["segment_start_iso"] = None
-        msg = "Pause gestartet."
-
-    elif shift_action == "resume" and shift and shift.get("status") == "break":
-        shift["status"] = "online"
-        shift["segment_start_iso"] = now.isoformat()
-        msg = "Schicht fortgesetzt."
-
-    elif shift_action == "end" and shift:
-        duration = shift_elapsed(shift)
-        shifts_db["history"].append({
-            "mod_id": mod_id, "date": shift.get("date"), "duration_seconds": duration,
-            "started_at_iso": shift.get("started_at_iso"), "ended_at_iso": now.isoformat(),
-        })
-        del active[mod_id]
-        msg = f"Schicht beendet – {fmt_duration(duration)} gutgeschrieben."
-        # Handover hint (never blocks ending the shift): what is still open for this person.
-        try:
-            msg += shift_end_open_items_text(mod_id, now)
-        except Exception as exc:
-            print(f"⚠️ Schichtende-Übersicht nicht verfügbar: {type(exc).__name__}")
-    else:
-        return back(target_page, "Diese Aktion ist gerade nicht möglich.", False)
-
-    save_json(SHIFTS_FILE, shifts_db)
+    from pulse_shift_actions import apply_shift_action
+    result = apply_shift_action(mod_id, shift_action)
+    if not result["ok"]:
+        return back(target_page, result["message"], False)
+    msg = result["message"]
     # Voice-Support-Bereitschaft is a view of this same shift state, not a
     # second independent check-in. Keep its Discord role and status post in sync.
     try:
