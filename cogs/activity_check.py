@@ -8,6 +8,7 @@ import zoneinfo
 
 import discord
 from pulse_embed_design import color as _pulse_color
+from pulse_discord_policy import role_ping_allowed
 from discord import app_commands
 from discord.ext import commands, tasks
 from pulse_jobs import tracked
@@ -322,7 +323,7 @@ class ActivityCheckCog(commands.Cog):
             content=role_ping,
             embed=embed,
             view=ActivityView(self),
-            allowed_mentions=discord.AllowedMentions(roles=bool(role)),
+            allowed_mentions=role_ping_allowed(role),
         )
         now = datetime.now(BERLIN_TZ).isoformat(timespec="seconds")
         try:

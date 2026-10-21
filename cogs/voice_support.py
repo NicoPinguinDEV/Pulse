@@ -1301,7 +1301,7 @@ class VoiceSupport(commands.Cog):
                     content=ping,
                     embed=embed,
                     view=SupportCaseView(self, case_id),
-                    allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False),
+                    allowed_mentions=role_ping_allowed(ping_role if ping else None),
                 )
                 case["notification_message_id"] = message.id
                 self._register_case_view(case_id, message.id)

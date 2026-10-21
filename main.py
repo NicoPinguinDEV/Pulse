@@ -4,6 +4,7 @@ from pathlib import Path
 import discord
 from pulse_command_errors import PulseCommandTree
 import pulse_logging
+from pulse_discord_policy import default_allowed_mentions
 from discord.ext import commands
 from dotenv import load_dotenv
 import uvicorn
@@ -46,6 +47,8 @@ class CustomBot(commands.Bot):
             intents=intents,
             max_messages=MESSAGE_CACHE_SIZE,
             tree_cls=self.TREE_CLASS,
+            # Safe by default: role/@everyone pings must be explicitly approved per message.
+            allowed_mentions=default_allowed_mentions(),
         )
         self.pulse_message_cache_limit = MESSAGE_CACHE_SIZE
         self._pulse_web_server = None
