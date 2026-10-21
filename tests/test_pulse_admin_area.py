@@ -254,7 +254,7 @@ class AdminRouteTests(unittest.TestCase):
         self.assertIn("Kanal-Sichtprüfung für Unverifizierte", response.text)
         self.assertIn("Sichtbar · prüfen", response.text)
         self.assertIn("Nur lesende Prüfung", response.text)
-        self.assertIn("werden keine Rollen", response.text.lower())
+        self.assertIn("werden keine rollen", response.text.lower())
 
     def test_permissions_matrix_is_admin_only_and_shows_origin(self):
         import pulse_permissions
