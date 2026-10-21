@@ -15,7 +15,14 @@ from tests.test_pulse_admin_area import ADMIN, CHANNEL, GUILD, TEAMLER, fake_aut
 
 
 def fake_message(content, guild):
-    return SimpleNamespace(content=content, guild=guild, author=SimpleNamespace(bot=False, mention="<@1>"))
+    return SimpleNamespace(
+        id=987654321,
+        content=content,
+        guild=guild,
+        channel=CHANNEL,
+        attachments=[],
+        author=SimpleNamespace(id=1, bot=False, mention="<@1>", roles=[]),
+    )
 
 
 class AdvancedLogsTests(unittest.TestCase):
@@ -51,6 +58,11 @@ class AdvancedLogsTests(unittest.TestCase):
         self.edit()
         self.assertEqual(len(self.sent), 1)
         self.assertIs(self.sent[0][0], CHANNEL)
+        logged_embed=self.sent[0][1]["embed"]
+        self.assertEqual(logged_embed.title, "Nachricht bearbeitet")
+        self.assertNotIn("alt", logged_embed.description or "")
+        self.assertNotIn("neu", logged_embed.description or "")
+        self.assertTrue(any("Datenschutz" == field.name for field in logged_embed.fields))
 
     def test_unconfigured_logs_nothing_and_hints_once(self):
         with patch("builtins.print") as printed:
