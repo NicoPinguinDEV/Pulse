@@ -1449,6 +1449,11 @@ class PulseSuite(commands.Cog):
             except Exception:
                 pass
             db.notify(after.id,"🎉 Willkommen im Team",f"Dein Pulse-Onboarding für {after.guild.name} wurde eingerichtet.","info",f"/suite/member/{after.id}",f"onboard:{after.id}",86400)
+            try:  # BOT-11: onboarding checklist (roles, channels, training, mentor, probation, rules)
+                import pulse_checklists
+                pulse_checklists.start(after.id,after.display_name,"onboarding")
+            except Exception as exc:
+                print(f"⚠️ Onboarding-Checkliste nicht angelegt: {type(exc).__name__}")
             for m in managers(after.guild,web):
                 if m.id!=after.id:db.notify(m.id,"👋 Neues Teammitglied",f"{after.display_name} wurde automatisch eingerichtet.","info",f"/suite/member/{after.id}",f"newteam:{after.id}",86400)
         elif bt and not at:
@@ -1464,6 +1469,12 @@ class PulseSuite(commands.Cog):
                 live["duration_seconds"]=web.shift_elapsed(live);live["auto_closed"]=True
                 sh.setdefault("history",[]).append(live);web.save_json(web.SHIFTS_FILE,sh)
             for m in ms:db.notify(m.id,"🚪 Offboarding",f"{after.display_name} hat das Team verlassen. Offene Tickets wurden übertragen und die laufende Schicht beendet.","warning","/suite/team",f"offboard:{after.id}",86400)
+            try:  # BOT-11: offboarding checklist; what Pulse just did is ticked already
+                import pulse_checklists
+                pulse_checklists.start(after.id,after.display_name,"offboarding",
+                                       {"roles_removed":True,"tickets":bool(replacement),"shift":True})
+            except Exception as exc:
+                print(f"⚠️ Offboarding-Checkliste nicht angelegt: {type(exc).__name__}")
 
     @commands.Cog.listener()
     async def on_member_remove(self,member):

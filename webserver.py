@@ -5652,6 +5652,92 @@ async def pulse_ticket_transcript_view(request: Request, ticket_id: str, user_se
     return HTMLResponse(render_pro_page(sys.modules[__name__], f"Transkript {ticket_id}", ctx, "tickets", body))
 
 
+def _checklist_ctx(request, user_session):
+    ctx = auth(request, user_session, perm=None)
+    if not (ctx.perms.get("is_admin") or ctx.perms.get("can_promote")):
+        raise HTTPException(status_code=403, detail="On- und Offboarding verwaltet die Leitung.")
+    return ctx
+
+
+@app.get("/team/checklists", response_class=HTMLResponse)
+async def team_checklists_page(request: Request, user_session: str = Cookie(None)):
+    """BOT-11: open on-/offboarding checklists; leadership ticks steps and assigns mentors."""
+    import sys
+
+    import pulse_checklists as pc
+    from pulse_pro import render_pro_page
+    ctx = _checklist_ctx(request, user_session)
+    team_ids = set(int(x) for x in ctx.config.get("team_role_ids", []) if str(x).isdigit())
+    team = sorted((m for m in getattr(ctx.guild, "members", []) if not m.bot and any(r.id in team_ids for r in m.roles)),
+                  key=lambda m: m.display_name.lower())
+
+    def card(item):
+        steps = "".join(
+            f'<form method="post" action="/team/checklists/toggle" class="flex items-center gap-2">'
+            f'<input type="hidden" name="checklist_id" value="{esc(item["id"])}"><input type="hidden" name="step" value="{esc(s["key"])}">'
+            f'<button class="pulse-btn ghost" type="submit" aria-pressed="{"true" if s["done"] else "false"}">{"✅" if s["done"] else "⬜"}</button>'
+            f'<span class="text-xs">{esc(s["label"])}{" · " + esc(s["done"]["by"]) if s["done"] else ""}</span></form>'
+            for s in item["steps"])
+        mentor = ""
+        if item["kind"] == "onboarding":
+            options = "".join(f'<option value="{m.id}"{" selected" if str(m.id) == str(item.get("mentor_id")) else ""}>{esc(m.display_name)}</option>'
+                              for m in team if str(m.id) != str(item["user_id"]))
+            mentor = (f'<form method="post" action="/team/checklists/mentor" class="flex flex-wrap gap-2 items-center mt-2">'
+                      f'<input type="hidden" name="checklist_id" value="{esc(item["id"])}">'
+                      f'<select name="mentor_id" class="pulse-input" style="width:auto" aria-label="Mentor wählen"><option value="">Mentor wählen…</option>{options}</select>'
+                      f'<button class="pulse-btn ghost" type="submit">Speichern</button></form>')
+        title = "🟢 Onboarding" if item["kind"] == "onboarding" else "🚪 Offboarding"
+        return (f'<section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">{title} · {esc(item["user_name"])}</div>'
+                f'<div class="pulse-section-sub">seit {time_tag(item["created_at"])} · {item["progress"]}/{len(item["steps"])} erledigt'
+                f'{" · Mentor: " + esc(item["mentor_name"]) if item.get("mentor_name") else ""}</div></div>'
+                f'<a class="pulse-btn ghost" href="/member/{esc(item["user_id"])}">Teamakte</a></div>'
+                f'<div class="pulse-card-b space-y-1">{steps}{mentor}</div></section>')
+    open_items = pc.list_open()
+    done_items = pc.list_done()
+    body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">☑ On- &amp; Offboarding</div>'
+            f'<div class="pulse-section-sub">Checklisten entstehen automatisch beim Teambeitritt und -austritt. Team-Offboarding entfernt nur Teamrollen – kein Server-Kick.</div></div></div>'
+            f'<div class="space-y-4">{"".join(card(i) for i in open_items) or empty_state("Keine offenen Checklisten.", "☑")}</div>'
+            + (f'<section class="pulse-card mt-4"><div class="pulse-card-h"><div class="pulse-section-title">Abgeschlossen</div></div><div class="pulse-card-b space-y-1">'
+               + "".join(f'<div class="pulse-row"><div class="pulse-row-title">{"🟢" if i["kind"] == "onboarding" else "🚪"} {esc(i["user_name"])}</div>'
+                         f'<div class="pulse-row-meta">{time_tag(i["completed_at"])}</div></div>' for i in done_items) + '</div></section>'
+               if done_items else ""))
+    return HTMLResponse(render_pro_page(sys.modules[__name__], "On- & Offboarding", ctx, "team-checklists", body))
+
+
+@app.post("/team/checklists/toggle")
+async def team_checklists_toggle(request: Request, user_session: str = Cookie(None)):
+    import pulse_checklists as pc
+    ctx = _checklist_ctx(request, user_session)
+    form = await request.form()
+    actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+    try:
+        item = pc.toggle(str(form.get("checklist_id") or ""), str(form.get("step") or ""), actor)
+    except ValueError as exc:
+        return back("/team/checklists", str(exc), False)
+    if item.get("completed_at"):
+        log_audit(actor, ctx.user["id"], "Checkliste abgeschlossen", f"{item['kind']} · {item['user_name']} ({item['user_id']})")
+        return back("/team/checklists", f"Checkliste für {item['user_name']} abgeschlossen.")
+    return back("/team/checklists")
+
+
+@app.post("/team/checklists/mentor")
+async def team_checklists_mentor(request: Request, user_session: str = Cookie(None)):
+    import pulse_checklists as pc
+    ctx = _checklist_ctx(request, user_session)
+    form = await request.form()
+    mentor_id = str(form.get("mentor_id") or "")
+    mentor = ctx.guild.get_member(int(mentor_id)) if mentor_id.isdigit() else None
+    if mentor is None:
+        return back("/team/checklists", "Bitte ein Teammitglied als Mentor wählen.", False)
+    actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+    try:
+        item = pc.set_mentor(str(form.get("checklist_id") or ""), mentor.id, mentor.display_name, actor)
+    except ValueError as exc:
+        return back("/team/checklists", str(exc), False)
+    log_audit(actor, ctx.user["id"], "Mentor zugewiesen", f"{mentor.display_name} für {item['user_name']}")
+    return back("/team/checklists", f"{mentor.display_name} begleitet jetzt {item['user_name']}.")
+
+
 def _mod_case_ctx(request, user_session):
     ctx = auth(request, user_session, perm=None)
     if not (ctx.perms.get("is_admin") or ctx.perms.get("can_moderate_kicks") or ctx.perms.get("can_moderate_bans")):
