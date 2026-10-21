@@ -117,6 +117,24 @@ class DrainTests(TempDb):
         self.assertIn("https://pulse.example/tasks", user.sent[0])
         self.assertEqual(result["pending"], 0)
 
+    def test_large_notifications_are_split_without_losing_later_items(self):
+        user = FakeUser()
+        bot = SimpleNamespace(get_user=lambda uid: user, fetch_user=None)
+        np.save("1", {"dm": True})
+        first = "A" * 1300
+        second = "B" * 1300
+        np.queue_dm("1", "Erste Meldung", first, "/tasks")
+        np.queue_dm("1", "Zweite Meldung", second, "/tickets")
+
+        result = asyncio.run(np.drain_dms(bot))
+
+        self.assertEqual(result["sent"], 2)
+        self.assertEqual(len(user.sent), 2)
+        self.assertTrue(any("Erste Meldung" in text and "A" * 100 in text for text in user.sent))
+        self.assertTrue(any("Zweite Meldung" in text and "B" * 100 in text for text in user.sent))
+        self.assertTrue(all(len(text) <= np.MAX_DM_MESSAGE_CHARS for text in user.sent))
+        self.assertEqual(result["pending"], 0)
+
     def test_queued_dm_is_deferred_if_quiet_hours_start_before_delivery(self):
         user = FakeUser()
         bot = SimpleNamespace(get_user=lambda uid: user, fetch_user=None)
