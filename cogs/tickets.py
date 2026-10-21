@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
 from pulse_embed_design import color as _pulse_color, is_modern
@@ -666,9 +667,209 @@ class TicketCloseModal(Modal, title="Ticket schließen"):
                                             ephemeral=True)
 
 
+TICKET_REMINDER_QUEUE_KEY = "ticket_reminder_dm_queue"
+TICKET_REMINDER_QUEUE_MAX = 500
+TICKET_REMINDER_DM_LIMIT = 1800
+TICKET_REMINDER_DEFAULT_QUIET_FROM = 23
+TICKET_REMINDER_DEFAULT_QUIET_TO = 8
+
+
+def ticket_reminder_quiet_hours(now: datetime | None = None) -> bool:
+    """Global citizen ticket-reminder quiet window, in the configured local timezone."""
+    def read_hour(key: str, default: int) -> int:
+        try:
+            hour = int(os.getenv(key, str(default)))
+        except (TypeError, ValueError):
+            return default
+        return hour if 0 <= hour <= 23 else default
+
+    start = read_hour("PULSE_TICKET_REMINDER_QUIET_FROM", TICKET_REMINDER_DEFAULT_QUIET_FROM)
+    end = read_hour("PULSE_TICKET_REMINDER_QUIET_TO", TICKET_REMINDER_DEFAULT_QUIET_TO)
+    if start == end:
+        return False  # Equal hours explicitly disable the window.
+
+    try:
+        zone = ZoneInfo(os.getenv("PANEL_TIMEZONE", "Europe/Berlin"))
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = datetime.now().astimezone().tzinfo or timezone.utc
+
+    if now is None:
+        current = datetime.now(zone)
+    elif now.tzinfo is None:
+        # Naive datetimes passed by tests/callers are interpreted as local wall time.
+        current = now
+    else:
+        current = now.astimezone(zone)
+    hour = current.hour
+    return start <= hour < end if start < end else hour >= start or hour < end
+
+
+def _ticket_reminder_record_key(item: dict) -> tuple[str, str, str]:
+    return (str(item.get("user_id", "")), str(item.get("ticket_id", "")), str(item.get("channel_id", "")))
+
+
+def _ticket_reminder_queue() -> list[dict]:
+    queued = get_setting(TICKET_REMINDER_QUEUE_KEY, [])
+    if not isinstance(queued, list):
+        return []
+    return [item for item in queued if isinstance(item, dict) and item.get("user_id")
+            and item.get("ticket_id") and str(item.get("channel_id", "")).isdigit()]
+
+
+def _queue_ticket_reminder_dm(channel, ticket: dict, member, auto_close_hours: int = 0) -> None:
+    """Persist a citizen reminder while quiet hours apply; dedupe a pending ticket/user pair."""
+    try:
+        hours = max(0, min(720, int(auto_close_hours or 0)))
+    except (TypeError, ValueError):
+        hours = 0
+    item = {
+        "user_id": str(member.id),
+        "guild_id": str(channel.guild.id),
+        "guild_name": str(channel.guild.name)[:100],
+        "channel_id": str(channel.id),
+        "ticket_id": str(ticket.get("id", ""))[:60],
+        "auto_close_hours": hours,
+        "queued_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    if not item["ticket_id"]:
+        return
+    queue = _ticket_reminder_queue()
+    key = _ticket_reminder_record_key(item)
+    if any(_ticket_reminder_record_key(existing) == key for existing in queue):
+        return
+    queue.append(item)
+    queue = queue[-TICKET_REMINDER_QUEUE_MAX:]
+    set_setting(TICKET_REMINDER_QUEUE_KEY, queue)
+
+
+def _ticket_reminder_dm_text(item: dict) -> str:
+    ticket_id = str(item.get("ticket_id", ""))[:60]
+    guild_name = str(item.get("guild_name") or "Discord-Server")[:100]
+    channel_id = str(item.get("channel_id", ""))
+    channel_link = f"<#{channel_id}>" if channel_id.isdigit() else "deinem Ticketkanal"
+    try:
+        hours = max(0, int(item.get("auto_close_hours", 0) or 0))
+    except (TypeError, ValueError):
+        hours = 0
+    note = f"\nOhne Rückmeldung wird das Ticket in **{hours} h** automatisch geschlossen." if hours else ""
+    return (f"🔔 Erinnerung: In deinem Ticket `{ticket_id}` auf **{guild_name}** wartet "
+            f"das Team auf deine Antwort: {channel_link}{note}")
+
+
+def _ticket_reminder_chunks(items: list[dict]) -> list[tuple[list[dict], str]]:
+    """Build Discord-safe messages without silently truncating queued reminders."""
+    chunks: list[tuple[list[dict], str]] = []
+    current_items: list[dict] = []
+    current_text = ""
+    for item in items:
+        line = _ticket_reminder_dm_text(item)
+        candidate = f"{current_text}\n\n{line}" if current_text else line
+        if current_items and len(candidate) > TICKET_REMINDER_DM_LIMIT:
+            chunks.append((current_items, current_text))
+            current_items, current_text = [item], line
+        else:
+            current_items.append(item)
+            current_text = candidate
+    if current_items:
+        chunks.append((current_items, current_text))
+    return chunks
+
+
+async def drain_ticket_reminder_dms(bot) -> dict:
+    """Deliver queued ticket DMs outside quiet hours, bundling several tickets per user.
+
+    The queue is persisted in Pulse's existing SQLite settings table. The current
+    queue is reconciled after Discord awaits, so reminders queued concurrently are not
+    overwritten. This runs from the already-existing ticket automation loop.
+    """
+    if ticket_reminder_quiet_hours():
+        return {"sent": 0, "skipped": 0, "pending": len(_ticket_reminder_queue())}
+
+    snapshot = _ticket_reminder_queue()
+    if not snapshot:
+        return {"sent": 0, "skipped": 0, "pending": 0}
+
+    grouped: dict[str, list[dict]] = {}
+    for item in snapshot:
+        grouped.setdefault(str(item["user_id"]), []).append(item)
+
+    processed: set[tuple[str, str, str]] = set()
+    sent = skipped = 0
+    rate_limited = False
+    groups = list(grouped.items())
+
+    for group_index, (user_id, items) in enumerate(groups):
+        try:
+            user_id_int = int(user_id)
+            user = bot.get_user(user_id_int)
+            if user is None:
+                fetch_user = getattr(bot, "fetch_user", None)
+                if not callable(fetch_user):
+                    raise TypeError("Discord-Benutzer nicht im Cache und fetch_user nicht verfügbar")
+                user = await fetch_user(user_id_int)
+        except discord.Forbidden:
+            processed.update(_ticket_reminder_record_key(item) for item in items)
+            skipped += len(items)
+            continue
+        except discord.HTTPException as exc:
+            if getattr(exc, "status", None) == 429:
+                rate_limited = True
+                break
+            processed.update(_ticket_reminder_record_key(item) for item in items)
+            skipped += len(items)
+            continue
+        except (ValueError, TypeError):
+            processed.update(_ticket_reminder_record_key(item) for item in items)
+            skipped += len(items)
+            continue
+        except Exception as exc:
+            print(f"⚠️ Pulse-Tickets: vorgemerkte DM konnte nicht geladen werden ({type(exc).__name__}).")
+            rate_limited = True
+            break
+
+        for chunk_index, (chunk_items, message) in enumerate(_ticket_reminder_chunks(items)):
+            try:
+                # Preferences are not required for ticket creators; these messages used to
+                # be sent unconditionally. Only the global quiet window delays them.
+                await user.send(message)
+                sent += len(chunk_items)
+                processed.update(_ticket_reminder_record_key(item) for item in chunk_items)
+            except discord.Forbidden:
+                processed.update(_ticket_reminder_record_key(item) for item in chunk_items)
+                skipped += len(chunk_items)
+                # Closed DMs are not retried; keep reminders in the actual ticket channel.
+                processed.update(_ticket_reminder_record_key(item) for item in items)
+                skipped += sum(len(queued) for queued, _text in _ticket_reminder_chunks(items)[chunk_index + 1:])
+                break
+            except discord.HTTPException as exc:
+                if getattr(exc, "status", None) == 429:
+                    rate_limited = True
+                    break
+                processed.update(_ticket_reminder_record_key(item) for item in chunk_items)
+                skipped += len(chunk_items)
+            except Exception as exc:
+                print(f"⚠️ Pulse-Tickets: vorgemerkte DM fehlgeschlagen ({type(exc).__name__}).")
+                rate_limited = True
+                break
+
+        if rate_limited:
+            break
+
+    # Only delete snapshot items we actually handled. A fresh read preserves reminders
+    # that another coroutine added while a Discord send was in flight.
+    current = _ticket_reminder_queue()
+    remaining = [item for item in current if _ticket_reminder_record_key(item) not in processed]
+    set_setting(TICKET_REMINDER_QUEUE_KEY, remaining)
+    return {"sent": sent, "skipped": skipped, "pending": len(remaining)}
+
+
 async def send_user_reminder(channel, ticket: dict, member, by: str | None = None, auto_close_hours: int = 0):
-    """Remind the creator in the ticket and by DM; DMs may be closed, which is fine."""
-    note = f"\nOhne Rückmeldung wird das Ticket in **{auto_close_hours} h** automatisch geschlossen." if auto_close_hours else ""
+    """Remind the ticket creator in-channel immediately, deferring only the DM at night."""
+    try:
+        hours = max(0, min(720, int(auto_close_hours or 0)))
+    except (TypeError, ValueError):
+        hours = 0
+    note = f"\nOhne Rückmeldung wird das Ticket in **{hours} h** automatisch geschlossen." if hours else ""
     source = f" ({by})" if by else ""
     try:
         await channel.send(
@@ -677,12 +878,21 @@ async def send_user_reminder(channel, ticket: dict, member, by: str | None = Non
         )
     except (discord.Forbidden, discord.HTTPException):
         pass
+
+    if ticket_reminder_quiet_hours():
+        _queue_ticket_reminder_dm(channel, ticket, member, hours)
+        return True
+
     try:
-        await member.send(
-            f"🔔 Erinnerung: In deinem Ticket `{ticket['id']}` auf **{channel.guild.name}** wartet das Team auf deine Antwort: {channel.mention}{note}"
-        )
+        await member.send(_ticket_reminder_dm_text({
+            "ticket_id": ticket.get("id", ""),
+            "guild_name": channel.guild.name,
+            "channel_id": str(channel.id),
+            "auto_close_hours": hours,
+        }))
+        return False
     except (discord.Forbidden, discord.HTTPException):
-        pass
+        return False
 
 
 async def archive_ticket(channel, ticket: dict, actor_id, actor_name: str, reason: str, bot=None) -> bool:
@@ -1251,6 +1461,10 @@ class Tickets(commands.Cog):
 
     async def run_automation(self):
         """Reminders and optional auto-close, reusing the existing 5-minute loop (no extra task)."""
+        try:
+            await drain_ticket_reminder_dms(self.bot)
+        except Exception as exc:
+            print(f"⚠️ Pulse-Tickets: vorgemerkte DMs konnten nicht verarbeitet werden ({type(exc).__name__}).")
         settings = automation_settings(ticket_config().get("automation"))
         if not any(settings.values()):
             return
