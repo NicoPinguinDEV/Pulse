@@ -249,16 +249,14 @@ async def favicon():
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
-    """Setzt sichere Standard-Header ohne das bestehende Inline-UI/CSS zu brechen."""
+    """U-13: the single security middleware – same-origin check for state-changing requests
+    (Origin, else Referer) and one consistent set of headers incl. a basic CSP (pulse_security)."""
+    import pulse_security
+    if not pulse_security.same_origin_ok(request.method, request.headers):
+        return JSONResponse({"detail": "Ungültige Anfragequelle."}, status_code=403)
     response = await call_next(request)
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-    response.headers.setdefault("Referrer-Policy", "same-origin")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    if request.url.path not in {"/sw.js", "/manifest.json"}:
-        response.headers.setdefault("Cache-Control", "no-store")
-    if oauth_redirect_uri(request).startswith("https://") or oauth_redirect_uri(request, application=True).startswith("https://"):
-        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    https = oauth_redirect_uri(request).startswith("https://") or oauth_redirect_uri(request, application=True).startswith("https://")
+    pulse_security.apply_headers(request.url.path, request.method, response, https)
     return response
 
 
@@ -2934,7 +2932,17 @@ async def login(request: Request):
     return response
 
 
-@app.get("/logout")
+@app.get("/logout", response_class=HTMLResponse)
+async def logout_confirm():
+    """U-13: GET no longer logs out (a foreign page could otherwise do it via an image link);
+    existing /logout links show a one-click confirmation that posts the form."""
+    form = ('<form method="post" action="/logout" class="inline"><button class="px-4 py-2 rounded-xl bg-indigo-600 '
+            'text-white font-semibold" autofocus>Jetzt abmelden</button></form>'
+            '<a href="/me" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800">Abbrechen</a>')
+    return HTMLResponse(simple_page("↤", "Abmelden", "Möchtest du dich vom Pulse-Dashboard abmelden?", form))
+
+
+@app.post("/logout")
 async def logout():
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie(key="user_session")

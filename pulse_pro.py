@@ -297,35 +297,8 @@ def register(app):
     db.init_db()
     make_shell_helpers(ws)
 
-    # Security headers + same-origin guard for state-changing browser requests.
-    @app.middleware("http")
-    async def pulse_security_headers(request: Request, call_next):
-        try:
-            if request.method not in ("GET", "HEAD", "OPTIONS"):
-                origin = request.headers.get("origin")
-                if origin:
-                    host = request.headers.get("host", "")
-                    public = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
-                    parsed = urlparse(origin)
-                    allowed = {f"http://{host}", f"https://{host}"}
-                    if public:
-                        allowed.add(public)
-                    if origin.rstrip("/") not in allowed:
-                        return JSONResponse({"detail": "Ungültige Anfragequelle."}, status_code=403)
-            response = await call_next(request)
-        except Exception as exc:
-            print("Pulse request error:", repr(exc))
-            traceback.print_exc()
-            raise
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-        # Internal team dashboard: search engines (seen in the access log) must not index it.
-        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
-        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
-        response.headers.setdefault("Cache-Control", "no-store" if request.method != "GET" or request.url.path.startswith("/api/") else "private, max-age=0, must-revalidate")
-        return response
+    # U-13: security headers and the same-origin guard live in one middleware (webserver.security_headers,
+    # pulse_security). Unexpected errors are logged by the global handler (P-11).
 
     team = lambda guild, ids: sorted([m for m in guild.members if not m.bot and any(r.id in ids for r in m.roles)], key=lambda m: m.display_name.lower())
 

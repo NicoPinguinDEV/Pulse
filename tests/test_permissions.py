@@ -80,7 +80,8 @@ class PermissionModelTests(unittest.TestCase):
 
 
 PUBLIC_GET = {"/", "/favicon.ico", "/callback", "/apply", "/health", "/healthz", "/manifest.webmanifest", "/sw.js",
-              "/robots.txt", "/ultimate/status", "/apply/callback", "/apply/login", "/login"}
+              "/robots.txt", "/ultimate/status", "/apply/callback", "/apply/login", "/login",
+              "/logout"}  # U-13: GET /logout only shows a confirmation; logging out is POST
 # Write routes that are public on purpose: the application portal (own session check inside) and the
 # central /action handler (unknown actions are refused with 400 before login; real ones: see test).
 PUBLIC_WRITE = {"/apply/keepalive", "/action"}
