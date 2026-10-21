@@ -9,6 +9,7 @@ import sqlite3
 from contextlib import closing
 import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 import discord
 from pulse_discord_style import send_styled
@@ -206,6 +207,21 @@ def audit_ok():
         if r["prev_hash"]!=prev or r["hash"]!=hashlib.sha256(raw.encode()).hexdigest():return False,i
         prev=r["hash"]
     return True,len(rows)
+
+AUDIT_LIST_LIMIT=5000  # U-05: the page is paginated now, so more history is reachable than the former 1000/500
+
+def audit_rows(q=""):
+    """Suite audit chain, newest first, optionally filtered by a search text."""
+    with cx() as c:rows=[dict(x) for x in c.execute("SELECT * FROM suite_audit ORDER BY rowid DESC LIMIT ?",(AUDIT_LIST_LIMIT,)).fetchall()]
+    q=(q or "").lower()
+    return [x for x in rows if not q or q in json.dumps(x,ensure_ascii=False).lower()]
+
+def legacy_audit_rows(q=""):
+    """Older dashboard actions from audit_logs.json, newest first."""
+    source=__import__("webserver").load_json(__import__("webserver").AUDIT_FILE,[])
+    rows=[x for x in source[-AUDIT_LIST_LIMIT:] if isinstance(x,dict)][::-1] if isinstance(source,list) else []
+    q=(q or "").lower()
+    return [x for x in rows if not q or q in json.dumps(x,ensure_ascii=False).lower()]
 
 def auth(request,session,manager=False,perm="can_view_dashboard"):
     web=__import__("webserver");ctx=web.auth(request,session,perm=None if manager else perm)
@@ -553,11 +569,11 @@ def register_routes():
     @app.get("/suite/audit",response_class=HTMLResponse)
     async def audit_page(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session,manager=True)
+        import pulse_lists  # U-05: pages instead of up to 1,500 entries at once, CSV export
         ok,count=audit_ok()
         q=request.query_params.get("q","").lower()
-        with cx() as c:
-            rows=[dict(x) for x in c.execute("SELECT * FROM suite_audit ORDER BY rowid DESC LIMIT 1000").fetchall()]
-        rows=[x for x in rows if not q or q in json.dumps(x,ensure_ascii=False).lower()]
+        sp=pulse_lists.params(request.query_params); lp=pulse_lists.params(request.query_params,"l")
+        rows,meta=pulse_lists.paginate(audit_rows(q),sp["page"],sp["per"])
         listing=''.join(
             f'<div class=event><b>{esc(x["occurred_at"])}</b> · <b>{esc(x["action"])}</b>'
             f'<div class=tiny>👤 {esc(x["target_name"])} · 🛡 {esc(x["actor_name"])} · 🆔 {esc(x["request_id"])}</div>'
@@ -568,28 +584,39 @@ def register_routes():
         # Several legacy dashboard routes write to audit_logs.json while newer
         # modules use the hash-chained suite_audit table. Show both stores so
         # older management actions are not hidden from the central Audit Center.
-        legacy_source=webserver.load_json(webserver.AUDIT_FILE,[])
-        legacy_rows=[x for x in legacy_source[-500:] if isinstance(x,dict)] if isinstance(legacy_source,list) else []
-        if q:
-            legacy_rows=[x for x in legacy_rows if q in json.dumps(x,ensure_ascii=False).lower()]
+        legacy_rows,lmeta=pulse_lists.paginate(legacy_audit_rows(q),lp["page"],lp["per"])
+        keep={"q":q,"page":meta["page"],"lpage":lmeta["page"]}
         legacy_listing=''.join(
             f'<div class=event><b>{esc(x.get("timestamp","—"))}</b> · <b>{esc(x.get("action","Aktion"))}</b>'
             f'<div class=tiny>👤 {esc(x.get("actor","Unbekannt"))} · 🆔 {esc(x.get("actor_id","—"))} · Quelle: Legacy-Webpanel</div>'
             f'<div>{esc(x.get("details",""))}</div></div>'
-            for x in reversed(legacy_rows)
+            for x in legacy_rows
         )
         body=(
             f'<div class=card><span class="badge {"ok" if ok else "bad"}">'
             f'{"✅ Suite-Hashkette intakt" if ok else "🚨 Suite-Hashkette: Manipulation erkannt"}</span> '
             f'<span class="badge blue">{count} geprüft</span>'
-            f'<form style="margin-top:10px"><input class=input name=q value="{esc(q)}" placeholder="Audit, Vorgang, Spieler, Aktion…"></form>'
-            f'<h3 style="margin-top:14px">🔐 Verifizierte Suite-Auditkette</h3>'
-            f'<div class=timeline style="margin-top:13px">{listing or "Keine Treffer."}</div></div>'
-            f'<div class=card style="margin-top:13px"><h3>🧾 Zusätzliche ältere Dashboard-Aktionen</h3>'
+            f'<form style="margin-top:10px" role="search"><label class="sr-only" for="auditQ">Audit durchsuchen</label><input id="auditQ" class=input name=q value="{esc(q)}" placeholder="Audit, Vorgang, Spieler, Aktion…"></form>'
+            f'<a class=btn style="margin-top:8px;display:inline-block" href="/suite/audit.csv{("?q="+quote(q)) if q else ""}">⬇ CSV-Export{" (Suchtreffer)" if q else ""}</a>'
+            f'<h3 style="margin-top:14px" id="suite">🔐 Verifizierte Suite-Auditkette</h3>'
+            f'<div class=timeline style="margin-top:13px">{listing or "Keine Treffer."}</div>{pulse_lists.pager("/suite/audit",meta,keep,anchor="#suite")}</div>'
+            f'<div class=card style="margin-top:13px"><h3 id="legacy">🧾 Zusätzliche ältere Dashboard-Aktionen</h3>'
             f'<div class=tiny>Quelle: audit_logs.json · Diese historischen Einträge besitzen keine Suite-Hashkettenprüfung.</div>'
-            f'<div class=timeline style="margin-top:13px">{legacy_listing or "Keine zusätzlichen Treffer."}</div></div>'
+            f'<div class=timeline style="margin-top:13px">{legacy_listing or "Keine zusätzlichen Treffer."}</div>{pulse_lists.pager("/suite/audit",lmeta,keep,prefix="l",anchor="#legacy")}</div>'
         )
         return page(ctx,"audit","Audit Center 2.0","Verifizierte Suite-Historie und zusätzliche Aktionen aus dem älteren Dashboard",body)
+
+    @app.get("/suite/audit.csv")
+    async def audit_csv(request:Request,user_session:str=Cookie(None)):
+        """U-05: both audit stores as one CSV (search applies), every cell through csv_safe."""
+        ctx=auth(request,user_session,manager=True)
+        import pulse_lists
+        q=request.query_params.get("q","").lower()
+        rows=[(x.get("occurred_at"),"Suite",x.get("action"),x.get("actor_name"),x.get("target_name"),x.get("details"),x.get("request_id")) for x in audit_rows(q)]
+        rows+=[(x.get("timestamp"),"Legacy",x.get("action"),x.get("actor"),"",x.get("details"),"") for x in legacy_audit_rows(q)]
+        audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),"audit","Audit-Export","audit_exported",q or "alle")
+        return pulse_lists.csv_response(f"pulse_audit_{datetime.now().strftime('%Y-%m-%d')}.csv",
+                                        ["Zeit","Quelle","Aktion","Ausgeführt von","Betroffen","Details","Vorgang"],rows)
 
     @app.get("/suite/search",response_class=HTMLResponse)
     async def search_page(request:Request,user_session:str=Cookie(None)):

@@ -16,7 +16,7 @@ import traceback
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import discord
 from pulse_discord_style import send_styled
@@ -2018,11 +2018,7 @@ def register(app):
         return render_pro_page(ws,f'Teamakte · {target.display_name}',c,'team',body)
 
 
-    async def warns_v5(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session,perm=None)
-        if not (c.perms.get('can_warn') or c.perms.get('is_admin')):
-            raise HTTPException(403,'Dafür fehlt dir die Berechtigung für die Verwarnungszentrale.')
-
+    def collect_warns(c):
         teamdb=ws.load_json(ws.DATA_FILE,{})
         rows=[]; history=[]
         for m in sorted(team(c.guild,c.config.get('team_role_ids',[])), key=lambda x:x.display_name.lower()):
@@ -2035,13 +2031,32 @@ def register(app):
             for w in all_warns:
                 if not w.get('active',True) or w.get('revoked_at'):
                     history.append((m,w))
+        return teamdb,rows,history
+
+    def warn_text(x):
+        return f'{x[0].display_name} {x[0].name} {x[1].get("reason","")} {x[1].get("by","")} {x[1].get("id","")}'
+
+    def warn_order(selected):
+        return sorted(selected,key=lambda x:(-len(x[1].get('date','')),x[0].display_name.lower()))
+
+    async def warns_v5(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None)
+        if not (c.perms.get('can_warn') or c.perms.get('is_admin')):
+            raise HTTPException(403,'Dafür fehlt dir die Berechtigung für die Verwarnungszentrale.')
+        import pulse_lists  # U-05
+
+        teamdb,rows,history=collect_warns(c)
         active_total=len(rows); history_total=len(history); critical=sum(1 for m,w in rows if len(ws.active_warns(teamdb.get(str(m.id),{})))>=5)
 
-        q=e((request.query_params.get('q') or '').strip().lower())
+        # The search text is compared unescaped (before, "&" or quotes never matched); it is escaped on output.
+        q=(request.query_params.get('q') or '').strip().lower()
         only_active=request.query_params.get('view','active')!='history'
-        selected = rows if only_active else history
-        if q:
-            selected=[x for x in selected if q in f'{x[0].display_name} {x[0].name} {x[1].get("reason","")} {x[1].get("by","")} {x[1].get("id","")}'.lower()]
+        selected = pulse_lists.search(rows if only_active else history, q, warn_text)
+        lp=pulse_lists.params(request.query_params)
+        selected,meta=pulse_lists.paginate(warn_order(selected),lp['page'],lp['per'])
+        view_key='active' if only_active else 'history'
+        pager_html=pulse_lists.pager('/warns',meta,{'view':view_key,'q':q})
+        csv_href='/warns.csv?'+urlencode({k:v for k,v in {'view':view_key,'q':q}.items() if v})
 
         def row(m,w,is_active):
             proof=ws.safe_url(w.get('proof'))
@@ -2053,15 +2068,30 @@ def register(app):
             revoked=f'<div class="text-[10px] text-slate-400 mt-2">↩ {e(w.get("revoked_at") or "N/A")} · {e(w.get("revoked_by") or "Team")} · {e(w.get("revoked_reason") or "Kein Grund")}</div>' if not is_active else ''
             return f'''<article class="pulse-row items-start"><div class="pulse-avatar">⚠</div><div class="pulse-row-main"><div class="flex items-center gap-2 flex-wrap"><a href="/member/{m.id}" class="pulse-row-title hover:underline">{e(m.display_name)}</a>{pill("Aktiv","warn") if is_active else pill("Zurückgezogen","good")}</div><div class="pulse-row-meta">{e(w.get("date") or "—")} · von {e(w.get("by") or "Team")} · Warn-ID {e(w.get("id") or "—")}</div><div class="text-[11px] mt-2 whitespace-pre-wrap">{e(w.get("reason") or "Kein Grund")}</div>{proof_html}{revoked}{action_html}</div><span class="pulse-pill {'warn' if is_active else 'good'}">{'Warnung' if is_active else 'Archiv'}</span></article>'''
 
-        items=''.join(row(m,w,only_active) for m,w in sorted(selected,key=lambda x:(-len(x[1].get('date','')),x[0].display_name.lower())))
+        items=''.join(row(m,w,only_active) for m,w in selected)
         role_health=ws.warning_role_health(c.guild,c.config)
         role_html=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">Warn {x["level"]} · {e(x["role"].name if x["role"] else "Nicht gefunden")}</div><div class="pulse-row-meta">ID {x["id"]} · {e(x["detail"])}</div></div>{pill("OK","good") if x["ok"] else pill("FEHLER","bad")}</div>' for x in role_health)
         view_active='bg-indigo-600 text-white' if only_active else 'bg-slate-100 dark:bg-slate-800'
         view_hist='bg-indigo-600 text-white' if not only_active else 'bg-slate-100 dark:bg-slate-800'
         body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚠ Verwarnungszentrale</div><div class="pulse-section-sub">Alle aktiven Team-Warnungen, Rücknahmen und Rollen-Synchronisierung an einem Ort.</div></div>{pill("System OK","good") if all(x["ok"] for x in role_health) else pill("Rollen prüfen","bad")}</div>
         <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{active_total}</div></div><div class="pulse-stat"><div class="icon">🚨</div><div class="label">5/5 Fälle</div><div class="value">{critical}</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Rücknahmen</div><div class="value">{history_total}</div></div><div class="pulse-stat"><div class="icon">👥</div><div class="label">Betroffene Teamler</div><div class="value">{len({m.id for m,w in rows})}</div></div></div>
-        <div class="pulse-grid"><div><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">{'Aktive Verwarnungen' if only_active else 'Warn-Historie'}</div><div class="pulse-section-sub">Suche nach Name, Warn-Grund, Aussteller oder Warn-ID.</div></div><div class="flex gap-2"><a href="/warns?view=active" class="pulse-btn {view_active}">Aktiv</a><a href="/warns?view=history" class="pulse-btn {view_hist}">Historie</a></div></div><div class="pulse-card-b"><form method="get" class="pulse-search mb-4" style="max-width:none"><input type="hidden" name="view" value="{'active' if only_active else 'history'}"><span>⌕</span><input name="q" value="{e(q)}" placeholder="Teammitglied, Grund, Warn-ID…"><button class="pulse-btn primary">Suchen</button></form><div class="space-y-2">{items or '<div class="pulse-empty">Keine passenden Verwarnungen gefunden.</div>'}</div></div></section></div><div>{card("⚙ Warnrollen",role_html,'⚙')}<div class="mt-4"><section class="pulse-alert"><strong>Hinweis</strong><div class="text-slate-400 mt-1">Eine zurückgezogene Warnung wird nicht gelöscht. Sie bleibt für Audit und Historie erhalten und zählt nicht mehr gegen die 5-Warn-Schwelle.</div></section></div></div></div>'''
+        <div class="pulse-grid"><div><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">{'Aktive Verwarnungen' if only_active else 'Warn-Historie'}</div><div class="pulse-section-sub">Suche nach Name, Warn-Grund, Aussteller oder Warn-ID.</div></div><div class="flex gap-2"><a href="/warns?view=active" class="pulse-btn {view_active}">Aktiv</a><a href="/warns?view=history" class="pulse-btn {view_hist}">Historie</a></div></div><div class="pulse-card-b"><form method="get" class="pulse-search mb-4" style="max-width:none"><input type="hidden" name="view" value="{'active' if only_active else 'history'}"><span>⌕</span><input name="q" value="{e(q)}" placeholder="Teammitglied, Grund, Warn-ID…"><button class="pulse-btn primary">Suchen</button></form><div class="space-y-2">{items or '<div class="pulse-empty">Keine passenden Verwarnungen gefunden.</div>'}</div>{pager_html}<a href="{e(csv_href)}" class="pulse-btn ghost mt-3 inline-block">⬇ CSV-Export</a></div></section></div><div>{card("⚙ Warnrollen",role_html,'⚙')}<div class="mt-4"><section class="pulse-alert"><strong>Hinweis</strong><div class="text-slate-400 mt-1">Eine zurückgezogene Warnung wird nicht gelöscht. Sie bleibt für Audit und Historie erhalten und zählt nicht mehr gegen die 5-Warn-Schwelle.</div></section></div></div></div>'''
         return render_pro_page(ws,'Verwarnungszentrale',c,'warns',body)
+
+    async def warns_csv(request: Request, user_session: str=Cookie(None)):
+        """U-05: the warning list (active or history, search applies) as CSV through csv_safe."""
+        c=cctx(request,user_session,perm=None)
+        if not (c.perms.get('can_warn') or c.perms.get('is_admin')):
+            raise HTTPException(403,'Dafür fehlt dir die Berechtigung für die Verwarnungszentrale.')
+        import pulse_lists
+        _teamdb,rows,history=collect_warns(c)
+        only_active=request.query_params.get('view','active')!='history'
+        selected=warn_order(pulse_lists.search(rows if only_active else history,(request.query_params.get('q') or '').strip().lower(),warn_text))
+        ws.log_audit(c.user.get('global_name'),c.user['id'],'Warnungen exportiert',f"{'aktiv' if only_active else 'Historie'} · {len(selected)} Einträge")
+        return pulse_lists.csv_response(f"pulse_warnungen_{'aktiv' if only_active else 'historie'}_{ws.now_de().strftime('%Y-%m-%d')}.csv",
+            ['Teammitglied','Discord-ID','Warn-ID','Datum','Grund','Ausgestellt von','Status','Zurückgezogen am','Zurückgezogen von','Rücknahmegrund'],
+            [(m.display_name,m.id,w.get('id'),w.get('date'),w.get('reason'),w.get('by'),'aktiv' if only_active else 'zurückgezogen',
+              w.get('revoked_at'),w.get('revoked_by'),w.get('revoked_reason')) for m,w in selected])
 
     async def ticket_detail_v5(request: Request, ticket_id: str, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm='can_manage_tickets'); t=db.get_ticket(ticket_id=ticket_id)
@@ -2729,6 +2759,7 @@ def register(app):
     remove_and_add(app,'/system',{'GET'},system_v5,response_class=HTMLResponse)
     remove_and_add(app,'/member/{user_id}',{'GET'},member_v5,response_class=HTMLResponse)
     app.get('/warns',response_class=HTMLResponse)(warns_v5)
+    app.get('/warns.csv')(warns_csv)  # U-05
     remove_and_add(app,'/ticket/{ticket_id}',{'GET'},ticket_detail_v5,response_class=HTMLResponse)
     remove_and_add(app,'/export/team.csv',{'GET'},team_export)
     app.get('/api/pulse/live')(api_live)
