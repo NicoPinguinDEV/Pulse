@@ -1,0 +1,4 @@
+/* U-03: input for tools/build_css.py – the output is static/pulse.css (committed, served at /static/pulse.css). */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

@@ -2502,10 +2502,29 @@ BADGE_WARN = "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-50
 
 SCROLL_RESTORE_SCRIPT = "<script>\n(function () {\n    const key = \"pulse:scroll-restore:v1\";\n    function clearSavedPosition() {\n        try { sessionStorage.removeItem(key); } catch (_) {}\n    }\n\n    // Restore only when a form redirect returns to the same page, never on unrelated navigation.\n    try {\n        const raw = sessionStorage.getItem(key);\n        if (raw) {\n            const saved = JSON.parse(raw);\n            const now = Date.now();\n            const fresh = saved && typeof saved.at === \"number\" && now >= saved.at && now - saved.at < 120000;\n            if (fresh && saved.path === location.pathname && Number.isFinite(saved.y)) {\n                clearSavedPosition();\n                const restore = () => requestAnimationFrame(() => requestAnimationFrame(() => {\n                    window.scrollTo(Number(saved.x) || 0, Number(saved.y) || 0);\n                }));\n                if (document.readyState === \"complete\") restore();\n                else window.addEventListener(\"load\", restore, { once: true });\n            } else {\n                clearSavedPosition();\n            }\n        }\n    } catch (_) {\n        clearSavedPosition();\n    }\n\n    // Save the viewport before ordinary form navigation (save buttons, filters and actions).\n    document.addEventListener(\"submit\", function (event) {\n        const form = event.target;\n        if (!(form instanceof HTMLFormElement) || form.dataset.noScrollRestore === \"true\") return;\n        if (form.target && form.target.toLowerCase() !== \"_self\") return;\n        try {\n            sessionStorage.setItem(key, JSON.stringify({\n                path: location.pathname,\n                x: window.scrollX,\n                y: window.scrollY,\n                at: Date.now()\n            }));\n        } catch (_) {}\n    }, true);\n})();\n</script>"
 
-HEAD_SCRIPT = """
-<script src="https://cdn.tailwindcss.com"></script>
+# U-03: Tailwind is built once with the standalone CLI (tools/build_css.py) and served from
+# /static/pulse.css. Only if that file is missing (E-10: fall back and warn) the old Play-CDN is used.
+STATIC_CSS = BASE_DIR / "static" / "pulse.css"
+
+
+def _static_css_version() -> str:
+    import hashlib
+    try:
+        return hashlib.sha256(STATIC_CSS.read_bytes()).hexdigest()[:12]
+    except OSError:
+        return ""
+
+
+STATIC_CSS_VERSION = _static_css_version()
+if STATIC_CSS_VERSION:
+    TAILWIND_TAG = f'<link rel="stylesheet" href="/static/pulse.css?v={STATIC_CSS_VERSION}">'
+else:
+    print("⚠️ static/pulse.css fehlt – Dashboard nutzt ersatzweise das Tailwind-Play-CDN (tools/build_css.py ausführen).")
+    TAILWIND_TAG = ('<script src="https://cdn.tailwindcss.com"></script>\n'
+                    "<script>tailwind.config = { darkMode: 'class' }</script>")
+
+HEAD_SCRIPT = TAILWIND_TAG + """
 <script>
-    tailwind.config = { darkMode: 'class' }
     if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
         document.documentElement.classList.add('dark');
     } else {
@@ -2919,6 +2938,14 @@ def start_page_for(user_id) -> str:
     except Exception:
         chosen = DEFAULT_START_PAGE
     return chosen if chosen in START_PAGES else DEFAULT_START_PAGE
+
+
+@app.get("/static/pulse.css")
+async def static_pulse_css():
+    """U-03: the prebuilt Tailwind CSS; the ?v=<hash> in the link changes with every rebuild."""
+    if not STATIC_CSS.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(STATIC_CSS, media_type="text/css", headers={"Cache-Control": "public, max-age=604800, immutable"})
 
 
 @app.get("/", response_class=HTMLResponse)

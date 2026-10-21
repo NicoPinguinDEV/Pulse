@@ -49,6 +49,7 @@
  "GET /search -> pulse_pro.register.<locals>.search_v5",
  "GET /settings -> pulse_pro.register.<locals>.settings_v5",
  "GET /social -> pulse_social_dashboard.register.<locals>.social_page",
+ "GET /static/pulse.css -> webserver.static_pulse_css",
  "GET /stats -> pulse_pro.register.<locals>.stats_v5",
  "GET /suite -> cogs.pulse_suite.register_routes.<locals>.leadership",
  "GET /suite/achievements -> cogs.pulse_suite.register_routes.<locals>.achievements_page",
