@@ -13,6 +13,7 @@ class FakeRole:
         self.id, self.name, self.position, self.managed, self.mentionable = rid, name, position, managed, mentionable
         self.mention = f"<@&{rid}>"
         self.members: list = []
+        self.color = SimpleNamespace(value=0x5B5CF0)  # discord.Colour stand-in (role_hex, team list)
 
     def is_default(self) -> bool:
         return False

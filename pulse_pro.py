@@ -2015,6 +2015,12 @@ def register(app):
         <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{warn_count}</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Zurückgezogen</div><div class="value">{revoked_count}</div></div><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Schichten</div><div class="value">{len(hist)}</div></div><div class="pulse-stat"><div class="icon">🎫</div><div class="label">Tickets</div><div class="value">{len(tickets)}</div></div></div>
         {actions_html}
         <div class="pulse-grid"><div class="space-y-4">{card("Aktive Verwarnungen",(active_html or '<div class="pulse-empty">Keine aktiven Verwarnungen.</div>') if can_see_warns else hidden,'⚠')}{card("Warn-Historie",(revoked_html or '<div class="pulse-empty">Keine zurückgezogenen Warnungen.</div>') if can_see_warns else hidden,'↩')}{card("Notizen",(note_html or '<div class="pulse-empty">Keine Notizen.</div>') if can_see_notes else hidden,'📝')}{card("Aktivität",event_html or '<div class="pulse-empty">Noch keine zentralen Events.</div>','↯')}</div><div class="space-y-4">{card("Warnrollen-Status",role_pills,'⚙')}{card("Tickets",ticket_html or '<div class="pulse-empty">Keine Tickets.</div>','🎫')}{quick}</div></div>'''
+        # U-10: everything chronologically in one place; E-3 is applied inside pulse_timeline.build as well.
+        import pulse_timeline
+        all_events=[x for x in db.events(limit=2000) if str(x.get('actor_id'))==str(target.id) or (x.get('target_type')=='user' and str(x.get('target_id'))==str(target.id))]
+        timeline=pulse_timeline.build(warns=warns,shifts=hist,tickets=tickets,tasks=tasks,events=all_events,notes=entry.get('notes',[]),
+                                      show_warns=can_see_warns,show_notes=can_see_notes,user_id=target.id)
+        body+=f'<section class="pulse-card mt-4" id="zeitleiste"><div class="pulse-card-h"><div><div class="pulse-section-title">🕓 Zeitleiste</div><div class="pulse-section-sub">Warnungen, Schichten, Tickets, Aufgaben, Ereignisse und Notizen – neueste zuerst.</div></div></div><div class="pulse-card-b">{pulse_timeline.render(timeline,f"/member/{target.id}",request.query_params.get("tl",""),ws.time_tag)}</div></section>'
         return render_pro_page(ws,f'Teamakte · {target.display_name}',c,'team',body)
 
 
