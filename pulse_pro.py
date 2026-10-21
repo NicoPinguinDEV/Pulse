@@ -2444,7 +2444,7 @@ def register(app):
         log_ignore_roles=''.join(
             f'<label class="flex gap-2 items-center rounded p-1 text-[11px]"><input type="checkbox" name="log_ignore_roles" value="{int(role.id)}" {"checked" if int(role.id) in ignored_role_ids else ""}><span>{e(role.name)} <span class="text-slate-400">· {int(role.id)}</span></span></label>'
             for role in sorted(getattr(c.guild,"roles",[]),key=lambda role:(-int(getattr(role,"position",0)),str(role.name).casefold()))
-            if not role.is_default() and not getattr(role,"managed",False)
+            if not (callable(getattr(role,"is_default",None)) and role.is_default()) and not getattr(role,"managed",False)
         )
         ignore_bots_checked="checked" if log_cfg.get("ignore_bots",True) else ""
         advanced_logs_section=(
@@ -2670,6 +2670,9 @@ def register(app):
                 if channel_id not in known_channels:
                     return ws.back('/settings',f'Der Zielkanal für {category} wurde nicht gefunden.',False)
                 channels[category]=channel_id
+
+        if not main_id and any(enabled[category] and category not in channels for category in LOG_CATEGORIES):
+            return ws.back('/settings','Aktive Protokoll-Kategorien benötigen entweder einen Hauptkanal oder einen eigenen Zielkanal.',False)
 
         ignore_channels=set()
         for raw in form.getlist("log_ignore_channels"):
