@@ -9,6 +9,7 @@ Diese Änderungen liegen auf `verbesserung/phase-6-bot`; keine Versionserhöhung
 - HTML-Transkriptansicht mit sicherem Escaping, während TXT-Downloads kompatibel bleiben.
 - Automatisch beendete Schichten zählen bis zur nachvollziehbaren Bestätigung durch eine höherrangige Führungskraft mit 0 Stunden; `MAX_SHIFT_HOURS` begrenzt bestätigte Dauer.
 - Der neue Deployment-Workflow mit getesteter Commit-SHA, Pre-Deploy-Backup, Healthcheck und Rollback bleibt nach CI-Prüfung im Draft und wird erst nach Merge aktiv.
+- **CI-/Betriebsprüfung (O-04/O-06, Zwischenstand):** Dependency-Audit mit `pip-audit`, Coverage-Ausgabe für die Regressionstests und eine wertfreie Startvalidierung numerischer Konfigurationen, Discord-IDs und URLs. Der Validator meldet nur Variablennamen und erwartete Bereiche, nie konkrete Werte. Der CI-Lauf `39671404880` meldet keine bekannten Abhängigkeitsschwachstellen und **570 bestandene Tests** (Coverage 55 %). Lock-Datei mit Hashes und Secret-Scan bleiben offen.
 
 ## Version 7.14.0 – Phase 5: Dashboard & Bedienung (Oktober 2026)
 
