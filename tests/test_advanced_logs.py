@@ -73,6 +73,62 @@ class AdvancedLogsTests(unittest.TestCase):
         self.assertEqual(len(hints), 1)
         self.assertIn("nicht eingerichtet", advanced_logs.log_channel_status(GUILD))
 
+    def test_deleted_message_records_attachment_names_but_not_body(self):
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
+        message = fake_message("PRIVATE MESSAGE BODY", GUILD)
+        message.attachments = [SimpleNamespace(filename="evidence.png"), SimpleNamespace(filename="report.pdf")]
+
+        asyncio.run(self.cog.on_message_delete(message))
+
+        self.assertEqual(len(self.sent), 1)
+        embed = self.sent[0][1]["embed"]
+        self.assertEqual(embed.title, "Nachricht gelöscht")
+        serialized = " ".join([embed.description or ""] + [field.value for field in embed.fields])
+        self.assertIn("evidence.png", serialized)
+        self.assertIn("report.pdf", serialized)
+        self.assertNotIn("PRIVATE MESSAGE BODY", serialized)
+
+    def test_disabled_log_category_is_respected(self):
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
+        pulse_db.set_setting(advanced_logs.LOG_CONFIG_SETTING_KEY, {"enabled": {"messages": False}})
+        asyncio.run(self.cog.on_message_delete(fake_message("not retained", GUILD)))
+        self.assertEqual(self.sent, [])
+
+    def test_voice_channel_move_is_recorded(self):
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
+        member = SimpleNamespace(
+            id=1, mention="<@1>", bot=False, roles=[], guild=GUILD,
+        )
+        old = SimpleNamespace(channel=SimpleNamespace(id=200, name="Support-Warteraum"))
+        new = SimpleNamespace(channel=SimpleNamespace(id=201, name="Support"))
+        asyncio.run(self.cog.on_voice_state_update(member, old, new))
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(self.sent[0][1]["embed"].title, "Sprachkanal gewechselt")
+        self.assertIn("Support-Warteraum", self.sent[0][1]["embed"].description)
+        self.assertIn("Support", self.sent[0][1]["embed"].description)
+
+    def test_audit_event_includes_actor_target_and_reason(self):
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
+        actor = SimpleNamespace(id=2, mention="<@2>", bot=False, roles=[])
+        target = SimpleNamespace(id=3, mention="<@3>", bot=False, roles=[])
+        entry = SimpleNamespace(
+            guild=GUILD,
+            action=SimpleNamespace(name="ban"),
+            target=target,
+            user=actor,
+            changes=SimpleNamespace(before=SimpleNamespace(), after=SimpleNamespace()),
+            reason="Testgrund",
+            id=1001,
+        )
+        asyncio.run(self.cog.on_audit_log_entry_create(entry))
+        self.assertEqual(len(self.sent), 1)
+        embed = self.sent[0][1]["embed"]
+        self.assertEqual(embed.title, "Mitglied gebannt")
+        serialized = " ".join(field.value for field in embed.fields)
+        self.assertIn("<@2>", serialized)
+        self.assertIn("<@3>", serialized)
+        self.assertIn("Testgrund", serialized)
+
     def test_dashboard_saves_channel_and_rp_roles_admin_only(self):
         client = TestClient(ws.app)
         role = SimpleNamespace(id=222222222222222222, name="Leitstelle", position=3, managed=False)
