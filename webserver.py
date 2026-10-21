@@ -40,6 +40,7 @@ import pulse_db as pulse_db
 from pulse_version import PULSE_VERSION
 from pulse_time import display, parse_timestamp
 from pulse_team_warning import build_warning_record, revoke_warning_record
+from pulse_warning_consequences import revoke_temporary_warning_roles
 
 from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
 from career_applications import (
@@ -10000,42 +10001,10 @@ async def handle_action(
         original_reason = str(target.get("reason") or "Kein Grund")
         original_by = str(target.get("by") or "System")
         original_date = str(target.get("date") or "N/A")
-        # Temporäre Folgen dieser konkreten Warnung beim Zurückziehen sofort entfernen.
-        temp_roles = (target.get("consequences") or {}).get("temporary_roles", [])
-        temp_remove_failed = False
-        temp_roles_to_keep = []
-        for restriction in temp_roles:
-            role_id = int(restriction.get("role_id", 0) or 0)
-            role = guild.get_role(role_id)
-            if not role:
-                continue
-            # A different active warning keeps temporary punishments in place,
-            # even if the warning that originally granted the role was revoked.
-            other_active_warning = any(
-                other is not target
-                and isinstance(other, dict)
-                and other.get("active", True)
-                and not other.get("revoked_at")
-                and not warning_is_expired(other)
-                for other in entry.get("warns_list", [])
-            )
-            if other_active_warning:
-                temp_roles_to_keep.append(restriction)
-                continue
-            try:
-                if role in m.roles:
-                    if guild.me and (not guild.me.guild_permissions.manage_roles or role.position >= guild.me.top_role.position):
-                        temp_remove_failed = True
-                        temp_roles_to_keep.append(restriction)
-                        continue
-                    await m.remove_roles(role, reason=f"Warn zurückgezogen · {revoke_reason}")
-            except discord.Forbidden:
-                temp_remove_failed = True
-                temp_roles_to_keep.append(restriction)
-            except Exception:
-                temp_remove_failed = True
-                temp_roles_to_keep.append(restriction)
-        target.setdefault("consequences", {})["temporary_roles"] = temp_roles if temp_remove_failed else temp_roles_to_keep
+        # The same rollback logic is also used by the Discord /warn-remove command.
+        temp_roles_ok = await revoke_temporary_warning_roles(
+            guild, m, target, entry, revoke_reason, warning_is_expired,
+        )
         tracker.commit()
         role_report = await sync_warn_roles(guild, m, count, config)
 

@@ -23,6 +23,7 @@ import pulse_db as db
 from pulse_jobs import tracked
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
 from pulse_team_warning import build_warning_record, revoke_warning_record
+from pulse_warning_consequences import revoke_temporary_warning_roles
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE, "pulse_suite.db")
@@ -1381,13 +1382,41 @@ class PulseSuite(commands.Cog):
                     embed=None,
                     view=None,
                 )
-            web.save_json(web.DATA_FILE,current_data)
-            count=len(web.active_warns(current_entry))
-            role_report=await web.sync_warn_roles(i.guild,member,count,web.load_config())
+            tracker = web.track_member_entry(member.id, current_entry)
+            tracker.commit()
+            count = len(web.active_warns(current_entry))
+            temporary_roles_ok = await revoke_temporary_warning_roles(
+                i.guild, member, current_warn, current_entry, grund.strip(), web.warning_is_expired,
+            )
+            tracker.commit()
+            config = web.load_config()
+            role_report = await web.sync_warn_roles(i.guild, member, count, config)
+            original_reason = str(current_warn.get("reason") or "Kein Grund")
+            original_by = str(current_warn.get("by") or "System")
+            original_date = str(current_warn.get("date") or "N/A")
+            await web.send_team_update_embed(
+                i.guild,
+                "✅ Team-Update: Verwarnung zurückgezogen",
+                f"Die Verwarnung von {member.mention} wurde per Discord zurückgezogen.",
+                _pulse_color("success"),
+                actor=i.user,
+                target=f"{member.mention}\nAktive Warnungen: {count}/5",
+                action="Warn zurückgezogen",
+                fields=[
+                    ("Ursprünglicher Grund", original_reason),
+                    ("Ausgestellt von", original_by),
+                    ("Ausgestellt am", original_date),
+                    ("Rücknahmegrund", grund.strip()),
+                    ("Warn-ID", warn_id),
+                    ("Discord-Warnrolle", "✅ Synchronisiert" if role_report.get("ok") else f"❌ {role_report.get('message')}"),
+                ],
+            )
             audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"warning_withdrawn",warn_id+" · "+grund.strip())
-            result_text="✅ "+warn_id+" zurückgezogen ("+str(count)+"/5 aktive Warnungen)."
+            result_text = "✅ " + warn_id + " zurückgezogen (" + str(count) + "/5 aktive Warnungen)."
+            if not temporary_roles_ok:
+                result_text += "\n⚠️ Mindestens eine temporäre Warnrolle konnte nicht entfernt werden."
             if not role_report.get("ok"):
-                result_text += "\n⚠️ Warnrolle konnte nicht synchronisiert werden: "+str(role_report.get("message"))
+                result_text += "\n⚠️ Warnrolle konnte nicht synchronisiert werden: " + str(role_report.get("message"))
             await x.response.edit_message(content=result_text,embed=None,view=None)
         await i.response.send_message(
             f"Warnung {warn_id} von {member.display_name} wirklich zurückziehen?\nGrund: {grund.strip()}",
