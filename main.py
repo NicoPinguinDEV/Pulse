@@ -17,6 +17,12 @@ pulse_logging.setup(str(BASE_DIR))  # P-10: logs/pulse.log (1 MB x 3) + error ri
 # Module ihre Konfiguration beim Import lesen.
 load_dotenv(BASE_DIR / ".env")
 
+# O-06: warn about malformed environment settings without ever printing their values.
+from pulse_env_validation import validate_environment
+
+for _config_warning in validate_environment():
+    print(f"⚠️ Konfigurationsprüfung: {_config_warning}")
+
 from webserver import app
 
 TOKEN = os.getenv("DISCORD_TOKEN")
