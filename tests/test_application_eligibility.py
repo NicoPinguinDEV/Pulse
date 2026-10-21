@@ -119,7 +119,10 @@ class ApplicationEligibilityTests(unittest.TestCase):
         self.assertIn('item["status"] = "interview"', invite)
         self.assertNotIn("hired_role_id", invite)
         self.assertNotIn('team_entry["team_since"]', invite)
-        self.assertIn("Vor einer Einstellung muss verpflichtend ein Bewerbungsgespräch stattfinden.", invite)
+        # BOT-10: the invitation text is now the (editable) template "interview"; by default it still says so
+        import pulse_app_comms
+        self.assertIn('pulse_app_comms.render("interview"', invite)
+        self.assertIn("Vor einer Einstellung muss verpflichtend ein Bewerbungsgespräch stattfinden.", pulse_app_comms.DEFAULTS["interview"])
         self.assertIn("role.id == APPLICATION_ROLE_ID", hire)
         self.assertIn("await applicant.edit(", hire)
         self.assertIn('item["status"] = "hired"', hire)

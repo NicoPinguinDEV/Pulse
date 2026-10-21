@@ -2341,6 +2341,13 @@ async def automation_loop(bot):
                     await lift_expired_bans(bot)
             except Exception as exc:
                 print(f"⚠️ Befristete Bans konnten nicht geprüft werden: {type(exc).__name__}")
+            # BOT-10: reminder DM about an hour before a scheduled application interview (same loop).
+            try:
+                import webserver
+                if bot:
+                    await webserver.send_interview_reminders(bot)
+            except Exception as exc:
+                print(f"⚠️ Gesprächserinnerungen konnten nicht gesendet werden: {type(exc).__name__}")
             # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren
             # auch nach einem Neustart zuverlässig automatisch enden.
             try:
