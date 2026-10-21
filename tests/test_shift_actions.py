@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import webserver as ws
 from pulse_shift_actions import apply_shift_action, get_shift_status
+from cogs.pulse_suite import PulseSuite, ShiftControlView
 
 
 class ShiftActionTests(unittest.TestCase):
@@ -112,6 +113,29 @@ class ShiftActionTests(unittest.TestCase):
         self.assertIn("28.10.2026", result["message"])
         self.assertTrue(leave_store["42"]["active"])
         self.assertTrue(self.shifts["active_shifts"]["42"])
+
+    def test_persistent_panel_and_slash_group_keep_stable_controls(self):
+        from types import SimpleNamespace
+
+        view = ShiftControlView(SimpleNamespace())
+        self.assertTrue(view.is_persistent())
+        self.assertEqual(
+            {item.custom_id for item in view.children},
+            {
+                "pulse:dienst:start",
+                "pulse:dienst:pause",
+                "pulse:dienst:weiter",
+                "pulse:dienst:ende",
+                "pulse:dienst:status",
+            },
+        )
+        self.assertEqual(
+            {command.name for command in PulseSuite.dienst.commands},
+            {"start", "pause", "weiter", "ende", "status", "panel"},
+        )
+
+        cog = object.__new__(PulseSuite)
+        self.assertFalse(cog._shift_access(SimpleNamespace(guild=None, user=None)))
 
     def test_invalid_action_and_status_read_do_not_write(self):
         result = apply_shift_action(42, "server-kick")
