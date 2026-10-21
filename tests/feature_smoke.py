@@ -466,7 +466,8 @@ def main() -> None:
     assert "5: 1556344484198088814" in read("pulse_ids.py")
     assert "WARN_ROLE_IDS = _pulse_ids.WARN_ROLE_IDS" in web
     assert '"count": max(0, min(int(count or 0), 5))' in web
-    assert "current_count >= 5" in web
+    # Active-warning cap is verified as runtime behavior in the shared domain tests.
+    parse("tests/test_team_warning_domain.py")
     assert "for level in sorted(ids):" in web
     assert "warning_5" in web
     assert "/3 Warnungen" not in web
