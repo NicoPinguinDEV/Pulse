@@ -26,6 +26,8 @@ jobs:
       - name: Python-Syntax prüfen
         run: |
           python -m compileall -q .
+      - name: Deployment-Skript syntaktisch prüfen
+        run: bash -n tools/deploy_remote.sh
       - name: Feature-Regressionstests
         run: |
           python tests/feature_smoke.py
