@@ -67,8 +67,24 @@ class AdvancedLogsTests(unittest.TestCase):
             p.stop()
         self.tmp.cleanup()
 
+    def run_events(self, *coroutines):
+        async def scenario():
+            for coroutine in coroutines:
+                await coroutine
+            while self.cog._flush_tasks:
+                tasks = list(self.cog._flush_tasks.values())
+                if tasks:
+                    await asyncio.gather(*tasks)
+
+        asyncio.run(scenario())
+
     def edit(self):
-        asyncio.run(self.cog.on_message_edit(fake_message("alt", self.guild, self.channel), fake_message("neu", self.guild, self.channel)))
+        self.run_events(
+            self.cog.on_message_edit(
+                fake_message("alt", self.guild, self.channel),
+                fake_message("neu", self.guild, self.channel),
+            )
+        )
 
     def test_configured_channel_receives_logs(self):
         pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(self.channel.id))
@@ -95,7 +111,7 @@ class AdvancedLogsTests(unittest.TestCase):
         message = fake_message("PRIVATE MESSAGE BODY", self.guild, self.channel)
         message.attachments = [SimpleNamespace(filename="evidence.png"), SimpleNamespace(filename="report.pdf")]
 
-        asyncio.run(self.cog.on_message_delete(message))
+        self.run_events(self.cog.on_message_delete(message))
 
         self.assertEqual(len(self.sent), 1)
         embed = self.sent[0][1]["embed"]
@@ -108,7 +124,7 @@ class AdvancedLogsTests(unittest.TestCase):
     def test_disabled_log_category_is_respected(self):
         pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(self.channel.id))
         pulse_db.set_setting(advanced_logs.LOG_CONFIG_SETTING_KEY, {"enabled": {"messages": False}})
-        asyncio.run(self.cog.on_message_delete(fake_message("not retained", self.guild, self.channel)))
+        self.run_events(self.cog.on_message_delete(fake_message("not retained", self.guild, self.channel)))
         self.assertEqual(self.sent, [])
 
     def test_nickname_changes_are_not_suppressed_when_role_logs_are_disabled(self):
@@ -125,7 +141,7 @@ class AdvancedLogsTests(unittest.TestCase):
             bot=False, guild=GUILD,
         )
 
-        asyncio.run(self.cog.on_member_update(before, after))
+        self.run_events(self.cog.on_member_update(before, after))
 
         self.assertEqual(len(self.sent), 1)
         self.assertEqual(self.sent[0][1]["embed"].title, "Nickname geändert")
@@ -137,11 +153,37 @@ class AdvancedLogsTests(unittest.TestCase):
         )
         old = SimpleNamespace(channel=SimpleNamespace(id=200, name="Support-Warteraum"))
         new = SimpleNamespace(channel=SimpleNamespace(id=201, name="Support"))
-        asyncio.run(self.cog.on_voice_state_update(member, old, new))
+        self.run_events(self.cog.on_voice_state_update(member, old, new))
         self.assertEqual(len(self.sent), 1)
         self.assertEqual(self.sent[0][1]["embed"].title, "Sprachkanal gewechselt")
         self.assertIn("Support-Warteraum", self.sent[0][1]["embed"].description)
         self.assertIn("Support", self.sent[0][1]["embed"].description)
+
+    def test_simultaneous_events_are_batched_for_rate_limit_safety(self):
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(self.channel.id))
+        first = fake_message("PRIVATE BODY ONE", self.guild, self.channel)
+        first.id = 9876543211
+        first.attachments = [SimpleNamespace(filename="one.png")]
+        second = fake_message("PRIVATE BODY TWO", self.guild, self.channel)
+        second.id = 9876543212
+        second.attachments = [SimpleNamespace(filename="two.png")]
+
+        self.run_events(
+            self.cog.on_message_delete(first),
+            self.cog.on_message_delete(second),
+        )
+
+        self.assertEqual(len(self.sent), 1)
+        embed = self.sent[0][1]["embed"]
+        self.assertEqual(embed.title, "Discord-Protokoll · 2 Ereignisse")
+        self.assertEqual(len(embed.fields), 2)
+        serialized = " ".join(field.value for field in embed.fields)
+        self.assertIn("9876543211", serialized)
+        self.assertIn("9876543212", serialized)
+        self.assertIn("one.png", serialized)
+        self.assertIn("two.png", serialized)
+        self.assertNotIn("PRIVATE BODY ONE", serialized)
+        self.assertNotIn("PRIVATE BODY TWO", serialized)
 
     def test_audit_event_includes_actor_target_and_reason(self):
         pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(self.channel.id))
@@ -156,7 +198,7 @@ class AdvancedLogsTests(unittest.TestCase):
             reason="Testgrund",
             id=1001,
         )
-        asyncio.run(self.cog.on_audit_log_entry_create(entry))
+        self.run_events(self.cog.on_audit_log_entry_create(entry))
         self.assertEqual(len(self.sent), 1)
         embed = self.sent[0][1]["embed"]
         self.assertEqual(embed.title, "Mitglied gebannt")
