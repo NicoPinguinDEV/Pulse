@@ -272,9 +272,7 @@ class AdvancedLogs(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
-        if self._ignored("roles", member=after):
-            return
-        if before.roles != after.roles:
+        if before.roles != after.roles and not self._ignored("roles", member=after):
             channel = await self.get_log_channel(after.guild, "roles")
             if channel:
                 added = [role.mention for role in after.roles if role not in before.roles]
