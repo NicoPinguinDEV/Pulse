@@ -60,16 +60,23 @@ def apply_visibility(tree) -> int:
     return changed
 
 
-def entries(tree) -> list[tuple[str, str, discord.Permissions | None]]:
-    """(name incl. group, description, default_permissions) for every slash command and subcommand."""
-    out = []
+def entries(tree) -> list[tuple[str, str, discord.Permissions | None, str]]:
+    """(name incl. group, description, default_permissions, rights key) for every slash command and subcommand.
+    Old names that also exist in a group (BOT-04 aliases) are listed once, under the group name; the rights key
+    stays the original name so the same Pulse right decides."""
+    from pulse_command_groups import original_of
+    out, aliased = [], set()
     for command in tree.get_commands():
         perms = getattr(command, "default_permissions", None)
-        subs = getattr(command, "commands", None)
-        if subs:
-            out.extend((f"{command.name} {sub.name}", sub.description, perms) for sub in subs)
-        else:
-            out.append((command.name, getattr(command, "description", "") or "", perms))
+        for sub in getattr(command, "commands", None) or []:
+            qualified = f"{command.name} {sub.name}"
+            original = original_of(qualified)
+            if original:
+                aliased.add(original)
+            out.append((qualified, sub.description, perms, original or command.name))
+    for command in tree.get_commands():
+        if not getattr(command, "commands", None) and command.name not in aliased:
+            out.append((command.name, getattr(command, "description", "") or "", getattr(command, "default_permissions", None), command.name))
     return out
 
 
@@ -77,8 +84,9 @@ def build_help(items, pulse_perms: dict, discord_perms: discord.Permissions | No
     """Sections with (/command, description) the caller may see."""
     lead = bool(pulse_perms.get("can_promote") or pulse_perms.get("is_admin"))
     visible = []
-    for name, description, needed in items:
-        top = name.split(" ")[0]
+    for item in items:
+        name, description, needed = item[:3]
+        top = item[3] if len(item) > 3 else name.split(" ")[0]  # rights/section key (original name for aliases)
         need = NEEDS.get(top)
         if need == "lead" and not lead:
             continue
@@ -86,14 +94,14 @@ def build_help(items, pulse_perms: dict, discord_perms: discord.Permissions | No
             continue
         if needed is not None and not pulse_perms.get("is_admin") and not (discord_perms and discord_perms >= needed):
             continue
-        visible.append((name, description))
+        visible.append((name, description, top))
     sections, used = [], set()
     for title, names in SECTIONS:
-        rows = [(f"/{n}", d) for n, d in visible if n.split(" ")[0] in names]
-        used.update(n for n, _ in visible if n.split(" ")[0] in names)
+        rows = [(f"/{n}", d) for n, d, key in visible if key in names or n.split(" ")[0] in names]
+        used.update(n for n, d, key in visible if key in names or n.split(" ")[0] in names)
         if rows:
             sections.append((title, sorted(rows)))
-    rest = sorted((f"/{n}", d) for n, d in visible if n not in used)
+    rest = sorted((f"/{n}", d) for n, d, _ in visible if n not in used)
     if rest:
         sections.append((FALLBACK_SECTION, rest))
     return sections

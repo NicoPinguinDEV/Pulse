@@ -79,8 +79,12 @@ class CustomBot(commands.Bot):
         # Slash Commands synchronisieren
         # P-09: only when the command tree changed (or PULSE_FORCE_COMMAND_SYNC=1 / admin button).
         try:
+            from pulse_command_groups import add_alias_groups
             from pulse_command_help import apply_visibility
             from pulse_command_sync import sync_commands
+            missing = add_alias_groups(self.tree)  # BOT-04 (E-11): /team …, /setup … – old names stay as aliases
+            if missing:
+                print(f"⚠️ Befehlsgruppen: nicht gefunden (Cog nicht geladen?): {', '.join(missing)}")
             apply_visibility(self.tree)  # BOT-04: setup/maintenance commands hidden from ordinary members
             result = await sync_commands(self.tree)
             self.pulse_synced_commands = result["count"]
