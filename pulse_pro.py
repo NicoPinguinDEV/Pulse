@@ -865,12 +865,27 @@ def register(app):
                        f'<label class="flex items-center gap-2 text-xs"><input type="checkbox" name="dm" value="1"{" checked" if prefs["dm"] else ""}> Zusätzlich als Discord-DM</label>'
                        f'<div class="flex flex-wrap items-center gap-2 text-xs"><span>Ruhezeit (keine DMs):</span>{hours("quiet_from",prefs["quiet_from"])}<span>bis</span>{hours("quiet_to",prefs["quiet_to"])}</div>'
                        f'<button class="pulse-btn ghost" type="submit">Einstellungen speichern</button></form>')
+        if c.perms.get('is_admin'):  # BOT-12: server-wide quiet time for reminder DMs
+            sq=np.server_quiet()
+            settings_html+=(f'<form method="post" action="/pulse-inbox/server-quiet" class="space-y-2 mt-5 pt-4" style="border-top:1px solid var(--border)">'
+                            f'<div class="pulse-section-title">🌙 Server-Ruhezeit für Erinnerungs-DMs</div>'
+                            f'<div class="text-xs text-slate-400">Gilt für alle: DMs warten in dieser Zeit und kommen danach gebündelt. „–“ bei beiden = keine Server-Ruhezeit. Warnungen sind keine Erinnerungen und kommen sofort.</div>'
+                            f'<div class="flex flex-wrap items-center gap-2 text-xs"><span>Von</span>{hours("quiet_from",sq["quiet_from"])}<span>bis</span>{hours("quiet_to",sq["quiet_to"])}</div>'
+                            f'<button class="pulse-btn ghost" type="submit">Server-Ruhezeit speichern</button></form>')
         if selected: notices=[n for n in notices if n['_cat']==selected]
         def notice_row(n):
             action = '' if n.get('read_at') else f'<form action="/pulse-inbox/read/{e(n.get("id"))}" method="post"><button title="Als gelesen markieren" class="pulse-icon-btn">✓</button></form>'
             return f'<div class="pulse-row"><a href="{e(n.get("url") or "/pulse-inbox")}" class="flex items-center gap-3 min-w-0 flex-1"><div class="pulse-avatar">{e((n.get("title") or "?")[:1])}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(n.get("title"))}</div><div class="pulse-row-meta">{e(n.get("body"))} · {e(fmt_dt(n.get("created_at")))}</div></div>{pill("Neu", "bad") if not n.get("read_at") else pill("Gelesen")}</a>{action}</div>'
         feed=''.join(notice_row(n) for n in notices)
         return render_pro_page(ws,'Pulse Inbox',c,'inbox',f'''<div class="pulse-topbar"><div><div class="pulse-section-title">◈ Pulse Inbox</div><div class="pulse-section-sub">Zentrale Benachrichtigungen für deinen Arbeitsalltag.</div></div><div class="flex items-center gap-2"><span class="pulse-pill {'bad' if unread else 'good'}">{unread} ungelesen</span><form action="/pulse-inbox/read" method="post"><button class="pulse-btn ghost">✓ Alle lesen</button></form></div></div><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">Deine Nachrichten</div><div class="pulse-section-sub">Neue Ereignisse, Erinnerungen und Aufgaben.</div></div></div><div class="pulse-card-b space-y-2"><nav class="flex flex-wrap gap-2 mb-3" aria-label="Nach Bereich filtern">{chips}</nav>{feed or ws.empty_state('Postfach ist leer.' if not selected else 'In diesem Bereich gibt es nichts.','📭')}</div></section><section class="pulse-card mt-4"><div class="pulse-card-h"><div><div class="pulse-section-title">⚙ Benachrichtigungen einstellen</div><div class="pulse-section-sub">Welche Bereiche, ob als Discord-DM und wann Ruhe ist.</div></div></div><div class="pulse-card-b">{settings_html}</div></section>''')
+
+    async def inbox_server_quiet(request: Request, user_session: str=Cookie(None)):
+        import pulse_notify_prefs as np  # BOT-12
+        c=cctx(request,user_session,perm=None,admin=True); form=await request.form()
+        value=np.save_server_quiet(form.get('quiet_from'),form.get('quiet_to'))
+        text=f"{value['quiet_from']:02d}–{value['quiet_to']:02d} Uhr" if value['quiet_from'] is not None else 'keine'
+        ws.log_audit(c.user.get('global_name'),c.user['id'],'Server-Ruhezeit geändert',text)
+        return ws.back('/pulse-inbox',f'Server-Ruhezeit gespeichert: {text}.')
 
     async def inbox_settings(request: Request, user_session: str=Cookie(None)):
         import pulse_notify_prefs as np  # U-11
@@ -2771,6 +2786,7 @@ def register(app):
     remove_and_add(app,'/pulse-inbox/read/{nid}',{'POST'},inbox_read_one)
     remove_and_add(app,'/pulse-inbox/read',{'POST'},inbox_read_all)
     remove_and_add(app,'/pulse-inbox/settings',{'POST'},inbox_settings)
+    remove_and_add(app,'/pulse-inbox/server-quiet',{'POST'},inbox_server_quiet)
     remove_and_add(app,'/tasks',{'GET'},tasks_v5,response_class=HTMLResponse)
     remove_and_add(app,'/tasks/update',{'POST'},update_task_v5)
     remove_and_add(app,'/tickets',{'GET'},tickets_v5,response_class=HTMLResponse)

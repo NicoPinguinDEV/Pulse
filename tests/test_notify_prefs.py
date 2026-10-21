@@ -22,11 +22,16 @@ class TempDb(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.db = patch.object(pulse_db, "DB_PATH", str(Path(self.tmp.name) / "pulse.db"))
         self.db.start()
+        # admin routes write the audit log – never into the real audit_logs.json
+        self.audit = patch.object(ws, "AUDIT_FILE", str(Path(self.tmp.name) / "audit_logs.json"))
+        self.audit.start()
         pulse_db.init_db()
         np._dm_queue.clear()
+        np.save_server_quiet(None, None)  # tests must not depend on the time of day (BOT-12 default 23–8)
 
     def tearDown(self):
         np._dm_queue.clear()
+        self.audit.stop()
         self.db.stop()
         self.tmp.cleanup()
 
@@ -67,8 +72,11 @@ class PreferenceTests(TempDb):
         np.save("1", {"dm": True})
         pulse_db.notify("1", "Aufgabe", "z", url="/tasks")
         self.assertEqual(np.pending_dms(), 1)
+        # BOT-12: quiet hours no longer drop the DM – it waits in the queue (see QuietTimeTests)
         always_quiet = np.normalize({"dm": True, "quiet_from": 0, "quiet_to": 23})
-        self.assertFalse(np.decide("1", "/tasks", prefs=always_quiet, now=datetime(2026, 1, 1, 10))["dm"])
+        self.assertTrue(np.decide("1", "/tasks", prefs=always_quiet, now=datetime(2026, 1, 1, 10))["dm"])
+        np.save("2", {"dm": False})
+        self.assertFalse(np.decide("2", "/tasks")["dm"])
 
 
 class FakeUser:
@@ -101,6 +109,53 @@ class DrainTests(TempDb):
         for i in range(np.DM_QUEUE_MAX + 50):
             np.queue_dm(str(i), "t", "b", "/")
         self.assertEqual(np.pending_dms(), np.DM_QUEUE_MAX)
+
+
+class QuietTimeTests(TempDb):
+    """BOT-12: reminder DMs wait during quiet hours and go out bundled afterwards."""
+
+    def bot(self, users):
+        return SimpleNamespace(get_user=lambda uid: users.get(uid), fetch_user=None)
+
+    def test_server_default_is_23_to_8_and_configurable(self):
+        pulse_db.set_setting(np.SERVER_QUIET_KEY, None)
+        with patch.object(pulse_db, "get_setting", lambda key, default=None: None if key == np.SERVER_QUIET_KEY else default):
+            self.assertEqual(np.server_quiet(), {"quiet_from": 23, "quiet_to": 8})
+        self.assertEqual(np.save_server_quiet("22", "6"), {"quiet_from": 22, "quiet_to": 6})
+        self.assertTrue(np.dm_paused("1", datetime(2026, 1, 1, 23)))
+        self.assertFalse(np.dm_paused("1", datetime(2026, 1, 1, 12)))
+
+    def test_held_at_night_then_bundled(self):
+        np.save_server_quiet(23, 8)
+        user = FakeUser()
+        np.queue_dm("1", "Erinnerung A", "Text A", "/me")
+        np.queue_dm("1", "Erinnerung B", "Text B", "/tasks")
+        night = asyncio.run(np.drain_dms(self.bot({1: user}), now=datetime(2026, 1, 1, 2)))
+        self.assertEqual((night["sent"], night["held"], night["pending"]), (0, 2, 2))
+        self.assertEqual(user.sent, [])
+        morning = asyncio.run(np.drain_dms(self.bot({1: user}), now=datetime(2026, 1, 1, 9)))
+        self.assertEqual((morning["sent"], morning["pending"]), (1, 0))
+        self.assertIn("2 Hinweise", user.sent[0])                 # one DM instead of two
+        self.assertIn("Erinnerung A", user.sent[0])
+        self.assertIn("Erinnerung B", user.sent[0])
+
+    def test_personal_quiet_time_also_holds(self):
+        np.save("1", {"quiet_from": 20, "quiet_to": 22})
+        user = FakeUser()
+        np.queue_dm("1", "T", "B", "")
+        self.assertEqual(asyncio.run(np.drain_dms(self.bot({1: user}), now=datetime(2026, 1, 1, 21)))["held"], 1)
+
+    def test_admin_form_saves_server_quiet(self):
+        client = TestClient(ws.app, raise_server_exceptions=False)
+        admin = dict(TEAMLER, is_admin=True)
+        with patch.object(ws, "auth", fake_auth_for(admin)):
+            self.assertIn("Server-Ruhezeit", client.get("/pulse-inbox").text)
+            saved = client.post("/pulse-inbox/server-quiet", data={"quiet_from": "22", "quiet_to": "7"}, follow_redirects=False)
+            self.assertIn("t=ok", saved.headers["location"])
+        self.assertEqual(np.server_quiet(), {"quiet_from": 22, "quiet_to": 7})
+        with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
+            self.assertNotIn("Server-Ruhezeit", client.get("/pulse-inbox").text)
+            self.assertEqual(client.post("/pulse-inbox/server-quiet", data={"quiet_from": "1", "quiet_to": "2"}).status_code, 403)
 
 
 class InboxPageTests(TempDb):

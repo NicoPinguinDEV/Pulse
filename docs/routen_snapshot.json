@@ -187,6 +187,7 @@
  "POST /promotions/decide -> pulse_pro.register.<locals>.decide_promotion",
  "POST /pulse-inbox/read -> pulse_pro.register.<locals>.inbox_read_all",
  "POST /pulse-inbox/read/{nid} -> pulse_pro.register.<locals>.inbox_read_one",
+ "POST /pulse-inbox/server-quiet -> pulse_pro.register.<locals>.inbox_server_quiet",
  "POST /pulse-inbox/settings -> pulse_pro.register.<locals>.inbox_settings",
  "POST /settings/dashboard-profile/delete -> pulse_pro.register.<locals>.settings_dashboard_profile_delete",
  "POST /settings/dashboard-profile/save -> pulse_pro.register.<locals>.settings_dashboard_profile_save",

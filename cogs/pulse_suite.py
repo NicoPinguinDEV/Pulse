@@ -875,8 +875,10 @@ class PulseSuite(commands.Cog):
                 if member:
                     db.notify(member.id,"⏱ Noch im Dienst?",f"Deine Schicht läuft seit {secfmt(elapsed)}. Vergessen auszustempeln?","warning","/me",f"longshift-self:{uid}:{s.get('date')}",86400)
                     link=f"\n👉 {PUBLIC_BASE_URL}/me" if PUBLIC_BASE_URL else ""
-                    try:await member.send(f"⏱ Hey {member.display_name}, deine Pulse-Schicht läuft schon seit **{secfmt(elapsed)}**. Falls du vergessen hast auszustempeln, beende sie mit `/dienst ende` oder in Pulse.{link}")
-                    except (discord.Forbidden,discord.HTTPException):pass
+                    # BOT-12: through the DM queue – not at night (quiet hours), bundled with other notes
+                    import pulse_notify_prefs
+                    if not pulse_notify_prefs.load(member.id).get("dm"):  # with DMs on, notify() above already queued it
+                        pulse_notify_prefs.queue_dm(member.id,"⏱ Noch im Dienst?",f"Hey {member.display_name}, deine Pulse-Schicht läuft schon seit **{secfmt(elapsed)}**. Falls du vergessen hast auszustempeln, beende sie mit `/dienst ende` oder in Pulse.{link}","")
             # BOT-03: a second, clear reminder well before the automatic end (inbox; DM per the person's settings, U-11)
             limit_h=int(getattr(web,"AUTO_SHIFT_END_HOURS",24))
             if elapsed>=(limit_h-4)*3600 and not setting("long_shift_late:"+str(uid)+":"+str(s.get("date")),False):

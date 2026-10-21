@@ -1284,7 +1284,9 @@ def main() -> None:
     pro_cog = read("cogs/pulse_pro.py")
     assert "(ls,le),(ps,pe)=previous_full_weeks(today)" in suite_bot
     assert "name=member.display_name if member else s.get(\"mod_name\",uid)" in suite_bot
-    assert "longshift-self:" in suite_bot and "except (discord.Forbidden,discord.HTTPException):pass" in suite_bot
+    # BOT-12: the self-DM goes through the DM queue (quiet hours, bundling; closed DMs are skipped there –
+    # behaviour: tests/test_notify_prefs.py::QuietTimeTests and DrainTests)
+    assert "longshift-self:" in suite_bot and "pulse_notify_prefs.queue_dm(member.id" in suite_bot
     assert '@app_commands.command(name="pulse-hilfe"' in pro_cog
     # BOT-04: the help is generated from the command tree and filtered by rights
     # (behaviour: tests/test_command_help.py::test_help_is_generated_and_filtered)
