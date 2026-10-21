@@ -6,7 +6,7 @@ Du arbeitest an **Pulse TeamOS** für den Discord-/Roleplay-Server **© BOCHUM R
 
 - Repository: https://github.com/NicoPinguinDEV/Pulse
 - Hauptbranch: `main`
-- Zum Zeitpunkt dieses Handoffs: `pulse_version.py` meldet **7.9.7**. Zuletzt geprüfter Commit auf `main`: `b1019dcd49cbefc582157e11638491c9ce5a2e99` (RAM-Messung für den Memory Guard).
+- Stand 21.10.2026: `main` meldet über `pulse_version.py` **7.14.0**, zuletzt geprüfter `main`-Commit `4047fcced647ef2dcbdef1e4ad3458cd0a9a8699`. Draft-Pull-Request #40 (`verbesserung/phase-6-bot`) enthält weitere unveröffentlichte Arbeiten; `main` und sein CI-Status bestimmen den produktiven Stand.
 - Ziel: ein professionelles, zuverlässiges Discord-Teamverwaltungs- und Moderationssystem mit eigenem FastAPI-Webdashboard. Pulse soll seine Funktionen selbst bereitstellen, nicht von GalaxyBot abhängig sein. Eine ähnliche Panel-Builder-Bedienung ist erwünscht, aber keine Abhängigkeit vom fremden Bot.
 - Betreiber arbeitet überwiegend auf Deutsch und erwartet konkrete Umsetzung statt bloßer Ideensammlungen. Antworte auf Deutsch, knapp aber mit konkreten Änderungen, Tests und ehrlicher Restliste.
 

@@ -1,13 +1,13 @@
 # Pulse TeamOS — vollständige Entwickler-Übergabe für Claude Code
 
-Stand dieser Zusammenfassung: **18. Oktober 2026**. Zusammengeführt aus dem öffentlichen Repository `NicoPinguinDEV/Pulse` auf `main`, der aktuellen Projekt-README sowie bereits bestätigten Anforderungen und Fehlerberichten des Betreibers. Diese Datei ist Kontext, kein Ersatz für die Prüfung des aktuellen Codes.
+Stand aktualisiert: **21. Oktober 2026**. Diese Übergabe enthält teilweise historische Hinweise; vor Änderungen immer den aktuellen Code und `docs/VERBESSERUNGSPLAN.md` prüfen. `main` meldet `pulse_version.py` **7.14.0** (Commit `4047fcced647ef2dcbdef1e4ad3458cd0a9a8699`). Draft-PR #40 (`verbesserung/phase-6-bot`) enthält unveröffentlichte Phase-6-Arbeiten und darf ohne ausdrückliche Freigabe weder gemergt noch deployed werden.
 
 ## 1. Repository-Stand und Versionswahrheit
 
 - Repository: https://github.com/NicoPinguinDEV/Pulse
 - Branch: `main`
-- `pulse_version.py` meldet aktuell **7.9.7**.
-- Zuletzt geprüfter Commit: `b1019dcd49cbefc582157e11638491c9ce5a2e99` — „Measure container RAM for Pulse memory guard“ (18.10.2026).
+- Standardbranch `main`: **7.14.0**, zuletzt geprüfter SHA `4047fcced647ef2dcbdef1e4ad3458cd0a9a8699` (21.10.2026).
+- Phase 6 wird separat in Draft-PR #40 entwickelt. Dort liegen zusätzliche Tests und Änderungen, die nicht dem produktiven Stand zugerechnet werden dürfen.
 - Unmittelbar davor wurden Voice-Support-Interaktions-Timeouts korrigiert und Release 7.9.7 veröffentlicht.
 - Zu den jüngsten Änderungen zählen außerdem die Roblox-Spielerverlaufssuche in Melonly und die URL-Behandlung von Spielernamen mit Unterstrichen.
 - **Dokumentationsabweichung:** `CHANGELOG.md` endet im Kopfbereich bei 7.8.27; die README beschreibt Pulse Intelligence teilweise als 7.9.0. Nicht daraus ableiten, dass der laufende Code noch diese Version hat. Erst `pulse_version.py`, Git-Log und Code prüfen. CHANGELOG/README als mögliche Wartungsaufgabe notieren, aber nicht blind nebenbei umschreiben.

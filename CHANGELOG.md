@@ -1,5 +1,15 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Unveröffentlicht – Phase 6 im Draft-PR #40 (21.10.2026)
+
+Diese Änderungen liegen auf `verbesserung/phase-6-bot`; keine Versionserhöhung, kein Merge und kein Deployment. Vor Veröffentlichung müssen alle CI-Prüfungen erfolgreich sein.
+
+- Sichere Discord-Mention-Standards und explizite, begrenzte Rollenerwähnungen.
+- Gemeinsame Datensatz-Erstellung und Rücknahme von Teamwarnungen; `/warn` unterstützt Dauer und Beweislink.
+- HTML-Transkriptansicht mit sicherem Escaping, während TXT-Downloads kompatibel bleiben.
+- Automatisch beendete Schichten zählen bis zur nachvollziehbaren Bestätigung durch eine höherrangige Führungskraft mit 0 Stunden; `MAX_SHIFT_HOURS` begrenzt bestätigte Dauer.
+- Der neue Deployment-Workflow mit getesteter Commit-SHA, Pre-Deploy-Backup, Healthcheck und Rollback bleibt nach CI-Prüfung im Draft und wird erst nach Merge aktiv.
+
 ## Version 7.14.0 – Phase 5: Dashboard & Bedienung (Oktober 2026)
 
 Details und Testnachweise: `docs/PHASE5_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.

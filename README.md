@@ -2,6 +2,8 @@
 
 Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstzeit, Activity Checks, Tickets, Recruiting, Aufgaben, Schulungen und Audit-Funktionen.
 
+Versionshinweis (21.10.2026): `main` meldet Pulse **7.14.0**. Die Release-Version steht ausschließlich in `pulse_version.py`; unveröffentlichte Entwicklungsarbeiten in Draft-Pull-Requests sind noch kein produktives Update.
+
 ## Kernfunktionen
 
 - Discord-OAuth-Dashboard mit signierten Sessions
