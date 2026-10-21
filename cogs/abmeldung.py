@@ -4,6 +4,7 @@ from typing import Optional
 from pathlib import Path
 
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -64,7 +65,7 @@ class AbmeldungModal(discord.ui.Modal, title="Abmeldung eintragen"):
         )
 
 
-class AbmeldungView(discord.ui.View):
+class AbmeldungView(PulseView):
     """Persistente Button-Leiste unter der Abmeldungsliste."""
 
     def __init__(self, cog: "AbmeldungCog"):

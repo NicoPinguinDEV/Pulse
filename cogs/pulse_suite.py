@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
@@ -709,7 +710,7 @@ class _AnsweredInteraction:
     def __init__(self,i):self._i=i;self.response=_AnsweredResponse(i)
     def __getattr__(self,name):return getattr(self._i,name)
 
-class Confirm(discord.ui.View):
+class Confirm(PulseView):
     def __init__(self,owner,callback,key=None,origin=None):
         super().__init__(timeout=45);self.owner=owner;self.cb=callback;self.key=key;self.origin=origin;self.used=False
     async def on_timeout(self):
@@ -763,7 +764,7 @@ class SuiteTicketButton(discord.ui.DynamicItem[discord.ui.Button],template=r"pul
     async def from_custom_id(cls,interaction,item,match):return cls(match["action"],match["tid"])
     async def callback(self,i):await suite_ticket_action(i,self.action,self.tid)
 
-class TicketView(discord.ui.View):
+class TicketView(PulseView):
     def __init__(self,tid):
         super().__init__(timeout=None);self.tid=tid
         for action in SUITE_TICKET_BUTTONS:self.add_item(SuiteTicketButton(action,tid))

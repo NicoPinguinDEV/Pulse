@@ -1131,7 +1131,9 @@ def main() -> None:
     # Message deletion is confirmed, bounded, and avoids individually deleting old history by default.
     messagedelete = read("cogs/messagedelete.py")
     parse("cogs/messagedelete.py")
-    assert "class MessageDeleteConfirmationView(discord.ui.View):" in messagedelete
+    # BOT-01: the view now derives from PulseView (a discord.ui.View) – behaviour checked in
+    # tests/test_interactions.py::test_message_delete_still_needs_confirmation
+    assert "class MessageDeleteConfirmationView(" in messagedelete
     assert "app_commands.Range[int, 1, 1000]" in messagedelete
     assert "await channel.purge(" in messagedelete
     assert "after=cutoff" in messagedelete

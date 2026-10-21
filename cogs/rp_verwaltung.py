@@ -3,6 +3,7 @@ import sqlite3
 import time
 
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
@@ -228,7 +229,7 @@ class RPSelect(discord.ui.Select):
             await interaction.response.send_modal(RPStopModal())
 
 # --- VIEW ---
-class RPView(discord.ui.View):
+class RPView(PulseView):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(RPSelect())

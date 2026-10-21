@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from pulse_embed_design import color as _pulse_color, is_modern
 from pulse_discord_style import card_info, edit_styled, is_v2, layout_from_embed, respond_edit_styled, same_content, send_styled
 from discord.ext import commands, tasks
@@ -128,7 +129,7 @@ class RatingButton(discord.ui.Button):
         await respond_edit_styled(interaction, text=f"✅ Danke! Du hast **{self.rating}/5 Sterne** vergeben.", view=None)
 
 
-class RatingView(discord.ui.View):
+class RatingView(PulseView):
     def __init__(self, case_id: str, user_id: int):
         super().__init__(timeout=None)
         for value in range(1, 6):
@@ -148,7 +149,7 @@ class SupportCaseButton(discord.ui.Button):
         await self.cog.handle_case_action(interaction, self.case_id, self.action)
 
 
-class SupportCaseView(discord.ui.View):
+class SupportCaseView(PulseView):
     """Persistent controls for accepting, transferring and closing a support case."""
 
     def __init__(self, cog: "VoiceSupport", case_id: str):
@@ -174,7 +175,7 @@ class TransferUserSelect(discord.ui.UserSelect):
         await self.cog.handle_transfer_selection(interaction, self.case_id, int(selected.id))
 
 
-class TransferUserView(discord.ui.View):
+class TransferUserView(PulseView):
     def __init__(self, cog: "VoiceSupport", case_id: str):
         super().__init__(timeout=90)
         self.add_item(TransferUserSelect(cog, case_id))

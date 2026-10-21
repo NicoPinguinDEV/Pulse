@@ -2,6 +2,7 @@ import asyncio
 import random
 import sqlite3
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
@@ -266,7 +267,7 @@ def get_top_scores(guild_id: int, limit: int = 10):
 
 
 # --- BUTTON VIEW (Skip & Hinweis) ---
-class QuizView(discord.ui.View):
+class QuizView(PulseView):
 
   def __init__(self, cog):
     super().__init__(timeout=None)

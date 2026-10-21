@@ -7,6 +7,7 @@ from pathlib import Path
 import zoneinfo
 
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -133,7 +134,7 @@ def is_abgemeldet(user_id: int, check_date: str) -> bool | None:
     return any(leave_covers_date(von, bis, check_date) for von, bis in rows)
 
 
-class ActivityView(discord.ui.View):
+class ActivityView(PulseView):
     def __init__(self, cog):
         super().__init__(timeout=None)
         self.cog = cog

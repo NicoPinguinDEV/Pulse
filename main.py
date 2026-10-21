@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import discord
 from pulse_command_errors import PulseCommandTree
+from pulse_interactions import DEFAULT_ALLOWED_MENTIONS
 import pulse_logging
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -46,6 +47,10 @@ class CustomBot(commands.Bot):
             intents=intents,
             max_messages=MESSAGE_CACHE_SIZE,
             tree_cls=self.TREE_CLASS,
+            # BOT-01: no @everyone/@here and no role pings unless a message allows them explicitly.
+            # Every wanted ping already passes its own allowed_mentions (recruiting, verification reminder,
+            # ticket ping roles, office roles, RP @everyone, social promo, send_styled) – see tests/test_interactions.py.
+            allowed_mentions=DEFAULT_ALLOWED_MENTIONS,
         )
         self.pulse_message_cache_limit = MESSAGE_CACHE_SIZE
         self._pulse_web_server = None

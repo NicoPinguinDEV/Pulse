@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timezone
 
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from discord.ext import commands, tasks
 
 import pulse_db
@@ -63,7 +64,7 @@ class VerifyButton(discord.ui.Button):
         await self.cog.handle_click(interaction)
 
 
-class VerifyView(discord.ui.View):
+class VerifyView(PulseView):
     def __init__(self, cog: "Verification", label: str = "Jetzt verifizieren"):
         super().__init__(timeout=None)
         self.add_item(VerifyButton(cog, label))
