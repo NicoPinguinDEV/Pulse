@@ -9,9 +9,11 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from collections import deque
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 CATEGORIES = {
     "tickets": ("🎫 Tickets", ("ticket",)),
@@ -93,13 +95,46 @@ def in_quiet_hours(prefs: dict, now: datetime | None = None) -> bool:
     return start <= hour < end if start < end else (hour >= start or hour < end)  # e.g. 22 → 7 wraps midnight
 
 
+def global_quiet_hours(now: datetime | None = None) -> bool:
+    """Server-wide baseline quiet window for DMs; per-user preferences may add a stricter window."""
+    def configured_hour(name: str, default: int) -> int:
+        try:
+            value = int(os.getenv(name, str(default)))
+        except (TypeError, ValueError):
+            return default
+        return value if 0 <= value <= 23 else default
+
+    start = configured_hour("PULSE_DM_QUIET_FROM", 23)
+    end = configured_hour("PULSE_DM_QUIET_TO", 8)
+    if start == end:
+        return False
+
+    try:
+        zone = ZoneInfo(os.getenv("PANEL_TIMEZONE", "Europe/Berlin"))
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = datetime.now().astimezone().tzinfo
+    if now is None:
+        try:
+            import webserver
+            now = webserver.now_de()
+        except Exception:
+            now = datetime.now(zone)
+    if now.tzinfo is None and zone is not None:
+        now = now.replace(tzinfo=zone)
+    elif zone is not None:
+        now = now.astimezone(zone)
+    hour = now.hour
+    return start <= hour < end if start < end else hour >= start or hour < end
+
+
 def decide(user_id, url: str = "", title: str = "", prefs: dict | None = None, now: datetime | None = None) -> dict:
     """What happens with a new notification: stored unread? also sent as DM?"""
     prefs = load(user_id) if prefs is None else prefs
     category = category_for(url, title)
     muted = category in prefs.get("muted", []) and category != SYSTEM
+    # Quiet hours are checked at delivery time, when the queued DM can be deferred until morning.
     return {"category": category, "unread": not muted,
-            "dm": bool(prefs.get("dm")) and not muted and not in_quiet_hours(prefs, now)}
+            "dm": bool(prefs.get("dm")) and not muted}
 
 
 def _pending_dms_locked() -> int:
@@ -148,7 +183,7 @@ def _delivery_status(user_id: str, message: tuple, prefs: dict | None = None) ->
     category = category_for(url, _title)
     if not prefs.get("dm") or (category in prefs.get("muted", []) and category != SYSTEM):
         return "skip"
-    return "quiet" if in_quiet_hours(prefs) else "send"
+    return "quiet" if global_quiet_hours() or in_quiet_hours(prefs) else "send"
 
 
 def _render_dm(messages: list[tuple], base_url: str) -> str:
