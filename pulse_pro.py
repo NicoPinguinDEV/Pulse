@@ -2392,13 +2392,85 @@ def register(app):
             f'<button class="pulse-btn primary w-full">Digitale Zwischenrolle erstellen</button></form></div></section>'
             f'<div class="grid md:grid-cols-2 gap-4">{"".join(dashboard_role_cards) or "<div class=\'pulse-empty\'>Noch keine digitalen Zwischenrollen erstellt.</div>"}</div></section>'
         )
+        from cogs.advanced_logs import LOG_CATEGORIES, configured_log_config
+        log_cfg=configured_log_config()
+        main_log_id=str(db.get_setting("moderation_log_channel_id","") or "")
+        log_labels={
+            "messages":"Nachrichten löschen/bearbeiten",
+            "members":"Beitritt, Austritt und Nicknames",
+            "moderation":"Bans, Kicks, Unbans und Timeouts",
+            "roles":"Rollenänderungen",
+            "channels":"Kanal- und Berechtigungsänderungen",
+            "voice":"Sprachkanal-Bewegungen",
+        }
+        log_text_channels=[
+            channel for channel in getattr(c.guild,"text_channels",[])
+            if callable(getattr(channel,"send",None))
+        ]
+        log_voice_channels=[
+            channel for channel in getattr(c.guild,"voice_channels",[])
+            if callable(getattr(channel,"send",None))
+        ]
+        log_known_channels=sorted(
+            [*log_text_channels,*log_voice_channels],
+            key=lambda channel:(str(getattr(channel,"name","")).casefold(),int(channel.id)),
+        )
+        main_channel_options='<option value="0">Kein Hauptkanal – Kategorien einzeln zuweisen</option>'
+        main_channel_options+=''.join(
+            f'<option value="{int(channel.id)}" {"selected" if str(channel.id)==main_log_id else ""}>#{e(channel.name)} · {int(channel.id)}</option>'
+            for channel in log_text_channels
+        )
+        log_category_cards=[]
+        for category in LOG_CATEGORIES:
+            selected_channel=int(log_cfg["channels"].get(category,0) or 0)
+            category_channel_options='<option value="0">Haupt-Protokollkanal verwenden</option>'
+            category_channel_options+=''.join(
+                f'<option value="{int(channel.id)}" {"selected" if int(channel.id)==selected_channel else ""}>#{e(channel.name)} · {int(channel.id)}</option>'
+                for channel in log_text_channels
+            )
+            checked="checked" if log_cfg["enabled"].get(category,True) else ""
+            log_category_cards.append(
+                f'<div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3">'
+                f'<label class="flex gap-2 items-center font-bold text-xs"><input type="checkbox" name="log_enabled_{category}" value="1" {checked}><span>{e(log_labels[category])}</span></label>'
+                f'<label class="block text-[11px] mt-3">Zielkanal'
+                f'<select name="log_channel_{category}" class="pulse-input mt-1">{category_channel_options}</select></label></div>'
+            )
+        ignored_channel_ids=set(log_cfg["ignore_channel_ids"])
+        ignored_role_ids=set(log_cfg["ignore_role_ids"])
+        log_ignore_channels=''.join(
+            f'<label class="flex gap-2 items-center rounded p-1 text-[11px]"><input type="checkbox" name="log_ignore_channels" value="{int(channel.id)}" {"checked" if int(channel.id) in ignored_channel_ids else ""}><span>{e(channel.name)} <span class="text-slate-400">· {int(channel.id)}</span></span></label>'
+            for channel in log_known_channels
+        )
+        log_ignore_roles=''.join(
+            f'<label class="flex gap-2 items-center rounded p-1 text-[11px]"><input type="checkbox" name="log_ignore_roles" value="{int(role.id)}" {"checked" if int(role.id) in ignored_role_ids else ""}><span>{e(role.name)} <span class="text-slate-400">· {int(role.id)}</span></span></label>'
+            for role in sorted(getattr(c.guild,"roles",[]),key=lambda role:(-int(getattr(role,"position",0)),str(role.name).casefold()))
+            if not role.is_default() and not getattr(role,"managed",False)
+        )
+        ignore_bots_checked="checked" if log_cfg.get("ignore_bots",True) else ""
+        advanced_logs_section=(
+            f'<section class="pulse-card mt-5"><div class="pulse-card-h"><div>'
+            f'<div class="pulse-section-title">🧾 Discord-Protokolle</div>'
+            f'<div class="pulse-section-sub">Kategorien aktivieren, getrennte Log-Kanäle wählen und bekannte Rauschquellen ausschließen.</div>'
+            f'</div></div><div class="pulse-card-b space-y-4">'
+            f'<form action="/settings/advanced-logs/save" method="post" class="space-y-4">'
+            f'<label class="block text-xs font-bold">Haupt-Protokollkanal'
+            f'<select name="main_log_channel_id" class="pulse-input mt-2">{main_channel_options}</select></label>'
+            f'<div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3">{"".join(log_category_cards)}</div>'
+            f'<div class="grid md:grid-cols-2 gap-4"><div><div class="pulse-section-title mb-2">Ignorierte Kanäle</div>'
+            f'<div class="max-h-56 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 p-2">{log_ignore_channels or "<p class=\\'pulse-empty\\'>Keine Kanäle verfügbar.</p>"}</div></div>'
+            f'<div><div class="pulse-section-title mb-2">Ignorierte Rollen</div>'
+            f'<div class="max-h-56 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 p-2">{log_ignore_roles or "<p class=\\'pulse-empty\\'>Keine Rollen verfügbar.</p>"}</div></div></div>'
+            f'<label class="flex gap-2 items-center text-xs"><input type="checkbox" name="log_ignore_bots" value="1" {ignore_bots_checked}><span>Bot-Nachrichten und Bot-Mitglieder ignorieren (empfohlen)</span></label>'
+            f'<p class="pulse-section-sub">Nachrichteninhalte werden nicht kopiert; Löschungen protokollieren Anhangsnamen und Metadaten. Einzelne Kategorien dürfen denselben Kanal nutzen.</p>'
+            f'<button class="pulse-btn primary w-full">Discord-Protokolle speichern</button></form></div></section>'
+        )
         audit=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(a.get("actor"))} · {e(a.get("action"))}</div><div class="pulse-row-meta">{e(a.get("details"))}</div></div><div class="pulse-row-meta">{e(a.get("timestamp"))}</div></div>' for a in reversed(ws.load_json(ws.AUDIT_FILE,[])[-120:]))
         if c.config.get("all_role_permissions_disabled"):
             presets_action = '<div class="pulse-alert"><strong>🛑 Standardprofile gesperrt</strong><div class="text-slate-400 mt-1">Der globale Rechte-Reset ist aktiv. Es werden keine automatischen Standardrechte vergeben. Rechte können nur pro Rolle ausdrücklich in den einzelnen Rechtekarten gesetzt werden.</div></div>'
         else:
             presets_action = "<form action=\"/settings/pro-presets\" method=\"post\" onsubmit=\"return confirm('Empfohlene Profile für ALLE ausgewählten Teamrollen anwenden? Manuell konfigurierte Rechte werden überschrieben.');\"><button class=\"pulse-btn primary\">Empfohlene Profile erneut anwenden</button></form>"
 
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div>{profile_notice}<section class="pulse-card mb-5"><div class="pulse-card-b flex flex-col gap-4"><div class="flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div class="pulse-section-title">🔐 Empfohlene Rechteprofile</div><div class="pulse-section-sub">Ordnet allen aktuell ausgewählten Teamrollen neue Standardrechte anhand ihres Discord-Rollennamens zu. Bereits manuell gesetzte Rechte werden dabei überschrieben.</div></div>{presets_action}</div><div class="pulse-alert"><strong>🛑 Alle Rollenrechte entziehen</strong><div class="text-slate-400 mt-1">Setzt jede gespeicherte Rollenberechtigung in Pulse auf „aus“ – einschließlich aller aktuell ausgewählten Teamrollen. Die Teamrollenauswahl und andere Einstellungen bleiben erhalten. Serverinhaber und echte Discord-Administratoren behalten den technischen Adminzugriff.</div><form action="/settings/pro-clear-all" method="post" onsubmit="return confirm('Wirklich ALLE Pulse-Berechtigungen für sämtliche Rollen deaktivieren? Nur Serverinhaber und echte Discord-Administratoren behalten Adminzugriff.');" class="mt-3"><button class="pulse-btn bad">Alle Rollenrechte entziehen</button></form></div></div></section><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div>{dashboard_roles_section}{nickname_prefix_section}<div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">⚙ Einstellungen</div><div class="pulse-section-sub">Teamrollen, Berechtigungen und Audit.</div></div></div>{profile_notice}<section class="pulse-card mb-5"><div class="pulse-card-b flex flex-col gap-4"><div class="flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div class="pulse-section-title">🔐 Empfohlene Rechteprofile</div><div class="pulse-section-sub">Ordnet allen aktuell ausgewählten Teamrollen neue Standardrechte anhand ihres Discord-Rollennamens zu. Bereits manuell gesetzte Rechte werden dabei überschrieben.</div></div>{presets_action}</div><div class="pulse-alert"><strong>🛑 Alle Rollenrechte entziehen</strong><div class="text-slate-400 mt-1">Setzt jede gespeicherte Rollenberechtigung in Pulse auf „aus“ – einschließlich aller aktuell ausgewählten Teamrollen. Die Teamrollenauswahl und andere Einstellungen bleiben erhalten. Serverinhaber und echte Discord-Administratoren behalten den technischen Adminzugriff.</div><form action="/settings/pro-clear-all" method="post" onsubmit="return confirm('Wirklich ALLE Pulse-Berechtigungen für sämtliche Rollen deaktivieren? Nur Serverinhaber und echte Discord-Administratoren behalten Adminzugriff.');" class="mt-3"><button class="pulse-btn bad">Alle Rollenrechte entziehen</button></form></div></div></section><div class="pulse-two"><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">👥 Teamrollen</div></div><div class="pulse-card-b"><form action="/settings/pro-roles" method="post"><div class="grid sm:grid-cols-2">{team_boxes}</div><button class="pulse-btn primary mt-3">Teamrollen speichern</button></form></div></section><section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">🎯 Wochenziel</div></div><div class="pulse-card-b"><form action="/settings/pro-goal" method="post" class="flex gap-2"><input class="pulse-input" type="number" min="0.5" max="100" step="0.5" name="weekly_goal" value="{float(c.config.get('weekly_goal_hours',3.0)):g}"><button class="pulse-btn primary">Speichern</button></form></div></section></div>{dashboard_roles_section}{nickname_prefix_section}<div class="grid md:grid-cols-2 gap-4 mt-5">{"".join(cards)}</div>{warn_role_card}{advanced_logs_section}<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📜 Audit-Log</div></div><div class="pulse-card-b space-y-2 max-h-[520px] overflow-auto">{audit or '<div class="pulse-empty">Keine Audit-Einträge.</div>'}</div></section>'''
         return render_pro_page(ws,'Einstellungen',c,'settings',body)
 
     async def settings_dashboard_profile_save(request: Request, user_session: str=Cookie(None)):
@@ -2569,6 +2641,72 @@ def register(app):
         )
         return ws.back('/settings','Namenspräfix-Synchronisierung im Hintergrund gestartet. Den Fortschritt findest du in den Hosting-Logs.')
 
+    async def settings_advanced_logs_save(request: Request, user_session: str=Cookie(None)):
+        c=cctx(request,user_session,perm=None,admin=True)
+        form=await request.form()
+        from cogs.advanced_logs import LOG_CATEGORIES, LOG_CONFIG_SETTING_KEY, LOG_SETTING_KEY, configured_log_config
+
+        text_channels=[channel for channel in getattr(c.guild,"text_channels",[]) if callable(getattr(channel,"send",None))]
+        voice_channels=[channel for channel in getattr(c.guild,"voice_channels",[]) if callable(getattr(channel,"send",None))]
+        known_channels={int(channel.id):channel for channel in (*text_channels,*voice_channels)}
+        main_raw=str(form.get("main_log_channel_id") or "0").strip()
+        try:
+            main_id=int(main_raw)
+        except (TypeError,ValueError):
+            return ws.back('/settings','Bitte wähle einen gültigen Haupt-Protokollkanal aus.',False)
+        if main_id and (main_id not in known_channels or not callable(getattr(known_channels[main_id],"send",None))):
+            return ws.back('/settings','Der Haupt-Protokollkanal ist ungültig. Bitte lade die Seite neu.',False)
+
+        current=configured_log_config()
+        enabled={}
+        channels={}
+        for category in LOG_CATEGORIES:
+            enabled[category]=bool(form.get(f"log_enabled_{category}"))
+            raw=str(form.get(f"log_channel_{category}") or "0").strip()
+            try:
+                channel_id=int(raw)
+            except (TypeError,ValueError):
+                return ws.back('/settings',f'Der Zielkanal für {category} ist ungültig.',False)
+            if channel_id:
+                if channel_id not in known_channels:
+                    return ws.back('/settings',f'Der Zielkanal für {category} wurde nicht gefunden.',False)
+                channels[category]=channel_id
+
+        ignore_channels=set()
+        for raw in form.getlist("log_ignore_channels"):
+            try:
+                channel_id=int(raw)
+            except (TypeError,ValueError):
+                continue
+            if channel_id in known_channels:
+                ignore_channels.add(channel_id)
+
+        ignore_roles=set()
+        known_roles={int(role.id) for role in getattr(c.guild,"roles",[])}
+        for raw in form.getlist("log_ignore_roles"):
+            try:
+                role_id=int(raw)
+            except (TypeError,ValueError):
+                continue
+            if role_id in known_roles:
+                ignore_roles.add(role_id)
+
+        config={
+            "enabled":enabled,
+            "channels":channels,
+            "ignore_channel_ids":sorted(ignore_channels),
+            "ignore_role_ids":sorted(ignore_roles),
+            "ignore_bots":bool(form.get("log_ignore_bots")),
+        }
+        db.set_setting(LOG_SETTING_KEY,str(main_id) if main_id else "")
+        db.set_setting(LOG_CONFIG_SETTING_KEY,config)
+        ws.log_audit(
+            c.user.get('global_name') or c.user.get('username'),c.user['id'],
+            "Discord-Protokolle konfiguriert",
+            f"Hauptkanal: {main_id or 'nicht gesetzt'} · aktive Kategorien: {sum(enabled.values())}/{len(enabled)} · ignorierte Kanäle/Rollen: {len(ignore_channels)}/{len(ignore_roles)}",
+        )
+        return ws.back('/settings','Discord-Protokolle gespeichert. Kategorien, Ausschlüsse und Kanalzuordnung sind aktiv.')
+    
     async def settings_save(request: Request, role_id: int=Form(...), user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True); role=c.guild.get_role(role_id)
         if not role or role_id not in c.config.get('team_role_ids',[]): return ws.back('/settings','Ungültige Teamrolle.',False)
@@ -2814,6 +2952,7 @@ def register(app):
     app.get('/promotions',response_class=HTMLResponse)(promotions_page)
     app.post('/promotions/create')(create_promotion)
     app.post('/promotions/decide')(decide_promotion)
+    app.post('/settings/advanced-logs/save')(settings_advanced_logs_save)
     app.post('/settings/pro-save')(settings_save)
     app.post('/settings/dashboard-profile/save')(settings_dashboard_profile_save)
     app.post('/settings/dashboard-profile/delete')(settings_dashboard_profile_delete)
