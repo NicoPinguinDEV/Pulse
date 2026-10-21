@@ -32,6 +32,7 @@ from pulse_db import (
     transfer_ticket,
 )
 from pulse_ticket_design import category_block, load_line, ticket_channel_name
+from pulse_ticket_locks import create_lock, get_lock, release_lock
 from pulse_transcripts import TranscriptError, archive_transcript, keep_channel_after_failure
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 from pulse_ticket_design import (
@@ -973,6 +974,21 @@ async def start_ticket_flow(interaction: discord.Interaction, key: str, panel_id
         await interaction.response.send_message("Diese Kategorie ist nicht mehr verfügbar. Bitte wähle eine andere.", ephemeral=True)
         return
     label = category_meta(key)[0]
+
+    # Temporary abuse lock: it only blocks new ticket creation; historical/open cases remain intact.
+    lock = get_lock(guild.id, interaction.user.id)
+    if lock:
+        reason = str(lock.get("reason") or "Kein Grund hinterlegt.")[:500]
+        expires_at = str(lock.get("expires_at") or "")
+        expiry_hint = f"\n**Gesperrt bis:** {expires_at}" if expires_at else "\n**Ende:** nach manueller Freigabe"
+        await interaction.response.send_message(
+            f"🔒 Neue Ticket-Erstellungen sind für dich vorübergehend gesperrt.\n"
+            f"**Grund:** {reason}{expiry_hint}\n"
+            "Deine bestehenden Tickets bleiben erhalten. Bei Rückfragen wende dich bitte an das Serverteam.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return
 
     existing = _pulse_db.open_ticket_for_user(guild.id, interaction.user.id)  # P-13: indexed lookup
     if (guild.id, interaction.user.id) in _OPENING_TICKETS:
@@ -1923,6 +1939,79 @@ class Tickets(commands.Cog):
         await interaction.response.send_message(
             f"✅ {rolle.mention} ist jetzt für **{CATEGORY_META[bereich.value][0]}** zuständig.",
             ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="ticketlock",
+        description="Sperrt neue Ticket-Erstellungen für ein Mitglied befristet.",
+    )
+    @app_commands.describe(
+        mitglied="Mitglied, für das neue Ticket-Erstellungen gesperrt werden",
+        dauer_stunden="Dauer in Stunden (1 bis 168)",
+        grund="Nachvollziehbarer Grund für die Sperre",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ticketlock(
+        self,
+        interaction: discord.Interaction,
+        mitglied: discord.Member,
+        dauer_stunden: app_commands.Range[int, 1, 168],
+        grund: app_commands.Range[str, 5, 500],
+    ):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
+        if mitglied.bot or mitglied.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "❌ Bots und Serveradministratoren können nicht über diese Funktion gesperrt werden.",
+                ephemeral=True,
+            )
+        try:
+            record = create_lock(
+                interaction.guild.id, mitglied.id, int(dauer_stunden), grund,
+                actor_id=interaction.user.id, actor_name=interaction.user.display_name,
+            )
+        except ValueError as exc:
+            return await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+        import datetime as _datetime
+        expires = _datetime.datetime.fromisoformat(record["expires_at"])
+        expiry = int(expires.timestamp())
+        await interaction.response.send_message(
+            f"🔒 Neue Ticket-Erstellungen für {mitglied.mention} wurden für **{dauer_stunden} h** gesperrt.\n"
+            f"**Grund:** {record['reason']}\n**Endet:** <t:{expiry}:F> (<t:{expiry}:R>)",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @app_commands.command(
+        name="ticketunlock",
+        description="Hebt eine befristete Ticket-Sperre auf.",
+    )
+    @app_commands.describe(mitglied="Mitglied, dessen Ticket-Sperre aufgehoben werden soll")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ticketunlock(self, interaction: discord.Interaction, mitglied: discord.Member):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Nur auf einem Server verfügbar.", ephemeral=True)
+        record = release_lock(
+            interaction.guild.id, mitglied.id,
+            actor_id=interaction.user.id, actor_name=interaction.user.display_name,
+        )
+        if not record:
+            return await interaction.response.send_message(
+                f"ℹ️ Für {mitglied.mention} ist keine aktive Ticket-Sperre hinterlegt.",
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        pulse_db.record_event(
+            "ticket_member_lock_removed", "member", str(mitglied.id),
+            interaction.user.id, interaction.user.display_name,
+            {"reason": str(record.get("reason") or ""), "original_expires_at": str(record.get("expires_at") or "")},
+        )
+        await interaction.response.send_message(
+            f"🔓 Die Ticket-Sperre für {mitglied.mention} wurde aufgehoben. Bestehende Tickets waren davon nicht betroffen.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
         )
 
     @app_commands.command(name="ticketlog", description="Setzt den Kanal für Ticket-Protokolle.")
