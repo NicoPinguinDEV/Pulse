@@ -154,22 +154,25 @@ def _delivery_status(user_id: str, message: tuple, prefs: dict | None = None) ->
 def _render_dm(messages: list[tuple], base_url: str) -> str:
     count = len(messages)
     noun = "Hinweis" if count == 1 else "Hinweise"
-    header = f"**Pulse TeamOS · {count} {noun}**\n\n"
+    header = f"**Pulse TeamOS · {count} {noun}**\\n\\n"
     remaining = MAX_DM_MESSAGE_CHARS - len(header)
     parts = []
     for title, body, url in messages:
-        separator = "\n\n" if parts else ""
-        title_line = f"**{title}**\n"
-        link = f"\n{base_url.rstrip('/')}{url}" if base_url and url.startswith("/") else ""
+        separator = "\\n\\n" if parts else ""
+        title_line = f"**{title}**\\n"
+        link = f"\\n{base_url.rstrip('/')}{url}" if base_url and url.startswith("/") else ""
         link = link[:260]
         budget = max(0, remaining - len(separator) - len(title_line) - len(link))
         text = str(body or "")
-        if len(text) > budget:
+        # A single oversized notification is shortened for Discord's message limit.
+        # Multi-item candidates keep their content intact so the chunker can split
+        # them into multiple DMs instead of silently dropping later reminders.
+        if len(messages) == 1 and len(text) > budget:
             text = (text[:max(0, budget - 1)] + "…") if budget else ""
         part = separator + title_line + text + link
         parts.append(part)
         remaining -= len(part)
-    return (header + "".join(parts))[:MAX_DM_MESSAGE_CHARS]
+    return header + "".join(parts)
 
 
 def _chunk_dm_messages(messages: list[tuple], base_url: str) -> list[list[tuple]]:
