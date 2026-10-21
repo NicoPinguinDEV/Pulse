@@ -8,6 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -31,6 +32,29 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           persist-credentials: false
+      
+      - name: Exakten Commit gegen erfolgreichen Push-CI-Lauf prüfen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Ungültige Ziel-SHA."
+            exit 1
+          fi
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$TARGET_SHA&per_page=100")"
+          if ! jq -e --arg sha "$TARGET_SHA" '
+            .workflow_runs[]
+            | select(
+                .name == "Pulse Python Syntax Check"
+                and .head_sha == $sha
+                and .event == "push"
+                and .conclusion == "success"
+              )
+          ' <<< "$runs" >/dev/null; then
+            echo "::error::Für genau diese SHA wurde kein erfolgreicher Push-CI-Lauf gefunden. Kein Deployment."
+            exit 1
+          fi
 
       - name: Deployment-Secrets prüfen
         id: setup
