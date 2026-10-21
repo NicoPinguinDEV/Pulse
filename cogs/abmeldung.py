@@ -592,6 +592,54 @@ class AbmeldungCog(commands.Cog):
         except discord.HTTPException as exc:
             print(f"❌ Fehler beim Aktualisieren der Abmeldungsliste: {exc}")
 
+    async def repair_panel(self, guild: discord.Guild) -> dict:
+        """Update the saved absence list, publishing only if its tracked message was deleted."""
+        channel_id = self.get_config("list_channel_id")
+        message_id = self.get_config("list_message_id")
+        if not channel_id:
+            raise ValueError("Abmeldungskanal ist nicht gespeichert. Bitte /setup_liste in einem Zielkanal ausführen.")
+
+        channel = guild.get_channel(int(channel_id))
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(int(channel_id))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+                raise ValueError("Der gespeicherte Abmeldungskanal ist nicht erreichbar.") from exc
+        if getattr(channel, "guild", None) != guild or not hasattr(channel, "send"):
+            raise ValueError("Der gespeicherte Abmeldungskanal gehört nicht zu diesem Server oder kann keine Nachrichten senden.")
+
+        conn = sqlite3.connect(DB_NAME)
+        try:
+            rows = conn.execute(
+                """SELECT user_id, user_name, grund, von, bis
+                   FROM abmeldungen
+                   ORDER BY von ASC, user_name COLLATE NOCASE ASC"""
+            ).fetchall()
+        finally:
+            conn.close()
+        embeds = self._build_embeds(rows)
+        message = None
+        if message_id:
+            try:
+                message = await channel.fetch_message(int(message_id))
+            except discord.NotFound:
+                message = None
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                # A permission/API error is not proof that the message vanished:
+                # don't post a duplicate until the operator fixes access.
+                raise ValueError(f"Die gespeicherte Abmeldungsliste konnte nicht geprüft werden ({type(exc).__name__}).") from exc
+
+        if message is None:
+            message = await channel.send(embeds=embeds, view=AbmeldungView(self), allowed_mentions=discord.AllowedMentions.none())
+            action = "veröffentlicht"
+        else:
+            await message.edit(embeds=embeds, view=AbmeldungView(self), allowed_mentions=discord.AllowedMentions.none())
+            action = "aktualisiert"
+
+        self.set_config("list_channel_id", channel.id)
+        self.set_config("list_message_id", message.id)
+        return {"action": action, "channel": channel, "message_id": message.id, "updated_at": message.edited_at or message.created_at}
+
     # ------------------------------------------------------------------
     # Abmeldung intern
     # ------------------------------------------------------------------
