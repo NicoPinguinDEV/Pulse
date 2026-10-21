@@ -111,6 +111,25 @@ class AdvancedLogsTests(unittest.TestCase):
         asyncio.run(self.cog.on_message_delete(fake_message("not retained", self.guild, self.channel)))
         self.assertEqual(self.sent, [])
 
+    def test_nickname_changes_are_not_suppressed_when_role_logs_are_disabled(self):
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
+        pulse_db.set_setting(advanced_logs.LOG_CONFIG_SETTING_KEY, {"enabled": {"roles": False, "members": True}})
+        old_role = SimpleNamespace(id=10, mention="<@&10>")
+        new_role = SimpleNamespace(id=11, mention="<@&11>")
+        before = SimpleNamespace(
+            id=5, mention="<@5>", name="Nutzer", nick=None, roles=[old_role],
+            bot=False, guild=GUILD,
+        )
+        after = SimpleNamespace(
+            id=5, mention="<@5>", name="Nutzer", nick="Neuer Name", roles=[new_role],
+            bot=False, guild=GUILD,
+        )
+
+        asyncio.run(self.cog.on_member_update(before, after))
+
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(self.sent[0][1]["embed"].title, "Nickname geändert")
+
     def test_voice_channel_move_is_recorded(self):
         pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(self.channel.id))
         member = SimpleNamespace(
@@ -192,6 +211,12 @@ class AdvancedLogsTests(unittest.TestCase):
             denied = client.post("/settings/advanced-logs/save", data=settings_data, follow_redirects=False)
             self.assertEqual(denied.status_code, 403)
         with patch.object(ws, "auth", auth(ADMIN)):
+            invalid_route = client.post(
+                "/settings/advanced-logs/save",
+                data={"main_log_channel_id": "0", "log_enabled_messages": "1", "log_channel_messages": "0"},
+                follow_redirects=False,
+            )
+            self.assertIn("t=err", invalid_route.headers["location"])
             saved = client.post("/settings/advanced-logs/save", data=settings_data, follow_redirects=False)
         self.assertEqual(saved.status_code, 303)
         self.assertEqual(pulse_db.get_setting(advanced_logs.LOG_SETTING_KEY), str(self.channel.id))
