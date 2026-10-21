@@ -2939,6 +2939,22 @@ async def healthz(request: Request):
     except Exception:
         db_ok = False
 
+    # O-07: reuse the existing job registry; do not create another polling loop.
+    try:
+        from pulse_jobs import snapshot as job_snapshot
+        from pulse_health import health_details
+        diagnostics = health_details(bot, job_snapshot())
+    except Exception:
+        # Diagnostics must not turn a reachable health endpoint into an exception.
+        diagnostics = {
+            "gateway_latency_ms": None,
+            "event_loop_lag_ms": None,
+            "jobs_total": 0,
+            "jobs_failed": 0,
+            "last_successful_job": None,
+            "last_successful_job_at": None,
+        }
+
     ready = bool(bot and bot.is_ready() and guild and db_ok)
     return JSONResponse(
         {
@@ -2947,6 +2963,7 @@ async def healthz(request: Request):
             "bot_ready": bool(bot and bot.is_ready()),
             "guild_ready": bool(guild),
             "database_ok": db_ok,
+            **diagnostics,
         },
         status_code=200 if ready else 503,
     )
