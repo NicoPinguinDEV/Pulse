@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 import discord
 from pulse_embed_design import color as _pulse_color, is_modern
+from pulse_discord_policy import role_ping_allowed
 from pulse_discord_style import card_info, edit_styled, is_v2, layout_from_embed, respond_edit_styled, same_content, send_styled
 from discord.ext import commands, tasks
 import pulse_db as db

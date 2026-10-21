@@ -13,7 +13,7 @@ class MentionPolicyTests(unittest.TestCase):
         self.assertIs(policy.replied_user, False)
         # Do not silently break existing direct member mentions; individual messages
         # that handle user-generated text can still opt out explicitly.
-        self.assertIsNone(policy.users)
+        self.assertIs(policy.users, True)
 
     def test_configured_role_ping_is_limited_to_that_role(self):
         role = SimpleNamespace(id=12345)

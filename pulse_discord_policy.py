@@ -14,6 +14,7 @@ def default_allowed_mentions() -> discord.AllowedMentions:
     """Use safe client defaults without breaking direct user notifications."""
     return discord.AllowedMentions(
         everyone=False,
+        users=True,
         roles=False,
         replied_user=False,
     )
