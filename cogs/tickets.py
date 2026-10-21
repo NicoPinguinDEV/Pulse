@@ -683,8 +683,10 @@ def ticket_reminder_quiet_hours(now: datetime | None = None) -> bool:
             return default
         return hour if 0 <= hour <= 23 else default
 
-    start = read_hour("PULSE_TICKET_REMINDER_QUIET_FROM", TICKET_REMINDER_DEFAULT_QUIET_FROM)
-    end = read_hour("PULSE_TICKET_REMINDER_QUIET_TO", TICKET_REMINDER_DEFAULT_QUIET_TO)
+    global_start = read_hour("PULSE_DM_QUIET_FROM", TICKET_REMINDER_DEFAULT_QUIET_FROM)
+    global_end = read_hour("PULSE_DM_QUIET_TO", TICKET_REMINDER_DEFAULT_QUIET_TO)
+    start = read_hour("PULSE_TICKET_REMINDER_QUIET_FROM", global_start)
+    end = read_hour("PULSE_TICKET_REMINDER_QUIET_TO", global_end)
     if start == end:
         return False  # Equal hours explicitly disable the window.
 
