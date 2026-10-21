@@ -223,6 +223,9 @@ class AdvancedLogs(commands.Cog):
             # on the event loop; this fallback protects unusual task cancellation timing.
             if self._pending_by_channel.get(channel_id):
                 self._flush_tasks[channel_id] = asyncio.create_task(self._flush_channel(channel))
+            else:
+                self._pending_by_channel.pop(channel_id, None)
+                self._dropped_by_channel.pop(channel_id, None)
 
     async def _send(self, channel, embed):
         """Queue log metadata and coalesce simultaneous events per destination channel."""
