@@ -1941,6 +1941,8 @@ class Tickets(commands.Cog):
         closed_items = [ticket for ticket in items if ticket.get("status") == "closed"]
         ratings = [int(ticket["rating"]) for ticket in closed_items if ticket.get("rating")]
         average = sum(ratings) / len(ratings) if ratings else 0
+        # Aggregations run in SQLite and are restricted to this server.
+        rating_breakdown = _pulse_db.ticket_rating_stats(interaction.guild_id, limit=8)
 
         lines = []
         for key, meta in CATEGORY_META.items():
@@ -1958,6 +1960,26 @@ class Tickets(commands.Cog):
         embed.add_field(name="🟢 Offen", value=str(len(open_items)), inline=True)
         embed.add_field(name="✅ Geschlossen", value=str(len(closed_items)), inline=True)
         embed.add_field(name="⭐ Durchschnitt", value=f"{average:.1f}/5" if ratings else "Noch keine Bewertungen", inline=True)
+        category_ratings = rating_breakdown["categories"]
+        category_lines = [
+            f"**{str(row.get('category') or 'Unbekannt')[:50]}** · {row['average_rating']:.2f}/5 ({row['rated_count']})"
+            for row in category_ratings
+        ]
+        staff_ratings = rating_breakdown["staff"]
+        staff_lines = [
+            f"**{str(row.get('user_name') or 'Teammitglied')[:50]}** · {row['average_rating']:.2f}/5 ({row['rated_count']})"
+            for row in staff_ratings
+        ]
+        embed.add_field(
+            name="🏷️ Bewertungen nach Kategorie",
+            value="\\n".join(category_lines)[:1024] or "Noch keine Bewertungen",
+            inline=False,
+        )
+        embed.add_field(
+            name="🧑‍💼 Bewertungen nach Teammitglied",
+            value="\\n".join(staff_lines)[:1024] or "Noch keine Bewertungen",
+            inline=False,
+        )
         embed.set_footer(text="Pulse Ticket-System • Statistik")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

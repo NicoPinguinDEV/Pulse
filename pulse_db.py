@@ -678,6 +678,48 @@ def ticket_events(ticket_id, limit=100):
         return [dict(r) for r in db.execute("SELECT * FROM ticket_events WHERE ticket_id=? ORDER BY created_at DESC LIMIT ?", (ticket_id, limit)).fetchall()]
 
 
+
+def ticket_rating_stats(guild_id=None, *, limit=10):
+    """Return aggregate ticket ratings by category and current closing assignee.
+
+    Uses SQL aggregation so statistics do not require loading every ticket into
+    Python. Results are scoped to the requested guild when one is supplied.
+    """
+    safe_limit = max(1, min(int(limit), 20))
+    where = "rating IS NOT NULL AND rating BETWEEN 1 AND 5"
+    params = []
+    if guild_id is not None:
+        where += " AND guild_id = ?"
+        params.append(str(guild_id))
+
+    with connect() as db:
+        by_category = db.execute(
+            f"""SELECT category, COUNT(*) AS rated_count, ROUND(AVG(rating), 2) AS average_rating
+                FROM tickets
+                WHERE {where}
+                GROUP BY category
+                ORDER BY rated_count DESC, category ASC
+                LIMIT ?""",
+            [*params, safe_limit],
+        ).fetchall()
+        by_staff = db.execute(
+            f"""SELECT claimed_by_id AS user_id,
+                       COALESCE(NULLIF(claimed_by_name, ''), claimed_by_id) AS user_name,
+                       COUNT(*) AS rated_count,
+                       ROUND(AVG(rating), 2) AS average_rating
+                FROM tickets
+                WHERE {where} AND claimed_by_id IS NOT NULL AND claimed_by_id != ''
+                GROUP BY claimed_by_id, claimed_by_name
+                ORDER BY rated_count DESC, average_rating DESC, user_name ASC
+                LIMIT ?""",
+            [*params, safe_limit],
+        ).fetchall()
+    return {
+        "categories": [dict(row) for row in by_category],
+        "staff": [dict(row) for row in by_staff],
+    }
+
+
 def get_support_case_period_start():
     """Return the current support-case reporting period start, initializing it once."""
     raw = get_setting("support_case_period_start")
