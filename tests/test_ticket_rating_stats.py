@@ -23,8 +23,9 @@ class TicketRatingStatsTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _make_rated_ticket(self, guild_id, category, staff_id, staff_name, rating):
+        channel_id = 100000 + len(pulse_db.list_tickets(limit=2000)) * 2 + (1 if guild_id == "g2" else 0)
         ticket_id = pulse_db.create_ticket(
-            channel_id=int(f"{guild_id == 'g2'}{staff_id}{rating}{len(pulse_db.list_tickets(limit=2000)) + 100}"),
+            channel_id=channel_id,
             guild_id=guild_id, user_id=staff_id + rating, user_name="Test", category=category,
         )
         self.assertTrue(pulse_db.claim_ticket(ticket_id, staff_id, staff_name))
