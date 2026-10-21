@@ -2255,7 +2255,7 @@ def register(app):
         return render_pro_page(ws,'Meeting-Historie',c,'meeting-history',body)
 
     async def achievements_v5(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session); uid=str(c.user['id']); shifts=ws.load_shifts(); hist=[h for h in shifts.get('history',[]) if str(h.get('mod_id'))==uid]; shift_count=len(hist); hours=sum(int(h.get('duration_seconds',0)) for h in hist)/3600
+        c=cctx(request,user_session); uid=str(c.user['id']); shifts=ws.load_shifts(); hist=[h for h in shifts.get('history',[]) if str(h.get('mod_id'))==uid]; shift_count=len(hist); hours=sum(credited_shift_seconds(h) for h in hist)/3600
         tickets_closed=sum(1 for t in db.list_tickets(limit=3000) if str(t.get('claimed_by_id'))==uid and t.get('status')=='closed')
         tasks_done=sum(1 for t in db.list_tasks(limit=3000,include_archived=True) if str(t.get('assignee_id'))==uid and t.get('status')=='done')
         handovers=sum(1 for h in db.list_handovers(3000,True) if str(h.get('author_id'))==uid)
