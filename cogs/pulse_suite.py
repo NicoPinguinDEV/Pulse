@@ -821,17 +821,25 @@ class PulseSuite(commands.Cog):
         init_db();seed();register_routes();self.auto.start()
 
     async def cog_load(self):
-        self.bot.add_dynamic_items(SuiteTicketButton)
+        add_dynamic_items = getattr(self.bot, "add_dynamic_items", None)
+        if callable(add_dynamic_items):
+            add_dynamic_items(SuiteTicketButton)
         self._shift_control_view = ShiftControlView(self)
-        self.bot.add_view(self._shift_control_view)
+        add_view = getattr(self.bot, "add_view", None)
+        if callable(add_view):
+            add_view(self._shift_control_view)
 
     async def cog_unload(self):
-        self.bot.remove_dynamic_items(SuiteTicketButton)
+        remove_dynamic_items = getattr(self.bot, "remove_dynamic_items", None)
+        if callable(remove_dynamic_items):
+            remove_dynamic_items(SuiteTicketButton)
         if self._shift_control_view is not None:
-            try:
-                self.bot.remove_view(self._shift_control_view)
-            except (AttributeError, ValueError):
-                pass
+            remove_view = getattr(self.bot, "remove_view", None)
+            if callable(remove_view):
+                try:
+                    remove_view(self._shift_control_view)
+                except (AttributeError, ValueError):
+                    pass
             self._shift_control_view = None
 
     def _shift_access(self, interaction: discord.Interaction, *, manage_panel: bool = False) -> bool:
