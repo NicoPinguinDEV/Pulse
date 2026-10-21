@@ -84,6 +84,7 @@ html{scroll-behavior:smooth}body{background:radial-gradient(circle at 10% -10%,r
 :focus-visible{outline:2px solid var(--p);outline-offset:2px;border-radius:8px}
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
 /* U-07: touch targets >= 44 px and tables that scroll instead of breaking the layout on phones */
+.pulse-live-error{display:none;color:#f43f5e}.pulse-live-stale .pulse-live-error{display:inline}.pulse-live-stale [data-live]{opacity:.55}
 @media (max-width:640px){.pulse-btn,.pulse-input,.pulse-check,button,select{min-height:44px}.pulse-card table,main table{display:block;max-width:100%;overflow-x:auto}}
 /* U-04 / U-09: submit in progress, shared empty state, relative times */
 button[data-busy="1"]{opacity:.65;cursor:progress}
@@ -104,12 +105,18 @@ PRO_JS = r"""
   document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();pulseTogglePalette(true)} if(e.key==='Escape')pulseTogglePalette(false)});
   document.addEventListener('click',e=>{const modal=$('#pulseCommandModal'); if(e.target===modal)pulseTogglePalette(false);});
   // P-02: no polling in background tabs, back-off after errors (30 s -> max. 5 min).
-  let liveDelay=30000, liveTimer=null;
+  // U-08: pages with a live view ([data-live-view]) refresh every 15 s (= server cache), others every 30 s.
+  const liveBase=()=>document.querySelector('[data-live-view]')?15000:30000;
+  let liveDelay=liveBase(), liveTimer=null;
   function liveSchedule(){clearTimeout(liveTimer); liveTimer=setTimeout(live,liveDelay);}
+  function liveStale(on){$$('[data-live-view]').forEach(el=>el.classList.toggle('pulse-live-stale',on));}
   function live(){if(document.visibilityState==='hidden'){liveSchedule();return;}
-    fetch('/api/pulse/live',{credentials:'same-origin'}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json();}).then(d=>{liveDelay=30000; $$('[data-live]').forEach(el=>{const k=el.dataset.live;if(d[k]!==undefined)el.textContent=d[k]}); if(d.now){$$('[data-live-time]').forEach(el=>el.textContent=d.now)}}).catch(()=>{liveDelay=Math.min(liveDelay*2,300000);}).finally(liveSchedule);}
+    fetch('/api/pulse/live',{credentials:'same-origin'}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json();}).then(d=>{liveDelay=liveBase(); liveStale(false); $$('[data-live]').forEach(el=>{const k=el.dataset.live;if(d[k]!==undefined)el.textContent=d[k]}); if(d.now){$$('[data-live-time]').forEach(el=>el.textContent=d.now)}}).catch(()=>{liveDelay=Math.min(liveDelay*2,300000); liveStale(true);}).finally(liveSchedule);}
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')live();});
-  liveSchedule(); window.pulseLive=live;
+  // This script runs in <head>: decide after the page exists whether it has a live view (then fetch at once).
+  const liveStart=()=>{liveDelay=liveBase(); if(document.querySelector('[data-live-view]'))live(); else liveSchedule();};
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',liveStart); else liveStart();
+  window.pulseLive=live;
   if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
   const forms=$$('form[data-confirm]'); forms.forEach(f=>f.addEventListener('submit',e=>{if(!confirm(f.dataset.confirm))e.preventDefault()}));
 
@@ -325,6 +332,16 @@ def build_command_modal(ws, perms=None):
         items.extend((icon, label, href) for _, href, icon, label, _ in sections)
     rows = "".join(f'<a href="{u}" class="pulse-command-item"><span class="pulse-avatar">{i}</span><span>{t}</span><span class="pulse-key">Öffnen</span></a>' for i,t,u in items)
     return f'''<div id="pulseCommandModal" class="pulse-modal-backdrop"><div class="pulse-modal"><div class="pulse-modal-head"><div><div class="text-sm font-extrabold">Pulse Schnellzugriff</div><div class="text-[10px] text-slate-400 mt-0.5">Navigation ohne Umwege</div></div><button onclick="pulseTogglePalette(false)" class="pulse-icon-btn" aria-label="Schnellzugriff schließen">✕</button></div><div class="p-3"><div class="pulse-search" style="max-width:none"><span>⌕</span><input id="pulseCmdFilter" oninput="pulseFilterCmd(this.value)" autofocus placeholder="Bereich suchen…"></div></div><div id="pulseCmdList" class="pulse-command-list">{rows}</div></div></div><script>function pulseFilterCmd(v){{v=v.toLowerCase();document.querySelectorAll('#pulseCmdList .pulse-command-item').forEach(x=>x.style.display=x.textContent.toLowerCase().includes(v)?'':'none')}}</script>'''
+
+
+def voice_waiting(guild) -> int:
+    """U-08: people (no bots) currently in the configured voice-support waiting room."""
+    try:
+        cfg=db.get_setting('voice_support_config',{}) or {}
+        channel=guild.get_channel(int(cfg.get('waiting_room_channel_id') or 0)) if isinstance(cfg,dict) else None
+        return sum(1 for m in (getattr(channel,'members',None) or []) if not getattr(m,'bot',False))
+    except Exception:
+        return 0
 
 
 def render_pro_page(ws, title, ctx, page, body, extra=""):
@@ -1117,7 +1134,7 @@ def register(app):
 
         team_html="".join(rows) or '<div class="pulse-empty">Keine Teamrollen konfiguriert.</div>'
         body=f"""
-        <div class="pulse-topbar"><div><div class="pulse-section-title">◉ Teamstatus</div><div class="pulse-section-sub">Der Status wird direkt aus der Discord-Presence des jeweiligen Mitglieds gelesen. Die Schicht wird separat angezeigt.</div></div><span class="pulse-pill good">Live · 10s</span></div>
+        <div class="pulse-topbar"><div><div class="pulse-section-title">◉ Teamstatus</div><div class="pulse-section-sub">Der Status wird direkt aus der Discord-Presence des jeweiligen Mitglieds gelesen. Die Schicht wird separat angezeigt.</div></div><span class="pulse-pill good" role="status" aria-live="polite">Live · zuletzt <span id="statusUpdated">…</span></span></div>
         <div class="pulse-stat-grid">
           <div class="pulse-stat"><div class="icon">🟢</div><div class="label">Online</div><div id="countOnline" class="value">{status_counts["online"]}</div></div>
           <div class="pulse-stat"><div class="icon">🟡</div><div class="label">AFK</div><div id="countIdle" class="value">{status_counts["idle"]}</div></div>
@@ -1126,7 +1143,7 @@ def register(app):
         </div>
         {card("Discord-Teamstatus",team_html,"◉")}
         """
-        head="<script>\nlet pulseStatusTimer=null;async function refreshDiscordStatuses(){try{const r=await fetch('/api/team/discord-status',{credentials:'same-origin',cache:'no-store'});if(r.status===401||r.status===403){if(pulseStatusTimer)clearInterval(pulseStatusTimer);return;}const d=await r.json();if(!d.ok)return;const counts={online:0,idle:0,dnd:0,offline:0};for(const x of d.members){counts[x.status]=(counts[x.status]||0)+1;const p=document.querySelector('[data-status-pill=\"'+x.id+'\"]');const l=document.querySelector('[data-status-label=\"'+x.id+'\"]');if(p)p.innerHTML=x.pill;if(l)l.textContent=x.label;}['online','idle','dnd','offline'].forEach(k=>{const el=document.getElementById('count'+k.charAt(0).toUpperCase()+k.slice(1));if(el)el.textContent=counts[k]||0;});}catch(e){}}\nrefreshDiscordStatuses();pulseStatusTimer=setInterval(refreshDiscordStatuses,10000);\n</script>"
+        head="<script>\nlet pulseStatusTimer=null;async function refreshDiscordStatuses(){try{const r=await fetch('/api/team/discord-status',{credentials:'same-origin',cache:'no-store'});if(r.status===401||r.status===403){clearTimeout(pulseStatusTimer);pulseStatusTimer=null;return;}const d=await r.json();if(!d.ok)return false;const t=document.getElementById('statusUpdated');if(t)t.textContent=new Date().toLocaleTimeString('de-DE');const counts={online:0,idle:0,dnd:0,offline:0};for(const x of d.members){counts[x.status]=(counts[x.status]||0)+1;const p=document.querySelector('[data-status-pill=\"'+x.id+'\"]');const l=document.querySelector('[data-status-label=\"'+x.id+'\"]');if(p)p.innerHTML=x.pill;if(l)l.textContent=x.label;}['online','idle','dnd','offline'].forEach(k=>{const el=document.getElementById('count'+k.charAt(0).toUpperCase()+k.slice(1));if(el)el.textContent=counts[k]||0;});return true;}catch(e){return false;}}\nlet pulseStatusDelay=10000;function scheduleStatuses(){clearTimeout(pulseStatusTimer);pulseStatusTimer=setTimeout(async()=>{if(document.visibilityState!=='hidden'){const ok=await refreshDiscordStatuses();pulseStatusDelay=ok===false?Math.min(pulseStatusDelay*2,300000):10000;}if(pulseStatusTimer!==null)scheduleStatuses();},pulseStatusDelay);}\ndocument.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshDiscordStatuses();});\nrefreshDiscordStatuses();scheduleStatuses();\n</script>"
         return render_pro_page(ws,"Teamstatus",c,"team-status",body,head)
 
     async def discord_status_api(request: Request, user_session: str=Cookie(None)):
@@ -1429,7 +1446,7 @@ def register(app):
             duty_ids = [uid for uid, state in shifts.get("active_shifts", {}).items() if isinstance(state, dict) and state.get("status") == "online"]
         except Exception:
             pass
-        body = f'''<div class="pulse-topbar"><div><div class="pulse-section-title">🎧 Voice-Support</div><div class="pulse-section-sub">Gemeinsamer Warteraum, nachvollziehbare Supportfälle, Fallnotizen, Bewertungen und Bereitschaft – direkt mit Pulse-Dienstzeiten verbunden.</div></div><span class="pulse-pill {"good" if cfg.get("active") else "warn"}">{status}</span></div>
+        body = f'''<div class="pulse-topbar"><div><div class="pulse-section-title">🎧 Voice-Support</div><div class="pulse-section-sub">Gemeinsamer Warteraum, nachvollziehbare Supportfälle, Fallnotizen, Bewertungen und Bereitschaft – direkt mit Pulse-Dienstzeiten verbunden.</div></div><span class="pulse-pill {"good" if cfg.get("active") else "warn"}">{status}</span></div><div class="pulse-live-strip pulse-row-meta mb-3" data-live-view role="status" aria-live="polite"><span class="pulse-status-dot bg-emerald-500" aria-hidden="true"></span> Live: <b data-live="voice_waiting">…</b> im Warteraum · zuletzt aktualisiert <span data-live-time>…</span><span class="pulse-live-error"> · Verbindung gestört, neuer Versuch läuft</span></div>
         <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🎧</div><div class="label">Offene Sprachfälle</div><div class="value">{len(cases)}</div></div><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Aktuell im Dienst</div><div class="value">{len(duty_ids)}</div></div><div class="pulse-stat"><div class="icon">⭐</div><div class="label">Bewertungen</div><div class="value">{len(rated)}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Bewertung</div><div class="value">{average_rating:.1f}/5</div></div></div>
         {config_form}
         <section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">📞 Aktuelle Supportfälle</div><div class="pulse-section-sub">Wartende Bürger bleiben im gemeinsamen Warteraum. Nach Übernahme wird der Bürger in den Sprachkanal des Supporters verschoben; beim Abschluss werden temporäre Rechte bereinigt.</div></div><a href="/voice-support" class="pulse-btn ghost">↻ Aktualisieren</a></div><div class="pulse-card-b space-y-2">{"".join(case_rows) or '<div class="pulse-empty">Aktuell keine offenen Sprach-Supportfälle.</div>'}</div></section>'''
@@ -2719,7 +2736,10 @@ def register(app):
         s=work_stats(c); open_t=sum(1 for x in s['tickets'] if x['status']!='closed'); overdue=0
         for t in s['tasks']:
             d=parse_due(t.get('due_at')); overdue += int(bool(d and d<datetime.now().astimezone() and t.get('status') not in ('done','archived')))
-        return {'ok':True,'active':s['active'],'open_tickets':open_t,'overdue_tasks':overdue,'approvals':len(s['promos']),'applications':s['apps'],'loas':s['loas']}
+        unclaimed=sum(1 for x in s['tickets'] if x['status']!='closed' and not x.get('claimed_by_id'))  # U-08
+        return {'ok':True,'active':s['active'],'open_tickets':open_t,'unclaimed_tickets':unclaimed,'voice_waiting':voice_waiting(c.guild),
+                'overdue_tasks':overdue,'approvals':len(s['promos']),'applications':s['apps'],'loas':s['loas']}
+
 
     async def api_live(request: Request, user_session: str=Cookie(None)):
         # P-02: the numbers are the same for everyone – compute at most every 15 s, off the event loop.

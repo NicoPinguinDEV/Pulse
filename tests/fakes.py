@@ -75,6 +75,7 @@ class FakeGuild:
         self.id, self.name, self.owner_id = gid, name, owner_id
         self.members, self.roles = list(members), list(roles)
         self.text_channels = list(channels)
+        self.voice_channels: list = []
         self.channels = list(channels)
         self.member_count = len(self.members)
         self.icon = None

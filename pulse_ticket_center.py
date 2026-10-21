@@ -166,6 +166,7 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
 <div class="pulse-topbar"><div><div class="pulse-section-title">▣ Ticket-Zentrale</div><div class="pulse-section-sub">Wer wartet auf wen – sortiert nach Überfälligkeit, Priorität und Wartezeit.</div></div>
  <div class="flex gap-2">{admin_link}<a href="/me" class="pulse-btn ghost">★ Mein Pulse</a></div></div>
 <div class="pulse-stat-grid">{stat_html}</div>
+<div class="pulse-live-strip pulse-row-meta mb-3" data-live-view role="status" aria-live="polite"><span class="pulse-status-dot bg-emerald-500" aria-hidden="true"></span> Live: <b data-live="open_tickets">…</b> offen · <b data-live="unclaimed_tickets">…</b> ohne Bearbeiter · zuletzt aktualisiert <span data-live-time>…</span><span class="pulse-live-error"> · Verbindung gestört, neuer Versuch läuft</span></div>
 {hint}
 <section class="pulse-card"><div class="pulse-card-b">
  <nav class="tc-tabs">{tabs}</nav>
