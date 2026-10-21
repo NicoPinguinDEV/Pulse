@@ -328,7 +328,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 - [ ] **BOT-12 Ruhezeiten** [Idee, Roadmap P3] – Erinnerungs-DMs nicht nachts (konfigurierbar, z. B. 23–8 Uhr), mehrere Hinweise bündeln.
 
-- [ ] **BOT-13 Status-Anzeige an einer Stelle** [Nachgewiesen] – die Bot-Präsenz wird an drei Stellen gesetzt (`main.py:116`, `cogs/pulse_pro.py:168/186`, `cogs/pulse_suite.py:858`). Eine Stelle, z. B. „N im Dienst · M Tickets offen“, höchstens alle paar Minuten aktualisiert.
+- [x] **BOT-13 Status-Anzeige an einer Stelle** [Nachgewiesen] — **erledigt:** 1ed00d6 – zentrale `pulse_presence.update_presence`, zählt `online`/`break` aus derselben Schichtquelle, liest Datei-I/O in einem Worker, verhindert konkurrierende Updates und begrenzt Discord-Änderungen auf höchstens eine je 180 Sekunden; keine neue Schleife. `tests/test_presence.py` (3 Verhaltenstests). GitHub Actions Run 836 (Python 3.14.8): Ruff, `compileall`, Feature-Smoke und gesamte `unittest`-Suite **486 Tests OK**.
 
 - [ ] **BOT-14 Panel-Übersicht** [Idee] – die Verwaltung zeigt alle persistenten Panels (Tickets, Verifizierung, RP-Verwaltung, Büro, Abmeldung, Activity Check, Honeypot-Warnung, Quiz) mit Kanal, Nachrichten-Link, Stil, letzter Aktualisierung und dem Knopf „neu veröffentlichen/reparieren“.
 
