@@ -10,14 +10,28 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pulse-vps-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
-    name: GitHub main → Pulse VPS
+    name: Geprüften Commit auf dem Pulse-VPS ausrollen
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
+    env:
+      TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
+      - name: Geprüften Commit auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+
       - name: Deployment-Secrets prüfen
         id: setup
         env:
@@ -47,7 +61,7 @@ jobs:
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Geprüften Pulse-Stand auf dem VPS deployen
+      - name: Backup, Commit-Deploy, Health-Check und Rollback
         if: steps.setup.outputs.enabled == 'true'
         env:
           VPS_HOST: ${{ secrets.PULSE_VPS_HOST }}
@@ -55,11 +69,14 @@ jobs:
           VPS_PORT: ${{ secrets.PULSE_VPS_SSH_PORT }}
         shell: bash
         run: |
+          if [[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Kein gültiger Commit-SHA vom erfolgreichen CI-Lauf."
+            exit 1
+          fi
           PORT="${VPS_PORT:-22}"
           ssh -p "$PORT" \
             -i "$HOME/.ssh/pulse_vps" \
             -o IdentitiesOnly=yes \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
-            "$VPS_USER@$VPS_HOST" \
-            'set -eu; cd /opt/pulse/Pulse; git fetch origin main; git reset --hard origin/main; docker compose up -d --build; docker image prune -f'
+            "$VPS_USER@$VPS_HOST" "bash -s -- '$TARGET_SHA'" < tools/deploy_remote.sh
