@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+# O-03: never two deploys at the same time; a newer one waits instead of interrupting a running deploy.
+concurrency:
+  group: pulse-vps-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: GitHub main → Pulse VPS
@@ -17,6 +22,9 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
+    env:
+      # O-03: exactly the commit the checks ran on – not whatever main points to by now.
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Deployment-Secrets prüfen
         id: setup
@@ -34,6 +42,12 @@ jobs:
           fi
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
+      - name: Geprüften Stand auschecken (für das Deploy-Skript)
+        if: steps.setup.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
       - name: SSH vorbereiten
         if: steps.setup.outputs.enabled == 'true'
         env:
@@ -47,7 +61,8 @@ jobs:
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Geprüften Pulse-Stand auf dem VPS deployen
+      - name: Backup, Deploy, Health-Check, ggf. Rollback
+        id: deploy
         if: steps.setup.outputs.enabled == 'true'
         env:
           VPS_HOST: ${{ secrets.PULSE_VPS_HOST }}
@@ -62,4 +77,19 @@ jobs:
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             "$VPS_USER@$VPS_HOST" \
-            'set -eu; cd /opt/pulse/Pulse; git fetch origin main; git reset --hard origin/main; docker compose up -d --build; docker image prune -f'
+            "bash -s -- '$DEPLOY_SHA' /opt/pulse/Pulse" < deploy/remote_deploy.sh
+
+      - name: Ergebnis in den Alert-Kanal melden (optional)
+        if: always() && steps.setup.outputs.enabled == 'true'
+        env:
+          WEBHOOK: ${{ secrets.PULSE_DEPLOY_WEBHOOK_URL }}
+          OUTCOME: ${{ steps.deploy.outcome }}
+        shell: bash
+        run: |
+          if [[ -z "$WEBHOOK" ]]; then
+            echo "::notice::Kein PULSE_DEPLOY_WEBHOOK_URL gesetzt – keine Discord-Meldung."
+            exit 0
+          fi
+          if [[ "$OUTCOME" == "success" ]]; then TEXT="✅ Pulse-Deploy ${DEPLOY_SHA:0:7} erfolgreich."; else TEXT="⚠️ Pulse-Deploy ${DEPLOY_SHA:0:7} fehlgeschlagen – Rollback versucht, bitte Actions-Log prüfen."; fi
+          python3 -c 'import json, os, sys; print(json.dumps({"content": sys.argv[1], "allowed_mentions": {"parse": []}}))' "$TEXT" \
+            | curl -fsS -H "Content-Type: application/json" -d @- "$WEBHOOK" >/dev/null || echo "::warning::Discord-Meldung fehlgeschlagen."
