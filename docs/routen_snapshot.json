@@ -190,6 +190,7 @@
  "POST /pulse-inbox/settings -> pulse_pro.register.<locals>.inbox_settings",
  "POST /settings/dashboard-profile/delete -> pulse_pro.register.<locals>.settings_dashboard_profile_delete",
  "POST /settings/dashboard-profile/save -> pulse_pro.register.<locals>.settings_dashboard_profile_save",
+ "POST /settings/advanced-logs/save -> pulse_pro.register.<locals>.settings_advanced_logs_save",
  "POST /settings/nickname-prefix/default -> pulse_pro.register.<locals>.settings_nickname_prefix_default",
  "POST /settings/nickname-prefix/delete -> pulse_pro.register.<locals>.settings_nickname_prefix_delete",
  "POST /settings/nickname-prefix/save -> pulse_pro.register.<locals>.settings_nickname_prefix_save",
