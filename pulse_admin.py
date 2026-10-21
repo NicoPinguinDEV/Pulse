@@ -717,6 +717,403 @@ def register(app) -> None:
                      f"{result['action']} in {result['channel']}")
         return ws.back("/admin/discord#verification", f"Panel {result['action']} in {result['channel']}.", True)
 
+    async def inspect_panel(guild, bot, channel_id, message_id) -> dict:
+        """Inspect exactly the stored Discord message; never infer a healthy panel from settings alone."""
+        channel_id_text = str(channel_id or "").strip()
+        message_id_text = str(message_id or "").strip()
+        if not channel_id_text.isdigit() or int(channel_id_text) <= 0:
+            return {
+                "status": "Nicht konfiguriert",
+                "channel_label": "Kein Kanal gespeichert",
+                "channel_url": "",
+                "message_url": "",
+                "updated": "—",
+                "channel": None,
+                "message": None,
+            }
+        channel_id_int = int(channel_id_text)
+        channel = guild.get_channel(channel_id_int)
+        if channel is None and bot is not None:
+            try:
+                candidate = await bot.fetch_channel(channel_id_int)
+                if getattr(getattr(candidate, "guild", None), "id", None) == guild.id:
+                    channel = candidate
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                channel = None
+        if channel is None or getattr(getattr(channel, "guild", None), "id", None) != guild.id:
+            return {
+                "status": pulse_panel_inventory.panel_status(False, message_id_text, None),
+                "channel_label": f"Unbekannter Kanal ({channel_id_int})",
+                "channel_url": "",
+                "message_url": "",
+                "updated": "—",
+                "channel": None,
+                "message": None,
+            }
+
+        channel_url = f"https://discord.com/channels/{guild.id}/{channel.id}"
+        channel_label = f"#{getattr(channel, 'name', 'Kanal')} · {channel.id}"
+        if not message_id_text.isdigit() or int(message_id_text) <= 0:
+            return {
+                "status": pulse_panel_inventory.panel_status(True, message_id_text, None),
+                "channel_label": channel_label,
+                "channel_url": channel_url,
+                "message_url": "",
+                "updated": "—",
+                "channel": channel,
+                "message": None,
+            }
+        if not hasattr(channel, "fetch_message"):
+            return {
+                "status": pulse_panel_inventory.panel_status(True, message_id_text, None),
+                "channel_label": channel_label,
+                "channel_url": channel_url,
+                "message_url": "",
+                "updated": "—",
+                "channel": channel,
+                "message": None,
+            }
+        try:
+            message = await channel.fetch_message(int(message_id_text))
+        except discord.NotFound:
+            return {
+                "status": pulse_panel_inventory.panel_status(True, message_id_text, False),
+                "channel_label": channel_label,
+                "channel_url": channel_url,
+                "message_url": "",
+                "updated": "—",
+                "channel": channel,
+                "message": None,
+            }
+        except (discord.Forbidden, discord.HTTPException):
+            return {
+                "status": pulse_panel_inventory.panel_status(True, message_id_text, None),
+                "channel_label": channel_label,
+                "channel_url": channel_url,
+                "message_url": "",
+                "updated": "Nicht prüfbar (Discord-Rechte/API)",
+                "channel": channel,
+                "message": None,
+            }
+        stamp = getattr(message, "edited_at", None) or getattr(message, "created_at", None)
+        updated = stamp.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M UTC") if stamp else "Zeit nicht verfügbar"
+        return {
+            "status": pulse_panel_inventory.panel_status(True, message_id_text, True),
+            "channel_label": channel_label,
+            "channel_url": channel_url,
+            "message_url": pulse_panel_inventory.discord_message_url(guild.id, channel.id, message.id),
+            "updated": updated,
+            "channel": channel,
+            "message": message,
+        }
+
+    def panel_card(title: str, family: str, inspected: dict, style: str, details: str,
+                   repair_action: str = "", repair_field: str = "", repair_value: str = "") -> str:
+        status = inspected.get("status", "Status nicht prüfbar")
+        badge_class = "good" if status == "Veröffentlicht" else ("bad" if status == "Discord-Nachricht fehlt" or status == "Kanal nicht gefunden" else "warn")
+        channel_link = (
+            f'<a class="text-xs text-indigo-400 font-semibold" href="{e(inspected["channel_url"])}" target="_blank" rel="noopener">Kanal öffnen ↗</a>'
+            if inspected.get("channel_url") else ""
+        )
+        message_link = (
+            f'<a class="text-xs text-indigo-400 font-semibold" href="{e(inspected["message_url"])}" target="_blank" rel="noopener">Discord-Nachricht öffnen ↗</a>'
+            if inspected.get("message_url") else ""
+        )
+        form = ""
+        if repair_action:
+            hidden = (
+                f'<input type="hidden" name="{e(repair_field)}" value="{e(repair_value)}">'
+                if repair_field else ""
+            )
+            button = "🔧 Prüfen / reparieren"
+            form = (
+                f'<form method="post" action="{e(repair_action)}" class="mt-3 flex flex-wrap gap-2">'
+                f'{hidden}<button class="pulse-btn primary">{button}</button></form>'
+            )
+        return f'''
+<article class="pulse-card">
+  <div class="pulse-card-h"><div><div class="pulse-kicker">{e(family)}</div>
+    <div class="pulse-section-title">{e(title)}</div></div>
+    <span class="pulse-pill {badge_class}">{e(status)}</span></div>
+  <div class="pulse-card-b space-y-2">
+    <div class="text-xs text-slate-300"><strong>Kanal:</strong> {e(inspected.get("channel_label") or "—")}</div>
+    <div class="text-xs text-slate-300"><strong>Stil:</strong> {e(style or "Nicht hinterlegt")}</div>
+    <div class="text-xs text-slate-400"><strong>Letzter Discord-Stand:</strong> {e(inspected.get("updated") or "—")}</div>
+    <div class="text-xs text-slate-400">{e(details)}</div>
+    <div class="flex flex-wrap gap-3 pt-1">{channel_link}{message_link}</div>{form}
+  </div>
+</article>'''
+
+    def panel_info_card(title: str, family: str, detail: str, channel=None) -> str:
+        channel_link = ""
+        if channel is not None:
+            channel_link = (
+                f'<a class="text-xs text-indigo-400 font-semibold" '
+                f'href="https://discord.com/channels/{ctx.guild.id}/{channel.id}" target="_blank" rel="noopener">'
+                f'#{e(getattr(channel, "name", "Kanal"))} öffnen ↗</a>'
+            )
+        return f'''
+<article class="pulse-card">
+  <div class="pulse-card-h"><div><div class="pulse-kicker">{e(family)}</div>
+    <div class="pulse-section-title">{e(title)}</div></div>
+    <span class="pulse-pill">Dynamisch</span></div>
+  <div class="pulse-card-b"><div class="text-xs text-slate-400">{e(detail)}</div>
+    <div class="mt-2">{channel_link}</div>
+  </div>
+</article>'''
+
+    @app.get("/admin/panels", response_class=HTMLResponse)
+    async def admin_panels_page(request: Request, user_session: str = Cookie(None)):
+        ctx = admin_ctx(request, user_session)
+        guild = ctx.guild
+        bot = getattr(request.app.state, "bot", None)
+        cards = []
+        errors = []
+
+        # Verification is a single tracked message; the existing publisher edits it in place.
+        vset = verification.normalize_settings(pulse_db.get_setting(verification.SETTING_KEY, {}))
+        verification_channel = vset.get("published_channel_id") or vset.get("channel_id")
+        verified = await inspect_panel(guild, bot, verification_channel, vset.get("message_id"))
+        verification_cog = bot.get_cog("Verification") if bot else None
+        cards.append(panel_card(
+            "Verifikation neuer Mitglieder", "Sicherheit / Onboarding", verified,
+            str(vset.get("panel_style") or "classic"),
+            "Ein dauerhaftes Verifikationspanel; Änderungen werden über den vorhandenen Publisher veröffentlicht.",
+            "/admin/discord/verification/publish" if verification_cog else "",
+        ))
+
+        # Configured custom ticket panels each have their own channel/message record.
+        ticket_config = pulse_db.get_setting("ticket_system_config", {}) or {}
+        ticket_cog = bot.get_cog("Tickets") if bot else None
+        custom_panels = ticket_config.get("ticket_panels", [])
+        if not isinstance(custom_panels, list):
+            custom_panels = []
+        for panel in custom_panels:
+            if not isinstance(panel, dict):
+                continue
+            panel_id = str(panel.get("id") or "")
+            title = str(panel.get("name") or panel.get("title") or f"Ticketpanel {panel_id or 'ohne ID'}")
+            published_channel = panel.get("published_channel_id") or panel.get("channel_id")
+            inspected = await inspect_panel(guild, bot, published_channel, panel.get("message_id"))
+            cards.append(panel_card(
+                title, "Ticket-System / eigenes Panel", inspected,
+                str(panel.get("style") or panel.get("layout") or "Panel-Layout"),
+                f"Panel-ID: {panel_id or 'nicht gespeichert'} · {len(panel.get('category_keys', [])) if isinstance(panel.get('category_keys', []), list) else 0} Kategorien",
+                "/admin/panels/repair/ticket" if ticket_cog and panel_id else "",
+                "panel_id", panel_id,
+            ))
+        if not custom_panels:
+            cards.append(panel_info_card(
+                "Eigene Ticket-Panels", "Ticket-System",
+                "Noch keine benutzerdefinierten Panels in den Einstellungen. Panels und Kategorien auf /tickets/panels konfigurieren."
+            ))
+
+        legacy_channel = ticket_config.get("panel_channel_id")
+        legacy_message = ticket_config.get("panel_message_id")
+        legacy_inspected = await inspect_panel(guild, bot, legacy_channel, legacy_message)
+        cards.append(panel_card(
+            "Standard-Ticketpanel", "Ticket-System / Legacy-Kompatibilität", legacy_inspected,
+            "Embed + Ticket-Auswahl",
+            "Das ältere Standardpanel bleibt getrennt von den benutzerdefinierten Ticket-Panels erhalten.",
+            "/admin/panels/repair/ticket-default" if ticket_cog else "",
+        ))
+
+        # RP panel: metadata is tracked when /setup_rp is run after this release.
+        rp_cog = bot.get_cog("RPVerwaltungCog") if bot else None
+        try:
+            import cogs.rp_verwaltung as rp_module
+            rp_channel = rp_module.get_config("panel_channel_id")
+            rp_message = rp_module.get_config("panel_message_id")
+            rp_inspected = await inspect_panel(guild, bot, rp_channel, rp_message)
+        except Exception:
+            rp_module = None
+            rp_channel = rp_message = None
+            rp_inspected = await inspect_panel(guild, bot, None, None)
+        cards.append(panel_card(
+            "Roleplay-Verwaltung", "RP / Serversteuerung", rp_inspected,
+            "Embed + Select-Menü",
+            "Die Panel-ID wird ab dem nächsten /setup_rp gespeichert. Bei alten Panels ohne gespeicherte ID zuerst /setup_rp im gewünschten Kanal ausführen.",
+            "/admin/panels/repair/rp" if rp_cog and rp_message else "",
+        ))
+
+        # Absence list is one persistent, tracked panel.
+        abmeldung_cog = bot.get_cog("AbmeldungCog") if bot else None
+        if abmeldung_cog:
+            try:
+                absence_channel = abmeldung_cog.get_config("list_channel_id")
+                absence_message = abmeldung_cog.get_config("list_message_id")
+            except Exception:
+                absence_channel = absence_message = None
+        else:
+            absence_channel = absence_message = None
+        absence_inspected = await inspect_panel(guild, bot, absence_channel, absence_message)
+        cards.append(panel_card(
+            "Abmeldungsliste", "Team / Abmeldungen", absence_inspected,
+            "Mehrseitige Embeds + persistente Buttons",
+            "Die Liste enthält tatsächliche Abmeldungen und wird aus der vorhandenen Abmeldungsdatenbank neu aufgebaut.",
+            "/admin/panels/repair/abmeldung" if abmeldung_cog else "",
+        ))
+
+        # Activity Check is a daily record, not one global panel; inspect the latest check only.
+        try:
+            import cogs.activity_check as activity_module
+            conn = sqlite3.connect(activity_module.DB_NAME, timeout=3.0)
+            try:
+                row = conn.execute(
+                    "SELECT channel_id, message_id, check_date FROM checks WHERE guild_id=? ORDER BY check_date DESC LIMIT 1",
+                    (int(guild.id),),
+                ).fetchone()
+            finally:
+                conn.close()
+            if row:
+                activity_inspected = await inspect_panel(guild, bot, row[0], row[1])
+                cards.append(panel_card(
+                    f"Activity Check · {row[2]}", "Team-Aktivität / letzte Tagesrunde",
+                    activity_inspected, "Tages-Embed + Bestätigungsbutton",
+                    "Je Datum gibt es einen eigenen Activity-Check-Datensatz. Eine neue Tagesrunde wird hier bewusst nicht automatisch erzeugt.",
+                ))
+            else:
+                cards.append(panel_info_card(
+                    "Activity Check", "Team-Aktivität",
+                    "Noch kein Activity-Check-Datensatz für diesen Server. Tagesrunden werden vom bestehenden Zeitplan oder bewusst per /test_activitycheck erstellt."
+                ))
+        except (sqlite3.Error, OSError, ImportError) as exc:
+            errors.append(f"Activity Check: {type(exc).__name__}")
+            cards.append(panel_info_card("Activity Check", "Team-Aktivität", "Status der letzten Runde konnte nicht aus der lokalen Datenbank gelesen werden."))
+
+        # These modules create per-request/per-round messages or protect a channel; they do not own one stable panel message ID.
+        office_id = None
+        try:
+            import cogs.buero_system as office_module
+            office_id = office_module.get_config("warteraum_channel_id")
+        except Exception:
+            pass
+        office_channel = guild.get_channel(int(office_id)) if str(office_id or "").isdigit() else None
+        cards.append(panel_info_card(
+            "Büro-Anfragen", "Büro / Support",
+            "Jede Anfrage erzeugt eine eigene Nachricht mit Übernehmen-Button. Es gibt kein einzelnes globales Panel, das sich sicher neu veröffentlichen ließe.",
+            office_channel,
+        ))
+
+        try:
+            import cogs.honeypot as honeypot_module
+            honeypot_channel = guild.get_channel(int(honeypot_module.HONEYPOT_CHANNEL_ID))
+        except Exception:
+            honeypot_channel = None
+        cards.append(panel_info_card(
+            "Honeypot-Warnkanal", "Sicherheit",
+            "Dies ist ein Sicherheitskanal und kein gewöhnliches Panel. Eine generische Neuveröffentlichung könnte die Schutzfunktion nicht reparieren.",
+            honeypot_channel,
+        ))
+
+        quiz_channel = None
+        quiz_detail = "Das Quiz ist rundenbasiert; die aktive Spielnachricht wird nicht als dauerhaftes Panel mit eigener Nachrichten-ID gespeichert."
+        try:
+            import cogs.flaggenquiz as quiz_module
+            quiz_config = quiz_module.get_quiz_config(guild.id)
+            if quiz_config and quiz_config[0]:
+                quiz_channel = guild.get_channel(int(quiz_config[0]))
+                if quiz_config[1]:
+                    quiz_detail += f" Aktuelle Runde: {quiz_config[1]}."
+        except Exception:
+            quiz_detail += " Die Quiz-Konfiguration konnte nicht gelesen werden."
+        cards.append(panel_info_card("Flaggenquiz", "Interaktives Spiel", quiz_detail, quiz_channel))
+
+        issues = (
+            f'<div class="pulse-alert mb-4"><strong>Hinweise zur Prüfung:</strong><ul class="list-disc pl-5 mt-1">'
+            + "".join(f"<li>{e(item)}</li>" for item in errors)
+            + "</ul></div>"
+        ) if errors else ""
+        body = f'''
+<div class="pulse-topbar">
+  <div><div class="pulse-section-title">🧩 Panel-Übersicht</div>
+  <div class="pulse-section-sub">Gespeicherte Discord-Nachrichten werden live geprüft. Reparieren aktualisiert vorhandene Inhalte; nur wenn Discord bestätigt, dass die alte Nachricht fehlt, wird eine neue Nachricht erstellt.</div></div>
+  <a href="/admin" class="pulse-btn ghost">← Verwaltung</a>
+</div>
+{issues}
+<div class="grid md:grid-cols-2 gap-4">{"".join(cards)}</div>
+<div class="pulse-card mt-4"><div class="pulse-card-b text-xs text-slate-400">
+<strong>Hinweis:</strong> Ein Klick auf „Prüfen / reparieren“ veröffentlicht keine neuen Tagesrunden, Quizrunden oder Büro-Anfragen. Für diese dynamischen Abläufe bleibt der vorhandene Zeitplan bzw. das zugehörige Setup zuständig.
+</div></div>
+'''
+        return HTMLResponse(render_pro_page(ws, "Panel-Übersicht", ctx, "admin", body))
+
+    @app.post("/admin/panels/repair/ticket")
+    async def admin_panels_repair_ticket(request: Request, panel_id: str = Form(...), user_session: str = Cookie(None)):
+        ctx = admin_ctx(request, user_session)
+        if ws.rate_limited(f"panel-repair-ticket:{ctx.user['id']}", limit=5, window=300):
+            return ws.back("/admin/panels", "Bitte kurz warten – höchstens 5 Ticketpanel-Reparaturen in 5 Minuten.", False)
+        bot = getattr(request.app.state, "bot", None)
+        cog = bot.get_cog("Tickets") if bot else None
+        if cog is None:
+            return ws.back("/admin/panels", "Das Ticket-Modul ist nicht geladen.", False)
+        try:
+            result = await cog.publish_panel_for_guild(ctx.guild, panel_id)
+        except ValueError as exc:
+            return ws.back("/admin/panels", str(exc), False)
+        except Exception as exc:
+            return ws.back("/admin/panels", f"Ticketpanel konnte nicht repariert werden ({type(exc).__name__}).", False)
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Ticketpanel repariert",
+                     f"{result.get('panel_name', panel_id)} · {result['channel']}")
+        return ws.back("/admin/panels", f"Ticketpanel {result.get('panel_name', panel_id)} {result['channel']} geprüft/aktualisiert.", True)
+
+    @app.post("/admin/panels/repair/ticket-default")
+    async def admin_panels_repair_ticket_default(request: Request, user_session: str = Cookie(None)):
+        ctx = admin_ctx(request, user_session)
+        if ws.rate_limited(f"panel-repair-ticket-default:{ctx.user['id']}", limit=5, window=300):
+            return ws.back("/admin/panels", "Bitte kurz warten – höchstens 5 Reparaturen in 5 Minuten.", False)
+        bot = getattr(request.app.state, "bot", None)
+        cog = bot.get_cog("Tickets") if bot else None
+        if cog is None:
+            return ws.back("/admin/panels", "Das Ticket-Modul ist nicht geladen.", False)
+        try:
+            result = await cog.publish_default_panel_for_guild(ctx.guild)
+        except ValueError as exc:
+            return ws.back("/admin/panels", str(exc), False)
+        except Exception as exc:
+            return ws.back("/admin/panels", f"Standard-Ticketpanel konnte nicht repariert werden ({type(exc).__name__}).", False)
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Standard-Ticketpanel repariert",
+                     f"{result['channel']} · Nachricht {result['message_id']}")
+        return ws.back("/admin/panels", f"Standard-Ticketpanel {result['action']} in {result['channel']}.", True)
+
+    @app.post("/admin/panels/repair/rp")
+    async def admin_panels_repair_rp(request: Request, user_session: str = Cookie(None)):
+        ctx = admin_ctx(request, user_session)
+        if ws.rate_limited(f"panel-repair-rp:{ctx.user['id']}", limit=5, window=300):
+            return ws.back("/admin/panels", "Bitte kurz warten – höchstens 5 RP-Panel-Reparaturen in 5 Minuten.", False)
+        bot = getattr(request.app.state, "bot", None)
+        cog = bot.get_cog("RPVerwaltungCog") if bot else None
+        if cog is None:
+            return ws.back("/admin/panels", "Das RP-Verwaltungsmodul ist nicht geladen.", False)
+        try:
+            result = await cog.publish_panel(ctx.guild)
+        except (ValueError, discord.Forbidden, discord.HTTPException) as exc:
+            return ws.back("/admin/panels", f"RP-Panel konnte nicht repariert werden: {str(exc)[:180]}", False)
+        except Exception as exc:
+            return ws.back("/admin/panels", f"RP-Panel konnte nicht repariert werden ({type(exc).__name__}).", False)
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "RP-Panel repariert",
+                     f"{result['action']} · {result['channel'].mention}")
+        return ws.back("/admin/panels", f"RP-Panel {result['action']} in {result['channel'].mention}.", True)
+
+    @app.post("/admin/panels/repair/abmeldung")
+    async def admin_panels_repair_abmeldung(request: Request, user_session: str = Cookie(None)):
+        ctx = admin_ctx(request, user_session)
+        if ws.rate_limited(f"panel-repair-abmeldung:{ctx.user['id']}", limit=5, window=300):
+            return ws.back("/admin/panels", "Bitte kurz warten – höchstens 5 Abmeldungsliste-Reparaturen in 5 Minuten.", False)
+        bot = getattr(request.app.state, "bot", None)
+        cog = bot.get_cog("AbmeldungCog") if bot else None
+        if cog is None:
+            return ws.back("/admin/panels", "Das Abmeldungsmodul ist nicht geladen.", False)
+        try:
+            result = await cog.repair_panel(ctx.guild)
+        except (ValueError, discord.Forbidden, discord.HTTPException) as exc:
+            return ws.back("/admin/panels", f"Abmeldungsliste konnte nicht repariert werden: {str(exc)[:180]}", False)
+        except Exception as exc:
+            return ws.back("/admin/panels", f"Abmeldungsliste konnte nicht repariert werden ({type(exc).__name__}).", False)
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Abmeldungsliste repariert",
+                     f"{result['action']} · {result['channel'].mention}")
+        return ws.back("/admin/panels", f"Abmeldungsliste {result['action']} in {result['channel'].mention}.", True)
+
     @app.get("/admin/discord/banner/{filename}")
     async def admin_discord_banner(request: Request, filename: str, user_session: str = Cookie(None)):
         admin_ctx(request, user_session)
