@@ -1,0 +1,19 @@
+# O-04: weekly update pull requests – nothing is merged or deployed automatically.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["abhaengigkeiten"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["abhaengigkeiten"]
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: monthly
+    labels: ["abhaengigkeiten"]
