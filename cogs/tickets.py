@@ -29,6 +29,7 @@ from pulse_db import (
     set_ticket_automation_state,
     set_ticket_panel,
     touch_ticket_activity,
+    transfer_ticket,
 )
 from pulse_ticket_design import category_block, load_line, ticket_channel_name
 from pulse_transcripts import TranscriptError, archive_transcript, keep_channel_after_failure
@@ -1279,6 +1280,125 @@ def panel_view(panel: dict) -> TicketView:
     return TicketView(str(panel.get("id")), panel.get("category_keys", []), panel.get("component_style"), panel.get("placeholder"))
 
 
+class TicketHandoverModal(Modal, title="Ticket an Teammitglied übergeben"):
+    """Required-note handover modal; the database CAS protects against concurrent transfers."""
+
+    def __init__(self, ticket_id: str):
+        super().__init__(timeout=300)
+        self.ticket_id = str(ticket_id)
+        self.assignee_id = TextInput(
+            label="Discord-ID des neuen Bearbeiters",
+            placeholder="Nur die numerische Discord-ID",
+            min_length=17,
+            max_length=20,
+            required=True,
+        )
+        self.note = TextInput(
+            label="Übergabenotiz (Pflicht)",
+            placeholder="Bisheriger Stand, bereits geprüfte Punkte, nächster Schritt …",
+            style=discord.TextStyle.paragraph,
+            min_length=10,
+            max_length=1000,
+            required=True,
+        )
+        self.add_item(self.assignee_id)
+        self.add_item(self.note)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        note = str(self.note.value or "").strip()
+        raw_assignee = str(self.assignee_id.value or "").strip()
+        if not raw_assignee.isdigit() or not 17 <= len(raw_assignee) <= 20:
+            return await interaction.response.send_message(
+                "❌ Bitte gib eine gültige numerische Discord-ID an.", ephemeral=True,
+            )
+        if len(note) < 10:
+            return await interaction.response.send_message(
+                "❌ Die Übergabenotiz muss mindestens 10 Zeichen enthalten.", ephemeral=True,
+            )
+
+        ticket = get_ticket(ticket_id=self.ticket_id)
+        if not ticket or ticket.get("status") == "closed":
+            return await interaction.response.send_message(
+                "❌ Das Ticket existiert nicht mehr oder wurde bereits geschlossen.", ephemeral=True,
+            )
+        if not is_team(interaction.user):
+            return await interaction.response.send_message(
+                "❌ Nur Teammitglieder dürfen Tickets übergeben.", ephemeral=True,
+            )
+        current_assignee = str(ticket.get("claimed_by_id") or "")
+        if not current_assignee:
+            return await interaction.response.send_message(
+                "❌ Dieses Ticket ist nicht übernommen. Übernimm es zuerst.", ephemeral=True,
+            )
+        if current_assignee != str(interaction.user.id) and not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "❌ Du darfst nur deine eigenen Tickets übergeben (Admins dürfen übernehmen).", ephemeral=True,
+            )
+        if raw_assignee == current_assignee:
+            return await interaction.response.send_message(
+                "❌ Das Ticket ist bereits dieser Person zugewiesen.", ephemeral=True,
+            )
+
+        recipient = interaction.guild.get_member(int(raw_assignee))
+        if recipient is None:
+            try:
+                recipient = await interaction.guild.fetch_member(int(raw_assignee))
+            except (discord.NotFound, discord.HTTPException, discord.Forbidden):
+                recipient = None
+        if recipient is None or recipient.bot or not is_team(recipient):
+            return await interaction.response.send_message(
+                "❌ Das Ziel muss ein erreichbares Teammitglied dieses Servers sein.", ephemeral=True,
+            )
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        transferred = transfer_ticket(
+            self.ticket_id,
+            expected_assignee_id=current_assignee,
+            new_assignee_id=recipient.id,
+            new_assignee_name=recipient.display_name,
+            actor_id=interaction.user.id,
+            actor_name=interaction.user.display_name,
+            note=note,
+        )
+        if not transferred:
+            return await interaction.followup.send(
+                "❌ Die Übergabe wurde abgebrochen: Das Ticket wurde zwischenzeitlich geändert. Bitte lade es neu.",
+                ephemeral=True,
+            )
+
+        latest = get_ticket(ticket_id=self.ticket_id)
+        try:
+            if latest:
+                await refresh_ticket_embed(interaction.channel, latest)
+                await move_ticket_channel(interaction.channel, latest, claimed=True)
+        except Exception as exc:
+            print(f"⚠️ Pulse-Tickets: Übergabe-Anzeige nicht aktualisiert ({type(exc).__name__}).")
+
+        await send_ticket_log(
+            interaction.client,
+            interaction.guild,
+            configured_ticket_log_channel_id("claimed"),
+            title="🔁 Ticket übergeben",
+            description=f"Ticket wurde an {recipient.mention} übergeben.\n**Übergabenotiz:** {note}",
+            ticket=latest or ticket,
+            actor=interaction.user,
+            color=_pulse_color("info"),
+        )
+        try:
+            await interaction.channel.send(
+                f"🔁 Ticket an {recipient.mention} übergeben. Die Übergabenotiz wurde im Ticket-Protokoll gespeichert.",
+                allowed_mentions=discord.AllowedMentions(
+                    users=[recipient], roles=False, everyone=False, replied_user=False,
+                ),
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        await interaction.followup.send(
+            f"✅ Ticket {self.ticket_id} wurde an {recipient.display_name} übergeben.",
+            ephemeral=True,
+        )
+
+
 class TicketControlView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -1326,6 +1446,20 @@ class TicketControlView(View):
             except (discord.Forbidden, discord.HTTPException):
                 pass
         await interaction.followup.send(f"✅ Du bearbeitest Ticket `{t['id']}` jetzt.", ephemeral=True)
+
+    @discord.ui.button(label="Übergeben", style=discord.ButtonStyle.primary, emoji="🔁", custom_id="pulse_ticket_transfer")
+    async def transfer(self, interaction: discord.Interaction, button: Button):
+        t = get_ticket(channel_id=interaction.channel.id)
+        if not t or t.get("status") == "closed":
+            return await interaction.response.send_message("Ticket nicht gefunden oder bereits geschlossen.", ephemeral=True)
+        if not is_team(interaction.user):
+            return await interaction.response.send_message("❌ Nur Teammitglieder dürfen Tickets übergeben.", ephemeral=True)
+        claimed_by = str(t.get("claimed_by_id") or "")
+        if not claimed_by:
+            return await interaction.response.send_message("❌ Übernimm das Ticket zuerst, bevor du es übergibst.", ephemeral=True)
+        if claimed_by != str(interaction.user.id) and not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Du kannst nur deine eigenen Tickets übergeben (Admins dürfen übernehmen).", ephemeral=True)
+        await interaction.response.send_modal(TicketHandoverModal(str(t["id"])))
 
     @discord.ui.button(label="Freigeben", style=discord.ButtonStyle.secondary, emoji="↩️", custom_id="pulse_ticket_unclaim")
     async def unclaim(self, interaction: discord.Interaction, button: Button):

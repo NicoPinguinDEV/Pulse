@@ -317,7 +317,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
   - **Teilfortschritt:** Erzeugung und Rücknahme von Warnungsdatensätzen laufen jetzt über `pulse_team_warning.py`; `/warn` akzeptiert optionale Dauer (1–365 Tage) und Beweislink. Rollenabgleich, Sanktionen, Benachrichtigungen, Rangwechsel und vollständige Vereinheitlichung bleiben offen; BOT-05 daher noch nicht abgeschlossen.
 
 - [ ] **BOT-06 Tickets** [Idee] – Schnellantworten je Kategorie (Roadmap P2), Übergabe mit Pflicht-Notiz (Roadmap P2), Ticket-Sperre für Missbrauch (mit Ablauf), Tags, sichtbarer SLA-Timer, lesbares HTML-Transkript im Dashboard, Auswertung der Bewertungen je Kategorie und Teamler.
-  - **Teilfortschritt (noch offen):** Die Ticket-Zentrale bietet eine HTML-Ansicht des Transkripts mit escaped Klartext; der bestehende TXT-Download bleibt unverändert verfügbar. Der Rest von BOT-06 (Schnellantworten, Pflichtnotiz bei Übergabe, Sperre mit Ablauf, Tags und Kennzahlen) ist weiterhin offen.
+  - **Teilfortschritt (noch offen):** Die Ticket-Zentrale bietet eine HTML-Ansicht des Transkripts mit escaped Klartext; der bestehende TXT-Download bleibt unverändert verfügbar. Neu hinzugekommen ist die Ticket-Übergabe an ein anderes Teammitglied mit Pflichtnotiz, atomarer Zuweisung und gespeichertem Ticket-Event. Schnellantworten, befristete Ticket-Sperre, Tags, SLA-Anzeige und Kennzahlen nach Kategorie/Teamler bleiben offen.
 
 - [ ] **BOT-07 Voice-Support** [Idee] – Warteposition und geschätzte Wartezeit für den Bürger; außerhalb der Öffnungszeiten das Angebot „Ticket statt Warten“; Supporter-Statistik im Dashboard; sichtbarer Hinweis, wenn Audio nicht verfügbar ist (K-10). Die Blob-Race aus K-04 hier mit absichern.
 

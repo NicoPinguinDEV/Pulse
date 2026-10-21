@@ -583,6 +583,45 @@ def unclaim_ticket(tid, user_id, user_name):
         return False
 
 
+
+def transfer_ticket(
+    tid,
+    *,
+    expected_assignee_id,
+    new_assignee_id,
+    new_assignee_name,
+    actor_id,
+    actor_name,
+    note,
+):
+    """Atomically transfer an open ticket and persist the required handover note."""
+    note_text = str(note or "").strip()
+    if len(note_text) < 10:
+        raise ValueError("Eine Übergabenotiz mit mindestens 10 Zeichen ist erforderlich.")
+    current_id = str(expected_assignee_id or "").strip()
+    target_id = str(new_assignee_id or "").strip()
+    if not current_id or not target_id or current_id == target_id:
+        return False
+
+    with connect() as db:
+        now = _now()
+        cur = db.execute(
+            """UPDATE tickets
+               SET claimed_by_id=?, claimed_by_name=?, claimed_at=?, status='in_progress'
+               WHERE id=? AND status!='closed' AND claimed_by_id=?""",
+            (target_id, str(new_assignee_name or "")[:100], now, str(tid), current_id),
+        )
+        if not cur.rowcount:
+            return False
+        details = f"An: {str(new_assignee_name or 'Teammitglied')[:100]} ({target_id}) · Notiz: {note_text[:1000]}"
+        db.execute(
+            "INSERT INTO ticket_events VALUES (?,?,?,?,?,?,?)",
+            (make_id("te"), str(tid), str(actor_id or "0"), str(actor_name or "System")[:100],
+             "transferred", details, now),
+        )
+        return True
+
+
 def update_ticket_priority(tid, priority, actor_id=None, actor_name=None):
     with connect() as db:
         old = db.execute("SELECT priority FROM tickets WHERE id=?", (tid,)).fetchone()
