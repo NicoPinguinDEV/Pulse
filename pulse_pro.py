@@ -2644,7 +2644,7 @@ def register(app):
     async def settings_advanced_logs_save(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None,admin=True)
         form=await request.form()
-        from cogs.advanced_logs import LOG_CATEGORIES, LOG_CONFIG_SETTING_KEY, LOG_SETTING_KEY, configured_log_config
+        from cogs.advanced_logs import LOG_CATEGORIES, LOG_CONFIG_SETTING_KEY, LOG_SETTING_KEY
 
         text_channels=[channel for channel in getattr(c.guild,"text_channels",[]) if callable(getattr(channel,"send",None))]
         voice_channels=[channel for channel in getattr(c.guild,"voice_channels",[]) if callable(getattr(channel,"send",None))]
@@ -2657,7 +2657,6 @@ def register(app):
         if main_id and (main_id not in known_channels or not callable(getattr(known_channels[main_id],"send",None))):
             return ws.back('/settings','Der Haupt-Protokollkanal ist ungültig. Bitte lade die Seite neu.',False)
 
-        current=configured_log_config()
         enabled={}
         channels={}
         for category in LOG_CATEGORIES:
