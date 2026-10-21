@@ -37,6 +37,10 @@ class AdvancedLogsTests(unittest.TestCase):
         pulse_db.init_db()
         advanced_logs._HINT_SHOWN = False
         self.sent = []
+        # The minimal fake channel used by the dashboard tests has no send method.
+        self._channel_had_send = hasattr(CHANNEL, "send")
+        if not self._channel_had_send:
+            CHANNEL.send = lambda *args, **kwargs: None
 
         async def fake_send(channel, **kwargs):
             self.sent.append((channel, kwargs))
@@ -46,6 +50,8 @@ class AdvancedLogsTests(unittest.TestCase):
 
     def tearDown(self):
         self.send_patch.stop()
+        if not self._channel_had_send:
+            delattr(CHANNEL, "send")
         for p in reversed(self.patches):
             p.stop()
         self.tmp.cleanup()
