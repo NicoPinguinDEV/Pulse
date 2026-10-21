@@ -761,6 +761,11 @@ async def start_ticket_flow(interaction: discord.Interaction, key: str, panel_id
         return
     label = category_meta(key)[0]
 
+    import pulse_ticket_extras  # BOT-06: ticket ban with expiry
+    ban = pulse_ticket_extras.block_for(interaction.user.id)
+    if ban:
+        await interaction.response.send_message(pulse_ticket_extras.block_message(ban), ephemeral=True)
+        return
     existing = _pulse_db.open_ticket_for_user(guild.id, interaction.user.id)  # P-13: indexed lookup
     if (guild.id, interaction.user.id) in _OPENING_TICKETS:
         await interaction.response.send_message("⏳ Dein Ticket wird gerade erstellt – einen Moment bitte.", ephemeral=True)
@@ -798,6 +803,11 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
     lock_key = (guild.id, interaction.user.id)
     if lock_key in _OPENING_TICKETS:
         await interaction.followup.send("⏳ Dein Ticket wird gerade erstellt – einen Moment bitte.", ephemeral=True)
+        return
+    import pulse_ticket_extras  # BOT-06: also after the question form
+    ban = pulse_ticket_extras.block_for(interaction.user.id)
+    if ban:
+        await interaction.followup.send(pulse_ticket_extras.block_message(ban), ephemeral=True)
         return
     existing = _pulse_db.open_ticket_for_user(guild.id, interaction.user.id)
     channel = guild.get_channel(int(existing["channel_id"])) if existing and str(existing.get("channel_id") or "").isdigit() else None

@@ -5,7 +5,7 @@ line-length = 140
 include = [
     "pulse_audio_check.py", "pulse_backup.py", "pulse_command_errors.py", "pulse_command_help.py", "pulse_command_sync.py",
     "pulse_consistency.py", "pulse_ids.py", "pulse_interactions.py", "pulse_jobs.py", "pulse_lists.py", "pulse_logcfg.py", "pulse_migrations.py", "pulse_logging.py", "pulse_panels.py", "pulse_notify_prefs.py", "pulse_permissions.py", "pulse_presence.py", "pulse_raid.py",
-    "pulse_ready.py", "pulse_retention.py", "pulse_security.py", "pulse_sessions.py", "pulse_store.py", "pulse_system_checks.py", "pulse_tasks.py", "pulse_time.py", "pulse_timeline.py",
+    "pulse_ready.py", "pulse_retention.py", "pulse_security.py", "pulse_sessions.py", "pulse_store.py", "pulse_system_checks.py", "pulse_tasks.py", "pulse_ticket_extras.py", "pulse_time.py", "pulse_timeline.py",
     "pulse_transcripts.py",
 ]
 

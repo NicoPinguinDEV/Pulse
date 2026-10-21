@@ -80,6 +80,8 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
     def pill(text, kind=""):
         return f'<span class="pulse-pill {kind}">{e(text)}</span>'
 
+    tag_map: dict = {}
+
     def row(t, info):
         tid = e(t.get("id"))
         meta = registry.get(str(t.get("category")), {})
@@ -113,6 +115,7 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
         if info["state"] == "closed":
             if t.get("transcript_path"):
                 actions.append(f'<a class="pulse-btn ghost" href="/ticket/transcript/{quote(os.path.basename(str(t.get("transcript_path"))))}">📄 Transkript</a>')
+                actions.append(f'<a class="pulse-btn ghost" href="/tickets/transcript/{quote(str(t.get("id")))}/view">👁 Lesen</a>')
             if manager:
                 actions.append(f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{tid}"><input type="hidden" name="action" value="reopen"><button class="pulse-btn ghost">🔓 Wieder öffnen</button></form>')
         detail = (
@@ -123,7 +126,8 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
         return (
             f'<article class="pulse-row tc-row {"tc-overdue" if info["overdue"] else ""}">'
             f'<div class="pulse-row-main" style="flex:1;min-width:220px"><div class="flex flex-wrap items-center gap-2">'
-            f'<span class="pulse-row-title">{e(t.get("user_name") or "Unbekannt")}</span>{pill(pr[0], pr[1])}{pill(state_text, state_kind)}</div>'
+            f'<span class="pulse-row-title">{e(t.get("user_name") or "Unbekannt")}</span>{pill(pr[0], pr[1])}{pill(state_text, state_kind)}'
+            f'{"".join(pill("#" + tag) for tag in tag_map.get(str(t.get("id")), []))}</div>'
             f'<div class="pulse-row-meta">{e(cat)} · <code>{tid}</code> · eröffnet {e(str(t.get("opened_at") or "")[:16].replace("T", " "))} UTC · Bearbeiter: {e(t.get("claimed_by_name") or "niemand")}</div>'
             f'{detail}</div><div class="flex flex-wrap gap-2 items-start justify-end">{"".join(actions)}</div></article>'
         )
@@ -142,6 +146,11 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
         next_link = f'<a class="pulse-btn ghost" href="{e(link(page=page + 1))}">Weiter →</a>' if page < pages else ""
         pager = f'<div class="flex items-center justify-between gap-2 mt-3 text-xs text-slate-400">{prev_link}<span>Seite {page} von {pages} · {total} Tickets</span>{next_link}</div>'
     empty_text = "Keine Tickets für diese Suche." if (query or category) else "Hier ist gerade nichts offen. 🎉"
+    try:  # BOT-06: tags of the visible tickets in one query
+        import pulse_ticket_extras
+        tag_map.update(pulse_ticket_extras.tags_for([t.get("id") for t, _ in visible]))
+    except Exception:
+        pass
     overdue_n = counts["overdue"]
     stats = [
         ("▣", "Offen", len(open_rows)),
@@ -153,6 +162,8 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
     stat_html = "".join(f'<div class="pulse-stat"><div class="icon">{i}</div><div class="label">{l}</div><div class="value">{v}</div></div>' for i, l, v in stats)
     hint = "" if manager else '<div class="pulse-alert mb-3">Du kannst Tickets ansehen. Übernehmen, Schließen und Priorität ändern erfordert die Berechtigung „Tickets verwalten“.</div>'
     admin_link = '<a href="/tickets/panels" class="pulse-btn ghost">🎛️ Panel-Builder</a>' if ctx.perms.get("is_admin") else ""
+    if ctx.perms.get("can_manage_tickets") or ctx.perms.get("is_admin"):  # BOT-06
+        admin_link += '<a href="/tickets/tools" class="pulse-btn ghost">🧰 Werkzeuge</a>'
 
     css = """<style>
 .tc-tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:12px}

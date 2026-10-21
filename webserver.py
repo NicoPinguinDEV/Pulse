@@ -5619,6 +5619,115 @@ async def pulse_ticket_transcript(request: Request, ticket_id: str, user_session
     return FileResponse(path=str(transcript_file), media_type="text/plain; charset=utf-8", filename=transcript_name)
 
 
+def _ticket_transcript_file(ticket):
+    transcript_name = os.path.basename(str(ticket.get("transcript_path") or ""))
+    if not transcript_name or transcript_name != f"{ticket.get('id')}.txt":
+        return None
+    transcript_dir = (BASE_DIR / "transcripts").resolve()
+    transcript_file = (transcript_dir / transcript_name).resolve()
+    return transcript_file if transcript_file.parent == transcript_dir and transcript_file.is_file() else None
+
+
+@app.get("/tickets/transcript/{ticket_id}/view", response_class=HTMLResponse)
+async def pulse_ticket_transcript_view(request: Request, ticket_id: str, user_session: str = Cookie(None)):
+    """BOT-06: the stored transcript as a readable page (the download stays at /tickets/transcript/{id})."""
+    import pulse_ticket_extras
+    from pulse_pro import render_pro_page
+    ctx = auth(request, user_session, perm="can_manage_tickets")
+    ticket = pulse_db.get_ticket(ticket_id=ticket_id)
+    if not ticket or str(ticket.get("guild_id")) != str(ctx.guild.id):
+        raise HTTPException(status_code=404, detail="Ticket nicht gefunden.")
+    path = _ticket_transcript_file(ticket)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Für dieses Ticket ist kein Transkript gespeichert.")
+    text = path.read_text(encoding="utf-8", errors="replace")[:2_000_000]
+    body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">📄 Transkript {esc(ticket_id)}</div>'
+            f'<div class="pulse-section-sub">{esc(ticket.get("user_name"))} · {esc(ticket.get("category"))} · geschlossen {esc(str(ticket.get("closed_at") or "")[:16])}</div></div>'
+            f'<div class="flex gap-2"><a class="pulse-btn ghost" href="/tickets?status=closed">← Tickets</a>'
+            f'<a class="pulse-btn ghost" href="/tickets/transcript/{quote(ticket_id)}">⬇ Download</a></div></div>'
+            '<style>.tr-msg{padding:8px 10px;border-radius:10px;background:var(--surface2);margin-bottom:6px}.tr-meta{font-size:11px;color:var(--muted)}'
+            '.tr-meta b{color:inherit}.tr-text{font-size:13px;white-space:pre-wrap;word-break:break-word}.tr-line{font-size:11px;color:var(--muted);margin:4px 0}</style>'
+            f'<section class="pulse-card"><div class="pulse-card-b">{pulse_ticket_extras.transcript_html(text)}</div></section>')
+    import sys
+    return HTMLResponse(render_pro_page(sys.modules[__name__], f"Transkript {ticket_id}", ctx, "tickets", body))
+
+
+@app.get("/tickets/tools", response_class=HTMLResponse)
+async def pulse_ticket_tools(request: Request, user_session: str = Cookie(None)):
+    """BOT-06: quick replies (admins edit), ticket bans (ticket team), rating report."""
+    import pulse_ticket_extras as tx
+    from pulse_pro import render_pro_page
+    ctx = auth(request, user_session, perm="can_manage_tickets")
+    is_admin = bool(ctx.perms.get("is_admin"))
+    try:
+        from cogs.tickets import category_meta, ticket_category_definitions
+        categories = [(key, category_meta(key)[0]) for key in ticket_category_definitions()]
+    except Exception:
+        categories = []
+    replies = tx.load_replies()
+    reply_blocks = "".join(
+        f'<label class="grid gap-1 text-xs font-semibold">{esc(label)}'
+        f'<textarea class="pulse-input pulse-textarea" name="replies_{esc(key)}" rows="3" placeholder="Titel | Text (eine Antwort pro Zeile)"'
+        f'{"" if is_admin else " readonly"}>{esc(tx.replies_as_text(key))}</textarea></label>'
+        for key, label in [("*", "Für alle Kategorien")] + categories)
+    replies_form = (f'<form method="post" action="/tickets/tools/replies" class="space-y-3">{reply_blocks}'
+                    + ('<button class="pulse-btn primary" type="submit">💾 Schnellantworten speichern</button>' if is_admin
+                       else '<div class="text-xs text-slate-400">Bearbeiten können nur Admins.</div>') + '</form>')
+    blocks = tx.load_blocks()
+    block_rows = "".join(
+        f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title"><code>{esc(uid)}</code>'
+        f'{" · " + esc(getattr(ctx.guild.get_member(int(uid)), "display_name", "")) if str(uid).isdigit() and ctx.guild.get_member(int(uid)) else ""}</div>'
+        f'<div class="pulse-row-meta">bis {esc(str(entry.get("until"))[:10])} · {esc(entry.get("reason"))} · von {esc(entry.get("by"))}</div></div>'
+        f'<form method="post" action="/tickets/tools/unblock"><input type="hidden" name="user_id" value="{esc(uid)}">'
+        f'<button class="pulse-btn ghost" type="submit">Aufheben</button></form></div>'
+        for uid, entry in blocks.items() if tx.block_for_entry(entry)) or '<div class="pulse-empty">Keine aktiven Ticket-Sperren. Setzen: /ticket sperre im Discord.</div>'
+    report = tx.ratings_report(pulse_db.list_tickets(status="closed", limit=2000))
+    names = dict(categories)
+
+    def table(rows, label_of=lambda k: k):
+        return "".join(f'<div class="pulse-row"><div class="pulse-row-title">{esc(label_of(k))}</div>'
+                       f'<div class="pulse-row-meta">⭐ {avg:.2f} · {n} Bewertungen</div></div>' for k, avg, n in rows[:20]) \
+            or '<div class="pulse-empty">Noch keine Bewertungen.</div>'
+    rating_html = (f'<div class="text-xs mb-3">Gesamt: {"⭐ %.2f" % report["average"] if report["average"] else "–"} aus {report["count"]} Bewertungen</div>'
+                   f'<div class="grid lg:grid-cols-2 gap-4"><div><div class="pulse-section-title mb-2">Nach Kategorie</div>{table(report["by_category"], lambda k: names.get(k, k))}</div>'
+                   f'<div><div class="pulse-section-title mb-2">Nach Teammitglied</div>{table(report["by_staff"])}</div></div>')
+    body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">🧰 Ticket-Werkzeuge</div>'
+            f'<div class="pulse-section-sub">Schnellantworten für /ticket antwort, Ticket-Sperren und die Auswertung der Bewertungen.</div></div>'
+            f'<a class="pulse-btn ghost" href="/tickets">← Tickets</a></div>'
+            f'<section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">💬 Schnellantworten</div></div><div class="pulse-card-b">{replies_form}</div></section>'
+            f'<section class="pulse-card mt-4"><div class="pulse-card-h"><div class="pulse-section-title">🚫 Ticket-Sperren</div></div><div class="pulse-card-b space-y-2">{block_rows}</div></section>'
+            f'<section class="pulse-card mt-4"><div class="pulse-card-h"><div class="pulse-section-title">⭐ Bewertungen</div></div><div class="pulse-card-b">{rating_html}</div></section>')
+    import sys
+    return HTMLResponse(render_pro_page(sys.modules[__name__], "Ticket-Werkzeuge", ctx, "tickets", body))
+
+
+@app.post("/tickets/tools/replies")
+async def pulse_ticket_tools_replies(request: Request, user_session: str = Cookie(None)):
+    import pulse_ticket_extras as tx
+    ctx = auth(request, user_session, perm=None, admin=True)
+    form = await request.form()
+    try:
+        from cogs.tickets import ticket_category_definitions
+        keys = ["*", *ticket_category_definitions().keys()]
+    except Exception:
+        keys = ["*"]
+    saved = tx.save_replies({key: form.get(f"replies_{key}", "") for key in keys})
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Ticket-Schnellantworten geändert",
+              f"{sum(len(v) for v in saved.values())} Antworten")
+    return back("/tickets/tools", "Schnellantworten gespeichert.")
+
+
+@app.post("/tickets/tools/unblock")
+async def pulse_ticket_tools_unblock(request: Request, user_session: str = Cookie(None)):
+    import pulse_ticket_extras as tx
+    ctx = auth(request, user_session, perm="can_manage_tickets")
+    user_id = str((await request.form()).get("user_id") or "")
+    if not tx.unblock(user_id):
+        return back("/tickets/tools", "Für diese Person gab es keine Sperre.", False)
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Ticket-Sperre aufgehoben", user_id)
+    return back("/tickets/tools", "Ticket-Sperre aufgehoben.")
+
+
 @app.post("/tickets/action")
 async def pulse_tickets_dashboard_action(
     request: Request,
