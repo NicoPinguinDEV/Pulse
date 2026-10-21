@@ -51,11 +51,11 @@ class CallSiteTests(unittest.TestCase):
         return source[begin:source.index(end, begin + len(start))]
 
     def test_converted_flows_do_not_save_stale_team_data(self):
+        # Warning creation is now shared by issue_team_warning(); its runtime behavior is
+        # tested with fake actions in tests/test_team_warning_domain.py, not source strings.
         cases = [
             ("webserver.py", "async def process_overdue_shifts(", "def calculate_weekly_seconds("),
-            ("webserver.py", 'if action == "warn_with_proof":', 'if action == "remove_warn":'),
             ("webserver.py", 'if action == "remove_warn":', 'if action == "add_note":'),
-            ("cogs/pulse_suite.py", '@app_commands.command(name="warn",', '@app_commands.command(name="warns",'),
             ("cogs/activity_check.py", "# K-04: fresh entry per member", "except Exception as exc:"),
         ]
         for path, start, end in cases:
