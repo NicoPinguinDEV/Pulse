@@ -35,13 +35,9 @@ class DiscordLogRegressionTests(unittest.TestCase):
         self.assertIn("except discord.NotFound", method)
         self.assertIn("except discord.HTTPException", method)
 
-    def test_team_member_can_start_shift_while_leave_remains_active(self):
-        shift_handler = get_method(read_source("webserver.py"), "handle_shift_action")
-        self.assertIn("leave_active = bool(loa and loa.get(\"active\"))", shift_handler)
-        self.assertIn("Schicht gestartet. Deine Abmeldung bleibt bis", shift_handler)
-        self.assertNotIn("beende erst deine Abmeldung", shift_handler)
-        self.assertIn("save_json(SHIFTS_FILE, shifts_db)", shift_handler)
-
+    def test_teamlist_distinguishes_service_status_during_leave(self):
+        # Starting a shift during an active leave is covered behaviourally in
+        # tests/test_shift_actions.py; avoid binding that contract to source layout.
         teamlist_method = get_method(read_source("cogs/teamliste.py"), "create_team_embed")
         self.assertIn("active_shifts = self.get_active_shift_map()", teamlist_method)
         self.assertIn("Im Dienst (Abmeldung bis", teamlist_method)
