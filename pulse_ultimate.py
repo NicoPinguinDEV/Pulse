@@ -645,7 +645,7 @@ def member_stats(member) -> dict:
     uid_s = str(member.id)
     weekly = webserver.calculate_weekly_seconds(uid_s, shifts.get("history", []), shifts.get("active_shifts", {}))
     history = [h for h in shifts.get("history", []) if str(h.get("mod_id")) == uid_s]
-    total_seconds = sum(int(h.get("duration_seconds", 0)) for h in history)
+    total_seconds = sum(webserver.credited_shift_seconds(h) for h in history)
     active = shifts.get("active_shifts", {}).get(uid_s)
     if active:
         total_seconds += webserver.shift_elapsed(active)
