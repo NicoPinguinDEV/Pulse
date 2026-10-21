@@ -2639,6 +2639,11 @@ def register(app):
         try: loaded={n.rsplit('.',1)[-1] for n in getattr(bot,'extensions',{}).keys() if n.startswith('cogs.')}
         except Exception: pass
         missing=sorted(expected-loaded); checks.append(('Cogs',not missing,f'{len(loaded)}/{len(expected)} geladen' + (f' · fehlt: {", ".join(missing[:3])}' if missing else '')))
+        try:
+            import pulse_system_checks  # U-12
+            checks.extend(pulse_system_checks.run(bot,c.guild,c.config))
+        except Exception as exc:
+            checks.append(('Erweiterte Prüfungen',False,f'fehlgeschlagen ({type(exc).__name__})'))
         total,used,free=shutil.disk_usage(ws.BASE_DIR); checks.append(('Speicher',free>200*1024*1024,f'{free/1024/1024:.0f} MB frei'))
         rows=''.join(f'<div class="pulse-row"><div class="flex items-center gap-2"><span class="pulse-status-dot {"bg-emerald-500" if ok else "bg-rose-500"}"></span><div class="pulse-row-title">{e(name)}</div></div><div class="text-right"><div class="text-[11px] font-semibold">{e(detail)}</div><div class="pulse-row-meta">{"OK" if ok else "Prüfen"}</div></div></div>' for name,ok,detail in checks)
         body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">♥ Systemstatus</div><div class="pulse-section-sub">Live-Prüfung der wichtigsten Pulse-Komponenten.</div></div><span class="pulse-pill {'good' if all(x[1] for x in checks) else 'warn'}">{'Alles grün' if all(x[1] for x in checks) else 'Prüfung nötig'}</span></div>{card('System-Checks',rows,'♥')}{card('Letzte Fehler',''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(x["source"])}</div><div class="pulse-row-meta">{ws.time_tag(x["at"])} · {e(x["error_id"] or "–")} · {e(x["message"])}</div></div></div>' for x in __import__('pulse_logging').recent(20)) or ws.empty_state('Keine Fehler seit dem Start.','✅'),'⚠')}{card('Slash-Befehle','<form method="post" action="/admin/commands/sync" onsubmit="return confirm(&#39;Slash-Befehle jetzt bei Discord synchronisieren?&#39;)"><p class="text-xs text-slate-400 mb-2">Pulse synchronisiert nur noch, wenn sich Befehle geändert haben. Fehlen Befehle in Discord, hier manuell auslösen.</p><button class="pulse-btn ghost">🔄 Jetzt synchronisieren</button></form>','🔄')}'''
