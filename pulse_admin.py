@@ -40,6 +40,7 @@ def admin_sections(perms: dict) -> list[tuple]:
     sections = [
         ("admin-discord", "/admin/discord", "🎨", "Discord-Auftritt", "Verifikation, Willkommen & Abschied, Embed-Design", is_admin),
         ("ticket-panels", "/tickets/panels", "🎛️", "Ticket-Panels", "Panels, Kategorien, Begrüßungen, Formulare", is_admin),
+        ("admin-panels", "/admin/panels", "▦", "Discord-Panels", "Alle Panels, Status, neu veröffentlichen", is_admin),
         ("announcements", "/announcements", "📢", "Ankündigungen", "Globale Team- und Servernachrichten", announcements),
         ("social", "/social", "📣", "Social Media", "Creator-Kanäle und Video-Ankündigungen", announcements),
         ("settings", "/settings", "⚙", "Einstellungen & Rechte", "Rollen, Dashboard-Rechte, Module, Kanäle", is_admin),
@@ -589,6 +590,52 @@ def register(app) -> None:
         ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Datenauskunft exportiert", f"Discord-ID {uid}")
         return Response(_json.dumps(data, ensure_ascii=False, indent=2, default=str), media_type="application/json",
                         headers={"Content-Disposition": f'attachment; filename="pulse_auskunft_{uid}.json"'})
+
+    # ------------------------------------------------------------------ BOT-14: panel overview
+    @app.get("/admin/panels", response_class=HTMLResponse)
+    async def admin_panels(request: Request, user_session: str = Cookie(None)):
+        import pulse_panels
+        ctx = admin_ctx(request, user_session)
+        items = await pulse_panels.check(ctx.guild, pulse_panels.collect(ctx.guild.id))
+        labels = {"ok": ("Aktiv", "good"), "missing_message": ("Nachricht fehlt", "bad"), "missing_channel": ("Kanal fehlt", "bad"),
+                  "not_set_up": ("Nicht eingerichtet", "warn"), "unknown": ("Nicht prüfbar", "warn")}
+        rows = []
+        for item in items:
+            label, kind = labels.get(item.get("state"), ("?", "warn"))
+            where = (f'#{e(item["channel_name"])}' if item.get("channel_name") else (f'Kanal {item["channel_id"]}' if item["channel_id"] else "–"))
+            link = (f' · <a class="text-indigo-500" target="_blank" rel="noopener" href="https://discord.com/channels/{ctx.guild.id}/{item["channel_id"]}/{item["message_id"]}">Nachricht öffnen</a>'
+                    if item["channel_id"] and item["message_id"] and item.get("state") == "ok" else "")
+            action = (f'<form method="post" action="/admin/panels/republish"><input type="hidden" name="kind" value="{e(item["key"])}">'
+                      f'<button class="pulse-btn ghost" type="submit">↻ Neu veröffentlichen</button></form>'
+                      if item["republish"] else f'<span class="pulse-row-meta">{e(item["how"])}</span>')
+            rows.append(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(item["name"])} '
+                        f'<span class="pulse-pill {kind}">{e(label)}</span></div><div class="pulse-row-meta">{where}{link} · Einrichtung: {e(item["how"])}</div></div>'
+                        f'{action}</div>')
+        body = f'''
+<div class="pulse-crumb"><a href="/admin">Verwaltung</a> › Discord-Panels</div>
+<section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">▦ Discord-Panels</div>
+<div class="pulse-section-sub">Alle dauerhaften Panels mit Kanal, Nachricht und Status. „Neu veröffentlichen“ nutzt die vorhandene Funktion des jeweiligen Panels; andere Panels richtest du mit dem genannten Befehl im Zielkanal neu ein.</div></div></div>
+<div class="pulse-card-b space-y-2">{"".join(rows)}</div></section>'''
+        return HTMLResponse(render_pro_page(ws, "Discord-Panels", ctx, "admin-panels", body))
+
+    @app.post("/admin/panels/republish")
+    async def admin_panels_republish(request: Request, user_session: str = Cookie(None)):
+        import pulse_panels
+        ctx = admin_ctx(request, user_session)
+        kind = str((await request.form()).get("kind") or "")
+        if kind not in pulse_panels.REPUBLISH:
+            return ws.back("/admin/panels", "Für dieses Panel gibt es kein automatisches Neuveröffentlichen.", False)
+        bot = getattr(request.app.state, "bot", None)
+        if bot is None:
+            return ws.back("/admin/panels", "Der Bot ist nicht verbunden.", False)
+        try:
+            message = await pulse_panels.republish(bot, ctx.guild, kind)
+        except ValueError as exc:
+            return ws.back("/admin/panels", str(exc), False)
+        except Exception as exc:  # Discord errors: visible, with type, never as success
+            return ws.back("/admin/panels", f"Veröffentlichen fehlgeschlagen ({type(exc).__name__}). Kanalrechte prüfen.", False)
+        ws.log_audit(ctx.user.get("global_name"), ctx.user["id"], "Panel neu veröffentlicht", kind)
+        return ws.back("/admin/panels", message, True)
 
     @app.post("/admin/commands/sync")
     async def admin_commands_sync(request: Request, user_session: str = Cookie(None)):
