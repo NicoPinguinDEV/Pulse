@@ -2907,10 +2907,25 @@ async def healthz(request: Request):
 # =============================================================
 # ROUTEN: LOGIN, LOGOUT & OAUTH CALLBACK
 # =============================================================
+# U-02: every team member chooses their own start page (default: Mein Pulse).
+START_PAGES = {"/me": "Mein Pulse", "/dashboard": "Übersicht", "/cockpit": "Leitungs-Cockpit",
+               "/ultimate": "Command Center", "/suite": "Operations Suite", "/tickets": "Tickets"}
+DEFAULT_START_PAGE = "/me"
+
+
+def start_page_for(user_id) -> str:
+    try:
+        chosen = pulse_db.get_setting(f"start_page:{user_id}", DEFAULT_START_PAGE)
+    except Exception:
+        chosen = DEFAULT_START_PAGE
+    return chosen if chosen in START_PAGES else DEFAULT_START_PAGE
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home(user_session: str = Cookie(None)):
-    if user_session and verify_session_token(user_session, TOKEN_DASHBOARD):
-        return RedirectResponse(url="/ultimate", status_code=303)
+    session = verify_session_token(user_session, TOKEN_DASHBOARD) if user_session else None
+    if session:
+        return RedirectResponse(url=start_page_for(session.get("id")), status_code=303)
     return f"""
     <!DOCTYPE html>
     <html lang="de">
@@ -3026,7 +3041,7 @@ async def callback(request: Request, code: str = None, state: str = None, error:
         "avatar": user_data.get("avatar"),
         "exp": int(time.time() + SESSION_DAYS * 86400),
     }
-    response = RedirectResponse(url="/ultimate", status_code=303)
+    response = RedirectResponse(url=start_page_for(session["id"]), status_code=303)  # U-02
     response.set_cookie(
         "user_session",
         sign_payload(session, typ=TOKEN_DASHBOARD),

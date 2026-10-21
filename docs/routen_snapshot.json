@@ -175,6 +175,7 @@
  "POST /log/delete -> webserver.delete_log",
  "POST /log/edit -> webserver.edit_log",
  "POST /logout -> webserver.logout",
+ "POST /me/start-page -> pulse_home.register.<locals>.my_start_page",
  "POST /promotions/create -> pulse_pro.register.<locals>.create_promotion",
  "POST /promotions/decide -> pulse_pro.register.<locals>.decide_promotion",
  "POST /pulse-inbox/read -> pulse_pro.register.<locals>.inbox_read_all",

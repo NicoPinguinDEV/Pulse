@@ -241,6 +241,15 @@ def register(app) -> None:
         )
         waiting_card = card("⏳ Wartet auf dich", waiting, cockpit_link) if waiting else ""
 
+        # U-02: personal start page after login and on "/"
+        current_start = ws.start_page_for(ctx.user["id"])
+        start_options = "".join(f'<option value="{e(path)}"{" selected" if path == current_start else ""}>{e(label)}</option>'
+                                for path, label in ws.START_PAGES.items())
+        start_page_form = (f'<form method="post" action="/me/start-page" class="flex flex-wrap gap-2 items-center">'
+                           f'<label class="sr-only" for="startPage">Startseite</label>'
+                           f'<select id="startPage" name="start_page" class="pulse-input flex-1">{start_options}</select>'
+                           f'<button class="pulse-btn ghost" type="submit">Speichern</button></form>'
+                           f'<p class="text-[11px] text-slate-400 mt-2">Diese Seite öffnet sich nach dem Login.</p>')
         body = f'''
         {hero}
         <div class="pulse-stat-grid">{stat_html}</div>
@@ -255,6 +264,7 @@ def register(app) -> None:
             {card("🛡 Mein Status", warn_rows + loa_html)}
             {card("🎙 Nächste Besprechung", meeting_html, '<a href="/meetings" class="text-[11px] text-indigo-500">Details →</a>')}
             {card("📥 Neu für mich", inbox_html, '<a href="/pulse-inbox" class="text-[11px] text-indigo-500">Inbox →</a>')}
+            {card("🏠 Meine Startseite", start_page_form)}
           </div>
         </div>'''
         head = (
@@ -265,3 +275,13 @@ def register(app) -> None:
             "tick();if(running)setInterval(tick,15000);});</script>"
         )
         return render_pro_page(ws, "Mein Pulse", ctx, "me", body, head)
+
+    @app.post("/me/start-page")
+    async def my_start_page(request: Request, user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session)
+        form = await request.form()
+        choice = str(form.get("start_page") or "")
+        if choice not in ws.START_PAGES:
+            return ws.back("/me", "Diese Startseite gibt es nicht.", False)
+        db.set_setting(f"start_page:{ctx.user['id']}", choice)
+        return ws.back("/me", f"Startseite gespeichert: {ws.START_PAGES[choice]}.", True)
