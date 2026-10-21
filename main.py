@@ -123,16 +123,8 @@ class CustomBot(commands.Bot):
 
     async def on_ready(self):
         print(f"✅ Bot ist online als {self.user} (ID: {self.user.id})")
-        try:
-            await self.change_presence(
-                activity=discord.Activity(
-                    type=discord.ActivityType.watching,
-                    name="Pulse TeamOS"
-                )
-            )
-            print("🎮 Discord Presence: Pulse TeamOS")
-        except Exception as exc:
-            print(f"⚠️ Discord Presence konnte nicht gesetzt werden: {exc}")
+        from pulse_presence import update_presence
+        await update_presence(self)
         from pulse_ready import first_ready
         if not first_ready(self, "warn-role-reconcile"):  # P-08: not again after every reconnect
             return
