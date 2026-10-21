@@ -62,7 +62,7 @@ class RaidWatchTests(unittest.IsolatedAsyncioTestCase):
             await cog.on_member_join(self.member(uid))
         self.assertFalse(cog.enabled)
         self.assertEqual(self.alert_channel.sent, [])
-        self.assertEqual(cog._joins, [])
+        self.assertEqual(list(cog._joins), [])
 
     async def test_fresh_account_burst_generates_alert_without_action(self):
         for uid in range(1, 4):
