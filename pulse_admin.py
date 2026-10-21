@@ -13,12 +13,15 @@ import html
 import os
 import re
 import secrets
+import sqlite3
 from datetime import datetime, timezone
 
 from fastapi import Cookie, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
+import discord
 import pulse_db
+import pulse_panel_inventory
 from pulse_embed_design import DEFAULT_COLORS, branding, normalize_hex, save_branding
 import pulse_verification as verification
 from pulse_welcome import (
@@ -28,7 +31,7 @@ from pulse_welcome import (
 
 # Pages that belong to the administration area (sidebar switches to "Verwaltung").
 ADMIN_PAGE_KEYS = frozenset({
-    "admin", "admin-discord", "ticket-panels", "settings", "backups", "system", "announcements", "social",
+    "admin", "admin-discord", "admin-panels", "ticket-panels", "settings", "backups", "system", "announcements", "social",
     "admin-privacy",
 })
 
@@ -39,6 +42,7 @@ def admin_sections(perms: dict) -> list[tuple]:
     announcements = is_admin or bool(perms.get("can_manage_announcements"))
     sections = [
         ("admin-discord", "/admin/discord", "🎨", "Discord-Auftritt", "Verifikation, Willkommen & Abschied, Embed-Design", is_admin),
+        ("admin-panels", "/admin/panels", "🧩", "Panel-Übersicht", "Persistente Discord-Panels prüfen und reparieren", is_admin),
         ("ticket-panels", "/tickets/panels", "🎛️", "Ticket-Panels", "Panels, Kategorien, Begrüßungen, Formulare", is_admin),
         ("announcements", "/announcements", "📢", "Ankündigungen", "Globale Team- und Servernachrichten", announcements),
         ("social", "/social", "📣", "Social Media", "Creator-Kanäle und Video-Ankündigungen", announcements),
