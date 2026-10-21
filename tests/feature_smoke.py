@@ -61,7 +61,6 @@ def main() -> None:
     main = read("main.py")
     web = read("webserver.py")
     shift_utils = read("pulse_shift_utils.py")
-    shift_actions = read("pulse_shift_actions.py")
     # Activity Check: use the same absolute database files in the bot and web app,
     # preserve empty-vs-legacy snapshots, and issue idempotent 20:00 warnings.
     activity_utils = read("pulse_activity_utils.py")
