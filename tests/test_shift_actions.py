@@ -105,13 +105,12 @@ class ShiftActionTests(unittest.TestCase):
         self.assertEqual([entry[0] for entry in self.saved], [ws.SHIFTS_FILE] * 3)
 
     def test_active_leave_is_preserved_and_only_informs_user(self):
-        with patch.object(ws, "get_loas", return_value={
-            "42": {"active": True, "bis": "2026-10-28"},
-        }):
+        leave_store = {"42": {"active": True, "bis": "2026-10-28"}}
+        with patch.object(ws, "get_loas", return_value=leave_store):
             result = apply_shift_action(42, "start")
         self.assertTrue(result["ok"])
         self.assertIn("28.10.2026", result["message"])
-        self.assertTrue(ws.get_loas()["42"]["active"])
+        self.assertTrue(leave_store["42"]["active"])
         self.assertTrue(self.shifts["active_shifts"]["42"])
 
     def test_invalid_action_and_status_read_do_not_write(self):
