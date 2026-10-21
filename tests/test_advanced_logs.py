@@ -166,6 +166,32 @@ class AdvancedLogsTests(unittest.TestCase):
         self.assertIn("Moderations-Log", html)
         self.assertIn("Leitstelle", html)
 
+        # The advanced log controls are saved through the protected settings handler.
+        settings_data = {
+            "main_log_channel_id": str(CHANNEL.id),
+            "log_enabled_messages": "1",
+            "log_enabled_members": "1",
+            "log_channel_messages": str(CHANNEL.id),
+            "log_channel_members": "0",
+            "log_ignore_bots": "1",
+            "log_ignore_channels": [str(CHANNEL.id)],
+            "log_ignore_roles": [str(role.id)],
+        }
+        with patch.object(ws, "auth", auth(TEAMLER)):
+            denied = client.post("/settings/advanced-logs/save", data=settings_data, follow_redirects=False)
+            self.assertEqual(denied.status_code, 403)
+        with patch.object(ws, "auth", auth(ADMIN)):
+            saved = client.post("/settings/advanced-logs/save", data=settings_data, follow_redirects=False)
+        self.assertEqual(saved.status_code, 303)
+        self.assertEqual(pulse_db.get_setting(advanced_logs.LOG_SETTING_KEY), str(CHANNEL.id))
+        saved_cfg = pulse_db.get_setting(advanced_logs.LOG_CONFIG_SETTING_KEY)
+        self.assertTrue(saved_cfg["enabled"]["messages"])
+        self.assertTrue(saved_cfg["enabled"]["members"])
+        self.assertEqual(saved_cfg["channels"]["messages"], CHANNEL.id)
+        self.assertIn(CHANNEL.id, saved_cfg["ignore_channel_ids"])
+        self.assertIn(role.id, saved_cfg["ignore_role_ids"])
+        self.assertTrue(saved_cfg["ignore_bots"])
+
 
 if __name__ == "__main__":
     unittest.main()
