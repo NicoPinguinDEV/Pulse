@@ -1467,6 +1467,26 @@ def register(app):
         <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🎧</div><div class="label">Offene Sprachfälle</div><div class="value">{len(cases)}</div></div><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Aktuell im Dienst</div><div class="value">{len(duty_ids)}</div></div><div class="pulse-stat"><div class="icon">⭐</div><div class="label">Bewertungen</div><div class="value">{len(rated)}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Bewertung</div><div class="value">{average_rating:.1f}/5</div></div></div>
         {config_form}
         <section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">📞 Aktuelle Supportfälle</div><div class="pulse-section-sub">Wartende Bürger bleiben im gemeinsamen Warteraum. Nach Übernahme wird der Bürger in den Sprachkanal des Supporters verschoben; beim Abschluss werden temporäre Rechte bereinigt.</div></div><a href="/voice-support" class="pulse-btn ghost">↻ Aktualisieren</a></div><div class="pulse-card-b space-y-2">{"".join(case_rows) or '<div class="pulse-empty">Aktuell keine offenen Sprach-Supportfälle.</div>'}</div></section>'''
+        # BOT-07: visible audio problem (K-10) and supporter statistics from the closed-case history
+        try:
+            from pulse_audio_check import audio_status
+            audio = audio_status()
+        except Exception:
+            audio = {"ok": False, "message": "Audio-Status nicht prüfbar"}
+        if not audio.get("ok"):
+            body = (f'<section class="pulse-alert mb-4" role="alert"><strong>🔇 Warteschleifen-Audio nicht verfügbar</strong>'
+                    f'<div class="text-slate-400 mt-1">{e(audio.get("message"))} – Bürger im Warteraum hören nichts, Fälle funktionieren trotzdem.</div></section>') + body
+        import pulse_voice_queue as vq
+        stats = vq.supporter_stats(db.get_setting(vq.HISTORY_KEY, []) or [], db.get_setting("voice_support_ratings", []) or [])
+        fmt = lambda v, unit: f"{v} {unit}" if v is not None else "–"
+        stat_rows = "".join(
+            f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(r["name"])}</div>'
+            f'<div class="pulse-row-meta">{r["cases"]} Fälle · Wartezeit bis Übernahme {fmt(r["median_wait_min"], "Min.")} · '
+            f'Dauer {fmt(r["median_duration_min"], "Min.")} · Bewertung {("⭐ %.2f (%d)" % (r["rating"], r["rated"])) if r["rating"] else "–"}</div></div></div>'
+            for r in stats[:25]) or '<div class="pulse-empty">Noch keine abgeschlossenen Fälle in der Historie (wird ab diesem Update gesammelt).</div>'
+        body += (f'<section class="pulse-card mt-4"><div class="pulse-card-h"><div><div class="pulse-section-title">📊 Supporter-Statistik</div>'
+                 f'<div class="pulse-section-sub">Median der letzten {vq.HISTORY_MAX} abgeschlossenen Fälle.</div></div></div>'
+                 f'<div class="pulse-card-b space-y-2">{stat_rows}</div></section>')
         return render_pro_page(ws, "Voice-Support", c, "voice-support", body)
 
     async def voice_support_save(request: Request, user_session: str=Cookie(None)):
