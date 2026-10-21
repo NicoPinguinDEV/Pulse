@@ -998,7 +998,7 @@ class PulseSuite(commands.Cog):
             return "Die Zielrolle ist nicht niedriger als der aktuelle Teamrang."
         return ""
 
-    async def _confirm_rank_change(self, interaction, member, role, grund, action, web, role_ids):
+    async def _confirm_rank_change(self, interaction, member, role, grund, action, web, role_ids, probation_days=None):
         if interaction.guild:
             member = interaction.guild.get_member(member.id) or member
         error = self._rank_change_error(interaction, member, role, role_ids, action)
@@ -1044,26 +1044,28 @@ class PulseSuite(commands.Cog):
             action,
             f"{old_names} → {role.name} · Grund: {grund}",
         )
+        # BOT-05: same follow-up as the dashboard – probation (was missing for /promote), DM, team update, audit log.
+        previous_role = max(old_team_roles, key=lambda r: r.position) if old_team_roles else None
+        probation_note = ""
         try:
-            await web.send_team_update_embed(
-                interaction.guild,
-                f"📣 Team-Update: {label}",
-                f"{member.mention} erhielt einen neuen Teamrang.",
-                _pulse_color("success") if action == "promote" else _pulse_color("warning"),
-                actor=interaction.user,
-                target=member,
-                action=label,
-                fields=[
-                    ("Bisherige Teamrolle(n)", old_names, False),
-                    ("Neue Teamrolle", role.mention, False),
-                    ("Grund", grund[:1000], False),
-                ],
-                thumbnail=member.display_avatar.url,
-            )
+            if action == "promote":
+                done = await web.finish_promotion(
+                    interaction.guild, member=member, previous_role=previous_role, new_role=role,
+                    probation_days=probation_days or 7, actor_name=interaction.user.display_name,
+                    actor_id=str(interaction.user.id), reason=grund, source="Slash /promote",
+                )
+                probation_note = f" Probezeit: {done['probation_text']}."
+            else:
+                await web.finish_demotion(
+                    interaction.guild, member=member, previous_role=previous_role, new_role=role,
+                    actor_name=interaction.user.display_name, actor_id=str(interaction.user.id), reason=grund,
+                    source="Slash /demote",
+                )
         except Exception as exc:
-            print(f"⚠️ Pulse {label}: Team-Update konnte nicht gesendet werden ({type(exc).__name__}).")
+            print(f"⚠️ Pulse {label}: Nacharbeiten (Probezeit/DM/Team-Update) fehlgeschlagen ({type(exc).__name__}).")
+            probation_note = " ⚠️ Probezeit/Team-Update konnten nicht vollständig gespeichert werden – bitte prüfen."
         await interaction.response.edit_message(
-            content=f"✅ {label} ausgeführt: **{member.display_name}** → {role.mention}. Alle anderen Team-Rangrollen wurden ersetzt, übrige Rollen bleiben erhalten.",
+            content=f"✅ {label} ausgeführt: **{member.display_name}** → {role.mention}. Alle anderen Team-Rangrollen wurden ersetzt, übrige Rollen bleiben erhalten.{probation_note}",
             embed=None,
             view=None,
             allowed_mentions=discord.AllowedMentions.none(),
@@ -1237,7 +1239,9 @@ class PulseSuite(commands.Cog):
         )
 
     @app_commands.command(name="promote",description="Befördert mit Pflichtgrund, Hierarchieschutz und Bestätigung.")
-    async def promote_cmd(self,i,member:discord.Member,rolle:discord.Role,grund:str=""):
+    @app_commands.describe(probezeit="Pflicht wie im Dashboard: 3 oder 7 Tage",grund="Pflichtgrund")
+    @app_commands.choices(probezeit=[app_commands.Choice(name="3 Tage",value=3),app_commands.Choice(name="7 Tage",value=7)])
+    async def promote_cmd(self,i,member:discord.Member,rolle:discord.Role,probezeit:app_commands.Choice[int],grund:str=""):
         if not grund.strip():
             return await i.response.send_message("❌ Bitte gib einen Pflichtgrund für die Beförderung an.",ephemeral=True)
         web=__import__("webserver")
@@ -1246,9 +1250,9 @@ class PulseSuite(commands.Cog):
         if not allowed(i,"promote",web) or locked() or error:
             return await i.response.send_message("❌ Beförderung blockiert: "+(error or "Berechtigung fehlt oder Pulse Emergency Lock ist aktiv."),ephemeral=True)
         async def do(x):
-            await self._confirm_rank_change(x,member,rolle,grund.strip()[:1000],"promote",web,role_ids)
+            await self._confirm_rank_change(x,member,rolle,grund.strip()[:1000],"promote",web,role_ids,probation_days=probezeit.value)
         await i.response.send_message(
-            f"📈 **Beförderung vorbereiten**\n{member.display_name}: **{rolle.name}**\nGrund: {grund.strip()}\n\nBestehende Team-Rangrollen werden durch den neuen Rang ersetzt. Fortfahren?",
+            f"📈 **Beförderung vorbereiten**\n{member.display_name}: **{rolle.name}**\nProbezeit: {probezeit.value} Tage\nGrund: {grund.strip()}\n\nBestehende Team-Rangrollen werden durch den neuen Rang ersetzt. Fortfahren?",
             view=Confirm(i.user.id,do,key="promote",origin=i),
             ephemeral=True,
         )

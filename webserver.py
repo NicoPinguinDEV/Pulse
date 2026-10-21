@@ -9412,6 +9412,95 @@ def migrate_warning_data():
 migrate_warning_data()
 
 
+# ---------- BOT-05: what follows a rank change (dashboard and slash commands) ----------
+async def finish_promotion(guild, *, member, previous_role, new_role, probation_days: int, actor_name: str,
+                           actor_id: str, reason: str, source: str = "Dashboard") -> dict:
+    """After the roles were changed: probation entry (3 or 7 days, kept history), DM, team update, audit.
+    Without a previous team role there is nothing to fall back to, so no probation is recorded."""
+    probation_days = int(probation_days)
+    probation_started = now_de()
+    probation_expires = probation_started + timedelta(days=probation_days)
+    if previous_role is not None:
+        team_db = load_json(DATA_FILE, {})
+        team_entry = user_entry(team_db, str(member.id))
+        tracker = track_member_entry(member.id, team_entry)  # K-04
+        previous_probation = team_entry.get("probation")
+        if isinstance(previous_probation, dict) and previous_probation.get("active"):
+            history = team_entry.setdefault("probation_history", [])
+            history.append(dict(previous_probation))
+            team_entry["probation_history"] = history[-10:]
+        team_entry["probation"] = {
+            "active": True,
+            "status": "active",
+            "days": probation_days,
+            "previous_role_id": previous_role.id,
+            "new_role_id": new_role.id,
+            "started_at": probation_started.isoformat(timespec="seconds"),
+            "expires_at": probation_expires.isoformat(timespec="seconds"),
+            "promoted_by": actor_name,
+            "promoted_by_id": actor_id,
+            "reason": reason,
+        }
+        tracker.commit()
+    until = probation_expires.strftime("%d.%m.%Y %H:%M")
+    probation_text = f"{probation_days} Tage · bis {until}" if previous_role is not None else "keine (vorher keine Teamrolle)"
+    await send_dm_notification(
+        member,
+        f"🎉 **Herzlichen Glückwunsch!** Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert. "
+        + (f"Deine Probezeit beträgt **{probation_days} Tage** und endet am **{until}**." if previous_role is not None else ""),
+    )
+    await send_team_update_embed(
+        guild,
+        "⬆️ Team-Update: Beförderung",
+        f"{member.mention} wurde befördert.",
+        _pulse_color("success"),
+        target=member.mention,
+        action="Beförderung",
+        actor=actor_name,
+        fields=[("Vorherige Rolle", previous_role.mention if previous_role is not None else "Keine", True),
+                ("Neue Rolle", new_role.mention, True), ("Probezeit", probation_text, True), ("Grund", reason, False),
+                ("Quelle", source, True)],
+        thumbnail=member.display_avatar.url,
+    )
+    log_audit(actor_name, actor_id, "Beförderung",
+              f"{member.display_name} -> {new_role.name} · Probezeit: {probation_text} · Grund: {reason}")
+    return {"probation": previous_role is not None, "probation_text": probation_text}
+
+
+async def finish_demotion(guild, *, member, previous_role, new_role, actor_name: str, actor_id: str, reason: str,
+                          source: str = "Dashboard") -> None:
+    """After the roles were changed: DM, team update and audit for a demotion (new_role None = no team rank left)."""
+    if new_role is not None:
+        await send_dm_notification(member, f"⚠️ Du wurdest auf **{guild.name}** auf die Rolle **{new_role.name}** degradiert.")
+        await send_team_update_embed(
+            guild,
+            "⬇️ Team-Update: Degradierung",
+            f"{member.mention} wurde degradiert.",
+            _pulse_color("warning"),
+            target=member.mention,
+            action="Degradierung",
+            actor=actor_name,
+            fields=[("Vorherige Rolle", previous_role.mention if previous_role is not None else "Unbekannt", True),
+                    ("Neue Rolle", new_role.mention, True), ("Grund", reason, False), ("Quelle", source, True)],
+            thumbnail=member.display_avatar.url,
+        )
+        log_audit(actor_name, actor_id, "Degradierung", f"{member.display_name} -> {new_role.name} · Grund: {reason}")
+        return
+    await send_dm_notification(member, f"⚠️ Du wurdest aus dem Team-Rollenrang auf **{guild.name}** entfernt.")
+    await send_team_update_embed(
+        guild,
+        "⬇️ Team-Update: Teamrolle entfernt",
+        f"{member.mention} hat keine Teamrolle mehr.",
+        _pulse_color("danger"),
+        target=member.mention,
+        action="Teamrolle entfernt",
+        actor=actor_name,
+        fields=[("Grund", reason, False), ("Quelle", source, True)],
+        thumbnail=member.display_avatar.url,
+    )
+    log_audit(actor_name, actor_id, "Degradierung", f"{member.display_name} -> Keine Teamrolle · Grund: {reason}")
+
+
 # ---------- BOT-05: one logic for team warnings (dashboard and slash commands) ----------
 WARN_MIN_DAYS, WARN_MAX_DAYS = 1, 365
 
@@ -10036,46 +10125,10 @@ async def handle_action(
                 if old:
                     await member.remove_roles(*old, reason=f"Beförderung durch {actor}: {action_reason}")
 
-                team_db = load_json(DATA_FILE, {})
-                team_entry = user_entry(team_db, str(member.id))
-                previous_probation = team_entry.get("probation")
-                if isinstance(previous_probation, dict) and previous_probation.get("active"):
-                    history = team_entry.setdefault("probation_history", [])
-                    history.append(dict(previous_probation))
-                    team_entry["probation_history"] = history[-10:]
-                probation_started = now_de()
-                probation_expires = probation_started + timedelta(days=int(probation_days))
-                team_entry["probation"] = {
-                    "active": True,
-                    "status": "active",
-                    "days": int(probation_days),
-                    "previous_role_id": previous_role.id,
-                    "new_role_id": new_role.id,
-                    "started_at": probation_started.isoformat(timespec="seconds"),
-                    "expires_at": probation_expires.isoformat(timespec="seconds"),
-                    "promoted_by": actor,
-                    "promoted_by_id": actor_id,
-                    "reason": action_reason,
-                }
-                save_json(DATA_FILE, team_db)
-                await send_dm_notification(
-                    member,
-                    f"🎉 **Herzlichen Glückwunsch!** Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert. "
-                    f"Deine Probezeit beträgt **{probation_days} Tage** und endet am "
-                    f"**{probation_expires.strftime('%d.%m.%Y %H:%M')}**.",
+                await finish_promotion(  # BOT-05: same follow-up as /promote
+                    guild, member=member, previous_role=previous_role, new_role=new_role, probation_days=probation_days,
+                    actor_name=actor, actor_id=actor_id, reason=action_reason, source="Dashboard",
                 )
-                await send_team_update_embed(
-                    guild,
-                    "⬆️ Team-Update: Beförderung",
-                    f"{member.mention} wurde befördert.",
-                    _pulse_color("success"),
-                    target=member.mention,
-                    action="Beförderung",
-                    actor=actor,
-                    fields=[("Vorherige Rolle", previous_role.mention, True), ("Neue Rolle", new_role.mention, True), ("Probezeit", f"{probation_days} Tage · bis {probation_expires.strftime('%d.%m.%Y %H:%M')}", True), ("Grund", action_reason, False)],
-                    thumbnail=member.display_avatar.url,
-                )
-                log_audit(actor, actor_id, "Beförderung", f"{member.display_name} -> {new_role.name} · Probezeit: {probation_days} Tage · bis {probation_expires.strftime('%d.%m.%Y %H:%M')} · Grund: {action_reason}")
                 return back(member_url, f"{member.display_name} wurde zum {new_role.name} befördert; Probezeit: {probation_days} Tage.")
 
             # demote
@@ -10089,34 +10142,14 @@ async def handle_action(
                     return back(member_url, "Die Zielrolle existiert nicht mehr (Team-Rollen in den Einstellungen prüfen).", False)
                 await member.add_roles(new_role, reason=f"Degradierung durch {actor}: {action_reason}")
                 await member.remove_roles(*[r for r in old if r.id != new_role.id], reason=f"Degradierung durch {actor}: {action_reason}")
-                await send_dm_notification(member, f"⚠️ Du wurdest auf **{guild.name}** auf die Rolle **{new_role.name}** degradiert.")
-                await send_team_update_embed(
-                    guild,
-                    "⬇️ Team-Update: Degradierung",
-                    f"{member.mention} wurde degradiert.",
-                    _pulse_color("warning"),
-                    target=member.mention,
-                    action="Degradierung",
-                    actor=actor,
-                    fields=[("Vorherige Rolle", old[0].mention if old else "Unbekannt", True), ("Neue Rolle", new_role.mention, True), ("Grund", action_reason, False)],
-                    thumbnail=member.display_avatar.url,
+                await finish_demotion(  # BOT-05: same follow-up as /demote
+                    guild, member=member, previous_role=old[0] if old else None, new_role=new_role,
+                    actor_name=actor, actor_id=actor_id, reason=action_reason, source="Dashboard",
                 )
-                log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> {new_role.name} · Grund: {action_reason}")
                 return back(member_url, f"{member.display_name} wurde zum {new_role.name} degradiert.")
             await member.remove_roles(*old, reason=f"Degradierung durch {actor}")
-            await send_dm_notification(member, f"⚠️ Du wurdest aus dem Team-Rollenrang auf **{guild.name}** entfernt.")
-            await send_team_update_embed(
-                guild,
-                "⬇️ Team-Update: Teamrolle entfernt",
-                f"{member.mention} hat keine Teamrolle mehr.",
-                _pulse_color("danger"),
-                target=member.mention,
-                action="Teamrolle entfernt",
-                actor=actor,
-                fields=[("Grund", action_reason, False)],
-                thumbnail=member.display_avatar.url,
-            )
-            log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> Keine Teamrolle · Grund: {action_reason}")
+            await finish_demotion(guild, member=member, previous_role=old[0] if old else None, new_role=None,
+                                  actor_name=actor, actor_id=actor_id, reason=action_reason, source="Dashboard")
             return back(member_url, f"{member.display_name} wurde aus dem Team-Rang entfernt.")
         except discord.Forbidden:
             return back(member_url, "Dem Bot fehlen Rechte – seine Rolle muss über den Team-Rollen stehen.", False)

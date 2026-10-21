@@ -137,5 +137,42 @@ class WarningDomainTests(unittest.TestCase):
         self.assertNotIn('current_warn["active"]=False', source)  # the old private copy is gone
 
 
+class RankChangeDomainTests(WarningDomainTests):
+    """BOT-05 part 2: promotion/demotion follow-up shared by the dashboard and /promote, /demote."""
+
+    def test_promotion_records_probation_dm_and_update(self):
+        result = asyncio.run(ws.finish_promotion(self.guild, member=self.target, previous_role=TEAM, new_role=LEAD,
+                                                 probation_days=3, actor_name="Lena", actor_id="3", reason="Gute Arbeit",
+                                                 source="Slash /promote"))
+        self.assertTrue(result["probation"])
+        probation = json.loads(Path(ws.DATA_FILE).read_text(encoding="utf-8"))["2"]["probation"]
+        self.assertEqual((probation["days"], probation["previous_role_id"], probation["new_role_id"]), (3, 10, 11))
+        ws.send_dm_notification.assert_awaited()   # before: /promote sent no DM and set no probation
+        fields = ws.send_team_update_embed.await_args.kwargs["fields"]
+        self.assertIn(("Quelle", "Slash /promote", True), fields)
+
+    def test_promotion_without_previous_rank_sets_no_probation(self):
+        result = asyncio.run(ws.finish_promotion(self.guild, member=self.target, previous_role=None, new_role=TEAM,
+                                                 probation_days=7, actor_name="Lena", actor_id="3", reason="Aufnahme"))
+        self.assertFalse(result["probation"])
+        self.assertFalse(Path(ws.DATA_FILE).exists())
+
+    def test_demotion_messages(self):
+        asyncio.run(ws.finish_demotion(self.guild, member=self.target, previous_role=LEAD, new_role=TEAM,
+                                       actor_name="Lena", actor_id="3", reason="Inaktiv"))
+        self.assertIn("degradiert", ws.send_dm_notification.await_args.args[1])
+        asyncio.run(ws.finish_demotion(self.guild, member=self.target, previous_role=TEAM, new_role=None,
+                                       actor_name="Lena", actor_id="3", reason="Inaktiv"))
+        self.assertIn("entfernt", ws.send_dm_notification.await_args.args[1])
+
+    def test_slash_promote_requires_probation_and_uses_the_shared_follow_up(self):
+        source = Path("cogs/pulse_suite.py").read_text(encoding="utf-8")
+        self.assertIn("probezeit:app_commands.Choice[int]", source)
+        self.assertIn("web.finish_promotion(", source)
+        self.assertIn("web.finish_demotion(", source)
+        web = Path("webserver.py").read_text(encoding="utf-8")
+        self.assertEqual(web.count('"promoted_by_id": actor_id'), 1)  # one place writes the probation entry
+
+
 if __name__ == "__main__":
     unittest.main()
