@@ -1003,6 +1003,14 @@ def get_current_user(user_session: str = Cookie(None)) -> dict:
     data = verify_session_token(user_session, TOKEN_DASHBOARD)
     if not data:
         raise HTTPException(status_code=303, headers={"Location": "/"})
+    try:
+        import pulse_sessions  # U-14: revoked, idle or signed out everywhere → log in again
+        valid = pulse_sessions.is_valid(data)
+    except Exception as exc:  # the signed cookie stays the primary check; a DB hiccup must not lock everyone out
+        print(f"⚠️ Sitzungsprüfung nicht möglich: {type(exc).__name__}")
+        valid = True
+    if not valid:
+        raise HTTPException(status_code=303, headers={"Location": "/"})
     return data
 
 
@@ -1022,6 +1030,16 @@ def auth(request: Request, user_session, perm="can_view_dashboard", admin=False)
         raise HTTPException(status_code=503, detail="Der Bot ist noch nicht bereit. Bitte in ein paar Sekunden neu laden.")
     config = load_config()
     perms, member = compute_perms(guild, user["id"], config)
+    if not (perms.get("can_view_dashboard") or perms.get("is_admin")):
+        # U-14: left the team (team kick, roles removed, left the server) → sessions end. Only revoke when
+        # the member list is reliable, so an incomplete cache after a restart does not log everyone out.
+        if member is not None or getattr(guild, "chunked", False):
+            try:
+                import pulse_sessions
+                pulse_sessions.revoke_all(user["id"], reason="nicht mehr im Team")
+            except Exception:
+                pass
+        raise HTTPException(status_code=403, detail="Du bist nicht (mehr) im Team oder deine Rolle darf das Dashboard nicht sehen.")
     if admin and not perms["is_admin"]:
         raise HTTPException(status_code=403, detail="Dieser Bereich ist nur für Administratoren.")
     if perm and not perms.get(perm):
@@ -3004,7 +3022,14 @@ async def logout_confirm():
 
 
 @app.post("/logout")
-async def logout():
+async def logout(user_session: str = Cookie(None)):
+    data = verify_session_token(user_session, TOKEN_DASHBOARD) if user_session else None
+    if data and data.get("sid"):
+        try:
+            import pulse_sessions  # U-14: the server-side session ends too
+            pulse_sessions.revoke(data["id"], data["sid"])
+        except Exception:
+            pass
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie(key="user_session")
     return response
@@ -3068,6 +3093,11 @@ async def callback(request: Request, code: str = None, state: str = None, error:
         "avatar": user_data.get("avatar"),
         "exp": int(time.time() + SESSION_DAYS * 86400),
     }
+    try:
+        import pulse_sessions  # U-14: server-side session for the session list
+        session["sid"] = pulse_sessions.create(session["id"], request.headers.get("user-agent", ""))
+    except Exception as exc:
+        print(f"⚠️ Sitzung konnte nicht gespeichert werden: {type(exc).__name__}")
     response = RedirectResponse(url=start_page_for(session["id"]), status_code=303)  # U-02
     response.set_cookie(
         "user_session",

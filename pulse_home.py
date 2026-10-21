@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import Cookie, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 import pulse_db as db
 from pulse_home_utils import (
@@ -249,7 +249,8 @@ def register(app) -> None:
                            f'<label class="sr-only" for="startPage">Startseite</label>'
                            f'<select id="startPage" name="start_page" class="pulse-input flex-1">{start_options}</select>'
                            f'<button class="pulse-btn ghost" type="submit">Speichern</button></form>'
-                           f'<p class="text-[11px] text-slate-400 mt-2">Diese Seite öffnet sich nach dem Login.</p>')
+                           f'<p class="text-[11px] text-slate-400 mt-2">Diese Seite öffnet sich nach dem Login.</p>'
+                           f'<a href="/me/sessions" class="text-[11px] text-indigo-500 mt-2 inline-block">🔐 Meine Sitzungen verwalten →</a>')
         body = f'''
         {hero}
         <div class="pulse-stat-grid">{stat_html}</div>
@@ -285,3 +286,61 @@ def register(app) -> None:
             return ws.back("/me", "Diese Startseite gibt es nicht.", False)
         db.set_setting(f"start_page:{ctx.user['id']}", choice)
         return ws.back("/me", f"Startseite gespeichert: {ws.START_PAGES[choice]}.", True)
+
+    @app.get("/me/sessions", response_class=HTMLResponse)
+    async def my_sessions(request: Request, user_session: str = Cookie(None)):
+        """U-14: own dashboard sessions with device and last activity."""
+        import pulse_sessions
+        from datetime import datetime, timezone
+        ctx = ws.auth(request, user_session)
+        current = (ws.verify_session_token(user_session, ws.TOKEN_DASHBOARD) or {}).get("sid")
+        iso = lambda ts: datetime.fromtimestamp(float(ts), timezone.utc).isoformat(timespec="seconds")
+        rows = "".join(
+            f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(s["device"])}'
+            f'{" · <b>dieses Gerät</b>" if s["sid"] == current else ""}</div><div class="pulse-row-meta">angemeldet {ws.time_tag(iso(s["created_at"]))}'
+            f' · zuletzt aktiv {ws.time_tag(iso(s["last_seen"]))}</div></div>'
+            + ("" if s["sid"] == current else
+               f'<form method="post" action="/me/sessions/revoke"><input type="hidden" name="sid" value="{e(s["sid"])}">'
+               f'<button class="pulse-btn ghost" type="submit">Abmelden</button></form>')
+            + "</div>"
+            for s in pulse_sessions.list_for(ctx.user["id"])
+        ) or ws.empty_state("Keine gespeicherten Sitzungen – du bist mit einem älteren Login angemeldet.", "🔐")
+        idle = pulse_sessions.IDLE_SECONDS // 3600
+        body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">🔐 Meine Sitzungen</div>'
+                f'<div class="pulse-section-sub">Geräte, auf denen du im Dashboard angemeldet bist. Nach {idle} h ohne Aktivität endet eine Sitzung automatisch.</div></div>'
+                f'<a href="/me" class="pulse-btn ghost whitespace-nowrap">← Mein Pulse</a></div>'
+                f'<section class="pulse-card"><div class="pulse-card-b space-y-2">{rows}</div></section>'
+                f'<section class="pulse-card mt-4"><div class="pulse-card-b flex flex-wrap gap-2">'
+                f'<form method="post" action="/me/sessions/revoke-others"><button class="pulse-btn ghost" type="submit">Alle anderen Geräte abmelden</button></form>'
+                f'<form method="post" action="/me/sessions/revoke-all" onsubmit="return confirm(\'Wirklich überall abmelden – auch hier?\')">'
+                f'<button class="pulse-btn bad" type="submit">Überall abmelden</button></form></div></section>')
+        return render_pro_page(ws, "Meine Sitzungen", ctx, "me", body)
+
+    @app.post("/me/sessions/revoke")
+    async def my_session_revoke(request: Request, user_session: str = Cookie(None)):
+        import pulse_sessions
+        ctx = ws.auth(request, user_session)
+        sid = str((await request.form()).get("sid") or "")
+        if not pulse_sessions.revoke(ctx.user["id"], sid):
+            return ws.back("/me/sessions", "Diese Sitzung gibt es nicht (mehr).", False)
+        return ws.back("/me/sessions", "Gerät abgemeldet.", True)
+
+    @app.post("/me/sessions/revoke-others")
+    async def my_session_revoke_others(request: Request, user_session: str = Cookie(None)):
+        import pulse_sessions
+        ctx = ws.auth(request, user_session)
+        current = (ws.verify_session_token(user_session, ws.TOKEN_DASHBOARD) or {}).get("sid")
+        if not current:
+            return ws.back("/me/sessions", "Dein Login ist älter als die Sitzungsliste – bitte „Überall abmelden“ nutzen.", False)
+        count = pulse_sessions.revoke_all(ctx.user["id"], reason="andere Geräte abgemeldet", keep_sid=current)
+        return ws.back("/me/sessions", f"{count} andere Sitzung(en) abgemeldet.", True)
+
+    @app.post("/me/sessions/revoke-all")
+    async def my_session_revoke_all(request: Request, user_session: str = Cookie(None)):
+        import pulse_sessions
+        ctx = ws.auth(request, user_session)
+        pulse_sessions.revoke_all(ctx.user["id"])
+        ws.log_audit(ctx.user.get("global_name"), ctx.user["id"], "Überall abgemeldet", "alle Dashboard-Sitzungen beendet")
+        response = RedirectResponse(url="/", status_code=303)
+        response.delete_cookie(key="user_session")
+        return response

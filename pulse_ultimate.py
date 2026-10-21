@@ -516,6 +516,11 @@ def init_db() -> None:
             );
             """
         )
+        # U-14: scopes (NULL = all, like keys created before), expiry, last use – additive columns only.
+        columns = {row[1] for row in c.execute("PRAGMA table_info(ultimate_api_keys)").fetchall()}
+        for column in ("scopes", "expires_at", "last_used_at"):
+            if column not in columns:
+                c.execute(f"ALTER TABLE ultimate_api_keys ADD COLUMN {column} TEXT")
     _INIT = True
 
 
@@ -738,17 +743,48 @@ def page(ctx, active: str, title: str, subtitle: str, body: str, extra_js: str =
     )
 
 
-def validate_api_key(token: str) -> bool:
+# U-14: what a key may read. Keys from before U-14 have scopes NULL and keep access to everything.
+API_SCOPES = {"overview": "Übersicht (/ultimate/api/v2/overview)", "team": "Teamliste (/ultimate/api/v2/team)"}
+API_RATE_LIMIT = (120, 60)  # requests per key and window in seconds
+API_EXPIRY_CHOICES = {"30": 30, "90": 90, "365": 365, "0": 0}  # 0 = unbefristet
+
+
+def check_api_key(token: str, scope: Optional[str] = None) -> int:
+    """HTTP status for this key: 200 ok, 401 unknown/revoked/expired, 403 scope missing, 429 too many requests."""
     setup()
     if not token or len(token) > 200:
-        return False
+        return 401
     digest = hashlib.sha256(token.encode()).hexdigest()
     with cx() as c:
         row = c.execute(
-            "SELECT 1 FROM ultimate_api_keys WHERE token_hash=? AND revoked_at IS NULL",
+            "SELECT id,scopes,expires_at,last_used_at FROM ultimate_api_keys WHERE token_hash=? AND revoked_at IS NULL",
             (digest,),
         ).fetchone()
-    return bool(row)
+    if not row:
+        return 401
+    if row["expires_at"] and row["expires_at"] <= iso():
+        return 401
+    if scope and row["scopes"] is not None and scope not in row["scopes"].split(","):
+        return 403
+    import webserver
+    if webserver.rate_limited(f"apikey:{row['id']}", *API_RATE_LIMIT):
+        return 429
+    now = iso()
+    if (row["last_used_at"] or "")[:16] != now[:16]:  # written at most once a minute
+        with cx() as c:
+            c.execute("UPDATE ultimate_api_keys SET last_used_at=? WHERE id=?", (now, row["id"]))
+    return 200
+
+
+def require_api_key(request: Request, scope: str) -> None:
+    status = check_api_key(request.headers.get("X-Pulse-API-Key", ""), scope)
+    if status != 200:
+        raise HTTPException(status, {401: "Ungültiger oder abgelaufener API-Key.", 403: "Dieser API-Key darf diesen Bereich nicht lesen.",
+                                     429: "Zu viele Anfragen – bitte kurz warten."}[status])
+
+
+def validate_api_key(token: str) -> bool:
+    return check_api_key(token) == 200
 
 
 def register(app) -> None:
@@ -1682,7 +1718,7 @@ def register(app) -> None:
         body = "<div class='grid g2'>" + "".join(card(f"<div class=row><b>{esc(n)}</b><span>{i} {esc(d)}</span></div>") for i,n,d in checks) + "</div>"
         body += card("<h3>🛰 Live-Systemmonitor</h3><div id='pulse-monitor' class='tiny'>Systemdaten werden geladen …</div><div class='tiny' style='margin-top:8px'>Aktualisierung alle 15 Sekunden · nur für berechtigte Führungskräfte</div>")
         body += card(f"<h3>🎨 Branding</h3><form method='post' action='/ultimate/system/branding' class='form'><input class='input' name='name' value='{esc((setting('branding',{}) or {}).get('name','Pulse TeamOS'))}'><input class='input' name='accent' value='{esc((setting('branding',{}) or {}).get('accent','#6366f1'))}'><input class='input span2' name='logo_url' value='{esc((setting('branding',{}) or {}).get('logo_url',''))}' placeholder='Logo URL'><button class='btn primary span2'>Branding speichern</button></form>")
-        body += card("<h3>🔑 API-Zugriff</h3><form method='post' action='/ultimate/system/api-key' class='form'><input class='input span2' name='name' placeholder='z.B. Mobile App / externe Website' required><button class='btn primary span2'>API-Key erstellen</button></form><div class='tiny' style='margin-top:8px'>Die v2-Endpunkte nutzen den Header X-Pulse-API-Key. Schlüssel werden nur einmal angezeigt.</div><div style='margin-top:8px'><a class='btn' href='/ultimate/system/api-keys'>🔑 Schlüssel verwalten</a></div>")
+        body += card("<h3>🔑 API-Zugriff</h3><form method='post' action='/ultimate/system/api-key' class='form'><input class='input span2' name='name' placeholder='z.B. Mobile App / externe Website' required><input type='hidden' name='scopes_sent' value='1'>" + "".join(f"<label class='tiny'><input type='checkbox' name='scopes' value='{k}' checked> {esc(v)}</label>" for k, v in API_SCOPES.items()) + "<select class='select span2' name='expires_days' aria-label='Gültigkeit'><option value='30'>30 Tage gültig</option><option value='90'>90 Tage gültig</option><option value='365' selected>1 Jahr gültig</option><option value='0'>unbefristet</option></select><button class='btn primary span2'>API-Key erstellen</button></form><div class='tiny' style='margin-top:8px'>Die v2-Endpunkte nutzen den Header X-Pulse-API-Key. Schlüssel werden nur einmal angezeigt.</div><div style='margin-top:8px'><a class='btn' href='/ultimate/system/api-keys'>🔑 Schlüssel verwalten</a></div>")
         body += card("<h3>🛡 Sicherheitsmaßnahmen</h3><div class='tiny'>Rate Limits, signierte Sessions, Sicherheitsheader, Warnrollen-Healthcheck, Audit-Logs, Backups und Health-Endpunkt sind aktiv.</div>")
         return page(ctx, "system", "System & Branding", "Diagnose, Feature Flags und visuelle Serveranpassungen.", body, """
 async function loadPulseMonitor() {
@@ -1736,10 +1772,10 @@ window.setInterval(loadPulseMonitor, 15000);
         ctx = ctx_auth(request, user_session, manager=True)
         with cx() as c:
             keys = [dict(r) for r in c.execute(
-                "SELECT id,name,created_at,revoked_at FROM ultimate_api_keys ORDER BY created_at DESC"
+                "SELECT id,name,created_at,revoked_at,scopes,expires_at,last_used_at FROM ultimate_api_keys ORDER BY created_at DESC"
             ).fetchall()]
         rows = "".join(
-            card(f"<div class=row><div><b>{esc(k['name'])}</b><div class='tiny'>{esc(k['created_at'])}</div></div><span class='pill'>{'widerrufen' if k['revoked_at'] else 'aktiv'}</span></div>{'' if k['revoked_at'] else f"<form method='post' action='/ultimate/system/api-key/{k['id']}/revoke'><button class='btn danger'>Widerrufen</button></form>"}")
+            card(f"<div class=row><div><b>{esc(k['name'])}</b><div class='tiny'>erstellt {esc(k['created_at'])} · Bereiche: {esc(k['scopes'] or 'alle (älterer Schlüssel)')} · {('gültig bis ' + esc(k['expires_at'][:10])) if k['expires_at'] else 'unbefristet'} · zuletzt benutzt: {esc(k['last_used_at'] or 'nie')}</div></div><span class='pill'>{'widerrufen' if k['revoked_at'] else ('abgelaufen' if k['expires_at'] and k['expires_at'] <= iso() else 'aktiv')}</span></div>{'' if k['revoked_at'] else f"<form method='post' action='/ultimate/system/api-key/{k['id']}/revoke'><button class='btn danger'>Widerrufen</button></form>"}")
             for k in keys
         ) or card("<div class='tiny'>Keine API-Keys.</div>")
         body = f"<div class='grid g2'>{rows}</div><div style='margin-top:13px'><a class='btn primary' href='/ultimate/system'>← System</a></div>"
@@ -1945,13 +1981,21 @@ window.setInterval(loadPulseMonitor, 15000);
         user_session: str = Cookie(None),
     ):
         ctx = ctx_auth(request, user_session, manager=True)
+        form = await request.form()
+        scopes = [x for x in form.getlist("scopes") if x in API_SCOPES] if "scopes_sent" in form else list(API_SCOPES)
+        if not scopes:
+            return HTMLResponse("<p>Bitte mindestens einen Bereich wählen. <a href='/ultimate/system'>Zurück</a></p>", status_code=400)
+        days = API_EXPIRY_CHOICES.get(str(form.get("expires_days") or "365"), 365)
+        expires = iso(utcnow() + timedelta(days=days)) if days else None
         raw = "pulse_" + secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(raw.encode()).hexdigest()
         with cx() as c:
             c.execute(
-                "INSERT INTO ultimate_api_keys VALUES(?,?,?,?,?,?)",
-                (uid("key"), name.strip()[:100], token_hash, str(ctx.user["id"]), iso(), None),
+                "INSERT INTO ultimate_api_keys(id,name,token_hash,created_by_id,created_at,revoked_at,scopes,expires_at)"
+                " VALUES(?,?,?,?,?,?,?,?)",
+                (uid("key"), name.strip()[:100], token_hash, str(ctx.user["id"]), iso(), None, ",".join(scopes), expires),
             )
+        audit(ctx, "API-Key erstellt", f"{name.strip()[:100]} · {','.join(scopes)} · " + (f"bis {expires[:10]}" if expires else "unbefristet"))
         # Token is returned exactly once.
         return HTMLResponse(
             f"<html><body style='font-family:system-ui;padding:30px;background:#070b12;color:#fff'>"
@@ -1962,9 +2006,7 @@ window.setInterval(loadPulseMonitor, 15000);
 
     @app.get("/ultimate/api/v2/overview")
     async def ultimate_api_v2_overview(request: Request):
-        api_key = request.headers.get("X-Pulse-API-Key", "")
-        if not validate_api_key(api_key):
-            raise HTTPException(401, "Ungültiger API-Key.")
+        require_api_key(request, "overview")  # U-14
         import webserver
         guild = getattr(request.app.state, "bot", None).get_guild(webserver.GUILD_ID) if getattr(request.app.state, "bot", None) else None
         if not guild:
@@ -1986,9 +2028,7 @@ window.setInterval(loadPulseMonitor, 15000);
 
     @app.get("/ultimate/api/v2/team")
     async def ultimate_api_v2_team(request: Request):
-        api_key = request.headers.get("X-Pulse-API-Key", "")
-        if not validate_api_key(api_key):
-            raise HTTPException(401, "Ungültiger API-Key.")
+        require_api_key(request, "team")  # U-14
         import webserver
         bot = getattr(request.app.state, "bot", None)
         guild = bot.get_guild(webserver.GUILD_ID) if bot else None
