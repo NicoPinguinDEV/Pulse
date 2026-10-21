@@ -1,6 +1,7 @@
 """Advanced Discord event logging using the admin-configured Pulse log channel."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 import discord
@@ -15,6 +16,9 @@ LOG_SETTING_KEY = "moderation_log_channel_id"
 LOG_CONFIG_SETTING_KEY = "advanced_logs_config"
 _HINT_SHOWN = False
 LOG_CATEGORIES = ("messages", "members", "moderation", "roles", "channels", "voice")
+LOG_BATCH_WINDOW_SECONDS = 0.12
+MAX_LOG_EVENTS_PER_MESSAGE = 10
+MAX_PENDING_LOG_EVENTS = 150
 DEFAULT_LOG_CONFIG = {
     "enabled": {category: True for category in LOG_CATEGORIES},
     "channels": {},
@@ -114,6 +118,9 @@ class AdvancedLogs(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._pending_by_channel: dict[int, list[discord.Embed]] = {}
+        self._flush_tasks: dict[int, asyncio.Task] = {}
+        self._dropped_by_channel: dict[int, int] = {}
 
     @property
     def log_channel_id(self) -> int:
@@ -156,15 +163,81 @@ class AdvancedLogs(commands.Cog):
                 print(f"⚠️ Discord-Protokoll: Zielkanal {destination_id} ist nicht erreichbar.")
         return channel
 
-    async def _send(self, channel, embed):
-        try:
-            await send_styled(
-                channel,
-                embed=embed,
-                allowed_mentions=discord.AllowedMentions.none(),
+    @staticmethod
+    def _event_summary(embed: discord.Embed) -> str:
+        parts = []
+        if embed.description:
+            parts.append(str(embed.description))
+        for field in embed.fields:
+            parts.append(f"{field.name}: {field.value}")
+        return "\n".join(parts)[:950] or "Ereignis ohne weitere Metadaten."
+
+    def _batch_embed(self, embeds: list[discord.Embed], dropped: int = 0) -> discord.Embed:
+        """Combine a short event burst into one rate-limit-friendly log message."""
+        first = embeds[0]
+        batch = discord.Embed(
+            title=f"Discord-Protokoll · {len(embeds)} Ereignisse",
+            color=first.color.value if first.color else _pulse_color("info"),
+            timestamp=discord.utils.utcnow(),
+        )
+        for item in embeds[:MAX_LOG_EVENTS_PER_MESSAGE]:
+            title = str(item.title or "Discord-Ereignis")[:256]
+            if item.timestamp:
+                title = f"{item.timestamp.strftime('%H:%M:%S')} · {title}"[:256]
+            batch.add_field(name=title, value=self._event_summary(item), inline=False)
+        if dropped:
+            batch.add_field(
+                name="⚠️ Warteschlange ausgelastet",
+                value=f"{dropped} weitere Ereignisse konnten wegen der Warteschlangengrenze nicht einzeln aufgenommen werden.",
+                inline=False,
             )
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"⚠️ Discord-Protokoll: Senden fehlgeschlagen ({type(exc).__name__}).")
+        batch.set_footer(text="Pulse TeamOS · Zusammengefasste Discord-Protokolle")
+        return batch
+
+    async def _flush_channel(self, channel):
+        channel_id = int(getattr(channel, "id", 0) or 0)
+        try:
+            # A short debounce turns bursts of gateway events into fewer Discord messages.
+            await asyncio.sleep(LOG_BATCH_WINDOW_SECONDS)
+            while True:
+                pending = self._pending_by_channel.get(channel_id, [])
+                if not pending:
+                    break
+                batch = pending[:MAX_LOG_EVENTS_PER_MESSAGE]
+                del pending[:len(batch)]
+                dropped = self._dropped_by_channel.pop(channel_id, 0)
+                outgoing = batch[0] if len(batch) == 1 and not dropped else self._batch_embed(batch, dropped)
+                try:
+                    await send_styled(
+                        channel,
+                        embed=outgoing,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    print(f"⚠️ Discord-Protokoll: Senden fehlgeschlagen ({type(exc).__name__}).")
+                # Events that arrive while Discord is processing the previous batch stay
+                # in the same queue and are handled by this already-retained task.
+        finally:
+            self._flush_tasks.pop(channel_id, None)
+            # The no-await gap between the empty check and pop makes the usual path atomic
+            # on the event loop; this fallback protects unusual task cancellation timing.
+            if self._pending_by_channel.get(channel_id):
+                self._flush_tasks[channel_id] = asyncio.create_task(self._flush_channel(channel))
+
+    async def _send(self, channel, embed):
+        """Queue log metadata and coalesce simultaneous events per destination channel."""
+        channel_id = int(getattr(channel, "id", 0) or 0)
+        if not channel_id:
+            print("⚠️ Discord-Protokoll: Kanal ohne gültige ID; Ereignis verworfen.")
+            return
+        pending = self._pending_by_channel.setdefault(channel_id, [])
+        if len(pending) >= MAX_PENDING_LOG_EVENTS:
+            self._dropped_by_channel[channel_id] = self._dropped_by_channel.get(channel_id, 0) + 1
+        else:
+            pending.append(embed)
+        task = self._flush_tasks.get(channel_id)
+        if task is None or task.done():
+            self._flush_tasks[channel_id] = asyncio.create_task(self._flush_channel(channel))
 
     @commands.Cog.listener()
     async def on_message_delete(self, message):
