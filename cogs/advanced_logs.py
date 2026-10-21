@@ -203,7 +203,7 @@ class AdvancedLogs(commands.Cog):
             return
         embed = discord.Embed(
             title="Nachricht bearbeitet",
-            description=f"{before.author.mention} · {before.channel.mention}",
+            description=f"{before.author.mention} · {getattr(before.channel, 'mention', '#' + str(getattr(before.channel, 'id', 'unknown')))}",
             color=_pulse_color("warning"),
             timestamp=discord.utils.utcnow(),
         )
