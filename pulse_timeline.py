@@ -12,6 +12,7 @@ from html import escape
 from urllib.parse import urlencode
 
 from pulse_time import parse_timestamp
+from pulse_shift_utils import credited_shift_seconds
 
 KINDS = {"warn": ("⚠", "Warnungen"), "shift": ("⏱", "Schichten"), "ticket": ("🎫", "Tickets"), "task": ("✅", "Aufgaben"),
          "event": ("↯", "Ereignisse"), "note": ("📝", "Notizen")}
@@ -37,7 +38,7 @@ def build(*, warns=(), shifts=(), tickets=(), tasks=(), events=(), notes=(), sho
                 items.append(_item("warn", _at(w.get("revoked_at")), "Verwarnung zurückgezogen",
                                    f"{w.get('revoked_by') or 'Team'} · {w.get('revoked_reason') or 'ohne Grund'}"))
     for s in shifts:
-        minutes = int(s.get("duration_seconds") or 0) // 60
+        minutes = credited_shift_seconds(s) // 60
         items.append(_item("shift", _at(s.get("ended_at_iso") or s.get("started_at_iso") or s.get("date")),
                            f"Schicht · {minutes // 60} h {minutes % 60:02d} min", "automatisch beendet" if s.get("auto_closed") else ""))
     for t in tickets:

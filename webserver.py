@@ -42,7 +42,7 @@ from pulse_time import display, parse_timestamp
 from pulse_team_warning import revoke_warning_record, issue_team_warning
 from pulse_warning_consequences import revoke_temporary_warning_roles
 
-from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
+from pulse_shift_utils import (AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, credited_shift_seconds, parse_max_shift_hours, shift_age_seconds, shift_event_id)
 from career_applications import (
     APPLICATION_CAREERS, APPLICATION_PRACTICAL_TASKS, grade_career_test,
     grade_practical_tasks, render_career_test, render_practical_tasks,
@@ -1138,7 +1138,8 @@ def load_shifts() -> dict:
             "date": s.get("date"),
             "started_at_iso": started_at,
             "ended_at_iso": now.isoformat(timespec="seconds"),
-            "duration_seconds": min(shift_elapsed(s), limit),
+            "duration_seconds": 0,
+            "duration_confirmed": False,
             "auto_closed": True,
             "shift_event_id": event_id,
             "auto_warn_status": "pending",
@@ -1175,7 +1176,8 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
             "date": shift.get("date"),
             "started_at_iso": started_at,
             "ended_at_iso": now.isoformat(timespec="seconds"),
-            "duration_seconds": min(shift_elapsed(shift), AUTO_SHIFT_END_SECONDS),
+            "duration_seconds": 0,
+            "duration_confirmed": False,
             "auto_closed": True,
             "shift_event_id": shift_event_id(uid, started_at),
             "auto_warn_status": "pending",
@@ -1362,7 +1364,7 @@ def weekly_history_totals(history) -> dict:
         try:
             if _in_week(entry.get("date"), start, start_text):
                 uid = str(entry.get("mod_id"))
-                totals[uid] = totals.get(uid, 0) + int(entry.get("duration_seconds", 0))
+                totals[uid] = totals.get(uid, 0) + credited_shift_seconds(entry)
         except Exception:
             pass
     _WEEKLY_MEMO.update(key=key, history=history, totals=totals)
