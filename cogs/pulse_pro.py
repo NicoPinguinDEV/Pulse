@@ -177,8 +177,8 @@ class PulsePro(commands.Cog):
             except Exception:
                 pass
             try:
-                active_count=sum(1 for x in webserver.load_shifts().get("active_shifts",{}).values() if x.get("status") in ("online","break")) if 'webserver' in locals() else 0
-                await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"Pulse · {active_count} im Dienst"))
+                import pulse_presence  # BOT-13
+                await pulse_presence.update(self.bot)
             except Exception:
                 pass
         except Exception as exc:
@@ -190,15 +190,7 @@ class PulsePro(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        try:
-            guild = self.guild()
-            active = 0
-            if guild:
-                import webserver
-                active = len(webserver.load_shifts().get("active_shifts", {}))
-            await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"Pulse · {active} im Dienst"))
-        except Exception:
-            pass
+        # BOT-13: the status is set once in main.on_ready via pulse_presence (no second, differently counted text)
         await self.send_startup_report()
 
     async def send_startup_report(self):

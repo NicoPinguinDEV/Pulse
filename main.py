@@ -124,13 +124,9 @@ class CustomBot(commands.Bot):
     async def on_ready(self):
         print(f"✅ Bot ist online als {self.user} (ID: {self.user.id})")
         try:
-            await self.change_presence(
-                activity=discord.Activity(
-                    type=discord.ActivityType.watching,
-                    name="Pulse TeamOS"
-                )
-            )
-            print("🎮 Discord Presence: Pulse TeamOS")
+            import pulse_presence  # BOT-13: the one place that sets the status
+            if await pulse_presence.update(self, force=True):
+                print("🎮 Discord-Status gesetzt: " + str(pulse_presence._state["text"]))
         except Exception as exc:
             print(f"⚠️ Discord Presence konnte nicht gesetzt werden: {exc}")
         from pulse_ready import first_ready

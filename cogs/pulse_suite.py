@@ -954,7 +954,8 @@ class PulseSuite(commands.Cog):
             except Exception:pass
 
     async def update_presence(self,g):
-        x=sum(s.get("status") in {"online","break"} for s in __import__("webserver").load_shifts().get("active_shifts",{}).values());await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching,name=f"Pulse · {x} im Dienst"))
+        import pulse_presence  # BOT-13: one place, at most every 5 min, only when the text changed
+        await pulse_presence.update(self.bot)
 
     async def security_check(self,g):
         web=__import__("webserver");issues=[]
