@@ -870,12 +870,10 @@ class PulseSuite(commands.Cog):
                 for m in manager_cache:
                     db.notify(m.id,"⏱ Ungewöhnlich lange Schicht",f"{name} ist seit {secfmt(elapsed)} im Dienst. Prüfe bei Bedarf die Schicht.","warning","/suite/member/"+str(uid),f"longshift:{uid}:{s.get('date')}",86400)
                 set_setting("long_shift:"+str(uid)+":"+str(s.get("date")),True)
-                # One friendly DM per shift: most long shifts are simply forgotten clock-outs.
+                # BOT-12/U-11: reminder DMs are opt-in and sent by the shared queue.
+                # This keeps quiet hours and current notification preferences effective.
                 if member:
                     db.notify(member.id,"⏱ Noch im Dienst?",f"Deine Schicht läuft seit {secfmt(elapsed)}. Vergessen auszustempeln?","warning","/me",f"longshift-self:{uid}:{s.get('date')}",86400)
-                    link=f"\n👉 {PUBLIC_BASE_URL}/me" if PUBLIC_BASE_URL else ""
-                    try:await member.send(f"⏱ Hey {member.display_name}, deine Pulse-Schicht läuft schon seit **{secfmt(elapsed)}**. Falls du vergessen hast auszustempeln, beende sie bitte in Pulse.{link}")
-                    except (discord.Forbidden,discord.HTTPException):pass
 
     async def inactivity(self,g):
         # Alle Operationen in dieser Prüfung sind synchron (Discord-Cache,
