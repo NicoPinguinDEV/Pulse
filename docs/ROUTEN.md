@@ -3,7 +3,7 @@
 Automatisch erzeugt von `python tools/route_map.py` aus dem laufenden FastAPI-Objekt (nicht von Hand bearbeiten).
 Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, `admin_ctx`, `perm=`) – Hinweis, kein Beweis.
 
-- **Effektive Routen (Methode × Pfad):** 286
+- **Effektive Routen (Methode × Pfad):** 287
 - **Doppelt registriert:** 1 → `GET /ultimate`
 - **Im Quelltext registriert, zur Laufzeit verdrängt:** 21
 - **Ohne erkennbare Prüfung:** 13 (Login/OAuth/Health/Bewerbungsportal/öffentliche Seiten – einzeln prüfen)
@@ -69,25 +69,26 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/activity-check` | `pulse_pro.register.<locals>.activity_check_page` | pulse_pro.py:903 | can_manage_checkins |
 | POST | `/activity-check/setup` | `pulse_pro.register.<locals>.activity_check_setup` | pulse_pro.py:1029 | can_manage_checkins |
 
-### `/admin` (15)
+### `/admin` (16)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
 | GET | `/admin` | `pulse_admin.register.<locals>.admin_hub` | pulse_admin.py:174 | angemeldet |
-| POST | `/admin/commands/sync` | `pulse_admin.register.<locals>.admin_commands_sync` | pulse_admin.py:640 | Admin |
-| GET | `/admin/discord` | `pulse_admin.register.<locals>.admin_discord` | pulse_admin.py:435 | Admin |
-| GET | `/admin/discord/banner/{filename}` | `pulse_admin.register.<locals>.admin_discord_banner` | pulse_admin.py:763 | Admin |
-| POST | `/admin/discord/branding` | `pulse_admin.register.<locals>.admin_discord_branding` | pulse_admin.py:510 | Admin |
-| POST | `/admin/discord/logs` | `pulse_admin.register.<locals>.admin_discord_logs` | pulse_admin.py:655 | Admin |
-| POST | `/admin/discord/test` | `pulse_admin.register.<locals>.admin_discord_test` | pulse_admin.py:676 | Admin |
-| POST | `/admin/discord/verification` | `pulse_admin.register.<locals>.admin_verification_save` | pulse_admin.py:698 | Admin |
-| POST | `/admin/discord/verification/publish` | `pulse_admin.register.<locals>.admin_verification_publish` | pulse_admin.py:744 | Admin |
-| POST | `/admin/discord/welcome` | `pulse_admin.register.<locals>.admin_discord_welcome` | pulse_admin.py:458 | Admin |
-| GET | `/admin/panels` | `pulse_admin.register.<locals>.admin_panels` | pulse_admin.py:595 | Admin |
-| POST | `/admin/panels/republish` | `pulse_admin.register.<locals>.admin_panels_republish` | pulse_admin.py:621 | Admin |
-| GET | `/admin/privacy` | `pulse_admin.register.<locals>.admin_privacy` | pulse_admin.py:529 | Admin |
-| POST | `/admin/privacy` | `pulse_admin.register.<locals>.admin_privacy_save` | pulse_admin.py:565 | Admin |
-| GET | `/admin/privacy/export` | `pulse_admin.register.<locals>.admin_privacy_export` | pulse_admin.py:580 | Admin |
+| POST | `/admin/commands/sync` | `pulse_admin.register.<locals>.admin_commands_sync` | pulse_admin.py:670 | Admin |
+| GET | `/admin/discord` | `pulse_admin.register.<locals>.admin_discord` | pulse_admin.py:465 | Admin |
+| GET | `/admin/discord/banner/{filename}` | `pulse_admin.register.<locals>.admin_discord_banner` | pulse_admin.py:823 | Admin |
+| POST | `/admin/discord/branding` | `pulse_admin.register.<locals>.admin_discord_branding` | pulse_admin.py:540 | Admin |
+| POST | `/admin/discord/log-routing` | `pulse_admin.register.<locals>.admin_discord_log_routing` | pulse_admin.py:706 | Admin |
+| POST | `/admin/discord/logs` | `pulse_admin.register.<locals>.admin_discord_logs` | pulse_admin.py:685 | Admin |
+| POST | `/admin/discord/test` | `pulse_admin.register.<locals>.admin_discord_test` | pulse_admin.py:736 | Admin |
+| POST | `/admin/discord/verification` | `pulse_admin.register.<locals>.admin_verification_save` | pulse_admin.py:758 | Admin |
+| POST | `/admin/discord/verification/publish` | `pulse_admin.register.<locals>.admin_verification_publish` | pulse_admin.py:804 | Admin |
+| POST | `/admin/discord/welcome` | `pulse_admin.register.<locals>.admin_discord_welcome` | pulse_admin.py:488 | Admin |
+| GET | `/admin/panels` | `pulse_admin.register.<locals>.admin_panels` | pulse_admin.py:625 | Admin |
+| POST | `/admin/panels/republish` | `pulse_admin.register.<locals>.admin_panels_republish` | pulse_admin.py:651 | Admin |
+| GET | `/admin/privacy` | `pulse_admin.register.<locals>.admin_privacy` | pulse_admin.py:559 | Admin |
+| POST | `/admin/privacy` | `pulse_admin.register.<locals>.admin_privacy_save` | pulse_admin.py:595 | Admin |
+| GET | `/admin/privacy/export` | `pulse_admin.register.<locals>.admin_privacy_export` | pulse_admin.py:610 | Admin |
 
 ### `/announcements` (2)
 

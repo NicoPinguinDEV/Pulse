@@ -326,6 +326,36 @@ def register(app) -> None:
    <div class="grid gap-1 max-h-48 overflow-auto rounded-xl border border-slate-200 dark:border-slate-800 p-2">{role_boxes}</div>
    <div class="text-[11px] text-slate-400 mt-1">Admins und Leitung (Beförderungsrecht) dürfen immer. Alle anderen nur mit einer der gewählten Rollen.</div></div>
   <div><button class="pulse-btn primary" type="submit">💾 Log &amp; RP-Panel speichern</button></div>
+ </div></section></form>''' + log_routing_section(ctx)
+
+    def log_routing_section(ctx) -> str:
+        """BOT-02: own channel per log category, ignore lists, voice switch."""
+        import pulse_logcfg
+        guild = ctx.guild
+        cfg = pulse_logcfg.load()
+        selects = "".join(
+            f'<label class="grid gap-1 text-xs font-semibold">{e(label)}<select class="pulse-input" name="channel_{key}">'
+            f'{channel_options(guild, str(cfg["channels"].get(key, "")))}</select></label>'
+            for key, label in pulse_logcfg.CATEGORIES.items())
+        ignore_channels = "".join(
+            f'<label class="pulse-check"><input type="checkbox" name="ignore_channels" value="{c.id}"{" checked" if c.id in cfg["ignore_channels"] else ""}> #{e(c.name)}</label>'
+            for c in sorted(getattr(guild, "text_channels", []) or [], key=lambda c: (getattr(c, "position", 0), c.name)))
+        ignore_roles = "".join(
+            f'<label class="pulse-check"><input type="checkbox" name="ignore_roles" value="{r.id}"{" checked" if r.id in cfg["ignore_roles"] else ""}> {e(r.name)}</label>'
+            for r in selectable_roles(guild))
+        return f'''
+<form method="post" action="/admin/discord/log-routing" class="mt-5">
+<section class="pulse-card" id="log-routing"><div class="pulse-card-h"><div class="pulse-section-title">🗂 Log-Kategorien</div></div>
+ <div class="pulse-card-b space-y-4">
+  <div class="text-xs text-slate-400">Ohne eigenen Kanal landet eine Kategorie im Log-Kanal oben. Moderation (Bans, Kicks, Timeouts mit Täter) braucht das Bot-Recht „Audit-Log anzeigen“.</div>
+  <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3">{selects}</div>
+  <div class="grid lg:grid-cols-2 gap-4">
+   <div><div class="text-xs font-semibold mb-1">Diese Kanäle nicht protokollieren</div><div class="grid gap-1 max-h-48 overflow-auto rounded-xl border border-slate-200 dark:border-slate-800 p-2">{ignore_channels or '<div class="text-[11px] text-slate-400">Keine Kanäle gefunden.</div>'}</div></div>
+   <div><div class="text-xs font-semibold mb-1">Personen mit diesen Rollen nicht protokollieren</div><div class="grid gap-1 max-h-48 overflow-auto rounded-xl border border-slate-200 dark:border-slate-800 p-2">{ignore_roles or '<div class="text-[11px] text-slate-400">Keine Rollen gefunden.</div>'}</div></div>
+  </div>
+  <label class="pulse-check"><input type="checkbox" name="ignore_bots" value="1"{" checked" if cfg["ignore_bots"] else ""}> Bots nicht protokollieren</label>
+  <label class="pulse-check"><input type="checkbox" name="voice" value="1"{" checked" if cfg["voice"] else ""}> Voice-Bewegungen protokollieren (höchstens ein Eintrag pro Person alle 10 s)</label>
+  <div><button class="pulse-btn primary" type="submit">💾 Log-Kategorien speichern</button></div>
  </div></section></form>'''
 
     def discord_page(ctx, settings: dict, brand: dict, errors: list[str] | None = None,
@@ -672,6 +702,36 @@ def register(app) -> None:
         ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Log & RP-Panel geändert",
                      f"Log-Kanal {raw_channel or 'aus'}, RP-Rollen {', '.join(role_ids) or 'keine'}")
         return ws.back("/admin/discord#logs", "Moderations-Log und RP-Panel gespeichert.", True)
+
+    @app.post("/admin/discord/log-routing")
+    async def admin_discord_log_routing(request: Request, user_session: str = Cookie(None)):
+        """BOT-02: store category channels and ignore lists (only channels/roles of this server)."""
+        import pulse_logcfg
+        ctx = admin_ctx(request, user_session)
+        form = await request.form()
+        guild = ctx.guild
+        text_ids = {str(c.id) for c in (getattr(guild, "text_channels", []) or [])}
+        if not text_ids:
+            return ws.back("/admin/discord#log-routing", "Kanäle konnten nicht geladen werden (Bot nicht bereit). Nichts gespeichert.", False)
+        channels = {}
+        for key in pulse_logcfg.CATEGORIES:
+            value = str(form.get(f"channel_{key}", "") or "").strip()
+            if value and value not in text_ids:
+                return ws.back("/admin/discord#log-routing", "Log-Kanäle müssen Textkanäle dieses Servers sein.", False)
+            if value:
+                channels[key] = value
+        role_ids = {str(r.id) for r in selectable_roles(guild)}
+        cfg = pulse_logcfg.save({
+            "channels": channels,
+            "ignore_channels": [v for v in form.getlist("ignore_channels") if str(v) in text_ids],
+            "ignore_roles": [v for v in form.getlist("ignore_roles") if str(v) in role_ids],
+            "ignore_bots": form.get("ignore_bots") == "1",
+            "voice": form.get("voice") == "1",
+        })
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Log-Kategorien geändert",
+                     f"{len(cfg['channels'])} eigene Kanäle, {len(cfg['ignore_channels'])} ignorierte Kanäle, "
+                     f"{len(cfg['ignore_roles'])} ignorierte Rollen, Voice {'an' if cfg['voice'] else 'aus'}")
+        return ws.back("/admin/discord#log-routing", "Log-Kategorien gespeichert.", True)
 
     @app.post("/admin/discord/test")
     async def admin_discord_test(request: Request, kind: str = Form(...), user_session: str = Cookie(None)):

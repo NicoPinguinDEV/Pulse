@@ -44,7 +44,12 @@ class AdvancedLogsTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def edit(self):
-        asyncio.run(self.cog.on_message_edit(fake_message("alt", GUILD), fake_message("neu", GUILD)))
+        # BOT-02: entries are sent in batches a moment later – wait for that inside the same event loop
+        async def go():
+            with patch("pulse_logcfg.BATCH_SECONDS", 0.01):
+                await self.cog.on_message_edit(fake_message("alt", GUILD), fake_message("neu", GUILD))
+                await asyncio.sleep(0.05)
+        asyncio.run(go())
 
     def test_configured_channel_receives_logs(self):
         pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
