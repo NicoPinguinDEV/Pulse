@@ -79,7 +79,9 @@ class CustomBot(commands.Bot):
         # Slash Commands synchronisieren
         # P-09: only when the command tree changed (or PULSE_FORCE_COMMAND_SYNC=1 / admin button).
         try:
+            from pulse_command_help import apply_visibility
             from pulse_command_sync import sync_commands
+            apply_visibility(self.tree)  # BOT-04: setup/maintenance commands hidden from ordinary members
             result = await sync_commands(self.tree)
             self.pulse_synced_commands = result["count"]
             if result["synced"]:

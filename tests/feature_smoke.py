@@ -1286,7 +1286,9 @@ def main() -> None:
     assert "name=member.display_name if member else s.get(\"mod_name\",uid)" in suite_bot
     assert "longshift-self:" in suite_bot and "except (discord.Forbidden,discord.HTTPException):pass" in suite_bot
     assert '@app_commands.command(name="pulse-hilfe"' in pro_cog
-    assert 'if perms.get("is_admin"):\n            sections.append(("⚙ Administration"' in pro_cog
+    # BOT-04: the help is generated from the command tree and filtered by rights
+    # (behaviour: tests/test_command_help.py::test_help_is_generated_and_filtered)
+    assert "build_help(entries(self.bot.tree), perms" in pro_cog
     assert "_pulse_startup_report_sent" in pro_cog
     assert "self.pulse_failed_cogs.append(" in read("main.py")
 
