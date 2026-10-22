@@ -59,14 +59,14 @@ class WarningExpiryCleanupTests(unittest.IsolatedAsyncioTestCase):
     def cleanup_patches(self):
         return (
             patch("webserver.load_json", return_value=self.database),
-            patch("webserver.save_json") as save_json,
+            patch("webserver.save_json"),
             patch("webserver.now_de", return_value=self.current),
             patch("webserver.load_config", return_value={}),
             patch(
                 "webserver.sync_warn_roles",
                 new_callable=AsyncMock,
                 return_value={"ok": True, "message": "Warnrollen synchronisiert."},
-            ) as sync_roles,
+            ),
             patch(
                 "webserver.restore_expired_warn_sanctions",
                 new_callable=AsyncMock,
