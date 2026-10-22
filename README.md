@@ -102,7 +102,7 @@ Laufzeitdaten werden lokal in SQLite-Datenbanken und JSON-Dateien gespeichert. D
 
 ## Eigenes VPS-Hosting
 
-Die Docker-Konfiguration und sichere Umzugs-Checkliste liegen in [`VPS_DEPLOYMENT.md`](VPS_DEPLOYMENT.md). Der VPS nutzt weiterhin dieses GitHub-Repository als Codequelle; nach erfolgreich bestandenen GitHub-Tests kann GitHub Actions Updates optional automatisch auf den Server ausrollen. Runtime-Konfiguration, Mitglieder-/Teamdaten, Datenbanken, Backups und Transkripte müssen separat übertragen und gesichert werden.
+Die Docker-Konfiguration und sichere Umzugs-Checkliste liegen in [`VPS_DEPLOYMENT.md`](VPS_DEPLOYMENT.md). Der VPS nutzt weiterhin dieses GitHub-Repository als Codequelle; GitHub Actions kann exakt den Commit ausrollen, für den die Sicherheits- und Qualitätstests auf `main` erfolgreich waren. Manuelle Deployments prüfen ebenfalls den erfolgreichen CI-Lauf. Deployments laufen nacheinander, brechen bei lokalen versionierten VPS-Änderungen ab, verhindern automatische Rücksetzungen auf ältere Commits und stellen nach einem fehlgeschlagenen Gesundheitscheck den vorherigen Stand wieder her. Docker zeigt den Zustand über `/healthz` an; die Prüfung bestätigt Dashboard, Datenbank, Discord-Bot und Serververbindung. Runtime-Konfiguration, Mitglieder-/Teamdaten, Datenbanken, Backups und Transkripte müssen separat übertragen und gesichert werden.
 
 ## Entwicklung
 

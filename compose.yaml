@@ -23,6 +23,16 @@ services:
       - ./:/app
     working_dir: /app
     stop_grace_period: 40s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${SERVER_PORT:-25095}/healthz', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
     logging:
       driver: json-file
       options:

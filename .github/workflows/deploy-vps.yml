@@ -6,21 +6,70 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "Optional: deploy this exact main commit (must have passing security checks)"
+        required: false
+        type: string
 
 permissions:
+  actions: read
   contents: read
+
+concurrency:
+  group: pulse-vps-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
     name: GitHub main → Pulse VPS
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     steps:
+      - name: Geprüften Commit bestimmen
+        id: verified
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const isManual = context.eventName === "workflow_dispatch";
+            if (!isManual) {
+              const run = context.payload.workflow_run;
+              if (
+                !run ||
+                run.conclusion !== "success" ||
+                run.event !== "push" ||
+                run.head_branch !== "main"
+              ) {
+                core.setFailed("Deployment nur nach erfolgreichen Sicherheitsprüfungen eines main-Pushes.");
+                return;
+              }
+              core.setOutput("sha", run.head_sha);
+              return;
+            }
+
+            const sha = (context.payload.inputs?.commit_sha || context.sha).trim();
+            if (!/^[0-9a-f]{40}$/.test(sha)) {
+              core.setFailed("Bitte eine gültige vollständige Commit-SHA angeben.");
+              return;
+            }
+
+            const result = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "python-syntax.yml",
+              head_sha: sha,
+              per_page: 100,
+            });
+            const latestMainPush = result.data.workflow_runs.find(run =>
+              run.head_sha === sha &&
+              run.head_branch === "main" &&
+              run.event === "push"
+            );
+            if (!latestMainPush || latestMainPush.status !== "completed" || latestMainPush.conclusion !== "success") {
+              core.setFailed("Für diesen Commit wurde kein erfolgreicher Sicherheits- und Qualitätstest auf main gefunden.");
+              return;
+            }
+            core.setOutput("sha", sha);
+
       - name: Deployment-Secrets prüfen
         id: setup
         env:
@@ -50,14 +99,19 @@ jobs:
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Geprüften Pulse-Stand auf dem VPS deployen
+      - name: Exakt geprüften Commit sicher deployen
         if: steps.setup.outputs.enabled == 'true'
         env:
           VPS_HOST: ${{ secrets.PULSE_VPS_HOST }}
           VPS_USER: ${{ secrets.PULSE_VPS_USER }}
           VPS_PORT: ${{ secrets.PULSE_VPS_SSH_PORT }}
+          DEPLOY_SHA: ${{ steps.verified.outputs.sha }}
         shell: bash
         run: |
+          if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Geprüfte Commit-SHA fehlt oder ist ungültig."
+            exit 1
+          fi
           PORT="${VPS_PORT:-22}"
           ssh -p "$PORT" \
             -i "$HOME/.ssh/pulse_vps" \
@@ -65,4 +119,28 @@ jobs:
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             "$VPS_USER@$VPS_HOST" \
-            'set -eu; cd /opt/pulse/Pulse; git fetch origin main; git reset --hard origin/main; docker compose up -d --build; docker image prune -f'
+            "set -eu
+            cd /opt/pulse/Pulse
+            git fetch origin main
+            git cat-file -e '${DEPLOY_SHA}^{commit}'
+            git merge-base --is-ancestor '$DEPLOY_SHA' origin/main
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo 'Deployment abgebrochen: versionierte lokale Änderungen auf dem VPS.'
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor HEAD '$DEPLOY_SHA'; then
+              echo 'Deployment abgebrochen: würde den VPS auf einen älteren Commit zurücksetzen.'
+              exit 1
+            fi
+            PREVIOUS_SHA=\$(git rev-parse HEAD)
+            git checkout --detach '$DEPLOY_SHA'
+            if docker compose up -d --build --wait --wait-timeout 180; then
+              echo 'Deployment ist gesund.'
+            else
+              echo 'Deployment fehlgeschlagen; vorherigen Commit wiederherstellen.'
+              git checkout --detach \"\$PREVIOUS_SHA\"
+              docker compose up -d --build --wait --wait-timeout 180
+              echo 'Vorheriger Stand wurde wiederhergestellt.'
+              exit 1
+            fi
+            docker image prune -f"
