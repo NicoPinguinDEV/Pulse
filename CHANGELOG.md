@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.14.1 – Betrieb & Stabilität (Oktober 2026)
+
+- **Discord-Slash-Befehl /ultimate:** öffnet das Command Center über einen sichtbaren Link und verwendet dieselbe Dashboard-Zugriffsprüfung wie /pulse. Der Befehl ist außerdem in /pulse-hilfe aufgeführt.
+- **VPS-Speicherlimit:** Docker begrenzt Pulse auf 250 MiB RAM und maximal 350 MiB Gesamtbudget aus RAM plus Swap, passend zu den vorhandenen RAM-Warnschwellen.
+- **Reverse-Proxy-Schutz:** Port 25095 wird nur an localhost gebunden; öffentlicher Dashboard-Zugriff erfolgt über Caddy/HTTPS.
+- **Hinweis:** Der Moderations-Log-Kanal bleibt serverseitig in „Verwaltung → Discord-Auftritt“ zu konfigurieren. Er wird bewusst nicht auf einen beliebigen Kanal fest verdrahtet.
+
 ## Version 7.14.0 – Phase 5: Dashboard & Bedienung (Oktober 2026)
 
 Details und Testnachweise: `docs/PHASE5_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.

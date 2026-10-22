@@ -240,6 +240,64 @@ class PulsePro(commands.Cog):
         except Exception as exc:
             print(f"⚠️ Start-Diagnose fehlgeschlagen: {type(exc).__name__}: {exc}")
 
+    @app_commands.command(name="ultimate", description="Öffnet das Pulse Command Center im Dashboard.")
+    async def ultimate(self, interaction: discord.Interaction):
+        """Provide the actual Discord slash command for the existing /ultimate dashboard route."""
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "Dieser Befehl ist nur auf dem Server verfügbar.", ephemeral=True
+            )
+            return
+
+        import webserver
+        cfg = webserver.load_config()
+        perms, member = webserver.compute_perms(
+            interaction.guild, interaction.user.id, cfg
+        )
+        if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
+            await interaction.response.send_message(
+                "❌ Du hast keinen Zugriff auf Pulse.", ephemeral=True
+            )
+            return
+
+        url = panel_url("/ultimate")
+        embed = discord.Embed(
+            title="⚡ Pulse Command Center",
+            description=(
+                "Öffne die zentrale Team- und Systemübersicht von Pulse. "
+                "Der Link ist nur für angemeldete, berechtigte Teammitglieder nutzbar."
+            ),
+            color=_pulse_color("info"),
+        )
+        view = discord.ui.View(timeout=60)
+        if url.startswith(("https://", "http://")):
+            embed.add_field(
+                name="Dashboard",
+                value=f"[Command Center öffnen]({url})",
+                inline=False,
+            )
+            view.add_item(
+                discord.ui.Button(
+                    label="Command Center öffnen",
+                    style=discord.ButtonStyle.link,
+                    url=url,
+                    emoji="⚡",
+                )
+            )
+            await interaction.response.send_message(
+                embed=embed, view=view, ephemeral=True
+            )
+        else:
+            embed.add_field(
+                name="Dashboard-Adresse fehlt",
+                value=(
+                    "Die öffentliche Dashboard-Adresse ist noch nicht konfiguriert. "
+                    "Bitte PUBLIC_BASE_URL in der .env prüfen."
+                ),
+                inline=False,
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(name="pulse", description="Öffnet Pulse und zeigt die wichtigsten Teamzahlen.")
     async def pulse(self, interaction: discord.Interaction):
         try:
@@ -297,6 +355,7 @@ class PulsePro(commands.Cog):
         leader = bool(perms.get("can_promote") or perms.get("is_admin"))
         sections = [
             ("👤 Für dich", [
+                ("/ultimate", "Command Center im Dashboard öffnen"),
                 ("/pulse", "Teamzahlen und deine Woche"),
                 ("/mytasks", "Deine offenen Aufgaben"),
                 ("/taskdone", "Aufgabe als erledigt markieren"),
