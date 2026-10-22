@@ -2347,7 +2347,7 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
 
         # The member cache can be incomplete. Fetch from Discord before deciding
         # a role sync is impossible; a confirmed 404 means the user left the guild.
-        if member is None and numeric_user_id:
+        if member is None and numeric_user_id and (newly_expired or pending_expired):
             try:
                 member = await guild.fetch_member(int(user_id))
             except discord.NotFound:
@@ -2355,7 +2355,7 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
             except Exception as exc:
                 result["failed"] += 1
                 print(f"⚠️ Discord-Mitglied {user_id} konnte für Warnungsablauf nicht geladen werden: {exc}")
-        elif member is None:
+        elif member is None and not numeric_user_id:
             result["failed"] += 1
             print(f"⚠️ Ungültige Discord-User-ID bei Warnungsablauf: {user_id!r}")
 
@@ -2392,29 +2392,6 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
                 warn["expiry_roles_sync_skipped_at"] = current_iso
                 warn["expiry_roles_sync_skip_reason"] = "Mitglied nicht mehr auf dem Server"
                 state_changed = True
-            for warn in (entry.get("warns_list", []) or []):
-                if not isinstance(warn, dict):
-                    continue
-                consequences = warn.get("consequences")
-                if not isinstance(consequences, dict):
-                    continue
-                if (
-                    consequences.get("downrank_applied")
-                    and not consequences.get("downrank_reverted_at")
-                    and not consequences.get("downrank_restore_skipped_at")
-                ):
-                    consequences["downrank_restore_skipped_at"] = current_iso
-                    consequences["downrank_restore_skip_reason"] = "Mitglied nicht mehr auf dem Server"
-                    state_changed = True
-                if (
-                    consequences.get("team_kick_applied")
-                    and not consequences.get("team_kick_reverted_at")
-                    and not consequences.get("team_kick_restore_skipped_at")
-                    and not consequences.get("test_supporter_team_kick")
-                ):
-                    consequences["team_kick_restore_skipped_at"] = current_iso
-                    consequences["team_kick_restore_skip_reason"] = "Mitglied nicht mehr auf dem Server"
-                    state_changed = True
             if pending_expired:
                 print(f"ℹ️ Warnrollen-Sync für {user_id} übersprungen: Mitglied ist nicht mehr auf dem Server.")
 
