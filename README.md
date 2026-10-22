@@ -7,8 +7,8 @@ Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstz
 - Discord-OAuth-Dashboard mit signierten Sessions
 - Konfigurierbarer Voice-Support mit gemeinsamem Warteraum zu jeder Uhrzeit (ohne neue Kanäle beim Beitritt), einmaliger Eröffnungsansage pro Supportfall und anschließender Endlosschleife der im Dashboard ausgewählten Wartemusik-Datei, automatischer Wiederherstellung aus untätigen Voice-Verbindungen, persistentem Live-Status für Öffnungszeiten/Warteschlange/laufende Gespräche/Bereitschaft, einmaliger Ansage bei geschlossener Supportzeit, Fall-Buttons zum Übernehmen/Übertragen/Beenden, temporären Voice-Rechten, automatischer Bereinigung bei freiwilligem Verlassen und Abschlussprotokoll in Kanal `1531443370172485703`.
 - Honeypot-Schutzkanal `1560397792751657053`: auffälliges Warn-Embed und automatischer Ban bei Nachrichten im verbotenen Kanal
-- Konfigurierbares AutoMod im Adminpanel: Spam/Nachrichtenflut, Massen-Erwähnungen, Discord-Einladungen sowie eigene Wort- und Domainfilter; die erste Regelverletzung wird gelöscht und per DM verwarnt, eine Wiederholung innerhalb einer Stunde führt zu einem 10-Minuten-Timeout. Für die Spam-Erkennung bleiben Nachrichteninhalte ausschließlich kurzzeitig im begrenzten Arbeitsspeicher; sie werden nicht dauerhaft gespeichert oder in Moderationsmeldungen ausgegeben.
-- Anti-Nuke im Adminpanel: überwacht ausgewählte Audit-Log-Ereignisse wie Massenbans/-kicks, Rollen- und Kanaländerungen, Webhooks und neue Bots; bei konfigurierbarer Aktionsschwelle alarmiert Pulse und sperrt den Akteur automatisch. Serverinhaber, Pulse und ausdrücklich freigestellte Nutzer/Rollen sind geschützt. Standardmäßig deaktiviert; benötigt „Audit-Log ansehen“ und „Mitglieder bannen“. Anti-Nuke reagiert auf Audit-Logs nach der Discord-Aktion, verhindert sie nicht im Voraus und kann gelöschte Inhalte oder Strukturen nicht wiederherstellen.
+- Konfigurierbares AutoMod im Adminpanel: Spam/Nachrichtenflut, Massen-Erwähnungen, Discord-Einladungen sowie eigene Wort- und Domainfilter; die erste Regelverletzung wird gelöscht und per DM verwarnt, eine Wiederholung innerhalb einer Stunde führt zu einem 10-Minuten-Timeout. Für die Spam-Erkennung bleiben Nachrichteninhalte ausschließlich kurzzeitig im begrenzten Arbeitsspeicher; sie werden nicht dauerhaft gespeichert oder in Moderationsmeldungen ausgegeben. Maßnahmen werden mit Regel, IDs und Ergebnis ohne Nachrichteninhalt im Pulse-Aktivitätsprotokoll festgehalten.
+- Anti-Nuke im Adminpanel: überwacht ausgewählte Audit-Log-Ereignisse wie Massenbans/-kicks, Löschungen, kritische Rollenberechtigungs-/Positionsänderungen, Kanalberechtigungen, Webhooks und neue Bots; harmlose Kanalnamen- oder Themenänderungen lösen keinen Sperrversuch aus. Bei konfigurierbarer Aktionsschwelle alarmiert Pulse und sperrt den Akteur automatisch. Serverinhaber, Pulse und ausdrücklich freigestellte Nutzer/Rollen sind geschützt. Erfasste Aktionen und erfolgreiche Sperren erscheinen im Aktivitätsprotokoll. Standardmäßig deaktiviert; benötigt „Audit-Log ansehen“ und „Mitglieder bannen“. Anti-Nuke reagiert auf Audit-Logs nach der Discord-Aktion, verhindert sie nicht im Voraus und kann gelöschte Inhalte oder Strukturen nicht wiederherstellen.
 - Geführter Admin-Einrichtungsassistent unter `/setup` mit sicheren Prüfschritten für Discord/OAuth, Rollen, AutoMod, Anti-Nuke und Backups; Änderungen bleiben immer eine bewusste Administratoraktion
 - Live-Serverstatistiken als nicht betretbare Sprachkanäle: Mitglieder, Boosts, Bots und Rollen werden in einer bestehenden Kategorie automatisch aktualisiert
 - Teamler-Schutz: erkennt massenhafte manuelle Warnungen, sperrt Warn-/Teamaktionen vorübergehend, protokolliert Vorfälle und entfernt bei wiederholtem Missbrauch automatisch Teamrollen (kein Server-Kick)
@@ -109,10 +109,11 @@ Die Docker-Konfiguration und sichere Umzugs-Checkliste liegen in [`VPS_DEPLOYMEN
 Vor dem Deploy:
 
 ```bash
+python -m ruff check .
 python -m compileall -q .
 python tests/feature_smoke.py
-python tests/test_pulse_intelligence.py
 python tests/smoke_test.py
+python -m unittest discover -s tests -p 'test_*.py'
 ```
 
 GitHub Actions führt die Prüfungen für Pushes und Pull Requests gegen `main` aus. `pip-audit` prüft

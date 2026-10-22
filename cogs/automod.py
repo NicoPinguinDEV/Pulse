@@ -1,6 +1,7 @@
 """Configurable, local-first AutoMod with warnings and repeat-offence timeouts."""
 from __future__ import annotations
 
+import sqlite3
 import time
 from collections import defaultdict, deque
 from datetime import timedelta
@@ -158,6 +159,26 @@ class PulseAutoMod(commands.Cog):
                 print(f"ℹ️ AutoMod konnte {message.author.id} nicht per DM warnen (DMs geschlossen).")
             except discord.HTTPException as exc:
                 print(f"⚠️ AutoMod-Warnung für {message.author.id} fehlgeschlagen: HTTP {exc.status}.")
+
+        try:
+            import pulse_db
+            bot_user = getattr(self.bot, "user", None)
+            pulse_db.record_event(
+                "AutoMod-Maßnahme",
+                "user",
+                message.author.id,
+                str(getattr(bot_user, "id", 0) or 0),
+                str(bot_user or "Pulse AutoMod"),
+                {
+                    "guild_id": guild.id,
+                    "rule": rule,
+                    "channel_id": message.channel.id,
+                    "action": action,
+                    "strike": len(strikes),
+                },
+            )
+        except (sqlite3.Error, OSError) as exc:
+            print(f"⚠️ AutoMod-Maßnahme für {message.author.id} konnte nicht dauerhaft protokolliert werden: {type(exc).__name__}.")
 
         alert_id = _bounded_int(config.get("alert_channel_id"), 0, 0, 2**63 - 1)
         alert_channel = guild.get_channel(alert_id) if alert_id else None

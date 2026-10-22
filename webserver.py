@@ -1125,29 +1125,40 @@ def back(url: str, msg: str = None, ok: bool = True):
 
 _rate_hits = {}
 _rate_lock = threading.Lock()
+_RATE_LIMIT_MAX_KEYS = 5000
+_RATE_LIMIT_SWEEP_INTERVAL = 30
+_rate_last_full_sweep = 0.0
 
 
 def rate_limited(key: str, limit: int = 3, window: int = 3600) -> bool:
-    """Ein kleiner In-Memory-Rate-Limiter mit periodischer Bereinigung alter Keys."""
+    """Bounded in-memory rate limiter; full state rejects new keys rather than growing forever."""
     now = time.time()
     window = max(1, int(window))
     limit = max(1, int(limit))
+    global _rate_last_full_sweep
     with _rate_lock:
         hits = [t for t in _rate_hits.get(key, []) if now - t < window]
-        if len(hits) >= limit:
+        if hits and len(hits) >= limit:
             _rate_hits[key] = hits
             return True
 
+        if hits:
+            _rate_hits[key] = hits
+        else:
+            _rate_hits.pop(key, None)
+
+        if key not in _rate_hits and len(_rate_hits) >= _RATE_LIMIT_MAX_KEYS:
+            if now - _rate_last_full_sweep >= _RATE_LIMIT_SWEEP_INTERVAL:
+                cutoff = now - max(window, 3600)
+                stale = [k for k, values in _rate_hits.items() if not any(ts >= cutoff for ts in values)]
+                for stale_key in stale:
+                    _rate_hits.pop(stale_key, None)
+                _rate_last_full_sweep = now
+            if len(_rate_hits) >= _RATE_LIMIT_MAX_KEYS:
+                return True
+
         hits.append(now)
         _rate_hits[key] = hits
-
-        # Verhindert unbegrenztes Wachstum bei vielen Clients/IPs.
-        if len(_rate_hits) > 5000:
-            cutoff = now - window
-            stale = [k for k, values in _rate_hits.items() if not any(ts >= cutoff for ts in values)]
-            for stale_key in stale[:2500]:
-                _rate_hits.pop(stale_key, None)
-
         return False
 
 
@@ -9430,8 +9441,16 @@ async def security_page(request: Request, user_session: str = Cookie(None)):
         return "checked" if name in selected else ""
 
     from pulse_moderation import DEFAULT_ANTINUKE_EVENTS
-    automod_rules = set(config_list(automod, "rules")) or {"spam", "mentions", "invites"}
-    antinuke_events = set(config_list(antinuke, "events")) or set(DEFAULT_ANTINUKE_EVENTS)
+    automod_rules = (
+        set(config_list(automod, "rules"))
+        if "rules" in automod else
+        {"spam", "mentions", "invites"}
+    )
+    antinuke_events = (
+        set(config_list(antinuke, "events"))
+        if "events" in antinuke else
+        set(DEFAULT_ANTINUKE_EVENTS)
+    )
     rule_boxes = "".join(
         f'<label class="flex items-start gap-2 rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-sm">'
         f'<input type="checkbox" name="automod_rules" value="{key}" {checked(key, automod_rules)} class="mt-1 rounded">'
@@ -9449,14 +9468,23 @@ async def security_page(request: Request, user_session: str = Cookie(None)):
         f'value="{key}" {checked(key, antinuke_events)} class="rounded"><span>{label}</span></label>'
         for key, label in (
             ("ban", "Bans"), ("kick", "Kicks"), ("role_delete", "Rollen löschen"),
-            ("role_update", "Rollen/Berechtigungen ändern"), ("channel_delete", "Kanäle löschen"),
-            ("channel_update", "Kanäle/Berechtigungen ändern"), ("webhook_create", "Webhooks erstellen"),
+            ("role_update", "Rollenberechtigungen/-position ändern"), ("channel_delete", "Kanäle löschen"),
+            ("channel_update", "Kanalberechtigungen ändern"), ("webhook_create", "Webhooks erstellen"),
             ("webhook_delete", "Webhooks löschen"), ("webhook_update", "Webhooks ändern"),
             ("bot_add", "Bots hinzufügen"),
         )
     )
-    enabled_rules = ", ".join(rule for rule in automod_rules if rule in {"spam", "mentions", "invites", "keywords", "domains"}) or "keine"
-    enabled_events = ", ".join(event for event in antinuke_events) or "keine"
+    enabled_rules = ", ".join(
+        rule for rule in ("spam", "mentions", "invites", "keywords", "domains")
+        if rule in automod_rules
+    ) or "keine"
+    enabled_events = ", ".join(
+        event for event in (
+            "ban", "kick", "role_delete", "role_update", "channel_delete", "channel_update",
+            "webhook_create", "webhook_delete", "webhook_update", "bot_add",
+        )
+        if event in antinuke_events
+    ) or "keine"
     body = f"""
     <div class="pulse-topbar">
         <div><div class="pulse-section-title">🛡️ AutoMod & Anti-Nuke</div>
@@ -9472,7 +9500,7 @@ async def security_page(request: Request, user_session: str = Cookie(None)):
     <form action="/security" method="post" class="space-y-5">
         <section class="{CARD} p-5 space-y-4">
             <div><h2 class="font-bold text-lg">AutoMod</h2>
-            <p class="text-xs text-slate-500">Die erste Regelverletzung löscht die Nachricht und versucht eine private Warnung. Ein weiterer Verstoß innerhalb einer Stunde löst einen 10-Minuten-Timeout aus. Es werden keine Nachrichteninhalte gespeichert.</p></div>
+            <p class="text-xs text-slate-500">Die erste Regelverletzung löscht die Nachricht und versucht eine private Warnung. Ein weiterer Verstoß innerhalb einer Stunde löst einen 10-Minuten-Timeout aus. Für die Spam-Erkennung bleiben Nachrichten nur kurzzeitig im begrenzten Arbeitsspeicher; sie werden nicht dauerhaft gespeichert oder in Meldungen ausgegeben. Maßnahmen werden mit Regel, IDs und Ergebnis ohne Nachrichteninhalt protokolliert.</p></div>
             <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="automod_enabled" {"checked" if automod.get("enabled") else ""} class="rounded"> AutoMod aktivieren</label>
             <div class="grid sm:grid-cols-2 gap-2">{rule_boxes}</div>
             <label class="block text-sm">Erwähnungsgrenze

@@ -37,6 +37,23 @@ class SecurityAdminTests(unittest.TestCase):
         self.assertIn("Massen-Erwähnungen", response.text)
         self.assertIn("Anti-Nuke", response.text)
         self.assertIn("Serverinhaber", response.text)
+        self.assertIn("nur kurzzeitig im begrenzten Arbeitsspeicher", response.text)
+        self.assertNotIn("Es werden keine Nachrichteninhalte gespeichert", response.text)
+
+    def test_explicitly_empty_rule_lists_stay_empty_in_admin_ui(self):
+        ctx = fake_auth_for(ADMIN)(None, None)
+        ctx.config = {
+            "pulse_automod": {"rules": []},
+            "pulse_antinuke": {"events": []},
+        }
+        with patch.object(ws, "auth", return_value=ctx):
+            response = self.client.get("/security")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Regeln: keine", response.text)
+        self.assertIn("Überwacht: keine", response.text)
+        self.assertIn('value="spam"  class=', response.text)
+        self.assertIn('value="ban"  class=', response.text)
 
     def test_team_member_cannot_view_or_change_mod_settings(self):
         with patch.object(ws, "auth", fake_auth_for(TEAMLER)):

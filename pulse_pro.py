@@ -30,6 +30,23 @@ from pulse_nickname_utils import normalize_role_prefix
 from pulse_version import PULSE_VERSION
 
 VERSION = PULSE_VERSION
+RECENT_EVENT_LABELS = {
+    "AutoMod-Maßnahme": "AutoMod: Nachricht moderiert",
+    "Anti-Nuke-Aktion erkannt": "Anti-Nuke: Serveraktion erkannt",
+    "Anti-Nuke: Akteur gesperrt": "Anti-Nuke: Akteur gesperrt",
+    "ticket_claimed_dashboard": "Ticket übernommen",
+    "ticket_closed_dashboard": "Ticket geschlossen",
+    "ticket_reopened_dashboard": "Ticket wieder geöffnet",
+    "ticket_priority_dashboard": "Ticketpriorität geändert",
+    "ticket_archive_failed": "Ticketarchivierung fehlgeschlagen",
+    "task_created": "Aufgabe erstellt",
+    "task_completed": "Aufgabe abgeschlossen",
+    "status_changed": "Teamstatus geändert",
+    "handover_created": "Übergabe erstellt",
+    "announcement_created": "Ankündigung erstellt",
+    "promotion_created": "Beförderung vorgeschlagen",
+    "promotion_decided": "Beförderung entschieden",
+}
 EXTRA_PERMS = (
     "can_manage_announcements",
     "can_manage_handover",
@@ -40,6 +57,12 @@ EXTRA_PERMS = (
     "can_moderate_bans",
     "can_moderate_bolo",
 )
+
+
+def recent_event_title(event_type: str | None) -> str:
+    """Render a readable activity label instead of exposing serialized event payloads."""
+    name = str(event_type or "Ereignis").strip()
+    return RECENT_EVENT_LABELS.get(name, name.replace("_", " ").capitalize())
 
 # Labels of the dashboard permissions (settings page and the audit text when a profile is saved).
 PERMISSION_LABELS = {
@@ -822,7 +845,7 @@ def register(app):
         active_people.sort(key=lambda x:x[0].display_name.lower())
         notices=db.notifications(c.user["id"],6)
         events=db.events(limit=10)
-        recent_html="".join(f'<div class="pulse-row"><div class="pulse-avatar">{e("EV" if ev["actor_name"]=="System" else initials(ev["actor_name"]))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(ev["payload_json"] if isinstance(ev["payload_json"],str) else ev["event_type"])}</div><div class="pulse-row-meta">{e(ev["actor_name"] or "System")} · {e(fmt_dt(ev["created_at"]))}</div></div></div>' for ev in events)
+        recent_html="".join(f'<div class="pulse-row"><div class="pulse-avatar">{e("EV" if ev["actor_name"]=="System" else initials(ev["actor_name"]))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(recent_event_title(ev.get("event_type")))}</div><div class="pulse-row-meta">{e(ev["actor_name"] or "System")} · {e(fmt_dt(ev["created_at"]))}</div></div></div>' for ev in events)
         duty_html="".join(f'<div class="pulse-row"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(m.display_name))}</div><div class="pulse-row-main"><div class="pulse-row-title truncate">{e(m.display_name)}</div><div class="pulse-row-meta">{e(member_role(m,ids))}</div></div></div><div class="text-right"><div>{pill("Pause" if sh.get("status")=="break" else "Im Dienst", "warn" if sh.get("status")=="break" else "good")}</div><div class="pulse-row-meta pulse-time">{ws.fmt_duration(ws.shift_elapsed(sh))}</div></div></div>' for m,sh in active_people[:10])
         urgent=""
         if s["apps"]: urgent += f'<a href="/applications" class="pulse-alert"><strong>✎ {s["apps"]} offene Bewerbungen</strong><div class="text-slate-400 mt-1">Bitte zeitnah bearbeiten.</div></a>'

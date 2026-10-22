@@ -1,6 +1,7 @@
 """Audit-log based protection against bursts of destructive server actions."""
 from __future__ import annotations
 
+import sqlite3
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -121,6 +122,23 @@ class PulseAntiNuke(commands.Cog):
         if actor is None:
             return
         actor_id = int(actor.id)
+        try:
+            import pulse_db
+            pulse_db.record_event(
+                "Anti-Nuke-Aktion erkannt",
+                "user",
+                actor_id,
+                actor_id,
+                str(actor),
+                {
+                    "guild_id": guild.id,
+                    "action": action,
+                    "target_id": target_id,
+                    "audit_entry_id": entry.id,
+                },
+            )
+        except (sqlite3.Error, OSError) as exc:
+            print(f"⚠️ Anti-Nuke-Aktion von {actor_id} konnte nicht dauerhaft protokolliert werden: {type(exc).__name__}.")
         member = guild.get_member(actor_id)
         trusted_roles = _ids(config.get("trusted_role_ids"))
         if is_trusted_actor(
@@ -165,26 +183,49 @@ class PulseAntiNuke(commands.Cog):
         if len(self._punished[guild.id]) > 2000:
             self._punished[guild.id].pop()
         reason = f"Pulse Anti-Nuke: {limit} destruktive Serveraktionen innerhalb von {window} Sekunden"
-        await self._alert(
-            guild, config,
-            f"🚨 Anti-Nuke-Schwelle erreicht: {limit} Aktionen in {window} s. "
-            f"Akteur-ID `{actor_id}` wird automatisch gesperrt.",
-        )
         if not getattr(getattr(bot_member, "guild_permissions", None), "ban_members", False):
             print("⚠️ Anti-Nuke konnte den Akteur nicht sperren: dem Bot fehlt „Mitglieder bannen“.")
+            await self._alert(
+                guild, config,
+                f"🚨 Anti-Nuke-Schwelle erreicht: {limit} Aktionen in {window} s. "
+                f"Akteur-ID `{actor_id}` konnte nicht gesperrt werden: Bot-Berechtigung „Mitglieder bannen“ fehlt.",
+            )
             return
         if actor_id == guild.owner_id or actor_id == int(getattr(self.bot.user, "id", 0) or 0):
             return
         if member is not None and member.top_role >= bot_member.top_role:
             print(f"⚠️ Anti-Nuke konnte {actor_id} wegen der Discord-Rollenhierarchie nicht sperren.")
+            await self._alert(
+                guild, config,
+                f"🚨 Anti-Nuke-Schwelle erreicht: Akteur-ID `{actor_id}` konnte wegen der Rollenhierarchie nicht gesperrt werden.",
+            )
             return
+        await self._alert(
+            guild, config,
+            f"🚨 Anti-Nuke-Schwelle erreicht: {limit} Aktionen in {window} s. "
+            f"Sperrversuch für Akteur-ID `{actor_id}` läuft.",
+        )
         try:
             await guild.ban(actor, reason=reason, delete_message_seconds=0)
+            try:
+                import pulse_db
+                pulse_db.record_event(
+                    "Anti-Nuke: Akteur gesperrt",
+                    "user",
+                    actor_id,
+                    int(getattr(self.bot.user, "id", 0) or 0),
+                    "Pulse Anti-Nuke",
+                    {"guild_id": guild.id, "action_limit": limit, "window_seconds": window},
+                )
+            except (sqlite3.Error, OSError) as exc:
+                print(f"⚠️ Anti-Nuke-Sperre für {actor_id} konnte nicht dauerhaft protokolliert werden: {type(exc).__name__}.")
             await self._alert(guild, config, f"✅ Anti-Nuke: Akteur-ID `{actor_id}` wurde gesperrt.")
         except discord.Forbidden:
             print(f"⚠️ Anti-Nuke konnte {actor_id} nicht sperren: Berechtigung oder Rollenhierarchie.")
+            await self._alert(guild, config, f"🚨 Anti-Nuke-Sperre für Akteur-ID `{actor_id}` wurde von Discord abgelehnt.")
         except discord.HTTPException as exc:
             print(f"⚠️ Anti-Nuke-Sperre für {actor_id} fehlgeschlagen: HTTP {exc.status}.")
+            await self._alert(guild, config, f"🚨 Anti-Nuke-Sperre für Akteur-ID `{actor_id}` fehlgeschlagen (HTTP {exc.status}).")
 
     @commands.Cog.listener()
     async def on_member_ban(self, guild: discord.Guild, user: discord.User):
@@ -205,6 +246,8 @@ class PulseAntiNuke(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
+        if before.permissions == after.permissions and before.position == after.position:
+            return
         await self._handle_event(after.guild, "role_update", after.id)
 
     @commands.Cog.listener()
@@ -213,7 +256,8 @@ class PulseAntiNuke(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_channel_update(self, before: discord.abc.GuildChannel, after: discord.abc.GuildChannel):
-        await self._handle_event(after.guild, "channel_update", after.id)
+        if before.overwrites != after.overwrites:
+            await self._handle_event(after.guild, "channel_update", after.id)
 
     @commands.Cog.listener()
     async def on_webhooks_update(self, channel: discord.abc.GuildChannel):

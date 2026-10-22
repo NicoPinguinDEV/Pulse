@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from cogs.antinuke import PulseAntiNuke
+import pulse_db
 from pulse_moderation import (
     antinuke_window_exceeded,
     classify_message,
@@ -96,18 +97,57 @@ class AntiNukePolicyTests(unittest.TestCase):
                 "window_seconds": 10,
             }
 
-            with patch("builtins.print"):
+            with patch("builtins.print"), patch.object(pulse_db, "record_event") as record_event:
                 await cog._handle_event(guild, "ban", target.id)
                 await cog._handle_event(guild, "ban", target.id)
                 await cog._handle_event(guild, "ban", target.id)
                 guild.ban.assert_not_awaited()
                 await cog._handle_event(guild, "ban", target.id)
 
+            self.assertEqual(record_event.call_count, 4)
             guild.ban.assert_awaited_once_with(
                 actor,
                 reason="Pulse Anti-Nuke: 3 destruktive Serveraktionen innerhalb von 10 Sekunden",
                 delete_message_seconds=0,
             )
+
+        asyncio.run(scenario())
+
+    def test_missing_ban_permission_is_reported_as_a_failed_action(self):
+        async def scenario():
+            actor = SimpleNamespace(id=30)
+            target = SimpleNamespace(id=99)
+            entries = iter(
+                SimpleNamespace(id=entry_id, user=actor, target=target)
+                for entry_id in (1, 2)
+            )
+            guild = SimpleNamespace(
+                id=7,
+                owner_id=10,
+                me=SimpleNamespace(
+                    guild_permissions=SimpleNamespace(view_audit_log=True, ban_members=False),
+                    top_role=10,
+                ),
+                get_member=lambda _user_id: SimpleNamespace(top_role=5),
+                ban=AsyncMock(),
+            )
+
+            async def audit_logs(**_kwargs):
+                yield next(entries)
+
+            guild.audit_logs = audit_logs
+            cog = PulseAntiNuke(SimpleNamespace(user=SimpleNamespace(id=20)))
+            cog._config = lambda: {"enabled": True, "events": ["ban"], "action_limit": 2, "window_seconds": 10}
+            cog._alert = AsyncMock()
+
+            with patch("builtins.print"), patch.object(pulse_db, "record_event"):
+                await cog._handle_event(guild, "ban", target.id)
+                await cog._handle_event(guild, "ban", target.id)
+
+            guild.ban.assert_not_awaited()
+            alert_texts = [call.args[2] for call in cog._alert.await_args_list]
+            self.assertTrue(any("konnte nicht gesperrt werden" in text for text in alert_texts))
+            self.assertFalse(any("wird automatisch gesperrt" in text for text in alert_texts))
 
         asyncio.run(scenario())
 
