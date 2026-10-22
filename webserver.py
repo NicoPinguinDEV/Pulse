@@ -1989,7 +1989,11 @@ async def apply_warn_consequences(
 
 
 async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dict | None = None) -> dict:
-    """Reverse warning-derived rank sanctions once every team warning has expired or been revoked."""
+    """Reverse temporary warning sanctions once no active team warnings remain.
+
+    A Warn-5 Team-Kick is permanent; only temporary role restrictions/downranks
+    can be reversed automatically. Re-hiring always requires an explicit manager action.
+    """
     result = {"restored": [], "failed": [], "changed": False}
     if not guild or not member or active_warns(entry):
         return result
@@ -2021,9 +2025,14 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
                 continue
             item_consequences = item.get("consequences") or {}
             if item_consequences.get("team_kick_applied") and not item_consequences.get("team_kick_reverted_at"):
+                needs_marker = (
+                    not item_consequences.get("team_kick_permanent")
+                    or not item_consequences.get("team_kick_restore_skipped_at")
+                )
                 item_consequences["team_kick_permanent"] = True
                 item_consequences.setdefault("team_kick_restore_skipped_at", stamp)
-                result["changed"] = True
+                if needs_marker:
+                    result["changed"] = True
 
     manual_team_override = bool(current_team_ids) and any(
         isinstance(item, dict)
