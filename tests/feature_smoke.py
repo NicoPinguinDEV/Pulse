@@ -380,9 +380,10 @@ def main() -> None:
     assert "ram_trend_snapshot()" in suite_actions
     assert "Pflichtgrund für den Team-Kick" in suite_actions
     assert "Pflichtgrund für den Server-Kick" in suite_actions
-    assert "RAM_WARN_MB = 180.0" in ultimate
-    assert "RAM_CRITICAL_MB = 210.0" in ultimate
-    assert "RAM_EMERGENCY_MB = 230.0" in ultimate
+    assert "RAM_LIMIT_MB = 512.0" in ultimate
+    assert "RAM_WARN_MB = 350.0" in ultimate
+    assert "RAM_CRITICAL_MB = 420.0" in ultimate
+    assert "RAM_EMERGENCY_MB = 470.0" in ultimate
     assert "async def runtime_memory_guard(bot)" in ultimate
     assert "await runtime_memory_guard(bot)" in ultimate
     assert '"ram_guard": {' in ultimate
@@ -482,8 +483,8 @@ def main() -> None:
     assert '("/ultimate", "Command Center im Dashboard öffnen")' in pulse_pro_commands
     # Keep the VPS behind its HTTPS reverse proxy and enforce the intended RAM budget.
     compose_source = read("compose.yaml")
-    assert 'mem_limit: 250m' in compose_source
-    assert 'memswap_limit: 350m' in compose_source
+    assert 'mem_limit: 512m' in compose_source
+    assert 'memswap_limit: 768m' in compose_source
     assert '"127.0.0.1:${SERVER_PORT:-25095}:${SERVER_PORT:-25095}"' in compose_source
     archive_source = read("cogs/announcement_archive.py")
     parse("cogs/announcement_archive.py")

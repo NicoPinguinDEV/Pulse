@@ -6,9 +6,10 @@ services:
     container_name: pulse-teamos
     restart: unless-stopped
     init: true
-    # Enforce the intended low-memory VPS budget; 100 MiB extra swap headroom.
-    mem_limit: 250m
-    memswap_limit: 350m
+    # VPS has 2 GiB RAM: reserve room for Ubuntu, Docker, Caddy and other host services.
+    # Pulse may use up to 512 MiB RAM and 256 MiB additional swap (768 MiB combined).
+    mem_limit: 512m
+    memswap_limit: 768m
     env_file:
       - .env
     environment:
