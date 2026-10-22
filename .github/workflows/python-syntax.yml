@@ -20,7 +20,7 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v4
       - name: Python einrichten
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.14"
       - name: Abhängigkeiten auditieren
@@ -34,7 +34,7 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v4
       - name: Python einrichten
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.14"
       - name: Abhaengigkeiten installieren
