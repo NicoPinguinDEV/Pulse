@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.14.2 – VPS-RAM-Budget (Oktober 2026)
+
+- **Docker-Speicherbudget:** Für den VPS mit 2 GiB RAM auf 512 MiB Container-RAM und maximal 768 MiB Gesamtbudget aus RAM plus Swap angehoben.
+- **RAM-Schutz und Diagnose:** Warnung bei 350 MB, kritisch bei 420 MB, Notfallreserve bei 470 MB; Erholungsschwellen entsprechend angepasst. Dashboard, Discord-Diagnose und Alerts lesen die Werte aus einer gemeinsamen Konfiguration.
+- **Betriebshinweis:** 2 GiB Host-RAM liegen weiterhin unter der empfohlenen Mindestgröße von 4 GiB. Bei dauerhaft hoher Auslastung ist ein Upgrade ratsam.
+
 ## Version 7.14.1 – Betrieb & Stabilität (Oktober 2026)
 
 - **Discord-Slash-Befehl /ultimate:** öffnet das Command Center über einen sichtbaren Link und verwendet dieselbe Dashboard-Zugriffsprüfung wie /pulse. Der Befehl ist außerdem in /pulse-hilfe aufgeführt.
