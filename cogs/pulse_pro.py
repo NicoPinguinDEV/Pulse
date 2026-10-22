@@ -683,9 +683,9 @@ class PulsePro(commands.Cog):
         ram_level = pulse_ultimate.memory_guard_level(rss)
         ram_labels = {0: "🟢 Normal", 1: "🟡 Warnung", 2: "🟠 Kritisch", 3: "🔴 Notfallreserve"}
         ram_text = "Nicht verfügbar" if rss is None else (
-            f"{ram_labels[ram_level]} · {rss:.1f} MB / 250 MB "
+            f"{ram_labels[ram_level]} · {rss:.1f} MB / {pulse_ultimate.RAM_LIMIT_MB:.0f} MB "
             f"(Spitze: {peak:.1f} MB)" if peak is not None else
-            f"{ram_labels[ram_level]} · {rss:.1f} MB / 250 MB"
+            f"{ram_labels[ram_level]} · {rss:.1f} MB / {pulse_ultimate.RAM_LIMIT_MB:.0f} MB"
         )
         trend = pulse_ultimate.ram_trend_snapshot()
         if trend.get("growth_mb") is None:
@@ -735,7 +735,9 @@ class PulsePro(commands.Cog):
         embed.add_field(name="KI-Moderationswarteschlange", value=ai_queue_text, inline=True)
         embed.add_field(name="Geladene Module", value=cogs_text, inline=True)
         embed.add_field(name="Wichtige Kanalprüfungen", value="\n".join(channel_checks), inline=False)
-        embed.set_footer(text="RAM-Schwellen: 180 MB Warnung · 210 MB kritisch · 230 MB Notfallreserve")
+        embed.set_footer(text=(f"RAM-Schwellen: {pulse_ultimate.RAM_WARN_MB:.0f} MB Warnung · "
+                          f"{pulse_ultimate.RAM_CRITICAL_MB:.0f} MB kritisch · "
+                          f"{pulse_ultimate.RAM_EMERGENCY_MB:.0f} MB Notfallreserve"))
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
