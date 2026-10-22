@@ -509,10 +509,85 @@ def team_safety_admin_exempt(guild, member) -> bool:
     )
 
 
-async def _apply_team_safety_team_kick(guild, member, config: dict, reason: str) -> dict:
-    """Remove Pulse team rank roles only; never ban or kick the member from Discord."""
+async def apply_team_kick_role_reset(guild, member, config: dict | None = None, reason: str = "Team-Kick") -> dict:
+    """Keep only the configured citizen/ex-team roles; never remove the member from Discord."""
     if not guild or not member:
-        return {"ok": False, "changed": False, "message": "Guild oder Moderator nicht verfügbar."}
+        return {"ok": False, "changed": False, "message": "Guild oder Zielmitglied nicht verfügbar."}
+
+    cfg = config if isinstance(config, dict) else load_config()
+    bot_member = getattr(guild, "me", None)
+    if not bot_member:
+        return {"ok": False, "changed": False, "message": "Der Bot ist auf diesem Server noch nicht verfügbar."}
+    if not bot_member.guild_permissions.manage_roles:
+        return {"ok": False, "changed": False, "message": "Dem Bot fehlt die Berechtigung „Rollen verwalten“."}
+
+    keep_ids = tuple(resolve_backup_role_id(role_id, cfg) for role_id in TEAM_KICK_KEEP_ROLE_IDS)
+    keep_roles = [guild.get_role(int(role_id)) for role_id in keep_ids]
+    if len(set(keep_ids)) != len(keep_ids):
+        return {"ok": False, "changed": False, "message": "Die beiden Rollen für den Team-Kick verweisen auf dieselbe Discord-Rolle."}
+    if any(role is None for role in keep_roles):
+        return {"ok": False, "changed": False, "message": "Team-Kick abgebrochen: Bürgerrolle oder Ex-Teamler-Rolle wurde auf dem Server nicht gefunden."}
+
+    blocked_keep = [
+        role for role in keep_roles
+        if role.is_default() or role.managed or role.position >= bot_member.top_role.position
+    ]
+    if blocked_keep:
+        return {
+            "ok": False, "changed": False,
+            "message": "Team-Kick abgebrochen: Der Bot kann die zu behaltende Rolle nicht verwalten: "
+                       + ", ".join(role.name for role in blocked_keep)
+                       + ". Rollen-Hierarchie prüfen.",
+        }
+
+    keep_role_ids = {role.id for role in keep_roles}
+    roles_to_remove = [
+        role for role in member.roles
+        if not role.is_default() and role.id not in keep_role_ids
+    ]
+    blocked_roles = [
+        role for role in roles_to_remove
+        if role.managed or role.position >= bot_member.top_role.position
+    ]
+    if blocked_roles:
+        return {
+            "ok": False, "changed": False,
+            "message": "Team-Kick abgebrochen: Der Bot kann folgende Rollen nicht entfernen: "
+                       + ", ".join(role.name for role in blocked_roles)
+                       + ". Rollen-Hierarchie bzw. verwaltete Rollen prüfen.",
+        }
+
+    current_role_ids = {role.id for role in member.roles if not role.is_default()}
+    if current_role_ids == keep_role_ids:
+        return {
+            "ok": True, "changed": False,
+            "message": "Es sind bereits ausschließlich Bürgerrolle und Ex-Teamler-Rolle vorhanden.",
+            "removed_roles": [], "removed_role_ids": [], "keep_roles": keep_roles,
+        }
+
+    try:
+        await member.edit(roles=keep_roles, reason=f"Pulse Team-Kick: {reason}"[:512])
+    except discord.Forbidden:
+        return {"ok": False, "changed": False, "message": "Discord verweigert die Rollenänderung. Bot-Rolle und Berechtigungen prüfen."}
+    except discord.HTTPException as exc:
+        return {"ok": False, "changed": False, "message": f"Discord konnte die Rollen nicht zurücksetzen ({type(exc).__name__})."}
+    except Exception as exc:
+        return {"ok": False, "changed": False, "message": f"Team-Kick fehlgeschlagen ({type(exc).__name__})."}
+
+    return {
+        "ok": True, "changed": True,
+        "message": "Alle Rollen außer Bürgerrolle und Ex-Teamler-Rolle wurden entfernt.",
+        "removed_roles": [role.name for role in roles_to_remove],
+        "removed_role_ids": [role.id for role in roles_to_remove],
+        "keep_roles": keep_roles,
+    }
+
+
+async def _apply_team_safety_team_kick(guild, member, config: dict, reason: str) -> dict:
+    """Remove all roles except citizen/ex-team after an automated team-safety kick."""
+    if not guild or not member:
+        return {"ok": False, "changed": False, "message": "Guild oder Zielmitglied nicht verfügbar."}
+
     configured_ids = set()
     for raw_id in config.get("team_role_ids", []) or []:
         try:
@@ -520,65 +595,48 @@ async def _apply_team_safety_team_kick(guild, member, config: dict, reason: str)
         except (TypeError, ValueError):
             continue
     configured_ids.add(resolve_backup_role_id(TEST_SUPPORTER_ROLE_ID, config))
-    roles_to_remove = [
+    current_team_roles = [
         role for role in member.roles
-        if (
-            role.id in configured_ids
-            or "test supporter" in role.name.casefold()
-        ) and not role.is_default()
+        if (role.id in configured_ids or "test supporter" in role.name.casefold())
+        and not role.is_default()
     ]
-    if not roles_to_remove:
+    if not current_team_roles:
         return {"ok": True, "changed": False, "message": "Keine konfigurierten Teamrollen mehr vorhanden."}
 
-    bot_member = getattr(guild, "me", None)
-    if not bot_member or not bot_member.guild_permissions.manage_roles:
-        return {"ok": False, "changed": False, "message": "Bot hat keine Berechtigung „Rollen verwalten“."}
-    blocked = [
-        role for role in roles_to_remove
-        if role.managed or role.position >= bot_member.top_role.position
-    ]
-    if blocked:
-        return {
-            "ok": False, "changed": False,
-            "message": "Bot kann folgende Teamrollen nicht entfernen: "
-                       + ", ".join(role.name for role in blocked)
-                       + ". Rollen-Hierarchie oder verwaltete Rollen prüfen.",
-        }
+    result = await apply_team_kick_role_reset(
+        guild, member, config, f"automatischer Team-Kick wegen Warn-Missbrauch: {reason}"
+    )
+    if not result.get("ok"):
+        return result
 
+    pulse_db.mark_team_safety_kicked(guild.id, member.id)
+    removed_names = ", ".join(result.get("removed_roles", [])) or "Keine zusätzlichen Rollen"
+    keep_roles = result.get("keep_roles", [])
+    keep_names = ", ".join(role.name for role in keep_roles)
+    log_audit(
+        "Pulse – Teamler-Schutz", "system", "Automatischer Team-Kick wegen Warn-Missbrauch",
+        f"{member.display_name} ({member.id}) · entfernte Rollen: {removed_names} · behalten: {keep_names} · Grund: {reason}",
+    )
     try:
-        await member.remove_roles(
-            *roles_to_remove,
-            reason=f"Pulse-Teamler-Schutz: automatischer Team-Kick: {reason}"[:500],
+        pulse_db.record_event(
+            "team_warn_abuse_team_kick", "team_member", member.id, "system",
+            "Pulse – Teamler-Schutz",
+            {"reason": reason, "removed_roles": result.get("removed_role_ids", []), "kept_roles": [role.id for role in keep_roles]},
         )
-        pulse_db.mark_team_safety_kicked(guild.id, member.id)
-        removed_names = ", ".join(role.name for role in roles_to_remove)
-        log_audit(
-            "Pulse – Teamler-Schutz", "system", "Automatischer Team-Kick wegen Warn-Missbrauch",
-            f"{member.display_name} ({member.id}) · entfernte Teamrollen: {removed_names} · Grund: {reason}",
+    except Exception as exc:
+        print(f"⚠️ Teamler-Schutz: Event-Audit konnte nicht geschrieben werden: {exc}")
+    try:
+        await send_dm_notification(
+            member,
+            f"🛡️ **Pulse-Teamler-Schutz:** Deine Team- und übrigen Rollen auf **{guild.name}** wurden automatisch entfernt. "
+            f"Behalten wurden ausschließlich {', '.join(role.mention for role in keep_roles)}. "
+            f"Grund: {reason}. Du wurdest nicht vom Discord-Server gekickt. Bitte kläre den Vorfall mit der Führungsebene.",
         )
-        try:
-            pulse_db.record_event(
-                "team_warn_abuse_team_kick", "team_member", member.id, "system",
-                "Pulse – Teamler-Schutz", {"reason": reason, "removed_roles": [r.id for r in roles_to_remove]},
-            )
-        except Exception as exc:
-            print(f"⚠️ Teamler-Schutz: Event-Audit konnte nicht geschrieben werden: {exc}")
-        try:
-            await send_dm_notification(
-                member,
-                f"🛡️ **Pulse-Teamler-Schutz:** Deine Teamrollen auf **{guild.name}** wurden automatisch entfernt. "
-                f"Grund: {reason}. Du wurdest nicht vom Discord-Server gekickt. "
-                "Bitte kläre den Vorfall mit der Führungsebene.",
-            )
-        except Exception as exc:
-            print(f"⚠️ Teamler-Schutz: DM an Moderator {member.id} fehlgeschlagen: {exc}")
-        return {"ok": True, "changed": True, "message": f"Teamrollen entfernt: {removed_names}"}
-    except (discord.Forbidden, discord.HTTPException) as exc:
-        return {
-            "ok": False, "changed": False,
-            "message": f"Discord konnte die Teamrollen nicht entfernen ({type(exc).__name__}).",
-        }
+    except Exception as exc:
+        print(f"⚠️ Teamler-Schutz: DM an Moderator {member.id} fehlgeschlagen: {exc}")
 
+    result["message"] = f"Team-Kick ausgeführt; entfernte Rollen: {removed_names}; behalten: {keep_names}."
+    return result
 
 async def _notify_team_safety_incident(guild, actor, target, config: dict, decision: dict, source: str):
     """Audit and notify leadership about a warning-abuse lockout or automatic team-kick."""
@@ -1666,39 +1724,39 @@ async def _apply_warn4_downrank(guild, member, warn: dict, team_role_ids: list[i
         return {"ok": False, "message": f"Automatischer Downrank fehlgeschlagen: {exc}", "changed": False}
 
 
-async def _apply_warn5_team_kick(guild, member, warn: dict, team_role_ids: list[int]):
-    """Entfernt bei Warn 5 sämtliche konfigurierten Team-Rollen."""
-    if warn.get("consequences", {}).get("team_kick_applied"):
+async def _apply_warn5_team_kick(
+    guild, member, warn: dict, team_role_ids: list[int], config: dict | None = None
+):
+    """Permanently remove all roles except citizen/ex-team when a Warn-5 Team-Kick fires."""
+    consequences = warn.setdefault("consequences", {})
+    if consequences.get("team_kick_applied"):
         return {"ok": True, "message": "Team-Kick bereits ausgeführt.", "changed": False}
 
-    current_team_roles = [r for r in member.roles if r.id in team_role_ids]
-    consequences = warn.setdefault("consequences", {})
+    current_team_roles = [role for role in member.roles if role.id in team_role_ids]
     consequences["team_kick_applied"] = True
-
     if not current_team_roles:
+        consequences["team_kick_applied"] = False
         return {"ok": True, "message": "Mitglied hatte bereits keine Team-Rolle mehr.", "changed": False}
-
-    if guild.me and not guild.me.guild_permissions.manage_roles:
-        consequences["team_kick_applied"] = False
-        return {"ok": False, "message": "Bot hat keine 'Rollen verwalten'-Berechtigung für den Team-Kick.", "changed": False}
-
-    if guild.me and any(r.position >= guild.me.top_role.position for r in current_team_roles):
-        consequences["team_kick_applied"] = False
-        return {"ok": False, "message": "Mindestens eine Team-Rolle liegt auf oder über der Bot-Rolle.", "changed": False}
 
     actor = warn.get("by") or "Warn-System"
     reason = warn.get("reason") or "Warn 5"
-    try:
-        await member.remove_roles(*current_team_roles, reason=f"Automatischer Team-Kick durch {actor}: {reason}")
-        # Keep the previous rank for an automatic return once every active warning expires.
-        consequences["team_kick_removed_role_ids"] = [role.id for role in current_team_roles]
-        return {"ok": True, "message": "Alle Team-Rollen wurden automatisch entfernt.", "changed": True}
-    except discord.Forbidden:
+    result = await apply_team_kick_role_reset(
+        guild, member, config if isinstance(config, dict) else load_config(),
+        f"automatischer Team-Kick durch {actor}: {reason}",
+    )
+    if not result.get("ok"):
         consequences["team_kick_applied"] = False
-        return {"ok": False, "message": "Discord verweigert den automatischen Team-Kick.", "changed": False}
-    except Exception as exc:
-        consequences["team_kick_applied"] = False
-        return {"ok": False, "message": f"Automatischer Team-Kick fehlgeschlagen: {exc}", "changed": False}
+        return {"ok": False, "message": result.get("message", "Automatischer Team-Kick fehlgeschlagen."), "changed": False}
+
+    # Team-Kick is permanent: warning expiry must never silently re-hire the member.
+    consequences["team_kick_removed_role_ids"] = [role.id for role in current_team_roles]
+    consequences["team_kick_permanent"] = True
+    consequences["team_kick_restore_skipped_at"] = now_de().isoformat(timespec="seconds")
+    kept = ", ".join(role.name for role in result.get("keep_roles", []))
+    return {
+        "ok": True, "message": f"Automatischer Team-Kick ausgeführt. Alle Rollen außer {kept} wurden entfernt.",
+        "changed": bool(result.get("changed")), "removed_role_ids": result.get("removed_role_ids", []),
+    }
 
 
 async def process_probation_warning(
@@ -1707,6 +1765,7 @@ async def process_probation_warning(
     warn: dict,
     team_role_ids: list[int],
     entry: dict | None = None,
+    config: dict | None = None,
 ):
     """Apply Test-Supporter kick or restore the previous rank for probation warnings."""
     result = {"actions": [], "ok": True, "team_kicked": False, "probation_reverted": False}
@@ -1737,7 +1796,7 @@ async def process_probation_warning(
             | {role.id for role in test_supporter_roles}
             | {test_supporter_role_id}
         )
-        kick = await _apply_warn5_team_kick(guild, member, warn, kick_ids)
+        kick = await _apply_warn5_team_kick(guild, member, warn, kick_ids, config=config)
         result["actions"].append(
             kick["message"] if kick.get("ok")
             else f"Test-Supporter-Team-Kick fehlgeschlagen: {kick['message']}"
@@ -1896,7 +1955,7 @@ async def apply_warn_consequences(
     result = {"level": int(count or 0), "actions": [], "ok": True}
     team_role_ids = [int(x) for x in (config or load_config()).get("team_role_ids", [])]
 
-    probation_result = await process_probation_warning(guild, member, warn, team_role_ids, entry)
+    probation_result = await process_probation_warning(guild, member, warn, team_role_ids, entry, config=config)
     result["actions"].extend(probation_result.get("actions", []))
     result["ok"] = result["ok"] and probation_result.get("ok", True)
     if probation_result.get("team_kicked"):
@@ -1922,7 +1981,7 @@ async def apply_warn_consequences(
         result["ok"] = result["ok"] and downrank["ok"]
 
     elif count == 5:
-        team_kick = await _apply_warn5_team_kick(guild, member, warn, team_role_ids)
+        team_kick = await _apply_warn5_team_kick(guild, member, warn, team_role_ids, config=config)
         result["actions"].append(team_kick["message"])
         result["ok"] = result["ok"] and team_kick["ok"]
 
@@ -1947,15 +2006,33 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
         and bool((item.get("consequences") or {}).get("test_supporter_team_kick"))
         for item in warnings
     )
+    # Treat older Warn-5 kicks as permanent too; pre-7.14.3 records could otherwise
+    # automatically restore a team rank when the last warning expired.
+    permanent_team_kick = any(
+        isinstance(item, dict)
+        and (item.get("consequences") or {}).get("team_kick_applied")
+        and not (item.get("consequences") or {}).get("team_kick_reverted_at")
+        for item in warnings
+    )
+    if permanent_team_kick:
+        stamp = now_de().isoformat(timespec="seconds")
+        for item in warnings:
+            if not isinstance(item, dict):
+                continue
+            item_consequences = item.get("consequences") or {}
+            if item_consequences.get("team_kick_applied") and not item_consequences.get("team_kick_reverted_at"):
+                item_consequences["team_kick_permanent"] = True
+                item_consequences.setdefault("team_kick_restore_skipped_at", stamp)
+                result["changed"] = True
+
     manual_team_override = bool(current_team_ids) and any(
         isinstance(item, dict)
         and (item.get("consequences") or {}).get("team_kick_applied")
         and not (item.get("consequences") or {}).get("team_kick_reverted_at")
-        and not (item.get("consequences") or {}).get("team_kick_restore_skipped_at")
         and not (item.get("consequences") or {}).get("test_supporter_team_kick")
         for item in warnings
     )
-    if permanent_test_kick or manual_team_override:
+    if permanent_test_kick or permanent_team_kick or manual_team_override:
         for item in warnings:
             if not isinstance(item, dict):
                 continue
@@ -1968,8 +2045,7 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
                 item_consequences["downrank_restore_skipped_at"] = now_de().isoformat(timespec="seconds")
                 result["changed"] = True
 
-    # Reverse consequences newest-first: undo the Warn-5 team removal first,
-    # then restore the rank that was present before a Warn-4 downrank.
+    # Reverse only temporary warning sanctions. Team-Kicks remain permanent; a manager must re-hire explicitly.
     for warn in reversed(warnings):
         if not isinstance(warn, dict):
             continue
