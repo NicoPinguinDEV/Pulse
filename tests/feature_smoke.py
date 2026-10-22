@@ -344,6 +344,9 @@ def main() -> None:
     assert "roles=keep_roles" in kick_block
     assert "Verbleibende Rollen" in kick_block
     assert "TEAM_KICK_KEEP_ROLE_IDS" in kick_block
+    assert "async def apply_team_kick_role_reset(" in web
+    assert "await member.edit(roles=keep_roles" in web
+    assert "team_kick_permanent" in web
     assert 'await member.kick(' not in web
     ultimate = read("pulse_ultimate.py")
     assert "RAM_TREND_GROWTH_MB_PER_HOUR = 20.0" in ultimate
@@ -362,7 +365,8 @@ def main() -> None:
     suite_actions = read("cogs/pulse_suite.py")
     parse("cogs/pulse_suite.py")
     assert "await target.kick(" in suite_actions
-    assert "await target.remove_roles(*team_roles" in suite_actions
+    assert "await web.apply_team_kick_role_reset(" in suite_actions
+    assert "await target.remove_roles(*team_roles" not in suite_actions
     assert "status='executing'" in suite_actions
     assert "rank_role_ids_after_change(" in suite_actions
     assert "if r.id in planned_ids and not r.is_default()" in suite_actions
@@ -653,6 +657,11 @@ def main() -> None:
     assert "render_role_manager(esc, ctx, member, team_role_ids)" in web
     assert 'name="add_role_ids"' in role_page and 'name="remove_role_ids"' in role_page
     assert 'name="action_reason"' in role_page and 'action="/team/{member.id}/roles"' in role_page
+    # Discord snowflakes are 64-bit IDs and must stay strings in browser JavaScript.
+    assert '"id": str(r["id"])' in role_page
+    assert '"rankIds": [str(role_id) for role_id in rank_ids]' in role_page
+    assert '"currentIds": sorted(str(role_id) for role_id in current_ids)' in role_page
+    assert "Number(rank.value)" not in role_page
     assert "Mehrfach-Rollenänderung" in web
     assert "⚙️ Team-Update: Rollenänderung" in web
     assert "⬆️ Befördern" in web
