@@ -1535,6 +1535,47 @@ def get_warn_role_ids(config: dict | None = None) -> dict:
         for level, role_id in WARN_ROLE_IDS.items()
     }
 
+def _legacy_warning_expiry(warn: dict, current: datetime | None = None) -> tuple[datetime, int, str]:
+    """Calculate a stable expiry for old active warnings that have no expires_at.
+
+    Older warnings without a configured duration use seven calendar days (the issue
+    date counts as day one), so a legacy warning dated 16.10 expires on 22.10.
+    Explicit duration_days values retain their full elapsed duration.
+    """
+    raw_duration = warn.get("duration_days")
+    duration_is_explicit = raw_duration is not None and str(raw_duration).strip() != ""
+    try:
+        duration_days = int(raw_duration) if duration_is_explicit else 7
+        if not 1 <= duration_days <= 365:
+            raise ValueError("invalid warning duration")
+    except (TypeError, ValueError, OverflowError):
+        duration_days = 7
+        duration_is_explicit = False
+
+    issued_at = None
+    for field in ("issued_at", "issued_at_iso", "created_at", "created_at_iso", "date", "timestamp"):
+        issued_at = parse_timestamp(warn.get(field))
+        if issued_at is not None:
+            break
+
+    now = current or now_de()
+    if issued_at is not None:
+        # New/explicitly timed warnings run for the full number of elapsed days.
+        # Unconfigured legacy warnings count the issue date as day 1 to preserve
+        # the requested seven-calendar-day rule for already-existing records.
+        days = duration_days if duration_is_explicit else max(0, duration_days - 1)
+        expires_at = issued_at + timedelta(days=days)
+        source = "legacy_explicit_duration" if duration_is_explicit else "legacy_default_7_calendar_days"
+    else:
+        # Never guess the age of an undated historical warning. Give it one
+        # seven-day grace period from migration; normalize_warns persists the
+        # computed timestamp so subsequent reads cannot extend that deadline.
+        expires_at = now + timedelta(days=duration_days)
+        source = "legacy_missing_date_grace_period"
+
+    return expires_at, duration_days, source
+
+
 def normalize_warns(entry: dict) -> bool:
     """Migriert Warns zu einem stabilen Format mit Status statt hartem Löschen."""
     raw = entry.get("warns_list", [])
@@ -1562,11 +1603,17 @@ def normalize_warns(entry: dict) -> bool:
         item.setdefault("revoked_at", None)
         item.setdefault("revoked_by", None)
         item.setdefault("revoked_reason", "")
-        # Legacy warnings without an expiry remain permanent.
         item.setdefault("expires_at", None)
         item.setdefault("duration_days", None)
         item.setdefault("expired_at", None)
         item.setdefault("expired_reason", "")
+        if item.get("active", True) and not item.get("revoked_at") and not item.get("expires_at"):
+            expiry, duration_days, migration_source = _legacy_warning_expiry(item)
+            item["duration_days"] = duration_days
+            item["expires_at"] = expiry.isoformat(timespec="seconds")
+            item.setdefault("expiry_migrated_at", now_de().isoformat(timespec="seconds"))
+            item["expiry_migration_source"] = migration_source
+            changed = True
         normalized.append(item)
 
     if normalized != entry.get("warns_list"):
