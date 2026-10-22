@@ -1,12 +1,33 @@
-name: Pulse Python Syntax Check
+name: Pulse Quality and Security Checks
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
+  dependency-audit:
+    name: Abhängigkeiten auf Sicherheitslücken prüfen
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Abhängigkeiten auditieren
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit -r requirements.txt
+
   syntax:
     runs-on: ubuntu-latest
     steps:

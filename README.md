@@ -111,4 +111,7 @@ python tests/test_pulse_intelligence.py
 python tests/smoke_test.py
 ```
 
-GitHub Actions führt dieselben Prüfungen automatisch für Pushes und Pull Requests gegen `main` aus.
+GitHub Actions führt die Prüfungen automatisch für Pushes und Pull Requests gegen `main` aus. Zusätzlich
+prüft `pip-audit` die Python-Abhängigkeiten bei Änderungen und wöchentlich auf bekannte Sicherheitslücken.
+Dependabot erstellt wöchentlich gruppierte Aktualisierungs-PRs für Python-Abhängigkeiten und GitHub Actions;
+größere Versionssprünge bleiben zur gezielten Prüfung separate PRs.

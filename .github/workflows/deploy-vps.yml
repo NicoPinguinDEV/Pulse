@@ -2,7 +2,7 @@ name: Deploy Pulse VPS
 
 on:
   workflow_run:
-    workflows: ["Pulse Python Syntax Check"]
+    workflows: ["Pulse Quality and Security Checks"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
