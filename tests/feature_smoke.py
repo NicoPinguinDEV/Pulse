@@ -690,7 +690,7 @@ def main() -> None:
     assert 'name="action_reason"' in web
     assert 'action == "kick"' in web
     assert "not guild.me.guild_permissions.manage_roles" in web
-    assert "r.position >= guild.me.top_role.position" in web
+    assert "role.position >= bot_member.top_role.position" in web
     assert "def ordered_team_role_ids(guild, team_role_ids) -> list[int]:" in web
     assert "return sorted(role_ids, key=sort_key)" in web
     assert "ordered_ids = ordered_team_role_ids(guild, team_role_ids)" in web
