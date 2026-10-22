@@ -1,3 +1,3 @@
 """Single source of truth for the Pulse TeamOS release version."""
 
-PULSE_VERSION = "7.14.4"
+PULSE_VERSION = "7.14.5"

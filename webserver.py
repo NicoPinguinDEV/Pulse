@@ -2265,7 +2265,7 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
 
 
 async def cleanup_expired_team_warnings(guild, config: dict | None = None):
-    """Expire warnings, update warning roles, and release warning sanctions when no active warns remain."""
+    """Expire warnings, reliably synchronize roles, and restore temporary sanctions."""
     result = {
         "checked": 0, "expired": 0, "roles_synced": 0, "failed": 0,
         "sanctions_restored": 0, "sanctions_failed": 0,
@@ -2279,8 +2279,10 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
         return result
 
     current = now_de()
+    current_iso = current.isoformat(timespec="seconds")
     changed = False
     users_to_process = []
+
     for user_id, entry in team_db.items():
         if not isinstance(entry, dict):
             continue
@@ -2292,11 +2294,21 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
             result["checked"] += 1
             if warn.get("active", True) and not warn.get("revoked_at") and warning_is_expired(warn, current):
                 warn["active"] = False
-                warn["expired_at"] = current.isoformat(timespec="seconds")
+                warn["expired_at"] = current_iso
                 warn["expired_reason"] = "Gültigkeitsdauer abgelaufen"
                 newly_expired.append(warn)
                 result["expired"] += 1
                 changed = True
+
+        # Retry role sync for warnings that were already marked expired by an
+        # earlier run, but whose Discord role synchronization did not complete.
+        pending_expired = [
+            warn for warn in (entry.get("warns_list", []) or [])
+            if isinstance(warn, dict)
+            and warn.get("expired_reason") == "Gültigkeitsdauer abgelaufen"
+            and not warn.get("expiry_roles_synced_at")
+            and not warn.get("expiry_roles_sync_skipped_at")
+        ]
 
         no_active_warnings = not active_warns(entry)
         sanctions_pending = no_active_warnings and any(
@@ -2316,22 +2328,51 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
             )
             for warn in (entry.get("warns_list", []) or [])
         )
-        if newly_expired or sanctions_pending:
-            users_to_process.append((str(user_id), entry, newly_expired))
+        if newly_expired or pending_expired or sanctions_pending:
+            users_to_process.append((str(user_id), entry, newly_expired, pending_expired))
 
+    # Persist expiry timestamps before making Discord API calls. A temporary API
+    # error must not reactivate a warning, and pending role sync is retried below.
     if changed:
         save_json(DATA_FILE, team_db)
 
     cfg = config or load_config()
     sanctions_changed = False
-    for user_id, entry, newly_expired in users_to_process:
-        member = guild.get_member(int(user_id)) if str(user_id).isdigit() else None
-        if member:
-            report = await sync_warn_roles(guild, member, len(active_warns(entry)), cfg)
-            if report.get("ok"):
-                result["roles_synced"] += 1
-            else:
+    state_changed = False
+
+    for user_id, entry, newly_expired, pending_expired in users_to_process:
+        numeric_user_id = str(user_id).isdigit()
+        member = guild.get_member(int(user_id)) if numeric_user_id else None
+        member_not_found = False
+
+        # The member cache can be incomplete. Fetch from Discord before deciding
+        # a role sync is impossible; a confirmed 404 means the user left the guild.
+        if member is None and numeric_user_id:
+            try:
+                member = await guild.fetch_member(int(user_id))
+            except discord.NotFound:
+                member_not_found = True
+            except Exception as exc:
                 result["failed"] += 1
+                print(f"⚠️ Discord-Mitglied {user_id} konnte für Warnungsablauf nicht geladen werden: {exc}")
+        elif member is None:
+            result["failed"] += 1
+            print(f"⚠️ Ungültige Discord-User-ID bei Warnungsablauf: {user_id!r}")
+
+        if member:
+            if pending_expired:
+                report = await sync_warn_roles(guild, member, len(active_warns(entry)), cfg)
+                if report.get("ok"):
+                    for warn in pending_expired:
+                        warn["expiry_roles_synced_at"] = current_iso
+                        warn.pop("expiry_roles_sync_skipped_at", None)
+                        warn.pop("expiry_roles_sync_skip_reason", None)
+                    state_changed = True
+                    result["roles_synced"] += 1
+                else:
+                    result["failed"] += 1
+                    message = report.get("message") or "Unbekannter Fehler"
+                    print(f"⚠️ Warnrollen-Sync für {user_id} fehlgeschlagen: {message}")
 
             if not active_warns(entry):
                 restoration = await restore_expired_warn_sanctions(guild, member, entry, cfg)
@@ -2343,9 +2384,42 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
                     result["failed"] += len(restoration["failed"])
                     for issue in restoration["failed"]:
                         print(f"⚠️ Warn-Folge konnte für {member.id} nicht aufgehoben werden: {issue}")
-        elif newly_expired:
-            result["failed"] += 1
 
+        elif member_not_found:
+            # A user who left the guild has no server roles to synchronize.
+            # Record the skip so the five-minute task does not repeatedly fetch them.
+            for warn in pending_expired:
+                warn["expiry_roles_sync_skipped_at"] = current_iso
+                warn["expiry_roles_sync_skip_reason"] = "Mitglied nicht mehr auf dem Server"
+                state_changed = True
+            for warn in (entry.get("warns_list", []) or []):
+                if not isinstance(warn, dict):
+                    continue
+                consequences = warn.get("consequences")
+                if not isinstance(consequences, dict):
+                    continue
+                if (
+                    consequences.get("downrank_applied")
+                    and not consequences.get("downrank_reverted_at")
+                    and not consequences.get("downrank_restore_skipped_at")
+                ):
+                    consequences["downrank_restore_skipped_at"] = current_iso
+                    consequences["downrank_restore_skip_reason"] = "Mitglied nicht mehr auf dem Server"
+                    state_changed = True
+                if (
+                    consequences.get("team_kick_applied")
+                    and not consequences.get("team_kick_reverted_at")
+                    and not consequences.get("team_kick_restore_skipped_at")
+                    and not consequences.get("test_supporter_team_kick")
+                ):
+                    consequences["team_kick_restore_skipped_at"] = current_iso
+                    consequences["team_kick_restore_skip_reason"] = "Mitglied nicht mehr auf dem Server"
+                    state_changed = True
+            if pending_expired:
+                print(f"ℹ️ Warnrollen-Sync für {user_id} übersprungen: Mitglied ist nicht mehr auf dem Server.")
+
+        # If lookup failed temporarily, leave pending markers untouched. The
+        # next scheduled cleanup will retry; expiry itself remains persisted.
         if newly_expired:
             reasons = "; ".join(str(w.get("reason") or "Kein Grund") for w in newly_expired[:3])
             log_audit(
@@ -2364,10 +2438,9 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
                 except Exception as exc:
                     print(f"⚠️ DM über abgelaufene Warnung für {user_id} fehlgeschlagen: {exc}")
 
-    if sanctions_changed:
+    if sanctions_changed or state_changed:
         save_json(DATA_FILE, team_db)
     return result
-
 
 async def process_expired_probations(guild) -> dict:
     """End active promotion probation periods after their selected 3 or 7 days."""

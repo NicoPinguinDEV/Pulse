@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.14.5 – Nachholbare Warnrollen-Synchronisierung (Oktober 2026)
+
+- **Discord-Mitglieder werden bei Cache-Lücken nachgeladen:** Vor einem Warnrollen-Abgleich versucht Pulse, das Mitglied direkt von Discord abzurufen. Bereits aus der Datenbank abgelaufene Warnungen bleiben für die Synchronisierung vorgemerkt.
+- **Fehler werden nicht still vergessen:** Bei vorübergehenden Discord- oder Rollenfehlern bleibt der Abgleich offen und wird beim nächsten Kontrolllauf erneut versucht. Mitglieder, die den Server nachweislich verlassen haben, werden nachvollziehbar als übersprungen markiert.
+- **Regressionstests** prüfen Cache-Lücken und erfolgreiche Wiederholung nach einem vorübergehenden Abruffehler.
+
 ## Version 7.14.4 – Zuverlässiger Ablauf von Team-Warnungen (Oktober 2026)
 
 - **Alte Warnungen werden nicht mehr dauerhaft:** Aktive Warnungen ohne gespeichertes Ablaufdatum erhalten bei der Migration automatisch eine Frist. Ist das Ausstellungsdatum bekannt, werden sie anhand dieses Datums eingeordnet; Warnungen ohne eigene Dauer verwenden sieben Kalendertage (Ausstellungstag zählt als Tag 1). Eine Warnung vom 16.10.2026 läuft dadurch am 22.10.2026 ab.
