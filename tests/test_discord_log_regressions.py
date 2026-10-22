@@ -178,13 +178,7 @@ class DiscordLogRegressionTests(unittest.TestCase):
 
     def test_application_version_has_one_source_of_truth(self):
         version = read_source("pulse_version.py")
-        self.assertRegex(version, r'(?m)^PULSE_VERSION = "\\d+\\.\\d+\\.\\d+"        self.assertIn("from pulse_version import PULSE_VERSION", read_source("webserver.py"))
-        self.assertIn("from pulse_version import PULSE_VERSION", read_source("pulse_pro.py"))
-
-
-if __name__ == "__main__":
-    unittest.main()
-)
+        self.assertRegex(version, r'(?m)^PULSE_VERSION = "\d+\.\d+\.\d+"$')
         self.assertIn("from pulse_version import PULSE_VERSION", read_source("webserver.py"))
         self.assertIn("from pulse_version import PULSE_VERSION", read_source("pulse_pro.py"))
 

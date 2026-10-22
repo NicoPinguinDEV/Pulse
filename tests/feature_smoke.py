@@ -475,7 +475,8 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert re.search(r'(?m)^PULSE_VERSION = "\\d+\\.\\d+\\.\\d+"    # The command center route must also exist as an actual Discord slash command.
+    assert re.search(r'(?m)^PULSE_VERSION = "\d+\.\d+\.\d+"$', version_source)
+    # The command center route must also exist as an actual Discord slash command.
     pulse_pro_commands = read("cogs/pulse_pro.py")
     assert '@app_commands.command(name="ultimate"' in pulse_pro_commands
     assert '("/ultimate", "Command Center im Dashboard öffnen")' in pulse_pro_commands
