@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.14.3 – Rollenverwaltung & Team-Kick (Oktober 2026)
+
+- **Rollenverwaltung repariert:** Discord-Rollen-IDs werden im Browser als Zeichenketten verarbeitet. Große Snowflake-IDs werden nicht länger gerundet; Auswahl, geplante Änderungen und Formularübermittlung stimmen wieder überein.
+- **Einheitlicher Team-Kick:** Dashboard, freigegebener `/team-kick`/`/team-exit`, automatischer Team-Kick nach fünf Team-Warnungen und Teamler-Schutz entfernen alle verwaltbaren Rollen bis auf die Bürgerrolle `1531303733311307997` und Ex-Teamler-Rolle `1489912887949394082`.
+- **Dauerhafte Entfernung bei Warnstufe 5:** Das Auslaufen der Warnungen stellt die vorherige Teamrolle nicht mehr automatisch wieder her. Eine erneute Aufnahme ins Team muss bewusst durch die Führung erfolgen.
+- **Sicherheitsprüfung:** Vor dem Rollenreset prüft Pulse Rollenverwaltung und Hierarchie. Wenn eine Rolle nicht entfernt werden kann oder eine Pflichtrolle fehlt, wird der Vorgang abgebrochen und der konkrete Grund angezeigt; der Server-Kick bleibt davon getrennt.
+
 ## Version 7.14.2 – VPS-RAM-Budget (Oktober 2026)
 
 - **Docker-Speicherbudget:** Für den VPS mit 2 GiB RAM auf 512 MiB Container-RAM und maximal 768 MiB Gesamtbudget aus RAM plus Swap angehoben.
