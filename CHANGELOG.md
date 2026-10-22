@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.14.4 – Zuverlässiger Ablauf von Team-Warnungen (Oktober 2026)
+
+- **Alte Warnungen werden nicht mehr dauerhaft:** Aktive Warnungen ohne gespeichertes Ablaufdatum erhalten bei der Migration automatisch eine Frist. Ist das Ausstellungsdatum bekannt, werden sie anhand dieses Datums eingeordnet; Warnungen ohne eigene Dauer verwenden sieben Kalendertage (Ausstellungstag zählt als Tag 1). Eine Warnung vom 16.10.2026 läuft dadurch am 22.10.2026 ab.
+- **Bestehende Fristen bleiben erhalten:** Gespeicherte Ablaufzeitpunkte werden nicht verändert. Bei Datensätzen, die bereits eine Dauer, aber kein Ablaufdatum enthalten, wird die gespeicherte Dauer ausgehend vom Ausstellungsdatum berücksichtigt.
+- **Unbekanntes Ausstellungsdatum:** Für aktive Altwarnungen ohne lesbares Datum wird eine einmalige siebentägige Übergangsfrist ab Migration gesetzt und gespeichert, statt das Alter zu erraten.
+- **Automatische Folgen:** Der bestehende Fünf-Minuten-Housekeeping-Lauf deaktiviert abgelaufene Warnungen, synchronisiert die Discord-Warnrollen und prüft temporäre Warn-Folgen. Warnungsdatensätze bleiben zur Nachvollziehbarkeit in der Historie; sie zählen nach Ablauf nicht mehr als aktiv.
+- **Regressionstests:** Abdeckung für Warnungen vom 16.10., vorhandene Ablaufzeiten, vorhandene Dauer ohne Ablaufzeit und undatierte Altwarnungen.
+
 ## Version 7.14.3 – Rollenverwaltung & Team-Kick (Oktober 2026)
 
 - **Rollenverwaltung repariert:** Discord-Rollen-IDs werden im Browser als Zeichenketten verarbeitet. Große Snowflake-IDs werden nicht länger gerundet; Auswahl, geplante Änderungen und Formularübermittlung stimmen wieder überein.
