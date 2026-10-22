@@ -89,7 +89,7 @@ class WarningExpiryMigrationTests(unittest.TestCase):
         with patch("webserver.now_de", return_value=first_seen):
             webserver.normalize_warns(entry)
         first_expiry = entry["warns_list"][0]["expires_at"]
-        self.assertEqual(first_expiry, "2026-10-29T18:00:00+02:00")
+        self.assertEqual(first_expiry, "2026-10-29T18:00:00+01:00")
 
         later = datetime(2026, 10, 25, 18, 0, tzinfo=BERLIN)
         with patch("webserver.now_de", return_value=later):
