@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.14.6 – Manuelle Teamnamen & echter Abmeldestatus (Oktober 2026)
+
+- **Eigene Discord-Namen bleiben erhalten:** Manuelle Nickname-Änderungen werden als neue Namensbasis übernommen, auch wenn der Rangpräfix gleich bleibt. Pulse setzt danach weiterhin den richtigen Präfix entsprechend der höchsten Rolle.
+- **Abmeldezusatz an Abmeldung gekoppelt:** „| Abgemeldet“ wird anhand des Abmeldungseintrags in Pulse gesetzt oder entfernt und nicht allein aus einem frei editierbaren Nickname abgeleitet.
+- **Abmeldung beenden ohne Namens-Rollback:** Beim Zurückmelden wird nur der Abmeldezusatz entfernt. Ein während der Abmeldung geänderter Name wird nicht mehr durch den alten gespeicherten Namen ersetzt.
+- **Regressionstests:** Manuelle Namensänderung, Zusatz ohne echte Abmeldung und Namensänderung während einer Abmeldung.
+
 ## Version 7.14.5 – Nachholbare Warnrollen-Synchronisierung (Oktober 2026)
 
 - **Discord-Mitglieder werden bei Cache-Lücken nachgeladen:** Vor einem Warnrollen-Abgleich versucht Pulse, das Mitglied direkt von Discord abzurufen. Bereits aus der Datenbank abgelaufene Warnungen bleiben für die Synchronisierung vorgemerkt.

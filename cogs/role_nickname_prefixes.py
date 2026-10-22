@@ -11,6 +11,7 @@ import discord
 from discord.ext import commands
 
 from pulse_nickname_utils import (
+    ABSENCE_SUFFIX,
     automatic_role_prefix,
     format_prefixed_nickname,
     looks_like_date_only,
@@ -172,11 +173,51 @@ class RoleNicknamePrefixes(commands.Cog):
         role = next((candidate for candidate in member.roles if candidate.id == role_id), None)
         return (role, prefix) if role is not None else None
 
+    async def _is_user_abgemeldet(self, member: discord.Member) -> bool:
+        """Use the bot's absence database as the sole authority for the suffix."""
+        # Unit helpers may instantiate the cog without a bot; retain their
+        # historical suffix-based behavior without weakening production checks.
+        if self.bot is None:
+            return bool(split_absence_suffix(member.nick)[1])
+
+        get_cog = getattr(self.bot, "get_cog", None)
+        absence_cog = get_cog("AbmeldungCog") if callable(get_cog) else None
+        checker = getattr(absence_cog, "is_abgemeldet", None)
+        if callable(checker):
+            try:
+                return bool(await asyncio.to_thread(checker, member.id))
+            except Exception as exc:
+                print(f"⚠️ Abmeldestatus für {member.id} konnte nicht geprüft werden: {type(exc).__name__}: {exc}")
+
+        # Startup/event ordering can briefly call the nickname cog before the
+        # absence cog is registered. Read its existing SQLite source of truth.
+        try:
+            def _lookup_absence_record() -> bool:
+                import sqlite3
+                from cogs.abmeldung import DB_NAME
+
+                connection = sqlite3.connect(DB_NAME, timeout=2.0)
+                try:
+                    return connection.execute(
+                        "SELECT 1 FROM abmeldungen WHERE user_id = ? LIMIT 1",
+                        (member.id,),
+                    ).fetchone() is not None
+                finally:
+                    connection.close()
+
+            return await asyncio.to_thread(_lookup_absence_record)
+        except Exception as exc:
+            # Fail closed: a stale nickname suffix must not impersonate an
+            # active bot-managed absence if the authoritative record is unreadable.
+            print(f"⚠️ Abmeldedatenbank für {member.id} nicht lesbar: {type(exc).__name__}: {exc}")
+            return False
+
     async def _synchronize_member_locked(
         self,
         member: discord.Member,
         *,
         config_snapshot: dict | None = None,
+        nickname_changed: bool = False,
     ) -> str:
         if member.bot or (GUILD_ID and member.guild.id != GUILD_ID):
             return "unchanged"
@@ -185,14 +226,26 @@ class RoleNicknamePrefixes(commands.Cog):
         prefixes = self._valid_prefix_map(config)
         state = await self._get_member_state(member.id)
         current_nick = member.nick
-        # Keep the absence marker of cogs/abmeldung.py instead of fighting over it.
-        absence_suffix = split_absence_suffix(current_nick)[1]
+        # The suffix is not a user-editable label: an actual Abmeldung DB record
+        # decides whether it is present. This prevents manual suffixes and keeps
+        # it after a teamler changes their own nickname while absent.
+        is_absent = await self._is_user_abgemeldet(member)
+        absence_suffix = ABSENCE_SUFFIX if is_absent else ""
         saved_prefix = str(state.get("applied_prefix") or "") if state else ""
         still_has_our_prefix = bool(
             current_nick is not None
             and saved_prefix
             and current_nick.startswith(f"{saved_prefix} ")
         )
+        has_recorded_applied_nick = bool(state and "last_applied_nick" in state)
+        is_manual_nickname_change = bool(
+            nickname_changed
+            and (
+                not has_recorded_applied_nick
+                or current_nick != state.get("last_applied_nick")
+            )
+        )
+        own_prefixes = list(prefixes.values()) + [config.get("nickname_default_prefix", "Bürger ✗")]
         selected = self._selected_role(member, prefixes)
         if selected is None and current_nick:
             # After a bot re-invite, a partially filled Discord member cache can
@@ -237,12 +290,20 @@ class RoleNicknamePrefixes(commands.Cog):
             role, prefix = selected
             role_label = role.name if role else "Standardpräfix"
             role_id = str(role.id) if role else "default"
-            if state and still_has_our_prefix:
+            if state and is_manual_nickname_change:
+                # A teamler can rename themselves in Discord. Strip the managed
+                # rank/absence decoration and save the edited name as the new base,
+                # even when the visible rank prefix itself did not change.
+                edited_base = split_absence_suffix(current_nick)[0] or member.name
+                edited_base = strip_pulse_prefixes(edited_base, own_prefixes)
+                edited_base = strip_legacy_rank_prefix(edited_base)
+                original_nick = edited_base or member.name
+                base_name = original_nick
+            elif state and still_has_our_prefix:
                 original_nick = state.get("original_nick")
                 base_name = original_nick if isinstance(original_nick, str) and original_nick else member.name
             elif state:
-                # A human changed the nickname since the last automatic update.
-                # Keep that new value as the base instead of overwriting it.
+                # If the user replaced the whole nickname, preserve it as the base.
                 original_nick = current_nick
                 base_name = current_nick or member.name
             else:
@@ -269,8 +330,6 @@ class RoleNicknamePrefixes(commands.Cog):
             # the real highest-role prefix, including from saved nickname state.
             # Pulse's own prefixes of a previous rank ('L.Mod ✗') are removed too,
             # otherwise a rank change stacked them ('Jr.Admin ✗ L.Mod ✗ Dawo').
-            own_prefixes = list(prefixes.values()) + [config.get("nickname_default_prefix", "Bürger ✗")]
-
             def _clean(value):
                 value = split_absence_suffix(value)[0]
                 value = strip_pulse_prefixes(value, own_prefixes)
@@ -293,6 +352,7 @@ class RoleNicknamePrefixes(commands.Cog):
                 "original_nick": original_nick,
                 "applied_prefix": prefix,
                 "role_id": role_id,
+                "last_applied_nick": target_nick,
             }
             if current_nick == target_nick:
                 if state != new_state:
@@ -325,7 +385,43 @@ class RoleNicknamePrefixes(commands.Cog):
                 return "failed"
 
         if not state:
+            current_base, current_suffix = split_absence_suffix(current_nick)
+            if current_nick is not None and current_suffix and not is_absent:
+                target_nick = current_base
+                if target_nick != current_nick:
+                    try:
+                        await member.edit(nick=target_nick, reason="Pulse: ungültigen Abmeldezusatz entfernen")
+                    except (discord.Forbidden, discord.HTTPException, discord.NotFound) as exc:
+                        print(f"⚠️ Abmeldezusatz für {member.id} konnte nicht korrigiert werden: {type(exc).__name__}: {exc}")
+                        return "failed"
+                    return "updated"
+            if is_absent and current_nick is not None and not current_suffix:
+                base_name = current_nick or member.name
+                target_nick = f"{base_name[: 32 - len(absence_suffix)].rstrip()}{absence_suffix}"
+                try:
+                    await member.edit(nick=target_nick, reason="Pulse: Abmeldezusatz wiederherstellen")
+                    return "updated"
+                except (discord.Forbidden, discord.HTTPException, discord.NotFound) as exc:
+                    print(f"⚠️ Abmeldezusatz für {member.id} konnte nicht gesetzt werden: {type(exc).__name__}: {exc}")
+                    return "failed"
             return "unchanged"
+
+        if is_manual_nickname_change:
+            # Prefix mapping was removed while the user edited their name. Do not
+            # restore an older name from state; keep the edit and only normalize the
+            # absence suffix to match the current database state.
+            base_name = split_absence_suffix(current_nick)[0] or member.name
+            base_name = strip_pulse_prefixes(base_name, own_prefixes) or base_name
+            base_name = strip_legacy_rank_prefix(base_name) or base_name
+            target_nick = f"{base_name[: 32 - len(absence_suffix)].rstrip()}{absence_suffix}"
+            if current_nick != target_nick:
+                try:
+                    await member.edit(nick=target_nick, reason="Pulse: manuelle Namensänderung beibehalten")
+                except (discord.Forbidden, discord.HTTPException, discord.NotFound) as exc:
+                    print(f"⚠️ Manuelle Namensänderung für {member.id} konnte nicht normalisiert werden: {type(exc).__name__}: {exc}")
+                    return "failed"
+            await self._set_member_state(member.id, None)
+            return "updated" if current_nick != target_nick else "unchanged"
 
         if still_has_our_prefix:
             original_nick = state.get("original_nick")
@@ -362,10 +458,15 @@ class RoleNicknamePrefixes(commands.Cog):
         member: discord.Member,
         *,
         config_snapshot: dict | None = None,
+        nickname_changed: bool = False,
     ) -> str:
         lock = self._member_locks.setdefault(member.id, asyncio.Lock())
         async with lock:
-            return await self._synchronize_member_locked(member, config_snapshot=config_snapshot)
+            return await self._synchronize_member_locked(
+                member,
+                config_snapshot=config_snapshot,
+                nickname_changed=nickname_changed,
+            )
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -396,7 +497,10 @@ class RoleNicknamePrefixes(commands.Cog):
         if before.guild.id != after.guild.id:
             return
         if before.roles != after.roles or before.nick != after.nick:
-            await self.synchronize_member(after)
+            await self.synchronize_member(
+                after,
+                nickname_changed=before.nick != after.nick,
+            )
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member) -> None:
