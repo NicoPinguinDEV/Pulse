@@ -475,7 +475,16 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.14.0"' in version_source
+    assert 'PULSE_VERSION = "7.14.1"' in version_source
+    # The command center route must also exist as an actual Discord slash command.
+    pulse_pro_commands = read("cogs/pulse_pro.py")
+    assert '@app_commands.command(name="ultimate"' in pulse_pro_commands
+    assert '("/ultimate", "Command Center im Dashboard öffnen")' in pulse_pro_commands
+    # Keep the VPS behind its HTTPS reverse proxy and enforce the intended RAM budget.
+    compose_source = read("compose.yaml")
+    assert 'mem_limit: 250m' in compose_source
+    assert 'memswap_limit: 350m' in compose_source
+    assert '"127.0.0.1:${SERVER_PORT:-25095}:${SERVER_PORT:-25095}"' in compose_source
     archive_source = read("cogs/announcement_archive.py")
     parse("cogs/announcement_archive.py")
     archive_utils = read("pulse_announcement_utils.py")
