@@ -7,6 +7,9 @@ Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstz
 - Discord-OAuth-Dashboard mit signierten Sessions
 - Konfigurierbarer Voice-Support mit gemeinsamem Warteraum zu jeder Uhrzeit (ohne neue Kanäle beim Beitritt), einmaliger Eröffnungsansage pro Supportfall und anschließender Endlosschleife der im Dashboard ausgewählten Wartemusik-Datei, automatischer Wiederherstellung aus untätigen Voice-Verbindungen, persistentem Live-Status für Öffnungszeiten/Warteschlange/laufende Gespräche/Bereitschaft, einmaliger Ansage bei geschlossener Supportzeit, Fall-Buttons zum Übernehmen/Übertragen/Beenden, temporären Voice-Rechten, automatischer Bereinigung bei freiwilligem Verlassen und Abschlussprotokoll in Kanal `1531443370172485703`.
 - Honeypot-Schutzkanal `1560397792751657053`: auffälliges Warn-Embed und automatischer Ban bei Nachrichten im verbotenen Kanal
+- Konfigurierbares AutoMod im Adminpanel: Spam/Nachrichtenflut, Massen-Erwähnungen, Discord-Einladungen sowie eigene Wort- und Domainfilter; die erste Regelverletzung wird gelöscht und per DM verwarnt, eine Wiederholung innerhalb einer Stunde führt zu einem 10-Minuten-Timeout. Für die Spam-Erkennung bleiben Nachrichteninhalte ausschließlich kurzzeitig im begrenzten Arbeitsspeicher; sie werden nicht dauerhaft gespeichert oder in Moderationsmeldungen ausgegeben.
+- Anti-Nuke im Adminpanel: überwacht ausgewählte Audit-Log-Ereignisse wie Massenbans/-kicks, Rollen- und Kanaländerungen, Webhooks und neue Bots; bei konfigurierbarer Aktionsschwelle alarmiert Pulse und sperrt den Akteur automatisch. Serverinhaber, Pulse und ausdrücklich freigestellte Nutzer/Rollen sind geschützt. Standardmäßig deaktiviert; benötigt „Audit-Log ansehen“ und „Mitglieder bannen“. Anti-Nuke reagiert auf Audit-Logs nach der Discord-Aktion, verhindert sie nicht im Voraus und kann gelöschte Inhalte oder Strukturen nicht wiederherstellen.
+- Geführter Admin-Einrichtungsassistent unter `/setup` mit sicheren Prüfschritten für Discord/OAuth, Rollen, AutoMod, Anti-Nuke und Backups; Änderungen bleiben immer eine bewusste Administratoraktion
 - Live-Serverstatistiken als nicht betretbare Sprachkanäle: Mitglieder, Boosts, Bots und Rollen werden in einer bestehenden Kategorie automatisch aktualisiert
 - Teamler-Schutz: erkennt massenhafte manuelle Warnungen, sperrt Warn-/Teamaktionen vorübergehend, protokolliert Vorfälle und entfernt bei wiederholtem Missbrauch automatisch Teamrollen (kein Server-Kick)
 - Automatische Discord-Namenspräfixe: die feste Pulse-Teamhierarchie entscheidet über den höchsten Rang (auch wenn Bürger-/VIP-Rollen in Discord höher einsortiert sind); Labels u. a. `PL ✗`, `Stv.PL ✗`, `L.DK ✗`, `Stv.SL ✗`, `L.MA ✗`, `L.Supervisor ✗`, `Sr.Mod ✗`; standardmäßig `Bürger ✗`, individuelle Präfixe für VIP- und andere Rollen, automatische Aktualisierung bei Rollenwechseln und Synchronisierung bestehender Mitglieder; manuelle Präfixe bleiben möglich
@@ -28,7 +31,7 @@ Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstz
 - Support/SLA-Übersicht, Aufgaben-2.0-Board und Performance-Leaderboards
 - Monatsberichte, CSV/JSON-Export und detailliertes Health/Security Center mit RAM-, KI-Cache- und Warteschlangen-Monitoring
 - Wiederverwendete HTTP-Verbindungspools für KI-/Social-Integrationen und Größenlimits beim Feed-Streaming
-- Vollständige Discord-Struktur- und Pulse-Backups mit Rollen/Kanalberechtigungen, Servereinstellungen, Mitgliedsrollen, SQLite/JSON-Daten, Ticket-Transkripten, validiertem JSON-Download/-Upload, automatischer Sicherheitskopie, sicherem additive Restore-Modus und optionaler exakter Wiederherstellung
+- Vollständige Discord-Struktur- und Pulse-Backups mit Rollen/Kanalberechtigungen, Servereinstellungen, Mitgliedsrollen, SQLite/JSON-Daten, Ticket-Transkripten, validiertem JSON-Download/-Upload, automatischer Sicherheitskopie, sicherem additive Restore-Modus und optionaler exakter Wiederherstellung; automatische isolierte Restore-Tests prüfen mindestens wöchentlich die Sicherbarkeit
 - Sprach-Support: Teamler mit konfigurierter Supportrolle können wartende Fälle auch außerhalb einer aktiven Dienstschicht übernehmen; für die Fallübernahme müssen sie weiterhin einem geeigneten Support-Sprachkanal beitreten.
 - Team-Kalender mit Monatsraster, Monatsnavigation und dauerhafter Event-Erstellung (Titel, Beginn/Ende, Kategorie, Ort und Beschreibung); vorhandene Meetings und Abmeldungen werden ebenfalls angezeigt.
 - Pulse Intelligence 7.9.0: lokaler regelbasierter Copilot ohne externe KI-API, System-Zwilling mit Abhängigkeits-/Auswirkungsübersicht, read-only Was-wäre-wenn-Simulationen für Ticketlast/Team-Ausfall/RAM sowie Workflow-Release-Sandbox mit JSON-Schema-Prüfung ohne Ausführung.
@@ -59,6 +62,7 @@ Administratoren können in Discord `/pulse-diagnose` verwenden, um RAM, Datenban
 - Server-Kick und Team-Offboarding prüfen Gründe, Berechtigungen und Rollenhierarchie. Vorgänge werden vor Ausführung atomar beansprucht, um doppelte Freigaben zu vermeiden.
 - `/promote` und `/demote` ersetzen konfigurierte Rangrollen durch genau eine Zielrangrolle und erhalten alle anderen Rollen.
 - Die Kernregeln sind in `pulse_safety.py` ohne externe Abhängigkeiten testbar; `tests/test_pulse_safety.py` prüft Hysterese, Rangrollenplanung sowie die Trennung zwischen Server-Kick und Team-Offboarding.
+- AutoMod und Anti-Nuke sind standardmäßig deaktiviert. Vor dem Aktivieren Ausnahmen und Alarmkanal prüfen; automatische Anti-Nuke-Sperren können bei legitimen Massenaktionen auslösen. Die Schwelle, Zeitspanne, Ereignisse und Vertrauensrollen sind konfigurierbar.
 
 ## Start
 
@@ -111,7 +115,9 @@ python tests/test_pulse_intelligence.py
 python tests/smoke_test.py
 ```
 
-GitHub Actions führt die Prüfungen automatisch für Pushes und Pull Requests gegen `main` aus. Zusätzlich
-prüft `pip-audit` die Python-Abhängigkeiten bei Änderungen und wöchentlich auf bekannte Sicherheitslücken.
-Dependabot erstellt wöchentlich gruppierte Aktualisierungs-PRs für Python-Abhängigkeiten und GitHub Actions;
-größere Versionssprünge bleiben zur gezielten Prüfung separate PRs.
+GitHub Actions führt die Prüfungen für Pushes und Pull Requests gegen `main` aus. `pip-audit` prüft
+Python-Abhängigkeiten bei Änderungen und wöchentlich; CodeQL analysiert Python und JavaScript/TypeScript,
+und Gitleaks scannt Commits auf versehentlich eingecheckte Geheimnisse. Dependabot erstellt wöchentlich
+gruppierte Aktualisierungs-PRs für Python-Abhängigkeiten und GitHub Actions; größere Versionssprünge bleiben
+zur gezielten Prüfung separate PRs. Der Systemstatus überwacht außerdem bereits Job-Fehler, Datenbank-/Dateiwachstum,
+RAM und wöchentliche Backup-Restore-Tests.

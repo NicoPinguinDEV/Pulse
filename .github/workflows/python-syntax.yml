@@ -13,6 +13,45 @@ permissions:
   contents: read
 
 jobs:
+  codeql:
+    name: CodeQL ${{ matrix.language }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+      - name: CodeQL initialisieren
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - name: CodeQL-Analyse
+        uses: github/codeql-action/analyze@v3
+
+  secret-scan:
+    name: Repository auf offengelegte Geheimnisse prüfen
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: write
+    steps:
+      - name: Repository inklusive Historie auschecken
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks ausführen
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   dependency-audit:
     name: Abhängigkeiten auf Sicherheitslücken prüfen
     runs-on: ubuntu-latest

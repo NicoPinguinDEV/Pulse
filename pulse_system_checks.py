@@ -114,8 +114,47 @@ def role_hierarchy(guild, config):
     return ("Rollenhierarchie", True, f"„{top.name}“ steht über allen verwalteten Rollen")
 
 
+def moderation_permissions(bot, guild, config):
+    """Check the permissions required by enabled server-side moderation protections."""
+    automod = (config or {}).get("pulse_automod", {})
+    antinuke = (config or {}).get("pulse_antinuke", {})
+    automod = automod if isinstance(automod, dict) else {}
+    antinuke = antinuke if isinstance(antinuke, dict) else {}
+    me = getattr(guild, "me", None) if guild is not None else None
+    permissions = getattr(me, "guild_permissions", None)
+    checks = []
+
+    if automod.get("enabled"):
+        can_read = bool(getattr(getattr(bot, "intents", None), "message_content", False))
+        checks.append(("AutoMod · Nachrichteninhalt", can_read,
+                       "Message Content Intent aktiv" if can_read else "Message Content Intent im Developer Portal und Bot aktivieren"))
+        can_delete = bool(getattr(permissions, "manage_messages", False))
+        checks.append(("AutoMod · Nachrichten löschen", can_delete,
+                       "Berechtigung vorhanden" if can_delete else "Bot benötigt „Nachrichten verwalten“"))
+
+    if antinuke.get("enabled"):
+        can_audit = bool(getattr(permissions, "view_audit_log", False))
+        checks.append(("Anti-Nuke · Audit-Log", can_audit,
+                       "Berechtigung vorhanden" if can_audit else "Bot benötigt „Audit-Log ansehen“"))
+        can_ban = bool(getattr(permissions, "ban_members", False))
+        checks.append(("Anti-Nuke · Sperren", can_ban,
+                       "Berechtigung vorhanden" if can_ban else "Bot benötigt „Mitglieder bannen“"))
+
+    alert_id = (automod.get("alert_channel_id") or antinuke.get("alert_channel_id")) if (automod.get("enabled") or antinuke.get("enabled")) else 0
+    if alert_id:
+        try:
+            channel = guild.get_channel(int(alert_id)) if guild is not None else None
+        except (TypeError, ValueError):
+            channel = None
+        can_send = bool(channel and me and getattr(channel.permissions_for(me), "send_messages", False))
+        checks.append(("AutoMod/Anti-Nuke · Alarmkanal", can_send,
+                       "Alarmkanal erreichbar und beschreibbar" if can_send else "Kanal-ID prüfen und Bot „Nachrichten senden“ erlauben"))
+    return checks
+
+
 def run(bot, guild, config, environ=None):
     checks = [gateway(bot), cog_errors(bot), timezone(), env_values(environ)]
     checks += discord_ids(guild)
     checks.append(role_hierarchy(guild, config))
+    checks += moderation_permissions(bot, guild, config)
     return checks

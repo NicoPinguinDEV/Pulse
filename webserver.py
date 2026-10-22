@@ -1124,28 +1124,46 @@ def back(url: str, msg: str = None, ok: bool = True):
 
 
 _rate_hits = {}
+_rate_lock = threading.Lock()
 
 
 def rate_limited(key: str, limit: int = 3, window: int = 3600) -> bool:
     """Ein kleiner In-Memory-Rate-Limiter mit periodischer Bereinigung alter Keys."""
     now = time.time()
     window = max(1, int(window))
-    hits = [t for t in _rate_hits.get(key, []) if now - t < window]
-    if len(hits) >= limit:
+    limit = max(1, int(limit))
+    with _rate_lock:
+        hits = [t for t in _rate_hits.get(key, []) if now - t < window]
+        if len(hits) >= limit:
+            _rate_hits[key] = hits
+            return True
+
+        hits.append(now)
         _rate_hits[key] = hits
-        return True
 
-    hits.append(now)
-    _rate_hits[key] = hits
+        # Verhindert unbegrenztes Wachstum bei vielen Clients/IPs.
+        if len(_rate_hits) > 5000:
+            cutoff = now - window
+            stale = [k for k, values in _rate_hits.items() if not any(ts >= cutoff for ts in values)]
+            for stale_key in stale[:2500]:
+                _rate_hits.pop(stale_key, None)
 
-    # Verhindert unbegrenztes Wachstum bei vielen Clients/IPs.
-    if len(_rate_hits) > 5000:
-        cutoff = now - window
-        stale = [k for k, values in _rate_hits.items() if not any(ts >= cutoff for ts in values)]
-        for stale_key in stale[:2500]:
-            _rate_hits.pop(stale_key, None)
+        return False
 
-    return False
+
+def request_rate_key(request: Request, action: str) -> str:
+    """Use the connection peer, not an untrusted forwarding header, for abuse limits."""
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None) or "unknown"
+    return f"{action}:{host}"
+
+
+def rate_limit_response(message: str) -> HTMLResponse:
+    return HTMLResponse(
+        simple_page("⏳", "Bitte kurz warten", message),
+        status_code=429,
+        headers={"Retry-After": "60"},
+    )
 
 # =============================================================
 # SCHICHT-HELFER (Pausen werden jetzt wirklich nicht mitgezählt)
@@ -2746,7 +2764,10 @@ HEAD_SCRIPT = TAILWIND_TAG + """
     }
     function toggleSidebar() {
         const s = document.getElementById('sidebar'), b = document.getElementById('sidebarBackdrop');
+        if (!s || !b) return;
         s.classList.toggle('hidden'); s.classList.toggle('flex'); b.classList.toggle('hidden');
+        const button = document.querySelector('[aria-controls="sidebar"]');
+        if (button) button.setAttribute('aria-expanded', String(!s.classList.contains('hidden')));
     }
     function escapeHtml(v) {
         return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2759,6 +2780,11 @@ def get_head_html(title: str):
     return (
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        '<meta name="color-scheme" content="light dark">\n'
+        '<style>:focus-visible{outline:3px solid #6366f1!important;outline-offset:3px}'
+        '@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;'
+        'animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}'
+        '</style>\n'
         f"<title>{esc(title)}</title>\n" + HEAD_SCRIPT
     )
 
@@ -2797,6 +2823,8 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
     admin_items = [
         ("backups", "/backups", "💾", "Server Backups"),
         ("system", "/system", "🩺", "Systemstatus"),
+        ("setup", "/setup", "🧭", "Einrichtungsassistent"),
+        ("security", "/security", "🛡️", "AutoMod & Anti-Nuke"),
         ("search", "/search", "🔎", "Globale Suche"),
         ("settings", "/settings", "⚙️", "Rechte & Audit-Log"),
     ] if perms.get("is_admin") else [("search", "/search", "🔎", "Globale Suche")]
@@ -2815,9 +2843,9 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
         nav += "".join(link(*i) for i in admin_items)
 
     return f"""
-    <button onclick="toggleSidebar()" aria-label="Menü" class="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-700 shadow text-lg">☰</button>
+    <button onclick="toggleSidebar()" aria-label="Menü" aria-controls="sidebar" aria-expanded="false" class="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-700 shadow text-lg">☰</button>
     <div id="sidebarBackdrop" onclick="toggleSidebar()" class="hidden fixed inset-0 bg-black/50 z-30 md:hidden"></div>
-    <aside id="sidebar" class="hidden md:flex fixed md:sticky top-0 left-0 z-40 h-screen w-64 overflow-y-auto bg-white dark:bg-[#141824] border-r border-slate-200 dark:border-slate-800/80 flex-col justify-between p-4 shrink-0 transition-colors duration-200">
+    <aside id="sidebar" aria-label="Hauptnavigation" class="hidden md:flex fixed md:sticky top-0 left-0 z-40 h-screen w-64 overflow-y-auto bg-white dark:bg-[#141824] border-r border-slate-200 dark:border-slate-800/80 flex-col justify-between p-4 shrink-0 transition-colors duration-200">
         <div class="space-y-6">
             <div class="flex items-center gap-3 px-2">
                 <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-600/20">B</div>
@@ -2870,8 +2898,9 @@ def render_page(title: str, ctx, page: str, body: str, extra_head: str = "") -> 
     <html lang="de">
     <head>{get_head_html(f"{title} - {ctx.guild_name}")}{extra_head}</head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
+        <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-xl focus:bg-white focus:px-4 focus:py-3 focus:text-indigo-700 focus:shadow-lg">Zum Hauptinhalt springen</a>
         {get_sidebar_html(ctx.guild_name, page, ctx.user, ctx.perms)}
-        <main class="flex-1 min-w-0 p-4 pt-16 md:p-8 md:pt-8">
+        <main id="main-content" tabindex="-1" class="flex-1 min-w-0 p-4 pt-16 md:p-8 md:pt-8">
             {toast}
             {body}
         </main>
@@ -3194,6 +3223,8 @@ async def home(user_session: str = Cookie(None)):
 
 @app.get("/login")
 async def login(request: Request):
+    if rate_limited(request_rate_key(request, "oauth-login"), limit=15, window=600):
+        return rate_limit_response("Zu viele Login-Versuche. Bitte in einer Minute erneut versuchen.")
     state = secrets.token_urlsafe(24)  # CSRF-Schutz für den OAuth-Ablauf
     redirect_uri = oauth_redirect_uri(request)
     url = (f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}"
@@ -3231,6 +3262,8 @@ async def logout(user_session: str = Cookie(None)):
 @app.get("/callback")
 async def callback(request: Request, code: str = None, state: str = None, error: str = None,
                    oauth_state: str = Cookie(None), apply_oauth_state: str = Cookie(None)):
+    if rate_limited(request_rate_key(request, "oauth-callback"), limit=30, window=600):
+        return rate_limit_response("Zu viele Anmeldeversuche. Bitte in einer Minute erneut versuchen.")
     application_flow = bool(
         state and apply_oauth_state and hmac.compare_digest(state, apply_oauth_state)
     )
@@ -7379,6 +7412,8 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
 
 @app.get("/apply/login")
 async def apply_login(request: Request, career: str = ""):
+    if rate_limited(request_rate_key(request, "apply-oauth-login"), limit=15, window=600):
+        return rate_limit_response("Zu viele Bewerbungs-Login-Versuche. Bitte in einer Minute erneut versuchen.")
     state = secrets.token_urlsafe(24)
     redirect_apply = oauth_redirect_uri(request, application=True)
     url = (f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}"
@@ -7393,6 +7428,8 @@ async def apply_login(request: Request, career: str = ""):
 
 @app.get("/apply/callback")
 async def apply_callback(request: Request, code: str=None, state: str=None, error: str=None, apply_oauth_state: str=Cookie(None)):
+    if rate_limited(request_rate_key(request, "apply-oauth-callback"), limit=30, window=600):
+        return rate_limit_response("Zu viele Bewerbungs-Anmeldeversuche. Bitte in einer Minute erneut versuchen.")
     retry='<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zur Bewerbung</a>'
     if error or not code or not state or not apply_oauth_state or not hmac.compare_digest(state,apply_oauth_state):
         return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen','Bitte erneut versuchen.',retry),status_code=400)
@@ -9283,6 +9320,292 @@ async def full_backup_delete(request: Request, filename: str = Form(...), user_s
     os.remove(path)
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Komplett-Backup gelöscht", os.path.basename(path))
     return back("/backups", "Komplett-Backup gelöscht.")
+
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_wizard(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None, admin=True)
+    import pulse_system_checks
+    checks = {
+        name: (ok, detail)
+        for name, ok, detail in pulse_system_checks.run(
+            getattr(request.app.state, "bot", None), ctx.guild, ctx.config
+        )
+    }
+
+    def check_ok(*names: str) -> bool:
+        return all(checks.get(name, (False, "Prüfung fehlt"))[0] for name in names)
+
+    def details(*names: str) -> str:
+        return " · ".join(checks.get(name, (False, "Prüfung fehlt"))[1] for name in names)
+
+    bot_ready = bool(getattr(getattr(request.app.state, "bot", None), "is_ready", lambda: False)())
+    has_roles = bool(ctx.config.get("team_role_ids"))
+    automod = ctx.config.get("pulse_automod", {})
+    antinuke = ctx.config.get("pulse_antinuke", {})
+    automod = automod if isinstance(automod, dict) else {}
+    antinuke = antinuke if isinstance(antinuke, dict) else {}
+    moderation_check_names = {
+        "AutoMod · Nachrichteninhalt", "AutoMod · Nachrichten löschen",
+        "Anti-Nuke · Audit-Log", "Anti-Nuke · Sperren",
+    }
+    moderation_checks = {name: value for name, value in checks.items() if name in moderation_check_names}
+
+    def enabled_checks_ready(prefix: str) -> bool:
+        relevant = [ok for name, (ok, _) in moderation_checks.items() if name.startswith(prefix)]
+        return bool(relevant) and all(relevant)
+
+    auto_ready = (not automod.get("enabled")) or enabled_checks_ready("AutoMod")
+    nuke_ready = (not antinuke.get("enabled")) or enabled_checks_ready("Anti-Nuke")
+    backup = full_backup_status()
+    restore_test = backup.get("restore_test") or {}
+    backup_ready = bool(backup.get("latest") and backup.get("total_ok") and restore_test.get("ok"))
+
+    steps = [
+        ("Discord & Anmeldung", check_ok(".env-Pflichtwerte") and bot_ready,
+         details(".env-Pflichtwerte", "Gateway-Latenz"), "/system",
+         "Discord-Token, OAuth-Werte und Bot-Verbindung prüfen."),
+        ("Teamrollen & Dashboard-Rechte", has_roles and check_ok("Rollenhierarchie"),
+         "Teamrollen sind konfiguriert." if has_roles else "Noch keine Teamrollen ausgewählt.",
+         "/settings", "Teamrollen zuordnen und die Bot-Rolle über den verwalteten Rollen platzieren."),
+        ("AutoMod", auto_ready,
+         "Aktiv und Bot-Berechtigungen vorhanden." if automod.get("enabled") else "Optional: noch nicht aktiviert.",
+         "/security", "Regeln, Ausnahmen und Nachrichtenverwaltungsrechte prüfen."),
+        ("Anti-Nuke", nuke_ready,
+         "Aktiv und Audit-/Sperrberechtigungen vorhanden." if antinuke.get("enabled") else "Optional: noch nicht aktiviert.",
+         "/security", "Ereignisse, Vertrauensrollen, Schwelle und Bot-Berechtigungen prüfen."),
+        ("Backups & Wiederherstellung", backup_ready,
+         f"{backup.get('count', 0)} Sicherungen · letzter Restore-Test {'bestanden' if restore_test.get('ok') else 'noch ausstehend'}",
+         "/backups", "Erstes Komplett-Backup und den automatischen Restore-Test sicherstellen."),
+    ]
+    completed = sum(1 for _, ready, _, _, _ in steps if ready)
+    rows = "".join(
+        f'<a href="{href}" class="block rounded-2xl border border-slate-200 dark:border-slate-800 p-4 hover:border-indigo-400 focus-visible:ring-2">'
+        f'<div class="flex flex-wrap items-center justify-between gap-2"><h2 class="font-bold">{esc(name)}</h2>'
+        f'<span class="text-xs font-semibold {"text-emerald-600" if ready else "text-amber-600"}">'
+        f'{"Erledigt" if ready else ("Optional" if name in {"AutoMod", "Anti-Nuke"} and not (automod.get("enabled") if name == "AutoMod" else antinuke.get("enabled")) else "Nächster Schritt")}</span></div>'
+        f'<p class="mt-2 text-sm text-slate-500">{esc(detail)}</p><p class="mt-2 text-xs">{esc(action)}</p></a>'
+        for name, ready, detail, href, action in steps
+    )
+    body = f"""
+    <div class="pulse-topbar">
+        <div><div class="pulse-section-title">🧭 Pulse Einrichtungsassistent</div>
+        <div class="pulse-section-sub">Sichere, schrittweise Inbetriebnahme – ohne Einstellungen automatisch zu verändern.</div></div>
+        <a href="/system" class="{BTN}">Vollständige Diagnose</a>
+    </div>
+    <div class="{CARD} mb-5 p-5">
+        <div class="flex items-center justify-between gap-4"><div><div class="font-bold">Einrichtungsfortschritt</div>
+        <p class="mt-1 text-sm text-slate-500">{completed} von {len(steps)} Schritten bereit (optionale Schutzfunktionen sind nicht erforderlich).</p></div>
+        <span class="text-2xl font-bold text-indigo-600">{round(completed / len(steps) * 100)}%</span></div>
+        <div class="mt-4 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700" role="progressbar" aria-label="Einrichtungsfortschritt" aria-valuemin="0" aria-valuemax="{len(steps)}" aria-valuenow="{completed}">
+            <div class="h-full rounded-full bg-indigo-600" style="width:{completed / len(steps) * 100:.0f}%"></div>
+        </div>
+    </div>
+    <div class="grid gap-3 md:grid-cols-2">{rows}</div>
+    """
+    return HTMLResponse(render_page("Einrichtungsassistent", ctx, "setup", body))
+
+
+@app.get("/security", response_class=HTMLResponse)
+async def security_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None, admin=True)
+    automod = ctx.config.get("pulse_automod", {})
+    antinuke = ctx.config.get("pulse_antinuke", {})
+    if not isinstance(automod, dict):
+        automod = {}
+    if not isinstance(antinuke, dict):
+        antinuke = {}
+
+    def config_int(section: dict, key: str, default: int, minimum: int, maximum: int) -> int:
+        try:
+            return max(minimum, min(maximum, int(section.get(key, default))))
+        except (TypeError, ValueError):
+            return default
+
+    def config_list(section: dict, key: str) -> list:
+        value = section.get(key, [])
+        return value if isinstance(value, list) else []
+
+    def checked(name: str, selected: set[str]) -> str:
+        return "checked" if name in selected else ""
+
+    from pulse_moderation import DEFAULT_ANTINUKE_EVENTS
+    automod_rules = set(config_list(automod, "rules")) or {"spam", "mentions", "invites"}
+    antinuke_events = set(config_list(antinuke, "events")) or set(DEFAULT_ANTINUKE_EVENTS)
+    rule_boxes = "".join(
+        f'<label class="flex items-start gap-2 rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-sm">'
+        f'<input type="checkbox" name="automod_rules" value="{key}" {checked(key, automod_rules)} class="mt-1 rounded">'
+        f'<span><span class="font-semibold">{label}</span><span class="block text-xs text-slate-500">{hint}</span></span></label>'
+        for key, label, hint in (
+            ("spam", "Spam und Nachrichtenflut", "Wiederholungen oder mindestens 6 Nachrichten in 10 Sekunden"),
+            ("mentions", "Massen-Erwähnungen", "Standardgrenze: mehr als 5 Erwähnungen"),
+            ("invites", "Discord-Einladungslinks", "discord.gg- und Discord-Invite-Links"),
+            ("keywords", "Wort-/Phrasenfilter", "Konfigurierbare Begriffe; ein Eintrag pro Zeile"),
+            ("domains", "Linkfilter", "Konfigurierbare Domains; ein Hostname pro Zeile"),
+        )
+    )
+    event_boxes = "".join(
+        f'<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="antinuke_events" '
+        f'value="{key}" {checked(key, antinuke_events)} class="rounded"><span>{label}</span></label>'
+        for key, label in (
+            ("ban", "Bans"), ("kick", "Kicks"), ("role_delete", "Rollen löschen"),
+            ("role_update", "Rollen/Berechtigungen ändern"), ("channel_delete", "Kanäle löschen"),
+            ("channel_update", "Kanäle/Berechtigungen ändern"), ("webhook_create", "Webhooks erstellen"),
+            ("webhook_delete", "Webhooks löschen"), ("webhook_update", "Webhooks ändern"),
+            ("bot_add", "Bots hinzufügen"),
+        )
+    )
+    enabled_rules = ", ".join(rule for rule in automod_rules if rule in {"spam", "mentions", "invites", "keywords", "domains"}) or "keine"
+    enabled_events = ", ".join(event for event in antinuke_events) or "keine"
+    body = f"""
+    <div class="pulse-topbar">
+        <div><div class="pulse-section-title">🛡️ AutoMod & Anti-Nuke</div>
+        <div class="pulse-section-sub">Konfigurierbare Schutzregeln mit nachvollziehbaren Maßnahmen und Admin-Ausnahmen.</div></div>
+        <a href="/system" class="{BTN}">Systemdiagnose</a>
+    </div>
+    <div class="{CARD} mb-5 p-4 text-sm">
+        <div class="font-bold">Aktueller Status</div>
+        <p class="mt-2 text-slate-500">AutoMod: {"aktiv" if automod.get("enabled") else "inaktiv"} · Regeln: {esc(enabled_rules)}</p>
+        <p class="mt-1 text-slate-500">Anti-Nuke: {"aktiv" if antinuke.get("enabled") else "inaktiv"} · Überwacht: {esc(enabled_events)}</p>
+        <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">Anti-Nuke sperrt einen nicht freigestellten Akteur automatisch, wenn die festgelegte Schwelle in kurzer Zeit erreicht wird. Prüfe Ausnahmen und Bot-Berechtigungen sorgfältig, damit geplante Moderationsaktionen nicht versehentlich blockiert werden.</p>
+    </div>
+    <form action="/security" method="post" class="space-y-5">
+        <section class="{CARD} p-5 space-y-4">
+            <div><h2 class="font-bold text-lg">AutoMod</h2>
+            <p class="text-xs text-slate-500">Die erste Regelverletzung löscht die Nachricht und versucht eine private Warnung. Ein weiterer Verstoß innerhalb einer Stunde löst einen 10-Minuten-Timeout aus. Es werden keine Nachrichteninhalte gespeichert.</p></div>
+            <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="automod_enabled" {"checked" if automod.get("enabled") else ""} class="rounded"> AutoMod aktivieren</label>
+            <div class="grid sm:grid-cols-2 gap-2">{rule_boxes}</div>
+            <label class="block text-sm">Erwähnungsgrenze
+                <input name="mention_limit" type="number" min="3" max="30" value="{config_int(automod, "mention_limit", 5, 3, 30)}" class="{INPUT} mt-1" aria-describedby="mention-help">
+                <span id="mention-help" class="text-xs text-slate-500">Meldung bei mehr Erwähnungen als dieser Wert.</span>
+            </label>
+            <div class="grid md:grid-cols-2 gap-4">
+                <label class="block text-sm">Gesperrte Wörter/Phrasen
+                    <textarea name="blocked_terms" rows="5" maxlength="10000" class="{INPUT} mt-1" placeholder="Ein Begriff pro Zeile">{esc(chr(10).join(str(v) for v in config_list(automod, "blocked_terms")))}</textarea>
+                </label>
+                <label class="block text-sm">Gesperrte Domains
+                    <textarea name="blocked_domains" rows="5" maxlength="5000" class="{INPUT} mt-1" placeholder="example.com (ein Hostname pro Zeile)">{esc(chr(10).join(str(v) for v in config_list(automod, "blocked_domains")))}</textarea>
+                </label>
+            </div>
+            <label class="block text-sm">Ausgenommene Rollen-IDs
+                <input name="automod_exempt_role_ids" value="{esc(', '.join(str(v) for v in config_list(automod, 'exempt_role_ids')))}" class="{INPUT} mt-1">
+            </label>
+            <label class="block text-sm">Ausgenommene Kanal-IDs
+                <input name="automod_exempt_channel_ids" value="{esc(', '.join(str(v) for v in config_list(automod, 'exempt_channel_ids')))}" class="{INPUT} mt-1">
+            </label>
+        </section>
+        <section class="{CARD} p-5 space-y-4">
+            <div><h2 class="font-bold text-lg">Anti-Nuke</h2>
+            <p class="text-xs text-slate-500">Überwacht Discord-Audit-Logs. Bei Erreichen der Schwelle werden Alarm und Sperrversuch ausgelöst; der Serverinhaber und Pulse selbst sind immer ausgenommen.</p></div>
+            <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="antinuke_enabled" {"checked" if antinuke.get("enabled") else ""} class="rounded"> Anti-Nuke aktivieren</label>
+            <div class="grid sm:grid-cols-2 gap-2">{event_boxes}</div>
+            <div class="grid sm:grid-cols-2 gap-4">
+                <label class="block text-sm">Aktionen bis zum Alarm/Bann (2–10)
+                    <input name="action_limit" type="number" min="2" max="10" value="{config_int(antinuke, "action_limit", 3, 2, 10)}" class="{INPUT} mt-1">
+                </label>
+                <label class="block text-sm">Zeitfenster in Sekunden (5–60)
+                    <input name="window_seconds" type="number" min="5" max="60" value="{config_int(antinuke, "window_seconds", 10, 5, 60)}" class="{INPUT} mt-1">
+                </label>
+            </div>
+            <label class="block text-sm">Freigestellte Vertrauensrollen-IDs
+                <input name="trusted_role_ids" value="{esc(', '.join(str(v) for v in config_list(antinuke, 'trusted_role_ids')))}" class="{INPUT} mt-1">
+                <span class="text-xs text-slate-500">Freigestellte Rollen werden nicht automatisch gesperrt. Freistellungen sparsam vergeben.</span>
+            </label>
+            <label class="block text-sm">Freigestellte Nutzer-IDs
+                <input name="trusted_user_ids" value="{esc(', '.join(str(v) for v in config_list(antinuke, 'trusted_user_ids')))}" class="{INPUT} mt-1">
+            </label>
+            <label class="block text-sm">Alarmkanal-ID (optional)
+                <input name="alert_channel_id" value="{esc(str(antinuke.get('alert_channel_id') or automod.get('alert_channel_id') or ''))}" class="{INPUT} mt-1">
+            </label>
+            <p class="text-xs text-rose-700 dark:text-rose-300">Erforderliche Bot-Berechtigungen: Audit-Log ansehen und Mitglieder bannen. Discord-Rollenhierarchie kann einen Sperrversuch verhindern. Pulse bannnt erst nach Erreichen der Schwelle und protokolliert, wenn Discord die Maßnahme ablehnt.</p>
+        </section>
+        <button class="{BTN} px-5 py-3" type="submit">Sicherheitseinstellungen speichern</button>
+    </form>
+    """
+    return HTMLResponse(render_page("AutoMod & Anti-Nuke", ctx, "security", body))
+
+
+@app.post("/security")
+async def save_security_settings(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None, admin=True)
+    form = await request.form()
+
+    def parse_ids(field: str, label: str) -> list[int]:
+        values = [value for value in re.split(r"[\s,;]+", str(form.get(field) or "").strip()) if value]
+        if len(values) > 50 or any(not value.isdigit() or int(value) <= 0 for value in values):
+            raise ValueError(f"{label}: Bitte ausschließlich bis zu 50 gültige positive IDs angeben.")
+        return list(dict.fromkeys(int(value) for value in values))
+
+    def parse_lines(field: str, label: str, *, domains: bool = False) -> list[str]:
+        values = list(dict.fromkeys(line.strip().casefold() for line in str(form.get(field) or "").splitlines() if line.strip()))
+        if len(values) > 100 or any(len(value) > 100 for value in values):
+            raise ValueError(f"{label}: Maximal 100 Einträge mit höchstens 100 Zeichen sind erlaubt.")
+        if domains:
+            from pulse_moderation import valid_domain
+            if any(not valid_domain(value) for value in values):
+                raise ValueError(f"{label}: Bitte gültige Hostnamen wie example.com angeben, keine URLs oder Wildcards.")
+        return values
+
+    try:
+        rules = sorted(set(form.getlist("automod_rules")) & {"spam", "mentions", "invites", "keywords", "domains"})
+        events = sorted(set(form.getlist("antinuke_events")) & {
+            "ban", "kick", "role_delete", "role_update", "channel_delete", "channel_update",
+            "webhook_create", "webhook_delete", "webhook_update", "bot_add",
+        })
+        mention_limit = int(form.get("mention_limit", 5))
+        action_limit = int(form.get("action_limit", 3))
+        window_seconds = int(form.get("window_seconds", 10))
+        if not 3 <= mention_limit <= 30:
+            raise ValueError("Die Erwähnungsgrenze muss zwischen 3 und 30 liegen.")
+        if not 2 <= action_limit <= 10:
+            raise ValueError("Die Anti-Nuke-Schwelle muss zwischen 2 und 10 Aktionen liegen.")
+        if not 5 <= window_seconds <= 60:
+            raise ValueError("Das Anti-Nuke-Zeitfenster muss zwischen 5 und 60 Sekunden liegen.")
+        alert_raw = str(form.get("alert_channel_id") or "").strip()
+        alert_channel_id = int(alert_raw) if alert_raw.isdigit() else 0
+        if alert_raw and not alert_channel_id:
+            raise ValueError("Die Alarmkanal-ID muss eine positive Discord-ID sein.")
+        if alert_channel_id and ctx.guild.get_channel(alert_channel_id) is None:
+            raise ValueError("Der Alarmkanal wurde auf diesem Discord-Server nicht gefunden.")
+        automod_enabled = bool(form.get("automod_enabled"))
+        antinuke_enabled = bool(form.get("antinuke_enabled"))
+        if automod_enabled and not rules:
+            raise ValueError("Aktiviere mindestens eine AutoMod-Regel oder deaktiviere AutoMod.")
+        if antinuke_enabled and not events:
+            raise ValueError("Wähle mindestens ein Anti-Nuke-Ereignis oder deaktiviere Anti-Nuke.")
+        automod = {
+            "enabled": automod_enabled,
+            "rules": rules,
+            "mention_limit": mention_limit,
+            "blocked_terms": parse_lines("blocked_terms", "Wortfilter"),
+            "blocked_domains": parse_lines("blocked_domains", "Linkfilter", domains=True),
+            "exempt_role_ids": parse_ids("automod_exempt_role_ids", "AutoMod-Ausnahmen"),
+            "exempt_channel_ids": parse_ids("automod_exempt_channel_ids", "AutoMod-Ausnahmen"),
+            "alert_channel_id": alert_channel_id,
+        }
+        antinuke = {
+            "enabled": antinuke_enabled,
+            "events": events,
+            "action_limit": action_limit,
+            "window_seconds": window_seconds,
+            "trusted_role_ids": parse_ids("trusted_role_ids", "Vertrauensrollen"),
+            "trusted_user_ids": parse_ids("trusted_user_ids", "Freigestellte Nutzer"),
+            "alert_channel_id": alert_channel_id,
+        }
+    except (TypeError, ValueError) as exc:
+        return back("/security", str(exc), False)
+
+    ctx.config["pulse_automod"] = automod
+    ctx.config["pulse_antinuke"] = antinuke
+    save_json(CONFIG_FILE, ctx.config)
+    log_audit(
+        ctx.user.get("global_name") or ctx.user.get("username"),
+        ctx.user["id"],
+        "AutoMod/Anti-Nuke Konfiguration geändert",
+        f"AutoMod={'aktiv' if automod_enabled else 'aus'} · Anti-Nuke={'aktiv' if antinuke_enabled else 'aus'}",
+    )
+    return back("/security", "AutoMod- und Anti-Nuke-Einstellungen gespeichert.")
+
 
 # =============================================================
 # ROUTE: EINSTELLUNGEN, RECHTE & AUDIT-LOG (nur Admins)

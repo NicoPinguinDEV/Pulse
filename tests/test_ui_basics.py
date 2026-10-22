@@ -1,5 +1,6 @@
 """U-04 / U-06 / U-07 / U-09: shared UI behaviour – messages, forms, accessibility, relative times."""
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 import pulse_pro
@@ -30,6 +31,15 @@ class MessageTests(unittest.TestCase):
         self.assertIn('setTimeout(()=>{const t=document.getElementById("toast")', html)
         self.assertIn("location.pathname+location.hash", html)
 
+    def test_dashboard_shell_has_keyboard_navigation_and_reduced_motion_support(self):
+        html = self.render("", True)
+        self.assertIn('href="#main-content"', html)
+        self.assertIn('id="main-content" tabindex="-1"', html)
+        self.assertIn('aria-controls="pulseSidebar"', html)
+        self.assertIn('aria-expanded="false"', html)
+        self.assertIn(":focus-visible", html)
+        self.assertIn("prefers-reduced-motion:reduce", html)
+
 
 class SharedAssetsTests(unittest.TestCase):
     def test_form_protection_and_restore_script(self):
@@ -49,7 +59,7 @@ class SharedAssetsTests(unittest.TestCase):
         self.assertIn("min-height:44px", css)
 
     def test_icon_buttons_have_labels(self):
-        source = open(pulse_pro.__file__, encoding="utf-8").read()
+        source = Path(pulse_pro.__file__).read_text(encoding="utf-8")
         self.assertIn('aria-label="Navigation öffnen"', source)
         self.assertIn('aria-label="Schnellzugriff schließen"', source)
 

@@ -1,6 +1,11 @@
 """K-01: long applications are not lost (3 h sliding session, browser draft, error pages keep the answers)."""
+import json
+import tempfile
 import time
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -100,6 +105,61 @@ class ApplySessionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn(f'href="/apply?career={CAREER}"', response.text)
         self.assertIn("deine Antworten sind noch da", response.text)
+
+    def test_application_submission_then_staff_review_persists_a_complete_workflow(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(ws, "CONFIG_FILE", str(Path(tmp) / "config.json")), \
+                patch.object(ws, "APPS_FILE", str(Path(tmp) / "applications.json")), \
+                patch.object(ws, "application_module_states", lambda *_: {CAREER: True}), \
+                patch.object(ws, "verify_application_member", eligible), \
+                patch.object(ws, "rate_limited", return_value=False), \
+                patch.object(ws, "grade_career_test", return_value={
+                    "career_path": CAREER, "career_label": "Testlaufbahn", "score": 1, "total": 1,
+                    "percent": 100, "pass_percent": 75, "passed": True, "details": [],
+                }), \
+                patch.object(ws, "grade_practical_tasks", return_value={"answers": []}), \
+                patch.object(ws, "notify_new_application", new_callable=AsyncMock):
+            self.client.cookies.set("apply_session", apply_token(uid="4242"))
+            answers = {
+                f"answer_{index}": "Antwort"
+                for index in range(1, len(ws.APPLICATION_CAREERS[CAREER]["questions"]) + 1)
+            }
+            response = self.client.post("/action", data={
+                "action": "submit_application",
+                "applicant_id": "4242",
+                "applicant_text": "Ich möchte das Team unterstützen.",
+                "career_path": CAREER,
+                **answers,
+            })
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Bewerbung erfolgreich abgesendet", response.text)
+
+            applications_path = Path(ws.APPS_FILE)
+            applications = json.loads(applications_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(applications), 1)
+            app_id, application = next(iter(applications.items()))
+            self.assertEqual(application["status"], "pending")
+            self.assertEqual(application["user_id"], "4242")
+
+            reviewer = SimpleNamespace(
+                perms={"can_manage_applications": True},
+                user={"id": "900", "global_name": "Leitung"},
+            )
+            ratings = {
+                f"rating_{key}": "4"
+                for key, _label in ws.APPLICATION_REVIEW_CRITERIA
+            }
+            with patch.object(ws, "auth", return_value=reviewer):
+                reviewed = self.client.post("/applications/review", data={
+                    "app_id": app_id,
+                    "review_notes": "Strukturierte Antworten.",
+                    **ratings,
+                }, follow_redirects=False)
+            self.assertEqual(reviewed.status_code, 303)
+
+            saved = json.loads(applications_path.read_text(encoding="utf-8"))[app_id]
+            self.assertEqual(saved["reviews"]["900"]["reviewer_name"], "Leitung")
+            self.assertEqual(set(saved["reviews"]["900"]["ratings"].values()), {4})
 
 
 if __name__ == "__main__":
