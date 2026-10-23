@@ -9819,12 +9819,16 @@ def full_backup_dir() -> str:
 
 
 def safe_full_backup_path(filename: str):
+    """The existing backup file with exactly this name, or None. The path comes from the directory
+    listing, never from the request (no path built from user input – CodeQL py/path-injection)."""
     import pulse_backup
     name = os.path.basename(filename or "")
     if not pulse_backup.NAME_RE.fullmatch(name):
         return None
-    path = os.path.join(full_backup_dir(), name)
-    return path if os.path.isfile(path) else None
+    for path in pulse_backup.list_backups(full_backup_dir()):
+        if path.name == name:
+            return str(path)
+    return None
 
 
 async def create_full_backup_async(guild, prefix: str = ""):
