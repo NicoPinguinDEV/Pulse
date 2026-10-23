@@ -1,16 +1,15 @@
-# Pulse TeamOS — vollständige Entwickler-Übergabe für Claude Code
+# Pulse TeamOS — Entwickler-Übergabe für Claude Code
 
-Stand dieser Zusammenfassung: **18. Oktober 2026**. Zusammengeführt aus dem öffentlichen Repository `NicoPinguinDEV/Pulse` auf `main`, der aktuellen Projekt-README sowie bereits bestätigten Anforderungen und Fehlerberichten des Betreibers. Diese Datei ist Kontext, kein Ersatz für die Prüfung des aktuellen Codes.
+Stand: **Referenznotizen, nicht garantiert aktuell**. Repo: https://github.com/NicoPinguinDEV/Pulse, Hauptbranch: main.
+
+> **Wichtig:** Frühere Versionen dieses Dokuments enthalten eine historische Version/Commit-Angabe und ältere Momentaufnahmen. Diese Angaben sind nicht die aktuelle Versionswahrheit. Prüfe bei jeder konkreten Aufgabe den aktuellen Branch/HEAD, pulse_version.py, Quellcode und vorhandene Tests. Lies dieses Dokument nicht vollständig in jede Sitzung; suche nur in den für die Aufgabe relevanten Überschriften.
 
 ## 1. Repository-Stand und Versionswahrheit
 
-- Repository: https://github.com/NicoPinguinDEV/Pulse
-- Branch: `main`
-- `pulse_version.py` meldet aktuell **7.9.7**.
-- Zuletzt geprüfter Commit: `b1019dcd49cbefc582157e11638491c9ce5a2e99` — „Measure container RAM for Pulse memory guard“ (18.10.2026).
-- Unmittelbar davor wurden Voice-Support-Interaktions-Timeouts korrigiert und Release 7.9.7 veröffentlicht.
-- Zu den jüngsten Änderungen zählen außerdem die Roblox-Spielerverlaufssuche in Melonly und die URL-Behandlung von Spielernamen mit Unterstrichen.
-- **Dokumentationsabweichung:** `CHANGELOG.md` endet im Kopfbereich bei 7.8.27; die README beschreibt Pulse Intelligence teilweise als 7.9.0. Nicht daraus ableiten, dass der laufende Code noch diese Version hat. Erst `pulse_version.py`, Git-Log und Code prüfen. CHANGELOG/README als mögliche Wartungsaufgabe notieren, aber nicht blind nebenbei umschreiben.
+- Aktuelle Version immer aus pulse_version.py lesen; aktueller Code/Tests sind die Verhaltensquelle.
+- Branch-/Commitstatus mit Git prüfen und Änderungen auf der Arbeitskopie erhalten.
+- README, Changelog, diese Übergabe und frühere Fehlerberichte können hinter dem Code zurückliegen. Dokumentationsabweichungen nur dann bearbeiten, wenn sie für die Aufgabe relevant sind oder der Nutzer eine Dokumentationsrunde beauftragt.
+- Dies ist ein Langzeit-Nachschlagewerk mit Regeln, IDs, Architektur und früheren Problemen. Historische Fehlerhinweise erst gegen aktuellen Code und aktuelle Laufzeit bestätigen.
 
 ## 2. Produktziel und Arbeitsstil des Betreibers
 
@@ -268,12 +267,11 @@ Diese Liste trennt historisch beobachtete Probleme von bereits per Commit angefa
 6. Diff kontrollieren: keine Secrets, keine unbeabsichtigten Konfigurations-/Daten-Löschungen, keine entfernten Funktionen, keine formatierungsbedingten Mammut-Diffs.
 7. Auf Deutsch zusammenfassen: Ursache, Dateien, Verhalten, Tests (mit echten Resultaten), bekannte Einschränkungen. Keine Erfolgsmeldung, wenn ein wichtiger Schritt übersprungen wurde.
 
-## 11. Was Claude Code beim ersten Durchlauf tun soll
+## 11. Effizienter Start einer neuen Session
 
-Noch keine Änderungen vornehmen. Zuerst:
-
-- Repo auf aktuellem `main` einlesen und `git status` kontrollieren.
-- `CLAUDE.md`, diese Übergabe, `README.md`, `CHANGELOG.md`, `pulse_version.py`, `.env.example`, `main.py`, die relevanten `cogs/`, `webserver.py`, `pulse_db.py`, `pulse_safety.py` und die passenden Tests lesen.
-- Versions- und Dokuabweichungen benennen, ohne sie selbständig zu „korrigieren“.
-- Eine kurze Baseline melden: was Pulse heute tatsächlich kann, wie der Dienst startet, welche Tests laufen und welche oben genannten Problemstellen nach Code-/Teststand offen oder bereits abgedeckt sind.
-- Danach auf den konkreten Änderungsauftrag des Betreibers warten bzw. ihn ausführen, wenn er mit der Initialnachricht mitgegeben wurde.
+- Mit git status --short, aktuellem Branch und HEAD starten; niemals Nutzeränderungen überschreiben.
+- Für eine normale Aufgabe nur die konkrete Anforderung, ihre betroffenen Symbole/Dateien, direkte Aufrufer und passende Tests lesen. Nicht standardmäßig alle Kernmodule oder diese gesamte Datei lesen.
+- Diesen Handoff per Suche nur für benötigte Regeln/IDs/Regressionen konsultieren und jeden historischen Eintrag gegen aktuellen Code prüfen.
+- Erst kurz die Ursache/den Plan benennen, dann die Anforderung umsetzen. Bei kleinen Aufgaben direkt arbeiten; bei umfangreichen Änderungen in überprüfbare Phasen teilen.
+- Zielgerichtete Tests zuerst; bei sicherheitskritischen, mehrmoduligen oder release-relevanten Änderungen zusätzlich den kompletten CI-Satz ausführen.
+- Auf Deutsch knapp berichten: Änderung, ausgeführte Prüfungen und echte offene Punkte. Bereits in der Nachricht enthaltene Anforderungen direkt bearbeiten, nicht auf eine zweite Aufforderung warten.

@@ -1,97 +1,45 @@
-# Pulse TeamOS — Arbeitsanweisungen für Claude Code
+# Pulse TeamOS — Claude Code
 
-## 1. Auftrag und Projektidentität
+## Ziel und Zusammenarbeit
+Du entwickelst Pulse für © BOCHUM RP | V1: Discord-Bot und FastAPI-Dashboard. Arbeite End-to-End, direkt und auf Deutsch. Behebe echte Fehler, statt nur Ideen zu liefern. Erhalte bestehende Funktionen und zeige knapp, was geändert und wirklich getestet wurde.
 
-Du arbeitest an **Pulse TeamOS** für den Discord-/Roleplay-Server **© BOCHUM RP | V1**.
+## Verlässliche Quellen
+- Zuerst Branch, HEAD und Arbeitsbaum prüfen. Nutzeränderungen niemals überschreiben.
+- Für die aktuelle Version ist pulse_version.py maßgeblich; für Verhalten zählt der ausgeführte Code. Handoff, README und Changelog können historische oder unvollständige Angaben enthalten.
+- docs/CLAUDE_CODE_HANDOFF.md ist ein Nachschlagewerk, kein Pflichttext zum vollständigen Einlesen. Suche dort nur nach den Abschnitten, die zur konkreten Aufgabe gehören.
+- webserver.py ist sehr groß: verwende gezielte Symbol-/Textsuche und lies kleine, relevante Bereiche statt die gesamte Datei in den Kontext zu laden. Nutze Smart-Explore/LSP, wenn es die Navigation verkürzt.
 
-- Repository: https://github.com/NicoPinguinDEV/Pulse
-- Hauptbranch: `main`
-- Zum Zeitpunkt dieses Handoffs: `pulse_version.py` meldet **7.9.7**. Zuletzt geprüfter Commit auf `main`: `b1019dcd49cbefc582157e11638491c9ce5a2e99` (RAM-Messung für den Memory Guard).
-- Ziel: ein professionelles, zuverlässiges Discord-Teamverwaltungs- und Moderationssystem mit eigenem FastAPI-Webdashboard. Pulse soll seine Funktionen selbst bereitstellen, nicht von GalaxyBot abhängig sein. Eine ähnliche Panel-Builder-Bedienung ist erwünscht, aber keine Abhängigkeit vom fremden Bot.
-- Betreiber arbeitet überwiegend auf Deutsch und erwartet konkrete Umsetzung statt bloßer Ideensammlungen. Antworte auf Deutsch, knapp aber mit konkreten Änderungen, Tests und ehrlicher Restliste.
+## Harte Projektregeln
+1. Keine vorhandene Funktion still entfernen, vereinfachen oder abschwächen. Vor einer Änderung Aufrufer, tatsächlichen Kontrollfluss, Rechte und Tests nachvollziehen.
+2. Keine Laufzeitdaten löschen, zurücksetzen oder inkompatibel migrieren. DB-/JSON-Schemaänderungen rückwärtskompatibel, mit Sicherung und Tests.
+3. Nie Secrets, Tokens, private Teamakten, echte .env-Inhalte oder Laufzeitdaten committen oder in Ausgaben zeigen.
+4. Dashboard- und Admin-Aktionen serverseitig autorisieren; Berechtigungen standardmäßig verweigern. UI-Ausblendung ist keine Autorisierung.
+5. Team-Kick/Team-Exit entfernt Teamrollen, aber kickt niemanden vom Discord-Server. Echter Server-Kick bleibt eine eigenständige, ausdrücklich bestätigte Aktion.
+6. AutoMod, Anti-Nuke und KI dürfen nicht unbemerkt produktiv aktiviert werden. Keine automatische Sanktion allein aufgrund einer KI-Einschätzung.
+7. RAM-Ziel: maximal 250 MB. Neue Queues/Caches begrenzen, vorhandene Scheduler wiederverwenden und Netzwerk-/Discord-Rate-Limits respektieren.
+8. Keine obligatorische kostenpflichtige KI-API hinzufügen. Pulse muss ohne KI-API-Guthaben weiterarbeiten können.
+9. Niemals produktiv deployen, Serverrollen ändern oder echte Discord-Aktionen ausführen, sofern der Nutzer das nicht ausdrücklich verlangt.
 
-Lies zusätzlich `docs/CLAUDE_CODE_HANDOFF.md`, bevor du größere Änderungen machst. Es enthält Projektarchitektur, verbindliche Geschäftsregeln, IDs, bekannte Fehlerbilder und offene Prüfungen.
+## Arbeitsweise mit niedrigem Tokenverbrauch
+- Kleine Änderung: nur relevante Dateien und direkte Aufrufer untersuchen, direkt umsetzen und gezielte Tests ausführen. Keine Planung/Subagents allein aus Gewohnheit.
+- Mittlere/größere Änderung: erst knapper Plan, dann zusammenhängende Arbeitsschritte, anschließend Regressionstests.
+- Subagents nur für unabhängige, parallel prüfbare Aufgaben oder isolierte Recherche. Keine parallelen Änderungen an denselben Dateien; Ergebnisse kurz zusammenfassen.
+- Nicht standardmäßig die gesamte Codebasis, alle Tests, Logs oder den ganzen Handoff laden. Erst zielgerichtet suchen und Ergebnisse auswerten; Kontext bei Bedarf mit /compact verdichten.
+- Wiederhole keine bereits bestätigten Erkenntnisse oder langen Zwischenberichte. Bei langen Aufträgen nur bei wichtigen neuen Erkenntnissen berichten.
 
-## 2. Nicht verhandelbare Regeln
+## Code und Tests
+- Python 3.14+, discord.py, FastAPI und Uvicorn; Bot und Webserver laufen im selben Prozess.
+- Teste zuerst gezielt. Änderungen an Rechten, Daten, mehreren Modulen, Start/Shutdown oder Deployment zusätzlich mit dem vollen CI-Satz prüfen.
+- CI-Referenz: .github/workflows/python-syntax.yml. Sie führt Ruff, compileall, tests/feature_smoke.py, tests/smoke_test.py und unittest discovery aus.
+- Tests dürfen nicht unbeabsichtigt Live-Discord, echte OAuth-Dienste, Rollenänderungen, Nachrichten oder Produktionsdaten verwenden.
+- Discord 403/404/429, Timeout und externe Provider-Ausfälle explizit berücksichtigen. Kein endloses Retry-Spamming.
+- Bei UI-Änderungen Desktop und Mobilgerät sowie Lade-, Fehler- und Leerzustände und die Scrollposition prüfen.
+- Vor Abschluss Diff/Status auf Secrets, versehentliche Dateien und unbeabsichtigte Funktionsverluste prüfen. Testresultate ehrlich berichten.
 
-1. **Keine bestehende Funktion verlieren oder stillschweigend abschwächen.** Vor jeder Änderung die existierende Implementierung, Aufrufer, UI-Formulare, Berechtigungen, Datenstrukturen und Tests prüfen. Kleine, zielgerichtete Änderungen bevorzugen.
-2. **Vorhandenen Code verifizieren.** Dokumentation kann hinterherhinken. `pulse_version.py`, laufende Implementierung und Regressionstests haben Vorrang vor veralteten Versionsangaben. IDs/Defaults bei Widersprüchen aus `.env.example`, `config.json`-Logik, Code und Tests abgleichen, nichts raten.
-3. **Daten schützen.** Keine SQLite-/JSON-Laufzeitdaten, Backups, Transkripte, Einstellungen oder Teamakten löschen, zurücksetzen oder inkompatibel migrieren. Schemaänderungen rückwärtskompatibel und mit Migrations-/Backupplan durchführen.
-4. **Keine Secrets committen oder ausgeben.** `.env`, Tokens, API-Schlüssel, OAuth-Secrets, Session-Geheimnisse, echte Laufzeitdaten und private Transkripte nie in Git, Ausgaben, Tests oder Doku schreiben. `.env.example` enthält nur Platzhalter.
-5. **Team-Offboarding ist kein Server-Kick.** Team-Kick entfernt ausschließlich die konfigurierten Teamrollen und lässt die Person auf dem Discord-Server. Echte Server-Kicks sind eine separate, ausdrücklich bestätigte Aktion mit 4-Augen-Freigabe, wo der aktuelle Code dies vorsieht.
-6. **Berechtigungen standardmäßig verweigern.** Dashboard-interne Rollenprofile dürfen keine Discord-Rechte oder Teamrollen eigenständig erteilen. Bestehende Deny-by-default-Profile/Permission-Overrides bewahren. Jede sensible Route serverseitig autorisieren; UI-Ausblendung allein reicht nicht.
-7. **Keine automatische Sanktion durch KI.** KI-Erkennung darf Verdachtsfälle liefern; Sanktionen erfordern die im bestehenden Ablauf vorgesehene menschliche Bestätigung.
-8. **RAM-Budget: maximal 250 MB.** Keine unnötigen Prozesse, Polling-Schleifen, ungebegrenzten Queues/Caches oder großen neuen Abhängigkeiten. Bestehende Connection-Pools, Cache-Limits und RAM-Hysterese beibehalten.
-9. **Keine kostenpflichtige KI-Abhängigkeit neu einführen.** Das Projekt muss ohne KI-API-Guthaben funktionieren. Externe KI bleibt optional und konfigurationsgesteuert; regelbasierte/lokale Funktionen bevorzugen.
-10. **Keine ungeprüften Deployments oder direkten Produktionsaktionen.** Tests dürfen sich nicht mit echtem Discord verbinden, echte Rollen ändern, Nachrichten verschicken oder Live-Daten manipulieren. Nicht ohne ausdrücklichen Auftrag auf Produktion deployen.
-11. **Vor dem Abschluss Tests wirklich ausführen.** Fehler, fehlende Abhängigkeiten und nicht ausführbare Tests ehrlich berichten. Keine Tests als bestanden behaupten, wenn sie nicht gelaufen sind.
-12. **Keine blind ausgeführten Groß-Refactorings.** Erst Bestand und Abhängigkeiten kartieren; ein Refactoring nur, wenn es für das Ziel erforderlich und durch Tests abgesichert ist.
+## Betrieb und Veröffentlichung
+- Der VPS läuft mit Docker Compose; der Dashboard-Port ist standardmäßig 25095. Nutze für Deployments die Anleitungen und Prüfungen des Repositorys, nicht erfundene Annahmen.
+- Vor einem ausdrücklich beauftragten Deployment Teamdaten, Konfigurationen, Datenbanken und lokale Medien wie assets/support_wait.mp3 sichern. Fast-forward und exakten Ziel-Commit prüfen, Container bauen, Healthcheck abwarten und Fehler offen melden.
+- Nie git push --force, git clean -fd, docker compose down -v oder eine blinde Runtime-Daten-Wiederherstellung ausführen.
 
-## 3. Laufzeit und Technik
-
-- Python **3.14+** laut README; `discord.py` mit Cogs/Slash Commands.
-- FastAPI + Uvicorn betreiben das Dashboard im selben Prozess wie der Discord-Bot.
-- Einstiegspunkt: `main.py`. Es lädt `.env` vor dem Import von `webserver`/Datenbankmodulen, lädt `cogs/*.py`, synchronisiert Slash Commands, startet `pulse_ultimate` und danach Uvicorn.
-- Standardport: **25095**, konfigurierbar über `SERVER_PORT`.
-- Persistenz: SQLite und JSON-Dateien; `.env`/Runtime-Daten liegen im Deployment außerhalb von Git.
-- Voraussetzungen aus `requirements.txt`: `discord.py`, `fastapi`, `uvicorn`, `httpx`, `python-dotenv`, `python-multipart`, `PyNaCl`, `davey`.
-- Discord Intents (Members, Presences, Message Content) und Discord-Rollenhierarchie im Hinterkopf behalten. Der Bot benötigt je nach Feature passende Kanal-/Rollenrechte.
-
-## 4. RAM-Leitplanken
-
-Das Projekt muss innerhalb eines **250-MB-Host-Limits** möglichst stabil bleiben. Aktueller Safety-Helper `pulse_safety.py` verwendet Hysterese:
-
-- Warnung: 180 MB
-- Kritisch: 210 MB
-- Notfall: 230 MB
-- Kritische Stufe fällt erst unter 200 MB zurück; Notfall unter 220 MB; Normalzustand unter 160 MB.
-
-Der RAM-Guard soll den vorhandenen Automationszyklus wiederverwenden und keine weitere permanente Schleife eröffnen. Caches/Queues immer begrenzen; HTTP-Pools wiederverwenden und beim Shutdown schließen. Bei Performance-Änderungen RAM, CPU, Event-Loop-Blockierung, API-Rate-Limits und Datenkorrektheit gemeinsam betrachten.
-
-## 5. Verbindliche Arbeitsroutine
-
-### Bevor du editierst
-
-1. Git-Status und Branch prüfen; Nutzeränderungen niemals überschreiben.
-2. `README.md`, `CHANGELOG.md`, `pulse_version.py`, `.env.example`, relevante Cogs/Services, `webserver.py`, DB-Helper und vorhandene Tests lesen.
-3. Den tatsächlichen Kontrollfluss der Funktion nachvollziehen: Dashboard → Route/API → Domain-Logik → Discord/DB → Protokollierung.
-4. Betroffene Regressionen als Tests reproduzieren oder neue Tests schreiben.
-5. Bei Widersprüchen die bestehende Runtime-Konfiguration und das tatsächliche Verhalten klären; keinen plausiblen Wert erfinden.
-
-### Während der Änderung
-
-- Bestehende öffentliche Funktionen, Routen, Formularnamen, Slash-Command-Namen, JSON-Schlüssel und Datenbankfelder möglichst kompatibel halten.
-- Neue optionale Umgebungsvariablen in `.env.example` dokumentieren; keine echten Schlüssel eintragen.
-- Kritische Geschäftslogik in kleine, testbare Helper auslagern, wenn es natürlich passt. Bei reinen Helper-Tests keinen kompletten Discord-Bot starten.
-- Discord-API-Fehler, 403/404, Timeouts und 429 explizit behandeln. Kein unendliches Retry-Spamming; Backoff/Rate-Limit-Pausen beachten.
-- Fehler im Dashboard sichtbar und verständlich behandeln; keine stillen Ausfälle und keine Erfolgsmeldungen vor bestätigtem Ergebnis.
-- Für UI-Änderungen Desktop/Mobilansicht, Lade-/Fehler-/Leerzustände, Scrollposition und die anderen vorhandenen Seiten prüfen.
-
-### Verifikation vor Abschluss
-
-Mindestens die im README aufgeführten Checks ausführen:
-
-```bash
-python -m compileall -q .
-python tests/feature_smoke.py
-python tests/test_pulse_intelligence.py
-python tests/smoke_test.py
-```
-
-Danach nach Möglichkeit zusätzlich passende fokussierte Regressionstests unter `tests/` ausführen. Wenn ein Test an Umgebung/Abhängigkeiten scheitert, Grund mit Ergebnis angeben und alternative statische Prüfung nur als solche bezeichnen.
-
-### Git und Abschluss
-
-- Änderungen klein und nachvollziehbar halten; nur relevante Dateien anfassen.
-- Keine `git push --force`, keine zerstörerischen History-Rewrites, keine Secrets und keine Laufzeitdaten committen.
-- Keine Veröffentlichung oder VPS-Deployment auslösen, solange der Nutzer es nicht ausdrücklich verlangt hat.
-- Abschlussbericht auf Deutsch: Ursache, konkret geänderte Dateien, Verhalten vorher/nachher, ausgeführte Tests und Resultate, offene Risiken, notwendige Hosting-/Dashboard-Schritte.
-
-## 6. Erste Aufgabe bei einer neuen Claude-Code-Session
-
-Nicht sofort Code umschreiben. Erst:
-
-1. Repository-Stand/Branch/Dirty Files prüfen.
-2. `docs/CLAUDE_CODE_HANDOFF.md` und die maßgeblichen Quelldateien lesen.
-3. Eine kurze Bestandsaufnahme liefern: aktuelle Version, Architektur, relevante Stellen, Tests, echte offene Fehler und mögliche Dokumentationsabweichungen.
-4. Danach die konkrete Nutzeranforderung umsetzen, ohne dass der Nutzer bereits dokumentierten Kontext erneut erklären muss.
+## Abschluss
+Kurz auf Deutsch: Ursache/Ziel, geänderte Dateien, Tests mit echten Ergebnissen und verbleibende Risiken. Keine Erfolgsmeldung für Schritte, die nicht ausgeführt oder nicht bestanden wurden.
