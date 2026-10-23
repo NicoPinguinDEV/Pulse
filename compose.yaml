@@ -6,6 +6,10 @@ services:
     container_name: pulse-teamos
     restart: unless-stopped
     init: true
+    # VPS has 2 GiB RAM: reserve room for Ubuntu, Docker, Caddy and other host services.
+    # Pulse may use up to 512 MiB RAM and 256 MiB additional swap (768 MiB combined).
+    mem_limit: 512m
+    memswap_limit: 768m
     env_file:
       - .env
     environment:
@@ -15,9 +19,9 @@ services:
       # the internet, so nobody can fake an IP to dodge the application rate limit.
       PULSE_FORWARDED_ALLOW_IPS: ${PULSE_FORWARDED_ALLOW_IPS:-172.30.0.10}
     ports:
-      # O-02: default unchanged (reachable from outside) so an automatic deploy never locks the dashboard out.
-      # Once Caddy (profile "https") or a proxy on the host serves HTTPS: PULSE_PUBLISH_HOST=127.0.0.1 in .env.
-      - "${PULSE_PUBLISH_HOST:-0.0.0.0}:${SERVER_PORT:-25095}:${SERVER_PORT:-25095}"
+      # O-02 + main: bound to localhost by default; the HTTPS reverse proxy (host or Caddy profile "https")
+      # serves the dashboard. Only set PULSE_PUBLISH_HOST=0.0.0.0 if the port must be reachable directly.
+      - "${PULSE_PUBLISH_HOST:-127.0.0.1}:${SERVER_PORT:-25095}:${SERVER_PORT:-25095}"
     networks:
       pulse_net:
         ipv4_address: 172.30.0.2
@@ -27,8 +31,16 @@ services:
       - ./:/app
     working_dir: /app
     stop_grace_period: 40s
-    # O-02 / E-5: the bot is built for 250 MB (RAM guard: 180/210/230 MB); the limit keeps a leak from taking the VPS down.
-    mem_limit: ${PULSE_MEM_LIMIT:-300m}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${SERVER_PORT:-25095}/healthz', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
     logging:
       driver: json-file
       options:

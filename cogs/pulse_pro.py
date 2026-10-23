@@ -232,6 +232,64 @@ class PulsePro(commands.Cog):
         except Exception as exc:
             print(f"⚠️ Start-Diagnose fehlgeschlagen: {type(exc).__name__}: {exc}")
 
+    @app_commands.command(name="ultimate", description="Öffnet das Pulse Command Center im Dashboard.")
+    async def ultimate(self, interaction: discord.Interaction):
+        """Provide the actual Discord slash command for the existing /ultimate dashboard route."""
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "Dieser Befehl ist nur auf dem Server verfügbar.", ephemeral=True
+            )
+            return
+
+        import webserver
+        cfg = webserver.load_config()
+        perms, member = webserver.compute_perms(
+            interaction.guild, interaction.user.id, cfg
+        )
+        if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
+            await interaction.response.send_message(
+                "❌ Du hast keinen Zugriff auf Pulse.", ephemeral=True
+            )
+            return
+
+        url = panel_url("/ultimate")
+        embed = discord.Embed(
+            title="⚡ Pulse Command Center",
+            description=(
+                "Öffne die zentrale Team- und Systemübersicht von Pulse. "
+                "Der Link ist nur für angemeldete, berechtigte Teammitglieder nutzbar."
+            ),
+            color=_pulse_color("info"),
+        )
+        view = discord.ui.View(timeout=60)
+        if url.startswith(("https://", "http://")):
+            embed.add_field(
+                name="Dashboard",
+                value=f"[Command Center öffnen]({url})",
+                inline=False,
+            )
+            view.add_item(
+                discord.ui.Button(
+                    label="Command Center öffnen",
+                    style=discord.ButtonStyle.link,
+                    url=url,
+                    emoji="⚡",
+                )
+            )
+            await interaction.response.send_message(
+                embed=embed, view=view, ephemeral=True
+            )
+        else:
+            embed.add_field(
+                name="Dashboard-Adresse fehlt",
+                value=(
+                    "Die öffentliche Dashboard-Adresse ist noch nicht konfiguriert. "
+                    "Bitte PUBLIC_BASE_URL in der .env prüfen."
+                ),
+                inline=False,
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(name="pulse", description="Öffnet Pulse und zeigt die wichtigsten Teamzahlen.")
     async def pulse(self, interaction: discord.Interaction):
         try:
@@ -601,9 +659,9 @@ class PulsePro(commands.Cog):
         ram_level = pulse_ultimate.memory_guard_level(rss)
         ram_labels = {0: "🟢 Normal", 1: "🟡 Warnung", 2: "🟠 Kritisch", 3: "🔴 Notfallreserve"}
         ram_text = "Nicht verfügbar" if rss is None else (
-            f"{ram_labels[ram_level]} · {rss:.1f} MB / 250 MB "
+            f"{ram_labels[ram_level]} · {rss:.1f} MB / {pulse_ultimate.RAM_LIMIT_MB:.0f} MB "
             f"(Spitze: {peak:.1f} MB)" if peak is not None else
-            f"{ram_labels[ram_level]} · {rss:.1f} MB / 250 MB"
+            f"{ram_labels[ram_level]} · {rss:.1f} MB / {pulse_ultimate.RAM_LIMIT_MB:.0f} MB"
         )
         trend = pulse_ultimate.ram_trend_snapshot()
         if trend.get("growth_mb") is None:
@@ -653,7 +711,9 @@ class PulsePro(commands.Cog):
         embed.add_field(name="KI-Moderationswarteschlange", value=ai_queue_text, inline=True)
         embed.add_field(name="Geladene Module", value=cogs_text, inline=True)
         embed.add_field(name="Wichtige Kanalprüfungen", value="\n".join(channel_checks), inline=False)
-        embed.set_footer(text="RAM-Schwellen: 180 MB Warnung · 210 MB kritisch · 230 MB Notfallreserve")
+        embed.set_footer(text=(f"RAM-Schwellen: {pulse_ultimate.RAM_WARN_MB:.0f} MB Warnung · "
+                          f"{pulse_ultimate.RAM_CRITICAL_MB:.0f} MB kritisch · "
+                          f"{pulse_ultimate.RAM_EMERGENCY_MB:.0f} MB Notfallreserve"))
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

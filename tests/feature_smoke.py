@@ -350,6 +350,9 @@ def main() -> None:
     assert "roles=keep_roles" in kick_block
     assert "Verbleibende Rollen" in kick_block
     assert "TEAM_KICK_KEEP_ROLE_IDS" in kick_block
+    assert "async def apply_team_kick_role_reset(" in web
+    assert "await member.edit(roles=keep_roles" in web
+    assert "team_kick_permanent" in web
     assert 'await member.kick(' not in web
     ultimate = read("pulse_ultimate.py")
     assert "RAM_TREND_GROWTH_MB_PER_HOUR = 20.0" in ultimate
@@ -368,7 +371,8 @@ def main() -> None:
     suite_actions = read("cogs/pulse_suite.py")
     parse("cogs/pulse_suite.py")
     assert "await target.kick(" in suite_actions
-    assert "await target.remove_roles(*team_roles" in suite_actions
+    assert "await web.apply_team_kick_role_reset(" in suite_actions
+    assert "await target.remove_roles(*team_roles" not in suite_actions
     assert "status='executing'" in suite_actions
     assert "rank_role_ids_after_change(" in suite_actions
     assert "if r.id in planned_ids and not r.is_default()" in suite_actions
@@ -388,9 +392,10 @@ def main() -> None:
     assert "ram_trend_snapshot()" in suite_actions
     assert "Pflichtgrund für den Team-Kick" in suite_actions
     assert "Pflichtgrund für den Server-Kick" in suite_actions
-    assert "RAM_WARN_MB = 180.0" in ultimate
-    assert "RAM_CRITICAL_MB = 210.0" in ultimate
-    assert "RAM_EMERGENCY_MB = 230.0" in ultimate
+    assert "RAM_LIMIT_MB = 512.0" in ultimate
+    assert "RAM_WARN_MB = 350.0" in ultimate
+    assert "RAM_CRITICAL_MB = 420.0" in ultimate
+    assert "RAM_EMERGENCY_MB = 470.0" in ultimate
     assert "async def runtime_memory_guard(bot)" in ultimate
     assert "await runtime_memory_guard(bot)" in ultimate
     assert '"ram_guard": {' in ultimate
@@ -483,7 +488,17 @@ def main() -> None:
     pro_melonly = read("pulse_pro.py")
     parse("pulse_pro.py")
     version_source = read("pulse_version.py")
-    assert 'PULSE_VERSION = "7.15.0"' in version_source
+    assert re.search(r'(?m)^PULSE_VERSION = "\d+\.\d+\.\d+"$', version_source)
+    # The command center route must also exist as an actual Discord slash command.
+    pulse_pro_commands = read("cogs/pulse_pro.py")
+    assert '@app_commands.command(name="ultimate"' in pulse_pro_commands
+    # BOT-04: /pulse-hilfe is generated from the registered commands, so /ultimate appears automatically.
+    assert "build_help(entries(self.bot.tree)" in pulse_pro_commands
+    # Keep the VPS behind its HTTPS reverse proxy and enforce the intended RAM budget.
+    compose_source = read("compose.yaml")
+    assert 'mem_limit: 512m' in compose_source
+    assert 'memswap_limit: 768m' in compose_source
+    assert '"${PULSE_PUBLISH_HOST:-127.0.0.1}:${SERVER_PORT:-25095}:${SERVER_PORT:-25095}"' in compose_source
     archive_source = read("cogs/announcement_archive.py")
     parse("cogs/announcement_archive.py")
     archive_utils = read("pulse_announcement_utils.py")
@@ -651,6 +666,11 @@ def main() -> None:
     assert "render_role_manager(esc, ctx, member, team_role_ids)" in web
     assert 'name="add_role_ids"' in role_page and 'name="remove_role_ids"' in role_page
     assert 'name="action_reason"' in role_page and 'action="/team/{member.id}/roles"' in role_page
+    # Discord snowflakes are 64-bit IDs and must stay strings in browser JavaScript.
+    assert '"id": str(r["id"])' in role_page
+    assert '"rankIds": [str(role_id) for role_id in rank_ids]' in role_page
+    assert '"currentIds": sorted(str(role_id) for role_id in current_ids)' in role_page
+    assert "Number(rank.value)" not in role_page
     assert "Mehrfach-Rollenänderung" in web
     assert "⚙️ Team-Update: Rollenänderung" in web
     assert "⬆️ Befördern" in web
@@ -679,7 +699,7 @@ def main() -> None:
     assert 'name="action_reason"' in web
     assert 'action == "kick"' in web
     assert "not guild.me.guild_permissions.manage_roles" in web
-    assert "r.position >= guild.me.top_role.position" in web
+    assert "role.position >= bot_member.top_role.position" in web
     assert "def ordered_team_role_ids(guild, team_role_ids) -> list[int]:" in web
     assert "return sorted(role_ids, key=sort_key)" in web
     assert "ordered_ids = ordered_team_role_ids(guild, team_role_ids)" in web

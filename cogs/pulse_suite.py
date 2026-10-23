@@ -1178,7 +1178,7 @@ class PulseSuite(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="team-kick",description="Entfernt ausschließlich Teamrollen; Person bleibt auf dem Server.")
+    @app_commands.command(name="team-kick",description="Entfernt alle Rollen außer Bürgerrolle und Ex-Teamler; kein Server-Kick.")
     async def team_kick_cmd(self,i,member:discord.Member,grund:str=""):
         if not grund.strip():
             return await i.response.send_message("❌ Bitte gib einen Pflichtgrund für den Team-Kick an.",ephemeral=True)
@@ -1197,7 +1197,7 @@ class PulseSuite(commands.Cog):
                     db.notify(manager.id,"🔐 Zweite Freigabe",f"Team-Offboarding {aid} für {member.display_name} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
             await x.response.edit_message(content="🔐 Team-Kick "+aid+" vorbereitet. Die Person bleibt auf dem Discord-Server; eine andere berechtigte Führungskraft muss freigeben.",embed=None,view=None)
         await i.response.send_message(
-            f"🚪 **Team-Kick**\n{member.display_name} verliert nach einer zweiten Freigabe die konfigurierten Teamrollen, wird aber nicht vom Server gekickt.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
+            f"🚪 **Team-Kick**\n{member.display_name} behält nach einer zweiten Freigabe nur Bürgerrolle und Ex-Teamler-Rolle. Alle anderen Rollen werden entfernt; kein Server-Kick.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
             view=Confirm(i.user.id,do,key="team-kick",origin=i),
             ephemeral=True,
         )
@@ -1224,7 +1224,7 @@ class PulseSuite(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="team-exit",description="Entfernt Teamrollen mit Zweitfreigabe; kein Server-Kick.")
+    @app_commands.command(name="team-exit",description="Entfernt bei Zweitfreigabe alle Rollen außer Bürgerrolle und Ex-Teamler; kein Server-Kick.")
     async def team_exit(self,i,member:discord.Member,grund:str=""):
         if not grund.strip():
             return await i.response.send_message("❌ Bitte gib einen Pflichtgrund für das Team-Offboarding an.",ephemeral=True)
@@ -1243,7 +1243,7 @@ class PulseSuite(commands.Cog):
                     db.notify(manager.id,"🔐 Zweite Freigabe",f"Team-Offboarding {aid} · /pulse-approve {aid}","warning","/suite/audit","approve:"+aid,21600)
             await x.response.edit_message(content="🔐 Team-Offboarding "+aid+" vorbereitet. Die Person bleibt auf dem Server; eine andere berechtigte Führungskraft muss freigeben.",embed=None,view=None)
         await i.response.send_message(
-            f"🚪 **Team-Offboarding**\n{member.display_name} verliert nach einer zweiten Freigabe die konfigurierten Teamrollen.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
+            f"🚪 **Team-Offboarding**\n{member.display_name} behält nach einer zweiten Freigabe nur Bürgerrolle und Ex-Teamler-Rolle. Alle anderen Rollen werden entfernt.\nGrund: {grund.strip()}\n\nVorgang vorbereiten?",
             view=Confirm(i.user.id,do,key="team-exit",origin=i),
             ephemeral=True,
         )
@@ -1340,8 +1340,30 @@ class PulseSuite(commands.Cog):
                 await target.kick(reason=f"Pulse Server-Kick {action_id} · {reason}"[:512])
                 outcome=f"{target.display_name} wurde nach Zweitfreigabe vom Discord-Server gekickt."
             else:
-                await target.remove_roles(*team_roles,reason=f"Pulse Team-Kick {action_id} · {reason}"[:512])
-                outcome=f"{target.display_name} wurden die konfigurierten Teamrollen entzogen; die Person bleibt auf dem Discord-Server."
+                kick_result = await web.apply_team_kick_role_reset(
+                    i.guild,
+                    target,
+                    web.load_config(),
+                    f"Pulse Team-Kick {action_id} · {reason}",
+                )
+                if not kick_result.get("ok"):
+                    failure = str(kick_result.get("message") or "Rollen konnten nicht sicher zurückgesetzt werden.")
+                    with cx() as c:
+                        c.execute(
+                            "UPDATE suite_actions SET status='failed',updated_at=? WHERE id=? AND status='executing'",
+                            (iso(), action_id),
+                        )
+                    audit(i.guild.id, i.user.id, i.user.display_name, target.id, target.display_name,
+                          "action_failed", f"{action_id} · {failure}")
+                    await i.followup.send("❌ " + failure, ephemeral=True)
+                    return
+                keep_roles = kick_result.get("keep_roles", [])
+                keep_text = ", ".join(role.mention for role in keep_roles) or "Bürgerrolle und Ex-Teamler-Rolle"
+                outcome = (
+                    f"{target.display_name} wurde aus dem Team entfernt. "
+                    f"Alle anderen Rollen wurden entfernt; behalten: {keep_text}. "
+                    "Die Person bleibt auf dem Discord-Server."
+                )
 
             with cx() as c:
                 c.execute(

@@ -34,17 +34,19 @@ class FakeMember:
         return self.name
 
 
-def run(member, state):
-    cog = cog_module.RoleNicknamePrefixes(bot=None)
+def run(member, state, *, bot=None, nickname_changed=False):
+    cog = cog_module.RoleNicknamePrefixes(bot=bot)
     cog._member_state_cache = {str(member.id): state} if state else {}
     cog._bulk_state_batching = True  # never touch the real state file in tests
     with patch.object(cog_module, "GUILD_ID", 0), patch("builtins.print"):
-        result = asyncio.run(cog._synchronize_member_locked(member, config_snapshot={}))
+        result = asyncio.run(cog._synchronize_member_locked(
+            member, config_snapshot={}, nickname_changed=nickname_changed
+        ))
     return result, cog._member_state_cache.get(str(member.id))
 
 
 MANAGEMENT = [FakeRole(1, "》BORP メ Management", 50)]
-STATE = {"original_nick": "Richy", "applied_prefix": "MA ✗", "role_id": "1"}
+STATE = {"original_nick": "Richy", "applied_prefix": "MA ✗", "role_id": "1", "last_applied_nick": "MA ✗ Richy"}
 
 
 class HelperTests(unittest.TestCase):
@@ -77,6 +79,31 @@ class SyncTests(unittest.TestCase):
         result, _ = run(member, dict(STATE))
         self.assertEqual(result, "unchanged")
         self.assertEqual(member.edits, [])
+
+    def test_manual_name_change_is_kept_even_when_prefix_stays_the_same(self):
+        member = FakeMember("MA ✗ Richy 2.0", MANAGEMENT)
+        result, updated_state = run(member, dict(STATE), nickname_changed=True)
+        self.assertEqual(result, "unchanged")
+        self.assertEqual(member.edits, [])
+        self.assertEqual(updated_state["original_nick"], "Richy 2.0")
+        self.assertEqual(updated_state["last_applied_nick"], "MA ✗ Richy 2.0")
+
+    def test_absence_suffix_requires_real_bot_absence_record(self):
+        member = FakeMember("MA ✗ Richy | Abgemeldet", MANAGEMENT)
+        absence_cog = SimpleNamespace(is_abgemeldet=lambda user_id: False)
+        bot = SimpleNamespace(get_cog=lambda name: absence_cog if name == "AbmeldungCog" else None)
+        result, _ = run(member, dict(STATE), bot=bot)
+        self.assertEqual(result, "updated")
+        self.assertEqual(member.edits, ["MA ✗ Richy"])
+
+    def test_absent_member_name_edit_keeps_authoritative_suffix(self):
+        member = FakeMember("MA ✗ New Richy", MANAGEMENT)
+        absence_cog = SimpleNamespace(is_abgemeldet=lambda user_id: True)
+        bot = SimpleNamespace(get_cog=lambda name: absence_cog if name == "AbmeldungCog" else None)
+        result, state = run(member, dict(STATE), bot=bot, nickname_changed=True)
+        self.assertEqual(result, "updated")
+        self.assertEqual(member.edits, ["MA ✗ New Richy | Abgemeldet"])
+        self.assertEqual(state["original_nick"], "New Richy")
 
     def test_no_ping_pong_over_several_cycles(self):
         member = FakeMember("MA ✗ Richy", MANAGEMENT)

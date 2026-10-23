@@ -87,6 +87,24 @@ class SystemCheckTests(unittest.TestCase):
         checks = sc.run(None, None, {}, environ={})
         self.assertTrue(all(len(c) == 3 for c in checks))
 
+    def test_enabled_moderation_reports_missing_bot_permissions(self):
+        bot = SimpleNamespace(intents=SimpleNamespace(message_content=False))
+        guild = FakeGuild(me=SimpleNamespace(guild_permissions=SimpleNamespace(
+            manage_messages=False, view_audit_log=False, ban_members=False,
+        )))
+        config = {
+            "pulse_automod": {"enabled": True},
+            "pulse_antinuke": {"enabled": True},
+        }
+        checks = {name: (ok, detail) for name, ok, detail in sc.moderation_permissions(bot, guild, config)}
+        self.assertFalse(checks["AutoMod · Nachrichteninhalt"][0])
+        self.assertFalse(checks["AutoMod · Nachrichten löschen"][0])
+        self.assertFalse(checks["Anti-Nuke · Audit-Log"][0])
+        self.assertFalse(checks["Anti-Nuke · Sperren"][0])
+
+    def test_disabled_moderation_does_not_add_permission_warnings(self):
+        self.assertEqual(sc.moderation_permissions(None, None, {}), [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -26,6 +26,47 @@ Details und Testnachweise: `docs/PHASE6_BERICHT.md`, Plan: `docs/VERBESSERUNGSPL
 - **On-/Offboarding (BOT-11):** Checklisten bei Teambeitritt und -austritt, Mentor.
 - **Review-Fixes:** Der Log-Versand bleibt nach Fehlern nicht mehr stehen, die DM-Warteschlange verliert nichts, abgelaufene `/mod`-Bans heben keine fremden Bans auf, u. a.
 
+## Version 7.14.6 – Manuelle Teamnamen & echter Abmeldestatus (Oktober 2026)
+
+- **Eigene Discord-Namen bleiben erhalten:** Manuelle Nickname-Änderungen werden als neue Namensbasis übernommen, auch wenn der Rangpräfix gleich bleibt. Pulse setzt danach weiterhin den richtigen Präfix entsprechend der höchsten Rolle.
+- **Abmeldezusatz an Abmeldung gekoppelt:** „| Abgemeldet“ wird anhand des Abmeldungseintrags in Pulse gesetzt oder entfernt und nicht allein aus einem frei editierbaren Nickname abgeleitet.
+- **Abmeldung beenden ohne Namens-Rollback:** Beim Zurückmelden wird nur der Abmeldezusatz entfernt. Ein während der Abmeldung geänderter Name wird nicht mehr durch den alten gespeicherten Namen ersetzt.
+- **Regressionstests:** Manuelle Namensänderung, Zusatz ohne echte Abmeldung und Namensänderung während einer Abmeldung.
+
+## Version 7.14.5 – Nachholbare Warnrollen-Synchronisierung (Oktober 2026)
+
+- **Discord-Mitglieder werden bei Cache-Lücken nachgeladen:** Vor einem Warnrollen-Abgleich versucht Pulse, das Mitglied direkt von Discord abzurufen. Bereits aus der Datenbank abgelaufene Warnungen bleiben für die Synchronisierung vorgemerkt.
+- **Fehler werden nicht still vergessen:** Bei vorübergehenden Discord- oder Rollenfehlern bleibt der Abgleich offen und wird beim nächsten Kontrolllauf erneut versucht. Mitglieder, die den Server nachweislich verlassen haben, werden nachvollziehbar als übersprungen markiert.
+- **Regressionstests** prüfen Cache-Lücken und erfolgreiche Wiederholung nach einem vorübergehenden Abruffehler.
+
+## Version 7.14.4 – Zuverlässiger Ablauf von Team-Warnungen (Oktober 2026)
+
+- **Alte Warnungen werden nicht mehr dauerhaft:** Aktive Warnungen ohne gespeichertes Ablaufdatum erhalten bei der Migration automatisch eine Frist. Ist das Ausstellungsdatum bekannt, werden sie anhand dieses Datums eingeordnet; Warnungen ohne eigene Dauer verwenden sieben Kalendertage (Ausstellungstag zählt als Tag 1). Eine Warnung vom 16.10.2026 läuft dadurch am 22.10.2026 ab.
+- **Bestehende Fristen bleiben erhalten:** Gespeicherte Ablaufzeitpunkte werden nicht verändert. Bei Datensätzen, die bereits eine Dauer, aber kein Ablaufdatum enthalten, wird die gespeicherte Dauer ausgehend vom Ausstellungsdatum berücksichtigt.
+- **Unbekanntes Ausstellungsdatum:** Für aktive Altwarnungen ohne lesbares Datum wird eine einmalige siebentägige Übergangsfrist ab Migration gesetzt und gespeichert, statt das Alter zu erraten.
+- **Automatische Folgen:** Der bestehende Fünf-Minuten-Housekeeping-Lauf deaktiviert abgelaufene Warnungen, synchronisiert die Discord-Warnrollen und prüft temporäre Warn-Folgen. Warnungsdatensätze bleiben zur Nachvollziehbarkeit in der Historie; sie zählen nach Ablauf nicht mehr als aktiv.
+- **Regressionstests:** Abdeckung für Warnungen vom 16.10., vorhandene Ablaufzeiten, vorhandene Dauer ohne Ablaufzeit und undatierte Altwarnungen.
+
+## Version 7.14.3 – Rollenverwaltung & Team-Kick (Oktober 2026)
+
+- **Rollenverwaltung repariert:** Discord-Rollen-IDs werden im Browser als Zeichenketten verarbeitet. Große Snowflake-IDs werden nicht länger gerundet; Auswahl, geplante Änderungen und Formularübermittlung stimmen wieder überein.
+- **Einheitlicher Team-Kick:** Dashboard, freigegebener `/team-kick`/`/team-exit`, automatischer Team-Kick nach fünf Team-Warnungen und Teamler-Schutz entfernen alle verwaltbaren Rollen bis auf die Bürgerrolle `1531303733311307997` und Ex-Teamler-Rolle `1489912887949394082`.
+- **Dauerhafte Entfernung bei Warnstufe 5:** Das Auslaufen der Warnungen stellt die vorherige Teamrolle nicht mehr automatisch wieder her. Eine erneute Aufnahme ins Team muss bewusst durch die Führung erfolgen.
+- **Sicherheitsprüfung:** Vor dem Rollenreset prüft Pulse Rollenverwaltung und Hierarchie. Wenn eine Rolle nicht entfernt werden kann oder eine Pflichtrolle fehlt, wird der Vorgang abgebrochen und der konkrete Grund angezeigt; der Server-Kick bleibt davon getrennt.
+
+## Version 7.14.2 – VPS-RAM-Budget (Oktober 2026)
+
+- **Docker-Speicherbudget:** Für den VPS mit 2 GiB RAM auf 512 MiB Container-RAM und maximal 768 MiB Gesamtbudget aus RAM plus Swap angehoben.
+- **RAM-Schutz und Diagnose:** Warnung bei 350 MB, kritisch bei 420 MB, Notfallreserve bei 470 MB; Erholungsschwellen entsprechend angepasst. Dashboard, Discord-Diagnose und Alerts lesen die Werte aus einer gemeinsamen Konfiguration.
+- **Betriebshinweis:** 2 GiB Host-RAM liegen weiterhin unter der empfohlenen Mindestgröße von 4 GiB. Bei dauerhaft hoher Auslastung ist ein Upgrade ratsam.
+
+## Version 7.14.1 – Betrieb & Stabilität (Oktober 2026)
+
+- **Discord-Slash-Befehl /ultimate:** öffnet das Command Center über einen sichtbaren Link und verwendet dieselbe Dashboard-Zugriffsprüfung wie /pulse. Der Befehl ist außerdem in /pulse-hilfe aufgeführt.
+- **VPS-Speicherlimit:** Docker begrenzt Pulse auf 250 MiB RAM und maximal 350 MiB Gesamtbudget aus RAM plus Swap, passend zu den vorhandenen RAM-Warnschwellen.
+- **Reverse-Proxy-Schutz:** Port 25095 wird nur an localhost gebunden; öffentlicher Dashboard-Zugriff erfolgt über Caddy/HTTPS.
+- **Hinweis:** Der Moderations-Log-Kanal bleibt serverseitig in „Verwaltung → Discord-Auftritt“ zu konfigurieren. Er wird bewusst nicht auf einen beliebigen Kanal fest verdrahtet.
+
 ## Version 7.14.0 – Phase 5: Dashboard & Bedienung (Oktober 2026)
 
 Details und Testnachweise: `docs/PHASE5_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.

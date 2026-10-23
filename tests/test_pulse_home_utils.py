@@ -1,10 +1,17 @@
 import unittest
 from datetime import date, datetime, timedelta
 
+from pulse_pro import recent_event_title
 from pulse_home_utils import daily_seconds, due_state, format_hm, goal_progress, greeting, shift_streak
 
 
 class MyPulseHelperTests(unittest.TestCase):
+    def test_recent_event_titles_are_readable_and_do_not_use_payload_data(self):
+        self.assertEqual(recent_event_title("AutoMod-Maßnahme"), "AutoMod: Nachricht moderiert")
+        self.assertEqual(recent_event_title("ticket_claimed_dashboard"), "Ticket übernommen")
+        self.assertEqual(recent_event_title("new_event_type"), "New event type")
+        self.assertEqual(recent_event_title(None), "Ereignis")
+
     def test_greeting_follows_time_of_day(self):
         self.assertEqual(greeting(7), "Guten Morgen")
         self.assertEqual(greeting(14), "Guten Tag")

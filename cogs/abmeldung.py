@@ -9,7 +9,7 @@ from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from pulse_nickname_utils import looks_like_date_only
+from pulse_nickname_utils import looks_like_date_only, split_absence_suffix
 
 DB_NAME = str(Path(__file__).resolve().parents[1] / "abmeldungen.db")
 
@@ -370,13 +370,16 @@ class AbmeldungCog(commands.Cog):
                 except discord.HTTPException as exc:
                     print(f"⚠️ Abmeldungsrolle konnte nicht entfernt werden: {exc}")
 
-        if looks_like_date_only(original_nick):
-            # Older dashboard entries stored the end date as original_nick.
-            # Only remove the absence suffix instead of renaming the member to a date.
-            original_nick = (member.nick or "").replace(" | Abgemeldet", "").strip() or None
-        if member.nick != original_nick and self._can_edit_member_nickname(guild, member):
+        # Preserve the latest nickname the teamler chose while absent. The saved
+        # original_nick is only a fallback for legacy records whose live nickname
+        # is a bare date; restoring it unconditionally would undo manual edits.
+        current_base, current_suffix = split_absence_suffix(member.nick)
+        target_nick = current_base if current_suffix else member.nick
+        if looks_like_date_only(target_nick):
+            target_nick = original_nick if not looks_like_date_only(original_nick) else None
+        if member.nick != target_nick and self._can_edit_member_nickname(guild, member):
             try:
-                await member.edit(nick=original_nick, reason="Pulse: Abmeldung beendet")
+                await member.edit(nick=target_nick, reason="Pulse: Abmeldung beendet")
             except discord.Forbidden:
                 key = (guild.id, member.id)
                 if len(self._nickname_forbidden) >= 2000:

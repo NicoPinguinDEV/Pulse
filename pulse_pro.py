@@ -30,6 +30,23 @@ from pulse_nickname_utils import normalize_role_prefix
 from pulse_version import PULSE_VERSION
 
 VERSION = PULSE_VERSION
+RECENT_EVENT_LABELS = {
+    "AutoMod-Maßnahme": "AutoMod: Nachricht moderiert",
+    "Anti-Nuke-Aktion erkannt": "Anti-Nuke: Serveraktion erkannt",
+    "Anti-Nuke: Akteur gesperrt": "Anti-Nuke: Akteur gesperrt",
+    "ticket_claimed_dashboard": "Ticket übernommen",
+    "ticket_closed_dashboard": "Ticket geschlossen",
+    "ticket_reopened_dashboard": "Ticket wieder geöffnet",
+    "ticket_priority_dashboard": "Ticketpriorität geändert",
+    "ticket_archive_failed": "Ticketarchivierung fehlgeschlagen",
+    "task_created": "Aufgabe erstellt",
+    "task_completed": "Aufgabe abgeschlossen",
+    "status_changed": "Teamstatus geändert",
+    "handover_created": "Übergabe erstellt",
+    "announcement_created": "Ankündigung erstellt",
+    "promotion_created": "Beförderung vorgeschlagen",
+    "promotion_decided": "Beförderung entschieden",
+}
 EXTRA_PERMS = (
     "can_manage_announcements",
     "can_manage_handover",
@@ -40,6 +57,12 @@ EXTRA_PERMS = (
     "can_moderate_bans",
     "can_moderate_bolo",
 )
+
+
+def recent_event_title(event_type: str | None) -> str:
+    """Render a readable activity label instead of exposing serialized event payloads."""
+    name = str(event_type or "Ereignis").strip()
+    return RECENT_EVENT_LABELS.get(name, name.replace("_", " ").capitalize())
 
 # Labels of the dashboard permissions (settings page and the audit text when a profile is saved).
 PERMISSION_LABELS = {
@@ -298,9 +321,9 @@ def make_shell_helpers(ws):
         .pulse-area-switch a{{text-align:center;font-size:11px;font-weight:800;padding:8px 6px;border-radius:10px;color:#64748b}}
         .pulse-area-switch a.on{{background:#fff;color:#4f46e5;box-shadow:0 2px 8px rgba(15,23,42,.08)}}.dark .pulse-area-switch a.on{{background:#1b2133;color:#a8abff}}@media(min-width:768px){{#pulseSidebar{{display:flex!important}}#pulseMobileBtn,#pulseBackdrop{{display:none!important}}}}
         </style>
-        <button id="pulseMobileBtn" onclick="pulseOpenNav()" aria-label="Navigation öffnen" class="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white dark:bg-[#111522] border border-slate-200 dark:border-slate-700 shadow-lg">☰</button>
-        <div id="pulseBackdrop" onclick="pulseCloseNav()" class="hidden fixed inset-0 bg-black/55 z-40"></div>
-        <aside id="pulseSidebar" class="hidden fixed md:sticky top-0 left-0 z-50 h-screen w-[276px] overflow-y-auto bg-white dark:bg-[#111522] border-r border-slate-200 dark:border-slate-800 flex-col justify-between p-4 shrink-0">
+        <button id="pulseMobileBtn" onclick="pulseOpenNav()" aria-label="Navigation öffnen" aria-controls="pulseSidebar" aria-expanded="false" class="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white dark:bg-[#111522] border border-slate-200 dark:border-slate-700 shadow-lg">☰</button>
+        <div id="pulseBackdrop" onclick="pulseCloseNav()" aria-hidden="true" class="hidden fixed inset-0 bg-black/55 z-40"></div>
+        <aside id="pulseSidebar" aria-label="Hauptnavigation" class="hidden fixed md:sticky top-0 left-0 z-50 h-screen w-[276px] overflow-y-auto bg-white dark:bg-[#111522] border-r border-slate-200 dark:border-slate-800 flex-col justify-between p-4 shrink-0">
           <div>
             <div class="flex items-center gap-3 px-1 mb-5"><div class="pulse-brand-mark">P</div><div class="min-w-0"><div class="text-sm font-extrabold truncate">Pulse TeamOS</div><div class="text-[10px] text-slate-400 truncate">{ws.esc(guild_name)} · v{VERSION}</div></div></div>
             <button onclick="pulseTogglePalette(true)" class="w-full flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0c101a] px-3 py-2.5 text-xs text-slate-400 text-left mb-4"><span>⌕</span><span class="flex-1">Schnell suchen…</span><kbd class="text-[9px] border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5">Ctrl K</kbd></button>
@@ -311,7 +334,7 @@ def make_shell_helpers(ws):
             <a href="/logout" class="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800/70 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-slate-600 dark:text-slate-300">↤ Abmelden</a>
           </div>
         </aside>
-        <script>function pulseOpenNav(){{document.getElementById('pulseSidebar').classList.remove('hidden');document.getElementById('pulseSidebar').classList.add('flex');document.getElementById('pulseBackdrop').classList.remove('hidden')}}function pulseCloseNav(){{document.getElementById('pulseSidebar').classList.add('hidden');document.getElementById('pulseSidebar').classList.remove('flex');document.getElementById('pulseBackdrop').classList.add('hidden')}}</script>
+        <script>function pulseOpenNav(){{document.getElementById('pulseSidebar').classList.remove('hidden');document.getElementById('pulseSidebar').classList.add('flex');document.getElementById('pulseBackdrop').classList.remove('hidden');document.getElementById('pulseMobileBtn').setAttribute('aria-expanded','true')}}function pulseCloseNav(){{document.getElementById('pulseSidebar').classList.add('hidden');document.getElementById('pulseSidebar').classList.remove('flex');document.getElementById('pulseBackdrop').classList.add('hidden');document.getElementById('pulseMobileBtn').setAttribute('aria-expanded','false')}}document.addEventListener('keydown',function(e){{if(e.key==='Escape')pulseCloseNav()}})</script>
         '''
 
     ws.get_head_html = patched_head
@@ -823,7 +846,7 @@ def register(app):
         active_people.sort(key=lambda x:x[0].display_name.lower())
         notices=db.notifications(c.user["id"],6)
         events=db.events(limit=10)
-        recent_html="".join(f'<div class="pulse-row"><div class="pulse-avatar">{e("EV" if ev["actor_name"]=="System" else initials(ev["actor_name"]))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(ev["payload_json"] if isinstance(ev["payload_json"],str) else ev["event_type"])}</div><div class="pulse-row-meta">{e(ev["actor_name"] or "System")} · {e(fmt_dt(ev["created_at"]))}</div></div></div>' for ev in events)
+        recent_html="".join(f'<div class="pulse-row"><div class="pulse-avatar">{e("EV" if ev["actor_name"]=="System" else initials(ev["actor_name"]))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(recent_event_title(ev.get("event_type")))}</div><div class="pulse-row-meta">{e(ev["actor_name"] or "System")} · {e(fmt_dt(ev["created_at"]))}</div></div></div>' for ev in events)
         duty_html="".join(f'<div class="pulse-row"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(m.display_name))}</div><div class="pulse-row-main"><div class="pulse-row-title truncate">{e(m.display_name)}</div><div class="pulse-row-meta">{e(member_role(m,ids))}</div></div></div><div class="text-right"><div>{pill("Pause" if sh.get("status")=="break" else "Im Dienst", "warn" if sh.get("status")=="break" else "good")}</div><div class="pulse-row-meta pulse-time">{ws.fmt_duration(ws.shift_elapsed(sh))}</div></div></div>' for m,sh in active_people[:10])
         urgent=""
         if s["apps"]: urgent += f'<a href="/applications" class="pulse-alert"><strong>✎ {s["apps"]} offene Bewerbungen</strong><div class="text-slate-400 mt-1">Bitte zeitnah bearbeiten.</div></a>'

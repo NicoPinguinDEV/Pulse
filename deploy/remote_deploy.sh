@@ -22,6 +22,13 @@ if [ "$PREV" = "$SHA" ]; then
   echo "Dieser Stand läuft bereits – nichts zu tun."
   exit 0
 fi
+# Safety checks (from main): only commits on main, never a downgrade, never over local changes on the VPS.
+git merge-base --is-ancestor "$SHA" origin/main || { echo "Commit $SHA liegt nicht auf origin/main."; exit 1; }
+git merge-base --is-ancestor "$PREV" "$SHA" || { echo "Abbruch: würde den VPS auf einen älteren Commit zurücksetzen."; exit 1; }
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "Abbruch: versionierte lokale Änderungen auf dem VPS – bitte erst prüfen."
+  exit 1
+fi
 
 # 1) Backup with the running version (format from D-01, verified). A failed backup stops the deploy.
 BACKUP_PY='import sys, pulse_backup as b

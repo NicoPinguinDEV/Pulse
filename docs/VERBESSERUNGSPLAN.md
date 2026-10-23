@@ -47,7 +47,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 - **E-2 Vergessene Schichten:** Nach 24 h automatisch beendete Schichten werden heute mit bis zu 24 h gutgeschrieben (`webserver.py:898` und `:937`, `min(shift_elapsed, 24 h)`). Wie viel soll zählen? *0 h, bis eine Führungskraft die echte Dauer bestätigt.*
 - **E-3 Teamakte:** Jeder mit Dashboard-Zugang sieht alle Warnungen (auch zurückgenommene, mit Grund) und internen Notizen anderer Teamler (`member_v5`, `pulse_pro.py:1828`). So lassen? *Notizen nur mit `can_add_notes`/Leitung; Warnungen nur die betroffene Person selbst und `can_warn`.*
 - **E-4 Standardrechte:** Nie konfigurierte Teamrollen bekommen automatisch „Dashboard + Analytics“ (`webserver.py:781`) – Analytics umfasst Team-Exporte (CSV/JSON inkl. Warnungszahlen). *Nur Dashboard, Analytics nur explizit.*
-- **E-5 RAM-Budget:** Gilt die 250-MB-Grenze aus `CLAUDE.md` weiter, oder läuft Pulse inzwischen auf dem VPS (`VPS_DEPLOYMENT.md` empfiehlt 4–8 GB)? Davon hängen Caches, SSE und der Presence-Intent ab.
+- **E-5 RAM-Budget:** Pulse läuft jetzt auf einem VPS mit 2 GiB Host-RAM. Containerlimit: 512 MiB RAM plus höchstens 256 MiB zusätzlicher Swap; interne Schwellen 350/420/470 MB. 2 GiB bleiben unter der Deployment-Empfehlung von mindestens 4 GiB.
 - **E-6 Doppelte Seiten (U-01):** Welche Variante wird jeweils führend? *Du legst mir eine Tabelle „alt → neu“ vor, bevor irgendetwas zusammengeführt wird.*
 - **E-7 Ticket-Transkripte:** Anhänge mitsichern (Speicherbedarf)? Aufbewahrungsdauer?
 - **E-8 Bürger-Moderation:** Soll Pulse Timeout/Kick/Ban für normale Mitglieder mit Fallakte bekommen – oder macht das ein anderer Bot?
@@ -64,7 +64,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 | E-2 Vergessene Schichten | **0 h bis eine Führungskraft die echte Dauer bestätigt.** |
 | E-3 Teamakte | **Eingeschränkt:** Notizen nur `can_add_notes`/Leitung; Warnungen nur die Person selbst und `can_warn`. |
 | E-4 Standardrechte | **Nur Dashboard**; Analytics nur explizit. |
-| E-5 RAM | **Bot-Hosting, 250 MB bleibt verbindlich.** |
+| E-5 RAM | **VPS mit 2 GiB RAM: Pulse-Limit 512 MiB RAM + höchstens 256 MiB zusätzlicher Swap. Warnung 350 MB, kritisch 420 MB, Notfallreserve 470 MB; 2 GiB Host-RAM bleiben unter der empfohlenen Mindestgröße.** |
 | E-6 Doppelte Seiten | **Erst Tabelle „alt → neu“ vorlegen**, Entscheidung je Funktion. |
 | E-7 Transkripte | **Anhänge bis 8 MB mitsichern, unbegrenzt aufbewahren.** |
 | E-8 Bürger-Moderation | **Ja, mit Fallakte** (BOT-09, abschaltbar, Standard aus). |

@@ -63,12 +63,13 @@ _AUTOMATION_TASK: Optional[asyncio.Task] = None
 _RAM_GUARD_LEVEL = 0
 _RAM_SAMPLES: deque[tuple[float, float]] = deque(maxlen=180)
 _RAM_LAST_TREND_ALERT_AT = 0.0
-RAM_WARN_MB = 180.0
-RAM_CRITICAL_MB = 210.0
-RAM_EMERGENCY_MB = 230.0
-RAM_RECOVERY_MB = 160.0
-RAM_CRITICAL_RECOVERY_MB = 200.0
-RAM_EMERGENCY_RECOVERY_MB = 220.0
+RAM_LIMIT_MB = 512.0
+RAM_WARN_MB = 350.0
+RAM_CRITICAL_MB = 420.0
+RAM_EMERGENCY_MB = 470.0
+RAM_RECOVERY_MB = 320.0
+RAM_CRITICAL_RECOVERY_MB = 400.0
+RAM_EMERGENCY_RECOVERY_MB = 450.0
 RAM_TREND_WINDOW_SECONDS = 3600.0
 RAM_TREND_MIN_AGE_SECONDS = 1800.0
 RAM_TREND_GROWTH_MB_PER_HOUR = 20.0
@@ -154,8 +155,9 @@ async def runtime_memory_guard(bot) -> None:
                 labels = {1: "WARNUNG", 2: "KRITISCH", 3: "NOTFALLRESERVE"}
                 message = (
                     f"⚠️ **Pulse RAM-Schutz – {labels[level]}**\n"
-                    f"Gemessener Container-RAM: **{rss:.1f} MB / 250 MB**. "
-                    "Schwellen: 180 MB Warnung, 210 MB kritisch, 230 MB Notfallreserve."
+                    f"Gemessener Container-RAM: **{rss:.1f} MB / {RAM_LIMIT_MB:.0f} MB**. "
+                    f"Schwellen: {RAM_WARN_MB:.0f} MB Warnung, {RAM_CRITICAL_MB:.0f} MB kritisch, "
+                    f"{RAM_EMERGENCY_MB:.0f} MB Notfallreserve."
                 )
                 if level >= 2:
                     # Drop only expendable lookup cache entries, not team/session data.
@@ -1737,7 +1739,7 @@ async function loadPulseMonitor() {
       ['Datenbank-Kern', ok(d.pulse_db_ok)],
       ['RAM des Pulse-Prozesses', d.process_rss_mb == null ? 'Nicht verfügbar' : Number(d.process_rss_mb).toLocaleString('de-DE') + ' MB'],
       ['RAM-Spitzenwert seit Prozessstart', d.process_peak_rss_mb == null ? 'Nicht verfügbar' : Number(d.process_peak_rss_mb).toLocaleString('de-DE') + ' MB'],
-      ['RAM-Schutz', !d.ram_guard ? 'Nicht verfügbar' : Number(d.ram_guard.level || 0) >= 3 ? '🔴 Notfallreserve (230 MB)' : Number(d.ram_guard.level || 0) >= 2 ? '🟠 Kritisch (210 MB)' : Number(d.ram_guard.level || 0) >= 1 ? '🟡 Warnung (180 MB)' : '🟢 Normal (unter 180 MB)'],
+      ['RAM-Schutz', !d.ram_guard ? 'Nicht verfügbar' : Number(d.ram_guard.level || 0) >= 3 ? '🔴 Notfallreserve (' + Number(d.ram_guard.emergency_mb || 470) + ' MB)' : Number(d.ram_guard.level || 0) >= 2 ? '🟠 Kritisch (' + Number(d.ram_guard.critical_mb || 420) + ' MB)' : Number(d.ram_guard.level || 0) >= 1 ? '🟡 Warnung (' + Number(d.ram_guard.warn_mb || 350) + ' MB)' : '🟢 Normal (unter ' + Number(d.ram_guard.warn_mb || 350) + ' MB)'],
       ['RAM-Trend', !d.ram_trend || d.ram_trend.growth_mb == null ? 'Sammle Messwerte' : (Number(d.ram_trend.growth_mb) >= 0 ? '+' : '') + Number(d.ram_trend.growth_mb).toLocaleString('de-DE') + ' MB / ' + Number(d.ram_trend.window_minutes || 0).toLocaleString('de-DE') + ' Min.'],
       ['Discord-Nachrichten-Cache', String(d.discord_cached_messages || 0) + ' / ' + String(d.discord_message_cache_limit || 'unbegrenzt')],
       ['Datenträger frei', mb(d.disk_free_mb)],

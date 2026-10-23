@@ -80,8 +80,8 @@ ROLE_JS = r"""
   if (rank) rank.addEventListener('change', () => {
     if (!rank.value) return;
     data.rankIds.forEach(id => { add.delete(String(id)); remove.delete(String(id)); });
-    if (!data.currentIds.includes(Number(rank.value))) add.add(rank.value);
-    data.currentIds.filter(id => data.rankIds.includes(id) && String(id) !== rank.value && !byId[id].locked).forEach(id => remove.add(String(id)));
+    if (!data.currentIds.includes(String(rank.value))) add.add(String(rank.value));
+    data.currentIds.filter(id => data.rankIds.includes(id) && id !== String(rank.value) && byId[id] && !byId[id].locked).forEach(id => remove.add(String(id)));
     sync();
   });
   const search = document.getElementById('rmSearch'), showLocked = document.getElementById('rmShowLocked');
@@ -190,9 +190,10 @@ def render_role_manager(esc, ctx, member, team_role_ids) -> str:
 
     data = {
         "member": member.display_name,
-        "roles": [{"id": r["id"], "name": r["name"], "color": r["color"], "locked": r["locked"]} for r in roles],
-        "rankIds": rank_ids,
-        "currentIds": sorted(current_ids),
+        "roles": [{"id": str(r["id"]), "name": r["name"], "color": r["color"], "locked": r["locked"]} for r in roles],
+        # Discord snowflakes exceed JavaScript Number.MAX_SAFE_INTEGER: keep every ID exact.
+        "rankIds": [str(role_id) for role_id in rank_ids],
+        "currentIds": sorted(str(role_id) for role_id in current_ids),
     }
     quick = "".join(f'<button type="button" data-reason="{e(q)}">{e(q)}</button>' for q in QUICK_REASONS)
     avatar = e(member.display_avatar.url) if getattr(member, "display_avatar", None) else ""

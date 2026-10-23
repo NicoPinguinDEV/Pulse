@@ -519,10 +519,85 @@ def team_safety_admin_exempt(guild, member) -> bool:
     )
 
 
-async def _apply_team_safety_team_kick(guild, member, config: dict, reason: str) -> dict:
-    """Remove Pulse team rank roles only; never ban or kick the member from Discord."""
+async def apply_team_kick_role_reset(guild, member, config: dict | None = None, reason: str = "Team-Kick") -> dict:
+    """Keep only the configured citizen/ex-team roles; never remove the member from Discord."""
     if not guild or not member:
-        return {"ok": False, "changed": False, "message": "Guild oder Moderator nicht verfügbar."}
+        return {"ok": False, "changed": False, "message": "Guild oder Zielmitglied nicht verfügbar."}
+
+    cfg = config if isinstance(config, dict) else load_config()
+    bot_member = getattr(guild, "me", None)
+    if not bot_member:
+        return {"ok": False, "changed": False, "message": "Der Bot ist auf diesem Server noch nicht verfügbar."}
+    if not bot_member.guild_permissions.manage_roles:
+        return {"ok": False, "changed": False, "message": "Dem Bot fehlt die Berechtigung „Rollen verwalten“."}
+
+    keep_ids = tuple(resolve_backup_role_id(role_id, cfg) for role_id in TEAM_KICK_KEEP_ROLE_IDS)
+    keep_roles = [guild.get_role(int(role_id)) for role_id in keep_ids]
+    if len(set(keep_ids)) != len(keep_ids):
+        return {"ok": False, "changed": False, "message": "Die beiden Rollen für den Team-Kick verweisen auf dieselbe Discord-Rolle."}
+    if any(role is None for role in keep_roles):
+        return {"ok": False, "changed": False, "message": "Team-Kick abgebrochen: Bürgerrolle oder Ex-Teamler-Rolle wurde auf dem Server nicht gefunden."}
+
+    blocked_keep = [
+        role for role in keep_roles
+        if role.is_default() or role.managed or role.position >= bot_member.top_role.position
+    ]
+    if blocked_keep:
+        return {
+            "ok": False, "changed": False,
+            "message": "Team-Kick abgebrochen: Der Bot kann die zu behaltende Rolle nicht verwalten: "
+                       + ", ".join(role.name for role in blocked_keep)
+                       + ". Rollen-Hierarchie prüfen.",
+        }
+
+    keep_role_ids = {role.id for role in keep_roles}
+    roles_to_remove = [
+        role for role in member.roles
+        if not role.is_default() and role.id not in keep_role_ids
+    ]
+    blocked_roles = [
+        role for role in roles_to_remove
+        if role.managed or role.position >= bot_member.top_role.position
+    ]
+    if blocked_roles:
+        return {
+            "ok": False, "changed": False,
+            "message": "Team-Kick abgebrochen: Der Bot kann folgende Rollen nicht entfernen: "
+                       + ", ".join(role.name for role in blocked_roles)
+                       + ". Rollen-Hierarchie bzw. verwaltete Rollen prüfen.",
+        }
+
+    current_role_ids = {role.id for role in member.roles if not role.is_default()}
+    if current_role_ids == keep_role_ids:
+        return {
+            "ok": True, "changed": False,
+            "message": "Es sind bereits ausschließlich Bürgerrolle und Ex-Teamler-Rolle vorhanden.",
+            "removed_roles": [], "removed_role_ids": [], "keep_roles": keep_roles,
+        }
+
+    try:
+        await member.edit(roles=keep_roles, reason=f"Pulse Team-Kick: {reason}"[:512])
+    except discord.Forbidden:
+        return {"ok": False, "changed": False, "message": "Discord verweigert die Rollenänderung. Bot-Rolle und Berechtigungen prüfen."}
+    except discord.HTTPException as exc:
+        return {"ok": False, "changed": False, "message": f"Discord konnte die Rollen nicht zurücksetzen ({type(exc).__name__})."}
+    except Exception as exc:
+        return {"ok": False, "changed": False, "message": f"Team-Kick fehlgeschlagen ({type(exc).__name__})."}
+
+    return {
+        "ok": True, "changed": True,
+        "message": "Alle Rollen außer Bürgerrolle und Ex-Teamler-Rolle wurden entfernt.",
+        "removed_roles": [role.name for role in roles_to_remove],
+        "removed_role_ids": [role.id for role in roles_to_remove],
+        "keep_roles": keep_roles,
+    }
+
+
+async def _apply_team_safety_team_kick(guild, member, config: dict, reason: str) -> dict:
+    """Remove all roles except citizen/ex-team after an automated team-safety kick."""
+    if not guild or not member:
+        return {"ok": False, "changed": False, "message": "Guild oder Zielmitglied nicht verfügbar."}
+
     configured_ids = set()
     for raw_id in config.get("team_role_ids", []) or []:
         try:
@@ -530,65 +605,48 @@ async def _apply_team_safety_team_kick(guild, member, config: dict, reason: str)
         except (TypeError, ValueError):
             continue
     configured_ids.add(resolve_backup_role_id(TEST_SUPPORTER_ROLE_ID, config))
-    roles_to_remove = [
+    current_team_roles = [
         role for role in member.roles
-        if (
-            role.id in configured_ids
-            or "test supporter" in role.name.casefold()
-        ) and not role.is_default()
+        if (role.id in configured_ids or "test supporter" in role.name.casefold())
+        and not role.is_default()
     ]
-    if not roles_to_remove:
+    if not current_team_roles:
         return {"ok": True, "changed": False, "message": "Keine konfigurierten Teamrollen mehr vorhanden."}
 
-    bot_member = getattr(guild, "me", None)
-    if not bot_member or not bot_member.guild_permissions.manage_roles:
-        return {"ok": False, "changed": False, "message": "Bot hat keine Berechtigung „Rollen verwalten“."}
-    blocked = [
-        role for role in roles_to_remove
-        if role.managed or role.position >= bot_member.top_role.position
-    ]
-    if blocked:
-        return {
-            "ok": False, "changed": False,
-            "message": "Bot kann folgende Teamrollen nicht entfernen: "
-                       + ", ".join(role.name for role in blocked)
-                       + ". Rollen-Hierarchie oder verwaltete Rollen prüfen.",
-        }
+    result = await apply_team_kick_role_reset(
+        guild, member, config, f"automatischer Team-Kick wegen Warn-Missbrauch: {reason}"
+    )
+    if not result.get("ok"):
+        return result
 
+    pulse_db.mark_team_safety_kicked(guild.id, member.id)
+    removed_names = ", ".join(result.get("removed_roles", [])) or "Keine zusätzlichen Rollen"
+    keep_roles = result.get("keep_roles", [])
+    keep_names = ", ".join(role.name for role in keep_roles)
+    log_audit(
+        "Pulse – Teamler-Schutz", "system", "Automatischer Team-Kick wegen Warn-Missbrauch",
+        f"{member.display_name} ({member.id}) · entfernte Rollen: {removed_names} · behalten: {keep_names} · Grund: {reason}",
+    )
     try:
-        await member.remove_roles(
-            *roles_to_remove,
-            reason=f"Pulse-Teamler-Schutz: automatischer Team-Kick: {reason}"[:500],
+        pulse_db.record_event(
+            "team_warn_abuse_team_kick", "team_member", member.id, "system",
+            "Pulse – Teamler-Schutz",
+            {"reason": reason, "removed_roles": result.get("removed_role_ids", []), "kept_roles": [role.id for role in keep_roles]},
         )
-        pulse_db.mark_team_safety_kicked(guild.id, member.id)
-        removed_names = ", ".join(role.name for role in roles_to_remove)
-        log_audit(
-            "Pulse – Teamler-Schutz", "system", "Automatischer Team-Kick wegen Warn-Missbrauch",
-            f"{member.display_name} ({member.id}) · entfernte Teamrollen: {removed_names} · Grund: {reason}",
+    except Exception as exc:
+        print(f"⚠️ Teamler-Schutz: Event-Audit konnte nicht geschrieben werden: {exc}")
+    try:
+        await send_dm_notification(
+            member,
+            f"🛡️ **Pulse-Teamler-Schutz:** Deine Team- und übrigen Rollen auf **{guild.name}** wurden automatisch entfernt. "
+            f"Behalten wurden ausschließlich {', '.join(role.mention for role in keep_roles)}. "
+            f"Grund: {reason}. Du wurdest nicht vom Discord-Server gekickt. Bitte kläre den Vorfall mit der Führungsebene.",
         )
-        try:
-            pulse_db.record_event(
-                "team_warn_abuse_team_kick", "team_member", member.id, "system",
-                "Pulse – Teamler-Schutz", {"reason": reason, "removed_roles": [r.id for r in roles_to_remove]},
-            )
-        except Exception as exc:
-            print(f"⚠️ Teamler-Schutz: Event-Audit konnte nicht geschrieben werden: {exc}")
-        try:
-            await send_dm_notification(
-                member,
-                f"🛡️ **Pulse-Teamler-Schutz:** Deine Teamrollen auf **{guild.name}** wurden automatisch entfernt. "
-                f"Grund: {reason}. Du wurdest nicht vom Discord-Server gekickt. "
-                "Bitte kläre den Vorfall mit der Führungsebene.",
-            )
-        except Exception as exc:
-            print(f"⚠️ Teamler-Schutz: DM an Moderator {member.id} fehlgeschlagen: {exc}")
-        return {"ok": True, "changed": True, "message": f"Teamrollen entfernt: {removed_names}"}
-    except (discord.Forbidden, discord.HTTPException) as exc:
-        return {
-            "ok": False, "changed": False,
-            "message": f"Discord konnte die Teamrollen nicht entfernen ({type(exc).__name__}).",
-        }
+    except Exception as exc:
+        print(f"⚠️ Teamler-Schutz: DM an Moderator {member.id} fehlgeschlagen: {exc}")
 
+    result["message"] = f"Team-Kick ausgeführt; entfernte Rollen: {removed_names}; behalten: {keep_names}."
+    return result
 
 async def _notify_team_safety_incident(guild, actor, target, config: dict, decision: dict, source: str):
     """Audit and notify leadership about a warning-abuse lockout or automatic team-kick."""
@@ -1088,28 +1146,57 @@ def back(url: str, msg: str = None, ok: bool = True):
 
 
 _rate_hits = {}
+_rate_lock = threading.Lock()
+_RATE_LIMIT_MAX_KEYS = 5000
+_RATE_LIMIT_SWEEP_INTERVAL = 30
+_rate_last_full_sweep = 0.0
 
 
 def rate_limited(key: str, limit: int = 3, window: int = 3600) -> bool:
-    """Ein kleiner In-Memory-Rate-Limiter mit periodischer Bereinigung alter Keys."""
+    """Bounded in-memory rate limiter; full state rejects new keys rather than growing forever."""
     now = time.time()
     window = max(1, int(window))
-    hits = [t for t in _rate_hits.get(key, []) if now - t < window]
-    if len(hits) >= limit:
+    limit = max(1, int(limit))
+    global _rate_last_full_sweep
+    with _rate_lock:
+        hits = [t for t in _rate_hits.get(key, []) if now - t < window]
+        if hits and len(hits) >= limit:
+            _rate_hits[key] = hits
+            return True
+
+        if hits:
+            _rate_hits[key] = hits
+        else:
+            _rate_hits.pop(key, None)
+
+        if key not in _rate_hits and len(_rate_hits) >= _RATE_LIMIT_MAX_KEYS:
+            if now - _rate_last_full_sweep >= _RATE_LIMIT_SWEEP_INTERVAL:
+                cutoff = now - max(window, 3600)
+                stale = [k for k, values in _rate_hits.items() if not any(ts >= cutoff for ts in values)]
+                for stale_key in stale:
+                    _rate_hits.pop(stale_key, None)
+                _rate_last_full_sweep = now
+            if len(_rate_hits) >= _RATE_LIMIT_MAX_KEYS:
+                return True
+
+        hits.append(now)
         _rate_hits[key] = hits
-        return True
+        return False
 
-    hits.append(now)
-    _rate_hits[key] = hits
 
-    # Verhindert unbegrenztes Wachstum bei vielen Clients/IPs.
-    if len(_rate_hits) > 5000:
-        cutoff = now - window
-        stale = [k for k, values in _rate_hits.items() if not any(ts >= cutoff for ts in values)]
-        for stale_key in stale[:2500]:
-            _rate_hits.pop(stale_key, None)
+def request_rate_key(request: Request, action: str) -> str:
+    """Use the connection peer, not an untrusted forwarding header, for abuse limits."""
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None) or "unknown"
+    return f"{action}:{host}"
 
-    return False
+
+def rate_limit_response(message: str) -> HTMLResponse:
+    return HTMLResponse(
+        simple_page("⏳", "Bitte kurz warten", message),
+        status_code=429,
+        headers={"Retry-After": "60"},
+    )
 
 # =============================================================
 # SCHICHT-HELFER (Pausen werden jetzt wirklich nicht mitgezählt)
@@ -1499,6 +1586,47 @@ def get_warn_role_ids(config: dict | None = None) -> dict:
         for level, role_id in WARN_ROLE_IDS.items()
     }
 
+def _legacy_warning_expiry(warn: dict, current: datetime | None = None) -> tuple[datetime, int, str]:
+    """Calculate a stable expiry for old active warnings that have no expires_at.
+
+    Older warnings without a configured duration use seven calendar days (the issue
+    date counts as day one), so a legacy warning dated 16.10 expires on 22.10.
+    Explicit duration_days values retain their full elapsed duration.
+    """
+    raw_duration = warn.get("duration_days")
+    duration_is_explicit = raw_duration is not None and str(raw_duration).strip() != ""
+    try:
+        duration_days = int(raw_duration) if duration_is_explicit else 7
+        if not 1 <= duration_days <= 365:
+            raise ValueError("invalid warning duration")
+    except (TypeError, ValueError, OverflowError):
+        duration_days = 7
+        duration_is_explicit = False
+
+    issued_at = None
+    for field in ("issued_at", "issued_at_iso", "created_at", "created_at_iso", "date", "timestamp"):
+        issued_at = parse_timestamp(warn.get(field))
+        if issued_at is not None:
+            break
+
+    now = current or now_de()
+    if issued_at is not None:
+        # New/explicitly timed warnings run for the full number of elapsed days.
+        # Unconfigured legacy warnings count the issue date as day 1 to preserve
+        # the requested seven-calendar-day rule for already-existing records.
+        days = duration_days if duration_is_explicit else max(0, duration_days - 1)
+        expires_at = issued_at + timedelta(days=days)
+        source = "legacy_explicit_duration" if duration_is_explicit else "legacy_default_7_calendar_days"
+    else:
+        # Never guess the age of an undated historical warning. Give it one
+        # seven-day grace period from migration; normalize_warns persists the
+        # computed timestamp so subsequent reads cannot extend that deadline.
+        expires_at = now + timedelta(days=duration_days)
+        source = "legacy_missing_date_grace_period"
+
+    return expires_at, duration_days, source
+
+
 def normalize_warns(entry: dict) -> bool:
     """Migriert Warns zu einem stabilen Format mit Status statt hartem Löschen."""
     raw = entry.get("warns_list", [])
@@ -1526,11 +1654,17 @@ def normalize_warns(entry: dict) -> bool:
         item.setdefault("revoked_at", None)
         item.setdefault("revoked_by", None)
         item.setdefault("revoked_reason", "")
-        # Legacy warnings without an expiry remain permanent.
         item.setdefault("expires_at", None)
         item.setdefault("duration_days", None)
         item.setdefault("expired_at", None)
         item.setdefault("expired_reason", "")
+        if item.get("active", True) and not item.get("revoked_at") and not item.get("expires_at"):
+            expiry, duration_days, migration_source = _legacy_warning_expiry(item)
+            item["duration_days"] = duration_days
+            item["expires_at"] = expiry.isoformat(timespec="seconds")
+            item.setdefault("expiry_migrated_at", now_de().isoformat(timespec="seconds"))
+            item["expiry_migration_source"] = migration_source
+            changed = True
         normalized.append(item)
 
     if normalized != entry.get("warns_list"):
@@ -1688,39 +1822,39 @@ async def _apply_warn4_downrank(guild, member, warn: dict, team_role_ids: list[i
         return {"ok": False, "message": f"Automatischer Downrank fehlgeschlagen: {exc}", "changed": False}
 
 
-async def _apply_warn5_team_kick(guild, member, warn: dict, team_role_ids: list[int]):
-    """Entfernt bei Warn 5 sämtliche konfigurierten Team-Rollen."""
-    if warn.get("consequences", {}).get("team_kick_applied"):
+async def _apply_warn5_team_kick(
+    guild, member, warn: dict, team_role_ids: list[int], config: dict | None = None
+):
+    """Permanently remove all roles except citizen/ex-team when a Warn-5 Team-Kick fires."""
+    consequences = warn.setdefault("consequences", {})
+    if consequences.get("team_kick_applied"):
         return {"ok": True, "message": "Team-Kick bereits ausgeführt.", "changed": False}
 
-    current_team_roles = [r for r in member.roles if r.id in team_role_ids]
-    consequences = warn.setdefault("consequences", {})
+    current_team_roles = [role for role in member.roles if role.id in team_role_ids]
     consequences["team_kick_applied"] = True
-
     if not current_team_roles:
+        consequences["team_kick_applied"] = False
         return {"ok": True, "message": "Mitglied hatte bereits keine Team-Rolle mehr.", "changed": False}
-
-    if guild.me and not guild.me.guild_permissions.manage_roles:
-        consequences["team_kick_applied"] = False
-        return {"ok": False, "message": "Bot hat keine 'Rollen verwalten'-Berechtigung für den Team-Kick.", "changed": False}
-
-    if guild.me and any(r.position >= guild.me.top_role.position for r in current_team_roles):
-        consequences["team_kick_applied"] = False
-        return {"ok": False, "message": "Mindestens eine Team-Rolle liegt auf oder über der Bot-Rolle.", "changed": False}
 
     actor = warn.get("by") or "Warn-System"
     reason = warn.get("reason") or "Warn 5"
-    try:
-        await member.remove_roles(*current_team_roles, reason=f"Automatischer Team-Kick durch {actor}: {reason}")
-        # Keep the previous rank for an automatic return once every active warning expires.
-        consequences["team_kick_removed_role_ids"] = [role.id for role in current_team_roles]
-        return {"ok": True, "message": "Alle Team-Rollen wurden automatisch entfernt.", "changed": True}
-    except discord.Forbidden:
+    result = await apply_team_kick_role_reset(
+        guild, member, config if isinstance(config, dict) else load_config(),
+        f"automatischer Team-Kick durch {actor}: {reason}",
+    )
+    if not result.get("ok"):
         consequences["team_kick_applied"] = False
-        return {"ok": False, "message": "Discord verweigert den automatischen Team-Kick.", "changed": False}
-    except Exception as exc:
-        consequences["team_kick_applied"] = False
-        return {"ok": False, "message": f"Automatischer Team-Kick fehlgeschlagen: {exc}", "changed": False}
+        return {"ok": False, "message": result.get("message", "Automatischer Team-Kick fehlgeschlagen."), "changed": False}
+
+    # Team-Kick is permanent: warning expiry must never silently re-hire the member.
+    consequences["team_kick_removed_role_ids"] = [role.id for role in current_team_roles]
+    consequences["team_kick_permanent"] = True
+    consequences["team_kick_restore_skipped_at"] = now_de().isoformat(timespec="seconds")
+    kept = ", ".join(role.name for role in result.get("keep_roles", []))
+    return {
+        "ok": True, "message": f"Automatischer Team-Kick ausgeführt. Alle Rollen außer {kept} wurden entfernt.",
+        "changed": bool(result.get("changed")), "removed_role_ids": result.get("removed_role_ids", []),
+    }
 
 
 async def process_probation_warning(
@@ -1729,6 +1863,7 @@ async def process_probation_warning(
     warn: dict,
     team_role_ids: list[int],
     entry: dict | None = None,
+    config: dict | None = None,
 ):
     """Apply Test-Supporter kick or restore the previous rank for probation warnings."""
     result = {"actions": [], "ok": True, "team_kicked": False, "probation_reverted": False}
@@ -1759,7 +1894,7 @@ async def process_probation_warning(
             | {role.id for role in test_supporter_roles}
             | {test_supporter_role_id}
         )
-        kick = await _apply_warn5_team_kick(guild, member, warn, kick_ids)
+        kick = await _apply_warn5_team_kick(guild, member, warn, kick_ids, config=config)
         result["actions"].append(
             kick["message"] if kick.get("ok")
             else f"Test-Supporter-Team-Kick fehlgeschlagen: {kick['message']}"
@@ -1918,7 +2053,7 @@ async def apply_warn_consequences(
     result = {"level": int(count or 0), "actions": [], "ok": True}
     team_role_ids = [int(x) for x in (config or load_config()).get("team_role_ids", [])]
 
-    probation_result = await process_probation_warning(guild, member, warn, team_role_ids, entry)
+    probation_result = await process_probation_warning(guild, member, warn, team_role_ids, entry, config=config)
     result["actions"].extend(probation_result.get("actions", []))
     result["ok"] = result["ok"] and probation_result.get("ok", True)
     if probation_result.get("team_kicked"):
@@ -1944,7 +2079,7 @@ async def apply_warn_consequences(
         result["ok"] = result["ok"] and downrank["ok"]
 
     elif count == 5:
-        team_kick = await _apply_warn5_team_kick(guild, member, warn, team_role_ids)
+        team_kick = await _apply_warn5_team_kick(guild, member, warn, team_role_ids, config=config)
         result["actions"].append(team_kick["message"])
         result["ok"] = result["ok"] and team_kick["ok"]
 
@@ -1952,7 +2087,11 @@ async def apply_warn_consequences(
 
 
 async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dict | None = None) -> dict:
-    """Reverse warning-derived rank sanctions once every team warning has expired or been revoked."""
+    """Reverse temporary warning sanctions once no active team warnings remain.
+
+    A Warn-5 Team-Kick is permanent; only temporary role restrictions/downranks
+    can be reversed automatically. Re-hiring always requires an explicit manager action.
+    """
     result = {"restored": [], "failed": [], "changed": False}
     if not guild or not member or active_warns(entry):
         return result
@@ -1969,15 +2108,38 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
         and bool((item.get("consequences") or {}).get("test_supporter_team_kick"))
         for item in warnings
     )
+    # Treat older Warn-5 kicks as permanent too; pre-7.14.3 records could otherwise
+    # automatically restore a team rank when the last warning expired.
+    permanent_team_kick = any(
+        isinstance(item, dict)
+        and (item.get("consequences") or {}).get("team_kick_applied")
+        and not (item.get("consequences") or {}).get("team_kick_reverted_at")
+        for item in warnings
+    )
+    if permanent_team_kick:
+        stamp = now_de().isoformat(timespec="seconds")
+        for item in warnings:
+            if not isinstance(item, dict):
+                continue
+            item_consequences = item.get("consequences") or {}
+            if item_consequences.get("team_kick_applied") and not item_consequences.get("team_kick_reverted_at"):
+                needs_marker = (
+                    not item_consequences.get("team_kick_permanent")
+                    or not item_consequences.get("team_kick_restore_skipped_at")
+                )
+                item_consequences["team_kick_permanent"] = True
+                item_consequences.setdefault("team_kick_restore_skipped_at", stamp)
+                if needs_marker:
+                    result["changed"] = True
+
     manual_team_override = bool(current_team_ids) and any(
         isinstance(item, dict)
         and (item.get("consequences") or {}).get("team_kick_applied")
         and not (item.get("consequences") or {}).get("team_kick_reverted_at")
-        and not (item.get("consequences") or {}).get("team_kick_restore_skipped_at")
         and not (item.get("consequences") or {}).get("test_supporter_team_kick")
         for item in warnings
     )
-    if permanent_test_kick or manual_team_override:
+    if permanent_test_kick or permanent_team_kick or manual_team_override:
         for item in warnings:
             if not isinstance(item, dict):
                 continue
@@ -1990,8 +2152,7 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
                 item_consequences["downrank_restore_skipped_at"] = now_de().isoformat(timespec="seconds")
                 result["changed"] = True
 
-    # Reverse consequences newest-first: undo the Warn-5 team removal first,
-    # then restore the rank that was present before a Warn-4 downrank.
+    # Reverse only temporary warning sanctions. Team-Kicks remain permanent; a manager must re-hire explicitly.
     for warn in reversed(warnings):
         if not isinstance(warn, dict):
             continue
@@ -2155,7 +2316,7 @@ async def restore_expired_warn_sanctions(guild, member, entry: dict, config: dic
 
 
 async def cleanup_expired_team_warnings(guild, config: dict | None = None):
-    """Expire warnings, update warning roles, and release warning sanctions when no active warns remain."""
+    """Expire warnings, reliably synchronize roles, and restore temporary sanctions."""
     result = {
         "checked": 0, "expired": 0, "roles_synced": 0, "failed": 0,
         "sanctions_restored": 0, "sanctions_failed": 0,
@@ -2169,8 +2330,10 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
         return result
 
     current = now_de()
+    current_iso = current.isoformat(timespec="seconds")
     changed = False
     users_to_process = []
+
     for user_id, entry in team_db.items():
         if not isinstance(entry, dict):
             continue
@@ -2182,11 +2345,21 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
             result["checked"] += 1
             if warn.get("active", True) and not warn.get("revoked_at") and warning_is_expired(warn, current):
                 warn["active"] = False
-                warn["expired_at"] = current.isoformat(timespec="seconds")
+                warn["expired_at"] = current_iso
                 warn["expired_reason"] = "Gültigkeitsdauer abgelaufen"
                 newly_expired.append(warn)
                 result["expired"] += 1
                 changed = True
+
+        # Retry role sync for warnings that were already marked expired by an
+        # earlier run, but whose Discord role synchronization did not complete.
+        pending_expired = [
+            warn for warn in (entry.get("warns_list", []) or [])
+            if isinstance(warn, dict)
+            and warn.get("expired_reason") == "Gültigkeitsdauer abgelaufen"
+            and not warn.get("expiry_roles_synced_at")
+            and not warn.get("expiry_roles_sync_skipped_at")
+        ]
 
         no_active_warnings = not active_warns(entry)
         sanctions_pending = no_active_warnings and any(
@@ -2206,22 +2379,51 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
             )
             for warn in (entry.get("warns_list", []) or [])
         )
-        if newly_expired or sanctions_pending:
-            users_to_process.append((str(user_id), entry, newly_expired))
+        if newly_expired or pending_expired or sanctions_pending:
+            users_to_process.append((str(user_id), entry, newly_expired, pending_expired))
 
+    # Persist expiry timestamps before making Discord API calls. A temporary API
+    # error must not reactivate a warning, and pending role sync is retried below.
     if changed:
         save_json(DATA_FILE, team_db)
 
     cfg = config or load_config()
     sanctions_changed = False
-    for user_id, entry, newly_expired in users_to_process:
-        member = guild.get_member(int(user_id)) if str(user_id).isdigit() else None
-        if member:
-            report = await sync_warn_roles(guild, member, len(active_warns(entry)), cfg)
-            if report.get("ok"):
-                result["roles_synced"] += 1
-            else:
+    state_changed = False
+
+    for user_id, entry, newly_expired, pending_expired in users_to_process:
+        numeric_user_id = str(user_id).isdigit()
+        member = guild.get_member(int(user_id)) if numeric_user_id else None
+        member_not_found = False
+
+        # The member cache can be incomplete. Fetch from Discord before deciding
+        # a role sync is impossible; a confirmed 404 means the user left the guild.
+        if member is None and numeric_user_id and (newly_expired or pending_expired):
+            try:
+                member = await guild.fetch_member(int(user_id))
+            except discord.NotFound:
+                member_not_found = True
+            except Exception as exc:
                 result["failed"] += 1
+                print(f"⚠️ Discord-Mitglied {user_id} konnte für Warnungsablauf nicht geladen werden: {exc}")
+        elif member is None and not numeric_user_id:
+            result["failed"] += 1
+            print(f"⚠️ Ungültige Discord-User-ID bei Warnungsablauf: {user_id!r}")
+
+        if member:
+            if pending_expired:
+                report = await sync_warn_roles(guild, member, len(active_warns(entry)), cfg)
+                if report.get("ok"):
+                    for warn in pending_expired:
+                        warn["expiry_roles_synced_at"] = current_iso
+                        warn.pop("expiry_roles_sync_skipped_at", None)
+                        warn.pop("expiry_roles_sync_skip_reason", None)
+                    state_changed = True
+                    result["roles_synced"] += 1
+                else:
+                    result["failed"] += 1
+                    message = report.get("message") or "Unbekannter Fehler"
+                    print(f"⚠️ Warnrollen-Sync für {user_id} fehlgeschlagen: {message}")
 
             if not active_warns(entry):
                 restoration = await restore_expired_warn_sanctions(guild, member, entry, cfg)
@@ -2233,9 +2435,19 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
                     result["failed"] += len(restoration["failed"])
                     for issue in restoration["failed"]:
                         print(f"⚠️ Warn-Folge konnte für {member.id} nicht aufgehoben werden: {issue}")
-        elif newly_expired:
-            result["failed"] += 1
 
+        elif member_not_found:
+            # A user who left the guild has no server roles to synchronize.
+            # Record the skip so the five-minute task does not repeatedly fetch them.
+            for warn in pending_expired:
+                warn["expiry_roles_sync_skipped_at"] = current_iso
+                warn["expiry_roles_sync_skip_reason"] = "Mitglied nicht mehr auf dem Server"
+                state_changed = True
+            if pending_expired:
+                print(f"ℹ️ Warnrollen-Sync für {user_id} übersprungen: Mitglied ist nicht mehr auf dem Server.")
+
+        # If lookup failed temporarily, leave pending markers untouched. The
+        # next scheduled cleanup will retry; expiry itself remains persisted.
         if newly_expired:
             reasons = "; ".join(str(w.get("reason") or "Kein Grund") for w in newly_expired[:3])
             log_audit(
@@ -2254,10 +2466,9 @@ async def cleanup_expired_team_warnings(guild, config: dict | None = None):
                 except Exception as exc:
                     print(f"⚠️ DM über abgelaufene Warnung für {user_id} fehlgeschlagen: {exc}")
 
-    if sanctions_changed:
+    if sanctions_changed or state_changed:
         save_json(DATA_FILE, team_db)
     return result
-
 
 async def process_expired_probations(guild) -> dict:
     """End active promotion probation periods after their selected 3 or 7 days."""
@@ -2586,7 +2797,10 @@ HEAD_SCRIPT = TAILWIND_TAG + """
     }
     function toggleSidebar() {
         const s = document.getElementById('sidebar'), b = document.getElementById('sidebarBackdrop');
+        if (!s || !b) return;
         s.classList.toggle('hidden'); s.classList.toggle('flex'); b.classList.toggle('hidden');
+        const button = document.querySelector('[aria-controls="sidebar"]');
+        if (button) button.setAttribute('aria-expanded', String(!s.classList.contains('hidden')));
     }
     function escapeHtml(v) {
         return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2599,6 +2813,11 @@ def get_head_html(title: str):
     return (
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        '<meta name="color-scheme" content="light dark">\n'
+        '<style>:focus-visible{outline:3px solid #6366f1!important;outline-offset:3px}'
+        '@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;'
+        'animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}'
+        '</style>\n'
         f"<title>{esc(title)}</title>\n" + HEAD_SCRIPT
     )
 
@@ -2637,6 +2856,8 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
     admin_items = [
         ("backups", "/backups", "💾", "Server Backups"),
         ("system", "/system", "🩺", "Systemstatus"),
+        ("setup", "/setup", "🧭", "Einrichtungsassistent"),
+        ("security", "/security", "🛡️", "AutoMod & Anti-Nuke"),
         ("search", "/search", "🔎", "Globale Suche"),
         ("settings", "/settings", "⚙️", "Rechte & Audit-Log"),
     ] if perms.get("is_admin") else [("search", "/search", "🔎", "Globale Suche")]
@@ -2655,9 +2876,9 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
         nav += "".join(link(*i) for i in admin_items)
 
     return f"""
-    <button onclick="toggleSidebar()" aria-label="Menü" class="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-700 shadow text-lg">☰</button>
+    <button onclick="toggleSidebar()" aria-label="Menü" aria-controls="sidebar" aria-expanded="false" class="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white dark:bg-[#141824] border border-slate-200 dark:border-slate-700 shadow text-lg">☰</button>
     <div id="sidebarBackdrop" onclick="toggleSidebar()" class="hidden fixed inset-0 bg-black/50 z-30 md:hidden"></div>
-    <aside id="sidebar" class="hidden md:flex fixed md:sticky top-0 left-0 z-40 h-screen w-64 overflow-y-auto bg-white dark:bg-[#141824] border-r border-slate-200 dark:border-slate-800/80 flex-col justify-between p-4 shrink-0 transition-colors duration-200">
+    <aside id="sidebar" aria-label="Hauptnavigation" class="hidden md:flex fixed md:sticky top-0 left-0 z-40 h-screen w-64 overflow-y-auto bg-white dark:bg-[#141824] border-r border-slate-200 dark:border-slate-800/80 flex-col justify-between p-4 shrink-0 transition-colors duration-200">
         <div class="space-y-6">
             <div class="flex items-center gap-3 px-2">
                 <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-600/20">B</div>
@@ -2710,8 +2931,9 @@ def render_page(title: str, ctx, page: str, body: str, extra_head: str = "") -> 
     <html lang="de">
     <head>{get_head_html(f"{title} - {ctx.guild_name}")}{extra_head}</head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-800 dark:text-slate-200 font-sans min-h-screen flex transition-colors duration-200">
+        <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-xl focus:bg-white focus:px-4 focus:py-3 focus:text-indigo-700 focus:shadow-lg">Zum Hauptinhalt springen</a>
         {get_sidebar_html(ctx.guild_name, page, ctx.user, ctx.perms)}
-        <main class="flex-1 min-w-0 p-4 pt-16 md:p-8 md:pt-8">
+        <main id="main-content" tabindex="-1" class="flex-1 min-w-0 p-4 pt-16 md:p-8 md:pt-8">
             {toast}
             {body}
         </main>
@@ -3034,6 +3256,8 @@ async def home(user_session: str = Cookie(None)):
 
 @app.get("/login")
 async def login(request: Request):
+    if rate_limited(request_rate_key(request, "oauth-login"), limit=15, window=600):
+        return rate_limit_response("Zu viele Login-Versuche. Bitte in einer Minute erneut versuchen.")
     state = secrets.token_urlsafe(24)  # CSRF-Schutz für den OAuth-Ablauf
     redirect_uri = oauth_redirect_uri(request)
     url = (f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}"
@@ -3071,6 +3295,8 @@ async def logout(user_session: str = Cookie(None)):
 @app.get("/callback")
 async def callback(request: Request, code: str = None, state: str = None, error: str = None,
                    oauth_state: str = Cookie(None), apply_oauth_state: str = Cookie(None)):
+    if rate_limited(request_rate_key(request, "oauth-callback"), limit=30, window=600):
+        return rate_limit_response("Zu viele Anmeldeversuche. Bitte in einer Minute erneut versuchen.")
     application_flow = bool(
         state and apply_oauth_state and hmac.compare_digest(state, apply_oauth_state)
     )
@@ -7512,6 +7738,8 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
 
 @app.get("/apply/login")
 async def apply_login(request: Request, career: str = ""):
+    if rate_limited(request_rate_key(request, "apply-oauth-login"), limit=15, window=600):
+        return rate_limit_response("Zu viele Bewerbungs-Login-Versuche. Bitte in einer Minute erneut versuchen.")
     state = secrets.token_urlsafe(24)
     redirect_apply = oauth_redirect_uri(request, application=True)
     url = (f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}"
@@ -7526,6 +7754,8 @@ async def apply_login(request: Request, career: str = ""):
 
 @app.get("/apply/callback")
 async def apply_callback(request: Request, code: str=None, state: str=None, error: str=None, apply_oauth_state: str=Cookie(None)):
+    if rate_limited(request_rate_key(request, "apply-oauth-callback"), limit=30, window=600):
+        return rate_limit_response("Zu viele Bewerbungs-Anmeldeversuche. Bitte in einer Minute erneut versuchen.")
     retry='<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zur Bewerbung</a>'
     if error or not code or not state or not apply_oauth_state or not hmac.compare_digest(state,apply_oauth_state):
         return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen','Bitte erneut versuchen.',retry),status_code=400)
@@ -9524,6 +9754,309 @@ async def full_backup_delete(request: Request, filename: str = Form(...), user_s
     os.remove(path)
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Komplett-Backup gelöscht", os.path.basename(path))
     return back("/backups", "Komplett-Backup gelöscht.")
+
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_wizard(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None, admin=True)
+    import pulse_system_checks
+    checks = {
+        name: (ok, detail)
+        for name, ok, detail in pulse_system_checks.run(
+            getattr(request.app.state, "bot", None), ctx.guild, ctx.config
+        )
+    }
+
+    def check_ok(*names: str) -> bool:
+        return all(checks.get(name, (False, "Prüfung fehlt"))[0] for name in names)
+
+    def details(*names: str) -> str:
+        return " · ".join(checks.get(name, (False, "Prüfung fehlt"))[1] for name in names)
+
+    bot_ready = bool(getattr(getattr(request.app.state, "bot", None), "is_ready", lambda: False)())
+    has_roles = bool(ctx.config.get("team_role_ids"))
+    automod = ctx.config.get("pulse_automod", {})
+    antinuke = ctx.config.get("pulse_antinuke", {})
+    automod = automod if isinstance(automod, dict) else {}
+    antinuke = antinuke if isinstance(antinuke, dict) else {}
+    moderation_check_names = {
+        "AutoMod · Nachrichteninhalt", "AutoMod · Nachrichten löschen",
+        "Anti-Nuke · Audit-Log", "Anti-Nuke · Sperren",
+    }
+    moderation_checks = {name: value for name, value in checks.items() if name in moderation_check_names}
+
+    def enabled_checks_ready(prefix: str) -> bool:
+        relevant = [ok for name, (ok, _) in moderation_checks.items() if name.startswith(prefix)]
+        return bool(relevant) and all(relevant)
+
+    auto_ready = (not automod.get("enabled")) or enabled_checks_ready("AutoMod")
+    nuke_ready = (not antinuke.get("enabled")) or enabled_checks_ready("Anti-Nuke")
+    backup = full_backup_status()
+    restore_test = backup.get("restore_test") or {}
+    backup_ready = bool(backup.get("latest") and backup.get("total_ok") and restore_test.get("ok"))
+
+    steps = [
+        ("Discord & Anmeldung", check_ok(".env-Pflichtwerte") and bot_ready,
+         details(".env-Pflichtwerte", "Gateway-Latenz"), "/system",
+         "Discord-Token, OAuth-Werte und Bot-Verbindung prüfen."),
+        ("Teamrollen & Dashboard-Rechte", has_roles and check_ok("Rollenhierarchie"),
+         "Teamrollen sind konfiguriert." if has_roles else "Noch keine Teamrollen ausgewählt.",
+         "/settings", "Teamrollen zuordnen und die Bot-Rolle über den verwalteten Rollen platzieren."),
+        ("AutoMod", auto_ready,
+         "Aktiv und Bot-Berechtigungen vorhanden." if automod.get("enabled") else "Optional: noch nicht aktiviert.",
+         "/security", "Regeln, Ausnahmen und Nachrichtenverwaltungsrechte prüfen."),
+        ("Anti-Nuke", nuke_ready,
+         "Aktiv und Audit-/Sperrberechtigungen vorhanden." if antinuke.get("enabled") else "Optional: noch nicht aktiviert.",
+         "/security", "Ereignisse, Vertrauensrollen, Schwelle und Bot-Berechtigungen prüfen."),
+        ("Backups & Wiederherstellung", backup_ready,
+         f"{backup.get('count', 0)} Sicherungen · letzter Restore-Test {'bestanden' if restore_test.get('ok') else 'noch ausstehend'}",
+         "/backups", "Erstes Komplett-Backup und den automatischen Restore-Test sicherstellen."),
+    ]
+    completed = sum(1 for _, ready, _, _, _ in steps if ready)
+    rows = "".join(
+        f'<a href="{href}" class="block rounded-2xl border border-slate-200 dark:border-slate-800 p-4 hover:border-indigo-400 focus-visible:ring-2">'
+        f'<div class="flex flex-wrap items-center justify-between gap-2"><h2 class="font-bold">{esc(name)}</h2>'
+        f'<span class="text-xs font-semibold {"text-emerald-600" if ready else "text-amber-600"}">'
+        f'{"Erledigt" if ready else ("Optional" if name in {"AutoMod", "Anti-Nuke"} and not (automod.get("enabled") if name == "AutoMod" else antinuke.get("enabled")) else "Nächster Schritt")}</span></div>'
+        f'<p class="mt-2 text-sm text-slate-500">{esc(detail)}</p><p class="mt-2 text-xs">{esc(action)}</p></a>'
+        for name, ready, detail, href, action in steps
+    )
+    body = f"""
+    <div class="pulse-topbar">
+        <div><div class="pulse-section-title">🧭 Pulse Einrichtungsassistent</div>
+        <div class="pulse-section-sub">Sichere, schrittweise Inbetriebnahme – ohne Einstellungen automatisch zu verändern.</div></div>
+        <a href="/system" class="{BTN}">Vollständige Diagnose</a>
+    </div>
+    <div class="{CARD} mb-5 p-5">
+        <div class="flex items-center justify-between gap-4"><div><div class="font-bold">Einrichtungsfortschritt</div>
+        <p class="mt-1 text-sm text-slate-500">{completed} von {len(steps)} Schritten bereit (optionale Schutzfunktionen sind nicht erforderlich).</p></div>
+        <span class="text-2xl font-bold text-indigo-600">{round(completed / len(steps) * 100)}%</span></div>
+        <div class="mt-4 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700" role="progressbar" aria-label="Einrichtungsfortschritt" aria-valuemin="0" aria-valuemax="{len(steps)}" aria-valuenow="{completed}">
+            <div class="h-full rounded-full bg-indigo-600" style="width:{completed / len(steps) * 100:.0f}%"></div>
+        </div>
+    </div>
+    <div class="grid gap-3 md:grid-cols-2">{rows}</div>
+    """
+    return HTMLResponse(render_page("Einrichtungsassistent", ctx, "setup", body))
+
+
+@app.get("/security", response_class=HTMLResponse)
+async def security_page(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None, admin=True)
+    automod = ctx.config.get("pulse_automod", {})
+    antinuke = ctx.config.get("pulse_antinuke", {})
+    if not isinstance(automod, dict):
+        automod = {}
+    if not isinstance(antinuke, dict):
+        antinuke = {}
+
+    def config_int(section: dict, key: str, default: int, minimum: int, maximum: int) -> int:
+        try:
+            return max(minimum, min(maximum, int(section.get(key, default))))
+        except (TypeError, ValueError):
+            return default
+
+    def config_list(section: dict, key: str) -> list:
+        value = section.get(key, [])
+        return value if isinstance(value, list) else []
+
+    def checked(name: str, selected: set[str]) -> str:
+        return "checked" if name in selected else ""
+
+    from pulse_moderation import DEFAULT_ANTINUKE_EVENTS
+    automod_rules = (
+        set(config_list(automod, "rules"))
+        if "rules" in automod else
+        {"spam", "mentions", "invites"}
+    )
+    antinuke_events = (
+        set(config_list(antinuke, "events"))
+        if "events" in antinuke else
+        set(DEFAULT_ANTINUKE_EVENTS)
+    )
+    rule_boxes = "".join(
+        f'<label class="flex items-start gap-2 rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-sm">'
+        f'<input type="checkbox" name="automod_rules" value="{key}" {checked(key, automod_rules)} class="mt-1 rounded">'
+        f'<span><span class="font-semibold">{label}</span><span class="block text-xs text-slate-500">{hint}</span></span></label>'
+        for key, label, hint in (
+            ("spam", "Spam und Nachrichtenflut", "Wiederholungen oder mindestens 6 Nachrichten in 10 Sekunden"),
+            ("mentions", "Massen-Erwähnungen", "Standardgrenze: mehr als 5 Erwähnungen"),
+            ("invites", "Discord-Einladungslinks", "discord.gg- und Discord-Invite-Links"),
+            ("keywords", "Wort-/Phrasenfilter", "Konfigurierbare Begriffe; ein Eintrag pro Zeile"),
+            ("domains", "Linkfilter", "Konfigurierbare Domains; ein Hostname pro Zeile"),
+        )
+    )
+    event_boxes = "".join(
+        f'<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="antinuke_events" '
+        f'value="{key}" {checked(key, antinuke_events)} class="rounded"><span>{label}</span></label>'
+        for key, label in (
+            ("ban", "Bans"), ("kick", "Kicks"), ("role_delete", "Rollen löschen"),
+            ("role_update", "Rollenberechtigungen/-position ändern"), ("channel_delete", "Kanäle löschen"),
+            ("channel_update", "Kanalberechtigungen ändern"), ("webhook_create", "Webhooks erstellen"),
+            ("webhook_delete", "Webhooks löschen"), ("webhook_update", "Webhooks ändern"),
+            ("bot_add", "Bots hinzufügen"),
+        )
+    )
+    enabled_rules = ", ".join(
+        rule for rule in ("spam", "mentions", "invites", "keywords", "domains")
+        if rule in automod_rules
+    ) or "keine"
+    enabled_events = ", ".join(
+        event for event in (
+            "ban", "kick", "role_delete", "role_update", "channel_delete", "channel_update",
+            "webhook_create", "webhook_delete", "webhook_update", "bot_add",
+        )
+        if event in antinuke_events
+    ) or "keine"
+    body = f"""
+    <div class="pulse-topbar">
+        <div><div class="pulse-section-title">🛡️ AutoMod & Anti-Nuke</div>
+        <div class="pulse-section-sub">Konfigurierbare Schutzregeln mit nachvollziehbaren Maßnahmen und Admin-Ausnahmen.</div></div>
+        <a href="/system" class="{BTN}">Systemdiagnose</a>
+    </div>
+    <div class="{CARD} mb-5 p-4 text-sm">
+        <div class="font-bold">Aktueller Status</div>
+        <p class="mt-2 text-slate-500">AutoMod: {"aktiv" if automod.get("enabled") else "inaktiv"} · Regeln: {esc(enabled_rules)}</p>
+        <p class="mt-1 text-slate-500">Anti-Nuke: {"aktiv" if antinuke.get("enabled") else "inaktiv"} · Überwacht: {esc(enabled_events)}</p>
+        <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">Anti-Nuke sperrt einen nicht freigestellten Akteur automatisch, wenn die festgelegte Schwelle in kurzer Zeit erreicht wird. Prüfe Ausnahmen und Bot-Berechtigungen sorgfältig, damit geplante Moderationsaktionen nicht versehentlich blockiert werden.</p>
+    </div>
+    <form action="/security" method="post" class="space-y-5">
+        <section class="{CARD} p-5 space-y-4">
+            <div><h2 class="font-bold text-lg">AutoMod</h2>
+            <p class="text-xs text-slate-500">Die erste Regelverletzung löscht die Nachricht und versucht eine private Warnung. Ein weiterer Verstoß innerhalb einer Stunde löst einen 10-Minuten-Timeout aus. Für die Spam-Erkennung bleiben Nachrichten nur kurzzeitig im begrenzten Arbeitsspeicher; sie werden nicht dauerhaft gespeichert oder in Meldungen ausgegeben. Maßnahmen werden mit Regel, IDs und Ergebnis ohne Nachrichteninhalt protokolliert.</p></div>
+            <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="automod_enabled" {"checked" if automod.get("enabled") else ""} class="rounded"> AutoMod aktivieren</label>
+            <div class="grid sm:grid-cols-2 gap-2">{rule_boxes}</div>
+            <label class="block text-sm">Erwähnungsgrenze
+                <input name="mention_limit" type="number" min="3" max="30" value="{config_int(automod, "mention_limit", 5, 3, 30)}" class="{INPUT} mt-1" aria-describedby="mention-help">
+                <span id="mention-help" class="text-xs text-slate-500">Meldung bei mehr Erwähnungen als dieser Wert.</span>
+            </label>
+            <div class="grid md:grid-cols-2 gap-4">
+                <label class="block text-sm">Gesperrte Wörter/Phrasen
+                    <textarea name="blocked_terms" rows="5" maxlength="10000" class="{INPUT} mt-1" placeholder="Ein Begriff pro Zeile">{esc(chr(10).join(str(v) for v in config_list(automod, "blocked_terms")))}</textarea>
+                </label>
+                <label class="block text-sm">Gesperrte Domains
+                    <textarea name="blocked_domains" rows="5" maxlength="5000" class="{INPUT} mt-1" placeholder="example.com (ein Hostname pro Zeile)">{esc(chr(10).join(str(v) for v in config_list(automod, "blocked_domains")))}</textarea>
+                </label>
+            </div>
+            <label class="block text-sm">Ausgenommene Rollen-IDs
+                <input name="automod_exempt_role_ids" value="{esc(', '.join(str(v) for v in config_list(automod, 'exempt_role_ids')))}" class="{INPUT} mt-1">
+            </label>
+            <label class="block text-sm">Ausgenommene Kanal-IDs
+                <input name="automod_exempt_channel_ids" value="{esc(', '.join(str(v) for v in config_list(automod, 'exempt_channel_ids')))}" class="{INPUT} mt-1">
+            </label>
+        </section>
+        <section class="{CARD} p-5 space-y-4">
+            <div><h2 class="font-bold text-lg">Anti-Nuke</h2>
+            <p class="text-xs text-slate-500">Überwacht Discord-Audit-Logs. Bei Erreichen der Schwelle werden Alarm und Sperrversuch ausgelöst; der Serverinhaber und Pulse selbst sind immer ausgenommen.</p></div>
+            <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="antinuke_enabled" {"checked" if antinuke.get("enabled") else ""} class="rounded"> Anti-Nuke aktivieren</label>
+            <div class="grid sm:grid-cols-2 gap-2">{event_boxes}</div>
+            <div class="grid sm:grid-cols-2 gap-4">
+                <label class="block text-sm">Aktionen bis zum Alarm/Bann (2–10)
+                    <input name="action_limit" type="number" min="2" max="10" value="{config_int(antinuke, "action_limit", 3, 2, 10)}" class="{INPUT} mt-1">
+                </label>
+                <label class="block text-sm">Zeitfenster in Sekunden (5–60)
+                    <input name="window_seconds" type="number" min="5" max="60" value="{config_int(antinuke, "window_seconds", 10, 5, 60)}" class="{INPUT} mt-1">
+                </label>
+            </div>
+            <label class="block text-sm">Freigestellte Vertrauensrollen-IDs
+                <input name="trusted_role_ids" value="{esc(', '.join(str(v) for v in config_list(antinuke, 'trusted_role_ids')))}" class="{INPUT} mt-1">
+                <span class="text-xs text-slate-500">Freigestellte Rollen werden nicht automatisch gesperrt. Freistellungen sparsam vergeben.</span>
+            </label>
+            <label class="block text-sm">Freigestellte Nutzer-IDs
+                <input name="trusted_user_ids" value="{esc(', '.join(str(v) for v in config_list(antinuke, 'trusted_user_ids')))}" class="{INPUT} mt-1">
+            </label>
+            <label class="block text-sm">Alarmkanal-ID (optional)
+                <input name="alert_channel_id" value="{esc(str(antinuke.get('alert_channel_id') or automod.get('alert_channel_id') or ''))}" class="{INPUT} mt-1">
+            </label>
+            <p class="text-xs text-rose-700 dark:text-rose-300">Erforderliche Bot-Berechtigungen: Audit-Log ansehen und Mitglieder bannen. Discord-Rollenhierarchie kann einen Sperrversuch verhindern. Pulse bannnt erst nach Erreichen der Schwelle und protokolliert, wenn Discord die Maßnahme ablehnt.</p>
+        </section>
+        <button class="{BTN} px-5 py-3" type="submit">Sicherheitseinstellungen speichern</button>
+    </form>
+    """
+    return HTMLResponse(render_page("AutoMod & Anti-Nuke", ctx, "security", body))
+
+
+@app.post("/security")
+async def save_security_settings(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None, admin=True)
+    form = await request.form()
+
+    def parse_ids(field: str, label: str) -> list[int]:
+        values = [value for value in re.split(r"[\s,;]+", str(form.get(field) or "").strip()) if value]
+        if len(values) > 50 or any(not value.isdigit() or int(value) <= 0 for value in values):
+            raise ValueError(f"{label}: Bitte ausschließlich bis zu 50 gültige positive IDs angeben.")
+        return list(dict.fromkeys(int(value) for value in values))
+
+    def parse_lines(field: str, label: str, *, domains: bool = False) -> list[str]:
+        values = list(dict.fromkeys(line.strip().casefold() for line in str(form.get(field) or "").splitlines() if line.strip()))
+        if len(values) > 100 or any(len(value) > 100 for value in values):
+            raise ValueError(f"{label}: Maximal 100 Einträge mit höchstens 100 Zeichen sind erlaubt.")
+        if domains:
+            from pulse_moderation import valid_domain
+            if any(not valid_domain(value) for value in values):
+                raise ValueError(f"{label}: Bitte gültige Hostnamen wie example.com angeben, keine URLs oder Wildcards.")
+        return values
+
+    try:
+        rules = sorted(set(form.getlist("automod_rules")) & {"spam", "mentions", "invites", "keywords", "domains"})
+        events = sorted(set(form.getlist("antinuke_events")) & {
+            "ban", "kick", "role_delete", "role_update", "channel_delete", "channel_update",
+            "webhook_create", "webhook_delete", "webhook_update", "bot_add",
+        })
+        mention_limit = int(form.get("mention_limit", 5))
+        action_limit = int(form.get("action_limit", 3))
+        window_seconds = int(form.get("window_seconds", 10))
+        if not 3 <= mention_limit <= 30:
+            raise ValueError("Die Erwähnungsgrenze muss zwischen 3 und 30 liegen.")
+        if not 2 <= action_limit <= 10:
+            raise ValueError("Die Anti-Nuke-Schwelle muss zwischen 2 und 10 Aktionen liegen.")
+        if not 5 <= window_seconds <= 60:
+            raise ValueError("Das Anti-Nuke-Zeitfenster muss zwischen 5 und 60 Sekunden liegen.")
+        alert_raw = str(form.get("alert_channel_id") or "").strip()
+        alert_channel_id = int(alert_raw) if alert_raw.isdigit() else 0
+        if alert_raw and not alert_channel_id:
+            raise ValueError("Die Alarmkanal-ID muss eine positive Discord-ID sein.")
+        if alert_channel_id and ctx.guild.get_channel(alert_channel_id) is None:
+            raise ValueError("Der Alarmkanal wurde auf diesem Discord-Server nicht gefunden.")
+        automod_enabled = bool(form.get("automod_enabled"))
+        antinuke_enabled = bool(form.get("antinuke_enabled"))
+        if automod_enabled and not rules:
+            raise ValueError("Aktiviere mindestens eine AutoMod-Regel oder deaktiviere AutoMod.")
+        if antinuke_enabled and not events:
+            raise ValueError("Wähle mindestens ein Anti-Nuke-Ereignis oder deaktiviere Anti-Nuke.")
+        automod = {
+            "enabled": automod_enabled,
+            "rules": rules,
+            "mention_limit": mention_limit,
+            "blocked_terms": parse_lines("blocked_terms", "Wortfilter"),
+            "blocked_domains": parse_lines("blocked_domains", "Linkfilter", domains=True),
+            "exempt_role_ids": parse_ids("automod_exempt_role_ids", "AutoMod-Ausnahmen"),
+            "exempt_channel_ids": parse_ids("automod_exempt_channel_ids", "AutoMod-Ausnahmen"),
+            "alert_channel_id": alert_channel_id,
+        }
+        antinuke = {
+            "enabled": antinuke_enabled,
+            "events": events,
+            "action_limit": action_limit,
+            "window_seconds": window_seconds,
+            "trusted_role_ids": parse_ids("trusted_role_ids", "Vertrauensrollen"),
+            "trusted_user_ids": parse_ids("trusted_user_ids", "Freigestellte Nutzer"),
+            "alert_channel_id": alert_channel_id,
+        }
+    except (TypeError, ValueError) as exc:
+        return back("/security", str(exc), False)
+
+    ctx.config["pulse_automod"] = automod
+    ctx.config["pulse_antinuke"] = antinuke
+    save_json(CONFIG_FILE, ctx.config)
+    log_audit(
+        ctx.user.get("global_name") or ctx.user.get("username"),
+        ctx.user["id"],
+        "AutoMod/Anti-Nuke Konfiguration geändert",
+        f"AutoMod={'aktiv' if automod_enabled else 'aus'} · Anti-Nuke={'aktiv' if antinuke_enabled else 'aus'}",
+    )
+    return back("/security", "AutoMod- und Anti-Nuke-Einstellungen gespeichert.")
+
 
 # =============================================================
 # ROUTE: EINSTELLUNGEN, RECHTE & AUDIT-LOG (nur Admins)
