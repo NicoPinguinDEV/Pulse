@@ -3195,8 +3195,8 @@ def _console_logs(limit=100):
         return list(_console_log_buffer)[-max(1, min(int(limit), _CONSOLE_LOG_LIMIT)):]
 
 
-def _console_result(command, ctx):
-    bot = getattr(ctx, "bot", None)
+def _console_result(command, ctx, bot=None):
+    bot = bot or getattr(ctx, "bot", None)
     if command == "help":
         return "Erlaubte Befehle: help, status, health, version, logs, sync"
     if command == "version":
@@ -3331,7 +3331,7 @@ async def admin_live_console_command(
                 except Exception as exc:
                     result, ok = f"Synchronisierung fehlgeschlagen: {type(exc).__name__}: {str(exc)[:240]}", False
     else:
-        result = _console_result(normalized, ctx)
+        result = _console_result(normalized, ctx, getattr(request.app.state, "bot", None))
     log_audit(ctx.user.get("global_name", "Administrator"), ctx.user["id"],
               "Live-Konsole: " + normalized, result[:1000])
     escaped = esc(result)
