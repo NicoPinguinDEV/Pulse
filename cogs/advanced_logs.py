@@ -50,6 +50,16 @@ class AdvancedLogs(commands.Cog):
         self.voice_throttle = pulse_logcfg.Throttle(pulse_logcfg.VOICE_THROTTLE)
         self._scheduled: set[int] = set()
         self._tasks: set = set()
+        self._timers: set = set()  # call_later handles, cancelled in cog_unload
+
+    def cog_unload(self):
+        """Review fix: no flush of this (unloaded) cog may fire after a reload or shutdown."""
+        for timer in list(self._timers):
+            timer.cancel()
+        for task in list(self._tasks):
+            task.cancel()
+        self._timers.clear()
+        self._scheduled.clear()
 
     @property
     def log_channel_id(self) -> int:
@@ -80,10 +90,12 @@ class AdvancedLogs(commands.Cog):
         loop = asyncio.get_running_loop()
 
         def start():
+            self._timers.discard(timer)
             task = loop.create_task(self._flush(channel))
             self._tasks.add(task)  # keep a reference until it is done
             task.add_done_callback(self._tasks.discard)
-        loop.call_later(delay, start)
+        timer = loop.call_later(delay, start)
+        self._timers.add(timer)
 
     async def _flush(self, channel):
         """Send everything queued for this channel. Review fix: the scheduled flag is always cleared, a rate limit

@@ -57,6 +57,19 @@ class AdvancedLogsTests(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertIs(self.sent[0][0], CHANNEL)
 
+    def test_unload_cancels_scheduled_flush(self):
+        pulse_db.set_setting(advanced_logs.LOG_SETTING_KEY, str(CHANNEL.id))
+
+        async def go():
+            with patch("pulse_logcfg.BATCH_SECONDS", 0.01):
+                await self.cog.on_message_edit(fake_message("alt", GUILD), fake_message("neu", GUILD))
+                self.assertEqual(len(self.cog._timers), 1)
+                self.cog.cog_unload()
+                await asyncio.sleep(0.05)
+        asyncio.run(go())
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.cog._timers, set())
+
     def test_unconfigured_logs_nothing_and_hints_once(self):
         with patch("builtins.print") as printed:
             self.edit()

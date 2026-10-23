@@ -11,6 +11,8 @@
 - **Behoben (Tickets):** konnte Discord den Kanal eines geschlossenen Tickets nicht löschen (z. B. fehlendes Recht „Kanäle verwalten“), blieb er bisher kommentarlos offen. Jetzt: Hinweis im Kanal, Ereignis `ticket_channel_delete_failed` und Systemalarm. Ein bereits gelöschter Kanal gilt weiter als Erfolg.
 - **Behoben (Dateigriffe):** Transkript- und Verifizierungs-Banner-Dateien wurden nach fehlgeschlagenem Versand nicht geschlossen; unter Windows blieben sie dadurch gesperrt.
 - **P-10:** ein fehlgeschlagener Sitzungs-Widerruf (Teamaustritt, Logout) landet jetzt im Fehlerprotokoll des Systemstatus statt verschluckt zu werden.
+- **Sicherheit (CodeQL, ReDoS):** Die Link-/Domain-Regeln von AutoMod nutzten ein Muster mit quadratischer Laufzeit. Eine präparierte Nachricht („www.-www.-…“, 100 000 Zeichen) blockierte den Bot rund 109 s, jetzt sind es 12 ms. Erkannte Hosts sind unverändert (Vergleich alt/neu und Regressionstest).
+- **Moderations-Log:** Beim Entladen des Cogs werden geplante Sammel-Sendungen abgebrochen, statt danach noch auszulösen.
 - **Behoben:** das README-Gate `python tests/test_pulse_intelligence.py` fand das Modul nicht, wenn es direkt gestartet wurde.
 - **Tests:** der Bash-Syntaxtest überspringt den WSL-Platzhalter ohne Distribution, statt fehlzuschlagen, und prüft jetzt beide Deploy-Skripte.
 

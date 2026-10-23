@@ -64,8 +64,19 @@ MAX_LIST_ITEMS = 100
 MAX_ID_ITEMS = 50
 
 _INVITE_RE = re.compile(r"(?:discord\.gg/|discord(?:app)?\.com/invite/)", re.IGNORECASE)
-_URL_RE = re.compile(r"(?:(?:https?://)?(?:www\.)?)([a-z0-9.-]+\.[a-z]{2,})(?:[/:?#]|\b)", re.IGNORECASE)
-_EXPLICIT_URL_RE = re.compile(r"(?:https?://|www\.)([a-z0-9.-]+\.[a-z]{2,})", re.IGNORECASE)
+# CodeQL ReDoS fix: a host is dot-separated labels, matched only from a token start, so the scan is linear
+# (the old `[a-z0-9.-]+\.[a-z]{2,}` backtracked quadratically on "www.-www.-…"). The TLD is checked in _hosts().
+_URL_RE = re.compile(r"(?<![a-z0-9.-])([a-z0-9-]+(?:\.[a-z0-9-]+)+)", re.IGNORECASE)
+_EXPLICIT_URL_RE = re.compile(r"(?:https?://|(?<![a-z0-9.-])www\.)([a-z0-9-]+(?:\.[a-z0-9-]+)+)", re.IGNORECASE)
+_TLD_RE = re.compile(r"[a-z]{2,}")
+
+
+def _hosts(pattern: re.Pattern, text: str):
+    """Hostnames (lowercase, without "www.") whose last label is a letter TLD, in text order."""
+    for match in pattern.finditer(text):
+        host = match.group(1).lower().removeprefix("www.")
+        if "." in host and _TLD_RE.fullmatch(host.rsplit(".", 1)[1]):
+            yield host
 
 
 # --------------------------------------------------------------------------- helpers
@@ -153,16 +164,14 @@ def match_rules(
 
     blocked = _domain_set(blocked_domains)
     if "domains" in enabled and blocked:
-        for match in _URL_RE.finditer(text):
-            host = match.group(1).lower().removeprefix("www.")
+        for host in _hosts(_URL_RE, text):
             if _host_in(host, blocked):
                 hits.append(("domains", f"Gesperrte Domain {host}"))
                 break
 
     if "links" in enabled:
         allowed = _domain_set(allowed_domains)
-        for match in _EXPLICIT_URL_RE.finditer(text):
-            host = match.group(1).lower().removeprefix("www.")
+        for host in _hosts(_EXPLICIT_URL_RE, text):
             if not _host_in(host, allowed):
                 hits.append(("links", f"Link zu {host} ist nicht freigegeben"))
                 break
