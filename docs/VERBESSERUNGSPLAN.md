@@ -61,7 +61,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 | Frage | Entscheidung |
 |---|---|
 | E-1 Honeypot | **Alles wie bisher** – jeder wird gebannt, ohne Nachrichtenlöschung; K-11 entfällt bis auf Protokollierung (nur nach erneuter Freigabe). |
-| E-2 Vergessene Schichten | **0 h bis eine Führungskraft die echte Dauer bestätigt.** |
+| E-2 Vergessene Schichten | **0 h bis eine Führungskraft die echte Dauer bestätigt.** ⚠ Prüfung 23.10.2026: auf diesem Stand **nicht umgesetzt** (`load_shifts`/`process_overdue_shifts` schreiben weiter `min(shift_elapsed, 24 h)` gut); Umsetzung nur auf `origin/verbesserung/phase-6-bot` (7a71605, f918f95, 0091bdf, f9e3ba1). |
 | E-3 Teamakte | **Eingeschränkt:** Notizen nur `can_add_notes`/Leitung; Warnungen nur die Person selbst und `can_warn`. |
 | E-4 Standardrechte | **Nur Dashboard**; Analytics nur explizit. |
 | E-5 RAM | **VPS mit 2 GiB RAM: Pulse-Limit 512 MiB RAM + höchstens 256 MiB zusätzlicher Swap. Warnung 350 MB, kritisch 420 MB, Notfallreserve 470 MB; 2 GiB Host-RAM bleiben unter der empfohlenen Mindestgröße.** |
@@ -336,32 +336,32 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 ## 10. Phase 7 – Neue Funktionen [Idee] (jeweils abschaltbar, Standard aus, Reihenfolge nach meinem OK)
 
-- [ ] **F-01 „Wer darf was?“** – Rechte-Matrix und Simulation für eine bestimmte Person (Roadmap P2), Grundlage A-03.
-- [ ] **F-02 Kanal-Sichtprüfung für Unverifizierte** – nur lesend, Warnliste (Roadmap P1).
-- [ ] **F-03 Einstellungs-Historie** – wer hat wann welche Einstellung geändert, mit Diff und „zurücksetzen“.
-- [ ] **F-04 Wartungsmodus** – Banner im Dashboard, Schreibaktionen gesperrt, Bot-Automationen pausiert (Voraussetzung für D-02 und Migrationen).
-- [ ] **F-05 Kapazitäts-Heatmap** – Ticket- und Voice-Aufkommen gegen Dienstzeiten je Wochentag und Stunde, Hinweise für den Dienstplan.
-- [ ] **F-06 Beförderungs-Reife (nur Hinweis)** – konfigurierbare Kriterien je Rang (Stunden, Tickets, Bewertungen, Pflichtschulungen, Warnfreiheit, Probezeit); entschieden wird immer von Menschen über den bestehenden 4-Augen-Ablauf.
-- [ ] **F-07 Bewerbungs-Pipeline als Board** – Eingang → Prüfung → Gespräch → Probezeit → Team/abgelehnt, mit Vorlagen und Fristen.
-- [ ] **F-08 Öffentliche Statusseite (optional)** – Support offen/geschlossen, Länge der Warteschlange, RP-Status (Start/Stop); ohne personenbezogene Daten.
-- [ ] **F-09 Spiel-Anbindung (optional)** – nur falls euer Roblox-Spiel eine offizielle API bietet (Serverstatus, Spielerzahl); Schlüssel optional in der `.env`, ohne Schlüssel bleibt alles wie bisher.
-- [ ] **F-10 „Mein Monat“** – persönlicher Rückblick in `/me` (Stunden, Tickets, Bewertungen, Schulungen, Erfolge), optional als DM am Monatsanfang (Opt-in).
+- [x] **F-01 „Wer darf was?“** — **erledigt:** 3c9cf96 – je einzeln schaltbar (Standard aus), `tests/test_phase7.py` (18 Tests, grün am 23.10.2026). – Rechte-Matrix und Simulation für eine bestimmte Person (Roadmap P2), Grundlage A-03.
+- [x] **F-02 Kanal-Sichtprüfung für Unverifizierte** — **erledigt:** 3c9cf96 – je einzeln schaltbar (Standard aus), `tests/test_phase7.py` (18 Tests, grün am 23.10.2026). – nur lesend, Warnliste (Roadmap P1).
+- [x] **F-03 Einstellungs-Historie** — **erledigt:** 3c9cf96 – je einzeln schaltbar (Standard aus), `tests/test_phase7.py` (18 Tests, grün am 23.10.2026). – wer hat wann welche Einstellung geändert, mit Diff und „zurücksetzen“.
+- [x] **F-04 Wartungsmodus** — **erledigt:** 3c9cf96 – je einzeln schaltbar (Standard aus), `tests/test_phase7.py` (18 Tests, grün am 23.10.2026). – Banner im Dashboard, Schreibaktionen gesperrt, Bot-Automationen pausiert (Voraussetzung für D-02 und Migrationen).
+- [x] **F-05 Kapazitäts-Heatmap** — **erledigt:** 3c9cf96 – je einzeln schaltbar (Standard aus), `tests/test_phase7.py` (18 Tests, grün am 23.10.2026). – Ticket- und Voice-Aufkommen gegen Dienstzeiten je Wochentag und Stunde, Hinweise für den Dienstplan.
+- [x] **F-06 Beförderungs-Reife (nur Hinweis)** — **erledigt:** 3c9cf96 – je einzeln schaltbar (Standard aus), `tests/test_phase7.py` (18 Tests, grün am 23.10.2026). – konfigurierbare Kriterien je Rang (Stunden, Tickets, Bewertungen, Pflichtschulungen, Warnfreiheit, Probezeit); entschieden wird immer von Menschen über den bestehenden 4-Augen-Ablauf.
+- [x] **F-07 Bewerbungs-Pipeline als Board** — **erledigt:** 3c9cf96 – je einzeln schaltbar (Standard aus), `tests/test_phase7.py` (18 Tests, grün am 23.10.2026). – Eingang → Prüfung → Gespräch → Probezeit → Team/abgelehnt, mit Vorlagen und Fristen.
+- [x] **F-08 Öffentliche Statusseite (optional)** — **erledigt:** 3c9cf96 – je einzeln schaltbar (Standard aus), `tests/test_phase7.py` (18 Tests, grün am 23.10.2026). – Support offen/geschlossen, Länge der Warteschlange, RP-Status (Start/Stop); ohne personenbezogene Daten.
+- [x] **F-09 Spiel-Anbindung (optional)** — **erledigt:** 3c9cf96 – je einzeln schaltbar (Standard aus), `tests/test_phase7.py` (18 Tests, grün am 23.10.2026). – nur falls euer Roblox-Spiel eine offizielle API bietet (Serverstatus, Spielerzahl); Schlüssel optional in der `.env`, ohne Schlüssel bleibt alles wie bisher.
+- [x] **F-10 „Mein Monat“** — **erledigt:** 3c9cf96 – je einzeln schaltbar (Standard aus), `tests/test_phase7.py` (18 Tests, grün am 23.10.2026). – persönlicher Rückblick in `/me` (Stunden, Tickets, Bewertungen, Schulungen, Erfolge), optional als DM am Monatsanfang (Opt-in).
 
 ---
 
 ## 11. Phase 8 – Deployment, CI & Betrieb
 
-- [ ] **O-01 Dockerfile** [Nachgewiesen] – `ffmpeg` + `libopus0` (K-10), Zeitzonendaten, eigener Nicht-root-Benutzer, `HEALTHCHECK` auf `/healthz`, `.dockerignore` um `uploads/` und `attachments/` ergänzen.
+- [x] **O-01 Dockerfile** — **erledigt:** 8b77589 – `tests/test_deploy_config.py` (DockerTests): Nicht-root, HEALTHCHECK, ffmpeg/libopus0/tzdata, Laufzeitdaten nicht im Image. [Nachgewiesen] – `ffmpeg` + `libopus0` (K-10), Zeitzonendaten, eigener Nicht-root-Benutzer, `HEALTHCHECK` auf `/healthz`, `.dockerignore` um `uploads/` und `attachments/` ergänzen.
 
-- [ ] **O-02 Compose & HTTPS** [Nachgewiesen/Prüfen] – `compose.yaml` veröffentlicht Port 25095 direkt, einen Reverse-Proxy mit HTTPS gibt es in der Konfiguration nicht. Vorschlag: Pulse nur an `127.0.0.1` bzw. ein internes Netz binden, Reverse-Proxy (z. B. Caddy mit automatischen Zertifikaten) davor, Uvicorn `proxy_headers`/`forwarded_allow_ips` passend setzen. [Prüfen] Sonst sehen IP-Rate-Limits nur die Proxy-IP: das Bewerbungslimit (`rate_limited(f"apply:{ip}")`, 3 pro Stunde, `webserver.py:8770`) gälte dann für **alle** Bewerber gemeinsam. Ressourcenlimit passend zu E-5.
+- [x] **O-02 Compose & HTTPS** — **erledigt:** 1c72320 – Caddy-Profil `https`, X-Forwarded-For nur von 172.30.0.10, Bindung an 127.0.0.1 (aus main); `tests/test_deploy_config.py`. [Nachgewiesen/Prüfen] – `compose.yaml` veröffentlicht Port 25095 direkt, einen Reverse-Proxy mit HTTPS gibt es in der Konfiguration nicht. Vorschlag: Pulse nur an `127.0.0.1` bzw. ein internes Netz binden, Reverse-Proxy (z. B. Caddy mit automatischen Zertifikaten) davor, Uvicorn `proxy_headers`/`forwarded_allow_ips` passend setzen. [Prüfen] Sonst sehen IP-Rate-Limits nur die Proxy-IP: das Bewerbungslimit (`rate_limited(f"apply:{ip}")`, 3 pro Stunde, `webserver.py:8770`) gälte dann für **alle** Bewerber gemeinsam. Ressourcenlimit passend zu E-5.
 
-- [ ] **O-03 Deploy-Workflow** [Nachgewiesen] – `.github/workflows/deploy-vps.yml` deployt `origin/main` (`git reset --hard origin/main`) statt des getesteten Commits (`github.event.workflow_run.head_sha`); bei schnellen Pushes kann so Ungetestetes live gehen. Außerdem fehlen Backup vor dem Deploy, Health-Check danach, Rollback und eine Concurrency-Gruppe. Ergänzen: Checkout des getesteten SHA, Daten-Backup vorher (Format aus D-01), `/healthz` muss innerhalb einer Frist 200 liefern, sonst automatischer Rollback auf den vorherigen Stand; Meldung in den Alert-Kanal.
+- [x] **O-03 Deploy-Workflow** — **erledigt:** d820046 + 30b073e (main) – getesteter SHA, Concurrency, Backup vorher, /healthz, Rollback, Discord-Meldung; `tests/test_deploy_config.py`, `tests/test_deploy_workflow.py`. [Nachgewiesen] – `.github/workflows/deploy-vps.yml` deployt `origin/main` (`git reset --hard origin/main`) statt des getesteten Commits (`github.event.workflow_run.head_sha`); bei schnellen Pushes kann so Ungetestetes live gehen. Außerdem fehlen Backup vor dem Deploy, Health-Check danach, Rollback und eine Concurrency-Gruppe. Ergänzen: Checkout des getesteten SHA, Daten-Backup vorher (Format aus D-01), `/healthz` muss innerhalb einer Frist 200 liefern, sonst automatischer Rollback auf den vorherigen Stand; Meldung in den Alert-Kanal.
 
-- [ ] **O-04 CI** [Idee] – Abhängigkeiten mit Lock-Datei und Hashes (z. B. pip-tools), Dependabot oder Renovate, `pip-audit`, `ruff` (A-07), Secret-Scan (z. B. gitleaks), Coverage-Bericht.
+- [x] **O-04 CI** — **erledigt:** 6bd7cb5 – `requirements.lock` mit Hashes, Dependabot, pip-audit, ruff, gitleaks, Coverage in `security.yml`; `tests/test_deploy_config.py` (LockTests). [Idee] – Abhängigkeiten mit Lock-Datei und Hashes (z. B. pip-tools), Dependabot oder Renovate, `pip-audit`, `ruff` (A-07), Secret-Scan (z. B. gitleaks), Coverage-Bericht.
 
-- [ ] **O-05 Git-Hygiene** [Nachgewiesen] – 15 getrackte `__pycache__/*.pyc` (Python 3.13) per `git rm --cached` in einem eigenen Commit entfernen (Handoff §9.8).
+- [x] **O-05 Git-Hygiene** — **erledigt:** c4977d7 + 2103599 – keine getrackten `.pyc` mehr (`git ls-files` geprüft am 23.10.2026). [Nachgewiesen] – 15 getrackte `__pycache__/*.pyc` (Python 3.13) per `git rm --cached` in einem eigenen Commit entfernen (Handoff §9.8).
 
-- [ ] **O-06 Konfiguration** [Nachgewiesen] – `.env.example` enthält `MAX_SHIFT_HOURS=12`, der Code ignoriert den Wert (fest 24 h, `webserver.py:117`) → korrigieren und erklären. Im Code gelesen, aber nicht dokumentiert: `SESSION_DAYS`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `PULSE_REPORT_CHANNEL_ID`, `PULSE_RSSHUB_BASE_URL`, `PULSE_SUPPORT_TEMPLATES_FILE`, `SUPPORT_KNOWLEDGE_FILE`, `PULSE_AI_MODERATION_CASES_FILE`, `PULSE_AI_MODERATION_OUTAGE_NOTICE_INTERVAL_SECONDS`, `PULSE_SOCIAL_PROMO_FILE`. Start-Validierung aller Variablen (Typ, Bereich, Pflicht) mit klarer Meldung in Log und Systemstatus.
+- [ ] **O-06 Konfiguration** — **offen:** Start-Validierung fehlt auf diesem Stand (nur Pflichtwerte im Systemstatus), `MAX_SHIFT_HOURS` wird weiter ignoriert. Eine Umsetzung (`pulse_env_validation.py`, `tests/test_env_validation.py`) liegt nur auf `origin/verbesserung/phase-6-bot`. [Nachgewiesen] – `.env.example` enthält `MAX_SHIFT_HOURS=12`, der Code ignoriert den Wert (fest 24 h, `webserver.py:117`) → korrigieren und erklären. Im Code gelesen, aber nicht dokumentiert: `SESSION_DAYS`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `PULSE_REPORT_CHANNEL_ID`, `PULSE_RSSHUB_BASE_URL`, `PULSE_SUPPORT_TEMPLATES_FILE`, `SUPPORT_KNOWLEDGE_FILE`, `PULSE_AI_MODERATION_CASES_FILE`, `PULSE_AI_MODERATION_OUTAGE_NOTICE_INTERVAL_SECONDS`, `PULSE_SOCIAL_PROMO_FILE`. Start-Validierung aller Variablen (Typ, Bereich, Pflicht) mit klarer Meldung in Log und Systemstatus.
 
 - [x] **O-08 VPS-Grundeinrichtung (Vionity)** — **erledigt (unveröffentlicht):** `deploy/vps_bootstrap.sh` + `VPS_DEPLOYMENT.md` §0 + `.gitattributes` (LF) – `tests/test_deploy_config.py` (BootstrapTests: Firewall hält SSH offen, Swap/Checkout idempotent, keine Laufzeitdaten, kein Start).
 - [ ] **O-07 Überwachung** [Idee] — **teilweise:** `/healthz` meldet `gateway_latency_ms` und `memory_mb`, Statuscode unverändert (`tests/test_healthz.py`, 4). Offen: „letzter erfolgreicher Job“ und Alarme. – `/healthz` um Gateway-Latenz und „letzter erfolgreicher Job“ erweitern; gedrosselte Alarme im `PULSE_SYSTEM_ALERT_CHANNEL_ID` bei Cog-Ladefehlern, Backup- und DB-Fehlern sowie Job-Ausfällen; optional externer Uptime-Check.
@@ -371,8 +371,8 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 ## 12. Phase 9 – Dokumentation
 
 - [ ] **DOC-01** README, CHANGELOG, `CLAUDE.md` und Handoff auf den echten Stand bringen (Versions- und Commit-Angaben, neue Module, entfernte Altpfade).
-- [ ] **DOC-02** Architekturübersicht als Mermaid-Diagramm (Module, Datenflüsse, Datenablagen) in `docs/ARCHITEKTUR.md`.
-- [ ] **DOC-03** Betriebshandbuch `docs/BETRIEB.md`: Backup, Restore mit Probelauf, Deploy, Rollback, Wartungsmodus, Fehlersuche.
+- [ ] **DOC-02** — **offen:** `docs/ARCHITEKTUR.md` fehlt auf diesem Stand (liegt nur auf `origin/verbesserung/phase-6-bot`, 17591f9). Architekturübersicht als Mermaid-Diagramm (Module, Datenflüsse, Datenablagen) in `docs/ARCHITEKTUR.md`.
+- [ ] **DOC-03** — **offen:** `docs/BETRIEB.md` fehlt auf diesem Stand (liegt nur auf `origin/verbesserung/phase-6-bot`, 17591f9/82f8dba); Deploy/Rollback stehen in `VPS_DEPLOYMENT.md`. Betriebshandbuch `docs/BETRIEB.md`: Backup, Restore mit Probelauf, Deploy, Rollback, Wartungsmodus, Fehlersuche.
 - [ ] **DOC-04** Pro Phase ein CHANGELOG-Eintrag; `pulse_version.py` erst nach meinem OK erhöhen (Vorschlag: 7.10.0 nach Phase 1).
 
 ---
