@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+from pulse_shift_utils import credited_shift_seconds
+
 WEEKDAY_SHORT = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
 
 
@@ -56,7 +58,7 @@ def daily_seconds(
             continue
         day = _entry_date(entry)
         if day in totals:
-            totals[day] += max(0, int(entry.get("duration_seconds") or 0))
+            totals[day] += credited_shift_seconds(entry)  # E-2
     if active_date in totals:
         totals[active_date] += max(0, int(active_seconds or 0))
     return sorted(totals.items())
@@ -69,7 +71,7 @@ def shift_streak(history: list, mod_id: str, today: date, active_today: bool = F
         for entry in history or []
         if isinstance(entry, dict)
         and str(entry.get("mod_id")) == str(mod_id)
-        and int(entry.get("duration_seconds") or 0) > 0
+        and credited_shift_seconds(entry) > 0
     }
     worked.discard(None)
     if active_today:

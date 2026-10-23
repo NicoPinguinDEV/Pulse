@@ -239,6 +239,7 @@
  "POST /settings/pro-warn-sync -> pulse_pro.register.<locals>.settings_warn_sync",
  "POST /shift/action -> webserver.handle_shift_action",
  "POST /shift/admin-end -> pulse_pro.register.<locals>.admin_end_shift",
+ "POST /shift/history/confirm-duration -> pulse_pro.register.<locals>.confirm_auto_closed_shift_duration",
  "POST /social/add -> pulse_social_dashboard.register.<locals>.social_add_link",
  "POST /social/announce-latest -> pulse_social_dashboard.register.<locals>.social_announce_latest",
  "POST /social/remove -> pulse_social_dashboard.register.<locals>.social_remove_web",

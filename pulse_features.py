@@ -226,7 +226,7 @@ def register(app):
 
     @app.get("/achievements", response_class=HTMLResponse)
     async def achievements_page(request: Request, user_session: str=Cookie(None)):
-        c=ctx(request,user_session); shifts=ws.load_shifts(); all_shifts=[h for h in shifts['history'] if str(h.get('mod_id'))==str(c.user['id'])]; total_user_seconds=sum(int(h.get('duration_seconds',0)) for h in all_shifts)
+        c=ctx(request,user_session); shifts=ws.load_shifts(); all_shifts=[h for h in shifts['history'] if str(h.get('mod_id'))==str(c.user['id'])]; total_user_seconds=sum(ws.credited_shift_seconds(h) for h in all_shifts)
         active_user=shifts['active_shifts'].get(str(c.user['id']))
         if active_user: total_user_seconds += ws.shift_elapsed(active_user)
         ticket_count=sum(1 for t in db.list_tickets(limit=5000) if str(t.get('claimed_by_id'))==str(c.user['id']) and t.get('status')=='closed')
@@ -261,7 +261,7 @@ def register(app):
     async def stats_page(request: Request, user_session: str=Cookie(None)):
         c=ctx(request,user_session,perm='can_view_analytics')
         team=team_members(c.guild,c.config.get('team_role_ids',[])); shifts=ws.load_shifts(); hist=shifts['history'];
-        total_secs=sum(int(h.get('duration_seconds',0)) for h in hist); total_tickets=len(db.list_tickets(limit=5000)); closed_tickets=sum(1 for t in db.list_tickets(limit=5000) if t['status']=='closed'); apps=ws.load_json(ws.APPS_FILE,{}); pending_apps=sum(1 for a in apps.values() if a.get('status')=='pending'); warns=sum(len(v.get('warns_list',[])) for v in ws.load_json(ws.DATA_FILE,{}).values() if isinstance(v,dict));
+        total_secs=sum(ws.credited_shift_seconds(h) for h in hist); total_tickets=len(db.list_tickets(limit=5000)); closed_tickets=sum(1 for t in db.list_tickets(limit=5000) if t['status']=='closed'); apps=ws.load_json(ws.APPS_FILE,{}); pending_apps=sum(1 for a in apps.values() if a.get('status')=='pending'); warns=sum(len(v.get('warns_list',[])) for v in ws.load_json(ws.DATA_FILE,{}).values() if isinstance(v,dict));
         rows=[]
         for m in team:
             sec=ws.calculate_weekly_seconds(str(m.id),hist,shifts['active_shifts']); rows.append((sec,m.display_name))

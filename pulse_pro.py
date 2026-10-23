@@ -28,6 +28,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import pulse_db as db
 from pulse_nickname_utils import normalize_role_prefix
 from pulse_version import PULSE_VERSION
+from pulse_shift_utils import credited_shift_seconds, needs_duration_confirmation
 
 VERSION = PULSE_VERSION
 RECENT_EVENT_LABELS = {
@@ -781,6 +782,60 @@ def register(app):
         </script>''';
 
         return render_pro_page(ws,"Melonly",c,"melonly",body,head)
+
+    async def confirm_auto_closed_shift_duration(
+        request: Request,
+        target_user_id: int = Form(...),
+        shift_event_id: str = Form(...),
+        duration_minutes: int = Form(...),
+        reason: str = Form(...),
+        user_session: str = Cookie(None),
+    ):
+        """E-2: a higher-ranked leader confirms the real duration of a shift closed automatically after 24 h."""
+        c = cctx(request, user_session)
+        actor_id = int(c.user["id"])
+        target = c.guild.get_member(int(target_user_id))
+        if not target or target.bot or target.id == actor_id:
+            raise HTTPException(404, "Teammitglied nicht gefunden.")
+        if not (c.perms.get("can_promote") or c.perms.get("is_admin")):
+            raise HTTPException(403, "Nur die Führungsebene darf eine Schichtdauer bestätigen.")
+        role_ids = c.config.get("team_role_ids", [])
+        if not c.perms.get("is_admin") and ws.team_rank(c.member, role_ids) <= ws.team_rank(target, role_ids):
+            raise HTTPException(403, "Du darfst nur die Schichtdauer eines niedriger eingestuften Teammitglieds bestätigen.")
+        back_url = f"/member/{target.id}#shift-history"
+        reason_text = str(reason or "").strip()
+        if len(reason_text) < 5:
+            return ws.back(back_url, "Bitte gib einen nachvollziehbaren Bestätigungsgrund mit mindestens 5 Zeichen an.", False)
+        max_minutes = int(ws.MAX_CONFIRMED_SHIFT_HOURS * 60)
+        minutes = int(duration_minutes)
+        if minutes < 0 or minutes > max_minutes:
+            return ws.back(back_url, f"Die bestätigte Dauer muss zwischen 0 und {max_minutes} Minuten liegen.", False)
+
+        # Load → change → save without an await in between: no other flow can interleave (K-04).
+        shifts_db = ws.load_shifts_raw()
+        event = next((item for item in shifts_db.setdefault("history", [])
+                      if isinstance(item, dict) and str(item.get("mod_id")) == str(target.id) and item.get("auto_closed")
+                      and str(item.get("shift_event_id") or ws.shift_event_id(target.id, item.get("started_at_iso"))) == str(shift_event_id)),
+                     None)
+        if event is None:
+            return ws.back(back_url, "Automatischer Schichtabschluss nicht gefunden. Bitte die Seite aktualisieren.", False)
+        if event.get("duration_confirmed"):
+            return ws.back(back_url, "Diese Schichtdauer wurde bereits bestätigt.", False)
+        event.update({
+            "duration_seconds": minutes * 60,
+            "duration_confirmed": True,
+            "duration_confirmed_by": str(actor_id),
+            "duration_confirmed_by_name": str(c.user.get("global_name") or c.user.get("username") or actor_id),
+            "duration_confirmed_at": ws.now_de().isoformat(timespec="seconds"),
+            "duration_confirmation_reason": reason_text[:500],
+        })
+        ws.save_json(ws.SHIFTS_FILE, shifts_db)
+        ws.log_audit(
+            c.user.get("global_name") or c.user.get("username") or str(actor_id), str(actor_id),
+            "Automatische Schichtdauer bestätigt",
+            f"{target.display_name} ({target.id}) · {minutes} Minuten · Schicht {shift_event_id} · Grund: {reason_text[:300]}",
+        )
+        return ws.back(back_url, f"Schichtdauer bestätigt: {ws.fmt_duration(minutes * 60)}.", True)
 
     async def admin_end_shift(
         request: Request,
@@ -1694,7 +1749,7 @@ def register(app):
         week.sort(reverse=True); maxs=max([x[0] for x in week],default=0) or 1  # nobody on duty yet this week → 0 %
         rows=''.join(f'<div class="pulse-row"><div class="flex items-center gap-3"><div class="pulse-avatar">{e(initials(n))}</div><div><div class="pulse-row-title">{e(n)}</div><div class="pulse-progress mt-2 w-[180px]"><span style="width:{round(v/maxs*100)}%"></span></div></div></div><div class="pulse-time font-bold">{ws.fmt_duration(v)}</div></div>' for v,n in week[:20])
         closed=sum(1 for t in s['tickets'] if t['status']=='closed'); rated=[t['rating'] for t in s['tickets'] if t.get('rating')]; avg=sum(rated)/len(rated) if rated else 0
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">◒ Team-Analytics</div><div class="pulse-section-sub">Zahlen für Planung, Support und Aktivität.</div></div><a href="/export/team.csv" class="pulse-btn ghost">⇩ CSV Export</a></div><div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Dienststunden</div><div class="value">{sum(int(h.get('duration_seconds',0)) for h in hist)/3600:.1f}h</div></div><div class="pulse-stat"><div class="icon">▣</div><div class="label">Tickets gesamt</div><div class="value">{len(s['tickets'])}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Ticketbewertung</div><div class="value">{avg:.1f}</div></div><div class="pulse-stat"><div class="icon">!</div><div class="label">Warnungen</div><div class="value">{sum(len(v.get('warns_list',[])) for v in ws.load_json(ws.DATA_FILE,{}).values() if isinstance(v,dict))}</div></div></div><div class="pulse-two">{card('Dienstzeit diese Woche',rows or '<div class="pulse-empty">Keine Daten.</div>','⏱')}{card('Support',f'<div class="grid grid-cols-2 gap-3"><div class="pulse-stat"><div class="label">Geschlossen</div><div class="value">{closed}</div></div><div class="pulse-stat"><div class="label">Offen</div><div class="value">{len(s["tickets"])-closed}</div></div></div>','▣')}</div>'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">◒ Team-Analytics</div><div class="pulse-section-sub">Zahlen für Planung, Support und Aktivität.</div></div><a href="/export/team.csv" class="pulse-btn ghost">⇩ CSV Export</a></div><div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Dienststunden</div><div class="value">{sum(credited_shift_seconds(h) for h in hist)/3600:.1f}h</div></div><div class="pulse-stat"><div class="icon">▣</div><div class="label">Tickets gesamt</div><div class="value">{len(s['tickets'])}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Ticketbewertung</div><div class="value">{avg:.1f}</div></div><div class="pulse-stat"><div class="icon">!</div><div class="label">Warnungen</div><div class="value">{sum(len(v.get('warns_list',[])) for v in ws.load_json(ws.DATA_FILE,{}).values() if isinstance(v,dict))}</div></div></div><div class="pulse-two">{card('Dienstzeit diese Woche',rows or '<div class="pulse-empty">Keine Daten.</div>','⏱')}{card('Support',f'<div class="grid grid-cols-2 gap-3"><div class="pulse-stat"><div class="label">Geschlossen</div><div class="value">{closed}</div></div><div class="pulse-stat"><div class="label">Offen</div><div class="value">{len(s["tickets"])-closed}</div></div></div>','▣')}</div>'''
         return render_pro_page(ws,'Analytics',c,'stats',body)
 
     async def calendar_v5(request: Request, user_session: str=Cookie(None), month: str=""):
@@ -2076,6 +2131,36 @@ def register(app):
           </div>
         </section>
         '''
+        # E-2: automatically closed shifts count 0 h until a higher-ranked leader confirms the real duration.
+        can_confirm_shift=(target.id!=int(c.user['id']) and bool(c.perms.get('is_admin') or
+                           (c.perms.get('can_promote') and c.member and ws.team_rank(c.member,ids)>ws.team_rank(target,ids))))
+        max_minutes=int(ws.MAX_CONFIRMED_SHIFT_HOURS*60)
+        shift_rows=[]
+        for ev in reversed([h for h in hist if h.get('auto_closed')][-12:]):
+            closed_at=e(str(ev.get('ended_at_iso') or ev.get('date') or 'Zeit unbekannt'))
+            if ev.get('duration_confirmed'):
+                who=e(str(ev.get('duration_confirmed_by_name') or ev.get('duration_confirmed_by') or 'Führungskraft'))
+                shift_rows.append(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">✅ Bestätigt · {closed_at}</div>'
+                                  f'<div class="pulse-row-meta">{ws.fmt_duration(credited_shift_seconds(ev))} angerechnet · {who} · {e(str(ev.get("duration_confirmed_at") or ""))}</div>'
+                                  f'<div class="pulse-row-meta">{e(str(ev.get("duration_confirmation_reason") or ""))}</div></div></div>')
+                continue
+            if not needs_duration_confirmation(ev):
+                continue
+            measured=f' · gemessen {ws.fmt_duration(int(ev.get("measured_seconds") or 0))}' if ev.get('measured_seconds') else ''
+            title=f'<div class="pulse-row-title">⏳ Unbestätigte automatische Beendigung · {closed_at}</div>'
+            if can_confirm_shift:
+                ev_id=e(str(ev.get('shift_event_id') or ws.shift_event_id(target.id,ev.get('started_at_iso'))))
+                shift_rows.append(f'<form action="/shift/history/confirm-duration" method="post" class="pulse-row items-start flex-col gap-2">'
+                                  f'<div class="pulse-row-main">{title}<div class="pulse-row-meta">Derzeit 0 h angerechnet{measured} · höchstens {max_minutes//60} h {max_minutes%60:02d} min bestätigbar.</div></div>'
+                                  f'<input type="hidden" name="target_user_id" value="{target.id}"><input type="hidden" name="shift_event_id" value="{ev_id}">'
+                                  f'<label class="w-full text-xs">Tatsächliche Dauer in Minuten (0–{max_minutes})<input class="pulse-input mt-1" type="number" name="duration_minutes" min="0" max="{max_minutes}" required></label>'
+                                  f'<label class="w-full text-xs">Pflichtgrund / Nachweis<input class="pulse-input mt-1" name="reason" maxlength="500" minlength="5" required placeholder="z. B. Schichtende anhand des Logs bestätigt"></label>'
+                                  f'<button class="pulse-btn primary self-start">Dauer bestätigen</button></form>')
+            else:
+                shift_rows.append(f'<div class="pulse-row"><div class="pulse-row-main">{title}<div class="pulse-row-meta">0 h angerechnet{measured}; Bestätigung durch eine höherrangige Führungskraft ausstehend.</div></div></div>')
+        shift_confirmation_html=(f'<section class="pulse-card mt-4" id="shift-history"><div class="pulse-card-h"><div><div class="pulse-section-title">⏱ Automatisch beendete Schichten</div>'
+                                 f'<div class="pulse-section-sub">Unbestätigte Schichten zählen 0 Stunden. Jede Bestätigung wird mit Person, Zeitpunkt und Pflichtgrund protokolliert.</div></div></div>'
+                                 f'<div class="pulse-card-b space-y-2">{"".join(shift_rows)}</div></section>') if shift_rows else ''
         status='Im Dienst' if active and active.get('status')=='online' else 'Pause' if active else 'Offline'
         status_kind='good' if active and active.get('status')=='online' else 'warn' if active else ''
         # D-08 / E-3: warnings only for the person themself and can_warn; notes only for can_add_notes and leadership.
@@ -2099,6 +2184,7 @@ def register(app):
         all_events=[x for x in db.events(limit=2000) if str(x.get('actor_id'))==str(target.id) or (x.get('target_type') in ('user','team_member','suite') and str(x.get('target_id'))==str(target.id))]
         timeline=pulse_timeline.build(warns=warns,shifts=hist,tickets=tickets,tasks=tasks,events=all_events,notes=entry.get('notes',[]),
                                       show_warns=can_see_warns,show_notes=can_see_notes,user_id=target.id)
+        body+=shift_confirmation_html
         body+=f'<section class="pulse-card mt-4" id="zeitleiste"><div class="pulse-card-h"><div><div class="pulse-section-title">🕓 Zeitleiste</div><div class="pulse-section-sub">Warnungen, Schichten, Tickets, Aufgaben, Ereignisse und Notizen – neueste zuerst.</div></div></div><div class="pulse-card-b">{pulse_timeline.render(timeline,f"/member/{target.id}",request.query_params.get("tl",""),ws.time_tag)}</div></section>'
         return render_pro_page(ws,f'Teamakte · {target.display_name}',c,'team',body)
 
@@ -2194,7 +2280,7 @@ def register(app):
         return render_pro_page(ws,'Meeting-Historie',c,'meeting-history',body)
 
     async def achievements_v5(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session); uid=str(c.user['id']); shifts=ws.load_shifts(); hist=[h for h in shifts.get('history',[]) if str(h.get('mod_id'))==uid]; shift_count=len(hist); hours=sum(int(h.get('duration_seconds',0)) for h in hist)/3600
+        c=cctx(request,user_session); uid=str(c.user['id']); shifts=ws.load_shifts(); hist=[h for h in shifts.get('history',[]) if str(h.get('mod_id'))==uid]; shift_count=len(hist); hours=sum(credited_shift_seconds(h) for h in hist)/3600
         tickets_closed=sum(1 for t in db.list_tickets(limit=3000) if str(t.get('claimed_by_id'))==uid and t.get('status')=='closed')
         tasks_done=sum(1 for t in db.list_tasks(limit=3000,include_archived=True) if str(t.get('assignee_id'))==uid and t.get('status')=='done')
         handovers=sum(1 for h in db.list_handovers(3000,True) if str(h.get('author_id'))==uid)
@@ -2857,6 +2943,7 @@ def register(app):
     app.get('/team-status',response_class=HTMLResponse)(team_status_page)
     remove_and_add(app,'/melonly',{'GET'},melonly_page,response_class=HTMLResponse)
     remove_and_add(app,'/shift/admin-end',{'POST'},admin_end_shift)
+    remove_and_add(app,'/shift/history/confirm-duration',{'POST'},confirm_auto_closed_shift_duration)
     remove_and_add(app,'/api/team/discord-status',{'GET'},discord_status_api,response_class=JSONResponse)
 
     async def robots_txt():

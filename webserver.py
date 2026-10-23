@@ -41,7 +41,8 @@ import pulse_db as pulse_db
 from pulse_version import PULSE_VERSION
 from pulse_time import display, parse_timestamp
 
-from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
+from pulse_shift_utils import (AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, OFFBOARDING_CLOSE_REASON, credited_shift_seconds,
+                               needs_duration_confirmation, parse_max_shift_hours, shift_age_seconds, shift_event_id)
 from career_applications import (
     APPLICATION_CAREERS, APPLICATION_PRACTICAL_TASKS, grade_career_test,
     grade_practical_tasks, render_career_test, render_practical_tasks,
@@ -162,6 +163,9 @@ SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
 # Vergessene Schichten werden nach genau 24 Stunden automatisch beendet und verwarnt.
 # MAX_SHIFT_HOURS bleibt als kompatible Konstante für alte Integrationen bestehen.
 MAX_SHIFT_HOURS = AUTO_SHIFT_END_HOURS
+# E-2 / O-06: .env MAX_SHIFT_HOURS (0.5–24, Standard 12) begrenzt die von einer Führungskraft bestätigte Dauer
+# einer automatisch beendeten Schicht. Unbestätigt zählt sie 0 h; der Auto-Abschluss bleibt bei 24 h.
+MAX_CONFIRMED_SHIFT_HOURS = parse_max_shift_hours(os.getenv("MAX_SHIFT_HOURS"))
 AUTO_BACKUP_HOURS = float(os.getenv("AUTO_BACKUP_HOURS", "24")) # 0 = aus
 MAX_BACKUPS = int(os.getenv("MAX_BACKUPS", "30"))
 VOICE_SUPPORT_AUDIO_DIR = BASE_DIR / "uploads" / "voice_support_audio"
@@ -1246,7 +1250,10 @@ def load_shifts() -> dict:
             "date": s.get("date"),
             "started_at_iso": started_at,
             "ended_at_iso": now.isoformat(timespec="seconds"),
-            "duration_seconds": min(shift_elapsed(s), limit),
+            # E-2: 0 h until a leader confirms the real duration; the measured time stays visible for that check.
+            "duration_seconds": 0,
+            "duration_confirmed": False,
+            "measured_seconds": min(shift_elapsed(s), limit),
             "auto_closed": True,
             "shift_event_id": event_id,
             "auto_warn_status": "pending",
@@ -1283,7 +1290,9 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
             "date": shift.get("date"),
             "started_at_iso": started_at,
             "ended_at_iso": now.isoformat(timespec="seconds"),
-            "duration_seconds": min(shift_elapsed(shift), AUTO_SHIFT_END_SECONDS),
+            "duration_seconds": 0,  # E-2: credited only after a leader confirms the real duration
+            "duration_confirmed": False,
+            "measured_seconds": min(shift_elapsed(shift), AUTO_SHIFT_END_SECONDS),
             "auto_closed": True,
             "shift_event_id": shift_event_id(uid, started_at),
             "auto_warn_status": "pending",
@@ -1470,7 +1479,7 @@ def weekly_history_totals(history) -> dict:
         try:
             if _in_week(entry.get("date"), start, start_text):
                 uid = str(entry.get("mod_id"))
-                totals[uid] = totals.get(uid, 0) + int(entry.get("duration_seconds", 0))
+                totals[uid] = totals.get(uid, 0) + credited_shift_seconds(entry)  # E-2
         except Exception:
             pass
     _WEEKLY_MEMO.update(key=key, history=history, totals=totals)
@@ -7009,8 +7018,8 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
     history = [h for h in shifts_db["history"] if str(h.get("mod_id")) == str(user_id)][-8:]
     shifts_html = "".join(f"""
         <div class="flex justify-between text-xs bg-slate-50 dark:bg-[#0b0e14] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800">
-            <span class="text-slate-500">{esc(fmt_date(h.get('date')))}{' · automatisch beendet' if h.get('auto_closed') else ''}</span>
-            <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">{fmt_duration(h.get('duration_seconds', 0))}</span>
+            <span class="text-slate-500">{esc(fmt_date(h.get('date')))}{(' · automatisch beendet · unbestätigt (0 h)' if needs_duration_confirmation(h) else ' · automatisch beendet') if h.get('auto_closed') else ''}</span>
+            <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">{fmt_duration(credited_shift_seconds(h))}</span>
         </div>""" for h in reversed(history))
 
     actions_html = ""

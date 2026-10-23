@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from pulse_shift_utils import credited_shift_seconds, needs_duration_confirmation
 from pulse_time import BERLIN, parse_timestamp
 
 WEEKDAYS = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
@@ -41,7 +42,7 @@ def heatmap(tickets: list[dict], voice_cases: list[dict], shift_history: list[di
             demand[dt.weekday()][dt.hour] += 1
     for shift in shift_history:
         begin = _local(shift.get("started_at_iso"))
-        if not begin:
+        if not begin or needs_duration_confirmation(shift):  # E-2: a forgotten shift is no proof of presence
             continue
         end = _local(shift.get("ended_at_iso"))
         if not end:
@@ -106,7 +107,7 @@ def member_stats(user_id, *, now: datetime, shift_history: list[dict], tickets: 
             continue
         dt = _local(shift.get("started_at_iso"))
         if dt and dt >= since:
-            seconds += int(shift.get("duration_seconds") or 0)  # same crediting as the weekly totals
+            seconds += credited_shift_seconds(shift)  # same crediting as the weekly totals (E-2)
     mine = [t for t in tickets if str(t.get("claimed_by_id")) == uid and t.get("status") == "closed"]
     recent = [t for t in mine if (_local(t.get("closed_at")) or now - timedelta(days=999)) >= since]
     ratings = [int(t["rating"]) for t in mine if t.get("rating")]
@@ -177,7 +178,7 @@ def month_review(user_id, *, start: datetime, end: datetime, shift_history: list
         dt = _local(value)
         return dt is not None and start <= dt < end
     shifts = [s for s in shift_history if str(s.get("mod_id")) == uid and inside(s.get("started_at_iso"))]
-    seconds = sum(int(s.get("duration_seconds") or 0) for s in shifts)  # same crediting as the weekly totals
+    seconds = sum(credited_shift_seconds(s) for s in shifts)  # same crediting as the weekly totals (E-2)
     closed = [t for t in tickets if str(t.get("claimed_by_id")) == uid and t.get("status") == "closed" and inside(t.get("closed_at"))]
     ratings = [int(t["rating"]) for t in closed if t.get("rating")]
     passed = [a for a in attempts if str(a.get("user_id")) == uid and int(a.get("passed") or 0) and inside(a.get("created_at"))]

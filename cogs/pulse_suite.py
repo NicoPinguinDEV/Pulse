@@ -166,7 +166,7 @@ def warns(m,web,team_data=None):
     return web.active_warns(web.user_entry(td,str(m.id)))
 
 def total_time(m,web):
-    s=web.load_shifts();total=sum(int(x.get("duration_seconds",0)) for x in s.get("history",[]) if str(x.get("mod_id"))==str(m.id));a=s.get("active_shifts",{}).get(str(m.id))
+    s=web.load_shifts();total=sum(web.credited_shift_seconds(x) for x in s.get("history",[]) if str(x.get("mod_id"))==str(m.id));a=s.get("active_shifts",{}).get(str(m.id))
     return total+(web.shift_elapsed(a) if a else 0)
 
 def weekly(m,web):
@@ -308,7 +308,7 @@ def register_routes():
     @app.get("/suite",response_class=HTMLResponse)
     async def leadership(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session,manager=True);web=webserver;ms=members(ctx.guild,web);sh=web.load_shifts();today=now().date().isoformat();active=sum(str(m.status) in {"online","idle","dnd"} for m in ms);duty=sum(x.get("status") in {"online","break"} for x in sh.get("active_shifts",{}).values())
-        day=sum(int(x.get("duration_seconds",0)) for x in sh.get("history",[]) if x.get("date")==today)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==today)
+        day=sum(web.credited_shift_seconds(x) for x in sh.get("history",[]) if x.get("date")==today)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==today)
         apps=web.load_json(web.APPS_FILE,{});pending=sum(str(a.get("status","pending")).lower() in {"pending","new","in_review","in prüfung","review"} for a in apps.values());threes=sum(len(warns(m,web))>=3 for m in ms);ticks=db.list_tickets(limit=3000);overdue=[x for x in db.list_tasks(limit=3000) if x.get("status") not in {"done","archived"} and x.get("due_at") and (local(x.get("due_at")) or now())<=now()];loas=sum(1 for x in web.get_loas().values() if x.get("active"));promos=len([p for p in _promos() if p.get("status") in {"pending","revision"}]);low=[m for m in ms if weekly(m,web)<float(setting("weekly_goal_hours",3))*3600]
         try:
             import pulse_ultimate as runtime_monitor
@@ -373,7 +373,7 @@ def register_routes():
     @app.get("/suite/time",response_class=HTMLResponse)
     async def time_page(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session);web=webserver;sh=web.load_shifts();ms=members(ctx.guild,web);hist=sh.get("history",[]);d=now().date().isoformat();month=now().strftime("%Y-%m")
-        day=sum(int(x.get("duration_seconds",0)) for x in hist if x.get("date")==d)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==d);monthsec=sum(int(x.get("duration_seconds",0)) for x in hist if str(x.get("date","")).startswith(month))
+        day=sum(web.credited_shift_seconds(x) for x in hist if x.get("date")==d)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==d);monthsec=sum(web.credited_shift_seconds(x) for x in hist if str(x.get("date","")).startswith(month))
         forms='<form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=start><button class="btn primary">▶ Start</button></form> <form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=break><button class=btn>☕ Pause</button></form> <form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=resume><button class=btn>↻ Fortsetzen</button></form> <form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=end><button class="btn danger">■ Ende</button></form>'
         rows=''.join(f'<tr><td>{i}</td><td><a href=/suite/member/{m.id}><b>{esc(m.display_name)}</b></a></td><td>{secfmt(weekly(m,web))}</td><td>{secfmt(total_time(m,web))}</td><td>{secfmt(max(0,weekly(m,web)-int(float(setting("weekly_goal_hours",3))*3600)))}</td></tr>' for i,m in enumerate(sorted(ms,key=lambda x:weekly(x,web),reverse=True),1))
         return page(ctx,"time","Dienstzeit 2.0","Start → Pause → Fortsetzen → Ende · Tag / Woche / Monat",f'<div class=card>{forms}</div><div class="grid g4" style="margin-top:13px"><div class=card><div class=tiny>Heute</div><div class=metric>{secfmt(day)}</div></div><div class=card><div class=tiny>Aktive Schichten</div><div class=metric>{sum(x.get("status") in {"online","break"} for x in sh.get("active_shifts",{}).values())}</div></div><div class=card><div class=tiny>Wochenziel</div><div class=metric>{float(setting("weekly_goal_hours",3)):.1f}h</div></div><div class=card><div class=tiny>Monat</div><div class=metric>{secfmt(monthsec)}</div></div></div><div class=card style="margin-top:13px"><h3>🏆 Wochenrangliste · Überstunden</h3><div class=scroll><table class=table><tr><th>#</th><th>Teamler</th><th>Woche</th><th>Gesamt</th><th>Überstunden</th></tr>{rows}</table></div></div>')
@@ -920,7 +920,7 @@ class PulseSuite(commands.Cog):
             if n<=s<=n+timedelta(minutes=30):db.notify(x["assignee_id"],"⏰ Schicht beginnt bald",f'{x["shift_name"]} beginnt um {x["start_time"]}.',"info","/suite/schedule",f"shift30:{x['id']}",86400)
 
     async def daily(self,g):
-        web=__import__("webserver");ms=members(g,web);sh=web.load_shifts();d=now().date().isoformat();sec=sum(int(x.get("duration_seconds",0)) for x in sh.get("history",[]) if x.get("date")==d)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==d)
+        web=__import__("webserver");ms=members(g,web);sh=web.load_shifts();d=now().date().isoformat();sec=sum(web.credited_shift_seconds(x) for x in sh.get("history",[]) if x.get("date")==d)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==d)
         e=discord.Embed(title="📊 Pulse Daily Report",color=_pulse_color("info"));e.add_field(name="👥 Team",value=str(len(ms)));e.add_field(name="🟢 Aktiv",value=str(sum(str(m.status) in {"online","idle","dnd"} for m in ms)));e.add_field(name="⏱ Dienstzeit",value=secfmt(sec));e.add_field(name="🎫 Tickets",value=str(sum(x.get("status")!="closed" for x in db.list_tickets(limit=3000))));e.add_field(name="📝 Bewerbungen",value=str(sum(str(a.get("status","pending")) in {"pending","in_review","interview"} for a in web.load_json(web.APPS_FILE,{}).values())));e.add_field(name="⚠ Warnungen",value=str(sum(len(warns(m,web)) for m in ms)));await self._report(g,e)
 
     async def weekly_report(self,g):
@@ -1488,7 +1488,7 @@ class PulseSuite(commands.Cog):
             sh=web.load_shifts()
             live=sh.get("active_shifts",{}).pop(str(after.id),None)
             if live:
-                live["duration_seconds"]=web.shift_elapsed(live);live["auto_closed"]=True
+                live["duration_seconds"]=web.shift_elapsed(live);live["auto_closed"]=True;live["auto_closed_reason"]=web.OFFBOARDING_CLOSE_REASON
                 sh.setdefault("history",[]).append(live);web.save_json(web.SHIFTS_FILE,sh)
             for m in ms:db.notify(m.id,"🚪 Offboarding",f"{after.display_name} hat das Team verlassen. Offene Tickets wurden übertragen und die laufende Schicht beendet.","warning","/suite/team",f"offboard:{after.id}",86400)
             try:  # BOT-11: offboarding checklist; what Pulse just did is ticked already
