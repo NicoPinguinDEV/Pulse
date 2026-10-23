@@ -7,6 +7,16 @@
 - **`.gitattributes`** erzwingt LF für Shell-Skripte, Dockerfile, Caddyfile und YAML – ein unter Windows gespeichertes CRLF hätte `remote_deploy.sh` auf dem VPS abbrechen lassen.
 - **Tests:** der Bash-Syntaxtest überspringt den WSL-Platzhalter ohne Distribution, statt fehlzuschlagen, und prüft jetzt beide Deploy-Skripte.
 
+### Aus `verbesserung/phase-6-bot` übernommen und an diesen Stand angepasst
+
+> **Hinweise nach dem Update (E-2):**
+> - Vergessene Schichten (nach 24 h automatisch beendet) zählen **0 Stunden**, bis eine höherrangige Führungskraft die echte Dauer in der Teamakte bestätigt. Das gilt auch für **ältere Einträge**, die bisher bis zu 24 h gutgeschrieben hatten – Wochen-, Monats- und Gesamtstunden können deshalb sinken. Gespeichert wird nichts gelöscht; die bisherige Dauer bleibt im Eintrag.
+> - `MAX_SHIFT_HOURS` (Standard 12) ist jetzt die Obergrenze für eine solche Bestätigung und wird nicht mehr ignoriert.
+
+- **E-2 Schichtgutschrift:** neue Route `POST /shift/history/confirm-duration` (Recht „Befördern“ und höherer Rang oder Admin, nicht für die eigene Schicht, Pflichtgrund, einmalig, Audit-Log) und Bereich „Automatisch beendete Schichten“ in der Teamakte mit der gemessenen Zeit als Hilfe. Alle 17 Leser der Schichtdauer (Wochenwerte, Teamakte, Zeitleiste, Analytics, Erfolge, Cockpit, Startseite, Suite, Heatmap, Beförderungs-Reife, „Mein Monat“, Command Center) zählen einheitlich über `credited_shift_seconds`. Abweichend von phase-6-bot: eine beim Team-Austritt beendete Schicht unter 24 h behält ihre echte Dauer, und die Bestätigungsobergrenze folgt wirklich `MAX_SHIFT_HOURS`.
+- **O-06 Konfigurationsprüfung:** `pulse_env_validation.py` prüft beim Start (vor dem Import von `webserver`) und im Systemstatus alle gesetzten optionalen Werte gegen die Bereiche, die der Code tatsächlich anwendet – Namen und Bereiche, nie Werte. Erkennt auch `SYNC_WARN_ROLES=true` (würde als „aus“ gelesen). `.env.example` dokumentiert jetzt alle im Code gelesenen Variablen (neue Einträge auskommentiert, Verhalten unverändert); RAM-Schwellen-Kommentar auf 350/420/470 MB korrigiert.
+- **DOC-02/DOC-03:** `docs/ARCHITEKTUR.md` (Mermaid-Übersicht, Verantwortlichkeiten, Regeln im Code) und `docs/BETRIEB.md` (Start, Health-Check, Backup/Restore, Deploy/Rollback, Wartungsmodus, Schicht-Bestätigung, Fehlersuche) – auf diesen Stand geprüft statt der veralteten Fassung (dort fehlten u. a. Wartungsmodus und abgesicherter Deploy).
+
 ## Version 7.16.0 – Sicherheit: AutoMod & Anti-Nuke in der Verwaltung (Oktober 2026)
 
 > **Hinweise nach dem Update:**

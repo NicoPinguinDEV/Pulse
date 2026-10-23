@@ -61,7 +61,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 | Frage | Entscheidung |
 |---|---|
 | E-1 Honeypot | **Alles wie bisher** – jeder wird gebannt, ohne Nachrichtenlöschung; K-11 entfällt bis auf Protokollierung (nur nach erneuter Freigabe). |
-| E-2 Vergessene Schichten | **0 h bis eine Führungskraft die echte Dauer bestätigt.** ⚠ Prüfung 23.10.2026: auf diesem Stand **nicht umgesetzt** (`load_shifts`/`process_overdue_shifts` schreiben weiter `min(shift_elapsed, 24 h)` gut); Umsetzung nur auf `origin/verbesserung/phase-6-bot` (7a71605, f918f95, 0091bdf, f9e3ba1). |
+| E-2 Vergessene Schichten | **0 h bis eine Führungskraft die echte Dauer bestätigt.** ✅ 23.10.2026 aus `origin/verbesserung/phase-6-bot` übernommen und auf alle 17 Leser ausgeweitet – `tests/test_shift_confirmation.py` (13). |
 | E-3 Teamakte | **Eingeschränkt:** Notizen nur `can_add_notes`/Leitung; Warnungen nur die Person selbst und `can_warn`. |
 | E-4 Standardrechte | **Nur Dashboard**; Analytics nur explizit. |
 | E-5 RAM | **VPS mit 2 GiB RAM: Pulse-Limit 512 MiB RAM + höchstens 256 MiB zusätzlicher Swap. Warnung 350 MB, kritisch 420 MB, Notfallreserve 470 MB; 2 GiB Host-RAM bleiben unter der empfohlenen Mindestgröße.** |
@@ -361,7 +361,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 - [x] **O-05 Git-Hygiene** — **erledigt:** c4977d7 + 2103599 – keine getrackten `.pyc` mehr (`git ls-files` geprüft am 23.10.2026). [Nachgewiesen] – 15 getrackte `__pycache__/*.pyc` (Python 3.13) per `git rm --cached` in einem eigenen Commit entfernen (Handoff §9.8).
 
-- [ ] **O-06 Konfiguration** — **offen:** Start-Validierung fehlt auf diesem Stand (nur Pflichtwerte im Systemstatus), `MAX_SHIFT_HOURS` wird weiter ignoriert. Eine Umsetzung (`pulse_env_validation.py`, `tests/test_env_validation.py`) liegt nur auf `origin/verbesserung/phase-6-bot`. [Nachgewiesen] – `.env.example` enthält `MAX_SHIFT_HOURS=12`, der Code ignoriert den Wert (fest 24 h, `webserver.py:117`) → korrigieren und erklären. Im Code gelesen, aber nicht dokumentiert: `SESSION_DAYS`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `PULSE_REPORT_CHANNEL_ID`, `PULSE_RSSHUB_BASE_URL`, `PULSE_SUPPORT_TEMPLATES_FILE`, `SUPPORT_KNOWLEDGE_FILE`, `PULSE_AI_MODERATION_CASES_FILE`, `PULSE_AI_MODERATION_OUTAGE_NOTICE_INTERVAL_SECONDS`, `PULSE_SOCIAL_PROMO_FILE`. Start-Validierung aller Variablen (Typ, Bereich, Pflicht) mit klarer Meldung in Log und Systemstatus.
+- [x] **O-06 Konfiguration** — **erledigt (unveröffentlicht):** `pulse_env_validation.py` beim Start vor `import webserver` und im Systemstatus („Konfigurationswerte“), Bereiche aus dem tatsächlichen Code, nie Werte; `MAX_SHIFT_HOURS` = Bestätigungsobergrenze (E-2); `.env.example` vollständig – `tests/test_env_validation.py` (10).
 
 - [x] **O-08 VPS-Grundeinrichtung (Vionity)** — **erledigt (unveröffentlicht):** `deploy/vps_bootstrap.sh` + `VPS_DEPLOYMENT.md` §0 + `.gitattributes` (LF) – `tests/test_deploy_config.py` (BootstrapTests: Firewall hält SSH offen, Swap/Checkout idempotent, keine Laufzeitdaten, kein Start).
 - [ ] **O-07 Überwachung** [Idee] — **teilweise:** `/healthz` meldet `gateway_latency_ms` und `memory_mb`, Statuscode unverändert (`tests/test_healthz.py`, 4). Offen: „letzter erfolgreicher Job“ und Alarme. – `/healthz` um Gateway-Latenz und „letzter erfolgreicher Job“ erweitern; gedrosselte Alarme im `PULSE_SYSTEM_ALERT_CHANNEL_ID` bei Cog-Ladefehlern, Backup- und DB-Fehlern sowie Job-Ausfällen; optional externer Uptime-Check.
@@ -371,8 +371,8 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 ## 12. Phase 9 – Dokumentation
 
 - [ ] **DOC-01** README, CHANGELOG, `CLAUDE.md` und Handoff auf den echten Stand bringen (Versions- und Commit-Angaben, neue Module, entfernte Altpfade).
-- [ ] **DOC-02** — **offen:** `docs/ARCHITEKTUR.md` fehlt auf diesem Stand (liegt nur auf `origin/verbesserung/phase-6-bot`, 17591f9). Architekturübersicht als Mermaid-Diagramm (Module, Datenflüsse, Datenablagen) in `docs/ARCHITEKTUR.md`.
-- [ ] **DOC-03** — **offen:** `docs/BETRIEB.md` fehlt auf diesem Stand (liegt nur auf `origin/verbesserung/phase-6-bot`, 17591f9/82f8dba); Deploy/Rollback stehen in `VPS_DEPLOYMENT.md`. Betriebshandbuch `docs/BETRIEB.md`: Backup, Restore mit Probelauf, Deploy, Rollback, Wartungsmodus, Fehlersuche.
+- [x] **DOC-02** — **erledigt (unveröffentlicht):** `docs/ARCHITEKTUR.md`, auf diesen Stand geprüft (Grundlage 17591f9).
+- [x] **DOC-03** — **erledigt (unveröffentlicht):** `docs/BETRIEB.md`, auf diesen Stand geprüft (Grundlage 17591f9/82f8dba).
 - [ ] **DOC-04** Pro Phase ein CHANGELOG-Eintrag; `pulse_version.py` erst nach meinem OK erhöhen (Vorschlag: 7.10.0 nach Phase 1).
 
 ---
