@@ -1,0 +1,17 @@
+[Unit]
+Description=Fetch GitHub main and start Pulse TeamOS on VPS boot
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/pulse/Pulse
+ExecStart=/usr/local/sbin/pulse-vps-boot-update.sh
+TimeoutStartSec=600
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

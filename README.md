@@ -37,6 +37,16 @@ Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstz
 - Pulse Intelligence 7.9.0: lokaler regelbasierter Copilot ohne externe KI-API, System-Zwilling mit Abhängigkeits-/Auswirkungsübersicht, read-only Was-wäre-wenn-Simulationen für Ticketlast/Team-Ausfall/RAM sowie Workflow-Release-Sandbox mit JSON-Schema-Prüfung ohne Ausführung.
 - Digitale Dashboard-Zwischenrollen direkt in den Pulse-Pro-Einstellungen: interne Rechteprofile erstellen, konfigurieren und vorhandenen Discord-Teamrollen zuordnen, ohne Discord-Rollen oder Serverrechte zu ändern; plus granulare Permission-Overrides und Workflow Center mit Bedingungen/Aktionsketten
 
+## Automatisches GitHub-Update beim VPS-Neustart
+
+Nach einmaliger Installation des systemd-Dienstes `pulse-github-update.service` lädt der VPS bei jedem Systemstart den aktuellen Stand von `origin/main`, prüft auf einen sicheren Fast-Forward, sichert die lokalen Runtime-Dateien, baut Pulse bei Codeänderungen neu und wartet auf den Healthcheck. Docker startet den Container nicht vorher mit möglicherweise altem Code. Die eigene Wartemusik `assets/support_wait.mp3` bleibt lokal und wird nicht durch GitHub ersetzt.
+
+- Status: `systemctl status pulse-github-update.service`
+- Manuell aktualisieren und neu starten: `systemctl restart pulse-github-update.service`
+- Letztes Protokoll: `journalctl -u pulse-github-update.service -n 100 --no-pager`
+
+Bei nicht erreichbarem GitHub wird der vorhandene Code gestartet, sofern möglich; der Update-Dienst meldet den Fehler und versucht es beim nächsten VPS-Start erneut. Lokale versionierte Änderungen verhindern ein automatisches Überschreiben.
+
 ## Ressourcen- und RAM-Schutz
 
 Pulse ist für kleine Hosts mit **maximal 250 MB RAM** ausgelegt. Der laufende Systemmonitor zeigt den aktuellen und den bisherigen Spitzenverbrauch. Ein RAM-Schutz nutzt die bereits laufende Automationsschleife und startet keinen zusätzlichen Hintergrundprozess:
