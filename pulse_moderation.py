@@ -66,8 +66,9 @@ MAX_ID_ITEMS = 50
 _INVITE_RE = re.compile(r"(?:discord\.gg/|discord(?:app)?\.com/invite/)", re.IGNORECASE)
 # CodeQL ReDoS fix: a host is dot-separated labels, matched only from a token start, so the scan is linear
 # (the old `[a-z0-9.-]+\.[a-z]{2,}` backtracked quadratically on "www.-www.-…"). The TLD is checked in _hosts().
-_URL_RE = re.compile(r"(?<![a-z0-9.-])([a-z0-9-]+(?:\.[a-z0-9-]+)+)", re.IGNORECASE)
-_EXPLICIT_URL_RE = re.compile(r"(?:https?://|(?<![a-z0-9.-])www\.)([a-z0-9-]+(?:\.[a-z0-9-]+)+)", re.IGNORECASE)
+# Labels are capped at 63 characters (DNS limit), so every repetition is bounded for static ReDoS checks too.
+_URL_RE = re.compile(r"(?<![a-z0-9.-])([a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63})+)", re.IGNORECASE)
+_EXPLICIT_URL_RE = re.compile(r"(?:https?://|(?<![a-z0-9.-])www\.)([a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63})+)", re.IGNORECASE)
 _TLD_RE = re.compile(r"[a-z]{2,}")
 
 
