@@ -47,7 +47,7 @@ class AdminSectionTests(unittest.TestCase):
         self.assertFalse(can_open_admin(TEAMLER))
         self.assertEqual([s[0] for s in admin_sections(ANNOUNCER)], ["announcements", "social"])
         keys = [s[0] for s in admin_sections(ADMIN)]
-        for key in ("admin-discord", "ticket-panels", "settings", "backups", "system"):
+        for key in ("admin-discord", "ticket-panels", "settings", "backups", "system", "admin-console"):
             self.assertIn(key, keys)
 
 
@@ -83,6 +83,19 @@ class AdminRouteTests(unittest.TestCase):
             response = self.client.post("/admin/discord/test", data={"kind": "welcome"}, follow_redirects=False)
             self.assertEqual(response.status_code, 403)
             self.assertEqual(pulse_db.get_setting(SETTING_KEY, None), None)
+
+    def test_live_console_is_admin_only(self):
+        with self.as_user(TEAMLER):
+            self.assertEqual(self.client.get("/admin/console").status_code, 403)
+            self.assertEqual(self.client.get("/admin/console/logs").status_code, 403)
+            self.assertEqual(self.client.post("/admin/console/command", json={"command": "help"}).status_code, 403)
+        with self.as_user(ADMIN):
+            page = self.client.get("/admin/console")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn("Live-Konsole", page.text)
+            logs = self.client.get("/admin/console/logs")
+            self.assertEqual(logs.status_code, 200)
+            self.assertIn("lines", logs.json())
 
     def test_team_sidebar_has_no_admin_switch_for_teamler(self):
         with self.as_user(TEAMLER):

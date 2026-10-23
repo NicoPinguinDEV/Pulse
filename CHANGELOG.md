@@ -74,6 +74,22 @@ Details und Testnachweise: `docs/PHASE6_BERICHT.md`, Plan: `docs/VERBESSERUNGSPL
 - **On-/Offboarding (BOT-11):** Checklisten bei Teambeitritt und -austritt, Mentor.
 - **Review-Fixes:** Der Log-Versand bleibt nach Fehlern nicht mehr stehen, die DM-Warteschlange verliert nichts, abgelaufene `/mod`-Bans heben keine fremden Bans auf, u. a.
 
+## Version 7.15.1 – Webbasierte Administrator-Live-Konsole (Oktober 2026)
+
+- **Verwaltung → Live-Konsole:** Geschützter Bereich mit automatisch aktualisierten Python-Anwendungslogs und Befehlsausgabe.
+- **Sichere Befehle:** `help`, `status`, `health`, `version`, `logs`, `sync`; keine beliebige Shell-Ausführung über HTTP.
+- **Schutz:** Administratorprüfung auf jeder Route, Begrenzung der Befehlsrate, streng begrenzter Logpuffer und Audit-Log für Befehle.
+- **Hinweis:** Die Konsole zeigt Anwendungslogs ab Aktivierung. Vollständige Docker-Startlogs bleiben über die Serverkonsole verfügbar.
+
+
+## Version 7.15.0 – Administrator-Live-Konsole (Oktober 2026)
+
+- **Neue Verwaltungsseite:** Live-Konsole unter Verwaltung → Live-Konsole, ausschließlich für serverseitig autorisierte Administratoren.
+- **Befehlszeile:** Freigegebene Befehle `help`, `status`, `health`, `version`, `logs` und `sync`; Slash-Command-Synchronisierung wird begrenzt und auditiert.
+- **Live-Protokoll:** Letzte Prozess-Logmeldungen werden in einem begrenzten Ringpuffer angezeigt und automatisch aktualisiert.
+- **Sicherheit:** Keine beliebige Shell-Ausführung aus dem Web-Dashboard; Eingaben werden gegen eine feste Allowlist geprüft und pro Benutzer rate-limitiert.
+- **Tests:** Zugriffsschutz, Befehls-Allowlist, Version, Status, Sync-Schutz und Logpuffer werden geprüft.
+
 ## Version 7.14.7 – Automatisches VPS-Update beim Neustart (Oktober 2026)
 
 - **GitHub wird beim VPS-Start abgeglichen:** Ein systemd-Dienst lädt `main`, übernimmt ausschließlich sichere Fast-Forward-Änderungen und baut Pulse bei neuem Code erneut.

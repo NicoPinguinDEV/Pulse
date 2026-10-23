@@ -11,6 +11,7 @@ import hmac
 import html
 import io
 import json
+import logging
 import math
 import os
 import re
@@ -2877,6 +2878,7 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
         ("security", "/admin/security", "🛡️", "AutoMod & Anti-Nuke"),
         ("search", "/search", "🔎", "Globale Suche"),
         ("settings", "/settings", "⚙️", "Rechte & Audit-Log"),
+        ("live-console", "/admin/live-console", "🖥️", "Live-Konsole"),
     ] if perms.get("is_admin") else [("search", "/search", "🔎", "Globale Suche")]
 
     def link(key, href, icon, label):
@@ -3181,6 +3183,213 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
         "users": ranked_users,
         "best_match": ranked_users[0] if ranked_users else None,
     })
+
+
+# =============================================================
+# ADMINISTRATOR: SICHERE LIVE-KONSOLE
+# =============================================================
+# Intentionally no shell/eval/subprocess execution here. Commands are allowlisted.
+from collections import deque as _console_deque
+import logging as _console_logging
+
+_CONSOLE_LOG_LIMIT = 250
+_console_log_buffer = _console_deque(maxlen=_CONSOLE_LOG_LIMIT)
+_console_log_lock = threading.Lock()
+_console_handler_installed = False
+_CONSOLE_COMMANDS = {"help", "status", "health", "version", "logs", "sync"}
+
+
+class _PulseConsoleLogHandler(_console_logging.Handler):
+    def emit(self, record):
+        try:
+            item = {
+                "time": datetime.fromtimestamp(record.created).astimezone().strftime("%H:%M:%S"),
+                "level": record.levelname,
+                "logger": record.name[:80],
+                "message": self.format(record)[:1200],
+            }
+            with _console_log_lock:
+                _console_log_buffer.append(item)
+        except Exception:
+            pass
+
+
+def _ensure_console_log_handler():
+    global _console_handler_installed
+    if _console_handler_installed:
+        return
+    with _console_log_lock:
+        if _console_handler_installed:
+            return
+        handler = _PulseConsoleLogHandler()
+        handler.setLevel(_console_logging.INFO)
+        handler.setFormatter(_console_logging.Formatter("%(message)s"))
+        _console_logging.getLogger().addHandler(handler)
+        _console_handler_installed = True
+
+
+def _console_logs(limit=100):
+    _ensure_console_log_handler()
+    with _console_log_lock:
+        return list(_console_log_buffer)[-max(1, min(int(limit), _CONSOLE_LOG_LIMIT)):]
+
+
+def _console_result(command, ctx, bot=None):
+    bot = bot or getattr(ctx, "bot", None)
+    if command == "help":
+        return "Erlaubte Befehle: help, status, health, version, logs, sync"
+    if command == "version":
+        return f"Pulse TeamOS {PULSE_VERSION}"
+    if command in {"status", "health"}:
+        bot = getattr(ctx, "bot", None)
+        ready = bool(bot and bot.is_ready())
+        guild = bot.get_guild(GUILD_ID) if bot else None
+        try:
+            with pulse_db.connect() as db:
+                db.execute("SELECT 1")
+            db_ok = True
+        except Exception:
+            db_ok = False
+        return (
+            f"Version: {PULSE_VERSION}\nBot bereit: {ready}\n"
+            f"Discord-Server verfügbar: {bool(guild)}\n"
+            f"Datenbank erreichbar: {db_ok}\n"
+            f"Mitglieder im Cache: {len(guild.members) if guild else 0}"
+        )
+    return "Befehl kann hier nicht direkt ausgeführt werden."
+
+
+@app.get("/admin/live-console", response_class=HTMLResponse)
+async def admin_live_console(request: Request, user_session: str = Cookie(None)):
+    ctx = auth(request, user_session, perm=None, admin=True)
+    _ensure_console_log_handler()
+    logs = _console_logs(80)
+    rows = "".join(
+        '<div class="border-b border-slate-800/70 py-1.5">'
+        f'<span class="text-slate-500">{esc(item["time"])}</span> '
+        f'<span class="text-indigo-300">{esc(item["level"])}</span> '
+        f'<span class="text-slate-400">{esc(item["logger"])}</span> '
+        f'<span>{esc(item["message"])}</span></div>'
+        for item in logs
+    ) or '<div class="text-slate-400 p-4">Noch keine Python-Logmeldungen seit Aktivierung der Konsole.</div>'
+    body = f"""
+    <div class="max-w-6xl mx-auto space-y-6">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div><div class="text-xs uppercase tracking-widest text-indigo-400 font-bold">Administrator · Systemzugriff</div>
+        <h1 class="text-3xl font-black mt-2">🖥️ Live-Konsole</h1>
+        <p class="text-slate-500 mt-2">Live-Anwendungslogs und sichere Diagnosebefehle für Pulse.</p></div>
+        <span class="px-3 py-2 rounded-xl bg-emerald-500/10 text-emerald-400 text-sm">● Admin-Zugriff aktiv</span>
+      </div>
+      <div class="grid md:grid-cols-3 gap-3">
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-800 p-4"><div class="text-sm text-slate-500">Version</div><div class="text-xl font-bold mt-1">{esc(PULSE_VERSION)}</div></div>
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-800 p-4"><div class="text-sm text-slate-500">Logpuffer</div><div class="text-xl font-bold mt-1">{len(logs)} / {_CONSOLE_LOG_LIMIT}</div></div>
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-800 p-4"><div class="text-sm text-slate-500">Befehle</div><div class="text-xl font-bold mt-1">6 freigegebene</div></div>
+      </div>
+      <div class="rounded-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-4">
+        <h2 class="text-lg font-bold">Befehl ausführen</h2>
+        <p class="text-sm text-slate-500">Erlaubt: <code>help</code>, <code>status</code>, <code>health</code>, <code>version</code>, <code>logs</code>, <code>sync</code>. Keine beliebigen Linux-/Shell-Befehle.</p>
+        <form method="post" action="/admin/live-console/command" class="flex flex-col sm:flex-row gap-3">
+          <input name="command" maxlength="40" required autocomplete="off" placeholder="z. B. status"
+            class="flex-1 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-3 font-mono">
+          <button class="rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-5 py-3">Ausführen</button>
+        </form>
+        <div class="text-xs text-slate-500">Jeder Befehl wird protokolliert. Synchronisieren ist auf höchstens einmal je 10 Minuten begrenzt.</div>
+      </div>
+      <div class="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+          <h2 class="font-bold">Anwendungslogs</h2>
+          <div class="flex gap-2"><button type="button" onclick="refreshConsole()" class="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm">Jetzt aktualisieren</button>
+          <label class="flex items-center gap-2 text-sm"><input id="autoRefresh" type="checkbox" checked> Auto-Refresh</label></div>
+        </div>
+        <div id="consoleLogs" class="bg-slate-950 text-slate-200 p-4 font-mono text-xs leading-5 max-h-[520px] overflow-auto">{rows}</div>
+      </div>
+      <div class="text-xs text-slate-500">Hinweis: Die Webkonsole zeigt Python-Anwendungslogs ab Aktivierung. Für vollständige Docker-Startlogs weiterhin die Serverkonsole verwenden.</div>
+    </div>
+    <script>
+    async function refreshConsole() {{
+      try {{
+        const r = await fetch('/admin/live-console/logs', {{credentials:'same-origin',cache:'no-store'}});
+        if (!r.ok) return;
+        const data = await r.json();
+        const root = document.getElementById('consoleLogs');
+        root.replaceChildren();
+        for (const item of data.logs || []) {{
+          const row = document.createElement('div');
+          row.className = 'border-b border-slate-800/70 py-1.5';
+          for (const [value, cls] of [[item.time,'text-slate-500'],[item.level,'text-indigo-300'],[item.logger,'text-slate-400'],[item.message,'']]) {{
+            const span = document.createElement('span'); span.className = cls; span.textContent = value || '';
+            row.appendChild(span); row.appendChild(document.createTextNode(' '));
+          }}
+          root.appendChild(row);
+        }}
+        root.scrollTop = root.scrollHeight;
+      }} catch (_) {{}}
+    }}
+    setInterval(() => {{ if (document.getElementById('autoRefresh')?.checked) refreshConsole(); }}, 3000);
+    </script>
+    """
+    return HTMLResponse(render_page("Live-Konsole", ctx, "live-console", body))
+
+
+@app.get("/admin/live-console/logs")
+async def admin_live_console_logs(request: Request, user_session: str = Cookie(None)):
+    auth(request, user_session, perm=None, admin=True)
+    return JSONResponse({"logs": _console_logs(150), "limit": _CONSOLE_LOG_LIMIT})
+
+
+@app.post("/admin/live-console/command", response_class=HTMLResponse)
+async def admin_live_console_command(
+    request: Request, command: str = Form(...), user_session: str = Cookie(None)
+):
+    ctx = auth(request, user_session, perm=None, admin=True)
+    normalized = str(command or "").strip().lower()
+    if len(normalized) > 40 or normalized not in _CONSOLE_COMMANDS:
+        log_audit(ctx.user.get("global_name", "Administrator"), ctx.user["id"],
+                  "Live-Konsole: abgelehnt", f"Nicht erlaubter Befehl: {normalized[:40]!r}")
+        raise HTTPException(status_code=400, detail="Befehl nicht erlaubt. Nutze help für die Befehlsliste.")
+    if rate_limited(f"live-console:{ctx.user['id']}", limit=30, window=60):
+        raise HTTPException(status_code=429, detail="Zu viele Konsolenbefehle. Bitte kurz warten.")
+    result = ""
+    ok = True
+    if normalized == "logs":
+        result = "\n".join(
+            f'[{item["time"]}] {item["level"]} {item["logger"]}: {item["message"]}'
+            for item in _console_logs(50)
+        ) or "Noch keine Anwendungslogs vorhanden."
+    elif normalized == "sync":
+        if rate_limited(f"live-console-sync:{ctx.user['id']}", limit=1, window=600):
+            result, ok = "Synchronisierung wurde aus Sicherheitsgründen auf einmal je 10 Minuten begrenzt.", False
+        else:
+            bot = getattr(request.app.state, "bot", None)
+            if not bot or not bot.is_ready():
+                result, ok = "Bot ist nicht bereit; Synchronisierung nicht ausgeführt.", False
+            else:
+                try:
+                    synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+                    result = f"Discord-Befehle synchronisiert: {len(synced)}"
+                except Exception as exc:
+                    result, ok = f"Synchronisierung fehlgeschlagen: {type(exc).__name__}: {str(exc)[:240]}", False
+    else:
+        result = _console_result(normalized, ctx, getattr(request.app.state, "bot", None))
+    log_audit(ctx.user.get("global_name", "Administrator"), ctx.user["id"],
+              "Live-Konsole: " + normalized, result[:1000])
+    escaped = esc(result)
+    status_class = "text-emerald-500" if ok else "text-amber-500"
+    body = f"""
+    <div class="max-w-5xl mx-auto space-y-5">
+      <a href="/admin/live-console" class="text-indigo-500 hover:underline">← Zurück zur Live-Konsole</a>
+      <h1 class="text-3xl font-black">Konsolenausgabe</h1>
+      <div class="rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+        <div class="text-sm text-slate-500 mb-2">Befehl: <code>{esc(normalized)}</code></div>
+        <pre class="whitespace-pre-wrap break-words bg-slate-950 text-slate-100 rounded-xl p-4 overflow-auto">{escaped}</pre>
+        <div class="mt-3 font-semibold {status_class}">{"Erfolgreich" if ok else "Nicht erfolgreich"}</div>
+      </div>
+      <a href="/admin/live-console" class="inline-flex rounded-xl bg-indigo-600 text-white px-4 py-3 font-semibold">Zur Konsole</a>
+    </div>
+    """
+    return HTMLResponse(render_page("Konsolenausgabe", ctx, "live-console", body))
+
+
 
 # =============================================================
 # HEALTH CHECK

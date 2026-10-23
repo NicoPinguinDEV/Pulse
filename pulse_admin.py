@@ -16,7 +16,7 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import Cookie, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 import pulse_db
 from pulse_embed_design import DEFAULT_COLORS, branding, normalize_hex, save_branding
@@ -30,7 +30,7 @@ from pulse_welcome import (
 ADMIN_PAGE_KEYS = frozenset({
     "admin", "admin-discord", "ticket-panels", "settings", "backups", "system", "announcements", "social",
     "admin-privacy", "admin-features", "admin-rights", "admin-visibility", "admin-settings-history",
-    "team-capacity", "team-readiness", "applications-board", "admin-security",
+    "team-capacity", "team-readiness", "applications-board", "admin-security", "admin-console",
 })
 
 
@@ -53,6 +53,7 @@ def admin_sections(perms: dict) -> list[tuple]:
         ("backups", "/backups", "🗄", "Backups", "Sicherungen erstellen und wiederherstellen", is_admin),
         ("admin-privacy", "/admin/privacy", "🔒", "Datenschutz", "Aufbewahrungsfristen, Auskunft, Hinweis", is_admin),
         ("system", "/system", "♥", "Systemstatus", "Health, RAM, Diagnose", is_admin),
+        ("admin-console", "/admin/console", "⌘", "Live-Konsole", "Live-Protokoll, Diagnose und sichere Wartungsbefehle", is_admin),
     ]
     try:  # Phase 7: switched-on functions appear here; the switch page itself only for admins
         import pulse_phase7
@@ -841,3 +842,80 @@ def register(app) -> None:
         if path.parent != banner_root().resolve() or not path.is_file():
             raise HTTPException(status_code=404, detail="Bild nicht gefunden.")
         return FileResponse(path, headers={"Cache-Control": "private, max-age=300"})
+
+
+    # ------------------------------------------------------------------ Live-Konsole (nur freigegebene Betriebsaktionen)
+    @app.get("/admin/console", response_class=HTMLResponse)
+    async def admin_console(request: Request, user_session: str = Cookie(None)):
+        ctx = admin_ctx(request, user_session)
+        body = """
+<div class="pulse-crumb"><a href="/admin">Verwaltung</a> › Live-Konsole</div>
+<div class="pulse-hero"><div><div class="pulse-kicker">Verwaltung · Betrieb</div><div class="pulse-title">Live-Konsole</div>
+<div class="pulse-sub">Live-Protokoll und freigegebene Diagnosebefehle. Aus Sicherheitsgründen ist dies keine beliebige Root-Shell.</div></div></div>
+<div class="grid lg:grid-cols-2 gap-4 mt-5">
+<section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">⌨️ Befehl ausführen</div><span class="pulse-pill good">Admin</span></div>
+<div class="pulse-card-b">
+<div class="text-xs text-slate-400 mb-3">Befehle: help, status, health, version, logs, sync. Keine Shell-Befehle oder frei eingegebenen Systemkommandos.</div>
+<form id="console-form" class="flex gap-2"><input id="console-command" class="pulse-input" autocomplete="off" maxlength="40" placeholder="Befehl eingeben, z. B. health" required>
+<button class="pulse-btn primary" type="submit">Ausführen</button></form>
+<pre id="console-output" aria-live="polite" style="white-space:pre-wrap;overflow:auto;max-height:320px;background:#0b1020;color:#d1fae5;padding:14px;border-radius:10px;margin-top:12px;font:12px/1.5 ui-monospace,monospace">Bereit. Gib help ein, um die Befehle anzuzeigen.</pre>
+</div></section>
+<section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">📡 Live-Protokoll</div><button id="console-refresh" type="button" class="pulse-btn ghost">Jetzt aktualisieren</button></div>
+<div class="pulse-card-b"><div class="text-xs text-slate-400 mb-2">Aktuelle Pulse-Prozessmeldungen. Die Ansicht aktualisiert sich automatisch alle 3 Sekunden.</div>
+<pre id="console-log" style="white-space:pre-wrap;overflow:auto;max-height:420px;background:#0b1020;color:#cbd5e1;padding:14px;border-radius:10px;font:11px/1.5 ui-monospace,monospace">Protokoll wird geladen …</pre></div></section>
+</div>
+<script>
+(()=> {
+ const command=document.getElementById('console-command');
+ const output=document.getElementById('console-output');
+ const log=document.getElementById('console-log');
+ async function refresh(){
+   try {
+     const r=await fetch('/admin/console/logs',{credentials:'same-origin',cache:'no-store'});
+     const d=await r.json();
+     if(!r.ok) throw new Error(d.detail||('HTTP '+r.status));
+     log.textContent=d.lines.length?d.lines.join('\n'):'Noch keine Prozessmeldungen gespeichert.';
+     log.scrollTop=log.scrollHeight;
+   } catch(e){log.textContent='Protokoll konnte nicht geladen werden: '+e.message;}
+ }
+ document.getElementById('console-refresh').addEventListener('click',refresh);
+ document.getElementById('console-form').addEventListener('submit',async ev=>{
+   ev.preventDefault();
+   const value=command.value.trim();
+   if(!value)return;
+   output.textContent='Befehl wird ausgeführt …';
+   try{
+     const r=await fetch('/admin/console/command',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:value})});
+     const d=await r.json();
+     output.textContent=(d.output||d.detail||'Keine Ausgabe')+(d.ok?'':'\n[Fehler]');
+     if(d.ok) command.value='';
+     await refresh();
+   }catch(e){output.textContent='Fehler: '+e.message;}
+ });
+ refresh();
+ setInterval(refresh,3000);
+})();
+</script>"""
+        return HTMLResponse(render_pro_page(ws, "Live-Konsole", ctx, "admin-console", body))
+
+    @app.get("/admin/console/logs")
+    async def admin_console_logs(request: Request, user_session: str = Cookie(None)):
+        admin_ctx(request, user_session)
+        import pulse_live_console
+        return JSONResponse({"lines": pulse_live_console.recent_lines(160)})
+
+    @app.post("/admin/console/command")
+    async def admin_console_command(request: Request, user_session: str = Cookie(None)):
+        ctx = admin_ctx(request, user_session)
+        if ws.rate_limited(f"admin-console:{ctx.user['id']}", limit=30, window=60):
+            raise HTTPException(status_code=429, detail="Zu viele Konsolenbefehle. Bitte eine Minute warten.")
+        try:
+            payload = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Ungültige Anfrage.")
+        import pulse_live_console
+        command = str(payload.get("command") or "").strip().lower() if isinstance(payload, dict) else ""
+        result = await pulse_live_console.run_command(command, request.app)
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"],
+                     "Live-Konsole: " + command[:40], result.get("output", "")[:500])
+        return JSONResponse(result, status_code=200 if result.get("ok") else 400)
