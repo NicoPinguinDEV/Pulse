@@ -57,6 +57,7 @@ EXTRA_PERMS = (
     "can_moderate_kicks",
     "can_moderate_bans",
     "can_moderate_bolo",
+    "can_manage_server",
 )
 
 
@@ -85,6 +86,7 @@ PERMISSION_LABELS = {
     'can_manage_promotions':'Beförderungsanträge verwalten',
     'can_view_team_status':'Teamstatus ansehen/verwalten',
     'can_manage_checkins':'Activity Check verwalten',
+    'can_manage_server':'Server Control Center (Deploy, Neustart, Logs)',
 }
 
 PRO_CSS = r"""
@@ -293,8 +295,12 @@ def make_shell_helpers(ws):
                        f'<a href="/me" role="tab" class="{"" if admin_mode else "on"}" aria-selected="{"false" if admin_mode else "true"}">👥 Team</a>'
                        f'<a href="/admin" role="tab" class="{"on" if admin_mode else ""}" aria-selected="{"true" if admin_mode else "false"}">🛠 Verwaltung</a></div>')
         if admin_mode:
+            from pulse_admin import SERVER_SECTION_KEYS
             groups = [("Verwaltung", [("admin", "/admin", "◆", "Übersicht", True, False)]
-                       + [(key, href, icon, label, True, False) for key, href, icon, label, _ in admin_entries])]
+                       + [(key, href, icon, label, True, False) for key, href, icon, label, _ in admin_entries
+                          if key not in SERVER_SECTION_KEYS]),
+                      ("Serververwaltung", [(key, href, icon, label, True, False) for key, href, icon, label, _ in admin_entries
+                                            if key in SERVER_SECTION_KEYS])]
         for group, items in groups:
             visible = [x for x in items if x[4]]
             if not visible: continue

@@ -9514,6 +9514,11 @@ async def _stop_background_tasks():
     client = getattr(app.state, "roblox_http_client", None)
     if client is not None and not client.is_closed:
         await client.aclose()
+    try:  # Server Control Center: shared HTTP pool to the host agent / GitHub
+        import pulse_server_control
+        await pulse_server_control.aclose()
+    except Exception as exc:
+        print(f"⚠️ Server Control Center: HTTP-Pool nicht geschlossen ({type(exc).__name__})")
 
 
 @app.get("/backups", response_class=HTMLResponse)
@@ -9885,7 +9890,8 @@ def full_backup_section() -> str:
     rows = ""
     for path in pulse_backup.list_backups(full_backup_dir())[:40]:
         created = datetime.fromtimestamp(path.stat().st_mtime).strftime("%d.%m.%Y %H:%M")
-        tag = " · AUTO" if "_auto_" in path.name else (" · SICHERHEITSKOPIE" if "_pre_restore_" in path.name else "")
+        tag = (" · AUTO" if "_auto_" in path.name else " · SICHERHEITSKOPIE" if "_pre_restore_" in path.name
+               else " · VOR DEPLOY" if "_predeploy_" in path.name else " · VOR ROLLBACK" if "_prerollback_" in path.name else "")
         rows += f"""
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-slate-200 dark:border-slate-800 pt-3">
             <div><div class="font-mono text-xs break-all">{esc(path.name)}{tag}</div>
@@ -10008,6 +10014,12 @@ async def full_backup_delete(request: Request, filename: str = Form(...), user_s
     path = safe_full_backup_path(filename)
     if not path:
         return back("/backups", "Backup nicht gefunden.", False)
+    import pulse_server_control  # Server Control Center: never delete the only working backup
+    if not await asyncio.to_thread(pulse_server_control.other_verified_backup_exists, full_backup_dir(), os.path.basename(path)):
+        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Komplett-Backup löschen abgelehnt",
+                  f"{os.path.basename(path)} · einzige geprüfte Sicherung")
+        return back("/backups", "Nicht gelöscht: Das ist die einzige Komplett-Sicherung, die die Prüfsummenkontrolle besteht. "
+                                "Erst eine neue Sicherung erstellen.", False)
     os.remove(path)
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Komplett-Backup gelöscht", os.path.basename(path))
     return back("/backups", "Komplett-Backup gelöscht.")
@@ -11783,6 +11795,12 @@ try:
     register_pulse_phase7(app)
 except Exception as _phase7_error:
     print(f"❌ Neue Funktionen (Phase 7) konnten nicht registriert werden: {_phase7_error}")
+
+try:
+    from pulse_server_control import register as register_pulse_server_control
+    register_pulse_server_control(app)
+except Exception as _server_control_error:
+    print(f"❌ Server Control Center konnte nicht registriert werden: {_server_control_error}")
 
 try:
     from pulse_guard_admin import register as register_pulse_guard_admin

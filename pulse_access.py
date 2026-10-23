@@ -20,6 +20,7 @@ LABELS = {
     "can_manage_handover": "Übergaben", "can_manage_promotions": "Beförderungsanträge",
     "can_view_team_status": "Teamstatus", "can_manage_checkins": "Activity Check",
     "can_moderate_kicks": "Melonly-Kick", "can_moderate_bans": "Melonly-Ban", "can_moderate_bolo": "Melonly-BOLO",
+    "can_manage_server": "Server Control Center",
 }
 
 

@@ -36,6 +36,8 @@ Automatisch nach einem Merge auf `main` (`.github/workflows/deploy-vps.yml` → 
 4. `git reset --hard <sha>` (fasst nur versionierte Dateien an) und `docker compose up -d --build`.
 5. `/healthz` muss innerhalb von `PULSE_DEPLOY_HEALTH_SECONDS` (Standard 240 s) 200 liefern, sonst automatischer Rollback auf den vorherigen Commit; Ergebnis optional per `PULSE_DEPLOY_WEBHOOK_URL` in Discord.
 
+**Aus dem Dashboard (ab 7.17.0):** Verwaltung → Serververwaltung → Server Control Center startet dasselbe `remote_deploy.sh` (plus Code-Rollback über `deploy/rollback_code.sh`, kontrollierten Neustart, Container-Logs) über den eingeschränkten Host-Verwaltungsdienst – Einrichtung und Testschritte: `docs/SERVER_CONTROL_CENTER.md`.
+
 **Manueller Notfall-Rollback:** `cd /opt/pulse/Pulse && git rev-parse HEAD` notieren, Komplett-Backup erstellen, dann `git reset --hard <letzter guter Commit>` und `docker compose up -d --build`. Nie `git clean`, `rm` auf Datendateien oder `docker compose down -v`.
 
 ## 5. Wartungsmodus (F-04)

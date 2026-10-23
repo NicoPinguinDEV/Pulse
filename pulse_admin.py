@@ -30,8 +30,10 @@ from pulse_welcome import (
 ADMIN_PAGE_KEYS = frozenset({
     "admin", "admin-discord", "ticket-panels", "settings", "backups", "system", "announcements", "social",
     "admin-privacy", "admin-features", "admin-rights", "admin-visibility", "admin-settings-history",
-    "team-capacity", "team-readiness", "applications-board", "admin-security", "admin-console",
+    "team-capacity", "team-readiness", "applications-board", "admin-security", "admin-console", "server-control",
 })
+# Shown in the sidebar group "Serververwaltung" (pulse_pro) instead of the general "Verwaltung" group.
+SERVER_SECTION_KEYS = frozenset({"server-control", "admin-console", "system", "backups"})
 
 
 def admin_sections(perms: dict) -> list[tuple]:
@@ -53,6 +55,8 @@ def admin_sections(perms: dict) -> list[tuple]:
         ("backups", "/backups", "🗄", "Backups", "Sicherungen erstellen und wiederherstellen", is_admin),
         ("admin-privacy", "/admin/privacy", "🔒", "Datenschutz", "Aufbewahrungsfristen, Auskunft, Hinweis", is_admin),
         ("system", "/system", "♥", "Systemstatus", "Health, RAM, Diagnose", is_admin),
+        ("server-control", "/admin/server", "🖥", "Server Control Center",
+         "Live-Werte, Container-Logs, Neustart, Deployment, Backups, Diagnose", is_admin or bool(perms.get("can_manage_server"))),
         ("admin-console", "/admin/console", "⌘", "Live-Konsole", "Live-Protokoll, Diagnose und sichere Wartungsbefehle", is_admin),
     ]
     try:  # Phase 7: switched-on functions appear here; the switch page itself only for admins

@@ -31,7 +31,8 @@ from pathlib import Path, PurePosixPath
 
 FORMAT = "pulse-full-backup"
 FORMAT_VERSION = 1
-NAME_RE = re.compile(r"^pulse_full_(?:auto_|pre_restore_)?\d{8}_\d{6}(?:_\d{6})?\.zip$")
+# predeploy_/prerollback_: written by deploy/remote_deploy.sh and deploy/rollback_code.sh (never pruned automatically).
+NAME_RE = re.compile(r"^pulse_full_(?:auto_|pre_restore_|predeploy_|prerollback_)?\d{8}_\d{6}(?:_\d{6})?\.zip$")
 
 SQLITE_FILES = (
     "pulse.db", "abmeldungen.db", "activity_check.db", "pulse_suite.db", "teamliste.db",
