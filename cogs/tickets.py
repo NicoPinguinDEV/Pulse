@@ -715,8 +715,25 @@ async def archive_ticket(channel, ticket: dict, actor_id, actor_name: str, reaso
     await asyncio.sleep(1)
     try:
         await channel.delete(reason=f"Pulse Ticket geschlossen von {actor_name}")
-    except Exception:
-        pass
+    except discord.NotFound:
+        pass  # already gone
+    except Exception as exc:
+        # P-10: the ticket is closed and archived, but the channel stays – never silently.
+        cause = type(exc).__name__
+        print(f"⚠️ Pulse-Tickets: Ticket {ticket['id']} geschlossen, Kanal konnte nicht gelöscht werden ({cause}).")
+        record_event("ticket_channel_delete_failed", "ticket", ticket["id"], actor_id, actor_name, {"error": cause})
+        try:
+            await channel.send("🔒 Dieses Ticket ist geschlossen und archiviert, der Kanal konnte aber nicht gelöscht werden "
+                               f"({cause}). Bitte manuell löschen – dem Bot fehlt evtl. „Kanäle verwalten“.",
+                               allowed_mentions=discord.AllowedMentions.none())
+        except Exception:
+            pass
+        try:
+            import pulse_alerts  # O-07
+            pulse_alerts.raise_alert("ticket:channel-delete", f"⚠️ **Ticketkanal nicht gelöscht:** Ticket `{ticket['id']}` "
+                                     f"ist geschlossen, der Kanal blieb bestehen (`{cause}`). Bot-Recht „Kanäle verwalten“ prüfen.")
+        except Exception:
+            pass
     return True
 
 

@@ -295,42 +295,46 @@ class Verification(commands.Cog):
                 raise ValueError(f"Pulse fehlt in #{channel.name} das Recht „Dateien anhängen“ für das hochgeladene Banner.")
             spec = build_panel_spec(settings, icon_url=icon, base_dir=self.base_dir)
             files = [discord.File(banner, filename=os.path.basename(banner))] if banner else []
-            style = branding().get("style", "modern")
-            if style == "modern":
-                view = verify_layout(self, spec, settings["button_label"])
-                payload = {"view": view}
-            else:
-                view = VerifyView(self, settings["button_label"])
-                payload = {"embed": to_discord_embed(spec), "view": view}
-            message = None
-            if settings["message_id"] and settings["published_channel_id"] == str(channel.id):
-                try:
-                    message = await channel.fetch_message(int(settings["message_id"]))
-                except discord.NotFound:
-                    message = None
-                except discord.HTTPException as exc:
-                    raise ValueError(f"Die bestehende Panel-Nachricht konnte nicht geladen werden (HTTP {exc.status}). Es wurde keine neue erstellt.") from exc
-            if message is not None and settings["panel_style"] != style:
-                # Discord cannot convert a message between embed and Components V2 layout:
-                # replace the old panel exactly once instead of editing it.
-                try:
-                    await message.delete()
-                except discord.NotFound:
-                    pass
+            try:
+                style = branding().get("style", "modern")
+                if style == "modern":
+                    view = verify_layout(self, spec, settings["button_label"])
+                    payload = {"view": view}
+                else:
+                    view = VerifyView(self, settings["button_label"])
+                    payload = {"embed": to_discord_embed(spec), "view": view}
                 message = None
-            if message is not None:
-                # attachments= replaces old uploads, so a changed or removed banner is updated too.
-                await message.edit(attachments=files, **payload)
-                action = "aktualisiert"
-            else:
-                message = await channel.send(files=files, allowed_mentions=discord.AllowedMentions.none(), **payload)
-                action = "veröffentlicht"
-            settings["panel_style"] = style
-            settings["message_id"] = str(message.id)
-            settings["published_channel_id"] = str(channel.id)
-            await asyncio.to_thread(save_settings, settings)
-            self.bot.add_view(view)
-            return {"action": action, "channel": f"#{channel.name}", "message_id": message.id}
+                if settings["message_id"] and settings["published_channel_id"] == str(channel.id):
+                    try:
+                        message = await channel.fetch_message(int(settings["message_id"]))
+                    except discord.NotFound:
+                        message = None
+                    except discord.HTTPException as exc:
+                        raise ValueError(f"Die bestehende Panel-Nachricht konnte nicht geladen werden (HTTP {exc.status}). Es wurde keine neue erstellt.") from exc
+                if message is not None and settings["panel_style"] != style:
+                    # Discord cannot convert a message between embed and Components V2 layout:
+                    # replace the old panel exactly once instead of editing it.
+                    try:
+                        await message.delete()
+                    except discord.NotFound:
+                        pass
+                    message = None
+                if message is not None:
+                    # attachments= replaces old uploads, so a changed or removed banner is updated too.
+                    await message.edit(attachments=files, **payload)
+                    action = "aktualisiert"
+                else:
+                    message = await channel.send(files=files, allowed_mentions=discord.AllowedMentions.none(), **payload)
+                    action = "veröffentlicht"
+                settings["panel_style"] = style
+                settings["message_id"] = str(message.id)
+                settings["published_channel_id"] = str(channel.id)
+                await asyncio.to_thread(save_settings, settings)
+                self.bot.add_view(view)
+                return {"action": action, "channel": f"#{channel.name}", "message_id": message.id}
+            finally:
+                for attachment in files:
+                    attachment.close()  # also when publishing fails before the send (Windows locks the file)
 
 
 async def setup(bot: commands.Bot):

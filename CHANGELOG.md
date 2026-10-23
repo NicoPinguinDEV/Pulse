@@ -8,6 +8,9 @@
 - **O-07 Systemalarme:** fehlgeschlagene Hintergrundjobs, Auto-/Komplett-Backups, Restore-Tests und eine nicht erreichbare Datenbank melden sich gedrosselt (je Ursache höchstens alle 30 Minuten, max. 20 wartende, 5 pro Minute, ohne Erwähnungen) im optionalen `PULSE_SYSTEM_ALERT_CHANNEL_ID`. Gesendet wird von der bestehenden 60-s-Automationsschleife (`pulse_alerts.py`), kein neuer Hintergrundprozess. `/healthz` meldet zusätzlich `last_job_ok` und `jobs_failing`; der Statuscode bleibt unverändert.
 - **Behoben (Windows-Konsole):** Statusmeldungen mit Emoji lösten auf einer cp1252-Konsole `UnicodeEncodeError` aus – u. a. scheiterte dadurch die Registrierung von Pulse Pro beim Start, und 44 Tests fielen lokal aus. Nicht darstellbare Zeichen werden jetzt ersetzt (`pulse_logging.safe_console`).
 - **A-04:** `pulse_ultimate` und `pulse_next` legen `attachments/` und `backups/` nicht mehr beim Import an, sondern beim Start (`init_runtime`) und dort, wo eine Datei geschrieben wird.
+- **Behoben (Tickets):** konnte Discord den Kanal eines geschlossenen Tickets nicht löschen (z. B. fehlendes Recht „Kanäle verwalten“), blieb er bisher kommentarlos offen. Jetzt: Hinweis im Kanal, Ereignis `ticket_channel_delete_failed` und Systemalarm. Ein bereits gelöschter Kanal gilt weiter als Erfolg.
+- **Behoben (Dateigriffe):** Transkript- und Verifizierungs-Banner-Dateien wurden nach fehlgeschlagenem Versand nicht geschlossen; unter Windows blieben sie dadurch gesperrt.
+- **P-10:** ein fehlgeschlagener Sitzungs-Widerruf (Teamaustritt, Logout) landet jetzt im Fehlerprotokoll des Systemstatus statt verschluckt zu werden.
 - **Behoben:** das README-Gate `python tests/test_pulse_intelligence.py` fand das Modul nicht, wenn es direkt gestartet wurde.
 - **Tests:** der Bash-Syntaxtest überspringt den WSL-Platzhalter ohne Distribution, statt fehlzuschlagen, und prüft jetzt beide Deploy-Skripte.
 

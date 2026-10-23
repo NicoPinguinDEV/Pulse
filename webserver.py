@@ -1132,8 +1132,8 @@ def auth(request: Request, user_session, perm="can_view_dashboard", admin=False)
             try:
                 import pulse_sessions
                 pulse_sessions.revoke_all(user["id"], reason="nicht mehr im Team")
-            except Exception:
-                pass
+            except Exception as exc:  # P-10: a session that stays valid after leaving the team must be visible
+                pulse_logging.report_error("sessions", f"Sitzungen von {user['id']} nach Teamaustritt nicht widerrufen: {type(exc).__name__}")
         raise HTTPException(status_code=403, detail="Du bist nicht (mehr) im Team oder deine Rolle darf das Dashboard nicht sehen.")
     if admin and not perms["is_admin"]:
         raise HTTPException(status_code=403, detail="Dieser Bereich ist nur für Administratoren.")
@@ -3330,8 +3330,8 @@ async def logout(user_session: str = Cookie(None)):
         try:
             import pulse_sessions  # U-14: the server-side session ends too
             pulse_sessions.revoke(data["id"], data["sid"])
-        except Exception:
-            pass
+        except Exception as exc:  # P-10
+            pulse_logging.report_error("sessions", f"Sitzung beim Logout nicht widerrufen: {type(exc).__name__}")
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie(key="user_session")
     return response

@@ -23,8 +23,9 @@ class FakeAttachment:
 
 
 class FakeChannel:
-    def __init__(self, broken=False):
+    def __init__(self, broken=False, delete_error=None):
         self.broken, self.deleted, self.sent, self.edits, self.perms = broken, False, [], [], []
+        self.delete_error = delete_error
         self.guild = SimpleNamespace(id=1, get_member=lambda uid: SimpleNamespace(id=uid) if uid else None)
 
     def history(self, **_):
@@ -50,6 +51,8 @@ class FakeChannel:
         self.perms.append((target, kwargs))
 
     async def delete(self, **_):
+        if self.delete_error:
+            raise self.delete_error
         self.deleted = True
 
 
@@ -98,11 +101,28 @@ class ArchiveTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertTrue(channel.deleted)
         self.assertEqual(self.closed[0][2], "T-42.txt")
-        text = open(os.path.join("transcripts", "T-42.txt"), encoding="utf-8").read()
+        with open(os.path.join("transcripts", "T-42.txt"), encoding="utf-8") as fh:
+            text = fh.read()
         self.assertIn("T-42_anhaenge/11_beweis.png (gesichert)", text)
         self.assertIn("video.mp4 (zu groß, nicht gesichert)", text)
         self.assertTrue(os.path.isfile(os.path.join("transcripts", "T-42_anhaenge", "11_beweis.png")))
         self.assertIn("file", channel.sent[0][1])
+
+    def test_channel_delete_failure_is_reported_not_swallowed(self):
+        import pulse_alerts
+        pulse_alerts.reset()
+        channel = FakeChannel(delete_error=discord.Forbidden(SimpleNamespace(status=403, reason="x"), "missing perms"))
+        ok = asyncio.run(tickets.archive_ticket(channel, dict(TICKET), 1, "Leitung", "erledigt"))
+        self.assertTrue(ok)  # ticket closed and archived
+        self.assertIn("ticket_channel_delete_failed", self.events)
+        self.assertIn("nicht gelöscht", channel.sent[-1][0])
+        self.assertEqual(len(pulse_alerts.pending()), 1)
+        pulse_alerts.reset()
+
+    def test_channel_already_gone_is_fine(self):
+        channel = FakeChannel(delete_error=discord.NotFound(SimpleNamespace(status=404, reason="x"), "gone"))
+        self.assertTrue(asyncio.run(tickets.archive_ticket(channel, dict(TICKET), 1, "Leitung", "erledigt")))
+        self.assertNotIn("ticket_channel_delete_failed", self.events)
 
     def test_transcript_is_also_uploaded_to_log_channel(self):
         channel, log = FakeChannel(), FakeChannel()
