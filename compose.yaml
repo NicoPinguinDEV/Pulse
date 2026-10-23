@@ -4,7 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: pulse-teamos
-    restart: unless-stopped
+    # systemd updates GitHub main before Pulse starts on every VPS boot.
+    # Avoid racing ahead with an old checkout while the update service runs.
+    restart: "no"
     init: true
     # VPS has 2 GiB RAM: reserve room for Ubuntu, Docker, Caddy and other host services.
     # Pulse may use up to 512 MiB RAM and 256 MiB additional swap (768 MiB combined).

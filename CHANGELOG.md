@@ -72,6 +72,13 @@ Details und Testnachweise: `docs/PHASE6_BERICHT.md`, Plan: `docs/VERBESSERUNGSPL
 - **On-/Offboarding (BOT-11):** Checklisten bei Teambeitritt und -austritt, Mentor.
 - **Review-Fixes:** Der Log-Versand bleibt nach Fehlern nicht mehr stehen, die DM-Warteschlange verliert nichts, abgelaufene `/mod`-Bans heben keine fremden Bans auf, u. a.
 
+## Version 7.14.7 – Automatisches VPS-Update beim Neustart (Oktober 2026)
+
+- **GitHub wird beim VPS-Start abgeglichen:** Ein systemd-Dienst lädt `main`, übernimmt ausschließlich sichere Fast-Forward-Änderungen und baut Pulse bei neuem Code erneut.
+- **Kontrollierter Start:** Docker startet den Bot nicht vor dem Update. Der systemd-Dienst startet Pulse danach und wartet auf den Healthcheck.
+- **Sicherheit:** Lokale Änderungen brechen das Update ab, Runtime-Daten und die lokale Wartemusik werden vor Codeänderungen gesichert; bei einem fehlerhaften Update wird der vorherige Commit wiederhergestellt.
+- **Manueller Lauf:** `systemctl restart pulse-github-update.service` startet denselben Updateablauf ohne VPS-Neustart.
+
 ## Version 7.14.6 – Manuelle Teamnamen & echter Abmeldestatus (Oktober 2026)
 
 - **Eigene Discord-Namen bleiben erhalten:** Manuelle Nickname-Änderungen werden als neue Namensbasis übernommen, auch wenn der Rangpräfix gleich bleibt. Pulse setzt danach weiterhin den richtigen Präfix entsprechend der höchsten Rolle.
