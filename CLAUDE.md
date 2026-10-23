@@ -85,6 +85,7 @@ Danach nach Möglichkeit zusätzlich passende fokussierte Regressionstests unter
 - Änderungen klein und nachvollziehbar halten; nur relevante Dateien anfassen.
 - Keine `git push --force`, keine zerstörerischen History-Rewrites, keine Secrets und keine Laufzeitdaten committen.
 - Keine Veröffentlichung oder VPS-Deployment auslösen, solange der Nutzer es nicht ausdrücklich verlangt hat.
+- **Jeden Commit sofort auf GitHub pushen** (Wunsch des Betreibers, 23.10.2026): nach jedem Commit `git push` auf den aktuellen Arbeitsbranch (beim ersten Mal `git push -u origin <branch>`), danach mit `git ls-remote` prüfen, dass der Commit angekommen ist. Das gilt nur für Feature-/Verbesserungsbranches. Ein Push auf `main` löst das VPS-Deploy aus und braucht weiterhin eine ausdrückliche Freigabe; Force-Push bleibt verboten.
 - Abschlussbericht auf Deutsch: Ursache, konkret geänderte Dateien, Verhalten vorher/nachher, ausgeführte Tests und Resultate, offene Risiken, notwendige Hosting-/Dashboard-Schritte.
 
 ## 6. Erste Aufgabe bei einer neuen Claude-Code-Session
