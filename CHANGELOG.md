@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.15.0 – Administrator-Live-Konsole (Oktober 2026)
+
+- **Neue Verwaltungsseite:** Live-Konsole unter Verwaltung → Live-Konsole, ausschließlich für serverseitig autorisierte Administratoren.
+- **Befehlszeile:** Freigegebene Befehle `help`, `status`, `health`, `version`, `logs` und `sync`; Slash-Command-Synchronisierung wird begrenzt und auditiert.
+- **Live-Protokoll:** Letzte Prozess-Logmeldungen werden in einem begrenzten Ringpuffer angezeigt und automatisch aktualisiert.
+- **Sicherheit:** Keine beliebige Shell-Ausführung aus dem Web-Dashboard; Eingaben werden gegen eine feste Allowlist geprüft und pro Benutzer rate-limitiert.
+- **Tests:** Zugriffsschutz, Befehls-Allowlist, Version, Status, Sync-Schutz und Logpuffer werden geprüft.
+
 ## Version 7.14.7 – Automatisches VPS-Update beim Neustart (Oktober 2026)
 
 - **GitHub wird beim VPS-Start abgeglichen:** Ein systemd-Dienst lädt `main`, übernimmt ausschließlich sichere Fast-Forward-Änderungen und baut Pulse bei neuem Code erneut.
