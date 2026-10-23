@@ -17,6 +17,13 @@ pulse_logging.setup(str(BASE_DIR))  # P-10: logs/pulse.log (1 MB x 3) + error ri
 # Module ihre Konfiguration beim Import lesen.
 load_dotenv(BASE_DIR / ".env")
 
+# O-06: before webserver is imported – a malformed SESSION_DAYS/MAX_BACKUPS would stop the import there,
+# and this message names the cause. Only names and expected ranges are printed, never values.
+from pulse_env_validation import validate_environment  # noqa: E402
+for _config_warning in validate_environment():
+    print(f"⚠️ Konfigurationsprüfung: {_config_warning}")
+    pulse_logging.get("config").warning("Konfigurationsprüfung: %s", _config_warning)
+
 from webserver import app
 
 TOKEN = os.getenv("DISCORD_TOKEN")

@@ -6,6 +6,7 @@ shown – only whether a variable is set.
 import math
 import os
 
+import pulse_env_validation
 import pulse_ids
 
 # Without these Pulse cannot log in to Discord or run the dashboard login. SESSION_SECRET is not listed:
@@ -153,7 +154,7 @@ def moderation_permissions(bot, guild, config):
 
 
 def run(bot, guild, config, environ=None):
-    checks = [gateway(bot), cog_errors(bot), timezone(), env_values(environ)]
+    checks = [gateway(bot), cog_errors(bot), timezone(), env_values(environ), pulse_env_validation.system_check(environ)]  # O-06
     checks += discord_ids(guild)
     checks.append(role_hierarchy(guild, config))
     checks += moderation_permissions(bot, guild, config)
