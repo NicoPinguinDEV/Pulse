@@ -324,11 +324,16 @@ def init_runtime() -> None:
     """A-04: create runtime files explicitly at start (main.py / app lifespan) instead of on import.
     Idempotent. webserver itself no longer creates abmeldungen.db, backups/ or .session_secret on import;
     the modules registered at its end (pulse_pro, pulse_features, pulse_next, …) still create pulse.db
-    tables while registering – to be moved here step by step (A-02/A-04)."""
+    tables while registering – to be moved here step by step (A-02/A-04). pulse_ultimate/pulse_next no
+    longer create attachments/ and backups/ on import; that happens here and where a file is written."""
     global _RUNTIME_READY
     if _RUNTIME_READY:
         return
     os.makedirs(BACKUP_DIR, exist_ok=True)
+    import pulse_next
+    import pulse_ultimate
+    pulse_next.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    pulse_ultimate.ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
     pulse_db.init_db()
     import pulse_migrations  # A-05: versioned migrations (backup before the first pending one)

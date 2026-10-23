@@ -40,8 +40,7 @@ from pulse_safety import memory_guard_level as _policy_memory_guard_level
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 BASE = Path(__file__).resolve().parent
-ATTACHMENTS_DIR = BASE / "attachments"
-ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
+ATTACHMENTS_DIR = BASE / "attachments"  # A-04: created where a file is stored (and in webserver.init_runtime), not on import
 ULTIMATE_DB = BASE / "pulse.db"  # kept for compatibility; use ultimate_db() (D-05)
 
 
@@ -1146,6 +1145,7 @@ def register(app) -> None:
             raise HTTPException(413, "Datei ist größer als 10 MB.")
         digest = hashlib.sha256(data).hexdigest()
         stored = f"{case_id}_{digest[:12]}_{safe}"
+        ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
         path = ATTACHMENTS_DIR / stored
         path.write_bytes(data)
         with cx() as c:

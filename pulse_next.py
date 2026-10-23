@@ -27,8 +27,7 @@ import pulse_db as db
 import pulse_ultimate as u
 
 BASE = Path(__file__).resolve().parent
-BACKUP_DIR = BASE / "backups"
-BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+BACKUP_DIR = BASE / "backups"  # A-04: created by create_backup() and webserver.init_runtime, not on import
 
 _INIT = False
 
@@ -541,6 +540,7 @@ def create_approval(object_type, object_id, action, ctx):
 
 def create_backup():
     setup_next()
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     ts = now().strftime("%Y%m%d_%H%M%S")
     target = BACKUP_DIR / f"pulse_backup_{ts}.zip"
     db_path = Path(u.ultimate_db())
