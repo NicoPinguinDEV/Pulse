@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.15.1 – Webbasierte Administrator-Live-Konsole (Oktober 2026)
+
+- **Verwaltung → Live-Konsole:** Geschützter Bereich mit automatisch aktualisierten Python-Anwendungslogs und Befehlsausgabe.
+- **Sichere Befehle:** `help`, `status`, `health`, `version`, `logs`, `sync`; keine beliebige Shell-Ausführung über HTTP.
+- **Schutz:** Administratorprüfung auf jeder Route, Begrenzung der Befehlsrate, streng begrenzter Logpuffer und Audit-Log für Befehle.
+- **Hinweis:** Die Konsole zeigt Anwendungslogs ab Aktivierung. Vollständige Docker-Startlogs bleiben über die Serverkonsole verfügbar.
+
+
 ## Version 7.15.0 – Administrator-Live-Konsole (Oktober 2026)
 
 - **Neue Verwaltungsseite:** Live-Konsole unter Verwaltung → Live-Konsole, ausschließlich für serverseitig autorisierte Administratoren.
