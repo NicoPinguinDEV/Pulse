@@ -6,11 +6,10 @@ Stand dieser Zusammenfassung: **18. Oktober 2026**. Zusammengeführt aus dem öf
 
 - Repository: https://github.com/NicoPinguinDEV/Pulse
 - Branch: `main`
-- `pulse_version.py` meldet aktuell **7.9.7**.
-- Zuletzt geprüfter Commit: `b1019dcd49cbefc582157e11638491c9ce5a2e99` — „Measure container RAM for Pulse memory guard“ (18.10.2026).
-- Unmittelbar davor wurden Voice-Support-Interaktions-Timeouts korrigiert und Release 7.9.7 veröffentlicht.
+- `pulse_version.py` meldet aktuell **7.16.0** (geprüft am 23.10.2026). Historisch: Commit `b1019dc` (18.10.2026, RAM-Messung) war Stand 7.9.7.
+- Vor 7.9.7 wurden Voice-Support-Interaktions-Timeouts korrigiert und Release 7.9.7 veröffentlicht.
 - Zu den jüngsten Änderungen zählen außerdem die Roblox-Spielerverlaufssuche in Melonly und die URL-Behandlung von Spielernamen mit Unterstrichen.
-- **Dokumentationsabweichung:** `CHANGELOG.md` endet im Kopfbereich bei 7.8.27; die README beschreibt Pulse Intelligence teilweise als 7.9.0. Nicht daraus ableiten, dass der laufende Code noch diese Version hat. Erst `pulse_version.py`, Git-Log und Code prüfen. CHANGELOG/README als mögliche Wartungsaufgabe notieren, aber nicht blind nebenbei umschreiben.
+- **Dokumentationsstand (23.10.2026):** `CHANGELOG.md` führt Versionen bis 7.16.0 und darüber unveröffentlichte Abschnitte; „Pulse Intelligence 7.9.0“ in der README bezeichnet die Version, in der das Modul eingeführt wurde. Nicht daraus ableiten, dass der laufende Code noch diese Version hat. Erst `pulse_version.py`, Git-Log und Code prüfen. CHANGELOG/README als mögliche Wartungsaufgabe notieren, aber nicht blind nebenbei umschreiben.
 
 ## 2. Produktziel und Arbeitsstil des Betreibers
 

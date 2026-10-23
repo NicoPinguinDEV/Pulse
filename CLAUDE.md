@@ -6,7 +6,7 @@ Du arbeitest an **Pulse TeamOS** für den Discord-/Roleplay-Server **© BOCHUM R
 
 - Repository: https://github.com/NicoPinguinDEV/Pulse
 - Hauptbranch: `main`
-- Zum Zeitpunkt dieses Handoffs: `pulse_version.py` meldet **7.9.7**. Zuletzt geprüfter Commit auf `main`: `b1019dcd49cbefc582157e11638491c9ce5a2e99` (RAM-Messung für den Memory Guard).
+- Stand 23.10.2026: `pulse_version.py` meldet **7.16.0**. Laufende Arbeit auf `verbesserung/phase-8-betrieb` (unveröffentlichte Einträge oben im `CHANGELOG.md`); Fortschritt je Punkt in `docs/VERBESSERUNGSPLAN.md`. Versionsangaben immer aus `pulse_version.py` und `git log` lesen.
 - Ziel: ein professionelles, zuverlässiges Discord-Teamverwaltungs- und Moderationssystem mit eigenem FastAPI-Webdashboard. Pulse soll seine Funktionen selbst bereitstellen, nicht von GalaxyBot abhängig sein. Eine ähnliche Panel-Builder-Bedienung ist erwünscht, aber keine Abhängigkeit vom fremden Bot.
 - Betreiber arbeitet überwiegend auf Deutsch und erwartet konkrete Umsetzung statt bloßer Ideensammlungen. Antworte auf Deutsch, knapp aber mit konkreten Änderungen, Tests und ehrlicher Restliste.
 
@@ -39,7 +39,7 @@ Lies zusätzlich `docs/CLAUDE_CODE_HANDOFF.md`, bevor du größere Änderungen m
 
 ## 4. RAM-Leitplanken
 
-Das Projekt muss innerhalb eines **250-MB-Host-Limits** möglichst stabil bleiben. Aktueller Safety-Helper `pulse_safety.py` verwendet Hysterese:
+Das Projekt muss innerhalb eines **250-MB-Host-Limits** möglichst stabil bleiben. **Aktualisiert durch Entscheidung E-5 (`docs/VERBESSERUNGSPLAN.md`):** auf dem Vionity-VPS gilt ein Containerlimit von 512 MiB (+ max. 256 MiB Swap, `compose.yaml`); der Memory Guard in `pulse_ultimate.py` warnt bei 350/420/470 MB. Die Werte unten sind die Standardparameter von `pulse_safety.memory_guard_level`. Sparsamkeit bleibt Pflicht. Aktueller Safety-Helper `pulse_safety.py` verwendet Hysterese:
 
 - Warnung: 180 MB
 - Kritisch: 210 MB
