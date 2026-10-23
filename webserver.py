@@ -11,6 +11,7 @@ import hmac
 import html
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -3180,6 +3181,14 @@ async def healthz(request: Request):
         db_ok = False
 
     ready = bool(bot and bot.is_ready() and guild and db_ok)
+    # O-07: diagnostics only – they never change the status code the deploy/Docker health checks rely on.
+    latency = getattr(bot, "latency", None) if bot else None
+    latency_ms = round(latency * 1000) if isinstance(latency, (int, float)) and math.isfinite(latency) else None
+    try:
+        from pulse_ultimate import container_memory_mb
+        memory_mb = container_memory_mb()
+    except Exception:
+        memory_mb = None
     return JSONResponse(
         {
             "ok": ready,
@@ -3187,6 +3196,8 @@ async def healthz(request: Request):
             "bot_ready": bool(bot and bot.is_ready()),
             "guild_ready": bool(guild),
             "database_ok": db_ok,
+            "gateway_latency_ms": latency_ms,
+            "memory_mb": memory_mb,
         },
         status_code=200 if ready else 503,
     )

@@ -1,0 +1,8 @@
+# O-03: files executed or parsed on the Linux VPS must keep LF line endings, even when edited on Windows.
+# A CRLF in remote_deploy.sh breaks `bash -s` on the server ("$'\r': command not found").
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+Caddyfile   text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+.env.example text eol=lf

@@ -363,7 +363,8 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 - [ ] **O-06 Konfiguration** [Nachgewiesen] – `.env.example` enthält `MAX_SHIFT_HOURS=12`, der Code ignoriert den Wert (fest 24 h, `webserver.py:117`) → korrigieren und erklären. Im Code gelesen, aber nicht dokumentiert: `SESSION_DAYS`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `PULSE_REPORT_CHANNEL_ID`, `PULSE_RSSHUB_BASE_URL`, `PULSE_SUPPORT_TEMPLATES_FILE`, `SUPPORT_KNOWLEDGE_FILE`, `PULSE_AI_MODERATION_CASES_FILE`, `PULSE_AI_MODERATION_OUTAGE_NOTICE_INTERVAL_SECONDS`, `PULSE_SOCIAL_PROMO_FILE`. Start-Validierung aller Variablen (Typ, Bereich, Pflicht) mit klarer Meldung in Log und Systemstatus.
 
-- [ ] **O-07 Überwachung** [Idee] – `/healthz` um Gateway-Latenz und „letzter erfolgreicher Job“ erweitern; gedrosselte Alarme im `PULSE_SYSTEM_ALERT_CHANNEL_ID` bei Cog-Ladefehlern, Backup- und DB-Fehlern sowie Job-Ausfällen; optional externer Uptime-Check.
+- [x] **O-08 VPS-Grundeinrichtung (Vionity)** — **erledigt (unveröffentlicht):** `deploy/vps_bootstrap.sh` + `VPS_DEPLOYMENT.md` §0 + `.gitattributes` (LF) – `tests/test_deploy_config.py` (BootstrapTests: Firewall hält SSH offen, Swap/Checkout idempotent, keine Laufzeitdaten, kein Start).
+- [ ] **O-07 Überwachung** [Idee] — **teilweise:** `/healthz` meldet `gateway_latency_ms` und `memory_mb`, Statuscode unverändert (`tests/test_healthz.py`, 4). Offen: „letzter erfolgreicher Job“ und Alarme. – `/healthz` um Gateway-Latenz und „letzter erfolgreicher Job“ erweitern; gedrosselte Alarme im `PULSE_SYSTEM_ALERT_CHANNEL_ID` bei Cog-Ladefehlern, Backup- und DB-Fehlern sowie Job-Ausfällen; optional externer Uptime-Check.
 
 ---
 

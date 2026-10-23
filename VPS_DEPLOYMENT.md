@@ -11,6 +11,27 @@ Diese Anleitung lässt GitHub `NicoPinguinDEV/Pulse` als Codequelle bestehen. De
 
 **Hinweis für einen bestehenden 2-GiB-VPS:** Dieser liegt unter der empfohlenen Mindestgröße. Für den laufenden Betrieb ist in `compose.yaml` ein Pulse-Limit von 512 MiB RAM plus maximal 256 MiB zusätzlicher Swap vorgesehen, damit genug Speicher für Ubuntu, Docker, Caddy und andere Hostdienste verbleibt. Bei dauerhaft hoher Auslastung sollte der VPS auf mindestens 4 GiB RAM erweitert werden.
 
+## 0. Schnellstart für Vionity (KVM, Ubuntu 24.04, 2 GiB)
+
+Pulse läuft auf einem Vionity-KVM-Server (Standort Offenbach, Ubuntu 24.04, 2 vCores, 2 GiB RAM, 50 GB SSD, Login als `root`). Das Skript `deploy/vps_bootstrap.sh` erledigt die Schritte aus Abschnitt 1 in einem Durchgang und kann gefahrlos wiederholt werden:
+
+```bash
+apt-get update && apt-get install -y git
+git clone https://github.com/NicoPinguinDEV/Pulse.git /opt/pulse/Pulse
+sudo bash /opt/pulse/Pulse/deploy/vps_bootstrap.sh
+```
+
+Es installiert Updates (danach automatische Sicherheitsupdates, Neustarts bleiben manuell), Docker und Compose, legt 2 GiB Swap an (der KVM-Server bringt meist keinen mit, `compose.yaml` erlaubt Pulse 256 MiB Swap), aktiviert die Firewall nur für SSH/80/443 und fail2ban für SSH und setzt die Rechte für den Container-Benutzer (UID 1000). Laufzeitdaten werden nicht angefasst und Pulse wird nicht gestartet – weiter mit Abschnitt 2.
+
+Hinweise zum Vionity-Kundenbereich:
+
+- **Root-Passwort:** Es wird im Kundenbereich angezeigt. Für Deployments einen SSH-Schlüssel nutzen (Abschnitt 5) und danach in `/etc/ssh/sshd_config` `PasswordAuthentication no` setzen – erst, wenn der Schlüssel-Login nachweislich funktioniert.
+- **„Updates: verfügbar“:** erledigt das Skript; einen ggf. nötigen Neustart (`/var/run/reboot-required`) außerhalb der RP-Zeiten mit `reboot` ausführen – der Container startet automatisch wieder.
+- **„IP Blacklist“-Einträge:** betreffen meist E-Mail-Versand von der IP. Discord und das Dashboard sind davon normalerweise nicht betroffen; nur prüfen, falls Pulse E-Mails verschicken soll.
+- **„Backup: Manuell“:** Vionity sichert nicht automatisch. Pulse erstellt vor jedem Deploy `backups/predeploy_*`; zusätzlich regelmäßig einen Vionity-Snapshot anlegen und `backups/` außerhalb des Servers kopieren.
+- **Firewall und Docker:** Docker umgeht `ufw` für veröffentlichte Ports. Deshalb bindet `compose.yaml` Pulse standardmäßig an `127.0.0.1`; nur Caddy (Profil `https`) veröffentlicht 80/443. `PULSE_PUBLISH_HOST=0.0.0.0` macht Port 25095 trotz Firewall öffentlich.
+- **RAM:** Der Host-Speicher wird im Kundenbereich angezeigt; `curl -s http://127.0.0.1:25095/healthz` zeigt zusätzlich `memory_mb` (Container) und `gateway_latency_ms`.
+
 ## 1. Server vorbereiten
 
 Verbinde dich per SSH zum Server und installiere Git und Docker:
