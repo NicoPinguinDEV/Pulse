@@ -69,3 +69,24 @@ jobs:
           python tests/feature_smoke.py
           python tests/smoke_test.py
           python -m unittest discover -s tests -p 'test_*.py'
+
+  e2e:
+    name: Dashboard-E2E (Playwright, lokal mit Fake-Login)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Abhaengigkeiten und Chromium installieren
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -m playwright install --with-deps chromium
+      - name: E2E-Tests ausfuehren
+        env:
+          PULSE_E2E: "1"
+        run: |
+          python -m unittest tests.test_e2e_dashboard -v
