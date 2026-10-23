@@ -2857,7 +2857,7 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
         ("backups", "/backups", "💾", "Server Backups"),
         ("system", "/system", "🩺", "Systemstatus"),
         ("setup", "/setup", "🧭", "Einrichtungsassistent"),
-        ("security", "/security", "🛡️", "AutoMod & Anti-Nuke"),
+        ("security", "/admin/security", "🛡️", "AutoMod & Anti-Nuke"),
         ("search", "/search", "🔎", "Globale Suche"),
         ("settings", "/settings", "⚙️", "Rechte & Audit-Log"),
     ] if perms.get("is_admin") else [("search", "/search", "🔎", "Globale Suche")]
@@ -9804,10 +9804,10 @@ async def setup_wizard(request: Request, user_session: str = Cookie(None)):
          "/settings", "Teamrollen zuordnen und die Bot-Rolle über den verwalteten Rollen platzieren."),
         ("AutoMod", auto_ready,
          "Aktiv und Bot-Berechtigungen vorhanden." if automod.get("enabled") else "Optional: noch nicht aktiviert.",
-         "/security", "Regeln, Ausnahmen und Nachrichtenverwaltungsrechte prüfen."),
+         "/admin/security", "Regeln, Ausnahmen und Nachrichtenverwaltungsrechte prüfen."),
         ("Anti-Nuke", nuke_ready,
          "Aktiv und Audit-/Sperrberechtigungen vorhanden." if antinuke.get("enabled") else "Optional: noch nicht aktiviert.",
-         "/security", "Ereignisse, Vertrauensrollen, Schwelle und Bot-Berechtigungen prüfen."),
+         "/admin/security", "Ereignisse, Vertrauensrollen, Schwelle und Bot-Berechtigungen prüfen."),
         ("Backups & Wiederherstellung", backup_ready,
          f"{backup.get('count', 0)} Sicherungen · letzter Restore-Test {'bestanden' if restore_test.get('ok') else 'noch ausstehend'}",
          "/backups", "Erstes Komplett-Backup und den automatischen Restore-Test sicherstellen."),
@@ -9840,140 +9840,11 @@ async def setup_wizard(request: Request, user_session: str = Cookie(None)):
     return HTMLResponse(render_page("Einrichtungsassistent", ctx, "setup", body))
 
 
-@app.get("/security", response_class=HTMLResponse)
+@app.get("/security")
 async def security_page(request: Request, user_session: str = Cookie(None)):
-    ctx = auth(request, user_session, perm=None, admin=True)
-    automod = ctx.config.get("pulse_automod", {})
-    antinuke = ctx.config.get("pulse_antinuke", {})
-    if not isinstance(automod, dict):
-        automod = {}
-    if not isinstance(antinuke, dict):
-        antinuke = {}
-
-    def config_int(section: dict, key: str, default: int, minimum: int, maximum: int) -> int:
-        try:
-            return max(minimum, min(maximum, int(section.get(key, default))))
-        except (TypeError, ValueError):
-            return default
-
-    def config_list(section: dict, key: str) -> list:
-        value = section.get(key, [])
-        return value if isinstance(value, list) else []
-
-    def checked(name: str, selected: set[str]) -> str:
-        return "checked" if name in selected else ""
-
-    from pulse_moderation import DEFAULT_ANTINUKE_EVENTS
-    automod_rules = (
-        set(config_list(automod, "rules"))
-        if "rules" in automod else
-        {"spam", "mentions", "invites"}
-    )
-    antinuke_events = (
-        set(config_list(antinuke, "events"))
-        if "events" in antinuke else
-        set(DEFAULT_ANTINUKE_EVENTS)
-    )
-    rule_boxes = "".join(
-        f'<label class="flex items-start gap-2 rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-sm">'
-        f'<input type="checkbox" name="automod_rules" value="{key}" {checked(key, automod_rules)} class="mt-1 rounded">'
-        f'<span><span class="font-semibold">{label}</span><span class="block text-xs text-slate-500">{hint}</span></span></label>'
-        for key, label, hint in (
-            ("spam", "Spam und Nachrichtenflut", "Wiederholungen oder mindestens 6 Nachrichten in 10 Sekunden"),
-            ("mentions", "Massen-Erwähnungen", "Standardgrenze: mehr als 5 Erwähnungen"),
-            ("invites", "Discord-Einladungslinks", "discord.gg- und Discord-Invite-Links"),
-            ("keywords", "Wort-/Phrasenfilter", "Konfigurierbare Begriffe; ein Eintrag pro Zeile"),
-            ("domains", "Linkfilter", "Konfigurierbare Domains; ein Hostname pro Zeile"),
-        )
-    )
-    event_boxes = "".join(
-        f'<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="antinuke_events" '
-        f'value="{key}" {checked(key, antinuke_events)} class="rounded"><span>{label}</span></label>'
-        for key, label in (
-            ("ban", "Bans"), ("kick", "Kicks"), ("role_delete", "Rollen löschen"),
-            ("role_update", "Rollenberechtigungen/-position ändern"), ("channel_delete", "Kanäle löschen"),
-            ("channel_update", "Kanalberechtigungen ändern"), ("webhook_create", "Webhooks erstellen"),
-            ("webhook_delete", "Webhooks löschen"), ("webhook_update", "Webhooks ändern"),
-            ("bot_add", "Bots hinzufügen"),
-        )
-    )
-    enabled_rules = ", ".join(
-        rule for rule in ("spam", "mentions", "invites", "keywords", "domains")
-        if rule in automod_rules
-    ) or "keine"
-    enabled_events = ", ".join(
-        event for event in (
-            "ban", "kick", "role_delete", "role_update", "channel_delete", "channel_update",
-            "webhook_create", "webhook_delete", "webhook_update", "bot_add",
-        )
-        if event in antinuke_events
-    ) or "keine"
-    body = f"""
-    <div class="pulse-topbar">
-        <div><div class="pulse-section-title">🛡️ AutoMod & Anti-Nuke</div>
-        <div class="pulse-section-sub">Konfigurierbare Schutzregeln mit nachvollziehbaren Maßnahmen und Admin-Ausnahmen.</div></div>
-        <a href="/system" class="{BTN}">Systemdiagnose</a>
-    </div>
-    <div class="{CARD} mb-5 p-4 text-sm">
-        <div class="font-bold">Aktueller Status</div>
-        <p class="mt-2 text-slate-500">AutoMod: {"aktiv" if automod.get("enabled") else "inaktiv"} · Regeln: {esc(enabled_rules)}</p>
-        <p class="mt-1 text-slate-500">Anti-Nuke: {"aktiv" if antinuke.get("enabled") else "inaktiv"} · Überwacht: {esc(enabled_events)}</p>
-        <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">Anti-Nuke sperrt einen nicht freigestellten Akteur automatisch, wenn die festgelegte Schwelle in kurzer Zeit erreicht wird. Prüfe Ausnahmen und Bot-Berechtigungen sorgfältig, damit geplante Moderationsaktionen nicht versehentlich blockiert werden.</p>
-    </div>
-    <form action="/security" method="post" class="space-y-5">
-        <section class="{CARD} p-5 space-y-4">
-            <div><h2 class="font-bold text-lg">AutoMod</h2>
-            <p class="text-xs text-slate-500">Die erste Regelverletzung löscht die Nachricht und versucht eine private Warnung. Ein weiterer Verstoß innerhalb einer Stunde löst einen 10-Minuten-Timeout aus. Für die Spam-Erkennung bleiben Nachrichten nur kurzzeitig im begrenzten Arbeitsspeicher; sie werden nicht dauerhaft gespeichert oder in Meldungen ausgegeben. Maßnahmen werden mit Regel, IDs und Ergebnis ohne Nachrichteninhalt protokolliert.</p></div>
-            <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="automod_enabled" {"checked" if automod.get("enabled") else ""} class="rounded"> AutoMod aktivieren</label>
-            <div class="grid sm:grid-cols-2 gap-2">{rule_boxes}</div>
-            <label class="block text-sm">Erwähnungsgrenze
-                <input name="mention_limit" type="number" min="3" max="30" value="{config_int(automod, "mention_limit", 5, 3, 30)}" class="{INPUT} mt-1" aria-describedby="mention-help">
-                <span id="mention-help" class="text-xs text-slate-500">Meldung bei mehr Erwähnungen als dieser Wert.</span>
-            </label>
-            <div class="grid md:grid-cols-2 gap-4">
-                <label class="block text-sm">Gesperrte Wörter/Phrasen
-                    <textarea name="blocked_terms" rows="5" maxlength="10000" class="{INPUT} mt-1" placeholder="Ein Begriff pro Zeile">{esc(chr(10).join(str(v) for v in config_list(automod, "blocked_terms")))}</textarea>
-                </label>
-                <label class="block text-sm">Gesperrte Domains
-                    <textarea name="blocked_domains" rows="5" maxlength="5000" class="{INPUT} mt-1" placeholder="example.com (ein Hostname pro Zeile)">{esc(chr(10).join(str(v) for v in config_list(automod, "blocked_domains")))}</textarea>
-                </label>
-            </div>
-            <label class="block text-sm">Ausgenommene Rollen-IDs
-                <input name="automod_exempt_role_ids" value="{esc(', '.join(str(v) for v in config_list(automod, 'exempt_role_ids')))}" class="{INPUT} mt-1">
-            </label>
-            <label class="block text-sm">Ausgenommene Kanal-IDs
-                <input name="automod_exempt_channel_ids" value="{esc(', '.join(str(v) for v in config_list(automod, 'exempt_channel_ids')))}" class="{INPUT} mt-1">
-            </label>
-        </section>
-        <section class="{CARD} p-5 space-y-4">
-            <div><h2 class="font-bold text-lg">Anti-Nuke</h2>
-            <p class="text-xs text-slate-500">Überwacht Discord-Audit-Logs. Bei Erreichen der Schwelle werden Alarm und Sperrversuch ausgelöst; der Serverinhaber und Pulse selbst sind immer ausgenommen.</p></div>
-            <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="antinuke_enabled" {"checked" if antinuke.get("enabled") else ""} class="rounded"> Anti-Nuke aktivieren</label>
-            <div class="grid sm:grid-cols-2 gap-2">{event_boxes}</div>
-            <div class="grid sm:grid-cols-2 gap-4">
-                <label class="block text-sm">Aktionen bis zum Alarm/Bann (2–10)
-                    <input name="action_limit" type="number" min="2" max="10" value="{config_int(antinuke, "action_limit", 3, 2, 10)}" class="{INPUT} mt-1">
-                </label>
-                <label class="block text-sm">Zeitfenster in Sekunden (5–60)
-                    <input name="window_seconds" type="number" min="5" max="60" value="{config_int(antinuke, "window_seconds", 10, 5, 60)}" class="{INPUT} mt-1">
-                </label>
-            </div>
-            <label class="block text-sm">Freigestellte Vertrauensrollen-IDs
-                <input name="trusted_role_ids" value="{esc(', '.join(str(v) for v in config_list(antinuke, 'trusted_role_ids')))}" class="{INPUT} mt-1">
-                <span class="text-xs text-slate-500">Freigestellte Rollen werden nicht automatisch gesperrt. Freistellungen sparsam vergeben.</span>
-            </label>
-            <label class="block text-sm">Freigestellte Nutzer-IDs
-                <input name="trusted_user_ids" value="{esc(', '.join(str(v) for v in config_list(antinuke, 'trusted_user_ids')))}" class="{INPUT} mt-1">
-            </label>
-            <label class="block text-sm">Alarmkanal-ID (optional)
-                <input name="alert_channel_id" value="{esc(str(antinuke.get('alert_channel_id') or automod.get('alert_channel_id') or ''))}" class="{INPUT} mt-1">
-            </label>
-            <p class="text-xs text-rose-700 dark:text-rose-300">Erforderliche Bot-Berechtigungen: Audit-Log ansehen und Mitglieder bannen. Discord-Rollenhierarchie kann einen Sperrversuch verhindern. Pulse bannnt erst nach Erreichen der Schwelle und protokolliert, wenn Discord die Maßnahme ablehnt.</p>
-        </section>
-        <button class="{BTN} px-5 py-3" type="submit">Sicherheitseinstellungen speichern</button>
-    </form>
-    """
-    return HTMLResponse(render_page("AutoMod & Anti-Nuke", ctx, "security", body))
+    # The full AutoMod/Anti-Nuke management lives in Verwaltung → Sicherheit (pulse_guard_admin.py).
+    auth(request, user_session, perm=None, admin=True)
+    return RedirectResponse(url="/admin/security", status_code=303)
 
 
 @app.post("/security")
@@ -10044,10 +9915,15 @@ async def save_security_settings(request: Request, user_session: str = Cookie(No
             "alert_channel_id": alert_channel_id,
         }
     except (TypeError, ValueError) as exc:
-        return back("/security", str(exc), False)
+        return back("/admin/security", str(exc), False)
 
-    ctx.config["pulse_automod"] = automod
-    ctx.config["pulse_antinuke"] = antinuke
+    # Compatibility form: it only knows the original fields – keep everything else set at /admin/security
+    # (mode, response, escalation, …) instead of silently resetting it to the defaults.
+    from pulse_moderation import normalize_antinuke, normalize_automod
+    previous_automod = ctx.config.get("pulse_automod") if isinstance(ctx.config.get("pulse_automod"), dict) else {}
+    previous_antinuke = ctx.config.get("pulse_antinuke") if isinstance(ctx.config.get("pulse_antinuke"), dict) else {}
+    ctx.config["pulse_automod"] = normalize_automod({**previous_automod, **automod})
+    ctx.config["pulse_antinuke"] = normalize_antinuke({**previous_antinuke, **antinuke})
     save_json(CONFIG_FILE, ctx.config)
     log_audit(
         ctx.user.get("global_name") or ctx.user.get("username"),
@@ -10055,7 +9931,7 @@ async def save_security_settings(request: Request, user_session: str = Cookie(No
         "AutoMod/Anti-Nuke Konfiguration geändert",
         f"AutoMod={'aktiv' if automod_enabled else 'aus'} · Anti-Nuke={'aktiv' if antinuke_enabled else 'aus'}",
     )
-    return back("/security", "AutoMod- und Anti-Nuke-Einstellungen gespeichert.")
+    return back("/admin/security", "AutoMod- und Anti-Nuke-Einstellungen gespeichert.")
 
 
 # =============================================================
@@ -11650,3 +11526,9 @@ try:
     register_pulse_phase7(app)
 except Exception as _phase7_error:
     print(f"❌ Neue Funktionen (Phase 7) konnten nicht registriert werden: {_phase7_error}")
+
+try:
+    from pulse_guard_admin import register as register_pulse_guard_admin
+    register_pulse_guard_admin(app)
+except Exception as _guard_error:
+    print(f"❌ Sicherheitsbereich (AutoMod & Anti-Nuke) konnte nicht registriert werden: {_guard_error}")

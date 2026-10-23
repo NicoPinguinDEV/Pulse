@@ -30,7 +30,7 @@ from pulse_welcome import (
 ADMIN_PAGE_KEYS = frozenset({
     "admin", "admin-discord", "ticket-panels", "settings", "backups", "system", "announcements", "social",
     "admin-privacy", "admin-features", "admin-rights", "admin-visibility", "admin-settings-history",
-    "team-capacity", "team-readiness", "applications-board",
+    "team-capacity", "team-readiness", "applications-board", "admin-security",
 })
 
 
@@ -42,6 +42,7 @@ def admin_sections(perms: dict) -> list[tuple]:
         ("admin-discord", "/admin/discord", "🎨", "Discord-Auftritt", "Verifikation, Willkommen & Abschied, Embed-Design", is_admin),
         ("ticket-panels", "/tickets/panels", "🎛️", "Ticket-Panels", "Panels, Kategorien, Begrüßungen, Formulare", is_admin),
         ("admin-panels", "/admin/panels", "▦", "Discord-Panels", "Alle Panels, Status, neu veröffentlichen", is_admin),
+        ("admin-security", "/admin/security", "🛡️", "Sicherheit", "AutoMod, Anti-Nuke, Quarantäne, Vorfälle", is_admin),
         ("team-checklists", "/team/checklists", "☑", "On- & Offboarding", "Checklisten für Teambeitritt und -austritt",
          is_admin or bool(perms.get("can_promote"))),
         ("mod-cases", "/mod-cases", "⚖", "Bürger-Moderation", "Fallakte: Verwarnungen, Timeouts, Kicks, Bans",

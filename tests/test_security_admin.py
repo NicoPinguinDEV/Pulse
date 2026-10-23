@@ -23,8 +23,10 @@ class SecurityAdminTests(unittest.TestCase):
         self.file_patch.start()
         self.log_patch.start()
         self.client = TestClient(ws.app, raise_server_exceptions=False)
+        self._bot = getattr(ws.app.state, "bot", None)
 
     def tearDown(self):
+        ws.app.state.bot = self._bot  # the setup wizard test replaces it – do not leak into other test files
         self.auth_patch.stop()
         self.file_patch.stop()
         self.log_patch.stop()
@@ -52,8 +54,8 @@ class SecurityAdminTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Regeln: keine", response.text)
         self.assertIn("Überwacht: keine", response.text)
-        self.assertIn('value="spam"  class=', response.text)
-        self.assertIn('value="ban"  class=', response.text)
+        self.assertIn('name="automod_rules" value="spam">', response.text)  # unchecked
+        self.assertIn('name="antinuke_events" value="ban">', response.text)
 
     def test_team_member_cannot_view_or_change_mod_settings(self):
         with patch.object(ws, "auth", fake_auth_for(TEAMLER)):

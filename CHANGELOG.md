@@ -1,5 +1,27 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.16.0 – Sicherheit: AutoMod & Anti-Nuke in der Verwaltung (Oktober 2026)
+
+> **Hinweise nach dem Update:**
+> - Neue Seite **Verwaltung → Sicherheit** (`/admin/security`, nur Administratoren). `/security` leitet dorthin weiter; das alte Formular speichert weiterhin, ohne neue Einstellungen zurückzusetzen.
+> - Bestehende Anti-Nuke-Konfigurationen behalten die Reaktion **Ban**. Empfohlen: auf **Quarantäne** umstellen (umkehrbar).
+> - Für Quarantäne braucht der Bot „Rollen verwalten“ und eine Bot-Rolle über den zu entziehenden Rollen. Die Seite zeigt fehlende Rechte und Hierarchielücken live an.
+
+- **AutoMod:** Modus „Nur beobachten“ zum gefahrlosen Einstellen. Neue Regeln „Übermäßige Großschreibung“ und „Link außerhalb der Freigabeliste“. Nachrichtenflut und Wiederholungen sind einstellbar. Eskalation: Warnung, danach Timeouts mit Verdopplung bis zu einem Maximum. Ausnahmen per Rollen-, Kanal- und Kategorie-Auswahl. Bearbeitete Nachrichten werden ebenfalls geprüft.
+- **Anti-Nuke:** Reaktion wählbar (nur melden, Quarantäne, Kick, Ban). Die Quarantäne entzieht nur Rollen mit gefährlichen Rechten und speichert sie, sodass sie sich mit einem Klick und Pflichtgrund zurückgeben lassen. Optional werden Bots sofort entfernt, wenn eine nicht freigegebene Person sie hinzufügt. Administratoren werden in der Pulse-Inbox benachrichtigt.
+- **Dashboard:** Schutzwert, Bereitschaftsprüfung (Bot-Rechte, Rollenhierarchie, Alarmkanäle), 7-Tage-Statistik, Regeltester (speichert nichts), Quarantäne-Liste und Vorfallprotokoll. Jede Änderung steht im Audit-Log.
+- **Behoben (Anti-Nuke):**
+  - Änderungen an Kanalberechtigungen (Audit-Typ `overwrite_*`) wurden nicht erkannt.
+  - Bei Webhook-Wellen zählte nur ein Eintrag je 20 s, außerdem entstanden 3 Audit-Log-Abfragen pro Ereignis.
+  - Eine einmal behandelte Person wurde bis zum Neustart nie wieder geprüft; jetzt gilt eine begrenzte Abkühlzeit.
+- **Behoben (AutoMod):** Der Spam-Detektor hielt Klartext im RAM, jetzt nur noch Prüfsummen.
+- **Sicherheitsprüfung:**
+  - `Origin: null` und Cookie-POSTs ohne Origin/Referer werden abgelehnt (CSRF-Härtung).
+  - Den Export fremder Teamakten (`/ultimate/person/{id}/export`) dürfen nur noch Leitung und Administratoren abrufen.
+- **Merge mit main:**
+  - Deploy über `deploy/remote_deploy.sh` mit den Prüfungen aus main: nur main-Commits, kein Downgrade, keine lokalen VPS-Änderungen.
+  - `compose.yaml` bindet standardmäßig an 127.0.0.1.
+
 ## Version 7.15.0 – Phase 6: Discord-Bot – Bedienung & Funktionen (Oktober 2026)
 
 Details und Testnachweise: `docs/PHASE6_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.

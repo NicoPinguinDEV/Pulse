@@ -759,6 +759,9 @@ def register(app):
     @app.get("/ultimate/person/{user_id}/export")
     async def person_export(request: Request,user_id: str,user_session: str=Cookie(None)):
         ctx=ctx_auth(request,user_session,perm="can_view_dashboard")
+        # Security audit M5: profile, timeline and warnings of others only for leadership/admins (E-3/D-08).
+        if str(user_id)!=str(actor_id(ctx)) and not (ctx.perms.get("is_admin") or ctx.perms.get("can_promote")):
+            raise HTTPException(403,"Den Export fremder Teamakten dürfen nur Leitung und Administratoren abrufen.")
         member=ctx.guild.get_member(int(user_id)) if str(user_id).isdigit() else None
         if not member: raise HTTPException(404,"Teammitglied nicht gefunden.")
         s=u.member_stats(member); p=u.get_profile(str(member.id)) or {}

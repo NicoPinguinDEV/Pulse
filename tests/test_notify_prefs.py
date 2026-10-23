@@ -16,6 +16,9 @@ import pulse_notify_prefs as np
 import webserver as ws
 from tests.test_pulse_admin_area import TEAMLER, fake_auth_for
 
+# Browsers always send Origin on POST; cookie POSTs without it are refused (pulse_security, audit H1).
+BROWSER = {"Origin": "http://testserver"}
+
 
 class TempDb(unittest.TestCase):
     def setUp(self):
@@ -159,7 +162,7 @@ class QuietTimeTests(TempDb):
         self.assertEqual(asyncio.run(np.drain_dms(self.bot({1: user}), now=datetime(2026, 1, 1, 21)))["held"], 1)
 
     def test_admin_form_saves_server_quiet(self):
-        client = TestClient(ws.app, raise_server_exceptions=False)
+        client = TestClient(ws.app, raise_server_exceptions=False, headers=BROWSER)
         admin = dict(TEAMLER, is_admin=True)
         with patch.object(ws, "auth", fake_auth_for(admin)):
             self.assertIn("Server-Ruhezeit", client.get("/pulse-inbox").text)
@@ -173,7 +176,7 @@ class QuietTimeTests(TempDb):
 
 class InboxPageTests(TempDb):
     def test_settings_form_saves_and_inbox_groups(self):
-        client = TestClient(ws.app, raise_server_exceptions=False)
+        client = TestClient(ws.app, raise_server_exceptions=False, headers=BROWSER)
         client.cookies.set("user_session", ws.sign_payload({"id": "123", "exp": int(time.time() + 60)}, typ=ws.TOKEN_DASHBOARD))
         pulse_db.notify("123", "Neues Ticket", "a", url="/tickets")
         pulse_db.notify("123", "Abmeldung", "b", url="/loa")
