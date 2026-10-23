@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Version 7.15.2 – Live-Konsole stabilisiert (Oktober 2026)
+
+- **JSON-Antworten funktionieren:** Der geschützte Live-Konsolenbereich importiert JSONResponse explizit; Protokollabfrage und freigegebene Befehle stürzen dadurch nicht mehr mit NameError ab.
+- **Routenprüfung aktualisiert:** Der Snapshot erfasst die im Adminbereich ergänzten Konsolenrouten und schützt sie weiterhin vor unbeabsichtigten Route-Änderungen.
+
+
 ## Version 7.15.1 – Webbasierte Administrator-Live-Konsole (Oktober 2026)
 
 - **Verwaltung → Live-Konsole:** Geschützter Bereich mit automatisch aktualisierten Python-Anwendungslogs und Befehlsausgabe.
