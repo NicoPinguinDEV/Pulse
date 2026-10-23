@@ -11,6 +11,7 @@ import uvicorn
 
 BASE_DIR = Path(__file__).resolve().parent
 os.chdir(BASE_DIR)
+pulse_logging.safe_console()  # emoji output must not crash on a cp1252 console
 pulse_logging.setup(str(BASE_DIR))  # P-10: logs/pulse.log (1 MB x 3) + error ring buffer
 
 # .env muss vor dem Import von webserver/pulse_db geladen sein, da diese

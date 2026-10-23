@@ -157,6 +157,18 @@ class ErrorBufferTests(unittest.TestCase):
         self.assertIn("Letzte Fehler", html)
         self.assertIn("ABC123", html)
 
+    def test_safe_console_turns_emoji_into_replacement_on_cp1252(self):
+        import io
+        import sys
+        import pulse_logging
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp1252")
+        with patch.object(sys, "stdout", stream), patch.object(sys, "stderr", stream):
+            pulse_logging.safe_console()
+            print("❌ Fehler")  # raised UnicodeEncodeError before
+        stream.flush()
+        self.assertEqual(raw.getvalue().decode("cp1252").strip(), "? Fehler")
+
 
 class LiveCacheTests(unittest.TestCase):
     def test_live_numbers_computed_once_within_15_seconds(self):

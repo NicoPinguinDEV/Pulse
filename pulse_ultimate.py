@@ -2396,6 +2396,12 @@ async def automation_loop(bot):
           async with pulse_jobs.job("Automation (60 s)", 60):
             # Memory guard piggybacks on this existing loop; no extra worker is added.
             await runtime_memory_guard(bot)
+            # O-07: queued system alerts (job/backup/database errors) – also during maintenance mode.
+            try:
+                import pulse_alerts
+                await pulse_alerts.flush(bot)
+            except Exception as exc:
+                print(f"⚠️ Systemalarme konnten nicht gesendet werden: {type(exc).__name__}")
             # F-04: maintenance mode pauses the bot automations; the memory guard above keeps running.
             import pulse_flags
             if not pulse_flags.automations_paused():

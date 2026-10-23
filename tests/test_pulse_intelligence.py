@@ -1,7 +1,11 @@
 """Unit tests for the local Pulse Intelligence tools (no Discord connection required)."""
 import json
+import sys
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # README gate runs it as `python tests/test_pulse_intelligence.py`
 
 from pulse_intelligence import (
     build_copilot_report,

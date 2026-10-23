@@ -49,6 +49,18 @@ class HealthzTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIsNone(body["memory_mb"])
 
+    def test_reports_job_summary_and_alerts_on_database_failure(self):
+        import pulse_alerts
+        pulse_alerts.reset()
+        bot = SimpleNamespace(is_ready=lambda: True, get_guild=lambda _: object(), latency=0.05)
+        with patch("pulse_jobs.health_summary", return_value={"last_job_ok": "2026-10-23T10:00:00+00:00", "jobs_failing": ["X"]}),              patch.object(pulse_db, "connect", side_effect=RuntimeError("locked")):
+            status, body = call(bot)
+        self.assertEqual(status, 503)
+        self.assertEqual(body["last_job_ok"], "2026-10-23T10:00:00+00:00")
+        self.assertEqual(body["jobs_failing"], ["X"])
+        self.assertEqual(len(pulse_alerts.pending()), 1)
+        pulse_alerts.reset()
+
     def test_no_bot_yet(self):
         status, body = call(None)
         self.assertEqual(status, 503)

@@ -5,6 +5,9 @@
 - **Neu:** `deploy/vps_bootstrap.sh` richtet einen frischen Ubuntu-24.04-VPS einmalig ein: Updates, automatische Sicherheitsupdates, Docker/Compose, 2 GiB Swap, Firewall (SSH/80/443, SSH-Port wird automatisch erkannt), fail2ban, Checkout und Rechte für UID 1000. Wiederholbar; Laufzeitdaten bleiben unangetastet, Pulse wird nicht gestartet. Anleitung: `VPS_DEPLOYMENT.md` §0.
 - **`/healthz`** meldet zusätzlich `gateway_latency_ms` und `memory_mb` (Container-RAM). Der Statuscode (200 nur, wenn Bot, Server und Datenbank bereit sind) bleibt unverändert, Deploy-Rollback und Docker-Healthcheck verhalten sich wie bisher.
 - **`.gitattributes`** erzwingt LF für Shell-Skripte, Dockerfile, Caddyfile und YAML – ein unter Windows gespeichertes CRLF hätte `remote_deploy.sh` auf dem VPS abbrechen lassen.
+- **O-07 Systemalarme:** fehlgeschlagene Hintergrundjobs, Auto-/Komplett-Backups, Restore-Tests und eine nicht erreichbare Datenbank melden sich gedrosselt (je Ursache höchstens alle 30 Minuten, max. 20 wartende, 5 pro Minute, ohne Erwähnungen) im optionalen `PULSE_SYSTEM_ALERT_CHANNEL_ID`. Gesendet wird von der bestehenden 60-s-Automationsschleife (`pulse_alerts.py`), kein neuer Hintergrundprozess. `/healthz` meldet zusätzlich `last_job_ok` und `jobs_failing`; der Statuscode bleibt unverändert.
+- **Behoben (Windows-Konsole):** Statusmeldungen mit Emoji lösten auf einer cp1252-Konsole `UnicodeEncodeError` aus – u. a. scheiterte dadurch die Registrierung von Pulse Pro beim Start, und 44 Tests fielen lokal aus. Nicht darstellbare Zeichen werden jetzt ersetzt (`pulse_logging.safe_console`).
+- **Behoben:** das README-Gate `python tests/test_pulse_intelligence.py` fand das Modul nicht, wenn es direkt gestartet wurde.
 - **Tests:** der Bash-Syntaxtest überspringt den WSL-Platzhalter ohne Distribution, statt fehlzuschlagen, und prüft jetzt beide Deploy-Skripte.
 
 ### Aus `verbesserung/phase-6-bot` übernommen und an diesen Stand angepasst

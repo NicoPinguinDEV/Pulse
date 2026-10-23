@@ -40,6 +40,18 @@ def setup(base_dir: str | None = None, level: int = logging.INFO) -> logging.Log
     return logger
 
 
+def safe_console() -> None:
+    """Emoji in print() must never raise: on a non-UTF-8 console (Windows cp1252) a UnicodeEncodeError
+    inside an except block would replace the real error handling. Unencodable characters become '?'."""
+    import sys
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream is not None and (getattr(stream, "encoding", "") or "").lower().replace("-", "") != "utf8":
+                stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def get(name: str) -> logging.Logger:
     return logging.getLogger(f"{LOGGER_NAME}.{name}")
 

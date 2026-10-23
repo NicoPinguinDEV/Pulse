@@ -38,6 +38,8 @@ import discord
 from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
+import pulse_logging
+pulse_logging.safe_console()  # status prints with emoji must not crash on a cp1252 console (no file access)
 from pulse_version import PULSE_VERSION
 from pulse_time import display, parse_timestamp
 
@@ -3178,6 +3180,15 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
 # =============================================================
 # HEALTH CHECK
 # =============================================================
+def _system_alert(key: str, message: str) -> None:
+    """O-07: throttled alert in PULSE_SYSTEM_ALERT_CHANNEL_ID (posted by the automation loop)."""
+    try:
+        import pulse_alerts
+        pulse_alerts.raise_alert(key, message)
+    except Exception:
+        pass
+
+
 @app.get("/healthz")
 async def healthz(request: Request):
     bot = getattr(request.app.state, "bot", None)
@@ -3189,6 +3200,8 @@ async def healthz(request: Request):
     except Exception:
         db_ok = False
 
+    if not db_ok:
+        _system_alert("database", "🔴 **Datenbank nicht erreichbar:** `/healthz` konnte `pulse.db` nicht abfragen.")
     ready = bool(bot and bot.is_ready() and guild and db_ok)
     # O-07: diagnostics only – they never change the status code the deploy/Docker health checks rely on.
     latency = getattr(bot, "latency", None) if bot else None
@@ -3198,6 +3211,11 @@ async def healthz(request: Request):
         memory_mb = container_memory_mb()
     except Exception:
         memory_mb = None
+    try:
+        import pulse_jobs
+        jobs = pulse_jobs.health_summary()
+    except Exception:
+        jobs = {"last_job_ok": None, "jobs_failing": []}
     return JSONResponse(
         {
             "ok": ready,
@@ -3207,6 +3225,8 @@ async def healthz(request: Request):
             "database_ok": db_ok,
             "gateway_latency_ms": latency_ms,
             "memory_mb": memory_mb,
+            "last_job_ok": jobs["last_job_ok"],
+            "jobs_failing": jobs["jobs_failing"],
         },
         status_code=200 if ready else 503,
     )
@@ -9261,6 +9281,7 @@ async def auto_backup_loop():
                                 print(f"⚠️ Auto-Backup ist lokal vorhanden; Discord-Kopie fehlgeschlagen ({type(upload_error).__name__}).")
         except Exception as e:
             print(f"Auto-Backup fehlgeschlagen: {type(e).__name__}: {e}")
+            _system_alert("backup:auto", f"🔴 **Auto-Backup fehlgeschlagen:** `{type(e).__name__}` – vorhandene Sicherungen bleiben unverändert.")
 
 
 async def _start_background_tasks():
@@ -9639,8 +9660,10 @@ async def run_auto_full_backup(guild) -> None:
                       f"{result['backup']} · " + ("; ".join(result["problems"])[:300] or "alle Datenbanken intakt"))
             if not result["ok"]:
                 print("🔴 Restore-Test fehlgeschlagen: " + "; ".join(result["problems"])[:300])
+                _system_alert("backup:restore-test", "🔴 **Restore-Test fehlgeschlagen:** " + "; ".join(result["problems"])[:300])
     except Exception as exc:
         print(f"⚠️ Komplett-Backup fehlgeschlagen: {type(exc).__name__}: {exc}")
+        _system_alert("backup:full", f"🔴 **Komplett-Backup fehlgeschlagen:** `{type(exc).__name__}` – vorhandene Sicherungen bleiben unverändert.")
 
 
 def full_backup_section() -> str:
