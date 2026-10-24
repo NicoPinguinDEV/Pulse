@@ -1,6 +1,6 @@
 ---
 name: pulse-performance
-description: Performance- und Ressourcenprüfung für Pulse – RAM-Ziel 250 MB, begrenzte Caches/Queues, blockierende Aufrufe im Event-Loop, teure Dashboard-Seiten, SQLite-Abfragen, Scheduler und Discord-Rate-Limits. Verwenden bei langsamen Seiten, steigendem Speicher, neuen Hintergrundjobs/Caches oder vor Merge ressourcenrelevanter Änderungen.
+description: Performance- und Ressourcenprüfung für Pulse – 768-MiB-Containerbudget (Warnung/Kritisch/Notfall 500/620/700 MB), begrenzte Caches/Queues, blockierende Aufrufe im Event-Loop, teure Dashboard-Seiten, SQLite-Abfragen, Scheduler und Discord-Rate-Limits. Verwenden bei langsamen Seiten, steigendem Speicher, neuen Hintergrundjobs/Caches oder vor Merge ressourcenrelevanter Änderungen.
 argument-hint: [diff | Route/Modul | messen <route>]
 disable-model-invocation: true
 ---
