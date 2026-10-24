@@ -89,7 +89,7 @@ class RecoveryCog(commands.Cog):
         self._last_sync_by_user[interaction.user.id] = now
 
         if all_users:
-            total = pulse_recovery.count_linked_users()
+            total, snapshot_at = pulse_recovery.recovery_snapshot()
             await interaction.response.send_message(
                 f"🛡️ **Recovery-Sync im Hintergrund gestartet.** Ziel: **{target.name}**, "
                 f"Bürgerrolle: **{role.name}**. Zu Beginn waren {total} Recovery-Konten gespeichert. "
@@ -119,7 +119,7 @@ class RecoveryCog(commands.Cog):
                 "stopped_reason": "",
             }
             self._sync_task = asyncio.create_task(
-                self._run_all_sync(dict(settings), target, role),
+                self._run_all_sync(dict(settings), target, role, snapshot_at),
                 name="pulse-recovery-sync-all",
             )
             return
@@ -177,7 +177,7 @@ class RecoveryCog(commands.Cog):
             lines.append("Einige Fehler: " + " | ".join(failures))
         await interaction.followup.send("\n".join(lines), ephemeral=True)
 
-    async def _run_all_sync(self, settings: dict, target, role) -> None:
+    async def _run_all_sync(self, settings: dict, target, role, snapshot_at: float) -> None:
         """Process every explicitly opted-in user in stable database pages."""
         import pulse_recovery
         import webserver as ws
@@ -200,13 +200,15 @@ class RecoveryCog(commands.Cog):
                         break
 
                     people, next_cursor, scanned_page, has_more = pulse_recovery.list_linked_users_page(
-                        after_user_id=cursor, limit=RECOVERY_PAGE_SIZE
+                        after_user_id=cursor,
+                        limit=RECOVERY_PAGE_SIZE,
+                        consented_before=snapshot_at,
                     )
                     if scanned_page == 0:
                         break
-                    state["scanned"] += scanned_page
                     invalid_tokens = scanned_page - len(people)
                     if invalid_tokens:
+                        state["scanned"] += invalid_tokens
                         state["failed"] += invalid_tokens
                         state["failures"].append(
                             f"{invalid_tokens} gespeicherte(r) Zugang/Zugänge konnten nicht entschlüsselt werden."
@@ -228,6 +230,7 @@ class RecoveryCog(commands.Cog):
                         ok, message = await pulse_recovery.rejoin_user(
                             person["user_id"], person["refresh_token"], self.bot, client, settings=settings
                         )
+                        state["scanned"] += 1
                         if ok:
                             if message.startswith("bereits vorhanden"):
                                 state["already"] += 1

@@ -40,7 +40,7 @@ async def _request_with_429_retry(request_factory: Any):
             delay = float(retry_after)
         except (TypeError, ValueError):
             delay = 1.0
-        await asyncio.sleep(min(max(delay, 0.5), 300.0))
+        await asyncio.sleep(max(delay, 0.5))
     return response
 DANGEROUS_ROLE_PERMISSIONS = (
     "administrator", "manage_guild", "manage_roles", "manage_channels",
@@ -164,28 +164,50 @@ def list_linked_users(limit: int = 100) -> list[dict]:
     return items
 
 
-def list_linked_users_page(
-    after_user_id: str | None = None, limit: int = 100
-) -> tuple[list[dict], str | None, int, bool]:
-    """Return a stable, cursor-paginated page for full recovery syncs.
+def recovery_snapshot() -> tuple[int, float]:
+    """Return the stored-consent count and a cutoff for a consistent background run."""
+    snapshot_at = time.time()
+    with _db().connect() as db:
+        _init(db)
+        row = db.execute(
+            "SELECT COUNT(*) FROM recovery_oauth_tokens WHERE consented_at <= ?",
+            (snapshot_at,),
+        ).fetchone()
+    return (int(row[0]) if row else 0), snapshot_at
 
-    The cursor advances over database rows even when a token cannot be decrypted, so
-    one damaged entry cannot block processing all subsequent users.
+
+def list_linked_users_page(
+    after_user_id: str | None = None,
+    limit: int = 100,
+    *,
+    consented_before: float | None = None,
+) -> tuple[list[dict], str | None, int, bool]:
+    """Return a stable, cursor-paginated page of users with stored explicit consent.
+
+    The timestamp cutoff freezes the migration's candidate set. The cursor advances
+    over database rows even when an encrypted token cannot be decrypted, so one
+    damaged entry cannot block processing later users.
     """
     limit = max(1, min(MAX_BATCH_SIZE, int(limit)))
+    conditions = []
+    params: list[Any] = []
+    if after_user_id is not None:
+        conditions.append("user_id > ?")
+        params.append(str(after_user_id))
+    if consented_before is not None:
+        conditions.append("consented_at <= ?")
+        params.append(float(consented_before))
     query = (
         "SELECT user_id, refresh_token_enc, consented_at, last_sync_at, last_status "
         "FROM recovery_oauth_tokens "
     )
+    if conditions:
+        query += "WHERE " + " AND ".join(conditions) + " "
+    query += "ORDER BY user_id LIMIT ?"
+    params.append(limit)
     with _db().connect() as db:
         _init(db)
-        if after_user_id is None:
-            rows = db.execute(query + "ORDER BY user_id LIMIT ?", (limit,)).fetchall()
-        else:
-            rows = db.execute(
-                query + "WHERE user_id > ? ORDER BY user_id LIMIT ?",
-                (str(after_user_id), limit),
-            ).fetchall()
+        rows = db.execute(query, tuple(params)).fetchall()
     items = []
     for row in rows:
         token = _decrypt(str(row[1]))

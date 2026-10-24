@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pulse_db
 import pulse_recovery
@@ -68,6 +68,71 @@ class RecoveryTests(unittest.TestCase):
         }
         _, _, problems = pulse_recovery.target_status(bot, settings)
         self.assertTrue(any("Administrator" in problem or "administrator" in problem for problem in problems))
+
+    def test_full_recovery_paging_processes_more_than_one_hundred_consents(self):
+        for index in range(125):
+            pulse_recovery.store_refresh_token(str(100000000000000000 + index), f"refresh-{index}")
+
+        total, cutoff = pulse_recovery.recovery_snapshot()
+        self.assertEqual(total, 125)
+
+        cursor = None
+        seen = []
+        scanned = 0
+        while True:
+            page, next_cursor, page_scanned, has_more = pulse_recovery.list_linked_users_page(
+                after_user_id=cursor, limit=37, consented_before=cutoff
+            )
+            if page_scanned == 0:
+                break
+            seen.extend(page)
+            scanned += page_scanned
+            cursor = next_cursor
+            if not has_more:
+                break
+
+        self.assertEqual(scanned, 125)
+        self.assertEqual(len(seen), 125)
+        self.assertEqual(len({person["user_id"] for person in seen}), 125)
+
+    def test_recovery_snapshot_excludes_consents_added_after_start(self):
+        for index in range(3):
+            pulse_recovery.store_refresh_token(str(100000000000000100 + index), f"initial-{index}")
+
+        total, cutoff = pulse_recovery.recovery_snapshot()
+        pulse_recovery.store_refresh_token(
+            "100000000000000199", "added-after-start", now=cutoff + 1
+        )
+        page, _cursor, scanned, _has_more = pulse_recovery.list_linked_users_page(
+            after_user_id=None, limit=100, consented_before=cutoff
+        )
+
+        self.assertEqual(total, 3)
+        self.assertEqual(scanned, 3)
+        self.assertEqual(len(page), 3)
+        self.assertNotIn("100000000000000199", {person["user_id"] for person in page})
+
+
+class RecoveryRateLimitTests(unittest.IsolatedAsyncioTestCase):
+    async def test_retry_after_longer_than_five_minutes_is_fully_honored(self):
+        class FakeResponse:
+            def __init__(self, status_code, retry_after=None):
+                self.status_code = status_code
+                self.headers = {"Retry-After": str(retry_after or 1)}
+
+            def json(self):
+                return {"retry_after": 301} if self.status_code == 429 else {}
+
+        responses = [FakeResponse(429, 301), FakeResponse(200)]
+
+        async def request_factory():
+            return responses.pop(0)
+
+        with patch("pulse_recovery.asyncio.sleep", new_callable=AsyncMock) as sleep:
+            response = await pulse_recovery._request_with_429_retry(request_factory)
+
+        self.assertEqual(response.status_code, 200)
+        sleep.assert_awaited_once_with(301.0)
 
 
 if __name__ == "__main__":
