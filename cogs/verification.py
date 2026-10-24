@@ -209,7 +209,26 @@ class Verification(commands.Cog):
                     await self.record_error(f"Unverifiziert-Rolle von Mitglied {member.id} nicht entfernt ({type(exc).__name__}); Bürgerrolle wurde vergeben.")
                     await self._reply(interaction, "⚠️ Du hast die Bürgerrolle erhalten, aber eine alte Rolle konnte nicht entfernt werden. Das Team wurde informiert.")
                     return "partial"
-            await self._reply(interaction, "✅ Verifikation abgeschlossen – willkommen! Du siehst jetzt alle freigegebenen Bereiche.")
+            success_text = "✅ Verifikation abgeschlossen – willkommen! Du siehst jetzt alle freigegebenen Bereiche."
+            # Backup access is a separate, optional Discord OAuth consent. Never silently add a verified
+            # member to another server or retain a rejoin token without the user's explicit authorization.
+            try:
+                import pulse_recovery
+                import webserver as ws
+                recovery = pulse_recovery.load_settings()
+                recovery_url = str(getattr(ws, "PUBLIC_BASE_URL", "") or "").rstrip("/")
+                if recovery["enabled"] and recovery_url.startswith("https://"):
+                    success_text += (
+                        "\n\n🛡️ **Optionaler Notfall-Backup-Server**\n"
+                        "Du kannst Pulse ausdrücklich erlauben, dich dem Backup-Server hinzuzufügen. "
+                        "Dort wird nur die konfigurierte Bürgerrolle vergeben; Teamrollen werden nicht kopiert. "
+                        "Für spätere Wiederherstellung speichert Pulse einen verschlüsselten Discord-Recovery-Zugang. "
+                        "Du kannst ihn jederzeit mit `/recovery-abmelden` löschen.\n"
+                        f"[Backup-Zugang freiwillig freischalten]({recovery_url}/recovery/authorize)"
+                    )
+            except Exception as exc:
+                print(f"⚠️ Optionale Recovery-Info konnte nicht vorbereitet werden ({type(exc).__name__}).")
+            await self._reply(interaction, success_text)
             return "verified"
 
     # ------------------------------------------------------------------ reminder
