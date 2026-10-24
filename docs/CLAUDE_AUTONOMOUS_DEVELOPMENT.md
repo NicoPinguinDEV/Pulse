@@ -88,7 +88,7 @@ Vergleiche mehrere Kandidaten gedanklich nach Nutzen für Teamler, Sicherheitswi
 - Produktionsdaten, Datenbanken, Backups, Transkripte, Teamakten oder Einstellungen niemals zu Testzwecken überschreiben oder löschen.
 - Änderungen an Datenbankschemata müssen rückwärtskompatibel, idempotent und mit Sicherungs-/Migrationsstrategie erfolgen.
 - Keine Secrets, Tokens, `.env`, private Daten oder reale Laufzeitdateien commiten oder in Logs ausgeben.
-- Das Projektbudget von maximal 250 MB RAM strikt im Blick behalten. Keine unnötigen permanenten Tasks, unbegrenzten Queues/Caches oder unnötigen schweren Abhängigkeiten einführen.
+- Das Produktionsbudget des aktuellen 2-GiB-VPS beachten: Docker-Limit 768 MiB RAM plus bis zu 256 MiB Swap; Warnung/kritisch/Notfall bei 500/620/700 MB. Caches und Queues trotzdem begrenzen und die Host-Auslastung im Blick behalten. Keine unnötigen permanenten Tasks, unbegrenzten Queues/Caches oder unnötigen schweren Abhängigkeiten einführen.
 - Keine zwingend kostenpflichtige KI-API neu einführen. Bestehender Bot muss ohne externe KI-Guthaben normal weiterlaufen können.
 - Keine Tests gegen den echten Discord-Server durchführen. Keine realen Rollen ändern, echten Sanktionen auslösen oder produktive Nachrichten versenden.
 - Keine automatische Produktionsfreigabe, kein Merge und kein Push nach `main`.
