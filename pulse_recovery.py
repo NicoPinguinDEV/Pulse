@@ -142,6 +142,13 @@ def list_linked_users(limit: int = 100) -> list[dict]:
     return items
 
 
+def count_linked_users() -> int:
+    with _db().connect() as db:
+        _init(db)
+        row = db.execute("SELECT COUNT(*) FROM recovery_oauth_tokens").fetchone()
+    return int(row[0]) if row else 0
+
+
 def mark_sync(user_id, status: str, *, now: float | None = None) -> None:
     safe_status = str(status or "unbekannt")[:80]
     with _db().connect() as db:
@@ -246,9 +253,10 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
                 return False, f"Discord konnte den Beitritt nicht abschließen (HTTP {joined.status_code}).", uid
             # If the person was already there, Discord returns 204 without changing roles.
             # Add only the citizen role; never copy roles from the primary guild or remove existing roles.
-            if joined.status_code == 204 and role.id not in {r.id for r in getattr(await guild.fetch_member(int(uid)), "roles", [])}:
+            if joined.status_code == 204:
                 member = await guild.fetch_member(int(uid))
-                await member.add_roles(role, reason="Pulse Recovery: ausdrücklich freigegebene Bürgerrolle")
+                if role.id not in {r.id for r in getattr(member, "roles", [])}:
+                    await member.add_roles(role, reason="Pulse Recovery: ausdrücklich freigegebene Bürgerrolle")
         store_refresh_token(uid, tokens["refresh_token"])
         mark_sync(uid, "Backup-Zugriff freigeschaltet")
         return True, "Freigabe erfolgreich. Du bist dem Backup-Server mit der konfigurierten Bürgerrolle beigetreten. Es werden keine Team- oder Moderationsrollen übernommen.", uid
