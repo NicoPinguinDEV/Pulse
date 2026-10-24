@@ -16,7 +16,7 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import Cookie, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db
 from pulse_embed_design import DEFAULT_COLORS, branding, normalize_hex, save_branding
@@ -575,8 +575,54 @@ def register(app) -> None:
     @app.get("/admin/privacy", response_class=HTMLResponse)
     async def admin_privacy(request: Request, user_session: str = Cookie(None)):
         import pulse_retention
+        import pulse_ip_audit
+        import pulse_recovery
+        from datetime import datetime
         ctx = admin_ctx(request, user_session)
         settings = pulse_retention.load_settings()
+        recovery_settings = pulse_recovery.load_settings()
+        recovery_count = pulse_recovery.count_linked_users()
+        ip_entries = await asyncio.to_thread(pulse_ip_audit.list_entries, 100)
+        try:
+            ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"],
+                         "IP-Anmeldeprotokoll angesehen", f"{len(ip_entries)} neueste Anmeldungen")
+        except Exception:
+            pass
+        ip_rows = "".join(
+            '<tr class="border-b border-slate-800/50">'
+            f'<td class="px-3 py-2 whitespace-nowrap">{e(datetime.fromtimestamp(item["logged_at"]).astimezone().strftime("%d.%m.%Y %H:%M:%S"))}</td>'
+            f'<td class="px-3 py-2"><span class="font-semibold">{e(item["username"])}</span><div class="text-[10px] text-slate-500">{e(item["user_id"])}</div></td>'
+            f'<td class="px-3 py-2 font-mono text-xs">{e(item["ip_address"])}</td>'
+            f'<td class="px-3 py-2 text-xs text-slate-400">{e(item["user_agent"])}</td></tr>'
+            for item in ip_entries
+        ) or '<tr><td colspan="4" class="px-3 py-5 text-slate-400">Noch keine erfolgreichen Dashboard-Anmeldungen protokolliert.</td></tr>'
+        ip_section = (
+            '<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">🔐 Dashboard-Anmeldeprotokoll</div>'
+            f'<span class="pulse-pill">{len(ip_entries)} neueste</span></div><div class="pulse-card-b">'
+            '<p class="text-xs text-slate-400 mb-3">Erfasst werden nur erfolgreiche Dashboard-Anmeldungen, keine normalen Seitenaufrufe. '
+            'Einträge, die älter als 30 Tage sind, werden bei der nächsten Anmeldung oder Datenschutzprüfung bereinigt. IP-Adressen sind personenbezogen und werden hier nur Administratoren angezeigt. '
+            'Eine IP beweist wegen VPN, Mobilfunk und dynamischen Adressen nicht zuverlässig den tatsächlichen Aufenthaltsort.</p>'
+            '<div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead><tr class="text-slate-400 border-b border-slate-700">'
+            '<th class="px-3 py-2">Zeitpunkt</th><th class="px-3 py-2">Discord-Konto</th><th class="px-3 py-2">IP-Adresse</th>'
+            '<th class="px-3 py-2">Browserkennung</th></tr></thead><tbody>' + ip_rows + '</tbody></table></div>'
+            '</div></section>'
+        )
+        recovery_section = (
+            '<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">🛡️ Notfall-Backup-Server</div>'
+            f'<span class="pulse-pill {"good" if recovery_settings["enabled"] else ""}">{"aktiv" if recovery_settings["enabled"] else "deaktiviert"}</span></div>'
+            '<div class="pulse-card-b"><p class="text-xs text-slate-400 mb-3">Nutzer müssen die zusätzliche Discord-Freigabe ausdrücklich bestätigen. '
+            'Danach kann Pulse sie bei einer Wiederherstellung dem Backup-Server hinzufügen. Es werden keine Rollen aus dem Hauptserver kopiert; '
+            'neue Mitglieder bekommen ausschließlich die hier konfigurierte Bürgerrolle. Diese Rolle darf keine Administrator- oder Moderationsrechte haben.</p>'
+            '<form method="post" action="/admin/recovery/save" class="grid gap-3">'
+            f'<label class="pulse-check"><input type="checkbox" name="enabled" value="1"{" checked" if recovery_settings["enabled"] else ""}> Recovery-Zugang aktivieren</label>'
+            f'<label class="grid gap-1 text-xs font-semibold">Backup-Server-ID<input class="pulse-input" name="backup_guild_id" inputmode="numeric" pattern="[0-9]{{15,22}}" maxlength="22" value="{e(recovery_settings["backup_guild_id"])}"></label>'
+            f'<label class="grid gap-1 text-xs font-semibold">Bürgerrollen-ID auf dem Backup-Server<input class="pulse-input" name="citizen_role_id" inputmode="numeric" pattern="[0-9]{{15,22}}" maxlength="22" value="{e(recovery_settings["citizen_role_id"])}"></label>'
+            '<p class="text-[11px] text-slate-400">Pulse muss Mitglied des Backup-Servers sein und „Rollen verwalten“ sowie „Soforteinladung erstellen“ besitzen. '
+            'Der Wiederherstellungs-Befehl fügt nur Nutzer mit vorheriger Freigabe hinzu; er entfernt niemanden aus dem Hauptserver.</p>'
+            '<button class="pulse-btn primary" type="submit">💾 Backup-Einstellungen speichern</button></form>'
+            f'<p class="text-xs text-slate-400 mt-3">Gespeicherte, verschlüsselte Recovery-Freigaben: <strong>{recovery_count}</strong>. '
+            'Nutzer können die Freigabe jederzeit mit dem Discord-Befehl <code>/recovery-abmelden</code> löschen.</p></div></section>'
+        )
         preview = pulse_retention.plan(ws, settings)
         backup = pulse_retention.recent_full_backup(ws)
         last = settings.get("last_report") or {}
@@ -605,7 +651,7 @@ def register(app) -> None:
   <input class="pulse-input" name="discord_id" pattern="[0-9]{{15,22}}" required placeholder="Discord-ID">
   <button class="pulse-btn ghost" type="submit">⬇️ JSON herunterladen</button></form>
   <p class="text-[11px] text-slate-400 mt-2">Enthält Teamakte, Bewerbungen, Schichten, Abmeldungen, Tickets, Ereignisse und eigene Audit-Einträge. Der Export wird im Audit-Log vermerkt. Löschen einzelner Personen erfolgt weiterhin bewusst von Hand.</p>
- </div></section>'''
+ </div></section>{recovery_section}{ip_section}'''
         return HTMLResponse(render_pro_page(ws, "Datenschutz", ctx, "admin-privacy", body))
 
     @app.post("/admin/privacy")
@@ -623,6 +669,84 @@ def register(app) -> None:
                      f"Bereinigung {'an' if saved['enabled'] else 'aus'} · Bewerbungen {saved['applications_days']} Tage · Audit {saved['audit_days']} Tage")
         return ws.back("/admin/privacy", "Datenschutz-Einstellungen gespeichert.", True)
 
+    @app.post("/admin/recovery/save")
+    async def admin_recovery_save(request: Request, user_session: str = Cookie(None)):
+        import pulse_recovery
+        ctx = admin_ctx(request, user_session)
+        form = await request.form()
+        enabled = form.get("enabled") == "1"
+        raw_guild = str(form.get("backup_guild_id") or "").strip()
+        raw_role = str(form.get("citizen_role_id") or "").strip()
+        valid_guild = bool(re.fullmatch(r"[0-9]{15,22}", raw_guild))
+        valid_role = bool(re.fullmatch(r"[0-9]{15,22}", raw_role))
+        if enabled and not (valid_guild and valid_role):
+            return ws.back("/admin/privacy", "Zum Aktivieren benötigst du gültige Discord-Server- und Bürgerrollen-IDs.", False)
+        candidate = {
+            "enabled": enabled,
+            "backup_guild_id": raw_guild if valid_guild else "",
+            "citizen_role_id": raw_role if valid_role else "",
+            "log_channel_id": "",
+        }
+        if enabled:
+            bot = getattr(request.app.state, "bot", None)
+            if not bot:
+                return ws.back("/admin/privacy", "Pulse-Bot ist nicht bereit. Einstellungen wurden nicht aktiviert.", False)
+            _, _, problems = pulse_recovery.target_status(bot, candidate)
+            if problems:
+                return ws.back("/admin/privacy", "Backup nicht aktiviert: " + " ".join(problems), False)
+        saved = pulse_recovery.save_settings(candidate)
+        ws.log_audit(
+            ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"],
+            "Backup-Recovery-Einstellungen geändert",
+            f"Aktiv {'ja' if saved['enabled'] else 'nein'}; Backup-Server {saved['backup_guild_id']}; Bürgerrolle {saved['citizen_role_id']}",
+        )
+        return ws.back("/admin/privacy", "Backup-Recovery-Einstellungen gespeichert.", True)
+
+    @app.get("/recovery/authorize", response_class=HTMLResponse)
+    async def recovery_authorize(request: Request):
+        import pulse_recovery
+        settings = pulse_recovery.load_settings()
+        if not settings["enabled"]:
+            raise HTTPException(status_code=404, detail="Die Backup-Wiederherstellung ist nicht aktiviert.")
+        detail = (
+            "Dies ist freiwillig und unabhängig von der normalen Serververifikation. Wenn du fortfährst, "
+            "fragt Discord dich ausdrücklich nach der Freigabe, Pulse dich dem konfigurierten Backup-Server hinzuzufügen. "
+            "Pulse speichert den dafür nötigen Wiederbeitrittszugang verschlüsselt, damit die Serverleitung ihn bei einem Notfall-Sync "
+            "verwenden kann. Auf dem Backup-Server wird nur die konfigurierte Bürgerrolle vergeben; Teamrollen werden nicht übertragen. "
+            "Mit /recovery-abmelden kannst du die Freigabe und den gespeicherten Zugang jederzeit widerrufen."
+        )
+        action = (
+            '<form method="post" action="/recovery/authorize/start" class="mt-5">'
+            '<button class="px-4 py-3 rounded-xl bg-indigo-600 text-white font-semibold">Mit Discord fortfahren</button></form>'
+            '<a class="inline-block mt-3 text-sm underline" href="/">Abbrechen</a>'
+        )
+        return HTMLResponse(ws.simple_page("🛡️", "Freiwilliger Backup-Zugang", detail, action))
+
+    @app.post("/recovery/authorize/start")
+    async def recovery_authorize_start(request: Request):
+        import secrets as _secrets
+        from urllib.parse import quote
+        import pulse_recovery
+        if ws.rate_limited(ws.request_rate_key(request, "recovery-oauth-start"), limit=10, window=600):
+            return ws.rate_limit_response("Zu viele Backup-Freigabeversuche. Bitte später erneut versuchen.")
+        settings = pulse_recovery.load_settings()
+        if not settings["enabled"]:
+            raise HTTPException(status_code=404, detail="Die Backup-Wiederherstellung ist nicht aktiviert.")
+        if not ws.CLIENT_ID or not ws.CLIENT_SECRET:
+            raise HTTPException(status_code=503, detail="Discord OAuth ist nicht vollständig konfiguriert.")
+        redirect_uri = ws.oauth_redirect_uri(request)
+        if not redirect_uri.startswith("https://"):
+            raise HTTPException(status_code=503, detail="Die Backup-Freigabe benötigt eine registrierte HTTPS-Callback-URL.")
+        state = _secrets.token_urlsafe(32)
+        url = (
+            f"https://discord.com/oauth2/authorize?client_id={ws.CLIENT_ID}"
+            f"&redirect_uri={quote(redirect_uri, safe='')}&response_type=code"
+            f"&scope={quote('identify guilds.join', safe='')}&state={state}&prompt=consent"
+        )
+        response = RedirectResponse(url=url, status_code=303)
+        response.set_cookie("recovery_oauth_state", state, max_age=600, httponly=True, samesite="lax", secure=True)
+        return response
+
     @app.get("/admin/privacy/export")
     async def admin_privacy_export(request: Request, discord_id: str = "", user_session: str = Cookie(None)):
         import json as _json
@@ -633,6 +757,8 @@ def register(app) -> None:
         if not re.fullmatch(r"[0-9]{15,22}", uid):
             return ws.back("/admin/privacy", "Bitte eine gültige Discord-ID eingeben.", False)
         data = await asyncio.to_thread(pulse_retention.export_person, ws, uid)  # file/DB scan off the event loop
+        import pulse_ip_audit
+        data["dashboard_login_ip_audit"] = await asyncio.to_thread(pulse_ip_audit.entries_for_user, uid)
         ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Datenauskunft exportiert", f"Discord-ID {uid}")
         return Response(_json.dumps(data, ensure_ascii=False, indent=2, default=str), media_type="application/json",
                         headers={"Content-Disposition": f'attachment; filename="pulse_auskunft_{uid}.json"'})
