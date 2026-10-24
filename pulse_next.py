@@ -24,6 +24,7 @@ from fastapi import Cookie, Form, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 import pulse_db as db
+import pulse_sqlite
 import pulse_ultimate as u
 
 BASE = Path(__file__).resolve().parent
@@ -60,8 +61,7 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 def cx():
-    c = sqlite3.connect(u.ultimate_db(), timeout=15)
-    c.row_factory = sqlite3.Row
+    c = pulse_sqlite.connect(u.ultimate_db(), timeout=15)
     c.execute("PRAGMA busy_timeout=15000")
     c.execute("PRAGMA journal_mode=WAL")
     return c

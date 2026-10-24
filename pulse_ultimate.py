@@ -36,6 +36,7 @@ from fastapi import Cookie, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
+import pulse_sqlite
 from pulse_safety import memory_guard_level as _policy_memory_guard_level
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
@@ -295,8 +296,7 @@ def uid(prefix: str) -> str:
 
 
 def cx():
-    c = sqlite3.connect(ultimate_db(), timeout=3)
-    c.row_factory = sqlite3.Row
+    c = pulse_sqlite.connect(ultimate_db(), timeout=3)
     c.execute("PRAGMA busy_timeout=3000")
     return c
 

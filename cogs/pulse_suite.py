@@ -21,6 +21,7 @@ from fastapi import Cookie, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
+import pulse_sqlite
 from pulse_jobs import tracked
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
 
@@ -62,8 +63,7 @@ a{color:inherit;text-decoration:none}.shell{display:flex;min-height:100vh}
 """
 
 def cx():
-    c = sqlite3.connect(DB_PATH, timeout=3)
-    c.row_factory = sqlite3.Row
+    c = pulse_sqlite.connect(DB_PATH, timeout=3)
     c.execute("PRAGMA busy_timeout=3000")
     return c
 
