@@ -210,7 +210,11 @@ class RetentionTests(unittest.TestCase):
             self.assertEqual(client.get("/admin/privacy").status_code, 403)
             self.assertEqual(client.get("/admin/privacy/export?discord_id=100000000000000001").status_code, 403)
         with patch.object(ws, "auth", fake_auth_for(ADMIN)):
-            self.assertIn("Aufbewahrungsfristen", client.get("/admin/privacy").text)
+            privacy_page = client.get("/admin/privacy")
+            self.assertIn("Aufbewahrungsfristen", privacy_page.text)
+            self.assertIn("Dashboard-Anmeldeprotokoll", privacy_page.text)
+            self.assertIn("IP-Adresse", privacy_page.text)
+            self.assertIn("Notfall-Backup-Server", privacy_page.text)
             saved = client.post("/admin/privacy", data={"enabled": "1", "applications_days": "183", "audit_days": "730",
                                                         "contact": "Leitung per Ticket"}, follow_redirects=False)
             self.assertIn("t=ok", saved.headers["location"])
