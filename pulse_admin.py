@@ -723,6 +723,7 @@ def register(app) -> None:
     @app.post("/recovery/authorize/start")
     async def recovery_authorize_start(request: Request):
         import secrets as _secrets
+        from urllib.parse import quote
         import pulse_recovery
         if ws.rate_limited(ws.request_rate_key(request, "recovery-oauth-start"), limit=10, window=600):
             return ws.rate_limit_response("Zu viele Backup-Freigabeversuche. Bitte später erneut versuchen.")
