@@ -9,7 +9,7 @@ Diese Anleitung lässt GitHub `NicoPinguinDEV/Pulse` als Codequelle bestehen. De
 - Genügend SSD-Speicher für die wachsenden Backups und Transkripte.
 - SSH-Zugang zum Server.
 
-**Hinweis für einen bestehenden 2-GiB-VPS:** Dieser liegt unter der empfohlenen Mindestgröße. Für den laufenden Betrieb ist in `compose.yaml` ein Pulse-Limit von 512 MiB RAM plus maximal 256 MiB zusätzlicher Swap vorgesehen, damit genug Speicher für Ubuntu, Docker, Caddy und andere Hostdienste verbleibt. Bei dauerhaft hoher Auslastung sollte der VPS auf mindestens 4 GiB RAM erweitert werden.
+**Hinweis für den bestehenden 2-GiB-VPS:** In `compose.yaml` sind für Pulse 768 MiB RAM plus maximal 256 MiB zusätzlicher Swap vorgesehen. Damit bleibt nominal etwa 1 GiB Host-RAM für Ubuntu, Docker, SSH und optionale Dienste frei; bei anhaltend hoher Host-Auslastung bleibt ein Upgrade auf mindestens 4 GiB RAM empfehlenswert.
 
 ## 0. Schnellstart für Vionity (KVM, Ubuntu 24.04, 2 GiB)
 
