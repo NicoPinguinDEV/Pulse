@@ -8,16 +8,26 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 
+# Policy for the current 2-GiB VPS: retain useful headroom for host and Docker.
+RAM_LIMIT_MB = 768.0
+RAM_WARN_MB = 500.0
+RAM_CRITICAL_MB = 620.0
+RAM_EMERGENCY_MB = 700.0
+RAM_RECOVERY_MB = 450.0
+RAM_CRITICAL_RECOVERY_MB = 560.0
+RAM_EMERGENCY_RECOVERY_MB = 650.0
+
+
 def memory_guard_level(
     rss_mb: float | None,
     current_level: int = 0,
     *,
-    warn_mb: float = 180.0,
-    critical_mb: float = 210.0,
-    emergency_mb: float = 230.0,
-    recovery_mb: float = 160.0,
-    critical_recovery_mb: float = 200.0,
-    emergency_recovery_mb: float = 220.0,
+    warn_mb: float = RAM_WARN_MB,
+    critical_mb: float = RAM_CRITICAL_MB,
+    emergency_mb: float = RAM_EMERGENCY_MB,
+    recovery_mb: float = RAM_RECOVERY_MB,
+    critical_recovery_mb: float = RAM_CRITICAL_RECOVERY_MB,
+    emergency_recovery_mb: float = RAM_EMERGENCY_RECOVERY_MB,
 ) -> int:
     """Return a RAM guard state with hysteresis to prevent threshold flapping.
 
