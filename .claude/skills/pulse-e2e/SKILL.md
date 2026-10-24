@@ -2,14 +2,16 @@
 name: pulse-e2e
 description: Dashboard-Workflows von Pulse im echten Browser (Playwright, headless) testen oder neue E2E-Tests schreiben – Seite öffnen, Formular ausfüllen, speichern, Ergebnis und Persistenz prüfen, Desktop und Mobil. Verwenden bei UI-/Formular-/Routenänderungen im Dashboard oder wenn ein E2E-Test fehlt.
 argument-hint: [run | neuer Workflow, z. B. "Teamrollen speichern"]
+disable-model-invocation: true
 ---
 
 # Pulse-E2E (Playwright)
 
 ## Umgebung
-- Einmalig: `python -m pip install -r requirements-dev.txt` und `python -m playwright install chromium`.
+- Einmalig: `python -m pip install --require-hashes -r requirements-dev.lock` (gepinnt, wie CI) und `python -m playwright install chromium`.
 - Server: `tools/preview_server.py` – echte FastAPI-App, Fake-Guild (`tests/fakes.py`), Fake-Login (`--role admin|team`), temporäre Daten, bindet nur 127.0.0.1, **kein Discord, kein OAuth**.
-- Referenztest: `tests/test_e2e_dashboard.py` (Wochenziel speichern: Desktop, Mobil, serverseitige Bereichsprüfung). Neue Tests dort oder als `tests/test_e2e_<bereich>.py` nach gleichem Muster (Server als Subprozess auf freiem Port, `TMP` auf TemporaryDirectory, externe Requests per `context.route` blockieren).
+- Referenztest: `tests/test_e2e_dashboard.py` – Basisklasse `_PreviewE2EBase` (Server als Subprozess auf freiem Port mit `--e2e-hooks`, `TMP` auf TemporaryDirectory, Serverausgabe in eine Logdatei statt PIPE, externe Requests per `context.route` blockiert, `PULSE_GITHUB_REPO=""`). Neue Klasse = eigener Server; `ROLE = "team"` für Rechte-Tests. Gespeicherte Werte über `self._config()` direkt prüfen.
+- Serverfehler: `POST /__preview/maintenance {"on": true}` (echter Restore-Sperrmodus → 503) und `GET /__preview/fail` (echte 500-Seite). Immer per `addCleanup` zurücksetzen. Client-Fehler (API 500, Netzwerk weg) per `page.route(...).fulfill/abort`.
 
 ## Ausführen
 ```
@@ -29,3 +31,8 @@ Ohne `PULSE_E2E=1` wird bei fehlendem Playwright übersprungen (normale CI/unitt
 
 ## Grenzen
 Keine Tests gegen den VPS, Produktions-URLs oder echte Discord-Logins. Ergebnis ehrlich berichten (bestanden/fehlgeschlagen/übersprungen + Grund).
+- Nicht bei jedem kleinen Backend-Fix laufen lassen – nur bei Dashboard-/Formular-/Routenänderungen; sonst `/pulse-verify targeted`.
+- Warten über `expect`/`wait_for_*`, nie feste `sleep`s. Für lange Seiten auch Scrollposition nach Speichern prüfen.
+- Der Test-Server muss im `tearDownClass`/`finally` beendet werden; danach keinen laufenden Prozess auf dem Port zurücklassen.
+- Das Playwright-MCP-Plugin nur zum Erkunden/Debuggen nutzen; was dauerhaft gelten soll, gehört als Test in `tests/`.
+- Fehlschlag dokumentieren: Test-ID, Schritt, erwarteter vs. tatsächlicher Zustand, `pageerror`-Ausgabe; Screenshots nur ins Scratch-/Temp-Verzeichnis.

@@ -42,7 +42,7 @@ jobs:
           python-version: "3.14"
       - name: Abhängigkeiten auditieren
         run: |
-          python -m pip install --upgrade pip pip-audit
+          python -m pip install --upgrade pip pip-audit==2.10.1
           pip-audit -r requirements.txt
 
   syntax:
@@ -54,6 +54,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements.txt
       - name: Abhaengigkeiten installieren
         run: |
           python -m pip install --upgrade pip
@@ -70,9 +72,40 @@ jobs:
           python tests/smoke_test.py
           python -m unittest discover -s tests -p 'test_*.py'
 
+  e2e-scope:
+    name: E2E nötig? (Pfadfilter)
+    runs-on: ubuntu-latest
+    outputs:
+      e2e: ${{ steps.scope.outputs.e2e }}
+    steps:
+      - name: Repository inklusive Historie auschecken
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Geänderte Dateien bewerten (tools/ci_e2e_needed.py)
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |
+          # Zeitplan/manueller Start: immer komplett. Unbekannte Basis (neuer Branch, Force-Push): ebenfalls.
+          if [[ "$EVENT" == "pull_request" ]]; then BASE="$PR_BASE"; elif [[ "$EVENT" == "push" ]]; then BASE="$PUSH_BEFORE"; else BASE=""; fi
+          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "e2e=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::E2E läuft vollständig (Ereignis $EVENT, keine vergleichbare Basis)."
+            exit 0
+          fi
+          git diff --name-only "$BASE" HEAD | tee changed.txt
+          python3 tools/ci_e2e_needed.py < changed.txt
+
   e2e:
     name: Dashboard-E2E (Playwright, lokal mit Fake-Login)
+    needs: e2e-scope
+    if: needs.e2e-scope.outputs.e2e == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Repository auschecken
         uses: actions/checkout@v4
@@ -80,13 +113,21 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - name: Abhaengigkeiten und Chromium installieren
+          cache: pip
+          cache-dependency-path: requirements-dev.lock
+      - name: Playwright-Browser aus dem Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements-dev.lock') }}
+      - name: Abhaengigkeiten (Hash-geprüft aus requirements-dev.lock) und Chromium installieren
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements-dev.txt
+          python -m pip install --require-hashes -r requirements-dev.lock
           python -m playwright install --with-deps chromium
       - name: E2E-Tests ausfuehren
         env:
           PULSE_E2E: "1"
+          PYTHONUTF8: "1"
         run: |
           python -m unittest tests.test_e2e_dashboard -v

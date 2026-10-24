@@ -9,7 +9,7 @@ argument-hint: [optional commit SHA]
 
 Dies ist ein produktiver Vorgang. Diese Skill darf nur laufen, wenn der Nutzer in dieser Unterhaltung ausdrücklich ein VPS-Deployment verlangt hat und sie manuell aufruft. Eine erfolgreiche CI oder ein Commit allein ist keine Erlaubnis zum Deployen.
 
-1. Lies die aktuelle VPS_DEPLOYMENT.md und .github/workflows/deploy-vps.yml; prüfe die tatsächliche Konfiguration, statt alte Befehle blind zu übernehmen.
+1. Lies die aktuelle VPS_DEPLOYMENT.md und .github/workflows/deploy-vps.yml; prüfe die tatsächliche Konfiguration, statt alte Befehle blind zu übernehmen. Die Repository-Variable `PULSE_AUTO_DEPLOY` und GitHub-Schutzregeln nie selbst setzen oder ändern.
 2. Prüfe Git-Branch, HEAD, Arbeitsbaum, Ziel-SHA und CI-Status für genau diesen SHA. Bei ungeklärten versionierten Änderungen, falschem Branch, fehlender CI oder laufender/fehlgeschlagener CI abbrechen und Grund melden.
 3. Stelle sicher, dass höchstens die bekannte lokale, nicht versionierte Datei assets/support_wait.mp3 zusätzlich vorhanden ist. Andere lokale Änderungen nicht überschreiben oder wegwerfen.
 4. Erzeuge vor dem Update ein nur für root zugängliches Backup außerhalb des Repositorys. Sichere vorhandene Teamdaten, Konfigurationen, .env, alle SQLite-Dateien und lokale Medien insbesondere assets/support_wait.mp3. Nie Geheimnisse ins Terminal, in Git oder die Zusammenfassung ausgeben.

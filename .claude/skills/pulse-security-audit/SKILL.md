@@ -13,13 +13,16 @@ Keine Exploits gegen den VPS oder fremde Systeme, keine echten Discord-/OAuth-Au
 ## Umfang
 - Kein Argument / `diff`: `git diff main...HEAD` + unversionierte Dateien.
 - Datei/Route/Bereich: gezielt dort, inkl. aller Registrierungen derselben Route (`grep -n '"<pfad>"' webserver.py pulse_*.py`) – `pulse_pro` u. a. ersetzen Handler zur Laufzeit.
+- Nur geänderte Funktionen und ihre direkten Aufrufer lesen; die Suche nur entlang eines konkreten Datenflusses (Eingabe → Senke) erweitern. Kein Vollscan.
 
 ## Prüfliste
 1. **Autorisierung (Regel 4):** Jede GET/POST-Route ruft `auth(request, user_session, perm=…, admin=…)` (bzw. `cctx` in `pulse_pro`) **vor** jeder Daten- oder Discord-Aktion. Passender `perm`-Schlüssel aus `PERM_KEYS`; Admin-Aktionen mit `admin=True`. Mehrstufige Aktionen (`/action` mit `action=…`) prüfen die Zuordnung Aktion → Recht (Tabelle bei `"set_weekly_goal": "admin"`). UI-Ausblendung zählt nicht.
 2. **Rollenhierarchie:** Rollen vergeben/entziehen nur unterhalb der eigenen und der Bot-Rolle; Team-Kick entfernt nur Rollen (Regel 5).
 3. **Same-Origin/CSRF:** `pulse_security.same_origin_ok` greift für zustandsändernde Methoden; keine neuen Ausnahmen ohne Begründung. Keine zustandsändernden GET-Routen.
 4. **Sessions/Cookies/API-Keys:** `pulse_sessions` – Ablauf, Widerruf, `HttpOnly`/`Secure`/`SameSite`, konstante Vergleiche (`hmac.compare_digest`, vgl. `webserver.py`), keine Tokens in URLs/Logs.
-5. **Eingaben:** Typ-/Bereichsprüfung serverseitig (Browser-`min/max` umgehbar), Längenlimits, IDs gegen die Guild prüfen.
+5. **Eingaben/IDOR/Injection:** Typ-/Bereichsprüfung serverseitig (Browser-`min/max` umgehbar), Längenlimits. Objekt-IDs (Ticket, Akte, Schicht, Mitglied) gegen Guild **und** Recht des Nutzers prüfen. SQLite nur parametrisiert, keine f-Strings in SQL; kein `eval`/`pickle`/`shell=True` mit Eingaben.
+5a. **SSRF/externe Provider:** Keine frei wählbaren URLs serverseitig abrufen (Webhooks, Bilder, KI-Provider) ohne Schema-/Host-Prüfung; Timeouts setzen; Ausfall/403/404/429 darf keine Daten verlieren oder Endlos-Retries auslösen.
+5b. **Discord-Rechte:** Bot-Aktionen prüfen vorher Bot-Rechte und Rollenposition; Fehler (`Forbidden`, `NotFound`, `HTTPException`) werden sauber gemeldet.
 6. **XSS:** Nutzer-/Discord-Inhalte im HTML immer über `esc(...)`; auch Attribute, `onclick`, Inline-`<script>`-Daten (JSON → `json.dumps` + Escape von `</`).
 7. **Pfade/Uploads/Backups:** Keine Pfade aus Eingaben ohne Normalisierung + Basisverzeichnis-Prüfung; Zip-Entpacken über `pulse_backup._safe_member`; Upload-Typ/Größe begrenzt (`pulse_uploads`).
 8. **Befehle/Host-Agent:** Server Control Center / `deploy/pulse_host_agent.py`: feste Befehlsliste, kein `shell=True` mit Eingaben, Bestätigung für Deploy/Rollback/Neustart.
@@ -28,4 +31,4 @@ Keine Exploits gegen den VPS oder fremde Systeme, keine echten Discord-/OAuth-Au
 11. **KI/AutoMod:** Keine automatische Sanktion allein durch KI; Features nicht still produktiv aktiviert (Regel 6).
 
 ## Ergebnis (Deutsch)
-Je Befund: Schwere (kritisch/hoch/mittel/niedrig), `datei:zeile`, Angriffsszenario (wer, welche Anfrage, welche Wirkung), belegt oder Vermutung, Fix-Vorschlag und Regressionstest (inkl. „keine Schreibaktion bei Ablehnung“). Danach die ausgeführten Tests mit echtem Ergebnis.
+Je Befund: Schwere (kritisch/hoch/mittel/niedrig), `datei:zeile`, Angriffsvoraussetzung (wer, welche Rolle, welche Anfrage), Wirkung, belegt oder Vermutung, Fix-Vorschlag und Regressionstest (inkl. „keine Schreibaktion bei Ablehnung“). Geprüfte, aber unbegründete Verdachtsfälle als **False Positive** mit Grund kennzeichnen. Danach die ausgeführten Tests mit echtem Ergebnis. Nie behaupten, Pulse sei vollständig sicher – nur, was im geprüften Umfang gefunden wurde.

@@ -24,6 +24,12 @@ concurrency:
 jobs:
   deploy:
     name: GitHub main → Pulse VPS
+    # No production deploy just because CI went green: the workflow_run trigger only deploys when the repository
+    # variable PULSE_AUTO_DEPLOY is explicitly "true" (Settings → Secrets and variables → Actions → Variables).
+    # Default (unset): only a manual "Run workflow" deploys. The environment "production" can additionally require
+    # a reviewer approval (Settings → Environments → production → Required reviewers).
+    if: github.event_name == 'workflow_dispatch' || vars.PULSE_AUTO_DEPLOY == 'true'
+    environment: production
     runs-on: ubuntu-latest
     env:
       # O-03: exactly the commit the checks ran on – not whatever main points to by now.
