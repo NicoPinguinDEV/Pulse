@@ -11,6 +11,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from pulse_safety import RAM_CRITICAL_MB, RAM_EMERGENCY_MB, RAM_LIMIT_MB, RAM_WARN_MB
+
 
 UTC = timezone.utc
 CLOSED_STATUSES = {"closed", "resolved", "done", "archived", "cancelled"}
@@ -59,15 +61,15 @@ def ticket_is_overdue(ticket, now=None):
 
 
 def memory_state(rss_mb):
-    """Classify process memory against Pulse's documented 180/210/230 MB thresholds."""
+    """Classify process memory using Pulse's shared RAM policy."""
     if rss_mb is None:
         return {"level": 0, "label": "unavailable", "advice": "RAM-Messwert nicht verfügbar."}
     value = float(rss_mb)
-    if value >= 230:
+    if value >= RAM_EMERGENCY_MB:
         return {"level": 3, "label": "emergency", "advice": "Notfallreserve: optionale Arbeit pausieren und Diagnose prüfen."}
-    if value >= 210:
+    if value >= RAM_CRITICAL_MB:
         return {"level": 2, "label": "critical", "advice": "Kritisch: Cache- und Hintergrundlast prüfen; Kernfunktionen bevorzugen."}
-    if value >= 180:
+    if value >= RAM_WARN_MB:
         return {"level": 1, "label": "warning", "advice": "Warnung: RAM-Trend beobachten und unnötige Abfragen vermeiden."}
     return {"level": 0, "label": "normal", "advice": "RAM liegt unter der Warnschwelle."}
 
@@ -119,21 +121,21 @@ def build_findings(metrics):
             "href": "/ultimate/tasks",
         })
     rss = metrics.get("rss_mb")
-    if rss is not None and float(rss) >= 230:
+    if rss is not None and float(rss) >= RAM_EMERGENCY_MB:
         findings.append({
             "priority": "critical", "topic": "system",
             "title": f"RAM-Notfallreserve bei {float(rss):.1f} MB",
-            "why": "Das 250-MB-Hostinglimit liegt nahe. Optionale Arbeit drosseln und aktuelle Logs prüfen.",
+            "why": f"Der gemessene Prozess-RAM nähert sich dem Containerbudget von {RAM_LIMIT_MB:.0f} MiB. Optionale Arbeit drosseln und aktuelle Logs prüfen.",
             "href": "/ultimate/system-twin",
         })
-    elif rss is not None and float(rss) >= 210:
+    elif rss is not None and float(rss) >= RAM_CRITICAL_MB:
         findings.append({
             "priority": "high", "topic": "system",
             "title": f"RAM kritisch bei {float(rss):.1f} MB",
             "why": "Cache-Bereinigung und Garbage Collection sind Schutzmaßnahmen, keine harte RAM-Grenze.",
             "href": "/ultimate/system-twin",
         })
-    elif rss is not None and float(rss) >= 180:
+    elif rss is not None and float(rss) >= RAM_WARN_MB:
         findings.append({
             "priority": "medium", "topic": "system",
             "title": f"RAM-Warnschwelle bei {float(rss):.1f} MB erreicht",
@@ -273,7 +275,7 @@ def simulate_scenario(scenario, impact, metrics):
     return {
         "scenario": scenario, "title": "Zusätzlicher RAM-Verbrauch",
         "current": round(float(rss), 1), "projected": round(projected, 1),
-        "detail": f"Bei +{increase:.1f} MB läge der Prozess bei {projected:.1f} MB von 250 MB Hostingbudget.",
+        "detail": f"Bei +{increase:.1f} MB läge der Prozess bei {projected:.1f} MB; Warnung ab {RAM_WARN_MB:.0f} MB, Containerbudget {RAM_LIMIT_MB:.0f} MiB.",
         "status": "critical" if level["level"] >= 2 else "warning" if level["level"] == 1 else "normal",
         "advice": level["advice"] + " Die Simulation pausiert keine Module.",
     }
@@ -628,7 +630,7 @@ def register(app):
                 f"{summary['component_count']} Komponenten</div>"
             )
             + "<div class='grid g2' style='margin-top:13px'>"
-            + metric_card("RAM aktuell", f"{metrics['rss_mb']:.1f} MB" if metrics.get("rss_mb") is not None else "n. v.", "Warnung ab 180 MB")
+            + metric_card("RAM aktuell", f"{metrics['rss_mb']:.1f} MB" if metrics.get("rss_mb") is not None else "n. v.", f"Warnung ab {RAM_WARN_MB:.0f} MB · Containerbudget {RAM_LIMIT_MB:.0f} MiB")
             + metric_card("RAM-Spitze", f"{metrics['ram_peak_mb']:.1f} MB" if metrics.get("ram_peak_mb") is not None else "n. v.", "Seit Prozessstart")
             + metric_card("Freier Datenträger", f"{metrics['disk_free_mb']:.1f} MB" if metrics.get("disk_free_mb") is not None else "n. v.")
             + metric_card("Backups", metrics.get("backup_count", 0), metrics.get("backup_last") or "Kein Backup gefunden")

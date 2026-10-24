@@ -17,13 +17,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pulse_safety import RAM_WARN_MB
+
 RATE_LIMIT_KEEP = 100
 RATE_WINDOW_SECONDS = 15 * 60
 RATE_WARN_COUNT = 20
 WAL_WARN_MB = 64.0
 OPEN_CONNECTIONS_WARN = 20
 DB_FILES_MAX = 25
-RAM_TARGET_MB = 250.0  # CLAUDE.md: Pulse should stay below 250 MB
+RAM_TARGET_MB = RAM_WARN_MB  # Informational target shares the runtime warning threshold
 
 _SEVERITY = {"ok": 0, "info": 1, "warn": 2, "bad": 3}
 
@@ -172,7 +174,7 @@ def _check(severity: str, component: str, text: str) -> dict:
 
 def evaluate(memory: dict, jobs: list[dict], lag: dict, rates: dict, conns: dict, dbs: list[dict], lag_warn: float) -> list[dict]:
     checks = []
-    rss = memory.get("process_mb") or memory.get("container_mb")
+    rss = memory.get("container_mb") or memory.get("process_mb")
     if rss is None:
         checks.append(_check("info", "RAM", "Prozessspeicher nicht messbar."))
     elif rss >= (memory.get("critical_mb") or 1e9):

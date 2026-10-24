@@ -1,6 +1,6 @@
 """BOT-08: early warning for raids and spam – detection only, never an automatic change.
 
-Signals (all windows and maps are bounded, RAM limit 250 MB):
+Signals (all windows and maps are bounded; the container RAM budget is defined in compose.yaml):
 * join wave: many joins within a minute, or many very new accounts within five minutes;
 * mass mentions: one message mentioning many people/roles or trying @everyone/@here;
 * copy spam: the same text from the same person in several channels within a minute.

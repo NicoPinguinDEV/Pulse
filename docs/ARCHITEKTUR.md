@@ -67,7 +67,7 @@ flowchart LR
 - `pulse.db` ist die zentrale SQLite-Datenbank; ältere Cogs haben eigene SQLite-Dateien (`abmeldungen.db`, `activity_check.db`, `pulse_suite.db`, `teamliste.db`, `buero_system.db`, `rp_verwaltung.db`, `flaggenquiz.db`). Zusammenführung offen (A-05). Vollständige Liste: `docs/DATENLANDKARTE.md`.
 - Konfigurations- und Verlaufsdaten liegen als JSON im Arbeitsverzeichnis; eine einheitliche `PULSE_DATA_DIR` gibt es nicht (D-06). Im Container ist das Arbeitsverzeichnis per Bind-Mount (`./:/app`) persistent.
 - `uploads/`, `attachments/`, `transcripts/`, `backups/` sind Daten, keine Build-Artefakte; `.env` und `.session_secret` sind Geheimnisse. Beides ist per `.gitignore` und `.dockerignore` ausgeschlossen.
-- RAM: Containerlimit 512 MiB (+256 MiB Swap), RAM-Schutz im Automationszyklus mit Hysterese 350/420/470 MB (E-5). Keine zusätzlichen Dauerschleifen, Caches immer begrenzen.
+- RAM: Containerlimit 768 MiB (+256 MiB Swap), gemeinsame Schutzschwellen im Automationszyklus 500/620/700 MB mit Hysterese (E-5). Keine zusätzlichen Dauerschleifen, Caches immer begrenzen.
 
 ## Offene Architekturarbeiten
 

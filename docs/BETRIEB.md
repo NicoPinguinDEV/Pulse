@@ -56,7 +56,7 @@ Eine nicht beendete Schicht wird nach 24 h automatisch geschlossen und mit einer
 - **Beschädigte JSON-Datei:** Pulse sichert sie als `*.corrupt-*` und zeigt einen 503-Hinweis; die Sicherung bis zur Klärung behalten, aus dem letzten Backup wiederherstellen.
 - **Datenbankprobleme:** Bot stoppen, Dateikopie anlegen, Komplett-Backup/Restore-Vorschau nutzen – nie DB-Dateien löschen, um einen Start zu erzwingen.
 - **Konsistenz:** Der Systemstatus meldet verwaiste Schichten, Tickets ohne Kanal, abweichende Warnrollen und Ähnliches (D-10) – nur Bericht, keine automatische Korrektur.
-- **RAM:** Containerlimit 512 MiB (+256 MiB Swap); RAM-Schutz meldet ab 350 MB (Warnung), 420 MB (kritisch), 470 MB (Notfall), optional im `PULSE_SYSTEM_ALERT_CHANNEL_ID`. Keine zusätzlichen Dauerschleifen oder unbegrenzten Caches einbauen.
+- **RAM:** Containerlimit 768 MiB (+256 MiB Swap); RAM-Schutz meldet ab 500 MB (Warnung), 620 MB (kritisch), 700 MB (Notfall), optional im `PULSE_SYSTEM_ALERT_CHANNEL_ID`. Die Schwellen haben Hysterese; keine zusätzlichen Dauerschleifen oder unbegrenzten Caches einbauen.
 
 ## 8. Freigabegrenzen
 

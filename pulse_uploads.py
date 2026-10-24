@@ -1,4 +1,4 @@
-"""Memory-friendly upload handling and heap release for the 250 MB container.
+"""Memory-friendly upload handling and heap release within Pulse's bounded container budget.
 
 Image uploads (panel images, welcome/leave/verification banners) used to be read
 completely into RAM (up to 8 MB each, four per panel save). Here they are checked by

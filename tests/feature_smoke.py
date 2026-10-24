@@ -366,7 +366,7 @@ def main() -> None:
     assert 'if action_kind == "server-exit":' in safety
     assert 'if action_kind == "team-exit":' in safety
     safety_tests = read("tests/test_pulse_safety.py")
-    assert "test_warning_requires_recovery_below_160" in safety_tests
+    assert "test_warning_requires_recovery_below_450" in safety_tests
     assert "test_server_kick_and_team_exit_are_not_interchangeable" in safety_tests
     suite_actions = read("cogs/pulse_suite.py")
     parse("cogs/pulse_suite.py")
@@ -392,10 +392,11 @@ def main() -> None:
     assert "ram_trend_snapshot()" in suite_actions
     assert "Pflichtgrund für den Team-Kick" in suite_actions
     assert "Pflichtgrund für den Server-Kick" in suite_actions
-    assert "RAM_LIMIT_MB = 512.0" in ultimate
-    assert "RAM_WARN_MB = 350.0" in ultimate
-    assert "RAM_CRITICAL_MB = 420.0" in ultimate
-    assert "RAM_EMERGENCY_MB = 470.0" in ultimate
+    safety_policy = read("pulse_safety.py")
+    assert "RAM_LIMIT_MB = 768.0" in safety_policy
+    assert "RAM_WARN_MB = 500.0" in safety_policy
+    assert "RAM_CRITICAL_MB = 620.0" in safety_policy
+    assert "RAM_EMERGENCY_MB = 700.0" in safety_policy
     assert "async def runtime_memory_guard(bot)" in ultimate
     assert "await runtime_memory_guard(bot)" in ultimate
     assert '"ram_guard": {' in ultimate
@@ -496,8 +497,8 @@ def main() -> None:
     assert "build_help(entries(self.bot.tree)" in pulse_pro_commands
     # Keep the VPS behind its HTTPS reverse proxy and enforce the intended RAM budget.
     compose_source = read("compose.yaml")
-    assert 'mem_limit: 512m' in compose_source
-    assert 'memswap_limit: 768m' in compose_source
+    assert 'mem_limit: 768m' in compose_source
+    assert 'memswap_limit: 1024m' in compose_source
     assert '"${PULSE_PUBLISH_HOST:-127.0.0.1}:${SERVER_PORT:-25095}:${SERVER_PORT:-25095}"' in compose_source
     archive_source = read("cogs/announcement_archive.py")
     parse("cogs/announcement_archive.py")
@@ -1172,10 +1173,10 @@ def main() -> None:
     assert '"/ultimate/system-twin"' in intelligence
     assert '"/ultimate/sandbox"' in intelligence
     assert "execute_shell" not in intelligence
-    assert memory_state(179.9)["level"] == 0
-    assert memory_state(180)["level"] == 1
-    assert memory_state(210)["level"] == 2
-    assert memory_state(230)["level"] == 3
+    assert memory_state(499.9)["level"] == 0
+    assert memory_state(500)["level"] == 1
+    assert memory_state(620)["level"] == 2
+    assert memory_state(700)["level"] == 3
     test_now = datetime(2026, 10, 17, 12, 0, tzinfo=__import__("datetime").timezone.utc)
     assert ticket_is_overdue({"status": "open", "priority": "urgent", "opened_at": "2026-10-17T11:00:00+00:00"}, test_now)
     assert not ticket_is_overdue({"status": "closed", "priority": "urgent", "opened_at": "2026-10-17T10:00:00+00:00"}, test_now)
@@ -1189,7 +1190,7 @@ def main() -> None:
     assert report["focus"] == "tickets" and report["mode"] == "local_rules_no_external_ai"
     assert any(item["topic"] == "tickets" for item in build_findings(intelligence_metrics))
     assert simulate_scenario("staff_absence", 100, intelligence_metrics)["status"] == "critical"
-    assert simulate_scenario("ram_spike", 20, intelligence_metrics)["status"] == "critical"
+    assert simulate_scenario("ram_spike", 20, {**intelligence_metrics, "rss_mb": 605})["status"] == "critical"
     valid_workflow = {
         "schema_version": 1, "name": "SLA reminder", "trigger": "ticket_overdue",
         "conditions": [{"field": "priority", "operator": "in", "value": ["high", "urgent"]}],

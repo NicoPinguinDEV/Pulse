@@ -47,7 +47,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 - **E-2 Vergessene Schichten:** Nach 24 h automatisch beendete Schichten werden heute mit bis zu 24 h gutgeschrieben (`webserver.py:898` und `:937`, `min(shift_elapsed, 24 h)`). Wie viel soll zählen? *0 h, bis eine Führungskraft die echte Dauer bestätigt.*
 - **E-3 Teamakte:** Jeder mit Dashboard-Zugang sieht alle Warnungen (auch zurückgenommene, mit Grund) und internen Notizen anderer Teamler (`member_v5`, `pulse_pro.py:1828`). So lassen? *Notizen nur mit `can_add_notes`/Leitung; Warnungen nur die betroffene Person selbst und `can_warn`.*
 - **E-4 Standardrechte:** Nie konfigurierte Teamrollen bekommen automatisch „Dashboard + Analytics“ (`webserver.py:781`) – Analytics umfasst Team-Exporte (CSV/JSON inkl. Warnungszahlen). *Nur Dashboard, Analytics nur explizit.*
-- **E-5 RAM-Budget:** Pulse läuft jetzt auf einem VPS mit 2 GiB Host-RAM. Containerlimit: 512 MiB RAM plus höchstens 256 MiB zusätzlicher Swap; interne Schwellen 350/420/470 MB. 2 GiB bleiben unter der Deployment-Empfehlung von mindestens 4 GiB.
+- **E-5 RAM-Budget:** Pulse läuft auf einem VPS mit 2 GiB Host-RAM. Containerlimit: 768 MiB RAM plus höchstens 256 MiB zusätzlicher Swap; interne Warnschwellen 500/620/700 MB mit Hysterese. Bei dauerhaft hoher Host-Auslastung bleiben mindestens 4 GiB empfehlenswert.
 - **E-6 Doppelte Seiten (U-01):** Welche Variante wird jeweils führend? *Du legst mir eine Tabelle „alt → neu“ vor, bevor irgendetwas zusammengeführt wird.*
 - **E-7 Ticket-Transkripte:** Anhänge mitsichern (Speicherbedarf)? Aufbewahrungsdauer?
 - **E-8 Bürger-Moderation:** Soll Pulse Timeout/Kick/Ban für normale Mitglieder mit Fallakte bekommen – oder macht das ein anderer Bot?
@@ -64,7 +64,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 | E-2 Vergessene Schichten | **0 h bis eine Führungskraft die echte Dauer bestätigt.** ✅ 23.10.2026 aus `origin/verbesserung/phase-6-bot` übernommen und auf alle 17 Leser ausgeweitet – `tests/test_shift_confirmation.py` (13). |
 | E-3 Teamakte | **Eingeschränkt:** Notizen nur `can_add_notes`/Leitung; Warnungen nur die Person selbst und `can_warn`. |
 | E-4 Standardrechte | **Nur Dashboard**; Analytics nur explizit. |
-| E-5 RAM | **VPS mit 2 GiB RAM: Pulse-Limit 512 MiB RAM + höchstens 256 MiB zusätzlicher Swap. Warnung 350 MB, kritisch 420 MB, Notfallreserve 470 MB; 2 GiB Host-RAM bleiben unter der empfohlenen Mindestgröße.** |
+| E-5 RAM | **VPS mit 2 GiB RAM: Pulse-Limit 768 MiB RAM + höchstens 256 MiB zusätzlicher Swap. Warnung 500 MB, kritisch 620 MB, Notfallreserve 700 MB; bei dauerhaft hoher Host-Auslastung 4 GiB erwägen.** |
 | E-6 Doppelte Seiten | **Erst Tabelle „alt → neu“ vorlegen**, Entscheidung je Funktion. |
 | E-7 Transkripte | **Anhänge bis 8 MB mitsichern, unbegrenzt aufbewahren.** |
 | E-8 Bürger-Moderation | **Ja, mit Fallakte** (BOT-09, abschaltbar, Standard aus). |
@@ -370,7 +370,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 ## 12. Phase 9 – Dokumentation
 
-- [ ] **DOC-01** README, CHANGELOG, `CLAUDE.md` und Handoff auf den echten Stand bringen (Versions- und Commit-Angaben, neue Module, entfernte Altpfade). — **teilweise:** Versions-/Commit-Angaben in `CLAUDE.md`, Handoff und README auf 7.16.0 bzw. E-5 (RAM 512 MiB, 350/420/470 MB) gebracht; Modul-/Altpfadliste folgt mit A-01/A-02.
+- [ ] **DOC-01** README, CHANGELOG, `CLAUDE.md` und Handoff auf den echten Stand bringen (Versions- und Commit-Angaben, neue Module, entfernte Altpfade). — **teilweise:** RAM-Budget nun auf den 2-GiB-VPS (768 MiB Container-RAM, bis zu 256 MiB Swap; Schwellen 500/620/700 MB) abgestimmt; Modul-/Altpfadliste und übrige Versions-/Commit-Angaben folgen mit A-01/A-02.
 - [x] **DOC-02** — **erledigt (unveröffentlicht):** `docs/ARCHITEKTUR.md`, auf diesen Stand geprüft (Grundlage 17591f9).
 - [x] **DOC-03** — **erledigt (unveröffentlicht):** `docs/BETRIEB.md`, auf diesen Stand geprüft (Grundlage 17591f9/82f8dba).
 - [ ] **DOC-04** Pro Phase ein CHANGELOG-Eintrag; `pulse_version.py` erst nach meinem OK erhöhen (Vorschlag: 7.10.0 nach Phase 1).

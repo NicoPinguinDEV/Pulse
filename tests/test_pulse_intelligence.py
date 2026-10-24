@@ -19,11 +19,11 @@ from pulse_intelligence import (
 
 
 class PulseIntelligenceTests(unittest.TestCase):
-    def test_memory_thresholds_match_team_os_policy(self):
-        self.assertEqual(memory_state(179.9)["level"], 0)
-        self.assertEqual(memory_state(180)["level"], 1)
-        self.assertEqual(memory_state(210)["level"], 2)
-        self.assertEqual(memory_state(230)["level"], 3)
+    def test_memory_thresholds_match_shared_vps_policy(self):
+        self.assertEqual(memory_state(499.9)["level"], 0)
+        self.assertEqual(memory_state(500)["level"], 1)
+        self.assertEqual(memory_state(620)["level"], 2)
+        self.assertEqual(memory_state(700)["level"], 3)
         self.assertEqual(memory_state(None)["label"], "unavailable")
 
     def test_ticket_sla_uses_priority_and_ignores_closed_tickets(self):
@@ -57,14 +57,14 @@ class PulseIntelligenceTests(unittest.TestCase):
         self.assertTrue(any(item["topic"] == "tasks" for item in build_findings(metrics)))
 
     def test_simulations_are_bounded_and_read_only(self):
-        metrics = {"open_tickets": 10, "active_staff": 4, "rss_mb": 225}
+        metrics = {"open_tickets": 10, "active_staff": 4, "rss_mb": 695}
         surge = simulate_scenario("ticket_surge", 5, metrics)
         self.assertEqual(surge["projected"], 15)
         absence = simulate_scenario("staff_absence", 100, metrics)
         self.assertEqual(absence["projected"], 0)
         self.assertEqual(absence["status"], "critical")
         ram = simulate_scenario("ram_spike", 10, metrics)
-        self.assertEqual(ram["projected"], 235)
+        self.assertEqual(ram["projected"], 705)
         self.assertEqual(ram["status"], "critical")
         self.assertEqual(metrics["open_tickets"], 10)
         with self.assertRaises(ValueError):

@@ -378,8 +378,9 @@ def _memory_facts() -> dict:
         return {"container_mb": container_memory_mb(), "process_mb": process_rss_mb(), "peak_mb": process_peak_rss_mb(),
                 "limit_mb": cgroup_memory_limit_mb(), "warn_mb": RAM_WARN_MB, "critical_mb": RAM_CRITICAL_MB, "emergency_mb": RAM_EMERGENCY_MB}
     except Exception:
+        from pulse_safety import RAM_CRITICAL_MB, RAM_EMERGENCY_MB, RAM_WARN_MB
         return {"container_mb": None, "process_mb": None, "peak_mb": None, "limit_mb": cgroup_memory_limit_mb(),
-                "warn_mb": 350.0, "critical_mb": 420.0, "emergency_mb": 470.0}
+                "warn_mb": RAM_WARN_MB, "critical_mb": RAM_CRITICAL_MB, "emergency_mb": RAM_EMERGENCY_MB}
 
 
 def _disk_facts(base_dir) -> dict:

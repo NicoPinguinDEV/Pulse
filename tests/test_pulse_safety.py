@@ -12,22 +12,22 @@ from pulse_safety import (
 
 class MemoryGuardTests(unittest.TestCase):
     def test_escalation_thresholds(self):
-        self.assertEqual(memory_guard_level(179.9), 0)
-        self.assertEqual(memory_guard_level(180), 1)
-        self.assertEqual(memory_guard_level(210), 2)
-        self.assertEqual(memory_guard_level(230), 3)
+        self.assertEqual(memory_guard_level(499.9), 0)
+        self.assertEqual(memory_guard_level(500), 1)
+        self.assertEqual(memory_guard_level(620), 2)
+        self.assertEqual(memory_guard_level(700), 3)
 
-    def test_warning_requires_recovery_below_160(self):
-        self.assertEqual(memory_guard_level(170, current_level=1), 1)
-        self.assertEqual(memory_guard_level(159.9, current_level=1), 0)
+    def test_warning_requires_recovery_below_450(self):
+        self.assertEqual(memory_guard_level(460, current_level=1), 1)
+        self.assertEqual(memory_guard_level(449.9, current_level=1), 0)
 
     def test_critical_steps_down_without_flapping(self):
-        self.assertEqual(memory_guard_level(225, current_level=3), 3)
-        self.assertEqual(memory_guard_level(219.9, current_level=3), 2)
-        self.assertEqual(memory_guard_level(205, current_level=2), 2)
-        self.assertEqual(memory_guard_level(199.9, current_level=2), 1)
-        self.assertEqual(memory_guard_level(170, current_level=2), 1)
-        self.assertEqual(memory_guard_level(150, current_level=2), 0)
+        self.assertEqual(memory_guard_level(680, current_level=3), 3)
+        self.assertEqual(memory_guard_level(649.9, current_level=3), 2)
+        self.assertEqual(memory_guard_level(600, current_level=2), 2)
+        self.assertEqual(memory_guard_level(559.9, current_level=2), 1)
+        self.assertEqual(memory_guard_level(460, current_level=2), 1)
+        self.assertEqual(memory_guard_level(449.9, current_level=2), 0)
 
     def test_missing_measurement_keeps_previous_state(self):
         self.assertEqual(memory_guard_level(None, current_level=2), 2)

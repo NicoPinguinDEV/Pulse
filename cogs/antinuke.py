@@ -23,7 +23,7 @@ remaining steps and is reported as failed, never as done. Deleted channels/roles
 reports the action after it happened.
 
 Optionally, a bot added by an untrusted person is kicked right away (kick_unverified_bots).
-All state is bounded (RAM limit 250 MB).
+All per-guild counters and sliding windows are bounded; the container RAM budget is defined in compose.yaml.
 """
 from __future__ import annotations
 

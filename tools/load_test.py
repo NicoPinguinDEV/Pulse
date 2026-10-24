@@ -5,7 +5,7 @@ dashboard routes – fake Discord server, fake login, temporary data. Never touc
     python tools/load_test.py --profile member_stats   (or a route; handlers run in a worker thread)
 
 Prints per route: median/max response time, plus Python heap peak (tracemalloc) and process RSS (Linux: /proc,
-Windows: GetProcessMemoryInfo). RAM target of Pulse: 250 MB for the whole process.
+Windows: GetProcessMemoryInfo). Guard thresholds are 500/620/700 MB; Docker container budget is 768 MiB.
 """
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ def main() -> int:
     rss_end = rss_mb()
     print(f"Python-Heap aktuell {current / 1024 / 1024:.1f} MB · Spitze {peak / 1024 / 1024:.1f} MB (tracemalloc)")
     if rss_end is not None:
-        print(f"Prozess-RSS Start {rss_start or 0:.0f} MB → Ende {rss_end:.0f} MB (Ziel ≤ 250 MB)")
+        print(f"Prozess-RSS Start {rss_start or 0:.0f} MB → Ende {rss_end:.0f} MB (Warnschwelle 500 MB)")
     print(f"Temp-Daten: {tmp}")
     return 0
 

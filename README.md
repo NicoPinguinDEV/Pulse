@@ -51,17 +51,18 @@ Bei nicht erreichbarem GitHub wird der vorhandene Code gestartet, sofern möglic
 
 ## Ressourcen- und RAM-Schutz
 
-Pulse ist für kleine Hosts mit **maximal 250 MB RAM** ausgelegt. Der laufende Systemmonitor zeigt den aktuellen und den bisherigen Spitzenverbrauch. Ein RAM-Schutz nutzt die bereits laufende Automationsschleife und startet keinen zusätzlichen Hintergrundprozess:
+Für den aktuellen VPS mit 2 GiB Host-RAM ist das Pulse-Containerbudget bewusst größer als die früheren 250 MB ausgelegt:
 
-- **180 MB:** Warnung
-- **210 MB:** kritisch; entbehrlicher Roblox-Lookup-Cache wird geleert und die Python-Garbage-Collection ausgeführt
-- **230 MB:** Notfallwarnung
-- **220 MB:** Notfallstufe fällt erst unter diesen Wert zurück; das reduziert Warnungs-Flattern
-- **200 MB:** kritische Stufe fällt erst unter diesen Wert zurück
-- **unter 160 MB:** Rückkehr in den Normalbereich wird protokolliert
-- **RAM-Trend:** ein kleiner, begrenzter Messring erkennt anhaltendes Wachstum (mindestens 20 MB/Stunde) und meldet es höchstens einmal pro Stunde
+- **768 MiB RAM** als Docker-Hard-Limit für Pulse
+- **bis zu 256 MiB zusätzlicher Swap** (höchstens 1.024 MiB zusammen aus RAM und Swap)
+- **500 MB:** Warnung
+- **620 MB:** kritisch; entbehrlicher Roblox-Lookup-Cache wird geleert und Garbage Collection ausgeführt
+- **700 MB:** Notfallwarnung
+- **650 MB:** Notfallstufe fällt zurück; **560 MB:** kritische Stufe fällt zurück; **unter 450 MB:** Normalzustand
 
-Die Warnschwellen sind Schutzmaßnahmen, keine harte Betriebssystem-Grenze und keine Garantie, dass ein Host-Prozess bei jedem Lastmuster unter 250 MB bleibt. Der Hosting-Anbieter bleibt die letzte Instanz bei Speicherlimits. Der Roblox-Lookup-Cache ist auf 300 Einträge und fünf Minuten Lebensdauer begrenzt; sein HTTP-Verbindungspool wird wiederverwendet und beim Shutdown geschlossen.
+Der Laufzeitmonitor misst den Containerverbrauch einschließlich verfügbarer cgroup-Werte für Kindprozesse wie ffmpeg; die Diagnosen zeigen zusätzlich Prozess-RSS und Prozessspitze. Warnschwellen geben Zeit zum Reagieren, garantieren aber nicht, dass jede Lastspitze unter dem Docker-Limit bleibt. Pulse teilt sich die 2 GiB mit Ubuntu, Docker und ggf. Caddy. Wenn die gemessene Host-Auslastung dauerhaft hoch ist, ist ein Upgrade auf mindestens 4 GiB RAM die zuverlässigere Lösung.
+
+Der RAM-Schutz nutzt die bereits laufende Automationsschleife und startet keinen zusätzlichen Hintergrundprozess. Der begrenzte RAM-Trend-Messring erkennt anhaltendes Wachstum (mindestens 20 MB/Stunde) und meldet es höchstens einmal pro Stunde. Der Roblox-Lookup-Cache ist auf 300 Einträge und fünf Minuten Lebensdauer begrenzt; sein HTTP-Verbindungspool wird wiederverwendet und beim Shutdown geschlossen.
 
 Der optionale Wert `PULSE_SYSTEM_ALERT_CHANNEL_ID` in der `.env` kann auf einen Textkanal zeigen, in dem Pulse einmalig beim Wechsel der RAM-Warnstufe meldet. Bleibt der Wert leer, werden die Meldungen nur in der Hosting-Konsole protokolliert.
 

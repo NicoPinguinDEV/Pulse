@@ -87,16 +87,16 @@ Regeln:
 
 ### RAM
 
-Projekt-Limit: **250 MB maximal**. Aktuelle Leitlinien:
+Produktionsbudget auf dem aktuellen 2-GiB-VPS: **768 MiB Container-RAM plus höchstens 256 MiB zusätzlicher Swap**. Die Schwellen kommen zentral aus `pulse_safety.py`:
 
-- 180 MB Warnung
-- 210 MB kritisch; nicht benötigte Roblox-Lookup-Caches bereinigen und Garbage Collection nur in der vorhandenen Schutzlogik
-- 230 MB Notfallwarnung
-- Hysterese zur Vermeidung von Warnungs-Flattern: kritische Stufe geht unter 200 MB zurück, Notfall unter 220 MB, Normalzustand unter 160 MB
-- RAM-Trend über begrenzten Messring, Warnmeldung höchstens einmal pro Stunde
-- Roblox-Lookup-Cache: README beschreibt 300 Einträge, fünf Minuten TTL und wiederverwendeten HTTP-Pool
+- 500 MB Warnung
+- 620 MB kritisch; nur entbehrliche Caches bereinigen und Garbage Collection innerhalb der vorhandenen Schutzlogik
+- 700 MB Notfallwarnung
+- Hysterese: Notfallstufe fällt unter 650 MB zurück, kritische Stufe unter 560 MB, Normalzustand unter 450 MB
+- RAM-Trend über begrenzten Messring, Alarm höchstens einmal pro Stunde
+- Der Host hat insgesamt 2 GiB; Ubuntu, Docker und optionale Dienste brauchen ebenfalls Speicher. Bei dauerhaft hoher Host-Auslastung mindestens 4 GiB einplanen.
 
-Schwellen sind Schutzmaßnahmen, keine harte OS-Garantie. Keine zusätzlichen dauerhaften Scheduler, wenn bestehende Automation erweitert werden kann. Kein unbegrenzter Verlauf oder Queue; bei Nachrichten-/Feed-Verarbeitung maximale Größe und Alter durchsetzen.
+Die Warnschwellen sind Schutzmaßnahmen, keine harte OS-Garantie. Keine zusätzlichen permanenten Scheduler, unbegrenzten Verläufe oder Queues einführen; vorhandene Caches weiterhin begrenzen.
 
 ### KI / externe Dienste
 
