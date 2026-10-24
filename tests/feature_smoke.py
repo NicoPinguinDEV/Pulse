@@ -366,7 +366,7 @@ def main() -> None:
     assert 'if action_kind == "server-exit":' in safety
     assert 'if action_kind == "team-exit":' in safety
     safety_tests = read("tests/test_pulse_safety.py")
-    assert "test_warning_requires_recovery_below_160" in safety_tests
+    assert "test_warning_requires_recovery_below_450" in safety_tests
     assert "test_server_kick_and_team_exit_are_not_interchangeable" in safety_tests
     suite_actions = read("cogs/pulse_suite.py")
     parse("cogs/pulse_suite.py")
