@@ -85,8 +85,8 @@ jobs:
         run: |
           if [[ -z "$VPS_HOST" || -z "$VPS_USER" || -z "$VPS_KEY" || -z "$VPS_KNOWN_HOSTS" ]]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::VPS-Deployment übersprungen. Richte zuerst die vier PULSE_VPS_* Repository-Secrets ein."
-            exit 0
+            echo "::error::VPS-Deployment nicht ausgeführt: Richte zuerst die vier PULSE_VPS_* Repository-Secrets ein."
+            exit 1
           fi
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
