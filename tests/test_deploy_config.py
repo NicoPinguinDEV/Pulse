@@ -61,6 +61,19 @@ class DeployTests(unittest.TestCase):
                     with self.subTest(script=name, line=number):
                         self.assertIn("</dev/null", code.replace("< /dev/null", "</dev/null"), line.strip())
 
+    def test_git_trusts_the_checkout_owned_by_the_container_user(self):
+        # The scripts run as root but chown the checkout to UID 1000 (O-01). Git then refuses every command
+        # ("dubious ownership") – on 2026-10-24 the deploy stopped before `git reset`. The exception is set only
+        # for the git calls of the script (environment), not in the global git configuration.
+        for name in ("deploy/remote_deploy.sh", "deploy/rollback_code.sh"):
+            with self.subTest(script=name):
+                script = read(name)
+                marker = 'export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(pwd -P)"'
+                self.assertIn(marker, script)
+                self.assertLess(script.index('cd "$REPO_DIR"'), script.index(marker))
+                self.assertLess(script.index(marker), script.index("git rev-parse HEAD"))
+                self.assertNotIn("git config --global", script)
+
     def test_remote_script_is_valid_bash(self):
         for script in ("remote_deploy.sh", "vps_bootstrap.sh"):
             with self.subTest(script=script):

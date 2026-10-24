@@ -13,6 +13,9 @@ HEALTH_SECONDS="${PULSE_DEPLOY_HEALTH_SECONDS:-240}"
 PULSE_UID="${PULSE_UID:-1000}"
 
 cd "$REPO_DIR"
+# Root runs this script, but the checkout belongs to the container user (UID 1000, O-01). Without this,
+# git refuses every command ("dubious ownership"). Valid only for the git calls of this script.
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(pwd -P)"
 PREV="$(git rev-parse HEAD)"
 echo "Aktuell: $PREV · Ziel: $SHA"
 

@@ -2,7 +2,7 @@
 
 ## Unveröffentlicht – Betrieb auf dem Vionity-VPS
 
-- **Behoben (Deploy):** `deploy/remote_deploy.sh` und `deploy/rollback_code.sh` werden per `bash -s` über die Standardeingabe ausgeführt (GitHub-Workflow, manueller SSH-Befehl). `docker compose exec/run` las dieselbe Eingabe mit und verschluckte den Rest des Skripts – der Deploy endete nach dem Backup ohne Fehlermeldung und ohne Update. Alle `docker compose`-Aufrufe lesen jetzt aus `/dev/null`; Regressionstest in `tests/test_deploy_config.py`.
+- **Behoben (Deploy):** `deploy/remote_deploy.sh` und `deploy/rollback_code.sh` werden per `bash -s` über die Standardeingabe ausgeführt (GitHub-Workflow, manueller SSH-Befehl). `docker compose exec/run` las dieselbe Eingabe mit und verschluckte den Rest des Skripts – der Deploy endete nach dem Backup ohne Fehlermeldung und ohne Update. Alle `docker compose`-Aufrufe lesen jetzt aus `/dev/null`; Regressionstest in `tests/test_deploy_config.py`. Außerdem brach der Deploy als `root` vor `git reset` ab („dubious ownership“), weil das Skript den Ordner dem Container-Benutzer (UID 1000) übergibt; beide Skripte erlauben den Checkout jetzt nur für ihre eigenen Git-Aufrufe (`safe.directory` per Umgebung, keine globale Git-Konfiguration).
 
 ### Anti-Nuke Control Center & Automationen
 
