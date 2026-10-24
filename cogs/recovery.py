@@ -22,7 +22,7 @@ class RecoveryCog(commands.Cog):
         description="[Admin] Fügt freigegebene Nutzer dem Backup-Server hinzu – ausschließlich mit Bürgerrolle",
     )
     @app_commands.describe(
-        confirm="Muss aktiv auf Ja gesetzt werden, damit ein Wiederherstellungs-Sync ausgeführt wird",
+        confirm="Muss auf True gesetzt werden, damit ein Wiederherstellungs-Sync ausgeführt wird",
         max_users="Maximalzahl der Nutzer pro Lauf (1–100)",
     )
     @app_commands.checks.has_permissions(administrator=True)
@@ -49,7 +49,7 @@ class RecoveryCog(commands.Cog):
         if not confirm:
             await interaction.response.send_message(
                 "⚠️ Es wurde nichts geändert. Prüfe Zielserver und Bürgerrolle. Starte danach erneut mit "
-                "`confirm: Ja`. Der Befehl entfernt niemanden aus dem Hauptserver und vergibt keine Team- oder Moderationsrollen.",
+                "`confirm: True`. Der Befehl entfernt niemanden aus dem Hauptserver und vergibt keine Team- oder Moderationsrollen.",
                 ephemeral=True,
             )
             return
