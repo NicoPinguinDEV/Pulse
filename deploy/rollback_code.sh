@@ -37,14 +37,14 @@ problems = b.verify_full_backup(path)
 print(path)
 sys.exit(1 if problems else 0)'
 if docker compose ps --status running --services 2>/dev/null | grep -qx pulse; then
-  docker compose exec -T pulse python -c "$BACKUP_PY"
+  docker compose exec -T pulse python -c "$BACKUP_PY" </dev/null
 else
-  docker compose run --rm --no-deps pulse python -c "$BACKUP_PY"
+  docker compose run --rm --no-deps pulse python -c "$BACKUP_PY" </dev/null
 fi
 echo "Backup vor dem Rollback erstellt."
 
 health_ok() {
-  docker compose exec -T pulse python -c "import os, sys, urllib.request
+  docker compose exec -T pulse </dev/null python -c "import os, sys, urllib.request
 p = os.getenv('SERVER_PORT', '25095')
 sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/healthz', timeout=8).status == 200 else 1)" >/dev/null 2>&1
 }
@@ -63,15 +63,15 @@ wait_healthy() {
 
 # 2) Older code, rebuild, health check.
 git reset --hard "$SHA"
-if docker compose up -d --build && wait_healthy; then
+if docker compose up -d --build </dev/null && wait_healthy; then
   echo "Rollback erfolgreich: $SHA ist gesund."
   exit 0
 fi
 
 echo "::error::Rollback-Stand $SHA nicht innerhalb von ${HEALTH_SECONDS}s gesund – zurück auf $PREV."
-docker compose logs --tail 80 pulse || true
+docker compose logs --tail 80 pulse </dev/null || true
 git reset --hard "$PREV"
-docker compose up -d --build || true
+docker compose up -d --build </dev/null || true
 if wait_healthy; then
   echo "Vorheriger Stand wiederhergestellt: $PREV ist gesund."
 else

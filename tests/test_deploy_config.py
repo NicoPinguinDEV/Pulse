@@ -50,6 +50,17 @@ class DeployTests(unittest.TestCase):
         self.assertEqual(order, sorted(order))
         self.assertIn("set -euo pipefail", script)
 
+    def test_docker_never_reads_the_piped_script(self):
+        # The workflow (and the manual PowerShell command) run the script via `bash -s` on stdin. Without
+        # `</dev/null`, `docker compose exec/run` forwards that stdin into the container and swallows the rest
+        # of the script: on 2026-10-24 a deploy stopped silently right after the backup line.
+        for name in ("deploy/remote_deploy.sh", "deploy/rollback_code.sh"):
+            for number, line in enumerate(read(name).splitlines(), 1):
+                code = line.split("#", 1)[0]
+                if re.search(r"\bdocker compose (exec|run|up|logs)\b", code):
+                    with self.subTest(script=name, line=number):
+                        self.assertIn("</dev/null", code.replace("< /dev/null", "</dev/null"), line.strip())
+
     def test_remote_script_is_valid_bash(self):
         for script in ("remote_deploy.sh", "vps_bootstrap.sh"):
             with self.subTest(script=script):
