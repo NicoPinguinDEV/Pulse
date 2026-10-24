@@ -35,7 +35,7 @@ Ziel: möglichst wenig immer geladenen Kontext, aber gründliche Arbeit bei Bugs
 - **smart-explore:** gezielte Code-Navigation, besonders in webserver.py.
 - **karpathy-guidelines:** kleine, nachvollziehbare Änderungen statt übermäßig komplexer Refactors.
 - **make-plan + do:** für umfangreiche Arbeiten, wenn Planung und Umsetzung kontrolliert getrennt laufen sollen.
-- **build:** alternative Ein-Kommando-Orchestrierung für größere Aufgaben, wenn Planen, Umsetzen und Prüfen in einem Ablauf gewünscht sind. Nicht zusammen mit make-plan/do separat parallel orchestrieren.
+- **build:** alternative Ein-Kommando-Orchestrierung für größere Aufgaben, wenn Planen, Umsetzen und Prüfen in einem Ablauf gewünscht ist. Nicht zusammen mit make-plan/do separat parallel orchestrieren.
 - **handoff:** kompakter Sitzungswechsel.
 - **commit:** nur nach Review und wenn ein Commit ausdrücklich gewünscht ist.
 - **babysit:** gezielt für einen tatsächlich bestehenden PR-/Reviewzyklus.
@@ -66,3 +66,38 @@ Diese Skills müssen nicht pauschal alle gelöscht werden. Deaktiviere zuerst se
 - Skills und manuell aufrufbare Skill-Inhalte: https://code.claude.com/docs/en/skills
 - Projekt-/Pfadregeln und Memory: https://code.claude.com/docs/en/memory
 - Erweiterungen, MCP und Subagents: https://code.claude.com/docs/en/features-overview
+
+## Werkzeug-Stand (2026-10-24)
+
+### Projekt-Skills
+
+- `/pulse-e2e`: Browser-Workflows mit Playwright testen. E2E läuft ausschließlich gegen den lokalen Preview-Server mit Fake-Login und temporären Daten.
+- `/pulse-regression-fix`: Fehler reproduzieren, zuerst einen Regressionstest rot sehen, minimal beheben, danach gezielt und bei Bedarf vollständig testen. Dieser Skill darf Code ändern, aber niemals eigenständig committen, pushen, mergen oder deployen.
+- `/pulse-review`: unabhängiges, nur lesendes Review; nur auf ausdrücklichen Aufruf.
+- `/pulse-security-audit`: Sicherheitsprüfung, nur lesend; nur auf ausdrücklichen Aufruf.
+- `/pulse-performance`: Ressourcen-/Leistungsprüfung, nur lesend; nur auf ausdrücklichen Aufruf.
+- `/pulse-audit`: Gesamtprüfung, nur lesend; nur auf ausdrücklichen Aufruf.
+- `/pulse-release`: Release-/Merge-Vorbereitung, nur lesend; nur auf ausdrücklichen Aufruf.
+- `/pulse-data-safety`: vorhandener Spezialskill für sichere Datenänderungen; bei Datenmigrationen, Backup/Restore und Retention verwenden.
+
+### E2E-Tests
+
+Entwicklungsabhängigkeiten installieren: `python -m pip install -r requirements-dev.txt`, anschließend `python -m playwright install chromium`.
+
+Gezielter lokaler Lauf:
+
+```powershell
+$env:PULSE_E2E = "1"
+python -m unittest tests.test_e2e_dashboard -v
+Remove-Item Env:PULSE_E2E
+```
+
+Die CI führt den E2E-Job in `.github/workflows/python-syntax.yml` mit `PULSE_E2E=1` aus. Ein übersprungener Test ist kein bestandener Test; wenn E2E explizit angefordert wird, muss ein fehlendes Playwright/Chromium als Fehler sichtbar werden.
+
+### Sicherheitsgrenzen und Ergebnisberichte
+
+- Skills mit `disable-model-invocation: true` laufen nur auf ausdrücklichen Aufruf; das gilt für Audit, Review, Performance, Security und Release-Vorbereitung.
+- Die Regression-Fix-Automatisierung bleibt auf Bugfix-Aufgaben beschränkt. Sie darf keinen Commit, Push, Merge, Release oder Produktiv-Deploy ausführen.
+- Keine persönlichen `.claude/settings.local.json`, lokalen Launch-Konfigurationen, Tokens oder individuellen Freigaben ins Repository übernehmen.
+- Tests nur als bestanden melden, wenn sie im aktuellen Arbeitsgang tatsächlich ausgeführt wurden. Bisherige lokale Basis: 791 Unittests bestanden (3 übersprungen) und 3 Playwright-E2E-Tests bestanden; diese Zahlen sind historische Referenzwerte, keine Aussage über einen späteren Commit.
+- Vor Merge den tatsächlichen CI-Status des exakten HEAD prüfen. Merge von PR #51 kann das VPS-Deployment auslösen; erst nach gesonderter Freigabe mergen.
