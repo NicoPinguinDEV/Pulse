@@ -2846,7 +2846,7 @@ def register(app):
             with_presence=sum(1 for m in (getattr(c.guild,'members',[]) or []) if str(getattr(m,'status','offline'))!='offline')
             detail=(f"Prozess {rss:.0f} MB" if rss else "Prozess unbekannt")+(f" · Spitze {peak:.0f} MB" if peak else "")+(f" · Container {container:.0f} MB" if container else "")
             detail+=f" · {members} Mitglieder im Cache · Presence-Intent {'an' if getattr(intents,'presences',False) else 'aus'} ({with_presence} online)"
-            checks.append(('Arbeitsspeicher (Limit 250 MB)',not rss or rss<180,detail))
+            checks.append((f'Arbeitsspeicher (Warnung ab {pu.RAM_WARN_MB:.0f} MB)',not container or container<pu.RAM_WARN_MB,detail))
         except Exception:
             pass
         try:
