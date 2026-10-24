@@ -3499,7 +3499,7 @@ async def home(user_session: str = Cookie(None)):
             </div>
             <h1 class="text-2xl font-bold tracking-tight mb-2">Team Management Panel</h1>
             <p class="text-slate-500 dark:text-slate-400 text-xs mb-5">Melde dich mit deinem Discord-Account an, um Zugriff zu erhalten.</p>
-            <p class="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed mb-4">Für Kontosicherheit protokolliert Pulse erfolgreiche Dashboard-Anmeldungen mit IP-Adresse, Zeitpunkt und Browserkennung. Zugriff darauf haben nur Administratoren; Einträge werden nach 30 Tagen automatisch gelöscht. Details: Verwaltung → Datenschutz.</p>
+            <p class="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed mb-4">Für Kontosicherheit protokolliert Pulse erfolgreiche Dashboard-Anmeldungen mit IP-Adresse, Zeitpunkt und Browserkennung. Nur Administratoren sehen die Einträge; Daten, die älter als 30 Tage sind, werden bei der nächsten Anmeldung oder Datenschutzprüfung bereinigt. Details: Verwaltung → Datenschutz.</p>
             <a href="/login" class="inline-flex items-center justify-center gap-3 w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg shadow-[#5865F2]/20 text-sm">
                 Mit Discord anmelden
             </a>
