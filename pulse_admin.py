@@ -16,7 +16,7 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import Cookie, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db
 from pulse_embed_design import DEFAULT_COLORS, branding, normalize_hex, save_branding
