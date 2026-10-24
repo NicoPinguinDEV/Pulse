@@ -615,8 +615,8 @@ def register(app) -> None:
             'neue Mitglieder bekommen ausschließlich die hier konfigurierte Bürgerrolle. Diese Rolle darf keine Administrator- oder Moderationsrechte haben.</p>'
             '<form method="post" action="/admin/recovery/save" class="grid gap-3">'
             f'<label class="pulse-check"><input type="checkbox" name="enabled" value="1"{" checked" if recovery_settings["enabled"] else ""}> Recovery-Zugang aktivieren</label>'
-            f'<label class="grid gap-1 text-xs font-semibold">Backup-Server-ID<input class="pulse-input" name="backup_guild_id" inputmode="numeric" pattern="[0-9]{{15,22}}" maxlength="22" value="{e(recovery_settings["backup_guild_id"])}" required></label>'
-            f'<label class="grid gap-1 text-xs font-semibold">Bürgerrollen-ID auf dem Backup-Server<input class="pulse-input" name="citizen_role_id" inputmode="numeric" pattern="[0-9]{{15,22}}" maxlength="22" value="{e(recovery_settings["citizen_role_id"])}" required></label>'
+            f'<label class="grid gap-1 text-xs font-semibold">Backup-Server-ID<input class="pulse-input" name="backup_guild_id" inputmode="numeric" pattern="[0-9]{{15,22}}" maxlength="22" value="{e(recovery_settings["backup_guild_id"])}"></label>'
+            f'<label class="grid gap-1 text-xs font-semibold">Bürgerrollen-ID auf dem Backup-Server<input class="pulse-input" name="citizen_role_id" inputmode="numeric" pattern="[0-9]{{15,22}}" maxlength="22" value="{e(recovery_settings["citizen_role_id"])}"></label>'
             '<p class="text-[11px] text-slate-400">Pulse muss Mitglied des Backup-Servers sein und „Rollen verwalten“ sowie „Soforteinladung erstellen“ besitzen. '
             'Der Wiederherstellungs-Befehl fügt nur Nutzer mit vorheriger Freigabe hinzu; er entfernt niemanden aus dem Hauptserver.</p>'
             '<button class="pulse-btn primary" type="submit">💾 Backup-Einstellungen speichern</button></form>'
@@ -677,12 +677,14 @@ def register(app) -> None:
         enabled = form.get("enabled") == "1"
         raw_guild = str(form.get("backup_guild_id") or "").strip()
         raw_role = str(form.get("citizen_role_id") or "").strip()
-        if not re.fullmatch(r"[0-9]{15,22}", raw_guild) or not re.fullmatch(r"[0-9]{15,22}", raw_role):
-            return ws.back("/admin/privacy", "Bitte gültige Discord-Server- und Bürgerrollen-IDs eingeben.", False)
+        valid_guild = bool(re.fullmatch(r"[0-9]{15,22}", raw_guild))
+        valid_role = bool(re.fullmatch(r"[0-9]{15,22}", raw_role))
+        if enabled and not (valid_guild and valid_role):
+            return ws.back("/admin/privacy", "Zum Aktivieren benötigst du gültige Discord-Server- und Bürgerrollen-IDs.", False)
         candidate = {
             "enabled": enabled,
-            "backup_guild_id": raw_guild,
-            "citizen_role_id": raw_role,
+            "backup_guild_id": raw_guild if valid_guild else "",
+            "citizen_role_id": raw_role if valid_role else "",
             "log_channel_id": "",
         }
         if enabled:
