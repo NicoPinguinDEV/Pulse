@@ -43,7 +43,7 @@ jobs:
           python -m coverage report --skip-empty --sort=cover | tail -n 40
           python -m coverage xml -o coverage.xml
       - name: Abdeckungsbericht hochladen
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.xml
