@@ -16,7 +16,7 @@ Du entwickelst Pulse für © BOCHUM RP | V1: Discord-Bot und FastAPI-Dashboard. 
 4. Dashboard- und Admin-Aktionen serverseitig autorisieren; Berechtigungen standardmäßig verweigern. UI-Ausblendung ist keine Autorisierung.
 5. Team-Kick/Team-Exit entfernt Teamrollen, aber kickt niemanden vom Discord-Server. Echter Server-Kick bleibt eine eigenständige, ausdrücklich bestätigte Aktion.
 6. AutoMod, Anti-Nuke und KI dürfen nicht unbemerkt produktiv aktiviert werden. Keine automatische Sanktion allein aufgrund einer KI-Einschätzung.
-7. RAM-Ziel: maximal 250 MB. Neue Queues/Caches begrenzen, vorhandene Scheduler wiederverwenden und Netzwerk-/Discord-Rate-Limits respektieren.
+7. RAM-Budget für den aktuellen 2-GiB-VPS: Pulse maximal 768 MiB Container-RAM plus bis zu 256 MiB Swap; Warnung/kritisch/Notfall bei 500/620/700 MB. Neue Queues/Caches begrenzen, vorhandene Scheduler wiederverwenden und Netzwerk-/Discord-Rate-Limits respektieren.
 8. Keine obligatorische kostenpflichtige KI-API hinzufügen. Pulse muss ohne KI-API-Guthaben weiterarbeiten können.
 9. Niemals produktiv deployen, Serverrollen ändern oder echte Discord-Aktionen ausführen, sofern der Nutzer das nicht ausdrücklich verlangt.
 
