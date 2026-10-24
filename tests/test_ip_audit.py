@@ -23,15 +23,15 @@ class DashboardIpAuditTests(unittest.TestCase):
         self.assertFalse(pulse_ip_audit.record_login("123456789012345678", "Test", "forged, 1.2.3.4"))
         self.assertFalse(pulse_ip_audit.record_login("123456789012345678", "Test", "not-an-ip"))
         self.assertTrue(pulse_ip_audit.record_login("123456789012345678", "Test", "2001:db8::1", "Browser", now=1000))
-        rows = pulse_ip_audit.list_entries(now=1001) if False else pulse_ip_audit.list_entries()
+        rows = pulse_ip_audit.list_entries(now=1001)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["ip_address"], "2001:db8::1")
         self.assertEqual(rows[0]["user_id"], "123456789012345678")
 
     def test_retention_deletes_old_entries(self):
         pulse_ip_audit.record_login("123456789012345678", "Old", "192.0.2.2", now=1000)
-        pulse_ip_audit.record_login("123456789012345679", "New", "192.0.2.3", now=2000000)
-        rows = pulse_ip_audit.list_entries()
+        pulse_ip_audit.record_login("123456789012345679", "New", "192.0.2.3", now=5000000)
+        rows = pulse_ip_audit.list_entries(now=5000000)
         self.assertEqual([row["username"] for row in rows], ["New"])
 
     def test_delete_user_history(self):
