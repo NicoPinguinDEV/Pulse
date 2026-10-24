@@ -83,6 +83,26 @@ def list_entries(limit: int = 100, *, now: float | None = None) -> list[dict]:
     ]
 
 
+def entries_for_user(user_id, limit: int = 500) -> list[dict]:
+    """Return this person's recent login history for an admin-mediated data export."""
+    uid = str(user_id or "")
+    limit = max(1, min(1000, int(limit)))
+    now = time.time()
+    with _db().connect() as db:
+        _init(db)
+        db.execute("DELETE FROM dashboard_login_ip_audit WHERE logged_at < ?", (now - KEEP_DAYS * 86400,))
+        rows = db.execute(
+            "SELECT user_id, username, ip_address, user_agent, logged_at "
+            "FROM dashboard_login_ip_audit WHERE user_id=? ORDER BY logged_at DESC, id DESC LIMIT ?",
+            (uid, limit),
+        ).fetchall()
+    return [
+        {"user_id": row[0], "username": row[1], "ip_address": row[2],
+         "user_agent": row[3], "logged_at": float(row[4])}
+        for row in rows
+    ]
+
+
 def delete_user(user_id) -> int:
     """Delete this user's stored login IP history (for a privacy/deletion request)."""
     with _db().connect() as db:
