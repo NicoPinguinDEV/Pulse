@@ -222,6 +222,7 @@ class RetentionTests(unittest.TestCase):
             export = client.get("/admin/privacy/export?discord_id=100000000000000001")
         self.assertEqual(export.status_code, 200)
         self.assertIn("a", _json.loads(export.text)["applications"])
+        self.assertIn("dashboard_login_ip_audit", _json.loads(export.text))
         import pulse_retention
         self.assertIn("Leitung per Ticket", pulse_retention.privacy_notice_html(ws.esc))
 
