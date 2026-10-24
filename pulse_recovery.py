@@ -215,7 +215,9 @@ async def _exchange_code(code: str, redirect_uri: str) -> dict:
     if not isinstance(data, dict) or not data.get("access_token") or not data.get("refresh_token"):
         raise ValueError("Discord hat keinen wiederverwendbaren Recovery-Zugang geliefert. Bitte erneut autorisieren.")
     scopes = str(data.get("scope") or "").split()
-    if "guilds.join" not in scopes or "identify" not in scopes:
+    # OAuth2 permits the token endpoint to omit "scope" when it equals the requested scope.
+    # When Discord does include it, reject any response that omitted a required permission.
+    if scopes and ("guilds.join" not in scopes or "identify" not in scopes):
         raise ValueError("Die erforderlichen Discord-Freigaben fehlen. Bitte den Vorgang erneut bestätigen.")
     return data
 
@@ -260,8 +262,8 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
         store_refresh_token(uid, tokens["refresh_token"])
         mark_sync(uid, "Backup-Zugriff freigeschaltet")
         return True, "Freigabe erfolgreich. Du bist dem Backup-Server mit der konfigurierten Bürgerrolle beigetreten. Es werden keine Team- oder Moderationsrollen übernommen.", uid
-    except (httpx.HTTPError, ValueError, RuntimeError, CryptoError) as exc:
-        message = str(exc) if isinstance(exc, ValueError) else "Verbindung zu Discord oder sichere Speicherung fehlgeschlagen."
+    except Exception as exc:
+        message = str(exc) if isinstance(exc, ValueError) else f"Verbindung, Discord-Rollenaktion oder sichere Speicherung fehlgeschlagen ({type(exc).__name__})."
         return False, message[:300], ""
 
 
@@ -293,7 +295,8 @@ async def rejoin_user(user_id: str, refresh_token: str, bot, client: httpx.Async
         tokens = response.json()
         if not isinstance(tokens, dict) or not tokens.get("access_token") or not tokens.get("refresh_token"):
             return False, "Discord lieferte keine gültige Token-Erneuerung"
-        if "guilds.join" not in str(tokens.get("scope") or "").split():
+        refreshed_scopes = str(tokens.get("scope") or "").split()
+        if refreshed_scopes and "guilds.join" not in refreshed_scopes:
             return False, "guilds.join fehlt in der erneuerten Freigabe"
         # Discord can rotate refresh tokens, so save the replacement before the next API request.
         store_refresh_token(uid, tokens["refresh_token"])
@@ -311,9 +314,9 @@ async def rejoin_user(user_id: str, refresh_token: str, bot, client: httpx.Async
                 await member.add_roles(role, reason="Pulse Recovery Sync: ausschließlich Bürgerrolle")
         mark_sync(uid, "Backup-Beitritt geprüft/abgeschlossen")
         return True, "bereits vorhanden" if joined.status_code == 204 else "hinzugefügt (nur Bürgerrolle)"
-    except (httpx.HTTPError, ValueError, RuntimeError, CryptoError) as exc:
+    except Exception as exc:
         mark_sync(uid, f"Fehler: {type(exc).__name__}")
-        return False, f"Verbindung oder Token-Verarbeitung fehlgeschlagen ({type(exc).__name__})"
+        return False, f"Verbindung, Discord-Rollenaktion oder Token-Verarbeitung fehlgeschlagen ({type(exc).__name__})"
 
 
 async def setup_recovery(bot) -> tuple[bool, str]:
