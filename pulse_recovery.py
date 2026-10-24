@@ -173,6 +173,12 @@ def target_status(bot, settings: dict | None = None) -> tuple[Any | None, Any | 
     if not settings["backup_guild_id"] or not settings["citizen_role_id"]:
         return None, None, ["Backup-Server-ID oder Bürgerrollen-ID fehlt."]
     try:
+        import webserver as ws
+        if settings["backup_guild_id"] == str(ws.GUILD_ID):
+            return None, None, ["Der Backup-Server muss ein eigener, vom Hauptserver getrennter Discord-Server sein."]
+    except Exception:
+        pass
+    try:
         guild = bot.get_guild(int(settings["backup_guild_id"]))
     except (AttributeError, TypeError, ValueError):
         guild = None
@@ -239,6 +245,21 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
             uid = _snowflake(user.get("id"))
             if not uid:
                 return False, "Discord hat keine gültige Benutzer-ID geliefert.", ""
+            # Initial opt-in is only available to members already verified on the primary guild.
+            # The recovery sync later uses this stored consent even if the primary guild is gone.
+            import webserver as ws
+            primary_guild = bot.get_guild(int(ws.GUILD_ID)) if bot else None
+            if primary_guild is None:
+                return False, "Der Hauptserver ist gerade nicht verfügbar; die Verifikation kann nicht geprüft werden.", uid
+            primary_member = primary_guild.get_member(int(uid))
+            if primary_member is None:
+                try:
+                    primary_member = await primary_guild.fetch_member(int(uid))
+                except Exception:
+                    return False, "Nur Mitglieder des Hauptservers können den Backup-Zugang freischalten.", uid
+            from pulse_verification import CITIZEN_ROLE_ID
+            if not any(getattr(member_role, "id", None) == int(CITIZEN_ROLE_ID) for member_role in getattr(primary_member, "roles", [])):
+                return False, "Bitte verifiziere dich zuerst im Hauptserver. Der Backup-Zugang ist nur für verifizierte Bürger freigegeben.", uid
             bot_token = os.getenv("DISCORD_TOKEN", "").strip()
             if not bot_token:
                 return False, "Pulse ist nicht korrekt für die Backup-Wiederherstellung konfiguriert.", ""
