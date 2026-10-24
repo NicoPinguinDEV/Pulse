@@ -3,7 +3,7 @@
 Automatisch erzeugt von `python tools/route_map.py` aus dem laufenden FastAPI-Objekt (nicht von Hand bearbeiten).
 Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, `admin_ctx`, `perm=`) – Hinweis, kein Beweis.
 
-- **Effektive Routen (Methode × Pfad):** 344
+- **Effektive Routen (Methode × Pfad):** 345
 - **Doppelt registriert:** 1 → `GET /ultimate`
 - **Im Quelltext registriert, zur Laufzeit verdrängt:** 21
 - **Ohne erkennbare Prüfung:** 22 (Login/OAuth/Health/Bewerbungsportal/öffentliche Seiten – einzeln prüfen)
@@ -32,7 +32,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/pulse-inbox` | `inbox_page` | pulse_features.py:39 | `pulse_pro.register.<locals>.inbox_v5` |
 | POST | `/pulse-inbox/read` | `inbox_read` | pulse_features.py:60 | `pulse_pro.register.<locals>.inbox_read_all` |
 | GET | `/search` | `search_page` | pulse_features.py:64 | `pulse_pro.register.<locals>.search_v5` |
-| GET | `/settings` | `settings_page` | webserver.py:10210 | `pulse_pro.register.<locals>.settings_v5` |
+| GET | `/settings` | `settings_page` | webserver.py:10214 | `pulse_pro.register.<locals>.settings_v5` |
 | GET | `/stats` | `stats_page` | pulse_features.py:261 | `pulse_pro.register.<locals>.stats_v5` |
 | GET | `/sw.js` | `service_worker` | pulse_features.py:319 | `pulse_pro.register.<locals>.service_worker` |
 | GET | `/system` | `system_page` | pulse_features.py:300 | `pulse_pro.register.<locals>.system_v5` |
@@ -60,7 +60,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| POST | `/action` | `webserver.handle_action` | webserver.py:10826 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
+| POST | `/action` | `webserver.handle_action` | webserver.py:10830 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
 
 ### `/activity-check` (2)
 
@@ -69,7 +69,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/activity-check` | `pulse_pro.register.<locals>.activity_check_page` | pulse_pro.py:988 | can_manage_checkins |
 | POST | `/activity-check/setup` | `pulse_pro.register.<locals>.activity_check_setup` | pulse_pro.py:1114 | can_manage_checkins |
 
-### `/admin` (49)
+### `/admin` (50)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
@@ -105,19 +105,20 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | POST | `/admin/security/quarantine/dismiss` | `pulse_guard_admin.register.<locals>.admin_security_quarantine_dismiss` | pulse_guard_admin.py:663 | — (öffentlich/keine erkennbare Prüfung) |
 | POST | `/admin/security/quarantine/restore` | `pulse_guard_admin.register.<locals>.admin_security_quarantine_restore` | pulse_guard_admin.py:659 | — (öffentlich/keine erkennbare Prüfung) |
 | POST | `/admin/security/test` | `pulse_guard_admin.register.<locals>.admin_security_test` | pulse_guard_admin.py:592 | Admin |
-| GET | `/admin/server` | `pulse_server_control.register.<locals>.server_control_page` | pulse_server_control.py:621 | angemeldet + eigene Prüfung (+ is_admin) |
-| POST | `/admin/server/api/actions` | `pulse_server_control.register.<locals>.scc_action` | pulse_server_control.py:889 | angemeldet + eigene Prüfung |
-| GET | `/admin/server/api/backups` | `pulse_server_control.register.<locals>.scc_backups` | pulse_server_control.py:660 | angemeldet + eigene Prüfung (+ is_admin) |
-| POST | `/admin/server/api/backups/verify` | `pulse_server_control.register.<locals>.scc_backup_verify` | pulse_server_control.py:963 | angemeldet + eigene Prüfung |
-| POST | `/admin/server/api/console` | `pulse_server_control.register.<locals>.scc_console` | pulse_server_control.py:800 | angemeldet + eigene Prüfung |
-| GET | `/admin/server/api/container` | `pulse_server_control.register.<locals>.scc_container` | pulse_server_control.py:642 | angemeldet + eigene Prüfung |
-| GET | `/admin/server/api/deploy` | `pulse_server_control.register.<locals>.scc_deploy_status` | pulse_server_control.py:651 | angemeldet + eigene Prüfung |
-| POST | `/admin/server/api/deploy/fetch` | `pulse_server_control.register.<locals>.scc_fetch` | pulse_server_control.py:876 | angemeldet + eigene Prüfung |
-| GET | `/admin/server/api/diagnose` | `pulse_server_control.register.<locals>.scc_diagnose` | pulse_server_control.py:669 | angemeldet + eigene Prüfung |
-| GET | `/admin/server/api/jobs/{job_id}` | `pulse_server_control.register.<locals>.scc_job` | pulse_server_control.py:683 | angemeldet + eigene Prüfung |
-| POST | `/admin/server/api/jobs/{job_id}/cancel` | `pulse_server_control.register.<locals>.scc_cancel` | pulse_server_control.py:946 | angemeldet + eigene Prüfung |
-| GET | `/admin/server/api/logs/stream` | `pulse_server_control.register.<locals>.scc_log_stream` | pulse_server_control.py:721 | angemeldet + eigene Prüfung |
-| GET | `/admin/server/api/overview` | `pulse_server_control.register.<locals>.scc_overview` | pulse_server_control.py:629 | angemeldet + eigene Prüfung |
+| GET | `/admin/server` | `pulse_server_control.register.<locals>.server_control_page` | pulse_server_control.py:624 | angemeldet + eigene Prüfung (+ is_admin) |
+| POST | `/admin/server/api/actions` | `pulse_server_control.register.<locals>.scc_action` | pulse_server_control.py:902 | angemeldet + eigene Prüfung |
+| GET | `/admin/server/api/backups` | `pulse_server_control.register.<locals>.scc_backups` | pulse_server_control.py:663 | angemeldet + eigene Prüfung (+ is_admin) |
+| POST | `/admin/server/api/backups/verify` | `pulse_server_control.register.<locals>.scc_backup_verify` | pulse_server_control.py:976 | angemeldet + eigene Prüfung |
+| POST | `/admin/server/api/console` | `pulse_server_control.register.<locals>.scc_console` | pulse_server_control.py:813 | angemeldet + eigene Prüfung |
+| GET | `/admin/server/api/container` | `pulse_server_control.register.<locals>.scc_container` | pulse_server_control.py:645 | angemeldet + eigene Prüfung |
+| GET | `/admin/server/api/deploy` | `pulse_server_control.register.<locals>.scc_deploy_status` | pulse_server_control.py:654 | angemeldet + eigene Prüfung |
+| POST | `/admin/server/api/deploy/fetch` | `pulse_server_control.register.<locals>.scc_fetch` | pulse_server_control.py:889 | angemeldet + eigene Prüfung |
+| GET | `/admin/server/api/diagnose` | `pulse_server_control.register.<locals>.scc_diagnose` | pulse_server_control.py:682 | angemeldet + eigene Prüfung |
+| GET | `/admin/server/api/health` | `pulse_server_control.register.<locals>.scc_health` | pulse_server_control.py:672 | angemeldet + eigene Prüfung |
+| GET | `/admin/server/api/jobs/{job_id}` | `pulse_server_control.register.<locals>.scc_job` | pulse_server_control.py:696 | angemeldet + eigene Prüfung |
+| POST | `/admin/server/api/jobs/{job_id}/cancel` | `pulse_server_control.register.<locals>.scc_cancel` | pulse_server_control.py:959 | angemeldet + eigene Prüfung |
+| GET | `/admin/server/api/logs/stream` | `pulse_server_control.register.<locals>.scc_log_stream` | pulse_server_control.py:734 | angemeldet + eigene Prüfung |
+| GET | `/admin/server/api/overview` | `pulse_server_control.register.<locals>.scc_overview` | pulse_server_control.py:632 | angemeldet + eigene Prüfung |
 | GET | `/admin/settings-history` | `pulse_phase7.register.<locals>.history_page` | pulse_phase7.py:246 | Admin |
 | POST | `/admin/settings-history/revert` | `pulse_phase7.register.<locals>.history_revert` | pulse_phase7.py:267 | Admin |
 | GET | `/admin/visibility` | `pulse_phase7.register.<locals>.visibility_page` | pulse_phase7.py:206 | Admin |
@@ -176,11 +177,11 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | POST | `/backup/create` | `webserver.create_backup` | webserver.py:9599 | Admin |
 | POST | `/backup/delete` | `webserver.delete_backup` | webserver.py:9798 | Admin |
 | GET | `/backup/download/{filename}` | `webserver.download_backup` | webserver.py:9662 | Admin |
-| POST | `/backup/full/create` | `webserver.full_backup_create` | webserver.py:9920 | Admin |
-| POST | `/backup/full/delete` | `webserver.full_backup_delete` | webserver.py:10011 | Admin |
-| GET | `/backup/full/download/{filename}` | `webserver.full_backup_download` | webserver.py:9933 | Admin |
-| GET | `/backup/full/preview/{filename}` | `webserver.full_backup_preview` | webserver.py:9942 | Admin |
-| POST | `/backup/full/restore` | `webserver.full_backup_restore` | webserver.py:9984 | Admin |
+| POST | `/backup/full/create` | `webserver.full_backup_create` | webserver.py:9924 | Admin |
+| POST | `/backup/full/delete` | `webserver.full_backup_delete` | webserver.py:10015 | Admin |
+| GET | `/backup/full/download/{filename}` | `webserver.full_backup_download` | webserver.py:9937 | Admin |
+| GET | `/backup/full/preview/{filename}` | `webserver.full_backup_preview` | webserver.py:9946 | Admin |
+| POST | `/backup/full/restore` | `webserver.full_backup_restore` | webserver.py:9988 | Admin |
 | POST | `/backup/restore` | `webserver.restore_backup` | webserver.py:9684 | Admin |
 | POST | `/backup/upload` | `webserver.upload_backup` | webserver.py:9611 | Admin |
 
@@ -363,8 +364,8 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/security` | `webserver.security_page` | webserver.py:10112 | Admin |
-| POST | `/security` | `webserver.save_security_settings` | webserver.py:10119 | Admin |
+| GET | `/security` | `webserver.security_page` | webserver.py:10116 | Admin |
+| POST | `/security` | `webserver.save_security_settings` | webserver.py:10123 | Admin |
 
 ### `/settings` (14)
 
@@ -389,7 +390,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/setup` | `webserver.setup_wizard` | webserver.py:10028 | Admin |
+| GET | `/setup` | `webserver.setup_wizard` | webserver.py:10032 | Admin |
 
 ### `/shift` (3)
 

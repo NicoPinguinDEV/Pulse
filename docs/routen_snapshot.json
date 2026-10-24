@@ -20,6 +20,7 @@
  "GET /admin/server/api/container -> pulse_server_control.register.<locals>.scc_container",
  "GET /admin/server/api/deploy -> pulse_server_control.register.<locals>.scc_deploy_status",
  "GET /admin/server/api/diagnose -> pulse_server_control.register.<locals>.scc_diagnose",
+ "GET /admin/server/api/health -> pulse_server_control.register.<locals>.scc_health",
  "GET /admin/server/api/jobs/{job_id} -> pulse_server_control.register.<locals>.scc_job",
  "GET /admin/server/api/logs/stream -> pulse_server_control.register.<locals>.scc_log_stream",
  "GET /admin/server/api/overview -> pulse_server_control.register.<locals>.scc_overview",

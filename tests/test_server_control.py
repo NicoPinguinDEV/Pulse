@@ -63,6 +63,7 @@ SERVER_OPERATOR = dict(TEAMLER, can_manage_server=True)
 ROUTES = [
     ("get", "/admin/server", None), ("get", "/admin/server/api/overview", None), ("get", "/admin/server/api/container", None),
     ("get", "/admin/server/api/deploy", None), ("get", "/admin/server/api/backups", None), ("get", "/admin/server/api/diagnose", None),
+    ("get", "/admin/server/api/health", None),
     ("get", "/admin/server/api/jobs/0123456789ab", None), ("get", "/admin/server/api/logs/stream", None),
     ("post", "/admin/server/api/console", {"command": "help"}), ("post", "/admin/server/api/deploy/fetch", {}),
     ("post", "/admin/server/api/actions", {"action": "restart", "confirm": "NEUSTART"}),
@@ -243,6 +244,20 @@ class RouteTests(unittest.TestCase):
             for method, url, body in ROUTES:
                 with self.subTest(url=url):
                     self.assertEqual(self.call(method, url, body).status_code, 403)
+
+    def test_health_api_reports_live_values_for_operator(self):
+        with self.as_user(SERVER_OPERATOR):
+            page = self.client.get("/admin/server")
+            self.assertIn('data-tab="health"', page.text)
+            r = self.client.get("/admin/server/api/health")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertTrue(data["ok"])
+        self.assertIn(data["status"], {"ok", "warn", "bad"})
+        for key in ("memory", "scheduler", "discord", "connections", "databases", "checks"):
+            self.assertIn(key, data)
+        self.assertIn("pulse.db", [f["name"] for f in data["databases"]["files"]])
+        self.assertEqual(self.audit, [])  # read-only: nothing audited, nothing changed
 
     def test_operator_without_admin_can_open_page_but_not_restore_links(self):
         with self.as_user(SERVER_OPERATOR):

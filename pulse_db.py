@@ -7,6 +7,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
+import pulse_sqlite
+
 DB_PATH = os.getenv("PULSE_DB_PATH", "pulse.db")
 _LOCK = threading.RLock()
 
@@ -18,7 +20,7 @@ def _now():
 @contextmanager
 def connect():
     with _LOCK:
-        conn = sqlite3.connect(DB_PATH, timeout=15)
+        conn = sqlite3.connect(DB_PATH, timeout=15, factory=pulse_sqlite.ClosingConnection)
         conn.row_factory = sqlite3.Row
         try:
             conn.execute("PRAGMA foreign_keys=ON")

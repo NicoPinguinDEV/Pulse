@@ -575,6 +575,9 @@ def register(app) -> None:
     import webserver as ws
     from pulse_pro import render_pro_page
 
+    import pulse_health
+    pulse_health.install_rate_limit_recorder()  # Live-Health: count Discord 429s from discord.py's own log
+
     streams = {"total": 0, "per_user": {}}
     streams_lock = threading.Lock()
     audited_jobs: deque = deque(maxlen=100)
@@ -665,6 +668,16 @@ def register(app) -> None:
         status = ws.full_backup_status()
         return JSONResponse({"ok": True, "backups": rows, "status": status, "can_restore": bool(ctx.perms.get("is_admin")),
                              "disk": _disk_facts(ws.full_backup_dir() if os.path.isdir(ws.full_backup_dir()) else ws.BASE_DIR)})
+
+    @app.get("/admin/server/api/health")
+    async def scc_health(request: Request, user_session: str = Cookie(None)):
+        ctx = ctx_for(request, user_session)
+        limited(ctx, "read", 240, 60)
+        import pulse_db
+        import pulse_health
+        bot = getattr(request.app.state, "bot", None)
+        data = await asyncio.to_thread(pulse_health.collect, _memory_facts(), ws.BASE_DIR, pulse_db.DB_PATH, bot)
+        return JSONResponse({"ok": True, **data})
 
     @app.get("/admin/server/api/diagnose")
     async def scc_diagnose(request: Request, user_session: str = Cookie(None)):
@@ -1017,6 +1030,7 @@ SCC_TEMPLATE = r"""
 .scc-toolbar .pulse-input,.scc-toolbar select{max-width:220px}
 .scc-dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;background:#94a3b8}.scc-dot.on{background:#12b76a}.scc-dot.wait{background:#f79009}.scc-dot.off{background:#f04438}
 .scc-out{background:#0b1020;color:#d1fae5;border-radius:12px;font:12px/1.5 ui-monospace,monospace;padding:12px;white-space:pre-wrap;max-height:300px;overflow:auto;margin-top:10px}
+.scc-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}.scc-bar{height:8px;border-radius:99px;background:var(--border);overflow:hidden;margin-top:6px}.scc-bar>i{display:block;height:100%;border-radius:99px;background:#12b76a}.scc-bar.warn>i{background:#f79009}.scc-bar.bad>i{background:#f04438}
 .scc-table{width:100%;font-size:12px;border-collapse:collapse}.scc-table td,.scc-table th{padding:7px 8px;border-top:1px solid var(--border);text-align:left;vertical-align:top}
 .scc-finding{border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px;background:var(--surface2)}
 .scc-finding.bad{border-color:rgba(240,68,56,.35)}.scc-finding.warn{border-color:rgba(247,144,9,.35)}
@@ -1032,6 +1046,7 @@ SCC_TEMPLATE = r"""
 %%BANNER%%
 <div class="scc-tabs" role="tablist" aria-label="Bereiche des Server Control Centers">
  <button class="scc-tab" role="tab" data-tab="overview" aria-selected="true">Übersicht</button>
+ <button class="scc-tab" role="tab" data-tab="health" aria-selected="false">Live-Health</button>
  <button class="scc-tab" role="tab" data-tab="console" aria-selected="false">Live-Konsole</button>
  <button class="scc-tab" role="tab" data-tab="container" aria-selected="false">Container</button>
  <button class="scc-tab" role="tab" data-tab="deploy" aria-selected="false">Deployment</button>
@@ -1044,6 +1059,10 @@ SCC_TEMPLATE = r"""
  <div id="scc-overview" class="scc-grid"><div class="pulse-card"><div class="pulse-card-b">Werte werden geladen …</div></div></div>
 </section>
 
+<section class="scc-panel" data-panel="health" role="tabpanel" hidden>
+ <div class="pulse-card" style="margin-bottom:12px"><div class="pulse-card-h"><div class="pulse-section-title">Live-Health <span id="scc-health-state"></span></div><div class="flex gap-2" style="align-items:center"><span class="text-xs text-slate-400" id="scc-health-at"></span><button class="pulse-btn ghost" type="button" data-refresh="health">Aktualisieren</button></div></div><div class="pulse-card-b" id="scc-health-checks">Werte werden geladen …</div></div>
+ <div id="scc-health" class="scc-grid"></div>
+</section>
 <section class="scc-panel pulse-card" data-panel="console" role="tabpanel" hidden><div class="pulse-card-b">
  <div class="scc-toolbar">
   <span id="scc-conn"><span class="scc-dot"></span>getrennt</span>
@@ -1117,7 +1136,8 @@ function show(tab){active=tab;document.querySelectorAll('.scc-tab').forEach(b=>b
  if(tab==='console')connect();}
 document.querySelectorAll('.scc-tab').forEach(b=>b.addEventListener('click',()=>show(b.dataset.tab)));
 document.querySelectorAll('[data-refresh]').forEach(b=>b.addEventListener('click',()=>load(b.dataset.refresh)));
-function schedule(){clearInterval(timers.poll);timers.poll=setInterval(()=>{if(document.visibilityState!=='visible')return;if(active==='overview')load('overview');if(active==='container')load('container');},20000);}
+function schedule(){clearInterval(timers.poll);timers.poll=setInterval(()=>{if(document.visibilityState!=='visible')return;if(active==='overview')load('overview');if(active==='container')load('container');},20000);
+ clearInterval(timers.health);timers.health=setInterval(()=>{if(document.visibilityState==='visible'&&active==='health')load('health');},10000);}
 
 async function load(tab){try{
  if(tab==='overview')return renderOverview(await api('/admin/server/api/overview'));
@@ -1125,7 +1145,8 @@ async function load(tab){try{
  if(tab==='deploy')return renderDeploy(await api('/admin/server/api/deploy'));
  if(tab==='backups')return renderBackups(await api('/admin/server/api/backups'));
  if(tab==='diagnose')return renderDiagnose(await api('/admin/server/api/diagnose'));
-}catch(e){const el=$('scc-'+(tab==='overview'?'overview':tab));if(el)el.innerHTML=`<div class="scc-banner bad">Laden fehlgeschlagen: ${esc(e.message)} – das Dashboard ist evtl. gerade nicht erreichbar (Neustart?).</div>`;}}
+ if(tab==='health')return renderHealth(await api('/admin/server/api/health'));
+}catch(e){if(tab==='health'){$('scc-health-state').innerHTML=pill('nicht erreichbar','bad');$('scc-health-checks').innerHTML='<span class="scc-na">Keine aktuellen Werte – ältere Befunde wurden ausgeblendet.</span>';}const el=$('scc-'+(tab==='overview'?'overview':tab));if(el)el.innerHTML=`<div class="scc-banner bad">Laden fehlgeschlagen: ${esc(e.message)} – das Dashboard ist evtl. gerade nicht erreichbar (Neustart?).</div>`;}}
 
 // ---------------- overview
 function renderOverview(d){if(!d.ok){$('scc-overview').innerHTML=unavailable(d);return;}
@@ -1237,6 +1258,28 @@ function renderBackups(d){const el=$('scc-backups');if(!d.ok){el.innerHTML=unava
  document.querySelectorAll('[data-verify]').forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent='Prüft …';const r=await post('/admin/server/api/backups/verify',{filename:b.dataset.verify});if(!r.ok)toastOut('Prüfung fehlgeschlagen: '+(r.message||r.detail));load('backups');});}
 
 // ---------------- diagnose
+// ---------------- live health
+const SEV={bad:['Fehler','bad'],warn:['Warnung','warn'],info:['Hinweis',''],ok:['ok','good']};
+const JOBSTATE={ok:['läuft','good'],failing:['fehlgeschlagen','bad'],overdue:['überfällig','warn'],paused:['pausiert','warn'],waiting:['wartet','']};
+function bar(v,max,warn,crit){if(v==null||!max)return'';const p=Math.max(2,Math.min(100,100*v/max));const k=v>=crit?'bad':v>=warn?'warn':'';return `<div class="scc-bar ${k}" role="img" aria-label="${Math.round(p)} % von ${esc(max)} MB"><i style="width:${p}%"></i></div>`;}
+function renderHealth(d){const el=$('scc-health');if(!d.ok){el.innerHTML=unavailable(d);$('scc-health-checks').innerHTML='';return;}
+ const st={ok:['Alles in Ordnung','good'],warn:['Auffällig','warn'],bad:['Störung','bad']}[d.status]||['unbekannt',''];
+ $('scc-health-state').innerHTML=pill(st[0],st[1]);$('scc-health-at').textContent='Stand '+new Date(d.at).toLocaleTimeString('de-DE')+' · alle 10 s';
+ const ch=d.checks||[];$('scc-health-checks').innerHTML=ch.length?ch.map(c=>`<div class="scc-finding ${esc(c.severity)}"><div class="flex flex-wrap gap-2" style="align-items:center">${pill((SEV[c.severity]||SEV.info)[0],(SEV[c.severity]||SEV.info)[1])}<strong>${esc(c.component)}</strong><span class="text-xs">${esc(c.text)}</span></div></div>`).join(''):'<div class="scc-banner good">Keine Auffälligkeiten bei RAM, Scheduler, Discord-Limits und Datenbank.</div>';
+ const m=d.memory||{},s=d.scheduler||{},lag=s.lag||{},cn=s.counts||{},r=d.discord||{},c=d.connections||{},db=d.databases||{};const rss=m.process_mb??m.container_mb;
+ const cap=m.limit_mb||m.emergency_mb||m.critical_mb;const ms=v=>v==null?null:Math.round(v*1000);
+ const jobs=(s.jobs||[]).map(j=>{const js=JOBSTATE[j.state]||[j.state,''];return `<tr><td>${esc(j.name)}</td><td>${pill(js[0],js[1])}</td><td>${j.age_seconds==null?na(null):dur(j.age_seconds)}</td><td>${esc(j.runs)} / ${esc(j.failures)}</td><td>${j.last_error?'<code>'+esc(j.last_error)+'</code>':''}</td></tr>`;}).join('');
+ const files=(db.files||[]).map(f=>`<tr><td>${esc(f.name)}</td><td>${esc(f.size_mb)} MB</td><td>${f.wal_mb>=64?pill(f.wal_mb+' MB','warn'):esc(f.wal_mb)+' MB'}</td></tr>`).join('');
+ const routes=(r.top_routes||[]).map(x=>`<tr><td><code>${esc(x.route)}</code></td><td>${esc(x.count)}</td></tr>`).join('');
+ el.innerHTML=[
+  card('Arbeitsspeicher',kv('Pulse-Prozess',na(rss,' MB')+bar(rss,cap,m.warn_mb,m.critical_mb))+kv('Ziel',na(m.target_mb,' MB'))+kv('Spitze',na(m.peak_mb,' MB'))+kv('Warn / kritisch',esc(m.warn_mb)+' / '+esc(m.critical_mb)+' MB')+kv('Container-Limit',na(m.limit_mb,' MB'))+kv('Threads',na(m.threads))),
+  card('Discord-Rate-Limits',kv('429 in '+esc(r.window_minutes)+' min',r.recent?pill(r.recent,r.recent>=20?'warn':''):pill('0','good'))+kv('Global (Fenster)',r.recent_global?pill(r.recent_global,'bad'):pill('0','good'))+kv('Abgebrochen (zu lang)',na(r.recent_raised))+kv('Seit Start',esc(r.total??0)+' · global '+esc(r.global_total??0))+kv('Gateway-Sendelimit',r.ws_ratelimited==null?na(null):r.ws_ratelimited?pill('aktiv','warn'):pill('frei','good'))+kv('Zuletzt',r.last?when(r.last.at)+' · <code>'+esc(r.last.route)+'</code> ('+esc(r.last.retry_after)+' s)':pill('nie','good'))),
+  card('Datenbank-Verbindungen',kv('Jetzt offen',(c.open||0)>=20?pill(c.open,'warn'):esc(c.open??0))+kv('Spitze',na(c.peak))+kv('Geöffnet seit Start',na(c.opened_total))+kv('Vom GC geschlossen (Leck)',c.closed_by_gc?pill(c.closed_by_gc,'warn'):pill('0','good'))),
+  card('Scheduler & Event-Loop',kv('Jobs',esc(cn.ok||0)+' ok · '+esc(cn.failing||0)+' Fehler · '+esc(cn.overdue||0)+' überfällig · '+esc(cn.paused||0)+' pausiert')+kv('Loop-Verzögerung',na(ms(lag.last),' ms'))+kv('Maximum',na(ms(lag.max),' ms')+(lag.max_at?' · '+when(lag.max_at):''))+kv('Verzögerungs-Warnungen',na(lag.warnings))),
+  `<div class="pulse-card" style="grid-column:1/-1"><div class="pulse-card-h"><div class="pulse-section-title">Hintergrundjobs</div></div><div class="pulse-card-b scc-scroll">${jobs?`<table class="scc-table"><tr><th>Job</th><th>Status</th><th>Letzter Start vor</th><th>Läufe / Fehler</th><th>Letzter Fehler</th></tr>${jobs}</table>`:'<div class="text-xs text-slate-400">Noch kein Hintergrundjob gelaufen.</div>'}</div></div>`,
+  `<div class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">Datenbanken · ${esc(db.total_mb??0)} MB</div></div><div class="pulse-card-b scc-scroll">${files?`<table class="scc-table"><tr><th>Datei</th><th>Größe</th><th>WAL</th></tr>${files}</table>`:'<div class="text-xs text-slate-400">Keine Datenbankdateien gefunden.</div>'}</div></div>`,
+  `<div class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">Meistbegrenzte Routen</div></div><div class="pulse-card-b scc-scroll">${routes?`<table class="scc-table"><tr><th>Route</th><th>429</th></tr>${routes}</table>`:'<div class="text-xs text-slate-400">Keine Rate-Limits im aktuellen Fenster.</div>'}</div></div>`,
+ ].join('');}
 function renderDiagnose(d){const el=$('scc-diagnose');if(!d.ok){el.innerHTML=unavailable(d);return;}
  const f=d.findings||[];el.innerHTML=(f.length?f.map(x=>`<div class="scc-finding ${esc(x.severity)}"><div class="flex flex-wrap gap-2" style="align-items:center">${pill(x.severity==='bad'?'Fehler':x.severity==='warn'?'Warnung':'Hinweis',x.severity==='info'?'':x.severity)}<strong>${esc(x.component)}</strong>${pill(x.confirmed?'bestätigt (gemessen)':'Vermutung',x.confirmed?'good':'warn')}<span class="text-xs text-slate-400">${when(x.at)}</span></div>`+
   `<div style="margin-top:6px;font-size:12px">${esc(x.cause)}</div>${x.evidence?`<div class="text-xs text-slate-400" style="margin-top:4px"><code>${esc(x.evidence)}</code></div>`:''}<div class="text-xs" style="margin-top:6px"><strong>Empfehlung:</strong> ${esc(x.recommendation)}</div></div>`).join(''):'<div class="scc-banner good">Keine Auffälligkeiten gefunden.</div>')+`<div class="text-xs text-slate-400">Geprüft ${when(d.at)}</div>`;}
@@ -1301,7 +1344,7 @@ $('scc-cmd-form').addEventListener('submit',async e=>{e.preventDefault();const v
  finally{ctl=null;$('scc-cmd-run').disabled=false;$('scc-cmd-abort').disabled=true;}});
 
 // ---------------- start
-const TABS=['overview','console','container','deploy','backups','diagnose'];
+const TABS=['overview','health','console','container','deploy','backups','diagnose'];
 const fromHash=()=>{const t=(location.hash||'#overview').slice(1);return TABS.includes(t)?t:'overview';};
 window.addEventListener('hashchange',()=>{const t=fromHash();if(t!==active)show(t);});
 show(fromHash());if(fromHash()!=='overview')load('overview');schedule();
