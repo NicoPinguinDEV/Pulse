@@ -7,6 +7,7 @@ only the configured, permission-reviewed citizen role.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import os
@@ -20,6 +21,27 @@ from nacl.secret import SecretBox
 SETTING_KEY = "recovery_server_config"
 TOKEN_TIMEOUT = httpx.Timeout(12.0, connect=5.0)
 MAX_BATCH_SIZE = 100
+
+
+async def _request_with_429_retry(request_factory: Any):
+    """Retry Discord 429 responses using Discord's supplied retry_after value."""
+    response = None
+    for attempt in range(5):
+        response = await request_factory()
+        if response.status_code != 429 or attempt == 4:
+            return response
+        retry_after = response.headers.get("Retry-After", "1")
+        try:
+            body = response.json()
+            retry_after = body.get("retry_after", retry_after) if isinstance(body, dict) else retry_after
+        except (ValueError, TypeError):
+            pass
+        try:
+            delay = float(retry_after)
+        except (TypeError, ValueError):
+            delay = 1.0
+        await asyncio.sleep(min(max(delay, 0.5), 300.0))
+    return response
 DANGEROUS_ROLE_PERMISSIONS = (
     "administrator", "manage_guild", "manage_roles", "manage_channels",
     "kick_members", "ban_members", "manage_webhooks", "manage_messages",
@@ -140,6 +162,43 @@ def list_linked_users(limit: int = 100) -> list[dict]:
             items.append({"user_id": str(row[0]), "refresh_token": token, "consented_at": float(row[2]),
                           "last_sync_at": float(row[3]) if row[3] is not None else None, "last_status": str(row[4])})
     return items
+
+
+def list_linked_users_page(
+    after_user_id: str | None = None, limit: int = 100
+) -> tuple[list[dict], str | None, int, bool]:
+    """Return a stable, cursor-paginated page for full recovery syncs.
+
+    The cursor advances over database rows even when a token cannot be decrypted, so
+    one damaged entry cannot block processing all subsequent users.
+    """
+    limit = max(1, min(MAX_BATCH_SIZE, int(limit)))
+    query = (
+        "SELECT user_id, refresh_token_enc, consented_at, last_sync_at, last_status "
+        "FROM recovery_oauth_tokens "
+    )
+    with _db().connect() as db:
+        _init(db)
+        if after_user_id is None:
+            rows = db.execute(query + "ORDER BY user_id LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = db.execute(
+                query + "WHERE user_id > ? ORDER BY user_id LIMIT ?",
+                (str(after_user_id), limit),
+            ).fetchall()
+    items = []
+    for row in rows:
+        token = _decrypt(str(row[1]))
+        if token:
+            items.append({
+                "user_id": str(row[0]),
+                "refresh_token": token,
+                "consented_at": float(row[2]),
+                "last_sync_at": float(row[3]) if row[3] is not None else None,
+                "last_status": str(row[4]),
+            })
+    next_cursor = str(rows[-1][0]) if rows else None
+    return items, next_cursor, len(rows), len(rows) == limit
 
 
 def count_linked_users() -> int:
@@ -288,13 +347,28 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
         return False, message[:300], ""
 
 
-async def rejoin_user(user_id: str, refresh_token: str, bot, client: httpx.AsyncClient) -> tuple[bool, str]:
+async def rejoin_user(
+    user_id: str,
+    refresh_token: str,
+    bot,
+    client: httpx.AsyncClient,
+    *,
+    settings: dict | None = None,
+) -> tuple[bool, str]:
     """Refresh one user's consent, then add them to the backup guild with only its citizen role."""
     import webserver as ws
     uid = _snowflake(user_id)
     if not uid:
         return False, "ungültige Benutzer-ID"
-    settings = load_settings()
+    selected_settings = normalize_settings(settings if settings is not None else load_settings())
+    current_settings = load_settings()
+    if settings is not None and (
+        not current_settings["enabled"]
+        or current_settings["backup_guild_id"] != selected_settings["backup_guild_id"]
+        or current_settings["citizen_role_id"] != selected_settings["citizen_role_id"]
+    ):
+        return False, "Backup-Konfiguration wurde während des Syncs geändert oder deaktiviert"
+    settings = selected_settings
     guild, role, problems = target_status(bot, settings)
     if problems:
         return False, " · ".join(problems)
@@ -302,12 +376,12 @@ async def rejoin_user(user_id: str, refresh_token: str, bot, client: httpx.Async
     if not bot_token:
         return False, "DISCORD_TOKEN fehlt"
     try:
-        response = await client.post(
+        response = await _request_with_429_retry(lambda: client.post(
             "https://discord.com/api/v10/oauth2/token",
             data={"client_id": ws.CLIENT_ID, "client_secret": ws.CLIENT_SECRET,
                   "grant_type": "refresh_token", "refresh_token": refresh_token},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
+        ))
         if response.status_code != 200:
             if response.status_code in (400, 401):
                 unlink(uid)  # Revoked/expired consent must be renewed by the user.
@@ -321,11 +395,11 @@ async def rejoin_user(user_id: str, refresh_token: str, bot, client: httpx.Async
             return False, "guilds.join fehlt in der erneuerten Freigabe"
         # Discord can rotate refresh tokens, so save the replacement before the next API request.
         store_refresh_token(uid, tokens["refresh_token"])
-        joined = await client.put(
+        joined = await _request_with_429_retry(lambda: client.put(
             f"https://discord.com/api/v10/guilds/{guild.id}/members/{uid}",
             headers={"Authorization": f"Bot {bot_token}", "Content-Type": "application/json"},
             json={"access_token": tokens["access_token"], "roles": [str(role.id)]},
-        )
+        ))
         if joined.status_code not in (201, 204):
             mark_sync(uid, f"Beitritt fehlgeschlagen HTTP {joined.status_code}")
             return False, f"Beitritt fehlgeschlagen (HTTP {joined.status_code})"
