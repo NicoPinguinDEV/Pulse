@@ -18,7 +18,7 @@ Die Funktion übernimmt keine Rollen aus dem Hauptserver. Neue Backup-Mitglieder
 
 ## Wiederherstellung
 
-Führe im Hauptserver oder im Backup-Server als Discord-Administrator den Befehl `/recovery-sync` aus. Ohne die zusätzliche Bestätigung wird nichts geändert. Setze `confirm: Ja` und optional die Anzahl `max_users` (1–100). Der Befehl verarbeitet pro Lauf höchstens die festgelegte Anzahl freiwillig freigegebener Konten. Er kann auch direkt auf dem Backup-Server ausgeführt werden, wenn der Hauptserver nicht mehr verfügbar ist und Pulse weiterhin im Backup-Server ist.
+Führe im Hauptserver oder im Backup-Server als Discord-Administrator den Befehl `/recovery-sync` aus. Ohne die zusätzliche Bestätigung wird nichts geändert. Setze `confirm: True` und optional die Anzahl `max_users` (1–100). Der Befehl verarbeitet pro Lauf höchstens die festgelegte Anzahl freiwillig freigegebener Konten. Er kann auch direkt auf dem Backup-Server ausgeführt werden, wenn der Hauptserver nicht mehr verfügbar ist und Pulse weiterhin im Backup-Server ist.
 
 Pulse speichert OAuth-Recovery-Tokens verschlüsselt mit PyNaCl und einem aus dem bestehenden dauerhaften Pulse-Session-Geheimnis abgeleiteten Schlüssel. Deshalb muss `SESSION_SECRET` nach Einrichtung stabil bleiben bzw. die Datei `.session_secret` erhalten bleiben. Bei widerrufener oder abgelaufener Discord-Freigabe wird der gespeicherte Zugang entfernt und die Person muss ihn erneut freigeben.
 
