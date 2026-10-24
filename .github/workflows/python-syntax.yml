@@ -116,7 +116,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-dev.lock
       - name: Playwright-Browser aus dem Cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('requirements-dev.lock') }}
