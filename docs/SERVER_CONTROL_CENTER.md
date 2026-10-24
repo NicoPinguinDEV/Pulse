@@ -122,4 +122,4 @@ Ohne Host-Dienst funktionieren Übersicht (Werte aus dem eigenen Prozess), Anwen
 - **Keine freie Terminal-Sitzung.** Sie ist nicht implementiert. Wartung außerhalb der festen Aktionen läuft weiter per SSH.
 - Ein laufendes Deploy oder Rollback ist nur **vor Abschluss des Backups** abbrechbar, danach nicht mehr, denn dann wird der Code verändert. Ein Neustart ist nicht abbrechbar.
 - Das Dashboard läuft im Pulse-Container. Während Deploy oder Neustart ist es kurz nicht erreichbar. Den Fortschritt verfolgt der Host-Dienst, und die Seite holt den Status nach dem Reconnect nach.
-- Der GitHub-Workflow `deploy-vps.yml` beendet sich weiterhin mit einem Hinweis (Status grün), wenn die `PULSE_VPS_*`-Secrets fehlen. Das Server Control Center wertet diesen Workflow nicht aus. Es meldet Erfolg nur nach eigener Prüfung von Commit und Healthcheck.
+- Der GitHub-Workflow `deploy-vps.yml` schlägt sichtbar fehl, wenn erforderliche `PULSE_VPS_*`-Secrets fehlen; ein übersprungenes Deployment wird nicht mehr als grün gemeldet. Das Server Control Center wertet diesen Workflow nicht aus. Es meldet Erfolg nur nach eigener Prüfung von Commit und Healthcheck.
