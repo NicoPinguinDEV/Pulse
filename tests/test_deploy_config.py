@@ -40,7 +40,10 @@ class DockerTests(unittest.TestCase):
 class DeployTests(unittest.TestCase):
     def test_workflow_deploys_the_tested_commit_one_at_a_time(self):
         workflow = read(".github/workflows/deploy-vps.yml")
-        self.assertIn("github.event.workflow_run.head_sha", workflow)
+        # The automatic path takes the SHA of the finished check run (context.payload.workflow_run.head_sha) and every
+        # later step uses that verified output – also the checkout of the deploy script (M-A4-1).
+        self.assertIn('core.setOutput("sha", run.head_sha)', workflow)
+        self.assertEqual(workflow.count("${{ steps.verified.outputs.sha }}"), 3)
         self.assertIn("concurrency:", workflow)
         self.assertNotIn("reset --hard origin/main", workflow)
 
@@ -49,6 +52,30 @@ class DeployTests(unittest.TestCase):
         order = [script.index(s) for s in ("create_full_backup", 'git reset --hard "$SHA"', "wait_healthy; then", 'git reset --hard "$PREV"')]
         self.assertEqual(order, sorted(order))
         self.assertIn("set -euo pipefail", script)
+
+    def test_docker_never_reads_the_piped_script(self):
+        # The workflow (and the manual PowerShell command) run the script via `bash -s` on stdin. Without
+        # `</dev/null`, `docker compose exec/run` forwards that stdin into the container and swallows the rest
+        # of the script: on 2026-10-24 a deploy stopped silently right after the backup line.
+        for name in ("deploy/remote_deploy.sh", "deploy/rollback_code.sh"):
+            for number, line in enumerate(read(name).splitlines(), 1):
+                code = line.split("#", 1)[0]
+                if re.search(r"\bdocker compose (exec|run|up|logs)\b", code):
+                    with self.subTest(script=name, line=number):
+                        self.assertIn("</dev/null", code.replace("< /dev/null", "</dev/null"), line.strip())
+
+    def test_git_trusts_the_checkout_owned_by_the_container_user(self):
+        # The scripts run as root but chown the checkout to UID 1000 (O-01). Git then refuses every command
+        # ("dubious ownership") – on 2026-10-24 the deploy stopped before `git reset`. The exception is set only
+        # for the git calls of the script (environment), not in the global git configuration.
+        for name in ("deploy/remote_deploy.sh", "deploy/rollback_code.sh"):
+            with self.subTest(script=name):
+                script = read(name)
+                marker = 'export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(pwd -P)"'
+                self.assertIn(marker, script)
+                self.assertLess(script.index('cd "$REPO_DIR"'), script.index(marker))
+                self.assertLess(script.index(marker), script.index("git rev-parse HEAD"))
+                self.assertNotIn("git config --global", script)
 
     def test_remote_script_is_valid_bash(self):
         for script in ("remote_deploy.sh", "vps_bootstrap.sh"):

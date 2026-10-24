@@ -13,6 +13,9 @@ HEALTH_SECONDS="${PULSE_DEPLOY_HEALTH_SECONDS:-240}"
 PULSE_UID="${PULSE_UID:-1000}"
 
 cd "$REPO_DIR"
+# Root runs this script, but the checkout belongs to the container user (UID 1000, O-01). Without this,
+# git refuses every command ("dubious ownership"). Valid only for the git calls of this script.
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(pwd -P)"
 PREV="$(git rev-parse HEAD)"
 echo "Aktuell: $PREV · Ziel: $SHA"
 
@@ -37,14 +40,14 @@ problems = b.verify_full_backup(path)
 print(path)
 sys.exit(1 if problems else 0)'
 if docker compose ps --status running --services 2>/dev/null | grep -qx pulse; then
-  docker compose exec -T pulse python -c "$BACKUP_PY"
+  docker compose exec -T pulse python -c "$BACKUP_PY" </dev/null
 else
-  docker compose run --rm --no-deps pulse python -c "$BACKUP_PY"
+  docker compose run --rm --no-deps pulse python -c "$BACKUP_PY" </dev/null
 fi
 echo "Backup vor dem Deploy erstellt."
 
 health_ok() {
-  docker compose exec -T pulse python -c "import os, sys, urllib.request
+  docker compose exec -T pulse </dev/null python -c "import os, sys, urllib.request
 p = os.getenv('SERVER_PORT', '25095')
 sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/healthz', timeout=8).status == 200 else 1)" >/dev/null 2>&1
 }
@@ -69,7 +72,7 @@ fi
 
 # 3) Exactly the tested commit, then rebuild.
 git reset --hard "$SHA"
-docker compose up -d --build
+docker compose up -d --build </dev/null
 
 # 4) /healthz must answer 200 in time – otherwise back to the previous commit.
 if wait_healthy; then
@@ -79,9 +82,9 @@ if wait_healthy; then
 fi
 
 echo "::error::/healthz nicht innerhalb von ${HEALTH_SECONDS}s gesund – Rollback auf $PREV."
-docker compose logs --tail 80 pulse || true
+docker compose logs --tail 80 pulse </dev/null || true
 git reset --hard "$PREV"
-docker compose up -d --build
+docker compose up -d --build </dev/null
 if wait_healthy; then
   echo "Rollback erfolgreich: $PREV läuft wieder."
 else

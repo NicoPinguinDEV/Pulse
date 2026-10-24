@@ -575,9 +575,19 @@ def seed_defaults() -> None:
             set_setting(key, value)
 
 
+_SEEDED_DB = None
+
+
 def setup() -> None:
+    """Tables + default settings. M-C1: the defaults are seeded once per initialised database, not on every call
+    (setup() runs for every profile read – before, 3 extra connections per team member on each page)."""
+    global _SEEDED_DB
+    first = not _INIT
     init_db()
-    seed_defaults()
+    key = str(ultimate_db())
+    if first or _SEEDED_DB != key:
+        seed_defaults()
+        _SEEDED_DB = key
 
 
 def ctx_auth(request: Request, user_session: str, manager: bool = False, perm: Optional[str] = "can_view_dashboard"):
@@ -631,8 +641,10 @@ def ensure_profile(member) -> None:
     setup()
     now_s = iso()
     with cx() as c:
-        exists = c.execute("SELECT 1 FROM ultimate_profiles WHERE user_id=?", (str(member.id),)).fetchone()
+        exists = c.execute("SELECT display_name, archived_at FROM ultimate_profiles WHERE user_id=?", (str(member.id),)).fetchone()
         if exists:
+            if exists[0] == member.display_name and exists[1] is None:
+                return  # M-C1: unchanged – no write transaction per member on every page view
             c.execute(
                 "UPDATE ultimate_profiles SET display_name=?,archived_at=NULL WHERE user_id=?",
                 (member.display_name, str(member.id)),
@@ -652,10 +664,26 @@ def get_profile(user_id: str):
     return dict(row) if row else None
 
 
-def member_stats(member) -> dict:
+def stats_context() -> dict:
+    """M-C1: the member-independent inputs of member_stats, read once per page instead of once per member
+    (before: 2 × 5000 tickets, shifts, team data and config for every single team member)."""
+    import webserver
+    claimed, closed = {}, {}
+    for t in db.list_tickets(limit=5000):
+        key = str(t.get("claimed_by_id"))
+        claimed[key] = claimed.get(key, 0) + 1
+        if t.get("status") == "closed":
+            closed[key] = closed.get(key, 0) + 1
+    return {"shifts": webserver.load_shifts(), "claimed": claimed, "closed": closed,
+            "team_data": webserver.load_json(webserver.DATA_FILE, {}), "config": webserver.load_config()}
+
+
+def member_stats(member, context: dict | None = None) -> dict:
+    """Score and figures of one team member. Loops over many members pass one stats_context()."""
     import webserver
     ensure_profile(member)
-    shifts = webserver.load_shifts()
+    context = context if context is not None else stats_context()
+    shifts = context["shifts"]
     uid_s = str(member.id)
     weekly = webserver.calculate_weekly_seconds(uid_s, shifts.get("history", []), shifts.get("active_shifts", {}))
     history = [h for h in shifts.get("history", []) if str(h.get("mod_id")) == uid_s]
@@ -663,15 +691,15 @@ def member_stats(member) -> dict:
     active = shifts.get("active_shifts", {}).get(uid_s)
     if active:
         total_seconds += webserver.shift_elapsed(active)
-    tickets = sum(1 for t in db.list_tickets(limit=5000) if str(t.get("claimed_by_id")) == uid_s)
-    closed_tickets = sum(1 for t in db.list_tickets(limit=5000) if str(t.get("claimed_by_id")) == uid_s and t.get("status") == "closed")
+    tickets = context["claimed"].get(uid_s, 0)
+    closed_tickets = context["closed"].get(uid_s, 0)
     tasks = db.list_tasks(assignee_id=member.id, limit=1000, include_archived=True)
     tasks_done = sum(1 for t in tasks if t.get("status") in ("done", "archived"))
     attempts = db.attempts(user_id=member.id, limit=200)
     passed = sum(1 for x in attempts if x.get("passed"))
     profile = get_profile(uid_s) or {}
-    warnings = len(webserver.active_warns(webserver.user_entry(webserver.load_json(webserver.DATA_FILE, {}), uid_s)))
-    weekly_goal = max(1.0, float(webserver.load_config().get("weekly_goal_hours", 3.0)))
+    warnings = len(webserver.active_warns(webserver.user_entry(context["team_data"], uid_s)))
+    weekly_goal = max(1.0, float(context["config"].get("weekly_goal_hours", 3.0)))
     activity_pct = min(100, round(weekly / 3600 / weekly_goal * 100))
     reliability_pct = 100 if not tasks else round(tasks_done / len(tasks) * 100)
     support_pct = min(100, closed_tickets * 5)
@@ -826,7 +854,8 @@ def register(app) -> None:
             departments = c.execute("SELECT COUNT(*) FROM ultimate_departments WHERE active=1").fetchone()[0]
         active_shifts = webserver.load_shifts().get("active_shifts", {})
         online = sum(str(m.status) in {"online", "idle", "dnd"} for m in members)
-        avg_score = round(sum(member_stats(m)["score"] for m in members) / len(members)) if members else 0
+        shared = stats_context()
+        avg_score = round(sum(member_stats(m, shared)["score"] for m in members) / len(members)) if members else 0
         metrics = "".join(
             card(f'<div class="tiny">{lab}</div><div class="metric">{val}</div>')
             for lab, val in (
@@ -838,7 +867,7 @@ def register(app) -> None:
         )
         warnings = []
         for m in members:
-            s = member_stats(m)
+            s = member_stats(m, shared)
             if s["warnings"] >= 5:
                 warnings.append(f'🚨 <b>{esc(m.display_name)}</b> hat {s["warnings"]}/5 Warnungen.')
             elif s["activity_pct"] < 50:
@@ -909,8 +938,12 @@ def register(app) -> None:
         guild = ctx.guild
         members = sorted(team_members(guild), key=lambda x: x.display_name.lower())
         rows = []
-        for m in members:
-            s = member_stats(m)
+
+        def compute():  # M-C1: SQLite/JSON work for every member – off the event loop the bot shares
+            shared = stats_context()
+            return [member_stats(m, shared) for m in members]
+        all_stats = await asyncio.to_thread(compute)
+        for m, s in zip(members, all_stats):
             p = s["profile"]
             status = p.get("internal_status", "available")
             warn_text = f'{s["warnings"]}/5' if __import__("webserver").can_see_warnings(ctx.perms, ctx.user.get("id"), m.id) else "—"  # E-3
@@ -1053,8 +1086,9 @@ def register(app) -> None:
         number = case_number()
         with cx() as c:
             c.execute(
-                """INSERT INTO ultimate_cases
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO ultimate_cases(id,case_no,title,category,priority,status,subject_type,subject_id,
+                subject_name,description,assignee_id,assignee_name,created_by_id,created_by_name,created_at,updated_at,closed_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (case_id, number, title.strip()[:160], category[:40], priority, "open",
                  "player" if category == "roblox" else "team", subject_id[:100],
                  subject_name[:160], description[:5000], None, "", str(ctx.user["id"]),
@@ -1160,14 +1194,21 @@ def register(app) -> None:
         stored = f"{case_id}_{digest[:12]}_{safe}"
         ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
         path = ATTACHMENTS_DIR / stored
+        existed = path.exists()  # same case + same content = same file of an earlier upload
         path.write_bytes(data)
-        with cx() as c:
-            c.execute(
-                "INSERT INTO ultimate_attachments VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (uid("file"), "case", case_id, safe, stored, file.content_type or "application/octet-stream",
-                 len(data), digest, str(ctx.user["id"]),
-                 ctx.user.get("global_name") or ctx.user.get("username") or "Team", iso()),
-            )
+        try:
+            with cx() as c:
+                c.execute(
+                    "INSERT INTO ultimate_attachments(id,owner_type,owner_id,original_name,stored_name,content_type,size_bytes,"
+                    "sha256,uploaded_by_id,uploaded_by_name,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    (uid("file"), "case", case_id, safe, stored, file.content_type or "application/octet-stream",
+                     len(data), digest, str(ctx.user["id"]),
+                     ctx.user.get("global_name") or ctx.user.get("username") or "Team", iso()),
+                )
+        except Exception:
+            if not existed:  # M-F1: no orphaned evidence file without a database entry
+                path.unlink(missing_ok=True)
+            raise
         add_case_event(case_id, ctx, "attachment", safe)
         audit(ctx, "Beweis hochgeladen", case_id, safe, f"{len(data)} Bytes · {digest[:16]}")
         return RedirectResponse(f"/ultimate/cases/{case_id}", status_code=303)
@@ -1567,7 +1608,10 @@ def register(app) -> None:
     async def ultimate_handover_close(request: Request, handover_id: str, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session)
         with cx() as c:
-            c.execute("UPDATE ultimate_handovers SET status='closed',archived_at=? WHERE id=?", (iso(), handover_id))
+            closed = c.execute("UPDATE ultimate_handovers SET status='closed',archived_at=? WHERE id=? AND status='open'",
+                               (iso(), handover_id)).rowcount
+        if not closed:  # M-A1-2: unknown or already archived – no second "archiviert" audit entry
+            raise HTTPException(status_code=404, detail="Übergabe nicht gefunden oder bereits archiviert.")
         audit(ctx, "Übergabe archiviert", handover_id)
         return RedirectResponse("/ultimate/handovers", status_code=303)
 
@@ -2167,8 +2211,9 @@ window.setInterval(loadPulseMonitor, 15000);
     async def ultimate_api_team(request: Request, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session)
         rows = []
+        shared = stats_context()
         for m in team_members(ctx.guild):
-            s = member_stats(m)
+            s = member_stats(m, shared)
             rows.append({
                 "id": m.id, "name": m.display_name, "discord_status": str(m.status),
                 "score": s["score"], "weekly_seconds": s["weekly_seconds"],
@@ -2212,7 +2257,8 @@ window.setInterval(loadPulseMonitor, 15000);
         ctx = ctx_auth(request, user_session, perm="can_view_analytics")
         import webserver
         members = team_members(ctx.guild)
-        stats = [(m, member_stats(m)) for m in members]
+        shared = stats_context()
+        stats = [(m, member_stats(m, shared)) for m in members]
         stats.sort(key=lambda x: (-x[1]["score"], x[0].display_name.lower()))
         avg_score = round(sum(s["score"] for _, s in stats) / len(stats)) if stats else 0
         total_hours = round(sum(s["total_seconds"] for _, s in stats) / 3600, 1)
@@ -2268,7 +2314,8 @@ window.setInterval(loadPulseMonitor, 15000);
         ctx = ctx_auth(request, user_session, manager=True)
         with cx() as c:
             c.execute(
-                "INSERT INTO ultimate_certificates VALUES(?,?,?,?,?,?,?)",
+                "INSERT INTO ultimate_certificates(id,user_id,title,score,issuer_id,issuer_name,issued_at,valid_until)"
+                " VALUES(?,?,?,?,?,?,?,?)",
                 (uid("cert"), str(user_id), title.strip()[:160], max(0,min(100,score)),
                  str(ctx.user["id"]), ctx.user.get("global_name") or ctx.user.get("username") or "Team",
                  iso(), valid_until.strip()[:80] or None),
@@ -2359,8 +2406,9 @@ window.setInterval(loadPulseMonitor, 15000);
         if not guild:
             raise HTTPException(503, "Discord nicht bereit.")
         rows = []
+        shared = stats_context()
         for m in team_members(guild):
-            s = member_stats(m)
+            s = member_stats(m, shared)
             rows.append({
                 "id": m.id, "name": m.display_name, "status": str(m.status),
                 "score": s["score"], "weekly_hours": round(s["weekly_seconds"]/3600, 2),
@@ -2373,8 +2421,9 @@ window.setInterval(loadPulseMonitor, 15000);
         ctx = ctx_auth(request, user_session, perm="can_view_analytics")
         members = team_members(ctx.guild)
         data = []
+        shared = stats_context()
         for m in members:
-            s = member_stats(m)
+            s = member_stats(m, shared)
             data.append({"id":m.id,"name":m.display_name,"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/3600,2),"tickets":s["closed_tickets"],"warnings":s["warnings"]})
         return JSONResponse({"generated_at":iso(),"members":data})
 
@@ -2570,7 +2619,8 @@ async def _run_automation(bot, automation: dict):
     if action == "team_report":
         import webserver
         members = team_members(guild)
-        top = sorted(((member_stats(m)["score"], m) for m in members), reverse=True, key=lambda x:x[0])[:10]
+        shared = stats_context()
+        top = sorted(((member_stats(m, shared)["score"], m) for m in members), reverse=True, key=lambda x:x[0])[:10]
         desc = "\n".join(f"{i}. {m.display_name} · {score}/100" for i,(score,m) in enumerate(top,1)) or "Keine Teamdaten"
         channel = guild.get_channel(TEAM_UPDATE_CHANNEL_ID)
         if channel:
@@ -2909,13 +2959,20 @@ async def _automation_cycle(bot):
         ).fetchall()]
     for automation in rows:
         # The run is stored by execute_automation (status, result, per-step results, duration).
-        await execute_automation(bot, automation, trigger_info={"trigger": "interval"})
-        with cx() as c:
-            next_run = now + timedelta(minutes=max(5, int(automation["interval_minutes"])))
-            c.execute(
-                "UPDATE ultimate_automations SET last_run_at=?,next_run_at=? WHERE id=?",
-                (iso(), iso(next_run), automation["id"]),
-            )
+        try:
+            await execute_automation(bot, automation, trigger_info={"trigger": "interval"})
+        except Exception as exc:  # M-B1: one failing automation (e.g. locked DB) must not stop the others
+            print(f"⚠️ Automation {automation.get('id')} fehlgeschlagen: {type(exc).__name__}")
+        # Always move on to the next interval – no retry every 60 s after a failure.
+        try:
+            with cx() as c:
+                next_run = now + timedelta(minutes=max(5, int(automation["interval_minutes"] or 0)))
+                c.execute(
+                    "UPDATE ultimate_automations SET last_run_at=?,next_run_at=? WHERE id=?",
+                    (iso(), iso(next_run), automation["id"]),
+                )
+        except sqlite3.Error as exc:
+            print(f"⚠️ Nächster Lauf für Automation {automation.get('id')} nicht gespeichert: {type(exc).__name__}")
 
 
 async def automation_loop(bot):

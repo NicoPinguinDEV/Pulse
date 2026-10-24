@@ -415,11 +415,18 @@ def save_json(filepath, data):
         if pulse_backup.maintenance_active():  # D-02: a restore is replacing the data files right now
             raise JsonWriteBlocked("Wartungsmodus – eine Wiederherstellung läuft gerade")
         tmp = f"{filepath}.tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, filepath)  # verhindert kaputte Dateien bei Absturz
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, filepath)  # verhindert kaputte Dateien bei Absturz
+        except BaseException:
+            try:  # M-D2: no half-written .tmp file left behind; the original stays untouched
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
         if config_before is not None:
             pulse_settings_history.record_config(config_before, data)
         try:  # persist the rename itself (not supported on Windows)

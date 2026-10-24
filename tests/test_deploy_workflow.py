@@ -29,6 +29,16 @@ class DeploymentWorkflowTests(unittest.TestCase):
         self.assertNotIn("branches: [main]\n  push:", workflow)
         self.assertNotRegex(workflow, r"(?m)^  push:")  # no deploy directly on a commit
 
+    def test_the_deploy_script_comes_from_the_verified_commit(self):
+        """M-A4-1: a manual deploy checked out deploy/remote_deploy.sh (run on the VPS) at github.sha – the ref the
+        workflow was dispatched from – instead of the verified main commit; the Discord report named that SHA too."""
+        workflow = (ROOT / ".github" / "workflows" / "deploy-vps.yml").read_text(encoding="utf-8")
+        checkout = workflow.split("Geprüften Stand auschecken", 1)[1].split("- name:", 1)[0]
+        self.assertIn("ref: ${{ steps.verified.outputs.sha }}", checkout)
+        report = workflow.split("Ergebnis in den Alert-Kanal melden", 1)[1]
+        self.assertIn("DEPLOY_SHA: ${{ steps.verified.outputs.sha }}", report)
+        self.assertNotIn("env.DEPLOY_SHA", workflow)
+
     def test_deploy_is_serialized_monotonic_and_health_checked_with_rollback(self):
         workflow = (ROOT / ".github" / "workflows" / "deploy-vps.yml").read_text(encoding="utf-8")
         # O-03: the remote steps live in deploy/remote_deploy.sh (piped over SSH by the workflow).

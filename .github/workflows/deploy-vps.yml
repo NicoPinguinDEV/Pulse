@@ -31,9 +31,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || vars.PULSE_AUTO_DEPLOY == 'true'
     environment: production
     runs-on: ubuntu-latest
-    env:
-      # O-03: exactly the commit the checks ran on – not whatever main points to by now.
-      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+    # O-03 / M-A4-1: every step uses steps.verified.outputs.sha – exactly the commit the checks ran on, never the
+    # ref a manual run was dispatched from (that ref's deploy script would otherwise run on the VPS).
     steps:
       - name: Geprüften Commit bestimmen
         id: verified
@@ -100,7 +99,7 @@ jobs:
         if: steps.setup.outputs.enabled == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.DEPLOY_SHA }}
+          ref: ${{ steps.verified.outputs.sha }}
 
       - name: SSH vorbereiten
         if: steps.setup.outputs.enabled == 'true'
@@ -143,6 +142,7 @@ jobs:
         env:
           WEBHOOK: ${{ secrets.PULSE_DEPLOY_WEBHOOK_URL }}
           OUTCOME: ${{ steps.deploy.outcome }}
+          DEPLOY_SHA: ${{ steps.verified.outputs.sha }}
         shell: bash
         run: |
           if [[ -z "$WEBHOOK" ]]; then
