@@ -3591,7 +3591,7 @@ async def callback(request: Request, code: str = None, state: str = None, error:
 
     if recovery_flow:
         import pulse_recovery
-        recovery_ok, recovery_message, recovery_uid = await pulse_recovery.complete_consent(
+        recovery_ok, recovery_message, _ = await pulse_recovery.complete_consent(
             code, oauth_redirect_uri(request), getattr(request.app.state, "bot", None)
         )
         recovery_action = '<a href="/" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zurück zu Pulse</a>'
