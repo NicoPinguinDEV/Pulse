@@ -4,6 +4,7 @@ description: Unabhängiges Code-Review der Pulse-Änderungen (Branch gegen main 
 argument-hint: [PR-Nummer | Branch | leer = aktueller Branch gegen main]
 context: fork
 disallowed-tools: Edit, Write, NotebookEdit
+disable-model-invocation: true
 ---
 
 # Pulse-Review (unabhängig, nur lesen)
