@@ -3498,7 +3498,8 @@ async def home(user_session: str = Cookie(None)):
                 <div class="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-2xl shadow-lg shadow-indigo-600/30">🛡️</div>
             </div>
             <h1 class="text-2xl font-bold tracking-tight mb-2">Team Management Panel</h1>
-            <p class="text-slate-500 dark:text-slate-400 text-xs mb-8">Melde dich mit deinem Discord-Account an, um Zugriff zu erhalten.</p>
+            <p class="text-slate-500 dark:text-slate-400 text-xs mb-5">Melde dich mit deinem Discord-Account an, um Zugriff zu erhalten.</p>
+            <p class="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed mb-4">Für Kontosicherheit protokolliert Pulse erfolgreiche Dashboard-Anmeldungen mit IP-Adresse, Zeitpunkt und Browserkennung. Zugriff darauf haben nur Administratoren; Einträge werden nach 30 Tagen automatisch gelöscht. Details: Verwaltung → Datenschutz.</p>
             <a href="/login" class="inline-flex items-center justify-center gap-3 w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg shadow-[#5865F2]/20 text-sm">
                 Mit Discord anmelden
             </a>
@@ -3555,11 +3556,15 @@ async def logout(user_session: str = Cookie(None)):
 
 @app.get("/callback")
 async def callback(request: Request, code: str = None, state: str = None, error: str = None,
-                   oauth_state: str = Cookie(None), apply_oauth_state: str = Cookie(None)):
+                   oauth_state: str = Cookie(None), apply_oauth_state: str = Cookie(None),
+                   recovery_oauth_state: str = Cookie(None)):
     if rate_limited(request_rate_key(request, "oauth-callback"), limit=30, window=600):
         return rate_limit_response("Zu viele Anmeldeversuche. Bitte in einer Minute erneut versuchen.")
     application_flow = bool(
         state and apply_oauth_state and hmac.compare_digest(state, apply_oauth_state)
+    )
+    recovery_flow = bool(
+        state and recovery_oauth_state and hmac.compare_digest(state, recovery_oauth_state)
     )
     retry = (
         '<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zur Bewerbung</a>'
@@ -3567,14 +3572,37 @@ async def callback(request: Request, code: str = None, state: str = None, error:
         '<a href="/" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Erneut versuchen</a>'
     )
     if error or not code:
-        title = "Bewerbungs-Login fehlgeschlagen" if application_flow else "Login abgebrochen"
-        return HTMLResponse(simple_page("❌", title, "Du hast die Anmeldung nicht bestätigt. Bitte erneut versuchen.", retry))
-    state_valid = application_flow or bool(
+        title = ("Bewerbungs-Login fehlgeschlagen" if application_flow else
+                 "Backup-Freigabe abgebrochen" if recovery_oauth_state else "Login abgebrochen")
+        response = HTMLResponse(simple_page("❌", title, "Du hast die Anmeldung nicht bestätigt. Bitte erneut versuchen.", retry))
+        if recovery_oauth_state:
+            response.delete_cookie("recovery_oauth_state")
+        return response
+    state_valid = application_flow or recovery_flow or bool(
         state and oauth_state and hmac.compare_digest(state, oauth_state)
     )
     if not state_valid:
-        title = "Bewerbungs-Login fehlgeschlagen" if apply_oauth_state else "Login fehlgeschlagen"
-        return HTMLResponse(simple_page("❌", title, "Ungültiger Sicherheits-Token. Bitte erneut anmelden.", retry), status_code=400)
+        title = ("Bewerbungs-Login fehlgeschlagen" if apply_oauth_state else
+                 "Backup-Freigabe fehlgeschlagen" if recovery_oauth_state else "Login fehlgeschlagen")
+        response = HTMLResponse(simple_page("❌", title, "Ungültiger Sicherheits-Token. Bitte erneut anmelden.", retry), status_code=400)
+        if recovery_oauth_state:
+            response.delete_cookie("recovery_oauth_state")
+        return response
+
+    if recovery_flow:
+        import pulse_recovery
+        recovery_ok, recovery_message, recovery_uid = await pulse_recovery.complete_consent(
+            code, oauth_redirect_uri(request), getattr(request.app.state, "bot", None)
+        )
+        recovery_action = '<a href="/" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zurück zu Pulse</a>'
+        response = HTMLResponse(simple_page(
+            "🛡️" if recovery_ok else "❌",
+            "Backup-Zugang eingerichtet" if recovery_ok else "Backup-Zugang nicht eingerichtet",
+            recovery_message,
+            recovery_action,
+        ), status_code=200 if recovery_ok else 400)
+        response.delete_cookie("recovery_oauth_state")
+        return response
 
     redirect_uri = oauth_redirect_uri(request, application=application_flow)
     user_data, problem = await discord_oauth_identify(code, redirect_uri)  # P-12
@@ -3605,6 +3633,18 @@ async def callback(request: Request, code: str = None, state: str = None, error:
     if not perms["can_view_dashboard"]:
         return HTMLResponse(simple_page("🔒", "Kein Zugriff", "Du bist nicht im Team oder deine Rolle darf das Dashboard nicht sehen.",
                                         '<a href="/" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800">Zurück</a>'), status_code=403)
+
+    # Privacy-aware security telemetry: record successful dashboard logins only, not page views.
+    # request.client.host respects only the trusted reverse-proxy configuration in main.py.
+    try:
+        import pulse_ip_audit
+        peer = request.client.host if request.client else ""
+        pulse_ip_audit.record_login(
+            str(user_data.get("id")), str(user_data.get("global_name") or user_data.get("username") or ""),
+            peer, request.headers.get("user-agent", ""),
+        )
+    except Exception as exc:
+        pulse_logging.report_error("ip-audit", f"Dashboard-Anmeldeprotokoll konnte nicht gespeichert werden ({type(exc).__name__}).")
 
     session = {
         "id": str(user_data.get("id")),
