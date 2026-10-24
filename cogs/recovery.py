@@ -1,6 +1,7 @@
 """Discord commands for the explicit, opt-in backup-server recovery flow."""
 from __future__ import annotations
 
+import asyncio
 import time
 
 import discord
@@ -79,7 +80,7 @@ class RecoveryCog(commands.Cog):
         failed = 0
         failures: list[str] = []
         async with httpx.AsyncClient(timeout=TOKEN_TIMEOUT) as client:
-            for person in people:
+            for index, person in enumerate(people):
                 ok, message = await pulse_recovery.rejoin_user(person["user_id"], person["refresh_token"], self.bot, client)
                 if ok:
                     if message.startswith("bereits vorhanden"):
@@ -90,6 +91,9 @@ class RecoveryCog(commands.Cog):
                     failed += 1
                     if len(failures) < 5:
                         failures.append(f"`{person['user_id']}`: {message}")
+                # The add-member endpoint has a per-guild bucket; pace batches to reduce 429s.
+                if index + 1 < len(people):
+                    await asyncio.sleep(1.0)
 
         try:
             ws.log_audit(
