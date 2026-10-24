@@ -9,9 +9,9 @@ services:
     restart: "no"
     init: true
     # VPS has 2 GiB RAM: reserve room for Ubuntu, Docker, Caddy and other host services.
-    # Pulse may use up to 512 MiB RAM and 256 MiB additional swap (768 MiB combined).
-    mem_limit: 512m
-    memswap_limit: 768m
+    # Pulse may use up to 768 MiB RAM and 256 MiB additional swap (1,024 MiB combined).
+    mem_limit: 768m
+    memswap_limit: 1024m
     env_file:
       - .env
     environment:
