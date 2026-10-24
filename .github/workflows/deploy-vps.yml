@@ -97,7 +97,7 @@ jobs:
 
       - name: Geprüften Stand auschecken (für das Deploy-Skript)
         if: steps.setup.outputs.enabled == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.verified.outputs.sha }}
 
