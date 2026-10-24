@@ -1190,7 +1190,7 @@ def main() -> None:
     assert report["focus"] == "tickets" and report["mode"] == "local_rules_no_external_ai"
     assert any(item["topic"] == "tickets" for item in build_findings(intelligence_metrics))
     assert simulate_scenario("staff_absence", 100, intelligence_metrics)["status"] == "critical"
-    assert simulate_scenario("ram_spike", 20, intelligence_metrics)["status"] == "critical"
+    assert simulate_scenario("ram_spike", 20, {**intelligence_metrics, "rss_mb": 605})["status"] == "critical"
     valid_workflow = {
         "schema_version": 1, "name": "SLA reminder", "trigger": "ticket_overdue",
         "conditions": [{"field": "priority", "operator": "in", "value": ["high", "urgent"]}],
