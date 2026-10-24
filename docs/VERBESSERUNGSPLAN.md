@@ -370,7 +370,7 @@ Stelle diese Fragen am Ende von Phase 0 gesammelt (als Auswahlfragen). Bis zur A
 
 ## 12. Phase 9 – Dokumentation
 
-- [ ] **DOC-01** README, CHANGELOG, `CLAUDE.md` und Handoff auf den echten Stand bringen (Versions- und Commit-Angaben, neue Module, entfernte Altpfade). — **teilweise:** Versions-/Commit-Angaben in `CLAUDE.md`, Handoff und README auf 7.16.0 bzw. E-5 (RAM 512 MiB, 350/420/470 MB) gebracht; Modul-/Altpfadliste folgt mit A-01/A-02.
+- [ ] **DOC-01** README, CHANGELOG, `CLAUDE.md` und Handoff auf den echten Stand bringen (Versions- und Commit-Angaben, neue Module, entfernte Altpfade). — **teilweise:** RAM-Budget nun auf den 2-GiB-VPS (768 MiB Container-RAM, bis zu 256 MiB Swap; Schwellen 500/620/700 MB) abgestimmt; Modul-/Altpfadliste und übrige Versions-/Commit-Angaben folgen mit A-01/A-02.
 - [x] **DOC-02** — **erledigt (unveröffentlicht):** `docs/ARCHITEKTUR.md`, auf diesen Stand geprüft (Grundlage 17591f9).
 - [x] **DOC-03** — **erledigt (unveröffentlicht):** `docs/BETRIEB.md`, auf diesen Stand geprüft (Grundlage 17591f9/82f8dba).
 - [ ] **DOC-04** Pro Phase ein CHANGELOG-Eintrag; `pulse_version.py` erst nach meinem OK erhöhen (Vorschlag: 7.10.0 nach Phase 1).
