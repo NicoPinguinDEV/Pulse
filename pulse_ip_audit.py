@@ -64,10 +64,10 @@ def record_login(user_id, username: str, ip_address: str | None, user_agent: str
     return True
 
 
-def list_entries(limit: int = 100) -> list[dict]:
+def list_entries(limit: int = 100, *, now: float | None = None) -> list[dict]:
     """Newest login events first. Callers are responsible for admin authorization."""
     limit = max(1, min(200, int(limit)))
-    now = time.time()
+    now = time.time() if now is None else float(now)
     with _db().connect() as db:
         _init(db)
         db.execute("DELETE FROM dashboard_login_ip_audit WHERE logged_at < ?", (now - KEEP_DAYS * 86400,))
