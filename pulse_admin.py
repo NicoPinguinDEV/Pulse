@@ -600,7 +600,7 @@ def register(app) -> None:
             '<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">🔐 Dashboard-Anmeldeprotokoll</div>'
             f'<span class="pulse-pill">{len(ip_entries)} neueste</span></div><div class="pulse-card-b">'
             '<p class="text-xs text-slate-400 mb-3">Erfasst werden nur erfolgreiche Dashboard-Anmeldungen, keine normalen Seitenaufrufe. '
-            'Einträge werden spätestens nach 30 Tagen gelöscht. IP-Adressen sind personenbezogen und werden hier nur Administratoren angezeigt. '
+            'Einträge, die älter als 30 Tage sind, werden bei der nächsten Anmeldung oder Datenschutzprüfung bereinigt. IP-Adressen sind personenbezogen und werden hier nur Administratoren angezeigt. '
             'Eine IP beweist wegen VPN, Mobilfunk und dynamischen Adressen nicht zuverlässig den tatsächlichen Aufenthaltsort.</p>'
             '<div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead><tr class="text-slate-400 border-b border-slate-700">'
             '<th class="px-3 py-2">Zeitpunkt</th><th class="px-3 py-2">Discord-Konto</th><th class="px-3 py-2">IP-Adresse</th>'
@@ -755,6 +755,8 @@ def register(app) -> None:
         if not re.fullmatch(r"[0-9]{15,22}", uid):
             return ws.back("/admin/privacy", "Bitte eine gültige Discord-ID eingeben.", False)
         data = await asyncio.to_thread(pulse_retention.export_person, ws, uid)  # file/DB scan off the event loop
+        import pulse_ip_audit
+        data["dashboard_login_ip_audit"] = await asyncio.to_thread(pulse_ip_audit.entries_for_user, uid)
         ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Datenauskunft exportiert", f"Discord-ID {uid}")
         return Response(_json.dumps(data, ensure_ascii=False, indent=2, default=str), media_type="application/json",
                         headers={"Content-Disposition": f'attachment; filename="pulse_auskunft_{uid}.json"'})
