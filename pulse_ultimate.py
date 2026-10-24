@@ -38,7 +38,16 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
 import pulse_sqlite
-from pulse_safety import memory_guard_level as _policy_memory_guard_level
+from pulse_safety import (
+    RAM_CRITICAL_MB,
+    RAM_CRITICAL_RECOVERY_MB,
+    RAM_EMERGENCY_MB,
+    RAM_EMERGENCY_RECOVERY_MB,
+    RAM_LIMIT_MB,
+    RAM_RECOVERY_MB,
+    RAM_WARN_MB,
+    memory_guard_level as _policy_memory_guard_level,
+)
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 BASE = Path(__file__).resolve().parent
@@ -64,13 +73,6 @@ _AUTOMATION_TASK: Optional[asyncio.Task] = None
 _RAM_GUARD_LEVEL = 0
 _RAM_SAMPLES: deque[tuple[float, float]] = deque(maxlen=180)
 _RAM_LAST_TREND_ALERT_AT = 0.0
-RAM_LIMIT_MB = 512.0
-RAM_WARN_MB = 350.0
-RAM_CRITICAL_MB = 420.0
-RAM_EMERGENCY_MB = 470.0
-RAM_RECOVERY_MB = 320.0
-RAM_CRITICAL_RECOVERY_MB = 400.0
-RAM_EMERGENCY_RECOVERY_MB = 450.0
 RAM_TREND_WINDOW_SECONDS = 3600.0
 RAM_TREND_MIN_AGE_SECONDS = 1800.0
 RAM_TREND_GROWTH_MB_PER_HOUR = 20.0
@@ -1183,7 +1185,7 @@ def register(app) -> None:
             if not c.execute("SELECT 1 FROM ultimate_cases WHERE id=?", (case_id,)).fetchone():
                 raise HTTPException(404, "Fall nicht gefunden.")
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", file.filename or "upload.bin")[:120]
-        # Read at most limit+1 bytes so an oversized upload cannot exhaust the 250 MB RAM budget.
+        # Read at most limit+1 bytes; the per-file cap keeps this temporary buffer bounded.
         try:
             data = await file.read(MAX_UPLOAD_BYTES + 1)
         finally:
