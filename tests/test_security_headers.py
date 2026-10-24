@@ -39,6 +39,13 @@ class HeaderTests(unittest.TestCase):
         self.assertTrue(pulse_security.same_origin_ok("POST", h))  # API clients without browser headers
         self.assertTrue(pulse_security.same_origin_ok("POST", {**h, "origin": "https://pulse.example"}))
         self.assertFalse(pulse_security.same_origin_ok("POST", {**h, "origin": "null", "referer": "https://x.example/"}))
+        # Audit H1: "Origin: null" without Referer (no-referrer page) used to pass
+        self.assertFalse(pulse_security.same_origin_ok("POST", {**h, "origin": "null"}))
+        self.assertFalse(pulse_security.same_origin_ok("POST", {**h, "origin": "null", "referer": "https://pulse.example/x"}))
+        # a session cookie without any source header is a forged browser request; API clients have no cookie
+        self.assertFalse(pulse_security.same_origin_ok("POST", {**h, "cookie": "theme=dark; user_session=abc"}))
+        self.assertTrue(pulse_security.same_origin_ok("POST", {**h, "cookie": "theme=dark"}))
+        self.assertTrue(pulse_security.same_origin_ok("POST", {**h, "cookie": "user_session=abc", "referer": "https://pulse.example/me"}))
 
 
 class BackRedirectTests(unittest.TestCase):
@@ -58,7 +65,9 @@ class LogoutTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn('method="post" action="/logout"', page.text)
         self.assertNotIn("user_session=", page.headers.get("set-cookie", ""))
-        done = client.post("/logout", follow_redirects=False)
+        # browsers always send Origin/Referer on a form POST; a cookie without both is refused (audit H1)
+        self.assertEqual(client.post("/logout", follow_redirects=False).status_code, 403)
+        done = client.post("/logout", headers={"Referer": "http://testserver/logout"}, follow_redirects=False)
         self.assertEqual(done.status_code, 303)
         self.assertIn('user_session=""', done.headers.get("set-cookie", ""))
 

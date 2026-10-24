@@ -5,11 +5,12 @@ import asyncio
 from datetime import timedelta
 
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from discord import app_commands
 from discord.ext import commands
 
 
-class MessageDeleteConfirmationView(discord.ui.View):
+class MessageDeleteConfirmationView(PulseView):
     def __init__(
         self,
         cog: "MessageDeleteCog",

@@ -53,9 +53,9 @@ class CallSiteTests(unittest.TestCase):
     def test_converted_flows_do_not_save_stale_team_data(self):
         cases = [
             ("webserver.py", "async def process_overdue_shifts(", "def calculate_weekly_seconds("),
-            ("webserver.py", 'if action == "warn_with_proof":', 'if action == "remove_warn":'),
-            ("webserver.py", 'if action == "remove_warn":', 'if action == "add_note":'),
-            ("cogs/pulse_suite.py", '@app_commands.command(name="warn",', '@app_commands.command(name="warns",'),
+            # BOT-05: dashboard and slash warnings now share these two domain functions
+            ("webserver.py", "async def issue_team_warning(", "async def revoke_team_warning("),
+            ("webserver.py", "async def revoke_team_warning(", '@app.post("/action")'),
             ("cogs/activity_check.py", "# K-04: fresh entry per member", "except Exception as exc:"),
         ]
         for path, start, end in cases:
@@ -63,6 +63,18 @@ class CallSiteTests(unittest.TestCase):
             with self.subTest(path=path, start=start):
                 self.assertNotRegex(block, r"save_json\((ws\.|web\.)?DATA_FILE")
                 self.assertIn("commit()", block)
+        # The callers only delegate – they must not keep a private copy that saves the whole file.
+        delegating = [
+            ("webserver.py", 'if action == "warn_with_proof":', 'if action == "remove_warn":', "await issue_team_warning("),
+            ("webserver.py", 'if action == "remove_warn":', 'if action == "add_note":', "await revoke_team_warning("),
+            ("cogs/pulse_suite.py", '@app_commands.command(name="warn",', '@app_commands.command(name="warns",', "web.issue_team_warning("),
+            ("cogs/pulse_suite.py", '@app_commands.command(name="warn-remove",', '@app_commands.command(name="kick",', "web.revoke_team_warning("),
+        ]
+        for path, start, end, call in delegating:
+            block = self.block(path, start, end)
+            with self.subTest(path=path, start=start):
+                self.assertIn(call, block)
+                self.assertNotRegex(block, r"save_json\((ws\.|web\.)?DATA_FILE")
 
 
 class ConcurrencyTests(unittest.TestCase):

@@ -1,0 +1,41 @@
+# Pulse Host-Verwaltungsdienst für das Server Control Center (docs/SERVER_CONTROL_CENTER.md).
+# Feste Aktionsliste, Token-Auth, Standard: Unix-Socket im Pulse-Ordner – kein Netzwerkport.
+# Installation:  install -m 644 systemd/pulse-host-agent.service /etc/systemd/system/
+#                (User= auf den Besitzer von /opt/pulse/Pulse anpassen, siehe Doku)
+[Unit]
+Description=Pulse TeamOS Host-Verwaltungsdienst (Server Control Center)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+# Besitzer des Repository-Ordners (Container-UID, Standard 1000) – Mitglied der Gruppe docker.
+User=pulse
+Group=pulse
+SupplementaryGroups=docker
+EnvironmentFile=/etc/pulse-host-agent.env
+Environment=HOME=/var/lib/pulse-host-agent PYTHONUNBUFFERED=1
+WorkingDirectory=/opt/pulse/Pulse
+ExecStart=/usr/bin/python3 /opt/pulse/Pulse/deploy/pulse_host_agent.py
+Restart=always
+RestartSec=10
+StateDirectory=pulse-host-agent
+StateDirectoryMode=0700
+# Hardening: kein Rechtegewinn, System schreibgeschützt bis auf Repo und Zustand.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/pulse/Pulse /var/lib/pulse-host-agent
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0027
+MemoryMax=96M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

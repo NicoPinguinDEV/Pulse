@@ -11,6 +11,7 @@ from datetime import datetime
 from html import escape
 from urllib.parse import urlencode
 
+from pulse_shift_utils import credited_shift_seconds, needs_duration_confirmation
 from pulse_time import parse_timestamp
 
 KINDS = {"warn": ("⚠", "Warnungen"), "shift": ("⏱", "Schichten"), "ticket": ("🎫", "Tickets"), "task": ("✅", "Aufgaben"),
@@ -37,9 +38,9 @@ def build(*, warns=(), shifts=(), tickets=(), tasks=(), events=(), notes=(), sho
                 items.append(_item("warn", _at(w.get("revoked_at")), "Verwarnung zurückgezogen",
                                    f"{w.get('revoked_by') or 'Team'} · {w.get('revoked_reason') or 'ohne Grund'}"))
     for s in shifts:
-        minutes = int(s.get("duration_seconds") or 0) // 60
+        minutes = credited_shift_seconds(s) // 60  # E-2
         items.append(_item("shift", _at(s.get("ended_at_iso") or s.get("started_at_iso") or s.get("date")),
-                           f"Schicht · {minutes // 60} h {minutes % 60:02d} min", "automatisch beendet" if s.get("auto_closed") else ""))
+                           f"Schicht · {minutes // 60} h {minutes % 60:02d} min", ("automatisch beendet · unbestätigt (0 h)" if needs_duration_confirmation(s) else "automatisch beendet") if s.get("auto_closed") else ""))
     for t in tickets:
         role = "übernommen" if str(t.get("claimed_by_id")) == str(user_id) else "eröffnet"
         items.append(_item("ticket", _at(t.get("closed_at") or t.get("opened_at")), f"Ticket {t.get('id')} {role}",

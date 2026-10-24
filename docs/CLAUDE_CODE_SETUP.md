@@ -6,7 +6,7 @@ Ziel: möglichst wenig immer geladenen Kontext, aber gründliche Arbeit bei Bugs
 
 - CLAUDE.md enthält nur Regeln, die bei fast jeder Aufgabe gelten. Projekthistorie, vollständige Architekturberichte und mehrstufige Verfahren bleiben in Dokumentation oder manuell aufrufbaren Skills.
 - Bevorzugt gezielte Suche, Smart-Explore und Pyright/LSP statt webserver.py, Logs oder den gesamten Handoff in den Kontext zu kopieren.
-- Kleine Bugfixes direkt bearbeiten. Für große Änderungen /build verwenden; wenn erst ein Plan geprüft werden soll, /make-plan und danach /do einzeln verwenden. Nicht mehrere Orchestratoren gleichzeitig starten.
+- Kleine Bugfixes direkt bearbeiten. Für große Änderungen zuerst /make-plan (manuell), dann schrittweise selbst umsetzen. Orchestratoren wie build/do sind gesperrt.
 - Tests zuerst fokussiert, danach den vollständigen CI-Satz bei Modulen mit mehreren Abhängigkeiten, Datenmigrationen, Berechtigungen oder vor Release/Deployment. Qualität nicht durch Weglassen wichtiger Tests "sparen".
 - Subagents nur für unabhängige Recherche/Prüfung oder getrennte Workstreams. Bei kleinen Änderungen kosten sie meist mehr Kontext und Koordination als sie sparen.
 - Nach langem Kontext /compact nutzen; bei einem vollständig neuen Thema /clear und bei Sitzungswechsel /handoff. Nicht dauerhaft komplette Logs/Transkripte in CLAUDE.md kopieren.
@@ -16,7 +16,8 @@ Ziel: möglichst wenig immer geladenen Kontext, aber gründliche Arbeit bei Bugs
 ### Behalten bzw. bei Bedarf verwenden
 
 - **Pyright LSP:** behalten. Hilft in der großen Python-Codebasis beim Springen zu Symbolen und beim Finden von Typfehlern, ohne ganze Dateien zu lesen.
-- **Security guidance:** behalten, insbesondere bei OAuth, Sessions, Berechtigungen, Admin-Routen, Discord-Rollen und Datenimporten. Sicherheitsreview ist kein Ersatz für Tests.
+- **Security guidance:** behalten (Pattern-Warnungen bei Edits). Die automatischen LLM-Reviews (Stop-Hook und Commit) sind projektweit über `env.ENABLE_CODE_SECURITY_REVIEW=0` in `.claude/settings.json` aus; gezielte Prüfung über `/pulse-security-audit`. Sicherheitsreview ist kein Ersatz für Tests.
+- **Playwright (Microsoft, `playwright@claude-plugins-official`, Projekt-Scope):** zum Erkunden/Debuggen des lokalen Dashboards. Dauerhafte Prüfungen gehören als Tests nach `tests/` (siehe `/pulse-e2e`). Startet `npx @playwright/mcp@latest` (Node erforderlich).
 - **Frontend design:** behalten, aber für echte Dashboard-/UI-Aufgaben einsetzen, nicht bei reinen Backend-Bugs.
 - **Context7:** behalten für aktuelle, versionsspezifische Bibliotheksdokumentation; nur bei Bedarf aufrufen.
 - **Commit commands:** die einfache Commit-Funktion behalten. PR-Workflows nur aktiv verwenden, wenn wirklich mit Feature-Branches und Pull Requests gearbeitet wird.
@@ -24,7 +25,7 @@ Ziel: möglichst wenig immer geladenen Kontext, aber gründliche Arbeit bei Bugs
 
 ### Deaktiviert lassen bzw. erst bei Bedarf aktivieren
 
-- **Chrome DevTools MCP:** deaktiviert lassen, bis ein konkreter Browser-/Frontendfehler visuell untersucht werden muss.
+- **Chrome DevTools MCP:** deaktiviert lassen (Playwright deckt normale Browserautomatisierung ab); nur für Netzwerk-/Performance-Traces vorübergehend aktivieren.
 - **Supabase expert:** deaktiviert lassen; Pulse nutzt keine Supabase-Architektur.
 - **Claude Code setup / automation recommender:** beim Einrichten oder bei einer größeren Tool-Änderung einsetzen, nicht für jeden normalen Codeauftrag. Nach abgeschlossener Einrichtung muss er nicht dauerhaft aktiv bleiben.
 
@@ -32,27 +33,18 @@ Ziel: möglichst wenig immer geladenen Kontext, aber gründliche Arbeit bei Bugs
 
 ### Häufig nützlich
 
-- **smart-explore:** gezielte Code-Navigation, besonders in webserver.py.
+- **smart-explore, mem-search:** gezielte Code-Navigation bzw. Erinnerungssuche.
 - **karpathy-guidelines:** kleine, nachvollziehbare Änderungen statt übermäßig komplexer Refactors.
-- **make-plan + do:** für umfangreiche Arbeiten, wenn Planung und Umsetzung kontrolliert getrennt laufen sollen.
-- **build:** alternative Ein-Kommando-Orchestrierung für größere Aufgaben, wenn Planen, Umsetzen und Prüfen in einem Ablauf gewünscht sind. Nicht zusammen mit make-plan/do separat parallel orchestrieren.
+- **make-plan:** nur für größere Aufgaben.
 - **handoff:** kompakter Sitzungswechsel.
-- **commit:** nur nach Review und wenn ein Commit ausdrücklich gewünscht ist.
-- **babysit:** gezielt für einen tatsächlich bestehenden PR-/Reviewzyklus.
-- **frontend-design:** nur für UI-Redesigns.
-- **agent-cost-report:** manuell verwenden, wenn Token-/Kostenverbrauch analysiert werden soll.
+- **commit:** nur wenn ein Commit ausdrücklich gewünscht ist.
+- **frontend-design:** nur für UI-Aufgaben.
 
-### Spezialskills nur auf Anfrage
+### Gesperrt (Modellaufruf per `permissions.deny` in der lokalen `.claude/settings.json`)
 
-- **build-and-release** und **release:** deaktivieren, wenn sie die bevorzugten build-/release-Abläufe duplizieren. Eine Release-Aktion ist nicht dasselbe wie ein normaler Bugfix.
-- **commit-push-pr:** nur behalten, wenn der Arbeitsablauf regelmäßig PRs erzeugt; sonst ist commit weniger komplex.
-- **clean_gone:** nur nützlich, wenn regelmäßig mit Branches/Worktrees gearbeitet wird.
-- **learn-codebase** und **pathfinder:** nur für ein echtes Codebase-Onboarding oder Architekturprojekt; nicht jede Sitzung erneut ausführen. Für die Alltagsnavigation smart-explore verwenden.
-- **ccs-align, cloud-sync, mode-creator, knowledge-agent, how-it-works, timeline-report, weekly-digests:** nur aktiv nutzen, wenn die entsprechende claude-mem-Funktion tatsächlich Teil des Workflows ist.
-- **screenpipe, wowerpoint, design-is, what-the, oh-my-issues, standup, childhood:** nur bei passendem konkretem Auftrag aktivieren; sonst keine Standardwerkzeuge für Pulse-Fehlerbehebung.
-- **agent-cost-report, version-bump:** manuell; version-bump ist für Plugin-Versionierung gedacht und nicht automatisch für Pulse-Python-Releases passend.
+claude-mem: agent-cost-report, babysit, build, build-and-release, ccs-align, childhood, cloud-sync, design-is, do, how-it-works, knowledge-agent, learn-codebase, mode-creator, oh-my-issues, pathfinder, release, screenpipe, standup, timeline-report, version-bump, weekly-digests, what-the, wowerpoint. commit-commands: clean_gone, commit-push-pr.
 
-Diese Skills müssen nicht pauschal alle gelöscht werden. Deaktiviere zuerst selten gebrauchte oder doppelte Einträge in der UI; so kannst du sie später wieder einschalten. Am meisten spart es, große Referenztexte nicht ständig einzulesen und Orchestrator-Skills nicht unnötig zu starten.
+**Einschränkung (Claude Code 2.1.303, getestet):** `skillOverrides` blendet nur Projekt-/Nutzer-Skills aus, **keine Plugin-Skills**, und das Plugin-CLI kennt nur ganze Plugins (`claude plugin disable`). Die gesperrten claude-mem-Skills erscheinen daher weiter in der Skill-Liste (~2,5k Tokens immer geladen laut `claude plugin details claude-mem@thedotmack`), können vom Modell aber nicht gestartet werden. Ganz entfernen ginge nur durch Deaktivieren von claude-mem insgesamt – das würde die Memory-Funktion entfernen und ist deshalb nicht gemacht.
 
 ## Lokale Regeln und Sicherheit
 
@@ -66,3 +58,41 @@ Diese Skills müssen nicht pauschal alle gelöscht werden. Deaktiviere zuerst se
 - Skills und manuell aufrufbare Skill-Inhalte: https://code.claude.com/docs/en/skills
 - Projekt-/Pfadregeln und Memory: https://code.claude.com/docs/en/memory
 - Erweiterungen, MCP und Subagents: https://code.claude.com/docs/en/features-overview
+
+## Werkzeug-Stand (2026-10-24)
+
+### Projekt-Skills
+
+- `/pulse-e2e`: Browser-Workflows mit Playwright testen; nur auf ausdrücklichen Aufruf. E2E läuft ausschließlich gegen den lokalen Preview-Server mit Fake-Login und temporären Daten.
+- `/pulse-regression-fix`: Fehler reproduzieren, zuerst einen Regressionstest rot sehen, minimal beheben, danach gezielt und bei Bedarf vollständig testen. Dieser Skill darf Code ändern, aber niemals eigenständig committen, pushen, mergen oder deployen.
+- `/pulse-review`: unabhängiges, nur lesendes Review; nur auf ausdrücklichen Aufruf.
+- `/pulse-security-audit`: Sicherheitsprüfung, nur lesend; nur auf ausdrücklichen Aufruf.
+- `/pulse-performance`: Ressourcen-/Leistungsprüfung, nur lesend; nur auf ausdrücklichen Aufruf.
+- `/pulse-audit`: Gesamtprüfung, nur lesend; nur auf ausdrücklichen Aufruf.
+- `/pulse-release`: Release-/Merge-Vorbereitung, nur lesend; nur auf ausdrücklichen Aufruf.
+- `/pulse-data-safety`: vorhandener Spezialskill für sichere Datenänderungen; bei Datenmigrationen, Backup/Restore und Retention verwenden.
+
+### E2E-Tests
+
+Reproduzierbar (wie die CI, Hash-geprüft): `python -m pip install --require-hashes -r requirements-dev.lock`, anschließend `python -m playwright install chromium`. `requirements-dev.lock` enthält exakt die Runtime-Versionen aus `requirements.lock` plus `playwright`/`greenlet`/`pyee`; Playwright gehört **nicht** in `requirements.txt` (Docker-Image). Nach einer Änderung an `requirements.lock` oder `requirements-dev.txt` neu erzeugen (Befehl steht im Kopf der Lock-Datei); `tests/test_ci_workflows.py` schlägt fehl, wenn die Locks auseinanderlaufen.
+
+Abgedeckt (`tests/test_e2e_dashboard.py`, 12 Tests, drei Preview-Server: Admin ×2, Teammitglied): Navigation über die Sidebar, Wochenziel speichern/neu laden (Desktop, Mobil), serverseitige Bereichsprüfung, Zwischenrolle mit ungültigem Namen (abgelehnt, nichts gespeichert) und gültigem Namen (gespeichert, Scrollposition bleibt), Speichern im Wartungsmodus (503, Daten unverändert), 500-/404-Fehlerseiten, Leerzustände, Server Control Center (Laden → geladen, API-500, Netzwerkfehler), Mobil ohne horizontalen Überlauf, Teammitglied: 403 auf Admin-Seiten und direkter POST ohne Schreibwirkung. Serverfehler löst der Preview-Server nur mit `--e2e-hooks` über `/__preview/…` aus (nur dieser Prozess, nur 127.0.0.1).
+
+Gezielter lokaler Lauf:
+
+```powershell
+$env:PULSE_E2E = "1"
+python -m unittest tests.test_e2e_dashboard -v
+Remove-Item Env:PULSE_E2E
+```
+
+Die CI führt den E2E-Job in `.github/workflows/python-syntax.yml` mit `PULSE_E2E=1` aus. Der Job `e2e-scope` (`tools/ci_e2e_needed.py`) überspringt ihn nur, wenn ausschließlich Doku/Metadaten (`*.md` außer den zur Laufzeit gelesenen Support-Dateien, `docs/`, `.claude/`, reine Unittests, Security-/Deploy-Workflow) geändert wurden; alles andere – auch unbekannte Pfade, Zeitplan und manueller Start – führt die Browser-Suite aus. Ruff, compileall, Smoke-Tests und Unittests laufen immer. Ein übersprungener Test ist kein bestandener Test; wenn E2E explizit angefordert wird, muss ein fehlendes Playwright/Chromium als Fehler sichtbar werden.
+
+### Sicherheitsgrenzen und Ergebnisberichte
+
+- Skills mit `disable-model-invocation: true` laufen nur auf ausdrücklichen Aufruf; das gilt für Audit, Review, E2E, Performance, Security und Release-Vorbereitung.
+- Die Regression-Fix-Automatisierung bleibt auf Bugfix-Aufgaben beschränkt. Sie darf keinen Commit, Push, Merge, Release oder Produktiv-Deploy ausführen.
+- Keine persönlichen `.claude/settings.local.json`, lokalen Launch-Konfigurationen, Tokens oder individuellen Freigaben ins Repository übernehmen.
+- Tests nur als bestanden melden, wenn sie im aktuellen Arbeitsgang tatsächlich ausgeführt wurden. Bisherige lokale Basis: 791 Unittests bestanden (3 übersprungen) und 3 Playwright-E2E-Tests bestanden; diese Zahlen sind historische Referenzwerte, keine Aussage über einen späteren Commit.
+- Vor Merge den tatsächlichen CI-Status des exakten HEAD prüfen. Eine grüne CI auf `main` deployt nur, wenn die Repository-Variable `PULSE_AUTO_DEPLOY=true` gesetzt ist (Standard: nicht gesetzt → nur manueller „Run workflow“); Details und empfohlene Branch-/Environment-Regeln in `VPS_DEPLOYMENT.md` Abschnitt 5.
+- Das Playwright-MCP-Plugin startet `npx @playwright/mcp@latest` aus der Plugin-Konfiguration (nicht aus diesem Repository). Es dient nur dem interaktiven Erkunden; die reproduzierbaren, gepinnten Tests sind `tests/test_e2e_dashboard.py` mit `requirements-dev.lock`.

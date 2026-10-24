@@ -17,8 +17,16 @@ services:
     environment:
       SERVER_PORT: ${SERVER_PORT:-25095}
       PULSE_DB_PATH: ${PULSE_DB_PATH:-/app/pulse.db}
+      # O-02: X-Forwarded-For is trusted only from the Caddy container (fixed address below) – never from
+      # the internet, so nobody can fake an IP to dodge the application rate limit.
+      PULSE_FORWARDED_ALLOW_IPS: ${PULSE_FORWARDED_ALLOW_IPS:-172.30.0.10}
     ports:
-      - "127.0.0.1:${SERVER_PORT:-25095}:${SERVER_PORT:-25095}"
+      # O-02 + main: bound to localhost by default; the HTTPS reverse proxy (host or Caddy profile "https")
+      # serves the dashboard. Only set PULSE_PUBLISH_HOST=0.0.0.0 if the port must be reachable directly.
+      - "${PULSE_PUBLISH_HOST:-127.0.0.1}:${SERVER_PORT:-25095}:${SERVER_PORT:-25095}"
+    networks:
+      pulse_net:
+        ipv4_address: 172.30.0.2
     volumes:
       # Keep config, JSON state, SQLite databases, backups and transcripts
       # on the VPS between image rebuilds and deployments.
@@ -40,3 +48,35 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+  # O-02: optional HTTPS with automatic certificates. Start with:  docker compose --profile https up -d
+  # Needs PULSE_DOMAIN in .env and DNS pointing to this server; ports 80/443 open.
+  caddy:
+    image: caddy:2.8-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on: [pulse]
+    environment:
+      PULSE_DOMAIN: ${PULSE_DOMAIN:-}
+      PULSE_UPSTREAM: pulse:${SERVER_PORT:-25095}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 64m
+    networks:
+      pulse_net:
+        ipv4_address: 172.30.0.10
+
+networks:
+  pulse_net:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  caddy_data:
+  caddy_config:

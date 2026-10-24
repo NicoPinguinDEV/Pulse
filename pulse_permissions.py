@@ -21,6 +21,9 @@ BASE_KEYS = (
 EXTRA_KEYS = (
     "can_manage_announcements", "can_manage_handover", "can_manage_promotions", "can_view_team_status",
     "can_manage_checkins", "can_moderate_kicks", "can_moderate_bans", "can_moderate_bolo",
+    # Server Control Center (Deploy, Neustart, Rollback, Container-Logs): never granted implicitly – only
+    # server owner/Discord administrators or an explicit team-role/profile setting.
+    "can_manage_server",
 )
 ALL_KEYS = BASE_KEYS + EXTRA_KEYS
 DEFAULT_UNCONFIGURED_TEAM_ROLE = ("can_view_dashboard",)  # E-4

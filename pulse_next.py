@@ -24,11 +24,11 @@ from fastapi import Cookie, Form, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 import pulse_db as db
+import pulse_sqlite
 import pulse_ultimate as u
 
 BASE = Path(__file__).resolve().parent
-BACKUP_DIR = BASE / "backups"
-BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+BACKUP_DIR = BASE / "backups"  # A-04: created by create_backup() and webserver.init_runtime, not on import
 
 _INIT = False
 
@@ -61,8 +61,7 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 def cx():
-    c = sqlite3.connect(u.ultimate_db(), timeout=15)
-    c.row_factory = sqlite3.Row
+    c = pulse_sqlite.connect(u.ultimate_db(), timeout=15)
     c.execute("PRAGMA busy_timeout=15000")
     c.execute("PRAGMA journal_mode=WAL")
     return c
@@ -541,6 +540,7 @@ def create_approval(object_type, object_id, action, ctx):
 
 def create_backup():
     setup_next()
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     ts = now().strftime("%Y%m%d_%H%M%S")
     target = BACKUP_DIR / f"pulse_backup_{ts}.zip"
     db_path = Path(u.ultimate_db())
@@ -759,6 +759,9 @@ def register(app):
     @app.get("/ultimate/person/{user_id}/export")
     async def person_export(request: Request,user_id: str,user_session: str=Cookie(None)):
         ctx=ctx_auth(request,user_session,perm="can_view_dashboard")
+        # Security audit M5: profile, timeline and warnings of others only for leadership/admins (E-3/D-08).
+        if str(user_id)!=str(actor_id(ctx)) and not (ctx.perms.get("is_admin") or ctx.perms.get("can_promote")):
+            raise HTTPException(403,"Den Export fremder Teamakten dürfen nur Leitung und Administratoren abrufen.")
         member=ctx.guild.get_member(int(user_id)) if str(user_id).isdigit() else None
         if not member: raise HTTPException(404,"Teammitglied nicht gefunden.")
         s=u.member_stats(member); p=u.get_profile(str(member.id)) or {}

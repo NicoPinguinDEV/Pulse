@@ -1,0 +1,10 @@
+# O-02: HTTPS reverse proxy for Pulse (automatic Let's Encrypt certificates).
+# Used by `docker compose --profile https up -d`; PULSE_DOMAIN and PULSE_UPSTREAM come from compose.yaml.
+{$PULSE_DOMAIN} {
+	encode gzip
+	reverse_proxy {$PULSE_UPSTREAM} {
+		# Pulse trusts X-Forwarded-For only from this proxy (PULSE_FORWARDED_ALLOW_IPS).
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+	}
+}

@@ -3,6 +3,7 @@ from contextlib import closing
 import re
 import unicodedata
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
@@ -247,7 +248,7 @@ async def delete_pending_ping(
 
 
 # --- BUTTON FÜR BÜRO-PING (ÜBERNEHMEN) ---
-class BueroUebernehmenView(discord.ui.View):
+class BueroUebernehmenView(PulseView):
     def __init__(self, bot: commands.Bot, waiting_user_id: int, target_voice_id: int):
         super().__init__(timeout=None)
         self.bot = bot
@@ -532,7 +533,7 @@ class BueroSelect(discord.ui.Select):
         )
 
 
-class DMSelectView(discord.ui.View):
+class DMSelectView(PulseView):
     def __init__(self, voice_channels: list, guild_id: int):
         super().__init__(timeout=300)
         self.add_item(BueroSelect(voice_channels, guild_id))

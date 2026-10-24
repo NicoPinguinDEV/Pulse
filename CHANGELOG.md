@@ -1,5 +1,112 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Unveröffentlicht – Betrieb auf dem Vionity-VPS
+
+### Anti-Nuke Control Center & Automationen
+
+> **Hinweise nach dem Update:**
+> - Bestehende Anti-Nuke-Konfigurationen arbeiten unverändert weiter: ohne gespeicherten Modus gilt eine sanktionierende Reaktion als „Aktiver Schutz“, „Nur melden“ als „Alarmmodus“. Neue Installationen bleiben **aus**; das erste Einschalten startet im **Alarmmodus**, der aktive Schutzmodus muss ausdrücklich bestätigt werden.
+> - Das bisherige Zählen (alle Ereignisse gemeinsam, `action_limit`/`window_seconds`/`response`) lebt als **„Globale Standardregel“** weiter. Ein Ereignis mit eigener Regel zählt nur noch dort.
+> - Ausführungsverlauf der Automationen: höchstens 500 Einträge **pro Automation** (ältere Einträge werden beim nächsten Lauf entfernt).
+
+- **Verwaltung → Sicherheit** (`/admin/security`): neues **Anti-Nuke Control Center** – Status (Deaktiviert/Alarmmodus/Aktiver Schutz), aktive Regeln, Vorfälle, letzte Bedrohung und Maßnahme, Alarmkanal, benötigte Bot-Rechte je nach Regeln, Hinweise auf fehlerhafte Werte, letzte Änderung und Änderungsverlauf.
+- **Individuelle Regeln** (`config.json → pulse_antinuke.rules`, rückwärtskompatibel): je Regel Ereignis(se), Schwelle 1–50, Zeitfenster 3–600 s, Cooldown, Schweregrad, Testmodus, eigene Ausnahmen und eine Aktionskette aus fester Liste (Protokoll, Alarm, Verwaltungsrolle erwähnen, Admin-Inbox, Notfall-Lockdown, Rollen entziehen, Kick, Bann). Eigener Zähler pro Regel und verantwortlicher Person, jede Audit-Log-Aktion zählt einmal; Vorlagen, Live-Vorschau in Klartext, Simulation ohne Wirkung. Kick/Bann/Lockdown müssen beim Speichern bestätigt werden.
+- **Neue Ereignisse:** Kanal erstellt, kritische Kanaleinstellung, Rolle erstellt, gefährliche Rolle vergeben, Servereinstellungen geändert.
+- **Notfall-Lockdown:** entzieht @everyone in ausgewählten Kanälen Schreiben/Reaktionen/Threads bzw. Verbinden/Sprechen, speichert die vorherigen Rechte und stellt sie per Dashboard genau wieder her. Gelöschte Kanäle oder Rollen werden nicht wiederhergestellt.
+- **Sicherheit:** doppelte Banns über mehrere Regeln verhindert (Aktions-Cooldown), Serverinhaber/Pulse nie sanktioniert, abgelehnte Discord-Aktionen werden als fehlgeschlagen protokolliert, übrige Schritte laufen weiter. Speichern mit Revisionsprüfung (kein Überschreiben fremder Änderungen), ungültige gespeicherte Regeln bleiben erhalten und werden angezeigt.
+- **Automationen** (`/ultimate/automations`, gleiche Engine): Editor Wenn → Und → Dann mit bis zu 6 Aktionen, neue Auslöser „Anti-Nuke-Regel ausgelöst“ und „Sicherheitsereignis erkannt“ (mit Mindestanzahl, Zeitraum, Gruppierung je Person), neue Aktionen Aktivitätsprotokoll, Sicherheitsmeldung, Verwaltungsrolle, Lockdown. Bearbeiten, Testlauf, Jetzt ausführen, Löschen (mit Bestätigung), Filter/Sortierung, Fehlerprüfung, Verlauf mit Schritt-Ergebnissen, Laufzeit und ausführender Person. Sicherheits-Automationen nur für Administratoren. `POST /ultimate/automations/create` lehnt unbekannte Aktionen/Auslöser jetzt ab.
+- **Tests:** `tests/test_antinuke_control_center.py`, `tests/test_automation_center.py`; Route-Snapshot und `docs/ROUTEN.md` neu erzeugt.
+
+- **Neu:** `deploy/vps_bootstrap.sh` richtet einen frischen Ubuntu-24.04-VPS einmalig ein: Updates, automatische Sicherheitsupdates, Docker/Compose, 2 GiB Swap, Firewall (SSH/80/443, SSH-Port wird automatisch erkannt), fail2ban, Checkout und Rechte für UID 1000. Wiederholbar; Laufzeitdaten bleiben unangetastet, Pulse wird nicht gestartet. Anleitung: `VPS_DEPLOYMENT.md` §0.
+- **`/healthz`** meldet zusätzlich `gateway_latency_ms` und `memory_mb` (Container-RAM). Der Statuscode (200 nur, wenn Bot, Server und Datenbank bereit sind) bleibt unverändert, Deploy-Rollback und Docker-Healthcheck verhalten sich wie bisher.
+- **`.gitattributes`** erzwingt LF für Shell-Skripte, Dockerfile, Caddyfile und YAML – ein unter Windows gespeichertes CRLF hätte `remote_deploy.sh` auf dem VPS abbrechen lassen.
+- **O-07 Systemalarme:** fehlgeschlagene Hintergrundjobs, Auto-/Komplett-Backups, Restore-Tests und eine nicht erreichbare Datenbank melden sich gedrosselt (je Ursache höchstens alle 30 Minuten, max. 20 wartende, 5 pro Minute, ohne Erwähnungen) im optionalen `PULSE_SYSTEM_ALERT_CHANNEL_ID`. Gesendet wird von der bestehenden 60-s-Automationsschleife (`pulse_alerts.py`), kein neuer Hintergrundprozess. `/healthz` meldet zusätzlich `last_job_ok` und `jobs_failing`; der Statuscode bleibt unverändert.
+- **Behoben (Windows-Konsole):** Statusmeldungen mit Emoji lösten auf einer cp1252-Konsole `UnicodeEncodeError` aus – u. a. scheiterte dadurch die Registrierung von Pulse Pro beim Start, und 44 Tests fielen lokal aus. Nicht darstellbare Zeichen werden jetzt ersetzt (`pulse_logging.safe_console`).
+- **A-04:** `pulse_ultimate` und `pulse_next` legen `attachments/` und `backups/` nicht mehr beim Import an, sondern beim Start (`init_runtime`) und dort, wo eine Datei geschrieben wird.
+- **Behoben (Tickets):** konnte Discord den Kanal eines geschlossenen Tickets nicht löschen (z. B. fehlendes Recht „Kanäle verwalten“), blieb er bisher kommentarlos offen. Jetzt: Hinweis im Kanal, Ereignis `ticket_channel_delete_failed` und Systemalarm. Ein bereits gelöschter Kanal gilt weiter als Erfolg.
+- **Behoben (Dateigriffe):** Transkript- und Verifizierungs-Banner-Dateien wurden nach fehlgeschlagenem Versand nicht geschlossen; unter Windows blieben sie dadurch gesperrt.
+- **P-10:** ein fehlgeschlagener Sitzungs-Widerruf (Teamaustritt, Logout) landet jetzt im Fehlerprotokoll des Systemstatus statt verschluckt zu werden.
+- **Sicherheit (CodeQL, ReDoS):** Die Link-/Domain-Regeln von AutoMod nutzten ein Muster mit quadratischer Laufzeit. Eine präparierte Nachricht („www.-www.-…“, 100 000 Zeichen) blockierte den Bot rund 109 s, jetzt sind es 12 ms. Erkannte Hosts sind unverändert (Vergleich alt/neu und Regressionstest).
+- **Moderations-Log:** Beim Entladen des Cogs werden geplante Sammel-Sendungen abgebrochen, statt danach noch auszulösen.
+- **Behoben:** das README-Gate `python tests/test_pulse_intelligence.py` fand das Modul nicht, wenn es direkt gestartet wurde.
+- **Tests:** der Bash-Syntaxtest überspringt den WSL-Platzhalter ohne Distribution, statt fehlzuschlagen, und prüft jetzt beide Deploy-Skripte.
+
+### Aus `verbesserung/phase-6-bot` übernommen und an diesen Stand angepasst
+
+> **Hinweise nach dem Update (E-2):**
+> - Vergessene Schichten (nach 24 h automatisch beendet) zählen **0 Stunden**, bis eine höherrangige Führungskraft die echte Dauer in der Teamakte bestätigt. Das gilt auch für **ältere Einträge**, die bisher bis zu 24 h gutgeschrieben hatten – Wochen-, Monats- und Gesamtstunden können deshalb sinken. Gespeichert wird nichts gelöscht; die bisherige Dauer bleibt im Eintrag.
+> - `MAX_SHIFT_HOURS` (Standard 12) ist jetzt die Obergrenze für eine solche Bestätigung und wird nicht mehr ignoriert.
+
+- **E-2 Schichtgutschrift:** neue Route `POST /shift/history/confirm-duration` (Recht „Befördern“ und höherer Rang oder Admin, nicht für die eigene Schicht, Pflichtgrund, einmalig, Audit-Log) und Bereich „Automatisch beendete Schichten“ in der Teamakte mit der gemessenen Zeit als Hilfe. Alle 17 Leser der Schichtdauer (Wochenwerte, Teamakte, Zeitleiste, Analytics, Erfolge, Cockpit, Startseite, Suite, Heatmap, Beförderungs-Reife, „Mein Monat“, Command Center) zählen einheitlich über `credited_shift_seconds`. Abweichend von phase-6-bot: eine beim Team-Austritt beendete Schicht unter 24 h behält ihre echte Dauer, und die Bestätigungsobergrenze folgt wirklich `MAX_SHIFT_HOURS`.
+- **O-06 Konfigurationsprüfung:** `pulse_env_validation.py` prüft beim Start (vor dem Import von `webserver`) und im Systemstatus alle gesetzten optionalen Werte gegen die Bereiche, die der Code tatsächlich anwendet – Namen und Bereiche, nie Werte. Erkennt auch `SYNC_WARN_ROLES=true` (würde als „aus“ gelesen). `.env.example` dokumentiert jetzt alle im Code gelesenen Variablen (neue Einträge auskommentiert, Verhalten unverändert); RAM-Schwellen-Kommentar auf 350/420/470 MB korrigiert.
+- **DOC-02/DOC-03:** `docs/ARCHITEKTUR.md` (Mermaid-Übersicht, Verantwortlichkeiten, Regeln im Code) und `docs/BETRIEB.md` (Start, Health-Check, Backup/Restore, Deploy/Rollback, Wartungsmodus, Schicht-Bestätigung, Fehlersuche) – auf diesen Stand geprüft statt der veralteten Fassung (dort fehlten u. a. Wartungsmodus und abgesicherter Deploy).
+
+## Version 7.17.0 – Server Control Center (Oktober 2026)
+
+> **Hinweise nach dem Update:**
+> - Neue Seite **Verwaltung → Serververwaltung → Server Control Center** (`/admin/server`). Sichtbar für Serverinhaber/Discord-Administratoren und für Teamrollen bzw. Dashboard-Profile mit dem **neuen Recht `can_manage_server`** („Server Control Center“). Das Recht ist überall **aus**, bis es ausdrücklich gesetzt wird; Leitung (`can_promote`) erbt es nicht.
+> - Ohne den neuen **Host-Verwaltungsdienst** zeigt die Seite Container-, Git- und Deploy-Werte als „nicht verfügbar“ und sperrt Deploy, Neustart und Rollback (nie als Erfolg gemeldet). Einrichtung auf dem VPS: `docs/SERVER_CONTROL_CENTER.md`. Neue optionale Variablen: `PULSE_HOST_AGENT_URL`, `PULSE_HOST_AGENT_TOKEN`, `PULSE_GITHUB_REPO`.
+
+- **Server Control Center** mit Tabs Übersicht (echte Live-Werte: Version/Commit, Bot, Gateway-Latenz, Datenbank, RAM per cgroup, Speicherplatz, Backups, Jobs; Host-/Container-Werte über den Host-Dienst; fehlende Messwerte ausdrücklich „nicht verfügbar“), Live-Konsole, Container, Deployment, Backups und Diagnose.
+- **Live-Konsole:** Container-Logs (Host-Dienst) bzw. Pulse-Anwendungsprotokoll per SSE mit Pause/Fortsetzen, abschaltbarem Auto-Follow, freiem Scrollen trotz neuer Zeilen, Filter Fehler/Warnung/Info, Suche mit Hervorhebung, Zeitstempel, Zeilenzähler, Kopieren und Download, Verbindungsstatus mit automatischem Reconnect (Backoff). Feste Befehlsliste `help, status, health, logs [n], ram, disk, version, backup, update, restart, sync, cancel, clear` mit Verlauf (↑/↓) und Abbrechen; `backup/update/restart` öffnen den Bestätigungsdialog. Begrenzte Puffer (Browser 2000 Zeilen, Server 500 Einträge), Streams je Person (2) und gesamt (6) begrenzt und nach 15 min erneuert.
+- **Container/Deployment/Rollback** über den neuen eingeschränkten Host-Dienst `deploy/pulse_host_agent.py` (systemd-Unit `systemd/pulse-host-agent.service`, Standard Unix-Socket im Pulse-Ordner – kein Netzwerkport, keine Firewall-Änderung; Token-Auth; feste Aktionen deploy/restart/rollback/healthcheck; kein `shell=True`). Deploy nutzt das vorhandene `deploy/remote_deploy.sh` (verifiziertes Backup, nur Fast-Forward, Build, Healthcheck, automatischer Rollback), bricht bei lokalen Änderungen, falschem Branch, unvollständigem Merge/Rebase, fehlendem Fast-Forward oder geändertem GitHub-Stand seit der Vorschau ab und meldet Erfolg erst, wenn der installierte Commit stimmt und der wiederholte Healthcheck (3× in Folge) besteht. Neues `deploy/rollback_code.sh` setzt nur den Code auf einen früheren Commit des installierten Verlaufs zurück (vorher verifiziertes Backup, Daten unverändert; bei ungesundem Altstand automatisch zurück). Ein Vorgang gleichzeitig, Doppelklick-Schutz, Abbruch nur vor Abschluss des Backups.
+- **Backups:** Liste inkl. Sicherungen vor Deploy/Rollback, Prüfsummen-Verifikation je Backup, „Backup erstellen“ meldet Erfolg erst nach bestandener Verifikation; Wiederherstellen über die vorhandene Probelauf-Vorschau.
+- **Diagnose:** Befunde mit Zeitpunkt, Komponente, Ursache (bestätigt gemessen vs. Vermutung) und Empfehlung.
+- **Sicherheit:** jede Route prüft `can_manage_server` serverseitig; verändernde Routen nur per JSON (zusätzlich zur Same-Origin-Prüfung), Rate-Limits, Bestätigungswörter `DEPLOY`/`NEUSTART`/`ROLLBACK`, Audit-Log mit Person, Aktion, Ergebnis und Grund. Tokens/Passwörter/Webhooks werden in Logs, Ausgaben und Downloads geschwärzt (Host-Dienst und Dashboard).
+- **Behoben (Backups):** Sicherungen vor einem Deploy (`pulse_full_predeploy_*`) passten nicht zum Namensmuster und waren im Dashboard unsichtbar und nicht wiederherstellbar. Jetzt gelistet und markiert („VOR DEPLOY“).
+- **Neu (Backups):** Unter `/backups` lässt sich die **einzige** Komplett-Sicherung, die die Prüfsummenkontrolle besteht, nicht mehr löschen.
+- **Behoben (Live-Konsole `/admin/console`):** Ausgaben zeigten `\n` statt Zeilenumbrüchen; Fehler des nicht propagierenden `pulse`-Loggers fehlten im Live-Protokoll.
+- **Navigation:** neue Sidebar-Gruppe „Serververwaltung“ (Server Control Center, Live-Konsole, Systemstatus, Backups). Bestehende Seiten und Routen bleiben unverändert erreichbar.
+- **Tests:** `tests/test_server_control.py` (46 Tests: Rechte inkl. direkter API-Aufrufe, Befehls-/Parametervalidierung, keine Shell, keine Secrets, SSE mit Zeitlimit/Abbruch/Stream-Limit, Parallelität, Deploy-Abbruch bei unsicherem Git-Zustand, Build-/Healthcheck-Fehler, transparente Rollback-Fehler, Backup-Verifikation, Navigation). Route-Snapshot und `docs/ROUTEN.md`/`docs/JOBS_UND_RECHTE.md` neu erzeugt (enthält auch die zuvor fehlenden Live-Konsolen-Routen).
+
+## Version 7.16.0 – Sicherheit: AutoMod & Anti-Nuke in der Verwaltung (Oktober 2026)
+
+> **Hinweise nach dem Update:**
+> - Neue Seite **Verwaltung → Sicherheit** (`/admin/security`, nur Administratoren). `/security` leitet dorthin weiter; das alte Formular speichert weiterhin, ohne neue Einstellungen zurückzusetzen.
+> - Bestehende Anti-Nuke-Konfigurationen behalten die Reaktion **Ban**. Empfohlen: auf **Quarantäne** umstellen (umkehrbar).
+> - Für Quarantäne braucht der Bot „Rollen verwalten“ und eine Bot-Rolle über den zu entziehenden Rollen. Die Seite zeigt fehlende Rechte und Hierarchielücken live an.
+
+- **AutoMod:** Modus „Nur beobachten“ zum gefahrlosen Einstellen. Neue Regeln „Übermäßige Großschreibung“ und „Link außerhalb der Freigabeliste“. Nachrichtenflut und Wiederholungen sind einstellbar. Eskalation: Warnung, danach Timeouts mit Verdopplung bis zu einem Maximum. Ausnahmen per Rollen-, Kanal- und Kategorie-Auswahl. Bearbeitete Nachrichten werden ebenfalls geprüft.
+- **Anti-Nuke:** Reaktion wählbar (nur melden, Quarantäne, Kick, Ban). Die Quarantäne entzieht nur Rollen mit gefährlichen Rechten und speichert sie, sodass sie sich mit einem Klick und Pflichtgrund zurückgeben lassen. Optional werden Bots sofort entfernt, wenn eine nicht freigegebene Person sie hinzufügt. Administratoren werden in der Pulse-Inbox benachrichtigt.
+- **Dashboard:** Schutzwert, Bereitschaftsprüfung (Bot-Rechte, Rollenhierarchie, Alarmkanäle), 7-Tage-Statistik, Regeltester (speichert nichts), Quarantäne-Liste und Vorfallprotokoll. Jede Änderung steht im Audit-Log.
+- **Behoben (Anti-Nuke):**
+  - Änderungen an Kanalberechtigungen (Audit-Typ `overwrite_*`) wurden nicht erkannt.
+  - Bei Webhook-Wellen zählte nur ein Eintrag je 20 s, außerdem entstanden 3 Audit-Log-Abfragen pro Ereignis.
+  - Eine einmal behandelte Person wurde bis zum Neustart nie wieder geprüft; jetzt gilt eine begrenzte Abkühlzeit.
+- **Behoben (AutoMod):** Der Spam-Detektor hielt Klartext im RAM, jetzt nur noch Prüfsummen.
+- **Sicherheitsprüfung:**
+  - `Origin: null` und Cookie-POSTs ohne Origin/Referer werden abgelehnt (CSRF-Härtung).
+  - Den Export fremder Teamakten (`/ultimate/person/{id}/export`) dürfen nur noch Leitung und Administratoren abrufen.
+- **Merge mit main:**
+  - Deploy über `deploy/remote_deploy.sh` mit den Prüfungen aus main: nur main-Commits, kein Downgrade, keine lokalen VPS-Änderungen.
+  - `compose.yaml` bindet standardmäßig an 127.0.0.1.
+
+## Version 7.15.0 – Phase 6: Discord-Bot – Bedienung & Funktionen (Oktober 2026)
+
+Details und Testnachweise: `docs/PHASE6_BERICHT.md`, Plan: `docs/VERBESSERUNGSPLAN.md`.
+
+> **Hinweise nach dem Update:**
+> - Pulse synchronisiert die Slash-Befehle einmal neu. Neue Gruppen `/team`, `/setup`, `/dienst`, `/ticket`, `/mod` erscheinen; alle alten Befehlsnamen funktionieren weiter. Einrichtungsbefehle sehen normale Mitglieder nicht mehr.
+> - `/promote` verlangt jetzt eine Probezeit (3/7 Tage), wie im Dashboard.
+> - Für Täter im Moderations-Log braucht der Bot „Audit-Log anzeigen“, für `/mod` die passenden Discord-Moderationsrechte.
+> - Neue optionale `.env`-Werte: `PULSE_RAID_WATCH` und die Raid-Schwellen (siehe `.env.example`).
+
+- **Eine Logik für Teamaktionen (BOT-05):** Warnen, Rücknahme, Beförderung und Degradierung laufen im Dashboard und per Slash gleich. Behoben: `/warn-remove` hob Sperren nicht auf, `/promote` ohne Probezeit, `/warn` ohne Dauer/Beweis/DM/Eskalation.
+- **Buttons & Pings (BOT-01):** Fehlermeldungen mit Fehler-ID, Doppelklick-Sperre; `@everyone`/Rollen-Pings nur noch, wo sie gewollt sind.
+- **Dienst in Discord (BOT-03):** `/dienst start|pause|weiter|ende|status` und ein Dienst-Panel; zweite Erinnerung 4 h vor dem Auto-Ende.
+- **Befehle (BOT-04):** Gruppen, `/pulse-hilfe` aus dem Befehlsbaum, Verwaltungsbefehle ausgeblendet.
+- **Ruhezeiten (BOT-12):** Erinnerungs-DMs nicht zwischen 23 und 8 Uhr, danach gebündelt.
+- **Bot-Status (BOT-13):** „N im Dienst · M Tickets offen“ an einer Stelle.
+- **Discord-Panels (BOT-14):** Übersicht mit Status, Link und Neuveröffentlichen.
+- **Frühwarnung (BOT-08):** Alarm bei Beitrittswellen, neuen Konten, Massen-Erwähnungen und Kopier-Spam, ohne automatische Änderung.
+- **Protokollierung (BOT-02):** gelöschte Nachrichten, Beitritt/Austritt mit Kontoalter, Bans/Kicks/Timeouts mit Täter, Rollen, Kanäle, Voice; eigene Kanäle je Kategorie, Ignorierlisten, Sammelversand.
+- **Tickets (BOT-06):** Schnellantworten, Übergabe mit Pflichtnotiz, Ticket-Sperre, Tags, Bewertungsauswertung, lesbare Transkripte.
+- **Voice-Support (BOT-07):** Warteposition und Wartezeit-Schätzung, „Ticket statt Warten“, Supporter-Statistik, Audio-Hinweis.
+- **Bürger-Moderation (BOT-09):** `/mod warn|timeout|kick|ban|akte` mit Fallakte (Pulse-Recht und Discord-Recht nötig).
+- **Bewerbungen (BOT-10):** Vorlagen, Eingangs-DM, Gesprächstermin mit Kalendereintrag und Erinnerung.
+- **On-/Offboarding (BOT-11):** Checklisten bei Teambeitritt und -austritt, Mentor.
+- **Review-Fixes:** Der Log-Versand bleibt nach Fehlern nicht mehr stehen, die DM-Warteschlange verliert nichts, abgelaufene `/mod`-Bans heben keine fremden Bans auf, u. a.
+
 ## Version 7.15.2 – Live-Konsole stabilisiert (Oktober 2026)
 
 - **JSON-Antworten funktionieren:** Der geschützte Live-Konsolenbereich importiert JSONResponse explizit; Protokollabfrage und freigegebene Befehle stürzen dadurch nicht mehr mit NameError ab.

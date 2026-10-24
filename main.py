@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import discord
 from pulse_command_errors import PulseCommandTree
+from pulse_interactions import DEFAULT_ALLOWED_MENTIONS
 import pulse_logging
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -10,11 +11,19 @@ import uvicorn
 
 BASE_DIR = Path(__file__).resolve().parent
 os.chdir(BASE_DIR)
+pulse_logging.safe_console()  # emoji output must not crash on a cp1252 console
 pulse_logging.setup(str(BASE_DIR))  # P-10: logs/pulse.log (1 MB x 3) + error ring buffer
 
 # .env muss vor dem Import von webserver/pulse_db geladen sein, da diese
 # Module ihre Konfiguration beim Import lesen.
 load_dotenv(BASE_DIR / ".env")
+
+# O-06: before webserver is imported – a malformed SESSION_DAYS/MAX_BACKUPS would stop the import there,
+# and this message names the cause. Only names and expected ranges are printed, never values.
+from pulse_env_validation import validate_environment  # noqa: E402
+for _config_warning in validate_environment():
+    print(f"⚠️ Konfigurationsprüfung: {_config_warning}")
+    pulse_logging.get("config").warning("Konfigurationsprüfung: %s", _config_warning)
 
 from webserver import app
 
@@ -46,6 +55,10 @@ class CustomBot(commands.Bot):
             intents=intents,
             max_messages=MESSAGE_CACHE_SIZE,
             tree_cls=self.TREE_CLASS,
+            # BOT-01: no @everyone/@here and no role pings unless a message allows them explicitly.
+            # Every wanted ping already passes its own allowed_mentions (recruiting, verification reminder,
+            # ticket ping roles, office roles, RP @everyone, social promo, send_styled) – see tests/test_interactions.py.
+            allowed_mentions=DEFAULT_ALLOWED_MENTIONS,
         )
         self.pulse_message_cache_limit = MESSAGE_CACHE_SIZE
         self._pulse_web_server = None
@@ -74,7 +87,13 @@ class CustomBot(commands.Bot):
         # Slash Commands synchronisieren
         # P-09: only when the command tree changed (or PULSE_FORCE_COMMAND_SYNC=1 / admin button).
         try:
+            from pulse_command_groups import add_alias_groups
+            from pulse_command_help import apply_visibility
             from pulse_command_sync import sync_commands
+            missing = add_alias_groups(self.tree)  # BOT-04 (E-11): /team …, /setup … – old names stay as aliases
+            if missing:
+                print(f"⚠️ Befehlsgruppen: nicht gefunden (Cog nicht geladen?): {', '.join(missing)}")
+            apply_visibility(self.tree)  # BOT-04: setup/maintenance commands hidden from ordinary members
             result = await sync_commands(self.tree)
             self.pulse_synced_commands = result["count"]
             if result["synced"]:
@@ -93,8 +112,11 @@ class CustomBot(commands.Bot):
             print(f"⚠️ Pulse Ultimate Automation Engine konnte nicht gestartet werden: {e}")
 
         # Webserver im Hintergrund starten
+        # O-02: behind a reverse proxy (Caddy) the real client IP comes from X-Forwarded-For – trusted only from
+        # PULSE_FORWARDED_ALLOW_IPS (default 127.0.0.1), otherwise anyone could fake it to dodge rate limits.
         config = uvicorn.Config(
-            app=app, host="0.0.0.0", port=PORT, log_level="info"
+            app=app, host=os.getenv("PULSE_BIND_HOST", "0.0.0.0"), port=PORT, log_level="info",
+            proxy_headers=True, forwarded_allow_ips=os.getenv("PULSE_FORWARDED_ALLOW_IPS", "127.0.0.1"),
         )
         server = uvicorn.Server(config)
         self._pulse_web_server = server
@@ -124,13 +146,9 @@ class CustomBot(commands.Bot):
     async def on_ready(self):
         print(f"✅ Bot ist online als {self.user} (ID: {self.user.id})")
         try:
-            await self.change_presence(
-                activity=discord.Activity(
-                    type=discord.ActivityType.watching,
-                    name="Pulse TeamOS"
-                )
-            )
-            print("🎮 Discord Presence: Pulse TeamOS")
+            import pulse_presence  # BOT-13: the one place that sets the status
+            if await pulse_presence.update(self, force=True):
+                print("🎮 Discord-Status gesetzt: " + str(pulse_presence._state["text"]))
         except Exception as exc:
             print(f"⚠️ Discord Presence konnte nicht gesetzt werden: {exc}")
         from pulse_ready import first_ready

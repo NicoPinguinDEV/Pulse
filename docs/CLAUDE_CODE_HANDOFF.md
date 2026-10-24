@@ -6,6 +6,12 @@ Stand: **Referenznotizen, nicht garantiert aktuell**. Repo: https://github.com/N
 
 ## 1. Repository-Stand und Versionswahrheit
 
+- Repository: https://github.com/NicoPinguinDEV/Pulse
+- Branch: `main`
+- `pulse_version.py` meldet aktuell **7.16.0** (geprüft am 23.10.2026). Historisch: Commit `b1019dc` (18.10.2026, RAM-Messung) war Stand 7.9.7.
+- Vor 7.9.7 wurden Voice-Support-Interaktions-Timeouts korrigiert und Release 7.9.7 veröffentlicht.
+- Zu den jüngsten Änderungen zählen außerdem die Roblox-Spielerverlaufssuche in Melonly und die URL-Behandlung von Spielernamen mit Unterstrichen.
+- **Dokumentationsstand (23.10.2026):** `CHANGELOG.md` führt Versionen bis 7.16.0 und darüber unveröffentlichte Abschnitte; „Pulse Intelligence 7.9.0“ in der README bezeichnet die Version, in der das Modul eingeführt wurde. Nicht daraus ableiten, dass der laufende Code noch diese Version hat. Erst `pulse_version.py`, Git-Log und Code prüfen. CHANGELOG/README als mögliche Wartungsaufgabe notieren, aber nicht blind nebenbei umschreiben.
 - Aktuelle Version immer aus pulse_version.py lesen; aktueller Code/Tests sind die Verhaltensquelle.
 - Branch-/Commitstatus mit Git prüfen und Änderungen auf der Arbeitskopie erhalten.
 - README, Changelog, diese Übergabe und frühere Fehlerberichte können hinter dem Code zurückliegen. Dokumentationsabweichungen nur dann bearbeiten, wenn sie für die Aufgabe relevant sind oder der Nutzer eine Dokumentationsrunde beauftragt.

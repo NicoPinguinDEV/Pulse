@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from pulse_embed_design import color as _pulse_color
 import httpx
 from discord import app_commands
@@ -101,7 +102,7 @@ class ReviewActionButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         await self.review_view.cog.handle_review_action(interaction, self.review_view.case_id, self.action)
 
-class ModerationReviewView(discord.ui.View):
+class ModerationReviewView(PulseView):
     def __init__(self, cog: "AIModeration", case_id: str, role_kind: str):
         super().__init__(timeout=None)
         self.cog = cog

@@ -7,6 +7,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
+import pulse_sqlite
+
 DB_PATH = os.getenv("PULSE_DB_PATH", "pulse.db")
 _LOCK = threading.RLock()
 
@@ -18,7 +20,7 @@ def _now():
 @contextmanager
 def connect():
     with _LOCK:
-        conn = sqlite3.connect(DB_PATH, timeout=15)
+        conn = sqlite3.connect(DB_PATH, timeout=15, factory=pulse_sqlite.ClosingConnection)
         conn.row_factory = sqlite3.Row
         try:
             conn.execute("PRAGMA foreign_keys=ON")
@@ -888,6 +890,12 @@ def create_calendar_event(title, starts_at, ends_at=None, category="event", loca
         return event_id
 
 
+def delete_calendar_event(event_id) -> bool:
+    """BOT-10: replace an interview date instead of leaving the old one in the calendar."""
+    with connect() as db:
+        return db.execute("DELETE FROM calendar_events WHERE id=?", (str(event_id),)).rowcount > 0
+
+
 def list_calendar_events(start_at=None, end_at=None, limit=1000):
     """List events overlapping [start_at, end_at), or the latest bounded collection."""
     with connect() as db:
@@ -1077,8 +1085,12 @@ def get_setting(key, default=None):
 
 
 def set_setting(key, value):
+    import pulse_settings_history  # F-03: only reads the previous value when a dashboard change is recorded
+    previous = get_setting(key) if pulse_settings_history.wanted() else None
     with connect() as db:
         db.execute("INSERT OR REPLACE INTO settings(key,value_json) VALUES (?,?)", (key, json.dumps(value, ensure_ascii=False)))
+    if pulse_settings_history.wanted():
+        pulse_settings_history.record("setting", key, previous, value)
 
 
 def delete_setting(key):

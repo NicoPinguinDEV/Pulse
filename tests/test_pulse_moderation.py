@@ -34,6 +34,17 @@ class AutoModPolicyTests(unittest.TestCase):
         self.assertIsNone(classify_message("visit https://safe.example/path", rules=["domains"],
                                            blocked_domains=["bad.example"]))
 
+    def test_url_rules_stay_linear_on_pathological_input(self):
+        # CodeQL: the old host pattern backtracked quadratically on "www.-www.-…" (about 1 s for 10,000 characters)
+        import time
+        text = "www." + "www.-" * 20000
+        started = time.perf_counter()
+        classify_message(text, rules=["domains", "links"], blocked_domains=["bad.example"], allowed_domains=["ok.de"])
+        self.assertLess(time.perf_counter() - started, 0.5)
+        self.assertEqual(classify_message("geh auf www.evil.de.", rules=["links"], allowed_domains=["ok.de"]), "links")
+        self.assertIsNone(classify_message("Version 1.5 und a.b", rules=["links"], allowed_domains=["ok.de"]))
+        self.assertEqual(classify_message("mail foo@bad.example", rules=["domains"], blocked_domains=["bad.example"]), "domains")
+
     def test_spam_requires_repetition_or_a_flood_threshold(self):
         self.assertIsNone(classify_message("hello", rules=["spam"], duplicate_count=2, message_count=5))
         self.assertEqual(classify_message("hello", rules=["spam"], duplicate_count=3), "spam")

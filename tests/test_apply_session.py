@@ -10,7 +10,11 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+import pulse_db
 import webserver as ws
+
+# Browsers always send Origin on POST; cookie POSTs without it are refused (pulse_security, audit H1).
+BROWSER = {"Origin": "http://testserver"}
 
 CAREER = next(iter(ws.APPLICATION_CAREERS))
 
@@ -26,7 +30,7 @@ async def eligible(request, user_id):
 
 class ApplySessionTests(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(ws.app)
+        self.client = TestClient(ws.app, headers=BROWSER)
         self.patches = [patch.object(ws, "verify_application_member", eligible), patch("builtins.print")]
         for p in self.patches:
             p.start()
@@ -110,6 +114,8 @@ class ApplySessionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
                 patch.object(ws, "CONFIG_FILE", str(Path(tmp) / "config.json")), \
                 patch.object(ws, "APPS_FILE", str(Path(tmp) / "applications.json")), \
+                patch.object(ws, "AUDIT_FILE", str(Path(tmp) / "audit_logs.json")), \
+                patch.object(pulse_db, "DB_PATH", str(Path(tmp) / "pulse.db")), \
                 patch.object(ws, "application_module_states", lambda *_: {CAREER: True}), \
                 patch.object(ws, "verify_application_member", eligible), \
                 patch.object(ws, "rate_limited", return_value=False), \

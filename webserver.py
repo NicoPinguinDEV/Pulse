@@ -12,6 +12,7 @@ import html
 import io
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -38,10 +39,13 @@ import discord
 from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
+import pulse_logging
+pulse_logging.safe_console()  # status prints with emoji must not crash on a cp1252 console (no file access)
 from pulse_version import PULSE_VERSION
 from pulse_time import display, parse_timestamp
 
-from pulse_shift_utils import AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, shift_age_seconds, shift_event_id
+from pulse_shift_utils import (AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, OFFBOARDING_CLOSE_REASON, credited_shift_seconds,
+                               needs_duration_confirmation, parse_max_shift_hours, shift_age_seconds, shift_event_id)
 from career_applications import (
     APPLICATION_CAREERS, APPLICATION_PRACTICAL_TASKS, grade_career_test,
     grade_practical_tasks, render_career_test, render_practical_tasks,
@@ -162,6 +166,9 @@ SESSION_DAYS = int(os.getenv("SESSION_DAYS", "7"))              # Login-Dauer
 # Vergessene Schichten werden nach genau 24 Stunden automatisch beendet und verwarnt.
 # MAX_SHIFT_HOURS bleibt als kompatible Konstante für alte Integrationen bestehen.
 MAX_SHIFT_HOURS = AUTO_SHIFT_END_HOURS
+# E-2 / O-06: .env MAX_SHIFT_HOURS (0.5–24, Standard 12) begrenzt die von einer Führungskraft bestätigte Dauer
+# einer automatisch beendeten Schicht. Unbestätigt zählt sie 0 h; der Auto-Abschluss bleibt bei 24 h.
+MAX_CONFIRMED_SHIFT_HOURS = parse_max_shift_hours(os.getenv("MAX_SHIFT_HOURS"))
 AUTO_BACKUP_HOURS = float(os.getenv("AUTO_BACKUP_HOURS", "24")) # 0 = aus
 MAX_BACKUPS = int(os.getenv("MAX_BACKUPS", "30"))
 VOICE_SUPPORT_AUDIO_DIR = BASE_DIR / "uploads" / "voice_support_audio"
@@ -318,11 +325,16 @@ def init_runtime() -> None:
     """A-04: create runtime files explicitly at start (main.py / app lifespan) instead of on import.
     Idempotent. webserver itself no longer creates abmeldungen.db, backups/ or .session_secret on import;
     the modules registered at its end (pulse_pro, pulse_features, pulse_next, …) still create pulse.db
-    tables while registering – to be moved here step by step (A-02/A-04)."""
+    tables while registering – to be moved here step by step (A-02/A-04). pulse_ultimate/pulse_next no
+    longer create attachments/ and backups/ on import; that happens here and where a file is written."""
     global _RUNTIME_READY
     if _RUNTIME_READY:
         return
     os.makedirs(BACKUP_DIR, exist_ok=True)
+    import pulse_next
+    import pulse_ultimate
+    pulse_next.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    pulse_ultimate.ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
     pulse_db.init_db()
     import pulse_migrations  # A-05: versioned migrations (backup before the first pending one)
@@ -385,9 +397,17 @@ def abspath_corrupt_free(filepath) -> bool:
 
 
 def save_json(filepath, data):
+    import pulse_settings_history
     with _io_lock:
+        config_before = None
         if os.path.abspath(filepath) == os.path.abspath(CONFIG_FILE):
             _CONFIG_CACHE.update(key=None, data=None)  # P-04: invalidate on every write
+            if pulse_settings_history.wanted():  # F-03: previous config only when a dashboard change is recorded
+                try:
+                    with open(filepath, encoding="utf-8") as f:
+                        config_before = json.load(f)
+                except (OSError, ValueError):
+                    config_before = {}
         problem = _CORRUPT_JSON.get(os.path.abspath(filepath))
         if problem:
             raise JsonWriteBlocked(problem)
@@ -400,6 +420,8 @@ def save_json(filepath, data):
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, filepath)  # verhindert kaputte Dateien bei Absturz
+        if config_before is not None:
+            pulse_settings_history.record_config(config_before, data)
         try:  # persist the rename itself (not supported on Windows)
             dir_fd = os.open(os.path.dirname(os.path.abspath(filepath)), os.O_RDONLY)
             try:
@@ -1087,6 +1109,14 @@ def compute_perms(guild, user_id, config):
     return pulse_permissions.compute(guild, user_id, config)
 
 
+def _set_request_actor(user: dict) -> None:
+    try:
+        import pulse_settings_history
+        pulse_settings_history.set_actor(user.get("id"), user.get("global_name") or user.get("username") or "")
+    except Exception:
+        pass
+
+
 def auth(request: Request, user_session, perm="can_view_dashboard", admin=False):
     """Zentrale Prüfung: Login gültig? Noch auf dem Server? Hat die Rolle das Recht?"""
     user = get_current_user(user_session)
@@ -1103,13 +1133,17 @@ def auth(request: Request, user_session, perm="can_view_dashboard", admin=False)
             try:
                 import pulse_sessions
                 pulse_sessions.revoke_all(user["id"], reason="nicht mehr im Team")
-            except Exception:
-                pass
+            except Exception as exc:  # P-10: a session that stays valid after leaving the team must be visible
+                pulse_logging.report_error("sessions", f"Sitzungen von {user['id']} nach Teamaustritt nicht widerrufen: {type(exc).__name__}")
         raise HTTPException(status_code=403, detail="Du bist nicht (mehr) im Team oder deine Rolle darf das Dashboard nicht sehen.")
     if admin and not perms["is_admin"]:
         raise HTTPException(status_code=403, detail="Dieser Bereich ist nur für Administratoren.")
     if perm and not perms.get(perm):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung.")
+    import pulse_flags
+    if pulse_flags.blocks_write(request.method, request.url.path, perms.get("is_admin")):  # F-04
+        raise HTTPException(status_code=503, detail="Wartungsmodus: Änderungen sind gerade gesperrt. Ansehen geht weiterhin.")
+    _set_request_actor(user)  # F-03: who changes settings during this request
     return SimpleNamespace(
         user=user, guild=guild, guild_name=guild.name, perms=perms, config=config, member=member,
         msg=request.query_params.get("msg", ""), msg_ok=request.query_params.get("t", "ok") != "err",
@@ -1224,7 +1258,10 @@ def load_shifts() -> dict:
             "date": s.get("date"),
             "started_at_iso": started_at,
             "ended_at_iso": now.isoformat(timespec="seconds"),
-            "duration_seconds": min(shift_elapsed(s), limit),
+            # E-2: 0 h until a leader confirms the real duration; the measured time stays visible for that check.
+            "duration_seconds": 0,
+            "duration_confirmed": False,
+            "measured_seconds": min(shift_elapsed(s), limit),
             "auto_closed": True,
             "shift_event_id": event_id,
             "auto_warn_status": "pending",
@@ -1261,7 +1298,9 @@ async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
             "date": shift.get("date"),
             "started_at_iso": started_at,
             "ended_at_iso": now.isoformat(timespec="seconds"),
-            "duration_seconds": min(shift_elapsed(shift), AUTO_SHIFT_END_SECONDS),
+            "duration_seconds": 0,  # E-2: credited only after a leader confirms the real duration
+            "duration_confirmed": False,
+            "measured_seconds": min(shift_elapsed(shift), AUTO_SHIFT_END_SECONDS),
             "auto_closed": True,
             "shift_event_id": shift_event_id(uid, started_at),
             "auto_warn_status": "pending",
@@ -1448,7 +1487,7 @@ def weekly_history_totals(history) -> dict:
         try:
             if _in_week(entry.get("date"), start, start_text):
                 uid = str(entry.get("mod_id"))
-                totals[uid] = totals.get(uid, 0) + int(entry.get("duration_seconds", 0))
+                totals[uid] = totals.get(uid, 0) + credited_shift_seconds(entry)  # E-2
         except Exception:
             pass
     _WEEKLY_MEMO.update(key=key, history=history, totals=totals)
@@ -2836,7 +2875,7 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
         ("backups", "/backups", "💾", "Server Backups"),
         ("system", "/system", "🩺", "Systemstatus"),
         ("setup", "/setup", "🧭", "Einrichtungsassistent"),
-        ("security", "/security", "🛡️", "AutoMod & Anti-Nuke"),
+        ("security", "/admin/security", "🛡️", "AutoMod & Anti-Nuke"),
         ("search", "/search", "🔎", "Globale Suche"),
         ("settings", "/settings", "⚙️", "Rechte & Audit-Log"),
         ("live-console", "/admin/live-console", "🖥️", "Live-Konsole"),
@@ -3355,6 +3394,15 @@ async def admin_live_console_command(
 # =============================================================
 # HEALTH CHECK
 # =============================================================
+def _system_alert(key: str, message: str) -> None:
+    """O-07: throttled alert in PULSE_SYSTEM_ALERT_CHANNEL_ID (posted by the automation loop)."""
+    try:
+        import pulse_alerts
+        pulse_alerts.raise_alert(key, message)
+    except Exception:
+        pass
+
+
 @app.get("/healthz")
 async def healthz(request: Request):
     bot = getattr(request.app.state, "bot", None)
@@ -3366,7 +3414,22 @@ async def healthz(request: Request):
     except Exception:
         db_ok = False
 
+    if not db_ok:
+        _system_alert("database", "🔴 **Datenbank nicht erreichbar:** `/healthz` konnte `pulse.db` nicht abfragen.")
     ready = bool(bot and bot.is_ready() and guild and db_ok)
+    # O-07: diagnostics only – they never change the status code the deploy/Docker health checks rely on.
+    latency = getattr(bot, "latency", None) if bot else None
+    latency_ms = round(latency * 1000) if isinstance(latency, (int, float)) and math.isfinite(latency) else None
+    try:
+        from pulse_ultimate import container_memory_mb
+        memory_mb = container_memory_mb()
+    except Exception:
+        memory_mb = None
+    try:
+        import pulse_jobs
+        jobs = pulse_jobs.health_summary()
+    except Exception:
+        jobs = {"last_job_ok": None, "jobs_failing": []}
     return JSONResponse(
         {
             "ok": ready,
@@ -3374,6 +3437,10 @@ async def healthz(request: Request):
             "bot_ready": bool(bot and bot.is_ready()),
             "guild_ready": bool(guild),
             "database_ok": db_ok,
+            "gateway_latency_ms": latency_ms,
+            "memory_mb": memory_mb,
+            "last_job_ok": jobs["last_job_ok"],
+            "jobs_failing": jobs["jobs_failing"],
         },
         status_code=200 if ready else 503,
     )
@@ -3472,8 +3539,8 @@ async def logout(user_session: str = Cookie(None)):
         try:
             import pulse_sessions  # U-14: the server-side session ends too
             pulse_sessions.revoke(data["id"], data["sid"])
-        except Exception:
-            pass
+        except Exception as exc:  # P-10
+            pulse_logging.report_error("sessions", f"Sitzung beim Logout nicht widerrufen: {type(exc).__name__}")
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie(key="user_session")
     return response
@@ -4510,13 +4577,13 @@ def shift_end_open_items_text(mod_id: str, now: datetime) -> str:
     return (" Noch offen: " + "; ".join(parts) + ".") if parts else " Keine offenen Tickets oder überfälligen Aufgaben – sauberer Abschluss! ✅"
 
 
-@app.post("/shift/action")
-async def handle_shift_action(request: Request, shift_action: str = Form(...), return_to: str = Form("/dashboard"),
-                              user_session: str = Cookie(None)):
-    ctx = auth(request, user_session)
-    # Only known local pages; never redirect to user-supplied external URLs.
-    target_page = return_to if return_to in {"/dashboard", "/me"} else "/dashboard"
-    mod_id = ctx.user["id"]
+SHIFT_ACTIONS = ("start", "break", "resume", "end")
+
+
+def apply_shift_action(mod_id, shift_action: str) -> tuple[bool, str]:
+    """BOT-03: start/pause/resume/end one person's shift – the single logic for the dashboard, the Discord
+    panel and /dienst. Synchronous on purpose: load and save happen without an await in between."""
+    mod_id = str(mod_id)
     shifts_db = load_shifts()
     team_db = load_json(DATA_FILE, {})
     active = shifts_db["active_shifts"]
@@ -4525,9 +4592,9 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), r
 
     if shift_action == "start":
         if shift:
-            return back(target_page, "Du hast bereits eine laufende Schicht.", False)
+            return False, "Du hast bereits eine laufende Schicht."
         if len(active_warns(user_entry(team_db, mod_id))) >= 5:
-            return back(target_page, "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!", False)
+            return False, "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!"
         # An active leave is informational, not a lock: team members may
         # voluntarily work during an LOA without deleting or shortening it.
         loa = get_loas().get(mod_id)
@@ -4571,19 +4638,45 @@ async def handle_shift_action(request: Request, shift_action: str = Form(...), r
         except Exception as exc:
             print(f"⚠️ Schichtende-Übersicht nicht verfügbar: {type(exc).__name__}")
     else:
-        return back(target_page, "Diese Aktion ist gerade nicht möglich.", False)
+        return False, "Diese Aktion ist gerade nicht möglich."
 
     save_json(SHIFTS_FILE, shifts_db)
-    # Voice-Support-Bereitschaft is a view of this same shift state, not a
-    # second independent check-in. Keep its Discord role and status post in sync.
+    return True, msg
+
+
+def shift_status_text(mod_id) -> str:
+    """One line for /dienst status and the panel answer."""
+    shifts = load_shifts()
+    shift = shifts.get("active_shifts", {}).get(str(mod_id))
+    week = fmt_duration(calculate_weekly_seconds(str(mod_id), shifts.get("history", []), shifts.get("active_shifts", {})))
+    if not shift:
+        return f"Du bist nicht im Dienst. Diese Woche: {week}."
+    state = "im Dienst" if shift.get("status") == "online" else "in der Pause"
+    return f"Du bist {state} seit {fmt_duration(shift_elapsed(shift))}. Diese Woche: {week}."
+
+
+async def sync_duty_after_shift(bot, guild, mod_id) -> None:
+    """Voice-Support-Bereitschaft is a view of this same shift state, not a second independent check-in.
+    Keep its Discord role and status post in sync (dashboard and Discord use this)."""
     try:
-        bot = getattr(request.app.state, "bot", None)
         voice_support = bot.get_cog("VoiceSupport") if bot else None
-        if voice_support:
-            await voice_support.sync_member_duty_role(ctx.guild, mod_id)
-            await voice_support._refresh_duty_status(ctx.guild)
+        if voice_support and guild:
+            await voice_support.sync_member_duty_role(guild, str(mod_id))
+            await voice_support._refresh_duty_status(guild)
     except Exception as exc:
         print(f"⚠️ Voice-Support: Bereitschaft konnte nach Schichtaktion nicht aktualisiert werden: {exc}")
+
+
+@app.post("/shift/action")
+async def handle_shift_action(request: Request, shift_action: str = Form(...), return_to: str = Form("/dashboard"),
+                              user_session: str = Cookie(None)):
+    ctx = auth(request, user_session)
+    # Only known local pages; never redirect to user-supplied external URLs.
+    target_page = return_to if return_to in {"/dashboard", "/me"} else "/dashboard"
+    ok, msg = apply_shift_action(ctx.user["id"], shift_action)  # BOT-03: same logic as the Discord panel
+    if not ok:
+        return back(target_page, msg, False)
+    await sync_duty_after_shift(getattr(request.app.state, "bot", None), ctx.guild, ctx.user["id"])
     return back(target_page, msg)
 
 
@@ -6028,6 +6121,259 @@ async def pulse_ticket_transcript(request: Request, ticket_id: str, user_session
     return FileResponse(path=str(transcript_file), media_type="text/plain; charset=utf-8", filename=transcript_name)
 
 
+def _ticket_transcript_file(ticket):
+    transcript_name = os.path.basename(str(ticket.get("transcript_path") or ""))
+    if not transcript_name or transcript_name != f"{ticket.get('id')}.txt":
+        return None
+    transcript_dir = (BASE_DIR / "transcripts").resolve()
+    transcript_file = (transcript_dir / transcript_name).resolve()
+    return transcript_file if transcript_file.parent == transcript_dir and transcript_file.is_file() else None
+
+
+@app.get("/tickets/transcript/{ticket_id}/view", response_class=HTMLResponse)
+async def pulse_ticket_transcript_view(request: Request, ticket_id: str, user_session: str = Cookie(None)):
+    """BOT-06: the stored transcript as a readable page (the download stays at /tickets/transcript/{id})."""
+    import pulse_ticket_extras
+    from pulse_pro import render_pro_page
+    ctx = auth(request, user_session, perm="can_manage_tickets")
+    ticket = pulse_db.get_ticket(ticket_id=ticket_id)
+    if not ticket or str(ticket.get("guild_id")) != str(ctx.guild.id):
+        raise HTTPException(status_code=404, detail="Ticket nicht gefunden.")
+    path = _ticket_transcript_file(ticket)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Für dieses Ticket ist kein Transkript gespeichert.")
+    text = path.read_text(encoding="utf-8", errors="replace")[:2_000_000]
+    body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">📄 Transkript {esc(ticket_id)}</div>'
+            f'<div class="pulse-section-sub">{esc(ticket.get("user_name"))} · {esc(ticket.get("category"))} · geschlossen {esc(str(ticket.get("closed_at") or "")[:16])}</div></div>'
+            f'<div class="flex gap-2"><a class="pulse-btn ghost" href="/tickets?status=closed">← Tickets</a>'
+            f'<a class="pulse-btn ghost" href="/tickets/transcript/{quote(ticket_id)}">⬇ Download</a></div></div>'
+            '<style>.tr-msg{padding:8px 10px;border-radius:10px;background:var(--surface2);margin-bottom:6px}.tr-meta{font-size:11px;color:var(--muted)}'
+            '.tr-meta b{color:inherit}.tr-text{font-size:13px;white-space:pre-wrap;word-break:break-word}.tr-line{font-size:11px;color:var(--muted);margin:4px 0}</style>'
+            f'<section class="pulse-card"><div class="pulse-card-b">{pulse_ticket_extras.transcript_html(text)}</div></section>')
+    import sys
+    return HTMLResponse(render_pro_page(sys.modules[__name__], f"Transkript {ticket_id}", ctx, "tickets", body))
+
+
+def _checklist_ctx(request, user_session):
+    ctx = auth(request, user_session, perm=None)
+    if not (ctx.perms.get("is_admin") or ctx.perms.get("can_promote")):
+        raise HTTPException(status_code=403, detail="On- und Offboarding verwaltet die Leitung.")
+    return ctx
+
+
+@app.get("/team/checklists", response_class=HTMLResponse)
+async def team_checklists_page(request: Request, user_session: str = Cookie(None)):
+    """BOT-11: open on-/offboarding checklists; leadership ticks steps and assigns mentors."""
+    import sys
+
+    import pulse_checklists as pc
+    from pulse_pro import render_pro_page
+    ctx = _checklist_ctx(request, user_session)
+    team_ids = set(int(x) for x in ctx.config.get("team_role_ids", []) if str(x).isdigit())
+    team = sorted((m for m in getattr(ctx.guild, "members", []) if not m.bot and any(r.id in team_ids for r in m.roles)),
+                  key=lambda m: m.display_name.lower())
+
+    def card(item):
+        steps = "".join(
+            f'<form method="post" action="/team/checklists/toggle" class="flex items-center gap-2">'
+            f'<input type="hidden" name="checklist_id" value="{esc(item["id"])}"><input type="hidden" name="step" value="{esc(s["key"])}">'
+            f'<button class="pulse-btn ghost" type="submit" aria-pressed="{"true" if s["done"] else "false"}">{"✅" if s["done"] else "⬜"}</button>'
+            f'<span class="text-xs">{esc(s["label"])}{" · " + esc(s["done"]["by"]) if s["done"] else ""}</span></form>'
+            for s in item["steps"])
+        mentor = ""
+        if item["kind"] == "onboarding":
+            options = "".join(f'<option value="{m.id}"{" selected" if str(m.id) == str(item.get("mentor_id")) else ""}>{esc(m.display_name)}</option>'
+                              for m in team if str(m.id) != str(item["user_id"]))
+            mentor = (f'<form method="post" action="/team/checklists/mentor" class="flex flex-wrap gap-2 items-center mt-2">'
+                      f'<input type="hidden" name="checklist_id" value="{esc(item["id"])}">'
+                      f'<select name="mentor_id" class="pulse-input" style="width:auto" aria-label="Mentor wählen"><option value="">Mentor wählen…</option>{options}</select>'
+                      f'<button class="pulse-btn ghost" type="submit">Speichern</button></form>')
+        title = "🟢 Onboarding" if item["kind"] == "onboarding" else "🚪 Offboarding"
+        return (f'<section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">{title} · {esc(item["user_name"])}</div>'
+                f'<div class="pulse-section-sub">seit {time_tag(item["created_at"])} · {item["progress"]}/{len(item["steps"])} erledigt'
+                f'{" · Mentor: " + esc(item["mentor_name"]) if item.get("mentor_name") else ""}</div></div>'
+                f'<a class="pulse-btn ghost" href="/member/{esc(item["user_id"])}">Teamakte</a></div>'
+                f'<div class="pulse-card-b space-y-1">{steps}{mentor}</div></section>')
+    open_items = pc.list_open()
+    done_items = pc.list_done()
+    body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">☑ On- &amp; Offboarding</div>'
+            f'<div class="pulse-section-sub">Checklisten entstehen automatisch beim Teambeitritt und -austritt. Team-Offboarding entfernt nur Teamrollen – kein Server-Kick.</div></div></div>'
+            f'<div class="space-y-4">{"".join(card(i) for i in open_items) or empty_state("Keine offenen Checklisten.", "☑")}</div>'
+            + (f'<section class="pulse-card mt-4"><div class="pulse-card-h"><div class="pulse-section-title">Abgeschlossen</div></div><div class="pulse-card-b space-y-1">'
+               + "".join(f'<div class="pulse-row"><div class="pulse-row-title">{"🟢" if i["kind"] == "onboarding" else "🚪"} {esc(i["user_name"])}</div>'
+                         f'<div class="pulse-row-meta">{time_tag(i["completed_at"])}</div></div>' for i in done_items) + '</div></section>'
+               if done_items else ""))
+    return HTMLResponse(render_pro_page(sys.modules[__name__], "On- & Offboarding", ctx, "team-checklists", body))
+
+
+@app.post("/team/checklists/toggle")
+async def team_checklists_toggle(request: Request, user_session: str = Cookie(None)):
+    import pulse_checklists as pc
+    ctx = _checklist_ctx(request, user_session)
+    form = await request.form()
+    actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+    try:
+        item = pc.toggle(str(form.get("checklist_id") or ""), str(form.get("step") or ""), actor)
+    except ValueError as exc:
+        return back("/team/checklists", str(exc), False)
+    if item.get("completed_at"):
+        log_audit(actor, ctx.user["id"], "Checkliste abgeschlossen", f"{item['kind']} · {item['user_name']} ({item['user_id']})")
+        return back("/team/checklists", f"Checkliste für {item['user_name']} abgeschlossen.")
+    return back("/team/checklists")
+
+
+@app.post("/team/checklists/mentor")
+async def team_checklists_mentor(request: Request, user_session: str = Cookie(None)):
+    import pulse_checklists as pc
+    ctx = _checklist_ctx(request, user_session)
+    form = await request.form()
+    mentor_id = str(form.get("mentor_id") or "")
+    mentor = ctx.guild.get_member(int(mentor_id)) if mentor_id.isdigit() else None
+    checklist = pc.get(str(form.get("checklist_id") or ""))
+    team_ids = {int(x) for x in ctx.config.get("team_role_ids", []) if str(x).isdigit()}
+    # review fix: only a team member, and not the person being onboarded
+    if mentor is None or mentor.bot or not any(r.id in team_ids for r in mentor.roles) \
+            or (checklist and str(checklist["user_id"]) == str(mentor.id)):
+        return back("/team/checklists", "Bitte ein anderes Teammitglied als Mentor wählen.", False)
+    actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+    try:
+        item = pc.set_mentor(str(form.get("checklist_id") or ""), mentor.id, mentor.display_name, actor)
+    except ValueError as exc:
+        return back("/team/checklists", str(exc), False)
+    log_audit(actor, ctx.user["id"], "Mentor zugewiesen", f"{mentor.display_name} für {item['user_name']}")
+    return back("/team/checklists", f"{mentor.display_name} begleitet jetzt {item['user_name']}.")
+
+
+def _mod_case_ctx(request, user_session):
+    ctx = auth(request, user_session, perm=None)
+    if not (ctx.perms.get("is_admin") or ctx.perms.get("can_moderate_kicks") or ctx.perms.get("can_moderate_bans")):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir ein Moderationsrecht.")
+    return ctx
+
+
+@app.get("/mod-cases", response_class=HTMLResponse)
+async def mod_cases_page(request: Request, user_session: str = Cookie(None)):
+    """BOT-09: case file of the citizen moderation (/mod …) – search, pages, CSV."""
+    import pulse_lists
+    import pulse_mod_cases as mc
+    from pulse_pro import render_pro_page
+    ctx = _mod_case_ctx(request, user_session)
+    params = pulse_lists.params(request.query_params)
+    rows = pulse_lists.search(mc.list_cases(), params["q"],
+                              lambda c: f"{c['id']} {c['target_name']} {c['target_id']} {c['reason']} {c['actor_name']} {c['action']}")
+    page_rows, meta = pulse_lists.paginate(rows, params["page"], params["per"])
+    state = {"active": ("aktiv", "warn"), "expired": ("abgelaufen", "good"), "failed": ("fehlgeschlagen", "bad")}
+    items = "".join(
+        f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title"><code>{esc(c["id"])}</code> · '
+        f'{esc(mc.ACTIONS.get(c["action"], c["action"]))} · {esc(c["target_name"])} <span class="pulse-row-meta">({esc(c["target_id"])})</span> '
+        f'<span class="pulse-pill {state.get(c["status"], ("", ""))[1]}">{esc(state.get(c["status"], (c["status"], ""))[0])}</span></div>'
+        f'<div class="pulse-row-meta">{time_tag(c["created_at"])} · von {esc(c["actor_name"])}'
+        f'{" · bis " + esc(str(c["expires_at"])[:16].replace("T", " ")) + " UTC" if c.get("expires_at") else ""}'
+        f'{" · DM zugestellt" if c.get("dm_sent") else " · keine DM"}</div>'
+        f'<div class="text-xs mt-1">{esc(c["reason"])}</div>'
+        + (f'<div class="text-xs mt-1">Beweis: <a class="text-indigo-500" rel="noopener noreferrer" target="_blank" href="{esc(safe_url(c["proof"]))}">{esc(c["proof"][:80])}</a></div>'
+           if c.get("proof") and safe_url(c["proof"]) else "")
+        + '</div></div>' for c in page_rows) or empty_state("Noch keine Moderationsfälle.", "⚖")
+    q = params["q"]
+    body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">⚖ Bürger-Moderation</div>'
+            f'<div class="pulse-section-sub">Fallakte aller /mod-Aktionen. Neue Fälle entstehen nur in Discord über /mod warn|timeout|kick|ban.</div></div>'
+            f'<a class="pulse-btn ghost" href="/mod-cases.csv{("?q=" + quote(q)) if q else ""}">⬇ CSV</a></div>'
+            f'<section class="pulse-card"><div class="pulse-card-b"><form method="get" class="pulse-search mb-4" role="search" style="max-width:none">'
+            f'<span>⌕</span><input name="q" value="{esc(q)}" aria-label="Fälle durchsuchen" placeholder="Fall-ID, Name, Grund, Moderator…"><button class="pulse-btn primary">Suchen</button></form>'
+            f'<div class="space-y-2">{items}</div>{pulse_lists.pager("/mod-cases", meta, {"q": q})}</div></section>')
+    import sys
+    return HTMLResponse(render_pro_page(sys.modules[__name__], "Bürger-Moderation", ctx, "mod-cases", body))
+
+
+@app.get("/mod-cases.csv")
+async def mod_cases_csv(request: Request, user_session: str = Cookie(None)):
+    import pulse_lists
+    import pulse_mod_cases as mc
+    ctx = _mod_case_ctx(request, user_session)
+    q = str(request.query_params.get("q") or "")
+    rows = pulse_lists.search(mc.list_cases(), q, lambda c: f"{c['id']} {c['target_name']} {c['target_id']} {c['reason']} {c['actor_name']} {c['action']}")
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Moderationsfälle exportiert", f"{len(rows)} Fälle")
+    return pulse_lists.csv_response(f"pulse_moderation_{now_de().strftime('%Y-%m-%d')}.csv",
+                                    ["Fall", "Aktion", "Person", "Discord-ID", "Grund", "Beweis", "Bis", "Moderator", "Erstellt", "Status"],
+                                    [(c["id"], mc.ACTIONS.get(c["action"], c["action"]), c["target_name"], c["target_id"], c["reason"],
+                                      c.get("proof"), c.get("expires_at"), c["actor_name"], c["created_at"], c["status"]) for c in rows])
+
+
+@app.get("/tickets/tools", response_class=HTMLResponse)
+async def pulse_ticket_tools(request: Request, user_session: str = Cookie(None)):
+    """BOT-06: quick replies (admins edit), ticket bans (ticket team), rating report."""
+    import pulse_ticket_extras as tx
+    from pulse_pro import render_pro_page
+    ctx = auth(request, user_session, perm="can_manage_tickets")
+    is_admin = bool(ctx.perms.get("is_admin"))
+    try:
+        from cogs.tickets import category_meta, ticket_category_definitions
+        categories = [(key, category_meta(key)[0]) for key in ticket_category_definitions()]
+    except Exception:
+        categories = []
+    reply_blocks = "".join(
+        f'<label class="grid gap-1 text-xs font-semibold">{esc(label)}'
+        f'<textarea class="pulse-input pulse-textarea" name="replies_{esc(key)}" rows="3" placeholder="Titel | Text (eine Antwort pro Zeile)"'
+        f'{"" if is_admin else " readonly"}>{esc(tx.replies_as_text(key))}</textarea></label>'
+        for key, label in [("*", "Für alle Kategorien")] + categories)
+    replies_form = (f'<form method="post" action="/tickets/tools/replies" class="space-y-3">{reply_blocks}'
+                    + ('<button class="pulse-btn primary" type="submit">💾 Schnellantworten speichern</button>' if is_admin
+                       else '<div class="text-xs text-slate-400">Bearbeiten können nur Admins.</div>') + '</form>')
+    blocks = tx.load_blocks()
+    block_rows = "".join(
+        f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title"><code>{esc(uid)}</code>'
+        f'{" · " + esc(getattr(ctx.guild.get_member(int(uid)), "display_name", "")) if str(uid).isdigit() and ctx.guild.get_member(int(uid)) else ""}</div>'
+        f'<div class="pulse-row-meta">bis {esc(str(entry.get("until"))[:10])} · {esc(entry.get("reason"))} · von {esc(entry.get("by"))}</div></div>'
+        f'<form method="post" action="/tickets/tools/unblock"><input type="hidden" name="user_id" value="{esc(uid)}">'
+        f'<button class="pulse-btn ghost" type="submit">Aufheben</button></form></div>'
+        for uid, entry in blocks.items() if tx.block_for_entry(entry)) or '<div class="pulse-empty">Keine aktiven Ticket-Sperren. Setzen: /ticket sperre im Discord.</div>'
+    report = tx.ratings_report(pulse_db.list_tickets(status="closed", limit=2000))
+    names = dict(categories)
+
+    def table(rows, label_of=lambda k: k):
+        return "".join(f'<div class="pulse-row"><div class="pulse-row-title">{esc(label_of(k))}</div>'
+                       f'<div class="pulse-row-meta">⭐ {avg:.2f} · {n} Bewertungen</div></div>' for k, avg, n in rows[:20]) \
+            or '<div class="pulse-empty">Noch keine Bewertungen.</div>'
+    rating_html = (f'<div class="text-xs mb-3">Gesamt: {"⭐ %.2f" % report["average"] if report["average"] else "–"} aus {report["count"]} Bewertungen</div>'
+                   f'<div class="grid lg:grid-cols-2 gap-4"><div><div class="pulse-section-title mb-2">Nach Kategorie</div>{table(report["by_category"], lambda k: names.get(k, k))}</div>'
+                   f'<div><div class="pulse-section-title mb-2">Nach Teammitglied</div>{table(report["by_staff"])}</div></div>')
+    body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">🧰 Ticket-Werkzeuge</div>'
+            f'<div class="pulse-section-sub">Schnellantworten für /ticket antwort, Ticket-Sperren und die Auswertung der Bewertungen.</div></div>'
+            f'<a class="pulse-btn ghost" href="/tickets">← Tickets</a></div>'
+            f'<section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">💬 Schnellantworten</div></div><div class="pulse-card-b">{replies_form}</div></section>'
+            f'<section class="pulse-card mt-4"><div class="pulse-card-h"><div class="pulse-section-title">🚫 Ticket-Sperren</div></div><div class="pulse-card-b space-y-2">{block_rows}</div></section>'
+            f'<section class="pulse-card mt-4"><div class="pulse-card-h"><div class="pulse-section-title">⭐ Bewertungen</div></div><div class="pulse-card-b">{rating_html}</div></section>')
+    import sys
+    return HTMLResponse(render_pro_page(sys.modules[__name__], "Ticket-Werkzeuge", ctx, "tickets", body))
+
+
+@app.post("/tickets/tools/replies")
+async def pulse_ticket_tools_replies(request: Request, user_session: str = Cookie(None)):
+    import pulse_ticket_extras as tx
+    ctx = auth(request, user_session, perm=None, admin=True)
+    form = await request.form()
+    try:
+        from cogs.tickets import ticket_category_definitions
+        keys = ["*", *ticket_category_definitions().keys()]
+    except Exception:
+        keys = ["*"]
+    saved = tx.save_replies({key: form.get(f"replies_{key}", "") for key in keys})
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Ticket-Schnellantworten geändert",
+              f"{sum(len(v) for v in saved.values())} Antworten")
+    return back("/tickets/tools", "Schnellantworten gespeichert.")
+
+
+@app.post("/tickets/tools/unblock")
+async def pulse_ticket_tools_unblock(request: Request, user_session: str = Cookie(None)):
+    import pulse_ticket_extras as tx
+    ctx = auth(request, user_session, perm="can_manage_tickets")
+    user_id = str((await request.form()).get("user_id") or "")
+    if not tx.unblock(user_id):
+        return back("/tickets/tools", "Für diese Person gab es keine Sperre.", False)
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Ticket-Sperre aufgehoben", user_id)
+    return back("/tickets/tools", "Ticket-Sperre aufgehoben.")
+
+
 @app.post("/tickets/action")
 async def pulse_tickets_dashboard_action(
     request: Request,
@@ -6906,8 +7252,8 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
     history = [h for h in shifts_db["history"] if str(h.get("mod_id")) == str(user_id)][-8:]
     shifts_html = "".join(f"""
         <div class="flex justify-between text-xs bg-slate-50 dark:bg-[#0b0e14] px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800">
-            <span class="text-slate-500">{esc(fmt_date(h.get('date')))}{' · automatisch beendet' if h.get('auto_closed') else ''}</span>
-            <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">{fmt_duration(h.get('duration_seconds', 0))}</span>
+            <span class="text-slate-500">{esc(fmt_date(h.get('date')))}{(' · automatisch beendet · unbestätigt (0 h)' if needs_duration_confirmation(h) else ' · automatisch beendet') if h.get('auto_closed') else ''}</span>
+            <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">{fmt_duration(credited_shift_seconds(h))}</span>
         </div>""" for h in reversed(history))
 
     actions_html = ""
@@ -7246,6 +7592,20 @@ async def verify_application_member(request: Request, applicant_id) -> tuple[boo
         return False, 403, eligible_role.name, f"Dieses Bewerbungsformular ist nur für Mitglieder mit der Rolle „{eligible_role.name}“ freigeschaltet."
 
     return True, 200, eligible_role.name, ""
+
+
+async def dm_applicant(request: Request, user_id, template: str, **values) -> bool:
+    """BOT-10: DM to an applicant from a template; applicants may not be server members yet."""
+    import pulse_app_comms
+    bot = getattr(request.app.state, "bot", None)
+    if bot is None or not str(user_id or "").isdigit():
+        return False
+    guild = bot.get_guild(GUILD_ID)
+    try:
+        user = (guild.get_member(int(user_id)) if guild else None) or bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
+    except (discord.NotFound, discord.HTTPException):
+        return False
+    return await send_dm_notification(user, pulse_app_comms.render(template, server=getattr(guild, "name", "dem Server"), **values))
 
 
 async def notify_new_application(request: Request, application_id: str, application: dict) -> bool:
@@ -7823,7 +8183,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     <button name="decision" value="hire_after_interview" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">✅ Gespräch geführt – einstellen</button>
                     <button name="decision" value="reject_after_interview" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">Nach Gespräch ablehnen</button>
                 </form>"""
-            footer = f'<div class="w-full space-y-3"><span class="inline-flex text-xs font-semibold border px-3 py-1 rounded-full border-amber-500/30 text-amber-600">🎙️ Bewerbungsgespräch erforderlich · noch keine Einstellung</span>{interview_form if can_decide else ""}</div>'
+            footer = f'<div class="w-full space-y-3"><span class="inline-flex text-xs font-semibold border px-3 py-1 rounded-full border-amber-500/30 text-amber-600">🎙️ Bewerbungsgespräch erforderlich · noch keine Einstellung</span>{interview_slot_html(app_id, item) if can_decide else ""}{interview_form if can_decide else ""}</div>'
         else:
             decide = f"""
                 <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Bewerber zum verpflichtenden Bewerbungsgespräch einladen?');">
@@ -7839,7 +8199,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     <button name="vote" value="down" class="{'bg-rose-600 text-white' if voted_down else 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'} text-xs px-3 py-1.5 rounded-xl transition shadow-sm font-medium">👎 Dagegen</button>
                 </form>{decide}"""
         apps_html += f"""
-        <div class="{CARD} p-5 space-y-3.5">
+        <div id="app-{esc(app_id)}" class="{CARD} p-5 space-y-3.5">
             <div class="flex justify-between items-center">
                 <div>
                     <h3 class="font-bold text-slate-900 dark:text-white text-sm">{esc(item.get('name'))}</h3>
@@ -7876,6 +8236,113 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
     <div class="space-y-4 max-w-3xl">{apps_html or f"<p class='text-xs text-slate-400 italic {CARD} p-6'>{empty}</p>"}</div>"""
     return render_page("Bewerbungen", ctx, "apps", body)
 
+
+
+# BOT-10: UTC for calendar entries and reminder checks (webserver imports no 'timezone' name)
+_UTC = __import__("datetime").timezone.utc
+
+
+def interview_slot_html(app_id: str, item: dict) -> str:
+    """BOT-10: set or change the interview date (DM to the applicant, calendar entry, reminder 1 h before)."""
+    current = str(item.get("interview_at") or "")
+    shown = ""
+    try:
+        shown = datetime.fromisoformat(current).astimezone(now_de().tzinfo).strftime("%d.%m.%Y %H:%M") if current else ""
+    except ValueError:
+        shown = ""
+    value = current[:16] if current else ""
+    try:
+        value = datetime.fromisoformat(current).astimezone(now_de().tzinfo).strftime("%Y-%m-%dT%H:%M") if current else ""
+    except ValueError:
+        value = ""
+    return (f'<form action="/applications/interview-slot" method="post" class="flex flex-wrap gap-2 items-center">'
+            f'<input type="hidden" name="app_id" value="{esc(app_id)}">'
+            f'<label class="text-[11px] font-semibold">🗓️ Gesprächstermin <input type="datetime-local" name="interview_at" value="{esc(value)}" required class="{INPUT} py-1.5 w-auto"></label>'
+            f'<button class="text-xs px-3.5 py-1.5 rounded-xl border border-indigo-500/30 text-indigo-600 font-semibold">{"Termin ändern" if shown else "Termin festlegen"}</button>'
+            f'{f"<span class=\"text-[11px] text-slate-400\">aktuell: {esc(shown)}</span>" if shown else ""}</form>')
+
+
+def application_templates_section(ctx) -> str:
+    """BOT-10: edit the DM texts (admins); empty field = built-in text."""
+    import pulse_app_comms
+    if not ctx.perms.get("is_admin"):
+        return ""
+    current = pulse_app_comms.load()
+    fields = "".join(
+        f'<label class="grid gap-1 text-xs font-semibold">{esc(label)}'
+        f'<textarea name="tpl_{key}" rows="2" class="{INPUT} text-xs">{esc(current[key])}</textarea></label>'
+        for key, label in pulse_app_comms.LABELS.items())
+    return (f'<form method="post" action="/applications/templates" class="{CARD} p-5 mt-5 space-y-3">'
+            f'<h2 class="text-sm font-bold">✉️ Nachrichten an Bewerber</h2>'
+            f'<p class="text-xs text-slate-400">Platzhalter: {esc(pulse_app_comms.PLACEHOLDERS)}. Ein geleertes Feld nutzt wieder den Standardtext.</p>'
+            f'{fields}<button class="{BTN} px-4 py-2 text-xs">Vorlagen speichern</button></form>')
+
+
+@app.post("/applications/interview-slot")
+async def application_interview_slot(request: Request, user_session: str = Cookie(None)):
+    import pulse_app_comms
+    ctx = auth(request, user_session, perm=None)
+    if not (ctx.perms.get("can_manage_applications") or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Dir fehlt die Berechtigung für Bewerbungen.")
+    form = await request.form()
+    app_id = str(form.get("app_id") or "")
+    try:
+        when = pulse_app_comms.parse_slot(str(form.get("interview_at") or ""), now_de().tzinfo)
+    except ValueError as exc:
+        return back("/applications", str(exc), False)
+    apps = load_json(APPS_FILE, {})
+    item = apps.get(app_id) if isinstance(apps, dict) else None
+    if not isinstance(item, dict) or item.get("status") != "interview":
+        return back("/applications", "Einen Termin gibt es nur für Bewerbungen in der Gesprächsphase.", False)
+    actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+    item["interview_at"] = when.isoformat(timespec="minutes")
+    item["interview_scheduled_by"] = actor
+    item["interview_scheduled_by_id"] = str(ctx.user["id"])
+    item["interview_reminded"] = False
+    if item.get("interview_event_id"):  # review fix: a changed date replaces the old calendar entry
+        pulse_db.delete_calendar_event(item["interview_event_id"])
+    termin = when.strftime("%d.%m.%Y %H:%M")
+    item["interview_event_id"] = pulse_db.create_calendar_event(f"Bewerbungsgespräch {item.get('name') or app_id}"[:120], when.astimezone(_UTC).isoformat(timespec="seconds"),
+                                   (when + timedelta(minutes=30)).astimezone(_UTC).isoformat(timespec="seconds"),
+                                   "event", "Discord", f"Bewerbung {app_id}", ctx.user["id"], actor)
+    save_json(APPS_FILE, apps)  # still no await between loading and saving
+    sent = await dm_applicant(request, item.get("user_id"), "scheduled", id=app_id, termin=termin)
+    log_audit(actor, ctx.user["id"], "Bewerbungsgespräch geplant", f"{app_id} · {termin}")
+    return back("/applications", f"Gesprächstermin {termin} gespeichert" + ("" if sent else " – DM an den Bewerber nicht zustellbar") + ".", sent)
+
+
+@app.post("/applications/templates")
+async def application_templates_save(request: Request, user_session: str = Cookie(None)):
+    import pulse_app_comms
+    ctx = auth(request, user_session, perm=None, admin=True)
+    form = await request.form()
+    pulse_app_comms.save({key: form.get(f"tpl_{key}", "") for key in pulse_app_comms.DEFAULTS})
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Bewerber-Nachrichten geändert", "Vorlagen")
+    return back("/applications/config", "Vorlagen gespeichert.")
+
+
+async def send_interview_reminders(bot) -> int:
+    """BOT-10: called by the existing automation loop – one reminder DM per interview, about an hour before."""
+    import pulse_app_comms
+    guild = bot.get_guild(GUILD_ID) if bot else None
+    due = pulse_app_comms.due_reminders(load_json(APPS_FILE, {}), datetime.now(_UTC))
+    for app_id in due:
+        item = load_json(APPS_FILE, {}).get(app_id) or {}
+        termin = datetime.fromisoformat(item["interview_at"]).astimezone(now_de().tzinfo).strftime("%H:%M")
+        text = pulse_app_comms.render("reminder", server=getattr(guild, "name", "dem Server"), id=app_id, termin=termin)
+        try:
+            user = (guild.get_member(int(item.get("user_id"))) if guild else None) or await bot.fetch_user(int(item.get("user_id")))
+            await send_dm_notification(user, text)
+        except (discord.HTTPException, TypeError, ValueError):
+            pass
+        if str(item.get("interview_scheduled_by_id") or "").isdigit():
+            pulse_db.notify(item["interview_scheduled_by_id"], "🎙️ Bewerbungsgespräch gleich", f"{item.get('name') or app_id} um {termin}",
+                            "info", "/applications", f"interview:{app_id}", 7200)
+        apps = load_json(APPS_FILE, {})  # fresh copy: no await between reading and writing
+        if isinstance(apps.get(app_id), dict):
+            apps[app_id]["interview_reminded"] = True
+            save_json(APPS_FILE, apps)
+    return len(due)
 
 
 @app.post("/applications/review")
@@ -7979,6 +8446,7 @@ async def application_modules_config_page(request: Request, user_session: str = 
         </form>
     </div>
     """
+    body += application_templates_section(ctx)  # BOT-10
     return render_page("Bewerbungsmodule", ctx, "apps", body)
 
 
@@ -9027,6 +9495,7 @@ async def auto_backup_loop():
                                 print(f"⚠️ Auto-Backup ist lokal vorhanden; Discord-Kopie fehlgeschlagen ({type(upload_error).__name__}).")
         except Exception as e:
             print(f"Auto-Backup fehlgeschlagen: {type(e).__name__}: {e}")
+            _system_alert("backup:auto", f"🔴 **Auto-Backup fehlgeschlagen:** `{type(e).__name__}` – vorhandene Sicherungen bleiben unverändert.")
 
 
 async def _start_background_tasks():
@@ -9045,6 +9514,11 @@ async def _stop_background_tasks():
     client = getattr(app.state, "roblox_http_client", None)
     if client is not None and not client.is_closed:
         await client.aclose()
+    try:  # Server Control Center: shared HTTP pool to the host agent / GitHub
+        import pulse_server_control
+        await pulse_server_control.aclose()
+    except Exception as exc:
+        print(f"⚠️ Server Control Center: HTTP-Pool nicht geschlossen ({type(exc).__name__})")
 
 
 @app.get("/backups", response_class=HTMLResponse)
@@ -9345,12 +9819,16 @@ def full_backup_dir() -> str:
 
 
 def safe_full_backup_path(filename: str):
+    """The existing backup file with exactly this name, or None. The path comes from the directory
+    listing, never from the request (no path built from user input – CodeQL py/path-injection)."""
     import pulse_backup
     name = os.path.basename(filename or "")
     if not pulse_backup.NAME_RE.fullmatch(name):
         return None
-    path = os.path.join(full_backup_dir(), name)
-    return path if os.path.isfile(path) else None
+    for path in pulse_backup.list_backups(full_backup_dir()):
+        if path.name == name:
+            return str(path)
+    return None
 
 
 async def create_full_backup_async(guild, prefix: str = ""):
@@ -9405,8 +9883,10 @@ async def run_auto_full_backup(guild) -> None:
                       f"{result['backup']} · " + ("; ".join(result["problems"])[:300] or "alle Datenbanken intakt"))
             if not result["ok"]:
                 print("🔴 Restore-Test fehlgeschlagen: " + "; ".join(result["problems"])[:300])
+                _system_alert("backup:restore-test", "🔴 **Restore-Test fehlgeschlagen:** " + "; ".join(result["problems"])[:300])
     except Exception as exc:
         print(f"⚠️ Komplett-Backup fehlgeschlagen: {type(exc).__name__}: {exc}")
+        _system_alert("backup:full", f"🔴 **Komplett-Backup fehlgeschlagen:** `{type(exc).__name__}` – vorhandene Sicherungen bleiben unverändert.")
 
 
 def full_backup_section() -> str:
@@ -9414,7 +9894,8 @@ def full_backup_section() -> str:
     rows = ""
     for path in pulse_backup.list_backups(full_backup_dir())[:40]:
         created = datetime.fromtimestamp(path.stat().st_mtime).strftime("%d.%m.%Y %H:%M")
-        tag = " · AUTO" if "_auto_" in path.name else (" · SICHERHEITSKOPIE" if "_pre_restore_" in path.name else "")
+        tag = (" · AUTO" if "_auto_" in path.name else " · SICHERHEITSKOPIE" if "_pre_restore_" in path.name
+               else " · VOR DEPLOY" if "_predeploy_" in path.name else " · VOR ROLLBACK" if "_prerollback_" in path.name else "")
         rows += f"""
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-slate-200 dark:border-slate-800 pt-3">
             <div><div class="font-mono text-xs break-all">{esc(path.name)}{tag}</div>
@@ -9537,6 +10018,12 @@ async def full_backup_delete(request: Request, filename: str = Form(...), user_s
     path = safe_full_backup_path(filename)
     if not path:
         return back("/backups", "Backup nicht gefunden.", False)
+    import pulse_server_control  # Server Control Center: never delete the only working backup
+    if not await asyncio.to_thread(pulse_server_control.other_verified_backup_exists, full_backup_dir(), os.path.basename(path)):
+        log_audit(ctx.user.get("global_name"), ctx.user["id"], "Komplett-Backup löschen abgelehnt",
+                  f"{os.path.basename(path)} · einzige geprüfte Sicherung")
+        return back("/backups", "Nicht gelöscht: Das ist die einzige Komplett-Sicherung, die die Prüfsummenkontrolle besteht. "
+                                "Erst eine neue Sicherung erstellen.", False)
     os.remove(path)
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Komplett-Backup gelöscht", os.path.basename(path))
     return back("/backups", "Komplett-Backup gelöscht.")
@@ -9590,10 +10077,10 @@ async def setup_wizard(request: Request, user_session: str = Cookie(None)):
          "/settings", "Teamrollen zuordnen und die Bot-Rolle über den verwalteten Rollen platzieren."),
         ("AutoMod", auto_ready,
          "Aktiv und Bot-Berechtigungen vorhanden." if automod.get("enabled") else "Optional: noch nicht aktiviert.",
-         "/security", "Regeln, Ausnahmen und Nachrichtenverwaltungsrechte prüfen."),
+         "/admin/security", "Regeln, Ausnahmen und Nachrichtenverwaltungsrechte prüfen."),
         ("Anti-Nuke", nuke_ready,
          "Aktiv und Audit-/Sperrberechtigungen vorhanden." if antinuke.get("enabled") else "Optional: noch nicht aktiviert.",
-         "/security", "Ereignisse, Vertrauensrollen, Schwelle und Bot-Berechtigungen prüfen."),
+         "/admin/security", "Ereignisse, Vertrauensrollen, Schwelle und Bot-Berechtigungen prüfen."),
         ("Backups & Wiederherstellung", backup_ready,
          f"{backup.get('count', 0)} Sicherungen · letzter Restore-Test {'bestanden' if restore_test.get('ok') else 'noch ausstehend'}",
          "/backups", "Erstes Komplett-Backup und den automatischen Restore-Test sicherstellen."),
@@ -9626,140 +10113,11 @@ async def setup_wizard(request: Request, user_session: str = Cookie(None)):
     return HTMLResponse(render_page("Einrichtungsassistent", ctx, "setup", body))
 
 
-@app.get("/security", response_class=HTMLResponse)
+@app.get("/security")
 async def security_page(request: Request, user_session: str = Cookie(None)):
-    ctx = auth(request, user_session, perm=None, admin=True)
-    automod = ctx.config.get("pulse_automod", {})
-    antinuke = ctx.config.get("pulse_antinuke", {})
-    if not isinstance(automod, dict):
-        automod = {}
-    if not isinstance(antinuke, dict):
-        antinuke = {}
-
-    def config_int(section: dict, key: str, default: int, minimum: int, maximum: int) -> int:
-        try:
-            return max(minimum, min(maximum, int(section.get(key, default))))
-        except (TypeError, ValueError):
-            return default
-
-    def config_list(section: dict, key: str) -> list:
-        value = section.get(key, [])
-        return value if isinstance(value, list) else []
-
-    def checked(name: str, selected: set[str]) -> str:
-        return "checked" if name in selected else ""
-
-    from pulse_moderation import DEFAULT_ANTINUKE_EVENTS
-    automod_rules = (
-        set(config_list(automod, "rules"))
-        if "rules" in automod else
-        {"spam", "mentions", "invites"}
-    )
-    antinuke_events = (
-        set(config_list(antinuke, "events"))
-        if "events" in antinuke else
-        set(DEFAULT_ANTINUKE_EVENTS)
-    )
-    rule_boxes = "".join(
-        f'<label class="flex items-start gap-2 rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-sm">'
-        f'<input type="checkbox" name="automod_rules" value="{key}" {checked(key, automod_rules)} class="mt-1 rounded">'
-        f'<span><span class="font-semibold">{label}</span><span class="block text-xs text-slate-500">{hint}</span></span></label>'
-        for key, label, hint in (
-            ("spam", "Spam und Nachrichtenflut", "Wiederholungen oder mindestens 6 Nachrichten in 10 Sekunden"),
-            ("mentions", "Massen-Erwähnungen", "Standardgrenze: mehr als 5 Erwähnungen"),
-            ("invites", "Discord-Einladungslinks", "discord.gg- und Discord-Invite-Links"),
-            ("keywords", "Wort-/Phrasenfilter", "Konfigurierbare Begriffe; ein Eintrag pro Zeile"),
-            ("domains", "Linkfilter", "Konfigurierbare Domains; ein Hostname pro Zeile"),
-        )
-    )
-    event_boxes = "".join(
-        f'<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="antinuke_events" '
-        f'value="{key}" {checked(key, antinuke_events)} class="rounded"><span>{label}</span></label>'
-        for key, label in (
-            ("ban", "Bans"), ("kick", "Kicks"), ("role_delete", "Rollen löschen"),
-            ("role_update", "Rollenberechtigungen/-position ändern"), ("channel_delete", "Kanäle löschen"),
-            ("channel_update", "Kanalberechtigungen ändern"), ("webhook_create", "Webhooks erstellen"),
-            ("webhook_delete", "Webhooks löschen"), ("webhook_update", "Webhooks ändern"),
-            ("bot_add", "Bots hinzufügen"),
-        )
-    )
-    enabled_rules = ", ".join(
-        rule for rule in ("spam", "mentions", "invites", "keywords", "domains")
-        if rule in automod_rules
-    ) or "keine"
-    enabled_events = ", ".join(
-        event for event in (
-            "ban", "kick", "role_delete", "role_update", "channel_delete", "channel_update",
-            "webhook_create", "webhook_delete", "webhook_update", "bot_add",
-        )
-        if event in antinuke_events
-    ) or "keine"
-    body = f"""
-    <div class="pulse-topbar">
-        <div><div class="pulse-section-title">🛡️ AutoMod & Anti-Nuke</div>
-        <div class="pulse-section-sub">Konfigurierbare Schutzregeln mit nachvollziehbaren Maßnahmen und Admin-Ausnahmen.</div></div>
-        <a href="/system" class="{BTN}">Systemdiagnose</a>
-    </div>
-    <div class="{CARD} mb-5 p-4 text-sm">
-        <div class="font-bold">Aktueller Status</div>
-        <p class="mt-2 text-slate-500">AutoMod: {"aktiv" if automod.get("enabled") else "inaktiv"} · Regeln: {esc(enabled_rules)}</p>
-        <p class="mt-1 text-slate-500">Anti-Nuke: {"aktiv" if antinuke.get("enabled") else "inaktiv"} · Überwacht: {esc(enabled_events)}</p>
-        <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">Anti-Nuke sperrt einen nicht freigestellten Akteur automatisch, wenn die festgelegte Schwelle in kurzer Zeit erreicht wird. Prüfe Ausnahmen und Bot-Berechtigungen sorgfältig, damit geplante Moderationsaktionen nicht versehentlich blockiert werden.</p>
-    </div>
-    <form action="/security" method="post" class="space-y-5">
-        <section class="{CARD} p-5 space-y-4">
-            <div><h2 class="font-bold text-lg">AutoMod</h2>
-            <p class="text-xs text-slate-500">Die erste Regelverletzung löscht die Nachricht und versucht eine private Warnung. Ein weiterer Verstoß innerhalb einer Stunde löst einen 10-Minuten-Timeout aus. Für die Spam-Erkennung bleiben Nachrichten nur kurzzeitig im begrenzten Arbeitsspeicher; sie werden nicht dauerhaft gespeichert oder in Meldungen ausgegeben. Maßnahmen werden mit Regel, IDs und Ergebnis ohne Nachrichteninhalt protokolliert.</p></div>
-            <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="automod_enabled" {"checked" if automod.get("enabled") else ""} class="rounded"> AutoMod aktivieren</label>
-            <div class="grid sm:grid-cols-2 gap-2">{rule_boxes}</div>
-            <label class="block text-sm">Erwähnungsgrenze
-                <input name="mention_limit" type="number" min="3" max="30" value="{config_int(automod, "mention_limit", 5, 3, 30)}" class="{INPUT} mt-1" aria-describedby="mention-help">
-                <span id="mention-help" class="text-xs text-slate-500">Meldung bei mehr Erwähnungen als dieser Wert.</span>
-            </label>
-            <div class="grid md:grid-cols-2 gap-4">
-                <label class="block text-sm">Gesperrte Wörter/Phrasen
-                    <textarea name="blocked_terms" rows="5" maxlength="10000" class="{INPUT} mt-1" placeholder="Ein Begriff pro Zeile">{esc(chr(10).join(str(v) for v in config_list(automod, "blocked_terms")))}</textarea>
-                </label>
-                <label class="block text-sm">Gesperrte Domains
-                    <textarea name="blocked_domains" rows="5" maxlength="5000" class="{INPUT} mt-1" placeholder="example.com (ein Hostname pro Zeile)">{esc(chr(10).join(str(v) for v in config_list(automod, "blocked_domains")))}</textarea>
-                </label>
-            </div>
-            <label class="block text-sm">Ausgenommene Rollen-IDs
-                <input name="automod_exempt_role_ids" value="{esc(', '.join(str(v) for v in config_list(automod, 'exempt_role_ids')))}" class="{INPUT} mt-1">
-            </label>
-            <label class="block text-sm">Ausgenommene Kanal-IDs
-                <input name="automod_exempt_channel_ids" value="{esc(', '.join(str(v) for v in config_list(automod, 'exempt_channel_ids')))}" class="{INPUT} mt-1">
-            </label>
-        </section>
-        <section class="{CARD} p-5 space-y-4">
-            <div><h2 class="font-bold text-lg">Anti-Nuke</h2>
-            <p class="text-xs text-slate-500">Überwacht Discord-Audit-Logs. Bei Erreichen der Schwelle werden Alarm und Sperrversuch ausgelöst; der Serverinhaber und Pulse selbst sind immer ausgenommen.</p></div>
-            <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="antinuke_enabled" {"checked" if antinuke.get("enabled") else ""} class="rounded"> Anti-Nuke aktivieren</label>
-            <div class="grid sm:grid-cols-2 gap-2">{event_boxes}</div>
-            <div class="grid sm:grid-cols-2 gap-4">
-                <label class="block text-sm">Aktionen bis zum Alarm/Bann (2–10)
-                    <input name="action_limit" type="number" min="2" max="10" value="{config_int(antinuke, "action_limit", 3, 2, 10)}" class="{INPUT} mt-1">
-                </label>
-                <label class="block text-sm">Zeitfenster in Sekunden (5–60)
-                    <input name="window_seconds" type="number" min="5" max="60" value="{config_int(antinuke, "window_seconds", 10, 5, 60)}" class="{INPUT} mt-1">
-                </label>
-            </div>
-            <label class="block text-sm">Freigestellte Vertrauensrollen-IDs
-                <input name="trusted_role_ids" value="{esc(', '.join(str(v) for v in config_list(antinuke, 'trusted_role_ids')))}" class="{INPUT} mt-1">
-                <span class="text-xs text-slate-500">Freigestellte Rollen werden nicht automatisch gesperrt. Freistellungen sparsam vergeben.</span>
-            </label>
-            <label class="block text-sm">Freigestellte Nutzer-IDs
-                <input name="trusted_user_ids" value="{esc(', '.join(str(v) for v in config_list(antinuke, 'trusted_user_ids')))}" class="{INPUT} mt-1">
-            </label>
-            <label class="block text-sm">Alarmkanal-ID (optional)
-                <input name="alert_channel_id" value="{esc(str(antinuke.get('alert_channel_id') or automod.get('alert_channel_id') or ''))}" class="{INPUT} mt-1">
-            </label>
-            <p class="text-xs text-rose-700 dark:text-rose-300">Erforderliche Bot-Berechtigungen: Audit-Log ansehen und Mitglieder bannen. Discord-Rollenhierarchie kann einen Sperrversuch verhindern. Pulse bannnt erst nach Erreichen der Schwelle und protokolliert, wenn Discord die Maßnahme ablehnt.</p>
-        </section>
-        <button class="{BTN} px-5 py-3" type="submit">Sicherheitseinstellungen speichern</button>
-    </form>
-    """
-    return HTMLResponse(render_page("AutoMod & Anti-Nuke", ctx, "security", body))
+    # The full AutoMod/Anti-Nuke management lives in Verwaltung → Sicherheit (pulse_guard_admin.py).
+    auth(request, user_session, perm=None, admin=True)
+    return RedirectResponse(url="/admin/security", status_code=303)
 
 
 @app.post("/security")
@@ -9830,10 +10188,18 @@ async def save_security_settings(request: Request, user_session: str = Cookie(No
             "alert_channel_id": alert_channel_id,
         }
     except (TypeError, ValueError) as exc:
-        return back("/security", str(exc), False)
+        return back("/admin/security", str(exc), False)
 
-    ctx.config["pulse_automod"] = automod
-    ctx.config["pulse_antinuke"] = antinuke
+    # Compatibility form: it only knows the original fields – keep everything else set at /admin/security
+    # (mode, response, escalation, …) instead of silently resetting it to the defaults.
+    from pulse_moderation import normalize_antinuke, normalize_automod
+    previous_automod = ctx.config.get("pulse_automod") if isinstance(ctx.config.get("pulse_automod"), dict) else {}
+    previous_antinuke = ctx.config.get("pulse_antinuke") if isinstance(ctx.config.get("pulse_antinuke"), dict) else {}
+    ctx.config["pulse_automod"] = normalize_automod({**previous_automod, **automod})
+    ctx.config["pulse_antinuke"] = normalize_antinuke({**previous_antinuke, **antinuke})
+    if isinstance(previous_antinuke.get("rules"), list):  # keep individual rules exactly as stored (also invalid ones)
+        ctx.config["pulse_antinuke"]["rules"] = previous_antinuke["rules"]
+    ctx.config["pulse_antinuke"]["revision"] = ctx.config["pulse_antinuke"]["revision"] + 1
     save_json(CONFIG_FILE, ctx.config)
     log_audit(
         ctx.user.get("global_name") or ctx.user.get("username"),
@@ -9841,7 +10207,7 @@ async def save_security_settings(request: Request, user_session: str = Cookie(No
         "AutoMod/Anti-Nuke Konfiguration geändert",
         f"AutoMod={'aktiv' if automod_enabled else 'aus'} · Anti-Nuke={'aktiv' if antinuke_enabled else 'aus'}",
     )
-    return back("/security", "AutoMod- und Anti-Nuke-Einstellungen gespeichert.")
+    return back("/admin/security", "AutoMod- und Anti-Nuke-Einstellungen gespeichert.")
 
 
 # =============================================================
@@ -10154,6 +10520,316 @@ def migrate_warning_data():
 migrate_warning_data()
 
 
+# ---------- BOT-05: what follows a rank change (dashboard and slash commands) ----------
+async def finish_promotion(guild, *, member, previous_role, new_role, probation_days: int, actor_name: str,
+                           actor_id: str, reason: str, source: str = "Dashboard") -> dict:
+    """After the roles were changed: probation entry (3 or 7 days, kept history), DM, team update, audit.
+    Without a previous team role there is nothing to fall back to, so no probation is recorded."""
+    probation_days = int(probation_days)
+    probation_started = now_de()
+    probation_expires = probation_started + timedelta(days=probation_days)
+    if previous_role is not None:
+        team_db = load_json(DATA_FILE, {})
+        team_entry = user_entry(team_db, str(member.id))
+        tracker = track_member_entry(member.id, team_entry)  # K-04
+        previous_probation = team_entry.get("probation")
+        if isinstance(previous_probation, dict) and previous_probation.get("active"):
+            history = team_entry.setdefault("probation_history", [])
+            history.append(dict(previous_probation))
+            team_entry["probation_history"] = history[-10:]
+        team_entry["probation"] = {
+            "active": True,
+            "status": "active",
+            "days": probation_days,
+            "previous_role_id": previous_role.id,
+            "new_role_id": new_role.id,
+            "started_at": probation_started.isoformat(timespec="seconds"),
+            "expires_at": probation_expires.isoformat(timespec="seconds"),
+            "promoted_by": actor_name,
+            "promoted_by_id": actor_id,
+            "reason": reason,
+        }
+        tracker.commit()
+    until = probation_expires.strftime("%d.%m.%Y %H:%M")
+    probation_text = f"{probation_days} Tage · bis {until}" if previous_role is not None else "keine (vorher keine Teamrolle)"
+    await send_dm_notification(
+        member,
+        f"🎉 **Herzlichen Glückwunsch!** Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert. "
+        + (f"Deine Probezeit beträgt **{probation_days} Tage** und endet am **{until}**." if previous_role is not None else ""),
+    )
+    await send_team_update_embed(
+        guild,
+        "⬆️ Team-Update: Beförderung",
+        f"{member.mention} wurde befördert.",
+        _pulse_color("success"),
+        target=member.mention,
+        action="Beförderung",
+        actor=actor_name,
+        fields=[("Vorherige Rolle", previous_role.mention if previous_role is not None else "Keine", True),
+                ("Neue Rolle", new_role.mention, True), ("Probezeit", probation_text, True), ("Grund", reason, False),
+                ("Quelle", source, True)],
+        thumbnail=member.display_avatar.url,
+    )
+    log_audit(actor_name, actor_id, "Beförderung",
+              f"{member.display_name} -> {new_role.name} · Probezeit: {probation_text} · Grund: {reason}")
+    return {"probation": previous_role is not None, "probation_text": probation_text}
+
+
+async def finish_demotion(guild, *, member, previous_role, new_role, actor_name: str, actor_id: str, reason: str,
+                          source: str = "Dashboard") -> None:
+    """After the roles were changed: DM, team update and audit for a demotion (new_role None = no team rank left)."""
+    if new_role is not None:
+        await send_dm_notification(member, f"⚠️ Du wurdest auf **{guild.name}** auf die Rolle **{new_role.name}** degradiert.")
+        await send_team_update_embed(
+            guild,
+            "⬇️ Team-Update: Degradierung",
+            f"{member.mention} wurde degradiert.",
+            _pulse_color("warning"),
+            target=member.mention,
+            action="Degradierung",
+            actor=actor_name,
+            fields=[("Vorherige Rolle", previous_role.mention if previous_role is not None else "Unbekannt", True),
+                    ("Neue Rolle", new_role.mention, True), ("Grund", reason, False), ("Quelle", source, True)],
+            thumbnail=member.display_avatar.url,
+        )
+        log_audit(actor_name, actor_id, "Degradierung", f"{member.display_name} -> {new_role.name} · Grund: {reason}")
+        return
+    await send_dm_notification(member, f"⚠️ Du wurdest aus dem Team-Rollenrang auf **{guild.name}** entfernt.")
+    await send_team_update_embed(
+        guild,
+        "⬇️ Team-Update: Teamrolle entfernt",
+        f"{member.mention} hat keine Teamrolle mehr.",
+        _pulse_color("danger"),
+        target=member.mention,
+        action="Teamrolle entfernt",
+        actor=actor_name,
+        fields=[("Grund", reason, False), ("Quelle", source, True)],
+        thumbnail=member.display_avatar.url,
+    )
+    log_audit(actor_name, actor_id, "Degradierung", f"{member.display_name} -> Keine Teamrolle · Grund: {reason}")
+
+
+# ---------- BOT-05: one logic for team warnings (dashboard and slash commands) ----------
+WARN_MIN_DAYS, WARN_MAX_DAYS = 1, 365
+
+
+async def issue_team_warning(guild, *, actor_member, actor_name: str, actor_id: str, member, reason: str,
+                             duration_days: int, proof: str = "", config: dict | None = None,
+                             actor_is_admin: bool = False, source: str = "Dashboard") -> dict:
+    """Checks, stores (K-04 merge), sets warn roles and consequences, posts the team update, DMs the
+    person and escalates 5/5 to leadership. Returns {"ok", "message", "warn", "count", "role_report",
+    "consequence_report"}; ok=False before anything was stored means the warning was refused."""
+    config = config if config is not None else load_config()
+    team_role_ids = config.get("team_role_ids", [])
+    reason = (reason or "").strip()[:1000]  # /warn allowed 1000 before BOT-05 (review fix); the dashboard field stays at 500
+    refused = lambda message: {"ok": False, "stored": False, "message": message}
+    if not reason:
+        return refused("Bitte einen Grund angeben.")
+    try:
+        duration_days = int(duration_days)
+    except (TypeError, ValueError):
+        duration_days = 0
+    if not WARN_MIN_DAYS <= duration_days <= WARN_MAX_DAYS:
+        return refused(f"Die Warn-Gültigkeit muss zwischen {WARN_MIN_DAYS} und {WARN_MAX_DAYS} Tagen liegen.")
+    if member is None:
+        return refused("Mitglied nicht gefunden.")
+    if member.bot:
+        return refused("Bots können keine Team-Verwarnung erhalten.")
+    if str(member.id) == str(actor_id):
+        return refused("Du kannst dir selbst keine Team-Verwarnung geben.")
+    if team_role_ids and not any(r.id in team_role_ids for r in member.roles):
+        return refused("Team-Verwarnungen können nur an Teammitglieder vergeben werden.")
+    if not actor_is_admin and actor_member:
+        actor_rank = team_rank(actor_member, team_role_ids)
+        target_rank = team_rank(member, team_role_ids)
+        if target_rank >= 0 and (actor_rank < 0 or target_rank >= actor_rank):
+            return refused("Du darfst keine Team-Warnung an ein Mitglied mit gleichem oder höherem Teamrang vergeben.")
+
+    team_db = load_json(DATA_FILE, {})
+    entry = user_entry(team_db, str(member.id))
+    tracker = track_member_entry(member.id, entry)  # K-04: merge-on-save after awaits
+    current_count = len(active_warns(entry))
+    if current_count >= 5:
+        return refused("Dieses Teammitglied hat bereits die maximale Anzahl von 5 aktiven Verwarnungen.")
+    allowed_warn, protection_message = await enforce_team_warn_protection(guild, actor_member, member, config, source=source)
+    if not allowed_warn:
+        return refused(protection_message)
+    allowed_impact, impact_message = await enforce_high_impact_warning_approval(
+        guild, actor_member, member, entry, current_count, config, source=source,
+    )
+    if not allowed_impact:
+        return refused(impact_message)
+
+    proof_url = safe_url(proof)
+    warn = {
+        "id": f"warn_{uuid.uuid4().hex[:6]}", "reason": reason, "proof": proof_url,
+        "by": actor_name, "date": now_de().strftime("%d.%m.%Y %H:%M"),
+        "duration_days": duration_days,
+        "expires_at": (now_de() + timedelta(days=duration_days)).isoformat(timespec="seconds"),
+        "active": True, "revoked_at": None, "revoked_by": None, "revoked_reason": "",
+    }
+    entry["warns_list"].append(warn)
+    count = len(active_warns(entry))
+    tracker.commit()
+    log_audit(actor_name, actor_id, "Verwarnung", f"User-ID {member.id} ({count}/5): {reason}")
+    role_report = await sync_warn_roles(guild, member, count, config)
+    consequence_report = await apply_warn_consequences(guild, member, warn, count, config, entry=entry)
+    tracker.commit()
+    await send_team_update_embed(
+        guild,
+        "⚠️ Team-Update: Verwarnung",
+        f"{member.mention} hat eine neue Verwarnung erhalten.",
+        _pulse_color("warning"),
+        target=f"{member.mention}\nWarn-Stufe: {count}/5",
+        action=f"Verwarnung {count}/5",
+        actor=actor_name,
+        fields=[
+            ("Grund", reason, False),
+            ("Beweis", proof_url or "Kein Beweis-Link", False),
+            ("Gültig bis", warn["expires_at"], True),
+            ("Quelle", source, True),
+            ("Discord-Warnrolle", f"✅ {role_report.get('role').mention}" if role_report.get("ok") and role_report.get("role") else (f"✅ keine Warnrolle bei 0" if count == 0 else f"❌ {role_report.get('message')}"), False),
+        ],
+        thumbnail=member.display_avatar.url,
+    )
+    consequence_text = "; ".join(x for x in consequence_report.get("actions", []) if x)
+    dm_suffix = f"\n**Automatische Folge:** {consequence_text}" if consequence_text else ""
+    await send_dm_notification(member, f"⚠️ Du hast eine Verwarnung erhalten ({count}/5)!\n**Grund:** {reason}\n**Von:** {actor_name}{dm_suffix}")
+    if count >= 5:
+        # Führungskräfte erhalten zusätzlich eine Pulse-Inbox-Meldung.
+        for manager in guild.members:
+            if manager.bot or manager.id == member.id:
+                continue
+            manager_perms, _ = compute_perms(guild, manager.id, config)
+            if manager_perms.get("can_promote") or manager_perms.get("is_admin"):
+                try:
+                    pulse_db.notify(manager.id, "🚨 5/5 Team-Warnungen",
+                                    f"{member.display_name} hat 5 aktive Verwarnungen. Bitte Fall prüfen.",
+                                    "warning", "/warns", f"warn-escalation:{member.id}:{count}", 86400)
+                except Exception as exc:
+                    print(f"Warn-Eskalationsbenachrichtigung fehlgeschlagen: {exc}")
+        await send_team_update_embed(
+            guild,
+            "🚨 Team-Update: 5 Verwarnungen",
+            f"**Mitglied:** {member.mention} ({member.display_name})\n**Status:** Automatisch aus dem Team entfernt.",
+            _pulse_color("danger"),
+            target=member.mention,
+            action="Warn-Schwelle 5/5",
+            actor=actor_name,
+            fields=[("Warnrollen-Sync", "✅ Erfolgreich" if role_report.get("ok") else f"❌ {role_report.get('message')}")],
+            thumbnail=member.display_avatar.url,
+        )
+    ok = bool(role_report.get("ok") and consequence_report.get("ok"))
+    if ok:
+        message = f"Verwarnung eingetragen ({count}/5). Automatische Folge ausgeführt."
+    else:
+        problems = []
+        if not role_report.get("ok"):
+            problems.append(f"Warnrolle: {role_report.get('message')}")
+        if not consequence_report.get("ok"):
+            problems.extend(consequence_report.get("actions", []))
+        suffix = " · ".join(x for x in problems if x) or "Eine automatische Folge konnte nicht vollständig ausgeführt werden."
+        message = f"Verwarnung eingetragen ({count}/5), aber: {suffix}"
+    return {"ok": ok, "stored": True, "message": message, "warn": warn, "count": count,
+            "role_report": role_report, "consequence_report": consequence_report}
+
+
+async def revoke_team_warning(guild, *, member, warn_id: str, revoke_reason: str, actor_name: str, actor_id: str,
+                              config: dict | None = None, source: str = "Team-Dashboard") -> dict:
+    """Withdraws one warning: marks it, lifts its temporary consequences (unless another active warning
+    still justifies them), syncs warn roles, posts the team update and writes the audit."""
+    config = config if config is not None else load_config()
+    revoke_reason = (revoke_reason or "").strip()[:500]
+    if member is None:
+        return {"ok": False, "stored": False, "message": "Mitglied nicht gefunden."}
+    if not revoke_reason:
+        return {"ok": False, "stored": False, "message": "Bitte einen Grund für die Rücknahme der Verwarnung angeben."}
+    team_db = load_json(DATA_FILE, {})
+    entry = user_entry(team_db, str(member.id))
+    tracker = track_member_entry(member.id, entry)  # K-04: merge-on-save after awaits
+    target = next((w for w in entry["warns_list"] if str(w.get("id")) == str(warn_id)), None)
+    if target is None or not target.get("active", True) or target.get("revoked_at"):
+        return {"ok": False, "stored": False,
+                "message": "Diese Verwarnung wurde bereits zurückgezogen oder ist nicht mehr vorhanden. Bitte die Seite aktualisieren."}
+    target["active"] = False
+    target["revoked_at"] = now_de().strftime("%d.%m.%Y %H:%M")
+    target["revoked_by"] = actor_name
+    target["revoked_reason"] = revoke_reason
+    count = len(active_warns(entry))
+    tracker.commit()
+
+    original_reason = str(target.get("reason") or "Kein Grund")
+    original_by = str(target.get("by") or "System")
+    original_date = str(target.get("date") or "N/A")
+    # Temporäre Folgen dieser konkreten Warnung beim Zurückziehen sofort entfernen.
+    temp_roles = (target.get("consequences") or {}).get("temporary_roles", [])
+    temp_remove_failed = False
+    temp_roles_to_keep = []
+    for restriction in temp_roles:
+        role_id = int(restriction.get("role_id", 0) or 0)
+        role = guild.get_role(role_id)
+        if not role:
+            continue
+        # A different active warning keeps temporary punishments in place,
+        # even if the warning that originally granted the role was revoked.
+        other_active_warning = any(
+            other is not target
+            and isinstance(other, dict)
+            and other.get("active", True)
+            and not other.get("revoked_at")
+            and not warning_is_expired(other)
+            for other in entry.get("warns_list", [])
+        )
+        if other_active_warning:
+            temp_roles_to_keep.append(restriction)
+            continue
+        try:
+            if role in member.roles:
+                if guild.me and (not guild.me.guild_permissions.manage_roles or role.position >= guild.me.top_role.position):
+                    temp_remove_failed = True
+                    temp_roles_to_keep.append(restriction)
+                    continue
+                await member.remove_roles(role, reason=f"Warn zurückgezogen · {revoke_reason}")
+        except discord.Forbidden:
+            temp_remove_failed = True
+            temp_roles_to_keep.append(restriction)
+        except Exception:
+            temp_remove_failed = True
+            temp_roles_to_keep.append(restriction)
+    target.setdefault("consequences", {})["temporary_roles"] = temp_roles if temp_remove_failed else temp_roles_to_keep
+    tracker.commit()
+    role_report = await sync_warn_roles(guild, member, count, config)
+
+    await send_team_update_embed(
+        guild,
+        "✅ Team-Update: Verwarnung zurückgezogen",
+        f"Die Verwarnung von {member.mention} wurde durch {source} zurückgezogen.",
+        _pulse_color("success"),
+        target=f"{member.mention}\nAktive Warnungen: {count}/5",
+        action="Warn zurückgezogen",
+        actor=actor_name,
+        fields=[
+            ("Ursprünglicher Grund", original_reason, False),
+            ("Ausgestellt von", original_by, True),
+            ("Ausgestellt am", original_date, True),
+            ("Rücknahmegrund", revoke_reason, False),
+            ("Warn-ID", warn_id, True),
+            ("Discord-Warnrolle", "✅ Synchronisiert" if role_report.get("ok") else f"❌ {role_report.get('message')}"),
+        ],
+        thumbnail=member.display_avatar.url,
+    )
+    log_audit(actor_name, actor_id, "Warn Zurückgezogen",
+              f"User-ID {member.id}, Warn-ID {warn_id}, Grund: {original_reason}, Rücknahme: {revoke_reason}")
+    if role_report.get("ok") and not temp_remove_failed:
+        message = f"Verwarnung zurückgezogen ({count}/5)."
+    elif not role_report.get("ok"):
+        message = f"Verwarnung zurückgezogen ({count}/5), aber Discord-Warnrolle konnte nicht synchronisiert werden: {role_report.get('message')}"
+    else:
+        message = f"Verwarnung zurückgezogen ({count}/5), aber eine temporäre Sperrrolle konnte nicht entfernt werden – Rollenhierarchie prüfen."
+    return {"ok": bool(role_report.get("ok")) and not temp_remove_failed, "stored": True, "message": message,
+            "count": count, "role_report": role_report}
+
+
 @app.post("/action")
 async def handle_action(
     request: Request,
@@ -10284,6 +10960,7 @@ async def handle_action(
         }
         save_json(APPS_FILE, apps)
         await notify_new_application(request, app_id_new, apps[app_id_new])
+        await dm_applicant(request, applicant_id, "received", id=app_id_new)  # BOT-10
         result_status = "Bestanden" if test_result["passed"] else "noch nicht bestanden"
         result_text = (
             f"Deine Bewerbung wurde mit der Laufbahn {esc(test_result['career_label'])} gespeichert. "
@@ -10557,46 +11234,10 @@ async def handle_action(
                 if old:
                     await member.remove_roles(*old, reason=f"Beförderung durch {actor}: {action_reason}")
 
-                team_db = load_json(DATA_FILE, {})
-                team_entry = user_entry(team_db, str(member.id))
-                previous_probation = team_entry.get("probation")
-                if isinstance(previous_probation, dict) and previous_probation.get("active"):
-                    history = team_entry.setdefault("probation_history", [])
-                    history.append(dict(previous_probation))
-                    team_entry["probation_history"] = history[-10:]
-                probation_started = now_de()
-                probation_expires = probation_started + timedelta(days=int(probation_days))
-                team_entry["probation"] = {
-                    "active": True,
-                    "status": "active",
-                    "days": int(probation_days),
-                    "previous_role_id": previous_role.id,
-                    "new_role_id": new_role.id,
-                    "started_at": probation_started.isoformat(timespec="seconds"),
-                    "expires_at": probation_expires.isoformat(timespec="seconds"),
-                    "promoted_by": actor,
-                    "promoted_by_id": actor_id,
-                    "reason": action_reason,
-                }
-                save_json(DATA_FILE, team_db)
-                await send_dm_notification(
-                    member,
-                    f"🎉 **Herzlichen Glückwunsch!** Du wurdest auf **{guild.name}** zum **{new_role.name}** befördert. "
-                    f"Deine Probezeit beträgt **{probation_days} Tage** und endet am "
-                    f"**{probation_expires.strftime('%d.%m.%Y %H:%M')}**.",
+                await finish_promotion(  # BOT-05: same follow-up as /promote
+                    guild, member=member, previous_role=previous_role, new_role=new_role, probation_days=probation_days,
+                    actor_name=actor, actor_id=actor_id, reason=action_reason, source="Dashboard",
                 )
-                await send_team_update_embed(
-                    guild,
-                    "⬆️ Team-Update: Beförderung",
-                    f"{member.mention} wurde befördert.",
-                    _pulse_color("success"),
-                    target=member.mention,
-                    action="Beförderung",
-                    actor=actor,
-                    fields=[("Vorherige Rolle", previous_role.mention, True), ("Neue Rolle", new_role.mention, True), ("Probezeit", f"{probation_days} Tage · bis {probation_expires.strftime('%d.%m.%Y %H:%M')}", True), ("Grund", action_reason, False)],
-                    thumbnail=member.display_avatar.url,
-                )
-                log_audit(actor, actor_id, "Beförderung", f"{member.display_name} -> {new_role.name} · Probezeit: {probation_days} Tage · bis {probation_expires.strftime('%d.%m.%Y %H:%M')} · Grund: {action_reason}")
                 return back(member_url, f"{member.display_name} wurde zum {new_role.name} befördert; Probezeit: {probation_days} Tage.")
 
             # demote
@@ -10610,34 +11251,14 @@ async def handle_action(
                     return back(member_url, "Die Zielrolle existiert nicht mehr (Team-Rollen in den Einstellungen prüfen).", False)
                 await member.add_roles(new_role, reason=f"Degradierung durch {actor}: {action_reason}")
                 await member.remove_roles(*[r for r in old if r.id != new_role.id], reason=f"Degradierung durch {actor}: {action_reason}")
-                await send_dm_notification(member, f"⚠️ Du wurdest auf **{guild.name}** auf die Rolle **{new_role.name}** degradiert.")
-                await send_team_update_embed(
-                    guild,
-                    "⬇️ Team-Update: Degradierung",
-                    f"{member.mention} wurde degradiert.",
-                    _pulse_color("warning"),
-                    target=member.mention,
-                    action="Degradierung",
-                    actor=actor,
-                    fields=[("Vorherige Rolle", old[0].mention if old else "Unbekannt", True), ("Neue Rolle", new_role.mention, True), ("Grund", action_reason, False)],
-                    thumbnail=member.display_avatar.url,
+                await finish_demotion(  # BOT-05: same follow-up as /demote
+                    guild, member=member, previous_role=old[0] if old else None, new_role=new_role,
+                    actor_name=actor, actor_id=actor_id, reason=action_reason, source="Dashboard",
                 )
-                log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> {new_role.name} · Grund: {action_reason}")
                 return back(member_url, f"{member.display_name} wurde zum {new_role.name} degradiert.")
             await member.remove_roles(*old, reason=f"Degradierung durch {actor}")
-            await send_dm_notification(member, f"⚠️ Du wurdest aus dem Team-Rollenrang auf **{guild.name}** entfernt.")
-            await send_team_update_embed(
-                guild,
-                "⬇️ Team-Update: Teamrolle entfernt",
-                f"{member.mention} hat keine Teamrolle mehr.",
-                _pulse_color("danger"),
-                target=member.mention,
-                action="Teamrolle entfernt",
-                actor=actor,
-                fields=[("Grund", action_reason, False)],
-                thumbnail=member.display_avatar.url,
-            )
-            log_audit(actor, actor_id, "Degradierung", f"{member.display_name} -> Keine Teamrolle · Grund: {action_reason}")
+            await finish_demotion(guild, member=member, previous_role=old[0] if old else None, new_role=None,
+                                  actor_name=actor, actor_id=actor_id, reason=action_reason, source="Dashboard")
             return back(member_url, f"{member.display_name} wurde aus dem Team-Rang entfernt.")
         except discord.Forbidden:
             return back(member_url, "Dem Bot fehlen Rechte – seine Rolle muss über den Team-Rollen stehen.", False)
@@ -10647,205 +11268,23 @@ async def handle_action(
 
     # ---------- Verwarnungen ----------
     if action == "warn_with_proof":
-        reason = (warn_reason or "").strip()[:500]
-        if not user_id or not reason:
+        if not user_id or not (warn_reason or "").strip():
             return back(member_url, "Bitte einen Grund angeben.", False)
-        if warn_duration_days is None or not 1 <= int(warn_duration_days) <= 365:
-            return back(member_url, "Die Warn-Gültigkeit muss zwischen 1 und 365 Tagen liegen.", False)
-        m = guild.get_member(user_id)
-        if not m:
-            return back(member_url, "Mitglied nicht gefunden.", False)
-        if m.bot:
-            return back(member_url, "Bots können keine Team-Verwarnung erhalten.", False)
-        if str(m.id) == actor_id:
-            return back(member_url, "Du kannst dir selbst keine Team-Verwarnung geben.", False)
-        if team_role_ids and not any(r.id in team_role_ids for r in m.roles):
-            return back(member_url, "Team-Verwarnungen können nur an Teammitglieder vergeben werden.", False)
-        if not ctx.perms.get("is_admin") and ctx.member:
-            actor_rank = team_rank(ctx.member, team_role_ids)
-            target_rank = team_rank(m, team_role_ids)
-            if target_rank >= 0 and (actor_rank < 0 or target_rank >= actor_rank):
-                return back(member_url, "Du darfst keine Team-Warnung an ein Mitglied mit gleichem oder höherem Teamrang vergeben.", False)
-
-        team_db = load_json(DATA_FILE, {})
-        entry = user_entry(team_db, str(user_id))
-        tracker = track_member_entry(user_id, entry)  # K-04: merge-on-save after awaits
-        current_count = len(active_warns(entry))
-        if current_count >= 5:
-            return back(member_url, "Dieses Teammitglied hat bereits die maximale Anzahl von 5 aktiven Verwarnungen.", False)
-
-        allowed_warn, protection_message = await enforce_team_warn_protection(
-            guild, ctx.member or guild.get_member(int(actor_id)), m, config, source="Dashboard",
+        result = await issue_team_warning(  # BOT-05: same logic as /warn
+            guild, actor_member=ctx.member or guild.get_member(int(actor_id)), actor_name=actor, actor_id=actor_id,
+            member=guild.get_member(user_id), reason=warn_reason, duration_days=warn_duration_days, proof=warn_proof,
+            config=config, actor_is_admin=bool(ctx.perms.get("is_admin")), source="Dashboard",
         )
-        if not allowed_warn:
-            return back(member_url, protection_message, False)
-        actor_member = ctx.member or guild.get_member(int(actor_id))
-        allowed_impact, impact_message = await enforce_high_impact_warning_approval(
-            guild, actor_member, m, entry, current_count, config, source="Dashboard",
-        )
-        if not allowed_impact:
-            return back(member_url, impact_message, False)
-        entry["warns_list"].append({
-            "id": f"warn_{uuid.uuid4().hex[:6]}", "reason": reason, "proof": safe_url(warn_proof),
-            "by": actor, "date": now_de().strftime("%d.%m.%Y %H:%M"),
-            "duration_days": int(warn_duration_days),
-            "expires_at": (now_de() + timedelta(days=int(warn_duration_days))).isoformat(timespec="seconds"),
-            "active": True, "revoked_at": None, "revoked_by": None, "revoked_reason": "",
-        })
-        count = len(active_warns(entry))
-        tracker.commit()
-        log_audit(actor, actor_id, "Verwarnung", f"User-ID {user_id} ({count}/5): {reason}")
-        role_report = await sync_warn_roles(guild, m, count, config)
-        consequence_report = await apply_warn_consequences(guild, m, entry["warns_list"][-1], count, config, entry=entry)
-        tracker.commit()
-        if m:
-            await send_team_update_embed(
-                guild,
-                "⚠️ Team-Update: Verwarnung",
-                f"{m.mention} hat eine neue Verwarnung erhalten.",
-                _pulse_color("warning"),
-                target=f"{m.mention}\nWarn-Stufe: {count}/5",
-                action=f"Verwarnung {count}/5",
-                actor=actor,
-                fields=[
-                    ("Grund", reason, False),
-                    ("Beweis", safe_url(warn_proof) or "Kein Beweis-Link", False),
-                    ("Discord-Warnrolle", f"✅ {role_report.get('role').mention}" if role_report.get("ok") and role_report.get("role") else (f"✅ keine Warnrolle bei 0" if count == 0 else f"❌ {role_report.get('message')}"), False),
-                ],
-                thumbnail=m.display_avatar.url,
-            )
-            consequence_text = "; ".join(x for x in consequence_report.get("actions", []) if x)
-            dm_suffix = f"\n**Automatische Folge:** {consequence_text}" if consequence_text else ""
-            await send_dm_notification(m, f"⚠️ Du hast eine Verwarnung erhalten ({count}/5)!\n**Grund:** {reason}\n**Von:** {actor}{dm_suffix}")
-            if count >= 5:
-                # Führungskräfte erhalten zusätzlich eine Pulse-Inbox-Meldung.
-                for manager in guild.members:
-                    if manager.bot or manager.id == m.id:
-                        continue
-                    manager_perms, _ = compute_perms(guild, manager.id, config)
-                    if manager_perms.get("can_promote") or manager_perms.get("is_admin"):
-                        try:
-                            pulse_db.notify(
-                                manager.id,
-                                "🚨 5/5 Team-Warnungen",
-                                f"{m.display_name} hat 5 aktive Verwarnungen. Bitte Fall prüfen.",
-                                "warning",
-                                "/warns",
-                                f"warn-escalation:{m.id}:{count}",
-                                86400,
-                            )
-                        except Exception as exc:
-                            print(f"Warn-Eskalationsbenachrichtigung fehlgeschlagen: {exc}")
-                await send_team_update_embed(
-                    guild,
-                    "🚨 Team-Update: 5 Verwarnungen",
-                    f"**Mitglied:** {m.mention} ({m.display_name})\n**Status:** Automatisch aus dem Team entfernt.",
-                    _pulse_color("danger"),
-                    target=m.mention,
-                    action="Warn-Schwelle 5/5",
-                    actor=actor,
-                    fields=[("Warnrollen-Sync", "✅ Erfolgreich" if role_report.get("ok") else f"❌ {role_report.get('message')}")],
-                    thumbnail=m.display_avatar.url,
-                )
-        if role_report.get("ok") and consequence_report.get("ok"):
-            return back(member_url, f"Verwarnung eingetragen ({count}/5). Automatische Folge ausgeführt.")
-        problems = []
-        if not role_report.get("ok"):
-            problems.append(f"Warnrolle: {role_report.get('message')}")
-        if not consequence_report.get("ok"):
-            problems.extend(consequence_report.get("actions", []))
-        suffix = " · ".join(x for x in problems if x) or "Eine automatische Folge konnte nicht vollständig ausgeführt werden."
-        return back(member_url, f"Verwarnung eingetragen ({count}/5), aber: {suffix}", False)
+        return back(member_url, result["message"], result["ok"])
 
     if action == "remove_warn":
         if not user_id or not warn_id:
             return back(member_url, "Ungültige Anfrage.", False)
-        team_db = load_json(DATA_FILE, {})
-        entry = user_entry(team_db, str(user_id))
-        tracker = track_member_entry(user_id, entry)  # K-04: merge-on-save after awaits
-        m = guild.get_member(user_id)
-        if not m:
-            return back(member_url, "Mitglied nicht gefunden.", False)
-
-        target = next((w for w in entry["warns_list"] if str(w.get("id")) == str(warn_id)), None)
-        if target is None or not target.get("active", True) or target.get("revoked_at"):
-            return back(member_url, "Diese Verwarnung wurde bereits zurückgezogen oder ist nicht mehr vorhanden. Bitte die Seite aktualisieren.", False)
-
-        revoke_reason = (warn_revoke_reason or "").strip()[:500]
-        if not revoke_reason:
-            return back(member_url, "Bitte einen Grund für die Rücknahme der Verwarnung angeben.", False)
-        target["active"] = False
-        target["revoked_at"] = now_de().strftime("%d.%m.%Y %H:%M")
-        target["revoked_by"] = actor
-        target["revoked_reason"] = revoke_reason
-        count = len(active_warns(entry))
-        tracker.commit()
-
-        original_reason = str(target.get("reason") or "Kein Grund")
-        original_by = str(target.get("by") or "System")
-        original_date = str(target.get("date") or "N/A")
-        # Temporäre Folgen dieser konkreten Warnung beim Zurückziehen sofort entfernen.
-        temp_roles = (target.get("consequences") or {}).get("temporary_roles", [])
-        temp_remove_failed = False
-        temp_roles_to_keep = []
-        for restriction in temp_roles:
-            role_id = int(restriction.get("role_id", 0) or 0)
-            role = guild.get_role(role_id)
-            if not role:
-                continue
-            # A different active warning keeps temporary punishments in place,
-            # even if the warning that originally granted the role was revoked.
-            other_active_warning = any(
-                other is not target
-                and isinstance(other, dict)
-                and other.get("active", True)
-                and not other.get("revoked_at")
-                and not warning_is_expired(other)
-                for other in entry.get("warns_list", [])
-            )
-            if other_active_warning:
-                temp_roles_to_keep.append(restriction)
-                continue
-            try:
-                if role in m.roles:
-                    if guild.me and (not guild.me.guild_permissions.manage_roles or role.position >= guild.me.top_role.position):
-                        temp_remove_failed = True
-                        temp_roles_to_keep.append(restriction)
-                        continue
-                    await m.remove_roles(role, reason=f"Warn zurückgezogen · {revoke_reason}")
-            except discord.Forbidden:
-                temp_remove_failed = True
-                temp_roles_to_keep.append(restriction)
-            except Exception:
-                temp_remove_failed = True
-                temp_roles_to_keep.append(restriction)
-        target.setdefault("consequences", {})["temporary_roles"] = temp_roles if temp_remove_failed else temp_roles_to_keep
-        tracker.commit()
-        role_report = await sync_warn_roles(guild, m, count, config)
-
-        await send_team_update_embed(
-            guild,
-            "✅ Team-Update: Verwarnung zurückgezogen",
-            f"Die Verwarnung von {m.mention} wurde durch das Team-Dashboard zurückgezogen.",
-            _pulse_color("success"),
-            target=f"{m.mention}\nAktive Warnungen: {count}/5",
-            action="Warn zurückgezogen",
-            actor=actor,
-            fields=[
-                ("Ursprünglicher Grund", original_reason, False),
-                ("Ausgestellt von", original_by, True),
-                ("Ausgestellt am", original_date, True),
-                ("Rücknahmegrund", revoke_reason, False),
-                ("Warn-ID", warn_id, True),
-                ("Discord-Warnrolle", "✅ Synchronisiert" if role_report.get("ok") else f"❌ {role_report.get('message')}"),
-            ],
-            thumbnail=m.display_avatar.url,
+        result = await revoke_team_warning(  # BOT-05: same logic as /warn-remove
+            guild, member=guild.get_member(user_id), warn_id=warn_id, revoke_reason=warn_revoke_reason,
+            actor_name=actor, actor_id=actor_id, config=config,
         )
-        log_audit(actor, actor_id, "Warn Zurückgezogen",
-                  f"User-ID {user_id}, Warn-ID {warn_id}, Grund: {original_reason}, Rücknahme: {revoke_reason}")
-        if role_report.get("ok"):
-            return back(member_url, f"Verwarnung zurückgezogen ({count}/5).")
-        return back(member_url, f"Verwarnung zurückgezogen ({count}/5), aber Discord-Warnrolle konnte nicht synchronisiert werden: {role_report.get('message')}", False)
+        return back(member_url, result["message"], result["ok"])
 
 
     if action == "add_note":
@@ -10981,12 +11420,10 @@ async def handle_action(
             item["interview_invited_at"] = invited_at
             item["interview_invitation_reason"] = action_reason
             save_json(APPS_FILE, apps)
+            import pulse_app_comms  # BOT-10: same text by default, editable template
             await send_dm_notification(
                 applicant,
-                f"📋 Deine Bewerbung bei **{guild.name}** wurde für die nächste Stufe freigegeben. "
-                f"Du hast die Bewerberolle **{application_role.name}** erhalten. "
-                "Vor einer Einstellung muss verpflichtend ein Bewerbungsgespräch stattfinden. "
-                "Du bist damit noch nicht als Teammitglied eingestellt.",
+                pulse_app_comms.render("interview", server=guild.name, rolle=application_role.name, id=app_id),
             )
             await send_team_update_embed(
                 guild,
@@ -11075,10 +11512,10 @@ async def handle_action(
                 team_entry["application_test_passed"] = item.get("test_passed")
             save_json(DATA_FILE, team_db)
             save_json(APPS_FILE, apps)
+            import pulse_app_comms  # BOT-10
             await send_dm_notification(
                 applicant,
-                f"🎉 Nach deinem Bewerbungsgespräch wurde deine Bewerbung bei **{guild.name}** final angenommen. "
-                f"Du wurdest als **{role.name}** in das Team aufgenommen; die Bewerberolle wurde entfernt.",
+                pulse_app_comms.render("hired", server=guild.name, rolle=role.name, id=app_id),
             )
             await send_team_update_embed(
                 guild,
@@ -11120,11 +11557,9 @@ async def handle_action(
         item["decision_reason"] = action_reason
         save_json(APPS_FILE, apps)
         if applicant:
-            notice = (
-                f"Deine Bewerbung bei **{guild.name}** wurde nach dem Bewerbungsgespräch leider abgelehnt."
-                if decision == "reject_after_interview"
-                else f"Deine Bewerbung bei **{guild.name}** wurde leider abgelehnt. Danke für dein Interesse."
-            )
+            import pulse_app_comms  # BOT-10
+            notice = pulse_app_comms.render("rejected_after_interview" if decision == "reject_after_interview" else "rejected",
+                                            server=guild.name, id=app_id)
             await send_dm_notification(applicant, notice)
         await send_team_update_embed(
             guild,
@@ -11361,3 +11796,21 @@ try:
     register_pulse_admin(app)
 except Exception as _admin_error:
     print(f"❌ Verwaltungsbereich konnte nicht registriert werden: {_admin_error}")
+
+try:
+    from pulse_phase7 import register as register_pulse_phase7
+    register_pulse_phase7(app)
+except Exception as _phase7_error:
+    print(f"❌ Neue Funktionen (Phase 7) konnten nicht registriert werden: {_phase7_error}")
+
+try:
+    from pulse_server_control import register as register_pulse_server_control
+    register_pulse_server_control(app)
+except Exception as _server_control_error:
+    print(f"❌ Server Control Center konnte nicht registriert werden: {_server_control_error}")
+
+try:
+    from pulse_guard_admin import register as register_pulse_guard_admin
+    register_pulse_guard_admin(app)
+except Exception as _guard_error:
+    print(f"❌ Sicherheitsbereich (AutoMod & Anti-Nuke) konnte nicht registriert werden: {_guard_error}")

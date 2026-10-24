@@ -4,7 +4,8 @@
   "System" (security, errors, everything without a known category) cannot be muted.
 * Discord DMs are off by default. They are queued in a bounded deque and sent by the existing
   60-second automation loop (pulse_ultimate.automation_loop) – no extra loop, at most DM_BATCH per run.
-* During quiet hours no DM is sent; the inbox entry stays unread as usual.
+* During quiet hours (the person's own and the server's, default 23–8 Uhr – BOT-12) DMs wait in the
+  queue and go out afterwards, several notes to the same person bundled into one message.
 """
 from __future__ import annotations
 
@@ -89,13 +90,44 @@ def in_quiet_hours(prefs: dict, now: datetime | None = None) -> bool:
     return start <= hour < end if start < end else (hour >= start or hour < end)  # e.g. 22 → 7 wraps midnight
 
 
+# BOT-12: server-wide quiet hours for reminder DMs (dashboard: inbox page, admins). Default 23–8 Uhr.
+SERVER_QUIET_KEY = "dm_quiet_hours"
+SERVER_QUIET_DEFAULT = {"quiet_from": 23, "quiet_to": 8}
+BUNDLE_MAX = 5  # at most this many notes in one bundled DM
+
+
+def server_quiet() -> dict:
+    import pulse_db
+    try:
+        raw = pulse_db.get_setting(SERVER_QUIET_KEY, None)
+    except Exception:
+        raw = None
+    if raw is None:
+        return dict(SERVER_QUIET_DEFAULT)
+    clean = normalize(raw if isinstance(raw, dict) else {})
+    return {"quiet_from": clean["quiet_from"], "quiet_to": clean["quiet_to"]}
+
+
+def save_server_quiet(quiet_from, quiet_to) -> dict:
+    import pulse_db
+    clean = normalize({"quiet_from": quiet_from, "quiet_to": quiet_to})
+    value = {"quiet_from": clean["quiet_from"], "quiet_to": clean["quiet_to"]}  # both None = no server quiet time
+    pulse_db.set_setting(SERVER_QUIET_KEY, value)
+    return value
+
+
+def dm_paused(user_id, now: datetime | None = None) -> bool:
+    """True during the server quiet time or the person's own quiet time – DMs then wait in the queue."""
+    return in_quiet_hours(server_quiet(), now) or in_quiet_hours(load(user_id), now)
+
+
 def decide(user_id, url: str = "", title: str = "", prefs: dict | None = None, now: datetime | None = None) -> dict:
-    """What happens with a new notification: stored unread? also sent as DM?"""
+    """What happens with a new notification: stored unread? also queued as DM? (Quiet hours no longer drop the
+    DM – it waits in the queue and is sent bundled afterwards, BOT-12.)"""
     prefs = load(user_id) if prefs is None else prefs
     category = category_for(url, title)
     muted = category in prefs.get("muted", []) and category != SYSTEM
-    return {"category": category, "unread": not muted,
-            "dm": bool(prefs.get("dm")) and not muted and not in_quiet_hours(prefs, now)}
+    return {"category": category, "unread": not muted, "dm": bool(prefs.get("dm")) and not muted}
 
 
 def queue_dm(user_id, title, body, url) -> None:
@@ -106,24 +138,62 @@ def pending_dms() -> int:
     return len(_dm_queue)
 
 
-async def drain_dms(bot, base_url: str = "", limit: int = DM_BATCH) -> dict:
-    """Send up to `limit` queued DMs. Closed DMs are skipped; on a rate limit the rest waits for the next run."""
-    import discord
-    sent = skipped = 0
-    while _dm_queue and sent + skipped < limit:
-        user_id, title, body, url = _dm_queue.popleft()
+def bundle_text(notes: list[tuple[str, str, str]], base_url: str = "") -> str:
+    """One DM for one or several notes of the same person."""
+    def line(title, body, url):
         link = f"\n{base_url.rstrip('/')}{url}" if base_url and url.startswith("/") else ""
-        try:
-            user = bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
-            await user.send(f"**{title}**\n{body}{link}"[:1900])
-            sent += 1
-        except discord.Forbidden:
-            skipped += 1  # DMs closed – the inbox entry is still there
-        except discord.HTTPException as exc:
-            if getattr(exc, "status", None) == 429:
-                _dm_queue.appendleft((user_id, title, body, url))
-                break
-            skipped += 1
-        except (ValueError, TypeError):
-            skipped += 1
-    return {"sent": sent, "skipped": skipped, "pending": len(_dm_queue)}
+        return f"**{title}**\n{body}{link}"
+    if len(notes) == 1:
+        return line(*notes[0])[:1900]
+    head = f"📬 **{len(notes)} Hinweise von Pulse**\n\n"
+    return (head + "\n\n".join(line(*n) for n in notes))[:1900]
+
+
+async def drain_dms(bot, base_url: str = "", limit: int = DM_BATCH, now: datetime | None = None) -> dict:
+    """Send queued DMs to up to `limit` people, several notes per person bundled into one message.
+    People in a quiet time keep their notes queued; closed DMs are skipped; on a rate limit the rest waits."""
+    import discord
+    sent = skipped = held = 0
+    waiting: list = []
+    per_user: dict[str, list] = {}
+    order: list[str] = []
+    while _dm_queue:
+        item = _dm_queue.popleft()
+        if dm_paused(item[0], now):
+            waiting.append(item)
+            continue
+        if item[0] not in per_user:
+            order.append(item[0])
+        per_user.setdefault(item[0], []).append(item[1:])
+    held = len(waiting)
+    stop = False
+    try:
+        for user_id in order:
+            notes = per_user[user_id]
+            if stop or sent + skipped >= limit:
+                continue
+            batch, rest = notes[:BUNDLE_MAX], notes[BUNDLE_MAX:]
+            try:
+                user = bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
+                await user.send(bundle_text(batch, base_url))
+                sent += 1
+            except discord.Forbidden:
+                skipped += 1  # DMs closed – the inbox entry is still there
+            except discord.HTTPException as exc:
+                if getattr(exc, "status", None) == 429:
+                    stop = True
+                    continue
+                skipped += 1
+            except (ValueError, TypeError):
+                skipped += 1
+            per_user[user_id] = rest  # only the part beyond this bundle stays for later
+    finally:
+        # Review fix: whatever was not handled (unexpected error, rate limit, limit reached) goes back first,
+        # ahead of notes queued while we were awaiting – nothing is lost and the order stays oldest-first.
+        newer = list(_dm_queue)
+        _dm_queue.clear()
+        _dm_queue.extend(waiting)
+        for user_id in order:
+            _dm_queue.extend((user_id, *n) for n in per_user[user_id])
+        _dm_queue.extend(newer)  # bounded deque: the oldest drop out first, the inbox keeps everything
+    return {"sent": sent, "skipped": skipped, "held": held, "pending": len(_dm_queue)}

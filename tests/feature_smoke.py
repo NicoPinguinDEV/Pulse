@@ -162,8 +162,11 @@ def main() -> None:
     assert "await self._reconcile_duty_roles(guild, cfg)" in voice_support
     assert "def support_open_now(" in voice_support_utils
     assert "def shift_is_online(" in voice_support_utils
-    assert "await voice_support.sync_member_duty_role(ctx.guild, mod_id)" in web
-    assert "await voice_support._refresh_duty_status(ctx.guild)" in web
+    # BOT-03: dashboard and Discord panel share sync_duty_after_shift
+    # (behaviour: tests/test_dienst.py::test_discord_path_checks_rights_on_every_click)
+    assert "await voice_support.sync_member_duty_role(guild, str(mod_id))" in web
+    assert "await voice_support._refresh_duty_status(guild)" in web
+    assert "await sync_duty_after_shift(" in web
     assert '("voice-support","/voice-support","🎧","Sprach-Support"' in pro
     assert "voice_support_v5" in pro and "/voice-support/save" in pro
     assert "Start/Fortsetzen gibt die Bereitschaftsrolle" in pro
@@ -283,10 +286,13 @@ def main() -> None:
     assert "async def enforce_team_warn_protection(" in web
     assert "async def enforce_high_impact_warning_approval(" in web
     assert "high_impact_warning_reason(" in web
-    assert "await web.enforce_high_impact_warning_approval(" in read("cogs/pulse_suite.py")
+    # BOT-05: /warn delegates to webserver.issue_team_warning, which runs both checks
+    # (behaviour: tests/test_team_warning_domain.py::test_slash_path_goes_through_protection_and_approval)
+    assert "web.issue_team_warning(" in read("cogs/pulse_suite.py")
+    assert "await enforce_high_impact_warning_approval(" in web
     assert "async def enforce_team_safety_action_lockout(" in web
     assert "_apply_team_safety_team_kick" in web
-    assert "await web.enforce_team_warn_protection(" in read("cogs/pulse_suite.py")
+    assert "await enforce_team_warn_protection(" in web  # reached by /warn via issue_team_warning (BOT-05)
     assert "active warning lockout" not in read("cogs/pulse_suite.py")
     assert 'if key in {"warn-remove","server-exit","team-exit","kick","team-kick","promote","demote"}:' in read("cogs/pulse_suite.py")
 
@@ -371,8 +377,10 @@ def main() -> None:
     assert "rank_role_ids_after_change(" in suite_actions
     assert "if r.id in planned_ids and not r.is_default()" in suite_actions
     assert "Keine andere berechtigte Führungskraft" in suite_actions
-    assert '("Warn-Stufe",f"{count}/5")' in suite_actions
-    assert 'str(count)+"/5), gültig für "+str(duration_days)' in suite_actions
+    # BOT-05: warn level in the team update and validity in the slash reply now come from the shared
+    # domain function (behaviour: tests/test_team_warning_domain.py::test_team_update_and_reply_show_level_and_validity)
+    assert 'target=f"{member.mention}\\nWarn-Stufe: {count}/5"' in web
+    assert '" Gültig bis "+w["expires_at"][:10]' in suite_actions
     assert "manager_cache=managers(g,web)" in suite_actions
     assert "task_snapshot=db.list_tasks(limit=1000,include_archived=True)" in suite_actions
     assert "ticket_snapshot=db.list_tickets(limit=2000)" in suite_actions
@@ -484,12 +492,13 @@ def main() -> None:
     # The command center route must also exist as an actual Discord slash command.
     pulse_pro_commands = read("cogs/pulse_pro.py")
     assert '@app_commands.command(name="ultimate"' in pulse_pro_commands
-    assert '("/ultimate", "Command Center im Dashboard öffnen")' in pulse_pro_commands
+    # BOT-04: /pulse-hilfe is generated from the registered commands, so /ultimate appears automatically.
+    assert "build_help(entries(self.bot.tree)" in pulse_pro_commands
     # Keep the VPS behind its HTTPS reverse proxy and enforce the intended RAM budget.
     compose_source = read("compose.yaml")
     assert 'mem_limit: 512m' in compose_source
     assert 'memswap_limit: 768m' in compose_source
-    assert '"127.0.0.1:${SERVER_PORT:-25095}:${SERVER_PORT:-25095}"' in compose_source
+    assert '"${PULSE_PUBLISH_HOST:-127.0.0.1}:${SERVER_PORT:-25095}:${SERVER_PORT:-25095}"' in compose_source
     archive_source = read("cogs/announcement_archive.py")
     parse("cogs/announcement_archive.py")
     archive_utils = read("pulse_announcement_utils.py")
@@ -1145,7 +1154,9 @@ def main() -> None:
     # Message deletion is confirmed, bounded, and avoids individually deleting old history by default.
     messagedelete = read("cogs/messagedelete.py")
     parse("cogs/messagedelete.py")
-    assert "class MessageDeleteConfirmationView(discord.ui.View):" in messagedelete
+    # BOT-01: the view now derives from PulseView (a discord.ui.View) – behaviour checked in
+    # tests/test_interactions.py::test_message_delete_still_needs_confirmation
+    assert "class MessageDeleteConfirmationView(" in messagedelete
     assert "app_commands.Range[int, 1, 1000]" in messagedelete
     assert "await channel.purge(" in messagedelete
     assert "after=cutoff" in messagedelete
@@ -1293,9 +1304,13 @@ def main() -> None:
     pro_cog = read("cogs/pulse_pro.py")
     assert "(ls,le),(ps,pe)=previous_full_weeks(today)" in suite_bot
     assert "name=member.display_name if member else s.get(\"mod_name\",uid)" in suite_bot
-    assert "longshift-self:" in suite_bot and "except (discord.Forbidden,discord.HTTPException):pass" in suite_bot
+    # BOT-12: the self-DM goes through the DM queue (quiet hours, bundling; closed DMs are skipped there –
+    # behaviour: tests/test_notify_prefs.py::QuietTimeTests and DrainTests)
+    assert "longshift-self:" in suite_bot and "pulse_notify_prefs.queue_dm(member.id" in suite_bot
     assert '@app_commands.command(name="pulse-hilfe"' in pro_cog
-    assert 'if perms.get("is_admin"):\n            sections.append(("⚙ Administration"' in pro_cog
+    # BOT-04: the help is generated from the command tree and filtered by rights
+    # (behaviour: tests/test_command_help.py::test_help_is_generated_and_filtered)
+    assert "build_help(entries(self.bot.tree), perms" in pro_cog
     assert "_pulse_startup_report_sent" in pro_cog
     assert "self.pulse_failed_cogs.append(" in read("main.py")
 

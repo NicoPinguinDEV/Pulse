@@ -76,11 +76,15 @@ async def archive_transcript(channel, ticket_id: str, *, base_dir: str = "", log
     for destination in (channel, log_channel):
         if destination is None:
             continue
+        attachment = None
         try:
-            await destination.send(content=note, file=discord.File(path, filename=name),
-                                   allowed_mentions=discord.AllowedMentions.none())
+            attachment = discord.File(path, filename=name)
+            await destination.send(content=note, file=attachment, allowed_mentions=discord.AllowedMentions.none())
         except (discord.Forbidden, discord.HTTPException, OSError):
             pass
+        finally:
+            if attachment is not None:
+                attachment.close()  # never keep the transcript file handle open (Windows locks it)
     return name
 
 

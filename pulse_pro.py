@@ -28,6 +28,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import pulse_db as db
 from pulse_nickname_utils import normalize_role_prefix
 from pulse_version import PULSE_VERSION
+from pulse_shift_utils import credited_shift_seconds, needs_duration_confirmation
 
 VERSION = PULSE_VERSION
 RECENT_EVENT_LABELS = {
@@ -56,6 +57,7 @@ EXTRA_PERMS = (
     "can_moderate_kicks",
     "can_moderate_bans",
     "can_moderate_bolo",
+    "can_manage_server",
 )
 
 
@@ -84,6 +86,7 @@ PERMISSION_LABELS = {
     'can_manage_promotions':'Beförderungsanträge verwalten',
     'can_view_team_status':'Teamstatus ansehen/verwalten',
     'can_manage_checkins':'Activity Check verwalten',
+    'can_manage_server':'Server Control Center (Deploy, Neustart, Logs)',
 }
 
 PRO_CSS = r"""
@@ -292,8 +295,12 @@ def make_shell_helpers(ws):
                        f'<a href="/me" role="tab" class="{"" if admin_mode else "on"}" aria-selected="{"false" if admin_mode else "true"}">👥 Team</a>'
                        f'<a href="/admin" role="tab" class="{"on" if admin_mode else ""}" aria-selected="{"true" if admin_mode else "false"}">🛠 Verwaltung</a></div>')
         if admin_mode:
+            from pulse_admin import SERVER_SECTION_KEYS
             groups = [("Verwaltung", [("admin", "/admin", "◆", "Übersicht", True, False)]
-                       + [(key, href, icon, label, True, False) for key, href, icon, label, _ in admin_entries])]
+                       + [(key, href, icon, label, True, False) for key, href, icon, label, _ in admin_entries
+                          if key not in SERVER_SECTION_KEYS]),
+                      ("Serververwaltung", [(key, href, icon, label, True, False) for key, href, icon, label, _ in admin_entries
+                                            if key in SERVER_SECTION_KEYS])]
         for group, items in groups:
             visible = [x for x in items if x[4]]
             if not visible: continue
@@ -370,7 +377,8 @@ def voice_waiting(guild) -> int:
 
 
 def render_pro_page(ws, title, ctx, page, body, extra=""):
-    body = '<div class="pulse-shell">' + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung</div></div>' + build_command_modal(ws, getattr(ctx, "perms", None))
+    import pulse_flags
+    body = '<div class="pulse-shell">' + pulse_flags.banner_html(ws.esc) + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung</div></div>' + build_command_modal(ws, getattr(ctx, "perms", None))
     return ws.render_page(title, ctx, page, body, extra)
 
 
@@ -781,6 +789,60 @@ def register(app):
 
         return render_pro_page(ws,"Melonly",c,"melonly",body,head)
 
+    async def confirm_auto_closed_shift_duration(
+        request: Request,
+        target_user_id: int = Form(...),
+        shift_event_id: str = Form(...),
+        duration_minutes: int = Form(...),
+        reason: str = Form(...),
+        user_session: str = Cookie(None),
+    ):
+        """E-2: a higher-ranked leader confirms the real duration of a shift closed automatically after 24 h."""
+        c = cctx(request, user_session)
+        actor_id = int(c.user["id"])
+        target = c.guild.get_member(int(target_user_id))
+        if not target or target.bot or target.id == actor_id:
+            raise HTTPException(404, "Teammitglied nicht gefunden.")
+        if not (c.perms.get("can_promote") or c.perms.get("is_admin")):
+            raise HTTPException(403, "Nur die Führungsebene darf eine Schichtdauer bestätigen.")
+        role_ids = c.config.get("team_role_ids", [])
+        if not c.perms.get("is_admin") and ws.team_rank(c.member, role_ids) <= ws.team_rank(target, role_ids):
+            raise HTTPException(403, "Du darfst nur die Schichtdauer eines niedriger eingestuften Teammitglieds bestätigen.")
+        back_url = f"/member/{target.id}#shift-history"
+        reason_text = str(reason or "").strip()
+        if len(reason_text) < 5:
+            return ws.back(back_url, "Bitte gib einen nachvollziehbaren Bestätigungsgrund mit mindestens 5 Zeichen an.", False)
+        max_minutes = int(ws.MAX_CONFIRMED_SHIFT_HOURS * 60)
+        minutes = int(duration_minutes)
+        if minutes < 0 or minutes > max_minutes:
+            return ws.back(back_url, f"Die bestätigte Dauer muss zwischen 0 und {max_minutes} Minuten liegen.", False)
+
+        # Load → change → save without an await in between: no other flow can interleave (K-04).
+        shifts_db = ws.load_shifts_raw()
+        event = next((item for item in shifts_db.setdefault("history", [])
+                      if isinstance(item, dict) and str(item.get("mod_id")) == str(target.id) and item.get("auto_closed")
+                      and str(item.get("shift_event_id") or ws.shift_event_id(target.id, item.get("started_at_iso"))) == str(shift_event_id)),
+                     None)
+        if event is None:
+            return ws.back(back_url, "Automatischer Schichtabschluss nicht gefunden. Bitte die Seite aktualisieren.", False)
+        if event.get("duration_confirmed"):
+            return ws.back(back_url, "Diese Schichtdauer wurde bereits bestätigt.", False)
+        event.update({
+            "duration_seconds": minutes * 60,
+            "duration_confirmed": True,
+            "duration_confirmed_by": str(actor_id),
+            "duration_confirmed_by_name": str(c.user.get("global_name") or c.user.get("username") or actor_id),
+            "duration_confirmed_at": ws.now_de().isoformat(timespec="seconds"),
+            "duration_confirmation_reason": reason_text[:500],
+        })
+        ws.save_json(ws.SHIFTS_FILE, shifts_db)
+        ws.log_audit(
+            c.user.get("global_name") or c.user.get("username") or str(actor_id), str(actor_id),
+            "Automatische Schichtdauer bestätigt",
+            f"{target.display_name} ({target.id}) · {minutes} Minuten · Schicht {shift_event_id} · Grund: {reason_text[:300]}",
+        )
+        return ws.back(back_url, f"Schichtdauer bestätigt: {ws.fmt_duration(minutes * 60)}.", True)
+
     async def admin_end_shift(
         request: Request,
         target_user_id: int = Form(...),
@@ -888,12 +950,27 @@ def register(app):
                        f'<label class="flex items-center gap-2 text-xs"><input type="checkbox" name="dm" value="1"{" checked" if prefs["dm"] else ""}> Zusätzlich als Discord-DM</label>'
                        f'<div class="flex flex-wrap items-center gap-2 text-xs"><span>Ruhezeit (keine DMs):</span>{hours("quiet_from",prefs["quiet_from"])}<span>bis</span>{hours("quiet_to",prefs["quiet_to"])}</div>'
                        f'<button class="pulse-btn ghost" type="submit">Einstellungen speichern</button></form>')
+        if c.perms.get('is_admin'):  # BOT-12: server-wide quiet time for reminder DMs
+            sq=np.server_quiet()
+            settings_html+=(f'<form method="post" action="/pulse-inbox/server-quiet" class="space-y-2 mt-5 pt-4" style="border-top:1px solid var(--border)">'
+                            f'<div class="pulse-section-title">🌙 Server-Ruhezeit für Erinnerungs-DMs</div>'
+                            f'<div class="text-xs text-slate-400">Gilt für alle: DMs warten in dieser Zeit und kommen danach gebündelt. „–“ bei beiden = keine Server-Ruhezeit. Warnungen sind keine Erinnerungen und kommen sofort.</div>'
+                            f'<div class="flex flex-wrap items-center gap-2 text-xs"><span>Von</span>{hours("quiet_from",sq["quiet_from"])}<span>bis</span>{hours("quiet_to",sq["quiet_to"])}</div>'
+                            f'<button class="pulse-btn ghost" type="submit">Server-Ruhezeit speichern</button></form>')
         if selected: notices=[n for n in notices if n['_cat']==selected]
         def notice_row(n):
             action = '' if n.get('read_at') else f'<form action="/pulse-inbox/read/{e(n.get("id"))}" method="post"><button title="Als gelesen markieren" class="pulse-icon-btn">✓</button></form>'
             return f'<div class="pulse-row"><a href="{e(n.get("url") or "/pulse-inbox")}" class="flex items-center gap-3 min-w-0 flex-1"><div class="pulse-avatar">{e((n.get("title") or "?")[:1])}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(n.get("title"))}</div><div class="pulse-row-meta">{e(n.get("body"))} · {e(fmt_dt(n.get("created_at")))}</div></div>{pill("Neu", "bad") if not n.get("read_at") else pill("Gelesen")}</a>{action}</div>'
         feed=''.join(notice_row(n) for n in notices)
         return render_pro_page(ws,'Pulse Inbox',c,'inbox',f'''<div class="pulse-topbar"><div><div class="pulse-section-title">◈ Pulse Inbox</div><div class="pulse-section-sub">Zentrale Benachrichtigungen für deinen Arbeitsalltag.</div></div><div class="flex items-center gap-2"><span class="pulse-pill {'bad' if unread else 'good'}">{unread} ungelesen</span><form action="/pulse-inbox/read" method="post"><button class="pulse-btn ghost">✓ Alle lesen</button></form></div></div><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">Deine Nachrichten</div><div class="pulse-section-sub">Neue Ereignisse, Erinnerungen und Aufgaben.</div></div></div><div class="pulse-card-b space-y-2"><nav class="flex flex-wrap gap-2 mb-3" aria-label="Nach Bereich filtern">{chips}</nav>{feed or ws.empty_state('Postfach ist leer.' if not selected else 'In diesem Bereich gibt es nichts.','📭')}</div></section><section class="pulse-card mt-4"><div class="pulse-card-h"><div><div class="pulse-section-title">⚙ Benachrichtigungen einstellen</div><div class="pulse-section-sub">Welche Bereiche, ob als Discord-DM und wann Ruhe ist.</div></div></div><div class="pulse-card-b">{settings_html}</div></section>''')
+
+    async def inbox_server_quiet(request: Request, user_session: str=Cookie(None)):
+        import pulse_notify_prefs as np  # BOT-12
+        c=cctx(request,user_session,perm=None,admin=True); form=await request.form()
+        value=np.save_server_quiet(form.get('quiet_from'),form.get('quiet_to'))
+        text=f"{value['quiet_from']:02d}–{value['quiet_to']:02d} Uhr" if value['quiet_from'] is not None else 'keine'
+        ws.log_audit(c.user.get('global_name'),c.user['id'],'Server-Ruhezeit geändert',text)
+        return ws.back('/pulse-inbox',f'Server-Ruhezeit gespeichert: {text}.')
 
     async def inbox_settings(request: Request, user_session: str=Cookie(None)):
         import pulse_notify_prefs as np  # U-11
@@ -1475,6 +1552,26 @@ def register(app):
         <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🎧</div><div class="label">Offene Sprachfälle</div><div class="value">{len(cases)}</div></div><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Aktuell im Dienst</div><div class="value">{len(duty_ids)}</div></div><div class="pulse-stat"><div class="icon">⭐</div><div class="label">Bewertungen</div><div class="value">{len(rated)}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Bewertung</div><div class="value">{average_rating:.1f}/5</div></div></div>
         {config_form}
         <section class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">📞 Aktuelle Supportfälle</div><div class="pulse-section-sub">Wartende Bürger bleiben im gemeinsamen Warteraum. Nach Übernahme wird der Bürger in den Sprachkanal des Supporters verschoben; beim Abschluss werden temporäre Rechte bereinigt.</div></div><a href="/voice-support" class="pulse-btn ghost">↻ Aktualisieren</a></div><div class="pulse-card-b space-y-2">{"".join(case_rows) or '<div class="pulse-empty">Aktuell keine offenen Sprach-Supportfälle.</div>'}</div></section>'''
+        # BOT-07: visible audio problem (K-10) and supporter statistics from the closed-case history
+        try:
+            from pulse_audio_check import audio_status
+            audio = audio_status()
+        except Exception:
+            audio = {"ok": False, "message": "Audio-Status nicht prüfbar"}
+        if not audio.get("ok"):
+            body = (f'<section class="pulse-alert mb-4" role="alert"><strong>🔇 Warteschleifen-Audio nicht verfügbar</strong>'
+                    f'<div class="text-slate-400 mt-1">{e(audio.get("message"))} – Bürger im Warteraum hören nichts, Fälle funktionieren trotzdem.</div></section>') + body
+        import pulse_voice_queue as vq
+        stats = vq.supporter_stats(db.get_setting(vq.HISTORY_KEY, []) or [], db.get_setting("voice_support_ratings", []) or [])
+        fmt = lambda v, unit: f"{v} {unit}" if v is not None else "–"
+        stat_rows = "".join(
+            f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(r["name"])}</div>'
+            f'<div class="pulse-row-meta">{r["cases"]} Fälle · Wartezeit bis Übernahme {fmt(r["median_wait_min"], "Min.")} · '
+            f'Dauer {fmt(r["median_duration_min"], "Min.")} · Bewertung {("⭐ %.2f (%d)" % (r["rating"], r["rated"])) if r["rating"] else "–"}</div></div></div>'
+            for r in stats[:25]) or '<div class="pulse-empty">Noch keine abgeschlossenen Fälle in der Historie (wird ab diesem Update gesammelt).</div>'
+        body += (f'<section class="pulse-card mt-4"><div class="pulse-card-h"><div><div class="pulse-section-title">📊 Supporter-Statistik</div>'
+                 f'<div class="pulse-section-sub">Median der letzten {vq.HISTORY_MAX} abgeschlossenen Fälle.</div></div></div>'
+                 f'<div class="pulse-card-b space-y-2">{stat_rows}</div></section>')
         return render_pro_page(ws, "Voice-Support", c, "voice-support", body)
 
     async def voice_support_save(request: Request, user_session: str=Cookie(None)):
@@ -1658,7 +1755,7 @@ def register(app):
         week.sort(reverse=True); maxs=max([x[0] for x in week],default=0) or 1  # nobody on duty yet this week → 0 %
         rows=''.join(f'<div class="pulse-row"><div class="flex items-center gap-3"><div class="pulse-avatar">{e(initials(n))}</div><div><div class="pulse-row-title">{e(n)}</div><div class="pulse-progress mt-2 w-[180px]"><span style="width:{round(v/maxs*100)}%"></span></div></div></div><div class="pulse-time font-bold">{ws.fmt_duration(v)}</div></div>' for v,n in week[:20])
         closed=sum(1 for t in s['tickets'] if t['status']=='closed'); rated=[t['rating'] for t in s['tickets'] if t.get('rating')]; avg=sum(rated)/len(rated) if rated else 0
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">◒ Team-Analytics</div><div class="pulse-section-sub">Zahlen für Planung, Support und Aktivität.</div></div><a href="/export/team.csv" class="pulse-btn ghost">⇩ CSV Export</a></div><div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Dienststunden</div><div class="value">{sum(int(h.get('duration_seconds',0)) for h in hist)/3600:.1f}h</div></div><div class="pulse-stat"><div class="icon">▣</div><div class="label">Tickets gesamt</div><div class="value">{len(s['tickets'])}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Ticketbewertung</div><div class="value">{avg:.1f}</div></div><div class="pulse-stat"><div class="icon">!</div><div class="label">Warnungen</div><div class="value">{sum(len(v.get('warns_list',[])) for v in ws.load_json(ws.DATA_FILE,{}).values() if isinstance(v,dict))}</div></div></div><div class="pulse-two">{card('Dienstzeit diese Woche',rows or '<div class="pulse-empty">Keine Daten.</div>','⏱')}{card('Support',f'<div class="grid grid-cols-2 gap-3"><div class="pulse-stat"><div class="label">Geschlossen</div><div class="value">{closed}</div></div><div class="pulse-stat"><div class="label">Offen</div><div class="value">{len(s["tickets"])-closed}</div></div></div>','▣')}</div>'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">◒ Team-Analytics</div><div class="pulse-section-sub">Zahlen für Planung, Support und Aktivität.</div></div><a href="/export/team.csv" class="pulse-btn ghost">⇩ CSV Export</a></div><div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Dienststunden</div><div class="value">{sum(credited_shift_seconds(h) for h in hist)/3600:.1f}h</div></div><div class="pulse-stat"><div class="icon">▣</div><div class="label">Tickets gesamt</div><div class="value">{len(s['tickets'])}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Ticketbewertung</div><div class="value">{avg:.1f}</div></div><div class="pulse-stat"><div class="icon">!</div><div class="label">Warnungen</div><div class="value">{sum(len(v.get('warns_list',[])) for v in ws.load_json(ws.DATA_FILE,{}).values() if isinstance(v,dict))}</div></div></div><div class="pulse-two">{card('Dienstzeit diese Woche',rows or '<div class="pulse-empty">Keine Daten.</div>','⏱')}{card('Support',f'<div class="grid grid-cols-2 gap-3"><div class="pulse-stat"><div class="label">Geschlossen</div><div class="value">{closed}</div></div><div class="pulse-stat"><div class="label">Offen</div><div class="value">{len(s["tickets"])-closed}</div></div></div>','▣')}</div>'''
         return render_pro_page(ws,'Analytics',c,'stats',body)
 
     async def calendar_v5(request: Request, user_session: str=Cookie(None), month: str=""):
@@ -2040,6 +2137,36 @@ def register(app):
           </div>
         </section>
         '''
+        # E-2: automatically closed shifts count 0 h until a higher-ranked leader confirms the real duration.
+        can_confirm_shift=(target.id!=int(c.user['id']) and bool(c.perms.get('is_admin') or
+                           (c.perms.get('can_promote') and c.member and ws.team_rank(c.member,ids)>ws.team_rank(target,ids))))
+        max_minutes=int(ws.MAX_CONFIRMED_SHIFT_HOURS*60)
+        shift_rows=[]
+        for ev in reversed([h for h in hist if h.get('auto_closed')][-12:]):
+            closed_at=e(str(ev.get('ended_at_iso') or ev.get('date') or 'Zeit unbekannt'))
+            if ev.get('duration_confirmed'):
+                who=e(str(ev.get('duration_confirmed_by_name') or ev.get('duration_confirmed_by') or 'Führungskraft'))
+                shift_rows.append(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">✅ Bestätigt · {closed_at}</div>'
+                                  f'<div class="pulse-row-meta">{ws.fmt_duration(credited_shift_seconds(ev))} angerechnet · {who} · {e(str(ev.get("duration_confirmed_at") or ""))}</div>'
+                                  f'<div class="pulse-row-meta">{e(str(ev.get("duration_confirmation_reason") or ""))}</div></div></div>')
+                continue
+            if not needs_duration_confirmation(ev):
+                continue
+            measured=f' · gemessen {ws.fmt_duration(int(ev.get("measured_seconds") or 0))}' if ev.get('measured_seconds') else ''
+            title=f'<div class="pulse-row-title">⏳ Unbestätigte automatische Beendigung · {closed_at}</div>'
+            if can_confirm_shift:
+                ev_id=e(str(ev.get('shift_event_id') or ws.shift_event_id(target.id,ev.get('started_at_iso'))))
+                shift_rows.append(f'<form action="/shift/history/confirm-duration" method="post" class="pulse-row items-start flex-col gap-2">'
+                                  f'<div class="pulse-row-main">{title}<div class="pulse-row-meta">Derzeit 0 h angerechnet{measured} · höchstens {max_minutes//60} h {max_minutes%60:02d} min bestätigbar.</div></div>'
+                                  f'<input type="hidden" name="target_user_id" value="{target.id}"><input type="hidden" name="shift_event_id" value="{ev_id}">'
+                                  f'<label class="w-full text-xs">Tatsächliche Dauer in Minuten (0–{max_minutes})<input class="pulse-input mt-1" type="number" name="duration_minutes" min="0" max="{max_minutes}" required></label>'
+                                  f'<label class="w-full text-xs">Pflichtgrund / Nachweis<input class="pulse-input mt-1" name="reason" maxlength="500" minlength="5" required placeholder="z. B. Schichtende anhand des Logs bestätigt"></label>'
+                                  f'<button class="pulse-btn primary self-start">Dauer bestätigen</button></form>')
+            else:
+                shift_rows.append(f'<div class="pulse-row"><div class="pulse-row-main">{title}<div class="pulse-row-meta">0 h angerechnet{measured}; Bestätigung durch eine höherrangige Führungskraft ausstehend.</div></div></div>')
+        shift_confirmation_html=(f'<section class="pulse-card mt-4" id="shift-history"><div class="pulse-card-h"><div><div class="pulse-section-title">⏱ Automatisch beendete Schichten</div>'
+                                 f'<div class="pulse-section-sub">Unbestätigte Schichten zählen 0 Stunden. Jede Bestätigung wird mit Person, Zeitpunkt und Pflichtgrund protokolliert.</div></div></div>'
+                                 f'<div class="pulse-card-b space-y-2">{"".join(shift_rows)}</div></section>') if shift_rows else ''
         status='Im Dienst' if active and active.get('status')=='online' else 'Pause' if active else 'Offline'
         status_kind='good' if active and active.get('status')=='online' else 'warn' if active else ''
         # D-08 / E-3: warnings only for the person themself and can_warn; notes only for can_add_notes and leadership.
@@ -2063,6 +2190,7 @@ def register(app):
         all_events=[x for x in db.events(limit=2000) if str(x.get('actor_id'))==str(target.id) or (x.get('target_type') in ('user','team_member','suite') and str(x.get('target_id'))==str(target.id))]
         timeline=pulse_timeline.build(warns=warns,shifts=hist,tickets=tickets,tasks=tasks,events=all_events,notes=entry.get('notes',[]),
                                       show_warns=can_see_warns,show_notes=can_see_notes,user_id=target.id)
+        body+=shift_confirmation_html
         body+=f'<section class="pulse-card mt-4" id="zeitleiste"><div class="pulse-card-h"><div><div class="pulse-section-title">🕓 Zeitleiste</div><div class="pulse-section-sub">Warnungen, Schichten, Tickets, Aufgaben, Ereignisse und Notizen – neueste zuerst.</div></div></div><div class="pulse-card-b">{pulse_timeline.render(timeline,f"/member/{target.id}",request.query_params.get("tl",""),ws.time_tag)}</div></section>'
         return render_pro_page(ws,f'Teamakte · {target.display_name}',c,'team',body)
 
@@ -2158,7 +2286,7 @@ def register(app):
         return render_pro_page(ws,'Meeting-Historie',c,'meeting-history',body)
 
     async def achievements_v5(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session); uid=str(c.user['id']); shifts=ws.load_shifts(); hist=[h for h in shifts.get('history',[]) if str(h.get('mod_id'))==uid]; shift_count=len(hist); hours=sum(int(h.get('duration_seconds',0)) for h in hist)/3600
+        c=cctx(request,user_session); uid=str(c.user['id']); shifts=ws.load_shifts(); hist=[h for h in shifts.get('history',[]) if str(h.get('mod_id'))==uid]; shift_count=len(hist); hours=sum(credited_shift_seconds(h) for h in hist)/3600
         tickets_closed=sum(1 for t in db.list_tickets(limit=3000) if str(t.get('claimed_by_id'))==uid and t.get('status')=='closed')
         tasks_done=sum(1 for t in db.list_tasks(limit=3000,include_archived=True) if str(t.get('assignee_id'))==uid and t.get('status')=='done')
         handovers=sum(1 for h in db.list_handovers(3000,True) if str(h.get('author_id'))==uid)
@@ -2794,6 +2922,7 @@ def register(app):
     remove_and_add(app,'/pulse-inbox/read/{nid}',{'POST'},inbox_read_one)
     remove_and_add(app,'/pulse-inbox/read',{'POST'},inbox_read_all)
     remove_and_add(app,'/pulse-inbox/settings',{'POST'},inbox_settings)
+    remove_and_add(app,'/pulse-inbox/server-quiet',{'POST'},inbox_server_quiet)
     remove_and_add(app,'/tasks',{'GET'},tasks_v5,response_class=HTMLResponse)
     remove_and_add(app,'/tasks/update',{'POST'},update_task_v5)
     remove_and_add(app,'/tickets',{'GET'},tickets_v5,response_class=HTMLResponse)
@@ -2820,6 +2949,7 @@ def register(app):
     app.get('/team-status',response_class=HTMLResponse)(team_status_page)
     remove_and_add(app,'/melonly',{'GET'},melonly_page,response_class=HTMLResponse)
     remove_and_add(app,'/shift/admin-end',{'POST'},admin_end_shift)
+    remove_and_add(app,'/shift/history/confirm-duration',{'POST'},confirm_auto_closed_shift_duration)
     remove_and_add(app,'/api/team/discord-status',{'GET'},discord_status_api,response_class=JSONResponse)
 
     async def robots_txt():

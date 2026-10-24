@@ -11,6 +11,9 @@ import pulse_db
 import webserver as ws
 from tests.test_pulse_admin_area import TEAMLER, fake_auth_for
 
+# Browsers always send Origin on POST; cookie POSTs without it are refused (pulse_security, audit H1).
+BROWSER = {"Origin": "http://testserver"}
+
 
 class StartPageTests(unittest.TestCase):
     def setUp(self):
@@ -18,7 +21,7 @@ class StartPageTests(unittest.TestCase):
         self.db = patch.object(pulse_db, "DB_PATH", str(Path(self.tmp.name) / "pulse.db"))
         self.db.start()
         pulse_db.init_db()
-        self.client = TestClient(ws.app, raise_server_exceptions=False)
+        self.client = TestClient(ws.app, raise_server_exceptions=False, headers=BROWSER)
 
     def tearDown(self):
         self.db.stop()

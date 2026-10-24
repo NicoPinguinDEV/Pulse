@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+from pulse_shift_utils import credited_shift_seconds
+
 LONG_SHIFT_SECONDS = 12 * 3600
 INACTIVE_AFTER_DAYS = 8
 
@@ -24,7 +26,7 @@ def seconds_per_member(history: list, start: date, end: date) -> dict[str, int]:
         if day is None or not (start <= day <= end):
             continue
         key = str(entry.get("mod_id"))
-        totals[key] = totals.get(key, 0) + max(0, int(entry.get("duration_seconds") or 0))
+        totals[key] = totals.get(key, 0) + credited_shift_seconds(entry)  # E-2
     return totals
 
 

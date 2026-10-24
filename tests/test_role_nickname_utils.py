@@ -249,6 +249,7 @@ class DashboardAbsenceInsertTests(unittest.TestCase):
         self.assertNotIn("INSERT OR REPLACE INTO abmeldungen VALUES", source)
         # Migrated layout: 'von' was appended last by ALTER TABLE.
         conn = sqlite3.connect(":memory:")
+        self.addCleanup(conn.close)
         conn.execute("CREATE TABLE abmeldungen (user_id INTEGER PRIMARY KEY, user_name TEXT, grund TEXT, bis TEXT, original_nick TEXT, guild_id INTEGER)")
         conn.execute("ALTER TABLE abmeldungen ADD COLUMN von TEXT DEFAULT ''")
         conn.execute(

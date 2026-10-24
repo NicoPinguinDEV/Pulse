@@ -45,17 +45,24 @@ async def job(name: str, interval_seconds: float | None = None):
                 pass
             import pulse_logging
             pulse_logging.report_error(f"job.{name}", entry["last_error"])
+            _alert(name, entry["last_error"])
         raise
     finally:
         entry["runs"] += 1
         entry["last_duration"] = round(time.monotonic() - started, 3)
 
 
-def tracked(name: str, interval_seconds: float | None = None):
-    """Decorator for `@tasks.loop` bodies: every run is recorded in the registry."""
+def tracked(name: str, interval_seconds: float | None = None, pausable: bool = True):
+    """Decorator for `@tasks.loop` bodies: every run is recorded in the registry.
+    pausable=False: live support (voice queue, music) keeps running in maintenance mode (F-04)."""
     def decorate(fn):
         @functools.wraps(fn)
         async def wrapper(*args, **kwargs):
+            import pulse_flags
+            if pausable and pulse_flags.automations_paused():  # F-04: maintenance mode skips the run (recorded, not an error)
+                _JOBS.setdefault(name, {"name": name, "interval": interval_seconds, "runs": 0, "failures": 0, "last_start": "",
+                                        "last_duration": 0.0, "last_error": "", "last_error_at": ""})["paused_at"] = _now_iso()
+                return None
             async with job(name, interval_seconds):
                 return await fn(*args, **kwargs)
         return wrapper
@@ -74,7 +81,24 @@ def record_error(name: str, exc: BaseException, already_counted: bool = False) -
     if not already_counted:  # job() has reported it already
         import pulse_logging
         pulse_logging.report_error(f"job.{name}", entry["last_error"])
+        _alert(name, entry["last_error"])
     traceback.print_exception(type(exc), exc, exc.__traceback__)
+
+
+def _alert(name: str, error: str) -> None:
+    """O-07: one throttled alert per job (30 min cooldown); posted by the automation loop."""
+    try:
+        import pulse_alerts
+        pulse_alerts.raise_alert(f"job:{name}", f"⚠️ **Hintergrundjob fehlgeschlagen:** {name}\n`{error}`")
+    except Exception:
+        pass
+
+
+def health_summary() -> dict:
+    """O-07 for /healthz: newest successful run over all jobs and the jobs whose last run failed."""
+    last_ok = max((j.get("last_ok", "") for j in _JOBS.values()), default="") or None
+    failing = sorted(j["name"] for j in _JOBS.values() if j.get("last_error_at") and j["last_error_at"] > j.get("last_ok", ""))
+    return {"last_job_ok": last_ok, "jobs_failing": failing}
 
 
 def record_loop_lag(expected_seconds: float, actual_seconds: float) -> float:

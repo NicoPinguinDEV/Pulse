@@ -58,3 +58,6 @@ uploads/
 logs/
 *.db-shm
 *.json.tmp
+
+# Server Control Center: Unix-Socket des Host-Verwaltungsdienstes (Laufzeit)
+.pulse-agent/

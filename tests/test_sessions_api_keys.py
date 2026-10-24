@@ -15,6 +15,9 @@ import pulse_ultimate as pu
 import webserver as ws
 from tests.test_pulse_admin_area import TEAMLER, fake_auth_for
 
+# Browsers always send Origin on POST; cookie POSTs without it are refused (pulse_security, audit H1).
+BROWSER = {"Origin": "http://testserver"}
+
 
 class TempDb(unittest.TestCase):
     def setUp(self):
@@ -80,7 +83,7 @@ class SessionTests(TempDb):
         sid = pulse_sessions.create("7")
         signed, _ = token(sid=sid)
         self.assertEqual(ws.get_current_user(signed)["id"], "7")
-        client = TestClient(ws.app, raise_server_exceptions=False)
+        client = TestClient(ws.app, raise_server_exceptions=False, headers=BROWSER)
         client.cookies.set("user_session", signed)
         client.post("/logout", follow_redirects=False)
         with self.assertRaises(ws.HTTPException):
@@ -92,7 +95,7 @@ class SessionTests(TempDb):
         sid = pulse_sessions.create("7")
         signed, _ = token(sid=sid)
         pulse_sessions.revoke("7", sid)
-        client = TestClient(ws.app, raise_server_exceptions=False)
+        client = TestClient(ws.app, raise_server_exceptions=False, headers=BROWSER)
         client.cookies.set("user_session", signed)
         response = client.get("/", follow_redirects=False)
         self.assertEqual(response.status_code, 200)               # login page instead of 303 → /me
@@ -129,7 +132,7 @@ class SessionTests(TempDb):
     def test_sessions_page(self):
         sid = pulse_sessions.create("123", "Chrome Windows")
         pulse_sessions.create("123", "Safari iPhone")
-        client = TestClient(ws.app, raise_server_exceptions=False)
+        client = TestClient(ws.app, raise_server_exceptions=False, headers=BROWSER)
         client.cookies.set("user_session", token(uid="123", sid=sid)[0])
         with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
             page = client.get("/me/sessions")

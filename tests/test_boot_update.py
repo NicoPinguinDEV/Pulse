@@ -1,7 +1,8 @@
 """The VPS boot updater must pull main safely before starting the container."""
-import subprocess
 import unittest
 from pathlib import Path
+
+from tests.test_deploy_config import bash_syntax_check  # real bash only; POSIX path also on Windows
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,8 +19,6 @@ class BootUpdateTests(unittest.TestCase):
     def test_boot_script_syntax_and_safety_guards(self):
         path = ROOT / "scripts" / "pulse-vps-boot-update.sh"
         script = path.read_text(encoding="utf-8")
-        result = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True, check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("git fetch origin main", script)
         self.assertIn('git merge --ff-only "$target"', script)
         self.assertIn("git merge-base --is-ancestor HEAD", script)
@@ -29,6 +28,8 @@ class BootUpdateTests(unittest.TestCase):
         self.assertIn("/healthz", script)
         self.assertIn('git reset --hard "$previous"', script)
         self.assertNotIn("git reset --hard origin/main", script)
+        result = bash_syntax_check(path)  # last: a skip without real bash must not skip the guards above
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_compose_healthcheck_stays_enabled(self):
         compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")

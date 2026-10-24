@@ -3,6 +3,7 @@ import sqlite3
 import time
 
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
@@ -104,7 +105,22 @@ async def _reply(interaction: discord.Interaction, text: str):
 
 
 # --- HELFER ZUM SENDEN DER ANKÜNDIGUNG ---
-async def send_rp_announcement(interaction: discord.Interaction, content: str, action: str = "RP-Ankündigung"):
+def _remember_rp_state(action: str, next_start: str = "") -> None:
+    """F-08: last announced RP state for the public status page (no personal data)."""
+    state = "start" if "Start" in action else ("stop" if "Stop" in action else "")
+    if not state:
+        return
+    try:
+        import pulse_db
+        from datetime import datetime, timezone
+        pulse_db.set_setting("rp_status", {"state": state, "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                           "next_start": str(next_start or "")[:30]})
+    except Exception as exc:
+        print(f"⚠️ RP-Status konnte nicht gespeichert werden: {type(exc).__name__}")
+
+
+async def send_rp_announcement(interaction: discord.Interaction, content: str, action: str = "RP-Ankündigung",
+                               next_start: str = ""):
     guild = interaction.guild
     if guild is None or not can_use_rp_panel(guild, interaction.user):
         await _reply(interaction, "❌ Du bist nicht berechtigt, RP-Ankündigungen zu senden.")
@@ -152,6 +168,7 @@ async def send_rp_announcement(interaction: discord.Interaction, content: str, a
                                         "Bitte Kanalrechte prüfen.", ephemeral=True)
         return
     set_config("last_announcement_message_id", int(message.id))
+    _remember_rp_state(action, next_start)
     _audit(interaction.user, action, f"Kanal {ch.id}")
     await interaction.followup.send(f"✅ RP-Ankündigung wurde erfolgreich in {ch.mention} gesendet!", ephemeral=True)
 
@@ -180,7 +197,7 @@ class RPStopModal(discord.ui.Modal, title="RP Stop - Nächster RP Start"):
             "> # Kommt gerne morgen wieder auf den Server!\n"
             "@everyone"
         )
-        await send_rp_announcement(interaction, msg_content, "RP Stop angekündigt")
+        await send_rp_announcement(interaction, msg_content, "RP Stop angekündigt", next_start=start)
 
 # --- DROPDOWN MENÜ ---
 class RPSelect(discord.ui.Select):
@@ -228,7 +245,7 @@ class RPSelect(discord.ui.Select):
             await interaction.response.send_modal(RPStopModal())
 
 # --- VIEW ---
-class RPView(discord.ui.View):
+class RPView(PulseView):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(RPSelect())

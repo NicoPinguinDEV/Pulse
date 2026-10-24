@@ -177,8 +177,8 @@ class PulsePro(commands.Cog):
             except Exception:
                 pass
             try:
-                active_count=sum(1 for x in webserver.load_shifts().get("active_shifts",{}).values() if x.get("status") in ("online","break")) if 'webserver' in locals() else 0
-                await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"Pulse · {active_count} im Dienst"))
+                import pulse_presence  # BOT-13
+                await pulse_presence.update(self.bot)
             except Exception:
                 pass
         except Exception as exc:
@@ -190,15 +190,7 @@ class PulsePro(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        try:
-            guild = self.guild()
-            active = 0
-            if guild:
-                import webserver
-                active = len(webserver.load_shifts().get("active_shifts", {}))
-            await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"Pulse · {active} im Dienst"))
-        except Exception:
-            pass
+        # BOT-13: the status is set once in main.on_ready via pulse_presence (no second, differently counted text)
         await self.send_startup_report()
 
     async def send_startup_report(self):
@@ -352,50 +344,34 @@ class PulsePro(commands.Cog):
         if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
             await interaction.response.send_message("❌ Du hast keinen Zugriff auf Pulse.", ephemeral=True)
             return
-        leader = bool(perms.get("can_promote") or perms.get("is_admin"))
-        sections = [
-            ("👤 Für dich", [
-                ("/ultimate", "Command Center im Dashboard öffnen"),
-                ("/pulse", "Teamzahlen und deine Woche"),
-                ("/mytasks", "Deine offenen Aufgaben"),
-                ("/taskdone", "Aufgabe als erledigt markieren"),
-                ("/teamstatus", "Wer ist gerade online/im Dienst"),
-                ("/anmeldung", "Abmeldung (LOA) verwalten"),
-                ("/melden", "Vorfall an die Führung melden"),
-            ]),
-            ("🧭 Team", [
-                ("/memberinfo", "Kurzinfo zu einem Teammitglied"),
-                ("/pulse-ticket", "Ticket-Funktionen"),
-                ("/activity-check", "Activity Check"),
-            ]),
-        ]
-        if perms.get("can_warn") or leader:
-            sections.append(("⚠ Moderation", [
-                ("/warn", "Team-Warnung mit Beleg"),
-                ("/warns", "Warnungen ansehen"),
-                ("/warn-remove", "Warnung zurücknehmen (mit Grund)"),
-            ]))
-        if leader:
-            sections.append(("🛡 Führung", [
-                ("/teamtask", "Aufgabe zuweisen"),
-                ("/teamannounce", "Team-Ankündigung senden"),
-                ("/promote · /demote", "Rangwechsel mit Grund"),
-                ("/team-kick · /team-exit", "Nur Teamrollen entfernen – kein Server-Kick"),
-                ("/pulse-approve", "Zweitfreigabe erteilen"),
-            ]))
-        if perms.get("is_admin"):
-            sections.append(("⚙ Administration", [
-                ("/pulsehealth", "Systemstatus"),
-                ("/pulse-diagnose", "RAM, Datenbanken, Rollen und Kanäle prüfen"),
-                ("/pulse-lock · /pulse-unlock", "Notfall-Sperre"),
-            ]))
+        # BOT-04: generated from the registered commands (incl. groups like /dienst), filtered by rights.
+        from pulse_command_help import build_help, entries
+        sections = build_help(entries(self.bot.tree), perms, getattr(interaction.user, "guild_permissions", None))
         embed = discord.Embed(
             title="📖 Pulse-Hilfe",
             description=f"Alles Wichtige findest du auch im Dashboard: [Mein Pulse]({panel_url('/me')})",
             color=_pulse_color("info"),
         )
+        # Discord limits: 1024 characters per field, 25 fields and 6000 characters per embed.
+        def add(name, lines):
+            value = "\n".join(lines)
+            if len(embed.fields) >= 24 or len(embed) + len(name) + len(value) > 5800:
+                return False
+            embed.add_field(name=name, value=value, inline=False)
+            return True
+        complete = True
         for title, rows in sections:
-            embed.add_field(name=title, value="\n".join(f"`{cmd}` – {text}" for cmd, text in rows), inline=False)
+            chunk, part = [], 0
+            for cmd, text in rows:
+                line = f"`{cmd}` – {(text or '')[:60]}"
+                if sum(len(x) + 1 for x in chunk) + len(line) > 1000:
+                    complete = add(title + (" (Forts.)" if part else ""), chunk) and complete
+                    chunk, part = [], part + 1
+                chunk.append(line)
+            if chunk:
+                complete = add(title + (" (Forts.)" if part else ""), chunk) and complete
+        if not complete:
+            embed.description += "\nNicht alle Befehle passen in diese Nachricht – Discord zeigt alle unter „/“."
         embed.set_footer(text="Es werden nur Befehle angezeigt, die zu deinen Rechten passen.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

@@ -26,6 +26,7 @@ Du entwickelst Pulse für © BOCHUM RP | V1: Discord-Bot und FastAPI-Dashboard. 
 - Subagents nur für unabhängige, parallel prüfbare Aufgaben oder isolierte Recherche. Keine parallelen Änderungen an denselben Dateien; Ergebnisse kurz zusammenfassen.
 - Nicht standardmäßig die gesamte Codebasis, alle Tests, Logs oder den ganzen Handoff laden. Erst zielgerichtet suchen und Ergebnisse auswerten; Kontext bei Bedarf mit /compact verdichten.
 - Wiederhole keine bereits bestätigten Erkenntnisse oder langen Zwischenberichte. Bei langen Aufträgen nur bei wichtigen neuen Erkenntnissen berichten.
+- Standardprüfung: /pulse-verify targeted. /pulse-e2e, /pulse-security-audit und /pulse-performance nur gezielt bei passender Änderung. Das Playwright-MCP-Plugin ersetzt keine versionierten Tests in tests/.
 
 ## Code und Tests
 - Python 3.14+, discord.py, FastAPI und Uvicorn; Bot und Webserver laufen im selben Prozess.

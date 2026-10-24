@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
@@ -20,6 +21,7 @@ from fastapi import Cookie, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
+import pulse_sqlite
 from pulse_jobs import tracked
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
 
@@ -61,8 +63,7 @@ a{color:inherit;text-decoration:none}.shell{display:flex;min-height:100vh}
 """
 
 def cx():
-    c = sqlite3.connect(DB_PATH, timeout=3)
-    c.row_factory = sqlite3.Row
+    c = pulse_sqlite.connect(DB_PATH, timeout=3)
     c.execute("PRAGMA busy_timeout=3000")
     return c
 
@@ -165,7 +166,7 @@ def warns(m,web,team_data=None):
     return web.active_warns(web.user_entry(td,str(m.id)))
 
 def total_time(m,web):
-    s=web.load_shifts();total=sum(int(x.get("duration_seconds",0)) for x in s.get("history",[]) if str(x.get("mod_id"))==str(m.id));a=s.get("active_shifts",{}).get(str(m.id))
+    s=web.load_shifts();total=sum(web.credited_shift_seconds(x) for x in s.get("history",[]) if str(x.get("mod_id"))==str(m.id));a=s.get("active_shifts",{}).get(str(m.id))
     return total+(web.shift_elapsed(a) if a else 0)
 
 def weekly(m,web):
@@ -307,7 +308,7 @@ def register_routes():
     @app.get("/suite",response_class=HTMLResponse)
     async def leadership(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session,manager=True);web=webserver;ms=members(ctx.guild,web);sh=web.load_shifts();today=now().date().isoformat();active=sum(str(m.status) in {"online","idle","dnd"} for m in ms);duty=sum(x.get("status") in {"online","break"} for x in sh.get("active_shifts",{}).values())
-        day=sum(int(x.get("duration_seconds",0)) for x in sh.get("history",[]) if x.get("date")==today)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==today)
+        day=sum(web.credited_shift_seconds(x) for x in sh.get("history",[]) if x.get("date")==today)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==today)
         apps=web.load_json(web.APPS_FILE,{});pending=sum(str(a.get("status","pending")).lower() in {"pending","new","in_review","in prüfung","review"} for a in apps.values());threes=sum(len(warns(m,web))>=3 for m in ms);ticks=db.list_tickets(limit=3000);overdue=[x for x in db.list_tasks(limit=3000) if x.get("status") not in {"done","archived"} and x.get("due_at") and (local(x.get("due_at")) or now())<=now()];loas=sum(1 for x in web.get_loas().values() if x.get("active"));promos=len([p for p in _promos() if p.get("status") in {"pending","revision"}]);low=[m for m in ms if weekly(m,web)<float(setting("weekly_goal_hours",3))*3600]
         try:
             import pulse_ultimate as runtime_monitor
@@ -372,7 +373,7 @@ def register_routes():
     @app.get("/suite/time",response_class=HTMLResponse)
     async def time_page(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session);web=webserver;sh=web.load_shifts();ms=members(ctx.guild,web);hist=sh.get("history",[]);d=now().date().isoformat();month=now().strftime("%Y-%m")
-        day=sum(int(x.get("duration_seconds",0)) for x in hist if x.get("date")==d)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==d);monthsec=sum(int(x.get("duration_seconds",0)) for x in hist if str(x.get("date","")).startswith(month))
+        day=sum(web.credited_shift_seconds(x) for x in hist if x.get("date")==d)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==d);monthsec=sum(web.credited_shift_seconds(x) for x in hist if str(x.get("date","")).startswith(month))
         forms='<form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=start><button class="btn primary">▶ Start</button></form> <form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=break><button class=btn>☕ Pause</button></form> <form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=resume><button class=btn>↻ Fortsetzen</button></form> <form method=post action=/shift/action style="display:inline"><input type=hidden name=shift_action value=end><button class="btn danger">■ Ende</button></form>'
         rows=''.join(f'<tr><td>{i}</td><td><a href=/suite/member/{m.id}><b>{esc(m.display_name)}</b></a></td><td>{secfmt(weekly(m,web))}</td><td>{secfmt(total_time(m,web))}</td><td>{secfmt(max(0,weekly(m,web)-int(float(setting("weekly_goal_hours",3))*3600)))}</td></tr>' for i,m in enumerate(sorted(ms,key=lambda x:weekly(x,web),reverse=True),1))
         return page(ctx,"time","Dienstzeit 2.0","Start → Pause → Fortsetzen → Ende · Tag / Woche / Monat",f'<div class=card>{forms}</div><div class="grid g4" style="margin-top:13px"><div class=card><div class=tiny>Heute</div><div class=metric>{secfmt(day)}</div></div><div class=card><div class=tiny>Aktive Schichten</div><div class=metric>{sum(x.get("status") in {"online","break"} for x in sh.get("active_shifts",{}).values())}</div></div><div class=card><div class=tiny>Wochenziel</div><div class=metric>{float(setting("weekly_goal_hours",3)):.1f}h</div></div><div class=card><div class=tiny>Monat</div><div class=metric>{secfmt(monthsec)}</div></div></div><div class=card style="margin-top:13px"><h3>🏆 Wochenrangliste · Überstunden</h3><div class=scroll><table class=table><tr><th>#</th><th>Teamler</th><th>Woche</th><th>Gesamt</th><th>Überstunden</th></tr>{rows}</table></div></div>')
@@ -709,7 +710,7 @@ class _AnsweredInteraction:
     def __init__(self,i):self._i=i;self.response=_AnsweredResponse(i)
     def __getattr__(self,name):return getattr(self._i,name)
 
-class Confirm(discord.ui.View):
+class Confirm(PulseView):
     def __init__(self,owner,callback,key=None,origin=None):
         super().__init__(timeout=45);self.owner=owner;self.cb=callback;self.key=key;self.origin=origin;self.used=False
     async def on_timeout(self):
@@ -763,7 +764,7 @@ class SuiteTicketButton(discord.ui.DynamicItem[discord.ui.Button],template=r"pul
     async def from_custom_id(cls,interaction,item,match):return cls(match["action"],match["tid"])
     async def callback(self,i):await suite_ticket_action(i,self.action,self.tid)
 
-class TicketView(discord.ui.View):
+class TicketView(PulseView):
     def __init__(self,tid):
         super().__init__(timeout=None);self.tid=tid
         for action in SUITE_TICKET_BUTTONS:self.add_item(SuiteTicketButton(action,tid))
@@ -874,8 +875,16 @@ class PulseSuite(commands.Cog):
                 if member:
                     db.notify(member.id,"⏱ Noch im Dienst?",f"Deine Schicht läuft seit {secfmt(elapsed)}. Vergessen auszustempeln?","warning","/me",f"longshift-self:{uid}:{s.get('date')}",86400)
                     link=f"\n👉 {PUBLIC_BASE_URL}/me" if PUBLIC_BASE_URL else ""
-                    try:await member.send(f"⏱ Hey {member.display_name}, deine Pulse-Schicht läuft schon seit **{secfmt(elapsed)}**. Falls du vergessen hast auszustempeln, beende sie bitte in Pulse.{link}")
-                    except (discord.Forbidden,discord.HTTPException):pass
+                    # BOT-12: through the DM queue – not at night (quiet hours), bundled with other notes
+                    import pulse_notify_prefs
+                    if not pulse_notify_prefs.load(member.id).get("dm"):  # with DMs on, notify() above already queued it
+                        pulse_notify_prefs.queue_dm(member.id,"⏱ Noch im Dienst?",f"Hey {member.display_name}, deine Pulse-Schicht läuft schon seit **{secfmt(elapsed)}**. Falls du vergessen hast auszustempeln, beende sie mit `/dienst ende` oder in Pulse.{link}","")
+            # BOT-03: a second, clear reminder well before the automatic end (inbox; DM per the person's settings, U-11)
+            limit_h=int(getattr(web,"AUTO_SHIFT_END_HOURS",24))
+            if elapsed>=(limit_h-4)*3600 and not setting("long_shift_late:"+str(uid)+":"+str(s.get("date")),False):
+                set_setting("long_shift_late:"+str(uid)+":"+str(s.get("date")),True)
+                if str(uid).isdigit():
+                    db.notify(int(uid),"⏱ Schicht endet bald automatisch",f"Deine Schicht läuft seit {secfmt(elapsed)} und wird nach {limit_h} h automatisch beendet. Beende sie mit /dienst ende oder im Dashboard.","warning","/me",f"longshift-late:{uid}:{s.get('date')}",86400)
 
     async def inactivity(self,g):
         # Alle Operationen in dieser Prüfung sind synchron (Discord-Cache,
@@ -911,7 +920,7 @@ class PulseSuite(commands.Cog):
             if n<=s<=n+timedelta(minutes=30):db.notify(x["assignee_id"],"⏰ Schicht beginnt bald",f'{x["shift_name"]} beginnt um {x["start_time"]}.',"info","/suite/schedule",f"shift30:{x['id']}",86400)
 
     async def daily(self,g):
-        web=__import__("webserver");ms=members(g,web);sh=web.load_shifts();d=now().date().isoformat();sec=sum(int(x.get("duration_seconds",0)) for x in sh.get("history",[]) if x.get("date")==d)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==d)
+        web=__import__("webserver");ms=members(g,web);sh=web.load_shifts();d=now().date().isoformat();sec=sum(web.credited_shift_seconds(x) for x in sh.get("history",[]) if x.get("date")==d)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==d)
         e=discord.Embed(title="📊 Pulse Daily Report",color=_pulse_color("info"));e.add_field(name="👥 Team",value=str(len(ms)));e.add_field(name="🟢 Aktiv",value=str(sum(str(m.status) in {"online","idle","dnd"} for m in ms)));e.add_field(name="⏱ Dienstzeit",value=secfmt(sec));e.add_field(name="🎫 Tickets",value=str(sum(x.get("status")!="closed" for x in db.list_tickets(limit=3000))));e.add_field(name="📝 Bewerbungen",value=str(sum(str(a.get("status","pending")) in {"pending","in_review","interview"} for a in web.load_json(web.APPS_FILE,{}).values())));e.add_field(name="⚠ Warnungen",value=str(sum(len(warns(m,web)) for m in ms)));await self._report(g,e)
 
     async def weekly_report(self,g):
@@ -954,7 +963,8 @@ class PulseSuite(commands.Cog):
             except Exception:pass
 
     async def update_presence(self,g):
-        x=sum(s.get("status") in {"online","break"} for s in __import__("webserver").load_shifts().get("active_shifts",{}).values());await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching,name=f"Pulse · {x} im Dienst"))
+        import pulse_presence  # BOT-13: one place, at most every 5 min, only when the text changed
+        await pulse_presence.update(self.bot)
 
     async def security_check(self,g):
         web=__import__("webserver");issues=[]
@@ -998,7 +1008,7 @@ class PulseSuite(commands.Cog):
             return "Die Zielrolle ist nicht niedriger als der aktuelle Teamrang."
         return ""
 
-    async def _confirm_rank_change(self, interaction, member, role, grund, action, web, role_ids):
+    async def _confirm_rank_change(self, interaction, member, role, grund, action, web, role_ids, probation_days=None):
         if interaction.guild:
             member = interaction.guild.get_member(member.id) or member
         error = self._rank_change_error(interaction, member, role, role_ids, action)
@@ -1044,26 +1054,28 @@ class PulseSuite(commands.Cog):
             action,
             f"{old_names} → {role.name} · Grund: {grund}",
         )
+        # BOT-05: same follow-up as the dashboard – probation (was missing for /promote), DM, team update, audit log.
+        previous_role = max(old_team_roles, key=lambda r: r.position) if old_team_roles else None
+        probation_note = ""
         try:
-            await web.send_team_update_embed(
-                interaction.guild,
-                f"📣 Team-Update: {label}",
-                f"{member.mention} erhielt einen neuen Teamrang.",
-                _pulse_color("success") if action == "promote" else _pulse_color("warning"),
-                actor=interaction.user,
-                target=member,
-                action=label,
-                fields=[
-                    ("Bisherige Teamrolle(n)", old_names, False),
-                    ("Neue Teamrolle", role.mention, False),
-                    ("Grund", grund[:1000], False),
-                ],
-                thumbnail=member.display_avatar.url,
-            )
+            if action == "promote":
+                done = await web.finish_promotion(
+                    interaction.guild, member=member, previous_role=previous_role, new_role=role,
+                    probation_days=probation_days or 7, actor_name=interaction.user.display_name,
+                    actor_id=str(interaction.user.id), reason=grund, source="Slash /promote",
+                )
+                probation_note = f" Probezeit: {done['probation_text']}."
+            else:
+                await web.finish_demotion(
+                    interaction.guild, member=member, previous_role=previous_role, new_role=role,
+                    actor_name=interaction.user.display_name, actor_id=str(interaction.user.id), reason=grund,
+                    source="Slash /demote",
+                )
         except Exception as exc:
-            print(f"⚠️ Pulse {label}: Team-Update konnte nicht gesendet werden ({type(exc).__name__}).")
+            print(f"⚠️ Pulse {label}: Nacharbeiten (Probezeit/DM/Team-Update) fehlgeschlagen ({type(exc).__name__}).")
+            probation_note = " ⚠️ Probezeit/Team-Update konnten nicht vollständig gespeichert werden – bitte prüfen."
         await interaction.response.edit_message(
-            content=f"✅ {label} ausgeführt: **{member.display_name}** → {role.mention}. Alle anderen Team-Rangrollen wurden ersetzt, übrige Rollen bleiben erhalten.",
+            content=f"✅ {label} ausgeführt: **{member.display_name}** → {role.mention}. Alle anderen Team-Rangrollen wurden ersetzt, übrige Rollen bleiben erhalten.{probation_note}",
             embed=None,
             view=None,
             allowed_mentions=discord.AllowedMentions.none(),
@@ -1085,85 +1097,31 @@ class PulseSuite(commands.Cog):
         await i.response.send_message("⚡ Pulse Operations Suite\n"+(PUBLIC_BASE_URL+"/suite" if PUBLIC_BASE_URL else "/suite"),ephemeral=True)
 
     @app_commands.command(name="warn",description="Verwarnt ein Teammitglied nach Bestätigung.")
-    async def warn_cmd(self,i,member:discord.Member,grund:str):
+    @app_commands.describe(grund="Pflichtgrund (mind. 5 Zeichen)",dauer_tage="Gültigkeit in Tagen (1–365, Standard 7)",beweis="Link zum Beweis (optional)")
+    async def warn_cmd(self,i,member:discord.Member,grund:str,dauer_tage:app_commands.Range[int,1,365]=7,beweis:str=""):
         web=__import__("webserver")
         if not allowed(i,"warn",web) or locked() or not self.safe_target(i,member) or member not in members(i.guild,web):return await i.response.send_message("❌ Warnung nicht erlaubt.",ephemeral=True)
         grund = str(grund or "").strip()
         if len(grund) < 5:
             return await i.response.send_message("❌ Bitte gib einen nachvollziehbaren Pflichtgrund mit mindestens 5 Zeichen an.",ephemeral=True)
         async def do(x):
-            allowed_warn, protection_message = await web.enforce_team_warn_protection(
-                i.guild, i.user, member, web.load_config(), source="Slash /warn",
-            )
-            if not allowed_warn:
-                return await x.response.edit_message(
-                    content="❌ " + protection_message, embed=None, view=None,
-                )
-            td=web.load_json(web.DATA_FILE,{})
-            e=web.user_entry(td,str(member.id))
-            tracker=web.track_member_entry(member.id,e)  # K-04: merge-on-save after awaits
-            current_count=len(web.active_warns(e))
-            if current_count >= 5:
-                return await x.response.edit_message(
-                    content="❌ Dieses Teammitglied hat bereits 5 aktive Verwarnungen.",
-                    embed=None, view=None,
-                )
+            # BOT-05: the same domain function as the dashboard (checks, K-04 save, roles, consequences,
+            # team update, DM to the person, 5/5 escalation). Before, /warn had its own copy without DM,
+            # escalation, duration or proof.
             config=web.load_config()
-            allowed_impact, impact_message = await web.enforce_high_impact_warning_approval(
-                i.guild, i.user, member, e, current_count, config, source="Slash /warn",
+            actor_perms,_=web.compute_perms(i.guild,i.user.id,config)
+            result=await web.issue_team_warning(
+                i.guild,actor_member=i.user,actor_name=i.user.display_name,actor_id=str(i.user.id),member=member,
+                reason=grund,duration_days=dauer_tage,proof=beweis,config=config,
+                actor_is_admin=bool(actor_perms.get("is_admin")),source="Slash /warn",
             )
-            if not allowed_impact:
-                return await x.response.edit_message(
-                    content="❌ " + impact_message, embed=None, view=None,
-                )
-            issued_at=web.now_de()
-            duration_days=web.DEFAULT_AUTO_WARN_DURATION_DAYS
-            w={
-                "id":"warn_"+uuid.uuid4().hex[:10],
-                "reason":grund[:1000],
-                "proof":"",
-                "by":i.user.display_name,
-                "date":issued_at.strftime("%d.%m.%Y %H:%M"),
-                "duration_days":duration_days,
-                "expires_at":(issued_at+web.timedelta(days=duration_days)).isoformat(timespec="seconds"),
-                "active":True,
-                "revoked_at":None,
-                "revoked_by":None,
-                "revoked_reason":"",
-            }
-            e.setdefault("warns_list",[]).append(w)
-            tracker.commit()
-            count=len(web.active_warns(e))
-            role_report=await web.sync_warn_roles(i.guild,member,count,config)
-            consequence_report=await web.apply_warn_consequences(i.guild,member,w,count,config,entry=e)
-            tracker.commit()
-            await web.send_team_update_embed(
-                i.guild,
-                "⚠️ Team-Warnung",
-                f"{member.mention} erhielt eine Warnung.",
-                _pulse_color("warning"),
-                actor=i.user,
-                target=member,
-                action="Warnung",
-                fields=[
-                    ("Grund",grund),
-                    ("Warn-ID",w["id"]),
-                    ("Warn-Stufe",f"{count}/5"),
-                    ("Gültig bis",w["expires_at"]),
-                    ("Discord-Warnrolle","✅ Synchronisiert" if role_report.get("ok") else f"❌ {role_report.get('message')}"),
-                    ("Automatische Folgen","; ".join(consequence_report.get("actions", [])) or "Keine"),
-                ],
-            )
+            if not result.get("stored"):
+                return await x.response.edit_message(content="❌ "+result["message"],embed=None,view=None)
+            w=result["warn"]
             audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"warning_created",w["id"]+" · "+grund)
-            result_text="✅ Warnung "+w["id"]+" erstellt ("+str(count)+"/5), gültig für "+str(duration_days)+" Tage."
-            if consequence_report.get("actions"):
-                result_text += "\nAutomatische Folgen: " + "; ".join(consequence_report.get("actions", []))
-            if not role_report.get("ok"):
-                result_text += "\n⚠️ Warnrolle konnte nicht synchronisiert werden: "+str(role_report.get("message"))
-            if not consequence_report.get("ok"):
-                result_text += "\n⚠️ Eine automatische Warnfolge ist fehlgeschlagen; Führungsebene prüfen."
-            await x.response.edit_message(content=result_text,embed=None,view=None)
-        await i.response.send_message(f"⚠️ {member.display_name}\n{grund}\n\nWirklich verwarnen?",view=Confirm(i.user.id,do,key="warn",origin=i),ephemeral=True)
+            prefix="✅ " if result["ok"] else "⚠️ "
+            await x.response.edit_message(content=prefix+"Warnung "+w["id"]+": "+result["message"]+" Gültig bis "+w["expires_at"][:10]+".",embed=None,view=None)
+        await i.response.send_message(f"⚠️ {member.display_name}\n{grund}\nGültigkeit: {dauer_tage} Tage\n\nWirklich verwarnen?",view=Confirm(i.user.id,do,key="warn",origin=i),ephemeral=True)
 
     @app_commands.command(name="warns",description="Zeigt aktive Warnungen eines Teammitglieds.")
     async def warns_cmd(self,i,member:discord.Member):
@@ -1182,23 +1140,16 @@ class PulseSuite(commands.Cog):
         if not allowed(i,"warn-remove",web) or locked() or not warn_entry:
             return await i.response.send_message("❌ Warnung nicht gefunden / keine Berechtigung.",ephemeral=True)
         async def do(x):
-            current_data=web.load_json(web.DATA_FILE,{})
-            current_entry=web.user_entry(current_data,str(member.id))
-            current_warn=next((z for z in current_entry.get("warns_list",[]) if z.get("id")==warn_id and z.get("active",True)),None)
-            if not current_warn:
-                return await x.response.edit_message(content="❌ Diese Warnung ist nicht mehr aktiv.",embed=None,view=None)
-            current_warn["active"]=False
-            current_warn["revoked_at"]=iso()
-            current_warn["revoked_by"]=i.user.display_name
-            current_warn["revoked_reason"]=grund.strip()[:1000]
-            web.save_json(web.DATA_FILE,current_data)
-            count=len(web.active_warns(current_entry))
-            role_report=await web.sync_warn_roles(i.guild,member,count,web.load_config())
+            # BOT-05: same withdrawal as the dashboard – before, the slash path did not lift the temporary
+            # consequences (uprank/IC lock), rewrote the whole team file and posted no team update.
+            result=await web.revoke_team_warning(
+                i.guild,member=member,warn_id=warn_id,revoke_reason=grund,actor_name=i.user.display_name,
+                actor_id=str(i.user.id),config=web.load_config(),source="Slash /warn-remove",
+            )
+            if not result.get("stored"):
+                return await x.response.edit_message(content="❌ "+result["message"],embed=None,view=None)
             audit(i.guild.id,i.user.id,i.user.display_name,member.id,member.display_name,"warning_withdrawn",warn_id+" · "+grund.strip())
-            result_text="✅ "+warn_id+" zurückgezogen ("+str(count)+"/5 aktive Warnungen)."
-            if not role_report.get("ok"):
-                result_text += "\n⚠️ Warnrolle konnte nicht synchronisiert werden: "+str(role_report.get("message"))
-            await x.response.edit_message(content=result_text,embed=None,view=None)
+            await x.response.edit_message(content=("✅ " if result["ok"] else "⚠️ ")+warn_id+": "+result["message"],embed=None,view=None)
         await i.response.send_message(
             f"Warnung {warn_id} von {member.display_name} wirklich zurückziehen?\nGrund: {grund.strip()}",
             view=Confirm(i.user.id,do,key="warn-remove",origin=i),
@@ -1298,7 +1249,9 @@ class PulseSuite(commands.Cog):
         )
 
     @app_commands.command(name="promote",description="Befördert mit Pflichtgrund, Hierarchieschutz und Bestätigung.")
-    async def promote_cmd(self,i,member:discord.Member,rolle:discord.Role,grund:str=""):
+    @app_commands.describe(probezeit="Pflicht wie im Dashboard: 3 oder 7 Tage",grund="Pflichtgrund")
+    @app_commands.choices(probezeit=[app_commands.Choice(name="3 Tage",value=3),app_commands.Choice(name="7 Tage",value=7)])
+    async def promote_cmd(self,i,member:discord.Member,rolle:discord.Role,probezeit:app_commands.Choice[int],grund:str=""):
         if not grund.strip():
             return await i.response.send_message("❌ Bitte gib einen Pflichtgrund für die Beförderung an.",ephemeral=True)
         web=__import__("webserver")
@@ -1307,9 +1260,9 @@ class PulseSuite(commands.Cog):
         if not allowed(i,"promote",web) or locked() or error:
             return await i.response.send_message("❌ Beförderung blockiert: "+(error or "Berechtigung fehlt oder Pulse Emergency Lock ist aktiv."),ephemeral=True)
         async def do(x):
-            await self._confirm_rank_change(x,member,rolle,grund.strip()[:1000],"promote",web,role_ids)
+            await self._confirm_rank_change(x,member,rolle,grund.strip()[:1000],"promote",web,role_ids,probation_days=probezeit.value)
         await i.response.send_message(
-            f"📈 **Beförderung vorbereiten**\n{member.display_name}: **{rolle.name}**\nGrund: {grund.strip()}\n\nBestehende Team-Rangrollen werden durch den neuen Rang ersetzt. Fortfahren?",
+            f"📈 **Beförderung vorbereiten**\n{member.display_name}: **{rolle.name}**\nProbezeit: {probezeit.value} Tage\nGrund: {grund.strip()}\n\nBestehende Team-Rangrollen werden durch den neuen Rang ersetzt. Fortfahren?",
             view=Confirm(i.user.id,do,key="promote",origin=i),
             ephemeral=True,
         )
@@ -1518,6 +1471,11 @@ class PulseSuite(commands.Cog):
             except Exception:
                 pass
             db.notify(after.id,"🎉 Willkommen im Team",f"Dein Pulse-Onboarding für {after.guild.name} wurde eingerichtet.","info",f"/suite/member/{after.id}",f"onboard:{after.id}",86400)
+            try:  # BOT-11: onboarding checklist (roles, channels, training, mentor, probation, rules)
+                import pulse_checklists
+                pulse_checklists.start(after.id,after.display_name,"onboarding")
+            except Exception as exc:
+                print(f"⚠️ Onboarding-Checkliste nicht angelegt: {type(exc).__name__}")
             for m in managers(after.guild,web):
                 if m.id!=after.id:db.notify(m.id,"👋 Neues Teammitglied",f"{after.display_name} wurde automatisch eingerichtet.","info",f"/suite/member/{after.id}",f"newteam:{after.id}",86400)
         elif bt and not at:
@@ -1530,9 +1488,15 @@ class PulseSuite(commands.Cog):
             sh=web.load_shifts()
             live=sh.get("active_shifts",{}).pop(str(after.id),None)
             if live:
-                live["duration_seconds"]=web.shift_elapsed(live);live["auto_closed"]=True
+                live["duration_seconds"]=web.shift_elapsed(live);live["auto_closed"]=True;live["auto_closed_reason"]=web.OFFBOARDING_CLOSE_REASON
                 sh.setdefault("history",[]).append(live);web.save_json(web.SHIFTS_FILE,sh)
             for m in ms:db.notify(m.id,"🚪 Offboarding",f"{after.display_name} hat das Team verlassen. Offene Tickets wurden übertragen und die laufende Schicht beendet.","warning","/suite/team",f"offboard:{after.id}",86400)
+            try:  # BOT-11: offboarding checklist; what Pulse just did is ticked already
+                import pulse_checklists
+                pulse_checklists.start(after.id,after.display_name,"offboarding",
+                                       {"roles_removed":True,"tickets":bool(replacement),"shift":True})
+            except Exception as exc:
+                print(f"⚠️ Offboarding-Checkliste nicht angelegt: {type(exc).__name__}")
 
     @commands.Cog.listener()
     async def on_member_remove(self,member):

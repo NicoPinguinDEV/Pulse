@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import discord
+from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from pulse_embed_design import color as _pulse_color, is_modern
 from pulse_discord_style import card_info, edit_styled, is_v2, layout_from_embed, respond_edit_styled, same_content, send_styled
 from discord.ext import commands, tasks
@@ -36,6 +37,18 @@ def get_config() -> dict:
         for day, defaults in DEFAULT_HOURS.items()
     }
     return cfg
+
+
+def ticket_instead_text(guild_id: int) -> str:
+    """BOT-07: "Ticket statt Warten" – points to the first published ticket panel, if there is one."""
+    try:
+        import pulse_panels
+        panel = next((p for p in pulse_panels.collect(guild_id) if p["key"] == "tickets" and p["channel_id"]), None)
+    except Exception:
+        panel = None
+    if not panel:
+        return ""
+    return f"\n🎫 Du musst nicht warten: Öffne stattdessen ein Ticket in <#{panel['channel_id']}> – wir melden uns dort."
 
 
 def channel_id(value) -> int:
@@ -128,7 +141,7 @@ class RatingButton(discord.ui.Button):
         await respond_edit_styled(interaction, text=f"✅ Danke! Du hast **{self.rating}/5 Sterne** vergeben.", view=None)
 
 
-class RatingView(discord.ui.View):
+class RatingView(PulseView):
     def __init__(self, case_id: str, user_id: int):
         super().__init__(timeout=None)
         for value in range(1, 6):
@@ -148,7 +161,7 @@ class SupportCaseButton(discord.ui.Button):
         await self.cog.handle_case_action(interaction, self.case_id, self.action)
 
 
-class SupportCaseView(discord.ui.View):
+class SupportCaseView(PulseView):
     """Persistent controls for accepting, transferring and closing a support case."""
 
     def __init__(self, cog: "VoiceSupport", case_id: str):
@@ -174,7 +187,7 @@ class TransferUserSelect(discord.ui.UserSelect):
         await self.cog.handle_transfer_selection(interaction, self.case_id, int(selected.id))
 
 
-class TransferUserView(discord.ui.View):
+class TransferUserView(PulseView):
     def __init__(self, cog: "VoiceSupport", case_id: str):
         super().__init__(timeout=90)
         self.add_item(TransferUserSelect(cog, case_id))
@@ -990,7 +1003,8 @@ class VoiceSupport(commands.Cog):
 
     async def _closed_hours(self, member: discord.Member, previous_channel, cfg: dict):
         try:
-            await member.send("⏰ Der Voice-Support ist aktuell geschlossen. Bitte beachte die im Pulse-Dashboard eingestellten Öffnungszeiten.")
+            await member.send("⏰ Der Voice-Support ist aktuell geschlossen. Bitte beachte die im Pulse-Dashboard eingestellten Öffnungszeiten."
+                              + ticket_instead_text(member.guild.id))
         except (discord.Forbidden, discord.HTTPException):
             pass
         # Intentionally never move a citizen out of the waiting room here.
@@ -1319,7 +1333,20 @@ class VoiceSupport(commands.Cog):
         _, saved_case, _ = self._find_case_by_id(case_id)
         if isinstance(saved_case, dict):
             await self._start_waiting_audio(saved_case, cfg)
+        if not outside_opening_hours:
+            await self._tell_queue_position(member, len(staff) if staff else 1)
         print(f"🎧 Voice-Support-Fall {case_id}: {member} → gemeinsamer Warteraum {waiting_room.id}")
+
+    async def _tell_queue_position(self, member: discord.Member, staff_on_duty: int):
+        """BOT-07: one DM with the queue position and an estimate from recent cases (never blocks the case)."""
+        import pulse_voice_queue as vq
+        text = vq.estimate_text(vq.queue_position(get_cases(), member.id), db.get_setting(vq.HISTORY_KEY, []) or [], staff_on_duty)
+        if not text:
+            return
+        try:
+            await member.send(f"🎧 Willkommen im Voice-Support. {text}\nBleib einfach im Warteraum – ein Supporter holt dich ab.")
+        except (discord.Forbidden, discord.HTTPException):
+            pass
 
     async def _create_note_thread(self, parent: discord.TextChannel, member: discord.Member, staff: list[discord.Member], case: dict):
         try:
@@ -1392,6 +1419,12 @@ class VoiceSupport(commands.Cog):
         latest = dict(current)
         cases.pop(key, None)
         db.set_setting(CASES_KEY, cases)
+        try:  # BOT-07: bounded history for wait estimates and supporter statistics
+            import pulse_voice_queue as vq
+            closed_at = datetime.now(ZoneInfo("Europe/Berlin")).isoformat(timespec="seconds")
+            db.set_setting(vq.HISTORY_KEY, vq.append_history(db.get_setting(vq.HISTORY_KEY, []), vq.history_entry(latest, reason, closed_at)))
+        except Exception as exc:
+            print(f"⚠️ Voice-Support: Fallhistorie nicht gespeichert ({type(exc).__name__}).")
 
         try:
             guild = self.bot.get_guild(channel_id(latest.get("guild_id"))) or (channel.guild if channel else None)
@@ -1591,7 +1624,7 @@ class VoiceSupport(commands.Cog):
                     pass
 
     @tasks.loop(minutes=1)
-    @tracked("Voice-Support Bereitschaft (1 min)", 60)  # P-06
+    @tracked("Voice-Support Bereitschaft (1 min)", 60, pausable=False)  # P-06
     async def duty_status_loop(self):
         cfg = get_config()
         guild = self._guild()
@@ -1610,7 +1643,7 @@ class VoiceSupport(commands.Cog):
         await self.bot.wait_until_ready()
 
     @tasks.loop(seconds=8)
-    @tracked("Voice-Support Musik (8 s)", 8)  # P-06
+    @tracked("Voice-Support Musik (8 s)", 8, pausable=False)  # P-06
     async def music_loop(self):
         cfg = get_config()
         if not cfg.get("active"):
