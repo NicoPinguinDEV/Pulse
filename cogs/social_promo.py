@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 import re
+import socket
 import time
 import uuid
 import xml.etree.ElementTree as ET
@@ -169,6 +170,26 @@ def _is_public_https_url(value: str) -> bool:
         return True
     except (TypeError, ValueError):
         return False
+
+
+async def _resolves_to_public(host: str) -> bool:
+    """M-A3-1: a DNS name that points to a private/loopback address is as internal as the address itself."""
+    try:
+        ipaddress.ip_address(host)
+        return True  # literal addresses are judged by _is_public_https_url
+    except ValueError:
+        pass
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except OSError:
+        return True  # not resolvable: the request itself fails with a normal connection error
+    return all(ipaddress.ip_address(str(info[4][0]).split("%", 1)[0]).is_global for info in infos)
+
+
+async def _check_outgoing_request(request: httpx.Request) -> None:
+    """httpx request hook: runs for the first request and for every redirect hop, before it is sent."""
+    if not _is_public_https_url(str(request.url)) or not await _resolves_to_public(request.url.host):
+        raise ValueError("Die Quelle verweist auf eine nicht erlaubte (interne) Adresse.")
 
 
 def _tag_name(tag: str) -> str:
@@ -390,6 +411,7 @@ class SocialPromo(commands.Cog):
             self._http_client = httpx.AsyncClient(
                 timeout=timeout,
                 follow_redirects=True,
+                event_hooks={"request": [_check_outgoing_request]},
                 headers={"User-Agent": USER_AGENT},
                 limits=httpx.Limits(max_connections=5, max_keepalive_connections=3, keepalive_expiry=20.0),
             )

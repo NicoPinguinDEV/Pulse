@@ -254,8 +254,11 @@ def actor_name(ctx) -> str:
 def actor_id(ctx) -> str:
     return str(ctx.user["id"])
 
-def ctx_auth(request: Request, session: str, manager: bool = False, perm: Optional[str] = "can_view_dashboard"):
+def ctx_auth(request: Request, session: str, manager: bool = False, perm: Optional[str] = "can_view_dashboard",
+             require: Optional[str] = None):
     ctx = u.ctx_auth(request, session, manager=manager, perm=perm)
+    if require:  # M-A1-1: check the Pulse permission before anything is recorded
+        require_perm(ctx, require)
     # GET only displays data; POST actions count as meaningful Pulse activity.
     if request.method != "GET":
         touch_member(actor_id(ctx), "action")
@@ -405,7 +408,7 @@ def award_achievements(member, stats=None):
                 unlocked.append(key)
     return len(unlocked)
 
-def record_score(member):
+def record_score(member, context=None):
     # Housekeeping runs every five minutes, but scores are stored once per day.
     # Check the snapshot before computing statistics (which performs multiple
     # SQLite queries) and recheck before inserting to tolerate overlapping calls.
@@ -420,7 +423,7 @@ def record_score(member):
         return False
 
     try:
-        s = u.member_stats(member)
+        s = u.member_stats(member, context)
     except Exception:
         return False
 
@@ -442,9 +445,10 @@ def record_score(member):
 
 def all_stats(guild):
     rows=[]
+    shared=u.stats_context()  # M-C1: once per call, not once per member
     for m in members(guild):
-        record_score(m)
-        try: rows.append((m,u.member_stats(m)))
+        record_score(m, shared)
+        try: rows.append((m,u.member_stats(m, shared)))
         except Exception: pass
     return rows
 
@@ -489,6 +493,7 @@ def get_search_results(ctx, q):
     return result
 
 async def promote_now(ctx, row):
+    import discord
     import webserver
     guild = ctx.guild
     member = guild.get_member(int(row["user_id"]))
@@ -504,22 +509,27 @@ async def promote_now(ctx, row):
     me = guild.me
     if me and role >= me.top_role:
         return "Discord verweigert die Rollenänderung: Zielrolle liegt über der Botrolle."
+    # M-A1-3: target and old role come from the request form – only configured team roles, and a non-admin
+    # approver can only promote below the own rank (same rule as the role manager and /action promote).
+    team_ids = {int(x) for x in webserver.load_config().get("team_role_ids", []) if str(x).isdigit()}
+    if role.id not in team_ids:
+        return "Zielrolle ist keine Teamrolle – nichts vergeben."
+    approver = getattr(ctx, "member", None)
+    if not ctx.perms.get("is_admin") and (approver is None or role >= approver.top_role):
+        return "Du kannst nicht auf deinen eigenen Rang oder höher befördern – nichts vergeben."
     try:
-        awaitable = member.add_roles(role, reason=f"Pulse Beförderung {row['id']}")
-    except Exception as exc:
-        return f"Rolle konnte nicht vergeben werden: {exc}"
-    import asyncio
-    if asyncio.iscoroutine(awaitable):
-        awaitable = awaitable
-    if old_role_id.isdigit():
+        await member.add_roles(role, reason=f"Pulse Beförderung {row['id']}")
+    except discord.Forbidden:
+        return "Discord hat die Rollenvergabe abgelehnt (Bot-Rolle/Berechtigung prüfen) – nichts geändert."
+    except discord.HTTPException as exc:
+        return f"Rolle konnte nicht vergeben werden (HTTP {exc.status}) – nichts geändert."
+    if old_role_id.isdigit() and old_role_id != role_id:
         old = guild.get_role(int(old_role_id))
-        if old and (not me or old < me.top_role):
+        if old and old.id in team_ids and (not me or old < me.top_role):
             try:
-                awaitable2 = member.remove_roles(old, reason=f"Pulse Beförderung {row['id']}")
-                if asyncio.iscoroutine(awaitable2):
-                    await awaitable2
-            except Exception:
-                pass
+                await member.remove_roles(old, reason=f"Pulse Beförderung {row['id']}")
+            except discord.HTTPException as exc:
+                print(f"⚠️ Alte Rolle nach Beförderung {row['id']} nicht entfernt: HTTP {exc.status}")
     event(str(member.id),"promotion","Beförderung abgeschlossen",f"{row['from_rank']} → {row['to_rank']}",actor_id(ctx),actor_name(ctx))
     db.notify(member.id,"🏆 Beförderung",f"Du wurdest zu {row['to_rank']} befördert.","success","/ultimate/person/"+str(member.id))
     return "Beförderung angewendet."
@@ -582,16 +592,64 @@ def safe_backup_file(name):
     if not p.exists(): raise HTTPException(404,"Backup nicht gefunden.")
     return p
 
+_LEGACY_JSON_NAMES = ("team_data.json","config.json","applications.json","shifts.json","logs.json","audit_logs.json","meetings.json")
+
+
 def restore_backup(path):
+    """M-D1: same guarantees as pulse_backup.restore_full_backup – one restore at a time, every JSON member is
+    checked before anything is written, a safety copy of the current state first, maintenance mode while
+    writing, and the previous state is put back if writing fails part-way."""
+    import pulse_backup
+    if not pulse_backup._RESTORE_LOCK.acquire(blocking=False):
+        raise HTTPException(409,"Es läuft bereits eine Wiederherstellung.")
+    try:
+        with zipfile.ZipFile(path) as z:
+            names=set(z.namelist())
+            if "pulse.db" not in names:
+                raise HTTPException(400,"Backup enthält keine pulse.db.")
+            for name in _LEGACY_JSON_NAMES:
+                if name in names:
+                    try:
+                        json.loads(z.read(name).decode("utf-8-sig"))
+                    except (ValueError, UnicodeDecodeError):
+                        raise HTTPException(400,f"{name} im Backup ist beschädigt – nichts wurde wiederhergestellt.")
+        try:
+            safety, _ = pulse_backup.create_full_backup(BASE, BACKUP_DIR, prefix="pre_restore_")
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            raise HTTPException(500,f"Sicherheitskopie vor der Wiederherstellung fehlgeschlagen ({type(exc).__name__}) – nichts wurde geändert.")
+        pulse_backup._MAINTENANCE.set()
+        try:
+            try:
+                _restore_legacy_members(path)
+            except HTTPException:
+                pulse_backup._restore_from(safety, BASE, True, None)
+                raise
+            except Exception as exc:
+                try:
+                    pulse_backup._restore_from(safety, BASE, True, None)
+                except Exception as rollback_exc:
+                    raise HTTPException(500,f"Wiederherstellung abgebrochen ({type(exc).__name__}); Zurücksetzen fehlgeschlagen "
+                                            f"({type(rollback_exc).__name__}) – bitte {safety.name} wiederherstellen.") from exc
+                raise HTTPException(500,f"Wiederherstellung abgebrochen ({type(exc).__name__}); der vorherige Stand wurde aus "
+                                        f"{safety.name} zurückgespielt.") from exc
+        finally:
+            pulse_backup._MAINTENANCE.clear()
+    finally:
+        pulse_backup._RESTORE_LOCK.release()
+    # Cached initialization is invalid after replacing the DB.
+    u._INIT = False
+    setup_next()
+    return True
+
+
+def _restore_legacy_members(path):
+    import pulse_backup
     with zipfile.ZipFile(path) as z:
         names=set(z.namelist())
-        if "pulse.db" not in names:
-            raise HTTPException(400,"Backup enthält keine pulse.db.")
         tmp = BASE/"pulse.restore.tmp.db"
         with z.open("pulse.db") as src, open(tmp,"wb") as dst:
             shutil.copyfileobj(src,dst)
         # D-02: copy into the live database with the backup API instead of os.replace under open connections.
-        import pulse_backup
         try:
             pulse_backup.restore_sqlite_file(tmp, u.ultimate_db())
         except (ValueError, sqlite3.DatabaseError) as exc:
@@ -602,8 +660,7 @@ def restore_backup(path):
             except OSError:
                 pass
         # Restore the small JSON runtime stores that were captured with the DB.
-        json_names = {"team_data.json","config.json","applications.json","shifts.json","logs.json","audit_logs.json","meetings.json"}
-        for name in json_names:
+        for name in _LEGACY_JSON_NAMES:
             if name not in names:
                 continue
             tmp_json = BASE / f"{name}.restore.tmp"
@@ -622,10 +679,6 @@ def restore_backup(path):
             target_file.parent.mkdir(parents=True, exist_ok=True)
             with z.open(name) as src, open(target_file,"wb") as dst:
                 shutil.copyfileobj(src,dst)
-    # Cached initialization is invalid after replacing the DB.
-    u._INIT = False
-    setup_next()
-    return True
 
 async def run_workflows(bot=None):
     setup_next()
@@ -784,12 +837,13 @@ def register(app):
 
     @app.post("/ultimate/promotions/create")
     async def promotions_create(request: Request,user_id:str=Form(...),from_rank:str=Form(""),to_rank:str=Form(...),reason:str=Form(""),target_role_id:str=Form(""),old_role_id:str=Form(""),user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_promote")
+        ctx=ctx_auth(request,user_session,manager=True,require="can_promote")
         member=ctx.guild.get_member(int(user_id)) if user_id.isdigit() else None
         if not member: raise HTTPException(404,"Teammitglied nicht gefunden.")
         pid=u.uid("promo"); t=iso()
         with cx() as c:
-            c.execute("INSERT INTO next_promotions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            c.execute("INSERT INTO next_promotions(id,user_id,user_name,from_rank,to_rank,reason,target_role_id,old_role_id,"
+                      "status,requested_by_id,requested_by_name,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (pid,str(member.id),member.display_name,from_rank[:80],to_rank[:80],reason[:3000],target_role_id[:32],old_role_id[:32],
                  "pending",actor_id(ctx),actor_name(ctx),t,t))
         create_approval("promotion",pid,"promotion",ctx)
@@ -800,7 +854,7 @@ def register(app):
 
     @app.post("/ultimate/approvals/{approval_id}/decide")
     async def approval_decide(request: Request,approval_id:str,decision:str=Form(...),note:str=Form(""),user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,manager=False,perm="can_view_dashboard"); require_perm(ctx,"can_approve")
+        ctx=ctx_auth(request,user_session,manager=False,perm="can_view_dashboard",require="can_approve")
         with cx() as c:
             appr=c.execute("SELECT * FROM next_approvals WHERE id=? AND status='pending'",(approval_id,)).fetchone()
         if not appr: raise HTTPException(404,"Freigabe nicht gefunden.")
@@ -873,7 +927,7 @@ def register(app):
 
     @app.post("/ultimate/announcements/create")
     async def announcements_create(request:Request,title:str=Form(...),body:str=Form(...),priority:str=Form("normal"),expires_at:str=Form(""),pinned:str=Form(""),user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session); require_perm(ctx,"can_manage_announcements")
+        ctx=ctx_auth(request,user_session,require="can_manage_announcements")
         if priority not in {"normal","important","critical"}: priority="normal"
         with cx() as c:
             c.execute("INSERT INTO next_announcements VALUES(?,?,?,?,?,?,?,?,?,?)",(u.uid("news"),title[:180],body[:8000],priority,"team",1 if pinned else 0,expires_at[:80] or None,actor_id(ctx),actor_name(ctx),iso()))
@@ -940,7 +994,7 @@ def register(app):
 
     @app.post("/ultimate/goals/create")
     async def goals_create(request:Request,title:str=Form(...),description:str=Form(""),target:float=Form(100),unit:str=Form("%"),due_at:str=Form(""),user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session); require_perm(ctx,"can_manage_goals")
+        ctx=ctx_auth(request,user_session,require="can_manage_goals")
         with cx() as c:
             c.execute("INSERT INTO next_goals VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",(u.uid("goal"),title[:180],description[:3000],"team","",max(0,target),0,unit[:20],due_at[:80] or None,"active",actor_id(ctx),actor_name(ctx),iso()))
         save_audit(ctx,"Team-Ziel erstellt","",title)
@@ -948,7 +1002,7 @@ def register(app):
 
     @app.post("/ultimate/goals/{goal_id}/update")
     async def goals_update(request:Request,goal_id:str,value:float=Form(...),note:str=Form(""),user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session); require_perm(ctx,"can_manage_goals")
+        ctx=ctx_auth(request,user_session,require="can_manage_goals")
         with cx() as c:
             row=c.execute("SELECT * FROM next_goals WHERE id=? AND status='active'",(goal_id,)).fetchone()
             if not row: raise HTTPException(404,"Ziel nicht gefunden.")
@@ -972,7 +1026,7 @@ def register(app):
 
     @app.get("/ultimate/permissions", response_class=HTMLResponse)
     async def permissions(request:Request,user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_manage_permissions")
+        ctx=ctx_auth(request,user_session,manager=True,require="can_manage_permissions")
         people=members(ctx.guild)
         blocks=[]
         with cx() as c:
@@ -984,7 +1038,7 @@ def register(app):
 
     @app.post("/ultimate/permissions/save")
     async def permissions_save(request:Request,user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_manage_permissions")
+        ctx=ctx_auth(request,user_session,manager=True,require="can_manage_permissions")
         form=await request.form()
         people={str(m.id) for m in members(ctx.guild)}
         with cx() as c:
@@ -1037,7 +1091,7 @@ def register(app):
 
     @app.get("/ultimate/reports", response_class=HTMLResponse)
     async def reports(request:Request,user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,perm="can_view_analytics"); require_perm(ctx,"can_view_analytics")
+        ctx=ctx_auth(request,user_session,perm="can_view_analytics",require="can_view_analytics")
         stats=all_stats(ctx.guild); avg=round(sum(s["score"] for _,s in stats)/len(stats)) if stats else 0
         total_hours=round(sum(s["total_seconds"] for _,s in stats)/3600,1)
         with cx() as c:
@@ -1052,7 +1106,7 @@ def register(app):
 
     @app.get("/ultimate/reports.csv")
     async def reports_csv(request:Request,user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,perm="can_view_analytics"); require_perm(ctx,"can_view_analytics")
+        ctx=ctx_auth(request,user_session,perm="can_view_analytics",require="can_view_analytics")
         output=io.StringIO(); writer=csv.writer(output); writer.writerow(["ID","Name","Status","Score","Wochenstunden","Gesamtstunden","Tickets","Warnungen","Training"])
         for m,s in all_stats(ctx.guild):
             writer.writerow([__import__("webserver").csv_safe(v) for v in (m.id,m.display_name,str(m.status),s["score"],round(s["weekly_seconds"]/3600,2),round(s["total_seconds"]/3600,2),s["closed_tickets"],s["warnings"],s["training_passed"])])
@@ -1060,7 +1114,7 @@ def register(app):
 
     @app.get("/ultimate/backup", response_class=HTMLResponse)
     async def backup(request:Request,user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_manage_backups")
+        ctx=ctx_auth(request,user_session,manager=True,require="can_manage_backups")
         files=sorted(BACKUP_DIR.glob("pulse_backup_*.zip"),key=lambda x:x.stat().st_mtime,reverse=True)[:50]
         rows="".join(f"<div class=row><div><b>{esc(f.name)}</b><div class=tiny>{round(f.stat().st_size/1024,1)} KB · {datetime.fromtimestamp(f.stat().st_mtime).strftime('%d.%m.%Y %H:%M')}</div></div><span><a class='btn' href='/ultimate/backup/{esc(f.name)}'>Download</a> <form method='post' action='/ultimate/backup/{esc(f.name)}/restore' style='display:inline' onsubmit='return confirm(&#39;Dieses Backup wirklich wiederherstellen?&#39;);'><input type='hidden' name='confirm' value='RESTORE'><button class='btn danger'>Wiederherstellen</button></form></span></div>" for f in files) or "<div class=tiny>Keine Backups.</div>"
         body=u.card("""<h3>💾 Backup erstellen</h3><form method=post action='/ultimate/backup/create'><button class='btn primary'>Jetzt sichern</button></form><p class=tiny>Gesichert werden pulse.db und die vorhandenen JSON-Laufzeitdateien. Große Anhänge werden bewusst nicht in jeden Backup-Zip gepackt.</p>""")+u.card("<h3>Vorhandene Backups</h3>"+rows)
@@ -1068,20 +1122,20 @@ def register(app):
 
     @app.post("/ultimate/backup/create")
     async def backup_create(request:Request,user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_manage_backups")
+        ctx=ctx_auth(request,user_session,manager=True,require="can_manage_backups")
         p=await asyncio.to_thread(create_backup); save_audit(ctx,"Backup erstellt","",p.name)  # D-03: not in the event loop
         return RedirectResponse("/ultimate/backup",status_code=303)
 
     @app.get("/ultimate/backup/{name}")
     async def backup_download(request:Request,name:str,user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_manage_backups")
+        ctx=ctx_auth(request,user_session,manager=True,require="can_manage_backups")
         from fastapi.responses import FileResponse
         p=safe_backup_file(name)
         return FileResponse(p,filename=p.name,media_type="application/zip")
 
     @app.post("/ultimate/backup/{name}/restore")
     async def backup_restore(request:Request,name:str,confirm:str=Form(...),user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_manage_backups")
+        ctx=ctx_auth(request,user_session,manager=True,require="can_manage_backups")
         if confirm!="RESTORE": raise HTTPException(400,"Bestätigung muss RESTORE lauten.")
         p=safe_backup_file(name)
         await asyncio.to_thread(restore_backup,p); save_audit(ctx,"Backup wiederhergestellt","",p.name)
@@ -1089,7 +1143,7 @@ def register(app):
 
     @app.get("/ultimate/workflows", response_class=HTMLResponse)
     async def workflows(request:Request,user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_manage_workflows")
+        ctx=ctx_auth(request,user_session,manager=True,require="can_manage_workflows")
         with cx() as c:
             rows=[dict(r) for r in c.execute("SELECT * FROM next_workflows ORDER BY created_at DESC LIMIT 100").fetchall()]
         cards="".join(u.card(f"<div class=row><b>{esc(w['name'])}</b><span class=pill>{esc(w['trigger_type'])} · {'aktiv' if w['enabled'] else 'aus'}</span></div><div class=tiny>{esc(w['condition_json'])}</div><div class=tiny>{esc(w['actions_json'])}</div>") for w in rows) or u.card("<div class=tiny>Keine Workflows.</div>")
@@ -1102,7 +1156,7 @@ def register(app):
 
     @app.post("/ultimate/workflows/create")
     async def workflows_create(request:Request,name:str=Form(...),trigger_type:str=Form("daily"),condition_type:str=Form("always"),condition_value:str=Form("0"),actions:str=Form(...),cooldown_minutes:int=Form(1440),user_session:str=Cookie(None)):
-        ctx=ctx_auth(request,user_session,manager=True); require_perm(ctx,"can_manage_workflows")
+        ctx=ctx_auth(request,user_session,manager=True,require="can_manage_workflows")
         parsed=[]
         for line in actions.splitlines():
             line=line.strip()
@@ -1242,8 +1296,9 @@ def register(app):
     async def export_json(request:Request,user_session:str=Cookie(None)):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics")
         payload={"generated_at":iso(),"team":[],"goals":[],"ideas":[],"announcements":[]}
+        shared=u.stats_context()
         for m in members(ctx.guild):
-            s=u.member_stats(m)
+            s=u.member_stats(m, shared)
             payload["team"].append({"id":m.id,"name":m.display_name,"status":str(m.status),"score":s["score"],"weekly_hours":round(s["weekly_seconds"]/3600,2),"total_hours":round(s["total_seconds"]/3600,2),"tickets_closed":s["closed_tickets"],"warnings":s["warnings"],"training_passed":s["training_passed"]})
         with cx() as c:
             payload["goals"]=[dict(r) for r in c.execute("SELECT * FROM next_goals ORDER BY created_at DESC").fetchall()]

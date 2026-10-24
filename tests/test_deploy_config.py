@@ -40,7 +40,10 @@ class DockerTests(unittest.TestCase):
 class DeployTests(unittest.TestCase):
     def test_workflow_deploys_the_tested_commit_one_at_a_time(self):
         workflow = read(".github/workflows/deploy-vps.yml")
-        self.assertIn("github.event.workflow_run.head_sha", workflow)
+        # The automatic path takes the SHA of the finished check run (context.payload.workflow_run.head_sha) and every
+        # later step uses that verified output – also the checkout of the deploy script (M-A4-1).
+        self.assertIn('core.setOutput("sha", run.head_sha)', workflow)
+        self.assertEqual(workflow.count("${{ steps.verified.outputs.sha }}"), 3)
         self.assertIn("concurrency:", workflow)
         self.assertNotIn("reset --hard origin/main", workflow)
 

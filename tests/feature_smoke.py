@@ -427,10 +427,10 @@ def main() -> None:
     assert "async def run_workflows(bot=None):" in read("pulse_next.py")
     pulse_next_source = read("pulse_next.py")
     parse("pulse_next.py")
-    score_record = pulse_next_source.split("def record_score(member):", 1)[1].split("\ndef all_stats(", 1)[0]
+    score_record = pulse_next_source.split("def record_score(member, context=None):", 1)[1].split("\ndef all_stats(", 1)[0]
     assert "def award_achievements(member, stats=None):" in pulse_next_source
     assert "award_achievements(member, s)" in score_record
-    assert score_record.index("if exists:\n        return False") < score_record.index("u.member_stats(member)")
+    assert score_record.index("if exists:\n        return False") < score_record.index("u.member_stats(member, context)")
 
     # Pulse Pro /member route must expose the same management actions as the
     # central dashboard action handler.
