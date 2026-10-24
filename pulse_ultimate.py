@@ -16,6 +16,7 @@ Implemented domains:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import gc
 import hashlib
 import html
@@ -28,7 +29,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-from collections import deque
+from collections import OrderedDict, deque
 
 import discord
 from pulse_embed_design import color as _pulse_color
@@ -522,6 +523,18 @@ def init_db() -> None:
         for column in ("scopes", "expires_at", "last_used_at"):
             if column not in columns:
                 c.execute(f"ALTER TABLE ultimate_api_keys ADD COLUMN {column} TEXT")
+        # 7.18 automation editor: trigger options, step chain, test mode and per-step run results.
+        # Additive columns only – automations and runs created before keep working unchanged.
+        for table, additions in (
+            ("ultimate_automations", (("trigger_config", "TEXT DEFAULT '{}'"), ("steps_json", "TEXT DEFAULT ''"),
+                                      ("test_mode", "INTEGER DEFAULT 0"), ("updated_at", "TEXT"), ("updated_by_name", "TEXT"))),
+            ("ultimate_automation_runs", (("trigger_info", "TEXT DEFAULT ''"), ("steps_json", "TEXT DEFAULT ''"),
+                                          ("duration_ms", "INTEGER DEFAULT 0"), ("actor_name", "TEXT DEFAULT ''"))),
+        ):
+            columns = {row[1] for row in c.execute(f"PRAGMA table_info({table})").fetchall()}
+            for column, kind in additions:
+                if column not in columns:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
     _INIT = True
 
 
@@ -1590,9 +1603,116 @@ def register(app) -> None:
         audit(ctx, "Award vergeben", user_id, title.strip(), period)
         return RedirectResponse("/ultimate/awards", status_code=303)
 
+    # ------------------------------------------------------------------ automations (one engine, 7.18 editor)
+    LEGACY_ACTIONS = ["notify_managers", "notify_team", "create_case", "create_task", "team_report", "notify_user",
+                      "ticket_sla_alert", "inactivity_report", "probation_report"]
+
+    def automation_view(row: dict) -> dict:
+        return {"trigger_type": row.get("trigger_type"), "steps": automation_steps(row), "action_type": row.get("action_type"),
+                "trigger_config": automation_trigger_config(row), "interval_minutes": row.get("interval_minutes"),
+                "test_mode": bool(row.get("test_mode")),
+                "condition": (json.loads(row.get("action_payload") or "{}") or {}).get("condition") if str(row.get("action_payload") or "").startswith("{") else None}
+
+    def is_admin(ctx) -> bool:
+        return bool(ctx.perms.get("is_admin"))
+
+    def load_automation(automation_id: str, ctx) -> dict:
+        with cx() as c:
+            row = c.execute("SELECT * FROM ultimate_automations WHERE id=?", (automation_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Automation nicht gefunden.")
+        record = dict(row)
+        if _rules().needs_admin(automation_view(record)) and not is_admin(ctx):
+            raise HTTPException(403, "Sicherheits-Automationen sind nur für Administratoren.")
+        return record
+
+    def refresh_triggers() -> None:
+        try:
+            refresh_event_triggers()
+        except Exception as exc:
+            print(f"⚠️ Ereignis-Automationen konnten nicht aktualisiert werden: {type(exc).__name__}")
+
+    def antinuke_rule_labels() -> dict:
+        import webserver
+        import pulse_moderation as pm
+        cfg = pm.normalize_antinuke(webserver.load_config().get("pulse_antinuke"))
+        return {"global": "Globale Standardregel", **{r["id"]: r["label"] for r in cfg["rules"]}}
+
+    def editor(ctx, record: dict | None) -> str:
+        rules = _rules()
+        import pulse_moderation as pm
+        view = automation_view(record) if record else {"trigger_type": "interval", "steps": [], "trigger_config": {},
+                                                       "interval_minutes": 1440, "condition": None, "test_mode": False}
+        if record and not view["steps"] and record.get("action_type"):  # legacy → editable as one step
+            try:
+                legacy_payload = json.loads(record.get("action_payload") or "{}")
+            except ValueError:
+                legacy_payload = {}
+            view["steps"] = [{"type": record["action_type"], **{k: v for k, v in legacy_payload.items() if k != "condition"}}]
+        admin = is_admin(ctx)
+        cfg = view["trigger_config"]
+        cond = view.get("condition") or {"type": "always"}
+        triggers = "".join(f"<option value='{k}'{' selected' if view['trigger_type'] == k else ''}>{esc(v)}</option>"
+                           for k, v in rules.TRIGGERS.items() if admin or k not in rules.ADMIN_TRIGGERS)
+        conditions = "".join(f"<option value='{k}'{' selected' if cond.get('type') == k else ''}>{esc(v)}</option>" for k, v in rules.CONDITIONS.items())
+        labels = antinuke_rule_labels() if admin else {}
+        rule_opts = "<option value=''>— jede Anti-Nuke-Regel —</option>" + "".join(
+            f"<option value='{esc(k)}'{' selected' if cfg.get('rule_id') == k else ''}>{esc(v)}</option>" for k, v in labels.items())
+        event_boxes = "".join(
+            f"<label class='tiny' style='display:inline-flex;gap:5px;margin:3px 10px 3px 0'><input type='checkbox' name='events' value='{k}'"
+            f"{' checked' if k in (cfg.get('events') or []) else ''}>{esc(v)}</label>" for k, v in pm.ANTINUKE_EVENT_LABELS.items())
+        step_rows = []
+        for i in range(1, rules.MAX_STEPS + 1):
+            step = view["steps"][i - 1] if i <= len(view["steps"]) else {}
+            types = "<option value=''>— keine —</option>" + "".join(
+                f"<option value='{k}'{' selected' if step.get('type') == k else ''}>{esc(v)}</option>"
+                for k, v in rules.STEP_TYPES.items() if admin or k not in rules.ADMIN_STEP_TYPES)
+            prio = "".join(f"<option{' selected' if step.get('priority', 'normal') == p else ''}>{p}</option>" for p in rules.PRIORITIES)
+            body = step.get("body") or step.get("text") or step.get("description") or ""
+            number = step.get("minutes") or step.get("days") or ""
+            step_rows.append(
+                f"<div class='card' style='padding:10px;margin-top:8px'><b class='tiny'>Aktion {i}</b><div class='form' style='margin-top:6px'>"
+                f"<select class='select' name='step{i}_type' aria-label='Aktion {i}'>{types}</select>"
+                f"<input class='input' name='step{i}_title' maxlength='160' placeholder='Titel (Benachrichtigung, Aufgabe, Fall)' value='{esc(step.get('title', ''))}'>"
+                f"<input class='input span2' name='step{i}_body' maxlength='1000' placeholder='Text / Beschreibung – Platzhalter: {{actor_id}} {{rule_label}} {{events}} {{result}} {{name}}' value='{esc(body)}'>"
+                f"<input class='input' name='step{i}_target' maxlength='22' placeholder='Discord-ID (Person / zuständig)' value='{esc(step.get('user_id') or step.get('assignee_id') or '')}'>"
+                f"<input class='input' type='number' name='step{i}_number' min='1' max='1440' placeholder='Minuten (SLA) / Tage (Berichte)' value='{esc(number)}'>"
+                f"<select class='select' name='step{i}_priority' aria-label='Priorität'>{prio}</select>"
+                f"<label class='tiny'><input type='checkbox' name='step{i}_urgent' value='1'{' checked' if step.get('urgent') else ''}> dringend</label>"
+                "</div></div>")
+        enabled = record is None or bool(record.get("enabled"))
+        return f"""<div class="card" id="editor"><h3>{'✏️ Automation bearbeiten' if record else '🤖 Neue Automation'}</h3>
+<form class="form" method="post" action="/ultimate/automations/save">
+ <input type="hidden" name="automation_id" value="{esc(record['id'] if record else '')}">
+ <input class="input span2" name="name" maxlength="160" required placeholder="Name, z. B. Anti-Nuke – Massenlöschung" value="{esc(record['name'] if record else '')}">
+ <label class="tiny span2"><b>WENN</b> – Auslöser</label>
+ <select class="select" name="trigger_type" aria-label="Auslöser">{triggers}</select>
+ <input class="input" type="number" name="interval_minutes" min="5" max="10080" value="{esc(view.get('interval_minutes') or 1440)}" aria-label="Intervall in Minuten" placeholder="Intervall (Minuten, nur Zeitplan)">
+ {"" if not admin else f'''<div class="span2 tiny" style="padding:8px;border:1px dashed var(--border);border-radius:10px">
+  <b>Nur Anti-Nuke-Regel:</b> <select class="select" name="rule_id" aria-label="Anti-Nuke-Regel">{rule_opts}</select>
+  <label><input type="checkbox" name="include_dry_run" value="1"{" checked" if cfg.get("include_dry_run", True) else ""}> auch im Alarm-/Testmodus</label><br>
+  <b>Nur Sicherheitsereignis:</b> {event_boxes}<br>
+  mindestens <input class="input" style="max-width:90px;display:inline-block" type="number" name="min_count" min="1" max="50" value="{esc(cfg.get("min_count", 1))}"> Ereignisse in
+  <input class="input" style="max-width:90px;display:inline-block" type="number" name="window_seconds" min="3" max="3600" value="{esc(cfg.get("window_seconds", 10))}"> s,
+  <select class="select" name="group" style="max-width:220px;display:inline-block"><option value="actor"{" selected" if cfg.get("group", "actor") == "actor" else ""}>gleiche verantwortliche Person</option><option value="all"{" selected" if cfg.get("group") == "all" else ""}>alle zusammen</option></select>
+  · Cooldown <input class="input" style="max-width:100px;display:inline-block" type="number" name="cooldown_seconds" min="0" max="86400" value="{esc(cfg.get("cooldown_seconds", 60))}"> s</div>'''}
+ <label class="tiny span2"><b>UND</b> – Bedingung (Zeitplan)</label>
+ <select class="select" name="condition_type" aria-label="Bedingung">{conditions}</select>
+ <input class="input" type="number" name="condition_value" min="0" max="100000" value="{esc(cond.get('value', 0))}" aria-label="Bedingungswert">
+ <label class="tiny span2"><b>DANN</b> – Aktionen (werden nacheinander genau einmal ausgeführt; ein Fehler stoppt die übrigen nicht)</label>
+ <div class="span2">{"".join(step_rows)}</div>
+ <label class="tiny"><input type="checkbox" name="enabled" value="1"{" checked" if enabled else ""}> aktiv</label>
+ <label class="tiny"><input type="checkbox" name="test_mode" value="1"{" checked" if view.get('test_mode') else ""}> Testmodus (nur protokollieren)</label>
+ <button class="btn primary span2">💾 Automation speichern</button></form>
+ <div class="tiny" style="margin-top:8px">Nur Auslöser und Aktionen aus dieser Liste sind möglich – kein freier Code. Sicherheits-Auslöser und -Aktionen sind Administratoren vorbehalten.</div></div>"""
+
     @app.get("/ultimate/automations", response_class=HTMLResponse)
     async def ultimate_automations(request: Request, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session, manager=True)
+        rules = _rules()
+        q = request.query_params
+        f_trigger, f_action, f_status = q.get("trigger", ""), q.get("action", ""), q.get("status", "")
+        sort = q.get("sort", "next") if q.get("sort") in ("next", "name", "last_run", "status") else "next"
         with cx() as c:
             rows = [dict(r) for r in c.execute(
                 """SELECT a.*,
@@ -1604,42 +1724,202 @@ def register(app) -> None:
                    ORDER BY a.enabled DESC,a.next_run_at"""
             ).fetchall()]
             run_rows = [dict(r) for r in c.execute(
-                """SELECT r.*,a.name AS automation_name
+                """SELECT r.*,a.name AS automation_name,a.trigger_type AS automation_trigger,a.steps_json AS automation_steps,
+                          a.action_type AS automation_action
                    FROM ultimate_automation_runs r
                    LEFT JOIN ultimate_automations a ON a.id=r.automation_id
-                   ORDER BY r.started_at DESC LIMIT 30"""
+                   ORDER BY r.started_at DESC LIMIT 120"""
             ).fetchall()]
-        opts = ["notify_managers", "notify_team", "create_case", "create_task", "team_report", "notify_user", "ticket_sla_alert", "inactivity_report", "probation_report"]
+        admin = is_admin(ctx)
+        visible = [x for x in rows if admin or not rules.needs_admin(automation_view(x))]
+        if f_trigger:
+            visible = [x for x in visible if x["trigger_type"] == f_trigger]
+        if f_action:
+            visible = [x for x in visible if f_action in {s.get("type") for s in automation_steps(x)} | {x.get("action_type")}]
+        if f_status:
+            visible = [x for x in visible if (x.get("last_status") or "never") == f_status
+                       or (f_status == "disabled" and not x["enabled"]) or (f_status == "test" and x.get("test_mode"))]
+        order = {"error": 0, "test": 1, "skipped": 2, "success": 3}
+        if sort == "name":
+            visible.sort(key=lambda x: str(x["name"]).casefold())
+        elif sort == "last_run":
+            visible.sort(key=lambda x: str(x.get("last_run_at") or ""), reverse=True)
+        elif sort == "status":
+            visible.sort(key=lambda x: order.get(x.get("last_status") or "", 4))
+        labels = antinuke_rule_labels() if admin else {}
+        status_pill = {"success": "✅ erfolgreich", "error": "❌ Fehler", "test": "🧪 Testlauf", "skipped": "⏭️ übersprungen"}
         cards = "".join(
             card(
-                f"<div class=row><b>{esc(x['name'])}</b><span class='pill'>{'✅ Aktiv' if x['enabled'] else '⏸ Pausiert'}</span></div>"
-                f"<div class='tiny'>{esc(x['trigger_type'])} · alle {x['interval_minutes']} min · nächster Lauf {esc(x['next_run_at'])}</div>"
+                f"<div class=row><b>{esc(x['name'])}</b><span class='pill'>{'⏸ Deaktiviert' if not x['enabled'] else ('🧪 Testmodus' if x.get('test_mode') else '✅ Aktiv')}</span></div>"
+                f"<div class='tiny' style='margin-top:4px'>{esc(rules.describe({**automation_view(x)}, labels))}</div>"
+                f"<div class='tiny'>{esc(rules.TRIGGERS.get(x['trigger_type'], x['trigger_type']))}"
+                + (f" · alle {x['interval_minutes']} min · nächster Lauf {esc(x['next_run_at'])}" if x['trigger_type'] not in rules.EVENT_TRIGGERS else "")
+                + (" · Legacy-JSON" if not automation_steps(x) else "") + "</div>"
                 f"<div class='tiny' style='margin-top:6px'>Letzter Lauf: {esc(x.get('last_run_at') or 'Noch nicht ausgeführt')} · "
-                f"{'✅ erfolgreich' if x.get('last_status') == 'success' else '❌ Fehler' if x.get('last_status') == 'error' else '—'}</div>"
+                f"{status_pill.get(x.get('last_status'), '—')}</div>"
                 f"<div class='tiny'>{esc(str(x.get('last_result') or '')[:220])}</div>"
-                f"<form method='post' action='/ultimate/automations/{esc(x['id'])}/toggle' style='margin-top:10px'>"
+                f"<div style='display:flex;flex-wrap:wrap;gap:6px;margin-top:10px'>"
+                f"<a class='btn' href='/ultimate/automations?edit={esc(x['id'])}#editor'>✏️ Bearbeiten</a>"
+                f"<form method='post' action='/ultimate/automations/{esc(x['id'])}/toggle'>"
                 f"<button class='btn {'danger' if x['enabled'] else 'primary'}'>{'⏸ Automation pausieren' if x['enabled'] else '▶ Automation fortsetzen'}</button></form>"
+                f"<form method='post' action='/ultimate/automations/{esc(x['id'])}/test'><button class='btn'>🧪 Testlauf</button></form>"
+                f"<form method='post' action='/ultimate/automations/{esc(x['id'])}/run' onsubmit=\"if(!window.confirm('Automation jetzt wirklich ausführen? Die Aktionen werden tatsächlich ausgeführt.'))return false;this.confirm.value='1';\">"
+                f"<input type='hidden' name='confirm' value='0'><button class='btn'>▶ Jetzt ausführen</button></form>"
+                f"<form method='post' action='/ultimate/automations/{esc(x['id'])}/delete' onsubmit=\"if(!window.confirm('Automation „{esc(x['name'])}“ endgültig löschen? Der Ausführungsverlauf bleibt erhalten.'))return false;this.confirm.value='1';\">"
+                f"<input type='hidden' name='confirm' value='0'><button class='btn danger'>🗑 Löschen</button></form></div>"
             )
-            for x in rows
+            for x in visible
         )
-        run_history = "".join(
-            f"<div class='event'><b>{esc(r['started_at'])}</b> · {esc(r.get('automation_name') or r['automation_id'])}"
-            f"<div class='tiny'>{'✅ Erfolgreich' if r['status'] == 'success' else '❌ Fehler'} · beendet: {esc(r.get('finished_at') or '—')}</div>"
-            f"<div>{esc(str(r.get('result') or '')[:500])}</div></div>"
-            for r in run_rows
-        )
-        body = f"""<div class="card"><h3>🤖 Workflow/Automation erstellen</h3><form class="form" method="post" action="/ultimate/automations/create">
-          <input class="input" name="name" placeholder="Überfällige Aufgaben melden" required>
-          <input class="input" name="trigger_type" value="interval">
-          <input class="input" type="number" name="interval_minutes" min="5" max="10080" value="1440">
-          <select class="select" name="action_type">{"".join(f"<option>{esc(x)}</option>" for x in opts)}</select>
-          <input class="input span2" name="payload" value='{{}}' placeholder='JSON-Payload'>
-          <button class="btn primary span2">Automation erstellen</button></form>
-          <div class="tiny" style="margin-top:8px">Neue Workflows starten nach dem gewählten Intervall. Jeder Lauf wird mit Ergebnis protokolliert.</div></div>
+        visible_ids = {x["id"] for x in rows if admin or not rules.needs_admin(automation_view(x))}
+        run_rows = [r for r in run_rows if r["automation_id"] in visible_ids or (admin and r["automation_id"] not in {x["id"] for x in rows})][:30]
+
+        def run_steps(r):
+            try:
+                steps = json.loads(r.get("steps_json") or "[]")
+            except ValueError:
+                steps = []
+            icons = {"ok": "✅", "failed": "❌", "skipped": "⏭️", "test": "🧪", "success": "✅", "error": "❌"}
+            return "".join(f"<li>{icons.get(s.get('status'), '•')} {esc(rules.STEP_TYPES.get(s.get('type'), s.get('type')))}: {esc(s.get('detail', ''))}</li>"
+                           for s in steps if isinstance(s, dict))
+
+        def run_trigger(r):
+            try:
+                info = json.loads(r.get("trigger_info") or "{}")
+            except ValueError:
+                info = {}
+            if not isinstance(info, dict) or not info:
+                return ""
+            bits = [rules.TRIGGERS.get(info.get("trigger"), {"manual": "manuell", "manual_test": "Testlauf"}.get(info.get("trigger"), info.get("trigger") or ""))]
+            if info.get("rule_label"):
+                bits.append(f"Regel „{info['rule_label']}“")
+            if info.get("events"):
+                bits.append("Ereignis " + ", ".join(info["events"]) if isinstance(info["events"], list) else str(info["events"]))
+            if info.get("actor_id"):
+                bits.append(f"Akteur {info['actor_id']}")
+            return " · ".join(str(b) for b in bits if b)
+        def run_name(r):
+            if r.get("automation_name"):
+                return r["automation_name"]
+            try:
+                info = json.loads(r.get("trigger_info") or "{}")
+            except ValueError:
+                info = {}
+            return (info.get("automation_name") if isinstance(info, dict) else None) or r["automation_id"]
+
+        def run_html(r):
+            meta = status_pill.get(r["status"], r["status"])
+            meta += f" · beendet: {esc(r.get('finished_at') or '—')}"
+            if r.get("duration_ms"):
+                meta += f" · {int(r['duration_ms'])} ms"
+            if r.get("actor_name"):
+                meta += f" · durch {esc(r['actor_name'])}"
+            trig, steps = run_trigger(r), run_steps(r)
+            out = f"<div class='event'><b>{esc(r['started_at'])}</b> · {esc(run_name(r))}<div class='tiny'>{meta}</div>"
+            if trig:
+                out += f"<div class='tiny'>Auslöser: {esc(trig)}</div>"
+            if steps:
+                out += f"<ul class='tiny' style='margin:4px 0 0 16px'>{steps}</ul>"
+            else:
+                out += f"<div>{esc(str(r.get('result') or '')[:500])}</div>"
+            return out + "</div>"
+        run_history = "".join(run_html(r) for r in run_rows)
+        failing = [x for x in visible if x.get("last_status") == "error"]
+        problems = "".join(f"<div class='tiny'>❌ {esc(x['name'])}: {esc(str(x.get('last_result') or '')[:160])}</div>" for x in failing)
+        if admin:
+            known_rules = set(labels)
+            for x in rows:
+                cfg = automation_trigger_config(x)
+                if x["trigger_type"] == "antinuke_rule" and cfg.get("rule_id") and cfg["rule_id"] not in known_rules:
+                    problems += f"<div class='tiny'>⚠ {esc(x['name'])}: Anti-Nuke-Regel {esc(cfg['rule_id'])} existiert nicht mehr.</div>"
+        for x in visible:
+            if not automation_steps(x) and x.get("action_type") not in LEGACY_ACTIONS:
+                problems += f"<div class='tiny'>⚠ {esc(x['name'])}: unbekannte Aktion „{esc(x.get('action_type'))}“ – bitte bearbeiten.</div>"
+        trig_opts = "<option value=''>alle Auslöser</option>" + "".join(
+            f"<option value='{k}'{' selected' if f_trigger == k else ''}>{esc(v)}</option>" for k, v in rules.TRIGGERS.items() if admin or k not in rules.ADMIN_TRIGGERS)
+        act_opts = "<option value=''>alle Aktionen</option>" + "".join(
+            f"<option value='{k}'{' selected' if f_action == k else ''}>{esc(v)}</option>" for k, v in rules.STEP_TYPES.items() if admin or k not in rules.ADMIN_STEP_TYPES)
+        st_opts = "".join(f"<option value='{k}'{' selected' if f_status == k else ''}>{v}</option>" for k, v in (
+            ("", "jeder Status"), ("success", "zuletzt erfolgreich"), ("error", "zuletzt fehlgeschlagen"), ("test", "Testmodus/Testlauf"),
+            ("skipped", "übersprungen"), ("never", "noch nie ausgeführt"), ("disabled", "deaktiviert")))
+        sort_opts = "".join(f"<option value='{k}'{' selected' if sort == k else ''}>{v}</option>" for k, v in (
+            ("next", "nächster Lauf"), ("name", "Name"), ("last_run", "letzte Ausführung"), ("status", "letztes Ergebnis (Fehler zuerst)")))
+        edit_id = q.get("edit", "")
+        record = load_automation(edit_id, ctx) if edit_id else None
+        body = f"""{editor(ctx, record)}
+          <div class="card" style="margin-top:13px"><form class="form" method="get" action="/ultimate/automations">
+           <select class="select" name="trigger" aria-label="Auslöser filtern">{trig_opts}</select>
+           <select class="select" name="action" aria-label="Aktion filtern">{act_opts}</select>
+           <select class="select" name="status" aria-label="Status filtern">{st_opts}</select>
+           <select class="select" name="sort" aria-label="Sortierung">{sort_opts}</select>
+           <button class="btn span2">🔎 Filtern &amp; sortieren</button></form>
+           {('<div style="margin-top:8px"><b class="tiny">Fehlerprüfung</b>' + problems + '</div>') if problems else '<div class="tiny" style="margin-top:8px">✅ Keine fehlerhaften Automationen gefunden.</div>'}</div>
           <div class="grid g2" style="margin-top:13px">{cards or card("<div class=tiny>Keine Automationen.</div>")}</div>
           <div class="card" style="margin-top:13px"><h3>🧾 Letzte 30 Ausführungen</h3>
+          <div class="tiny">Gespeichert werden höchstens {MAX_RUNS_PER_AUTOMATION} Ausführungen pro Automation.</div>
           <div class="timeline">{run_history or "<div class=tiny>Noch keine Ausführungen protokolliert.</div>"}</div></div>"""
-        return page(ctx, "automations", "Automationen", "Workflows anlegen, pausieren, fortsetzen und Ausführungsergebnisse prüfen.", body)
+        return page(ctx, "automations", "Automationen", "Wenn → Und → Dann: Automationen anlegen, bearbeiten, testen und Ausführungen nachvollziehen.", body)
+
+    def editor_payload(form) -> dict:
+        rules = _rules()
+        steps = []
+        for i in range(1, rules.MAX_STEPS + 1):
+            kind = str(form.get(f"step{i}_type") or "").strip()
+            if not kind:
+                continue
+            number = str(form.get(f"step{i}_number") or "").strip() or None
+            body = str(form.get(f"step{i}_body") or "")
+            target = str(form.get(f"step{i}_target") or "").strip()
+            steps.append({"type": kind, "title": form.get(f"step{i}_title") or "", "body": body, "text": body, "description": body,
+                          "user_id": target, "assignee_id": target, "minutes": number, "days": number,
+                          "priority": form.get(f"step{i}_priority") or "normal", "urgent": form.get(f"step{i}_urgent") == "1"})
+        trigger = str(form.get("trigger_type") or "")
+        return {
+            "name": form.get("name"), "trigger_type": trigger, "interval_minutes": form.get("interval_minutes"),
+            "trigger_config": {"rule_id": form.get("rule_id") or "", "include_dry_run": form.get("include_dry_run") == "1",
+                               "events": form.getlist("events"), "min_count": form.get("min_count"),
+                               "window_seconds": form.get("window_seconds"), "group": form.get("group") or "actor",
+                               "cooldown_seconds": form.get("cooldown_seconds")},
+            "condition": {"type": form.get("condition_type") or "always", "value": form.get("condition_value")},
+            "steps": steps, "enabled": form.get("enabled") == "1", "test_mode": form.get("test_mode") == "1",
+        }
+
+    @app.post("/ultimate/automations/save")
+    async def ultimate_automation_save(request: Request, user_session: str = Cookie(None)):
+        ctx = ctx_auth(request, user_session, manager=True)
+        form = await request.form()
+        automation_id = str(form.get("automation_id") or "").strip()
+        existing = load_automation(automation_id, ctx) if automation_id else None  # 403 for security automations
+        try:
+            value = _rules().normalize_automation(editor_payload(form), is_admin=is_admin(ctx))
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc))
+        except ValueError as exc:
+            import webserver
+            return webserver.back("/ultimate/automations" + (f"?edit={automation_id}" if automation_id else "") + "#editor", str(exc), False)
+        name = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+        first = value["steps"][0]["type"]
+        payload = json.dumps({"condition": value["condition"]} if value["condition"]["type"] != "always" else {}, ensure_ascii=False)
+        next_run = iso(utcnow() + timedelta(minutes=value["interval_minutes"]))
+        fields = (value["name"], value["trigger_type"], value["interval_minutes"], first, payload, 1 if value["enabled"] else 0,
+                  json.dumps(value["trigger_config"], ensure_ascii=False), json.dumps(value["steps"], ensure_ascii=False),
+                  1 if value["test_mode"] else 0, iso(), name)
+        with cx() as c:
+            if existing:
+                c.execute("""UPDATE ultimate_automations SET name=?,trigger_type=?,interval_minutes=?,action_type=?,action_payload=?,
+                             enabled=?,trigger_config=?,steps_json=?,test_mode=?,updated_at=?,updated_by_name=?,next_run_at=? WHERE id=?""",
+                          (*fields, next_run if existing["trigger_type"] != value["trigger_type"] or existing["interval_minutes"] != value["interval_minutes"]
+                           else existing["next_run_at"], automation_id))
+            else:
+                automation_id = uid("auto")
+                c.execute("""INSERT INTO ultimate_automations(name,trigger_type,interval_minutes,action_type,action_payload,enabled,
+                             trigger_config,steps_json,test_mode,updated_at,updated_by_name,next_run_at,id,last_run_at,created_by_id,
+                             created_by_name,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                          (*fields, next_run, automation_id, None, str(ctx.user["id"]), name, iso()))
+        refresh_triggers()
+        audit(ctx, "Automation geändert" if existing else "Automation erstellt", automation_id, value["name"],
+              _rules().describe(value, antinuke_rule_labels() if is_admin(ctx) else {}))
+        import webserver
+        return webserver.back("/ultimate/automations", f"Automation „{value['name']}“ gespeichert" + (" (Testmodus)" if value["test_mode"] else "") + ".", True)
 
     @app.post("/ultimate/automations/create")
     async def ultimate_automation_create(
@@ -1647,7 +1927,13 @@ def register(app) -> None:
         interval_minutes: int = Form(1440), action_type: str = Form(...),
         payload: str = Form("{}"), user_session: str = Cookie(None),
     ):
+        # Kept for existing forms/scripts: one scheduled action with a JSON payload. Only the actions the
+        # engine really supports are accepted (an unknown action used to be stored and fail on every run).
         ctx = ctx_auth(request, user_session, manager=True)
+        if trigger_type != "interval":
+            raise HTTPException(400, "Dieser Weg unterstützt nur den Auslöser „interval“ – Ereignis-Auslöser im Editor anlegen.")
+        if action_type not in LEGACY_ACTIONS:
+            raise HTTPException(400, "Unbekannte Aktion.")
         try:
             obj = json.loads(payload)
             if not isinstance(obj, dict):
@@ -1657,7 +1943,8 @@ def register(app) -> None:
         next_run = utcnow() + timedelta(minutes=max(5, min(10080, interval_minutes)))
         with cx() as c:
             c.execute(
-                "INSERT INTO ultimate_automations VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                """INSERT INTO ultimate_automations(id,name,trigger_type,interval_minutes,action_type,action_payload,enabled,
+                   next_run_at,last_run_at,created_by_id,created_by_name,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (uid("auto"), name.strip()[:160], trigger_type[:40], max(5, min(10080, interval_minutes)),
                  action_type[:60], json.dumps(obj, ensure_ascii=False), 1, iso(next_run), None,
                  str(ctx.user["id"]), ctx.user.get("global_name") or ctx.user.get("username") or "Team", iso()),
@@ -1670,14 +1957,8 @@ def register(app) -> None:
         request: Request, automation_id: str, user_session: str = Cookie(None),
     ):
         ctx = ctx_auth(request, user_session, manager=True)
+        record = load_automation(automation_id, ctx)
         with cx() as c:
-            row = c.execute(
-                "SELECT id,name,enabled,interval_minutes,next_run_at FROM ultimate_automations WHERE id=?",
-                (automation_id,),
-            ).fetchone()
-            if not row:
-                raise HTTPException(404, "Automation nicht gefunden.")
-            record = dict(row)
             enabled = 0 if record["enabled"] else 1
             next_run_at = (
                 iso(utcnow() + timedelta(minutes=max(5, int(record["interval_minutes"]))))
@@ -1687,11 +1968,52 @@ def register(app) -> None:
                 "UPDATE ultimate_automations SET enabled=?,next_run_at=? WHERE id=?",
                 (enabled, next_run_at, automation_id),
             )
+        refresh_triggers()
         audit(
             ctx, "Automation fortgesetzt" if enabled else "Automation pausiert",
             automation_id, record["name"], f"enabled={enabled}",
         )
         return RedirectResponse("/ultimate/automations", status_code=303)
+
+    @app.post("/ultimate/automations/{automation_id}/delete")
+    async def ultimate_automation_delete(request: Request, automation_id: str, user_session: str = Cookie(None)):
+        ctx = ctx_auth(request, user_session, manager=True)
+        record = load_automation(automation_id, ctx)
+        form = await request.form()
+        import webserver
+        if form.get("confirm") != "1":
+            return webserver.back("/ultimate/automations", "Löschen bitte bestätigen.", False)
+        with cx() as c:
+            c.execute("DELETE FROM ultimate_automations WHERE id=?", (automation_id,))
+        refresh_triggers()
+        audit(ctx, "Automation gelöscht", automation_id, record["name"], "Ausführungsverlauf bleibt erhalten")
+        return webserver.back("/ultimate/automations", f"Automation „{record['name']}“ gelöscht.", True)
+
+    async def manual_run(request, automation_id, user_session, dry_run: bool):
+        ctx = ctx_auth(request, user_session, manager=True)
+        record = load_automation(automation_id, ctx)
+        form = await request.form()
+        import webserver
+        if not dry_run and form.get("confirm") != "1":
+            return webserver.back("/ultimate/automations", "Ausführen bitte bestätigen.", False)
+        name = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+        bot = getattr(request.app.state, "bot", None)
+        context = {"actor_id": "", "actor_name": name, "rule_label": "manueller Test", "events": [], "result": ""}
+        result = await execute_automation(bot, record, trigger_info={"trigger": "manual_test" if dry_run else "manual"},
+                                          context=context, actor_name=name, dry_run=dry_run)
+        audit(ctx, "Automation getestet" if dry_run else "Automation manuell ausgeführt", automation_id, record["name"],
+              f"{result['status']}: {result['summary'][:500]}")
+        ok = result["status"] in ("success", "test", "skipped")
+        return webserver.back("/ultimate/automations", f"{'Testlauf' if dry_run else 'Ausführung'} „{record['name']}“: "
+                              f"{result['status']} – {result['summary'][:300]}", ok)
+
+    @app.post("/ultimate/automations/{automation_id}/test")
+    async def ultimate_automation_test(request: Request, automation_id: str, user_session: str = Cookie(None)):
+        return await manual_run(request, automation_id, user_session, True)
+
+    @app.post("/ultimate/automations/{automation_id}/run")
+    async def ultimate_automation_run(request: Request, automation_id: str, user_session: str = Cookie(None)):
+        return await manual_run(request, automation_id, user_session, False)
 
     @app.get("/ultimate/system", response_class=HTMLResponse)
     async def ultimate_system(request: Request, user_session: str = Cookie(None)):
@@ -2321,6 +2643,222 @@ async def _run_automation(bot, automation: dict):
     return "unsupported action"
 
 
+# --------------------------------------------------------------------------- automation engine (7.18)
+# One engine for schedule and event automations: execute_automation() runs a step chain (or a legacy single
+# action), stores one run row with per-step results and keeps at most MAX_RUNS_PER_AUTOMATION rows each.
+MAX_RUNS_PER_AUTOMATION = 500
+_LEGACY_FAILURES = ("guild unavailable", "target unavailable", "assignee unavailable", "unsupported action")
+_EVENT_TRIGGER_CACHE: dict = {"db": None, "triggers": frozenset()}  # filled by refresh_event_triggers()
+_EVENT_COUNTER = None  # pulse_automation_rules.EventCounter, created on first use
+_EVENT_COOLDOWNS: OrderedDict[tuple, float] = OrderedDict()
+_EVENT_SEEN: OrderedDict[tuple, bool] = OrderedDict()
+_RUNNING: set = set()
+_DISPATCH_DEPTH = contextvars.ContextVar("pulse_automation_dispatch_depth", default=0)
+
+
+def automation_steps(automation: dict) -> list[dict]:
+    try:
+        steps = json.loads(automation.get("steps_json") or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [s for s in steps if isinstance(s, dict)] if isinstance(steps, list) else []
+
+
+def automation_trigger_config(automation: dict) -> dict:
+    try:
+        data = json.loads(automation.get("trigger_config") or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def refresh_event_triggers() -> None:
+    """Remember which event triggers have enabled automations (so Discord events skip the DB otherwise)."""
+    init_db()
+    with cx() as c:
+        rows = c.execute("SELECT DISTINCT trigger_type FROM ultimate_automations WHERE enabled=1").fetchall()
+    _EVENT_TRIGGER_CACHE.update(db=str(ultimate_db()), triggers=frozenset(r[0] for r in rows) & _rules().EVENT_TRIGGERS)
+
+
+def _rules():
+    import pulse_automation_rules
+    return pulse_automation_rules
+
+
+async def _run_step(bot, guild, automation: dict, step: dict, context: dict) -> tuple[str, str]:
+    """One step → (ok|failed|skipped, detail). Never raises for Discord errors."""
+    rules = _rules()
+    kind = step.get("type")
+    text_ctx = {"name": automation.get("name", ""), "time": iso(), **{k: v for k, v in context.items() if isinstance(v, (str, int, float))},
+                "events": ", ".join(context.get("events") or []) if isinstance(context.get("events"), list) else context.get("events", "")}
+    if kind in rules.LEGACY_STEP_TYPES:
+        payload = {k: (rules.render_text(v, text_ctx) if isinstance(v, str) and k in ("title", "body", "description") else v)
+                   for k, v in step.items() if k != "type"}
+        result = await _run_automation(bot, {**automation, "action_type": kind, "action_payload": json.dumps(payload)})
+        return ("failed" if result in _LEGACY_FAILURES else "ok"), result
+    if kind not in rules.STEP_TYPES:
+        return "failed", "nicht unterstützte Aktion"
+    import webserver
+    import pulse_moderation as pm
+    config = pm.normalize_antinuke(webserver.load_config().get("pulse_antinuke"))
+    if kind == "activity_log":
+        db.record_event("Automation: Protokoll", "automation", automation.get("id", ""), "0", "Pulse Automation",
+                        {"automation": automation.get("name", ""), "text": rules.render_text(step.get("text"), text_ctx)[:1000],
+                         "trigger": {k: v for k, v in context.items() if k in ("rule_id", "rule_label", "events", "actor_id", "result")}})
+        return "ok", "Eintrag gespeichert"
+    if guild is None:
+        return "failed", "Server nicht verfügbar"
+    if kind in ("security_alert", "notify_role"):
+        channel = guild.get_channel(config["alert_channel_id"]) if config["alert_channel_id"] else None
+        if channel is None:
+            return "failed", "kein Anti-Nuke-Alarmkanal konfiguriert oder gefunden"
+        text = rules.render_text(step.get("text") or "", text_ctx) or f"🤖 Automation „{automation.get('name', '')}“ ausgelöst."
+        mentions = discord.AllowedMentions.none()
+        if kind == "notify_role":
+            if not config["manager_role_id"]:
+                return "failed", "keine Verwaltungsrolle konfiguriert"
+            text = f"<@&{config['manager_role_id']}> {text}"
+            mentions = discord.AllowedMentions(everyone=False, users=False, roles=[discord.Object(id=config["manager_role_id"])])
+        try:
+            await channel.send(f"🤖 {text}"[:1900], allowed_mentions=mentions)
+        except discord.Forbidden:
+            return "failed", "Discord hat das Senden abgelehnt (Rechte im Alarmkanal)"
+        except discord.HTTPException as exc:
+            return "failed", f"Discord-Fehler HTTP {exc.status}"
+        return "ok", f"gesendet in #{getattr(channel, 'name', channel.id)}"
+    if kind == "antinuke_lockdown":
+        if not config["enabled"] or config["mode"] != "protect":
+            return "skipped", "Anti-Nuke ist nicht im aktiven Schutzmodus – kein Lockdown"
+        from cogs.antinuke import start_lockdown
+        result = await start_lockdown(guild, config["lockdown_channel_ids"], by=f"Automation {automation.get('name', '')}"[:80],
+                                      reason=f"Pulse-Automation „{automation.get('name', '')}“")
+        return ("ok" if result["status"] in ("ok", "partial") else result["status"]), result["detail"]
+    return "failed", "nicht unterstützte Aktion"
+
+
+def _store_run(automation: dict, status: str, summary: str, *, started: str, duration_ms: int,
+               trigger_info: dict, steps: list, actor_name: str) -> str:
+    run_id = uid("run")
+    with cx() as c:
+        c.execute(
+            "INSERT INTO ultimate_automation_runs(id,automation_id,status,result,started_at,finished_at,trigger_info,steps_json,duration_ms,actor_name)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (run_id, automation["id"], status, summary[:3000], started, iso(),
+             json.dumps({**trigger_info, "automation_name": automation.get("name", "")}, ensure_ascii=False)[:3000],
+             json.dumps(steps, ensure_ascii=False)[:6000], int(duration_ms), actor_name[:80]),
+        )
+        c.execute(
+            """DELETE FROM ultimate_automation_runs WHERE automation_id=? AND id NOT IN
+               (SELECT id FROM ultimate_automation_runs WHERE automation_id=? ORDER BY started_at DESC LIMIT ?)""",
+            (automation["id"], automation["id"], MAX_RUNS_PER_AUTOMATION),
+        )
+    return run_id
+
+
+async def execute_automation(bot, automation: dict, *, trigger_info: dict, context: dict | None = None,
+                             actor_name: str = "", dry_run: bool = False) -> dict:
+    """Run one automation once and store the result. dry_run (or test mode) only records what would run."""
+    context = context or {}
+    started, t0 = iso(), time.monotonic()
+    key = automation["id"]
+    if key in _RUNNING:
+        return {"status": "skipped", "summary": "läuft bereits – doppelte Ausführung verhindert", "steps": []}
+    _RUNNING.add(key)
+    token = _DISPATCH_DEPTH.set(_DISPATCH_DEPTH.get() + 1)  # steps never re-trigger automations
+    steps_done: list[dict] = []
+    try:
+        steps = automation_steps(automation)
+        dry = dry_run or bool(automation.get("test_mode"))
+        import webserver
+        guild = bot.get_guild(webserver.GUILD_ID) if bot else None
+        if not steps:  # automation from before 7.18: one action with a JSON payload
+            if dry:
+                status, summary = "test", f"Testlauf: würde „{automation.get('action_type')}“ ausführen"
+            else:
+                try:
+                    result = await _run_automation(bot, automation)
+                    status = "skipped" if result == "condition_not_met" else ("error" if result in _LEGACY_FAILURES else "success")
+                    summary = result
+                except Exception as exc:
+                    status, summary = "error", str(exc)
+            steps_done = [{"type": automation.get("action_type"), "status": status, "detail": summary[:300]}]
+        else:
+            condition = None
+            try:
+                condition = json.loads(automation.get("action_payload") or "{}").get("condition")
+            except (TypeError, ValueError, AttributeError):
+                condition = None
+            if condition and condition.get("type", "always") != "always" and guild is not None:
+                probe = await _run_automation(bot, {**automation, "action_type": "_condition_only",
+                                                    "action_payload": json.dumps({"condition": condition})})
+                if probe == "condition_not_met":
+                    summary = "Bedingung nicht erfüllt – keine Aktion"
+                    await asyncio.to_thread(_store_run, automation, "skipped", summary, started=started,
+                                            duration_ms=int((time.monotonic() - t0) * 1000), trigger_info=trigger_info,
+                                            steps=[], actor_name=actor_name)
+                    return {"status": "skipped", "summary": summary, "steps": []}
+            for step in steps[:_rules().MAX_STEPS]:
+                if dry:
+                    steps_done.append({"type": step.get("type"), "status": "test", "detail": "Testmodus – nicht ausgeführt"})
+                    continue
+                try:
+                    state, detail = await _run_step(bot, guild, automation, step, context)
+                except Exception as exc:  # a failing step never stops the remaining steps
+                    state, detail = "failed", f"Fehler: {type(exc).__name__}"
+                steps_done.append({"type": step.get("type"), "status": state, "detail": str(detail)[:300]})
+            failed = [s for s in steps_done if s["status"] == "failed"]
+            status = "test" if dry else ("error" if failed else "success")
+            summary = " · ".join(f"{_rules().STEP_TYPES.get(s['type'], s['type'])}: {s['detail']}" for s in steps_done)
+        duration = int((time.monotonic() - t0) * 1000)
+        await asyncio.to_thread(_store_run, automation, status, summary, started=started, duration_ms=duration,
+                                trigger_info=trigger_info, steps=steps_done, actor_name=actor_name)
+        return {"status": status, "summary": summary, "steps": steps_done, "duration_ms": duration}
+    finally:
+        _DISPATCH_DEPTH.reset(token)
+        _RUNNING.discard(key)
+
+
+async def dispatch_event(bot, trigger: str, context: dict) -> int:
+    """Run enabled automations whose event trigger matches. Bounded, deduplicated, no recursion."""
+    global _EVENT_COUNTER
+    if _DISPATCH_DEPTH.get() > 0:
+        return 0  # an automation step caused this event – never start another chain from it
+    if _EVENT_TRIGGER_CACHE["db"] != str(ultimate_db()) or trigger not in _EVENT_TRIGGER_CACHE["triggers"]:
+        return 0
+    rules = _rules()
+    if _EVENT_COUNTER is None:
+        _EVENT_COUNTER = rules.EventCounter()
+    with cx() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT * FROM ultimate_automations WHERE enabled=1 AND trigger_type=? LIMIT 50", (trigger,)).fetchall()]
+    ran, now = 0, time.monotonic()
+    for automation in rows:
+        cfg = automation_trigger_config(automation)
+        if not rules.trigger_matches(trigger, cfg, trigger, context):
+            continue
+        dedupe = (automation["id"], context.get("audit_entry_id") or context.get("rule_id"), context.get("actor_id"), trigger)
+        if dedupe in _EVENT_SEEN:
+            continue
+        _EVENT_SEEN[dedupe] = True
+        while len(_EVENT_SEEN) > 2000:
+            _EVENT_SEEN.popitem(last=False)
+        group = (automation["id"], context.get("actor_id") if cfg.get("group", "actor") == "actor" else "*")
+        if trigger == "antinuke_event" and int(cfg.get("min_count", 1)) > 1:
+            count = _EVENT_COUNTER.hit(group, now, min_count=int(cfg["min_count"]), window_seconds=int(cfg.get("window_seconds", 10)))
+            if count < int(cfg["min_count"]):
+                continue
+            _EVENT_COUNTER.reset(group)
+        if _EVENT_COOLDOWNS.get(group, 0) > now:
+            continue
+        _EVENT_COOLDOWNS[group] = now + int(cfg.get("cooldown_seconds", 60))
+        while len(_EVENT_COOLDOWNS) > 2000:
+            _EVENT_COOLDOWNS.popitem(last=False)
+        info = {"trigger": trigger, **{k: context.get(k) for k in ("rule_id", "rule_label", "events", "actor_id", "dry_run") if k in context}}
+        await execute_automation(bot, automation, trigger_info=info, context=context)
+        ran += 1
+    return ran
+
+
 async def _automation_cycle(bot):
     """One run of the 60-second automation work (everything except the memory guard)."""
     # U-11: opt-in notification DMs, bounded batch per run on this existing loop.
@@ -2363,24 +2901,16 @@ async def _automation_cycle(bot):
 
     now = utcnow()
     with cx() as c:
+        # Event automations (Anti-Nuke) run through dispatch_event, never on the schedule.
         rows = [dict(r) for r in c.execute(
-            "SELECT * FROM ultimate_automations WHERE enabled=1 AND next_run_at<=?",
+            "SELECT * FROM ultimate_automations WHERE enabled=1 AND next_run_at<=? "
+            "AND trigger_type NOT IN ('antinuke_rule','antinuke_event')",
             (iso(now),),
         ).fetchall()]
     for automation in rows:
-        run_id = uid("run")
-        started = iso()
-        try:
-            result = await _run_automation(bot, automation)
-            run_status = "success"
-        except Exception as exc:
-            result = str(exc)
-            run_status = "error"
+        # The run is stored by execute_automation (status, result, per-step results, duration).
+        await execute_automation(bot, automation, trigger_info={"trigger": "interval"})
         with cx() as c:
-            c.execute(
-                "INSERT INTO ultimate_automation_runs VALUES(?,?,?,?,?,?)",
-                (run_id, automation["id"], run_status, result[:3000], started, iso()),
-            )
             next_run = now + timedelta(minutes=max(5, int(automation["interval_minutes"])))
             c.execute(
                 "UPDATE ultimate_automations SET last_run_at=?,next_run_at=? WHERE id=?",
@@ -2391,6 +2921,10 @@ async def _automation_cycle(bot):
 async def automation_loop(bot):
     import pulse_jobs  # P-06/P-01: registry and loop-lag measurement piggyback on this existing loop
     setup()
+    try:
+        refresh_event_triggers()  # enables dispatch_event for Anti-Nuke automations
+    except Exception as exc:
+        print(f"⚠️ Ereignis-Automationen konnten nicht geladen werden: {type(exc).__name__}")
     while True:
         try:
           async with pulse_jobs.job("Automation (60 s)", 60):

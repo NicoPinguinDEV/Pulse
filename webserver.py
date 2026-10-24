@@ -10197,6 +10197,9 @@ async def save_security_settings(request: Request, user_session: str = Cookie(No
     previous_antinuke = ctx.config.get("pulse_antinuke") if isinstance(ctx.config.get("pulse_antinuke"), dict) else {}
     ctx.config["pulse_automod"] = normalize_automod({**previous_automod, **automod})
     ctx.config["pulse_antinuke"] = normalize_antinuke({**previous_antinuke, **antinuke})
+    if isinstance(previous_antinuke.get("rules"), list):  # keep individual rules exactly as stored (also invalid ones)
+        ctx.config["pulse_antinuke"]["rules"] = previous_antinuke["rules"]
+    ctx.config["pulse_antinuke"]["revision"] = ctx.config["pulse_antinuke"]["revision"] + 1
     save_json(CONFIG_FILE, ctx.config)
     log_audit(
         ctx.user.get("global_name") or ctx.user.get("username"),

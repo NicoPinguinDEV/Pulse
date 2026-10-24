@@ -2,6 +2,21 @@
 
 ## Unveröffentlicht – Betrieb auf dem Vionity-VPS
 
+### Anti-Nuke Control Center & Automationen
+
+> **Hinweise nach dem Update:**
+> - Bestehende Anti-Nuke-Konfigurationen arbeiten unverändert weiter: ohne gespeicherten Modus gilt eine sanktionierende Reaktion als „Aktiver Schutz“, „Nur melden“ als „Alarmmodus“. Neue Installationen bleiben **aus**; das erste Einschalten startet im **Alarmmodus**, der aktive Schutzmodus muss ausdrücklich bestätigt werden.
+> - Das bisherige Zählen (alle Ereignisse gemeinsam, `action_limit`/`window_seconds`/`response`) lebt als **„Globale Standardregel“** weiter. Ein Ereignis mit eigener Regel zählt nur noch dort.
+> - Ausführungsverlauf der Automationen: höchstens 500 Einträge **pro Automation** (ältere Einträge werden beim nächsten Lauf entfernt).
+
+- **Verwaltung → Sicherheit** (`/admin/security`): neues **Anti-Nuke Control Center** – Status (Deaktiviert/Alarmmodus/Aktiver Schutz), aktive Regeln, Vorfälle, letzte Bedrohung und Maßnahme, Alarmkanal, benötigte Bot-Rechte je nach Regeln, Hinweise auf fehlerhafte Werte, letzte Änderung und Änderungsverlauf.
+- **Individuelle Regeln** (`config.json → pulse_antinuke.rules`, rückwärtskompatibel): je Regel Ereignis(se), Schwelle 1–50, Zeitfenster 3–600 s, Cooldown, Schweregrad, Testmodus, eigene Ausnahmen und eine Aktionskette aus fester Liste (Protokoll, Alarm, Verwaltungsrolle erwähnen, Admin-Inbox, Notfall-Lockdown, Rollen entziehen, Kick, Bann). Eigener Zähler pro Regel und verantwortlicher Person, jede Audit-Log-Aktion zählt einmal; Vorlagen, Live-Vorschau in Klartext, Simulation ohne Wirkung. Kick/Bann/Lockdown müssen beim Speichern bestätigt werden.
+- **Neue Ereignisse:** Kanal erstellt, kritische Kanaleinstellung, Rolle erstellt, gefährliche Rolle vergeben, Servereinstellungen geändert.
+- **Notfall-Lockdown:** entzieht @everyone in ausgewählten Kanälen Schreiben/Reaktionen/Threads bzw. Verbinden/Sprechen, speichert die vorherigen Rechte und stellt sie per Dashboard genau wieder her. Gelöschte Kanäle oder Rollen werden nicht wiederhergestellt.
+- **Sicherheit:** doppelte Banns über mehrere Regeln verhindert (Aktions-Cooldown), Serverinhaber/Pulse nie sanktioniert, abgelehnte Discord-Aktionen werden als fehlgeschlagen protokolliert, übrige Schritte laufen weiter. Speichern mit Revisionsprüfung (kein Überschreiben fremder Änderungen), ungültige gespeicherte Regeln bleiben erhalten und werden angezeigt.
+- **Automationen** (`/ultimate/automations`, gleiche Engine): Editor Wenn → Und → Dann mit bis zu 6 Aktionen, neue Auslöser „Anti-Nuke-Regel ausgelöst“ und „Sicherheitsereignis erkannt“ (mit Mindestanzahl, Zeitraum, Gruppierung je Person), neue Aktionen Aktivitätsprotokoll, Sicherheitsmeldung, Verwaltungsrolle, Lockdown. Bearbeiten, Testlauf, Jetzt ausführen, Löschen (mit Bestätigung), Filter/Sortierung, Fehlerprüfung, Verlauf mit Schritt-Ergebnissen, Laufzeit und ausführender Person. Sicherheits-Automationen nur für Administratoren. `POST /ultimate/automations/create` lehnt unbekannte Aktionen/Auslöser jetzt ab.
+- **Tests:** `tests/test_antinuke_control_center.py`, `tests/test_automation_center.py`; Route-Snapshot und `docs/ROUTEN.md` neu erzeugt.
+
 - **Neu:** `deploy/vps_bootstrap.sh` richtet einen frischen Ubuntu-24.04-VPS einmalig ein: Updates, automatische Sicherheitsupdates, Docker/Compose, 2 GiB Swap, Firewall (SSH/80/443, SSH-Port wird automatisch erkannt), fail2ban, Checkout und Rechte für UID 1000. Wiederholbar; Laufzeitdaten bleiben unangetastet, Pulse wird nicht gestartet. Anleitung: `VPS_DEPLOYMENT.md` §0.
 - **`/healthz`** meldet zusätzlich `gateway_latency_ms` und `memory_mb` (Container-RAM). Der Statuscode (200 nur, wenn Bot, Server und Datenbank bereit sind) bleibt unverändert, Deploy-Rollback und Docker-Healthcheck verhalten sich wie bisher.
 - **`.gitattributes`** erzwingt LF für Shell-Skripte, Dockerfile, Caddyfile und YAML – ein unter Windows gespeichertes CRLF hätte `remote_deploy.sh` auf dem VPS abbrechen lassen.

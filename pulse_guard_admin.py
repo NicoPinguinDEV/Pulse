@@ -26,6 +26,7 @@ INCIDENT_TYPES = (
     "AutoMod-Maßnahme", "Anti-Nuke-Aktion erkannt", "Anti-Nuke ausgelöst", "Anti-Nuke: Akteur gesperrt",
     "Anti-Nuke: Akteur gekickt", "Anti-Nuke: Quarantäne", "Anti-Nuke: Bot entfernt",
     "Anti-Nuke: Quarantäne aufgehoben", "Anti-Nuke: Quarantäne verworfen",
+    "Anti-Nuke: Lockdown gestartet", "Anti-Nuke: Lockdown aufgehoben",
 )
 INCIDENT_LIMIT = 60
 REQUIRED_PERMISSIONS = (
@@ -129,12 +130,14 @@ def readiness(guild, automod: dict, antinuke: dict) -> dict:
     perms = getattr(me, "guild_permissions", None)
     top = int(getattr(getattr(me, "top_role", None), "position", 0) or 0)
     missing = []
+    try:  # Anti-Nuke needs exactly what its rules use (pulse_antinuke_admin.needed_permissions)
+        from pulse_antinuke_admin import needed_permissions
+        antinuke_needed = {key for key, _label, _used in needed_permissions(pm.normalize_antinuke(antinuke))}
+    except Exception:
+        antinuke_needed = {"view_audit_log"}
     for key, label, used_by in REQUIRED_PERMISSIONS:
         if perms is None or not getattr(perms, key, False):
-            if key == "manage_roles" and antinuke.get("response") != "quarantine":
-                continue
-            if key in ("kick_members", "ban_members") and antinuke.get("response") not in ("kick", "ban") and not (
-                    key == "kick_members" and antinuke.get("kick_unverified_bots")):
+            if used_by.startswith("Anti-Nuke") and key not in antinuke_needed:
                 continue
             missing.append((label, used_by))
     roles = list(getattr(guild, "roles", []) or [])
@@ -170,7 +173,7 @@ def score(ready: dict, automod: dict, antinuke: dict) -> int:
     """0–100 protection score shown on the overview (simple, explainable)."""
     points = 0
     points += 30 if antinuke.get("enabled") else 0
-    points += 10 if antinuke.get("enabled") and antinuke.get("response") != "alert" else 0
+    points += 10 if antinuke.get("enabled") and antinuke.get("mode") == "protect" else 0
     points += 25 if automod.get("enabled") else 0
     points += 5 if automod.get("enabled") and automod.get("mode") == "enforce" else 0
     points += 10 if not ready["missing"] else 0
@@ -280,7 +283,7 @@ def register(app) -> None:
         channel = guild.get_channel(int(cid)) if str(cid).isdigit() else None
         return f"#{e(channel.name)}" if channel is not None else (f"Kanal {e(cid)}" if cid else "–")
 
-    def page(ctx, test_result: str = "", test_text: str = "") -> str:
+    def page(ctx, test_result: str = "", test_text: str = "", **antinuke_kwargs) -> str:
         guild = ctx.guild
         automod, antinuke = current(ctx.config)
         ready = readiness(guild, automod, antinuke)
@@ -318,7 +321,7 @@ def register(app) -> None:
 <span class="pulse-pill {tone}">Schutzwert {total}/100</span></div>
 <div class="pulse-card-b guard-grid">
  <div><div class="guard-kv"><span>AutoMod</span><span class="pulse-pill {"good" if automod["enabled"] else ""}">{("aktiv · " + ("durchsetzen" if automod["mode"] == "enforce" else "nur beobachten")) if automod["enabled"] else "aus"}</span></div>
-  <div class="guard-kv"><span>Anti-Nuke</span><span class="pulse-pill {"good" if antinuke["enabled"] else ""}">{("aktiv · " + pm.ANTINUKE_RESPONSE_LABELS[antinuke["response"]].split(" –")[0]) if antinuke["enabled"] else "aus"}</span></div>
+  <div class="guard-kv"><span>Anti-Nuke</span><span class="pulse-pill {("good" if antinuke["mode"] == "protect" else "warn") if antinuke["enabled"] else ""}">{("aktiv · " + ("Aktiver Schutz" if antinuke["mode"] == "protect" else "Alarmmodus")) if antinuke["enabled"] else "aus"}</span></div>
   <div class="guard-kv"><span>Raid-Frühwarnung</span><span class="pulse-pill {"good" if raid_on else ""}">{"aktiv (nur Alarm)" if raid_on else "aus"}</span></div>
   {channel_rows}
   <div class="guard-kv"><span>Personen mit gefährlichen Rechten</span><strong>{ready["dangerous_members"]}</strong></div></div>
@@ -395,37 +398,43 @@ def register(app) -> None:
  <div><button class="pulse-btn primary" type="submit">💾 AutoMod speichern</button></div>
 </form></div></section>'''
 
-        # ---- Anti-Nuke form
+        # ---- Anti-Nuke: global settings (the rest of the Control Center comes from pulse_antinuke_admin)
+        from pulse_antinuke_admin import global_form_extras, render_sections
+        covered = {ev: r["label"] for r in antinuke["rules"] if r["enabled"] for ev in r["events"]}
         events = "".join(
-            f'<label class="guard-check"><input type="checkbox" name="antinuke_events" value="{key}"{" checked" if key in antinuke["events"] else ""}>'
-            f'<span>{e(label)}</span></label>' for key, label in pm.ANTINUKE_EVENT_LABELS.items())
+            f'<div><div class="guard-hint" style="font-weight:700;margin:4px 0">{e(title)}</div>' + "".join(
+                f'<label class="guard-check"><input type="checkbox" name="antinuke_events" value="{key}"{" checked" if key in antinuke["events"] else ""}>'
+                f'<span>{e(pm.ANTINUKE_EVENT_LABELS[key])}' + (f'<small>→ eigene Regel „{e(covered[key])}“</small>' if key in covered else "") + '</span></label>'
+                for key in keys) + "</div>"
+            for title, keys in pm.ANTINUKE_EVENT_GROUPS)
         responses = "".join(
             f'<label class="guard-check"><input type="radio" name="response" value="{key}"{" checked" if antinuke["response"] == key else ""}>'
             f'<span><strong>{e(label)}</strong></span></label>' for key, label in pm.ANTINUKE_RESPONSE_LABELS.items())
-        antinuke_form = f'''
-<section id="antinuke" class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">🛡️ Anti-Nuke</div>
-<div class="pulse-section-sub">Liest das Discord-Audit-Log und reagiert, wenn eine Person in kurzer Zeit zu viele zerstörerische Aktionen ausführt. Serverinhaber und Pulse selbst sind immer ausgenommen.</div></div>
+        already_protect = antinuke["enabled"] and antinuke["mode"] == "protect"
+        confirm_js = ("var m=this.querySelector('input[name=mode]:checked');"
+                      f"if(m&&m.value==='protect'&&{'false' if already_protect else 'true'}){{"
+                      "if(!window.confirm('Aktiver Schutz: Pulse führt die konfigurierten Maßnahmen (Rollenentzug, Kick, Bann, Lockdown) automatisch aus. Wirklich einschalten?'))return false;"
+                      "this.confirm_protect.value='1';}return true;")
+        antinuke_form = render_sections(ws, ctx, rows, **antinuke_kwargs) + f'''
+<section id="antinuke" class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">⚙️ Anti-Nuke · Globale Einstellungen</div>
+<div class="pulse-section-sub">Liest das Discord-Audit-Log und reagiert, wenn eine Person in kurzer Zeit zu viele zerstörerische Aktionen ausführt. Serverinhaber und Pulse selbst sind immer ausgenommen. Nach einer Neuinstallation ist Anti-Nuke aus; beim ersten Einschalten startet es im Alarmmodus.</div></div>
 <span class="pulse-pill {"good" if antinuke["enabled"] else ""}">{"aktiv" if antinuke["enabled"] else "aus"}</span></div>
-<div class="pulse-card-b"><form method="post" action="/admin/security/antinuke" class="guard-form"
- onsubmit="var r=this.querySelector('input[name=response]:checked');return !r||r.value==='alert'||r.value==='quarantine'||confirm('Anti-Nuke darf Personen automatisch vom Server entfernen. Wirklich speichern?')">
+<div class="pulse-card-b"><form method="post" action="/admin/security/antinuke" class="guard-form" onsubmit="{e(confirm_js)}">
  <label class="guard-check"><input type="checkbox" name="antinuke_enabled" value="1"{" checked" if antinuke["enabled"] else ""}><span><strong>Anti-Nuke aktivieren</strong></span></label>
- <div class="pulse-section-title" style="margin-top:6px">Überwachte Ereignisse</div>
+ {global_form_extras(guild, antinuke)}
+ <div class="pulse-section-title" style="margin-top:6px">Globale Standardregel: überwachte Ereignisse</div>
  <div class="guard-grid">{events}</div>
  <div class="guard-grid">
-  {num("action_limit", "Schwelle: Aktionen", 2, 10, antinuke["action_limit"])}
-  {num("window_seconds", "… innerhalb von Sekunden", 5, 60, antinuke["window_seconds"])}
+  {num("action_limit", "Standard-Schwelle: Aktionen", 2, 10, antinuke["action_limit"], "Rückfallwert für Regeln ohne eigene Schwelle.")}
+  {num("window_seconds", "Standard-Zeitfenster (Sekunden)", 5, 60, antinuke["window_seconds"], "Rückfallwert für Regeln ohne eigenes Zeitfenster.")}
  </div>
- <div class="pulse-section-title" style="margin-top:6px">Reaktion bei Erreichen der Schwelle</div>
+ <div class="pulse-section-title" style="margin-top:6px">Reaktion der Standardregel</div>
  <div class="guard-grid">{responses}</div>
- <label class="guard-check"><input type="checkbox" name="kick_unverified_bots" value="1"{" checked" if antinuke["kick_unverified_bots"] else ""}><span><strong>Bots sofort entfernen, die eine nicht freigegebene Person hinzufügt</strong><small>Benötigt das Ereignis „Bot hinzugefügt“ und das Recht „Mitglieder kicken“.</small></span></label>
- <label class="guard-check"><input type="checkbox" name="notify_admins" value="1"{" checked" if antinuke["notify_admins"] else ""}><span><strong>Administratoren in der Pulse-Inbox benachrichtigen</strong></span></label>
- <div class="guard-grid">
-  <label class="guard-field">Vertrauensrollen<select class="pulse-input guard-select" name="trusted_role_ids" multiple>{role_options(guild, antinuke["trusted_role_ids"], dangerous_hint=True)}</select>
-   <span class="guard-hint">Wer eine dieser Rollen hat, löst nie aus. Sparsam vergeben – ein übernommenes Konto mit Vertrauensrolle wird nicht gestoppt.</span></label>
-  <label class="guard-field">Freigestellte Personen (Discord-IDs)<textarea class="pulse-input" name="trusted_user_ids" rows="4" placeholder="Eine ID pro Zeile oder durch Komma getrennt">{e(chr(10).join(str(v) for v in antinuke["trusted_user_ids"]))}</textarea></label>
- </div>
- <label class="guard-field">Alarmkanal Anti-Nuke{alert_select(guild, "alert_channel_id", antinuke["alert_channel_id"])}</label>
- <div><button class="pulse-btn primary" type="submit">💾 Anti-Nuke speichern</button></div>
+ <label class="guard-check"><input type="checkbox" name="kick_unverified_bots" value="1"{" checked" if antinuke["kick_unverified_bots"] else ""}><span><strong>Bots sofort entfernen, die eine nicht freigegebene Person hinzufügt</strong><small>Benötigt das Ereignis „Bot hinzugefügt“ und das Recht „Mitglieder kicken“. Im Alarmmodus wird nur gemeldet.</small></span></label>
+ <label class="guard-check"><input type="checkbox" name="notify_admins" value="1"{" checked" if antinuke["notify_admins"] else ""}><span><strong>Administratoren in der Pulse-Inbox benachrichtigen (Standardregel)</strong></span></label>
+ <label class="guard-field">Sicherheits- und Alarmkanal Anti-Nuke{alert_select(guild, "alert_channel_id", antinuke["alert_channel_id"])}</label>
+ <div class="guard-hint">Vertrauenswürdige Personen und Rollen: Abschnitt <a href="#trusted" style="color:#6366f1">🤝 Ausnahmen</a>.</div>
+ <div><button class="pulse-btn primary" type="submit">💾 Globale Einstellungen speichern</button></div>
 </form></div></section>'''
 
         # ---- tester
@@ -473,7 +482,8 @@ def register(app) -> None:
 <div class="pulse-card-b space-y-2">{"".join(inc_rows) or '<div class="pulse-empty">Noch keine Vorfälle.</div>'}</div></section>'''
 
         nav = "".join(f'<a class="pulse-btn ghost" href="#{a}">{l}</a>' for a, l in (
-            ("overview", "🧭 Status"), ("automod", "💬 AutoMod"), ("antinuke", "🛡️ Anti-Nuke"), ("tester", "🧪 Tester"),
+            ("overview", "🧭 Status"), ("automod", "💬 AutoMod"), ("antinuke-center", "🛡️ Anti-Nuke"), ("rules", "📐 Regeln"),
+            ("trusted", "🤝 Ausnahmen"), ("lockdown", "🔒 Lockdown"), ("antinuke", "⚙️ Global"), ("tester", "🧪 Tester"),
             ("quarantine", f"🔒 Quarantäne ({len(quarantine)})"), ("incidents", "📜 Vorfälle")))
         status_line = (f'AutoMod: {"aktiv" if automod["enabled"] else "inaktiv"} · Regeln: '
                        f'{e(", ".join(pm.AUTOMOD_RULE_LABELS[r] for r in automod["rules"]) or "keine")}<br>'
@@ -487,6 +497,12 @@ def register(app) -> None:
 <div class="pulse-hero-box"><div class="label">Aktueller Stand</div><div class="text-xs mt-2" style="line-height:1.7">{status_line}</div></div></div></div>
 <nav class="guard-nav" aria-label="Abschnitte">{nav}</nav>
 {overview}{automod_form}{antinuke_form}{tester}{quarantine_html}{incidents_html}'''
+
+    def render_page(ctx, **antinuke_kwargs):
+        return HTMLResponse(render_pro_page(ws, "Sicherheit", ctx, "admin-security", page(ctx, **antinuke_kwargs)))
+
+    from pulse_antinuke_admin import register as register_antinuke
+    register_antinuke(app, render_page)
 
     @app.get("/admin/security", response_class=HTMLResponse)
     async def admin_security(request: Request, user_session: str = Cookie(None)):
@@ -551,19 +567,32 @@ def register(app) -> None:
         ctx = admin_ctx(request, user_session)
         form = await request.form()
         guild = ctx.guild
+        from pulse_antinuke_admin import GLOBAL_KEYS, Conflict, form_revision, parse_global_extras, save
         _, old = current()
+        v2 = form.get("form_version") == "2"  # Control Center form; older forms keep the new keys unchanged
         role_ids = {r.id for r in getattr(guild, "roles", []) or []} | set(old["trusted_role_ids"])
+        rule_events = {ev for r in old["rules"] if r["enabled"] for ev in r["events"]}
         try:
             events = sorted(set(form.getlist("antinuke_events")) & pm.ANTINUKE_EVENTS)
             enabled = form.get("antinuke_enabled") in ("1", "on")
-            if enabled and not events:
+            if enabled and not events and not rule_events:
                 raise ValueError("Wähle mindestens ein Anti-Nuke-Ereignis oder deaktiviere Anti-Nuke.")
             response = form.get("response")
             if response not in pm.ANTINUKE_RESPONSES:
                 raise ValueError("Bitte eine Reaktion wählen.")
             kick_bots = form.get("kick_unverified_bots") == "1"
-            if kick_bots and "bot_add" not in events:
+            if kick_bots and "bot_add" not in events and "bot_add" not in rule_events:
                 raise ValueError("„Bots sofort entfernen“ braucht das Ereignis „Bot hinzugefügt“.")
+            # Operating mode: the first activation runs in alert mode; active protection needs an explicit,
+            # confirmed choice (confirm_protect) unless it is already active.
+            mode = form.get("mode")
+            if mode is None:
+                mode = old["mode"] if (old["enabled"] or "mode" in (ctx.config.get("pulse_antinuke") or {})) else "alert"
+            if mode not in pm.ANTINUKE_MODES:
+                raise ValueError("Bitte einen Betriebsmodus wählen.")
+            if mode == "protect" and not (old["enabled"] and old["mode"] == "protect") and form.get("mode") is not None \
+                    and form.get("confirm_protect") != "1":
+                raise ValueError("Der aktive Schutzmodus muss ausdrücklich bestätigt werden – Anti-Nuke bleibt unverändert.")
             raw = {
                 "enabled": enabled,
                 "events": events,
@@ -572,22 +601,32 @@ def register(app) -> None:
                 "response": response,
                 "kick_unverified_bots": kick_bots,
                 "notify_admins": form.get("notify_admins") == "1",
-                "trusted_role_ids": _parse_select(form, "trusted_role_ids", "Vertrauensrollen", role_ids),
-                "trusted_user_ids": _parse_user_ids(form, "trusted_user_ids", "Freigestellte Personen"),
                 "alert_channel_id": _channel_id(form, "alert_channel_id", guild, {old["alert_channel_id"]} - {0}),
+                "mode": mode,
             }
-        except ValueError as exc:
+            if "trusted_role_ids" in form or "trusted_user_ids" in form:  # older form with the exemptions inline
+                raw["trusted_role_ids"] = _parse_select(form, "trusted_role_ids", "Vertrauensrollen", role_ids)
+                raw["trusted_user_ids"] = _parse_user_ids(form, "trusted_user_ids", "Freigestellte Personen")
+            if v2:
+                raw.update(parse_global_extras(form, guild, old))
+            value = {k: v for k, v in pm.normalize_antinuke({**old, **raw}).items() if k in GLOBAL_KEYS and k in raw}
+
+            def mutate(stored, _before):
+                stored.update(value)
+                if "mode" not in stored:
+                    stored["mode"] = mode
+                return stored
+            before, after = save(ws, ctx.user, mutate, expected_revision=form_revision(form))
+        except (ValueError, Conflict) as exc:
             return ws.back("/admin/security#antinuke", str(exc), False)
-        value = pm.normalize_antinuke(raw)
-        try:
-            before = save_section("pulse_antinuke", value)
         except ws.JsonWriteBlocked as exc:
             return ws.back("/admin/security#antinuke", f"Nicht gespeichert: {exc}", False)
-        changed = _changed(pm.normalize_antinuke(before), value)
+        changed = [k for k in _changed(before, after) if k in GLOBAL_KEYS]
         ws.log_audit(_name(ctx.user), ctx.user["id"], "Anti-Nuke-Konfiguration geändert",
-                     f"{'aktiv' if value['enabled'] else 'aus'} · Reaktion {value['response']} · {value['action_limit']} in {value['window_seconds']} s"
-                     f" · geändert: {', '.join(changed) or 'nichts'}")
-        return ws.back("/admin/security#antinuke", "Anti-Nuke-Einstellungen gespeichert – gelten sofort.", True)
+                     f"{'aktiv' if after['enabled'] else 'aus'} · Modus {after['mode']} · Reaktion {after['response']} · "
+                     f"{after['action_limit']} in {after['window_seconds']} s · geändert: {', '.join(changed) or 'nichts'}")
+        note = " Alarmmodus: Pulse meldet nur und sanktioniert nicht." if after["enabled"] and after["mode"] != "protect" else ""
+        return ws.back("/admin/security#antinuke", f"Anti-Nuke-Einstellungen gespeichert – gelten sofort.{note}", True)
 
     @app.post("/admin/security/test", response_class=HTMLResponse)
     async def admin_security_test(request: Request, user_session: str = Cookie(None)):

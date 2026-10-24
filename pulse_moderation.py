@@ -28,6 +28,8 @@ AUTOMOD_MODES = ("enforce", "observe")
 ANTINUKE_EVENTS = frozenset({
     "ban", "kick", "role_delete", "role_update", "channel_delete", "channel_update",
     "webhook_create", "webhook_delete", "webhook_update", "bot_add",
+    # Control Center (7.18): further audit-log events, usable in the global list and in individual rules.
+    "channel_create", "channel_settings", "role_create", "member_role_grant", "guild_update",
 })
 DEFAULT_ANTINUKE_EVENTS = frozenset({"ban", "kick", "role_delete", "role_update", "channel_delete", "channel_update"})
 ANTINUKE_EVENT_LABELS = {
@@ -41,7 +43,36 @@ ANTINUKE_EVENT_LABELS = {
     "webhook_delete": "Webhook gelöscht",
     "webhook_update": "Webhook geändert",
     "bot_add": "Bot hinzugefügt",
+    "channel_create": "Kanal erstellt",
+    "channel_settings": "Kritische Kanaleinstellung geändert",
+    "role_create": "Rolle erstellt",
+    "member_role_grant": "Gefährliche Rolle vergeben",
+    "guild_update": "Servereinstellungen geändert",
 }
+# Longer explanation per event for the rule editor (what exactly Pulse sees in the audit log).
+ANTINUKE_EVENT_HINTS = {
+    "ban": "Jeder Bann eines Mitglieds.",
+    "kick": "Jeder Kick (normales Verlassen zählt nicht).",
+    "role_delete": "Eine Rolle wurde gelöscht.",
+    "role_update": "Rechte oder Position einer Rolle wurden geändert (Umbenennen zählt nicht).",
+    "role_create": "Eine neue Rolle wurde erstellt.",
+    "member_role_grant": "Ein Mitglied hat eine Rolle mit gefährlichen Rechten (z. B. Administrator) erhalten.",
+    "channel_delete": "Ein Kanal oder eine Kategorie wurde gelöscht.",
+    "channel_create": "Ein Kanal oder eine Kategorie wurde erstellt.",
+    "channel_update": "Berechtigungen (Overwrites) eines Kanals wurden geändert.",
+    "channel_settings": "Kategorie, NSFW-Status oder Rechte-Synchronisierung eines Kanals wurden geändert.",
+    "webhook_create": "Ein Webhook wurde erstellt.",
+    "webhook_delete": "Ein Webhook wurde gelöscht.",
+    "webhook_update": "Ein Webhook wurde geändert.",
+    "bot_add": "Ein Bot wurde zum Server hinzugefügt.",
+    "guild_update": "Name, Verifizierungsstufe, Inhaltsfilter oder 2FA-Pflicht des Servers wurden geändert.",
+}
+ANTINUKE_EVENT_GROUPS = (
+    ("Kanäle", ("channel_delete", "channel_create", "channel_update", "channel_settings")),
+    ("Rollen", ("role_delete", "role_update", "role_create", "member_role_grant")),
+    ("Mitglieder", ("ban", "kick", "bot_add")),
+    ("Webhooks & Server", ("webhook_create", "webhook_update", "webhook_delete", "guild_update")),
+)
 # alert: only report · quarantine: remove dangerous roles (reversible) · kick · ban.
 # "ban" stays the default so existing installations keep their behaviour.
 ANTINUKE_RESPONSES = ("alert", "quarantine", "kick", "ban")
@@ -54,6 +85,32 @@ ANTINUKE_RESPONSE_LABELS = {
 ANTINUKE_WINDOW_SECONDS = 10
 ANTINUKE_ACTION_LIMIT = 3
 ANTINUKE_MAX_WINDOW_SECONDS = 60
+# Operating mode: "alert" counts and reports but never sanctions, "protect" runs the configured actions.
+ANTINUKE_MODES = ("alert", "protect")
+ANTINUKE_MODE_LABELS = {"alert": "Alarmmodus (nur melden, keine Sanktionen)", "protect": "Aktiver Schutz (konfigurierte Maßnahmen)"}
+# Fixed allow-list of rule actions – never arbitrary code. "log" always runs.
+RULE_ACTIONS = ("log", "alert", "notify_role", "notify_admins", "lockdown", "quarantine", "kick", "ban")
+RULE_ACTION_LABELS = {
+    "log": "Vorfall protokollieren",
+    "alert": "Alarm in den Sicherheitskanal",
+    "notify_role": "Verwaltungsrolle erwähnen",
+    "notify_admins": "Administratoren in der Pulse-Inbox benachrichtigen",
+    "lockdown": "Notfall-Lockdown der ausgewählten Kanäle",
+    "quarantine": "Rollen entziehen (Quarantäne, umkehrbar)",
+    "kick": "Verantwortlichen vom Server kicken",
+    "ban": "Verantwortlichen vom Server bannen",
+}
+SANCTION_ACTIONS = ("lockdown", "quarantine", "kick", "ban")  # also the execution order
+RULE_SEVERITIES = ("critical", "high", "medium")
+RULE_SEVERITY_LABELS = {"critical": "Kritisch", "high": "Hoch", "medium": "Mittel"}
+MISSING_PERMISSION_BEHAVIOURS = ("alert", "log")
+RULE_MIN_LIMIT, RULE_MAX_LIMIT = 1, 50
+RULE_MIN_WINDOW, RULE_MAX_WINDOW = 3, 600
+MAX_RULES = 40
+MAX_LOCKDOWN_CHANNELS = 25
+GLOBAL_RULE_ID = "global"
+_RULE_ID = re.compile(r"[a-z0-9_-]{1,32}")
+_LEGACY_RESPONSE_ACTIONS = {"alert": [], "quarantine": ["quarantine"], "kick": ["kick"], "ban": ["ban"]}
 # Discord permission names that let someone damage the server. Used for quarantine and hierarchy checks.
 DANGEROUS_PERMISSIONS = (
     "administrator", "manage_guild", "manage_roles", "manage_channels", "manage_webhooks",
@@ -288,12 +345,110 @@ def antinuke_window_exceeded(
     return len(events) >= threshold
 
 
+def rule_window_exceeded(events: deque[float], timestamp: float, *, limit: int, window_seconds: int) -> bool:
+    """Like antinuke_window_exceeded, with the wider bounds of individual rules (1–50 actions, 3–600 s)."""
+    window = max(RULE_MIN_WINDOW, min(RULE_MAX_WINDOW, int(window_seconds)))
+    threshold = max(RULE_MIN_LIMIT, min(RULE_MAX_LIMIT, int(limit)))
+    cutoff = float(timestamp) - window
+    while events and events[0] < cutoff:
+        events.popleft()
+    events.append(float(timestamp))
+    while len(events) > threshold:
+        events.popleft()
+    return len(events) >= threshold
+
+
+def _optional_int(value, minimum: int, maximum: int):
+    """None for "use the global fallback" (empty/None), otherwise a bounded int; invalid → ValueError."""
+    if value is None or str(value).strip() == "":
+        return None
+    text = str(value).strip()
+    if not re.fullmatch(r"\d{1,6}", text):
+        raise ValueError(text)
+    return max(minimum, min(maximum, int(text)))
+
+
+def normalize_rule(raw) -> dict | None:
+    """One individual Anti-Nuke rule, or None if it is unusable (no id or no known event)."""
+    if not isinstance(raw, dict):
+        return None
+    rule_id = str(raw.get("id") or "").strip().lower()
+    if not _RULE_ID.fullmatch(rule_id) or rule_id == GLOBAL_RULE_ID:
+        return None
+    events = raw.get("events")
+    if isinstance(raw.get("event"), str):  # single-event shorthand
+        events = [raw.get("event")]
+    events = [e for e in dict.fromkeys(events) if e in ANTINUKE_EVENTS] if isinstance(events, list) else []
+    if not events:
+        return None
+    try:
+        limit = _optional_int(raw.get("limit"), RULE_MIN_LIMIT, RULE_MAX_LIMIT)
+        window = _optional_int(raw.get("window_seconds"), RULE_MIN_WINDOW, RULE_MAX_WINDOW)
+        cooldown = _optional_int(raw.get("cooldown_seconds"), 0, 86400)
+    except ValueError:
+        return None
+    actions = raw.get("actions")
+    actions = [a for a in RULE_ACTIONS if isinstance(actions, list) and a in actions]
+    if "kick" in actions and "ban" in actions:
+        actions.remove("kick")  # a ban already removes the person
+    if "log" not in actions:
+        actions.insert(0, "log")
+    return {
+        "id": rule_id,
+        "enabled": bool(raw.get("enabled", True)),
+        "label": (str(raw.get("label") or "").strip() or ANTINUKE_EVENT_LABELS[events[0]])[:80],
+        "events": events,
+        "limit": limit,
+        "window_seconds": window,
+        "actions": actions,
+        "severity": raw.get("severity") if raw.get("severity") in RULE_SEVERITIES else "high",
+        "test_mode": bool(raw.get("test_mode")),
+        "cooldown_seconds": cooldown,
+        "exempt_user_ids": _ids(raw.get("exempt_user_ids")),
+        "exempt_role_ids": _ids(raw.get("exempt_role_ids")),
+    }
+
+
+def antinuke_problems(raw) -> list[str]:
+    """Readable list of stored values Pulse had to ignore – shown on the dashboard instead of silently dropping."""
+    raw = raw if isinstance(raw, dict) else {}
+    out = []
+    rules = raw.get("rules")
+    if rules is not None and not isinstance(rules, list):
+        out.append("„rules“ ist keine Liste – individuelle Regeln werden ignoriert, bis sie neu gespeichert werden.")
+    for index, item in enumerate(rules if isinstance(rules, list) else [], 1):
+        if normalize_rule(item) is None:
+            label = item.get("label") if isinstance(item, dict) else None
+            out.append(f"Regel {index}{f' „{str(label)[:40]}“' if label else ''} ist ungültig (ID, Ereignis oder Zahlen) und ist nicht aktiv.")
+    if isinstance(rules, list) and len(rules) > MAX_RULES:
+        out.append(f"Mehr als {MAX_RULES} Regeln gespeichert – nur die ersten {MAX_RULES} sind aktiv.")
+    events = raw.get("events")
+    if isinstance(events, list) and set(map(str, events)) - ANTINUKE_EVENTS:
+        out.append("Unbekannte Ereignisse in der globalen Liste werden ignoriert: "
+                   + ", ".join(sorted(set(map(str, events)) - ANTINUKE_EVENTS))[:200])
+    if raw.get("mode") not in (None, *ANTINUKE_MODES):
+        out.append("Unbekannter Modus gespeichert – Pulse arbeitet sicherheitshalber im Alarmmodus.")
+    return out
+
+
 def normalize_antinuke(raw) -> dict:
     raw = raw if isinstance(raw, dict) else {}
     events = raw.get("events")
     events = sorted(set(events) & ANTINUKE_EVENTS) if isinstance(events, list) else sorted(DEFAULT_ANTINUKE_EVENTS)
     response = raw.get("response") if raw.get("response") in ANTINUKE_RESPONSES else "ban"
     alert = _ids([raw.get("alert_channel_id")], 1)
+    manager = _ids([raw.get("manager_role_id")], 1)
+    # Existing installations have no "mode": they keep their behaviour (a sanctioning response = protect).
+    # An unknown stored value falls back to the safe alert mode.
+    if "mode" not in raw:
+        mode = "alert" if response == "alert" else "protect"
+    else:
+        mode = raw.get("mode") if raw.get("mode") in ANTINUKE_MODES else "alert"
+    rules = []
+    for item in (raw.get("rules") if isinstance(raw.get("rules"), list) else [])[:MAX_RULES]:
+        rule = normalize_rule(item)
+        if rule is not None and rule["id"] not in {r["id"] for r in rules}:
+            rules.append(rule)
     return {
         "enabled": bool(raw.get("enabled")),
         "events": events,
@@ -305,7 +460,98 @@ def normalize_antinuke(raw) -> dict:
         "trusted_role_ids": _ids(raw.get("trusted_role_ids")),
         "trusted_user_ids": _ids(raw.get("trusted_user_ids")),
         "alert_channel_id": alert[0] if alert else 0,
+        "mode": mode,
+        "global_rule_enabled": bool(raw.get("global_rule_enabled", True)),
+        "rule_cooldown_seconds": _bounded_int(raw.get("rule_cooldown_seconds"), 600, 30, 86400),
+        "action_cooldown_seconds": _bounded_int(raw.get("action_cooldown_seconds"), 600, 30, 86400),
+        "on_missing_permissions": raw.get("on_missing_permissions") if raw.get("on_missing_permissions") in MISSING_PERMISSION_BEHAVIOURS else "alert",
+        "manager_role_id": manager[0] if manager else 0,
+        "lockdown_channel_ids": _ids(raw.get("lockdown_channel_ids"), MAX_LOCKDOWN_CHANNELS),
+        "strip_role_ids": _ids(raw.get("strip_role_ids")),
+        "rules": rules,
+        "revision": _bounded_int(raw.get("revision"), 0, 0, 10**9),
+        "updated_at": str(raw.get("updated_at") or "")[:32],
+        "updated_by": str(raw.get("updated_by") or "")[:80],
     }
+
+
+def effective_rules(config: dict) -> list[dict]:
+    """Rules the cog evaluates, each with concrete limit/window/cooldown.
+
+    The global rule ("Standardregel") is the pre-7.18 behaviour: all globally monitored events share one
+    counter per actor and use action_limit/window_seconds/response. An event covered by an enabled individual
+    rule is evaluated by that rule only – the individual values override the global fallback.
+    """
+    out = []
+    individual = [r for r in config.get("rules", []) if r.get("enabled")]
+    covered = {event for rule in individual for event in rule["events"]}
+    global_events = [e for e in config.get("events", []) if e not in covered]
+    if config.get("global_rule_enabled", True) and global_events:
+        actions = ["log", "alert", *(["notify_admins"] if config.get("notify_admins", True) else []),
+                   *_LEGACY_RESPONSE_ACTIONS.get(config.get("response"), ["ban"])]
+        out.append({
+            "id": GLOBAL_RULE_ID, "enabled": True, "label": "Globale Standardregel", "events": global_events,
+            "limit": config["action_limit"], "window_seconds": config["window_seconds"], "actions": actions,
+            "severity": "critical", "test_mode": False, "cooldown_seconds": config["rule_cooldown_seconds"],
+            "exempt_user_ids": [], "exempt_role_ids": [], "legacy": True,
+        })
+    for rule in individual:
+        out.append({
+            **rule,
+            "limit": rule["limit"] if rule["limit"] is not None else config["action_limit"],
+            "window_seconds": rule["window_seconds"] if rule["window_seconds"] is not None else config["window_seconds"],
+            "cooldown_seconds": rule["cooldown_seconds"] if rule["cooldown_seconds"] is not None else config["rule_cooldown_seconds"],
+        })
+    return out
+
+
+def monitored_events(config: dict) -> set[str]:
+    events = {event for rule in effective_rules(config) for event in rule["events"]}
+    if config.get("kick_unverified_bots"):
+        events.add("bot_add")
+    return events
+
+
+def rule_is_dry_run(rule: dict, config: dict) -> bool:
+    """True when sanctions of this rule are only reported (global alert mode or rule test mode)."""
+    return config.get("mode") != "protect" or bool(rule.get("test_mode"))
+
+
+def describe_rule(rule: dict, config: dict) -> str:
+    """The rule in one plain German sentence (preview in the editor and in alerts)."""
+    limit = rule["limit"] if rule.get("limit") is not None else config.get("action_limit", ANTINUKE_ACTION_LIMIT)
+    window = rule["window_seconds"] if rule.get("window_seconds") is not None else config.get("window_seconds", ANTINUKE_WINDOW_SECONDS)
+    events = " oder ".join(ANTINUKE_EVENT_LABELS.get(e, e) for e in rule.get("events", [])) or "–"
+    steps = [RULE_ACTION_LABELS[a] for a in rule.get("actions", []) if a in RULE_ACTION_LABELS]
+    sanctions = [a for a in rule.get("actions", []) if a in SANCTION_ACTIONS]
+    text = (f"Wenn dieselbe Person innerhalb von {window} Sekunden mindestens {limit}× „{events}“ auslöst, "
+            f"führt Pulse aus: {', '.join(steps) or 'Vorfall protokollieren'}.")
+    if sanctions and rule_is_dry_run(rule, config):
+        text += " Wegen " + ("Testmodus der Regel" if rule.get("test_mode") else "Alarmmodus") + " werden Sanktionen nur gemeldet, nicht ausgeführt."
+    return text
+
+
+def simulate_rule(rule: dict, config: dict, count: int, *, actor_protected: bool = False) -> dict:
+    """Dry run for the dashboard: would `count` actions in the window trigger, and what would happen?"""
+    found = effective_rules({**config, "rules": [rule], "global_rule_enabled": False})
+    if not found:
+        return {"triggered": False, "steps": [], "note": "Regel ist deaktiviert."}
+    effective = found[0]
+    triggered = int(count) >= int(effective["limit"])
+    if not config.get("enabled"):
+        return {"triggered": False, "steps": [], "note": "Anti-Nuke ist ausgeschaltet – im Betrieb würde nichts passieren."}
+    if actor_protected:
+        return {"triggered": False, "steps": [], "note": "Serverinhaber, Pulse und freigestellte Personen lösen nie aus."}
+    if not triggered:
+        return {"triggered": False, "steps": [], "note": f"{count} von {effective['limit']} Aktionen – unter der Schwelle, keine Maßnahme."}
+    dry = rule_is_dry_run(effective, config)
+    steps = []
+    for action in effective["actions"]:
+        if action in SANCTION_ACTIONS and dry:
+            steps.append((action, "nur gemeldet"))
+        else:
+            steps.append((action, "würde ausgeführt"))
+    return {"triggered": True, "steps": steps, "note": "Alarmmodus/Testmodus: keine Sanktionen." if dry else ""}
 
 
 def has_dangerous_permission(permissions) -> bool:
