@@ -97,7 +97,7 @@ Das Workflow-Template `.github/workflows/deploy-vps.yml` wird erst aktiv deploye
 - `PULSE_VPS_KNOWN_HOSTS`: verifizierter SSH-Host-Key-Eintrag des VPS
 - `PULSE_VPS_SSH_PORT`: optional, Standard `22`
 
-Die Secrets legst du auf GitHub unter **Repository → Settings → Secrets and variables → Actions** an. Richte einen eigenen SSH-Schlüssel für Deployment ein. Verifiziere den Server-Fingerabdruck, bevor du dessen `known_hosts`-Zeile als Secret speicherst. Das Workflow-Template startet nur nach erfolgreichem Syntax- und Regressionstest auf einem Push nach `main`; ohne die notwendigen Secrets überspringt es das Deployment.
+Die Secrets legst du auf GitHub unter **Repository → Settings → Secrets and variables → Actions** an. Richte einen eigenen SSH-Schlüssel für Deployment ein. Verifiziere den Server-Fingerabdruck, bevor du dessen `known_hosts`-Zeile als Secret speicherst. Das Workflow-Template startet nur nach erfolgreichem Syntax- und Regressionstest auf einem Push nach `main`; fehlen notwendige Secrets, schlägt der Deploy-Workflow sichtbar fehl, statt einen erfolgreichen Lauf vorzutäuschen.
 
 Vor dem ersten automatischen Deployment muss die obige manuelle Einrichtung inklusive Datenübernahme und mindestens eines erfolgreichen Teststarts erledigt sein. Der Workflow aktualisiert den Git-Checkout auf `main` und führt `docker compose up -d --build` aus. Er löscht keine unversionierten Laufzeitdateien; trotzdem ist ein aktuelles Backup vor Updates Pflicht.
 
