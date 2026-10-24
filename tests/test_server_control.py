@@ -479,7 +479,7 @@ class HelperTests(unittest.TestCase):
 
     def test_diagnose_marks_confirmed_vs_assumption(self):
         facts = {"bot_ready": True, "guild_ready": True, "database_ok": True, "gateway_latency_ms": 2500,
-                 "memory": {"container_mb": 430, "limit_mb": 512, "warn_mb": 350, "critical_mb": 420, "emergency_mb": 470},
+                 "memory": {"container_mb": 630, "limit_mb": 768, "warn_mb": 500, "critical_mb": 620, "emergency_mb": 700},
                  "disk": {"free_gb": 0.5}, "jobs_failing": [], "backup": {"count": 0, "restore_test": {}}}
         findings = scc.diagnose(facts, {"available": False, "reason": "not_configured", "message": "nicht eingerichtet"}, None, None,
                                 [], [{"text": "HTTP 429 Too Many Requests", "time": "t"}])
