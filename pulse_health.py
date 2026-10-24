@@ -174,7 +174,7 @@ def _check(severity: str, component: str, text: str) -> dict:
 
 def evaluate(memory: dict, jobs: list[dict], lag: dict, rates: dict, conns: dict, dbs: list[dict], lag_warn: float) -> list[dict]:
     checks = []
-    rss = memory.get("process_mb") or memory.get("container_mb")
+    rss = memory.get("container_mb") or memory.get("process_mb")
     if rss is None:
         checks.append(_check("info", "RAM", "Prozessspeicher nicht messbar."))
     elif rss >= (memory.get("critical_mb") or 1e9):
