@@ -3,6 +3,7 @@ name: pulse-security-audit
 description: Sicherheitsprüfung von Pulse-Änderungen oder eines Bereichs – serverseitige Autorisierung jeder Dashboard-/Admin-Route, Same-Origin/CSRF, Sessions/Cookies, Eingabevalidierung, Pfad-/Upload-Sicherheit, XSS im HTML-Rendering, Secrets und Discord-Aktionen. Verwenden vor Merge sicherheitsrelevanter Änderungen oder bei Verdacht auf eine Lücke. Ändert keine Dateien.
 argument-hint: [diff | Datei/Route/Bereich]
 disallowed-tools: Edit, Write, NotebookEdit
+disable-model-invocation: true
 ---
 
 # Pulse-Security-Audit (nur lesen)
@@ -20,13 +21,11 @@ Keine Exploits gegen den VPS oder fremde Systeme, keine echten Discord-/OAuth-Au
 4. **Sessions/Cookies/API-Keys:** `pulse_sessions` – Ablauf, Widerruf, `HttpOnly`/`Secure`/`SameSite`, konstante Vergleiche (`hmac.compare_digest`, vgl. `webserver.py`), keine Tokens in URLs/Logs.
 5. **Eingaben:** Typ-/Bereichsprüfung serverseitig (Browser-`min/max` umgehbar), Längenlimits, IDs gegen die Guild prüfen.
 6. **XSS:** Nutzer-/Discord-Inhalte im HTML immer über `esc(...)`; auch Attribute, `onclick`, Inline-`<script>`-Daten (JSON → `json.dumps` + Escape von `</`).
-7. **Pfade/Uploads/Backups:** Keine Pfade aus Eingaben ohne Normalisierung + Basisverzeichnis-Prüfung (vgl. CodeQL-Fix `py/path-injection` beim Backup-Pfad); Zip-Entpacken über `pulse_backup._safe_member`; Upload-Typ/Größe begrenzt (`pulse_uploads`).
+7. **Pfade/Uploads/Backups:** Keine Pfade aus Eingaben ohne Normalisierung + Basisverzeichnis-Prüfung; Zip-Entpacken über `pulse_backup._safe_member`; Upload-Typ/Größe begrenzt (`pulse_uploads`).
 8. **Befehle/Host-Agent:** Server Control Center / `deploy/pulse_host_agent.py`: feste Befehlsliste, kein `shell=True` mit Eingaben, Bestätigung für Deploy/Rollback/Neustart.
-9. **Rate-Limits/DoS:** Login/OAuth/öffentliche Endpunkte begrenzt (`tests/test_oauth_rate_limits.py`), Limiter selbst speicherbegrenzt.
+9. **Rate-Limits/DoS:** Login/OAuth/öffentliche Endpunkte begrenzt, Limiter selbst speicherbegrenzt.
 10. **Secrets/Logs:** Keine Tokens/Webhook-URLs in Code, Tests, Logs oder Fehlermeldungen; `.gitignore` deckt Laufzeitdaten ab.
 11. **KI/AutoMod:** Keine automatische Sanktion allein durch KI; Features nicht still produktiv aktiviert (Regel 6).
-
-Passende vorhandene Tests: `test_phase1_security`, `test_security_admin`, `test_security_headers`, `test_session_tokens`, `test_sessions_api_keys`, `test_permissions`, `test_privacy`, `test_oauth_rate_limits`, `test_pulse_uploads`, `test_full_backup`, `test_server_control`. Optional ergänzend: `/security-review`.
 
 ## Ergebnis (Deutsch)
 Je Befund: Schwere (kritisch/hoch/mittel/niedrig), `datei:zeile`, Angriffsszenario (wer, welche Anfrage, welche Wirkung), belegt oder Vermutung, Fix-Vorschlag und Regressionstest (inkl. „keine Schreibaktion bei Ablehnung“). Danach die ausgeführten Tests mit echtem Ergebnis.
