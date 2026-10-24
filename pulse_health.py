@@ -17,13 +17,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pulse_safety import RAM_WARN_MB
+
 RATE_LIMIT_KEEP = 100
 RATE_WINDOW_SECONDS = 15 * 60
 RATE_WARN_COUNT = 20
 WAL_WARN_MB = 64.0
 OPEN_CONNECTIONS_WARN = 20
 DB_FILES_MAX = 25
-RAM_TARGET_MB = 250.0  # CLAUDE.md: Pulse should stay below 250 MB
+RAM_TARGET_MB = RAM_WARN_MB  # Informational target shares the runtime warning threshold
 
 _SEVERITY = {"ok": 0, "info": 1, "warn": 2, "bad": 3}
 
