@@ -17,9 +17,10 @@ services:
     environment:
       SERVER_PORT: ${SERVER_PORT:-25095}
       PULSE_DB_PATH: ${PULSE_DB_PATH:-/app/pulse.db}
-      # O-02: X-Forwarded-For is trusted only from the Caddy container (fixed address below) – never from
-      # the internet, so nobody can fake an IP to dodge the application rate limit.
-      PULSE_FORWARDED_ALLOW_IPS: ${PULSE_FORWARDED_ALLOW_IPS:-172.30.0.10}
+      # O-02: X-Forwarded-For is trusted only from the Caddy container (fixed address below) or from the
+      # network gateway 172.30.0.1, through which a reverse proxy on the host reaches the loopback-published
+      # port – never from the internet, so nobody can fake an IP to dodge the rate limit or the login audit.
+      PULSE_FORWARDED_ALLOW_IPS: ${PULSE_FORWARDED_ALLOW_IPS:-172.30.0.10,172.30.0.1}
     ports:
       # O-02 + main: bound to localhost by default; the HTTPS reverse proxy (host or Caddy profile "https")
       # serves the dashboard. Only set PULSE_PUBLISH_HOST=0.0.0.0 if the port must be reachable directly.
