@@ -7,6 +7,7 @@ import re
 import subprocess
 import unittest
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,10 +32,33 @@ class DockerTests(unittest.TestCase):
 
     def test_compose_trusts_forwarded_ip_only_from_caddy(self):
         compose = read("compose.yaml")
-        self.assertIn("PULSE_FORWARDED_ALLOW_IPS: ${PULSE_FORWARDED_ALLOW_IPS:-172.30.0.10}", compose)
+        # Caddy container (172.30.0.10) or a Caddy on the host, which reaches Pulse via the gateway 172.30.0.1.
+        self.assertIn("PULSE_FORWARDED_ALLOW_IPS: ${PULSE_FORWARDED_ALLOW_IPS:-172.30.0.10,172.30.0.1}", compose)
         self.assertIn("ipv4_address: 172.30.0.10", compose)
+        self.assertIn('"${PULSE_PUBLISH_HOST:-127.0.0.1}:', compose)  # gateway trust is only safe on loopback
         self.assertIn("mem_limit", compose)
         self.assertNotIn("FORWARDED_ALLOW_IPS:-*", compose)  # "*" would let anyone fake the rate-limit IP
+
+    def test_host_proxy_via_gateway_yields_real_client_ip(self):
+        # Regression: a host Caddy connects through the Docker gateway; the audit log showed 172.30.0.1 for everyone.
+        import asyncio
+        from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+        seen = {}
+
+        async def app(scope, receive, send):
+            seen["client"] = scope.get("client")
+
+        trusted = "172.30.0.10,172.30.0.1"
+        for peer, xff, expected in (
+            ("172.30.0.1", b"203.0.113.7", "203.0.113.7"),               # host Caddy → real IP
+            ("172.30.0.1", b"6.6.6.6, 203.0.113.7", "203.0.113.7"),      # forged left entry is ignored
+            ("198.51.100.9", b"203.0.113.7", "198.51.100.9"),            # untrusted peer cannot fake it
+        ):
+            scope: Any = {"type": "http", "client": (peer, 1234), "headers": [(b"x-forwarded-for", xff)]}
+            unused: Any = None
+            asyncio.run(ProxyHeadersMiddleware(app, trusted_hosts=trusted)(scope, unused, unused))
+            self.assertEqual(seen["client"][0], expected)
 
 
 class DeployTests(unittest.TestCase):
