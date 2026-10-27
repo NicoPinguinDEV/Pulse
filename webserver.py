@@ -40,6 +40,7 @@ from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
 import pulse_logging
+from pulse_safe_path import contained_file
 pulse_logging.safe_console()  # status prints with emoji must not crash on a cp1252 console (no file access)
 from pulse_version import PULSE_VERSION
 from pulse_time import display, parse_timestamp
@@ -986,15 +987,18 @@ def _load_secret() -> bytes:
     SESSION_SECRET_PROBLEM = ""
     env = (os.getenv("SESSION_SECRET") or "").strip()
     if env:
+        # Only fixed texts are logged; nothing derived from the configured value reaches the log.
+        min_length = int(SESSION_SECRET_MIN_LENGTH)
         if env.lower() in SESSION_SECRET_PLACEHOLDERS:
-            SESSION_SECRET_PROBLEM = ("SESSION_SECRET ist noch der Platzhalter aus .env.example – "
-                                      "Pulse nutzt stattdessen die erzeugte .session_secret. Bitte ein eigenes langes Secret setzen.")
-        elif len(env) < SESSION_SECRET_MIN_LENGTH:
-            SESSION_SECRET_PROBLEM = (f"SESSION_SECRET ist zu kurz (< {SESSION_SECRET_MIN_LENGTH} Zeichen) – "
-                                      "Pulse nutzt stattdessen die erzeugte .session_secret.")
+            notice = ("SESSION_SECRET ist noch der Platzhalter aus .env.example – "
+                      "Pulse nutzt stattdessen die erzeugte .session_secret. Bitte ein eigenes langes Secret setzen.")
+        elif len(env) < min_length:
+            notice = (f"SESSION_SECRET ist zu kurz (< {min_length} Zeichen) – "
+                      "Pulse nutzt stattdessen die erzeugte .session_secret.")
         else:
             return env.encode()
-        print(f"🔴 SICHERHEIT: {SESSION_SECRET_PROBLEM}")
+        print(f"🔴 SICHERHEIT: {notice}")
+        SESSION_SECRET_PROBLEM = notice
     if os.path.exists(SECRET_FILE):
         with open(SECRET_FILE, "rb") as f:
             key = f.read().strip()
@@ -1080,10 +1084,15 @@ def set_apply_session_cookie(response, request: Request, applicant: dict) -> Non
                         secure=oauth_cookie_secure(request), max_age=max(0, session["apply_exp"] - now))
 
 
+def known_career(value) -> str:
+    """The configured career key equal to *value*, or "" – never the request value itself."""
+    return next((key for key in APPLICATION_CAREERS if key == value), "")
+
+
 def apply_return_path(request: Request) -> str:
     """Where to land after the Discord login: back on the chosen career form if it was remembered."""
-    career = str(request.cookies.get(APPLY_RETURN_COOKIE) or "")
-    return f"/apply?career={quote(career)}" if career in APPLICATION_CAREERS else "/apply"
+    career = known_career(str(request.cookies.get(APPLY_RETURN_COOKIE) or ""))
+    return f"/apply?career={quote(career)}" if career else "/apply"
 
 
 def get_current_user(user_session: str = Cookie(None)) -> dict:
@@ -1157,7 +1166,17 @@ def auth(request: Request, user_session, perm="can_view_dashboard", admin=False)
     )
 
 
+def local_path(url: str, fallback: str = "/") -> str:
+    """*url* if it is a path on this site, otherwise *fallback* (no //host, no scheme, no backslash tricks)."""
+    url = str(url or "")
+    parsed = urlparse(url.replace("\\", "/"))
+    if parsed.scheme or parsed.netloc or not url.startswith("/") or url.startswith(("//", "/\\")):
+        return fallback
+    return url
+
+
 def back(url: str, msg: str = None, ok: bool = True):
+    url = local_path(url)
     if msg:
         # The message must come before an anchor (#logs), otherwise the browser treats it as part of the anchor.
         base, sep, anchor = url.partition("#")
@@ -3376,7 +3395,8 @@ async def admin_live_console_command(
                     synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
                     result = f"Discord-Befehle synchronisiert: {len(synced)}"
                 except Exception as exc:
-                    result, ok = f"Synchronisierung fehlgeschlagen: {type(exc).__name__}: {str(exc)[:240]}", False
+                    pulse_logging.report_error("live-console", f"Discord-Befehle synchronisieren: {type(exc).__name__}: {str(exc)[:240]}")
+                    result, ok = f"Synchronisierung fehlgeschlagen ({type(exc).__name__}). Details: Befehl „logs“.", False
     else:
         result = _console_result(normalized, ctx, getattr(request.app.state, "bot", None))
     log_audit(ctx.user.get("global_name", "Administrator"), ctx.user["id"],
@@ -5865,10 +5885,10 @@ async def pulse_ticket_panel_media(request: Request, filename: str, user_session
     name = os.path.basename(filename)
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}\.(png|jpg|gif|webp)", name):
         raise HTTPException(status_code=404, detail="Bild nicht gefunden.")
-    path = (TICKET_PANEL_IMAGE_DIR / name).resolve()
-    if path.parent != TICKET_PANEL_IMAGE_DIR.resolve() or not path.is_file():
+    path = contained_file(TICKET_PANEL_IMAGE_DIR, name)
+    if not path or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="Bild nicht gefunden.")
-    return FileResponse(path=str(path), headers={"Cache-Control": "private, max-age=300"})
+    return FileResponse(path=path, headers={"Cache-Control": "private, max-age=300"})
 
 
 @app.post("/tickets/panels/duplicate")
@@ -7267,6 +7287,7 @@ async def team_role_manager_save(
 @app.get("/member/{user_id}", response_class=HTMLResponse)
 async def member_detail(request: Request, user_id: int, user_session: str = Cookie(None)):
     ctx = auth(request, user_session)
+    user_id = int(user_id)
     guild = ctx.guild
     member = guild.get_member(user_id)
     if not member:
@@ -7755,7 +7776,9 @@ async def notify_new_application(request: Request, application_id: str, applicat
 # ROUTE: ÖFFENTLICHES BEWERBUNGSFORMULAR MIT LAUFBAHN-TEST
 # =============================================================
 def apply_draft_key(applicant_id, career_path: str) -> str:
-    return f"pulse:apply-draft:v1:{applicant_id}:{career_path}"
+    # Embedded in a <script>: only a numeric Discord ID and a configured career key may end up there.
+    applicant = int(applicant_id) if str(applicant_id or "").isdigit() else 0
+    return f"pulse:apply-draft:v1:{applicant}:{known_career(career_path)}"
 
 
 # K-01: browser-side draft (localStorage, per Discord ID + career) and session keep-alive.
@@ -8074,8 +8097,8 @@ async def apply_login(request: Request, career: str = ""):
            f"&response_type=code&scope=identify&state={state}")
     response=RedirectResponse(url=url,status_code=303)
     response.set_cookie("apply_oauth_state",state,max_age=600,httponly=True,samesite="lax",secure=oauth_cookie_secure(request))
-    if career in APPLICATION_CAREERS:
-        response.set_cookie(APPLY_RETURN_COOKIE,career,max_age=600,httponly=True,samesite="lax",secure=oauth_cookie_secure(request))
+    if known_career(career):
+        response.set_cookie(APPLY_RETURN_COOKIE,known_career(career),max_age=600,httponly=True,samesite="lax",secure=oauth_cookie_secure(request))
     return response
 
 
@@ -8560,8 +8583,8 @@ def safe_backup_path(filename: str):
     name = os.path.basename(filename or "")
     if not BACKUP_NAME_RE.fullmatch(name):
         return None
-    path = os.path.join(BACKUP_DIR, name)
-    return path if os.path.isfile(path) else None
+    path = contained_file(BACKUP_DIR, name)
+    return path if path and os.path.isfile(path) else None
 
 
 def _overwrites(channel):
@@ -9491,8 +9514,8 @@ def safe_backup_path(filename: str):
     name = os.path.basename(filename or "")
     if not BACKUP_NAME_RE.fullmatch(name):
         return None
-    path = os.path.join(BACKUP_DIR, name)
-    return path if os.path.isfile(path) else None
+    path = contained_file(BACKUP_DIR, name)
+    return path if path and os.path.isfile(path) else None
 
 
 async def auto_backup_loop():
@@ -10962,7 +10985,7 @@ async def handle_action(
     if action == "submit_application":
         ip = request.client.host if request.client else "unknown"
         # K-01: every error page leads back to the same career form; the browser draft refills it.
-        return_career = career_path if career_path in APPLICATION_CAREERS else ""
+        return_career = known_career(career_path)
         form_url = f"/apply?career={quote(return_career)}" if return_career else "/apply"
         back_link = (f'<a href="{form_url}" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800">'
                      'Zurück zum Formular – deine Antworten sind noch da</a>')
@@ -11004,7 +11027,7 @@ async def handle_action(
             test_result = grade_career_test(career_path or "", submitted_answers)
             practical_result = grade_practical_tasks(career_path or "", submitted_form)
         except ValueError as exc:
-            return HTMLResponse(simple_page("⚠️", "Online-Test unvollständig", esc(str(exc)), back_link), status_code=400)
+            return HTMLResponse(simple_page("⚠️", "Online-Test unvollständig", str(exc), back_link), status_code=400)
 
         apps = load_json(APPS_FILE, {})
         if any(a.get("user_id") == str(applicant_id) and a.get("status") in {"pending", "interview"} for a in apps.values()):

@@ -10,6 +10,7 @@ from fastapi import Request, Form, Cookie, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 
 import pulse_db as db
+from pulse_safe_path import contained_file
 from pulse_time import parse_timestamp
 
 
@@ -136,8 +137,8 @@ def register(app):
         manager=c.perms.get('can_manage_tickets') or c.perms.get('can_promote') or c.perms.get('is_admin')
         if not manager: raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
         safe=os.path.basename(filename)
-        path=os.path.join('transcripts',safe)
-        if not safe.endswith('.txt') or not os.path.isfile(path): raise HTTPException(404,'Transcript nicht gefunden.')
+        path=contained_file('transcripts',safe)
+        if not safe.endswith('.txt') or not path or not os.path.isfile(path): raise HTTPException(404,'Transcript nicht gefunden.')
         return __import__('fastapi').responses.FileResponse(path,filename=safe,media_type='text/plain')
 
     @app.post("/tickets/rate")
@@ -206,7 +207,7 @@ def register(app):
         c=ctx(request,user_session); t=db.get_training(training_id)
         if not t: raise HTTPException(404,'Schulung nicht gefunden.')
         qs=''.join(f'''<div class="{ws.CARD} p-5"><div class="font-semibold text-xs mb-3">{i+1}. {esc(q["question"])}</div>{"".join(f'<label class="flex gap-2 items-center p-2 rounded-lg bg-slate-50 dark:bg-[#0b0e14] mb-1 text-xs"><input type="radio" name="q_{q["id"]}" value="{j}" required><span>{esc(opt)}</span></label>' for j,opt in enumerate(q['options']))}</div>''' for i,q in enumerate(t['questions']))
-        body=f'<div class="max-w-3xl"><h1 class="text-2xl font-bold">🎓 {esc(t["title"])}</h1><p class="text-xs text-slate-500 mt-1 mb-5">Bestehensgrenze: {t["passing_score"]}% · Zeitlimit: {t["time_limit_minutes"]} Minuten</p><form action="/training/{training_id}/submit" method="post" class="space-y-3">{qs}<button class="{ws.BTN} px-5 py-3">Test abgeben</button></form></div>'
+        body=f'<div class="max-w-3xl"><h1 class="text-2xl font-bold">🎓 {esc(t["title"])}</h1><p class="text-xs text-slate-500 mt-1 mb-5">Bestehensgrenze: {t["passing_score"]}% · Zeitlimit: {t["time_limit_minutes"]} Minuten</p><form action="/training/{esc(t["id"])}/submit" method="post" class="space-y-3">{qs}<button class="{ws.BTN} px-5 py-3">Test abgeben</button></form></div>'
         return ws.render_page(t['title'],c,'training',body)
 
     @app.post("/training/{training_id}/submit")

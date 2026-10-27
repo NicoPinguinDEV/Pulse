@@ -59,12 +59,18 @@ def detect_platform(link: str) -> tuple[str, str]:
     raise ValueError("Dieser Link wurde nicht erkannt. Unterstützt: YouTube, TikTok, Instagram, Twitch, X oder ein RSS-Feed.")
 
 
+def host_is(host: str | None, domain: str) -> bool:
+    """*host* is *domain* itself or one of its subdomains (evil-youtube.com is not youtube.com)."""
+    host = str(host or "").lower().rstrip(".")
+    return host == domain or host.endswith("." + domain)
+
+
 def youtube_video_id(url: str) -> str | None:
     parsed = urlparse(str(url or ""))
     host = (parsed.hostname or "").lower()
-    if host.endswith("youtu.be"):
+    if host_is(host, "youtu.be"):
         vid = parsed.path.strip("/").split("/")[0]
-    elif "youtube.com" in host:
+    elif host_is(host, "youtube.com"):
         if parsed.path.startswith("/shorts/"):
             vid = parsed.path.split("/")[2] if len(parsed.path.split("/")) > 2 else ""
         else:

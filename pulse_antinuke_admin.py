@@ -687,7 +687,7 @@ def register(app, render_page) -> None:
         audit(ctx, "Anti-Nuke-Regel geändert" if existing else "Anti-Nuke-Regel erstellt",
               f"{saved['label']} ({saved['id']}) · {'aktiv' if saved['enabled'] else 'aus'}{' · Testmodus' if saved['test_mode'] else ''} · "
               + pm.describe_rule(saved, after))
-        return ws.back(f"/admin/security#rule-{value['id']}", f"Regel „{saved['label']}“ gespeichert – gilt sofort.", True)
+        return ws.back(f"/admin/security#rule-{saved['id']}", f"Regel „{saved['label']}“ gespeichert – gilt sofort.", True)
 
     async def simple_rule_change(request, user_session, change: str):
         ctx = admin_ctx(request, user_session)
@@ -706,6 +706,7 @@ def register(app, render_page) -> None:
                 if index is None:
                     raise ValueError("Diese Regel gibt es nicht (mehr) – bitte die Seite neu laden.")
                 holder["label"] = str(rules[index].get("label") or rule_id)[:80]
+                holder["id"] = str(rules[index].get("id") or "")  # stored ID for the anchor, not the form value
                 if change == "delete":
                     rules.pop(index)
                 else:
@@ -722,7 +723,7 @@ def register(app, render_page) -> None:
             audit(ctx, "Anti-Nuke-Regel gelöscht", f"{holder['label']} ({rule_id})")
             return ws.back("/admin/security#rules", f"Regel „{holder['label']}“ gelöscht.", True)
         audit(ctx, "Anti-Nuke-Regel " + ("aktiviert" if holder["enabled"] else "deaktiviert"), f"{holder['label']} ({rule_id})")
-        return ws.back(f"/admin/security#rule-{rule_id}", f"Regel „{holder['label']}“ {'aktiviert' if holder['enabled'] else 'deaktiviert'}.", True)
+        return ws.back(f"/admin/security#rule-{holder['id']}", f"Regel „{holder['label']}“ {'aktiviert' if holder['enabled'] else 'deaktiviert'}.", True)
 
     @app.post("/admin/security/antinuke/rules/toggle")
     async def antinuke_rule_toggle(request: Request, user_session: str = Cookie(None)):

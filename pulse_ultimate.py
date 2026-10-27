@@ -38,6 +38,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
 import pulse_sqlite
+from pulse_safe_path import contained_file
 from pulse_safety import (
     RAM_CRITICAL_MB,
     RAM_CRITICAL_RECOVERY_MB,
@@ -592,6 +593,14 @@ def setup() -> None:
         _SEEDED_DB = key
 
 
+def member_path_id(value) -> int:
+    """A Discord user ID from the request as int, so links and redirects built from it contain only digits."""
+    text = str(value or "").strip()
+    if not text.isdigit() or len(text) > 20:
+        raise HTTPException(400, "Ungültige Nutzer-ID.")
+    return int(text)
+
+
 def ctx_auth(request: Request, user_session: str, manager: bool = False, perm: Optional[str] = "can_view_dashboard"):
     import webserver
     ctx = webserver.auth(request, user_session, perm=None if manager else perm)
@@ -1039,6 +1048,7 @@ def register(app) -> None:
         user_session: str = Cookie(None),
     ):
         ctx = ctx_auth(request, user_session, manager=True)
+        member_id = member_path_id(user_id)
         with cx() as c:
             row = c.execute("SELECT * FROM ultimate_profiles WHERE user_id=?", (str(user_id),)).fetchone()
             if not row:
@@ -1051,7 +1061,7 @@ def register(app) -> None:
                 (internal_status[:30], max(0,min(100,rating)), internal_message[:300], iso(), str(user_id)),
             )
         audit(ctx, "Profil aktualisiert", user_id, "", f"Status={internal_status}; rating={rating}")
-        return RedirectResponse(f"/ultimate/team/{user_id}", status_code=303)
+        return RedirectResponse(f"/ultimate/team/{member_id}", status_code=303)
 
     @app.get("/ultimate/cases", response_class=HTMLResponse)
     async def ultimate_cases(request: Request, user_session: str = Cookie(None)):
@@ -1160,7 +1170,7 @@ def register(app) -> None:
         if status not in _CASE_STATUSES or priority not in _PRIORITY:
             raise HTTPException(400, "Ungültiger Fallstatus.")
         with cx() as c:
-            exists = c.execute("SELECT 1 FROM ultimate_cases WHERE id=?", (case_id,)).fetchone()
+            exists = c.execute("SELECT id FROM ultimate_cases WHERE id=?", (case_id,)).fetchone()
             if not exists:
                 raise HTTPException(404, "Fall nicht gefunden.")
             closed_at = iso() if status == "closed" else None
@@ -1170,7 +1180,7 @@ def register(app) -> None:
             )
         add_case_event(case_id, ctx, "updated", f"Status={status}; Priorität={priority}; Bearbeiter={assignee_name[:160]}")
         audit(ctx, "Fall aktualisiert", case_id, "", f"{status}/{priority}")
-        return RedirectResponse(f"/ultimate/cases/{case_id}", status_code=303)
+        return RedirectResponse(f"/ultimate/cases/{exists[0]}", status_code=303)
 
     @app.get("/ultimate/cases/{case_id}/upload", response_class=HTMLResponse)
     async def ultimate_upload_page(request: Request, case_id: str, user_session: str = Cookie(None)):
@@ -1186,8 +1196,9 @@ def register(app) -> None:
     ):
         ctx = ctx_auth(request, user_session, manager=True)
         with cx() as c:
-            if not c.execute("SELECT 1 FROM ultimate_cases WHERE id=?", (case_id,)).fetchone():
-                raise HTTPException(404, "Fall nicht gefunden.")
+            case_row = c.execute("SELECT id FROM ultimate_cases WHERE id=?", (case_id,)).fetchone()
+        if not case_row:
+            raise HTTPException(404, "Fall nicht gefunden.")
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", file.filename or "upload.bin")[:120]
         # Read at most limit+1 bytes; the per-file cap keeps this temporary buffer bounded.
         try:
@@ -1199,7 +1210,10 @@ def register(app) -> None:
         digest = hashlib.sha256(data).hexdigest()
         stored = f"{case_id}_{digest[:12]}_{safe}"
         ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
-        path = ATTACHMENTS_DIR / stored
+        contained = contained_file(ATTACHMENTS_DIR, stored)
+        if not contained:
+            raise HTTPException(400, "Ungültiger Dateiname.")
+        path = Path(contained)
         existed = path.exists()  # same case + same content = same file of an earlier upload
         path.write_bytes(data)
         try:
@@ -1217,7 +1231,7 @@ def register(app) -> None:
             raise
         add_case_event(case_id, ctx, "attachment", safe)
         audit(ctx, "Beweis hochgeladen", case_id, safe, f"{len(data)} Bytes · {digest[:16]}")
-        return RedirectResponse(f"/ultimate/cases/{case_id}", status_code=303)
+        return RedirectResponse(f"/ultimate/cases/{case_row[0]}", status_code=303)
 
     @app.get("/ultimate/roblox", response_class=HTMLResponse)
     async def ultimate_roblox(request: Request, user_session: str = Cookie(None)):
@@ -1274,7 +1288,7 @@ def register(app) -> None:
         ctx = ctx_auth(request, user_session, manager=True)
         rid = roblox_id.strip()
         with cx() as c:
-            case = c.execute("SELECT 1 FROM ultimate_cases WHERE id=?", (case_id,)).fetchone()
+            case = c.execute("SELECT id FROM ultimate_cases WHERE id=?", (case_id,)).fetchone()
             profile = c.execute("SELECT 1 FROM ultimate_roblox_profiles WHERE roblox_id=?", (rid,)).fetchone()
         if not case:
             raise HTTPException(404, "Fall nicht gefunden.")
@@ -1291,7 +1305,7 @@ def register(app) -> None:
             )
         add_case_event(case_id, ctx, "player_linked", f"Roblox {rid} · {relation}")
         audit(ctx, "Roblox-Spieler mit Fall verknüpft", case_id, rid, relation)
-        return RedirectResponse(f"/ultimate/cases/{case_id}", status_code=303)
+        return RedirectResponse(f"/ultimate/cases/{case[0]}", status_code=303)
 
     @app.get("/ultimate/departments", response_class=HTMLResponse)
     async def ultimate_departments(request: Request, user_session: str = Cookie(None)):
@@ -1365,7 +1379,7 @@ def register(app) -> None:
         if role not in {"member", "lead", "specialist"}:
             raise HTTPException(400, "Ungültige Abteilungsrolle.")
         with cx() as c:
-            dep = c.execute("SELECT 1 FROM ultimate_departments WHERE id=? AND active=1", (department_id,)).fetchone()
+            dep = c.execute("SELECT id FROM ultimate_departments WHERE id=? AND active=1", (department_id,)).fetchone()
             if not dep:
                 raise HTTPException(404, "Abteilung nicht gefunden.")
             c.execute(
@@ -1373,7 +1387,7 @@ def register(app) -> None:
                 (department_id, str(user_id), role, iso()),
             )
         audit(ctx, "Abteilungsmitglied hinzugefügt", user_id, "", f"{department_id}/{role}")
-        return RedirectResponse(f"/ultimate/departments/{department_id}", status_code=303)
+        return RedirectResponse(f"/ultimate/departments/{dep[0]}", status_code=303)
 
     @app.post("/ultimate/departments/{department_id}/remove")
     async def ultimate_department_remove(
@@ -1382,12 +1396,13 @@ def register(app) -> None:
     ):
         ctx = ctx_auth(request, user_session, manager=True)
         with cx() as c:
+            dep = c.execute("SELECT id FROM ultimate_departments WHERE id=?", (department_id,)).fetchone()
             c.execute(
                 "DELETE FROM ultimate_department_members WHERE department_id=? AND user_id=?",
                 (department_id, str(user_id)),
             )
         audit(ctx, "Abteilungsmitglied entfernt", user_id, "", department_id)
-        return RedirectResponse(f"/ultimate/departments/{department_id}", status_code=303)
+        return RedirectResponse(f"/ultimate/departments/{dep[0]}" if dep else "/ultimate/departments", status_code=303)
 
     @app.get("/ultimate/calendar", response_class=HTMLResponse)
     async def ultimate_calendar(request: Request, user_session: str = Cookie(None)):
@@ -2318,6 +2333,7 @@ window.setInterval(loadPulseMonitor, 15000);
         user_session: str = Cookie(None),
     ):
         ctx = ctx_auth(request, user_session, manager=True)
+        member_id = member_path_id(user_id)
         with cx() as c:
             c.execute(
                 "INSERT INTO ultimate_certificates(id,user_id,title,score,issuer_id,issuer_name,issued_at,valid_until)"
@@ -2328,7 +2344,7 @@ window.setInterval(loadPulseMonitor, 15000);
             )
         db.notify(user_id, "🎓 Neues Zertifikat", title.strip(), "success", f"/ultimate/team/{user_id}")
         audit(ctx, "Zertifikat vergeben", user_id, title.strip(), f"{score}%")
-        return RedirectResponse(f"/ultimate/team/{user_id}", status_code=303)
+        return RedirectResponse(f"/ultimate/team/{member_id}", status_code=303)
 
     @app.get("/ultimate/status")
     async def ultimate_public_status(request: Request):

@@ -27,6 +27,7 @@ from pulse_social_utils import (
     announcement_text,
     best_thumbnail,
     detect_platform,
+    host_is,
     is_recent,
     platform_meta,
     profile_url,
@@ -55,6 +56,12 @@ RSSHUB_FALLBACK_BASE_URLS = tuple(
     if value and value.strip()
 )
 MAX_SOURCES = 50
+# Text markers in a fetched feed entry that show it carries a video (content checks, not URL validation).
+_INSTAGRAM_VIDEO_MARKERS = ("video_url", "video.mp4", "video.twimg.com", "<video")
+_X_VIDEO_MARKERS = (
+    "video.twimg.com", "video.syndication.twimg.com", "ext_tw_video_thumb", "video_url", "<video",
+    "youtube.com/watch", "youtu.be/", "tiktok.com/", "instagram.com/reel/",
+)
 MAX_SEEN_IDS = 80
 MAX_FEED_BYTES = 2_000_000
 MAX_POSTS_PER_CYCLE = 5
@@ -316,7 +323,7 @@ def _youtube_channel_id_from_input(value: str) -> str | None:
     if re.fullmatch(r"UC[A-Za-z0-9_-]{22}", raw):
         return raw
     parsed = urlparse(raw if "://" in raw else "https://" + raw)
-    if parsed.hostname and parsed.hostname.lower().endswith("youtube.com"):
+    if host_is(parsed.hostname, "youtube.com"):
         match = re.search(r"/channel/(UC[A-Za-z0-9_-]{22})", parsed.path)
         if match:
             return match.group(1)
@@ -570,7 +577,7 @@ class SocialPromo(commands.Cog):
             parsed = urlparse("https://www.youtube.com/" + raw)
         else:
             parsed = urlparse("https://www.youtube.com/" + raw.lstrip("/"))
-        if not parsed.hostname or not parsed.hostname.lower().endswith("youtube.com"):
+        if not host_is(parsed.hostname, "youtube.com"):
             raise ValueError("Bitte eine YouTube-Kanal-URL, @Handle oder Kanal-ID angeben.")
         channel_id = _youtube_channel_id_from_input(raw)
         if channel_id:
@@ -602,7 +609,7 @@ class SocialPromo(commands.Cog):
                 parsed = urlparse("https://" + raw)
             else:
                 parsed = urlparse("https://www.youtube.com/" + raw.lstrip("/"))
-            if parsed.path.endswith("videos.xml") and parsed.hostname and parsed.hostname.lower().endswith("youtube.com"):
+            if parsed.path.endswith("videos.xml") and host_is(parsed.hostname, "youtube.com"):
                 url = raw if "://" in raw else "https://" + raw
                 if _is_public_https_url(url):
                     return url, "YouTube"
@@ -670,19 +677,10 @@ class SocialPromo(commands.Cog):
         raw = str(item.get("raw_description", "")).lower()
         if platform == "instagram":
             # Only Reels/IGTV and explicit video media should be advertised, not photo posts.
-            return (
-                "/reel/" in url or "/tv/" in url
-                or "video_url" in raw or "video.mp4" in raw
-                or "video.twimg.com" in raw or "<video" in raw
-            )
+            return "/reel/" in url or "/tv/" in url or any(marker in raw for marker in _INSTAGRAM_VIDEO_MARKERS)
         if platform == "x":
             # X timelines also contain text-only posts. Require a recognizable video/media marker.
-            return (
-                "video.twimg.com" in raw or "video.syndication.twimg.com" in raw
-                or "ext_tw_video_thumb" in raw or "video_url" in raw or "<video" in raw
-                or "youtube.com/watch" in raw or "youtu.be/" in raw
-                or "tiktok.com/" in raw or "instagram.com/reel/" in raw
-            )
+            return any(marker in raw for marker in _X_VIDEO_MARKERS)
         # A custom RSS/Atom source should be a video-only feed selected by the administrator.
         return True
 

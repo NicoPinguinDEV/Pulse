@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 import pulse_db as db
 import pulse_sqlite
+from pulse_safe_path import contained_file
 import pulse_ultimate as u
 
 BASE = Path(__file__).resolve().parent
@@ -588,9 +589,9 @@ def safe_backup_file(name):
     name = os.path.basename(name)
     if not re.fullmatch(r"pulse_backup_[0-9]{8}_[0-9]{6}\.zip",name):
         raise HTTPException(400,"Ungültiges Backup.")
-    p=BACKUP_DIR/name
-    if not p.exists(): raise HTTPException(404,"Backup nicht gefunden.")
-    return p
+    p=contained_file(BACKUP_DIR,name)
+    if not p or not os.path.exists(p): raise HTTPException(404,"Backup nicht gefunden.")
+    return Path(p)
 
 _LEGACY_JSON_NAMES = ("team_data.json","config.json","applications.json","shifts.json","logs.json","audit_logs.json","meetings.json")
 

@@ -19,6 +19,7 @@ from fastapi import Cookie, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db
+from pulse_safe_path import contained_file
 from pulse_embed_design import DEFAULT_COLORS, branding, normalize_hex, save_branding
 import pulse_verification as verification
 from pulse_welcome import (
@@ -79,7 +80,7 @@ def _inline_markdown(text: str, guild=None) -> str:
     """Tiny Discord-markdown preview: **bold**, *italic*, line breaks, <#channel>, <t:…>."""
     out = _E(str(text or ""))
     out = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", out)
-    out = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<em>\1</em>", out)
+    out = re.sub(r"(?<!\*)\*(?!\*)([^*\n]+)\*(?!\*)", r"<em>\1</em>", out)
 
     def channel(match):
         cid = int(match.group(1))
@@ -1108,8 +1109,8 @@ def register(app) -> None:
         name = os.path.basename(filename)
         if not re.fullmatch(r"(welcome|leave|verify)_banner_[0-9a-f]{8}\.(png|jpg|gif|webp)", name):
             raise HTTPException(status_code=404, detail="Bild nicht gefunden.")
-        path = (banner_root() / name).resolve()
-        if path.parent != banner_root().resolve() or not path.is_file():
+        path = contained_file(banner_root(), name)
+        if not path or not os.path.isfile(path):
             raise HTTPException(status_code=404, detail="Bild nicht gefunden.")
         return FileResponse(path, headers={"Cache-Control": "private, max-age=300"})
 
