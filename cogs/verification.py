@@ -81,6 +81,18 @@ def verify_layout(cog: "Verification", spec: dict | None = None, label: str = "J
     return layout_from_spec(spec, action_items=[button])
 
 
+def authorize_link_button(label: str = "Jetzt verifizieren") -> discord.ui.Button | None:
+    """With auto-rejoin on, the panel button opens Discord's own authorization dialog directly."""
+    try:
+        url = pulse_rejoin.direct_authorize_url() if pulse_rejoin.is_enabled() else ""
+    except Exception as exc:
+        print(f"⚠️ Autorisierungslink nicht erzeugt ({type(exc).__name__}); Panel nutzt den normalen Knopf.")
+        url = ""
+    if not url:
+        return None
+    return discord.ui.Button(label=label, style=discord.ButtonStyle.link, emoji="✅", url=url)
+
+
 class Verification(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -204,13 +216,13 @@ class Verification(commands.Cog):
             if plan["already_done"]:
                 text = "✅ Du bist bereits verifiziert."
                 if rejoin_required:
-                    await self._reply_authorize(interaction, text + "\n\n" + pulse_rejoin.CONSENT_TEXT)
+                    await self._reply_authorize(interaction, text + "\n" + pulse_rejoin.PANEL_NOTE)
                     return "already"
                 await self._reply(interaction, self._with_recovery_offer(text))
                 return "already"
             if rejoin_required:
                 # Admin switched on OAuth verification: the citizen role follows only after the authorization.
-                await self._reply_authorize(interaction, pulse_rejoin.CONSENT_TEXT)
+                await self._reply_authorize(interaction, pulse_rejoin.PANEL_NOTE)
                 return "authorize"
             status = await self.apply_verification(guild, member, interaction=interaction)
             texts = {
@@ -231,14 +243,15 @@ class Verification(commands.Cog):
             return False
 
     async def _reply_authorize(self, interaction: discord.Interaction, text: str) -> None:
-        url = pulse_rejoin.authorize_url()
+        """Only reached from an old panel that still has the interaction button (new panels link to Discord directly)."""
+        url = pulse_rejoin.direct_authorize_url() or pulse_rejoin.authorize_url()
         if not url:
-            await self.record_error("OAuth-Verifizierung aktiv, aber PUBLIC_BASE_URL ist keine https://-Adresse.")
+            await self.record_error("OAuth-Verifizierung aktiv, aber Client-ID oder https://-Callback fehlt.")
             await self._reply(interaction, "❌ Die Verifikation ist gerade nicht möglich. Das Team wurde informiert.")
             return
         view = discord.ui.View(timeout=None)
         view.add_item(discord.ui.Button(label="Mit Discord autorisieren", style=discord.ButtonStyle.link, url=url, emoji="🔐"))
-        content = "🔐 **Verifizierung per Discord-Autorisierung**\n" + text
+        content = text
         try:
             if interaction.response.is_done():
                 await interaction.followup.send(content[:2000], view=view, ephemeral=True)
@@ -364,15 +377,21 @@ class Verification(commands.Cog):
             banner = banner_path(settings, self.base_dir)
             if banner and perms is not None and not getattr(perms, "attach_files", True):
                 raise ValueError(f"Pulse fehlt in #{channel.name} das Recht „Dateien anhängen“ für das hochgeladene Banner.")
-            spec = build_panel_spec(settings, icon_url=icon, base_dir=self.base_dir)
+            link = await asyncio.to_thread(authorize_link_button, settings["button_label"])
+            spec_settings = dict(settings, description=f"{settings['description']}\n\n{pulse_rejoin.PANEL_NOTE}") if link else settings
+            spec = build_panel_spec(spec_settings, icon_url=icon, base_dir=self.base_dir)
             files = [discord.File(banner, filename=os.path.basename(banner))] if banner else []
             try:
                 style = branding().get("style", "modern")
                 if style == "modern":
-                    view = verify_layout(self, spec, settings["button_label"])
+                    view = layout_from_spec(spec, action_items=[link]) if link else verify_layout(self, spec, settings["button_label"])
                     payload = {"view": view}
                 else:
-                    view = VerifyView(self, settings["button_label"])
+                    if link:
+                        view = discord.ui.View(timeout=None)
+                        view.add_item(link)
+                    else:
+                        view = VerifyView(self, settings["button_label"])
                     payload = {"embed": to_discord_embed(spec), "view": view}
                 message = None
                 if settings["message_id"] and settings["published_channel_id"] == str(channel.id):
@@ -401,7 +420,8 @@ class Verification(commands.Cog):
                 settings["message_id"] = str(message.id)
                 settings["published_channel_id"] = str(channel.id)
                 await asyncio.to_thread(save_settings, settings)
-                self.bot.add_view(view)
+                if not link:  # a link button needs no persistent view (Discord opens the URL itself)
+                    self.bot.add_view(view)
                 return {"action": action, "channel": f"#{channel.name}", "message_id": message.id}
             finally:
                 for attachment in files:

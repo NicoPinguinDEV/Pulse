@@ -101,6 +101,56 @@ def authorize_url() -> str:
     return f"{base}/verify/authorize" if base.startswith("https://") else ""
 
 
+# Short consent line shown in the verification panel itself (Discord's own dialog lists the permissions).
+PANEL_NOTE = (
+    "🔐 Mit dem Knopf autorisierst du Pulse bei Discord („Server für dich beitreten“). Damit stimmst du zu, dass Pulse "
+    "dich frühestens 24 h nach dem Verlassen automatisch wieder hinzufügt (nie nach Bann/Kick). Widerruf jederzeit: "
+    "`/rejoin-abmelden` oder Discord → Autorisierte Apps."
+)
+
+
+def direct_state() -> str:
+    """Fixed, signed OAuth state for the panel's link button (a static link cannot carry a per-browser cookie).
+
+    Binding to a browser is not needed here: the account that authorizes is the account that gets verified,
+    so a foreign code could only ever verify the foreigner's own account.
+    """
+    import hmac as _hmac
+    import webserver as ws
+    digest = _hmac.new(ws._session_key(), b"Pulse verify direct OAuth state v1", hashlib.sha256).hexdigest()
+    return "pv1." + digest[:40]
+
+
+def is_direct_state(state) -> bool:
+    import hmac as _hmac
+    try:
+        return bool(state) and _hmac.compare_digest(str(state), direct_state())
+    except Exception:
+        return False
+
+
+def redirect_uri() -> str:
+    """Callback URL outside a request – the same value oauth_redirect_uri() uses when it is configured."""
+    import webserver as ws
+    configured = str(getattr(ws, "REDIRECT_URI", "") or "").rstrip("/")
+    if configured:
+        return configured
+    base = str(getattr(ws, "PUBLIC_BASE_URL", "") or "").rstrip("/")
+    return f"{base}/callback" if base else ""
+
+
+def direct_authorize_url() -> str:
+    """discord.com authorization link for the panel button ('' when OAuth is not configured)."""
+    from urllib.parse import quote, urlencode
+    import webserver as ws
+    uri = redirect_uri()
+    if not ws.CLIENT_ID or not uri.startswith("https://"):
+        return ""
+    query = urlencode({"client_id": ws.CLIENT_ID, "redirect_uri": uri, "response_type": "code",
+                       "scope": " ".join(SCOPES), "state": direct_state()}, quote_via=quote)
+    return f"https://discord.com/oauth2/authorize?{query}"
+
+
 # --------------------------------------------------------------------------- storage
 def _init(db) -> None:
     db.execute(

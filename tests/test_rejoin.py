@@ -22,6 +22,7 @@ import pulse_verification as v
 import webserver as ws
 from cogs import rejoin as rejoin_cog
 from cogs import verification as verification_cog
+from tests import test_pulse_verification as tvp
 from tests.test_pulse_admin_area import ADMIN, TEAMLER, fake_auth_for
 
 UID = "123456789012345678"
@@ -455,7 +456,8 @@ class VerifyButtonTests(Base):
         text, view = self.sent[0]
         self.assertIn("Server für dich beitreten", text)
         self.assertIn("/rejoin-abmelden", text)
-        self.assertEqual(view.children[0].url, "https://pulse.test/verify/authorize")
+        self.assertLess(len(text), 400)  # short note, not the long consent text
+        self.assertTrue(view.children[0].url.startswith("https://discord.com/oauth2/authorize?"))
 
     def test_authorized_member_or_disabled_feature_verifies_directly(self):
         status = asyncio.run(self.cog.handle_click(self.interaction))  # feature off: unchanged behaviour
@@ -535,6 +537,73 @@ class RouteTests(Base):
         with patch.object(ws, "PUBLIC_BASE_URL", "http://pulse.test"), patch.object(ws, "auth", fake_auth_for(ADMIN)):
             self.client.post("/admin/rejoin/save", data={"enabled": "1"})
         self.assertFalse(rj.is_enabled())
+
+
+class DirectLinkTests(Base):
+    """The panel button links straight to Discord's dialog: no ephemeral message, no consent web page."""
+
+    def test_direct_link_requests_identify_and_guilds_join_with_signed_state(self):
+        with patch.object(ws, "REDIRECT_URI", "https://pulse.test/callback"):
+            url = rj.direct_authorize_url()
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        self.assertEqual(f"{parsed.scheme}://{parsed.netloc}{parsed.path}", "https://discord.com/oauth2/authorize")
+        self.assertEqual(query["scope"], ["identify guilds.join"])
+        self.assertEqual(query["redirect_uri"], ["https://pulse.test/callback"])
+        self.assertTrue(rj.is_direct_state(query["state"][0]))
+        self.assertFalse(rj.is_direct_state("pv1." + "0" * 40))
+        self.assertIn("scope=identify%20guilds.join", url)
+        self.assertLessEqual(len(url), 512)  # Discord's limit for link buttons
+        with patch.object(ws, "REDIRECT_URI", ""), patch.object(ws, "PUBLIC_BASE_URL", "http://pulse.test"):
+            self.assertEqual(rj.direct_authorize_url(), "")
+
+    def test_callback_accepts_the_signed_state_without_cookie(self):
+        self.enable()
+        calls = []
+
+        async def complete(code, redirect_uri, bot):
+            calls.append(code)
+            return True, "Verifizierung abgeschlossen"
+        client = TestClient(ws.app)
+        with patch.object(rj, "complete_verification", complete):
+            ok = client.get(f"/callback?code=abc&state={rj.direct_state()}")
+            client.get("/callback?code=evil&state=pv1." + "0" * 40)
+        self.assertEqual(ok.status_code, 200)
+        self.assertEqual(calls, ["abc"])
+
+
+class PanelLinkButtonTests(tvp.Base):
+    def setUp(self):
+        super().setUp()
+        self.cog.base_dir = self.tmp.name
+        self.extra = [patch.object(ws, "SESSION_KEY", b"k" * 32), patch.object(ws, "CLIENT_ID", "999"),
+                      patch.object(ws, "REDIRECT_URI", "https://pulse.test/callback")]
+        for p in self.extra:
+            p.start()
+
+    def tearDown(self):
+        for p in reversed(self.extra):
+            p.stop()
+        super().tearDown()
+
+    def publish(self):
+        channel = tvp.FakeChannel()
+        asyncio.run(self.cog.publish_panel(tvp.FakeGuild(channel=channel)))
+        return channel, json.dumps(channel.sent[-1]["view"].to_components(), ensure_ascii=False)
+
+    def test_enabled_panel_links_directly_to_discord_with_short_note(self):
+        rj.save_settings({"enabled": True})
+        _, components = self.publish()
+        self.assertIn("https://discord.com/oauth2/authorize", components)
+        self.assertNotIn(v.BUTTON_CUSTOM_ID, components)
+        self.assertIn("Server für dich beitreten", components)
+        self.assertIn("/rejoin-abmelden", components)
+        self.assertEqual(self.bot.views[1:], [])  # a link button is not registered as a persistent view
+
+    def test_disabled_panel_keeps_the_normal_button(self):
+        _, components = self.publish()
+        self.assertIn(v.BUTTON_CUSTOM_ID, components)
+        self.assertNotIn("discord.com/oauth2", components)
 
 
 if __name__ == "__main__":
