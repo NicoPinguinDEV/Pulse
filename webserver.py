@@ -997,8 +997,8 @@ def _load_secret() -> bytes:
                       "Pulse nutzt stattdessen die erzeugte .session_secret.")
         else:
             return env.encode()
-        SESSION_SECRET_PROBLEM = notice
         print(f"🔴 SICHERHEIT: {notice}")
+        SESSION_SECRET_PROBLEM = notice
     if os.path.exists(SECRET_FILE):
         with open(SECRET_FILE, "rb") as f:
             key = f.read().strip()
