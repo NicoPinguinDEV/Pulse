@@ -52,6 +52,29 @@ def safe_console() -> None:
             pass
 
 
+class HealthcheckAccessFilter(logging.Filter):
+    """Drops successful `/healthz` lines from uvicorn's access log.
+
+    Docker probes `/healthz` every 30 s, so these lines buried real requests and errors in the live log.
+    Failed health checks (non-2xx, e.g. 503 during start-up) stay visible.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 5:
+            path, status = str(args[2]), args[4]
+            if path.split("?", 1)[0] == "/healthz" and isinstance(status, int) and 200 <= status < 300:
+                return False
+        return True
+
+
+def quiet_healthcheck_access_log() -> None:
+    """Install HealthcheckAccessFilter once on uvicorn's access logger (after uvicorn.Config set it up)."""
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, HealthcheckAccessFilter) for f in access.filters):
+        access.addFilter(HealthcheckAccessFilter())
+
+
 def get(name: str) -> logging.Logger:
     return logging.getLogger(f"{LOGGER_NAME}.{name}")
 

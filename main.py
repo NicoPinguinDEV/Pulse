@@ -119,6 +119,7 @@ class CustomBot(commands.Bot):
             proxy_headers=True, forwarded_allow_ips=os.getenv("PULSE_FORWARDED_ALLOW_IPS", "127.0.0.1"),
         )
         server = uvicorn.Server(config)
+        pulse_logging.quiet_healthcheck_access_log()  # Docker's 30-s probe flooded the live log
         self._pulse_web_server = server
         self._pulse_web_server_task = asyncio.create_task(server.serve(), name="pulse-webserver")
         print(f"🌐 Webserver gestartet auf Port {PORT}")
