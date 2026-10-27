@@ -987,12 +987,13 @@ def _load_secret() -> bytes:
     SESSION_SECRET_PROBLEM = ""
     env = (os.getenv("SESSION_SECRET") or "").strip()
     if env:
-        # Only fixed texts are logged; the configured value itself never reaches the log.
+        # Only fixed texts are logged; nothing derived from the configured value reaches the log.
+        min_length = int(SESSION_SECRET_MIN_LENGTH)
         if env.lower() in SESSION_SECRET_PLACEHOLDERS:
             notice = ("SESSION_SECRET ist noch der Platzhalter aus .env.example – "
                       "Pulse nutzt stattdessen die erzeugte .session_secret. Bitte ein eigenes langes Secret setzen.")
-        elif len(env) < SESSION_SECRET_MIN_LENGTH:
-            notice = (f"SESSION_SECRET ist zu kurz (< {SESSION_SECRET_MIN_LENGTH} Zeichen) – "
+        elif len(env) < min_length:
+            notice = (f"SESSION_SECRET ist zu kurz (< {min_length} Zeichen) – "
                       "Pulse nutzt stattdessen die erzeugte .session_secret.")
         else:
             return env.encode()
