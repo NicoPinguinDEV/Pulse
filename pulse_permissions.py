@@ -99,6 +99,11 @@ def compute(guild, user_id, config: dict) -> tuple[dict, object]:
     info = permission_grants(guild, member, config)
     perms = {key: key in info["grants"] for key in ALL_KEYS}
     perms["is_admin"] = info["is_admin"]
+    # Fraktionsverwaltung: tied to one Discord role (or admin), not configurable – derived, not in ALL_KEYS.
+    # Only shows the menu entry; every /factions route checks pulse_factions.can_manage itself.
+    from pulse_ids import FACTION_MANAGER_ROLE_ID
+    perms["can_manage_factions"] = info["is_admin"] or any(
+        getattr(role, "id", None) == FACTION_MANAGER_ROLE_ID for role in getattr(member, "roles", None) or [])
     return perms, member
 
 
