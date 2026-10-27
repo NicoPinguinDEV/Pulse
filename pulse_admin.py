@@ -808,7 +808,25 @@ def register(app) -> None:
             ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"],
                          "Verifizierung per Autorisierung/Auto-Rejoin " + ("aktiviert" if saved["enabled"] else "deaktiviert"),
                          "Scopes identify + guilds.join · Karenz 24 h · stündlicher Rejoin-Job")
-        return ws.back("/admin/privacy", "Auto-Rejoin-Einstellungen gespeichert.", True)
+        # The panel button switches between the normal button and the direct Discord link: update it right away.
+        note = await republish_verification_panel(request, ctx)
+        return ws.back("/admin/privacy", "Auto-Rejoin-Einstellungen gespeichert." + note, True)
+
+    async def republish_verification_panel(request, ctx) -> str:
+        if not verification.normalize_settings(pulse_db.get_setting(verification.SETTING_KEY, {}))["message_id"]:
+            return ""
+        bot = getattr(request.app.state, "bot", None)
+        cog = bot.get_cog("Verification") if bot else None
+        if cog is None or ctx.guild is None:
+            return " Bitte das Verifikations-Panel unter Discord-Auftritt neu veröffentlichen."
+        try:
+            result = await cog.publish_panel(ctx.guild)
+        except Exception as exc:
+            reason = str(exc)[:120] if isinstance(exc, ValueError) else type(exc).__name__
+            return f" Panel konnte nicht aktualisiert werden ({reason}) – bitte unter Discord-Auftritt neu veröffentlichen."
+        ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Verifikations-Panel veröffentlicht",
+                     f"{result['action']} in {result['channel']} (Auto-Rejoin-Einstellung gespeichert)")
+        return f" Verifikations-Panel {result['action']} in {result['channel']}."
 
     @app.post("/admin/rejoin/forget")
     async def admin_rejoin_forget(request: Request, user_session: str = Cookie(None)):
