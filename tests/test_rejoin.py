@@ -484,6 +484,17 @@ class RouteTests(Base):
         self.assertNotIn("email", started.headers["location"])
         self.assertIn("verify_oauth_state", started.headers.get("set-cookie", ""))
 
+    def test_csp_allows_the_redirect_to_discord_after_the_form_post(self):
+        """Regression: form-action 'self' made browsers drop the 303 to Discord – the click did nothing."""
+        self.enable()
+        with patch.object(ws, "REDIRECT_URI", "https://pulse.test/callback"):
+            started = self.client.post("/verify/authorize/start", data={"consent": "1"}, follow_redirects=False)
+        target = urlparse(started.headers["location"])
+        directives = dict(part.strip().split(" ", 1) for part in started.headers["content-security-policy"].split(";"))
+        sources = directives["form-action"].split()
+        self.assertIn(f"{target.scheme}://{target.netloc}", sources)
+        self.assertEqual(sorted(sources), sorted(["'self'", "https://discord.com"]))  # nothing broader
+
     def test_callback_with_valid_state_runs_verification(self):
         self.enable()
         calls = []

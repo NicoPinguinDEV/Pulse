@@ -8,7 +8,7 @@ the browser sent an `Origin` header. Now:
   header is checked, otherwise the `Referer`. `Origin: null` is foreign. Requests without both pass only
   when they carry no session cookie (API clients with key, curl) – their routes authenticate themselves.
 * Content-Security-Policy starts with the rules that do not break the existing inline UI:
-  `frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'`.
+  `frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://discord.com`.
   Script/style nonces follow once the inline CSS/JS is moved to static files (U-03).
 """
 from __future__ import annotations
@@ -17,7 +17,9 @@ import os
 from urllib.parse import urlparse
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-CSP = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+# form-action also governs the redirect after a form POST: the OAuth starts (/verify/authorize/start,
+# /recovery/authorize/start) answer with 303 to Discord, which browsers block unless discord.com is allowed.
+CSP = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://discord.com"
 CACHEABLE_PATHS = {"/sw.js", "/manifest.json", "/manifest.webmanifest", "/favicon.ico", "/robots.txt"}
 
 
