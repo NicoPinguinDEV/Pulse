@@ -2873,6 +2873,7 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
         ("calendar", "/calendar", "🗓️", "Team-Kalender"),
         ("loa", "/loa", "🌴", "Abmeldungen (LOA)"),
         ("apps", "/applications", "📝", "Bewerbungen"),
+        *([("factions", "/factions", "⚑", "Fraktionsverwaltung")] if perms.get("can_manage_factions") else []),
         ("wiki", "/wiki", "📚", "Team-Wiki"),
         ("training", "/training", "🎓", "Schulungen"),
         ("achievements", "/achievements", "🏅", "Achievements"),
@@ -11880,3 +11881,9 @@ try:
     register_pulse_guard_admin(app)
 except Exception as _guard_error:
     print(f"❌ Sicherheitsbereich (AutoMod & Anti-Nuke) konnte nicht registriert werden: {_guard_error}")
+
+try:
+    from pulse_factions_dashboard import register as register_pulse_factions
+    register_pulse_factions(app)
+except Exception as _factions_error:
+    print(f"❌ Fraktionsverwaltung konnte nicht registriert werden: {_factions_error}")
