@@ -204,5 +204,29 @@ class SocialPromoPersistentFailureLogTests(unittest.TestCase):
         self.assertIn("7. Fehlversuch", out.call_args[0][0])
 
 
+
+class DashboardRenderingTests(unittest.TestCase):
+    def test_ultimate_page_runs_bare_javascript_instead_of_printing_it(self):
+        # /ultimate/system passed bare JS: it was shown as page text and the live monitor never loaded.
+        import pulse_ultimate
+        captured = {}
+        with patch("pulse_design.legacy_page", side_effect=lambda *a, **k: captured.update(k) or "ok"):
+            pulse_ultimate.page(SimpleNamespace(), "system", "T", "S", "<p>body</p>", "loadPulseMonitor();")
+            self.assertEqual(captured["scripts"], "<script>loadPulseMonitor();</script>")
+            pulse_ultimate.page(SimpleNamespace(), "system", "T", "S", "<p>body</p>", "<script>x()</script>")
+            self.assertEqual(captured["scripts"], "<script>x()</script>")   # already wrapped: unchanged
+            pulse_ultimate.page(SimpleNamespace(), "system", "T", "S", "<p>body</p>")
+            self.assertEqual(captured["scripts"], "")
+
+    def test_mobile_layout_rules_keep_pages_within_the_phone_width(self):
+        css = Path(pulse_jobs.__file__).with_name("pulse_pro.py").read_text(encoding="utf-8")
+        # Calendar: the minimum width belongs inside the scroll box, not on its parent section.
+        self.assertNotIn(".calendar-main{min-width:680px}", css)
+        self.assertIn(".calendar-scroll>.cal-weekdays,.calendar-scroll>.cal-grid{min-width:650px}", css)
+        self.assertIn(".calendar-shell>*{min-width:0}", css)
+        # Operations Center top bar: .pulse-btn's display:flex overrode Tailwind's "hidden" on phones.
+        self.assertIn("@media(max-width:639px){.pulse-topbar .pulse-btn.hidden{display:none}}", css)
+
+
 if __name__ == "__main__":
     unittest.main()
