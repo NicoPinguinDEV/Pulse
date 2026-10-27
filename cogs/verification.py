@@ -378,8 +378,7 @@ class Verification(commands.Cog):
             if banner and perms is not None and not getattr(perms, "attach_files", True):
                 raise ValueError(f"Pulse fehlt in #{channel.name} das Recht „Dateien anhängen“ für das hochgeladene Banner.")
             link = await asyncio.to_thread(authorize_link_button, settings["button_label"])
-            spec_settings = dict(settings, description=f"{settings['description']}\n\n{pulse_rejoin.PANEL_NOTE}") if link else settings
-            spec = build_panel_spec(spec_settings, icon_url=icon, base_dir=self.base_dir)
+            spec = build_panel_spec(settings, icon_url=icon, base_dir=self.base_dir)
             files = [discord.File(banner, filename=os.path.basename(banner))] if banner else []
             try:
                 style = branding().get("style", "modern")

@@ -101,12 +101,9 @@ def authorize_url() -> str:
     return f"{base}/verify/authorize" if base.startswith("https://") else ""
 
 
-# Short consent line shown in the verification panel itself (Discord's own dialog lists the permissions).
-PANEL_NOTE = (
-    "🔐 Mit dem Knopf autorisierst du Pulse bei Discord („Server für dich beitreten“). Damit stimmst du zu, dass Pulse "
-    "dich frühestens 24 h nach dem Verlassen automatisch wieder hinzufügt (nie nach Bann/Kick). Widerruf jederzeit: "
-    "`/rejoin-abmelden` oder Discord → Autorisierte Apps."
-)
+# Short line for old panels that still carry the interaction button. Operator decision (2026-10-27): no rejoin
+# wording in Discord – the panel shows only its own text, Discord's own dialog lists the permissions.
+PANEL_NOTE = "🔐 Bitte bestätige kurz bei Discord, um dich zu verifizieren."
 
 
 def direct_state() -> str:

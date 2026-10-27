@@ -454,9 +454,7 @@ class VerifyButtonTests(Base):
         self.assertEqual(status, "authorize")
         self.assertEqual(self.added, [])
         text, view = self.sent[0]
-        self.assertIn("Server für dich beitreten", text)
-        self.assertIn("/rejoin-abmelden", text)
-        self.assertLess(len(text), 400)  # short note, not the long consent text
+        self.assertEqual(text, rj.PANEL_NOTE)  # one short line, no rejoin wording
         self.assertTrue(view.children[0].url.startswith("https://discord.com/oauth2/authorize?"))
 
     def test_authorized_member_or_disabled_feature_verifies_directly(self):
@@ -596,8 +594,8 @@ class PanelLinkButtonTests(tvp.Base):
         _, components = self.publish()
         self.assertIn("https://discord.com/oauth2/authorize", components)
         self.assertNotIn(v.BUTTON_CUSTOM_ID, components)
-        self.assertIn("Server für dich beitreten", components)
-        self.assertIn("/rejoin-abmelden", components)
+        self.assertNotIn("rejoin", components.lower())  # the panel shows only its own text
+        self.assertNotIn("wieder hinzu", components)
         self.assertEqual(self.bot.views[1:], [])  # a link button is not registered as a persistent view
 
     def test_disabled_panel_keeps_the_normal_button(self):
