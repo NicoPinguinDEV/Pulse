@@ -67,6 +67,11 @@ class PulseView(discord.ui.View):
         return True
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item) -> None:
+        if isinstance(error, discord.NotFound) and getattr(error, "code", 0) == 10062:
+            # Not acknowledged within Discord's 3 s (usually a blocked event loop): a reply is impossible.
+            print(f"⚠️ Interaktion abgelaufen (10062) {type(self).__name__}/{getattr(item, 'custom_id', '?')} – "
+                  "Antwort kam nach Discords 3-s-Frist; siehe Event-Loop-Warnungen.")
+            return
         error_id = secrets.token_hex(3).upper()
         print(f"❌ Pulse Interaktion fehlgeschlagen [Fehler-ID {error_id}] {type(self).__name__}/"
               f"{getattr(item, 'custom_id', '?')}: {type(error).__name__}: {error}")

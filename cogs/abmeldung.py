@@ -15,14 +15,17 @@ DB_NAME = str(Path(__file__).resolve().parents[1] / "abmeldungen.db")
 
 
 def _embed_signature(embed: discord.Embed) -> tuple:
-    """Compare all visible embed content, not only title and description."""
+    """Compare all visible embed content, not only title and description.
+
+    The "Zuletzt aktualisiert" timestamp is left out on purpose: every rebuild sets it to now, so
+    including it made each 15-minute sync PATCH an unchanged message (repeated HTTP 429).
+    """
     colour = embed.color.value if embed.color else None
-    timestamp = embed.timestamp.isoformat() if embed.timestamp else None
     fields = tuple((field.name, field.value, bool(field.inline)) for field in embed.fields)
     footer = (embed.footer.text, embed.footer.icon_url)
     author = (embed.author.name, embed.author.url, embed.author.icon_url)
     image = (embed.image.url, embed.thumbnail.url)
-    return (embed.title, embed.description, embed.url, colour, timestamp, footer, author, image, fields)
+    return (embed.title, embed.description, embed.url, colour, footer, author, image, fields)
 
 
 
