@@ -781,6 +781,10 @@ def page(ctx, active: str, title: str, subtitle: str, body: str, extra_js: str =
     from pulse_design import legacy_page
 
     actions = '<a class="btn" href="/me">★ Mein Pulse</a><a class="btn primary" href="/ultimate">⚡ Command Center</a>'
+    # legacy_page inserts `scripts` as raw HTML: bare JavaScript was shown as page text and never ran
+    # (the live system monitor on /ultimate/system stayed at "wird geladen").
+    if extra_js.strip() and not extra_js.lstrip().startswith("<"):
+        extra_js = f"<script>{extra_js}</script>"
     return legacy_page(
         webserver, ctx, f"u:{active}", title, subtitle, body,
         actions=actions, scripts=extra_js, kicker="Pulse TeamOS · Command Center",
