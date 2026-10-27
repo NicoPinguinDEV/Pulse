@@ -10,13 +10,15 @@ from __future__ import annotations
 import contextlib
 import functools
 import random
+import sys
+import threading
 import time
 import traceback
 from datetime import datetime, timezone
 
 LAG_WARN_SECONDS = 0.25
 _JOBS: dict[str, dict] = {}
-_LAG = {"last": 0.0, "max": 0.0, "max_at": "", "warnings": 0}
+_LAG = {"last": 0.0, "max": 0.0, "max_at": "", "warnings": 0, "stalls": 0}
 
 
 def _now_iso() -> str:
@@ -110,6 +112,60 @@ def record_loop_lag(expected_seconds: float, actual_seconds: float) -> float:
         _LAG["warnings"] += 1
         print(f"⚠️ Event-Loop verzögert: {lag * 1000:.0f} ms – synchrone Arbeit blockiert Discord und Dashboard.")
     return lag
+
+
+STALL_WARN_SECONDS = 2.0
+STALL_REPORT_COOLDOWN = 300.0
+_WATCHDOG: dict = {"stop": None}
+
+
+def _loop_stack(thread_id: int, limit: int = 12) -> str:
+    frame = sys._current_frames().get(thread_id)
+    if frame is None:
+        return "(Stack nicht verfügbar)"
+    lines = traceback.format_stack(frame)[-limit:]
+    return "".join(lines).rstrip()
+
+
+def start_stall_watchdog(loop, threshold: float = STALL_WARN_SECONDS, interval: float = 0.5,
+                         report=print, cooldown: float = STALL_REPORT_COOLDOWN) -> threading.Event:
+    """One daemon thread that names the code blocking the event loop.
+
+    `record_loop_lag` only shows *that* the loop was blocked. This thread pings the loop and, when a
+    ping stays unanswered for `threshold` seconds, prints the loop thread's current stack once per
+    stall (at most every `cooldown` seconds). Started once per process; returns its stop event.
+    """
+    if _WATCHDOG["stop"] is not None and not _WATCHDOG["stop"].is_set():
+        return _WATCHDOG["stop"]
+    stop = threading.Event()
+    _WATCHDOG["stop"] = stop
+    loop_thread_id = threading.get_ident()
+    state = {"last_seen": time.monotonic()}
+
+    def _pong():
+        state["last_seen"] = time.monotonic()
+
+    def _watch():
+        reported_for = None
+        last_report = 0.0
+        while not stop.wait(interval):
+            try:
+                loop.call_soon_threadsafe(_pong)
+            except RuntimeError:  # loop closed
+                return
+            seen = state["last_seen"]
+            blocked = time.monotonic() - seen
+            if blocked < threshold or reported_for == seen:
+                continue
+            reported_for = seen
+            _LAG["stalls"] = _LAG.get("stalls", 0) + 1
+            if time.monotonic() - last_report < cooldown:
+                continue
+            last_report = time.monotonic()
+            report(f"⚠️ Event-Loop blockiert seit {blocked:.1f} s – aktueller Stack:\n{_loop_stack(loop_thread_id)}")
+
+    threading.Thread(target=_watch, name="pulse-loop-watchdog", daemon=True).start()
+    return stop
 
 
 def jitter(seconds: float, spread: float = 0.1) -> float:

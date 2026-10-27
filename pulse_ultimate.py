@@ -2980,6 +2980,7 @@ async def _automation_cycle(bot):
 async def automation_loop(bot):
     import pulse_jobs  # P-06/P-01: registry and loop-lag measurement piggyback on this existing loop
     setup()
+    pulse_jobs.start_stall_watchdog(asyncio.get_running_loop())  # names the code behind "Event-Loop verzögert"
     try:
         refresh_event_triggers()  # enables dispatch_event for Anti-Nuke automations
     except Exception as exc:
