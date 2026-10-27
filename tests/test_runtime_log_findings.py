@@ -3,6 +3,7 @@ import asyncio
 import threading
 import time
 import unittest
+from pathlib import Path
 from datetime import datetime as real_datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -91,6 +92,58 @@ class LoopStallWatchdogTests(unittest.TestCase):
             await asyncio.sleep(0)
         asyncio.run(main())
         self.assertEqual(sum(t.name == "pulse-loop-watchdog" and t.is_alive() for t in threading.enumerate()) <= 1, True)
+
+
+
+class TicketPriorityButtonTests(unittest.TestCase):
+    def test_priority_answers_before_the_slow_card_refresh(self):
+        # VPS log: 404 Unknown interaction on "Priorität" – the card refresh ran before the response.
+        from cogs import tickets
+        order = []
+        inter = SimpleNamespace(
+            channel=SimpleNamespace(id=7), user=SimpleNamespace(id=1, display_name="Team"),
+            response=SimpleNamespace(send_message=AsyncMock(side_effect=lambda *a, **k: order.append("response"))),
+        )
+
+        async def slow_refresh(*_a, **_k):
+            order.append("refresh")
+            raise discord.HTTPException(SimpleNamespace(status=500, reason="x"), "boom")
+
+        async def main():
+            view = tickets.TicketControlView()
+            with patch.object(tickets, "get_ticket", return_value={"id": "T1", "priority": "normal"}),                  patch.object(tickets, "is_team", return_value=True),                  patch.object(tickets, "update_ticket_priority") as update,                  patch.object(tickets, "refresh_ticket_embed", side_effect=slow_refresh),                  patch("builtins.print"):
+                await view.priority.callback(inter)
+            return update
+
+        update = asyncio.run(main())
+        update.assert_called_once()
+        self.assertEqual(order, ["response", "refresh"])  # refresh failure does not raise either
+
+    def test_non_team_member_changes_nothing(self):
+        from cogs import tickets
+        inter = SimpleNamespace(channel=SimpleNamespace(id=7), user=SimpleNamespace(id=2, display_name="X"),
+                                response=SimpleNamespace(send_message=AsyncMock()))
+
+        async def main():
+            view = tickets.TicketControlView()
+            with patch.object(tickets, "get_ticket", return_value={"id": "T1", "priority": "normal"}),                  patch.object(tickets, "is_team", return_value=False),                  patch.object(tickets, "update_ticket_priority") as update,                  patch.object(tickets, "refresh_ticket_embed", new=AsyncMock()) as refresh:
+                await view.priority.callback(inter)
+            return update, refresh
+
+        update, refresh = asyncio.run(main())
+        update.assert_not_called()
+        refresh.assert_not_called()
+
+
+class VoiceSupportReconnectTests(unittest.TestCase):
+    def test_dropped_voice_connection_is_rebuilt_before_play(self):
+        # VPS log: "ClientException: Not connected to voice" – a dropped client was reused.
+        source = Path(abmeldung.__file__).with_name("voice_support.py").read_text(encoding="utf-8")
+        start = source.index("async def _start_waiting_audio")
+        method = source[start:source.index("async def _continue_waiting_audio")]
+        check = method.index("not voice_client.is_connected()")
+        self.assertLess(check, method.index("await channel.connect(self_deaf=True)"))
+        self.assertLess(check, method.index("voice_client.play("))
 
 
 if __name__ == "__main__":

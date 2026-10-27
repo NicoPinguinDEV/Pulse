@@ -1121,6 +1121,11 @@ class VoiceSupport(commands.Cog):
                     return False
                 await voice_client.disconnect(force=True)
                 voice_client = None
+            if voice_client is not None and not voice_client.is_connected():
+                # A connection dropping mid-reconnect still reports its channel; play() would then
+                # fail with "Not connected to voice" (VPS log). Drop it and connect fresh.
+                await voice_client.disconnect(force=True)
+                voice_client = None
             if voice_client is None:
                 voice_client = await channel.connect(self_deaf=True)
             if not voice_client.channel or voice_client.channel.id != channel.id:

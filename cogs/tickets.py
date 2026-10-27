@@ -1177,8 +1177,13 @@ class TicketControlView(View):
         current = t.get("priority", "normal")
         next_priority = PRIORITIES[(PRIORITIES.index(current) + 1) % len(PRIORITIES)] if current in PRIORITIES else "normal"
         update_ticket_priority(t["id"], next_priority, interaction.user.id, interaction.user.display_name)
-        await refresh_ticket_embed(interaction.channel, get_ticket(ticket_id=t["id"]), TicketControlView())
+        # Answer first: refreshing reads the channel history and edits the card, which can exceed
+        # Discord's 3 s response window (VPS log: 404 Unknown interaction on this button).
         await interaction.response.send_message(f"🚦 Priorität: {priority_embed_value(next_priority)}", ephemeral=True)
+        try:
+            await refresh_ticket_embed(interaction.channel, get_ticket(ticket_id=t["id"]), TicketControlView())
+        except Exception as exc:
+            print(f"⚠️ Pulse-Tickets: Prioritäts-Anzeige nicht aktualisiert ({type(exc).__name__}).")
 
     @discord.ui.button(label="Erinnern", style=discord.ButtonStyle.secondary, emoji="🔔", custom_id="pulse_ticket_remind")
     async def remind(self, interaction: discord.Interaction, button: Button):
