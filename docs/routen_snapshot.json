@@ -182,6 +182,7 @@
  "GET /ultimate/team-trends -> pulse_next.register.<locals>.team_trends",
  "GET /ultimate/team/{user_id} -> pulse_ultimate.register.<locals>.ultimate_member",
  "GET /ultimate/workflows -> pulse_next.register.<locals>.workflows",
+ "GET /verify/authorize -> pulse_admin.register.<locals>.verify_authorize",
  "GET /voice-support -> pulse_pro.register.<locals>.voice_support_v5",
  "GET /warns -> pulse_pro.register.<locals>.warns_v5",
  "GET /warns.csv -> pulse_pro.register.<locals>.warns_csv",
@@ -204,6 +205,8 @@
  "POST /admin/panels/republish -> pulse_admin.register.<locals>.admin_panels_republish",
  "POST /admin/privacy -> pulse_admin.register.<locals>.admin_privacy_save",
  "POST /admin/recovery/save -> pulse_admin.register.<locals>.admin_recovery_save",
+ "POST /admin/rejoin/forget -> pulse_admin.register.<locals>.admin_rejoin_forget",
+ "POST /admin/rejoin/save -> pulse_admin.register.<locals>.admin_rejoin_save",
  "POST /admin/security/antinuke -> pulse_guard_admin.register.<locals>.admin_security_antinuke",
  "POST /admin/security/antinuke/rules/delete -> pulse_antinuke_admin.register.<locals>.antinuke_rule_delete",
  "POST /admin/security/antinuke/rules/preset -> pulse_antinuke_admin.register.<locals>.antinuke_rule_preset",
@@ -369,6 +372,7 @@
  "POST /ultimate/team/status -> pulse_ultimate.register.<locals>.ultimate_team_status",
  "POST /ultimate/team/{user_id}/update -> pulse_ultimate.register.<locals>.ultimate_member_update",
  "POST /ultimate/workflows/create -> pulse_next.register.<locals>.workflows_create",
+ "POST /verify/authorize/start -> pulse_admin.register.<locals>.verify_authorize_start",
  "POST /voice-support/save -> pulse_pro.register.<locals>.voice_support_save",
  "POST /wiki/save -> pulse_features.register.<locals>.wiki_save"
 ]

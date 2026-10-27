@@ -582,6 +582,7 @@ def register(app) -> None:
         settings = pulse_retention.load_settings()
         recovery_settings = pulse_recovery.load_settings()
         recovery_count = pulse_recovery.count_linked_users()
+        rejoin_section = await asyncio.to_thread(rejoin_admin_section)
         ip_entries = await asyncio.to_thread(pulse_ip_audit.list_entries, 100)
         try:
             ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"],
@@ -651,7 +652,7 @@ def register(app) -> None:
   <input class="pulse-input" name="discord_id" pattern="[0-9]{{15,22}}" required placeholder="Discord-ID">
   <button class="pulse-btn ghost" type="submit">⬇️ JSON herunterladen</button></form>
   <p class="text-[11px] text-slate-400 mt-2">Enthält Teamakte, Bewerbungen, Schichten, Abmeldungen, Tickets, Ereignisse und eigene Audit-Einträge. Der Export wird im Audit-Log vermerkt. Löschen einzelner Personen erfolgt weiterhin bewusst von Hand.</p>
- </div></section>{recovery_section}{ip_section}'''
+ </div></section>{rejoin_section}{recovery_section}{ip_section}'''
         return HTMLResponse(render_pro_page(ws, "Datenschutz", ctx, "admin-privacy", body))
 
     @app.post("/admin/privacy")
@@ -747,6 +748,125 @@ def register(app) -> None:
         response.set_cookie("recovery_oauth_state", state, max_age=600, httponly=True, samesite="lax", secure=True)
         return response
 
+    def rejoin_admin_section() -> str:
+        import pulse_rejoin
+        from datetime import datetime as _dt
+        settings = pulse_rejoin.load_settings()
+        counts = pulse_rejoin.stats()
+        problems = pulse_rejoin.setup_problems()
+
+        def when(ts):
+            return _dt.fromtimestamp(ts).astimezone().strftime("%d.%m.%Y %H:%M") if ts else "–"
+        rows = "".join(
+            '<tr class="border-b border-slate-800/50">'
+            f'<td class="px-3 py-2 font-mono text-xs">{e(item["user_id"])}</td>'
+            f'<td class="px-3 py-2 whitespace-nowrap">{e(when(item["consented_at"]))}</td>'
+            f'<td class="px-3 py-2 whitespace-nowrap">{e(when(item["left_at"]))}</td>'
+            f'<td class="px-3 py-2 text-xs">{e(item["last_status"])}'
+            f'{" · " + str(item["failures"]) + " Fehlversuche" if item["failures"] else ""}</td>'
+            f'<td class="px-3 py-2 text-xs">{item["rejoin_count"]}</td>'
+            '<td class="px-3 py-2"><form method="post" action="/admin/rejoin/forget" '
+            'onsubmit="return confirm(\'Autorisierung und gespeicherte Daten dieser Person löschen?\')">'
+            f'<input type="hidden" name="user_id" value="{e(item["user_id"])}">'
+            '<button class="pulse-btn ghost text-xs" type="submit">🗑️ Löschen</button></form></td></tr>'
+            for item in pulse_rejoin.list_entries()
+        ) or '<tr><td colspan="6" class="px-3 py-5 text-slate-400">Noch keine gespeicherten Autorisierungen.</td></tr>'
+        warn = ('<p class="text-xs text-amber-500 mb-3">⚠️ Noch nicht aktivierbar: ' + e(" ".join(problems)) + '</p>') if problems else ""
+        return (
+            '<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">🔁 Verifizierung per Discord-Autorisierung &amp; Auto-Rejoin</div>'
+            f'<span class="pulse-pill {"good" if settings["enabled"] else ""}">{"aktiv" if settings["enabled"] else "deaktiviert"}</span></div>'
+            '<div class="pulse-card-b"><p class="text-xs text-slate-400 mb-3">Aktiviert: Der Verifizierungsknopf vergibt die Bürgerrolle erst, nachdem die Person Pulse '
+            'bei Discord mit <code>identify</code> und <code>guilds.join</code> autorisiert hat (kein E-Mail-Zugriff). Vorher sieht sie den Einwilligungshinweis. '
+            'Wer den Server freiwillig verlässt, wird vom stündlichen Job frühestens 24 Stunden später automatisch wieder hinzugefügt (höchstens '
+            f'{pulse_rejoin.MAX_PER_RUN} Personen pro Lauf). Gebannte oder gekickte Personen werden nie zurückgeholt; widerrufene Autorisierungen werden gelöscht. '
+            'Discord-Zugänge liegen verschlüsselt in <code>pulse.db</code>. Personen können mit <code>/rejoin-abmelden</code> oder „Deautorisieren“ in Discord jederzeit widersprechen.</p>'
+            + warn +
+            '<form method="post" action="/admin/rejoin/save" class="grid gap-3">'
+            f'<label class="pulse-check"><input type="checkbox" name="enabled" value="1"{" checked" if settings["enabled"] else ""}> Verifizierung per Autorisierung und Auto-Rejoin aktivieren</label>'
+            '<div><button class="pulse-btn primary" type="submit">💾 Speichern</button></div></form>'
+            f'<p class="text-xs text-slate-400 mt-3">Gespeicherte Autorisierungen: <strong>{counts["linked"]}</strong> · warten auf Rejoin: <strong>{counts["waiting"]}</strong> · '
+            f'aufgegeben: <strong>{counts["given_up"]}</strong> · bisher zurückgeholt: <strong>{counts["rejoins"]}</strong></p>'
+            '<div class="overflow-x-auto mt-3"><table class="w-full text-left text-xs"><thead><tr class="text-slate-400 border-b border-slate-700">'
+            '<th class="px-3 py-2">Discord-ID</th><th class="px-3 py-2">Autorisiert</th><th class="px-3 py-2">Verlassen</th>'
+            '<th class="px-3 py-2">Status</th><th class="px-3 py-2">Rejoins</th><th class="px-3 py-2"></th></tr></thead><tbody>'
+            + rows + '</tbody></table></div></div></section>'
+        )
+
+    @app.post("/admin/rejoin/save")
+    async def admin_rejoin_save(request: Request, user_session: str = Cookie(None)):
+        import pulse_rejoin
+        ctx = admin_ctx(request, user_session)
+        form = await request.form()
+        enabled = form.get("enabled") == "1"
+        if enabled:
+            problems = pulse_rejoin.setup_problems()
+            if problems:
+                return ws.back("/admin/privacy", "Nicht aktiviert: " + " ".join(problems), False)
+        before = pulse_rejoin.load_settings()
+        saved = pulse_rejoin.save_settings({"enabled": enabled})
+        if before["enabled"] != saved["enabled"]:
+            ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"],
+                         "Verifizierung per Autorisierung/Auto-Rejoin " + ("aktiviert" if saved["enabled"] else "deaktiviert"),
+                         "Scopes identify + guilds.join · Karenz 24 h · stündlicher Rejoin-Job")
+        return ws.back("/admin/privacy", "Auto-Rejoin-Einstellungen gespeichert.", True)
+
+    @app.post("/admin/rejoin/forget")
+    async def admin_rejoin_forget(request: Request, user_session: str = Cookie(None)):
+        import pulse_rejoin
+        ctx = admin_ctx(request, user_session)
+        form = await request.form()
+        uid = str(form.get("user_id") or "").strip()
+        if not re.fullmatch(r"[0-9]{15,22}", uid):
+            return ws.back("/admin/privacy", "Bitte eine gültige Discord-ID angeben.", False)
+        removed = await pulse_rejoin.forget(uid)
+        if removed:
+            ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"],
+                         "Rejoin-Autorisierung gelöscht", f"Discord-ID {uid} (durch Admin)")
+        return ws.back("/admin/privacy", "Autorisierung gelöscht." if removed else "Keine gespeicherte Autorisierung gefunden.", removed)
+
+    @app.get("/verify/authorize", response_class=HTMLResponse)
+    async def verify_authorize(request: Request):
+        import pulse_rejoin
+        if not pulse_rejoin.is_enabled():
+            raise HTTPException(status_code=404, detail="Die Verifizierung per Discord-Autorisierung ist nicht aktiv.")
+        text = e(pulse_rejoin.CONSENT_TEXT)
+        text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+        text = re.sub(r"`(.+?)`", r"<code>\1</code>", text)
+        action = (
+            '<form method="post" action="/verify/authorize/start" class="mt-5 grid gap-3 text-left">'
+            '<label class="flex gap-2 items-start text-sm"><input type="checkbox" name="consent" value="1" required class="mt-1">'
+            '<span>Ich habe den Hinweis gelesen und bin einverstanden.</span></label>'
+            '<button class="px-4 py-3 rounded-xl bg-indigo-600 text-white font-semibold">Mit Discord autorisieren</button></form>'
+        )
+        return HTMLResponse(ws.simple_page("🔐", "Verifizierung für © BOCHUM RP | V1", text, action))
+
+    @app.post("/verify/authorize/start")
+    async def verify_authorize_start(request: Request):
+        import secrets as _secrets
+        from urllib.parse import quote
+        import pulse_rejoin
+        if ws.rate_limited(ws.request_rate_key(request, "verify-oauth-start"), limit=10, window=600):
+            return ws.rate_limit_response("Zu viele Verifizierungsversuche. Bitte später erneut versuchen.")
+        if not pulse_rejoin.is_enabled():
+            raise HTTPException(status_code=404, detail="Die Verifizierung per Discord-Autorisierung ist nicht aktiv.")
+        form = await request.form()
+        if form.get("consent") != "1":
+            return RedirectResponse(url="/verify/authorize", status_code=303)
+        if not ws.CLIENT_ID or not ws.CLIENT_SECRET:
+            raise HTTPException(status_code=503, detail="Discord OAuth ist nicht vollständig konfiguriert.")
+        redirect_uri = ws.oauth_redirect_uri(request)
+        if not redirect_uri.startswith("https://"):
+            raise HTTPException(status_code=503, detail="Die Verifizierung benötigt eine registrierte HTTPS-Callback-URL.")
+        state = _secrets.token_urlsafe(32)
+        url = (
+            f"https://discord.com/oauth2/authorize?client_id={ws.CLIENT_ID}"
+            f"&redirect_uri={quote(redirect_uri, safe='')}&response_type=code"
+            f"&scope={quote(' '.join(pulse_rejoin.SCOPES), safe='')}&state={state}&prompt=consent"
+        )
+        response = RedirectResponse(url=url, status_code=303)
+        response.set_cookie("verify_oauth_state", state, max_age=600, httponly=True, samesite="lax", secure=True)
+        return response
+
     @app.get("/admin/privacy/export")
     async def admin_privacy_export(request: Request, discord_id: str = "", user_session: str = Cookie(None)):
         import json as _json
@@ -759,6 +879,8 @@ def register(app) -> None:
         data = await asyncio.to_thread(pulse_retention.export_person, ws, uid)  # file/DB scan off the event loop
         import pulse_ip_audit
         data["dashboard_login_ip_audit"] = await asyncio.to_thread(pulse_ip_audit.entries_for_user, uid)
+        import pulse_rejoin
+        data["rejoin_authorization"] = await asyncio.to_thread(pulse_rejoin.export_person, uid)  # never the tokens
         ws.log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Datenauskunft exportiert", f"Discord-ID {uid}")
         return Response(_json.dumps(data, ensure_ascii=False, indent=2, default=str), media_type="application/json",
                         headers={"Content-Disposition": f'attachment; filename="pulse_auskunft_{uid}.json"'})
