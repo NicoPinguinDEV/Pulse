@@ -1172,7 +1172,8 @@ def local_path(url: str, fallback: str = "/") -> str:
     parsed = urlparse(url.replace("\\", "/"))
     if parsed.scheme or parsed.netloc or not url.startswith("/") or url.startswith(("//", "/\\")):
         return fallback
-    return url
+    # Rebuilt behind a fixed "/" so the request value never forms the start of the target (CodeQL #113).
+    return "/" + url[1:]
 
 
 def back(url: str, msg: str = None, ok: bool = True):
