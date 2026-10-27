@@ -9,13 +9,13 @@ Tests: `tests/test_rejoin.py` (nur Mocks, keine echten Discord-Aufrufe).
 - **Standardmäßig aus.** Admins schalten es unter Verwaltung → Datenschutz ein. Aktivieren wird verweigert, solange
   `DISCORD_CLIENT_ID`/`DISCORD_CLIENT_SECRET`, `DISCORD_TOKEN` oder eine `https://`-`PUBLIC_BASE_URL` fehlen.
 - **Aktiv:** Der Knopf im Verifikations-Panel ist ein Link-Knopf direkt auf Discords eigenes Autorisierungsfenster
-  (Scopes `identify guilds.join`, kein `email`). Es gibt keine Extra-Nachricht und keine Hinweisseite; der kurze Hinweis
-  (`pulse_rejoin.PANEL_NOTE`) steht im Panel selbst. Ein statischer Link kann kein Cookie setzen, darum nutzt er einen
+  (Scopes `identify guilds.join`, kein `email`). Es gibt keine Extra-Nachricht und keine Hinweisseite; das Panel zeigt nur seinen eigenen Text (Entscheidung der
+  Serverleitung 2026-10-27: kein Rejoin-Hinweis in Discord; Discords Dialog nennt „Server für dich beitreten“). Ein statischer Link kann kein Cookie setzen, darum nutzt er einen
   signierten State (`pv1.…`, HMAC mit dem Session-Geheimnis). Die Bindung an den Browser ist hier unnötig: Verifiziert wird
   immer genau das Konto, das autorisiert. Nach „Autorisieren“ leitet Discord kurz auf `/callback` (Seite „Verifizierung
   abgeschlossen“ mit „Zurück zu Discord“). Speichern unter Verwaltung → Datenschutz veröffentlicht das Panel automatisch neu.
   `/verify/authorize` mit Einwilligungsseite bleibt als Alternative erhalten; alte Panels mit dem Interaktionsknopf antworten
-  mit dem Link und dem kurzen Hinweis.
+  mit dem Link und einer kurzen Zeile (`pulse_rejoin.PANEL_NOTE`).
 - Bereits Verifizierte, die noch nicht autorisiert haben, bekommen beim Klick den Hinweis und den Link, ihre Rollen bleiben.
 - **Auto-Rejoin (stündlich, Job „Auto-Rejoin (stündlich)“):** Wer den Server freiwillig verlässt, wird frühestens
   24 Stunden später per `PUT /guilds/{guild_id}/members/{user_id}` mit dem gespeicherten Access-Token (bei Bedarf vorher
@@ -49,5 +49,5 @@ Das Bot-Konto braucht auf dem Server „Soforteinladung erstellen“ (API-Voraus
 ## Hinweis Discord Developer Policy
 
 Ein automatisches Zurückholen von Personen, die absichtlich gegangen sind, kann gegen die Discord Developer Policy verstoßen.
-Pulse mindert das Risiko durch den Einwilligungstext vor der Autorisierung, 24 Stunden Karenz, Ausschluss von Bann/Kick und das
+Pulse mindert das Risiko durch Discords Autorisierungsdialog („Server für dich beitreten“), 24 Stunden Karenz, Ausschluss von Bann/Kick und das
 jederzeitige Opt-out. Die Entscheidung, alle Verifizierten einzubeziehen, hat die Serverleitung getroffen.
