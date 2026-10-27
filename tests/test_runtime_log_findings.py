@@ -146,5 +146,63 @@ class VoiceSupportReconnectTests(unittest.TestCase):
         self.assertLess(check, method.index("voice_client.play("))
 
 
+
+class HealthcheckAccessLogTests(unittest.TestCase):
+    def _record(self, path, status):
+        import logging
+        return logging.LogRecord("uvicorn.access", 20, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+                                 ("127.0.0.1:1", "GET", path, "1.1", status), None)
+
+    def test_successful_probe_is_dropped_but_failures_and_real_requests_stay(self):
+        import pulse_logging
+        f = pulse_logging.HealthcheckAccessFilter()
+        self.assertFalse(f.filter(self._record("/healthz", 200)))
+        self.assertTrue(f.filter(self._record("/healthz", 503)))   # failed probe stays visible
+        self.assertTrue(f.filter(self._record("/admin", 200)))
+        self.assertTrue(f.filter(self._record("/healthzx", 200)))
+
+    def test_filter_is_installed_once(self):
+        import logging
+        import pulse_logging
+        access = logging.getLogger("uvicorn.access")
+        before = list(access.filters)
+        try:
+            pulse_logging.quiet_healthcheck_access_log()
+            pulse_logging.quiet_healthcheck_access_log()
+            self.assertEqual(sum(isinstance(f, pulse_logging.HealthcheckAccessFilter) for f in access.filters), 1)
+        finally:
+            access.filters[:] = before
+
+
+class SocialPromoPersistentFailureLogTests(unittest.TestCase):
+    def _poll(self, failures, logged_hours_ago):
+        from datetime import timedelta, timezone
+        from cogs import social_promo
+        cog = object.__new__(social_promo.SocialPromo)
+        logged = (real_datetime.now(timezone.utc) - timedelta(hours=logged_hours_ago)).isoformat(timespec="seconds")
+        source = {"name": "Bochum RP V1", "feed_url": "https://example.org/feed", "platform": "tiktok",
+                  "feed_failures": failures, "last_error_logged_at": logged, "initialized": True}
+        cog.sources = {"s1": source}
+        cog._fetch_feed = AsyncMock(side_effect=ValueError("Keine RSSHub-Instanz"))
+        cog._save_sources = lambda: None
+        with patch("builtins.print") as out:
+            asyncio.run(cog._poll_one("s1", source))
+        return out, source
+
+    def test_new_failure_is_still_logged_hourly(self):
+        out, source = self._poll(failures=1, logged_hours_ago=2)
+        out.assert_called_once()
+        self.assertEqual(source["feed_failures"], 2)
+
+    def test_persistent_failure_is_logged_only_every_six_hours(self):
+        out, source = self._poll(failures=6, logged_hours_ago=2)
+        out.assert_not_called()
+        self.assertEqual(source["feed_failures"], 7)          # still counted and retried
+        self.assertIn("retry_after", source)
+        out, _ = self._poll(failures=6, logged_hours_ago=7)
+        out.assert_called_once()
+        self.assertIn("7. Fehlversuch", out.call_args[0][0])
+
+
 if __name__ == "__main__":
     unittest.main()

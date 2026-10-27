@@ -62,6 +62,10 @@ POLL_INTERVAL_MINUTES = 2
 POLL_FAILURE_INITIAL_BACKOFF_SECONDS = 300
 POLL_FAILURE_MAX_BACKOFF_SECONDS = 3600
 POLL_FAILURE_LOG_INTERVAL_SECONDS = 3600
+# A source failing this many times in a row (several hours at the 60-min back-off) is persistently down:
+# it is still retried hourly, but the console warning is repeated only every six hours.
+POLL_FAILURE_PERSISTENT_AFTER = 6
+POLL_FAILURE_PERSISTENT_LOG_INTERVAL_SECONDS = 6 * 3600
 USER_AGENT = "PulseSocialPromo/1.0 (+Discord community automation)"
 
 
@@ -921,9 +925,14 @@ class SocialPromo(commands.Cog):
             )
             error_text = str(exc)[:700]
             previous_log_at = _parse_entry_date(str(source.get("last_error_logged_at", "")))
+            log_interval = (
+                POLL_FAILURE_PERSISTENT_LOG_INTERVAL_SECONDS
+                if failure_count >= POLL_FAILURE_PERSISTENT_AFTER
+                else POLL_FAILURE_LOG_INTERVAL_SECONDS
+            )
             should_log = (
                 not source.get("last_error_logged_at")
-                or checked_at.timestamp() - previous_log_at >= POLL_FAILURE_LOG_INTERVAL_SECONDS
+                or checked_at.timestamp() - previous_log_at >= log_interval
             )
             source["feed_failures"] = failure_count
             source["feed_status"] = "pending" if not source.get("initialized") else "degraded"
@@ -934,9 +943,11 @@ class SocialPromo(commands.Cog):
             ).isoformat(timespec="seconds")
             if should_log:
                 print(
-                    "⚠️ Social-Promo: Quelle %s nicht abrufbar; nächster Versuch in %d Min. (%s: %s)"
+                    "⚠️ Social-Promo: Quelle %s nicht abrufbar (%d. Fehlversuch in Folge%s); nächster Versuch in %d Min. (%s: %s)"
                     % (
                         source.get("name", source_id),
+                        failure_count,
+                        "; Warnung nur noch alle 6 Std." if failure_count >= POLL_FAILURE_PERSISTENT_AFTER else "",
                         max(1, retry_seconds // 60),
                         type(exc).__name__,
                         error_text[:300],
