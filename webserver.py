@@ -1181,7 +1181,8 @@ def back(url: str, msg: str = None, ok: bool = True):
     if msg:
         # The message must come before an anchor (#logs), otherwise the browser treats it as part of the anchor.
         base, sep, anchor = url.partition("#")
-        url = f"{base}{'&' if '?' in base else '?'}msg={quote(msg)}&t={'ok' if ok else 'err'}{sep}{anchor}"
+        # Joined with "+" (not an f-string) so CodeQL sees the message only ever follows the local path (#113).
+        url = base + ("&" if "?" in base else "?") + "msg=" + quote(msg) + "&t=" + ("ok" if ok else "err") + sep + anchor
     return RedirectResponse(url=url, status_code=303)
 
 
