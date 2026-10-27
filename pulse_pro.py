@@ -270,6 +270,7 @@ def make_shell_helpers(ws):
                 ("tickets","/tickets","▣","Tickets",True,False),
                 ("voice-support","/voice-support","🎧","Sprach-Support",perms.get("can_manage_tickets") or perms.get("can_promote") or perms.get("is_admin"),False),
                 ("applications","/applications","✎","Bewerbungen",True,False),
+                ("factions","/factions","⚑","Fraktionsverwaltung",perms.get("can_manage_factions"),False),
             ]),
             ("Planung", [
                 ("meetings","/meetings","◫","Meetings",True,False),
