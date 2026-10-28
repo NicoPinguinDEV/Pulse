@@ -666,25 +666,29 @@ class VoiceSupport(commands.Cog):
                 saved_message = await channel.fetch_message(saved_id)
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 saved_message = None
-        try:
-            async for candidate in channel.history(limit=100):
-                if candidate.author.id != getattr(self.bot.user, "id", 0):
-                    continue
-                info = card_info(candidate)
-                if info and info["title"] == "🧠 Support-Bereitschaft" and info["footer"] == DUTY_STATUS_FOOTER:
-                    matches.append(candidate)
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"⚠️ Voice-Support: Verlauf zur Duplikatprüfung nicht lesbar: {exc}")
-
-        msg = None
         saved_info = card_info(saved_message) if saved_message else None
-        if (
+        valid_saved = (
             saved_message
             and saved_message.author.id == getattr(self.bot.user, "id", 0)
             and saved_info
             and saved_info["title"] == "🧠 Support-Bereitschaft"
             and saved_info["footer"] == DUTY_STATUS_FOOTER
-        ):
+        )
+        # Läuft jede Minute: den Verlauf (100 Nachrichten) nur durchsuchen, wenn die gespeicherte ID fehlt oder
+        # ungültig ist – wie beim Support-Status-Board.
+        if not valid_saved:
+            try:
+                async for candidate in channel.history(limit=100):
+                    if candidate.author.id != getattr(self.bot.user, "id", 0):
+                        continue
+                    info = card_info(candidate)
+                    if info and info["title"] == "🧠 Support-Bereitschaft" and info["footer"] == DUTY_STATUS_FOOTER:
+                        matches.append(candidate)
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(f"⚠️ Voice-Support: Verlauf zur Duplikatprüfung nicht lesbar: {exc}")
+
+        msg = None
+        if valid_saved:
             msg = saved_message
         elif matches:
             msg = matches[0]

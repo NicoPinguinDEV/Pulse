@@ -506,6 +506,10 @@ class RoleNicknamePrefixes(commands.Cog):
     async def on_member_remove(self, member: discord.Member) -> None:
         if not GUILD_ID or member.guild.id == GUILD_ID:
             await self._set_member_state(member.id, None)
+        # Lock des ausgetretenen Mitglieds freigeben, sonst wächst das Dict mit jeder Mitgliederfluktuation.
+        lock = self._member_locks.get(member.id)
+        if lock is not None and not lock.locked():
+            self._member_locks.pop(member.id, None)
 
     def start_sync_existing_members(self, *, queue_if_running: bool = False) -> bool:
         if self._bulk_sync_task and not self._bulk_sync_task.done():

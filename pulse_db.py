@@ -312,6 +312,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_events_target ON events(target_type, target_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type, created_at DESC);
 
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -550,9 +551,11 @@ def open_ticket_for_user(guild_id, user_id):
         return dict(row) if row else None
 
 
-def list_tickets(status=None, limit=200, claimed_by_id=None):
+def list_tickets(status=None, limit=200, claimed_by_id=None, open_only=False):
     with connect() as db:
         sql = "SELECT * FROM tickets WHERE 1=1"; args = []
+        if open_only:  # filter in SQL, so the limit cannot push older open tickets out of the window
+            sql += " AND status!='closed'"
         if status:
             sql += " AND status=?"; args.append(status)
         if claimed_by_id:

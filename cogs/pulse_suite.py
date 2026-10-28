@@ -230,6 +230,11 @@ def auth(request,session,manager=False,perm="can_view_dashboard"):
     if ctx.member:upsert_member(ctx.member)
     return ctx
 
+def can_edit_task(ctx,t):
+    """Wie /tasks/update (pulse_pro): Aufgabenverwaltung/Führung/Admin oder die zugewiesene Person."""
+    p=ctx.perms
+    return bool(p.get("can_manage_tasks") or p.get("can_promote") or p.get("is_admin") or str(t.get("assignee_id") or "")==str(ctx.user["id"]))
+
 def allowed(i,key,web):
     if not i.guild or not isinstance(i.user,discord.Member):return False
     p,_=web.compute_perms(i.guild,i.user.id,web.load_config())
@@ -471,8 +476,10 @@ def register_routes():
     @app.post("/suite/promotions/create")
     async def promotions_create(request:Request,target_id:int=Form(...),target_role_id:int=Form(...),reason:str=Form(...),performance:str=Form(""),activity:str=Form(""),user_session:str=Cookie(None)):
         ctx=auth(request,user_session,manager=True);web=webserver;m=ctx.guild.get_member(target_id);r=ctx.guild.get_role(target_role_id);ids={int(x) for x in web.load_config().get("team_role_ids",[])}
-        if not m or not r or r.id not in ids or m.id==ctx.user["id"] or r.position>=ctx.user.top_role.position:raise HTTPException(403,"Ungültige Zielposition oder Hierarchie.")
-        pid="prom_"+uuid.uuid4().hex[:10];required=2 if r.position>=ctx.user.top_role.position-1 else 1
+        # ctx.user ist die Session (dict); die Rollenhierarchie kommt vom Discord-Mitglied ctx.member.
+        actor=ctx.member
+        if not actor or not m or not r or r.id not in ids or str(m.id)==str(ctx.user["id"]) or r.position>=actor.top_role.position:raise HTTPException(403,"Ungültige Zielposition oder Hierarchie.")
+        pid="prom_"+uuid.uuid4().hex[:10];required=2 if r.position>=actor.top_role.position-1 else 1
         with cx() as c:c.execute("INSERT INTO suite_promotions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(pid,str(m.id),m.display_name,m.top_role.name,str(m.top_role.id),r.name,str(r.id),reason[:2000],performance[:1000],activity[:1000],str(len(warns(m,web))),team_score(m,web)["score"],"pending",required,"[]",str(ctx.user["id"]),ctx.user.get("global_name",""),"",iso(),iso()))
         audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),m.id,m.display_name,"promotion_created",f"{m.top_role.name} → {r.name} · {reason}");return RedirectResponse("/suite/promotions",303)
 
@@ -492,7 +499,7 @@ def register_routes():
             a.append({"id":ctx.user["id"],"name":ctx.user.get("global_name",""),"at":iso()})
             if len(a)>=int(p["required_approvals"]):
                 m=ctx.guild.get_member(int(p["target_id"]));role=ctx.guild.get_role(int(p["target_role_id"]))
-                if not m or not role or role.position>=ctx.user.top_role.position:raise HTTPException(403,"Rollenhierarchie blockiert.")
+                if not ctx.member or not m or not role or role.position>=ctx.member.top_role.position:raise HTTPException(403,"Rollenhierarchie blockiert.")
                 await m.add_roles(role,reason="Pulse Promotion "+pid)
                 with cx() as c:c.execute("UPDATE suite_promotions SET approvals_json=?,status='approved',updated_at=? WHERE id=?",(json.dumps(a,ensure_ascii=False),iso(),pid))
                 audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),m.id,m.display_name,"promote",f'{p["current_role"]} → {role.name} · Antrag {pid}')
@@ -541,6 +548,8 @@ def register_routes():
     async def task_meta(request:Request,task_id:str,mode:str=Form(...),value:str=Form(""),user_session:str=Cookie(None)):
         ctx=auth(request,user_session);t=db.get_task(task_id)
         if not t:raise HTTPException(404,"Aufgabe nicht gefunden")
+        # Kommentare darf jedes Teammitglied schreiben; Checkliste/Anhänge ändern nur Berechtigte oder die zugewiesene Person.
+        if mode!="comment" and not can_edit_task(ctx,t):raise HTTPException(403,"Dafür fehlt dir die Berechtigung.")
         with cx() as c:
             c.execute("INSERT OR IGNORE INTO suite_task_meta(task_id,updated_at) VALUES(?,?)",(task_id,iso()));r=dict(c.execute("SELECT * FROM suite_task_meta WHERE task_id=?",(task_id,)).fetchone());key={"comment":"comments_json","check":"checklist_json","attachment":"attachments_json"}.get(mode)
             if key:
@@ -555,6 +564,7 @@ def register_routes():
     async def task_move(request:Request,task_id:str,status:str=Form(...),user_session:str=Cookie(None)):
         ctx=auth(request,user_session);t=db.get_task(task_id)
         if not t or status not in {"backlog","open","in_progress","control","done"}:raise HTTPException(400,"Ungültig")
+        if not can_edit_task(ctx,t):raise HTTPException(403,"Dafür fehlt dir die Berechtigung.")
         st="done" if status=="done" else "in_progress" if status in {"in_progress","control"} else "open";db.update_task(task_id,status=st,actor_id=ctx.user["id"],actor_name=ctx.user.get("global_name",""),note=f"Board: {status}")
         with cx() as c:c.execute("INSERT OR IGNORE INTO suite_task_meta(task_id,updated_at) VALUES(?,?)",(task_id,iso()));c.execute("UPDATE suite_task_meta SET board_status=?,updated_at=? WHERE task_id=?",(status,iso(),task_id))
         audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),task_id,t["title"],"task_moved",status);return RedirectResponse("/suite/tasks",303)
@@ -836,12 +846,13 @@ class PulseSuite(commands.Cog):
             d=local(t.get("due_at"))
             if d and d<=n and t.get("status") not in {"done","archived"} and t.get("assignee_id"):db.notify(t["assignee_id"],"⏰ Aufgabe überfällig",f'{t["title"]} ist überfällig.',"warning","/suite/tasks",f"overdue:{t['id']}",21600)
         for aid,a in web.load_json(web.APPS_FILE,{}).items():
+            if a.get("status")!="pending":continue  # entschiedene Bewerbungen nicht mehr anmahnen
             d=local(a.get("created_at"))
             if d and (n-d).total_seconds()>172800:
                 for m in manager_cache:db.notify(m.id,"📝 Bewerbung wartet",f"{appname(aid,a)} wartet seit über 48h.","warning","/suite/applications",f"staleapp:{aid}",86400)
         for p in _promos():
             if p["status"] in {"pending","revision"}:
-                for m in managers(g,web):db.notify(m.id,"📈 Beförderung wartet",f'{p["target_name"]} wartet auf eine Freigabe.',"warning","/suite/promotions",f"promo:{p['id']}",86400)
+                for m in manager_cache:db.notify(m.id,"📈 Beförderung wartet",f'{p["target_name"]} wartet auf eine Freigabe.',"warning","/suite/promotions",f"promo:{p['id']}",86400)
 
     async def activity_reminder(self,g):
         path=os.path.join(BASE,"activity_check.db")

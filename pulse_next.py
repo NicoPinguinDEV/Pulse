@@ -1034,7 +1034,7 @@ def register(app):
             for m in people:
                 overrides={r["permission"]:bool(r["allowed"]) for r in c.execute("SELECT permission,allowed FROM next_permission_overrides WHERE user_id=?",(str(m.id),)).fetchall()}
                 checks="".join(f"<label style='display:block;margin:4px 0'><input type=checkbox name='{m.id}:{perm}' {'checked' if overrides.get(perm) else ''}> {perm}</label>" for perm in PERMISSIONS)
-                blocks.append(u.card(f"<b>{esc(m.display_name)}</b><div class=tiny>Direkte User-Overrides; Discord-Admin bleibt übergeordnet.</div><form method=post action='/ultimate/permissions/save' style='margin-top:10px'>{checks}<button class='btn primary' style='margin-top:8px'>Speichern</button></form>"))
+                blocks.append(u.card(f"<b>{esc(m.display_name)}</b><div class=tiny>Direkte User-Overrides; Discord-Admin bleibt übergeordnet.</div><form method=post action='/ultimate/permissions/save' style='margin-top:10px'><input type=hidden name=member_id value='{m.id}'>{checks}<button class='btn primary' style='margin-top:8px'>Speichern</button></form>"))
         return next_page(ctx,"permissions","Permission Center","Granulare Rechte zusätzlich zur Discord-Rollenlogik.", "".join(blocks))
 
     @app.post("/ultimate/permissions/save")
@@ -1042,9 +1042,22 @@ def register(app):
         ctx=ctx_auth(request,user_session,manager=True,require="can_manage_permissions")
         form=await request.form()
         people={str(m.id) for m in members(ctx.guild)}
+        # Jede Karte ist ein eigenes Formular: nur das abgeschickte Mitglied ändern, sonst würden die
+        # Overrides aller anderen Mitglieder gelöscht. Ältere Formulare ohne member_id: nur genannte IDs.
+        target=str(form.get("member_id") or "").strip()
+        targets={target} if target else {k.split(":",1)[0] for k in form.keys() if ":" in k}
+        targets&=people
+        is_admin=bool(ctx.perms.get("is_admin"))
+        me=str(actor_id(ctx))
+        if not is_admin and me in targets:
+            raise HTTPException(403,"Eigene Rechte-Overrides kann nur ein Administrator ändern.")
+        # Diese Rechte erlauben Rechtevergabe bzw. Backup-Wiederherstellung – vergeben/entziehen nur Admins.
+        admin_only={"can_manage_permissions","can_manage_backups"}
         with cx() as c:
-            for uid in people:
+            for uid in targets:
                 for perm in PERMISSIONS:
+                    if perm in admin_only and not is_admin:
+                        continue
                     key=f"{uid}:{perm}"
                     if key in form:
                         c.execute("INSERT OR REPLACE INTO next_permission_overrides VALUES(?,?,?,?,?)",(uid,perm,1,actor_id(ctx),iso()))
@@ -1130,6 +1143,8 @@ def register(app):
     @app.get("/ultimate/backup/{name}")
     async def backup_download(request:Request,name:str,user_session:str=Cookie(None)):
         ctx=ctx_auth(request,user_session,manager=True,require="can_manage_backups")
+        # Das Zip enthält config.json, Teamakten und Audit-Log – wie /backup/download und /backup/restore nur für Admins.
+        if not ctx.perms.get("is_admin"): raise HTTPException(403,"Download und Wiederherstellung von Backups sind nur für Administratoren.")
         from fastapi.responses import FileResponse
         p=safe_backup_file(name)
         return FileResponse(p,filename=p.name,media_type="application/zip")
@@ -1137,6 +1152,8 @@ def register(app):
     @app.post("/ultimate/backup/{name}/restore")
     async def backup_restore(request:Request,name:str,confirm:str=Form(...),user_session:str=Cookie(None)):
         ctx=ctx_auth(request,user_session,manager=True,require="can_manage_backups")
+        # Das Zip enthält config.json, Teamakten und Audit-Log – wie /backup/download und /backup/restore nur für Admins.
+        if not ctx.perms.get("is_admin"): raise HTTPException(403,"Download und Wiederherstellung von Backups sind nur für Administratoren.")
         if confirm!="RESTORE": raise HTTPException(400,"Bestätigung muss RESTORE lauten.")
         p=safe_backup_file(name)
         await asyncio.to_thread(restore_backup,p); save_audit(ctx,"Backup wiederhergestellt","",p.name)

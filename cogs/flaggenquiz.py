@@ -327,7 +327,16 @@ class QuizView(PulseView):
       )
       return
 
-    skipped_country_name = current_flag["name"]
+    channel_id = interaction.channel_id
+    if channel_id in self.cog._resolving:
+      return  # Runde wird bereits durch eine Antwort/einen Skip aufgelöst
+    self.cog._resolving.add(channel_id)
+    try:
+      await self._skip(interaction, current_flag["name"])
+    finally:
+      self.cog._resolving.discard(channel_id)
+
+  async def _skip(self, interaction: discord.Interaction, skipped_country_name: str):
     await interaction.followup.send(
         f"⏭️ {interaction.user.mention} hat die Flagge übersprungen! Gesucht war:"
         f" **{skipped_country_name}**"
@@ -342,6 +351,8 @@ class FlaggenQuizCog(commands.Cog):
 
   def __init__(self, bot: commands.Bot):
     self.bot = bot
+    # Kanäle, deren Runde gerade aufgelöst wird – verhindert doppelte Punkte/Runden bei schnellen Antworten.
+    self._resolving: set[int] = set()
     init_db()
     self.active_games = {}
 
@@ -468,14 +479,20 @@ class FlaggenQuizCog(commands.Cog):
     user_input = message.content.strip().lower()
 
     if user_input in current_flag["answers"]:
-      add_point(message.guild.id, message.author.id)
-      last_country_name = current_flag["name"]
-      winner = message.author
+      if message.channel.id in self._resolving:
+        return  # schon jemand schneller gewesen – kein zweiter Punkt
+      self._resolving.add(message.channel.id)
+      try:
+        add_point(message.guild.id, message.author.id)
+        last_country_name = current_flag["name"]
+        winner = message.author
 
-      await asyncio.sleep(0.5)
-      await self.start_new_round(
-          message.channel, last_winner=winner, last_country=last_country_name
-      )
+        await asyncio.sleep(0.5)
+        await self.start_new_round(
+            message.channel, last_winner=winner, last_country=last_country_name
+        )
+      finally:
+        self._resolving.discard(message.channel.id)
 
   @app_commands.command(
       name="setup_flaggenquiz",

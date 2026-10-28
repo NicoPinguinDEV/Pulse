@@ -214,6 +214,8 @@ class AIModeration(commands.Cog):
             limits=httpx.Limits(max_connections=2, max_keepalive_connections=1, keepalive_expiry=30.0),
         )
         self.cases: dict[str, dict[str, Any]] = self._load_cases()
+        # Fälle, deren Prüfaktion gerade läuft – verhindert doppelte Maßnahmen bei gleichzeitigen Klicks.
+        self._reviews_in_progress: set[str] = set()
         self.worker_task: asyncio.Task | None = None
 
     async def cog_load(self):
@@ -984,9 +986,16 @@ class AIModeration(commands.Cog):
             await interaction.response.send_message("❌ Du brauchst die Berechtigung für Team-Warnungen oder Moderation.", ephemeral=True)
             return
         case = self.cases.get(case_id)
-        if not case or case.get("status") != "pending":
+        if not case or case.get("status") != "pending" or case_id in self._reviews_in_progress:
             await interaction.response.send_message("Dieser Fall ist bereits bearbeitet oder nicht mehr verfügbar.", ephemeral=True)
             return
+        self._reviews_in_progress.add(case_id)
+        try:
+            await self._run_review_action(interaction, case_id, case, action)
+        finally:
+            self._reviews_in_progress.discard(case_id)
+
+    async def _run_review_action(self, interaction: discord.Interaction, case_id: str, case: dict[str, Any], action: str):
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             if action == "dismiss":
