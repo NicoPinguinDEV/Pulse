@@ -3580,7 +3580,7 @@ async def logout(user_session: str = Cookie(None)):
 @app.get("/callback")
 async def callback(request: Request, code: str = None, state: str = None, error: str = None,
                    oauth_state: str = Cookie(None), apply_oauth_state: str = Cookie(None),
-                   recovery_oauth_state: str = Cookie(None), verify_oauth_state: str = Cookie(None)):
+                   recovery_oauth_state: str = Cookie(None)):
     if rate_limited(request_rate_key(request, "oauth-callback"), limit=30, window=600):
         return rate_limit_response("Zu viele Anmeldeversuche. Bitte in einer Minute erneut versuchen.")
     application_flow = bool(
@@ -3589,31 +3589,6 @@ async def callback(request: Request, code: str = None, state: str = None, error:
     recovery_flow = bool(
         state and recovery_oauth_state and hmac.compare_digest(state, recovery_oauth_state)
     )
-    verify_flow = bool(
-        state and verify_oauth_state and hmac.compare_digest(state, verify_oauth_state)
-    )
-    if not verify_flow and state and str(state).startswith("pv1."):
-        import pulse_rejoin  # link button in the verification panel: signed state instead of a cookie
-        verify_flow = pulse_rejoin.is_direct_state(state)
-    if verify_flow:  # Verifizierung per Discord-Autorisierung (identify + guilds.join, pulse_rejoin)
-        import pulse_rejoin
-        retry_url = esc(pulse_rejoin.direct_authorize_url() or "/verify/authorize")
-        back_link = f'<a href="{retry_url}" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Erneut versuchen</a>'
-        discord_link = (f'<a href="https://discord.com/channels/{GUILD_ID}" class="px-4 py-2 rounded-xl bg-indigo-600 '
-                        'text-white font-semibold">Zurück zu Discord</a>')
-        if error or not code:
-            response = HTMLResponse(simple_page("❌", "Verifizierung abgebrochen",
-                                                "Du hast die Autorisierung nicht bestätigt. Ohne sie ist die Verifizierung nicht möglich.", back_link))
-        else:
-            verify_ok, verify_message = await pulse_rejoin.complete_verification(
-                code, oauth_redirect_uri(request), getattr(request.app.state, "bot", None)
-            )
-            response = HTMLResponse(simple_page("✅" if verify_ok else "❌",
-                                                "Verifizierung abgeschlossen" if verify_ok else "Verifizierung fehlgeschlagen",
-                                                verify_message, discord_link if verify_ok else back_link),
-                                    status_code=200 if verify_ok else 400)
-        response.delete_cookie("verify_oauth_state")
-        return response
     retry = (
         '<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zur Bewerbung</a>'
         if application_flow else

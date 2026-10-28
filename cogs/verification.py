@@ -16,7 +16,6 @@ from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guar
 from discord.ext import commands, tasks
 
 import pulse_db
-import pulse_rejoin
 from pulse_embed_design import branding, layout_from_spec, to_discord_embed
 from pulse_verification import (
     BUTTON_CUSTOM_ID, CITIZEN_ROLE_ID, SETTING_KEY, UNVERIFIED_ROLE_ID, add_error, banner_path, build_panel_spec,
@@ -79,18 +78,6 @@ def verify_layout(cog: "Verification", spec: dict | None = None, label: str = "J
         layout.add_item(discord.ui.ActionRow(button))
         return layout
     return layout_from_spec(spec, action_items=[button])
-
-
-def authorize_link_button(label: str = "Jetzt verifizieren") -> discord.ui.Button | None:
-    """With auto-rejoin on, the panel button opens Discord's own authorization dialog directly."""
-    try:
-        url = pulse_rejoin.direct_authorize_url() if pulse_rejoin.is_enabled() else ""
-    except Exception as exc:
-        print(f"⚠️ Autorisierungslink nicht erzeugt ({type(exc).__name__}); Panel nutzt den normalen Knopf.")
-        url = ""
-    if not url:
-        return None
-    return discord.ui.Button(label=label, style=discord.ButtonStyle.link, emoji="✅", url=url)
 
 
 class Verification(commands.Cog):
@@ -212,89 +199,41 @@ class Verification(commands.Cog):
                 await self._reply(interaction, "ℹ️ Die Verifikation ist gerade deaktiviert. Bitte wende dich an den Support.")
                 return "disabled"
             plan = plan_verify([r.id for r in member.roles])
-            rejoin_required = await asyncio.to_thread(self._rejoin_authorization_missing, member.id)
             if plan["already_done"]:
-                text = "✅ Du bist bereits verifiziert."
-                if rejoin_required:
-                    await self._reply_authorize(interaction, text + "\n" + pulse_rejoin.PANEL_NOTE)
-                    return "already"
-                await self._reply(interaction, self._with_recovery_offer(text))
+                await self._reply(interaction, self._with_recovery_offer("✅ Du bist bereits verifiziert."))
                 return "already"
-            if rejoin_required:
-                # Admin switched on OAuth verification: the citizen role follows only after the authorization.
-                await self._reply_authorize(interaction, pulse_rejoin.PANEL_NOTE)
-                return "authorize"
-            status = await self.apply_verification(guild, member, interaction=interaction)
-            texts = {
-                "misconfigured": "❌ Die Verifikation ist gerade nicht möglich. Das Team wurde informiert – bitte versuche es später erneut.",
-                "citizen_failed": "❌ Die Verifikation konnte nicht abgeschlossen werden. Bitte versuche es später erneut oder melde dich beim Support.",
-                "partial": "⚠️ Du hast die Bürgerrolle erhalten, aber eine alte Rolle konnte nicht entfernt werden. Das Team wurde informiert.",
-                "verified": self._with_recovery_offer("✅ Verifikation abgeschlossen – willkommen! Du siehst jetzt alle freigegebenen Bereiche."),
-                "already": self._with_recovery_offer("✅ Du bist bereits verifiziert."),
-            }
-            await self._reply(interaction, texts[status])
-            return status
-
-    def _rejoin_authorization_missing(self, user_id: int) -> bool:
-        try:
-            return pulse_rejoin.is_enabled() and not pulse_rejoin.has_authorization(user_id)
-        except Exception as exc:
-            print(f"⚠️ Rejoin-Status nicht lesbar ({type(exc).__name__}); Verifikation läuft ohne Autorisierung.")
-            return False
-
-    async def _reply_authorize(self, interaction: discord.Interaction, text: str) -> None:
-        """Only reached from an old panel that still has the interaction button (new panels link to Discord directly)."""
-        url = pulse_rejoin.direct_authorize_url() or pulse_rejoin.authorize_url()
-        if not url:
-            await self.record_error("OAuth-Verifizierung aktiv, aber Client-ID oder https://-Callback fehlt.")
-            await self._reply(interaction, "❌ Die Verifikation ist gerade nicht möglich. Das Team wurde informiert.")
-            return
-        view = discord.ui.View(timeout=None)
-        view.add_item(discord.ui.Button(label="Mit Discord autorisieren", style=discord.ButtonStyle.link, url=url, emoji="🔐"))
-        content = text
-        try:
-            if interaction.response.is_done():
-                await interaction.followup.send(content[:2000], view=view, ephemeral=True)
-            else:
-                await interaction.response.send_message(content[:2000], view=view, ephemeral=True)
-        except discord.HTTPException:
-            pass
-
-    async def apply_verification(self, guild: discord.Guild, member, *, interaction: discord.Interaction | None = None) -> str:
-        """Give the citizen role, then drop the unverified role. Used by the button and the OAuth callback.
-
-        Returns disabled · already · misconfigured · citizen_failed · partial · verified (no reply is sent here).
-        """
-        if interaction is None and not (await asyncio.to_thread(load_settings))["enabled"]:
-            return "disabled"
-        plan = plan_verify([r.id for r in member.roles])
-        if plan["already_done"]:
-            return "already"
-        problems = problems_for(guild)
-        citizen = guild.get_role(CITIZEN_ROLE_ID)
-        unverified = guild.get_role(UNVERIFIED_ROLE_ID)
-        if problems or citizen is None:
-            await self.record_error("Verifikation nicht möglich: " + " ".join(problems or ["Bürgerrolle fehlt."]))
-            return "misconfigured"
-        if interaction is not None and not interaction.response.is_done():
-            try:
-                await interaction.response.defer(ephemeral=True, thinking=True)
-            except discord.HTTPException:
-                pass
-        # Citizen first: if this fails, the member keeps the unverified protection.
-        if plan["add_citizen"]:
-            try:
-                await member.add_roles(citizen, reason="Pulse-Verifikation abgeschlossen")
-            except (discord.Forbidden, discord.HTTPException) as exc:
-                await self.record_error(f"Bürgerrolle für Mitglied {member.id} fehlgeschlagen ({type(exc).__name__}). Unverifiziert-Rolle bleibt bestehen.")
-                return "citizen_failed"
-        if plan["remove_unverified"] and unverified is not None:
-            try:
-                await member.remove_roles(unverified, reason="Pulse-Verifikation abgeschlossen")
-            except (discord.Forbidden, discord.HTTPException) as exc:
-                await self.record_error(f"Unverifiziert-Rolle von Mitglied {member.id} nicht entfernt ({type(exc).__name__}); Bürgerrolle wurde vergeben.")
-                return "partial"
-        return "verified"
+            problems = problems_for(guild)
+            citizen = guild.get_role(CITIZEN_ROLE_ID)
+            unverified = guild.get_role(UNVERIFIED_ROLE_ID)
+            if problems or citizen is None:
+                await self.record_error("Verifikation nicht möglich: " + " ".join(problems or ["Bürgerrolle fehlt."]))
+                await self._reply(interaction, "❌ Die Verifikation ist gerade nicht möglich. Das Team wurde informiert – bitte versuche es später erneut.")
+                return "misconfigured"
+            if not interaction.response.is_done():
+                try:
+                    await interaction.response.defer(ephemeral=True, thinking=True)
+                except discord.HTTPException:
+                    pass
+            # Citizen first: if this fails, the member keeps the unverified protection.
+            if plan["add_citizen"]:
+                try:
+                    await member.add_roles(citizen, reason="Pulse-Verifikation abgeschlossen")
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    await self.record_error(f"Bürgerrolle für Mitglied {member.id} fehlgeschlagen ({type(exc).__name__}). Unverifiziert-Rolle bleibt bestehen.")
+                    await self._reply(interaction, "❌ Die Verifikation konnte nicht abgeschlossen werden. Bitte versuche es später erneut oder melde dich beim Support.")
+                    return "citizen_failed"
+            if plan["remove_unverified"] and unverified is not None:
+                try:
+                    await member.remove_roles(unverified, reason="Pulse-Verifikation abgeschlossen")
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    await self.record_error(f"Unverifiziert-Rolle von Mitglied {member.id} nicht entfernt ({type(exc).__name__}); Bürgerrolle wurde vergeben.")
+                    await self._reply(interaction, "⚠️ Du hast die Bürgerrolle erhalten, aber eine alte Rolle konnte nicht entfernt werden. Das Team wurde informiert.")
+                    return "partial"
+            success_text = self._with_recovery_offer(
+                "✅ Verifikation abgeschlossen – willkommen! Du siehst jetzt alle freigegebenen Bereiche."
+            )
+            await self._reply(interaction, success_text)
+            return "verified"
 
     # ------------------------------------------------------------------ reminder
     @tasks.loop(minutes=5)
@@ -377,20 +316,15 @@ class Verification(commands.Cog):
             banner = banner_path(settings, self.base_dir)
             if banner and perms is not None and not getattr(perms, "attach_files", True):
                 raise ValueError(f"Pulse fehlt in #{channel.name} das Recht „Dateien anhängen“ für das hochgeladene Banner.")
-            link = await asyncio.to_thread(authorize_link_button, settings["button_label"])
             spec = build_panel_spec(settings, icon_url=icon, base_dir=self.base_dir)
             files = [discord.File(banner, filename=os.path.basename(banner))] if banner else []
             try:
                 style = branding().get("style", "modern")
                 if style == "modern":
-                    view = layout_from_spec(spec, action_items=[link]) if link else verify_layout(self, spec, settings["button_label"])
+                    view = verify_layout(self, spec, settings["button_label"])
                     payload = {"view": view}
                 else:
-                    if link:
-                        view = discord.ui.View(timeout=None)
-                        view.add_item(link)
-                    else:
-                        view = VerifyView(self, settings["button_label"])
+                    view = VerifyView(self, settings["button_label"])
                     payload = {"embed": to_discord_embed(spec), "view": view}
                 message = None
                 if settings["message_id"] and settings["published_channel_id"] == str(channel.id):
@@ -419,8 +353,7 @@ class Verification(commands.Cog):
                 settings["message_id"] = str(message.id)
                 settings["published_channel_id"] = str(channel.id)
                 await asyncio.to_thread(save_settings, settings)
-                if not link:  # a link button needs no persistent view (Discord opens the URL itself)
-                    self.bot.add_view(view)
+                self.bot.add_view(view)
                 return {"action": action, "channel": f"#{channel.name}", "message_id": message.id}
             finally:
                 for attachment in files:
