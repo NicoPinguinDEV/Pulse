@@ -997,7 +997,10 @@ class SocialPromo(commands.Cog):
                 return
             for item in new_items:
                 if not await self._announce(channel, source, item, feed_title):
+                    # Bereits gepostete Videos dieses Durchlaufs merken, sonst werden sie bei jedem Poll erneut mit Ping gepostet.
+                    self._save_sources()
                     return
+                source["seen_ids"] = ([item["id"]] + [x for x in source.get("seen_ids", []) if x != item["id"]])[:MAX_SEEN_IDS]
                 source["last_announced_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 source["announced_count"] = int(source.get("announced_count", 0) or 0) + 1
                 await asyncio.sleep(0.5)

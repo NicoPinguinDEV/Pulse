@@ -23,6 +23,7 @@ class MessageDeleteConfirmationView(PulseView):
         self.requester_id = requester_id
         self.amount = amount
         self.include_older_than_14_days = include_older_than_14_days
+        self._confirmed = False
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.requester_id:
@@ -49,6 +50,12 @@ class MessageDeleteConfirmationView(PulseView):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
+        # Doppelklick darf nicht zweimal löschen: Flag vor dem ersten await setzen.
+        if self._confirmed:
+            await interaction.response.defer()
+            return
+        self._confirmed = True
+        self.stop()
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True

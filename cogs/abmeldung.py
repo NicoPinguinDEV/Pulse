@@ -236,6 +236,8 @@ class AbmeldungCog(commands.Cog):
 
     @staticmethod
     def parse_date(value: str):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError
         value = value.strip()
         for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
             try:
@@ -435,6 +437,13 @@ class AbmeldungCog(commands.Cog):
     @tasks.loop(minutes=15)
     async def check_expired_abmeldungen(self):
         await self.bot.wait_until_ready()
+        # Ein einzelner Fehler (gesperrte DB, Discord-Ausfall) darf den Ablauf-Check nicht dauerhaft stoppen.
+        try:
+            await self._check_expired_abmeldungen_once()
+        except Exception as e:
+            print(f"⚠️ Abmeldungen: Ablaufprüfung fehlgeschlagen ({type(e).__name__}); nächster Durchlauf versucht es erneut.")
+
+    async def _check_expired_abmeldungen_once(self):
 
         # Bei jedem Start/Intervall zuerst sicherstellen, dass Liste + Rollen
         # dem Datenbestand entsprechen.

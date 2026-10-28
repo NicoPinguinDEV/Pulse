@@ -135,7 +135,7 @@ class PulsePro(commands.Cog):
             except Exception:
                 pass
 
-            for ticket in db.list_tickets(limit=1000):
+            for ticket in db.list_tickets(limit=1000, open_only=True):
                 if ticket.get("status") == "closed":
                     continue
                 try:
@@ -304,7 +304,7 @@ class PulsePro(commands.Cog):
                 return
             shifts = webserver.load_shifts()
             active = len(shifts.get("active_shifts", {}))
-            tickets = len([x for x in db.list_tickets(limit=1000) if x.get("status") != "closed"])
+            tickets = len([x for x in db.list_tickets(limit=1000, open_only=True) if x.get("status") != "closed"])
             tasks_open = len([x for x in db.list_tasks(limit=1000) if x.get("status") in ("open", "in_progress")])
             promos = len(db.promotion_requests("pending", 100))
             embed = discord.Embed(title="⚡ Pulse TeamOS", description="Zentrale Teamverwaltung", color=_pulse_color("info"))

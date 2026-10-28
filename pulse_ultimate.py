@@ -2374,6 +2374,9 @@ window.setInterval(loadPulseMonitor, 15000);
         user_session: str = Cookie(None),
     ):
         ctx = ctx_auth(request, user_session, manager=True)
+        # Externe Schlüssel überdauern Teamaustritte (Sessions nicht) – deshalb nur Administratoren.
+        if not ctx.perms.get("is_admin"):
+            raise HTTPException(status_code=403, detail="API-Keys dürfen nur Administratoren erstellen.")
         form = await request.form()
         scopes = [x for x in form.getlist("scopes") if x in API_SCOPES] if "scopes_sent" in form else list(API_SCOPES)
         if not scopes:

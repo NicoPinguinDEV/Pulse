@@ -134,10 +134,10 @@ def register(app):
     @app.get("/ticket/transcript/{filename}")
     async def ticket_transcript(request: Request, filename: str, user_session: str=Cookie(None)):
         c=ctx(request,user_session)
-        manager=c.perms.get('can_manage_tickets') or c.perms.get('can_promote') or c.perms.get('is_admin')
-        if not manager: raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
+        # Gleiche Regel wie /tickets/transcript/{ticket_id}: Transkripte nur mit Ticketverwaltung (oder Admin).
+        if not (c.perms.get('can_manage_tickets') or c.perms.get('is_admin')): raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
         safe=os.path.basename(filename)
-        path=contained_file('transcripts',safe)
+        path=contained_file(os.path.join(str(ws.BASE_DIR),'transcripts'),safe)
         if not safe.endswith('.txt') or not path or not os.path.isfile(path): raise HTTPException(404,'Transcript nicht gefunden.')
         return __import__('fastapi').responses.FileResponse(path,filename=safe,media_type='text/plain')
 
@@ -146,6 +146,8 @@ def register(app):
         c=ctx(request,user_session); t=db.get_ticket(ticket_id=ticket_id)
         if not t or str(t['user_id'])!=str(c.user['id']): raise HTTPException(403,"Du darfst nur deine eigenen Tickets bewerten.")
         if rating<1 or rating>5: raise HTTPException(400,"Bewertung muss 1 bis 5 sein.")
+        # Wie in der UI: nur geschlossene, noch unbewertete Tickets (sonst beliebiges Überschreiben + Benachrichtigungs-Spam).
+        if t.get('status')!='closed' or t.get('rating'): return ws.back("/tickets","Dieses Ticket kann nicht (mehr) bewertet werden.",False)
         db.rate_ticket(ticket_id,rating,comment.strip()[:300]); db.notify(t.get('claimed_by_id') or c.user['id'],"⭐ Ticket bewertet",f"Ticket {ticket_id}: {rating}/5", "success", "/tickets")
         return ws.back("/tickets","Bewertung gespeichert.")
 
@@ -196,7 +198,11 @@ def register(app):
         if not manager: raise HTTPException(403,"Dafür fehlt dir die Berechtigung.")
         try: qs=json.loads(questions_json)
         except Exception: return ws.back('/training','Ungültiges Fragen-JSON.',False)
-        if not isinstance(qs,list) or not qs or any(not q.get('question') or not isinstance(q.get('options'),list) or len(q['options'])<2 or not (0<=int(q.get('answer_index',-1))<len(q['options'])) for q in qs):
+        def _valid_question(q):
+            if not isinstance(q,dict) or not q.get('question') or not isinstance(q.get('options'),list) or len(q['options'])<2: return False
+            try: return 0<=int(q.get('answer_index',-1))<len(q['options'])
+            except (TypeError,ValueError): return False
+        if not isinstance(qs,list) or not qs or not all(_valid_question(q) for q in qs):
             return ws.back('/training','Fragenformat ungültig.',False)
         tid=db.create_training(title.strip()[:120],description.strip()[:500],max(1,min(100,passing_score)),max(1,min(180,time_limit)),c.user['id'],c.user.get('global_name') or 'Team',qs)
         ws.log_audit(c.user.get('global_name'),c.user['id'],'Schulung Erstellt',f'{title.strip()} · {tid}')

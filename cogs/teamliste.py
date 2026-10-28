@@ -362,7 +362,11 @@ class TeamlisteCog(commands.Cog):
         if channel_id:
             channel = self.bot.get_channel(channel_id)
             if channel and channel.guild:
-                await self.update_teamlist(channel.guild)
+                # Ein Fehler (z. B. Forbidden beim Neuanlegen) darf den 5-Minuten-Abgleich nicht dauerhaft beenden.
+                try:
+                    await self.update_teamlist(channel.guild)
+                except Exception as e:
+                    print(f"⚠️ Teamliste: Sicherheitsabgleich fehlgeschlagen ({type(e).__name__}); nächster Durchlauf versucht es erneut.")
 
     async def _debounced_update_teamlist(self, guild: discord.Guild):
         try:
