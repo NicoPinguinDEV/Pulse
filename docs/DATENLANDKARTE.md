@@ -73,7 +73,6 @@ Automatisch erzeugt von `python tools/data_map.py` (statische Analyse, liest kei
 | `promotion_requests` | `pulse_db.py` | ✅ |
 | `quiz_config` | `cogs/flaggenquiz.py` | ❌ |
 | `quiz_scores` | `cogs/flaggenquiz.py` | ❌ |
-| `rejoin_oauth_tokens` | `pulse_rejoin.py` (verschlüsselte OAuth-Tokens, siehe docs/VERIFIZIERUNG_AUTO_REJOIN.md) | ❌ |
 | `responses` | `cogs/activity_check.py` | ❌ |
 | `roles` | `cogs/teamliste.py` | ❌ |
 | `settings` | `pulse_db.py` | ✅ |

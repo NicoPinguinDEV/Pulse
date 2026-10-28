@@ -17,8 +17,8 @@ import os
 from urllib.parse import urlparse
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-# form-action also governs the redirect after a form POST: the OAuth starts (/verify/authorize/start,
-# /recovery/authorize/start) answer with 303 to Discord, which browsers block unless discord.com is allowed.
+# form-action also governs the redirect after a form POST: the OAuth start /recovery/authorize/start
+# answers with 303 to Discord, which browsers block unless discord.com is allowed.
 CSP = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://discord.com"
 CACHEABLE_PATHS = {"/sw.js", "/manifest.json", "/manifest.webmanifest", "/favicon.ico", "/robots.txt"}
 
