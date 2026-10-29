@@ -49,3 +49,12 @@ Fremde, unversionierte Dateien (nie mitcommitten): `.claude/launch.json`, `.clau
 - Timer auf dem VPS installieren (nicht ausgeführt, kein SSH).
 - Branch `refactoring-pulse` pushen / PR – laut Auftrag nicht ausgeführt.
 - Dependabot-pip-PRs brauchen ab jetzt eine neu erzeugte requirements.lock (Test meldet das).
+
+# Mission 2 (2026-10-29, Branch refactoring-pulse ab 5e94a99)
+
+## Phase 1 – GitHub-Gates ✅
+- API gelesen: main ohne Branchschutz/Rulesets; Environment production ohne Reviewer/Branch-Regel; PULSE_VPS_* sind Repo-Secrets;
+  Default-Workflow-Rechte read. → manuelle Schritte in VPS_DEPLOYMENT.md §5 (nicht selbst geändert).
+- Fix: blockierendes Audit (`dependency-audit`) prüfte requirements.txt statt der ausgelieferten requirements.lock → jetzt Lock mit Hashes.
+  Lokal: `pip-audit -r requirements.lock --require-hashes` → keine bekannten Schwachstellen.
+- Härtung: manueller Deploy bricht ab, wenn nicht von refs/heads/main gestartet (Test test_manual_deploy_only_from_main).

@@ -97,7 +97,7 @@ class ExistingChecksStayTests(unittest.TestCase):
         text = (WORKFLOWS / "python-syntax.yml").read_text(encoding="utf-8")
         for step in ("python -m ruff check .", "python -m compileall -q .", "python tests/feature_smoke.py",
                      "python tests/smoke_test.py", "python -m unittest discover -s tests -p 'test_*.py'",
-                     "gitleaks/gitleaks-action", "pip-audit -r requirements.txt"):
+                     "gitleaks/gitleaks-action", "pip-audit -r requirements.lock --require-hashes"):
             self.assertIn(step, text)
         syntax_job = text.split("\n  syntax:\n", 1)[1].split("\n  e2e-scope:\n", 1)[0]
         self.assertNotIn("if:", syntax_job, "Python-Prüfungen dürfen nicht per Pfadfilter entfallen")

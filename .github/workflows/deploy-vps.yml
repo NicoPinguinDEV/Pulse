@@ -55,6 +55,12 @@ jobs:
               return;
             }
 
+            // The workflow file and deploy script come from the dispatched ref – only main may deploy.
+            // (Hard guarantee only with a deployment branch policy on the "production" environment.)
+            if (context.ref !== "refs/heads/main") {
+              core.setFailed(`Manuelles Deployment nur von main aus starten (gestartet von ${context.ref}).`);
+              return;
+            }
             const sha = (context.payload.inputs?.commit_sha || context.sha).trim();
             if (!/^[0-9a-f]{40}$/.test(sha)) {
               core.setFailed("Bitte eine gültige vollständige Commit-SHA angeben.");
