@@ -2,6 +2,8 @@
 
 ## Unveröffentlicht – Betrieb auf dem Vionity-VPS
 
+- **Sicherheit (Container → Host):** Über den Bind-Mount `./:/app` konnte der Container (UID 1000) `.git/`, `compose.yaml` und die Deploy-/Boot-Skripte verändern – Dateien, die root auf dem Host ausführt oder einliest (z. B. `core.fsmonitor`/Git-Hooks bei `git status`/`git merge`, eine neue `compose.override.yaml` bei `docker compose up`). Ein kompromittierter Pulse-Prozess hätte so root-Rechte erlangen können. Diese Pfade sind im Container jetzt schreibgeschützt, und alle root-Skripte sowie der Host-Agent lesen ausschließlich `compose.yaml`. Laufzeitdaten bleiben unverändert am selben Ort. Die CI prüft die Mounts mit `docker compose config`.
+
 - **Backup – Wartemusik:** Die im Dashboard hochgeladene Voice-Support-Wartemusik (`assets/support_wait.mp3/.ogg/.wav`) war in keinem Komplett-Backup enthalten. Sie wird jetzt gesichert und wiederhergestellt.
 - **Restore-Test = echte Probewiederherstellung:** `pulse_backup.restore_test` (wöchentlich, im Systemstatus) prüfte bisher nur Prüfsummen und die Datenbank-Integrität. Jetzt wird das ganze Archiv mit denselben Routinen wie beim echten Restore in ein Temp-Verzeichnis wiederhergestellt: Integrität vor und nach dem Kopieren, Tabellen- und Zeilenzahl, JSON-Gültigkeit, Prüfsumme jeder Datei, und jeder Eintrag braucht ein Wiederherstellungsziel. Die Live-Daten bleiben unberührt; ein Test belegt, dass `pulse.db` nicht verändert wird, obwohl der echte Restore sie über `PULSE_DB_PATH` adressiert.
 - **CI/Deploy:** Das Audit, das den Deploy blockiert, prüft jetzt `requirements.lock` (Inhalt des Images) statt `requirements.txt`. Ein manueller Deploy bricht ab, wenn er nicht von `main` gestartet wurde.

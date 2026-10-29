@@ -65,3 +65,12 @@ Fremde, unversionierte Dateien (nie mitcommitten): `.claude/launch.json`, `.clau
 - Befund: restore_test prüfte nur Hashes + DB-Integrität → jetzt vollständige Probewiederherstellung in Temp-Dir (eigene Ziele, nie
   _target_for, das pulse.db auf den Live-Pfad abbildet), Tabellen/Zeilen, JSON, Datei-Hashes, fehlende Restore-Ziele.
 - Tests: test_full_backup (+3), Gegenprobe ohne Fix 4 F/1 E; 73 Tests Backup/Admin/ServerControl ok. DATENLANDKARTE neu erzeugt.
+
+## Phase 3 – Code/Daten-Trennung (Teil 1) ✅
+- Befund (Sicherheit, bestätigt im Code): Container schreibt über ./:/app auch .git/, compose.yaml, deploy/, scripts/, systemd/ –
+  root führt davon git (Hooks/fsmonitor), compose (Override-Datei) und Skripte aus → möglicher Container→root-Weg.
+- Fix: ro-Untermounts in compose.yaml; COMPOSE_FILE=compose.yaml in remote_deploy/rollback_code/boot-update + Host-Agent-Env.
+  Pulse liest .git nur (read_git_head), importiert nichts aus deploy/scripts. CI: docker compose config + ro-Prüfung.
+- Tests: HostBoundaryTests (3); Deploy/Boot/Crash/ServerControl/HostAgent-Suiten ok. Lokal kein Docker → Compose nur in CI.
+- Nicht umgesetzt (begründet): PULSE_DATA_DIR/Datenumzug (~70 Pfadstellen, 22 Module, Produktionsdaten-Umzug) – dokumentiert.
+- Wirksam auf dem VPS erst nach dem nächsten Deploy.

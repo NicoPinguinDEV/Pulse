@@ -129,6 +129,7 @@ def _child_env(extra=None) -> dict:
     env = {key: os.environ[key] for key in ("PATH", "HOME", "LANG", "LC_ALL", "USER", "DOCKER_HOST") if key in os.environ}
     env.setdefault("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
     env["GIT_TERMINAL_PROMPT"] = "0"
+    env["COMPOSE_FILE"] = "compose.yaml"  # never a compose.override.yaml the container could have written
     env.update(extra or {})
     return env
 

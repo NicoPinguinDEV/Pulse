@@ -6,6 +6,9 @@ SERVICE_NAME="pulse"
 UPDATE_HELPER="/usr/local/sbin/pulse-vps-boot-update.sh"
 HEALTH_URL="http://127.0.0.1:25095/healthz"
 BACKUP_ROOT="/root/pulse-auto-deploy-backups"
+# Only compose.yaml from git – never a compose.override.yaml or a COMPOSE_FILE from .env, which the container
+# (bind mount) could create to start a privileged container through this root script.
+export COMPOSE_FILE=compose.yaml
 
 log() {
     printf '[pulse-github-update] %s\n' "$*"

@@ -87,6 +87,12 @@ docker compose logs -f --tail=150 pulse
 
 Der Container startet nach einem Serverneustart automatisch. Standardmäßig ist das Dashboard am öffentlichen Serverport 25095 erreichbar, solange die Firewall diesen Port zulässt. Öffne in der Firewall nur benötigte Ports; SSH und Dashboard sollten nach Möglichkeit eingeschränkt bzw. über HTTPS bereitgestellt werden.
 
+### Trennung Container ↔ Host (Code und Laufzeitdaten)
+
+Der Container sieht den Checkout über `./:/app` – Laufzeitdaten (Datenbanken, JSON, `uploads/`, `attachments/`, `transcripts/`, `backups/`, `.env`) liegen unversioniert und git-ignoriert im selben Ordner und überstehen Image-Updates, `git reset --hard` und Rollbacks (sie sind nicht versioniert). Damit ein kompromittierter Pulse-Prozess nichts verändern kann, was **root** auf dem Host ausführt, sind im Container schreibgeschützt: `.git/`, `compose.yaml`, `Dockerfile`, `deploy/`, `scripts/`, `systemd/` (Pulse liest `.git` nur, um den installierten Commit anzuzeigen). Die root-Skripte (`remote_deploy.sh`, `rollback_code.sh`, `pulse-vps-boot-update.sh`) und der Host-Agent setzen `COMPOSE_FILE=compose.yaml`, sodass eine im Ordner angelegte `compose.override.yaml` oder ein `COMPOSE_FILE` in `.env` nie gelesen wird. Wirksam wird das beim nächsten Deploy (der Container wird mit den neuen Mounts neu erstellt); Daten werden dabei nicht verschoben.
+
+Nächster, noch **nicht** umgesetzter Schritt (D-06): eigenes Datenverzeichnis (`PULSE_DATA_DIR`, z. B. `/opt/pulse/data`) und Code nur noch aus dem Image. Das betrifft rund 70 Pfadstellen in 22 Modulen (teils relativ zum Arbeitsverzeichnis) und eine einmalige Datenverschiebung auf dem VPS – erst mit Backup, Probelauf auf einem Testsystem und ausdrücklicher Freigabe.
+
 ### Neustart nach Absturz oder OOM-Kill (optional, empfohlen)
 
 `compose.yaml` bleibt bei `restart: "no"`, damit Docker beim Boot keinen alten Stand vor `pulse-github-update.service` startet. Damit Pulse nach einem Absturz oder OOM-Kill **zur Laufzeit** wieder hochkommt, prüft ein systemd-Timer alle 2 Minuten (frühestens 10 Minuten nach dem Boot) den Container und führt nur `docker start pulse-teamos` aus – kein Git, kein Build. Er greift nie, solange das Boot-Update läuft oder ein Deploy die Sperre `/run/lock/pulse-deploy.lock` hält, ignoriert sauber gestoppte Container (Exit 0) und startet höchstens 3-mal pro Stunde (danach Meldung `KRITISCH` im Journal).

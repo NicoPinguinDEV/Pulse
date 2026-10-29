@@ -13,6 +13,9 @@ HEALTH_SECONDS="${PULSE_DEPLOY_HEALTH_SECONDS:-240}"
 PULSE_UID="${PULSE_UID:-1000}"
 
 cd "$REPO_DIR"
+# Only compose.yaml from git – never a compose.override.yaml or a COMPOSE_FILE from .env, which the container
+# (bind mount) could create to start a privileged container through this root script.
+export COMPOSE_FILE=compose.yaml
 # Root runs this script, but the checkout belongs to the container user (UID 1000, O-01). Without this,
 # git refuses every command ("dubious ownership"). Valid only for the git calls of this script.
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(pwd -P)"

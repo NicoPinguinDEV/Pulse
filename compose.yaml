@@ -32,6 +32,15 @@ services:
       # Keep config, JSON state, SQLite databases, backups and transcripts
       # on the VPS between image rebuilds and deployments.
       - ./:/app
+      # Read-only inside the container: files root on the host runs or reads (git in deploy/boot scripts, compose,
+      # helper scripts, systemd units). A compromised Pulse process must not be able to plant e.g. a git hook,
+      # core.fsmonitor or a changed deploy script that root later executes. Pulse only reads .git (installed commit).
+      - ./.git:/app/.git:ro
+      - ./compose.yaml:/app/compose.yaml:ro
+      - ./Dockerfile:/app/Dockerfile:ro
+      - ./deploy:/app/deploy:ro
+      - ./scripts:/app/scripts:ro
+      - ./systemd:/app/systemd:ro
     working_dir: /app
     stop_grace_period: 40s
     healthcheck:
