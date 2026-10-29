@@ -65,6 +65,25 @@ class ReproducibleToolingTests(unittest.TestCase):
                 for tool in ("ruff", "pip-audit", "coverage", "playwright"):
                     self.assertNotRegex(text, rf"pip install[^\n]*\s{tool}(\s|$)", f"{tool} ohne Versions-Pin")
 
+    def test_third_party_actions_are_pinned_to_a_commit(self):
+        """Only GitHub's own actions/* may use a moving tag; anything else runs with our token, so a full SHA."""
+        for workflow in WORKFLOWS.glob("*.yml"):
+            text = workflow.read_text(encoding="utf-8")
+            for action, ref in re.findall(r"uses:\s*([\w.-]+/[\w./-]+)@([\w.-]+)", text):
+                if action.startswith("actions/"):
+                    continue
+                with self.subTest(workflow=workflow.name, action=action):
+                    self.assertRegex(ref, r"^[0-9a-f]{40}$")
+
+    def test_ci_tests_the_versions_the_image_installs(self):
+        text = (WORKFLOWS / "python-syntax.yml").read_text(encoding="utf-8")
+        syntax_job = text.split("\n  syntax:\n", 1)[1].split("\n  e2e-scope:\n", 1)[0]
+        self.assertIn("pip install --require-hashes -r requirements.lock", syntax_job)
+        self.assertNotIn("pip install -r requirements.txt", syntax_job)
+        image_job = text.split("\n  image:\n", 1)[1]
+        self.assertIn("docker build", image_job)
+        self.assertNotIn("docker push", image_job)
+
     def test_e2e_job_uses_hash_checked_lock_and_is_required_in_ci(self):
         text = (WORKFLOWS / "python-syntax.yml").read_text(encoding="utf-8")
         self.assertIn("pip install --require-hashes -r requirements-dev.lock", text)

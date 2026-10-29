@@ -104,12 +104,14 @@ class RouteMatrixTests(unittest.TestCase):
         cls.tmp.cleanup()
 
     def test_no_login_never_returns_content(self):
+        import re
         leaks = []
         for route in ws.app.routes:
             path, methods = getattr(route, "path", ""), getattr(route, "methods", set()) or set()
-            if "GET" not in methods or "{" in path or path in PUBLIC_GET or path.startswith("/static"):
+            if "GET" not in methods or path in PUBLIC_GET or path.startswith("/static"):
                 continue
-            status = self.client.get(path, follow_redirects=False).status_code
+            # Routes with path parameters ({id}, {file}, …) are called with a dummy value instead of being skipped.
+            status = self.client.get(re.sub(r"\{[^}]+\}", "1", path), follow_redirects=False).status_code
             if status not in (302, 303, 307, 401, 403, 422, 503):
                 leaks.append((path, status))
         self.assertEqual(leaks, [], "Seiten ohne Login erreichbar")

@@ -1,0 +1,14 @@
+# Starts Pulse again after a crash/OOM kill at runtime (scripts/pulse-crash-restart.sh). Triggered by
+# pulse-crash-restart.timer; never at boot before pulse-github-update.service, never during a deploy.
+# Installation: VPS_DEPLOYMENT.md ("Neustart nach Absturz").
+[Unit]
+Description=Pulse TeamOS nach Absturz oder OOM-Kill neu starten
+After=docker.service pulse-github-update.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pulse-crash-restart.sh
+StateDirectory=pulse-crash-restart
+StateDirectoryMode=0700
+TimeoutStartSec=120

@@ -16,6 +16,11 @@ cd "$REPO_DIR"
 # Root runs this script, but the checkout belongs to the container user (UID 1000, O-01). Without this,
 # git refuses every command ("dubious ownership"). Valid only for the git calls of this script.
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(pwd -P)"
+# Shared with scripts/pulse-crash-restart.sh: while a deploy runs, the crash watchdog leaves the container alone.
+LOCK_FILE="${PULSE_DEPLOY_LOCK:-/run/lock/pulse-deploy.lock}"
+if command -v flock >/dev/null 2>&1 && exec 9>"$LOCK_FILE"; then
+  flock -w 120 9 || { echo "Abbruch: Sperre $LOCK_FILE wird seit 120 s gehalten (anderer Deploy?)."; exit 1; }
+fi
 PREV="$(git rev-parse HEAD)"
 echo "Aktuell: $PREV · Ziel: $SHA"
 
@@ -70,12 +75,18 @@ if [ "$(stat -c %u .)" != "$PULSE_UID" ]; then
     || echo "::warning::Ordner gehört nicht UID $PULSE_UID – bitte einmal 'chown -R $PULSE_UID:$PULSE_UID $REPO_DIR' ausführen."
 fi
 
-# 3) Exactly the tested commit, then rebuild.
+# 3) Exactly the tested commit, then rebuild. The build runs while the old container keeps serving; if it fails
+#    (network, PyPI, disk), the checkout goes back to the running commit – otherwise the next deploy would see
+#    "läuft bereits" and a VPS reboot would start the untested code.
 git reset --hard "$SHA"
-docker compose up -d --build </dev/null
+if ! docker compose build </dev/null; then
+  echo "::error::Image-Build für $SHA fehlgeschlagen – der laufende Stand $PREV bleibt unverändert."
+  git reset --hard "$PREV"
+  exit 1
+fi
 
 # 4) /healthz must answer 200 in time – otherwise back to the previous commit.
-if wait_healthy; then
+if docker compose up -d </dev/null && wait_healthy; then
   echo "Deploy erfolgreich: $SHA ist gesund."
   docker image prune -f >/dev/null || true
   exit 0
@@ -84,8 +95,7 @@ fi
 echo "::error::/healthz nicht innerhalb von ${HEALTH_SECONDS}s gesund – Rollback auf $PREV."
 docker compose logs --tail 80 pulse </dev/null || true
 git reset --hard "$PREV"
-docker compose up -d --build </dev/null
-if wait_healthy; then
+if docker compose up -d --build </dev/null && wait_healthy; then
   echo "Rollback erfolgreich: $PREV läuft wieder."
 else
   echo "::error::Auch der Rollback ist nicht gesund – bitte sofort prüfen (Backup liegt unter backups/predeploy_*)."
