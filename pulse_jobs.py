@@ -33,9 +33,13 @@ async def job(name: str, interval_seconds: float | None = None):
     entry["interval"] = interval_seconds
     entry["last_start"] = _now_iso()
     started = time.monotonic()
+    failures_before = entry["failures"]
     try:
         yield entry
-        entry["last_ok"] = _now_iso()
+        # A loop that catches its own error and reports it with record_error() did not run OK – without this check
+        # last_ok (same second) would hide the error from health_summary()/jobs_failing.
+        if entry["failures"] == failures_before:
+            entry["last_ok"] = _now_iso()
     except BaseException as exc:
         if not isinstance(exc, (GeneratorExit,)) and not exc.__class__.__name__ == "CancelledError":
             entry["failures"] += 1

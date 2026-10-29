@@ -15,6 +15,8 @@ import discord
 from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
 from discord.ext import commands, tasks
 
+import pulse_jobs
+
 import pulse_db
 from pulse_embed_design import branding, layout_from_spec, to_discord_embed
 from pulse_verification import (
@@ -237,6 +239,7 @@ class Verification(commands.Cog):
 
     # ------------------------------------------------------------------ reminder
     @tasks.loop(minutes=5)
+    @pulse_jobs.tracked("Verifikation Erinnerung (5 min)", 300, pausable=False)  # P-06: visible in the system status
     async def reminder_loop(self):
         guild = self.bot.get_guild(self.guild_id) if self.guild_id else None
         if guild is not None:
@@ -244,6 +247,7 @@ class Verification(commands.Cog):
                 await self.run_reminder(guild)
             except Exception as exc:  # never let one failure stop the loop
                 print(f"⚠️ Verifikations-Erinnerung fehlgeschlagen: {type(exc).__name__}: {exc}")
+                pulse_jobs.record_error("Verifikation Erinnerung (5 min)", exc)
 
     @reminder_loop.before_loop
     async def _before_reminder(self):

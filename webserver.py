@@ -1916,12 +1916,18 @@ async def process_probation_warning(
         return result
 
     if entry is None:
-        team_db = load_json(DATA_FILE, {})
-        entry = user_entry(team_db, str(member.id))
+        entry = user_entry(load_json(DATA_FILE, {}), str(member.id))
+        # K-04: Discord calls are awaited before saving – commit() merges only our changes into the current file,
+        # so a warning or note saved by another handler in the meantime is not overwritten with this stale copy.
+        tracker = track_member_entry(member.id, entry)
         owns_db = True
     else:
-        team_db = None
+        tracker = None
         owns_db = False
+
+    def persist_probation() -> None:
+        if tracker is not None:
+            tracker.commit()
 
     warn_reason = str(warn.get("reason") or "Team-Warn")
     current_config = load_config()
@@ -1985,13 +1991,13 @@ async def process_probation_warning(
             except Exception as exc:
                 print(f"⚠️ Team-Update zum Test-Supporter-Team-Kick fehlgeschlagen: {exc}")
         if owns_db:
-            save_json(DATA_FILE, team_db)
+            persist_probation()
         return result
 
     probation = entry.get("probation")
     if not isinstance(probation, dict) or not probation.get("active"):
         if owns_db:
-            save_json(DATA_FILE, team_db)
+            persist_probation()
         return result
 
     try:
@@ -2008,7 +2014,7 @@ async def process_probation_warning(
         probation["completed_at"] = current.isoformat(timespec="seconds")
         probation["completion_reason"] = "Probezeit bereits abgelaufen"
         if owns_db:
-            save_json(DATA_FILE, team_db)
+            persist_probation()
         return result
 
     previous_role_id = int(probation.get("previous_role_id") or 0)
@@ -2082,7 +2088,7 @@ async def process_probation_warning(
     except Exception as exc:
         print(f"⚠️ Team-Update zur Probezeit-Rückstufung fehlgeschlagen: {exc}")
     if owns_db:
-        save_json(DATA_FILE, team_db)
+        persist_probation()
     return result
 
 
@@ -2574,12 +2580,13 @@ async def cleanup_expired_warn_restrictions(guild, config: dict | None = None):
     result = {"checked": 0, "removed": 0, "failed": 0}
     changed = False
     current = now_de()
+    # (user_id, index, warn id from the file, reason, removed restrictions) – applied to a fresh copy at the end
+    removals = []
 
     for user_id, entry in team_db.items():
         if not isinstance(entry, dict):
             continue
-        warns_changed = False
-        for warn in entry.get("warns_list", []) or []:
+        for index, warn in enumerate(entry.get("warns_list", []) or []):
             if not isinstance(warn, dict):
                 continue
             temp_roles = (warn.get("consequences") or {}).get("temporary_roles", [])
@@ -2638,7 +2645,6 @@ async def cleanup_expired_warn_restrictions(guild, config: dict | None = None):
                 role = guild.get_role(role_id) if guild else None
 
                 if not member or not role:
-                    warns_changed = True
                     result["removed"] += 1
                     continue
 
@@ -2653,7 +2659,6 @@ async def cleanup_expired_warn_restrictions(guild, config: dict | None = None):
                             role,
                             reason=f"Warn-Folge abgelaufen · {restriction.get('label') or role.name}"
                         )
-                    warns_changed = True
                     result["removed"] += 1
                 except discord.Forbidden:
                     keep.append(restriction)
@@ -2662,17 +2667,46 @@ async def cleanup_expired_warn_restrictions(guild, config: dict | None = None):
                     keep.append(restriction)
                     result["failed"] += 1
 
-            if warns_changed:
-                warn.setdefault("consequences", {})["temporary_roles"] = keep
+            removed = [r for r in temp_roles if not any(r is k for k in keep)]
+            if removed:
+                removals.append((user_id, index, warn.get("id"), warn.get("reason"), removed))
                 changed = True
 
-        if entry.get("warns_list") is not None and warns_changed:
-            normalize_warns(entry)
-
     if changed:
-        save_json(DATA_FILE, team_db)
+        # remove_roles() was awaited above, possibly for many members: apply only the removed expiry records to a
+        # fresh copy, so warnings, notes or new consequences saved meanwhile by other handlers are not overwritten.
+        with _io_lock:
+            _apply_warn_restriction_removals(removals)
     return result
 
+
+def _apply_warn_restriction_removals(removals) -> None:
+    """K-04 for cleanup_expired_warn_restrictions: remove only the expired records from the current file.
+    Warnings are matched by their stored id, or (no id yet) by position and reason; a warning that changed
+    meanwhile is skipped and decided again on the next run."""
+    fresh = load_json(DATA_FILE, {})
+    if not isinstance(fresh, dict):
+        return
+    touched = set()
+    for user_id, index, warn_id, reason, removed in removals:
+        fresh_entry = fresh.get(user_id)
+        warns = (fresh_entry.get("warns_list") or []) if isinstance(fresh_entry, dict) else []
+        target = next((w for w in warns if isinstance(w, dict) and warn_id and w.get("id") == warn_id), None)
+        if target is None and not warn_id and index < len(warns):
+            candidate = warns[index]
+            if isinstance(candidate, dict) and not candidate.get("id") and candidate.get("reason") == reason:
+                target = candidate
+        if target is None:
+            continue  # warning removed or changed meanwhile – the next run decides again
+        consequences = target.setdefault("consequences", {})
+        roles = consequences.get("temporary_roles")
+        if isinstance(roles, list):
+            consequences["temporary_roles"] = [r for r in roles if r not in removed]
+            touched.add(user_id)
+    for user_id in touched:
+        normalize_warns(fresh[user_id])
+    if touched:
+        save_json(DATA_FILE, fresh)
 
 async def sync_warn_roles(guild, member, count: int, config: dict | None = None):
     """Synchronisiert exakt eine Warn-Rolle 1-5 und gibt einen Diagnosebericht zurück."""
@@ -11403,6 +11437,14 @@ async def handle_action(
         if decision not in allowed_decisions.get(current_status, set()):
             return back("/applications", "Diese Entscheidung passt nicht zum aktuellen Bewerbungsstatus.", False)
 
+        def store_item() -> None:
+            # K-04: Discord role changes are awaited before saving – write only this application into the current
+            # file, so an application submitted or a vote cast in the meantime is not overwritten with a stale copy.
+            with _io_lock:
+                fresh = load_json(APPS_FILE, {})
+                fresh[app_id] = item
+                save_json(APPS_FILE, fresh)
+
         applicant = None
         try:
             applicant = guild.get_member(int(item.get("user_id")))
@@ -11455,7 +11497,7 @@ async def handle_action(
             item["interview_invited_by"] = actor
             item["interview_invited_at"] = invited_at
             item["interview_invitation_reason"] = action_reason
-            save_json(APPS_FILE, apps)
+            store_item()
             import pulse_app_comms  # BOT-10: same text by default, editable template
             await send_dm_notification(
                 applicant,
@@ -11547,7 +11589,7 @@ async def handle_action(
                 team_entry["application_test_percent"] = item.get("test_percent")
                 team_entry["application_test_passed"] = item.get("test_passed")
             save_json(DATA_FILE, team_db)
-            save_json(APPS_FILE, apps)
+            store_item()
             import pulse_app_comms  # BOT-10
             await send_dm_notification(
                 applicant,
@@ -11591,7 +11633,7 @@ async def handle_action(
         item["decided_by"] = actor
         item["decided_at"] = now_de().strftime("%d.%m.%Y %H:%M")
         item["decision_reason"] = action_reason
-        save_json(APPS_FILE, apps)
+        store_item()
         if applicant:
             import pulse_app_comms  # BOT-10
             notice = pulse_app_comms.render("rejected_after_interview" if decision == "reject_after_interview" else "rejected",

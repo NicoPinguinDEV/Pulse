@@ -8,6 +8,8 @@ from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
 
+import pulse_jobs
+
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_NAME = str(BASE_DIR / "teamliste.db")
 ABMELDUNGEN_DB = str(BASE_DIR / "abmeldungen.db")
@@ -356,6 +358,7 @@ class TeamlisteCog(commands.Cog):
 
     # Sicherheitsabgleich alle fünf Minuten; Änderungen werden separat gebündelt.
     @tasks.loop(minutes=5)
+    @pulse_jobs.tracked("Teamliste Abgleich (5 min)", 300, pausable=False)  # P-06: visible in the system status
     async def update_list_loop(self):
         await self.bot.wait_until_ready()
         channel_id = get_config("teamlist_channel_id")
@@ -367,6 +370,7 @@ class TeamlisteCog(commands.Cog):
                     await self.update_teamlist(channel.guild)
                 except Exception as e:
                     print(f"⚠️ Teamliste: Sicherheitsabgleich fehlgeschlagen ({type(e).__name__}); nächster Durchlauf versucht es erneut.")
+                    pulse_jobs.record_error("Teamliste Abgleich (5 min)", e)
 
     async def _debounced_update_teamlist(self, guild: discord.Guild):
         try:

@@ -12,6 +12,8 @@ from pulse_embed_design import layout_from_spec
 import pulse_db as _pulse_db
 from discord import app_commands
 from discord.ext import commands, tasks
+
+import pulse_jobs
 from discord.ui import Button, Modal, Select, TextInput, View
 
 from pulse_db import (
@@ -1270,16 +1272,19 @@ class Tickets(commands.Cog):
         return True
 
     @tasks.loop(minutes=5)
+    @pulse_jobs.tracked("Tickets Panels & Automatik (5 min)", 300, pausable=False)  # P-06: visible in the system status
     async def panel_refresh(self):
         await self.bot.wait_until_ready()
         try:
             await self.refresh_panels()
         except Exception as exc:
             print(f"⚠️ Pulse-Tickets: Panel-Aktualisierung fehlgeschlagen ({type(exc).__name__}: {exc}).")
+            pulse_jobs.record_error("Tickets Panels & Automatik (5 min)", exc)
         try:
             await self.run_automation()
         except Exception as exc:
             print(f"⚠️ Pulse-Tickets: Ticket-Automatik fehlgeschlagen ({type(exc).__name__}: {exc}).")
+            pulse_jobs.record_error("Tickets Panels & Automatik (5 min)", exc)
 
     async def run_automation(self):
         """Reminders and optional auto-close, reusing the existing 5-minute loop (no extra task)."""

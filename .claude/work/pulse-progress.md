@@ -82,3 +82,11 @@ Fremde, unversionierte Dateien (nie mitcommitten): `.claude/launch.json`, `.clau
 - Tests: Snapshot/Permissions/Healthz/Alerts ok, beide Smoke-Tests ok. Snapshot + ROUTEN.md neu erzeugt.
 - Vorfall: fehlgeschlagenes `git stash push` → `pop` wendete alten Nutzer-Stash teilweise an; per `git restore --source=HEAD`
   der 4 Dateien zurückgenommen, stash@{0} unverändert erhalten. Künftig keine stash-Vergleiche (Memory-Regel).
+
+## Phase 5/6 – Persistenz + Jobs ✅
+- AST-Suche load_json→await→save_json: 3 echte Lost-Updates (cleanup_expired_warn_restrictions, process_probation_warning,
+  decide_app) + 1 Fehlalarm (send_interview_reminders lädt frisch). Fix: track_member_entry / Einzelschreiben unter _io_lock.
+- Jobs: 6 @tasks.loop ohne Register → @tracked(pausable=False) + record_error; Bug in pulse_jobs.job(): last_ok trotz
+  record_error im Lauf → verdeckte Fehler. Test: jede @tasks.loop muss @tracked haben.
+- Tests: test_concurrent_writes (+3, Gegenprobe im Worktree 2F/1E), test_job_coverage (3); 166 verwandte Tests ok.
+- Rechte (6A): Route-Matrix (Phase B, Mission 1) + bestehende Admin-/Rechte-Tests; kein neuer Befund, keine Änderung.

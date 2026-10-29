@@ -21,6 +21,8 @@ from pulse_embed_design import color as _pulse_color
 import httpx
 from discord import app_commands
 from discord.ext import commands, tasks
+
+import pulse_jobs
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 from pulse_social_utils import (
@@ -685,6 +687,8 @@ class SocialPromo(commands.Cog):
         return True
 
     @tasks.loop(minutes=POLL_INTERVAL_MINUTES)
+    # P-06: runs are visible; a single unreachable feed is normal (own retry_after) and is not a job failure.
+    @pulse_jobs.tracked("Social-Promo Abruf", POLL_INTERVAL_MINUTES * 60, pausable=False)
     async def poll_sources(self):
         if self._poll_lock.locked():
             return
