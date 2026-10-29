@@ -90,3 +90,17 @@ Fremde, unversionierte Dateien (nie mitcommitten): `.claude/launch.json`, `.clau
   record_error im Lauf → verdeckte Fehler. Test: jede @tasks.loop muss @tracked haben.
 - Tests: test_concurrent_writes (+3, Gegenprobe im Worktree 2F/1E), test_job_coverage (3); 166 verwandte Tests ok.
 - Rechte (6A): Route-Matrix (Phase B, Mission 1) + bestehende Admin-/Rechte-Tests; kein neuer Befund, keine Änderung.
+
+## Phase 7 – Performance (teilweise) ⏸ Abbruch wegen Nutzungslimit
+- tools/load_test.py: --concurrency, --soak-seconds, p95/p99, Fehlerrate, cgroup-Speicher (rückwärtskompatibel).
+- Befund durch Parallel-Test: GET /ultimate/team → 500 (IntegrityError UNIQUE ultimate_profiles.user_id, Prüfen-dann-Einfügen
+  in pulse_ultimate.ensure_profile, Worker-Threads). Fix: INSERT OR IGNORE. Lokal (Windows, 50 Mitglieder, 3 Clients): 0 Fehler.
+- Messwerte nur lokal/Windows, nicht vergleichbar mit VPS.
+
+## NÄCHSTE SCHRITTE (exakt)
+1. Regressionstest für ensure_profile-Race (zwei Threads, gleiche ID) schreiben.
+2. .github/workflows/perf.yml (nur workflow_dispatch): Image bauen, `docker run -m 768m --memory-swap 1024m --cpus 2
+   --entrypoint python … tools/load_test.py --concurrency 4 --soak-seconds 300`; Test in test_ci_workflows.
+3. Phase 8 (Retention): Wachstum shifts.json/logs.json/applications.json prüfen – nur Vorschau/Dry-Run.
+4. Phase 9/10: Doku-Abgleich (BETRIEB.md Stand/Version, alte „Offen“-Liste oben in diesem Protokoll), Abschlussbericht.
+5. Vollen CI-Satz + E2E ausführen, dann Push/PR nur nach Freigabe.

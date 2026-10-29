@@ -3,9 +3,13 @@ dashboard routes – fake Discord server, fake login, temporary data. Never touc
 
     python tools/load_test.py [--members 300] [--tickets 5000] [--tasks 2000] [--events 20000] [--rounds 3]
     python tools/load_test.py --profile member_stats   (or a route; handlers run in a worker thread)
+    python tools/load_test.py --concurrency 4 --soak-seconds 300   (parallel clients, then a soak run)
 
-Prints per route: median/max response time, plus Python heap peak (tracemalloc) and process RSS (Linux: /proc,
-Windows: GetProcessMemoryInfo). Guard thresholds are 500/620/700 MB; Docker container budget is 768 MiB.
+Prints per route: median/p95/p99/max response time and errors (status >= 500 or exception), plus Python heap peak
+(tracemalloc), process RSS (Linux: /proc, Windows: GetProcessMemoryInfo) and – inside a container – the cgroup
+memory (memory.current / memory.peak). The soak run repeats all routes and samples RSS to show growth.
+Guard thresholds are 500/620/700 MB; Docker container budget is 768 MiB (.github/workflows/perf.yml runs it there).
+Measurements on Windows, in CI and on the VPS are not comparable – always report where a number comes from.
 """
 from __future__ import annotations
 
@@ -22,6 +26,27 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 ROUTES = ("/dashboard", "/team", "/tickets", "/ultimate", "/ultimate/team", "/ultimate/cases", "/suite/search?q=ticket",
           "/ultimate/search?q=max", "/pulse-inbox", "/tasks", "/admin/security", "/ultimate/automations", "/health")
+
+
+def percentile(values: list[float], pct: float) -> float:
+    """Nearest-rank percentile (no numpy needed); 0 for an empty list."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    rank = max(1, min(len(ordered), int(-(-pct * len(ordered) // 100))))
+    return ordered[rank - 1]
+
+
+def cgroup_mb() -> dict:
+    """cgroup v2 memory of the container this runs in (empty outside a container / on Windows)."""
+    out = {}
+    for key in ("memory.current", "memory.peak", "memory.max"):
+        try:
+            raw = Path("/sys/fs/cgroup", key).read_text(encoding="ascii").strip()
+        except OSError:
+            continue
+        out[key] = None if raw == "max" else int(raw) / 1024 / 1024
+    return out
 
 
 def rss_mb() -> float | None:
@@ -58,6 +83,8 @@ def main() -> int:
     parser.add_argument("--events", type=int, default=20000)
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--profile", default="", help="route to profile once with cProfile (top 25 by cumulative time)")
+    parser.add_argument("--concurrency", type=int, default=1, help="parallel clients per route (each its own TestClient)")
+    parser.add_argument("--soak-seconds", type=int, default=0, help="afterwards repeat all routes this long and sample RSS")
     args = parser.parse_args()
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -134,19 +161,59 @@ def main() -> int:
             profiler.runcall(client.get, args.profile, follow_redirects=False)
         pstats.Stats(profiler).sort_stats("cumulative").print_stats(25)
         return 0
-    print(f"{'Route':32} {'Status':>6} {'Median ms':>10} {'Max ms':>8}")
-    for route in ROUTES:
-        times, status = [], None
-        for _ in range(args.rounds):
-            started = time.perf_counter()
-            status = client.get(route, follow_redirects=False).status_code
-            times.append((time.perf_counter() - started) * 1000)
-        print(f"{route:32} {status:>6} {statistics.median(times):>10.1f} {max(times):>8.1f}")
+    from concurrent.futures import ThreadPoolExecutor
+
+    workers = max(1, args.concurrency)
+    clients = [client] + [TestClient(ws.app, raise_server_exceptions=False, cookies={"user_session": "load"})
+                          for _ in range(workers - 1)]
+
+    def timed(client_index: int, route: str) -> tuple[float, int | None]:
+        started = time.perf_counter()
+        try:
+            status = clients[client_index].get(route, follow_redirects=False).status_code
+        except Exception:
+            status = None
+        return (time.perf_counter() - started) * 1000, status
+
+    total_requests = total_errors = 0
+    print(f"Parallele Clients: {workers} · Runden je Client: {args.rounds}")
+    print(f"{'Route':32} {'Status':>6} {'Median':>8} {'p95':>8} {'p99':>8} {'Max ms':>8} {'Fehler':>6}")
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for route in ROUTES:
+            jobs = [pool.submit(timed, i % workers, route) for i in range(args.rounds * workers)]
+            results = [j.result() for j in jobs]
+            times = [t for t, _ in results]
+            statuses = [s for _, s in results]
+            errors = sum(1 for s in statuses if s is None or s >= 500)
+            total_requests += len(results)
+            total_errors += errors
+            status = max((s for s in statuses if s is not None), default=None)
+            print(f"{route:32} {status!s:>6} {statistics.median(times):>8.1f} {percentile(times, 95):>8.1f} "
+                  f"{percentile(times, 99):>8.1f} {max(times):>8.1f} {errors:>6}")
+        if args.soak_seconds > 0:
+            soak_end, samples, soak_times = time.monotonic() + args.soak_seconds, [], []
+            next_sample = 0.0
+            while time.monotonic() < soak_end:
+                if time.monotonic() >= next_sample:
+                    samples.append(rss_mb() or 0.0)  # 0 = not measurable (e.g. Windows without access)
+                    next_sample = time.monotonic() + 10
+                results = list(pool.map(lambda pair: timed(*pair), [(i % workers, r) for i, r in enumerate(ROUTES)]))
+                soak_times += [t for t, _ in results]
+                total_requests += len(results)
+                total_errors += sum(1 for _, s in results if s is None or s >= 500)
+            samples.append(rss_mb() or 0.0)  # 0 = not measurable (e.g. Windows without access)
+            print(f"Soak {args.soak_seconds} s: {len(soak_times)} Anfragen · p95 {percentile(soak_times, 95):.1f} ms · "
+                  f"p99 {percentile(soak_times, 99):.1f} ms · RSS erste/letzte/max {samples[0]:.0f}/{samples[-1]:.0f}/"
+                  f"{max(samples):.0f} MB (Wachstum {samples[-1] - samples[0]:+.0f} MB)")
+    print(f"Anfragen gesamt {total_requests} · Fehler {total_errors} ({100 * total_errors / max(1, total_requests):.1f} %)")
     current, peak = tracemalloc.get_traced_memory()
     rss_end = rss_mb()
     print(f"Python-Heap aktuell {current / 1024 / 1024:.1f} MB · Spitze {peak / 1024 / 1024:.1f} MB (tracemalloc)")
     if rss_end is not None:
         print(f"Prozess-RSS Start {rss_start or 0:.0f} MB → Ende {rss_end:.0f} MB (Warnschwelle 500 MB)")
+    cgroup = cgroup_mb()
+    if cgroup:
+        print("cgroup: " + " · ".join(f"{k} {'unbegrenzt' if v is None else f'{v:.0f} MB'}" for k, v in cgroup.items()))
     print(f"Temp-Daten: {tmp}")
     return 0
 
