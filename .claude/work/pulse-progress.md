@@ -34,5 +34,12 @@ Fremde, unversionierte Dateien (nie mitcommitten): `.claude/launch.json`, `.clau
 - Entscheidung offen (Nutzer): compose `restart: "no"` → nach Absturz/OOM kein Neustart (bewusst wegen Boot-Update-Race).
 - Nicht umgesetzt: Registry-Image (GHCR) – braucht Zugangsdaten auf dem VPS; Build-Last ist gering (nur Wheels).
 
-## Offen / nächste Schritte
-- Phase H: voller CI-Satz, Diff-Review, Abschlussbericht.
+## Phase H – Abschluss ✅
+- Voller CI-Satz lokal: ruff ok, compileall ok, feature_smoke ok, smoke_test ok, unittest 992 ok (3 skipped).
+- E2E (Playwright, PULSE_E2E=1): 12 Tests ok.
+- Nicht ausgeführt: Docker-Build (kein Docker lokal; läuft im neuen CI-Job `image`), kein Push, kein Deploy.
+
+## Offen (Entscheidung Nutzer)
+- compose `restart: "no"` vs. Neustart nach Absturz/OOM.
+- Branch `refactoring-pulse` pushen / PR – laut Auftrag nicht ausgeführt.
+- Dependabot-pip-PRs brauchen ab jetzt eine neu erzeugte requirements.lock (Test meldet das).
