@@ -12,7 +12,6 @@ import html
 import io
 import json
 import logging
-import math
 import os
 import re
 import secrets
@@ -3433,47 +3432,11 @@ def _system_alert(key: str, message: str) -> None:
         pass
 
 
-@app.get("/healthz")
-async def healthz(request: Request):
-    bot = getattr(request.app.state, "bot", None)
-    guild = bot.get_guild(GUILD_ID) if bot else None
-    db_ok = True
-    try:
-        with pulse_db.connect() as db:
-            db.execute("SELECT 1")
-    except Exception:
-        db_ok = False
+# A-01/A-02: GET "/healthz" lives in pulse_health_api.py; same URL, same position, same status contract.
+import pulse_health_api  # noqa: E402
 
-    if not db_ok:
-        _system_alert("database", "🔴 **Datenbank nicht erreichbar:** `/healthz` konnte `pulse.db` nicht abfragen.")
-    ready = bool(bot and bot.is_ready() and guild and db_ok)
-    # O-07: diagnostics only – they never change the status code the deploy/Docker health checks rely on.
-    latency = getattr(bot, "latency", None) if bot else None
-    latency_ms = round(latency * 1000) if isinstance(latency, (int, float)) and math.isfinite(latency) else None
-    try:
-        from pulse_ultimate import container_memory_mb
-        memory_mb = container_memory_mb()
-    except Exception:
-        memory_mb = None
-    try:
-        import pulse_jobs
-        jobs = pulse_jobs.health_summary()
-    except Exception:
-        jobs = {"last_job_ok": None, "jobs_failing": []}
-    return JSONResponse(
-        {
-            "ok": ready,
-            "version": PULSE_VERSION,
-            "bot_ready": bool(bot and bot.is_ready()),
-            "guild_ready": bool(guild),
-            "database_ok": db_ok,
-            "gateway_latency_ms": latency_ms,
-            "memory_mb": memory_mb,
-            "last_job_ok": jobs["last_job_ok"],
-            "jobs_failing": jobs["jobs_failing"],
-        },
-        status_code=200 if ready else 503,
-    )
+pulse_health_api.register(app)
+healthz = pulse_health_api.healthz
 
 
 # =============================================================

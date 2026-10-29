@@ -74,3 +74,11 @@ Fremde, unversionierte Dateien (nie mitcommitten): `.claude/launch.json`, `.clau
 - Tests: HostBoundaryTests (3); Deploy/Boot/Crash/ServerControl/HostAgent-Suiten ok. Lokal kein Docker → Compose nur in CI.
 - Nicht umgesetzt (begründet): PULSE_DATA_DIR/Datenumzug (~70 Pfadstellen, 22 Module, Produktionsdaten-Umzug) – dokumentiert.
 - Wirksam auf dem VPS erst nach dem nächsten Deploy.
+
+## Phase 4 – Routen (Schritt 1) ✅
+- Laufzeit-Analyse: 372 Routen, 1 Doppelregistrierung (GET /ultimate, bekannt, Löschen wartet auf E-6); Test fängt neue Duplikate.
+- /healthz aus webserver.py nach pulse_health_api.py (flach via add_api_route). Befund: include_router (FastAPI 0.162) fügt
+  _IncludedRouter ohne .path ein → bricht pulse_pro.register; APIRouter-Umstieg braucht erst angepasste Route-Walker.
+- Tests: Snapshot/Permissions/Healthz/Alerts ok, beide Smoke-Tests ok. Snapshot + ROUTEN.md neu erzeugt.
+- Vorfall: fehlgeschlagenes `git stash push` → `pop` wendete alten Nutzer-Stash teilweise an; per `git restore --source=HEAD`
+  der 4 Dateien zurückgenommen, stash@{0} unverändert erhalten. Künftig keine stash-Vergleiche (Memory-Regel).

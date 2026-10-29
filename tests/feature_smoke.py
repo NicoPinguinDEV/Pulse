@@ -733,7 +733,7 @@ def main() -> None:
     assert 'asyncio.create_task(server.serve(), name="pulse-webserver")' in startup_source
     assert 'server.should_exit = True' in startup_source
     assert 'await asyncio.wait_for(asyncio.shield(task), timeout=8.0)' in startup_source
-    assert '"/healthz"' in web
+    assert '"/healthz"' in web and 'add_api_route("/healthz"' in read("pulse_health_api.py")
 
     assert "reconcile_warning_roles" in main
 
