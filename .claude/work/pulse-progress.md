@@ -20,7 +20,19 @@ Fremde, unversionierte Dateien (nie mitcommitten): `.claude/launch.json`, `.clau
 - Geprüft ok: Modul-Caches (_rate_hits, _last_click, _VERIFY_CACHE, _JOBS), verification-Locks, welcome._warned.
 - Bewusst gelassen: `recovery._last_sync_by_user` (nur Admin-Befehl, winzig).
 
+## Phase C/E – Architektur, Logging ✅ (keine Änderung nötig)
+- AST-Suche: keine time.sleep/subprocess/requests in async-Funktionen; 2 „create_task“-Treffer sind DB-Funktionen.
+- Logging: RotatingFileHandler 1 MB × 3, Docker json-file 10 MB × 5. /healthz = Readiness (503 bis bereit), /health ähnlich.
+- Kein Architekturumbau: kein belegter Nutzen gegenüber dem Risiko (CLAUDE.md Regel 1).
+
+## Phase F/G – Docker, CI, Deploy ✅
+- Bug: remote_deploy.sh ließ nach fehlgeschlagenem Build den Checkout auf dem Ziel-Commit → Build separat, Reset auf PREV.
+  Laufzeittests `RemoteDeployRunTests` (lokal mit `PULSE_TEST_BASH="C:/Program Files/Git/bin/bash.exe"`).
+- Dockerfile + CI-Job syntax installieren requirements.lock mit Hashes; Test: Lock erfüllt Bereiche aus requirements.txt.
+  Linux-Wheels cp314 für alle 34 Pins per `pip download --platform manylinux…` geprüft (lokal kein Docker).
+- CI-Job `image` (docker build, Imports, ffmpeg, Nicht-Root), gitleaks auf SHA gepinnt.
+- Entscheidung offen (Nutzer): compose `restart: "no"` → nach Absturz/OOM kein Neustart (bewusst wegen Boot-Update-Race).
+- Nicht umgesetzt: Registry-Image (GHCR) – braucht Zugangsdaten auf dem VPS; Build-Last ist gering (nur Wheels).
+
 ## Offen / nächste Schritte
-- Phase C/E: blockierende I/O in async, print vs logging, Shutdown.
-- Phase F/G: Dockerfile/Compose/Deploy-Feinschliff (Action-Pinning, Build-RAM auf VPS).
 - Phase H: voller CI-Satz, Diff-Review, Abschlussbericht.

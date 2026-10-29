@@ -15,9 +15,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg libopus0 tzdata \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /app/requirements.txt
+# Exactly the hash-checked versions CI tests and audits (security.yml) – not whatever the ranges in
+# requirements.txt resolve to on build day, so a rebuild or rollback on the VPS gets the same packages.
+COPY requirements.lock /app/requirements.lock
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -r /app/requirements.txt
+    && python -m pip install --require-hashes -r /app/requirements.lock
 
 # O-01: run as an unprivileged user. With the compose bind mount (./:/app) the host folder must belong to
 # the same UID – see VPS_DEPLOYMENT.md ("chown -R 1000:1000 /opt/pulse/Pulse"). PULSE_UID changes it.
