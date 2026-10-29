@@ -28,6 +28,7 @@ PENDING_KEY = "voice_support_pending_ratings"
 SUPPORT_REPORT_CHANNEL_ID = _pulse_ids.SUPPORT_REPORT_CHANNEL_ID
 DUTY_STATUS_FOOTER = "Pulse Voice-Support · Automatisch aktualisiert"
 SUPPORT_STATUS_FOOTER = "Pulse Voice-Support · Live-Status"
+MAX_CASE_ACTION_LOCKS = 200
 def get_config() -> dict:
     cfg = db.get_setting(CONFIG_KEY, {})
     cfg = cfg if isinstance(cfg, dict) else {}
@@ -218,7 +219,13 @@ class VoiceSupport(commands.Cog):
 
 
     def _case_action_lock(self, case_id: str) -> asyncio.Lock:
-        return self._case_action_locks.setdefault(str(case_id), asyncio.Lock())
+        lock = self._case_action_locks.setdefault(str(case_id), asyncio.Lock())
+        # One lock per case would otherwise grow for the whole uptime; only free locks (no holder, no waiter)
+        # are dropped – a later action on that case simply gets a fresh lock.
+        if len(self._case_action_locks) > MAX_CASE_ACTION_LOCKS:
+            for key in [k for k, held in self._case_action_locks.items() if not held.locked() and held is not lock]:
+                self._case_action_locks.pop(key, None)
+        return lock
 
     def _store_case(self, case: dict, key: str) -> None:
         """K-04: write one case into the *current* blob (no await in between) instead of a stale copy
