@@ -2,7 +2,7 @@
 
 * Contains every runtime store from docs/DATENLANDKARTE.md: all SQLite databases (consistent
   snapshot via the SQLite backup API, also in WAL mode), all JSON files and the folders
-  uploads/, attachments/, transcripts/. Optionally the Discord structure document (the existing
+  uploads/, attachments/, transcripts/ and the uploaded waiting music (assets/support_wait.*). Optionally the Discord structure document (the existing
   JSON backup format) as `discord_structure.json`.
 * `manifest.json`: format version, Pulse version, file list with size and SHA-256, skipped files
   (size budget) and warnings – nothing is left out silently.
@@ -44,6 +44,9 @@ JSON_FILES = (
     "social_promo_sources.json", "ai_moderation_cases.json",
 )
 FOLDERS = ("uploads", "attachments", "transcripts")
+# Single runtime files outside those folders: the voice-support waiting music uploaded in the dashboard
+# (pulse_pro: assets/support_wait.<mp3|ogg|wav>). It is not in git, so only the backup can bring it back.
+MEDIA_FILES = ("assets/support_wait.mp3", "assets/support_wait.ogg", "assets/support_wait.wav")
 # Runtime stores that are deliberately not part of a backup (checked by tests/test_full_backup.py).
 EXCLUDED = {"backups": "Sicherungen selbst (keine Rekursion)", ".session_secret": "Geheimnis – bei Verlust nur Neuanmeldung",
             ".env": "Geheimnisse"}
@@ -172,11 +175,16 @@ def create_full_backup(base_dir, backup_dir, *, discord_structure: dict | None =
             if source.is_file():
                 add(zf, source, f"json/{name}", "json")
         used = 0
-        for folder in FOLDERS:
-            root = base_dir / folder
-            if not root.is_dir():
-                continue
-            for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        media = [base_dir / rel for rel in MEDIA_FILES if (base_dir / rel).is_file()]
+        for folder in (None, *FOLDERS):
+            if folder is None:
+                files = media
+            else:
+                root = base_dir / folder
+                if not root.is_dir():
+                    continue
+                files = sorted(p for p in root.rglob("*") if p.is_file())
+            for path in files:
                 arcname = "files/" + PurePosixPath(*path.relative_to(base_dir).parts).as_posix()
                 size = path.stat().st_size
                 if used + size > budget_bytes:
@@ -244,7 +252,7 @@ def _target_for(base_dir, name: str) -> Path | None:
         return json_path(base_dir, name[5:])
     if name.startswith("files/"):
         rel = PurePosixPath(name[6:])
-        if rel.parts and rel.parts[0] in FOLDERS and _safe_member(name):
+        if rel.parts and (rel.parts[0] in FOLDERS or rel.as_posix() in MEDIA_FILES) and _safe_member(name):
             return Path(base_dir).joinpath(*rel.parts)
     return None
 
@@ -394,24 +402,58 @@ def restore_full_backup(path, base_dir, backup_dir, *, include_files: bool = Tru
 
 
 def restore_test(path) -> dict:
-    """D-04: verify hashes and integrity of every database in a temp directory. Writes nothing live."""
-    result = {"backup": Path(path).name, "ok": False, "problems": [], "at": datetime.now().astimezone().isoformat(timespec="seconds")}
+    """D-04: a complete trial restore into a temp directory. Writes nothing live.
+
+    Every entry goes through the same checks and copy routines as a real restore (SQLite backup API with
+    integrity check before/after, JSON parse, file copy), then the restored files are compared with the
+    manifest (SHA-256) and the tables/rows of every database are counted. Targets are always inside the
+    temp directory – never `_target_for`, which maps pulse.db and some JSON stores to their live paths.
+    An entry a real restore would not know where to put is reported, so such data cannot be lost silently.
+    """
+    result = {"backup": Path(path).name, "ok": False, "problems": [], "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+              "databases": 0, "tables": 0, "rows": 0, "json": 0, "files": 0, "skipped": 0}
     result["problems"] = verify_full_backup(path)
     if not result["problems"]:
         try:
             manifest = read_manifest(path)
+            result["skipped"] = len(manifest.get("skipped") or [])
             with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-restoretest-") as tmp:
+                root = Path(tmp) / "restored"
                 for entry in manifest["files"]:
-                    if kind_of(entry["name"]) != "sqlite":
+                    name, kind = str(entry["name"]), kind_of(str(entry["name"]))
+                    if kind == "other":
+                        continue  # discord_structure.json: restored through the Discord structure flow, not here
+                    if _target_for(tmp, name) is None:
+                        result["problems"].append(f"{name}: kein Wiederherstellungsziel – würde beim Restore fehlen")
                         continue
-                    extracted = Path(tmp) / Path(entry["name"]).name
-                    with zf.open(entry["name"]) as src, open(extracted, "wb") as dst:
+                    target = root.joinpath(*PurePosixPath(name).parts)
+                    extracted = Path(tmp) / "x"
+                    with zf.open(name) as src, open(extracted, "wb") as dst:
                         shutil.copyfileobj(src, dst, _CHUNK)
-                    check = _integrity(extracted)
-                    if check != "ok":
-                        result["problems"].append(f"{extracted.name}: {check}")
-                    extracted.unlink()
-        except (OSError, ValueError, sqlite3.Error, zipfile.BadZipFile) as exc:
+                    try:
+                        if kind == "sqlite":
+                            restore_sqlite_file(extracted, target)
+                            counts = _table_counts(target)
+                            result["databases"] += 1
+                            result["tables"] += len(counts)
+                            result["rows"] += sum(counts.values())
+                        else:
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copyfile(extracted, target)
+                            if _sha256(target) != entry.get("sha256"):
+                                result["problems"].append(f"{name}: nach dem Kopieren abweichend")
+                            if kind == "json":
+                                json.loads(target.read_text(encoding="utf-8"))
+                                result["json"] += 1
+                            else:
+                                result["files"] += 1
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        result["problems"].append(f"{name}: kein gültiges JSON")
+                    except (ValueError, sqlite3.Error) as exc:
+                        result["problems"].append(f"{name}: {exc}")
+                    finally:
+                        extracted.unlink(missing_ok=True)
+        except (OSError, ValueError, KeyError, sqlite3.Error, zipfile.BadZipFile) as exc:
             result["problems"].append(f"{type(exc).__name__}: {exc}")
     result["ok"] = not result["problems"]
     return result

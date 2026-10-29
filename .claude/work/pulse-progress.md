@@ -58,3 +58,10 @@ Fremde, unversionierte Dateien (nie mitcommitten): `.claude/launch.json`, `.clau
 - Fix: blockierendes Audit (`dependency-audit`) prüfte requirements.txt statt der ausgelieferten requirements.lock → jetzt Lock mit Hashes.
   Lokal: `pip-audit -r requirements.lock --require-hashes` → keine bekannten Schwachstellen.
 - Härtung: manueller Deploy bricht ab, wenn nicht von refs/heads/main gestartet (Test test_manual_deploy_only_from_main).
+
+## Phase 2 – Backups/Restore ✅
+- Befund: Komplett-Backup (D-01) deckt DBs/JSON/uploads/attachments/transcripts ab; Lücke: Wartemusik assets/support_wait.* (Dashboard-Upload,
+  nicht in git) fehlte → MEDIA_FILES in pulse_backup (Sicherung + Restore-Ziel).
+- Befund: restore_test prüfte nur Hashes + DB-Integrität → jetzt vollständige Probewiederherstellung in Temp-Dir (eigene Ziele, nie
+  _target_for, das pulse.db auf den Live-Pfad abbildet), Tabellen/Zeilen, JSON, Datei-Hashes, fehlende Restore-Ziele.
+- Tests: test_full_backup (+3), Gegenprobe ohne Fix 4 F/1 E; 73 Tests Backup/Admin/ServerControl ok. DATENLANDKARTE neu erzeugt.

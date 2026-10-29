@@ -70,6 +70,22 @@ class FullBackupTests(unittest.TestCase):
         self.assertEqual((self.base / "transcripts" / "T-1.txt").read_text(encoding="utf-8"), "Verlauf")
         self.assertFalse(pulse_backup.maintenance_active())
 
+    def test_uploaded_waiting_music_is_backed_up_and_restored(self):
+        """The voice-support waiting music is uploaded in the dashboard to assets/support_wait.<ext> (pulse_pro) –
+        local media that GitHub does not have, so a lost VPS must get it back from the backup."""
+        (self.base / "assets").mkdir()
+        music = self.base / "assets" / "support_wait.ogg"
+        music.write_bytes(b"OggS" + b"1" * 200)
+        (self.base / "assets" / "logo.png").write_bytes(b"\x89PNG")  # tracked asset: comes from git, not the backup
+        path, manifest = pulse_backup.create_full_backup(self.base, self.backups)
+        names = {f["name"] for f in manifest["files"]}
+        self.assertIn("files/assets/support_wait.ogg", names)
+        self.assertNotIn("files/assets/logo.png", names)
+        music.unlink()
+        report = pulse_backup.restore_full_backup(path, self.base, self.backups)
+        self.assertTrue(report)
+        self.assertEqual(music.read_bytes(), b"OggS" + b"1" * 200)
+
     def test_tampered_backup_is_rejected_before_any_change(self):
         path, _ = pulse_backup.create_full_backup(self.base, self.backups)
         tampered = self.backups / "pulse_full_20260101_000000.zip"
@@ -133,6 +149,52 @@ class FullBackupTests(unittest.TestCase):
         _, manifest = pulse_backup.create_full_backup(self.base, self.backups, budget_bytes=50)
         self.assertTrue(manifest["skipped"])
         self.assertTrue(any("Größenbudget" in w for w in manifest["warnings"]))
+
+    def _rewrite(self, path, replace: dict[str, bytes]):
+        """Copy the archive with some entries replaced and the manifest hashes updated to match."""
+        import hashlib
+        out = path.with_name("pulse_full_20260101_000000.zip")
+        with zipfile.ZipFile(path) as src, zipfile.ZipFile(out, "w") as dst:
+            manifest = json.loads(src.read("manifest.json"))
+            for name in src.namelist():
+                if name != "manifest.json" and name not in replace:
+                    dst.writestr(name, src.read(name))
+            for name, data in replace.items():
+                dst.writestr(name, data)
+                entry = next((f for f in manifest["files"] if f["name"] == name), None)
+                if entry is None:
+                    entry = {"name": name, "kind": "file"}
+                    manifest["files"].append(entry)
+                entry["sha256"] = hashlib.sha256(data).hexdigest()
+                entry["size"] = len(data)
+            dst.writestr("manifest.json", json.dumps(manifest))
+        return out
+
+    def test_trial_restore_restores_everything_in_isolation(self):
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        live = self.base / "pulse.db"
+        before = (live.stat().st_mtime_ns, pulse_backup._sha256(live))
+        result = pulse_backup.restore_test(path)
+        self.assertTrue(result["ok"], result["problems"])
+        self.assertEqual((result["databases"], result["json"], result["files"]), (2, 1, 2))
+        self.assertEqual(result["rows"], 3)  # pulse.db: a, b · pulse_suite.db: x
+        self.assertEqual((live.stat().st_mtime_ns, pulse_backup._sha256(live)), before, "Live-Datenbank verändert")
+
+    def test_trial_restore_finds_damaged_content(self):
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        cases = {
+            "json/team_data.json": b"{kaputt",
+            "db/pulse_suite.db": b"SQLite format 3\x00" + b"\x00" * 200,
+            "files/secret/x.txt": b"ohne Ziel",
+        }
+        for name, data in cases.items():
+            with self.subTest(entry=name):
+                result = pulse_backup.restore_test(self._rewrite(path, {name: data}))
+                self.assertFalse(result["ok"])
+                self.assertTrue(any(name in p for p in result["problems"]), result["problems"])
+        truncated = path.with_name("pulse_full_20260102_000000.zip")
+        truncated.write_bytes(path.read_bytes()[:200])
+        self.assertFalse(pulse_backup.restore_test(truncated)["ok"])
 
     def test_restore_test_and_maintenance_blocks_json_writes(self):
         path, _ = pulse_backup.create_full_backup(self.base, self.backups)
