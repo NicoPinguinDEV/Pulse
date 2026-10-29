@@ -226,7 +226,8 @@ class RemoteDeployRunTests(unittest.TestCase):
         (tmp / "bin" / "sleep").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8", newline="\n")
         script = (
             f'export PATH="$(cd "{(tmp / "bin").as_posix()}" && pwd):$PATH"; chmod +x "{(tmp / "bin").as_posix()}"/*; '
-            f'export PULSE_UID="$(stat -c %u "{(tmp / "repo").as_posix()}")" PULSE_DEPLOY_HEALTH_SECONDS=5; '
+            f'export PULSE_UID="$(stat -c %u "{(tmp / "repo").as_posix()}")" PULSE_DEPLOY_HEALTH_SECONDS=5 '
+            f'PULSE_DEPLOY_LOCK="{(tmp / "deploy.lock").as_posix()}"; '
             f'bash "{(ROOT / "deploy" / "remote_deploy.sh").as_posix()}" {self.SHA} "{(tmp / "repo").as_posix()}"'
         )
         result = subprocess.run([bash, "-c", script], capture_output=True, timeout=60)

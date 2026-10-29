@@ -87,6 +87,23 @@ docker compose logs -f --tail=150 pulse
 
 Der Container startet nach einem Serverneustart automatisch. Standardmäßig ist das Dashboard am öffentlichen Serverport 25095 erreichbar, solange die Firewall diesen Port zulässt. Öffne in der Firewall nur benötigte Ports; SSH und Dashboard sollten nach Möglichkeit eingeschränkt bzw. über HTTPS bereitgestellt werden.
 
+### Neustart nach Absturz oder OOM-Kill (optional, empfohlen)
+
+`compose.yaml` bleibt bei `restart: "no"`, damit Docker beim Boot keinen alten Stand vor `pulse-github-update.service` startet. Damit Pulse nach einem Absturz oder OOM-Kill **zur Laufzeit** wieder hochkommt, prüft ein systemd-Timer alle 2 Minuten (frühestens 10 Minuten nach dem Boot) den Container und führt nur `docker start pulse-teamos` aus – kein Git, kein Build. Er greift nie, solange das Boot-Update läuft oder ein Deploy die Sperre `/run/lock/pulse-deploy.lock` hält, ignoriert sauber gestoppte Container (Exit 0) und startet höchstens 3-mal pro Stunde (danach Meldung `KRITISCH` im Journal).
+
+Einmalig als root installieren (das Skript wird bewusst nicht aus dem Repository ausgeführt, weil der Container dort schreiben darf):
+
+```bash
+install -m 755 scripts/pulse-crash-restart.sh /usr/local/sbin/pulse-crash-restart.sh
+install -m 644 systemd/pulse-crash-restart.service systemd/pulse-crash-restart.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now pulse-crash-restart.timer
+```
+
+- Protokoll: `journalctl -u pulse-crash-restart.service -n 50 --no-pager`
+- Pausieren (Wartung): `touch /var/lib/pulse-crash-restart/paused` · fortsetzen: `rm /var/lib/pulse-crash-restart/paused`
+- Nach Änderungen am Skript im Repository die `install`-Zeile erneut ausführen.
+
 ## 5. GitHub-Updates per Actions ausrollen (optional)
 
 Das Workflow-Template `.github/workflows/deploy-vps.yml` wird erst aktiv deployen, wenn diese GitHub-Repository-Secrets gesetzt sind:

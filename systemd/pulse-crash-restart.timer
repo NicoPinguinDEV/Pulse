@@ -1,0 +1,11 @@
+[Unit]
+Description=Pulse TeamOS alle 2 Minuten auf Absturz prüfen
+
+[Timer]
+# Start only well after boot: pulse-github-update.service starts Pulse itself and may take a few minutes.
+OnBootSec=10min
+OnUnitActiveSec=2min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

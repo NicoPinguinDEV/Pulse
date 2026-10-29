@@ -7,3 +7,4 @@ Caddyfile   text eol=lf
 *.yaml      text eol=lf
 .env.example text eol=lf
 *.service   text eol=lf
+*.timer     text eol=lf

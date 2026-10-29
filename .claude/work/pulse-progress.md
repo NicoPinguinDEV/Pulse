@@ -39,7 +39,13 @@ Fremde, unversionierte Dateien (nie mitcommitten): `.claude/launch.json`, `.clau
 - E2E (Playwright, PULSE_E2E=1): 12 Tests ok.
 - Nicht ausgeführt: Docker-Build (kein Docker lokal; läuft im neuen CI-Job `image`), kein Push, kein Deploy.
 
+## Nachtrag – Neustart nach Absturz/OOM ✅ (Nutzer: „Ja, Option prüfen“)
+- `restart: "no"` bleibt (Boot-Race). Neu: scripts/pulse-crash-restart.sh + systemd/pulse-crash-restart.{service,timer}:
+  nur `docker start` bei exited + (Exit≠0 oder OOM); nie bei Boot-Update (activating), Deploy-Sperre
+  /run/lock/pulse-deploy.lock (auch in remote_deploy.sh), Pausendatei; max. 3/h. Läuft aus /usr/local/sbin, nicht aus dem Repo.
+- Tests: tests/test_crash_restart.py (7). Voller Satz: 999 ok (3 skipped). Installation auf dem VPS: manuell (VPS_DEPLOYMENT.md).
+
 ## Offen (Entscheidung Nutzer)
-- compose `restart: "no"` vs. Neustart nach Absturz/OOM.
+- Timer auf dem VPS installieren (nicht ausgeführt, kein SSH).
 - Branch `refactoring-pulse` pushen / PR – laut Auftrag nicht ausgeführt.
 - Dependabot-pip-PRs brauchen ab jetzt eine neu erzeugte requirements.lock (Test meldet das).

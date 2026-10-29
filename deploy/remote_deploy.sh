@@ -16,6 +16,11 @@ cd "$REPO_DIR"
 # Root runs this script, but the checkout belongs to the container user (UID 1000, O-01). Without this,
 # git refuses every command ("dubious ownership"). Valid only for the git calls of this script.
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(pwd -P)"
+# Shared with scripts/pulse-crash-restart.sh: while a deploy runs, the crash watchdog leaves the container alone.
+LOCK_FILE="${PULSE_DEPLOY_LOCK:-/run/lock/pulse-deploy.lock}"
+if command -v flock >/dev/null 2>&1 && exec 9>"$LOCK_FILE"; then
+  flock -w 120 9 || { echo "Abbruch: Sperre $LOCK_FILE wird seit 120 s gehalten (anderer Deploy?)."; exit 1; }
+fi
 PREV="$(git rev-parse HEAD)"
 echo "Aktuell: $PREV · Ziel: $SHA"
 
