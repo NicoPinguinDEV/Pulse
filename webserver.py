@@ -75,12 +75,21 @@ def request_origin(request: Request) -> str:
     """Ermittelt die öffentliche Dashboard-URL hinter einem Reverse Proxy."""
     if PUBLIC_BASE_URL:
         return PUBLIC_BASE_URL.rstrip("/")
-    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    if forwarded_host:
-        scheme = (forwarded_proto.split(",")[0].strip() if forwarded_proto else request.url.scheme)
-        return f"{scheme}://{forwarded_host}".rstrip("/")
+    # SEC-02: the configured Discord callback names the public origin as well. Only when nothing is
+    # configured does the request decide – and then never X-Forwarded-Host/-Proto straight from the client
+    # (uvicorn's proxy_headers already applies X-Forwarded-Proto from trusted proxies to request.url.scheme),
+    # and only a plain host[:port], so a forged header cannot put a foreign link into a bot message.
+    configured = urlparse(REDIRECT_URI)
+    if configured.scheme in ("http", "https") and configured.netloc:
+        return f"{configured.scheme}://{configured.netloc}"
+    host = (request.headers.get("host") or "").strip()
+    scheme = request.url.scheme if request.url.scheme in ("http", "https") else "http"
+    if host and _PLAIN_HOST.fullmatch(host):
+        return f"{scheme}://{host}"
     return str(request.base_url).rstrip("/")
+
+
+_PLAIN_HOST = re.compile(r"(?:[A-Za-z0-9-]{1,63}\.)*[A-Za-z0-9-]{1,63}(?::\d{1,5})?|\[[0-9A-Fa-f:.]+\](?::\d{1,5})?")
 
 OAUTH_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
@@ -963,6 +972,11 @@ def get_loas() -> dict:
 def esc(value) -> str:
     """HTML-Escaping für ALLE nutzergenerierten Inhalte (verhindert XSS)."""
     return html.escape("" if value is None else str(value), quote=True)
+
+
+def discord_text(value) -> str:
+    """User text for Discord messages/embeds: no markdown links/formatting, no mentions."""
+    return discord.utils.escape_mentions(discord.utils.escape_markdown("" if value is None else str(value)))
 
 
 def safe_url(url: str) -> str:
@@ -3563,10 +3577,13 @@ async def logout_confirm():
 @app.post("/logout")
 async def logout(user_session: str = Cookie(None)):
     data = verify_session_token(user_session, TOKEN_DASHBOARD) if user_session else None
-    if data and data.get("sid"):
+    if data:
         try:
             import pulse_sessions  # U-14: the server-side session ends too
-            pulse_sessions.revoke(data["id"], data["sid"])
+            if data.get("sid"):
+                pulse_sessions.revoke(data["id"], data["sid"])
+            else:  # SEC-03: a copied cookie without sid must not outlive the logout either
+                pulse_sessions.revoke_unbound(data["id"])
         except Exception as exc:  # P-10
             pulse_logging.report_error("sessions", f"Sitzung beim Logout nicht widerrufen: {type(exc).__name__}")
     response = RedirectResponse(url="/", status_code=303)
@@ -3677,7 +3694,12 @@ async def callback(request: Request, code: str = None, state: str = None, error:
         import pulse_sessions  # U-14: server-side session for the session list
         session["sid"] = pulse_sessions.create(session["id"], request.headers.get("user-agent", ""))
     except Exception as exc:
-        print(f"⚠️ Sitzung konnte nicht gespeichert werden: {type(exc).__name__}")
+        # SEC-03: without a server-side session the cookie could be neither ended on logout nor by the
+        # idle timeout – refuse the login (fail closed) instead of issuing an unrevocable 7-day cookie.
+        pulse_logging.report_error("sessions", f"Sitzung konnte nicht gespeichert werden: {type(exc).__name__}")
+        return HTMLResponse(simple_page("⏳", "Anmeldung gerade nicht möglich",
+                                        "Die Sitzung konnte nicht gespeichert werden. Bitte gleich erneut versuchen.", retry),
+                            status_code=503)
     response = RedirectResponse(url=start_page_for(session["id"]), status_code=303)  # U-02
     response.set_cookie(
         "user_session",
@@ -7166,6 +7188,12 @@ async def team_role_manager(request: Request, user_id: int, user_session: str = 
     )
 
 
+# SEC-08: rights that let the holder take over or sanction beyond the Pulse model. Deliberately not the
+# everyday ones (manage_messages, manage_nicknames, …) that ordinary department roles carry.
+ESCALATING_ROLE_PERMISSIONS = ("administrator", "manage_guild", "manage_roles", "manage_channels", "manage_webhooks",
+                               "ban_members", "kick_members")
+
+
 @app.post("/team/{user_id}/roles")
 async def team_role_manager_save(
     request: Request,
@@ -7211,8 +7239,18 @@ async def team_role_manager_save(
             return back(f"/team/{user_id}/roles", f"Rolle {rid} ist nicht verwaltbar.", False)
         if guild.me and role.position >= guild.me.top_role.position:
             return back(f"/team/{user_id}/roles", f"Die Rolle **{role.name}** steht über der Bot-Rolle.", False)
-        if not ctx.perms.get("is_admin") and role.position >= ctx.member.top_role.position:
-            return back(f"/team/{user_id}/roles", f"Die Rolle **{role.name}** steht auf oder über deinem Rang.", False)
+        if not ctx.perms.get("is_admin"):
+            if ctx.member is None or role.position >= ctx.member.top_role.position:
+                return back(f"/team/{user_id}/roles", f"Die Rolle **{role.name}** steht auf oder über deinem Rang.", False)
+            # SEC-08: a role below the own top role can still carry server-wide rights (e.g. a forgotten
+            # admin or moderation role). Only admins hand those out; configured team roles keep their
+            # rank rule (their moderation rights are intended), Administrator is never delegable.
+            role_perms = role.permissions
+            risky = [name for name in ESCALATING_ROLE_PERMISSIONS if getattr(role_perms, name, False)]
+            if rid in add_set and (role_perms.administrator or (risky and role.id not in team_role_ids)):
+                return back(f"/team/{user_id}/roles",
+                            f"Die Rolle **{role.name}** hat weitreichende Serverrechte ({', '.join(risky[:4])}) – "
+                            "nur Administratoren dürfen sie vergeben.", False)
         selected.append(role)
 
     old_roles = [r for r in member.roles if r.id in all_ids]
@@ -7715,8 +7753,11 @@ async def notify_new_application(request: Request, application_id: str, applicat
         color=_pulse_color("info"),
         timestamp=now_de(),
     )
-    embed.add_field(name="Bewerber", value=f"{esc(applicant_name)}\nDiscord-ID: `{esc(applicant_id)}`", inline=True)
-    embed.add_field(name="Laufbahn", value=esc(career_label), inline=True)
+    # SEC-04: the name comes from the public form – Discord markdown (masked links, mentions) is escaped,
+    # so nobody can put a phishing link into the team alert. The ID is digits only.
+    embed.add_field(name="Bewerber", value=f"{discord_text(applicant_name)}\nDiscord-ID: `{re.sub(r'[^0-9]', '', applicant_id)}`",
+                    inline=True)
+    embed.add_field(name="Laufbahn", value=discord_text(career_label), inline=True)
     embed.add_field(name="Online-Test", value=f"{score}/{total} richtig ({percent} %)\n{result_label}", inline=True)
     embed.add_field(
         name="Bewerbung öffnen",
@@ -10805,13 +10846,25 @@ async def issue_team_warning(guild, *, actor_member, actor_name: str, actor_id: 
 
 
 async def revoke_team_warning(guild, *, member, warn_id: str, revoke_reason: str, actor_name: str, actor_id: str,
-                              config: dict | None = None, source: str = "Team-Dashboard") -> dict:
+                              config: dict | None = None, source: str = "Team-Dashboard",
+                              actor_member=None, actor_is_admin: bool = False) -> dict:
     """Withdraws one warning: marks it, lifts its temporary consequences (unless another active warning
     still justifies them), syncs warn roles, posts the team update and writes the audit."""
     config = config if config is not None else load_config()
     revoke_reason = (revoke_reason or "").strip()[:500]
     if member is None:
         return {"ok": False, "stored": False, "message": "Mitglied nicht gefunden."}
+    # SEC-09: the same limits as issuing a warning – nobody (but admins) withdraws their own warnings or
+    # those of a member with the same or a higher team rank.
+    if not actor_is_admin:
+        if str(member.id) == str(actor_id):
+            return {"ok": False, "stored": False, "message": "Eigene Verwarnungen kann nur die Leitung (Admin) zurückziehen."}
+        team_role_ids = config.get("team_role_ids", [])
+        target_rank = team_rank(member, team_role_ids)
+        actor_rank = team_rank(actor_member, team_role_ids) if actor_member is not None else -1
+        if target_rank >= 0 and target_rank >= actor_rank:
+            return {"ok": False, "stored": False,
+                    "message": "Du darfst keine Verwarnung eines Mitglieds mit gleichem oder höherem Teamrang zurückziehen."}
     if not revoke_reason:
         return {"ok": False, "stored": False, "message": "Bitte einen Grund für die Rücknahme der Verwarnung angeben."}
     team_db = load_json(DATA_FILE, {})
@@ -11353,6 +11406,7 @@ async def handle_action(
         result = await revoke_team_warning(  # BOT-05: same logic as /warn-remove
             guild, member=guild.get_member(user_id), warn_id=warn_id, revoke_reason=warn_revoke_reason,
             actor_name=actor, actor_id=actor_id, config=config,
+            actor_member=ctx.member or guild.get_member(int(actor_id)), actor_is_admin=bool(ctx.perms.get("is_admin")),
         )
         return back(member_url, result["message"], result["ok"])
 
@@ -11543,6 +11597,15 @@ async def handle_action(
             )
             if role is None or role.id not in team_role_ids or role.id == APPLICATION_ROLE_ID:
                 return back("/applications", "Bitte nach dem Bewerbungsgespräch eine gültige Team-Einstiegsrolle auswählen.", False)
+            # SEC-07: hire_role_id comes from the form – same rank rule as action=hire: nobody (but admins)
+            # hires onto the own rank or higher, and nobody hires themselves.
+            if str(applicant.id) == str(actor_id):
+                return back("/applications", "Du kannst dich nicht selbst einstellen.", False)
+            ordered_ids = ordered_team_role_ids(guild, team_role_ids)
+            selected_rank = ordered_ids.index(role.id) if role.id in ordered_ids else len(ordered_ids)
+            actor_rank = team_rank(ctx.member, team_role_ids) if ctx.member else -1
+            if not ctx.perms.get("is_admin") and actor_rank <= selected_rank:
+                return back("/applications", "Du darfst niemanden auf deinen eigenen Rang oder einen höheren Rang einstellen.", False)
             application_role = guild.get_role(APPLICATION_ROLE_ID)
             if guild.me and (
                 not guild.me.guild_permissions.manage_roles

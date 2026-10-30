@@ -176,11 +176,30 @@ def _is_public_https_url(value: str) -> bool:
             return False
         try:
             ip = ipaddress.ip_address(host)
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
-                return False
         except ValueError:
-            pass
-        return True
+            return True
+        return _ip_is_public(ip)
+    except (TypeError, ValueError):
+        return False
+
+
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_IPV4_COMPATIBLE = ipaddress.ip_network("::/96")
+
+
+def _ip_is_public(ip) -> bool:
+    """SEC-14: only globally routable addresses – is_global also excludes CGNAT (100.64/10), benchmarking and
+    documentation ranges the old private/loopback list let through. IPv6 forms that embed an IPv4 address
+    (::ffff:a.b.c.d, NAT64 64:ff9b::a.b.c.d) are judged by that IPv4 address."""
+    try:
+        if ip.version == 6:
+            if ip.ipv4_mapped is not None:
+                return _ip_is_public(ip.ipv4_mapped)
+            if ip in _NAT64:
+                return _ip_is_public(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF))
+            if ip in _IPV4_COMPATIBLE:  # deprecated ::a.b.c.d (incl. ::1) – never a public feed host
+                return False
+        return bool(ip.is_global) and not ip.is_multicast
     except (TypeError, ValueError):
         return False
 
@@ -196,7 +215,7 @@ async def _resolves_to_public(host: str) -> bool:
         infos = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
     except OSError:
         return True  # not resolvable: the request itself fails with a normal connection error
-    return all(ipaddress.ip_address(str(info[4][0]).split("%", 1)[0]).is_global for info in infos)
+    return all(_ip_is_public(ipaddress.ip_address(str(info[4][0]).split("%", 1)[0])) for info in infos)
 
 
 async def _check_outgoing_request(request: httpx.Request) -> None:

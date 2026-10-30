@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -29,6 +28,9 @@ from pulse_ai_resilience import (
 DEFAULT_GUILD_ID = _pulse_ids.GUILD_ID
 CITIZEN_ROLE_IDS = set(_pulse_ids.AI_CITIZEN_ROLE_IDS)
 MODERATION_DECISION_ROLE_ID = _pulse_ids.MODERATION_DECISION_ROLE_ID
+# SEC-06: team warnings from a review run through webserver.issue_team_warning, which needs a validity –
+# same default as the dashboard form and /warn.
+AI_TEAM_WARN_DAYS = 7
 ROOT = Path(__file__).resolve().parent.parent
 CASES_PATH = Path(os.getenv("PULSE_AI_MODERATION_CASES_FILE", str(ROOT / "ai_moderation_cases.json")))
 
@@ -973,6 +975,39 @@ class AIModeration(commands.Cog):
         except Exception:
             return False
 
+    def _reviewer_perms(self, interaction: discord.Interaction) -> dict[str, Any]:
+        try:
+            import webserver
+            perms, _member = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config())
+            return dict(perms or {})
+        except Exception:
+            return {}
+
+    def _action_problem(self, interaction: discord.Interaction, member: discord.Member, action: str) -> str:
+        """SEC-06: the review buttons may only do what the reviewer could also do through /mod or /warn.
+
+        Opening/dismissing a case needs can_warn/can_promote (unchanged); a sanction additionally needs the
+        right for exactly that sanction – citizen measures the Pulse moderation right AND the Discord
+        permission plus the role hierarchy (pulse_mod_cases), team warnings can_warn (rank checks follow in
+        webserver.issue_team_warning). Empty string = allowed."""
+        reviewer = interaction.user
+        perms = self._reviewer_perms(interaction)
+        is_admin = bool(perms.get("is_admin") or reviewer.guild_permissions.administrator)
+        if action == "team_warn":
+            return "" if (is_admin or perms.get("can_warn")) else "Für Team-Warnungen fehlt dir die Berechtigung (can_warn)."
+        import pulse_mod_cases
+        mod_action = "timeout" if action.startswith("timeout_") else action
+        if is_admin:
+            perms["is_admin"] = True
+        if not pulse_mod_cases.may_moderate(mod_action, perms, reviewer.guild_permissions):
+            return "Für diese Maßnahme fehlen dir die Pulse-Moderationsrechte oder die passende Discord-Berechtigung."
+        try:
+            import webserver
+            team_role_ids = webserver.load_config().get("team_role_ids", [])
+        except Exception:
+            team_role_ids = []
+        return pulse_mod_cases.target_problem(reviewer, member, interaction.guild, team_role_ids)
+
     def _action_reason(self, case: dict[str, Any], reviewer: discord.Member) -> str:
         if case.get("manual_outage"):
             return (
@@ -1010,6 +1045,11 @@ class AIModeration(commands.Cog):
                     await interaction.followup.send("❌ Bots, Serverinhaber und Administratoren müssen separat durch die Serverleitung geprüft werden.", ephemeral=True)
                     return
                 role_kind = self._role_kind(member)
+                problem = self._action_problem(interaction, member, action) if action in {
+                    "team_warn", "warn", "timeout_10m", "timeout_1h", "kick", "ban"} else ""
+                if problem:
+                    await interaction.followup.send(f"❌ {problem} Fall bleibt offen.", ephemeral=True)
+                    return
                 if action == "team_warn":
                     if role_kind != "TEAMLER":
                         await interaction.followup.send("❌ Das Mitglied hat aktuell keine konfigurierte Teamrolle; Team-Warn abgebrochen.", ephemeral=True)
@@ -1049,79 +1089,43 @@ class AIModeration(commands.Cog):
             await interaction.followup.send("Die Aktion ist fehlgeschlagen; der Fall bleibt offen. Details stehen in der Hosting-Konsole.", ephemeral=True)
 
     async def _issue_team_warn(self, guild: discord.Guild, member: discord.Member, reviewer: discord.Member, case: dict[str, Any]) -> dict[str, Any]:
+        """SEC-06: same checks and side effects as /warn and the dashboard (self-warn block, team rank,
+        warn-abuse protection, high-impact approval, K-04 merge) instead of writing warns_list directly."""
         import webserver
         config = webserver.load_config()
-        team_role_ids = {int(x) for x in config.get("team_role_ids", [])}
-        if not any(r.id in team_role_ids for r in member.roles):
-            return {"ok": False, "message": "Mitglied hat keine konfigurierte Teamrolle."}
-        team_db = webserver.load_json(webserver.DATA_FILE, {})
-        entry = webserver.user_entry(team_db, str(member.id))
-        if len(webserver.active_warns(entry)) >= 5:
-            return {"ok": False, "message": "Mitglied hat bereits 5 aktive Team-Warns."}
         proof = str(case.get("message_url", ""))
         reason = (
             f"Manuelle Team-Warnung nach Prüfung: {proof} (bestätigt von {reviewer.display_name}; KI-Ausfall)"
             if case.get("manual_outage")
             else f"KI-Fall {case['id']}: {case.get('rule')} – {case.get('reason')} (durch Moderator bestätigt)"
         )[:500]
-        warn = {
-            "id": f"warn_{uuid.uuid4().hex[:8]}",
-            "reason": reason[:500],
-            "proof": proof,
-            "by": reviewer.display_name,
-            "date": webserver.now_de().strftime("%d.%m.%Y %H:%M"),
-            "active": True,
-            "revoked_at": None,
-            "revoked_by": None,
-            "revoked_reason": "",
-        }
-        entry["warns_list"].append(warn)
-        count = len(webserver.active_warns(entry))
-        webserver.save_json(webserver.DATA_FILE, team_db)
+        perms = self._reviewer_perms_for(reviewer, config)
         try:
-            webserver.log_audit(reviewer.display_name, str(reviewer.id), "KI-Moderations-Team-Warn", f"{member.display_name} ({count}/5) · {reason[:250]}")
-        except Exception as exc:
-            print(f"⚠️ KI-Moderation: Audit-Log für Team-Warn fehlgeschlagen ({type(exc).__name__}).")
-        try:
-            role_report = await webserver.sync_warn_roles(guild, member, count, config)
-        except Exception as exc:
-            role_report = {"ok": False, "message": f"Warnrollen-Sync fehlgeschlagen ({type(exc).__name__})"}
-        try:
-            consequence_report = await webserver.apply_warn_consequences(guild, member, warn, count, config) if count >= 2 else {"ok": True, "actions": []}
-        except Exception as exc:
-            consequence_report = {"ok": False, "actions": [f"Automatische Folge fehlgeschlagen ({type(exc).__name__}); Admin-Prüfung erforderlich"]}
-        try:
-            await webserver.send_team_update_embed(
-            guild,
-            "⚠️ KI-Moderation: Team-Warn bestätigt",
-            f"{member.mention} hat nach menschlicher Prüfung eine Team-Warnung erhalten.",
-            _pulse_color("warning"),
-            target=f"{member.mention}\nWarn-Stufe: {count}/5",
-            action=f"KI-Moderationswarnung {count}/5",
-            actor=reviewer.display_name,
-            fields=[
-                ("Grund", reason[:900], False),
-                ("Beleg", proof, False),
-                ("Warnrollen-Sync", role_report.get("message", "Status unbekannt"), False),
-                ("Folgen", "; ".join(consequence_report.get("actions", [])) or "Keine zusätzlichen Folgen", False),
-            ],
-            thumbnail=member.display_avatar.url,
+            result = await webserver.issue_team_warning(
+                guild, actor_member=reviewer, actor_name=reviewer.display_name, actor_id=str(reviewer.id), member=member,
+                reason=reason, duration_days=AI_TEAM_WARN_DAYS, proof=proof, config=config,
+                actor_is_admin=bool(perms.get("is_admin") or reviewer.guild_permissions.administrator), source="KI-Moderation",
             )
         except Exception as exc:
-            print(f"⚠️ KI-Moderation: Team-Updates konnten nicht gesendet werden ({type(exc).__name__}).")
+            # A follow-up step (roles, team update, DM) may fail after the warning was stored. Then the case
+            # must count as handled – otherwise a second click would store a duplicate warning.
+            entry = webserver.user_entry(webserver.load_json(webserver.DATA_FILE, {}), str(member.id))
+            if any(w.get("reason") == reason.strip() and w.get("active", True) for w in entry.get("warns_list", [])):
+                return {"ok": True, "message": f"Team-Warn gespeichert; Folgeschritt fehlgeschlagen ({type(exc).__name__}) – bitte prüfen"}
+            raise
+        if not result.get("stored"):
+            return {"ok": False, "message": result.get("message", "Team-Warn abgelehnt")}
+        # The warning is persisted. Mark the case handled even if a secondary role/log step failed,
+        # preventing duplicate warnings on retry.
+        return {"ok": True, "message": f"Team-Warn {result.get('count', '?')}/5 gespeichert; {result.get('message', '')}".rstrip("; ")}
+
+    def _reviewer_perms_for(self, reviewer: discord.Member, config: dict) -> dict[str, Any]:
         try:
-            await webserver.send_dm_notification(member, f"⚠️ Du hast nach Moderatorenprüfung eine Team-Warnung erhalten ({count}/5).\nGrund: {reason[:600]}\nBeleg: {proof}")
+            import webserver
+            perms, _member = webserver.compute_perms(reviewer.guild, reviewer.id, config)
+            return dict(perms or {})
         except Exception:
-            pass
-        details = []
-        if not role_report.get("ok"):
-            details.append(str(role_report.get("message", "Warnrollen-Sync prüfen")))
-        if not consequence_report.get("ok"):
-            details.extend(str(x) for x in consequence_report.get("actions", []) if x)
-        follow_up = "; ".join(details) if details else "Warnrollen und Folgen OK"
-        # The warning is already persisted. Mark this moderation case handled even if a
-        # secondary role/log operation failed, preventing duplicate warnings on retry.
-        return {"ok": True, "message": f"Team-Warn {count}/5 gespeichert; {follow_up}"}
+            return {}
 
     async def _apply_citizen_action(self, guild: discord.Guild, member: discord.Member, reviewer: discord.Member, case: dict[str, Any], action: str) -> dict[str, Any]:
         reason = self._action_reason(case, reviewer)

@@ -76,6 +76,10 @@ install_updated_helper() {
 }
 
 cd "$REPO_DIR"
+# Root runs this script, but the checkout belongs to the container user (UID 1000, O-01). Without this, git
+# refuses every command ("dubious ownership"), set -e ends the script before start_current_version and Pulse
+# stays down after a reboot (same line as deploy/remote_deploy.sh; valid only for this script's git calls).
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(pwd -P)"
 
 current_branch="$(git branch --show-current)"
 if [[ -n "$current_branch" && "$current_branch" != "main" ]]; then

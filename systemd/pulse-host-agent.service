@@ -26,7 +26,9 @@ StateDirectoryMode=0700
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=/opt/pulse/Pulse /var/lib/pulse-host-agent
+# /run/lock: the deploy lock shared with the crash watchdog (remote_deploy.sh) – read-only under
+# ProtectSystem=strict otherwise, and the deploy would silently run without the lock.
+ReadWritePaths=/opt/pulse/Pulse /var/lib/pulse-host-agent -/run/lock
 ProtectHome=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

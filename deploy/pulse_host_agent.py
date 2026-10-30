@@ -735,7 +735,7 @@ def make_handler(agent: Agent):
 
         def _body(self):
             length = int(self.headers.get("Content-Length") or 0)
-            if length > MAX_BODY:
+            if length < 0 or length > MAX_BODY:  # negative: rfile.read(-1) would read until EOF
                 raise ValueError("Anfrage zu groß.")
             if not length:
                 return {}

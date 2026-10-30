@@ -1153,9 +1153,12 @@ class PulseSuite(commands.Cog):
         async def do(x):
             # BOT-05: same withdrawal as the dashboard – before, the slash path did not lift the temporary
             # consequences (uprank/IC lock), rewrote the whole team file and posted no team update.
+            config=web.load_config()
+            actor_perms,_=web.compute_perms(i.guild,i.user.id,config)
             result=await web.revoke_team_warning(
                 i.guild,member=member,warn_id=warn_id,revoke_reason=grund,actor_name=i.user.display_name,
-                actor_id=str(i.user.id),config=web.load_config(),source="Slash /warn-remove",
+                actor_id=str(i.user.id),config=config,source="Slash /warn-remove",
+                actor_member=i.user,actor_is_admin=bool(actor_perms.get("is_admin")),
             )
             if not result.get("stored"):
                 return await x.response.edit_message(content="❌ "+result["message"],embed=None,view=None)
@@ -1316,6 +1319,13 @@ class PulseSuite(commands.Cog):
             except (ValueError,TypeError,KeyError,json.JSONDecodeError):
                 return await i.response.send_message("❌ Der Vorgang enthält ungültige Daten.",ephemeral=True)
             operation=approved_action_operation(str(row["kind"]))
+            # SEC-10: the second approval is subject to the same gates as creating the action – the
+            # emergency lock, the warn-abuse safety lockout (allowed) and, for a real server kick, the
+            # Discord permission of the approver.
+            if locked() or not allowed(i,str(row["kind"]),web):
+                return await i.response.send_message("❌ Freigabe blockiert: Berechtigung fehlt, Schutzsperre oder Pulse Emergency Lock ist aktiv.",ephemeral=True)
+            if operation=="kick_member" and not (p.get("is_admin") or i.user.guild_permissions.kick_members):
+                return await i.response.send_message("❌ Für einen echten Server-Kick brauchst du die Discord-Berechtigung „Mitglieder kicken“.",ephemeral=True)
             target=i.guild.get_member(target_id)
             if operation is None or not target or not reason:
                 return await i.response.send_message("❌ Vorgang, Zielmitglied oder Pflichtgrund ist ungültig.",ephemeral=True)

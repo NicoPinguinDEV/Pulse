@@ -369,6 +369,18 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
         return False, message[:300], ""
 
 
+# SEC-11: returned by rejoin_user when Discord rejects Pulse's client credentials; sync loops stop on it.
+CONFIG_ERROR_MESSAGE = "Pulse-OAuth-Konfiguration ungültig (Client-ID/Secret) – Sync abgebrochen, keine Freigabe gelöscht"
+
+
+def _oauth_error_code(response) -> str:
+    try:
+        body = response.json()
+    except Exception:
+        return ""
+    return str(body.get("error") or "") if isinstance(body, dict) else ""
+
+
 async def rejoin_user(
     user_id: str,
     refresh_token: str,
@@ -405,7 +417,13 @@ async def rejoin_user(
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         ))
         if response.status_code != 200:
-            if response.status_code in (400, 401):
+            error_code = _oauth_error_code(response)
+            # SEC-11: only a refresh token Discord itself calls invalid ("invalid_grant") is a revoked/expired
+            # consent. 401/"invalid_client" means Pulse's own client credentials are wrong (rotated secret,
+            # typo) – deleting every stored consent then would destroy the recovery exactly in the emergency.
+            if response.status_code == 401 or error_code in {"invalid_client", "unauthorized_client"}:
+                return False, CONFIG_ERROR_MESSAGE
+            if response.status_code == 400 and error_code == "invalid_grant":
                 unlink(uid)  # Revoked/expired consent must be renewed by the user.
                 return False, "Freigabe abgelaufen/widerrufen; Nutzer muss erneut freischalten"
             return False, f"Token-Aktualisierung fehlgeschlagen (HTTP {response.status_code})"
