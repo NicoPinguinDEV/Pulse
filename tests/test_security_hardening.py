@@ -458,3 +458,146 @@ class SecondApprovalTests(TempDb):
         self.assertEqual(self._approve(), "awaiting_second")
         self.target.kick.assert_not_awaited()
         self.assertIn("Emergency Lock", self.sent[-1])
+
+
+# ---------------------------------------------------------------------------------------------------------
+# SEC-14 – SSRF guard of the social feeds: only globally routable targets, also inside IPv6 wrappers.
+# ---------------------------------------------------------------------------------------------------------
+class FeedAddressTests(unittest.TestCase):
+    def test_internal_literals_are_refused(self):
+        from cogs import social_promo as sp
+        for url in ("https://100.64.0.1/feed", "https://[64:ff9b::7f00:1]/x", "https://[::ffff:127.0.0.1]/x",
+                    "https://[::ffff:169.254.169.254]/latest/meta-data", "https://169.254.169.254/",
+                    "https://198.18.0.1/", "https://192.0.2.10/", "https://[fd00::1]/", "https://0.0.0.0/"):
+            with self.subTest(url=url):
+                self.assertFalse(sp._is_public_https_url(url))
+
+    def test_public_targets_still_work(self):
+        from cogs import social_promo as sp
+        for url in ("https://8.8.8.8/feed", "https://[2606:4700:4700::1111]/", "https://www.youtube.com/feeds/x"):
+            with self.subTest(url=url):
+                self.assertTrue(sp._is_public_https_url(url))
+
+    def test_dns_names_with_internal_answers_are_refused(self):
+        from cogs import social_promo as sp
+
+        async def fake_getaddrinfo(host, port, type=None):
+            return [(None, None, None, None, ("64:ff9b::a9fe:a9fe", 443, 0, 0))]
+
+        async def run():
+            loop = asyncio.get_running_loop()
+            with patch.object(loop, "getaddrinfo", fake_getaddrinfo):
+                return await sp._resolves_to_public("feed.example")
+        self.assertFalse(asyncio.run(run()))
+
+
+# ---------------------------------------------------------------------------------------------------------
+# SEC-16 – host agent: a negative Content-Length is refused instead of reading until EOF.
+# ---------------------------------------------------------------------------------------------------------
+class HostAgentBodyTests(unittest.TestCase):
+    def test_negative_content_length_is_rejected(self):
+        import http.client
+        import threading
+
+        from tests import test_server_control as tsc
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = tsc.make_agent(tmp, tsc.FakeRunner())
+            server = tsc.agent_mod.ThreadingHTTPServer(("127.0.0.1", 0), tsc.agent_mod.make_handler(agent))
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+                conn.putrequest("POST", "/v1/jobs")
+                conn.putheader("Authorization", "Bearer " + tsc.TOKEN)
+                conn.putheader("Content-Type", "application/json")
+                conn.putheader("Content-Length", "-1")
+                conn.endheaders()
+                conn.send(b'{"action":"restart"}')  # connection stays open: the old code would block on read(-1)
+                response = conn.getresponse()
+                self.assertEqual(response.status, 400)
+                self.assertEqual(agent.state.get("jobs", {}) if isinstance(agent.state, dict) else {}, {})
+                conn.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+
+
+# ---------------------------------------------------------------------------------------------------------
+# SEC-15 – case attachments: the type the uploader claimed is not served as active content.
+# ---------------------------------------------------------------------------------------------------------
+class AttachmentTypeTests(TempDb):
+    def test_html_and_svg_attachments_are_downloads(self):
+        import pulse_ultimate as pu
+        from tests.test_pulse_admin_area import ADMIN
+        pu._INIT = False
+        with patch.object(pu, "ATTACHMENTS_DIR", Path(self.tmp.name)), \
+             patch.object(ws, "auth", lambda *a, **k: SimpleNamespace(user={"id": "1"}, perms=ADMIN)):
+            pu.setup()
+            (Path(self.tmp.name) / "evil.html").write_text("<script>alert(1)</script>")
+            (Path(self.tmp.name) / "ok.png").write_bytes(b"\x89PNG\r\n")
+            with pu.cx() as c:
+                for aid, stored, ctype in (("a1", "evil.html", "text/html"), ("a2", "evil.html", "image/svg+xml"),
+                                           ("a3", "ok.png", "image/png")):
+                    c.execute("INSERT INTO ultimate_attachments(id,owner_type,owner_id,original_name,stored_name,content_type,"
+                              "size_bytes,sha256,uploaded_by_id,uploaded_by_name,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                              (aid, "case", "C1", stored, stored, ctype, 1, "x", "1", "T", "2026-01-01"))
+            client = TestClient(ws.app, raise_server_exceptions=False)
+            for aid, expected in (("a1", "application/octet-stream"), ("a2", "application/octet-stream"), ("a3", "image/png")):
+                r = client.get(f"/ultimate/cases/C1/attachments/{aid}")
+                self.assertEqual(r.status_code, 200, aid)
+                self.assertTrue(r.headers["content-type"].startswith(expected), (aid, r.headers["content-type"]))
+                self.assertIn("attachment", r.headers.get("content-disposition", ""))
+        pu._INIT = False
+
+
+# ---------------------------------------------------------------------------------------------------------
+# SEC-12 / SEC-13 – team-file privacy and handover ownership.
+# ---------------------------------------------------------------------------------------------------------
+class TeamPrivacyTests(TempDb):
+    def setUp(self):
+        super().setUp()
+        import pulse_ultimate as pu
+        self.pu = pu
+        pu._INIT = False
+        pu.setup()
+        self.viewer = {k: False for k in ws.PERM_KEYS} | {"can_view_dashboard": True, "is_admin": False}
+        self.auth = patch.object(ws, "auth", lambda *a, **k: SimpleNamespace(
+            user={"id": "1", "global_name": "Viewer"}, perms=self.viewer, guild=self.guild, member=None,
+            config={"team_role_ids": TEAM_IDS}, guild_name="G", msg="", msg_ok=True))
+        self.colleague = member(2, "Kollegin", SUPPORT)
+        self.colleague.status, self.colleague.joined_at, self.colleague.created_at = "online", None, None
+        self.guild = FakeGuild(members=[self.colleague], roles=[SUPPORT])
+        self.auth.start()
+        self.client = TestClient(ws.app, raise_server_exceptions=False, headers=BROWSER)
+
+    def tearDown(self):
+        self.auth.stop()
+        self.pu._INIT = False
+        super().tearDown()
+
+    def test_foreign_handover_cannot_be_archived_by_a_bystander(self):
+        with self.pu.cx() as c:
+            c.execute("INSERT INTO ultimate_handovers(id,title,content,from_id,from_name,to_id,to_name,status,created_at)"
+                      " VALUES('h1','T','C','5','A','6','B','open','2026-01-01')")
+            c.execute("INSERT INTO ultimate_handovers(id,title,content,from_id,from_name,to_id,to_name,status,created_at)"
+                      " VALUES('h2','T','C','5','A','','','open','2026-01-01')")
+        self.assertEqual(self.client.post("/ultimate/handovers/h1/close", follow_redirects=False).status_code, 404)
+        self.assertEqual(self.client.post("/ultimate/handovers/h2/close", follow_redirects=False).status_code, 303)  # open to all
+        with self.pu.cx() as c:
+            status = dict(c.execute("SELECT id,status FROM ultimate_handovers").fetchall())
+        self.assertEqual(status, {"h1": "open", "h2": "closed"})
+
+    def test_person_page_hides_warnings_of_others(self):
+        import pulse_next
+        pulse_next._INIT = False
+        pulse_next.setup_next()
+        self.addCleanup(setattr, pulse_next, "_INIT", False)
+        stats = {"score": 50, "total_seconds": 0, "shifts": 0, "closed_tickets": 0, "warnings": 4}
+        with patch.object(self.pu, "member_stats", lambda m: stats), patch.object(self.pu, "ensure_profile", lambda m: None), \
+             patch.object(pulse_next, "members", lambda g: [self.colleague], create=True), \
+             patch.object(pulse_next, "timeline", lambda uid, n: [{"title": "Verwarnung 4/5", "details": "geheim",
+                                                                    "created_at": "2026-01-01T00:00:00"}]):
+            r = self.client.get("/ultimate/person/2")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("4/5", r.text)
+        self.assertNotIn("geheim", r.text)
+        self.assertIn("Nur für Leitung sichtbar", r.text)

@@ -12,6 +12,13 @@ services:
     # Pulse may use up to 768 MiB RAM and 256 MiB additional swap (1,024 MiB combined).
     mem_limit: 768m
     memswap_limit: 1024m
+    # Container hardening: Pulse runs as UID 1000, binds an unprivileged port and needs no Linux capability.
+    # no-new-privileges blocks setuid binaries of the base image (su, mount); pids_limit stops a fork bomb from
+    # taking down the 2-GiB host (Python threads + ffmpeg stay far below).
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
     env_file:
       - .env
     environment:
@@ -77,6 +84,8 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     mem_limit: 64m
+    security_opt:
+      - no-new-privileges:true
     networks:
       pulse_net:
         ipv4_address: 172.30.0.10

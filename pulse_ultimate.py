@@ -601,6 +601,12 @@ def member_path_id(value) -> int:
     return int(text)
 
 
+SAFE_ATTACHMENT_TYPES = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf", "text/plain",
+    "video/mp4", "video/webm", "audio/mpeg", "audio/ogg", "audio/wav",
+})
+
+
 def ctx_auth(request: Request, user_session: str, manager: bool = False, perm: Optional[str] = "can_view_dashboard"):
     import webserver
     ctx = webserver.auth(request, user_session, perm=None if manager else perm)
@@ -2199,7 +2205,12 @@ window.setInterval(loadPulseMonitor, 15000);
         path = ATTACHMENTS_DIR / row["stored_name"]
         if not path.exists():
             raise HTTPException(404, "Datei fehlt auf dem Datenträger.")
-        return FileResponse(path, filename=row["original_name"], media_type=row["content_type"] or "application/octet-stream")
+        # SEC-15: the stored type is what the uploader's browser claimed. Serve only harmless types as such;
+        # HTML/SVG/JS & co. always as a plain download (also for rows stored before this fix – no migration).
+        media_type = str(row["content_type"] or "").split(";", 1)[0].strip().lower()
+        if media_type not in SAFE_ATTACHMENT_TYPES:
+            media_type = "application/octet-stream"
+        return FileResponse(path, filename=row["original_name"], media_type=media_type)
 
     @app.post("/ultimate/system/branding")
     async def ultimate_branding(
