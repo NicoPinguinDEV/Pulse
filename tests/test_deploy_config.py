@@ -253,3 +253,35 @@ class RemoteDeployRunTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         resets = [c for c in calls if c.startswith("git reset --hard")]
         self.assertEqual(resets, [f"git reset --hard {self.SHA}", f"git reset --hard {self.PREV}"])
+
+
+class HostBoundaryTests(unittest.TestCase):
+    """The container may write its data, but never the files root on the host executes or reads."""
+
+    READ_ONLY = (".git", "compose.yaml", "Dockerfile", "deploy", "scripts", "systemd")
+
+    def test_infra_and_git_are_read_only_in_the_container(self):
+        compose = read("compose.yaml")
+        self.assertIn("- ./:/app\n", compose)  # runtime data stays where it is (no migration)
+        for path in self.READ_ONLY:
+            with self.subTest(path=path):
+                self.assertIn(f"- ./{path}:/app/{path}:ro", compose)
+        for path in self.READ_ONLY:  # all of them are tracked, so the bind source always exists (no empty dir)
+            self.assertTrue((ROOT / path).exists(), path)
+
+    def test_root_scripts_ignore_compose_overrides(self):
+        for name in ("deploy/remote_deploy.sh", "deploy/rollback_code.sh", "scripts/pulse-vps-boot-update.sh"):
+            with self.subTest(script=name):
+                script = read(name)
+                self.assertIn("export COMPOSE_FILE=compose.yaml", script)
+                first_compose = min(i for i in (script.find("docker compose ps"), script.find("docker compose up"),
+                                                script.find("docker compose stop"), script.find("docker compose build"))
+                                    if i >= 0)
+                self.assertLess(script.index("export COMPOSE_FILE=compose.yaml"), first_compose)
+        self.assertIn('env["COMPOSE_FILE"] = "compose.yaml"', read("deploy/pulse_host_agent.py"))
+
+    def test_pulse_only_reads_git(self):
+        """The ro .git mount is safe because Pulse never writes there (read_git_head reads HEAD/refs only)."""
+        for path in ROOT.glob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            self.assertNotRegex(text, r"""\.git['"/][^\n]*\.(write_text|write_bytes|open\([^)]*['"]w)""", path.name)

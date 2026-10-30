@@ -134,5 +134,53 @@ class ConcurrencyTests(unittest.TestCase):
         self.assertEqual(set(cases), {"555", "waiting:2"})
 
 
+    def _concurrent_warning(self):
+        """What another handler does while Pulse waits for Discord: a new warning for someone else is saved."""
+        data = ws.load_json(ws.DATA_FILE, {})
+        ws.user_entry(data, "99")["warns_list"].append({"id": "w_neu", "reason": "parallel", "active": True})
+        ws.save_json(ws.DATA_FILE, data)
+
+    def test_expired_warn_role_cleanup_keeps_warning_saved_meanwhile(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        ws.save_json(ws.DATA_FILE, {"42": {"warns_list": [{
+            "id": "w1", "reason": "alt", "active": False,
+            "consequences": {"temporary_roles": [{"role_id": 7, "expires_at": "2020-01-01T00:00:00+01:00", "label": "Mute"}]}}]}})
+        role = SimpleNamespace(id=7, name="Mute", position=1)
+        member = SimpleNamespace(roles=[role], remove_roles=AsyncMock(side_effect=lambda *a, **k: self._concurrent_warning()))
+        guild = SimpleNamespace(get_member=lambda _: member, get_role=lambda _: role,
+                                me=SimpleNamespace(guild_permissions=SimpleNamespace(manage_roles=True), top_role=SimpleNamespace(position=9)))
+        result = asyncio.run(ws.cleanup_expired_warn_restrictions(guild))
+        self.assertEqual(result["removed"], 1)
+        stored = ws.load_json(ws.DATA_FILE, {})
+        self.assertEqual([w["id"] for w in stored["99"]["warns_list"]], ["w_neu"], "parallel gespeicherte Verwarnung verloren")
+        self.assertEqual(stored["42"]["warns_list"][0]["consequences"]["temporary_roles"], [])
+
+    def test_probation_team_kick_keeps_warning_saved_meanwhile(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        ws.save_json(ws.DATA_FILE, {"42": {"warns_list": [], "probation": {"active": True}}})
+        supporter = SimpleNamespace(id=555, name="Test Supporter")
+
+        async def kick(*_a, **_k):
+            self._concurrent_warning()
+            return {"ok": True, "changed": True, "message": "entfernt"}
+        member = SimpleNamespace(id=42, bot=False, roles=[supporter], mention="@x", display_name="X",
+                                 display_avatar=SimpleNamespace(url=""))
+        guild = SimpleNamespace(name="G")
+        with patch.object(ws, "_apply_warn5_team_kick", kick), patch.object(ws, "send_dm_notification", AsyncMock()),                 patch.object(ws, "send_team_update_embed", AsyncMock()), patch.object(ws, "log_audit"),                 patch.object(ws, "resolve_backup_role_id", return_value=555), patch.object(ws, "load_config", return_value={}):
+            result = asyncio.run(ws.process_probation_warning(guild, member, {"id": "w2", "reason": "r"}, [1]))
+        self.assertTrue(result["team_kicked"])
+        stored = ws.load_json(ws.DATA_FILE, {})
+        self.assertIn("99", stored, "parallel gespeicherte Verwarnung verloren")
+        self.assertEqual(stored["42"]["probation"]["status"], "ended")
+
+    def test_application_decision_keeps_application_submitted_meanwhile(self):
+        """decide_app awaits Discord role changes; its save must not drop an application that arrived meanwhile."""
+        block = CallSiteTests().block("webserver.py", '    if action == "decide_app":', '\n    if action ==')
+        self.assertNotIn("save_json(APPS_FILE, apps)", block)
+        self.assertIn("fresh[app_id] = item", block)
+
+
 if __name__ == "__main__":
     unittest.main()

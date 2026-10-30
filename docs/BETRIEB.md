@@ -1,6 +1,6 @@
 # Pulse TeamOS – Betriebshandbuch
 
-Stand: 23.10.2026 · 7.16.0 (Branch `verbesserung/phase-8-betrieb`). Grundlage: DOC-03 aus `origin/verbesserung/phase-6-bot`, an diesen Stand angepasst. Einrichtung eines neuen Servers: `VPS_DEPLOYMENT.md` (§0 Vionity-Schnellstart).
+Stand: 30.10.2026 · 7.17.0 (`main`). Grundlage: DOC-03, zuletzt an Backup-/Restore-Test, Container-Grenzen, Crash-Neustart und Job-Überwachung angepasst. Einrichtung eines neuen Servers: `VPS_DEPLOYMENT.md` (§0 Vionity-Schnellstart).
 
 ## 1. Vor dem Start
 
@@ -15,13 +15,15 @@ Stand: 23.10.2026 · 7.16.0 (Branch `verbesserung/phase-8-betrieb`). Grundlage: 
 - `GET /healthz` antwortet **200** nur, wenn Bot verbunden, Server im Cache und Datenbank erreichbar sind (sonst 503). Zusätzlich: `version`, `gateway_latency_ms`, `memory_mb` (Container-RAM). Auf dem VPS: `curl -s http://127.0.0.1:25095/healthz`.
 - 200 heißt nicht, dass jeder Cog fehlerfrei arbeitet – dafür Systemstatus und Logs prüfen.
 - Logs: `docker compose logs --tail=200 pulse` und `logs/pulse.log` (1 MB × 3). Die letzten 200 Fehler stehen mit Fehler-ID im Systemstatus.
+- Hintergrundjobs: Jede `@tasks.loop` steht im Job-Register (Systemstatus, `/healthz` → `jobs_failing`); auch abgefangene Fehler zählen dort als fehlgeschlagener Lauf.
+- Absturz/OOM zur Laufzeit: `pulse-crash-restart.timer` startet den Container nach höchstens 2 Minuten neu (max. 3×/Stunde, nie während Boot-Update oder Deploy) – Einrichtung `VPS_DEPLOYMENT.md`.
 
 ## 3. Backups und Restore
 
 1. Dashboard → `/backups` (Administratoren). Vor riskanten Änderungen ein **Komplett-Backup** erstellen; es enthält alle SQLite-Dateien (konsistente Kopie), JSON-Dateien und – im Rahmen von `PULSE_BACKUP_MAX_MB` – Uploads und Transkripte, mit Manifest und Prüfsummen.
 2. Automatische Backups alle `AUTO_BACKUP_HOURS` (0 = aus); Aufbewahrung 7 täglich / 4 wöchentlich / 6 monatlich, Gesamtgrenze `PULSE_BACKUP_TOTAL_MAX_MB`. Der Deploy legt zusätzlich `backups/predeploy_*` an.
 3. **Restore:** In der Liste „Probelauf / Wiederherstellen“ öffnen. Die Vorschau zeigt Dateien und Tabellenzahlen; ein fehlerhaftes Backup wird blockiert. Erst nach Prüfung `WIEDERHERSTELLEN` eingeben – Pulse sichert vorher den aktuellen Stand und sperrt währenddessen Schreibzugriffe.
-4. Danach Bot neu starten (`docker compose restart pulse`) und Dashboard, Tickets, Bewerbungen, Warnrollen und Voice-Support prüfen. Das Ergebnis des letzten Restore-Tests steht im Systemstatus.
+4. Danach Bot neu starten (`docker compose restart pulse`) und Dashboard, Tickets, Bewerbungen, Warnrollen und Voice-Support prüfen. Das Ergebnis des letzten Restore-Tests steht im Systemstatus: Er stellt das neueste Komplett-Backup wöchentlich probeweise in ein Temp-Verzeichnis wieder her (Prüfsummen, Integrität, Tabellen/Zeilen, JSON, Dateien, Wiederherstellungsziel je Eintrag) – die Live-Daten bleiben unberührt. Das Komplett-Backup enthält auch die hochgeladene Wartemusik (`assets/support_wait.*`).
 5. Vionity sichert nicht automatisch: regelmäßig einen Snapshot im Kundenbereich anlegen und `backups/` außerhalb des Servers kopieren.
 
 Transkripte und Anhänge bis 8 MB werden unbegrenzt aufbewahrt (E-7). Datenschutz-Fristen (E-9) sind standardmäßig aus und laufen nur mit frischem Backup.

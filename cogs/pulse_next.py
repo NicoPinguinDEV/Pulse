@@ -7,6 +7,8 @@ from pathlib import Path
 import discord
 from discord.ext import commands, tasks
 
+import pulse_jobs
+
 import pulse_next
 
 
@@ -36,6 +38,7 @@ class PulseNextEvents(commands.Cog):
         await self.bot.wait_until_ready()
 
     @tasks.loop(minutes=5)
+    @pulse_jobs.tracked("TeamOS-Housekeeping (5 min)", 300, pausable=False)  # P-06: visible in the system status
     async def housekeeping(self):
         # Team score/profile maintenance performs synchronous SQLite work.
         # Never run it on Discord's event loop: setup()/member_stats() can
@@ -52,6 +55,7 @@ class PulseNextEvents(commands.Cog):
             asyncio.run(pulse_next.run_workflows(self.bot))
         except Exception as exc:
             print(f"Pulse Workflow-Housekeeping fehlgeschlagen: {exc}")
+            pulse_jobs.record_error("TeamOS-Housekeeping (5 min)", exc)
 
         if not guild:
             return

@@ -9,6 +9,8 @@ from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
 
+import pulse_jobs
+
 from pulse_nickname_utils import looks_like_date_only, split_absence_suffix
 
 DB_NAME = str(Path(__file__).resolve().parents[1] / "abmeldungen.db")
@@ -435,6 +437,7 @@ class AbmeldungCog(commands.Cog):
     # Hintergrund-Task
     # ------------------------------------------------------------------
     @tasks.loop(minutes=15)
+    @pulse_jobs.tracked("Abmeldungen Ablauf (15 min)", 900, pausable=False)  # P-06: visible in the system status
     async def check_expired_abmeldungen(self):
         await self.bot.wait_until_ready()
         # Ein einzelner Fehler (gesperrte DB, Discord-Ausfall) darf den Ablauf-Check nicht dauerhaft stoppen.
@@ -442,6 +445,7 @@ class AbmeldungCog(commands.Cog):
             await self._check_expired_abmeldungen_once()
         except Exception as e:
             print(f"⚠️ Abmeldungen: Ablaufprüfung fehlgeschlagen ({type(e).__name__}); nächster Durchlauf versucht es erneut.")
+            pulse_jobs.record_error("Abmeldungen Ablauf (15 min)", e)
 
     async def _check_expired_abmeldungen_once(self):
 

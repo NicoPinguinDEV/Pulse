@@ -39,6 +39,13 @@ class DeploymentWorkflowTests(unittest.TestCase):
         self.assertIn("DEPLOY_SHA: ${{ steps.verified.outputs.sha }}", report)
         self.assertNotIn("env.DEPLOY_SHA", workflow)
 
+    def test_manual_deploy_only_from_main(self):
+        """The dispatched ref supplies the workflow file and the deploy script; a branch must not deploy."""
+        workflow = (ROOT / ".github" / "workflows" / "deploy-vps.yml").read_text(encoding="utf-8")
+        verified = workflow.split("Geprüften Commit bestimmen", 1)[1].split("- name:", 1)[0]
+        guard = verified.index('context.ref !== "refs/heads/main"')
+        self.assertLess(guard, verified.index("context.payload.inputs?.commit_sha"))
+
     def test_deploy_is_serialized_monotonic_and_health_checked_with_rollback(self):
         workflow = (ROOT / ".github" / "workflows" / "deploy-vps.yml").read_text(encoding="utf-8")
         # O-03: the remote steps live in deploy/remote_deploy.sh (piped over SSH by the workflow).

@@ -661,8 +661,8 @@ def ensure_profile(member) -> None:
                 (member.display_name, str(member.id)),
             )
         else:
-            c.execute(
-                """INSERT INTO ultimate_profiles
+            c.execute(  # OR IGNORE: two page views (worker threads) may create the same new profile at once
+                """INSERT OR IGNORE INTO ultimate_profiles
                 (user_id,display_name,joined_team_at,updated_at) VALUES(?,?,?,?)""",
                 (str(member.id), member.display_name, now_s, now_s),
             )

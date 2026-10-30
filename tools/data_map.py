@@ -117,6 +117,18 @@ def main() -> int:
     missing = sorted(t for t in created if t not in exported)
     lines += ["", f"**Nicht im JSON-Backup:** {len(missing)} von {len(created)} Tabellen.", ""]
     lines += [
+        "## Komplett-Backup `pulse_backup` (aktueller Stand, maßgeblich)",
+        "",
+        "- Enthält alle Datenbanken aus `pulse_backup.SQLITE_FILES`, alle JSON-Dateien aus `JSON_FILES`, die Ordner "
+        "`uploads/`, `attachments/`, `transcripts/` (im Rahmen von `PULSE_BACKUP_MAX_MB`, Übersprungenes steht im Manifest) "
+        "und die hochgeladene Wartemusik `assets/support_wait.{mp3,ogg,wav}`; bewusst nicht: `backups/`, `.env`, `.session_secret`.",
+        "- `tests/test_full_backup.py` (CoverageTests) schlägt fehl, wenn eine neue `*.db`/`*.json`-Ablage im Code auftaucht, "
+        "die weder gesichert noch bewusst ausgenommen ist.",
+        "- Der Restore-Test (`pulse_backup.restore_test`, wöchentlich und im Systemstatus) stellt das ganze Archiv probeweise in ein "
+        "Temp-Verzeichnis wieder her: Prüfsummen, Integrität jeder Datenbank, Tabellen/Zeilen, JSON-Gültigkeit und für jeden "
+        "Eintrag ein Wiederherstellungsziel.",
+        "- Die Abschnitte unten beschreiben den Stand **vor** dem Komplett-Backup und die älteren Backup-Wege (JSON-Backup, ZIP-Backup).",
+        "",
         "## Manuell geprüfte Ergänzungen (Stand P0-3, 20.10.2026)",
         "",
         "- **ZIP-Backup und `backups/`:** Der Ordner ist nur das *Ziel* der ZIP-Datei (`pulse_next.create_backup`), kein Inhalt – die Spalte zeigt dort fälschlich ✅.",

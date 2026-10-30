@@ -41,10 +41,11 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - name: Abhängigkeiten auditieren
+      # Blocks the deploy (deploy-vps.yml follows this workflow): audit exactly what the image installs.
+      - name: Abhängigkeiten auditieren (requirements.lock = Inhalt des Docker-Images)
         run: |
           python -m pip install --upgrade pip pip-audit==2.10.1
-          pip-audit -r requirements.txt
+          pip-audit -r requirements.lock --require-hashes
 
   syntax:
     runs-on: ubuntu-latest
@@ -141,6 +142,11 @@ jobs:
     steps:
       - name: Repository auschecken
         uses: actions/checkout@v7
+      - name: Compose-Konfiguration prüfen (Mounts, Limits; leere .env nur für die Prüfung)
+        run: |
+          touch .env
+          docker compose config --quiet
+          docker compose config --format json | python3 -c "import json,sys; v=json.load(sys.stdin)['services']['pulse']['volumes']; ro={x['target'] for x in v if x.get('read_only')}; need={'/app/.git','/app/compose.yaml','/app/Dockerfile','/app/deploy','/app/scripts','/app/systemd'}; sys.exit(0 if need<=ro else print('nicht schreibgeschützt:', need-ro) or 1)"
       - name: Image bauen
         run: |
           docker build --pull -t pulse-ci:${{ github.sha }} .
