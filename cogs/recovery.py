@@ -20,6 +20,9 @@ class RecoveryCog(commands.Cog):
         self._last_sync_by_user: dict[int, float] = {}
         self._sync_task: asyncio.Task | None = None
         self._sync_status: dict = {"has_run": False, "running": False}
+        # SEC-11: a limited run must not overlap another run – the same refresh token used twice is
+        # rotated by Discord, the second use fails.
+        self._limited_sync_running = False
 
     @app_commands.command(
         name="recovery-sync",
@@ -67,7 +70,7 @@ class RecoveryCog(commands.Cog):
                 "Die Backup-Wiederherstellung ist deaktiviert.", ephemeral=True
             )
             return
-        if self._sync_task is not None and not self._sync_task.done():
+        if (self._sync_task is not None and not self._sync_task.done()) or self._limited_sync_running:
             await interaction.response.send_message(
                 "Es läuft bereits ein Recovery-Sync. Nutze /recovery-status, um den Fortschritt zu prüfen.",
                 ephemeral=True,
@@ -124,6 +127,13 @@ class RecoveryCog(commands.Cog):
             )
             return
 
+        self._limited_sync_running = True
+        try:
+            await self._run_limited_sync(interaction, pulse_recovery, ws, settings, target, role, max_users)
+        finally:
+            self._limited_sync_running = False
+
+    async def _run_limited_sync(self, interaction, pulse_recovery, ws, settings, target, role, max_users):
         await interaction.response.defer(ephemeral=True, thinking=True)
         people = pulse_recovery.list_linked_users(int(max_users))
         if not people:
@@ -152,6 +162,8 @@ class RecoveryCog(commands.Cog):
                     failed += 1
                     if len(failures) < 5:
                         failures.append(f"{person['user_id']}: {message}")
+                    if message == pulse_recovery.CONFIG_ERROR_MESSAGE:
+                        break  # SEC-11: wrong client credentials – stop instead of failing every user
                 if index + 1 < len(people):
                     await asyncio.sleep(1.0)
 
@@ -240,6 +252,9 @@ class RecoveryCog(commands.Cog):
                             state["failed"] += 1
                             if len(state["failures"]) < 5:
                                 state["failures"].append(f"{person['user_id']}: {message}")
+                            if message == pulse_recovery.CONFIG_ERROR_MESSAGE:
+                                state["stopped_reason"] = message
+                                break
                         if index + 1 < len(people):
                             await asyncio.sleep(1.0)
 

@@ -298,3 +298,163 @@ class RoleEscalationTests(TempDb):
         self.assertIn("eigenen Rang", self._msg(r))
         self.assertEqual(edits, [])
         self.assertEqual(apps["A1"]["status"], "interview")
+
+
+# ---------------------------------------------------------------------------------------------------------
+# SEC-11 – recovery consents survive wrong client credentials; only invalid_grant unlinks.
+# ---------------------------------------------------------------------------------------------------------
+import pulse_recovery  # noqa: E402
+
+
+class FakeHttpResponse:
+    def __init__(self, status, body):
+        self.status_code, self._body = status, body
+
+    def json(self):
+        return self._body
+
+
+class RecoveryConsentTests(TempDb):
+    UID = "123456789012345678"
+
+    def setUp(self):
+        super().setUp()
+        self.key = patch.object(ws, "SESSION_KEY", b"p" * 32)
+        self.key.start()
+        pulse_recovery.store_refresh_token(self.UID, "refresh-token-for-tests", now=100)
+        guild = SimpleNamespace(id=1)
+        self.patches = [patch.object(pulse_recovery, "target_status", lambda *_a: (guild, SimpleNamespace(id=2), [])),
+                        patch.dict("os.environ", {"DISCORD_TOKEN": "x"})]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.key.stop()
+        super().tearDown()
+
+    def _rejoin(self, status, body):
+        client = SimpleNamespace(post=AsyncMock(return_value=FakeHttpResponse(status, body)), put=AsyncMock())
+        return asyncio.run(pulse_recovery.rejoin_user(self.UID, "refresh-token-for-tests", None, client))
+
+    def test_wrong_client_secret_keeps_every_consent(self):
+        for status, body in ((401, {"error": "invalid_client"}), (400, {"error": "invalid_client"}), (400, {})):
+            ok, message = self._rejoin(status, body)
+            self.assertFalse(ok)
+            self.assertEqual(pulse_recovery.get_refresh_token(self.UID), "refresh-token-for-tests", (status, body))
+        self.assertEqual(self._rejoin(401, {})[1], pulse_recovery.CONFIG_ERROR_MESSAGE)
+
+    def test_revoked_consent_is_still_unlinked(self):
+        ok, _ = self._rejoin(400, {"error": "invalid_grant"})
+        self.assertFalse(ok)
+        self.assertIsNone(pulse_recovery.get_refresh_token(self.UID))
+
+
+# ---------------------------------------------------------------------------------------------------------
+# SEC-06 – AI moderation review buttons: no sanction without the matching right.
+# ---------------------------------------------------------------------------------------------------------
+class AiReviewRightsTests(unittest.TestCase):
+    def _cog_and_interaction(self, perms, discord_perms):
+        from cogs import ai_moderation
+        cog = ai_moderation.AIModeration.__new__(ai_moderation.AIModeration)
+        reviewer = member(1, "Prüfer", SUPPORT)
+        reviewer.guild_permissions = discord.Permissions(**discord_perms)
+        guild = FakeGuild(members=[reviewer], roles=[SUPPORT, LEAD])
+        guild.me.top_role = Role(99, "Pulse", 50)
+        interaction = SimpleNamespace(user=reviewer, guild=guild)
+        base = {k: False for k in ws.PERM_KEYS} | {"can_view_dashboard": True, "is_admin": False}
+        return cog, interaction, base | perms
+
+    def test_warn_right_alone_cannot_ban_kick_or_timeout(self):
+        cog, interaction, perms = self._cog_and_interaction({"can_warn": True, "can_promote": True}, {})
+        citizen = member(5, "Bürger", COSMETIC)
+        with patch.object(ws, "compute_perms", lambda *a: (perms, interaction.user)), \
+             patch.object(ws, "load_config", lambda: {"team_role_ids": TEAM_IDS}):
+            for action in ("ban", "kick", "timeout_10m", "warn"):
+                self.assertTrue(cog._action_problem(interaction, citizen, action), action)
+            self.assertEqual(cog._action_problem(interaction, citizen, "team_warn"), "")
+
+    def test_matching_rights_and_hierarchy_allow_the_sanction(self):
+        cog, interaction, perms = self._cog_and_interaction({"can_moderate_bans": True}, {"ban_members": True})
+        citizen = member(5, "Bürger", COSMETIC)
+        higher = member(6, "Hoch", Role(30, "VIP", 40))
+        with patch.object(ws, "compute_perms", lambda *a: (perms, interaction.user)), \
+             patch.object(ws, "load_config", lambda: {"team_role_ids": TEAM_IDS}):
+            self.assertEqual(cog._action_problem(interaction, citizen, "ban"), "")
+            self.assertIn("Rollenhierarchie", cog._action_problem(interaction, higher, "ban"))
+            self.assertTrue(cog._action_problem(interaction, citizen, "team_warn"))  # can_warn missing
+
+    def test_team_warn_goes_through_issue_team_warning(self):
+        cog, interaction, perms = self._cog_and_interaction({"can_warn": True}, {})
+        target = member(7, "Kollege", SUPPORT)
+        refused = {"ok": False, "stored": False, "message": "Du darfst keine Team-Warnung an ein Mitglied mit gleichem"}
+        with patch.object(ws, "compute_perms", lambda *a: (perms, interaction.user)), \
+             patch.object(ws, "load_config", lambda: {"team_role_ids": TEAM_IDS}), \
+             patch.object(ws, "issue_team_warning", AsyncMock(return_value=refused)) as issued, \
+             patch.object(ws, "save_json") as saved:
+            interaction.user.guild = interaction.guild
+            result = asyncio.run(cog._issue_team_warn(interaction.guild, target, interaction.user,
+                                                      {"id": "K1", "rule": "R", "reason": "x", "message_url": ""}))
+        self.assertFalse(result["ok"])
+        self.assertEqual(issued.await_args.kwargs["actor_member"], interaction.user)
+        saved.assert_not_called()
+
+
+# ---------------------------------------------------------------------------------------------------------
+# SEC-10 – /pulse-approve honours the emergency lock and requires kick_members for a real server kick.
+# ---------------------------------------------------------------------------------------------------------
+class SecondApprovalTests(TempDb):
+    def setUp(self):
+        super().setUp()
+        from cogs import pulse_suite
+        self.suite = pulse_suite
+        self.dbp = patch.object(pulse_suite, "DB_PATH", str(Path(self.tmp.name) / "suite.db"))
+        self.dbp.start()
+        pulse_suite.init_db()
+        self.approver = member(2, "Freigeber", LEAD)
+        self.approver.guild_permissions = discord.Permissions()  # no kick_members
+        self.target = member(3, "Ziel", SUPPORT)
+        self.target.kick = AsyncMock()
+        self.guild = FakeGuild(members=[self.approver, self.target], roles=[SUPPORT, LEAD])
+        self.guild.me.top_role = Role(99, "Pulse", 50)
+        self.guild.me.guild_permissions = discord.Permissions(kick_members=True, manage_roles=True)
+        self.sent = []
+        self.interaction = SimpleNamespace(
+            guild=self.guild, user=self.approver,
+            response=SimpleNamespace(send_message=AsyncMock(side_effect=lambda m, **k: self.sent.append(m)),
+                                     defer=AsyncMock()),
+            followup=SimpleNamespace(send=AsyncMock()))
+        creator = SimpleNamespace(id=1, display_name="Ersteller")
+        self.aid = pulse_suite.action_record("server-exit", {"target_id": self.target.id, "reason": "Grund"}, creator)
+        perms = {k: False for k in ws.PERM_KEYS} | {"can_view_dashboard": True, "can_promote": True, "is_admin": False}
+        self.patches = [patch.object(ws, "compute_perms", lambda *a: (perms, self.approver)),
+                        patch.object(ws, "load_config", lambda: {"team_role_ids": TEAM_IDS}),
+                        patch.object(pulse_suite.discord, "Member", FakeMember)]
+        for p in self.patches:
+            p.start()
+        ws.pulse_db.init_db()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.dbp.stop()
+        super().tearDown()
+
+    def _approve(self):
+        cog = self.suite.PulseSuite.__new__(self.suite.PulseSuite)
+        asyncio.run(self.suite.PulseSuite.approve_cmd.callback(cog, self.interaction, self.aid))
+        with self.suite.cx() as c:
+            return c.execute("SELECT status FROM suite_actions WHERE id=?", (self.aid,)).fetchone()[0]
+
+    def test_server_kick_needs_discord_kick_permission(self):
+        self.assertEqual(self._approve(), "awaiting_second")
+        self.target.kick.assert_not_awaited()
+        self.assertIn("Mitglieder kicken", self.sent[-1])
+
+    def test_emergency_lock_blocks_the_second_approval(self):
+        self.approver.guild_permissions = discord.Permissions(kick_members=True)
+        self.suite.set_setting("emergency_lock", True)
+        self.assertEqual(self._approve(), "awaiting_second")
+        self.target.kick.assert_not_awaited()
+        self.assertIn("Emergency Lock", self.sent[-1])
