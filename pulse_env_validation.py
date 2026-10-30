@@ -47,9 +47,12 @@ ID_LIST_VARS = ("PULSE_SUPPORT_TEAM_ROLE_IDS", "PULSE_AI_MODERATION_EXCLUDED_CHA
 URL_VARS = ("PUBLIC_BASE_URL", "DISCORD_REDIRECT_URI", "DISCORD_APPLICATION_REDIRECT_URI", "GEMINI_BASE_URL", "OPENAI_BASE_URL",
             "PULSE_RSSHUB_BASE_URL")
 URL_LIST_VARS = ("PULSE_RSSHUB_FALLBACK_URLS",)
-CHOICES: dict[str, tuple[str, ...]] = {"PULSE_SUPPORT_PROVIDER": ("gemini", "openai")}
+CHOICES: dict[str, tuple[str, ...]] = {
+    "PULSE_SUPPORT_PROVIDER": ("gemini", "openai"),
+    "PULSE_SUPPORT_REASONING_EFFORT": ("none", "minimal", "low", "medium", "high", "off"),
+}
 BOOLEAN_VARS = ("PULSE_SUPPORT_ENABLED", "PULSE_AI_MODERATION_ENABLED", "PULSE_AI_MODERATION_EXCLUDE_TEAM_KI",
-                "PULSE_FORCE_COMMAND_SYNC")
+                "PULSE_FORCE_COMMAND_SYNC", "PULSE_SUPPORT_OFFLINE_FALLBACK")
 _BOOLEAN_WORDS = {"1", "0", "true", "false", "yes", "no", "on", "off", ""}
 # Read as `== "1"` / `!= "0"` in the code: "true" would silently mean OFF for SYNC_WARN_ROLES.
 STRICT_SWITCH_VARS = ("SYNC_WARN_ROLES", "PULSE_RAID_WATCH")

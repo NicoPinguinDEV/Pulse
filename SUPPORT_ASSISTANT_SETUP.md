@@ -43,6 +43,17 @@ Wenn du ausdrücklich die OpenAI-API verwenden möchtest, setze `PULSE_SUPPORT_P
 
 `PULSE_SUPPORT_CHANNEL_ID` ist optional; Standard ist `1493649456086782083`. `PULSE_SUPPORT_TEAM_CHANNEL_ID` ist optional; nur mit einer echten Channel-ID wird der zusätzliche Team-Hilfekanal aktiv. Nutze einen privaten Channel und trage bei Bedarf die erlaubten Team-Rollen in `PULSE_SUPPORT_TEAM_ROLE_IDS` ein. `PULSE_SUPPORT_MAX_TOKENS` kann den Antwortumfang zwischen 300 und 2200 Tokens einstellen (Standard 1100). Solange `PULSE_SUPPORT_ENABLED` nicht auf `true` steht oder der zum Anbieter passende API-Schlüssel fehlt, beantwortet die KI keine Nachrichten. `/supportbot_status` zeigt die Konfiguration, `/supportbot_test` prüft die API-Verbindung und kann einen kleinen API-Aufruf auslösen.
 
+## Ausfallsicherheit und Diagnose
+
+- **Anbieter-Erkennung:** Ist `PULSE_SUPPORT_PROVIDER` nicht gesetzt, nutzt Pulse den Anbieter, dessen Schlüssel vorhanden ist (zuerst Gemini). Support-Chat und KI-Moderation verwenden dieselbe Erkennung.
+- **Ersatzmodelle:** Kennt der Anbieter das eingestellte Modell nicht (HTTP 404), probiert Pulse automatisch die Modelle aus `PULSE_SUPPORT_FALLBACK_MODELS` (Standard bei Gemini: `gemini-3.1-flash-lite-preview`, `gemini-2.5-flash-lite`, `gemini-2.5-flash`) und merkt sich das funktionierende. `PULSE_SUPPORT_FALLBACK_MODELS=off` schaltet das ab.
+- **Leere Antworten bei Thinking-Modellen:** Gemini 2.5/3 verbrauchen versteckte Denk-Tokens aus `PULSE_SUPPORT_MAX_TOKENS`. Pulse sendet deshalb standardmäßig `reasoning_effort=low` (`PULSE_SUPPORT_REASONING_EFFORT`). Lehnt ein Modell den Parameter ab, wird ohne ihn erneut gefragt.
+- **Rate-Limits:** Ein Minutenlimit (HTTP 429 im Free-Tier) pausiert nur kurz (ab 30 s bzw. nach `retryDelay` des Anbieters), wiederholte Fehler steigern die Pause bis 1 Stunde. Ein erschöpftes Tages- oder Abrechnungskontingent pausiert wie bisher ab 5 Minuten.
+- **Offline-Antworten:** Ist die KI nicht erreichbar, pausiert oder fehlt der Schlüssel, zitiert Pulse passende Abschnitte aus `support_knowledge.md` (im Team-Kanal auch aus `team_ki_vorlagen.md`). Diese Antworten sind deutlich als automatischer Auszug ohne KI gekennzeichnet. Bei Smalltalk oder ohne passenden Abschnitt erscheint der bisherige Hinweis. Ist der Support mit `PULSE_SUPPORT_ENABLED=false` abgeschaltet, gibt es auch keine Offline-Antworten. Abschaltbar mit `PULSE_SUPPORT_OFFLINE_FALLBACK=false`.
+- **Lange Antworten** im öffentlichen Kanal werden auf bis zu drei Nachrichten verteilt statt mitten im Satz abgeschnitten.
+- **`/ki_vergessen`:** Jedes Mitglied kann den eigenen Gesprächsverlauf mit der KI löschen (für Datenschutz oder ein neues Thema).
+- **`/supportbot_status`** zeigt zusätzlich das aktive Modell, die Ersatzmodelle, den Denkaufwand, die lokale Pause, den letzten API-Fehler und Zähler seit dem Start.
+
 ## Serverwissen pflegen
 
 Bearbeite `support_knowledge.md` und ergänze dort ausschließlich bestätigte Serverregeln, FAQs,
