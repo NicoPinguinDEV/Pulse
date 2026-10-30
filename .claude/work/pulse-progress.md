@@ -45,10 +45,9 @@ Fremde, unversionierte Dateien (nie mitcommitten): `.claude/launch.json`, `.clau
   /run/lock/pulse-deploy.lock (auch in remote_deploy.sh), Pausendatei; max. 3/h. Läuft aus /usr/local/sbin, nicht aus dem Repo.
 - Tests: tests/test_crash_restart.py (7). Voller Satz: 999 ok (3 skipped). Installation auf dem VPS: manuell (VPS_DEPLOYMENT.md).
 
-## Offen (Entscheidung Nutzer)
-- Timer auf dem VPS installieren (nicht ausgeführt, kein SSH).
-- Branch `refactoring-pulse` pushen / PR – laut Auftrag nicht ausgeführt.
-- Dependabot-pip-PRs brauchen ab jetzt eine neu erzeugte requirements.lock (Test meldet das).
+## Erledigt nach Mission 1
+- PR #82 gemergt, 5e94a99 deployt (2026-10-29), Crash-Restart-Timer auf dem VPS installiert und aktiv.
+- Hinweis bleibt: Dependabot-pip-PRs brauchen eine neu erzeugte requirements.lock (Test meldet das).
 
 # Mission 2 (2026-10-29, Branch refactoring-pulse ab 5e94a99)
 
@@ -97,10 +96,13 @@ Fremde, unversionierte Dateien (nie mitcommitten): `.claude/launch.json`, `.clau
   in pulse_ultimate.ensure_profile, Worker-Threads). Fix: INSERT OR IGNORE. Lokal (Windows, 50 Mitglieder, 3 Clients): 0 Fehler.
 - Messwerte nur lokal/Windows, nicht vergleichbar mit VPS.
 
-## NÄCHSTE SCHRITTE (exakt)
-1. Regressionstest für ensure_profile-Race (zwei Threads, gleiche ID) schreiben.
-2. .github/workflows/perf.yml (nur workflow_dispatch): Image bauen, `docker run -m 768m --memory-swap 1024m --cpus 2
-   --entrypoint python … tools/load_test.py --concurrency 4 --soak-seconds 300`; Test in test_ci_workflows.
-3. Phase 8 (Retention): Wachstum shifts.json/logs.json/applications.json prüfen – nur Vorschau/Dry-Run.
-4. Phase 9/10: Doku-Abgleich (BETRIEB.md Stand/Version, alte „Offen“-Liste oben in diesem Protokoll), Abschlussbericht.
-5. Vollen CI-Satz + E2E ausführen, dann Push/PR nur nach Freigabe.
+## Phase 7 Abschluss + Phase 8–10 (2026-10-30) ✅
+- Race-Test tests/test_ultimate_profiles.py (alter Stand rot, neu grün). Manueller Workflow .github/workflows/perf.yml
+  (nur workflow_dispatch, 768m/1024m/2 CPUs, kein Secret, kein Deploy-Gate).
+- Phase 8: keine Änderung – logs.json = Moderationsakten (Nachweise), shifts.json-Historie = Gesamtzeiten; Größenwarnung
+  (D-07) und pulse_retention (Dry-Run, aus, nur mit frischem Backup) decken den Bedarf.
+- Phase 9: BETRIEB.md (Stand, Restore-Test, Jobs, Crash-Neustart), Protokoll bereinigt.
+- Phase 10: keine neue Funktion – Incident Center/Deploy-Vorabprüfung/Kapazität werden von Systemstatus, Server Control
+  Center, pulse_alerts, deploy-vps.yml und dem Lasttest abgedeckt; Policy-Simulator existiert (Anti-Nuke-Simulation).
+- Danach: voller CI-Satz, E2E, Push, PR, Merge, Deploy (Nutzer am 2026-10-30: „mach alle Änderungen fertig und ziehe sie
+  dann auf den Server“).
