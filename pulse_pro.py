@@ -307,7 +307,7 @@ def make_shell_helpers(ws):
             visible = [x for x in items if x[4]]
             if not visible: continue
             nav.append(f'<div class="px-2 mt-4 mb-2 text-[9px] font-bold uppercase tracking-[.14em] text-slate-400">{group}</div>')
-            for key, href, icon, label, visible, _ in visible:
+            for key, href, icon, label, _shown, _ in visible:
                 badge_text = unread if key == "inbox" and unread else ""
                 nav.append(nav_item(key, href, icon, label, current_page == key, str(badge_text)))
         # Former separate dashboards (Ultimate/TeamOS 2.0 and Operations Suite) share this

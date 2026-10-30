@@ -22,7 +22,7 @@ import threading
 import time
 import uuid
 import zipfile
-from datetime import date as date_cls, datetime, timedelta
+from datetime import date as date_cls, datetime, timedelta, timezone
 from collections import OrderedDict
 from types import SimpleNamespace
 from typing import List
@@ -282,6 +282,11 @@ async def security_headers(request: Request, call_next):
 # =============================================================
 def now_de() -> datetime:
     return datetime.now(TZ) if TZ else datetime.now().astimezone()
+
+
+def utc_now_naive_iso() -> str:
+    """UTC timestamp without offset – same stored format as the former (deprecated) utcnow-based stamps."""
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
 
 
 def parse_dt(iso: str) -> datetime:
@@ -5785,7 +5790,7 @@ async def pulse_ticket_panel_save(
         return back("/tickets/panels", "Das zu bearbeitende Panel wurde nicht gefunden. Bitte lade die Seite neu.", False)
     if existing is None:
         cleaned_panel_id = "panel_" + secrets.token_hex(6)
-        existing = {"id": cleaned_panel_id, "created_at": datetime.utcnow().isoformat(timespec="seconds")}
+        existing = {"id": cleaned_panel_id, "created_at": utc_now_naive_iso()}
         panels.append(existing)
 
     existing.update({
@@ -5895,14 +5900,14 @@ async def pulse_ticket_panel_duplicate(request: Request, panel_id: str = Form(..
     source = next((p for p in panels if str(p.get("id") or "") == str(panel_id)), None)
     if source is None:
         return back("/tickets/panels", "Panel wurde nicht gefunden.", False)
-    copy = {k: v for k, v in source.items() if k not in {"message_id", "published_channel_id", "thumbnail_file", "banner_file", "welcome_thumbnail_file", "welcome_banner_file"}}
-    copy["id"] = "panel_" + secrets.token_hex(6)
-    copy["name"] = (str(source.get("name") or "Panel") + " (Kopie)")[:80]
-    copy["created_at"] = datetime.utcnow().isoformat(timespec="seconds")
-    panels.append(copy)
+    duplicate = {k: v for k, v in source.items() if k not in {"message_id", "published_channel_id", "thumbnail_file", "banner_file", "welcome_thumbnail_file", "welcome_banner_file"}}
+    duplicate["id"] = "panel_" + secrets.token_hex(6)
+    duplicate["name"] = (str(source.get("name") or "Panel") + " (Kopie)")[:80]
+    duplicate["created_at"] = utc_now_naive_iso()
+    panels.append(duplicate)
     settings["ticket_panels"] = panels
     pulse_db.set_setting("ticket_system_config", settings)
-    return back(f"/tickets/panels?panel={copy['id']}", "Panel dupliziert. Hochgeladene Bilder bitte neu wählen.", True)
+    return back(f"/tickets/panels?panel={duplicate['id']}", "Panel dupliziert. Hochgeladene Bilder bitte neu wählen.", True)
 
 
 @app.post("/tickets/automation")
@@ -9522,15 +9527,6 @@ async def restore_guild_structure(guild, backup: dict, exact_restore: bool = Fal
 
 
 MAX_BACKUP_UPLOAD_BYTES = 50 * 1024 * 1024
-
-
-def safe_backup_path(filename: str):
-    """Prevent path traversal while permitting generated and imported backup names."""
-    name = os.path.basename(filename or "")
-    if not BACKUP_NAME_RE.fullmatch(name):
-        return None
-    path = contained_file(BACKUP_DIR, name)
-    return path if path and os.path.isfile(path) else None
 
 
 async def auto_backup_loop():
