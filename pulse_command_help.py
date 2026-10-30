@@ -29,7 +29,8 @@ NEEDS = {
 }
 SECTIONS = (
     ("⏱ Dienst & ich", ("dienst", "pulse", "pulse-home", "mytasks", "taskdone", "teamstatus", "anmeldung",
-                        "abmeldung", "abmeldung_entfernen", "melden", "pulse-hilfe", "activity_status")),
+                        "abmeldung", "abmeldung_entfernen", "melden", "pulse-hilfe", "activity_status",
+                        "ki_vergessen")),
     ("🧭 Team", ("memberinfo", "pulse-ticket", "pulse-suite", "ticketstats", "activity-check", "team-ping")),
     ("⚠ Moderation", ("warn", "warns", "warn-remove", "messagedelete")),
     ("🛡 Führung", ("teamtask", "teamannounce", "promote", "demote", "team-kick", "team-exit", "kick", "server-exit",

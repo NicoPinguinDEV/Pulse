@@ -18,6 +18,7 @@ from discord import app_commands
 from discord.ext import commands
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
+from pulse_ai_client import resolve_provider
 from pulse_ai_resilience import (
     provider_pause_remaining,
     provider_request_slot,
@@ -141,7 +142,8 @@ class AIModeration(commands.Cog):
             if x.strip().isdigit() and int(x.strip()) > 0
         }
         self.enabled = env_bool("PULSE_AI_MODERATION_ENABLED", False)
-        self.provider = os.getenv("PULSE_SUPPORT_PROVIDER", "gemini").strip().lower()
+        # Same provider detection as the support chat, so both always agree.
+        self.provider = resolve_provider()
         if self.provider == "gemini":
             self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
             self.model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"

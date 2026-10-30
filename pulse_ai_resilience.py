@@ -125,8 +125,15 @@ def record_provider_failure(
     *,
     status_code: int | None = None,
     retry_after: str | None = None,
+    short_rate_limit: bool = False,
 ) -> int:
-    """Open/increase a shared circuit breaker and return the pause in seconds."""
+    """Open/increase a shared circuit breaker and return the pause in seconds.
+
+    ``short_rate_limit`` marks a 429 that the provider identified as a
+    per-minute request limit (not exhausted quota). It starts at a 30s pause
+    instead of 5 minutes and still escalates exponentially up to one hour when
+    429s keep repeating.
+    """
     if not api_key:
         return 0
     state = _state_for(api_base, api_key)
@@ -134,9 +141,10 @@ def record_provider_failure(
 
     if status_code == 429:
         state.rate_limit_failures = min(state.rate_limit_failures + 1, 8)
+        base = 30 if short_rate_limit else 300
         quota_backoff = min(
             3600,
-            300 * (2 ** min(state.rate_limit_failures - 1, 4)),
+            base * (2 ** min(state.rate_limit_failures - 1, 7 if short_rate_limit else 4)),
         )
         pause = max(quota_backoff, _retry_after_seconds(retry_after))
     elif status_code in (401, 403):
