@@ -258,7 +258,7 @@ def register(app):
                 with db.connect() as cx:
                     existing=cx.execute('SELECT unlocked_at FROM achievement_progress WHERE achievement_id=? AND user_id=?',(a['id'],str(c.user['id']))).fetchone()
                     if not existing or not existing[0]:
-                        cx.execute('INSERT OR REPLACE INTO achievement_progress(achievement_id,user_id,progress,unlocked_at) VALUES(?,?,?,?)',(a['id'],str(c.user['id']),prog,datetime.utcnow().isoformat(timespec='seconds')))
+                        cx.execute('INSERT OR REPLACE INTO achievement_progress(achievement_id,user_id,progress,unlocked_at) VALUES(?,?,?,?)',(a['id'],str(c.user['id']),prog,ws.utc_now_naive_iso()))
                         db.notify(c.user['id'],f"{icon} Achievement freigeschaltet",a['name'],'success','/achievements')
             ach.append(f'<div class="{ws.CARD} p-5"><div class="flex justify-between gap-3"><div><div class="text-2xl">{icon}</div><h2 class="font-bold text-sm mt-2">{esc(a["name"])}</h2><p class="text-xs text-slate-500 mt-1">{esc(a["description"])}</p></div><span class="text-xs font-bold">{prog}/{a["target"]}</span></div><div class="h-2 bg-slate-100 dark:bg-slate-800 rounded-full mt-4 overflow-hidden"><div class="h-full bg-indigo-500" style="width:{pct}%"></div></div></div>')
         body=f'<h1 class="text-2xl font-bold mb-2">🏅 Achievements</h1><p class="text-xs text-slate-500 mb-5">Kleine Meilensteine für Team-Aktivität und Support.</p><div class="grid md:grid-cols-2 xl:grid-cols-3 gap-4">{"".join(ach)}</div>'

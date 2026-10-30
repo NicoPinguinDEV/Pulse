@@ -135,8 +135,8 @@ _ROLE_MENTION_RE = re.compile(r"<@&\d+>")
 
 def neutralize_mentions(text) -> str:
     """Break @everyone/@here and role pings in user-provided text (zero-width joiner)."""
-    text = _MASS_MENTION_RE.sub(lambda m: "@​" + m.group(1), str(text or ""))
-    return _ROLE_MENTION_RE.sub(lambda m: m.group(0).replace("<@&", "<@​&"), text)
+    text = _MASS_MENTION_RE.sub(lambda m: "@\u200b" + m.group(1), str(text or ""))
+    return _ROLE_MENTION_RE.sub(lambda m: m.group(0).replace("<@&", "<@\u200b&"), text)
 
 
 def discord_timestamp(value: datetime | None, style: str = "f") -> str:
@@ -216,7 +216,7 @@ def build_embed_spec(kind: str = "info", *, title: str = "", description: str = 
     }
     for field in list(fields)[: LIMITS["fields"]]:
         name, value, inline = (tuple(field) + (False,))[:3]
-        name = truncate(str(name or "").strip() or "​", LIMITS["field_name"])
+        name = truncate(str(name or "").strip() or "\u200b", LIMITS["field_name"])
         value = truncate(str(value or "").strip() or "–", LIMITS["field_value"])
         spec["fields"].append((name, value, bool(inline)))
     _fit_total(spec)

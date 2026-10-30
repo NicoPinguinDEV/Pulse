@@ -37,7 +37,7 @@ def embed_to_spec(embed: discord.Embed) -> dict:
         "color": color,
         "title": title,
         "description": description,
-        "fields": [(f.name or "​", f.value or "–", bool(f.inline)) for f in embed.fields],
+        "fields": [(f.name or "\u200b", f.value or "–", bool(f.inline)) for f in embed.fields],
         "thumbnail_url": getattr(embed.thumbnail, "url", None) or "",
         "image_url": getattr(embed.image, "url", None) or "",
         "footer": getattr(embed.footer, "text", None) or "",
