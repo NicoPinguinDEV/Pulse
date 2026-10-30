@@ -778,7 +778,10 @@ def register(app):
                    FROM next_member_achievements ma JOIN next_achievements a ON a.key=ma.achievement_key
                    WHERE ma.user_id=? ORDER BY ma.awarded_at DESC""",(str(member.id),)
             ).fetchall()]
-        timeline_rows=timeline(str(member.id),50)
+        # SEC-12: like the export (M5, E-3/D-08) – warnings and timeline of others only for leadership/admins.
+        import webserver
+        own_or_lead=webserver.can_see_warnings(ctx.perms,actor_id(ctx),member.id)
+        timeline_rows=timeline(str(member.id),50) if own_or_lead else []
         events_html="".join(f"<div class=row><div><b>{esc(x['title'])}</b><div class=tiny>{esc(x['details'])}</div></div><span class=tiny>{fmt_dt(x['created_at'])}</span></div>" for x in timeline_rows) or "<div class=tiny>Noch keine Pulse-Events.</div>"
         roles=", ".join(role_names(member)) or "Keine Rollen"
         body=f"""
@@ -786,7 +789,7 @@ def register(app):
           {u.card(f"<div class=tiny>Score</div><div class=metric>{stats['score']}/100</div><span class=pill>{icon} {cls}</span>")}
           {u.card(f"<div class=tiny>Dienstzeit gesamt</div><div class=metric>{stats['total_seconds']//3600}h</div><div class=tiny>{stats['shifts']} Schichten</div>")}
           {u.card(f"<div class=tiny>Tickets</div><div class=metric>{stats['closed_tickets']}</div><div class=tiny>abgeschlossen</div>")}
-          {u.card(f"<div class=tiny>Warnungen</div><div class=metric>{stats['warnings']}/5</div>")}
+          {u.card(f"<div class=tiny>Warnungen</div><div class=metric>{stats['warnings']}/5</div>") if own_or_lead else u.card("<div class=tiny>Warnungen</div><div class=tiny>Nur für Leitung sichtbar</div>")}
         </div>
         <div class='grid g2' style='margin-top:13px'>
           {u.card(f"<h3 style='margin-top:0'>👤 Teamprofil</h3><div class=row><b>{esc(member.display_name)}</b><span class=pill>{esc(str(member.status))}</span></div><div class=tiny>Rollen</div><p>{esc(roles)}</p><div class=tiny>Aktuelle Aktivität</div><p>{esc((get_activity(str(member.id)) or {}).get('last_kind','unbekannt'))}</p><a class='btn' href='/ultimate/person/{member.id}/export'>Profil exportieren</a>")}

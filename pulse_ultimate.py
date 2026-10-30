@@ -1628,9 +1628,14 @@ def register(app) -> None:
     @app.post("/ultimate/handovers/{handover_id}/close")
     async def ultimate_handover_close(request: Request, handover_id: str, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session)
+        uid = str(ctx.user["id"])
+        lead = bool(ctx.perms.get("can_promote") or ctx.perms.get("is_admin"))
         with cx() as c:
-            closed = c.execute("UPDATE ultimate_handovers SET status='closed',archived_at=? WHERE id=? AND status='open'",
-                               (iso(), handover_id)).rowcount
+            # SEC-13: only the author, the recipient, anyone for an open handover (no fixed person) or
+            # leadership archives a handover – before, every team member could archive everybody's.
+            closed = c.execute("UPDATE ultimate_handovers SET status='closed',archived_at=? WHERE id=? AND status='open'"
+                               " AND (?=1 OR from_id=? OR to_id=? OR COALESCE(to_id,'')='')",
+                               (iso(), handover_id, 1 if lead else 0, uid, uid)).rowcount
         if not closed:  # M-A1-2: unknown or already archived – no second "archiviert" audit entry
             raise HTTPException(status_code=404, detail="Übergabe nicht gefunden oder bereits archiviert.")
         audit(ctx, "Übergabe archiviert", handover_id)

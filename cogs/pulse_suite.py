@@ -1153,9 +1153,12 @@ class PulseSuite(commands.Cog):
         async def do(x):
             # BOT-05: same withdrawal as the dashboard – before, the slash path did not lift the temporary
             # consequences (uprank/IC lock), rewrote the whole team file and posted no team update.
+            config=web.load_config()
+            actor_perms,_=web.compute_perms(i.guild,i.user.id,config)
             result=await web.revoke_team_warning(
                 i.guild,member=member,warn_id=warn_id,revoke_reason=grund,actor_name=i.user.display_name,
-                actor_id=str(i.user.id),config=web.load_config(),source="Slash /warn-remove",
+                actor_id=str(i.user.id),config=config,source="Slash /warn-remove",
+                actor_member=i.user,actor_is_admin=bool(actor_perms.get("is_admin")),
             )
             if not result.get("stored"):
                 return await x.response.edit_message(content="❌ "+result["message"],embed=None,view=None)

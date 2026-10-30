@@ -91,17 +91,20 @@ class WarningDomainTests(unittest.TestCase):
         self.target.roles.append(LOCK)
         first, second = (w["id"] for w in self.stored())
         kept = asyncio.run(ws.revoke_team_warning(self.guild, member=self.target, warn_id=first, revoke_reason="Irrtum",
-                                                  actor_name="Lena", actor_id="3", config=self.config))
+                                                  actor_name="Lena", actor_id="3", config=self.config,
+                                                  actor_member=self.lead))
         self.assertTrue(kept["stored"])
         self.assertIn(LOCK, self.target.roles)  # the second warning is still active
         data = json.loads(Path(ws.DATA_FILE).read_text(encoding="utf-8"))
         data["2"]["warns_list"][1]["consequences"] = {"temporary_roles": [{"role_id": 77}]}
         Path(ws.DATA_FILE).write_text(json.dumps(data), encoding="utf-8")
         asyncio.run(ws.revoke_team_warning(self.guild, member=self.target, warn_id=second, revoke_reason="Irrtum",
-                                           actor_name="Lena", actor_id="3", config=self.config))
+                                           actor_name="Lena", actor_id="3", config=self.config,
+                                                  actor_member=self.lead))
         self.assertNotIn(LOCK, self.target.roles)  # before: /warn-remove left the lock role in place
         again = asyncio.run(ws.revoke_team_warning(self.guild, member=self.target, warn_id=second, revoke_reason="x",
-                                                   actor_name="Lena", actor_id="3", config=self.config))
+                                                   actor_name="Lena", actor_id="3", config=self.config,
+                                                  actor_member=self.lead))
         self.assertFalse(again["stored"])
 
     def test_two_overlapping_warnings_are_both_kept(self):

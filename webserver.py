@@ -7233,8 +7233,19 @@ async def team_role_manager_save(
             return back(f"/team/{user_id}/roles", f"Rolle {rid} ist nicht verwaltbar.", False)
         if guild.me and role.position >= guild.me.top_role.position:
             return back(f"/team/{user_id}/roles", f"Die Rolle **{role.name}** steht über der Bot-Rolle.", False)
-        if not ctx.perms.get("is_admin") and role.position >= ctx.member.top_role.position:
-            return back(f"/team/{user_id}/roles", f"Die Rolle **{role.name}** steht auf oder über deinem Rang.", False)
+        if not ctx.perms.get("is_admin"):
+            if ctx.member is None or role.position >= ctx.member.top_role.position:
+                return back(f"/team/{user_id}/roles", f"Die Rolle **{role.name}** steht auf oder über deinem Rang.", False)
+            # SEC-08: a role below the own top role can still carry server-wide rights (e.g. a forgotten
+            # admin or moderation role). Only admins hand those out; configured team roles keep their
+            # rank rule (their moderation rights are intended), Administrator is never delegable.
+            import pulse_recovery
+            role_perms = role.permissions
+            risky = [name for name in pulse_recovery.DANGEROUS_ROLE_PERMISSIONS if getattr(role_perms, name, False)]
+            if rid in add_set and (role_perms.administrator or (risky and role.id not in team_role_ids)):
+                return back(f"/team/{user_id}/roles",
+                            f"Die Rolle **{role.name}** hat weitreichende Serverrechte ({', '.join(risky[:4])}) – "
+                            "nur Administratoren dürfen sie vergeben.", False)
         selected.append(role)
 
     old_roles = [r for r in member.roles if r.id in all_ids]
@@ -10830,13 +10841,25 @@ async def issue_team_warning(guild, *, actor_member, actor_name: str, actor_id: 
 
 
 async def revoke_team_warning(guild, *, member, warn_id: str, revoke_reason: str, actor_name: str, actor_id: str,
-                              config: dict | None = None, source: str = "Team-Dashboard") -> dict:
+                              config: dict | None = None, source: str = "Team-Dashboard",
+                              actor_member=None, actor_is_admin: bool = False) -> dict:
     """Withdraws one warning: marks it, lifts its temporary consequences (unless another active warning
     still justifies them), syncs warn roles, posts the team update and writes the audit."""
     config = config if config is not None else load_config()
     revoke_reason = (revoke_reason or "").strip()[:500]
     if member is None:
         return {"ok": False, "stored": False, "message": "Mitglied nicht gefunden."}
+    # SEC-09: the same limits as issuing a warning – nobody (but admins) withdraws their own warnings or
+    # those of a member with the same or a higher team rank.
+    if not actor_is_admin:
+        if str(member.id) == str(actor_id):
+            return {"ok": False, "stored": False, "message": "Eigene Verwarnungen kann nur die Leitung (Admin) zurückziehen."}
+        team_role_ids = config.get("team_role_ids", [])
+        target_rank = team_rank(member, team_role_ids)
+        actor_rank = team_rank(actor_member, team_role_ids) if actor_member is not None else -1
+        if target_rank >= 0 and target_rank >= actor_rank:
+            return {"ok": False, "stored": False,
+                    "message": "Du darfst keine Verwarnung eines Mitglieds mit gleichem oder höherem Teamrang zurückziehen."}
     if not revoke_reason:
         return {"ok": False, "stored": False, "message": "Bitte einen Grund für die Rücknahme der Verwarnung angeben."}
     team_db = load_json(DATA_FILE, {})
@@ -11378,6 +11401,7 @@ async def handle_action(
         result = await revoke_team_warning(  # BOT-05: same logic as /warn-remove
             guild, member=guild.get_member(user_id), warn_id=warn_id, revoke_reason=warn_revoke_reason,
             actor_name=actor, actor_id=actor_id, config=config,
+            actor_member=ctx.member or guild.get_member(int(actor_id)), actor_is_admin=bool(ctx.perms.get("is_admin")),
         )
         return back(member_url, result["message"], result["ok"])
 
@@ -11568,6 +11592,15 @@ async def handle_action(
             )
             if role is None or role.id not in team_role_ids or role.id == APPLICATION_ROLE_ID:
                 return back("/applications", "Bitte nach dem Bewerbungsgespräch eine gültige Team-Einstiegsrolle auswählen.", False)
+            # SEC-07: hire_role_id comes from the form – same rank rule as action=hire: nobody (but admins)
+            # hires onto the own rank or higher, and nobody hires themselves.
+            if str(applicant.id) == str(actor_id):
+                return back("/applications", "Du kannst dich nicht selbst einstellen.", False)
+            ordered_ids = ordered_team_role_ids(guild, team_role_ids)
+            selected_rank = ordered_ids.index(role.id) if role.id in ordered_ids else len(ordered_ids)
+            actor_rank = team_rank(ctx.member, team_role_ids) if ctx.member else -1
+            if not ctx.perms.get("is_admin") and actor_rank <= selected_rank:
+                return back("/applications", "Du darfst niemanden auf deinen eigenen Rang oder einen höheren Rang einstellen.", False)
             application_role = guild.get_role(APPLICATION_ROLE_ID)
             if guild.me and (
                 not guild.me.guild_permissions.manage_roles

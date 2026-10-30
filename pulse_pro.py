@@ -1332,6 +1332,30 @@ def register(app):
         return render_pro_page(ws,'Beförderungen',c,'approvals',body)
 
 
+    def _promotion_role_problem(c, role, target) -> str:
+        """SEC-01: the requested role is free form input – only a configured, unmanaged team role, and a
+        non-admin only below the own team rank (same rule as /action promote, the role manager and
+        pulse_next.promote_now). Empty string = allowed."""
+        team_ids = [int(x) for x in c.config.get('team_role_ids', []) if str(x).isdigit()]
+        if role.id not in team_ids or role.managed:
+            return 'Zielrolle ist keine Teamrolle – nichts beantragt oder vergeben.'
+        if role.permissions.administrator:
+            return 'Rollen mit Administratorrechten werden nicht über Beförderungen vergeben.'
+        if target.id == int(c.user['id']):
+            return 'Du kannst dich nicht selbst befördern.'
+        if c.perms.get('is_admin'):
+            return ''
+        if c.member is None:
+            return 'Dein Teamrang konnte nicht ermittelt werden.'
+        ordered = ws.ordered_team_role_ids(c.guild, team_ids)
+        actor_rank = ws.team_rank(c.member, team_ids)
+        role_rank = ordered.index(role.id) if role.id in ordered else len(ordered)
+        if role_rank >= actor_rank or role >= c.member.top_role:
+            return 'Du kannst nicht auf deinen eigenen Rang oder höher befördern.'
+        return ''
+
+    _promotion_decisions_running: set = set()
+
     async def create_promotion(request: Request, target_user_id: int=Form(...), requested_role_id: int=Form(...), reason: str=Form(...), user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None); manager=c.perms.get('can_manage_promotions') or c.perms.get('can_promote') or c.perms.get('is_admin')
         if not manager: raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
@@ -1340,6 +1364,8 @@ def register(app):
         if target.bot: return ws.back('/approvals','Bots können nicht befördert werden.',False)
         if not c.perms.get('is_admin') and c.member and ws.team_rank(c.member,c.config.get('team_role_ids',[])) <= ws.team_rank(target,c.config.get('team_role_ids',[])):
             return ws.back('/approvals','Du kannst nur einen niedrigeren Rang als deinen eigenen bearbeiten.',False)
+        problem=_promotion_role_problem(c,role,target)
+        if problem: return ws.back('/approvals',problem,False)
         current=[r for r in target.roles if r.id in c.config.get('team_role_ids',[])]
         current_role=max(current,key=lambda r:r.position) if current else None
         pid=db.create_promotion_request(target.id,target.display_name,current_role.name if current_role else '',role.name,reason.strip(),c.user['id'],c.user.get('global_name') or 'Team',role.id,current_role.id if current_role else None)
@@ -1353,11 +1379,25 @@ def register(app):
         if not manager: raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
         req=next((x for x in db.promotion_requests('pending',200) if x['id']==promotion_id),None)
         if not req: return ws.back('/approvals','Antrag nicht mehr offen.',False)
+        if status not in ('approved','rejected'): return ws.back('/approvals','Ungültige Entscheidung.',False)
+        if status=='approved' and str(req.get('created_by_id'))==str(c.user['id']):
+            return ws.back('/approvals','Vier-Augen-Prinzip: Den eigenen Antrag muss jemand anderes freigeben.',False)
+        # SEC-01: parallel clicks on "Freigeben" must not run the role change twice (single process).
+        if promotion_id in _promotion_decisions_running: return ws.back('/approvals','Dieser Antrag wird gerade entschieden.',False)
+        _promotion_decisions_running.add(promotion_id)
+        try:
+            return await _decide_promotion(c,req,promotion_id,status)
+        finally:
+            _promotion_decisions_running.discard(promotion_id)
+
+    async def _decide_promotion(c, req, promotion_id, status):
         if status=='approved':
             target=c.guild.get_member(int(req['target_user_id'])); role=c.guild.get_role(int(req['requested_role_id'])) if req.get('requested_role_id') else None
             if not target or not role: return ws.back('/approvals','Mitglied oder Zielrolle existiert nicht mehr.',False)
             if not c.perms.get('is_admin') and c.member and ws.team_rank(c.member,c.config.get('team_role_ids',[])) <= ws.team_rank(target,c.config.get('team_role_ids',[])):
                 return ws.back('/approvals','Rangprüfung fehlgeschlagen.',False)
+            problem=_promotion_role_problem(c,role,target)
+            if problem: return ws.back('/approvals',problem,False)
             if c.guild.me and c.guild.me.top_role.position <= role.position: return ws.back('/approvals','Der Bot steht nicht über der Zielrolle.',False)
             try:
                 team_ids=c.config.get('team_role_ids',[])
@@ -1367,6 +1407,8 @@ def register(app):
                 msg=f'{req["target_user_name"]} wurde zu {role.name} befördert.'
             except discord.Forbidden:
                 return ws.back('/approvals','Discord hat das Rollenupdate verweigert.',False)
+            except discord.HTTPException as exc:
+                return ws.back('/approvals',f'Rollenupdate fehlgeschlagen (HTTP {exc.status}) – bitte erneut versuchen.',False)
         else: msg=f'{req["target_user_name"]}: Antrag abgelehnt.'
         if not db.decide_promotion_request(promotion_id,status,c.user['id'],c.user.get('global_name') or 'Team'):
             return ws.back('/approvals','Antrag wurde bereits entschieden.',False)
