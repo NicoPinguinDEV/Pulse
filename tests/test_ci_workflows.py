@@ -84,6 +84,16 @@ class ReproducibleToolingTests(unittest.TestCase):
         self.assertIn("docker build", image_job)
         self.assertNotIn("docker push", image_job)
 
+    def test_load_test_workflow_is_manual_and_uses_the_vps_budget(self):
+        text = (WORKFLOWS / "perf.yml").read_text(encoding="utf-8")
+        triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertIn("workflow_dispatch:", triggers)
+        for other in ("push:", "pull_request:", "schedule:", "workflow_run:"):
+            self.assertNotIn(other, triggers)
+        self.assertIn("--memory=768m --memory-swap=1024m --cpus=2", text)
+        self.assertNotIn("secrets.", text)
+        self.assertNotIn('"Pulse Lasttest', (WORKFLOWS / "deploy-vps.yml").read_text(encoding="utf-8"))
+
     def test_e2e_job_uses_hash_checked_lock_and_is_required_in_ci(self):
         text = (WORKFLOWS / "python-syntax.yml").read_text(encoding="utf-8")
         self.assertIn("pip install --require-hashes -r requirements-dev.lock", text)

@@ -1,0 +1,51 @@
+name: Pulse Lasttest (Linux, Docker-Limits wie auf dem VPS)
+
+# Manual only – never part of the deploy gate. Runs tools/load_test.py with synthetic data inside the production image
+# under the VPS budget (768 MiB RAM + 256 MiB swap, 2 CPUs). No Discord, no secrets, no production data.
+# GitHub runners are not the VPS: compare runs with each other, not with values measured on the server.
+on:
+  workflow_dispatch:
+    inputs:
+      members:
+        description: "Synthetische Teammitglieder"
+        default: "300"
+      concurrency:
+        description: "Parallele Dashboard-Clients"
+        default: "4"
+      soak_seconds:
+        description: "Dauerlauf in Sekunden (Speicherwachstum)"
+        default: "300"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pulse-perf
+  cancel-in-progress: true
+
+jobs:
+  load:
+    name: Lasttest im Image (768 MiB, 2 CPUs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+      - name: Image bauen
+        run: docker build --pull -t pulse-perf:${{ github.sha }} .
+      - name: Lasttest
+        env:
+          MEMBERS: ${{ inputs.members }}
+          CONCURRENCY: ${{ inputs.concurrency }}
+          SOAK: ${{ inputs.soak_seconds }}
+        run: |
+          for value in "$MEMBERS" "$CONCURRENCY" "$SOAK"; do
+            [[ "$value" =~ ^[0-9]+$ ]] || { echo "::error::Nur ganze Zahlen erlaubt."; exit 1; }
+          done
+          docker run --rm --memory=768m --memory-swap=1024m --cpus=2 --entrypoint python \
+            pulse-perf:${{ github.sha }} tools/load_test.py --members "$MEMBERS" --concurrency "$CONCURRENCY" \
+            --soak-seconds "$SOAK" | tee load_test.txt
+      - name: Ergebnis als Zusammenfassung
+        if: always()
+        run: |
+          { echo '```'; cat load_test.txt 2>/dev/null || echo "kein Ergebnis"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
