@@ -15,7 +15,7 @@ Ziel: möglichst wenig immer geladenen Kontext, aber gründliche Arbeit bei Bugs
 
 ### Behalten bzw. bei Bedarf verwenden
 
-- **Pyright LSP:** behalten. Hilft in der großen Python-Codebasis beim Springen zu Symbolen und beim Finden von Typfehlern, ohne ganze Dateien zu lesen.
+- **Pyright LSP:** behalten. Hilft in der großen Python-Codebasis beim Springen zu Symbolen, ohne ganze Dateien zu lesen. `pyrightconfig.json` im Repo setzt `typeCheckingMode: "off"` und meldet nur undefinierte Namen: Im Standardmodus erzeugt allein `webserver.py` rund 120 Typfehler (im Modus `basic` repo-weit über 600), die nach jedem Edit als Diagnose in den Kontext kämen. Für einen gezielten Typcheck `typeCheckingMode` vorübergehend auf `"standard"` stellen, `pyright --level error <datei>` ausführen und die Änderung nicht committen.
 - **Security guidance:** behalten (Pattern-Warnungen bei Edits). Die automatischen LLM-Reviews (Stop-Hook und Commit) sind projektweit über `env.ENABLE_CODE_SECURITY_REVIEW=0` in `.claude/settings.json` aus; gezielte Prüfung über `/pulse-security-audit`. Sicherheitsreview ist kein Ersatz für Tests.
 - **Playwright (Microsoft, `playwright@claude-plugins-official`, Projekt-Scope):** zum Erkunden/Debuggen des lokalen Dashboards. Dauerhafte Prüfungen gehören als Tests nach `tests/` (siehe `/pulse-e2e`). Startet `npx @playwright/mcp@latest` (Node erforderlich).
 - **Frontend design:** behalten, aber für echte Dashboard-/UI-Aufgaben einsetzen, nicht bei reinen Backend-Bugs.
@@ -45,6 +45,17 @@ Ziel: möglichst wenig immer geladenen Kontext, aber gründliche Arbeit bei Bugs
 claude-mem: agent-cost-report, babysit, build, build-and-release, ccs-align, childhood, cloud-sync, design-is, do, how-it-works, knowledge-agent, learn-codebase, mode-creator, oh-my-issues, pathfinder, release, screenpipe, standup, timeline-report, version-bump, weekly-digests, what-the, wowerpoint. commit-commands: clean_gone, commit-push-pr.
 
 **Einschränkung (Claude Code 2.1.303, getestet):** `skillOverrides` blendet nur Projekt-/Nutzer-Skills aus, **keine Plugin-Skills**, und das Plugin-CLI kennt nur ganze Plugins (`claude plugin disable`). Die gesperrten claude-mem-Skills erscheinen daher weiter in der Skill-Liste (~2,5k Tokens immer geladen laut `claude plugin details claude-mem@thedotmack`), können vom Modell aber nicht gestartet werden. Ganz entfernen ginge nur durch Deaktivieren von claude-mem insgesamt – das würde die Memory-Funktion entfernen und ist deshalb nicht gemacht.
+
+### Cloud-Sitzungen (claude.ai/code)
+
+Cloud-Container starten ohne die lokalen Plugins und ohne die lokale `.claude/settings.json`. Da diese Datei bewusst nicht versioniert ist (siehe unten; eine eingecheckte Datei würde beim `git pull` mit der lokalen, unversionierten kollidieren), dort pro Sitzung bei Bedarf:
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+claude plugin install pyright-lsp@claude-plugins-official --scope user
+```
+
+`pyright-langserver` ist im Cloud-Image vorhanden, sonst `npm install -g pyright@1.1.414`. Bewusst **nicht** in der Cloud installieren: `security-guidance` (LLM-Review bei jedem Stop/Commit kostet ohne `ENABLE_CODE_SECURITY_REVIEW=0` laufend Tokens; Ersatz: `/pulse-security-audit` bzw. `/security-review`), Playwright-MCP (`@latest` ungepinnt; Chromium + Playwright sind im Image vorinstalliert, die versionierten E2E-Tests reichen), `code-review`-Plugin (`/code-review` ist bereits eingebaut). Nur Plugins aus `claude-plugins-official` mit Quelle `./plugins/…` (von Anthropic gepflegt) verwenden.
 
 ## Lokale Regeln und Sicherheit
 

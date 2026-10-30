@@ -17,6 +17,7 @@ IRRELEVANT = (
     "*.md",
     "docs/*",
     ".claude/*",
+    "pyrightconfig.json",
     "LICENSE*",
     ".gitignore",
     ".gitattributes",

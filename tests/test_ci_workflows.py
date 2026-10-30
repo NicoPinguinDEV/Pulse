@@ -20,7 +20,7 @@ def _pins(lock: Path) -> dict[str, str]:
 class E2EScopeTests(unittest.TestCase):
     def test_documentation_and_tooling_metadata_skip_e2e(self):
         for paths in (["README.md"], ["docs/CLAUDE_CODE_SETUP.md", "CHANGELOG.md"], [".claude/skills/pulse-e2e/SKILL.md"],
-                      ["tests/test_permissions.py"], [".github/workflows/security.yml"]):
+                      ["tests/test_permissions.py"], [".github/workflows/security.yml"], ["pyrightconfig.json"]):
             with self.subTest(paths=paths):
                 self.assertFalse(ci_e2e_needed.needs_e2e(paths))
 
