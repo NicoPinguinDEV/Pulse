@@ -75,12 +75,21 @@ def request_origin(request: Request) -> str:
     """Ermittelt die öffentliche Dashboard-URL hinter einem Reverse Proxy."""
     if PUBLIC_BASE_URL:
         return PUBLIC_BASE_URL.rstrip("/")
-    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    if forwarded_host:
-        scheme = (forwarded_proto.split(",")[0].strip() if forwarded_proto else request.url.scheme)
-        return f"{scheme}://{forwarded_host}".rstrip("/")
+    # SEC-02: the configured Discord callback names the public origin as well. Only when nothing is
+    # configured does the request decide – and then never X-Forwarded-Host/-Proto straight from the client
+    # (uvicorn's proxy_headers already applies X-Forwarded-Proto from trusted proxies to request.url.scheme),
+    # and only a plain host[:port], so a forged header cannot put a foreign link into a bot message.
+    configured = urlparse(REDIRECT_URI)
+    if configured.scheme in ("http", "https") and configured.netloc:
+        return f"{configured.scheme}://{configured.netloc}"
+    host = (request.headers.get("host") or "").strip()
+    scheme = request.url.scheme if request.url.scheme in ("http", "https") else "http"
+    if host and _PLAIN_HOST.fullmatch(host):
+        return f"{scheme}://{host}"
     return str(request.base_url).rstrip("/")
+
+
+_PLAIN_HOST = re.compile(r"(?:[A-Za-z0-9-]{1,63}\.)*[A-Za-z0-9-]{1,63}(?::\d{1,5})?|\[[0-9A-Fa-f:.]+\](?::\d{1,5})?")
 
 OAUTH_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
@@ -963,6 +972,11 @@ def get_loas() -> dict:
 def esc(value) -> str:
     """HTML-Escaping für ALLE nutzergenerierten Inhalte (verhindert XSS)."""
     return html.escape("" if value is None else str(value), quote=True)
+
+
+def discord_text(value) -> str:
+    """User text for Discord messages/embeds: no markdown links/formatting, no mentions."""
+    return discord.utils.escape_mentions(discord.utils.escape_markdown("" if value is None else str(value)))
 
 
 def safe_url(url: str) -> str:
@@ -3563,10 +3577,13 @@ async def logout_confirm():
 @app.post("/logout")
 async def logout(user_session: str = Cookie(None)):
     data = verify_session_token(user_session, TOKEN_DASHBOARD) if user_session else None
-    if data and data.get("sid"):
+    if data:
         try:
             import pulse_sessions  # U-14: the server-side session ends too
-            pulse_sessions.revoke(data["id"], data["sid"])
+            if data.get("sid"):
+                pulse_sessions.revoke(data["id"], data["sid"])
+            else:  # SEC-03: a copied cookie without sid must not outlive the logout either
+                pulse_sessions.revoke_unbound(data["id"])
         except Exception as exc:  # P-10
             pulse_logging.report_error("sessions", f"Sitzung beim Logout nicht widerrufen: {type(exc).__name__}")
     response = RedirectResponse(url="/", status_code=303)
@@ -3677,7 +3694,12 @@ async def callback(request: Request, code: str = None, state: str = None, error:
         import pulse_sessions  # U-14: server-side session for the session list
         session["sid"] = pulse_sessions.create(session["id"], request.headers.get("user-agent", ""))
     except Exception as exc:
-        print(f"⚠️ Sitzung konnte nicht gespeichert werden: {type(exc).__name__}")
+        # SEC-03: without a server-side session the cookie could be neither ended on logout nor by the
+        # idle timeout – refuse the login (fail closed) instead of issuing an unrevocable 7-day cookie.
+        pulse_logging.report_error("sessions", f"Sitzung konnte nicht gespeichert werden: {type(exc).__name__}")
+        return HTMLResponse(simple_page("⏳", "Anmeldung gerade nicht möglich",
+                                        "Die Sitzung konnte nicht gespeichert werden. Bitte gleich erneut versuchen.", retry),
+                            status_code=503)
     response = RedirectResponse(url=start_page_for(session["id"]), status_code=303)  # U-02
     response.set_cookie(
         "user_session",
@@ -7715,8 +7737,11 @@ async def notify_new_application(request: Request, application_id: str, applicat
         color=_pulse_color("info"),
         timestamp=now_de(),
     )
-    embed.add_field(name="Bewerber", value=f"{esc(applicant_name)}\nDiscord-ID: `{esc(applicant_id)}`", inline=True)
-    embed.add_field(name="Laufbahn", value=esc(career_label), inline=True)
+    # SEC-04: the name comes from the public form – Discord markdown (masked links, mentions) is escaped,
+    # so nobody can put a phishing link into the team alert. The ID is digits only.
+    embed.add_field(name="Bewerber", value=f"{discord_text(applicant_name)}\nDiscord-ID: `{re.sub(r'[^0-9]', '', applicant_id)}`",
+                    inline=True)
+    embed.add_field(name="Laufbahn", value=discord_text(career_label), inline=True)
     embed.add_field(name="Online-Test", value=f"{score}/{total} richtig ({percent} %)\n{result_label}", inline=True)
     embed.add_field(
         name="Bewerbung öffnen",

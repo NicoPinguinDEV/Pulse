@@ -109,3 +109,9 @@ def revoke_all(user_id, reason: str = "überall abgemeldet", keep_sid: str | Non
         count = cur.rowcount
     _db().set_setting(f"sessions_revoked_before:{user_id}", str(int(now)))
     return count
+
+
+def revoke_unbound(user_id) -> None:
+    """SEC-03: ends this person's cookies without sid (pre-U-14), e.g. on logout with such a cookie.
+    Sessions with their own sid stay untouched – only revoke_all ends those."""
+    _db().set_setting(f"sessions_revoked_before:{user_id}", str(int(time.time())))

@@ -66,12 +66,12 @@ class ReproducibleToolingTests(unittest.TestCase):
                     self.assertNotRegex(text, rf"pip install[^\n]*\s{tool}(\s|$)", f"{tool} ohne Versions-Pin")
 
     def test_third_party_actions_are_pinned_to_a_commit(self):
-        """Only GitHub's own actions/* may use a moving tag; anything else runs with our token, so a full SHA."""
+        """SEC-05: every action – GitHub's own actions/* included – runs with our token and (deploy) the SSH secrets,
+        so a moved tag must not change what runs: full commit SHA, Dependabot keeps them current."""
         for workflow in WORKFLOWS.glob("*.yml"):
             text = workflow.read_text(encoding="utf-8")
+            self.assertNotRegex(text, r"uses:\s*[\w.-]+/[\w./-]+\s*$", "Action ohne Ref")
             for action, ref in re.findall(r"uses:\s*([\w.-]+/[\w./-]+)@([\w.-]+)", text):
-                if action.startswith("actions/"):
-                    continue
                 with self.subTest(workflow=workflow.name, action=action):
                     self.assertRegex(ref, r"^[0-9a-f]{40}$")
 
