@@ -70,7 +70,7 @@ class ReproducibleToolingTests(unittest.TestCase):
         so a moved tag must not change what runs: full commit SHA, Dependabot keeps them current."""
         for workflow in WORKFLOWS.glob("*.yml"):
             text = workflow.read_text(encoding="utf-8")
-            self.assertNotRegex(text, r"uses:\s*[\w.-]+/[\w./-]+\s*$", "Action ohne Ref")
+            self.assertIsNone(re.search(r"uses:\s*[\w.-]+/[\w./-]+\s*$", text, re.MULTILINE), "Action ohne Ref")
             for action, ref in re.findall(r"uses:\s*([\w.-]+/[\w./-]+)@([\w.-]+)", text):
                 with self.subTest(workflow=workflow.name, action=action):
                     self.assertRegex(ref, r"^[0-9a-f]{40}$")

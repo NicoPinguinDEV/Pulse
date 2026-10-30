@@ -7188,6 +7188,12 @@ async def team_role_manager(request: Request, user_id: int, user_session: str = 
     )
 
 
+# SEC-08: rights that let the holder take over or sanction beyond the Pulse model. Deliberately not the
+# everyday ones (manage_messages, manage_nicknames, …) that ordinary department roles carry.
+ESCALATING_ROLE_PERMISSIONS = ("administrator", "manage_guild", "manage_roles", "manage_channels", "manage_webhooks",
+                               "ban_members", "kick_members")
+
+
 @app.post("/team/{user_id}/roles")
 async def team_role_manager_save(
     request: Request,
@@ -7239,9 +7245,8 @@ async def team_role_manager_save(
             # SEC-08: a role below the own top role can still carry server-wide rights (e.g. a forgotten
             # admin or moderation role). Only admins hand those out; configured team roles keep their
             # rank rule (their moderation rights are intended), Administrator is never delegable.
-            import pulse_recovery
             role_perms = role.permissions
-            risky = [name for name in pulse_recovery.DANGEROUS_ROLE_PERMISSIONS if getattr(role_perms, name, False)]
+            risky = [name for name in ESCALATING_ROLE_PERMISSIONS if getattr(role_perms, name, False)]
             if rid in add_set and (role_perms.administrator or (risky and role.id not in team_role_ids)):
                 return back(f"/team/{user_id}/roles",
                             f"Die Rolle **{role.name}** hat weitreichende Serverrechte ({', '.join(risky[:4])}) – "

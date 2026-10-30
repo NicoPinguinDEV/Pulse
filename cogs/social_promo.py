@@ -184,6 +184,7 @@ def _is_public_https_url(value: str) -> bool:
 
 
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_IPV4_COMPATIBLE = ipaddress.ip_network("::/96")
 
 
 def _ip_is_public(ip) -> bool:
@@ -196,6 +197,8 @@ def _ip_is_public(ip) -> bool:
                 return _ip_is_public(ip.ipv4_mapped)
             if ip in _NAT64:
                 return _ip_is_public(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF))
+            if ip in _IPV4_COMPATIBLE:  # deprecated ::a.b.c.d (incl. ::1) – never a public feed host
+                return False
         return bool(ip.is_global) and not ip.is_multicast
     except (TypeError, ValueError):
         return False

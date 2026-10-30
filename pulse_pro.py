@@ -1380,7 +1380,7 @@ def register(app):
         req=next((x for x in db.promotion_requests('pending',200) if x['id']==promotion_id),None)
         if not req: return ws.back('/approvals','Antrag nicht mehr offen.',False)
         if status not in ('approved','rejected'): return ws.back('/approvals','Ungültige Entscheidung.',False)
-        if status=='approved' and str(req.get('created_by_id'))==str(c.user['id']):
+        if status=='approved' and str(req.get('created_by_id'))==str(c.user['id']) and not c.perms.get('is_admin'):
             return ws.back('/approvals','Vier-Augen-Prinzip: Den eigenen Antrag muss jemand anderes freigeben.',False)
         # SEC-01: parallel clicks on "Freigeben" must not run the role change twice (single process).
         if promotion_id in _promotion_decisions_running: return ws.back('/approvals','Dieser Antrag wird gerade entschieden.',False)

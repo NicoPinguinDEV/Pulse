@@ -88,12 +88,12 @@ pip-audit -r requirements.lock --require-hashes
 Legende: `[x]` behoben und getestet · `[ ]` offen · `[!]` blockiert · `[-]` nicht zutreffend
 
 ### P0 – Kritisch
-- [x] **SEC-01** Beförderungsantrag vergab beliebige Rollen (auch Discord-Admin) und erlaubte Selbstfreigabe (`pulse_pro.create_promotion/decide_promotion`, aktive Routen `/promotions/create|decide`). Fix: nur nicht verwaltete Teamrollen ohne Administratorrecht, Nicht-Admins nur unterhalb des eigenen Teamrangs, keine Selbstbeförderung, Vier-Augen-Prinzip bei Freigabe, Sperre gegen parallele Doppelfreigabe, HTTP-Fehler werden gemeldet. Tests: `RoleEscalationTests.test_promotion_*`, `test_own_request_cannot_be_self_approved_and_stored_bad_role_is_refused`, `test_valid_promotion_still_works`.
+- [x] **SEC-01** Beförderungsantrag vergab beliebige Rollen (auch Discord-Admin) und erlaubte Selbstfreigabe (`pulse_pro.create_promotion/decide_promotion`, aktive Routen `/promotions/create|decide`). Fix: nur nicht verwaltete Teamrollen ohne Administratorrecht, Nicht-Admins nur unterhalb des eigenen Teamrangs, keine Selbstbeförderung, Vier-Augen-Prinzip bei Freigabe (Admins ausgenommen, damit ein einzelner Admin nicht blockiert ist), Sperre gegen parallele Doppelfreigabe, HTTP-Fehler werden gemeldet. Tests: `RoleEscalationTests.test_promotion_*`, `test_own_request_cannot_be_self_approved_and_stored_bad_role_is_refused`, `test_valid_promotion_still_works`.
 
 ### P1 – Hoch
-- [x] **SEC-06** KI-Moderation: Review-Buttons erlaubten mit `can_warn`/`can_promote` Timeout/Kick/Bann ohne Moderationsrecht, Discord-Recht und Hierarchie; Team-Warn umging Rang-/Selbst-/Missbrauchssperren. Fix: `_action_problem` (Pulse-Recht + Discord-Recht + `target_problem`), Team-Warn über `issue_team_warning` (Gültigkeit 7 Tage wie Dashboard-Standard). Tests: `AiReviewRightsTests`.
+- [x] **SEC-06** KI-Moderation: Review-Buttons erlaubten mit `can_warn`/`can_promote` Timeout/Kick/Bann ohne Moderationsrecht, Discord-Recht und Hierarchie; Team-Warn umging Rang-/Selbst-/Missbrauchssperren. Fix: `_action_problem` (Pulse-Recht + Discord-Recht + `target_problem`), Team-Warn über `issue_team_warning` (Gültigkeit 7 Tage wie Dashboard-Standard); schlägt ein Folgeschritt nach dem Speichern fehl, gilt der Fall als erledigt (keine Doppelwarnung). Tests: `AiReviewRightsTests`, `AiWarnPartialFailureTests`.
 - [x] **SEC-07** Einstellung nach Bewerbungsgespräch ohne Rangprüfung (`/action decide_app hire_after_interview`). Fix: gleiche Rangregel wie `action=hire`, keine Selbsteinstellung. Test: `test_hire_after_interview_respects_own_rank`.
-- [x] **SEC-08** Rollenmanager (`POST /team/{id}/roles`) vergab Nicht-Teamrollen mit Serverrechten (Admin, Ban, Rollen verwalten …) unterhalb der eigenen Top-Rolle. Fix: solche Rollen nur durch Admins; Teamrollen behalten ihre Rangregel; Administrator nie delegierbar. Tests: `test_role_manager_refuses_roles_with_server_rights`, `test_role_manager_still_assigns_plain_and_team_roles`.
+- [x] **SEC-08** Rollenmanager (`POST /team/{id}/roles`) vergab Nicht-Teamrollen mit Serverrechten (Admin, Ban, Rollen verwalten …) unterhalb der eigenen Top-Rolle. Fix: Rollen mit eskalierenden Rechten (`ESCALATING_ROLE_PERMISSIONS`: administrator, manage_guild, manage_roles, manage_channels, manage_webhooks, ban/kick) nur durch Admins; Alltagsrechte wie `manage_messages` bleiben für Abteilungsrollen vergebbar; Teamrollen behalten ihre Rangregel; Administrator nie delegierbar. Tests: `test_role_manager_refuses_roles_with_server_rights`, `test_role_manager_still_assigns_plain_and_team_roles`, `test_department_role_with_everyday_rights_stays_assignable`.
 - [x] **SEC-11** Recovery: 401/`invalid_client` (z. B. rotiertes Client-Secret) löschte bei jedem Sync alle Einwilligungen; begrenzter und kompletter Sync konnten parallel laufen (doppelte Refresh-Token-Nutzung). Fix: Löschen nur bei `invalid_grant`, Abbruch bei Konfigurationsfehler, kein paralleler Lauf. Tests: `RecoveryConsentTests`.
 
 ### P2 – Mittel
@@ -106,9 +106,9 @@ Legende: `[x]` behoben und getestet · `[ ]` offen · `[!]` blockiert · `[-]` n
 - [x] **Infra** Boot-Update ohne `safe.directory`; Deploy-Sperre unter `ProtectSystem=strict` wirkungslos; Container ohne `cap_drop`/`no-new-privileges`/`pids_limit`. Tests: bestehende Deploy-/Boot-Tests grün, `docker compose config` geprüft; `safe.directory` lokal simuliert. Laufzeittest des gehärteten Containers **nicht ausgeführt** (kein Docker-Daemon in der Prüfumgebung).
 
 ### P3 – Niedrig
-- [x] **SEC-12** `/ultimate/person/{id}` zeigte Warnungsanzahl und Timeline fremder Teamakten jedem Teamler (Export war bereits geschützt). Fix: `can_see_warnings`. Test: `test_person_page_hides_warnings_of_others`.
+- [x] **SEC-12** `/ultimate/person/{id}` zeigte Warnungsanzahl und Timeline fremder Teamakten jedem Teamler (Export war bereits geschützt). Fix: gleiche Regel wie der Export plus `can_see_warnings` (eigene Person, `can_warn`, `can_promote`, Admin), eigener Hinweistext. Test: `test_person_page_hides_warnings_of_others`.
 - [x] **SEC-13** Jede offene Übergabe konnte von jedem Teamler archiviert werden. Fix: Autor, Empfänger, offene Übergabe (ohne feste Person) oder Leitung. Test: `test_foreign_handover_cannot_be_archived_by_a_bystander`.
-- [x] **SEC-14** SSRF-Prüfung ließ CGNAT/NAT64/IPv4-mapped-Literale durch. Tests: `FeedAddressTests`.
+- [x] **SEC-14** SSRF-Prüfung ließ CGNAT/NAT64/IPv4-mapped/IPv4-compatible-Literale durch. Tests: `FeedAddressTests`, `test_ipv4_compatible_ipv6_is_refused`.
 - [x] **SEC-15** Fall-Anhänge mit vom Client behauptetem Typ (z. B. `text/html`) ausgeliefert (durch `Content-Disposition: attachment` + `nosniff` bereits entschärft). Fix: Allowlist sicherer Typen. Test: `AttachmentTypeTests`.
 - [x] **SEC-16** Host-Agent: negatives `Content-Length` blockierte einen Handler-Thread (nur mit gültigem Token). Test: `HostAgentBodyTests`.
 
@@ -135,7 +135,15 @@ Legende: `[x]` behoben und getestet · `[ ]` offen · `[!]` blockiert · `[-]` n
 - [-] Git-Historie: keine Discord-Token-, Webhook-, Google-/GitHub-Key-Muster gefunden (nur Test-Fixtures).
 - [-] Anti-Nuke/AutoMod/KI standardmäßig aus; KI sanktioniert nie automatisch. Honeypot ist deterministisch (fester Kanal) und gewollt aktiv.
 
-## 8. Manuelle Sicherheitseinstellungen (nur Repository-Inhaber / VPS)
+## 8. Unabhängiges Review
+
+Frischer Reviewer ohne Autorenkontext, Prüflisten von `/pulse-review` und `/pulse-security-audit` (die Skills selbst sind nur manuell aufrufbar).
+Urteil: **freigeben mit Anmerkungen**, keine blockierenden Befunde. Umgesetzt: engere Rechte-Liste im Rollenmanager, Admin-Ausnahme beim
+Vier-Augen-Prinzip, einheitliche Sichtbarkeitsregel auf der Personenseite, keine Doppel-Warnung nach Teilfehler, `::/96` gesperrt,
+`re.MULTILINE` im Workflow-Test, zusätzliche Positiv-/Randfalltests (`ReviewFollowUpTests`, `RecoveryAndFeedEdgeTests`, `TeamPrivacyPositiveTests`).
+Nicht umgesetzt: Startwarnung, wenn weder `PUBLIC_BASE_URL` noch `DISCORD_REDIRECT_URI` gesetzt ist (Host-Fallback, siehe SEC-02; hinter Caddy wirkungslos).
+
+## 9. Manuelle Sicherheitseinstellungen (nur Repository-Inhaber / VPS)
 
 Nicht verifiziert in dieser Runde (kein GitHub-Zugriff aus der Prüfumgebung, kein VPS-Zugriff). Stand des letzten Berichts (2026-10-24):
 

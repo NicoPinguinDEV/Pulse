@@ -1100,11 +1100,19 @@ class AIModeration(commands.Cog):
             else f"KI-Fall {case['id']}: {case.get('rule')} – {case.get('reason')} (durch Moderator bestätigt)"
         )[:500]
         perms = self._reviewer_perms_for(reviewer, config)
-        result = await webserver.issue_team_warning(
-            guild, actor_member=reviewer, actor_name=reviewer.display_name, actor_id=str(reviewer.id), member=member,
-            reason=reason, duration_days=AI_TEAM_WARN_DAYS, proof=proof, config=config,
-            actor_is_admin=bool(perms.get("is_admin") or reviewer.guild_permissions.administrator), source="KI-Moderation",
-        )
+        try:
+            result = await webserver.issue_team_warning(
+                guild, actor_member=reviewer, actor_name=reviewer.display_name, actor_id=str(reviewer.id), member=member,
+                reason=reason, duration_days=AI_TEAM_WARN_DAYS, proof=proof, config=config,
+                actor_is_admin=bool(perms.get("is_admin") or reviewer.guild_permissions.administrator), source="KI-Moderation",
+            )
+        except Exception as exc:
+            # A follow-up step (roles, team update, DM) may fail after the warning was stored. Then the case
+            # must count as handled – otherwise a second click would store a duplicate warning.
+            entry = webserver.user_entry(webserver.load_json(webserver.DATA_FILE, {}), str(member.id))
+            if any(w.get("reason") == reason.strip() and w.get("active", True) for w in entry.get("warns_list", [])):
+                return {"ok": True, "message": f"Team-Warn gespeichert; Folgeschritt fehlgeschlagen ({type(exc).__name__}) – bitte prüfen"}
+            raise
         if not result.get("stored"):
             return {"ok": False, "message": result.get("message", "Team-Warn abgelehnt")}
         # The warning is persisted. Mark the case handled even if a secondary role/log step failed,

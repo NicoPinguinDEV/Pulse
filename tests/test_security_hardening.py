@@ -601,3 +601,115 @@ class TeamPrivacyTests(TempDb):
         self.assertNotIn("4/5", r.text)
         self.assertNotIn("geheim", r.text)
         self.assertIn("Nur für Leitung sichtbar", r.text)
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Review follow-ups: positive cases and edge cases of the new checks.
+# ---------------------------------------------------------------------------------------------------------
+class ReviewFollowUpTests(RoleEscalationTests):
+    def test_department_role_with_everyday_rights_stays_assignable(self):
+        dept = Role(23, "Support-Abteilung", 2, manage_messages=True, manage_nicknames=True)
+        self.guild.roles.append(dept)
+        r = self.client.post(f"/team/{self.alt.id}/roles", data={"add_role_ids": [dept.id], "action_reason": "ok"},
+                             follow_redirects=False)
+        self.assertNotIn("nur Administratoren", self._msg(r))
+        self.assertEqual(self.alt.added_roles, [dept])
+
+    def test_missing_actor_member_is_denied(self):
+        self.fake_member = None
+        original = self.fake_auth
+
+        def no_member(*a, **k):
+            ctx = original(*a, **k)
+            ctx.member = None
+            return ctx
+        with patch.object(ws, "auth", no_member):
+            r = self.client.post("/promotions/create", data={"target_user_id": self.support.id,
+                                                             "requested_role_id": SUPPORT.id, "reason": "x"},
+                                 follow_redirects=False)
+            self.assertIn("nicht ermittelt", self._msg(r))
+            r = self.client.post(f"/team/{self.alt.id}/roles", data={"add_role_ids": [COSMETIC.id], "action_reason": "x"},
+                                 follow_redirects=False)
+            self.assertNotEqual(self.alt.added_roles, [COSMETIC])
+        self.assertEqual(pulse_db.promotion_requests("pending"), [])
+
+    def test_parallel_approval_is_refused_while_one_runs(self):
+        import pulse_pro  # noqa: F401  (routes registered by webserver)
+        pid = pulse_db.create_promotion_request(self.support.id, "Sam", "Support", MOD.name, "gut", 555, "Jemand",
+                                                MOD.id, SUPPORT.id)
+        endpoint = next(r.endpoint for r in ws.app.routes if getattr(r, "path", "") == "/promotions/decide")
+        running = next(c.cell_contents for c in endpoint.__closure__ if isinstance(c.cell_contents, set))
+        running.add(pid)
+        try:
+            r = self.client.post("/promotions/decide", data={"promotion_id": pid, "status": "approved"}, follow_redirects=False)
+        finally:
+            running.discard(pid)
+        self.assertIn("gerade entschieden", self._msg(r))
+        self.assertEqual(self.support.added_roles, [])
+
+    def test_admin_may_approve_own_request(self):
+        LEAD_PERMS["is_admin"] = True
+        try:
+            pid = pulse_db.create_promotion_request(self.support.id, "Sam", "Support", MOD.name, "gut", self.lead.id,
+                                                    "Lena", MOD.id, SUPPORT.id)
+            r = self.client.post("/promotions/decide", data={"promotion_id": pid, "status": "approved"},
+                                 follow_redirects=False)
+        finally:
+            LEAD_PERMS["is_admin"] = False
+        self.assertIn("befördert", self._msg(r))
+
+    def test_lead_can_withdraw_a_lower_ranked_warning(self):
+        team = {str(self.support.id): {"warns_list": [{"id": "w1", "reason": "r", "active": True}]}}
+        with patch.object(ws, "load_json", lambda *_a, **_k: team), patch.object(ws, "save_json"), \
+             patch.object(ws, "sync_warn_roles", AsyncMock(return_value={"ok": True})), \
+             patch.object(ws, "send_team_update_embed", AsyncMock()), patch.object(ws, "log_audit"), \
+             patch.object(ws, "track_member_entry", lambda *_a: SimpleNamespace(commit=lambda: None)):
+            result = asyncio.run(ws.revoke_team_warning(self.guild, member=self.support, warn_id="w1", revoke_reason="Irrtum",
+                                                        actor_name="Lena", actor_id=str(self.lead.id), config=self.config,
+                                                        actor_member=self.lead))
+        self.assertTrue(result["stored"], result)
+
+
+class RecoveryAndFeedEdgeTests(RecoveryConsentTests):
+    def test_other_400_errors_keep_the_consent(self):
+        ok, _ = self._rejoin(400, {"error": "invalid_request"})
+        self.assertFalse(ok)
+        self.assertEqual(pulse_recovery.get_refresh_token(self.UID), "refresh-token-for-tests")
+
+    def test_ipv4_compatible_ipv6_is_refused(self):
+        from cogs import social_promo as sp
+        for url in ("https://[::127.0.0.1]/", "https://[::a9fe:a9fe]/", "https://[::1]/"):
+            self.assertFalse(sp._is_public_https_url(url), url)
+
+
+class TeamPrivacyPositiveTests(TeamPrivacyTests):
+    def test_author_recipient_and_lead_may_archive(self):
+        with self.pu.cx() as c:
+            for hid, frm, to in (("a", "1", "9"), ("b", "8", "1"), ("c", "8", "9")):
+                c.execute("INSERT INTO ultimate_handovers(id,title,content,from_id,from_name,to_id,to_name,status,created_at)"
+                          " VALUES(?,?,?,?,?,?,?,'open','2026-01-01')", (hid, "T", "C", frm, "A", to, "B"))
+        self.assertEqual(self.client.post("/ultimate/handovers/a/close", follow_redirects=False).status_code, 303)  # author
+        self.assertEqual(self.client.post("/ultimate/handovers/b/close", follow_redirects=False).status_code, 303)  # recipient
+        self.assertEqual(self.client.post("/ultimate/handovers/c/close", follow_redirects=False).status_code, 404)
+        self.viewer["can_promote"] = True
+        self.assertEqual(self.client.post("/ultimate/handovers/c/close", follow_redirects=False).status_code, 303)  # lead
+
+
+class AiWarnPartialFailureTests(AiReviewRightsTests):
+    def test_stored_warning_counts_as_handled_when_a_follow_up_step_fails(self):
+        cog, interaction, perms = self._cog_and_interaction({"can_warn": True}, {})
+        target = member(7, "Kollege", SUPPORT)
+        case = {"id": "K1", "rule": "R", "reason": "x", "message_url": ""}
+        stored = {}
+
+        async def boom(guild, **kwargs):
+            stored.setdefault("warns_list", []).append({"reason": kwargs["reason"].strip(), "active": True})
+            raise RuntimeError("team update failed")
+        interaction.user.guild = interaction.guild
+        with patch.object(ws, "compute_perms", lambda *a: (perms, interaction.user)), \
+             patch.object(ws, "load_config", lambda: {"team_role_ids": TEAM_IDS}), \
+             patch.object(ws, "issue_team_warning", boom), \
+             patch.object(ws, "load_json", lambda *a, **k: {"7": stored}), \
+             patch.object(ws, "user_entry", lambda db, uid: db[uid]):
+            result = asyncio.run(cog._issue_team_warn(interaction.guild, target, interaction.user, case))
+        self.assertTrue(result["ok"])  # case resolved → no second warning on retry

@@ -778,11 +778,12 @@ def register(app):
                    FROM next_member_achievements ma JOIN next_achievements a ON a.key=ma.achievement_key
                    WHERE ma.user_id=? ORDER BY ma.awarded_at DESC""",(str(member.id),)
             ).fetchall()]
-        # SEC-12: like the export (M5, E-3/D-08) – warnings and timeline of others only for leadership/admins.
+        # SEC-12: like the export (M5, E-3/D-08) – warnings and timeline of others only for the person,
+        # leadership (can_promote, as in the export), can_warn and admins.
         import webserver
-        own_or_lead=webserver.can_see_warnings(ctx.perms,actor_id(ctx),member.id)
+        own_or_lead=webserver.can_see_warnings(ctx.perms,actor_id(ctx),member.id) or bool(ctx.perms.get("can_promote"))
         timeline_rows=timeline(str(member.id),50) if own_or_lead else []
-        events_html="".join(f"<div class=row><div><b>{esc(x['title'])}</b><div class=tiny>{esc(x['details'])}</div></div><span class=tiny>{fmt_dt(x['created_at'])}</span></div>" for x in timeline_rows) or "<div class=tiny>Noch keine Pulse-Events.</div>"
+        events_html="".join(f"<div class=row><div><b>{esc(x['title'])}</b><div class=tiny>{esc(x['details'])}</div></div><span class=tiny>{fmt_dt(x['created_at'])}</span></div>" for x in timeline_rows) or ("<div class=tiny>Noch keine Pulse-Events.</div>" if own_or_lead else "<div class=tiny>Die Zeitleiste anderer Teammitglieder ist nur für die Leitung sichtbar.</div>")
         roles=", ".join(role_names(member)) or "Keine Rollen"
         body=f"""
         <div class='grid g4'>
