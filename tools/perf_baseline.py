@@ -134,6 +134,8 @@ def main() -> int:
     os.chdir(tmp)  # same guard as preview_server/load_test (tests/test_tool_isolation.py): runtime files stay in tmp
     ws.BACKUP_DIR = str(Path(tmp) / "backups")
     ws.DB_ABMELDUNGEN = str(Path(tmp) / "abmeldungen.db")
+    # Phase 10: computed from the checkout on import – /team and /activity-check opened (and created) it there
+    ws.ACTIVITY_DB = str(Path(tmp) / "activity_check.db")
 
     team, lead = FakeRole(100, "Supporter", position=3), FakeRole(101, "Leitung", position=5)
     members = [FakeMember(1, "Admin Anna", roles=[lead], admin=True)]

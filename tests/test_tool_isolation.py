@@ -20,6 +20,7 @@ class ToolIsolationTests(unittest.TestCase):
                 chdirs = [m.start() for m in re.finditer(r"os\.chdir\(tmp\)", source)]
                 self.assertTrue(any(pos > imported for pos in chdirs), "os.chdir(tmp) fehlt nach dem Import von webserver")
                 self.assertRegex(source[imported:], r"ws\.BACKUP_DIR\s*=\s*str\(Path\(tmp\)")
+                self.assertRegex(source[imported:], r"ws\.ACTIVITY_DB\s*=\s*str\(Path\(tmp\)")  # Phase 10
 
 
 if __name__ == "__main__":

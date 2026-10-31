@@ -69,6 +69,8 @@ def main() -> int:
     os.chdir(tmp)
     ws.BACKUP_DIR = str(Path(tmp) / "backups")
     ws.DB_ABMELDUNGEN = str(Path(tmp) / "abmeldungen.db")
+    # Phase 10: computed from the checkout on import – /team and /activity-check opened (and created) it there
+    ws.ACTIVITY_DB = str(Path(tmp) / "activity_check.db")
 
     team = FakeRole(100, "Supporter", position=3)
     lead = FakeRole(101, "Leitung", position=5)
