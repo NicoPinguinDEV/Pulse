@@ -38,6 +38,10 @@ class DashboardRedesignTests(unittest.TestCase):
         self.assertIn("pulse-advanced-group", self.sidebar)
         self.assertIn('str(current_page).startswith(("u:", "s:"))', self.sidebar)
 
+    def test_removed_workflow_shortcuts_stay_out_of_sidebar(self):
+        self.assertIn('hidden_keys = {"handover", "approvals", "tasks2"} if prefix == "u" else {"tasks"}', self.sidebar)
+        self.assertIn("item for item in visible_nav(items, leader) if item[0] not in hidden_keys", self.sidebar)
+
     def test_sensitive_navigation_gates_are_preserved(self):
         self.assertIn('perms.get("can_manage_checkins") or perms.get("is_admin")', self.sidebar)
         self.assertIn('perms.get("can_warn") or perms.get("is_admin")', self.sidebar)
