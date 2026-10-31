@@ -176,23 +176,57 @@ class BotCloseTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+# Runs the real discord.Client.run() path (asyncio.run + `async with bot`) with start() replaced, so nothing
+# connects to Discord. Sends SIGTERM twice and reports what close() did; the exit code is the process's own.
 SIGTERM_PROBE = r"""
-import asyncio, os, signal, sys
+import asyncio, json, os, signal, sys
 sys.path.insert(0, sys.argv[1])
-import main
+import main, pulse_ultimate
+from discord.ext import commands
 
-async def run():
-    bot = main.CustomBot()
-    bot._install_signal_handlers(asyncio.get_running_loop())
+report = {"closes": 0, "unloaded": False}
+original_close = main.CustomBot.close
+
+async def counting_close(self):
+    report["closes"] += 1
+    await original_close(self)
+main.CustomBot.close = counting_close
+
+async def fake_automation(bot):
+    await asyncio.Event().wait()
+pulse_ultimate.automation_loop = fake_automation
+
+class FakeServer:
+    should_exit = False
+    async def serve(self):
+        while not self.should_exit:
+            await asyncio.sleep(0.01)
+
+class Probe(commands.Cog):
+    async def cog_unload(self):
+        report["unloaded"] = True
+
+async def fake_start(self, token, *, reconnect=True):
+    self._install_signal_handlers(asyncio.get_running_loop())
+    automation = await pulse_ultimate.start_automation(self)
+    self._pulse_web_server = FakeServer()
+    self._pulse_web_server_task = asyncio.create_task(self._pulse_web_server.serve())
+    await self.add_cog(Probe())
+    await asyncio.sleep(0.05)
     os.kill(os.getpid(), signal.SIGTERM)
-    for _ in range(300):
-        if bot.is_closed():
-            print("CLOSED")
-            return
+    os.kill(os.getpid(), signal.SIGTERM)
+    for _ in range(500):
+        if self.is_closed():
+            break
         await asyncio.sleep(0.01)
-    print("STILL-OPEN")
+    await asyncio.sleep(0.05)
+    report["closed"] = self.is_closed()
+    report["automation_done"] = automation.done()
+    report["web_done"] = self._pulse_web_server_task.done()
+main.CustomBot.start = fake_start
 
-asyncio.run(run())
+main.CustomBot().run("x" * 59, log_handler=None)
+print("REPORT=" + json.dumps(report))
 """
 
 
@@ -249,8 +283,15 @@ class SigtermTests(unittest.TestCase):
             result = subprocess.run([sys.executable, "-c", SIGTERM_PROBE, str(ROOT)], cwd=tmp, capture_output=True,
                                     text=True, encoding="utf-8", timeout=120,
                                     env=dict(os.environ, PYTHONIOENCODING="utf-8"))
-        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
-        self.assertIn("CLOSED", result.stdout)
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])  # not -15/143: no crash for the restart timer
+        line = next(x for x in result.stdout.splitlines() if x.startswith("REPORT="))
+        report = json.loads(line[len("REPORT="):])
+        self.assertEqual(report["closes"], 1, "two SIGTERMs, one close() – the runner's __aexit__ adds none")
+        self.assertTrue(report["closed"])
+        self.assertTrue(report["automation_done"])
+        self.assertTrue(report["web_done"])
+        self.assertTrue(report["unloaded"], "cog_unload must run on SIGTERM")
+        self.assertEqual(result.stdout.count("SIGTERM empfangen"), 1)
 
 
 class LifespanTests(unittest.TestCase):
