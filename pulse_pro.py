@@ -140,6 +140,7 @@ time[data-relative]{cursor:help}
 .pulse-avatar{background:rgba(255,118,92,.11);color:var(--p)}
 .pulse-progress>span{background:linear-gradient(90deg,#FF765C,#FFAD98)}
 .pulse-input:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(255,118,92,.12)}
+:focus-visible{outline-color:var(--p)!important}
 .pulse-pill{border-radius:8px}
 .pulse-area-switch{background:var(--surface2);border:1px solid var(--border)}
 .pulse-area-switch a{color:var(--muted)}
