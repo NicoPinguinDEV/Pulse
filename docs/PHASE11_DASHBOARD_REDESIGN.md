@@ -23,7 +23,7 @@ Die bisher vier Navigationsgruppen wurden in sechs fachliche Bereiche neu geglie
 - Planung
 - Auswertung
 
-Die vorhandenen Hauptrouten und individuellen Sichtbarkeitsbedingungen bleiben in den Navigationsdefinitionen erhalten. Verwaltung und Serververwaltung behalten ihren vorhandenen, getrennten Bereich.
+Die sechs Hauptbereiche sind einzeln einklappbar; der Bereich der aktuell geöffneten Seite öffnet sich automatisch. Die vorhandenen Hauptrouten und individuellen Sichtbarkeitsbedingungen bleiben in den Navigationsdefinitionen erhalten. Verwaltung und Serververwaltung behalten ihren vorhandenen, getrennten Bereich.
 
 Command Center und Operations Suite sind jetzt unter einem gemeinsamen, einklappbaren Bereich **Erweiterte Funktionen** erreichbar. Die aktive Untergruppe öffnet sich automatisch. Die zusätzlichen Sidebar-Links für Aufgaben 2.0, Freigaben und Übergaben (einschließlich Suite-Aufgaben) werden nicht mehr angezeigt; ihre URLs und Handler bleiben unangetastet. Die übrigen ursprünglichen Einträge werden nicht gelöscht und ihre Routen werden nicht umgeleitet.
 
@@ -61,8 +61,8 @@ Die offene Entscheidung E-6 in `docs/SEITEN_ALT_NEU.md` bleibt bestehen. Die Nav
 ## GitHub
 
 - Branch: `feature/pulse-openclaw-dashboard` (7 Commits vor `main`)
-- Letzter Code-Commit: `9231548ebb3ba272cf315ad571ec381e02c95ad2`
-- Letzter Test-Commit: `6ce278cf8a7743f4cfa091bde3f2b44b9b9861e8`
+- Letzter Navigations-Commit: `5515a0ab4d5016ce0eb7a3350bbfeb9740066645`
+- Letzter Test-Commit: `24aae3700a25f804f58cd1f1393be6b3abec6469`
 - Draft-Pull-Request: https://github.com/NicoPinguinDEV/Pulse/pull/91
 - Erster Implementierungs-Commit: `0ee0f14c8f157984bd23b29e512b97a2513c5dbb`
 - Regressionstests: `ab55917a458e52e49337b1f3d404be0b8f36354d`
