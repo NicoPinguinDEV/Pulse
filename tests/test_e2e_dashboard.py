@@ -277,15 +277,59 @@ class DashboardNavigationE2ETests(_PreviewE2EBase):
         response = page.goto(self._url("/me"))
         self.assertEqual(response.status, 200)
         sidebar = page.locator("#pulseSidebar")
+        group_for_href = {
+            "/team": "Team",
+            "/tickets": "Support",
+            "/stats": "Auswertung",
+            "/me": "Mein Bereich",
+        }
         for href, title in (("/team", "Teamliste"), ("/tickets", "Ticket-Zentrale"), ("/stats", "Team-Analytics"),
                             ("/me", "Mein Pulse")):
             with self.subTest(href=href):
+                # Main navigation groups are intentionally collapsed unless they
+                # contain the active page. Open the requested group before clicking.
+                group = sidebar.locator("details.pulse-primary-group").filter(
+                    has_text=group_for_href[href]
+                ).first
+                self.assertEqual(group.count(), 1, f"Navigationsgruppe fehlt: {group_for_href[href]}")
+                if group.get_attribute("open") is None:
+                    group.locator("summary").click()
                 with page.expect_navigation() as nav:
                     sidebar.locator(f'a[href="{href}"]').first.click()
                 self.assertEqual(nav.value.status, 200, href)
                 self.assertTrue(page.url.endswith(href), page.url)
                 self.assertIn(title, page.content())
                 self.assertEqual(page.evaluate("window.scrollY"), 0)
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_sidebar_groups_and_desktop_collapse_controls(self):
+        page, errors = self._page(viewport={"width": 1366, "height": 900})
+        self.assertEqual(page.goto(self._url("/me")).status, 200)
+        sidebar = page.locator("#pulseSidebar")
+
+        for name in ("Mein Bereich", "Team", "Support", "Recruiting", "Planung", "Auswertung"):
+            with self.subTest(group=name):
+                group = sidebar.locator("details.pulse-primary-group").filter(has_text=name)
+                self.assertEqual(group.count(), 1, f"Navigationsgruppe fehlt: {name}")
+                self.assertTrue(group.locator("summary").is_visible())
+
+        collapse = page.locator("#pulseSidebarCollapseBtn")
+        self.assertTrue(collapse.is_visible(), "Desktop-Klappbutton fehlt")
+        self.assertEqual(collapse.get_attribute("aria-pressed"), "false")
+        collapse.click()
+        self.assertIn("pulse-sidebar-collapsed", sidebar.get_attribute("class"))
+        self.assertEqual(collapse.get_attribute("aria-pressed"), "true")
+        self.assertEqual(page.evaluate("localStorage.getItem('pulse.sidebar.collapsed')"), "1")
+
+        page.reload()
+        sidebar = page.locator("#pulseSidebar")
+        collapse = page.locator("#pulseSidebarCollapseBtn")
+        self.assertIn("pulse-sidebar-collapsed", sidebar.get_attribute("class"))
+        self.assertEqual(collapse.get_attribute("aria-pressed"), "true")
+        collapse.click()
+        self.assertNotIn("pulse-sidebar-collapsed", sidebar.get_attribute("class"))
+        self.assertEqual(collapse.get_attribute("aria-pressed"), "false")
+        self.assertEqual(page.evaluate("localStorage.getItem('pulse.sidebar.collapsed')"), "0")
         self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
 
     def test_empty_states_render(self):

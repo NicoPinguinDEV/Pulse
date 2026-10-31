@@ -91,14 +91,14 @@ PERMISSION_LABELS = {
 
 PRO_CSS = r"""
 <style>
-:root{--p:#5b5cf0;--p2:#7c3aed;--bg:#f5f7fb;--surface:#fff;--surface2:#f8fafc;--border:#e8ebf3;--text:#111827;--muted:#667085;--good:#12b76a;--warn:#f79009;--bad:#f04438;--shadow:0 18px 50px rgba(15,23,42,.08)}
-.dark{--bg:#080b12;--surface:#111522;--surface2:#0c101a;--border:#202637;--text:#f8fafc;--muted:#98a2b3;--shadow:0 18px 60px rgba(0,0,0,.26)}
-html{scroll-behavior:smooth}body{background:radial-gradient(circle at 10% -10%,rgba(91,92,240,.12),transparent 28%),radial-gradient(circle at 90% -10%,rgba(124,58,237,.10),transparent 22%),var(--bg)!important;color:var(--text)}
+:root{--p:#FF765C;--p2:#FF947B;--bg:#F5F5F4;--surface:#FFFFFF;--surface2:#F8F7F6;--border:#E7E5E4;--text:#1C1917;--muted:#78716C;--good:#12B76A;--warn:#F79009;--bad:#F04438;--shadow:0 18px 50px rgba(28,25,23,.06)}
+.dark{--p:#FF765C;--p2:#FF947B;--bg:#0D0F12;--surface:#15191F;--surface2:#1C222A;--border:#2A3038;--text:#F3F4F6;--muted:#9CA3AF;--shadow:0 18px 60px rgba(0,0,0,.28)}
+html{scroll-behavior:smooth}body{background:var(--bg)!important;color:var(--text)}
 .pulse-shell{max-width:1480px;margin:0 auto;width:100%}.pulse-topbar{position:sticky;top:12px;z-index:25;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;margin-bottom:22px;border:1px solid var(--border);background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(18px);border-radius:18px;box-shadow:var(--shadow)}
 .pulse-brand{display:flex;align-items:center;gap:10px}.pulse-brand-mark{width:38px;height:38px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(135deg,var(--p),var(--p2));color:white;font-weight:800;box-shadow:0 10px 24px rgba(91,92,240,.28)}
 .pulse-search{display:flex;align-items:center;gap:10px;flex:1;max-width:560px;border:1px solid var(--border);background:var(--surface2);border-radius:13px;padding:10px 12px;color:var(--muted)}.pulse-search input{border:0;outline:0;background:transparent;width:100%;color:var(--text);font-size:13px}
 .pulse-icon-btn{width:38px;height:38px;border:1px solid var(--border);background:var(--surface2);border-radius:12px;display:grid;place-items:center;transition:.18s}.pulse-icon-btn:hover{transform:translateY(-1px);border-color:#b8bef8}.pulse-hero{position:relative;overflow:hidden;border:1px solid rgba(99,102,241,.18);border-radius:26px;padding:28px;background:linear-gradient(135deg,rgba(79,70,229,.97),rgba(124,58,237,.93));color:white;box-shadow:0 24px 60px rgba(76,81,191,.22)}.pulse-hero:after{content:"";position:absolute;width:240px;height:240px;border-radius:50%;right:-80px;top:-100px;background:rgba(255,255,255,.09);box-shadow:0 0 0 28px rgba(255,255,255,.035),0 0 0 56px rgba(255,255,255,.02)}
-.pulse-hero-grid{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,.6fr);gap:20px;align-items:end}.pulse-kicker{font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.72;font-weight:700}.pulse-title{font-size:31px;line-height:1.05;font-weight:850;margin-top:7px}.pulse-sub{font-size:13px;line-height:1.6;opacity:.82;max-width:700px;margin-top:10px}.pulse-hero-box{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);border-radius:18px;padding:16px}.pulse-hero-box .label{font-size:10px;opacity:.72}.pulse-hero-box .value{font-size:27px;font-weight:850;margin-top:5px}.pulse-stat-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin:16px 0 22px}.pulse-stat{padding:15px;border:1px solid var(--border);background:var(--surface);border-radius:17px;box-shadow:0 6px 24px rgba(15,23,42,.04)}.pulse-stat .icon{font-size:18px}.pulse-stat .label{font-size:10px;color:var(--muted);margin-top:9px}.pulse-stat .value{font-size:21px;font-weight:800;margin-top:2px}.pulse-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(320px,.7fr);gap:18px}.pulse-two{display:grid;grid-template-columns:1fr 1fr;gap:18px}.pulse-card{background:var(--surface);border:1px solid var(--border);border-radius:19px;box-shadow:0 7px 26px rgba(15,23,42,.045)}.pulse-card-h{padding:16px 17px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}.pulse-card-b{padding:17px}.pulse-section-title{font-size:14px;font-weight:800}.pulse-section-sub{font-size:11px;color:var(--muted);margin-top:2px}.pulse-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 13px;border-radius:12px;border:1px solid var(--border);font-size:12px;font-weight:750;transition:.18s}.pulse-btn:hover{transform:translateY(-1px)}.pulse-btn.primary{background:linear-gradient(135deg,var(--p),var(--p2));color:white;border-color:transparent;box-shadow:0 10px 22px rgba(91,92,240,.18)}.pulse-btn.ghost{background:var(--surface2);color:var(--text)}.pulse-btn.good{background:rgba(18,183,106,.1);color:#079455;border-color:rgba(18,183,106,.2)}.pulse-btn.bad{background:rgba(240,68,56,.1);color:#d92d20;border-color:rgba(240,68,56,.2)}.dark .pulse-btn.good{color:#75e2b0}.dark .pulse-btn.bad{color:#ff9d96}
+.pulse-hero-grid{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,.6fr);gap:20px;align-items:end}.pulse-kicker{font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.72;font-weight:700}.pulse-title{font-size:31px;line-height:1.05;font-weight:850;margin-top:7px}.pulse-sub{font-size:13px;line-height:1.6;opacity:.82;max-width:700px;margin-top:10px}.pulse-hero-box{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);border-radius:18px;padding:16px}.pulse-hero-box .label{font-size:10px;opacity:.72}.pulse-hero-box .value{font-size:27px;font-weight:850;margin-top:5px}.pulse-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin:16px 0 22px}.pulse-stat{padding:15px;border:1px solid var(--border);background:var(--surface);border-radius:17px;box-shadow:0 6px 24px rgba(15,23,42,.04)}.pulse-stat .icon{font-size:18px}.pulse-stat .label{font-size:10px;color:var(--muted);margin-top:9px}.pulse-stat .value{font-size:21px;font-weight:800;margin-top:2px}.pulse-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(320px,.7fr);gap:18px}.pulse-two{display:grid;grid-template-columns:1fr 1fr;gap:18px}.pulse-card{background:var(--surface);border:1px solid var(--border);border-radius:19px;box-shadow:0 7px 26px rgba(15,23,42,.045)}.pulse-card-h{padding:16px 17px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}.pulse-card-b{padding:17px}.pulse-section-title{font-size:14px;font-weight:800}.pulse-section-sub{font-size:11px;color:var(--muted);margin-top:2px}.pulse-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 13px;border-radius:12px;border:1px solid var(--border);font-size:12px;font-weight:750;transition:.18s}.pulse-btn:hover{transform:translateY(-1px)}.pulse-btn.primary{background:linear-gradient(135deg,var(--p),var(--p2));color:white;border-color:transparent;box-shadow:0 10px 22px rgba(91,92,240,.18)}.pulse-btn.ghost{background:var(--surface2);color:var(--text)}.pulse-btn.good{background:rgba(18,183,106,.1);color:#079455;border-color:rgba(18,183,106,.2)}.pulse-btn.bad{background:rgba(240,68,56,.1);color:#d92d20;border-color:rgba(240,68,56,.2)}.dark .pulse-btn.good{color:#75e2b0}.dark .pulse-btn.bad{color:#ff9d96}
 .pulse-list{display:flex;flex-direction:column;gap:9px}.pulse-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px;border-radius:14px;background:var(--surface2);border:1px solid var(--border)}.pulse-row-main{min-width:0}.pulse-row-title{font-size:12px;font-weight:750}.pulse-row-meta{font-size:10px;color:var(--muted);margin-top:3px}.pulse-avatar{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(91,92,240,.15),rgba(124,58,237,.15));color:var(--p);font-weight:850;flex:0 0 auto}.pulse-status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:7px}.pulse-progress{height:8px;border-radius:999px;background:var(--surface2);overflow:hidden;border:1px solid var(--border)}.pulse-progress>span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--p),var(--p2))}.pulse-pill{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border-radius:999px;font-size:10px;font-weight:750;background:var(--surface2);border:1px solid var(--border)}.pulse-pill.good{background:rgba(18,183,106,.08);color:#079455;border-color:rgba(18,183,106,.18)}.pulse-pill.warn{background:rgba(247,144,9,.09);color:#b54708;border-color:rgba(247,144,9,.2)}.pulse-pill.bad{background:rgba(240,68,56,.08);color:#d92d20;border-color:rgba(240,68,56,.2)}.dark .pulse-pill.good{color:#75e2b0}.dark .pulse-pill.warn{color:#fdba74}.dark .pulse-pill.bad{color:#ff9d96}
 .pulse-empty{padding:32px 16px;text-align:center;color:var(--muted);font-size:12px;border:1px dashed var(--border);border-radius:15px}.pulse-alert{padding:12px 13px;border-radius:14px;border:1px solid var(--border);background:var(--surface2);font-size:11px}.pulse-alert + .pulse-alert{margin-top:8px}.pulse-alert strong{font-weight:800}.pulse-time{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.pulse-table{width:100%;border-collapse:separate;border-spacing:0 7px;font-size:11px}.pulse-table th{color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.08em;text-align:left;padding:0 10px 3px}.pulse-table td{background:var(--surface2);border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:11px 10px}.pulse-table td:first-child{border-left:1px solid var(--border);border-radius:12px 0 0 12px}.pulse-table td:last-child{border-right:1px solid var(--border);border-radius:0 12px 12px 0}.pulse-filter{display:flex;flex-wrap:wrap;gap:7px}.pulse-input{width:100%;border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:12px;padding:10px 12px;font-size:12px;outline:0}.pulse-input:focus{border-color:#9296f6;box-shadow:0 0 0 4px rgba(91,92,240,.08)}.pulse-textarea{min-height:100px;resize:vertical}.pulse-modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.55);backdrop-filter:blur(4px);z-index:70;display:none;align-items:flex-start;justify-content:center;padding:8vh 16px}.pulse-modal-backdrop.show{display:flex}.pulse-modal{width:min(760px,100%);background:var(--surface);border:1px solid var(--border);border-radius:22px;box-shadow:0 30px 90px rgba(0,0,0,.25);overflow:hidden}.pulse-modal-head{display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid var(--border)}.pulse-command-list{max-height:55vh;overflow:auto;padding:8px}.pulse-command-item{display:flex;align-items:center;gap:12px;padding:12px;border-radius:13px;font-size:12px}.pulse-command-item:hover{background:var(--surface2)}.pulse-key{margin-left:auto;font-size:9px;color:var(--muted);border:1px solid var(--border);padding:3px 6px;border-radius:7px}.pulse-sidebar-sub{padding-left:9px;border-left:1px dashed var(--border);margin-left:6px}.pulse-footer{color:var(--muted);font-size:10px;padding:24px 0 10px;text-align:center}.pulse-shimmer{animation:pulseShimmer 1.6s infinite linear;background:linear-gradient(90deg,var(--surface2) 25%,rgba(255,255,255,.45) 50%,var(--surface2) 75%);background-size:200% 100%}@keyframes pulseShimmer{to{background-position:-200% 0}}
 .pulse-nav-group summary{list-style:none;cursor:pointer;user-select:none}.pulse-nav-group summary::-webkit-details-marker{display:none}.pulse-nav-group summary:after{content:"▸";float:right;transition:transform .15s}.pulse-nav-group[open] summary:after{transform:rotate(90deg)}
@@ -120,6 +120,74 @@ button[data-busy="1"]{opacity:.65;cursor:progress}
 time[data-relative]{cursor:help}
 .pulse-toast{position:sticky;top:12px;z-index:45;background:var(--surface)}
 @media (max-width:767px){.pulse-toast{top:62px}}
+
+/* Pulse OpenClaw visual system – shared by every authenticated dashboard page. */
+.pulse-shell{max-width:1600px}
+.pulse-topbar{border-color:var(--border);background:color-mix(in srgb,var(--surface) 92%,transparent);border-radius:16px;box-shadow:0 12px 34px rgba(0,0,0,.08)}
+.pulse-brand-mark{background:linear-gradient(135deg,#FF765C,#FF947B);box-shadow:0 8px 20px rgba(255,118,92,.20)}
+.pulse-hero{border-color:rgba(255,118,92,.22);background:linear-gradient(115deg,#191D23 0%,#15191F 60%,#202229 100%);box-shadow:0 22px 55px rgba(0,0,0,.16)}
+.pulse-hero:after{background:rgba(255,118,92,.10);box-shadow:0 0 0 28px rgba(255,118,92,.035),0 0 0 56px rgba(255,118,92,.018)}
+.pulse-hero .pulse-kicker{color:#FFB09E;opacity:1}
+.pulse-hero .pulse-sub{color:#D1D5DB;opacity:1}
+.pulse-hero-box{background:rgba(255,255,255,.055);border-color:rgba(255,255,255,.12)}
+.pulse-stat,.pulse-card{border-color:var(--border);box-shadow:0 8px 24px rgba(0,0,0,.055)}
+.pulse-stat{border-radius:15px}
+.pulse-card{border-radius:17px}
+.pulse-card-h{border-color:var(--border)}
+.pulse-btn.primary{background:linear-gradient(135deg,#FF765C,#F46F58);box-shadow:0 8px 20px rgba(255,118,92,.18)}
+.pulse-btn.primary:hover{background:linear-gradient(135deg,#FF8972,#F77D67)}
+.pulse-btn.ghost:hover,.pulse-icon-btn:hover{border-color:rgba(255,118,92,.48);color:var(--p)}
+.pulse-avatar{background:rgba(255,118,92,.11);color:var(--p)}
+.pulse-progress>span{background:linear-gradient(90deg,#FF765C,#FFAD98)}
+.pulse-input:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(255,118,92,.12)}
+:focus-visible{outline-color:var(--p)!important}
+.pulse-pill{border-radius:8px}
+.pulse-area-switch{background:var(--surface2);border:1px solid var(--border)}
+.pulse-area-switch a{color:var(--muted)}
+.pulse-area-switch a.on{background:rgba(255,118,92,.13);color:var(--p);box-shadow:none}
+.dark .pulse-area-switch a.on{background:rgba(255,118,92,.14);color:#FF9B86}
+#pulseSidebar{background:var(--surface)!important;border-color:var(--border)!important;color:var(--text)}
+#pulseSidebar nav a{color:var(--muted);border:1px solid transparent}
+#pulseSidebar nav a:hover{background:var(--surface2);color:var(--text)}
+#pulseSidebar nav .nav-active{background:rgba(255,118,92,.105)!important;color:#D95F49!important;border-color:rgba(255,118,92,.20)!important;box-shadow:none!important}
+.dark #pulseSidebar nav .nav-active{color:#FF9B86!important}
+#pulseSidebar .pulse-nav-group{margin-top:12px}
+#pulseSidebar .pulse-nav-group>summary{display:flex;align-items:center;gap:8px;padding:8px 9px;margin-bottom:5px;border-radius:9px;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
+#pulseSidebar .pulse-nav-group>summary:hover{background:var(--surface2);color:var(--text)}
+#pulseSidebar .pulse-primary-group{margin-top:7px}
+#pulseSidebar .pulse-primary-content{display:flex;flex-direction:column;gap:3px;padding:1px 0 4px}
+#pulseSidebar.pulse-sidebar-collapsed{width:76px!important;padding-left:10px!important;padding-right:10px!important}
+#pulseSidebar.pulse-sidebar-collapsed .pulse-brand-copy,
+#pulseSidebar.pulse-sidebar-collapsed .pulse-area-switch,
+#pulseSidebar.pulse-sidebar-collapsed .pulse-nav-group>summary{display:none!important}
+#pulseSidebar.pulse-sidebar-collapsed .pulse-brand-mark{margin:0 auto}
+#pulseSidebar.pulse-sidebar-collapsed .pulse-sidebar-collapse-btn{margin:0 auto;transform:rotate(180deg)}
+#pulseSidebar.pulse-sidebar-collapsed nav a{justify-content:center;padding-left:8px;padding-right:8px}
+#pulseSidebar.pulse-sidebar-collapsed nav a>span:first-of-type,
+#pulseSidebar.pulse-sidebar-collapsed nav a .ml-auto{display:none!important}
+#pulseSidebar.pulse-sidebar-collapsed .pulse-primary-content,
+#pulseSidebar.pulse-sidebar-collapsed .pulse-advanced-content,
+#pulseSidebar.pulse-sidebar-collapsed .pulse-sidebar-sub{padding:0;margin:0;border:0}
+#pulseSidebar.pulse-sidebar-collapsed details:not([open])>.pulse-primary-content,
+#pulseSidebar.pulse-sidebar-collapsed details:not([open])>.pulse-advanced-content,
+#pulseSidebar.pulse-sidebar-collapsed details:not([open])>.pulse-sidebar-sub{display:flex!important;flex-direction:column;gap:3px}
+#pulseSidebar.pulse-sidebar-collapsed .pulse-advanced-content,
+#pulseSidebar.pulse-sidebar-collapsed .pulse-sidebar-sub{display:flex!important;flex-direction:column;gap:4px}
+#pulseSidebar.pulse-sidebar-collapsed .mt-5 .min-w-0{display:none}
+#pulseSidebar.pulse-sidebar-collapsed .mt-5>a{width:38px;height:38px;padding:0;margin:0 auto;font-size:0}
+#pulseSidebar.pulse-sidebar-collapsed .mt-5>a:before{content:"↤";font-size:16px}
+#pulseSidebar .pulse-nav-group>summary:after{margin-left:auto;float:none;font-size:12px}
+#pulseSidebar .pulse-nav-subgroup{margin:4px 0 0 8px}
+#pulseSidebar .pulse-nav-subgroup>summary{font-size:9px;letter-spacing:.06em;text-transform:none;padding:7px 9px}
+#pulseSidebar .pulse-advanced-content{padding:2px 0 5px}
+#pulseSidebar .pulse-nav-count{margin-left:auto;padding:2px 6px;border-radius:6px;background:var(--surface2);font-size:9px;letter-spacing:0}
+#pulseSidebar .pulse-sidebar-sub{border-color:var(--border)}
+.pulse-legacy .hero{border-color:rgba(255,118,92,.18);background:linear-gradient(135deg,rgba(255,118,92,.10),rgba(255,148,123,.035)),var(--surface)}
+.pulse-legacy .blue{color:var(--p);background:rgba(255,118,92,.09);border-color:rgba(255,118,92,.2)}
+.pulse-legacy .primary{background:linear-gradient(135deg,#FF765C,#FF947B);border-color:transparent}
+.pulse-legacy .btn:hover{border-color:rgba(255,118,92,.45)}
+.pulse-legacy .input:focus,.pulse-legacy .select:focus,.pulse-legacy .ta:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(255,118,92,.12)}
+@media(max-width:767px){.pulse-shell{width:100%}#pulseSidebar{box-shadow:18px 0 48px rgba(0,0,0,.20)}.pulse-grid{grid-template-columns:1fr}.pulse-hero-grid{grid-template-columns:1fr}}
 </style>
 """
 
@@ -235,7 +303,7 @@ def make_shell_helpers(ws):
     old_log = ws.log_audit
 
     def patched_head(title: str):
-        return old_head(title) + '<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#5b5cf0"><meta name="mobile-web-app-capable" content="yes">' + PRO_CSS + PRO_JS
+        return old_head(title) + '<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#FF765C"><meta name="mobile-web-app-capable" content="yes">' + PRO_CSS + PRO_JS
 
 
     def patched_log(actor_name, actor_id, action, details):
@@ -248,7 +316,7 @@ def make_shell_helpers(ws):
     def nav_item(key, href, icon, label, active, badge_text=""):
         cls = "nav-active" if active else ""
         badge = f'<span class="ml-auto min-w-5 text-center text-[9px] rounded-full bg-rose-500 text-white px-1.5 py-0.5">{badge_text}</span>' if badge_text else ""
-        return f'<a href="{href}" class="{cls} flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium transition hover:bg-slate-100 dark:hover:bg-slate-800/60">{icon}<span>{label}</span>{badge}</a>'
+        return f'<a href="{href}" aria-label="{label}" title="{label}" class="{cls} flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium transition hover:bg-slate-100 dark:hover:bg-slate-800/60">{icon}<span>{label}</span>{badge}</a>'
 
     def patched_sidebar(guild_name, current_page="dashboard", current_user=None, perms=None):
         perms = perms or {}; current_user = current_user or {}
@@ -256,22 +324,27 @@ def make_shell_helpers(ws):
         try: unread = db.unread_count(uid) if uid else 0
         except Exception: unread = 0
         groups = [
-            ("Arbeitsbereich", [
+            ("Mein Bereich", [
                 ("me","/me","★","Mein Pulse",True,False),
-                ("cockpit","/cockpit","◆","Leitungs-Cockpit",perms.get("can_promote") or perms.get("is_admin"),False),
                 ("dashboard","/dashboard","⌂","Übersicht",True,False),
                 ("inbox","/pulse-inbox","◈","Inbox",True,False),
+                ("cockpit","/cockpit","◆","Leitungs-Cockpit",perms.get("can_promote") or perms.get("is_admin"),False),
+            ]),
+            ("Team", [
+                ("team","/team","◌","Teamliste",True,False),
                 ("team-status","/team-status","◉","Teamstatus",perms.get("can_view_team_status",True),False),
                 ("activity-check","/activity-check","✓","Activity Check",perms.get("can_manage_checkins") or perms.get("is_admin"),False),
                 ("melonly","/melonly","🛡️","Melonly",perms.get("can_warn") or perms.get("can_add_notes") or perms.get("is_admin"),False),
                 ("warns","/warns","⚠","Verwarnungszentrale",perms.get("can_warn") or perms.get("is_admin"),False),
-                ("team","/team","◌","Teamliste",True,False),
+                ("wiki","/wiki","▤","Team-Wiki",True,False),
+                ("factions","/factions","⚑","Fraktionsverwaltung",perms.get("can_manage_factions"),False),
             ]),
-            ("Workflow", [
+            ("Support", [
                 ("tickets","/tickets","▣","Tickets",True,False),
                 ("voice-support","/voice-support","🎧","Sprach-Support",perms.get("can_manage_tickets") or perms.get("can_promote") or perms.get("is_admin"),False),
+            ]),
+            ("Recruiting", [
                 ("applications","/applications","✎","Bewerbungen",True,False),
-                ("factions","/factions","⚑","Fraktionsverwaltung",perms.get("can_manage_factions"),False),
             ]),
             ("Planung", [
                 ("meetings","/meetings","◫","Meetings",True,False),
@@ -279,7 +352,6 @@ def make_shell_helpers(ws):
                 ("calendar","/calendar","□","Kalender",True,False),
                 ("loa","/loa","☾","Abmeldungen",True,False),
                 ("training","/training","◇","Schulungen",True,False),
-                ("wiki","/wiki","▤","Team-Wiki",True,False),
             ]),
             ("Auswertung", [
                 ("stats","/stats","◒","Analytics",perms.get("can_view_analytics",False),False),
@@ -305,21 +377,55 @@ def make_shell_helpers(ws):
                                             if key in SERVER_SECTION_KEYS])]
         for group, items in groups:
             visible = [x for x in items if x[4]]
-            if not visible: continue
-            nav.append(f'<div class="px-2 mt-4 mb-2 text-[9px] font-bold uppercase tracking-[.14em] text-slate-400">{group}</div>')
-            for key, href, icon, label, _shown, _ in visible:
-                badge_text = unread if key == "inbox" and unread else ""
-                nav.append(nav_item(key, href, icon, label, current_page == key, str(badge_text)))
-        # Former separate dashboards (Ultimate/TeamOS 2.0 and Operations Suite) share this
-        # sidebar; their sections collapse and open automatically when one of their pages is active.
+            if not visible:
+                continue
+            is_open = any(item[0] == current_page for item in visible)
+            links = "".join(
+                nav_item(
+                    key, href, icon, label, current_page == key,
+                    str(unread if key == "inbox" and unread else "")
+                )
+                for key, href, icon, label, _shown, _ in visible
+            )
+            nav.append(
+                f'<details class="pulse-nav-group pulse-primary-group"{" open" if is_open else ""}>'
+                f'<summary>{group}</summary><div class="pulse-primary-content">{links}</div></details>'
+            )
+        # Erweiterte Funktionen bleiben vollständig erreichbar, beanspruchen aber nicht länger
+        # zwei dauerhaft sichtbare Navigationsblöcke. Die aktive Untergruppe öffnet sich automatisch.
         from pulse_design import SUITE_NAV, ULTIMATE_NAV, visible_nav
         leader = bool(perms.get("can_promote") or perms.get("is_admin"))
-        for prefix, group, items in (() if admin_mode else (("u", "Command Center", ULTIMATE_NAV), ("s", "Operations Suite", SUITE_NAV))):
-            entries = visible_nav(items, leader)
-            if not entries: continue
-            is_open = str(current_page).startswith(prefix + ":")
-            links = "".join(nav_item(f"{prefix}:{key}", href, label.split(" ", 1)[0], label.split(" ", 1)[1] if " " in label else label, current_page == f"{prefix}:{key}") for key, href, label, _ in entries)
-            nav.append(f'<details class="pulse-nav-group mt-4"{" open" if is_open else ""}><summary class="px-2 mb-2 text-[9px] font-bold uppercase tracking-[.14em] text-slate-400">{group}</summary><div class="pulse-sidebar-sub">{links}</div></details>')
+        if not admin_mode:
+            advanced = []
+            advanced_count = 0
+            for prefix, group, items in (("u", "Command Center", ULTIMATE_NAV), ("s", "Operations Suite", SUITE_NAV)):
+                # Aufgaben, Freigaben und Übergaben bleiben über ihre URLs erreichbar,
+                # werden aber auf Wunsch nicht als zusätzliche Sidebar-Menüpunkte geführt.
+                hidden_keys = {"handover", "approvals", "tasks2"} if prefix == "u" else {"tasks"}
+                entries = [item for item in visible_nav(items, leader) if item[0] not in hidden_keys]
+                if not entries:
+                    continue
+                advanced_count += len(entries)
+                is_open = str(current_page).startswith(prefix + ":")
+                links = "".join(
+                    nav_item(
+                        f"{prefix}:{key}", href, label.split(" ", 1)[0],
+                        label.split(" ", 1)[1] if " " in label else label,
+                        current_page == f"{prefix}:{key}"
+                    )
+                    for key, href, label, _ in entries
+                )
+                advanced.append(
+                    f'<details class="pulse-nav-group pulse-nav-subgroup"{" open" if is_open else ""}>'
+                    f'<summary>{group}</summary><div class="pulse-sidebar-sub">{links}</div></details>'
+                )
+            if advanced:
+                is_open = str(current_page).startswith(("u:", "s:"))
+                nav.append(
+                    f'<details class="pulse-nav-group pulse-advanced-group"{" open" if is_open else ""}>'
+                    f'<summary>Erweiterte Funktionen <span class="pulse-nav-count">{advanced_count}</span></summary>'
+                    f'<div class="pulse-advanced-content">{"".join(advanced)}</div></details>'
+                )
         user_name = ws.esc(current_user.get("global_name") or current_user.get("username") or "Team")
         avatar_id=current_user.get("avatar"); user_id=current_user.get("id")
         avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_id}.png" if avatar_id and user_id else "https://cdn.discordapp.com/embed/avatars/0.png"
@@ -328,13 +434,13 @@ def make_shell_helpers(ws):
         .dark #pulseSidebar .nav-active{{color:#a8abff}}
         .pulse-area-switch{{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:rgba(148,163,184,.12);margin-bottom:6px}}
         .pulse-area-switch a{{text-align:center;font-size:11px;font-weight:800;padding:8px 6px;border-radius:10px;color:#64748b}}
-        .pulse-area-switch a.on{{background:#fff;color:#4f46e5;box-shadow:0 2px 8px rgba(15,23,42,.08)}}.dark .pulse-area-switch a.on{{background:#1b2133;color:#a8abff}}@media(min-width:768px){{#pulseSidebar{{display:flex!important}}#pulseMobileBtn,#pulseBackdrop{{display:none!important}}}}
+        .pulse-area-switch a.on{{background:#fff;color:#4f46e5;box-shadow:0 2px 8px rgba(15,23,42,.08)}}.dark .pulse-area-switch a.on{{background:#1b2133;color:#a8abff}}@media(max-width:767px){{#pulseSidebar .pulse-sidebar-collapse-btn{{display:none!important}}}}@media(min-width:768px){{#pulseSidebar{{display:flex!important}}#pulseMobileBtn,#pulseBackdrop{{display:none!important}}#pulseSidebar .pulse-sidebar-collapse-btn{{display:grid!important}}}}
         </style>
         <button id="pulseMobileBtn" onclick="pulseOpenNav()" aria-label="Navigation öffnen" aria-controls="pulseSidebar" aria-expanded="false" class="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white dark:bg-[#111522] border border-slate-200 dark:border-slate-700 shadow-lg">☰</button>
         <div id="pulseBackdrop" onclick="pulseCloseNav()" aria-hidden="true" class="hidden fixed inset-0 bg-black/55 z-40"></div>
         <aside id="pulseSidebar" aria-label="Hauptnavigation" class="hidden fixed md:sticky top-0 left-0 z-50 h-screen w-[276px] overflow-y-auto bg-white dark:bg-[#111522] border-r border-slate-200 dark:border-slate-800 flex-col justify-between p-4 shrink-0">
           <div>
-            <div class="flex items-center gap-3 px-1 mb-5"><div class="pulse-brand-mark">P</div><div class="min-w-0"><div class="text-sm font-extrabold truncate">Pulse TeamOS</div><div class="text-[10px] text-slate-400 truncate">{ws.esc(guild_name)} · v{VERSION}</div></div></div>
+            <div class="flex items-center gap-3 px-1 mb-5"><div class="pulse-brand-mark">P</div><div class="pulse-brand-copy min-w-0 flex-1"><div class="text-sm font-extrabold truncate">Pulse TeamOS</div><div class="text-[10px] text-slate-400 truncate">{ws.esc(guild_name)} · v{VERSION}</div></div><button type="button" id="pulseSidebarCollapseBtn" onclick="pulseToggleSidebarCollapsed()" aria-label="Sidebar einklappen" aria-pressed="false" title="Sidebar einklappen" class="pulse-sidebar-collapse-btn hidden md:grid w-8 h-8 place-items-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-900 dark:hover:text-white">‹</button></div>
             <button onclick="pulseTogglePalette(true)" class="w-full flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0c101a] px-3 py-2.5 text-xs text-slate-400 text-left mb-4"><span>⌕</span><span class="flex-1">Schnell suchen…</span><kbd class="text-[9px] border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5">Ctrl K</kbd></button>
             <nav>{''.join(nav)}</nav>
           </div>
@@ -343,7 +449,28 @@ def make_shell_helpers(ws):
             <a href="/logout" class="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800/70 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-slate-600 dark:text-slate-300">↤ Abmelden</a>
           </div>
         </aside>
-        <script>function pulseOpenNav(){{document.getElementById('pulseSidebar').classList.remove('hidden');document.getElementById('pulseSidebar').classList.add('flex');document.getElementById('pulseBackdrop').classList.remove('hidden');document.getElementById('pulseMobileBtn').setAttribute('aria-expanded','true')}}function pulseCloseNav(){{document.getElementById('pulseSidebar').classList.add('hidden');document.getElementById('pulseSidebar').classList.remove('flex');document.getElementById('pulseBackdrop').classList.add('hidden');document.getElementById('pulseMobileBtn').setAttribute('aria-expanded','false')}}document.addEventListener('keydown',function(e){{if(e.key==='Escape')pulseCloseNav()}})</script>
+        <script>
+        function pulseOpenNav(){{document.getElementById('pulseSidebar').classList.remove('hidden');document.getElementById('pulseSidebar').classList.add('flex');document.getElementById('pulseBackdrop').classList.remove('hidden');document.getElementById('pulseMobileBtn').setAttribute('aria-expanded','true')}}
+        function pulseCloseNav(){{document.getElementById('pulseSidebar').classList.add('hidden');document.getElementById('pulseSidebar').classList.remove('flex');document.getElementById('pulseBackdrop').classList.add('hidden');document.getElementById('pulseMobileBtn').setAttribute('aria-expanded','false')}}
+        function pulseToggleSidebarCollapsed(){{
+          const sidebar=document.getElementById('pulseSidebar'),button=document.getElementById('pulseSidebarCollapseBtn');
+          if(!sidebar||!button)return;
+          const collapsed=sidebar.classList.toggle('pulse-sidebar-collapsed');
+          try{{localStorage.setItem('pulse.sidebar.collapsed',collapsed?'1':'0')}}catch(_){{}}
+          button.setAttribute('aria-pressed',String(collapsed));
+          button.setAttribute('aria-label',collapsed?'Sidebar ausklappen':'Sidebar einklappen');
+          button.setAttribute('title',collapsed?'Sidebar ausklappen':'Sidebar einklappen');
+        }}
+        (function(){{
+          let collapsed=false;
+          try{{collapsed=localStorage.getItem('pulse.sidebar.collapsed')==='1'}}catch(_){{}}
+          if(collapsed&&window.matchMedia('(min-width: 768px)').matches){{
+            const apply=()=>{{const sidebar=document.getElementById('pulseSidebar'),button=document.getElementById('pulseSidebarCollapseBtn');if(!sidebar||!button)return;sidebar.classList.add('pulse-sidebar-collapsed');button.setAttribute('aria-pressed','true');button.setAttribute('aria-label','Sidebar ausklappen');button.setAttribute('title','Sidebar ausklappen')}};
+            if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',apply,{{once:true}});else apply();
+          }}
+        }})();
+        document.addEventListener('keydown',function(e){{if(e.key==='Escape')pulseCloseNav()}})
+        </script>
         '''
 
     ws.get_head_html = patched_head
@@ -911,11 +1038,11 @@ def register(app):
         events=db.events(limit=10)
         recent_html="".join(f'<div class="pulse-row"><div class="pulse-avatar">{e("EV" if ev["actor_name"]=="System" else initials(ev["actor_name"]))}</div><div class="pulse-row-main"><div class="pulse-row-title">{e(recent_event_title(ev.get("event_type")))}</div><div class="pulse-row-meta">{e(ev["actor_name"] or "System")} · {e(fmt_dt(ev["created_at"]))}</div></div></div>' for ev in events)
         duty_html="".join(f'<div class="pulse-row"><div class="flex items-center gap-3 min-w-0"><div class="pulse-avatar">{e(initials(m.display_name))}</div><div class="pulse-row-main"><div class="pulse-row-title truncate">{e(m.display_name)}</div><div class="pulse-row-meta">{e(member_role(m,ids))}</div></div></div><div class="text-right"><div>{pill("Pause" if sh.get("status")=="break" else "Im Dienst", "warn" if sh.get("status")=="break" else "good")}</div><div class="pulse-row-meta pulse-time">{ws.fmt_duration(ws.shift_elapsed(sh))}</div></div></div>' for m,sh in active_people[:10])
-        urgent=""
-        if s["apps"]: urgent += f'<a href="/applications" class="pulse-alert"><strong>✎ {s["apps"]} offene Bewerbungen</strong><div class="text-slate-400 mt-1">Bitte zeitnah bearbeiten.</div></a>'
         teamdb=ws.load_json(ws.DATA_FILE,{})
         active_warn_total=sum(len(ws.active_warns(v)) for v in teamdb.values() if isinstance(v,dict))
         critical_warn_people=sum(1 for v in teamdb.values() if isinstance(v,dict) and len(ws.active_warns(v)) >=5)
+        urgent=""
+        if s["apps"]: urgent += f'<a href="/applications" class="pulse-alert"><strong>✎ {s["apps"]} offene Bewerbungen</strong><div class="text-slate-400 mt-1">Bitte zeitnah bearbeiten.</div></a>'
         if critical_warn_people:
             urgent += f'<a href="/warns" class="pulse-alert"><strong>🚨 {critical_warn_people} Teamler bei 5/5 Warnungen</strong><div class="text-slate-400 mt-1">Verwarnungen und Konsequenzen prüfen.</div></a>'
         elif active_warn_total:
@@ -926,12 +1053,12 @@ def register(app):
         shift_badge={"online":"Im Dienst","break":"Pause","offline":"Offline"}.get(status,"Offline")
         shift_kind="good" if status=="online" else "warn" if status=="break" else ""
         shift_actions=(f'<form action="/shift/action" method="post" class="flex flex-wrap gap-2"><button name="shift_action" value="break" class="pulse-btn ghost">⏸ Pause</button><button name="shift_action" value="end" class="pulse-btn bad">⏹ Beenden</button></form>' if status=="online" else f'<form action="/shift/action" method="post" class="flex flex-wrap gap-2"><button name="shift_action" value="resume" class="pulse-btn good">▶ Fortsetzen</button><button name="shift_action" value="end" class="pulse-btn bad">⏹ Beenden</button></form>' if status=="break" else '<form action="/shift/action" method="post"><button name="shift_action" value="start" class="pulse-btn primary w-full">▶ Schicht starten</button></form>')
-        body=f'''<div class="pulse-topbar"><div class="pulse-brand"><div class="pulse-brand-mark">P</div><div><div class="text-sm font-extrabold">Operations Center</div><div class="text-[10px] text-slate-400">Live-Übersicht · {e(c.guild.name)}</div></div></div><button onclick="pulseTogglePalette(true)" class="pulse-btn ghost hidden sm:inline-flex">⌕ Suchen <span class="pulse-key">Ctrl K</span></button><div class="flex items-center gap-2"><span class="pulse-pill good"><span class="pulse-status-dot bg-emerald-500"></span>System online</span><button onclick="pulseToggleTheme()" class="pulse-icon-btn">◐</button></div></div>
-        <section class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Willkommen zurück</div><div class="pulse-title">{e(c.user.get("global_name") or c.user.get("username"))}</div><div class="pulse-sub">Hier siehst du sofort, was für das Team ansteht: Support, Aufgaben, Abwesenheiten, Bewerbungen und deine eigene Aktivität.</div><div class="flex flex-wrap gap-2 mt-5"><a href="/team-status" class="pulse-btn" style="background:rgba(255,255,255,.1);color:white;border-color:rgba(255,255,255,.18)">◉ Teamstatus ansehen</a></div></div><div class="pulse-hero-box"><div class="label">DEINE WOCHEN-AKTIVITÄT</div><div class="value">{ws.fmt_duration(s["weekly"])}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{pct}%;background:white"></span></div><div class="text-[10px] mt-2 opacity-75">{pct}% von {goal:g}h Wochenziel</div></div></div></section>
-        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Team im Dienst</div><div class="value" data-live="active">{s["active"]}</div></div><div class="pulse-stat"><div class="icon">▣</div><div class="label">Offene Tickets</div><div class="value" data-live="open_tickets">{len(open_t)}</div></div><div class="pulse-stat"><div class="icon">✎</div><div class="label">Bewerbungen</div><div class="value" data-live="applications">{s["apps"]}</div></div><div class="pulse-stat"><div class="icon">☾</div><div class="label">Aktive LOA</div><div class="value" data-live="loas">{s["loas"]}</div></div></div>
+        body=f'''<div class="pulse-topbar"><div class="pulse-brand"><div class="pulse-brand-mark">P</div><div><div class="text-sm font-extrabold">Pulse TeamOS</div><div class="text-[10px] text-slate-400">Teamübersicht · {e(c.guild.name)}</div></div></div><button onclick="pulseTogglePalette(true)" class="pulse-btn ghost hidden sm:inline-flex">⌕ Suchen <span class="pulse-key">Ctrl K</span></button><div class="flex items-center gap-2"><span class="pulse-pill good"><span class="pulse-status-dot bg-emerald-500"></span>System online</span><button onclick="pulseToggleTheme()" class="pulse-icon-btn">◐</button></div></div>
+        <section class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Willkommen zurück</div><div class="pulse-title">{e(c.user.get("global_name") or c.user.get("username"))}</div><div class="pulse-sub">Dein zentraler Überblick über Team, Support und die wichtigsten offenen Vorgänge.</div><div class="flex flex-wrap gap-2 mt-5"><a href="/team-status" class="pulse-btn" style="background:rgba(255,255,255,.1);color:white;border-color:rgba(255,255,255,.18)">◉ Teamstatus ansehen</a></div></div><div class="pulse-hero-box"><div class="label">DEINE WOCHEN-AKTIVITÄT</div><div class="value">{ws.fmt_duration(s["weekly"])}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{pct}%;background:white"></span></div><div class="text-[10px] mt-2 opacity-75">{pct}% von {goal:g}h Wochenziel</div></div></div></section>
+        <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">🟢</div><div class="label">Team im Dienst</div><div class="value" data-live="active">{s["active"]}</div></div><div class="pulse-stat"><div class="icon">▣</div><div class="label">Offene Tickets</div><div class="value" data-live="open_tickets">{len(open_t)}</div></div><div class="pulse-stat"><div class="icon">✎</div><div class="label">Bewerbungen</div><div class="value" data-live="applications">{s["apps"]}</div></div><div class="pulse-stat"><div class="icon">☾</div><div class="label">Aktive LOA</div><div class="value" data-live="loas">{s["loas"]}</div></div><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Verwarnungen</div><div class="value">{active_warn_total}</div></div></div>
         <div class="pulse-grid"><div class="space-y-4"><section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">⏱ Schicht-Steuerung</div><div class="pulse-section-sub">Pausen werden nicht als Arbeitszeit gezählt.</div></div>{pill(shift_badge,shift_kind)}</div><div class="pulse-card-b"><div class="flex items-end justify-between gap-4"><div><div class="text-[10px] text-slate-400">Aktuelle Dauer</div><div id="v5ShiftTimer" class="text-3xl font-extrabold pulse-time mt-1">{ws.fmt_duration(elapsed)}</div></div><div class="text-right"><div class="text-[10px] text-slate-400">Status</div><div class="text-sm font-bold mt-1">{shift_badge}</div></div></div><div class="mt-4">{shift_actions}</div></div></section>{card('Aufmerksamkeit',urgent,'!')}{card('Live im Dienst',duty_html or '<div class="pulse-empty">Niemand ist aktuell im Dienst.</div>','◉')}</div><div class="space-y-4">{card('Meine Inbox',n_html,'◈')}{card('Letzte Aktivität',recent_html or '<div class="pulse-empty">Noch keine zentralen Events erfasst.</div>','↯')}<section class="pulse-card"><div class="pulse-card-b"><div class="flex items-center justify-between"><div><div class="pulse-section-title">⚡ Schnellaktionen</div><div class="pulse-section-sub">Häufige Aufgaben direkt öffnen.</div></div></div><div class="grid grid-cols-2 gap-2 mt-3"><a href="/tickets" class="pulse-btn ghost">▣ Tickets</a><a href="/applications" class="pulse-btn ghost">✎ Bewerbung</a></div></div></section></div></div>'''
         head=f'''<script>document.addEventListener('DOMContentLoaded',()=>{{const el=document.getElementById('v5ShiftTimer');const base={elapsed};const running={str(status=='online').lower()};const t0=Date.now();function x(){{let s=base+(running?Math.floor((Date.now()-t0)/1000):0);el.textContent=Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m';}}x();if(running)setInterval(x,1000);}});</script>'''
-        return render_pro_page(ws,'Operations Center',c,'dashboard',body,head)
+        return render_pro_page(ws,'Übersicht',c,'dashboard',body,head)
 
     # ---------------- Inbox ----------------
     async def inbox_v5(request: Request, user_session: str=Cookie(None)):
