@@ -44,13 +44,16 @@ class DashboardRedesignTests(unittest.TestCase):
         self.assertIn('str(current_page).startswith(("u:", "s:"))', self.sidebar)
 
     def test_sidebar_collapse_is_persistent_and_accessible(self):
-        self.assertIn('id="pulseSidebarCollapseBtn"', self.sidebar)
-        self.assertIn("pulseToggleSidebarCollapsed", self.sidebar)
+        # The button and its script are emitted after the navigation function's local
+        # string-building section, so inspect the complete module rather than the
+        # truncated sidebar slice used for the navigation entries above.
+        self.assertIn('id="pulseSidebarCollapseBtn"', SOURCE)
+        self.assertIn("function pulseToggleSidebarCollapsed()", SOURCE)
         self.assertIn('aria-label="{label}" title="{label}"', self.sidebar)
-        self.assertIn("pulse.sidebar.collapsed", self.sidebar)
-        self.assertIn("aria-pressed", self.sidebar)
+        self.assertIn("pulse.sidebar.collapsed", SOURCE)
+        self.assertIn("aria-pressed", SOURCE)
         self.assertIn("pulse-sidebar-collapsed", SOURCE)
-        self.assertIn("min-width: 768px", self.sidebar)
+        self.assertIn("min-width: 768px", SOURCE)
 
     def test_removed_workflow_shortcuts_stay_out_of_sidebar(self):
         self.assertIn('hidden_keys = {"handover", "approvals", "tasks2"} if prefix == "u" else {"tasks"}', self.sidebar)
