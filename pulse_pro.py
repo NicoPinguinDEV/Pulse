@@ -366,10 +366,15 @@ def make_shell_helpers(ws):
         leader = bool(perms.get("can_promote") or perms.get("is_admin"))
         if not admin_mode:
             advanced = []
+            advanced_count = 0
             for prefix, group, items in (("u", "Command Center", ULTIMATE_NAV), ("s", "Operations Suite", SUITE_NAV)):
-                entries = visible_nav(items, leader)
+                # Aufgaben, Freigaben und Übergaben bleiben über ihre URLs erreichbar,
+                # werden aber auf Wunsch nicht als zusätzliche Sidebar-Menüpunkte geführt.
+                hidden_keys = {"handover", "approvals", "tasks2"} if prefix == "u" else {"tasks"}
+                entries = [item for item in visible_nav(items, leader) if item[0] not in hidden_keys]
                 if not entries:
                     continue
+                advanced_count += len(entries)
                 is_open = str(current_page).startswith(prefix + ":")
                 links = "".join(
                     nav_item(
@@ -387,7 +392,7 @@ def make_shell_helpers(ws):
                 is_open = str(current_page).startswith(("u:", "s:"))
                 nav.append(
                     f'<details class="pulse-nav-group pulse-advanced-group"{" open" if is_open else ""}>'
-                    f'<summary>Erweiterte Funktionen <span class="pulse-nav-count">{sum(len(visible_nav(items, leader)) for items in (ULTIMATE_NAV, SUITE_NAV))}</span></summary>'
+                    f'<summary>Erweiterte Funktionen <span class="pulse-nav-count">{advanced_count}</span></summary>'
                     f'<div class="pulse-advanced-content">{"".join(advanced)}</div></details>'
                 )
         user_name = ws.esc(current_user.get("global_name") or current_user.get("username") or "Team")
