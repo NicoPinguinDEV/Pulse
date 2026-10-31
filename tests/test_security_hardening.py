@@ -19,15 +19,25 @@ import webserver as ws
 BROWSER = {"Origin": "http://testserver"}
 
 
+JSON_STORES = ("DATA_FILE", "CONFIG_FILE", "APPS_FILE", "SHIFTS_FILE", "LOGS_FILE", "AUDIT_FILE", "MEETINGS_FILE")
+
+
 class TempDb(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.db = patch.object(pulse_db, "DB_PATH", str(Path(self.tmp.name) / "pulse.db"))
         self.db.start()
+        # Phase 8: the JSON stores are relative paths – without this, promotion/role/privacy tests wrote
+        # team_data.json and audit_logs.json into the current directory (a checkout with real team data).
+        self.json_paths = [patch.object(ws, name, str(Path(self.tmp.name) / getattr(ws, name))) for name in JSON_STORES]
+        for p in self.json_paths:
+            p.start()
         pulse_db.init_db()
         ws._rate_hits.clear()
 
     def tearDown(self):
+        for p in reversed(self.json_paths):
+            p.stop()
         self.db.stop()
         self.tmp.cleanup()
 

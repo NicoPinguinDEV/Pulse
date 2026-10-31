@@ -14,6 +14,7 @@ class FakeRole:
         self.mention = f"<@&{rid}>"
         self.members: list = []
         self.color = SimpleNamespace(value=0x5B5CF0)  # discord.Colour stand-in (role_hex, team list)
+        self.permissions, self.hoist = SimpleNamespace(value=0), False  # structure export (backup)
 
     def is_default(self) -> bool:
         return False
@@ -25,7 +26,7 @@ class FakeMember:
         self.roles = list(roles)
         self.mention = f"<@{uid}>"
         self.guild_permissions = SimpleNamespace(administrator=admin, manage_roles=admin)
-        self.avatar = None
+        self.avatar, self.nick = None, None
         self.display_avatar = SimpleNamespace(url="https://cdn.example/avatar.png")
         self.voice = None
         self.added_roles, self.removed_roles, self.sent = [], [], []
@@ -54,6 +55,7 @@ class FakeChannel:
     def __init__(self, cid: int = 555, name: str = "kanal", position: int = 1):
         self.id, self.name, self.position = cid, name, position
         self.mention = f"<#{cid}>"
+        self.type, self.category, self.category_id, self.overwrites = "text", None, None, {}  # structure export
         self.sent: list[FakeMessage] = []
         self.messages: dict[int, FakeMessage] = {}
 
