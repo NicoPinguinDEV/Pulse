@@ -65,13 +65,48 @@ class DashboardRedesignTests(unittest.TestCase):
         self.assertIn('perms.get("can_view_analytics",False)', self.sidebar)
         self.assertIn("from pulse_admin import ADMIN_PAGE_KEYS, admin_sections", self.sidebar)
 
-    def test_shared_theme_uses_coral_and_charcoal_tokens(self):
+    def test_shared_theme_uses_black_and_red_tokens(self):
         css = SOURCE.split('PRO_CSS = r"""', 1)[1].split('"""', 1)[0]
-        self.assertIn("--p:#FF765C", css)
-        self.assertIn("--p2:#FF947B", css)
-        self.assertIn("--bg:#0D0F12", css)
-        self.assertIn("--surface:#15191F", css)
+        dark = css.split(".dark{", 1)[1].split("}", 1)[0]
+        for token in ("--p:#E31B23", "--p2:#FF333D", "--p3:#FF5058", "--bg:#08090B", "--bg2:#0E1014",
+                      "--surface:#13161B", "--surface2:#191D24", "--text:#F5F5F5", "--muted:#A1A1AA",
+                      "--border:rgba(255,255,255,.07)", "--glow:rgba(255,40,55,.20)"):
+            with self.subTest(token=token):
+                self.assertIn(token, dark)
+        # Light mode keeps its own readable tokens, status colours stay semantic.
+        light = css.split(":root{", 1)[1].split("}", 1)[0]
+        self.assertIn("--bg:#F4F4F5", light)
+        self.assertIn("--text:#18181B", light)
+        for token in ("--good:#12B76A", "--warn:#F79009", "--bad:#F04438"):
+            self.assertIn(token, light)
         self.assertIn("Pulse OpenClaw visual system", css)
+        self.assertIn("Pulse Red Particle Experience", css)
+        self.assertNotIn("255,118,92", css)
+
+    def test_particle_canvas_never_blocks_interaction(self):
+        css = SOURCE.split('PRO_CSS = r"""', 1)[1].split('"""', 1)[0]
+        rule = css.split("#pulseParticles{", 1)[1].split("}", 1)[0]
+        self.assertIn("pointer-events:none", rule)
+        self.assertIn("position:fixed", rule)
+        self.assertIn("z-index:-1", rule)
+
+    def test_particle_script_is_lightweight_and_respects_the_browser(self):
+        import pulse_pro
+        js = pulse_pro.PARTICLE_JS
+        self.assertIn("PARTICLE_JS", SOURCE.split("def patched_head(", 1)[1].split("def patched_log(", 1)[0])
+        for marker in (
+            "requestAnimationFrame(frame)", "cancelAnimationFrame(raf)",       # one loop, cancellable
+            "prefers-reduced-motion: reduce", "RM.matches",                      # static frame when motion is off
+            "visibilityState==='hidden'", "devicePixelRatio", "Math.min(window.devicePixelRatio||1",  # capped DPR
+            "(pointer: fine)", "e.pointerType!=='mouse'",                        # no fake cursor on touch
+            "if(window.PulseParticles)return;", "!cv.isConnected){destroy()", "removeEventListener('pointermove'",
+            "passive:true",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, js)
+        self.assertNotIn("setInterval", js)
+        self.assertNotIn("shadowBlur", js)  # glow comes from a pre-rendered sprite
+        self.assertNotIn("http", js)        # no external dependency
 
     def test_dashboard_displays_existing_operational_metrics(self):
         for marker in (
@@ -82,6 +117,15 @@ class DashboardRedesignTests(unittest.TestCase):
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.dashboard)
+
+
+    def test_roblox_suggestion_script_has_valid_quotes(self):
+        # DASHBOARD_HEAD is a normal (non-raw) string: an escaped \" ends up as a bare quote in the
+        # browser and broke the whole inline script ("missing ) after argument list").
+        web = (ROOT / "webserver.py").read_text(encoding="utf-8")
+        head = web.split('DASHBOARD_HEAD = """', 1)[1].split('"""', 1)[0]
+        self.assertNotIn('<option value=\\"', head)
+        self.assertIn("'<option value=\"' + escapeHtml(u.name) + '\">'", head)
 
 
 if __name__ == "__main__":

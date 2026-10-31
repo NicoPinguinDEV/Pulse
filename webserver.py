@@ -2881,7 +2881,8 @@ else:
 
 HEAD_SCRIPT = TAILWIND_TAG + """
 <script>
-    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    // Phase 12: the black/red design is the primary look; light stays available via the theme switch.
+    if (localStorage.theme !== 'light') {
         document.documentElement.classList.add('dark');
     } else {
         document.documentElement.classList.remove('dark');
@@ -3532,18 +3533,19 @@ async def home(user_session: str = Cookie(None)):
                 <span class="dark:hidden">🌙 Dark</span><span class="hidden dark:inline">☀️ Light</span>
             </button>
         </div>
-        <div class="{CARD} p-8 shadow-xl w-full max-w-md text-center">
+        <div class="{CARD} pulse-login-card p-8 shadow-xl w-full max-w-md text-center">
             <div class="flex justify-center mb-4">
-                <div class="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-2xl shadow-lg shadow-indigo-600/30">🛡️</div>
+                <div class="pulse-login-mark" aria-hidden="true">P</div>
             </div>
+            <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2">Pulse TeamOS</div>
             <h1 class="text-2xl font-bold tracking-tight mb-2">Team Management Panel</h1>
             <p class="text-slate-500 dark:text-slate-400 text-xs mb-5">Melde dich mit deinem Discord-Account an, um Zugriff zu erhalten.</p>
             <p class="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed mb-4">Für Kontosicherheit protokolliert Pulse erfolgreiche Dashboard-Anmeldungen mit IP-Adresse, Zeitpunkt und Browserkennung. Nur Administratoren sehen die Einträge; Daten, die älter als 30 Tage sind, werden bei der nächsten Anmeldung oder Datenschutzprüfung bereinigt. Details: Verwaltung → Datenschutz.</p>
-            <a href="/login" class="inline-flex items-center justify-center gap-3 w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg shadow-[#5865F2]/20 text-sm">
+            <a href="/login" class="pulse-login-btn inline-flex items-center justify-center gap-3 w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg shadow-[#5865F2]/20 text-sm">
                 Mit Discord anmelden
             </a>
             <div class="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
-                <a href="/apply" class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium">Du möchtest dich ins Team bewerben? Hier klicken!</a>
+                <a href="/apply" class="pulse-login-link text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium">Du möchtest dich ins Team bewerben? Hier klicken!</a>
             </div>
         </div>
     </body>
@@ -3846,7 +3848,7 @@ DASHBOARD_HEAD = """
                         return;
                     }
                     const users = Array.isArray(data.users) ? data.users : [];
-                    list.innerHTML = users.map(u => "<option value=\"" + escapeHtml(u.name) + "\">" + escapeHtml(u.displayName || u.name) + " · ID " + escapeHtml(u.id) + "</option>").join("");
+                    list.innerHTML = users.map(u => '<option value="' + escapeHtml(u.name) + '">' + escapeHtml(u.displayName || u.name) + " · ID " + escapeHtml(u.id) + "</option>").join("");
                     if (panel) {
                         panel.replaceChildren();
                         users.forEach((u, index) => {

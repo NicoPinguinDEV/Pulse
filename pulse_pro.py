@@ -91,8 +91,8 @@ PERMISSION_LABELS = {
 
 PRO_CSS = r"""
 <style>
-:root{--p:#FF765C;--p2:#FF947B;--bg:#F5F5F4;--surface:#FFFFFF;--surface2:#F8F7F6;--border:#E7E5E4;--text:#1C1917;--muted:#78716C;--good:#12B76A;--warn:#F79009;--bad:#F04438;--shadow:0 18px 50px rgba(28,25,23,.06)}
-.dark{--p:#FF765C;--p2:#FF947B;--bg:#0D0F12;--surface:#15191F;--surface2:#1C222A;--border:#2A3038;--text:#F3F4F6;--muted:#9CA3AF;--shadow:0 18px 60px rgba(0,0,0,.28)}
+:root{--p:#E31B23;--p2:#FF333D;--p3:#FF5058;--bg:#F4F4F5;--surface:#FFFFFF;--surface2:#F7F7F8;--surface3:#EFEFF1;--border:#E4E4E7;--text:#18181B;--muted:#71717A;--good:#12B76A;--warn:#F79009;--bad:#F04438;--glow:rgba(227,27,35,.14);--shadow:0 18px 50px rgba(24,24,27,.07)}
+.dark{--p:#E31B23;--p2:#FF333D;--p3:#FF5058;--bg:#08090B;--bg2:#0E1014;--surface:#13161B;--surface2:#191D24;--surface3:#1F242C;--border:rgba(255,255,255,.07);--text:#F5F5F5;--muted:#A1A1AA;--glow:rgba(255,40,55,.20);--shadow:0 18px 60px rgba(0,0,0,.45)}
 html{scroll-behavior:smooth}body{background:var(--bg)!important;color:var(--text)}
 .pulse-shell{max-width:1480px;margin:0 auto;width:100%}.pulse-topbar{position:sticky;top:12px;z-index:25;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;margin-bottom:22px;border:1px solid var(--border);background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(18px);border-radius:18px;box-shadow:var(--shadow)}
 .pulse-brand{display:flex;align-items:center;gap:10px}.pulse-brand-mark{width:38px;height:38px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(135deg,var(--p),var(--p2));color:white;font-weight:800;box-shadow:0 10px 24px rgba(91,92,240,.28)}
@@ -124,33 +124,33 @@ time[data-relative]{cursor:help}
 /* Pulse OpenClaw visual system – shared by every authenticated dashboard page. */
 .pulse-shell{max-width:1600px}
 .pulse-topbar{border-color:var(--border);background:color-mix(in srgb,var(--surface) 92%,transparent);border-radius:16px;box-shadow:0 12px 34px rgba(0,0,0,.08)}
-.pulse-brand-mark{background:linear-gradient(135deg,#FF765C,#FF947B);box-shadow:0 8px 20px rgba(255,118,92,.20)}
-.pulse-hero{border-color:rgba(255,118,92,.22);background:linear-gradient(115deg,#191D23 0%,#15191F 60%,#202229 100%);box-shadow:0 22px 55px rgba(0,0,0,.16)}
-.pulse-hero:after{background:rgba(255,118,92,.10);box-shadow:0 0 0 28px rgba(255,118,92,.035),0 0 0 56px rgba(255,118,92,.018)}
-.pulse-hero .pulse-kicker{color:#FFB09E;opacity:1}
+.pulse-brand-mark{background:linear-gradient(135deg,#E31B23,#FF333D);box-shadow:0 8px 20px rgba(227,27,35,.20)}
+.pulse-hero{border-color:rgba(227,27,35,.22);background:linear-gradient(115deg,#191D23 0%,#15191F 60%,#202229 100%);box-shadow:0 22px 55px rgba(0,0,0,.16)}
+.pulse-hero:after{background:rgba(227,27,35,.10);box-shadow:0 0 0 28px rgba(227,27,35,.035),0 0 0 56px rgba(227,27,35,.018)}
+.pulse-hero .pulse-kicker{color:#FF5058;opacity:1}
 .pulse-hero .pulse-sub{color:#D1D5DB;opacity:1}
 .pulse-hero-box{background:rgba(255,255,255,.055);border-color:rgba(255,255,255,.12)}
 .pulse-stat,.pulse-card{border-color:var(--border);box-shadow:0 8px 24px rgba(0,0,0,.055)}
 .pulse-stat{border-radius:15px}
 .pulse-card{border-radius:17px}
 .pulse-card-h{border-color:var(--border)}
-.pulse-btn.primary{background:linear-gradient(135deg,#FF765C,#F46F58);box-shadow:0 8px 20px rgba(255,118,92,.18)}
-.pulse-btn.primary:hover{background:linear-gradient(135deg,#FF8972,#F77D67)}
-.pulse-btn.ghost:hover,.pulse-icon-btn:hover{border-color:rgba(255,118,92,.48);color:var(--p)}
-.pulse-avatar{background:rgba(255,118,92,.11);color:var(--p)}
-.pulse-progress>span{background:linear-gradient(90deg,#FF765C,#FFAD98)}
-.pulse-input:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(255,118,92,.12)}
+.pulse-btn.primary{background:linear-gradient(135deg,#E31B23,#C8141B);box-shadow:0 8px 20px rgba(227,27,35,.18)}
+.pulse-btn.primary:hover{background:linear-gradient(135deg,#FF5058,#E31B23)}
+.pulse-btn.ghost:hover,.pulse-icon-btn:hover{border-color:rgba(227,27,35,.48);color:var(--p)}
+.pulse-avatar{background:rgba(227,27,35,.11);color:var(--p)}
+.pulse-progress>span{background:linear-gradient(90deg,#E31B23,#FF5058)}
+.pulse-input:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(227,27,35,.12)}
 :focus-visible{outline-color:var(--p)!important}
 .pulse-pill{border-radius:8px}
 .pulse-area-switch{background:var(--surface2);border:1px solid var(--border)}
 .pulse-area-switch a{color:var(--muted)}
-.pulse-area-switch a.on{background:rgba(255,118,92,.13);color:var(--p);box-shadow:none}
-.dark .pulse-area-switch a.on{background:rgba(255,118,92,.14);color:#FF9B86}
+.pulse-area-switch a.on{background:rgba(227,27,35,.13);color:var(--p);box-shadow:none}
+.dark .pulse-area-switch a.on{background:rgba(227,27,35,.14);color:#FF5058}
 #pulseSidebar{background:var(--surface)!important;border-color:var(--border)!important;color:var(--text)}
 #pulseSidebar nav a{color:var(--muted);border:1px solid transparent}
 #pulseSidebar nav a:hover{background:var(--surface2);color:var(--text)}
-#pulseSidebar nav .nav-active{background:rgba(255,118,92,.105)!important;color:#D95F49!important;border-color:rgba(255,118,92,.20)!important;box-shadow:none!important}
-.dark #pulseSidebar nav .nav-active{color:#FF9B86!important}
+#pulseSidebar nav .nav-active{background:rgba(227,27,35,.105)!important;color:#C8141B!important;border-color:rgba(227,27,35,.20)!important;box-shadow:none!important}
+.dark #pulseSidebar nav .nav-active{color:#FF5058!important}
 #pulseSidebar .pulse-nav-group{margin-top:12px}
 #pulseSidebar .pulse-nav-group>summary{display:flex;align-items:center;gap:8px;padding:8px 9px;margin-bottom:5px;border-radius:9px;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
 #pulseSidebar .pulse-nav-group>summary:hover{background:var(--surface2);color:var(--text)}
@@ -182,12 +182,105 @@ time[data-relative]{cursor:help}
 #pulseSidebar .pulse-advanced-content{padding:2px 0 5px}
 #pulseSidebar .pulse-nav-count{margin-left:auto;padding:2px 6px;border-radius:6px;background:var(--surface2);font-size:9px;letter-spacing:0}
 #pulseSidebar .pulse-sidebar-sub{border-color:var(--border)}
-.pulse-legacy .hero{border-color:rgba(255,118,92,.18);background:linear-gradient(135deg,rgba(255,118,92,.10),rgba(255,148,123,.035)),var(--surface)}
-.pulse-legacy .blue{color:var(--p);background:rgba(255,118,92,.09);border-color:rgba(255,118,92,.2)}
-.pulse-legacy .primary{background:linear-gradient(135deg,#FF765C,#FF947B);border-color:transparent}
-.pulse-legacy .btn:hover{border-color:rgba(255,118,92,.45)}
-.pulse-legacy .input:focus,.pulse-legacy .select:focus,.pulse-legacy .ta:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(255,118,92,.12)}
+.pulse-legacy .hero{border-color:rgba(227,27,35,.18);background:linear-gradient(135deg,rgba(227,27,35,.10),rgba(255,148,123,.035)),var(--surface)}
+.pulse-legacy .blue{color:var(--p);background:rgba(227,27,35,.09);border-color:rgba(227,27,35,.2)}
+.pulse-legacy .primary{background:linear-gradient(135deg,#E31B23,#FF333D);border-color:transparent}
+.pulse-legacy .btn:hover{border-color:rgba(227,27,35,.45)}
+.pulse-legacy .input:focus,.pulse-legacy .select:focus,.pulse-legacy .ta:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(227,27,35,.12)}
 @media(max-width:767px){.pulse-shell{width:100%}#pulseSidebar{box-shadow:18px 0 48px rgba(0,0,0,.20)}.pulse-grid{grid-template-columns:1fr}.pulse-hero-grid{grid-template-columns:1fr}}
+
+/* Pulse Red Particle Experience (Phase 12) – black/red identity on the shared tokens; light mode keeps its own tokens. */
+html{background:var(--bg)}body{background:transparent!important}
+.dark body{background-image:radial-gradient(1200px 600px at 85% -10%,rgba(227,27,35,.09),transparent 60%),radial-gradient(900px 500px at -10% 110%,rgba(227,27,35,.05),transparent 60%)!important;background-attachment:fixed!important}
+#pulseParticles{position:fixed;inset:0;width:100vw;height:100vh;z-index:-1;pointer-events:none;display:block}
+::selection{background:rgba(227,27,35,.32);color:inherit}
+.dark{color-scheme:dark}.dark ::-webkit-scrollbar{width:10px;height:10px}.dark ::-webkit-scrollbar-track{background:transparent}.dark ::-webkit-scrollbar-thumb{background:#22262E;border-radius:10px;border:2px solid var(--bg)}.dark ::-webkit-scrollbar-thumb:hover{background:#3A1418}
+/* Sidebar: deep black, hairline separators, red active marker */
+.dark #pulseSidebar{background:linear-gradient(180deg,#07080A 0%,#0A0B0E 100%)!important;border-right:1px solid rgba(255,255,255,.06)!important}
+.dark #pulseSidebar .border-t,.dark #pulseSidebar button.w-full{border-color:rgba(255,255,255,.06)!important}
+.dark #pulseSidebar button.w-full{background:rgba(255,255,255,.025)!important}
+.dark #pulseMobileBtn{background:rgba(14,16,20,.85)!important;border-color:rgba(255,255,255,.09)!important;color:#F5F5F5;backdrop-filter:blur(10px)}
+.dark #pulseSidebar a[href="/logout"]{background:rgba(255,255,255,.04)!important;border:1px solid rgba(255,255,255,.06);color:#D4D4D8!important}.dark #pulseSidebar a[href="/logout"]:hover{background:rgba(227,27,35,.10)!important;border-color:rgba(227,27,35,.25);color:#FF5058!important}
+#pulseSidebar nav a{position:relative;transition:background .18s ease,color .18s ease,border-color .18s ease,transform .18s ease}
+#pulseSidebar nav a:hover{transform:translateX(2px)}
+#pulseSidebar nav .nav-active{background:linear-gradient(90deg,rgba(227,27,35,.16),rgba(227,27,35,.035))!important;color:#C8141B!important;border-color:rgba(227,27,35,.22)!important;box-shadow:0 0 22px -6px var(--glow)!important}
+.dark #pulseSidebar nav .nav-active{color:#FF5058!important}
+#pulseSidebar nav .nav-active:before{content:"";position:absolute;left:-1px;top:22%;bottom:22%;width:3px;border-radius:0 3px 3px 0;background:var(--p);box-shadow:0 0 10px rgba(255,40,55,.75)}
+#pulseSidebar .pulse-nav-group>summary{transition:background .18s ease,color .18s ease}
+.pulse-area-switch a.on{box-shadow:inset 0 0 0 1px rgba(227,27,35,.22)!important}
+/* Topbar: translucent, blurred glass with red hairline */
+.pulse-topbar{background:color-mix(in srgb,var(--surface) 72%,transparent);backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%)}
+.dark .pulse-topbar{background:rgba(14,16,20,.68);border-color:rgba(255,255,255,.07);box-shadow:0 14px 40px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.03)}
+.dark .pulse-topbar:after{content:"";position:absolute;left:24px;right:24px;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,rgba(255,51,61,.45),transparent);pointer-events:none}
+.pulse-search{transition:border-color .18s ease,box-shadow .18s ease}.pulse-search:focus-within{border-color:rgba(227,27,35,.5);box-shadow:0 0 0 3px rgba(227,27,35,.12)}
+.pulse-brand-mark{background:linear-gradient(135deg,#FF333D,#B80F16)!important;box-shadow:0 0 0 1px rgba(255,80,88,.35),0 8px 24px rgba(227,27,35,.35)!important}
+/* Cards and stats: dark surfaces, subtle depth, small red accent line */
+.dark .pulse-card,.dark .pulse-stat,.dark .pulse-legacy .card{background:linear-gradient(180deg,rgba(25,29,36,.80),rgba(19,22,27,.84));border-color:rgba(255,255,255,.07);box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 14px 34px rgba(0,0,0,.35)}
+.pulse-card,.pulse-stat{position:relative}.pulse-card,.pulse-stat,.pulse-legacy .card{transition:transform .22s ease,border-color .22s ease,box-shadow .22s ease}
+.pulse-stat:before,.pulse-card:before{content:"";position:absolute;left:18px;top:-1px;width:34px;height:2px;border-radius:0 0 2px 2px;background:linear-gradient(90deg,var(--p),transparent);opacity:.85;pointer-events:none}
+.pulse-stat:hover{transform:translateY(-2px)}.pulse-stat:hover,.pulse-legacy .card:hover{border-color:rgba(227,27,35,.28)}
+.dark .pulse-stat:hover,.dark .pulse-legacy .card:hover{box-shadow:0 18px 40px rgba(0,0,0,.45),0 0 0 1px rgba(227,27,35,.08),0 0 32px -12px var(--glow)}
+.pulse-card:hover{border-color:rgba(227,27,35,.20)}
+.pulse-stat .value{letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.pulse-stat .label,.pulse-kicker{letter-spacing:.11em;text-transform:uppercase;font-weight:750}
+.dark .pulse-row,.dark .pulse-table td,.dark .pulse-legacy .row{background:rgba(255,255,255,.022);border-color:rgba(255,255,255,.06)}
+.pulse-row{transition:border-color .18s ease,background .18s ease}a.pulse-row:hover,.pulse-alert:hover{border-color:rgba(227,27,35,.30)}
+.dark .pulse-alert{background:rgba(227,27,35,.045);border-color:rgba(227,27,35,.16)}
+/* Dashboard header (hero): black glass with red light reflection */
+.pulse-hero{border-color:rgba(227,27,35,.24)!important;background:radial-gradient(700px 260px at 100% 0%,rgba(227,27,35,.22),transparent 65%),linear-gradient(120deg,#0C0D10 0%,#121419 55%,#17191F 100%)!important;box-shadow:0 24px 60px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.04)!important}
+.pulse-hero:before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,51,61,.7),transparent)}
+.pulse-hero:after{background:radial-gradient(circle,rgba(255,51,61,.16),transparent 70%)!important;box-shadow:0 0 0 28px rgba(227,27,35,.03),0 0 0 56px rgba(227,27,35,.015)!important}
+.pulse-hero .pulse-kicker{color:#FF5058}.pulse-hero .pulse-title{letter-spacing:-.03em}
+.pulse-hero-box{background:rgba(255,255,255,.035)!important;border-color:rgba(255,255,255,.09)!important;backdrop-filter:blur(6px)}
+.pulse-legacy .hero{border-color:rgba(227,27,35,.20);background:radial-gradient(600px 220px at 100% 0%,rgba(227,27,35,.14),transparent 65%),var(--surface)}
+/* Buttons: red primary with soft glow on hover */
+.pulse-btn,.pulse-legacy .btn{transition:transform .18s ease,box-shadow .18s ease,background .18s ease,border-color .18s ease,color .18s ease}
+.pulse-btn.primary,.pulse-legacy .primary{background:linear-gradient(135deg,#FF333D,#E31B23 55%,#C8141B)!important;color:#fff!important;border-color:rgba(255,80,88,.35)!important;box-shadow:0 8px 22px rgba(227,27,35,.25)}
+.pulse-btn.primary:hover,.pulse-legacy .primary:hover{background:linear-gradient(135deg,#FF5058,#FF333D 55%,#E31B23)!important;box-shadow:0 10px 28px rgba(227,27,35,.38),0 0 0 3px rgba(255,40,55,.12)}
+.dark .pulse-btn.ghost,.dark .pulse-icon-btn,.dark .pulse-legacy .btn:not(.primary):not(.danger){background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.08)}
+.pulse-btn.ghost:hover,.pulse-icon-btn:hover{box-shadow:0 0 18px -6px var(--glow)}
+/* Forms, tables, modals, dropdowns, badges */
+.dark .pulse-input,.dark .pulse-legacy .input,.dark .pulse-legacy .select,.dark .pulse-legacy .ta,.dark main select,.dark main input[type=text],.dark main input[type=number],.dark main input[type=search],.dark main input[type=date],.dark main input[type=datetime-local],.dark main textarea{background-color:#0E1014;border-color:rgba(255,255,255,.08)}
+.dark main select:focus,.dark main input:focus,.dark main textarea:focus{border-color:rgba(227,27,35,.55)!important;box-shadow:0 0 0 3px rgba(227,27,35,.14)!important;outline:none}
+.pulse-table th,.pulse-legacy .table th{letter-spacing:.1em}
+.dark .pulse-legacy .table tr:hover td{background:rgba(227,27,35,.035)}
+.pulse-modal-backdrop,.pulse-search-overlay{background:rgba(3,3,5,.68)!important;backdrop-filter:blur(8px)!important}
+.dark .pulse-modal,.dark .pulse-search-overlay>div{background:linear-gradient(180deg,#171A20,#111317);border-color:rgba(255,255,255,.08);box-shadow:0 40px 120px rgba(0,0,0,.6),0 0 0 1px rgba(227,27,35,.08),0 0 60px -20px var(--glow)}
+.pulse-command-item:hover,.pulse-search-overlay .result:hover{background:rgba(227,27,35,.08)!important}
+.pulse-command-item:hover .pulse-avatar{box-shadow:0 0 14px -2px var(--glow)}
+.pulse-avatar{background:rgba(227,27,35,.10)!important;color:var(--p3)!important;border:1px solid rgba(227,27,35,.16)}
+.pulse-progress>span,.pulse-legacy .progress>div{background:linear-gradient(90deg,#B80F16,#FF333D)!important;box-shadow:0 0 12px rgba(255,40,55,.45)}
+.dark .pulse-pill:not(.good):not(.warn):not(.bad),.dark .pulse-legacy .badge:not(.ok):not(.warn):not(.bad),.dark .pulse-legacy .pill:not(.ok):not(.warn):not(.bad){background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08)}
+.pulse-footer{letter-spacing:.06em}
+/* Login: red Pulse identity around the existing Discord sign-in */
+.pulse-login-card{position:relative;overflow:hidden}
+.dark .pulse-login-card{background:linear-gradient(180deg,rgba(25,29,36,.86),rgba(14,16,20,.92))!important;border-color:rgba(255,255,255,.08)!important;box-shadow:0 40px 100px rgba(0,0,0,.55),0 0 80px -30px var(--glow)!important;backdrop-filter:blur(10px)}
+.pulse-login-card:before{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,#FF333D,transparent)}
+.pulse-login-mark{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;font-size:22px;font-weight:850;color:#fff;background:linear-gradient(135deg,#FF333D,#B80F16);box-shadow:0 0 0 1px rgba(255,80,88,.35),0 10px 30px rgba(227,27,35,.40)}
+.pulse-login-btn{background:linear-gradient(135deg,#FF333D,#E31B23 55%,#C8141B)!important;box-shadow:0 10px 26px rgba(227,27,35,.30)!important}
+.pulse-login-btn:hover{background:linear-gradient(135deg,#FF5058,#FF333D 55%,#E31B23)!important;box-shadow:0 12px 32px rgba(227,27,35,.42),0 0 0 3px rgba(255,40,55,.14)!important}
+.pulse-login-link{color:var(--p)!important}.dark .pulse-login-link{color:#FF5058!important}
+/* Indigo/violet were the old Tailwind accent (not a status colour): map those utilities onto the Pulse red. */
+body .text-indigo-400,body .text-indigo-500,body .text-violet-500,body .group:hover .group-hover\:text-indigo-500{color:#E31B23}
+body .text-indigo-600,body .text-indigo-700,body .text-violet-600,body .text-violet-700{color:#C8141B}
+.dark body .text-indigo-400,.dark body .text-indigo-500,.dark body .text-violet-500,.dark body .dark\:text-indigo-300,.dark body .dark\:text-indigo-400,.dark body .dark\:text-violet-300,.dark body .dark\:text-violet-400,.dark body .group:hover .group-hover\:text-indigo-500{color:#FF5058}
+body .bg-indigo-500,body .bg-indigo-600,body .bg-violet-500,body .bg-violet-600{background-color:#E31B23}
+body .hover\:bg-indigo-500:hover,body .hover\:bg-indigo-600:hover,body .hover\:bg-indigo-700:hover,body .hover\:bg-violet-500:hover{background-color:#FF333D}
+body .bg-indigo-500\/10,body .bg-indigo-600\/10,body .bg-violet-500\/10,body .hover\:bg-indigo-500\/10:hover{background-color:rgba(227,27,35,.10)}
+body .bg-indigo-500\/5,body .bg-indigo-50\/50{background-color:rgba(227,27,35,.05)}
+body .bg-indigo-50,body .hover\:bg-indigo-50:hover,body .focus\:bg-indigo-50:focus{background-color:#FEF2F2}
+.dark body .dark\:bg-indigo-950\/20{background-color:rgba(227,27,35,.07)}.dark body .dark\:hover\:bg-indigo-950\/40:hover,.dark body .dark\:focus\:bg-indigo-950\/40:focus{background-color:rgba(227,27,35,.12)}
+body .border-indigo-200,body .border-indigo-300{border-color:rgba(227,27,35,.28)}
+body .border-indigo-500\/15,body .border-indigo-500\/20,body .border-violet-500\/20,body .border-violet-500\/25{border-color:rgba(227,27,35,.20)}
+body .border-indigo-500\/30,body .border-indigo-500\/40,body .border-violet-500\/30,body .border-indigo-500,body .border-violet-500,body .hover\:border-indigo-400:hover,body .hover\:border-indigo-500:hover,body .focus\:border-indigo-500:focus{border-color:rgba(227,27,35,.45)}
+.dark body .dark\:border-indigo-700,.dark body .dark\:border-indigo-800\/50,.dark body .dark\:border-indigo-800\/70{border-color:rgba(227,27,35,.30)}
+body .from-indigo-500{--tw-gradient-from:#E31B23 var(--tw-gradient-from-position);--tw-gradient-to:rgba(227,27,35,0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)}
+body .from-indigo-500\/10{--tw-gradient-from:rgba(227,27,35,.10) var(--tw-gradient-from-position);--tw-gradient-to:rgba(227,27,35,0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)}
+body .to-violet-500{--tw-gradient-to:#FF5058 var(--tw-gradient-to-position)}body .to-violet-500\/10{--tw-gradient-to:rgba(255,80,88,.10) var(--tw-gradient-to-position)}
+body .shadow-indigo-600\/20,body .shadow-indigo-600\/30{--tw-shadow-color:rgba(227,27,35,.25);--tw-shadow:var(--tw-shadow-colored)}
+body .accent-indigo-600{accent-color:#E31B23}
+@media (prefers-reduced-motion: reduce){#pulseSidebar nav a:hover,.pulse-stat:hover{transform:none}}
+@media (hover:none){.pulse-stat:hover,#pulseSidebar nav a:hover{transform:none}}
 </style>
 """
 
@@ -255,6 +348,117 @@ PRO_JS = r"""
 </script>
 """
 
+# Phase 12: interactive particle background (browser only, no server work). One canvas behind the page
+# (pointer-events:none), one requestAnimationFrame loop, paused in hidden tabs, static under
+# prefers-reduced-motion, fewer particles on small/touch screens; the mouse pushes particles away.
+PARTICLE_JS = r"""
+<script>
+(function(){
+  if(window.PulseParticles)return;
+  const RM=window.matchMedia('(prefers-reduced-motion: reduce)'), FINE=window.matchMedia('(pointer: fine)');
+  let cv=null, ctx=null, W=0, H=0, dpr=1, parts=[], raf=0, running=false, sprite=null, resizeQ=0, linkD=130;
+  const mouse={x:-1e4,y:-1e4,on:false,r:150};
+  function makeSprite(){  // pre-rendered glow instead of canvas shadows (cheap drawImage per particle)
+    const s=document.createElement('canvas'); s.width=s.height=64; const g=s.getContext('2d');
+    const r=g.createRadialGradient(32,32,0,32,32,32);
+    r.addColorStop(0,'rgba(255,90,96,1)'); r.addColorStop(.18,'rgba(255,51,61,.85)'); r.addColorStop(.45,'rgba(227,27,35,.22)'); r.addColorStop(1,'rgba(227,27,35,0)');
+    g.fillStyle=r; g.fillRect(0,0,64,64); return s;
+  }
+  function count(){
+    const small=W<768||!FINE.matches, area=W*H;
+    let n=Math.round(area/(small?20000:13000));
+    n=Math.min(n,small?48:150); n=Math.max(n,small?18:40);
+    if((navigator.hardwareConcurrency||8)<=4)n=Math.round(n*.7);
+    return n;
+  }
+  function spawn(){
+    const z=.35+Math.random()*.65, a=Math.random()*Math.PI*2, sp=(.06+Math.random()*.16)*z;
+    const x=Math.random()*W, y=Math.random()*H;
+    return {hx:x,hy:y,x:x,y:y,vx:0,vy:0,dx:Math.cos(a)*sp,dy:Math.sin(a)*sp,z:z,s:(.6+Math.random()*1.5)*z+.35,
+            dark:Math.random()<.35,ph:Math.random()*6.283};
+  }
+  function resize(){
+    resizeQ=0; if(!cv)return;
+    W=window.innerWidth; H=window.innerHeight;
+    dpr=Math.min(window.devicePixelRatio||1,W<768?1.5:1.75);
+    cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr); ctx.setTransform(dpr,0,0,dpr,0,0);
+    linkD=W<768?95:Math.min(150,110+W/64); mouse.r=W<768?110:150;
+    const n=count();
+    for(const p of parts){if(p.hx>W)p.hx=p.x=Math.random()*W; if(p.hy>H)p.hy=p.y=Math.random()*H;}
+    while(parts.length<n)parts.push(spawn()); if(parts.length>n)parts.length=n;
+    if(!running)draw(0);
+  }
+  function step(t){
+    const R=mouse.r, R2=R*R;
+    for(const p of parts){
+      // home drifts slowly and wraps; the visible particle is spring-bound to its home
+      p.hx+=p.dx; p.hy+=p.dy;
+      if(p.hx<-20){p.hx+=W+40;p.x+=W+40;} else if(p.hx>W+20){p.hx-=W+40;p.x-=W+40;}
+      if(p.hy<-20){p.hy+=H+40;p.y+=H+40;} else if(p.hy>H+20){p.hy-=H+40;p.y-=H+40;}
+      p.vx+=(p.hx-p.x)*.0065; p.vy+=(p.hy-p.y)*.0065;
+      if(mouse.on){
+        const ex=p.x-mouse.x, ey=p.y-mouse.y, d2=ex*ex+ey*ey;
+        if(d2<R2){const d=Math.sqrt(d2)||.01, f=1-d/R; const k=(f*f*2.4+(d<R*.55?f*1.6:0))*(.6+p.z*.4); p.vx+=ex/d*k; p.vy+=ey/d*k;}
+      }
+      p.vx*=.885; p.vy*=.885; p.x+=p.vx; p.y+=p.vy;
+    }
+  }
+  function draw(t){
+    const dark=document.documentElement.classList.contains('dark');
+    ctx.clearRect(0,0,W,H);
+    const L=linkD, L2=L*L, n=parts.length, lr=dark?255:220, lg=dark?45:30, lb=dark?55:40, la=dark?.42:.22, R=mouse.r;
+    ctx.lineWidth=.7;
+    for(let i=0;i<n;i++){const a=parts[i];
+      for(let j=i+1;j<n;j++){const b=parts[j], ex=a.x-b.x; if(ex>L||ex<-L)continue; const ey=a.y-b.y; if(ey>L||ey<-L)continue;
+        const d2=ex*ex+ey*ey; if(d2>L2)continue;
+        let al=(1-Math.sqrt(d2)/L)*la*Math.min(a.z,b.z);
+        if(mouse.on){const mx=(a.x+b.x)/2-mouse.x, my=(a.y+b.y)/2-mouse.y, md=Math.sqrt(mx*mx+my*my); if(md<R)al*=Math.max(0,(md-R*.45)/(R*.55));}
+        if(al<.01)continue;
+        ctx.strokeStyle='rgba('+lr+','+lg+','+lb+','+al.toFixed(3)+')'; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();}}
+    for(const p of parts){
+      const tw=.75+.25*Math.sin(t*.0012+p.ph), al=(dark?.75:.40)*p.z*tw;
+      if(p.s>1.3){ctx.globalAlpha=al*(dark?.7:.30); const g=p.s*7; ctx.drawImage(sprite,p.x-g/2,p.y-g/2,g,g);}
+      ctx.globalAlpha=Math.min(1,al+.2); ctx.fillStyle=p.dark?(dark?'#9E1218':'#B80F16'):(dark?'#FF333D':'#E31B23');
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.s,0,6.283); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+  }
+  function frame(t){
+    if(!cv||!cv.isConnected){destroy();return;}  // canvas removed/replaced: release everything
+    step(t); draw(t); raf=requestAnimationFrame(frame);
+  }
+  function start(){if(running||RM.matches||document.visibilityState==='hidden')return; running=true; raf=requestAnimationFrame(frame);}
+  function stop(){running=false; cancelAnimationFrame(raf); raf=0;}
+  function onMove(e){if(e.pointerType&&e.pointerType!=='mouse'&&e.pointerType!=='pen')return; mouse.x=e.clientX; mouse.y=e.clientY; mouse.on=true;}
+  function onOut(e){if(!e.relatedTarget)mouse.on=false;}
+  function onResize(){if(!resizeQ)resizeQ=requestAnimationFrame(resize);}
+  function onVis(){document.visibilityState==='hidden'?stop():start();}
+  function onMotion(){if(RM.matches){stop(); mouse.on=false; draw(0);} else start();}
+  function destroy(){
+    stop(); cancelAnimationFrame(resizeQ);
+    window.removeEventListener('pointermove',onMove); document.removeEventListener('pointerout',onOut);
+    window.removeEventListener('resize',onResize); document.removeEventListener('visibilitychange',onVis);
+    if(RM.removeEventListener)RM.removeEventListener('change',onMotion);
+    if(cv&&cv.isConnected)cv.remove(); cv=ctx=null; parts=[]; window.PulseParticles=null;
+  }
+  function init(){
+    if(cv||!document.body||!window.HTMLCanvasElement)return;
+    cv=document.createElement('canvas'); cv.id='pulseParticles'; cv.setAttribute('aria-hidden','true');
+    ctx=cv.getContext('2d',{alpha:true}); if(!ctx){cv=null;return;}
+    sprite=makeSprite(); document.body.insertBefore(cv,document.body.firstChild); resize();
+    window.addEventListener('pointermove',onMove,{passive:true}); document.addEventListener('pointerout',onOut,{passive:true});
+    window.addEventListener('resize',onResize,{passive:true}); document.addEventListener('visibilitychange',onVis);
+    if(RM.addEventListener)RM.addEventListener('change',onMotion);
+    draw(0); start();
+  }
+  window.PulseParticles={destroy:destroy,stats:()=>({count:parts.length,running:running,dpr:dpr,mouse:mouse.on,
+      maxOffset:parts.reduce((m,p)=>Math.max(m,Math.hypot(p.x-p.hx,p.y-p.hy)),0)}),
+    near:(x,y,r)=>parts.filter(p=>(p.x-x)**2+(p.y-y)**2<r*r).length};  // read-only probe for tests
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true}); else init();
+})();
+</script>
+"""
+
 
 def replace_paths(app, paths):
     app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) not in paths]
@@ -303,7 +507,7 @@ def make_shell_helpers(ws):
     old_log = ws.log_audit
 
     def patched_head(title: str):
-        return old_head(title) + '<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#FF765C"><meta name="mobile-web-app-capable" content="yes">' + PRO_CSS + PRO_JS
+        return old_head(title) + '<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#08090B"><meta name="mobile-web-app-capable" content="yes">' + PRO_CSS + PRO_JS + PARTICLE_JS
 
 
     def patched_log(actor_name, actor_id, action, details):
