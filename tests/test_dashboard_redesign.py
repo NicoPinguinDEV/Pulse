@@ -49,7 +49,7 @@ class DashboardRedesignTests(unittest.TestCase):
         # truncated sidebar slice used for the navigation entries above.
         self.assertIn('id="pulseSidebarCollapseBtn"', SOURCE)
         self.assertIn("function pulseToggleSidebarCollapsed()", SOURCE)
-        self.assertIn('aria-label="{label}" title="{label}"', self.sidebar)
+        self.assertIn('aria-label="{label}" title="{label}"', SOURCE)
         self.assertIn("pulse.sidebar.collapsed", SOURCE)
         self.assertIn("aria-pressed", SOURCE)
         self.assertIn("pulse-sidebar-collapsed", SOURCE)
