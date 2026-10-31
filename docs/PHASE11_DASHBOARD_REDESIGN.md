@@ -55,11 +55,13 @@ Die offene Entscheidung E-6 in `docs/SEITEN_ALT_NEU.md` bleibt bestehen. Die Nav
 - Quelltext-Änderungen über GitHub-Contents-API committed.
 - Regressionstestdatei angelegt.
 - Lokaler Python-/Playwright-Testlauf: **nicht ausgeführt**. In der Ausführungsumgebung war der direkte GitHub-Clone wegen fehlender DNS-Auflösung nicht möglich.
-- GitHub Actions / Pull-Request-CI: nach Erstellung des Draft-Pull-Requests zu prüfen.
+- GitHub Actions laufen für Draft-PR #91: Quality/Security Checks Run #1129 und Sicherheit/Abdeckung Run #122; letzter abgerufener Status: Jobs in Bearbeitung, noch kein Endergebnis.
 - Desktop-/Smartphone-Screenshots: noch nicht erzeugt; eine echte Browserprüfung ist vor dem Merge erforderlich.
 
 ## GitHub
 
-- Branch: `feature/pulse-openclaw-dashboard`
+- Branch: `feature/pulse-openclaw-dashboard` (7 Commits vor `main`)
+- Letzter geprüfter Branch-HEAD: `93191b0c7c2b26d88f39e3a7c16ad8dee52b965d`
+- Draft-Pull-Request: https://github.com/NicoPinguinDEV/Pulse/pull/91
 - Erster Implementierungs-Commit: `0ee0f14c8f157984bd23b29e512b97a2513c5dbb`
 - Regressionstests: `ab55917a458e52e49337b1f3d404be0b8f36354d`
