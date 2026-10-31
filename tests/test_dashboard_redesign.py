@@ -22,6 +22,11 @@ class DashboardRedesignTests(unittest.TestCase):
             with self.subTest(group=group):
                 self.assertIn(f'("{group}", [', self.sidebar)
 
+    def test_primary_navigation_groups_are_collapsible_and_open_when_active(self):
+        self.assertIn('class="pulse-nav-group pulse-primary-group"', self.sidebar)
+        self.assertIn("any(item[0] == current_page for item in visible)", self.sidebar)
+        self.assertIn('{" open" if is_open else ""}', self.sidebar)
+
     def test_existing_main_routes_remain_in_navigation(self):
         for path in (
             "/me", "/dashboard", "/pulse-inbox", "/team", "/team-status",
