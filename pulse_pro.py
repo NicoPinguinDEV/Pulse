@@ -163,6 +163,7 @@ time[data-relative]{cursor:help}
 .pulse-legacy .blue{color:var(--p);background:rgba(255,118,92,.09);border-color:rgba(255,118,92,.2)}
 .pulse-legacy .primary{background:linear-gradient(135deg,#FF765C,#FF947B);border-color:transparent}
 .pulse-legacy .btn:hover{border-color:rgba(255,118,92,.45)}
+.pulse-legacy .input:focus,.pulse-legacy .select:focus,.pulse-legacy .ta:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(255,118,92,.12)}
 @media(max-width:767px){.pulse-shell{width:100%}#pulseSidebar{box-shadow:18px 0 48px rgba(0,0,0,.20)}.pulse-grid{grid-template-columns:1fr}.pulse-hero-grid{grid-template-columns:1fr}}
 </style>
 """
