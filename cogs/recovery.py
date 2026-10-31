@@ -14,6 +14,9 @@ from pulse_recovery import TOKEN_TIMEOUT
 RECOVERY_PAGE_SIZE = 100
 
 
+UNLOAD_GRACE_SECONDS = 5.0
+
+
 class RecoveryCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -23,6 +26,19 @@ class RecoveryCog(commands.Cog):
         # SEC-11: a limited run must not overlap another run – the same refresh token used twice is
         # rotated by Discord, the second use fails.
         self._limited_sync_running = False
+        self._stop_requested = False  # Phase 9: set by cog_unload – the full sync ends between two users
+
+    async def cog_unload(self) -> None:
+        """Phase 9: a running full sync must not outlive the cog (reload/shutdown). It stops between two users,
+        so no refresh token is cut off mid-exchange; only if that takes too long the task is cancelled."""
+        task = self._sync_task
+        if task is None or task.done():
+            return
+        self._stop_requested = True
+        done, _ = await asyncio.wait({task}, timeout=UNLOAD_GRACE_SECONDS)
+        if not done:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     @app_commands.command(
         name="recovery-sync",
@@ -228,6 +244,9 @@ class RecoveryCog(commands.Cog):
                         state["failures"] = state["failures"][:5]
 
                     for index, person in enumerate(people):
+                        if self._stop_requested:
+                            state["stopped_reason"] = "Pulse wurde beendet oder neu geladen. Starte den Sync bei Bedarf erneut."
+                            break
                         current = pulse_recovery.load_settings()
                         if (
                             not current["enabled"]

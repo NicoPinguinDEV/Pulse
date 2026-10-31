@@ -172,6 +172,14 @@ def start_stall_watchdog(loop, threshold: float = STALL_WARN_SECONDS, interval: 
     return stop
 
 
+def stop_stall_watchdog() -> None:
+    """Phase 9: end the watchdog thread (shutdown); a later start_stall_watchdog starts a new one."""
+    stop = _WATCHDOG["stop"]
+    if stop is not None:
+        stop.set()
+    _WATCHDOG["stop"] = None
+
+
 def jitter(seconds: float, spread: float = 0.1) -> float:
     """Spread periodic work a little so jobs do not all wake at the same second."""
     return max(0.0, seconds * (1 + random.uniform(-spread, spread)))

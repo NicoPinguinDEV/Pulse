@@ -29,7 +29,6 @@ from typing import List
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request, Cookie, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -59,8 +58,8 @@ except ImportError:  # pragma: no cover
     ZoneInfo = None
 
 BASE_DIR = Path(__file__).resolve().parent
-# Phase 9: no os.chdir on import – main.py sets the working directory for the bot process (P8-06).
-load_dotenv(BASE_DIR / ".env")
+# Phase 9: no os.chdir and no .env loading on import – main.prepare_process() does both for the bot process
+# before webserver is imported (P8-06; tests importing webserver got the checkout's real .env).
 
 # =============================================================
 # KONFIGURATION & UMGEBUNGSVARIABELN
@@ -236,8 +235,9 @@ TZ = _load_panel_timezone()
 async def _lifespan(_app):
     """A-04: FastAPI lifespan instead of the deprecated @app.on_event handlers."""
     init_runtime()
-    await _start_background_tasks()
     try:
+        # Phase 9: inside try – a start that fails half-way still closes what it opened (HTTP pool, backup task).
+        await _start_background_tasks()
         yield
     finally:
         await _stop_background_tasks()
