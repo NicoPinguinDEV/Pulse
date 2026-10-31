@@ -22,6 +22,7 @@ from pulse_ids import FACTION_MANAGER_ROLE_ID
 from tests.test_pulse_admin_area import ADMIN, TEAMLER
 
 TEAM_ROLE = 100
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 def person(uid, name, *role_ids, bot=False):

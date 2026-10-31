@@ -797,6 +797,7 @@ class PulseSuite(commands.Cog):
         self.bot.add_dynamic_items(SuiteTicketButton)
 
     async def cog_unload(self):
+        self.auto.cancel()  # Phase 9: the 5-min loop ran on after a reload/shutdown (second loop after a reload)
         self.bot.remove_dynamic_items(SuiteTicketButton)
 
     @commands.Cog.listener()

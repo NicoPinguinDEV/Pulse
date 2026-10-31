@@ -1,5 +1,6 @@
 import asyncio
 import os
+import signal
 from pathlib import Path
 import discord
 from pulse_command_errors import PulseCommandTree
@@ -10,34 +11,37 @@ from dotenv import load_dotenv
 import uvicorn
 
 BASE_DIR = Path(__file__).resolve().parent
-os.chdir(BASE_DIR)
-pulse_logging.safe_console()  # emoji output must not crash on a cp1252 console
-pulse_logging.setup(str(BASE_DIR))  # P-10: logs/pulse.log (1 MB x 3) + error ring buffer
 
-# .env muss vor dem Import von webserver/pulse_db geladen sein, da diese
-# Module ihre Konfiguration beim Import lesen.
-load_dotenv(BASE_DIR / ".env")
 
-# O-06: before webserver is imported – a malformed SESSION_DAYS/MAX_BACKUPS would stop the import there,
-# and this message names the cause. Only names and expected ranges are printed, never values.
-from pulse_env_validation import validate_environment  # noqa: E402
-for _config_warning in validate_environment():
-    print(f"⚠️ Konfigurationsprüfung: {_config_warning}")
-    pulse_logging.get("config").warning("Konfigurationsprüfung: %s", _config_warning)
+def prepare_process() -> None:
+    """Phase 9: process setup for `python main.py` – not on import (tests import main for CustomBot).
+    Before, `import main` changed the working directory, created logs/ and loaded the checkout's .env
+    (real tokens and data paths) into the importing process."""
+    os.chdir(BASE_DIR)
+    pulse_logging.safe_console()  # emoji output must not crash on a cp1252 console
+    pulse_logging.setup(str(BASE_DIR))  # P-10: logs/pulse.log (1 MB x 3) + error ring buffer
 
-from webserver import app
+    # .env muss vor dem Import von webserver/pulse_db geladen sein, da diese
+    # Module ihre Konfiguration beim Import lesen.
+    load_dotenv(BASE_DIR / ".env")
 
-TOKEN = os.getenv("DISCORD_TOKEN")
-PORT = int(os.getenv("SERVER_PORT", 25095))
+    # O-06: before webserver is imported – a malformed SESSION_DAYS/MAX_BACKUPS would stop the import there,
+    # and this message names the cause. Only names and expected ranges are printed, never values.
+    from pulse_env_validation import validate_environment
+    for config_warning in validate_environment():
+        print(f"⚠️ Konfigurationsprüfung: {config_warning}")
+        pulse_logging.get("config").warning("Konfigurationsprüfung: %s", config_warning)
 
-# discord.py caches recent messages to resolve references and certain gateway
-# events. On a small hosting plan, 1,000 Message objects can needlessly consume
-# memory. Keep a useful cache and make the limit configurable without disabling
-# any Cog or intent.
-try:
-    MESSAGE_CACHE_SIZE = max(100, min(1000, int(os.getenv("DISCORD_MESSAGE_CACHE_SIZE", "250"))))
-except (TypeError, ValueError):
-    MESSAGE_CACHE_SIZE = 250
+
+def message_cache_size() -> int:
+    """discord.py caches recent messages to resolve references and certain gateway
+    events. On a small hosting plan, 1,000 Message objects can needlessly consume
+    memory. Keep a useful cache and make the limit configurable without disabling
+    any Cog or intent. Read when the bot is created (after .env is loaded)."""
+    try:
+        return max(100, min(1000, int(os.getenv("DISCORD_MESSAGE_CACHE_SIZE", "250"))))
+    except (TypeError, ValueError):
+        return 250
 
 
 class CustomBot(commands.Bot):
@@ -45,6 +49,7 @@ class CustomBot(commands.Bot):
     TREE_CLASS = PulseCommandTree
 
     def __init__(self):
+        MESSAGE_CACHE_SIZE = message_cache_size()
         intents = discord.Intents.default()
         intents.members = True  # Rollen & Teamler erkennen
         intents.presences = True
@@ -67,8 +72,27 @@ class CustomBot(commands.Bot):
         self.pulse_loaded_cogs = []
         self.pulse_failed_cogs = []
         self.pulse_synced_commands = None
+        self._pulse_sigterm_close = None
+
+    def _install_signal_handlers(self, loop) -> None:
+        """Review Phase 9: docker stop and every deploy send SIGTERM (tini forwards it). Python has no handler for it
+        and died at once – close(), cog_unload and the dashboard shutdown never ran, and the exit code 143 looked like
+        a crash to scripts/pulse-crash-restart.sh. Now SIGTERM runs the normal close() once (exit 0)."""
+        def on_sigterm():
+            if self._pulse_sigterm_close is not None:
+                return
+            print("🛑 SIGTERM empfangen – Pulse wird sauber beendet.")
+            self._pulse_sigterm_close = loop.create_task(self.close(), name="pulse-sigterm-close")
+        try:
+            loop.add_signal_handler(signal.SIGTERM, on_sigterm)
+        except (NotImplementedError, RuntimeError, ValueError, AttributeError):
+            pass  # Windows (local development): no SIGTERM from Docker
 
     async def setup_hook(self):
+        from webserver import app  # after prepare_process() loaded .env (validate_environment() ran before)
+
+        self._install_signal_handlers(asyncio.get_running_loop())
+
         # WICHTIG: Bot-Instanz an die Webserver-App übergeben
         app.state.bot = self
 
@@ -112,20 +136,37 @@ class CustomBot(commands.Bot):
             print(f"⚠️ Pulse Ultimate Automation Engine konnte nicht gestartet werden: {e}")
 
         # Webserver im Hintergrund starten
+        self._start_web_server(app)
+
+    def _start_web_server(self, app):
+        """Start the dashboard once. Phase 9: a second call (setup_hook again) returns the running task
+        instead of a second uvicorn on the same port."""
+        task = self._pulse_web_server_task
+        if task is not None and not task.done():
+            return task
+        port = int(os.getenv("SERVER_PORT", 25095))
         # O-02: behind a reverse proxy (Caddy) the real client IP comes from X-Forwarded-For – trusted only from
         # PULSE_FORWARDED_ALLOW_IPS (default 127.0.0.1), otherwise anyone could fake it to dodge rate limits.
         config = uvicorn.Config(
-            app=app, host=os.getenv("PULSE_BIND_HOST", "0.0.0.0"), port=PORT, log_level="info",
+            app=app, host=os.getenv("PULSE_BIND_HOST", "0.0.0.0"), port=port, log_level="info",
             proxy_headers=True, forwarded_allow_ips=os.getenv("PULSE_FORWARDED_ALLOW_IPS", "127.0.0.1"),
         )
         server = uvicorn.Server(config)
         pulse_logging.quiet_healthcheck_access_log()  # Docker's 30-s probe flooded the live log
         self._pulse_web_server = server
         self._pulse_web_server_task = asyncio.create_task(server.serve(), name="pulse-webserver")
-        print(f"🌐 Webserver gestartet auf Port {PORT}")
+        print(f"🌐 Webserver gestartet auf Port {port}")
+        return self._pulse_web_server_task
 
     async def close(self):
         """Stop the dashboard cleanly before closing Discord's event loop."""
+        # Phase 9: the automation engine (and its watchdog thread) ran on after close – stop it first.
+        try:
+            from pulse_ultimate import stop_automation
+            await stop_automation()
+        except Exception as exc:
+            print(f"⚠️ Automation Engine nicht sauber beendet: {type(exc).__name__}: {exc}")
+
         server = self._pulse_web_server
         task = self._pulse_web_server_task
         if server is not None:
@@ -170,12 +211,21 @@ class CustomBot(commands.Bot):
             print(f"⚠️ Warnrollen-Startup-Abgleich fehlgeschlagen: {exc}")
 
 
-bot = CustomBot()
+bot: CustomBot | None = None  # created by run(); importing main creates no client (Phase 9)
+
+
+def run() -> None:
+    global bot
+    prepare_process()
+    token = os.getenv("DISCORD_TOKEN")
+    if not token:
+        print("❌ FEHLER: Kein DISCORD_TOKEN in der .env-Datei gefunden!")
+        return
+    from webserver import init_runtime
+    init_runtime()  # A-04: databases, folders and session secret are created here, not on import
+    bot = CustomBot()
+    bot.run(token)
+
 
 if __name__ == "__main__":
-    if not TOKEN:
-        print("❌ FEHLER: Kein DISCORD_TOKEN in der .env-Datei gefunden!")
-    else:
-        from webserver import init_runtime
-        init_runtime()  # A-04: databases, folders and session secret are created here, not on import
-        bot.run(TOKEN)
+    run()

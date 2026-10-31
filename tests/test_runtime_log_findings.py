@@ -13,6 +13,7 @@ import discord
 import pulse_interactions as pi
 import pulse_jobs
 from cogs import abmeldung
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 def _frozen_datetime(moment):

@@ -77,8 +77,9 @@ jobs:
       - name: Tests haben keine Laufzeit-JSON im Checkout angelegt
         # Phase 8: Tests dürfen nie team_data.json, audit_logs.json usw. im Arbeitsordner schreiben –
         # lokal (/pulse-verify) wäre das ein Checkout mit echten Teamdaten.
+        # Phase 9: ebenso keine Datenbanken, kein .session_secret und keine Log-Dateien.
         run: |
-          leaked=$(git status --porcelain --ignored --untracked-files=all -- '*.json' ':!node_modules' | grep -v '^ M' || true)
+          leaked=$(git status --porcelain --ignored --untracked-files=all -- '*.json' '*.db' '*.db-wal' '*.db-shm' '.session_secret' 'logs/' ':!node_modules' | grep -v '^ M' || true)
           if [ -n "$leaked" ]; then echo "Von Tests angelegt/verändert:"; echo "$leaked"; exit 1; fi
 
   e2e-scope:

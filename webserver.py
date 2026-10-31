@@ -29,7 +29,6 @@ from typing import List
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request, Cookie, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -59,8 +58,8 @@ except ImportError:  # pragma: no cover
     ZoneInfo = None
 
 BASE_DIR = Path(__file__).resolve().parent
-os.chdir(BASE_DIR)
-load_dotenv(BASE_DIR / ".env")
+# Phase 9: no os.chdir and no .env loading on import – main.prepare_process() does both for the bot process
+# before webserver is imported (P8-06; tests importing webserver got the checkout's real .env).
 
 # =============================================================
 # KONFIGURATION & UMGEBUNGSVARIABELN
@@ -236,8 +235,9 @@ TZ = _load_panel_timezone()
 async def _lifespan(_app):
     """A-04: FastAPI lifespan instead of the deprecated @app.on_event handlers."""
     init_runtime()
-    await _start_background_tasks()
     try:
+        # Phase 9: inside try – a start that fails half-way still closes what it opened (HTTP pool, backup task).
+        await _start_background_tasks()
         yield
     finally:
         await _stop_background_tasks()
@@ -337,10 +337,9 @@ _RUNTIME_READY = False
 
 def init_runtime() -> None:
     """A-04: create runtime files explicitly at start (main.py / app lifespan) instead of on import.
-    Idempotent. webserver itself no longer creates abmeldungen.db, backups/ or .session_secret on import;
-    the modules registered at its end (pulse_pro, pulse_features, pulse_next, …) still create pulse.db
-    tables while registering – to be moved here step by step (A-02/A-04). pulse_ultimate/pulse_next no
-    longer create attachments/ and backups/ on import; that happens here and where a file is written."""
+    Idempotent. Neither webserver nor the modules registered at its end (pulse_pro, pulse_features,
+    pulse_ultimate, pulse_next, …) create files, folders or tables on import (Phase 9, tests/test_lifecycle.py);
+    pulse_db.connect also creates its tables on first use of a database path."""
     global _RUNTIME_READY
     if _RUNTIME_READY:
         return
@@ -351,6 +350,7 @@ def init_runtime() -> None:
     pulse_ultimate.ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
     pulse_db.init_db()
+    pulse_next.setup_next()  # Phase 9: tables of pulse_ultimate/pulse_next, before registration created them on import
     import pulse_migrations  # A-05: versioned migrations (backup before the first pending one)
     pulse_migrations.run(os.path.abspath(pulse_db.DB_PATH), os.path.abspath(BACKUP_DIR))
     _session_key()  # computes SESSION_SECRET_PROBLEM for the system status

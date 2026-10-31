@@ -18,6 +18,9 @@ BROWSER = {"Origin": "http://testserver"}
 
 CAREER = next(iter(ws.APPLICATION_CAREERS))
 
+# Phase 9: the /apply pages read pulse.db settings and sign tokens – both went to the working directory.
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: E402,F401
+
 
 def apply_token(seconds_left=600, uid="4242"):
     return ws.sign_payload({"id": uid, "username": "max", "global_name": "Max", "avatar": None,

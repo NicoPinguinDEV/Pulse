@@ -42,6 +42,7 @@ SHA_OLDER = "c" * 40
 DISCORD_LIKE = ".".join(("MTIzNDU2Nzg5" + "MDEyMzQ1Njc4OQ", "GaBcDe", "abcdefghijklmn" + "opqrstuvwxyz0123"))
 GUILD = SimpleNamespace(id=1, name="© BOCHUM RP | V1", members=[], roles=[], channels=[], text_channels=[], member_count=10,
                         owner_id=0, icon=None, get_member=lambda _: None, get_role=lambda _: None, get_channel=lambda _: None)
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 def fake_auth_for(perms):

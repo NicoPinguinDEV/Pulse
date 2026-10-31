@@ -15,6 +15,7 @@ import pulse_embed_design
 
 MODERN = pulse_embed_design.normalize_branding({"style": "modern"})
 CLASSIC = pulse_embed_design.normalize_branding({"style": "classic"})
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 def style(brand):

@@ -12,6 +12,7 @@ import pulse_command_sync
 import pulse_db
 import pulse_tasks
 from pulse_ready import first_ready
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 class SpawnTests(unittest.TestCase):

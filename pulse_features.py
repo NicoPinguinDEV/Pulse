@@ -16,7 +16,7 @@ from pulse_time import parse_timestamp
 
 def register(app):
     import webserver as ws
-    db.init_db()
+    # Phase 9 (A-04): tables are created by webserver.init_runtime / pulse_db.connect, not while registering routes.
 
     def ctx(request, session, perm=None, admin=False):
         return ws.auth(request, session, perm=perm, admin=admin)

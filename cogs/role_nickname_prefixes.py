@@ -511,6 +511,16 @@ class RoleNicknamePrefixes(commands.Cog):
         if lock is not None and not lock.locked():
             self._member_locks.pop(member.id, None)
 
+    async def cog_unload(self) -> None:
+        """Phase 9: the bulk prefix sync must not keep renaming members after a reload/shutdown.
+        Its own finally block still writes the collected nickname state."""
+        task = self._bulk_sync_task
+        if task is None or task.done():
+            return
+        self._sync_requested_again = False
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
     def start_sync_existing_members(self, *, queue_if_running: bool = False) -> bool:
         if self._bulk_sync_task and not self._bulk_sync_task.done():
             if queue_if_running:

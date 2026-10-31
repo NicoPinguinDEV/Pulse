@@ -20,6 +20,7 @@ BROWSER = {"Origin": "http://testserver"}
 
 
 JSON_STORES = ("DATA_FILE", "CONFIG_FILE", "APPS_FILE", "SHIFTS_FILE", "LOGS_FILE", "AUDIT_FILE", "MEETINGS_FILE")
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 class TempDb(unittest.TestCase):

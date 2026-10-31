@@ -851,7 +851,7 @@ def validate_api_key(token: str) -> bool:
 
 
 def register(app) -> None:
-    setup()
+    # Phase 9 (A-04): no setup() here – webserver.init_runtime and every data function call it before use.
     if getattr(app.state, "pulse_ultimate_registered", False):
         return
 
@@ -3053,5 +3053,21 @@ async def start_automation(bot):
     global _AUTOMATION_TASK
     if _AUTOMATION_TASK and not _AUTOMATION_TASK.done():
         return _AUTOMATION_TASK
-    _AUTOMATION_TASK = asyncio.create_task(automation_loop(bot))
+    _AUTOMATION_TASK = asyncio.create_task(automation_loop(bot), name="pulse-automation")
     return _AUTOMATION_TASK
+
+
+async def stop_automation(timeout: float = 5.0) -> None:
+    """Phase 9: stop the automation loop and the stall watchdog (bot shutdown). Idempotent; start_automation
+    afterwards starts exactly one fresh loop."""
+    global _AUTOMATION_TASK
+    import pulse_jobs
+    task, _AUTOMATION_TASK = _AUTOMATION_TASK, None
+    pulse_jobs.stop_stall_watchdog()
+    if task is None or task.done() or task is asyncio.current_task():
+        return
+    task.cancel()
+    try:
+        await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), timeout)
+    except asyncio.TimeoutError:
+        print("⚠️ Automation Engine hat sich nicht rechtzeitig beendet.")
