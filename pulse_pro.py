@@ -168,6 +168,14 @@ time[data-relative]{cursor:help}
 #pulseSidebar.pulse-sidebar-collapsed .pulse-primary-content,
 #pulseSidebar.pulse-sidebar-collapsed .pulse-advanced-content,
 #pulseSidebar.pulse-sidebar-collapsed .pulse-sidebar-sub{padding:0;margin:0;border:0}
+#pulseSidebar.pulse-sidebar-collapsed details:not([open])>.pulse-primary-content,
+#pulseSidebar.pulse-sidebar-collapsed details:not([open])>.pulse-advanced-content,
+#pulseSidebar.pulse-sidebar-collapsed details:not([open])>.pulse-sidebar-sub{display:flex!important;flex-direction:column;gap:3px}
+#pulseSidebar.pulse-sidebar-collapsed .pulse-advanced-content,
+#pulseSidebar.pulse-sidebar-collapsed .pulse-sidebar-sub{display:flex!important;flex-direction:column;gap:4px}
+#pulseSidebar.pulse-sidebar-collapsed .mt-5 .min-w-0{display:none}
+#pulseSidebar.pulse-sidebar-collapsed .mt-5>a{width:38px;height:38px;padding:0;margin:0 auto;font-size:0}
+#pulseSidebar.pulse-sidebar-collapsed .mt-5>a:before{content:"↤";font-size:16px}
 #pulseSidebar .pulse-nav-group>summary:after{margin-left:auto;float:none;font-size:12px}
 #pulseSidebar .pulse-nav-subgroup{margin:4px 0 0 8px}
 #pulseSidebar .pulse-nav-subgroup>summary{font-size:9px;letter-spacing:.06em;text-transform:none;padding:7px 9px}
