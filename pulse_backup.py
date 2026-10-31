@@ -146,14 +146,31 @@ def create_full_backup(base_dir, backup_dir, *, discord_structure: dict | None =
                 "files": [], "skipped": [], "warnings": [], "excluded": EXCLUDED}
 
     def add(zf, source, arcname, kind):
+        with open(source, "rb") as src:
+            add_stream(zf, src, arcname, kind)
+
+    def add_stream(zf, src, arcname, kind):
         digest, size = hashlib.sha256(), 0
-        with open(source, "rb") as src, zf.open(arcname, "w", force_zip64=True) as dst:
+        with zf.open(arcname, "w", force_zip64=True) as dst:
             for block in iter(lambda: src.read(_CHUNK), b""):
                 digest.update(block)
                 size += len(block)
                 dst.write(block)
         manifest["files"].append({"name": arcname, "kind": kind, "size": size, "sha256": digest.hexdigest()})
 
+    try:
+        _write_archive(base_dir, partial, manifest, add, add_stream, discord_structure, budget_bytes)
+    except BaseException:
+        # Phase 8: never leave a half-written archive behind – list_backups() ignores *.tmp, so it would never be
+        # pruned and would silently fill the disk with every failed (e.g. disk-full) auto backup.
+        with contextlib.suppress(OSError):
+            partial.unlink()
+        raise
+    os.replace(partial, target)
+    return target, manifest
+
+
+def _write_archive(base_dir, partial, manifest, add, add_stream, discord_structure, budget_bytes) -> None:
     with tempfile.TemporaryDirectory(prefix="pulse-backup-") as tmp, \
             zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
         for name in SQLITE_FILES:
@@ -186,24 +203,34 @@ def create_full_backup(base_dir, backup_dir, *, discord_structure: dict | None =
                 files = sorted(p for p in root.rglob("*") if p.is_file())
             for path in files:
                 arcname = "files/" + PurePosixPath(*path.relative_to(base_dir).parts).as_posix()
-                size = path.stat().st_size
-                if used + size > budget_bytes:
-                    manifest["skipped"].append({"name": arcname, "reason": "Größenbudget", "size": size})
+                # Phase 8: uploads/transcripts can be deleted (retention, ticket cleanup) between listing and copying.
+                # Only *opening* the source is tolerated – errors while writing the archive (disk full) still abort.
+                try:
+                    size = path.stat().st_size
+                    if used + size > budget_bytes:
+                        manifest["skipped"].append({"name": arcname, "reason": "Größenbudget", "size": size})
+                        continue
+                    src = open(path, "rb")
+                except OSError as exc:
+                    manifest["skipped"].append({"name": arcname, "reason": "nicht lesbar", "error": type(exc).__name__})
                     continue
-                add(zf, path, arcname, "file")
+                with src:
+                    add_stream(zf, src, arcname, "file")
                 used += size
         if manifest["skipped"] and any(s["reason"] == "Größenbudget" for s in manifest["skipped"]):
             manifest["warnings"].append(
                 f"{sum(1 for s in manifest['skipped'] if s['reason'] == 'Größenbudget')} Datei(en) über dem Größenbudget "
                 f"von {budget_bytes // (1024 * 1024)} MB nicht gesichert (PULSE_BACKUP_MAX_MB erhöhen)")
+        unreadable = [s["name"] for s in manifest["skipped"] if s["reason"] == "nicht lesbar" and s["name"].startswith("files/")]
+        if unreadable:
+            manifest["warnings"].append(f"{len(unreadable)} Datei(en) während der Sicherung nicht lesbar oder gelöscht – "
+                                        f"nicht gesichert: {', '.join(unreadable[:3])}")
         if discord_structure is not None:
             data = json.dumps(discord_structure, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             zf.writestr("discord_structure.json", data)
             manifest["files"].append({"name": "discord_structure.json", "kind": "discord", "size": len(data),
                                       "sha256": hashlib.sha256(data).hexdigest()})
         zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=1))
-    os.replace(partial, target)
-    return target, manifest
 
 
 def read_manifest(path) -> dict:
@@ -271,17 +298,31 @@ def preview_restore(path, base_dir) -> dict:
     manifest = read_manifest(path)
     result = {"manifest": manifest, "problems": verify_full_backup(path), "files": [], "tables": []}
     with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-preview-") as tmp:
+        present = set(zf.namelist())
         for entry in manifest.get("files", []):
-            name = entry["name"]
+            name = str(entry.get("name", ""))
             target = _target_for(base_dir, name)
             if target is None:
+                continue
+            if name not in present:  # already listed by verify_full_backup ("Fehlt im Archiv") – restore stays locked
+                result["files"].append({"name": name, "status": "fehlt im Archiv", "size": entry.get("size", 0)})
                 continue
             if kind_of(name) == "sqlite":
                 extracted = Path(tmp) / Path(name).name
                 with zf.open(name) as src, open(extracted, "wb") as dst:
                     shutil.copyfileobj(src, dst, _CHUNK)
-                backup_counts = _table_counts(extracted)
-                current_counts = _table_counts(target) if target.is_file() else {}
+                # Phase 8: a damaged database must show up as a problem in the dry run (restore locked), not as HTTP 500.
+                try:
+                    backup_counts = _table_counts(extracted)
+                except sqlite3.Error as exc:
+                    result["problems"].append(f"{name}: Datenbank im Backup nicht lesbar ({type(exc).__name__}: {exc})")
+                    result["files"].append({"name": name, "status": "beschädigt", "size": entry.get("size", 0)})
+                    continue
+                try:
+                    current_counts = _table_counts(target) if target.is_file() else {}
+                except sqlite3.Error as exc:  # the live file is damaged: the backup is exactly what is needed
+                    current_counts = {}
+                    result.setdefault("warnings", []).append(f"Aktuelle {target.name} nicht lesbar ({type(exc).__name__})")
                 for table in sorted(set(backup_counts) | set(current_counts)):
                     if backup_counts.get(table) != current_counts.get(table):
                         result["tables"].append({"db": Path(name).name, "table": table,

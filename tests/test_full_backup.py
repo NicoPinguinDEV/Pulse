@@ -196,6 +196,50 @@ class FullBackupTests(unittest.TestCase):
         truncated.write_bytes(path.read_bytes()[:200])
         self.assertFalse(pulse_backup.restore_test(truncated)["ok"])
 
+    def test_file_vanishing_during_backup_is_reported_not_fatal(self):
+        """Phase 8: an upload deleted between listing and copying (retention, ticket cleanup) must not abort the
+        whole backup – it is listed as skipped with a warning, everything else is still backed up."""
+        gone = self.base / "uploads" / "welcome_banners" / "b.png"
+        real_open = open
+
+        def vanishing_open(file, *args, **kwargs):
+            if Path(str(file)) == gone:
+                raise FileNotFoundError(file)
+            return real_open(file, *args, **kwargs)
+        with patch("builtins.open", vanishing_open):
+            path, manifest = pulse_backup.create_full_backup(self.base, self.backups)
+        names = {f["name"] for f in manifest["files"]}
+        self.assertIn("db/pulse.db", names)
+        self.assertNotIn("files/uploads/welcome_banners/b.png", names)
+        self.assertIn({"name": "files/uploads/welcome_banners/b.png", "reason": "nicht lesbar"},
+                      [{k: s[k] for k in ("name", "reason")} for s in manifest["skipped"]])
+        self.assertTrue(any("nicht lesbar" in w for w in manifest["warnings"]))
+        self.assertEqual(pulse_backup.verify_full_backup(path), [])
+
+    def test_failed_backup_leaves_no_partial_file(self):
+        """Phase 8: a backup that fails part-way (disk full, unreadable file) must not leave a *.zip.tmp behind –
+        such files were never listed, never pruned and silently used up the disk."""
+        with patch.object(pulse_backup, "_snapshot_sqlite", side_effect=OSError("Kein Speicherplatz")):
+            with self.assertRaises(OSError):
+                pulse_backup.create_full_backup(self.base, self.backups)
+        self.assertEqual(sorted(p.name for p in self.backups.iterdir()), [])
+
+    def test_preview_of_damaged_backup_reports_problems_instead_of_crashing(self):
+        """Phase 8: the dry run must show *why* a backup is unusable (restore stays locked) – a damaged database
+        with a matching checksum or an entry missing from the archive used to raise DatabaseError/KeyError (HTTP 500)."""
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        damaged = self._rewrite(path, {"db/pulse_suite.db": b"SQLite format 3\x00" + b"\x00" * 200})
+        preview = pulse_backup.preview_restore(damaged, self.base)
+        self.assertTrue(any("pulse_suite.db" in p for p in preview["problems"]), preview["problems"])
+        missing = path.with_name("pulse_full_20260103_000000.zip")
+        with zipfile.ZipFile(path) as src, zipfile.ZipFile(missing, "w") as dst:
+            for item in src.infolist():
+                if item.filename != "db/pulse.db":
+                    dst.writestr(item, src.read(item.filename))
+        preview = pulse_backup.preview_restore(missing, self.base)
+        self.assertTrue(any("db/pulse.db" in p for p in preview["problems"]), preview["problems"])
+        self.assertEqual(self.cons[0].execute("SELECT COUNT(*) FROM t").fetchone()[0], 2)  # nothing live touched
+
     def test_restore_test_and_maintenance_blocks_json_writes(self):
         path, _ = pulse_backup.create_full_backup(self.base, self.backups)
         self.assertTrue(pulse_backup.restore_test(path)["ok"])
@@ -258,6 +302,33 @@ class FullBackupRouteTests(unittest.TestCase):
             self.assertIn("t=ok", done.headers["location"])
             self.assertEqual(self.client.get("/backup/full/download/..%2Fteam_data.json").status_code, 404)
         self.assertEqual((Path(self.tmp.name) / "team_data.json").read_text(encoding="utf-8"), '{"1": {}}')
+
+    def test_preview_route_locks_restore_for_damaged_backup(self):
+        """Phase 8: the dry run page shows the problem and offers no restore form (previously HTTP 500)."""
+        import hashlib
+        ws = self.ws
+        bad = b"SQLite format 3\x00" + b"\x00" * 200
+        con = sqlite3.connect(Path(self.tmp.name) / "pulse.db")
+        con.close()
+        with patch.object(ws, "auth", self.fake_auth_for(self.ADMIN)):
+            self.client.post("/backup/full/create", follow_redirects=False)
+            good = pulse_backup.list_backups(ws.full_backup_dir())[0]
+            damaged = good.with_name("pulse_full_20260101_000000.zip")
+            with zipfile.ZipFile(good) as src, zipfile.ZipFile(damaged, "w") as dst:
+                manifest = json.loads(src.read("manifest.json"))
+                for name in src.namelist():
+                    if name not in ("manifest.json", "db/pulse.db"):
+                        dst.writestr(name, src.read(name))
+                dst.writestr("db/pulse.db", bad)
+                for entry in manifest["files"]:
+                    if entry["name"] == "db/pulse.db":
+                        entry["sha256"] = hashlib.sha256(bad).hexdigest()
+                dst.writestr("manifest.json", json.dumps(manifest))
+            page = self.client.get(f"/backup/full/preview/{damaged.name}", follow_redirects=False)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Wiederherstellung gesperrt", page.text)
+        self.assertIn("db/pulse.db", page.text)
+        self.assertNotIn('action="/backup/full/restore"', page.text)
 
     def test_json_backup_reads_discord_in_loop_and_files_in_thread(self):
         import asyncio
