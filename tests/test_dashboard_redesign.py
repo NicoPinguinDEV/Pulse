@@ -43,6 +43,15 @@ class DashboardRedesignTests(unittest.TestCase):
         self.assertIn("pulse-advanced-group", self.sidebar)
         self.assertIn('str(current_page).startswith(("u:", "s:"))', self.sidebar)
 
+    def test_sidebar_collapse_is_persistent_and_accessible(self):
+        self.assertIn('id="pulseSidebarCollapseBtn"', self.sidebar)
+        self.assertIn("pulseToggleSidebarCollapsed", self.sidebar)
+        self.assertIn('aria-label="{label}" title="{label}"', self.sidebar)
+        self.assertIn("pulse.sidebar.collapsed", self.sidebar)
+        self.assertIn("aria-pressed", self.sidebar)
+        self.assertIn("pulse-sidebar-collapsed", SOURCE)
+        self.assertIn("min-width: 768px", self.sidebar)
+
     def test_removed_workflow_shortcuts_stay_out_of_sidebar(self):
         self.assertIn('hidden_keys = {"handover", "approvals", "tasks2"} if prefix == "u" else {"tasks"}', self.sidebar)
         self.assertIn("item for item in visible_nav(items, leader) if item[0] not in hidden_keys", self.sidebar)
