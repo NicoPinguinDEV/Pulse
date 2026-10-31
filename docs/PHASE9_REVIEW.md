@@ -75,7 +75,7 @@ keine Datei im Checkout.
 
 - **Einzelmodul-Leckprüfung automatisieren:** die Gesamtlauf-Prüfung der CI erkennt P2-artige Lecks nicht.
   Vorschlag: optionaler, manueller CI-Job, der jedes Modul einzeln ausführt (Laufzeit ≈ 15 min).
-- **Echter Signal-Test** läuft nur in der Linux-CI – Ergebnis nach dem Push prüfen.
+- **Echter Signal-Test** läuft nur in der Linux-CI – **Nachtrag 31.10.2026:** in der CI zu PR #89 (`3124d2d`) und auf `main` (`54f2a8a`) ausgeführt und bestanden (siehe Nachtrag unten).
 - **`main.run()`-Ablauf** ist nur per manuellem Smoke geprüft (Skript im Review-Scratch, nicht versioniert);
   ein versionierter Test bräuchte umfangreiche Discord-Fakes.
 - Optional: Portfehler gezielt behandeln (Meldung + `close()` vor dem Exit) – Verhaltensentscheidung.
@@ -100,3 +100,11 @@ keine Datei im Checkout.
 | CI-Leckprüfung + vollständiges `git status --ignored` | keine Dateien |
 | Einzellauf aller Testmodule | vor Fix 7 Lecks, nach Fix 0 (betroffene + isolierte Module erneut einzeln geprüft) |
 | Produktionsstart-Smoke / Pre-Deploy-Backup | siehe Abschnitt 3 |
+
+## 7. Nachtrag (Phase 10, 31.10.2026)
+
+Das Review galt dem unveröffentlichten Branch. Inzwischen geprüft: PR
+[NicoPinguinDEV/Pulse#89](https://github.com/NicoPinguinDEV/Pulse/pull/89) wurde mit Head `3124d2d` am 31.10.2026
+19:53 UTC nach `main` gemergt (Merge-Commit `54f2a8a`). Alle 11 PR-Checks und die Workflows auf `main` waren
+erfolgreich; Linux-Unittests 1123 OK (15 übersprungen, der echte SIGTERM-Test nicht – seine einzige Skip-Bedingung ist
+Windows). Kein Deployment: „Deploy Pulse VPS“ wurde für `54f2a8a` übersprungen. Details: `docs/PHASE9_BERICHT.md` §8.

@@ -681,9 +681,30 @@ def get_profile(user_id: str):
     return dict(row) if row else None
 
 
+def all_profiles() -> dict:
+    """Phase 10: every profile row in one query (member_stats read them one connection per member)."""
+    setup()
+    with cx() as c:
+        return {str(r["user_id"]): dict(r) for r in c.execute("SELECT * FROM ultimate_profiles").fetchall()}
+
+
+def _history_by_member(history) -> dict | None:
+    """Phase 10: shift history grouped once by mod_id (order kept). None for unexpected entries – member_stats then
+    filters per member exactly as before, so a broken entry fails the same way it always did."""
+    grouped: dict = {}
+    try:
+        for h in history:
+            grouped.setdefault(str(h.get("mod_id")), []).append(h)
+    except AttributeError:
+        return None
+    return grouped
+
+
 def stats_context() -> dict:
     """M-C1: the member-independent inputs of member_stats, read once per page instead of once per member
-    (before: 2 × 5000 tickets, shifts, team data and config for every single team member)."""
+    (before: 2 × 5000 tickets, shifts, team data and config for every single team member).
+    Phase 10: also the per-member SQLite reads (tasks, training attempts, profiles) as one query each and the shift
+    history grouped by member – a page with N members used ~4·N connections and N passes over the whole history."""
     import webserver
     claimed, closed = {}, {}
     for t in db.list_tickets(limit=5000):
@@ -691,34 +712,67 @@ def stats_context() -> dict:
         claimed[key] = claimed.get(key, 0) + 1
         if t.get("status") == "closed":
             closed[key] = closed.get(key, 0) + 1
-    return {"shifts": webserver.load_shifts(), "claimed": claimed, "closed": closed,
-            "team_data": webserver.load_json(webserver.DATA_FILE, {}), "config": webserver.load_config()}
+    shifts = webserver.load_shifts()
+    return {"shifts": shifts, "claimed": claimed, "closed": closed,
+            "team_data": webserver.load_json(webserver.DATA_FILE, {}), "config": webserver.load_config(),
+            "history_by_member": _history_by_member(shifts.get("history", [])),
+            "task_totals": db.task_totals_by_assignee(1000), "passed_attempts": db.passed_attempts_by_user(200),
+            "profiles": all_profiles()}
+
+
+def _context_profile(member, context: dict) -> dict:
+    """The profile after ensure_profile – from the prefetched rows when they are current (same test as ensure_profile's
+    no-write path), otherwise ensure_profile + a fresh read exactly as before."""
+    uid_s = str(member.id)
+    profiles = context.get("profiles")
+    known = profiles.get(uid_s) if isinstance(profiles, dict) else None
+    if known and known.get("display_name") == member.display_name and known.get("archived_at") is None:
+        return dict(known)
+    ensure_profile(member)
+    profile = get_profile(uid_s) or {}
+    if isinstance(profiles, dict) and profile:
+        profiles[uid_s] = profile
+    return dict(profile)
 
 
 def member_stats(member, context: dict | None = None) -> dict:
     """Score and figures of one team member. Loops over many members pass one stats_context()."""
     import webserver
-    ensure_profile(member)
     context = context if context is not None else stats_context()
-    shifts = context["shifts"]
     uid_s = str(member.id)
+    if isinstance(context.get("profiles"), dict):
+        profile = _context_profile(member, context)
+    else:  # a context without prefetched rows (older callers): unchanged path
+        ensure_profile(member)
+        profile = None
+    shifts = context["shifts"]
     weekly = webserver.calculate_weekly_seconds(uid_s, shifts.get("history", []), shifts.get("active_shifts", {}))
-    history = [h for h in shifts.get("history", []) if str(h.get("mod_id")) == uid_s]
+    grouped = context.get("history_by_member")
+    if isinstance(grouped, dict):
+        history = grouped.get(uid_s, [])
+    else:
+        history = [h for h in shifts.get("history", []) if str(h.get("mod_id")) == uid_s]
     total_seconds = sum(webserver.credited_shift_seconds(h) for h in history)  # E-2
     active = shifts.get("active_shifts", {}).get(uid_s)
     if active:
         total_seconds += webserver.shift_elapsed(active)
     tickets = context["claimed"].get(uid_s, 0)
     closed_tickets = context["closed"].get(uid_s, 0)
-    tasks = db.list_tasks(assignee_id=member.id, limit=1000, include_archived=True)
-    tasks_done = sum(1 for t in tasks if t.get("status") in ("done", "archived"))
-    attempts = db.attempts(user_id=member.id, limit=200)
-    passed = sum(1 for x in attempts if x.get("passed"))
-    profile = get_profile(uid_s) or {}
+    if isinstance(context.get("task_totals"), dict):
+        task_count, tasks_done = context["task_totals"].get(uid_s, (0, 0))
+    else:
+        tasks = db.list_tasks(assignee_id=member.id, limit=1000, include_archived=True)
+        task_count, tasks_done = len(tasks), sum(1 for t in tasks if t.get("status") in ("done", "archived"))
+    if isinstance(context.get("passed_attempts"), dict):
+        passed = context["passed_attempts"].get(uid_s, 0)
+    else:
+        passed = sum(1 for x in db.attempts(user_id=member.id, limit=200) if x.get("passed"))
+    if profile is None:
+        profile = get_profile(uid_s) or {}
     warnings = len(webserver.active_warns(webserver.user_entry(context["team_data"], uid_s)))
     weekly_goal = max(1.0, float(context["config"].get("weekly_goal_hours", 3.0)))
     activity_pct = min(100, round(weekly / 3600 / weekly_goal * 100))
-    reliability_pct = 100 if not tasks else round(tasks_done / len(tasks) * 100)
+    reliability_pct = 100 if not task_count else round(tasks_done / task_count * 100)
     support_pct = min(100, closed_tickets * 5)
     discipline_pct = max(0, 100 - warnings * 20)
     training_pct = min(100, passed * 25)
@@ -735,7 +789,7 @@ def member_stats(member, context: dict | None = None) -> dict:
         "shifts": len(history),
         "tickets": tickets,
         "closed_tickets": closed_tickets,
-        "tasks": len(tasks),
+        "tasks": task_count,
         "tasks_done": tasks_done,
         "training_passed": passed,
         "warnings": warnings,

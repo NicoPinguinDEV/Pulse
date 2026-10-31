@@ -69,8 +69,13 @@ def rss_mb() -> float | None:
                         ("PeakPagefileUsage", ctypes.c_size_t)]
         counters = Counters()
         counters.cb = ctypes.sizeof(Counters)
-        handle = ctypes.windll.kernel32.GetCurrentProcess()
-        if ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+        # Own WinDLL instances with explicit types: without restype the pseudo handle (-1) was cut to a 32-bit int on
+        # 64-bit Windows, the call failed and RSS was always "None" (Phase 10).
+        kernel32, psapi = ctypes.WinDLL("kernel32"), ctypes.WinDLL("psapi")
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        psapi.GetProcessMemoryInfo.argtypes = (wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD)
+        psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+        if psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
             return counters.WorkingSetSize / 1024 / 1024
     return None
 
@@ -114,6 +119,8 @@ def main() -> int:
     os.chdir(tmp)
     ws.BACKUP_DIR = str(Path(tmp) / "backups")
     ws.DB_ABMELDUNGEN = str(Path(tmp) / "abmeldungen.db")
+    # Phase 10: computed from the checkout on import – /team and /activity-check opened (and created) it there
+    ws.ACTIVITY_DB = str(Path(tmp) / "activity_check.db")
     team, lead = FakeRole(100, "Supporter", position=3), FakeRole(101, "Leitung", position=5)
     members = [FakeMember(1, "Admin Anna", roles=[lead], admin=True)]
     members += [FakeMember(1000 + i, f"Mitglied {i}", roles=[team if i % 10 else lead]) for i in range(args.members)]

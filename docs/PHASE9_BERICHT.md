@@ -113,7 +113,7 @@ Abgedeckte Szenarien aus dem Auftrag:
   beim Prozessende). Der Lauf ist danach wie bisher als unterbrochen markiert und auditiert.
 - **uvicorn-Portfehler:** Kann der Port nicht gebunden werden, beendet uvicorn den Prozess mit `sys.exit(1)` aus dem
   Webserver-Task (unverändert; Docker/Crash-Restart starten neu). Nicht geändert, da kein Fehlverhalten nachgewiesen.
-- **Python-Version:** lokal 3.14.6 (Windows); Linux-Container/CI 3.14 nicht lokal ausgeführt – CI läuft beim Push.
+- **Python-Version:** lokal 3.14.6 (Windows); Linux-Container/CI 3.14 nicht lokal ausgeführt – CI lief später am PR und auf `main` grün (Abschnitt 8).
 - **Vorhandene Testmeldung:** `no such table: ultimate_attachments` erscheint im Testlog (ein erwarteter Fehlerpfad in
   `test_mission_regressions`) – identisch auf `main`, nicht Teil dieser Phase.
 
@@ -125,4 +125,18 @@ Abgedeckte Szenarien aus dem Auftrag:
 | Reaktion auf einen Portfehler (Bot ohne Dashboard weiterlaufen lassen vs. beenden) | Verhaltensentscheidung, kein nachgewiesener Defekt; heute beendet sich der Prozess und wird neu gestartet. |
 | Zentrale Sammelstelle für alle `create_task`-Aufgaben der Cogs | Jede Aufgabe gehört einem Cog und wird jetzt in dessen `cog_unload` beendet; eine zusätzliche Registry wäre neue Infrastruktur ohne Befund. |
 | Verbleibende Testmodule, die `pulse.db` gezielt selbst umleiten | Bereits isoliert (eigene `patch.object(pulse_db, "DB_PATH", …)`), der Audit-Hook-Lauf fand keine weiteren Zugriffe. |
-| Push, PR, Merge, Deployment | Laut Auftrag ausgeschlossen. |
+| Push, PR, Merge, Deployment | In Phase 9 laut Auftrag ausgeschlossen; Push/PR/Merge folgten danach mit Freigabe – siehe Abschnitt 8. Deployment: nicht erfolgt. |
+
+## 8. Nachtrag: Merge- und CI-Status (geprüft am 31.10.2026 in Phase 10)
+
+Abschnitt 6/7 beschreiben den Stand vor dem Push. Danach (Fakten aus `gh pr view 89` und `gh run list/view`):
+
+| Punkt | Stand |
+|---|---|
+| Pull Request | [NicoPinguinDEV/Pulse#89](https://github.com/NicoPinguinDEV/Pulse/pull/89) – Head `3124d2d` (inkl. Freigabe-Gate-Commit), **gemergt** am 31.10.2026 19:53 UTC |
+| Merge-Commit auf `main` | `54f2a8a` („Merge pull request #89 …“) |
+| CI am PR (Head `3124d2d`) | alle 11 Checks **erfolgreich** (u. a. `syntax`, Dashboard-E2E, Docker-Build, pip-audit, Secret-Scan, CodeQL) |
+| CI auf `main` (`54f2a8a`) | „Pulse Quality and Security Checks“ und „Pulse Sicherheit & Abdeckung“ **erfolgreich** |
+| Unittests in der CI (Linux) | 1123 Tests, **OK (skipped=15)**; E2E-Job 15 OK |
+| Echter SIGTERM-Test | `test_real_sigterm_closes_the_bot` hat als einzige Skip-Bedingung `os.name == "nt"` – auf `ubuntu-latest` ausgeführt und mit dem Gesamtlauf bestanden |
+| Deployment | **nicht erfolgt** – Workflow „Deploy Pulse VPS“ für `54f2a8a` übersprungen (nur manueller Start) |

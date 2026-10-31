@@ -13,13 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ToolIsolationTests(unittest.TestCase):
     def test_tools_return_to_temp_folder_after_importing_webserver(self):
-        for name in ("preview_server.py", "load_test.py"):
+        for name in ("preview_server.py", "load_test.py", "perf_baseline.py"):
             with self.subTest(tool=name):
                 source = (ROOT / "tools" / name).read_text(encoding="utf-8")
                 imported = source.index("import webserver as ws")
                 chdirs = [m.start() for m in re.finditer(r"os\.chdir\(tmp\)", source)]
                 self.assertTrue(any(pos > imported for pos in chdirs), "os.chdir(tmp) fehlt nach dem Import von webserver")
                 self.assertRegex(source[imported:], r"ws\.BACKUP_DIR\s*=\s*str\(Path\(tmp\)")
+                self.assertRegex(source[imported:], r"ws\.ACTIVITY_DB\s*=\s*str\(Path\(tmp\)")  # Phase 10
 
 
 if __name__ == "__main__":

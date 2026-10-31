@@ -429,7 +429,7 @@ def main() -> None:
     pulse_next_source = read("pulse_next.py")
     parse("pulse_next.py")
     score_record = pulse_next_source.split("def record_score(member, context=None):", 1)[1].split("\ndef all_stats(", 1)[0]
-    assert "def award_achievements(member, stats=None):" in pulse_next_source
+    assert "def award_achievements(member, stats=None, conn=None):" in pulse_next_source  # Phase 10: optional shared connection
     assert "award_achievements(member, s)" in score_record
     assert score_record.index("if exists:\n        return False") < score_record.index("u.member_stats(member, context)")
 
@@ -695,7 +695,7 @@ def main() -> None:
     assert "details-only" not in web  # no stale marker should leak into UI
     assert 'href="/member/{m["id"]}"' in web
     assert "🗓️ Team seit" in web
-    assert "def team_since_for(member, entry=None)" in web
+    assert "def team_since_for(member, entry=None, apps=None)" in web  # Phase 10: applications.json once per list
     assert 'href="/team/{member.id}/roles"' in web
     assert 'name="action_reason"' in web
     assert 'action == "kick"' in web
