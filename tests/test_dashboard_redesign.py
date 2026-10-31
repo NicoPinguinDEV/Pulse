@@ -34,7 +34,7 @@ class DashboardRedesignTests(unittest.TestCase):
 
     def test_extended_navigation_remains_permission_filtered(self):
         self.assertIn("from pulse_design import SUITE_NAV, ULTIMATE_NAV, visible_nav", self.sidebar)
-        self.assertIn("entries = visible_nav(items, leader)", self.sidebar)
+        self.assertIn("item for item in visible_nav(items, leader) if item[0] not in hidden_keys", self.sidebar)
         self.assertIn("pulse-advanced-group", self.sidebar)
         self.assertIn('str(current_page).startswith(("u:", "s:"))', self.sidebar)
 
