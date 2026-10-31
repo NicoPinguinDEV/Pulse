@@ -156,6 +156,18 @@ time[data-relative]{cursor:help}
 #pulseSidebar .pulse-nav-group>summary:hover{background:var(--surface2);color:var(--text)}
 #pulseSidebar .pulse-primary-group{margin-top:7px}
 #pulseSidebar .pulse-primary-content{display:flex;flex-direction:column;gap:3px;padding:1px 0 4px}
+#pulseSidebar.pulse-sidebar-collapsed{width:76px!important;padding-left:10px!important;padding-right:10px!important}
+#pulseSidebar.pulse-sidebar-collapsed .pulse-brand-copy,
+#pulseSidebar.pulse-sidebar-collapsed .pulse-area-switch,
+#pulseSidebar.pulse-sidebar-collapsed .pulse-nav-group>summary{display:none!important}
+#pulseSidebar.pulse-sidebar-collapsed .pulse-brand-mark{margin:0 auto}
+#pulseSidebar.pulse-sidebar-collapsed .pulse-sidebar-collapse-btn{margin:0 auto;transform:rotate(180deg)}
+#pulseSidebar.pulse-sidebar-collapsed nav a{justify-content:center;padding-left:8px;padding-right:8px}
+#pulseSidebar.pulse-sidebar-collapsed nav a>span:first-of-type,
+#pulseSidebar.pulse-sidebar-collapsed nav a .ml-auto{display:none!important}
+#pulseSidebar.pulse-sidebar-collapsed .pulse-primary-content,
+#pulseSidebar.pulse-sidebar-collapsed .pulse-advanced-content,
+#pulseSidebar.pulse-sidebar-collapsed .pulse-sidebar-sub{padding:0;margin:0;border:0}
 #pulseSidebar .pulse-nav-group>summary:after{margin-left:auto;float:none;font-size:12px}
 #pulseSidebar .pulse-nav-subgroup{margin:4px 0 0 8px}
 #pulseSidebar .pulse-nav-subgroup>summary{font-size:9px;letter-spacing:.06em;text-transform:none;padding:7px 9px}
@@ -296,7 +308,7 @@ def make_shell_helpers(ws):
     def nav_item(key, href, icon, label, active, badge_text=""):
         cls = "nav-active" if active else ""
         badge = f'<span class="ml-auto min-w-5 text-center text-[9px] rounded-full bg-rose-500 text-white px-1.5 py-0.5">{badge_text}</span>' if badge_text else ""
-        return f'<a href="{href}" class="{cls} flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium transition hover:bg-slate-100 dark:hover:bg-slate-800/60">{icon}<span>{label}</span>{badge}</a>'
+        return f'<a href="{href}" aria-label="{label}" title="{label}" class="{cls} flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium transition hover:bg-slate-100 dark:hover:bg-slate-800/60">{icon}<span>{label}</span>{badge}</a>'
 
     def patched_sidebar(guild_name, current_page="dashboard", current_user=None, perms=None):
         perms = perms or {}; current_user = current_user or {}
@@ -420,7 +432,7 @@ def make_shell_helpers(ws):
         <div id="pulseBackdrop" onclick="pulseCloseNav()" aria-hidden="true" class="hidden fixed inset-0 bg-black/55 z-40"></div>
         <aside id="pulseSidebar" aria-label="Hauptnavigation" class="hidden fixed md:sticky top-0 left-0 z-50 h-screen w-[276px] overflow-y-auto bg-white dark:bg-[#111522] border-r border-slate-200 dark:border-slate-800 flex-col justify-between p-4 shrink-0">
           <div>
-            <div class="flex items-center gap-3 px-1 mb-5"><div class="pulse-brand-mark">P</div><div class="min-w-0"><div class="text-sm font-extrabold truncate">Pulse TeamOS</div><div class="text-[10px] text-slate-400 truncate">{ws.esc(guild_name)} · v{VERSION}</div></div></div>
+            <div class="flex items-center gap-3 px-1 mb-5"><div class="pulse-brand-mark">P</div><div class="pulse-brand-copy min-w-0 flex-1"><div class="text-sm font-extrabold truncate">Pulse TeamOS</div><div class="text-[10px] text-slate-400 truncate">{ws.esc(guild_name)} · v{VERSION}</div></div><button type="button" id="pulseSidebarCollapseBtn" onclick="pulseToggleSidebarCollapsed()" aria-label="Sidebar einklappen" aria-pressed="false" title="Sidebar einklappen" class="pulse-sidebar-collapse-btn hidden md:grid w-8 h-8 place-items-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-900 dark:hover:text-white">‹</button></div>
             <button onclick="pulseTogglePalette(true)" class="w-full flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0c101a] px-3 py-2.5 text-xs text-slate-400 text-left mb-4"><span>⌕</span><span class="flex-1">Schnell suchen…</span><kbd class="text-[9px] border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5">Ctrl K</kbd></button>
             <nav>{''.join(nav)}</nav>
           </div>
@@ -429,7 +441,28 @@ def make_shell_helpers(ws):
             <a href="/logout" class="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800/70 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-slate-600 dark:text-slate-300">↤ Abmelden</a>
           </div>
         </aside>
-        <script>function pulseOpenNav(){{document.getElementById('pulseSidebar').classList.remove('hidden');document.getElementById('pulseSidebar').classList.add('flex');document.getElementById('pulseBackdrop').classList.remove('hidden');document.getElementById('pulseMobileBtn').setAttribute('aria-expanded','true')}}function pulseCloseNav(){{document.getElementById('pulseSidebar').classList.add('hidden');document.getElementById('pulseSidebar').classList.remove('flex');document.getElementById('pulseBackdrop').classList.add('hidden');document.getElementById('pulseMobileBtn').setAttribute('aria-expanded','false')}}document.addEventListener('keydown',function(e){{if(e.key==='Escape')pulseCloseNav()}})</script>
+        <script>
+        function pulseOpenNav(){{document.getElementById('pulseSidebar').classList.remove('hidden');document.getElementById('pulseSidebar').classList.add('flex');document.getElementById('pulseBackdrop').classList.remove('hidden');document.getElementById('pulseMobileBtn').setAttribute('aria-expanded','true')}}
+        function pulseCloseNav(){{document.getElementById('pulseSidebar').classList.add('hidden');document.getElementById('pulseSidebar').classList.remove('flex');document.getElementById('pulseBackdrop').classList.add('hidden');document.getElementById('pulseMobileBtn').setAttribute('aria-expanded','false')}}
+        function pulseToggleSidebarCollapsed(){{
+          const sidebar=document.getElementById('pulseSidebar'),button=document.getElementById('pulseSidebarCollapseBtn');
+          if(!sidebar||!button)return;
+          const collapsed=sidebar.classList.toggle('pulse-sidebar-collapsed');
+          try{{localStorage.setItem('pulse.sidebar.collapsed',collapsed?'1':'0')}}catch(_){{}}
+          button.setAttribute('aria-pressed',String(collapsed));
+          button.setAttribute('aria-label',collapsed?'Sidebar ausklappen':'Sidebar einklappen');
+          button.setAttribute('title',collapsed?'Sidebar ausklappen':'Sidebar einklappen');
+        }}
+        (function(){{
+          let collapsed=false;
+          try{{collapsed=localStorage.getItem('pulse.sidebar.collapsed')==='1'}}catch(_){{}}
+          if(collapsed&&window.matchMedia('(min-width: 768px)').matches){{
+            const apply=()=>{{const sidebar=document.getElementById('pulseSidebar'),button=document.getElementById('pulseSidebarCollapseBtn');if(!sidebar||!button)return;sidebar.classList.add('pulse-sidebar-collapsed');button.setAttribute('aria-pressed','true');button.setAttribute('aria-label','Sidebar ausklappen');button.setAttribute('title','Sidebar ausklappen')}};
+            if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',apply,{{once:true}});else apply();
+          }}
+        }})();
+        document.addEventListener('keydown',function(e){{if(e.key==='Escape')pulseCloseNav()}})
+        </script>
         '''
 
     ws.get_head_html = patched_head
