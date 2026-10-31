@@ -59,7 +59,7 @@ except ImportError:  # pragma: no cover
     ZoneInfo = None
 
 BASE_DIR = Path(__file__).resolve().parent
-os.chdir(BASE_DIR)
+# Phase 9: no os.chdir on import – main.py sets the working directory for the bot process (P8-06).
 load_dotenv(BASE_DIR / ".env")
 
 # =============================================================
@@ -337,10 +337,9 @@ _RUNTIME_READY = False
 
 def init_runtime() -> None:
     """A-04: create runtime files explicitly at start (main.py / app lifespan) instead of on import.
-    Idempotent. webserver itself no longer creates abmeldungen.db, backups/ or .session_secret on import;
-    the modules registered at its end (pulse_pro, pulse_features, pulse_next, …) still create pulse.db
-    tables while registering – to be moved here step by step (A-02/A-04). pulse_ultimate/pulse_next no
-    longer create attachments/ and backups/ on import; that happens here and where a file is written."""
+    Idempotent. Neither webserver nor the modules registered at its end (pulse_pro, pulse_features,
+    pulse_ultimate, pulse_next, …) create files, folders or tables on import (Phase 9, tests/test_lifecycle.py);
+    pulse_db.connect also creates its tables on first use of a database path."""
     global _RUNTIME_READY
     if _RUNTIME_READY:
         return
@@ -351,6 +350,7 @@ def init_runtime() -> None:
     pulse_ultimate.ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
     pulse_db.init_db()
+    pulse_next.setup_next()  # Phase 9: tables of pulse_ultimate/pulse_next, before registration created them on import
     import pulse_migrations  # A-05: versioned migrations (backup before the first pending one)
     pulse_migrations.run(os.path.abspath(pulse_db.DB_PATH), os.path.abspath(BACKUP_DIR))
     _session_key()  # computes SESSION_SECRET_PROBLEM for the system status

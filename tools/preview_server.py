@@ -64,7 +64,7 @@ def main() -> int:
     for name in ("DATA_FILE", "CONFIG_FILE", "LOGS_FILE", "SHIFTS_FILE", "MEETINGS_FILE", "APPS_FILE", "AUDIT_FILE"):
         setattr(ws, name, str(Path(tmp) / Path(getattr(ws, name)).name))
     ws.BASE_DIR = Path(tmp)
-    # webserver.py changes into the repository on import (os.chdir(BASE_DIR)) – go back to the temp folder, so
+    # Guard (P8-06): webserver.py changed into the repository on import until Phase 9 – stay in the temp folder, so
     # relative runtime files (backups/, logs/, …) never land in the checkout, which may hold real data.
     os.chdir(tmp)
     ws.BACKUP_DIR = str(Path(tmp) / "backups")

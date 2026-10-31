@@ -756,7 +756,7 @@ async def run_workflows(bot=None):
     return out
 
 def register(app):
-    setup_next()
+    # Phase 9 (A-04): no setup_next() here – webserver.init_runtime and every data function call it before use.
     if getattr(app.state,"pulse_next_registered",False):
         return
 

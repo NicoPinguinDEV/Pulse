@@ -17,10 +17,25 @@ def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# Phase 9 (A-04): the tables are created on the first connection to a database file, not on import or route
+# registration. One entry per database path used by this process (production: one).
+_SCHEMA_READY: set[str] = set()
+
+
 @contextmanager
 def connect():
     with _LOCK:
-        conn = sqlite3.connect(DB_PATH, timeout=15, factory=pulse_sqlite.ClosingConnection)
+        path = DB_PATH
+        if os.path.abspath(path) not in _SCHEMA_READY or not os.path.exists(path):
+            init_db()
+        with _open(path) as conn:
+            yield conn
+
+
+@contextmanager
+def _open(path):
+    with _LOCK:
+        conn = sqlite3.connect(path, timeout=15, factory=pulse_sqlite.ClosingConnection)
         conn.row_factory = sqlite3.Row
         try:
             conn.execute("PRAGMA foreign_keys=ON")
@@ -38,7 +53,9 @@ def _ensure_column(db, table: str, column: str, definition: str):
 
 
 def init_db():
-    with connect() as db:
+    """Create/extend the tables (idempotent). Called by webserver.init_runtime and on first use of a path."""
+    path = DB_PATH
+    with _open(path) as db:
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=NORMAL")
         db.executescript(
@@ -361,6 +378,7 @@ def init_db():
         _ensure_column(db, "promotion_requests", "current_role_id", "TEXT")
         db.execute("CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(user_id, dedupe_key, created_at)")
         _seed(db)
+    _SCHEMA_READY.add(os.path.abspath(path))
 
 
 def _seed(db):
@@ -1378,4 +1396,4 @@ def import_state(state):
                 db.execute(f"INSERT OR REPLACE INTO {table} ({','.join(usable)}) VALUES ({','.join('?' for _ in usable)})", vals)
 
 
-# A-04: no init_db() on import – webserver.init_runtime() creates the tables at start.
+# A-04: no init_db() on import – webserver.init_runtime() creates the tables at start, connect() on first use.

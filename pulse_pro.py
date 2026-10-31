@@ -393,7 +393,7 @@ def remove_and_add(app, path, methods, endpoint, **kwargs):
 
 def register(app):
     import webserver as ws
-    db.init_db()
+    # Phase 9 (A-04): tables are created by webserver.init_runtime / pulse_db.connect, not while registering routes.
     make_shell_helpers(ws)
 
     # U-13: security headers and the same-origin guard live in one middleware (webserver.security_headers,

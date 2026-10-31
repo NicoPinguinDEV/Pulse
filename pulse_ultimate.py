@@ -851,7 +851,7 @@ def validate_api_key(token: str) -> bool:
 
 
 def register(app) -> None:
-    setup()
+    # Phase 9 (A-04): no setup() here – webserver.init_runtime and every data function call it before use.
     if getattr(app.state, "pulse_ultimate_registered", False):
         return
 
