@@ -65,6 +65,8 @@ verwendetem DB-Pfad (Produktion: einer).
 3. `4d66d32` Regressionstests für Import, Start/Stop und Shutdown; Tests schreiben keine DB/Secrets mehr in den Checkout
 4. Dokumentation (dieser Bericht, Verbesserungsplan A-04, Changelog)
 
+Review-Nachträge: `e6c8af7` (SIGTERM → sauberes `close()`), `7d4d578` (Testisolation auch beim Einzellauf, 7 weitere Module) – siehe `docs/PHASE9_REVIEW.md`.
+
 Nicht gepusht, nicht gemergt, nicht deployt.
 
 ## 5. Tatsächlich ausgeführte Tests
