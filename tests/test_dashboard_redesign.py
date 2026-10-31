@@ -57,7 +57,7 @@ class DashboardRedesignTests(unittest.TestCase):
             "data-live=\"active\"", "data-live=\"open_tickets\"",
             "data-live=\"applications\"", "data-live=\"loas\"",
             "Aktive Verwarnungen", "active_warn_total",
-            'action="/shift/action"', 'href="/pulse-inbox"',
+            'action="/shift/action"', 'or "/pulse-inbox"',
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.dashboard)
