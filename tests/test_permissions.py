@@ -12,6 +12,7 @@ import pulse_permissions as perms
 import webserver as ws
 
 TEAM, OTHER, OLD_TEAM = 100, 200, 300
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 def member(*role_ids, admin=False, uid=7):

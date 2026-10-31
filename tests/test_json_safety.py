@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import webserver as ws
 from tests.test_pulse_admin_area import ADMIN, fake_auth_for
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 class JsonSafetyTests(unittest.TestCase):

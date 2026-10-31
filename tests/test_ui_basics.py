@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pulse_pro
 import webserver as ws
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 def ctx(msg="", ok=True):

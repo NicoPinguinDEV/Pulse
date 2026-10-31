@@ -8,6 +8,7 @@ from unittest.mock import patch
 import webserver as ws
 
 PLACEHOLDER = "change-me-to-a-long-random-secret"
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 class SecretTests(unittest.TestCase):

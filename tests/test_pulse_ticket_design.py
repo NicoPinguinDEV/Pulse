@@ -12,6 +12,7 @@ from pulse_ticket_design import (
 )
 
 NOW = datetime(2026, 10, 18, 12, 0, tzinfo=timezone.utc)
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 def iso(delta):
