@@ -154,6 +154,8 @@ time[data-relative]{cursor:help}
 #pulseSidebar .pulse-nav-group{margin-top:12px}
 #pulseSidebar .pulse-nav-group>summary{display:flex;align-items:center;gap:8px;padding:8px 9px;margin-bottom:5px;border-radius:9px;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
 #pulseSidebar .pulse-nav-group>summary:hover{background:var(--surface2);color:var(--text)}
+#pulseSidebar .pulse-primary-group{margin-top:7px}
+#pulseSidebar .pulse-primary-content{display:flex;flex-direction:column;gap:3px;padding:1px 0 4px}
 #pulseSidebar .pulse-nav-group>summary:after{margin-left:auto;float:none;font-size:12px}
 #pulseSidebar .pulse-nav-subgroup{margin:4px 0 0 8px}
 #pulseSidebar .pulse-nav-subgroup>summary{font-size:9px;letter-spacing:.06em;text-transform:none;padding:7px 9px}
@@ -355,11 +357,20 @@ def make_shell_helpers(ws):
                                             if key in SERVER_SECTION_KEYS])]
         for group, items in groups:
             visible = [x for x in items if x[4]]
-            if not visible: continue
-            nav.append(f'<div class="px-2 mt-4 mb-2 text-[9px] font-bold uppercase tracking-[.14em] text-slate-400">{group}</div>')
-            for key, href, icon, label, _shown, _ in visible:
-                badge_text = unread if key == "inbox" and unread else ""
-                nav.append(nav_item(key, href, icon, label, current_page == key, str(badge_text)))
+            if not visible:
+                continue
+            is_open = any(item[0] == current_page for item in visible)
+            links = "".join(
+                nav_item(
+                    key, href, icon, label, current_page == key,
+                    str(unread if key == "inbox" and unread else "")
+                )
+                for key, href, icon, label, _shown, _ in visible
+            )
+            nav.append(
+                f'<details class="pulse-nav-group pulse-primary-group"{" open" if is_open else ""}>'
+                f'<summary>{group}</summary><div class="pulse-primary-content">{links}</div></details>'
+            )
         # Erweiterte Funktionen bleiben vollständig erreichbar, beanspruchen aber nicht länger
         # zwei dauerhaft sichtbare Navigationsblöcke. Die aktive Untergruppe öffnet sich automatisch.
         from pulse_design import SUITE_NAV, ULTIMATE_NAV, visible_nav
