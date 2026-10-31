@@ -18,6 +18,7 @@ from tests.test_pulse_admin_area import TEAMLER, fake_auth_for
 
 # Browsers always send Origin on POST; cookie POSTs without it are refused (pulse_security, audit H1).
 BROWSER = {"Origin": "http://testserver"}
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 class TempDb(unittest.TestCase):

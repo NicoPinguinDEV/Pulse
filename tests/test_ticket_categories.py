@@ -14,6 +14,7 @@ import pulse_embed_design
 from cogs import tickets
 
 MODERN = pulse_embed_design.normalize_branding({"style": "modern"})
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 class FakeCategory(discord.CategoryChannel):

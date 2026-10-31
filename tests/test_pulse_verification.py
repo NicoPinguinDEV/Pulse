@@ -22,6 +22,7 @@ from cogs import verification as cog_module
 UNVERIFIED = v.UNVERIFIED_ROLE_ID
 CITIZEN = v.CITIZEN_ROLE_ID
 GUILD_ID = 1474514929351524616
+from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 def http_error(cls, status):
