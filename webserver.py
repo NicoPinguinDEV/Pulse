@@ -6691,6 +6691,12 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     activity = get_activity_today(guild.id)
     activity_exists = bool(activity["check_id"])
     activity_confirmed = activity["confirmed"]
+    apps_cache: list = []
+
+    def apps_once():  # Phase 10: applications.json once per page instead of once per member without team_since
+        if not apps_cache:
+            apps_cache.append(load_json(APPS_FILE, {}))
+        return apps_cache[0]
 
     members = []
     for member in guild.members:
@@ -6706,7 +6712,8 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             "id": member.id, "name": member.display_name, "username": member.name,
             "avatar": member.display_avatar.url, "role": top.name, "role_id": top.id,
             "team_rank_idx": team_rank(member, team_role_ids), "pos": top.position,
-            "team_since": team_since_for(member, team_db.get(str(member.id)) if isinstance(team_db, dict) else None),
+            "team_since": team_since_for(member, team_db.get(str(member.id)) if isinstance(team_db, dict) else None,
+                                         apps_once),
             "color": role_hex(top),
             # E-3: the warning badge is only shown to the person themself and can_warn/admins.
             "warns": (len(active_warns(user_entry(team_db, str(member.id)))) if isinstance(team_db, dict) else 0)
@@ -10587,8 +10594,11 @@ def commit_shift_event(event: dict) -> None:
         save_json(SHIFTS_FILE, shifts_db)
 
 
-def team_since_for(member, entry=None) -> str:
-    """Bestmögliches Team-Eintrittsdatum aus Pulse-Historie bzw. Discord."""
+def team_since_for(member, entry=None, apps=None) -> str:
+    """Bestmögliches Team-Eintrittsdatum aus Pulse-Historie bzw. Discord.
+
+    Phase 10: lists over many members pass `apps` – the parsed applications.json or a callable returning it (loaded
+    once per page, only when needed); without it the file is read here as before."""
     entry = entry if isinstance(entry, dict) else {}
     raw = str(entry.get("team_since") or "").strip()
     if raw:
@@ -10599,7 +10609,10 @@ def team_since_for(member, entry=None) -> str:
                 pass
 
     try:
-        apps = load_json(APPS_FILE, {})
+        if callable(apps):
+            apps = apps()
+        if apps is None:
+            apps = load_json(APPS_FILE, {})
         candidates = []
         for item in apps.values() if isinstance(apps, dict) else []:
             if str(item.get("user_id")) != str(member.id) or str(item.get("status")) not in {"hired", "accepted"}:

@@ -470,9 +470,26 @@ def list_tasks(status=None, assignee_id=None, limit=200, include_archived=False)
             sql += " AND status=?"; args.append(status)
         if assignee_id:
             sql += " AND assignee_id=?"; args.append(str(assignee_id))
-        sql += " ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, due_at IS NULL, due_at, created_at DESC LIMIT ?"
+        sql += f" ORDER BY {_TASK_ORDER} LIMIT ?"
         args.append(max(1, min(int(limit), 1000)))
         return [dict(r) for r in db.execute(sql, args).fetchall()]
+
+
+_TASK_ORDER = "CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, due_at IS NULL, due_at, created_at DESC"
+
+
+def task_totals_by_assignee(limit_per_assignee=1000) -> dict:
+    """Phase 10: {assignee_id: (tasks, done)} for all assignees in one query – the same figures member_stats got from
+    list_tasks(assignee_id=…, limit=1000, include_archived=True) with one connection per member (same order and cap)."""
+    with connect() as db:
+        rows = db.execute(
+            f"""SELECT assignee_id, COUNT(*), SUM(status IN ('done','archived')) FROM (
+                  SELECT assignee_id, status, ROW_NUMBER() OVER (PARTITION BY assignee_id ORDER BY {_TASK_ORDER}) AS rn
+                  FROM tasks WHERE assignee_id IS NOT NULL AND assignee_id != '')
+                WHERE rn <= ? GROUP BY assignee_id""",
+            (max(1, min(int(limit_per_assignee), 1000)),),
+        ).fetchall()
+    return {str(r[0]): (int(r[1]), int(r[2] or 0)) for r in rows}
 
 
 def get_task(tid):
@@ -980,6 +997,20 @@ def attempts(user_id=None, limit=100):
         else:
             rows = db.execute("SELECT * FROM training_attempts ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
         return [dict(r) for r in rows]
+
+
+def passed_attempts_by_user(limit_per_user=200) -> dict:
+    """Phase 10: {user_id: passed attempts among the latest `limit_per_user`} in one query – what member_stats counted
+    from attempts(user_id=…, limit=200) with one connection per member."""
+    with connect() as db:
+        rows = db.execute(
+            """SELECT user_id, SUM(passed != 0) FROM (
+                 SELECT user_id, passed, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) AS rn
+                 FROM training_attempts)
+               WHERE rn <= ? GROUP BY user_id""",
+            (int(limit_per_user),),
+        ).fetchall()
+    return {str(r[0]): int(r[1] or 0) for r in rows}
 
 
 def set_team_status(user_id, user_name, status, message=""):

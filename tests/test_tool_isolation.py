@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ToolIsolationTests(unittest.TestCase):
     def test_tools_return_to_temp_folder_after_importing_webserver(self):
-        for name in ("preview_server.py", "load_test.py"):
+        for name in ("preview_server.py", "load_test.py", "perf_baseline.py"):
             with self.subTest(tool=name):
                 source = (ROOT / "tools" / name).read_text(encoding="utf-8")
                 imported = source.index("import webserver as ws")

@@ -379,7 +379,8 @@ def score_history(user_id: str, limit=30):
             (str(user_id),max(1,min(100,int(limit)))),
         ).fetchall()]
 
-def award_achievements(member, stats=None):
+def award_achievements(member, stats=None, conn=None):
+    # Phase 10: `conn` lets a page award for every member over one connection (same INSERTs as before).
     # Reuse a score calculation when the caller already has one.
     if stats is None:
         try:
@@ -397,7 +398,7 @@ def award_achievements(member, stats=None):
         "score_90": stats["score"] >= 90,
         "active_4w": stats["activity_pct"] >= 100,
     }
-    with cx() as c:
+    def insert(c):
         for key, ok in rules.items():
             if not ok:
                 continue
@@ -407,6 +408,11 @@ def award_achievements(member, stats=None):
             )
             if cur.rowcount:
                 unlocked.append(key)
+    if conn is not None:
+        insert(conn)
+    else:
+        with cx() as c:
+            insert(c)
     return len(unlocked)
 
 def record_score(member, context=None):
@@ -444,11 +450,20 @@ def record_score(member, context=None):
     award_achievements(member, s)
     return True
 
+def _scored_today() -> set:
+    """Phase 10: user IDs that already have today's snapshot – the read record_score does first, once for all members."""
+    setup_next()
+    with cx() as c:
+        return {str(r[0]) for r in c.execute("SELECT DISTINCT user_id FROM next_score_snapshots WHERE substr(recorded_at,1,10)=?",
+                                             (now().date().isoformat(),)).fetchall()}
+
 def all_stats(guild):
     rows=[]
     shared=u.stats_context()  # M-C1: once per call, not once per member
+    scored=_scored_today()
     for m in members(guild):
-        record_score(m, shared)
+        if str(m.id) not in scored:  # record_score returned False right after this check before
+            record_score(m, shared)
         try: rows.append((m,u.member_stats(m, shared)))
         except Exception: pass
     return rows
@@ -1019,12 +1034,32 @@ def register(app):
     @app.get("/ultimate/achievements", response_class=HTMLResponse)
     async def achievements(request:Request,user_session:str=Cookie(None)):
         ctx=ctx_auth(request,user_session)
-        rows=[]
-        for m in members(ctx.guild):
-            award_achievements(m)
+        people=members(ctx.guild)
+
+        def compute():
+            # Phase 10: one stats_context for the page (before: award_achievements(m) built it again for every member –
+            # all JSON files and 5000 tickets per member) and one COUNT query; off the event loop the bot shares.
+            try:
+                shared=u.stats_context()
+            except Exception:
+                shared=None
+            if shared is None:
+                for m in people:
+                    award_achievements(m)  # unchanged fallback: member_stats errors count as 0 new achievements
+            else:
+                computed=[]
+                for m in people:
+                    try:
+                        computed.append((m,u.member_stats(m, shared)))
+                    except Exception:
+                        pass  # award_achievements returned 0 here before
+                with cx() as c:
+                    for m,stats in computed:
+                        award_achievements(m, stats, c)
             with cx() as c:
-                n=c.execute("SELECT COUNT(*) FROM next_member_achievements WHERE user_id=?",(str(m.id),)).fetchone()[0]
-            rows.append((n,m))
+                counts={str(r[0]):int(r[1]) for r in c.execute("SELECT user_id,COUNT(*) FROM next_member_achievements GROUP BY user_id").fetchall()}
+            return [(counts.get(str(m.id),0),m) for m in people]
+        rows=await asyncio.to_thread(compute)
         rows.sort(reverse=True,key=lambda x:x[0])
         body=u.card("<h3>🏅 Achievement-Leaderboard</h3>"+"".join(f"<div class=row><a href='/ultimate/person/{m.id}'><b>#{i} {esc(m.display_name)}</b></a><span class=pill>{n} Achievements</span></div>" for i,(n,m) in enumerate(rows,1)) or "<div class=tiny>Keine Teammitglieder.</div>")
         return next_page(ctx,"achievements","Achievements","Leistung, Meilensteine und Team-Motivation.",body)
@@ -1110,7 +1145,7 @@ def register(app):
     @app.get("/ultimate/reports", response_class=HTMLResponse)
     async def reports(request:Request,user_session:str=Cookie(None)):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics",require="can_view_analytics")
-        stats=all_stats(ctx.guild); avg=round(sum(s["score"] for _,s in stats)/len(stats)) if stats else 0
+        stats=await asyncio.to_thread(all_stats, ctx.guild); avg=round(sum(s["score"] for _,s in stats)/len(stats)) if stats else 0
         total_hours=round(sum(s["total_seconds"] for _,s in stats)/3600,1)
         with cx() as c:
             promotions=c.execute("SELECT COUNT(*) FROM next_promotions WHERE status='approved' AND substr(updated_at,1,7)=substr(?,1,7)",(iso(),)).fetchone()[0]
@@ -1126,7 +1161,7 @@ def register(app):
     async def reports_csv(request:Request,user_session:str=Cookie(None)):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics",require="can_view_analytics")
         output=io.StringIO(); writer=csv.writer(output); writer.writerow(["ID","Name","Status","Score","Wochenstunden","Gesamtstunden","Tickets","Warnungen","Training"])
-        for m,s in all_stats(ctx.guild):
+        for m,s in await asyncio.to_thread(all_stats, ctx.guild):
             writer.writerow([__import__("webserver").csv_safe(v) for v in (m.id,m.display_name,str(m.status),s["score"],round(s["weekly_seconds"]/3600,2),round(s["total_seconds"]/3600,2),s["closed_tickets"],s["warnings"],s["training_passed"])])
         return HTMLResponse(output.getvalue(),headers={"Content-Type":"text/csv; charset=utf-8","Content-Disposition":"attachment; filename=pulse_team_report.csv"})
 
@@ -1230,7 +1265,7 @@ def register(app):
     @app.get("/ultimate/scoreboard", response_class=HTMLResponse)
     async def scoreboard(request: Request, user_session: str=Cookie(None)):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics")
-        stats=all_stats(ctx.guild)
+        stats=await asyncio.to_thread(all_stats, ctx.guild)  # Phase 10: SQLite/JSON work off the bot's event loop
         stats.sort(key=lambda x:x[1]["score"], reverse=True)
         rows=[]
         for i,(m,s) in enumerate(stats,1):
@@ -1301,7 +1336,7 @@ def register(app):
     @app.get("/ultimate/team-trends", response_class=HTMLResponse)
     async def team_trends(request: Request,user_session: str=Cookie(None)):
         ctx=ctx_auth(request,user_session,perm="can_view_analytics")
-        stats=all_stats(ctx.guild)
+        stats=await asyncio.to_thread(all_stats, ctx.guild)  # Phase 10: SQLite/JSON work off the bot's event loop
         with cx() as c:
             days=[dict(r) for r in c.execute(
                 """SELECT substr(recorded_at,1,10) AS day,ROUND(AVG(score),1) AS avg_score,
