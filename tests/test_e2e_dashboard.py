@@ -328,6 +328,63 @@ class DashboardNavigationE2ETests(_PreviewE2EBase):
         self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
 
 
+class BackupFlowE2ETests(_PreviewE2EBase):
+    """Phase 8: Komplett-Backup erstellen → Probelauf → Wiederherstellung nur mit Bestätigungswort (Desktop + Mobil)."""
+
+    def _backups(self) -> list[str]:
+        return sorted(p.name for p in Path(self.tmp.name).glob("pulse-preview-*/backups/pulse_full_*.zip"))
+
+    def test_create_preview_and_guarded_restore(self):
+        page, errors = self._page(viewport={"width": 1366, "height": 900})
+        self.assertEqual(page.goto(self._url("/backups")).status, 200)
+        before = set(self._backups())
+        page.get_by_role("button", name="Komplett-Backup jetzt erstellen").click()
+        page.wait_for_load_state()
+        self.assertIn("Komplett-Backup erstellt", self._toast(page, "status"))
+        created = self._backups()
+        new = sorted(set(created) - before)
+        self.assertEqual(len(new), 1, created)
+
+        page.locator(f'a[href="/backup/full/preview/{new[0]}"]').click()
+        page.wait_for_load_state()
+        self.assertIn("Probelauf", page.locator("h1").inner_text())
+        confirm = page.locator('form[action="/backup/full/restore"] input[name="confirm"]')
+        self.assertEqual(confirm.get_attribute("required"), "")
+
+        # Sicherheitsdialog muss erscheinen (früher verdeckte das Feld name="confirm" window.confirm → TypeError,
+        # das Formular wurde ohne Dialog abgeschickt). Abbrechen sendet nichts.
+        dialogs = []
+        page.once("dialog", lambda dialog: (dialogs.append(dialog.message), dialog.dismiss()))
+        confirm.fill("WIEDERHERSTELLEN")
+        page.locator('form[action="/backup/full/restore"] button').click()
+        page.wait_for_timeout(300)
+        self.assertEqual(len(dialogs), 1, "Kein Bestätigungsdialog vor der Wiederherstellung")
+        self.assertIn("/backup/full/preview/", page.url)
+        self.assertEqual(self._backups(), created, "Abgebrochener Dialog hat trotzdem etwas ausgelöst")
+
+        # Falsches Bestätigungswort: Fehlermeldung, keine Sicherheitskopie, also auch keine Wiederherstellung.
+        page.once("dialog", lambda dialog: dialog.accept())
+        confirm.fill("ja")
+        page.locator('form[action="/backup/full/restore"] button').click()
+        page.wait_for_load_state()
+        self.assertIn("WIEDERHERSTELLEN", self._toast(page, "alert"))
+        self.assertEqual(self._backups(), created, "Ohne Bestätigung wurde trotzdem etwas geschrieben")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_backup_pages_on_mobile_without_horizontal_overflow(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        page.goto(self._url("/backups"))
+        page.get_by_role("button", name="Komplett-Backup jetzt erstellen").click()
+        page.wait_for_load_state()
+        name = self._backups()[-1]
+        for path in ("/backups", f"/backup/full/preview/{name}"):
+            with self.subTest(path=path):
+                self.assertEqual(page.goto(self._url(path)).status, 200)
+                overflow = page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
+                self.assertLessEqual(overflow, 1, f"Horizontaler Überlauf auf {path}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+
 class TeamMemberPermissionE2ETests(_PreviewE2EBase):
     """Ein normales Teammitglied darf Admin-Bereiche weder sehen noch per direktem POST ändern."""
     ROLE = "team"
@@ -350,6 +407,19 @@ class TeamMemberPermissionE2ETests(_PreviewE2EBase):
             " redirect: 'manual'}).then(r => r.status)")
         self.assertEqual(status, 403)
         self.assertEqual(self._config(), before, "Abgelehnte Anfrage hat die Config verändert")
+
+    def test_direct_backup_actions_are_rejected_without_write(self):
+        """Phase 8: Backup erstellen/wiederherstellen per direktem POST – als Teammitglied 403, keine Datei angelegt."""
+        page, _ = self._page()
+        page.goto(self._url("/me"))
+        for path, body in (("/backup/full/create", {}),
+                           ("/backup/full/restore", {"filename": "pulse_full_20260101_000000.zip", "confirm": "WIEDERHERSTELLEN"})):
+            with self.subTest(path=path):
+                status = page.evaluate(
+                    "([path, body]) => fetch(path, {method: 'POST', body: new URLSearchParams(body), redirect: 'manual'})"
+                    ".then(r => r.status)", [path, body])
+                self.assertEqual(status, 403)
+        self.assertEqual(list(Path(self.tmp.name).glob("pulse-preview-*/backups/pulse_full_*")), [])
 
 
 if __name__ == "__main__":

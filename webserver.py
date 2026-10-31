@@ -10060,17 +10060,21 @@ async def full_backup_preview(request: Request, filename: str, user_session: str
         raise HTTPException(status_code=404, detail="Backup nicht gefunden.")
     try:
         preview = await asyncio.to_thread(pulse_backup.preview_restore, path, BASE_DIR)
-    except (ValueError, OSError, zipfile.BadZipFile) as exc:
+    except (ValueError, OSError, KeyError, sqlite3.Error, zipfile.BadZipFile) as exc:
         return back("/backups", f"Backup nicht lesbar: {str(exc)[:200]}", False)
     manifest = preview["manifest"]
+    live_warnings = "".join(f"<li>{esc(w)}</li>" for w in preview.get("warnings", []))
     changed = [f for f in preview["files"] if f["status"] != "unverändert"]
     file_rows = "".join(f'<tr><td class="py-1 pr-3 font-mono break-all">{esc(f["name"])}</td><td>{esc(f["status"])}</td></tr>' for f in changed[:300])
     table_rows = "".join(f'<tr><td class="py-1 pr-3 font-mono">{esc(t["db"])} · {esc(t["table"])}</td><td>{esc(t["current"])} → {esc(t["backup"])}</td></tr>' for t in preview["tables"][:300])
     problems = "".join(f"<li>{esc(p)}</li>" for p in preview["problems"])
     problem_box = (f'<div class="rounded-xl border border-rose-500/40 bg-rose-500/5 p-3 text-xs"><strong>Backup fehlerhaft – Wiederherstellung gesperrt:</strong><ul class="list-disc pl-5">{problems}</ul></div>'
                    if problems else "")
+    if live_warnings:
+        problem_box += (f'<div class="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-xs"><strong>Aktueller Stand:</strong>'
+                        f'<ul class="list-disc pl-5">{live_warnings}</ul></div>')
     restore_form = "" if problems else f"""
-        <form action="/backup/full/restore" method="post" class="{CARD} p-4 flex flex-col gap-3" onsubmit="return confirm('Pulse-Daten jetzt aus diesem Backup wiederherstellen?');">
+        <form action="/backup/full/restore" method="post" class="{CARD} p-4 flex flex-col gap-3" onsubmit="return window.confirm('Pulse-Daten jetzt aus diesem Backup wiederherstellen?');">
             <input type="hidden" name="filename" value="{esc(os.path.basename(path))}">
             <p class="text-xs text-slate-500 dark:text-slate-400">Vorher wird automatisch eine Sicherheitskopie des aktuellen Stands angelegt. Datenbanken werden in die laufenden Dateien kopiert und auf Integrität geprüft; Uploads werden ergänzt, aber nichts gelöscht. Die Discord-Struktur (Rollen/Kanäle) wird hier <strong>nicht</strong> verändert.</p>
             <label class="text-xs font-semibold">Zur Bestätigung <code>WIEDERHERSTELLEN</code> eingeben<input name="confirm" class="{INPUT} mt-1" autocomplete="off" required></label>
