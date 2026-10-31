@@ -434,7 +434,7 @@ def make_shell_helpers(ws):
         .dark #pulseSidebar .nav-active{{color:#a8abff}}
         .pulse-area-switch{{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:rgba(148,163,184,.12);margin-bottom:6px}}
         .pulse-area-switch a{{text-align:center;font-size:11px;font-weight:800;padding:8px 6px;border-radius:10px;color:#64748b}}
-        .pulse-area-switch a.on{{background:#fff;color:#4f46e5;box-shadow:0 2px 8px rgba(15,23,42,.08)}}.dark .pulse-area-switch a.on{{background:#1b2133;color:#a8abff}}@media(min-width:768px){{#pulseSidebar{{display:flex!important}}#pulseMobileBtn,#pulseBackdrop{{display:none!important}}}}
+        .pulse-area-switch a.on{{background:#fff;color:#4f46e5;box-shadow:0 2px 8px rgba(15,23,42,.08)}}.dark .pulse-area-switch a.on{{background:#1b2133;color:#a8abff}}@media(max-width:767px){{#pulseSidebar .pulse-sidebar-collapse-btn{{display:none!important}}}}@media(min-width:768px){{#pulseSidebar{{display:flex!important}}#pulseMobileBtn,#pulseBackdrop{{display:none!important}}#pulseSidebar .pulse-sidebar-collapse-btn{{display:grid!important}}}}
         </style>
         <button id="pulseMobileBtn" onclick="pulseOpenNav()" aria-label="Navigation öffnen" aria-controls="pulseSidebar" aria-expanded="false" class="md:hidden fixed top-3 left-3 z-50 w-10 h-10 rounded-xl bg-white dark:bg-[#111522] border border-slate-200 dark:border-slate-700 shadow-lg">☰</button>
         <div id="pulseBackdrop" onclick="pulseCloseNav()" aria-hidden="true" class="hidden fixed inset-0 bg-black/55 z-40"></div>
