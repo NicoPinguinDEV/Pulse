@@ -25,7 +25,7 @@ Die bisher vier Navigationsgruppen wurden in sechs fachliche Bereiche neu geglie
 
 Die vorhandenen Hauptrouten und individuellen Sichtbarkeitsbedingungen bleiben in den Navigationsdefinitionen erhalten. Verwaltung und Serververwaltung behalten ihren vorhandenen, getrennten Bereich.
 
-Command Center und Operations Suite sind jetzt unter einem gemeinsamen, einklappbaren Bereich **Erweiterte Funktionen** erreichbar. Die aktive Untergruppe öffnet sich automatisch. Die ursprünglichen Einträge werden nicht gelöscht und ihre Routen werden nicht umgeleitet.
+Command Center und Operations Suite sind jetzt unter einem gemeinsamen, einklappbaren Bereich **Erweiterte Funktionen** erreichbar. Die aktive Untergruppe öffnet sich automatisch. Die zusätzlichen Sidebar-Links für Aufgaben 2.0, Freigaben und Übergaben (einschließlich Suite-Aufgaben) werden nicht mehr angezeigt; ihre URLs und Handler bleiben unangetastet. Die übrigen ursprünglichen Einträge werden nicht gelöscht und ihre Routen werden nicht umgeleitet.
 
 ### Dashboard-Übersicht
 - Branding und Seitentitel der Startübersicht auf Pulse TeamOS vereinheitlicht.
@@ -55,13 +55,13 @@ Die offene Entscheidung E-6 in `docs/SEITEN_ALT_NEU.md` bleibt bestehen. Die Nav
 - Quelltext-Änderungen über GitHub-Contents-API committed.
 - Regressionstestdatei angelegt.
 - Lokaler Python-/Playwright-Testlauf: **nicht ausgeführt**. In der Ausführungsumgebung war der direkte GitHub-Clone wegen fehlender DNS-Auflösung nicht möglich.
-- GitHub Actions laufen für Draft-PR #91: Quality/Security Checks Run #1129 und Sicherheit/Abdeckung Run #122; letzter abgerufener Status: Jobs in Bearbeitung, noch kein Endergebnis.
+- GitHub Actions wurden durch PR #91 gestartet; nach den letzten Code-/Test-Commits ist der neueste Lauf erneut zu prüfen. Der zuvor abgefragte Lauf #1129 hatte erfolgreiche Lint- und Python-Syntax-Schritte; die übrigen Tests waren bei der letzten Abfrage noch in Bearbeitung.
 - Desktop-/Smartphone-Screenshots: noch nicht erzeugt; eine echte Browserprüfung ist vor dem Merge erforderlich.
 
 ## GitHub
 
 - Branch: `feature/pulse-openclaw-dashboard` (7 Commits vor `main`)
-- Letzter geprüfter Branch-HEAD: `93191b0c7c2b26d88f39e3a7c16ad8dee52b965d`
+- Letzter geprüfter Implementierungs-Commit vor dem Bericht-Update: `93191b0c7c2b26d88f39e3a7c16ad8dee52b965d`
 - Draft-Pull-Request: https://github.com/NicoPinguinDEV/Pulse/pull/91
 - Erster Implementierungs-Commit: `0ee0f14c8f157984bd23b29e512b97a2513c5dbb`
 - Regressionstests: `ab55917a458e52e49337b1f3d404be0b8f36354d`
