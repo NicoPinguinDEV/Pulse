@@ -176,6 +176,83 @@ class BotCloseTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+SIGTERM_PROBE = r"""
+import asyncio, os, signal, sys
+sys.path.insert(0, sys.argv[1])
+import main
+
+async def run():
+    bot = main.CustomBot()
+    bot._install_signal_handlers(asyncio.get_running_loop())
+    os.kill(os.getpid(), signal.SIGTERM)
+    for _ in range(300):
+        if bot.is_closed():
+            print("CLOSED")
+            return
+        await asyncio.sleep(0.01)
+    print("STILL-OPEN")
+
+asyncio.run(run())
+"""
+
+
+class SigtermTests(unittest.TestCase):
+    """Review Phase 9: docker stop / deploy send SIGTERM (tini forwards it). Without a handler Python died at once –
+    no close(), no cog_unload, no lifespan shutdown – and exited 143, which the crash-restart timer treats as a crash."""
+
+    def test_sigterm_handler_closes_the_bot_once(self):
+        import main
+        registered = {}
+
+        class FakeLoop:
+            def add_signal_handler(self, sig, callback):
+                registered[sig] = callback
+
+            def create_task(self, coro, name=None):
+                return asyncio.get_event_loop().create_task(coro, name=name)
+
+        async def scenario():
+            import signal
+            bot = main.CustomBot()
+            closes = []
+
+            async def close():
+                closes.append(1)
+            bot.close = close
+            loop = FakeLoop()
+            with patch("builtins.print"):
+                bot._install_signal_handlers(loop)
+                self.assertIn(signal.SIGTERM, registered)
+                registered[signal.SIGTERM]()
+                registered[signal.SIGTERM]()  # a second SIGTERM does not start a second shutdown
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            self.assertEqual(closes, [1])
+        asyncio.run(scenario())
+
+    def test_no_signal_support_is_tolerated(self):
+        import main
+
+        class WindowsLoop:
+            def add_signal_handler(self, sig, callback):
+                raise NotImplementedError
+
+        async def scenario():
+            bot = main.CustomBot()
+            bot._install_signal_handlers(WindowsLoop())  # must not raise
+            await bot.close()
+        asyncio.run(scenario())
+
+    @unittest.skipIf(os.name == "nt", "SIGTERM cannot be delivered to a Python loop on Windows (CI runs Linux)")
+    def test_real_sigterm_closes_the_bot(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            result = subprocess.run([sys.executable, "-c", SIGTERM_PROBE, str(ROOT)], cwd=tmp, capture_output=True,
+                                    text=True, encoding="utf-8", timeout=120,
+                                    env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        self.assertIn("CLOSED", result.stdout)
+
+
 class LifespanTests(unittest.TestCase):
     def setUp(self):
         import webserver

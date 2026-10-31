@@ -1,5 +1,6 @@
 import asyncio
 import os
+import signal
 from pathlib import Path
 import discord
 from pulse_command_errors import PulseCommandTree
@@ -71,9 +72,26 @@ class CustomBot(commands.Bot):
         self.pulse_loaded_cogs = []
         self.pulse_failed_cogs = []
         self.pulse_synced_commands = None
+        self._pulse_sigterm_close = None
+
+    def _install_signal_handlers(self, loop) -> None:
+        """Review Phase 9: docker stop and every deploy send SIGTERM (tini forwards it). Python has no handler for it
+        and died at once – close(), cog_unload and the dashboard shutdown never ran, and the exit code 143 looked like
+        a crash to scripts/pulse-crash-restart.sh. Now SIGTERM runs the normal close() once (exit 0)."""
+        def on_sigterm():
+            if self._pulse_sigterm_close is not None:
+                return
+            print("🛑 SIGTERM empfangen – Pulse wird sauber beendet.")
+            self._pulse_sigterm_close = loop.create_task(self.close(), name="pulse-sigterm-close")
+        try:
+            loop.add_signal_handler(signal.SIGTERM, on_sigterm)
+        except (NotImplementedError, RuntimeError, ValueError, AttributeError):
+            pass  # Windows (local development): no SIGTERM from Docker
 
     async def setup_hook(self):
         from webserver import app  # after prepare_process() loaded .env (validate_environment() ran before)
+
+        self._install_signal_handlers(asyncio.get_running_loop())
 
         # WICHTIG: Bot-Instanz an die Webserver-App übergeben
         app.state.bot = self
