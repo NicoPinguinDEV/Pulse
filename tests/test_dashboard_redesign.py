@@ -36,7 +36,7 @@ class DashboardRedesignTests(unittest.TestCase):
         self.assertIn("from pulse_design import SUITE_NAV, ULTIMATE_NAV, visible_nav", self.sidebar)
         self.assertIn("entries = visible_nav(items, leader)", self.sidebar)
         self.assertIn("pulse-advanced-group", self.sidebar)
-        self.assertIn('current_page.startswith(("u:", "s:"))', self.sidebar)
+        self.assertIn('str(current_page).startswith(("u:", "s:"))', self.sidebar)
 
     def test_sensitive_navigation_gates_are_preserved(self):
         self.assertIn('perms.get("can_manage_checkins") or perms.get("is_admin")', self.sidebar)
