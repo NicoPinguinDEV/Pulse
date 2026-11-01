@@ -1,5 +1,6 @@
 """P-06 / O-07: every @tasks.loop is visible in the job registry (system status, /healthz jobs_failing)."""
 import ast
+import inspect
 import asyncio
 import unittest
 from pathlib import Path
@@ -21,6 +22,23 @@ class LoopCoverageTests(unittest.TestCase):
                     if any("tasks.loop" in d for d in decorators) and not any("tracked" in d for d in decorators):
                         missing.append(f"{path.relative_to(ROOT)}:{node.lineno} {node.name}")
         self.assertEqual(missing, [], "Hintergrundschleife ohne @tracked – Fehler wären im Systemstatus unsichtbar")
+
+
+class LegacyJobInventoryTests(unittest.TestCase):
+    def test_displaced_feature_housekeeping_is_not_a_live_job(self):
+        import pulse_features
+        source = inspect.getsource(pulse_features.register)
+        tree = ast.parse(source)
+        names = {
+            node.name for node in ast.walk(tree)
+            if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+        }
+        self.assertNotIn("housekeeping", names)
+
+        jobs_doc = (ROOT / "docs" / "JOBS_UND_RECHTE.md").read_text(encoding="utf-8")
+        endless = jobs_doc.split("## Eigene Endlosschleifen", 1)[1].split("## ", 1)[0]
+        self.assertIn("(3)", endless.splitlines()[0])
+        self.assertNotIn("pulse_features.py", endless)
 
 
 class CaughtErrorsAreReportedTests(unittest.TestCase):
