@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS melonly_logs_meta (
 
 **Verbindliche Eigenschaften:**
 
-1. `seq` ist der technische Primärschlüssel und bildet die ursprüngliche Listenposition ab. Beim Import ist die erste JSON-Position `seq = 1); neue Datensätze erhalten eine höhere Sequenz. Löschungen erzeugen zulässige Lücken.
+1. `seq` ist der technische Primärschlüssel und bildet die ursprüngliche Listenposition ab. Beim Import ist die erste JSON-Position `seq = 1`; neue Datensätze erhalten eine höhere Sequenz. Löschungen erzeugen zulässige Lücken.
 2. `payload` enthält das vollständige Originalobjekt als JSON-Text. Das ist die maßgebliche Nutzlast; die extrahierten Spalten sind ausschließlich Such-/Indexfelder.
 3. `log_id` ist ausdrücklich **nicht UNIQUE**. Vorhandene Duplikate bleiben eigenständige Datensätze.
 4. Die Indexfelder werden aus dem Originalobjekt extrahiert, ohne dessen Werte zu verändern. Für `target_user_key` wird eine gesonderte, dokumentierte Normalisierung nur für die Suche verwendet.
