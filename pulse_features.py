@@ -7,7 +7,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 import pulse_db as db
 from pulse_safe_path import contained_file
 
-
 def register(app):
     import webserver as ws
     # Phase 9 (A-04): tables are created by webserver.init_runtime / pulse_db.connect, not while registering routes.
@@ -21,13 +20,6 @@ def register(app):
         c = ws.BADGE_OK if kind == "ok" else ws.BADGE_BAD if kind == "bad" else ws.BADGE_WARN
         return f'<span class="text-[10px] border rounded-full px-2.5 py-1 font-semibold {c}">{esc(text)}</span>'
 
-
-
-
-
-
-
-
     @app.post("/tasks/create")
     async def task_create(request: Request, title: str=Form(...), description: str=Form(""), assignee_id: str=Form(""), priority: str=Form("normal"), due_at: str=Form(""), user_session: str=Cookie(None)):
         c=ctx(request,user_session,perm=None); manager=c.perms.get("can_manage_tasks") or c.perms.get("can_promote") or c.perms.get("is_admin")
@@ -37,9 +29,6 @@ def register(app):
         if m: db.notify(m.id,"📋 Neue Aufgabe",f"{c.user.get('global_name')}: {title.strip()[:120]}","task","/tasks")
         ws.log_audit(c.user.get("global_name"),c.user["id"],"Aufgabe Erstellt",f"{title.strip()[:120]} · {tid}")
         return ws.back("/tasks","Aufgabe erstellt.")
-
-
-
 
     @app.get("/ticket/transcript/{filename}")
     async def ticket_transcript(request: Request, filename: str, user_session: str=Cookie(None)):
@@ -141,19 +130,8 @@ def register(app):
         icon='✅' if passed else '❌'; textmsg=f'{icon} Ergebnis: {score}% – {"Bestanden" if passed else "Nicht bestanden"}.'
         return HTMLResponse(ws.simple_page(icon,'Testergebnis',textmsg,'<a href="/training" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zurück zu Schulungen</a>'))
 
-
-
-
-
-
-
-
-
     # Pulse Pro owns the single housekeeping loop. The legacy v4 loop is intentionally not started
     # here to prevent duplicate reminders and notification spam.
-
-
-
 
 # Registration occurs after webserver module has defined its helpers/routes.
 register_here = register
