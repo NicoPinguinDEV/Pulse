@@ -1084,8 +1084,7 @@ def register(app):
     # ---------------- Melonly / Roblox Moderation ----------------
     async def melonly_page(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session)
-        can_access_melonly=any(c.perms.get(k) for k in ("can_warn","can_moderate_kicks","can_moderate_bans","can_moderate_bolo","can_add_notes")) or c.perms.get("is_admin")
-        if not can_access_melonly:
+        if not ws.can_access_melonly(c):
             raise HTTPException(403,"Dafür fehlt dir die Berechtigung für Melonly.")
         all_melonly_types=(("Warn","⚠️ Warn"),("Kick","🚪 Kick"),("Ban","🚫 Ban"),("Notiz","📝 Notiz"),("Ban BOLO","🚨 Ban BOLO"))
         melonly_types=tuple((key,label) for key,label in all_melonly_types if ws.can_manage_melonly_entry(c,{"type":key}))
