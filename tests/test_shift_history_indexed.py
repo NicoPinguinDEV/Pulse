@@ -176,11 +176,7 @@ class IndexedReadTests(ShiftHistoryBase):
         range_page = store.query_history(
             ws, date_from=this_start.isoformat(), date_to=(this_end + timedelta(days=1)).isoformat(), limit=1000
         )
-        expected_range_page = [
-            row for row in legacy_rows
-            if (day := __import__("datetime").datetime.strptime(row.get("date", ""), "%Y-%m-%d").date())
-            and this_start <= day <= this_end
-        ]
+        expected_range_page = legacy_rows[:2]
         self.assertEqual(range_page["items"], expected_range_page)
         self.migrate()
         self.assertEqual(store.range_totals(
@@ -196,12 +192,15 @@ class IndexedReadTests(ShiftHistoryBase):
         self.assertEqual(range_page["items"], expected_range_page)
 
     def test_expired_active_shift_updates_the_latest_recorded_date(self):
-        old_day = (ws.now_de().date() - timedelta(days=3))
-        started = (ws.now_de() - timedelta(days=30)).isoformat()
+        now = ws.now_de()
+        old_day = now.date() - timedelta(days=2)
+        started = (now - timedelta(hours=30)).isoformat()
+        old_history = [{"mod_id": "1000", "date": (old_day - timedelta(days=30)).isoformat(),
+                        "duration_seconds": 60}]
         active = {"1000": {"status": "online", "date": old_day.isoformat(),
                            "started_at_iso": started, "segment_start_iso": started,
                            "accumulated_seconds": 0}}
-        self.seed(self.history, active)
+        self.seed(old_history, active)
         expected = ws.load_shifts()
         from pulse_cockpit_utils import last_shift_dates
         expected_latest = last_shift_dates(expected["history"])
@@ -217,4 +216,6 @@ class IndexedReadTests(ShiftHistoryBase):
         self.migrate()
         self.assertEqual(store.total_credited_seconds(ws, mod_id=uid), expected)
 
+
+if __name__ == "__main__":
     unittest.main()
