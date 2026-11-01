@@ -1,6 +1,6 @@
 """Phase 14.8: indexed shift-history reads and SQLite aggregates."""
 import unittest
-from datetime import timedelta
+from datetime import date, timedelta
 from unittest.mock import patch
 
 import pulse_shift_history as store
@@ -104,7 +104,7 @@ class IndexedReadTests(ShiftHistoryBase):
         self.migrate()
         self.assertEqual(store.weekly_totals(ws), expected_weekly)
         self.assertEqual(store.total_credited_seconds(ws), expected_total)
-        member_ids = ["1000", "1001"]
+        member_ids = ["1000", "1001", "None"]
         self.assertEqual(store.weekly_totals(ws, member_ids),
                          {uid: value for uid, value in expected_weekly.items() if uid in member_ids})
 
@@ -147,19 +147,19 @@ class IndexedReadTests(ShiftHistoryBase):
     def test_cockpit_date_aggregates_match_legacy_helper_with_old_dates(self):
         from pulse_cockpit_utils import last_shift_dates, seconds_per_member
 
-        today = ws.now_de().date()
-        this_start = today - timedelta(days=today.weekday())
-        this_end = today
-        previous_start = this_start - timedelta(days=7)
-        previous_end = today - timedelta(days=7)
-        old_this = f"{this_start.year}-{this_start.month}-{this_start.day}"
-        old_previous = f"{previous_start.year}-{previous_start.month}-{previous_start.day}"
+        this_start = date(2026, 1, 5)
+        this_end = this_start
+        previous_start = date(2026, 1, 4)
+        previous_end = previous_start
+        old_this = "2026-1-5"
+        old_previous = "2026-1-4"
         legacy_rows = [
             {"mod_id": "1000", "date": old_this, "duration_seconds": 125},
             {"mod_id": "1000", "date": this_start.isoformat(), "duration_seconds": 300},
             {"mod_id": "1001", "date": old_previous, "duration_seconds": 500},
             {"mod_id": "1001", "date": "20.10.2026", "duration_seconds": 99},
             {"mod_id": "1001", "date": "2026-13-01", "duration_seconds": 99},
+            {"date": old_this, "duration_seconds": 21},  # legacy mod_id=None maps to the string "None"
         ]
         self.seed(legacy_rows)
         member_ids = ["1000", "1001"]
@@ -176,8 +176,13 @@ class IndexedReadTests(ShiftHistoryBase):
         range_page = store.query_history(
             ws, date_from=this_start.isoformat(), date_to=(this_end + timedelta(days=1)).isoformat(), limit=1000
         )
-        expected_range_page = legacy_rows[:2]
+        expected_range_page = [legacy_rows[0], legacy_rows[1], legacy_rows[5]]
         self.assertEqual(range_page["items"], expected_range_page)
+        missing_id_json = store.query_history(
+            ws, mod_id="None", date_from=this_start.isoformat(),
+            date_to=(this_end + timedelta(days=1)).isoformat(), limit=10
+        )
+        self.assertEqual(missing_id_json["items"], [legacy_rows[5]])
         self.migrate()
         self.assertEqual(store.range_totals(
             ws, member_ids, this_start.isoformat(), (this_end + timedelta(days=1)).isoformat()
@@ -190,6 +195,11 @@ class IndexedReadTests(ShiftHistoryBase):
             ws, date_from=this_start.isoformat(), date_to=(this_end + timedelta(days=1)).isoformat(), limit=1000
         )
         self.assertEqual(range_page["items"], expected_range_page)
+        missing_id_sqlite = store.query_history(
+            ws, mod_id="None", date_from=this_start.isoformat(),
+            date_to=(this_end + timedelta(days=1)).isoformat(), limit=10
+        )
+        self.assertEqual(missing_id_sqlite, missing_id_json)
 
     def test_expired_active_shift_updates_the_latest_recorded_date(self):
         now = ws.now_de()

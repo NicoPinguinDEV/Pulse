@@ -917,7 +917,7 @@ def range_totals(ws, mod_ids, date_from: str, date_to: str) -> dict:
             totals = {str(uid): int(seconds or 0) for uid, seconds in canonical}
             legacy = con.execute(
                 "SELECT payload FROM shift_history "
-                f"WHERE mod_id IN ({placeholders}) AND "
+                f"WHERE {member_clause} AND "
                 "(shift_date IS NULL OR shift_date NOT GLOB '????-??-??' "
                 "OR pulse_valid_iso_day(shift_date)=0) ORDER BY seq",
                 selected,
@@ -966,7 +966,7 @@ def latest_shift_dates(ws, mod_ids) -> dict:
             latest = {str(uid): date.fromisoformat(day) for uid, day in canonical if day is not None}
             legacy = con.execute(
                 "SELECT mod_id, payload FROM shift_history "
-                f"WHERE mod_id IN ({placeholders}) AND "
+                f"WHERE {member_clause} AND "
                 "(shift_date IS NULL OR shift_date NOT GLOB '????-??-??' "
                 "OR pulse_valid_iso_day(shift_date)=0) ORDER BY seq",
                 selected,
