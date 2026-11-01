@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from pulse_recovery import TOKEN_TIMEOUT
+from pulse_tasks import spawn as spawn_task
 
 RECOVERY_PAGE_SIZE = 100
 
@@ -137,9 +138,10 @@ class RecoveryCog(commands.Cog):
                 "finished_at": None,
                 "stopped_reason": "",
             }
-            self._sync_task = asyncio.create_task(
+            self._sync_task = spawn_task(
                 self._run_all_sync(dict(settings), target, role, snapshot_at),
                 name="pulse-recovery-sync-all",
+                critical=True,
             )
             return
 
