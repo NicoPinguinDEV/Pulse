@@ -1,4 +1,5 @@
 """Phase 3: background tasks (P-07), on_ready once (P-08), command sync only on change (P-09)."""
+import ast
 import asyncio
 import tempfile
 import unittest
@@ -11,6 +12,8 @@ from discord import app_commands
 import pulse_command_sync
 import pulse_db
 import pulse_tasks
+
+ROOT = Path(__file__).resolve().parents[1]
 from pulse_ready import first_ready
 from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
@@ -30,6 +33,69 @@ class SpawnTests(unittest.TestCase):
             task = asyncio.run(scenario())
         self.assertNotIn(task, pulse_tasks._RUNNING)
         self.assertTrue(any("Fehler-ID" in str(c) and "test-task" in str(c) for c in printed.call_args_list))
+
+
+    def test_critical_task_bypasses_capacity_and_regular_task_is_closed(self):
+        async def work():
+            await asyncio.sleep(0)
+            return "done"
+
+        async def scenario():
+            with patch.object(pulse_tasks, "MAX_RUNNING", 0), patch("builtins.print"):
+                dropped_coro = work()
+                dropped = pulse_tasks.spawn(dropped_coro, name="capacity-drop")
+                self.assertIsNone(dropped)
+                self.assertIsNone(dropped_coro.cr_frame, "rejected coroutine must be closed")
+
+                critical = pulse_tasks.spawn(work(), name="critical-task", critical=True)
+                self.assertIsNotNone(critical)
+                self.assertIn(critical, pulse_tasks._RUNNING)
+                self.assertEqual(await critical, "done")
+                await asyncio.sleep(0)
+                self.assertNotIn(critical, pulse_tasks._RUNNING)
+
+        asyncio.run(scenario())
+
+
+    def test_critical_task_bypasses_capacity_and_regular_task_is_closed(self):
+        async def work():
+            await asyncio.sleep(0)
+            return "done"
+
+        async def scenario():
+            with patch.object(pulse_tasks, "MAX_RUNNING", 0), patch("builtins.print"):
+                dropped_coro = work()
+                dropped = pulse_tasks.spawn(dropped_coro, name="capacity-drop")
+                self.assertIsNone(dropped)
+                self.assertIsNone(dropped_coro.cr_frame, "rejected coroutine must be closed")
+
+                critical = pulse_tasks.spawn(work(), name="critical-task", critical=True)
+                self.assertIsNotNone(critical)
+                self.assertIn(critical, pulse_tasks._RUNNING)
+                self.assertEqual(await critical, "done")
+                await asyncio.sleep(0)
+                self.assertNotIn(critical, pulse_tasks._RUNNING)
+
+        asyncio.run(scenario())
+
+    def test_core_background_tasks_use_the_managed_registry(self):
+        managed_files = (
+            "main.py", "pulse_ultimate.py", "webserver.py",
+            "cogs/ai_moderation.py", "cogs/server_stats.py", "cogs/recovery.py",
+            "cogs/teamliste.py", "cogs/role_nickname_prefixes.py", "cogs/advanced_logs.py",
+        )
+        for filename in managed_files:
+            with self.subTest(filename=filename):
+                tree = ast.parse((ROOT / filename).read_text(encoding="utf-8"))
+                direct = [
+                    ast.unparse(node)
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {"create_task", "ensure_future"}
+                    and getattr(node.func.value, "id", "") not in {"db"}
+                ]
+                self.assertEqual(direct, [], "direkte Task-Erzeugung muss über pulse_tasks.spawn laufen")
 
 
 class ReadyOnceTests(unittest.TestCase):

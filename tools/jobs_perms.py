@@ -47,6 +47,13 @@ def main() -> int:
     for path in py_files():
         text = path.read_text(encoding="utf-8")
         tree = ast.parse(text)
+        spawn_aliases = {
+            alias.asname or alias.name
+            for item in ast.walk(tree)
+            if isinstance(item, ast.ImportFrom) and item.module == "pulse_tasks"
+            for alias in item.names
+            if alias.name == "spawn"
+        }
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for deco in node.decorator_list:
@@ -64,10 +71,17 @@ def main() -> int:
                                 continue  # e.g. chunked upload reading – not a background job
                             endless.append((rel(path), inner.lineno, node.name, ", ".join(sleeps[:3]) or "?", error_handling(inner)))
                             break
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("create_task", "ensure_future")
-                    and getattr(node.func.value, "id", "") != "db"):
-                parent_assigned = False
-                spawns.append((rel(path), node.lineno, ast.get_source_segment(text, node)[:90]))
+            if isinstance(node, ast.Call):
+                func = node.func
+                direct_task = (
+                    isinstance(func, ast.Attribute)
+                    and func.attr in ("create_task", "ensure_future")
+                    and getattr(func.value, "id", "") != "db"
+                )
+                managed_task = isinstance(func, ast.Name) and func.id in spawn_aliases
+                if direct_task or managed_task:
+                    call = " ".join((ast.get_source_segment(text, node) or "").split())
+                    spawns.append((rel(path), node.lineno, call[:90]))
         for key in re.findall(r"perms\.get\(\s*['\"]([a-z_]+)['\"]", text):
             perm_reads[key][rel(path)] += 1
         for key in re.findall(r"has_perm\([^,]+,\s*['\"]([a-z_]+)['\"]", text):
@@ -88,8 +102,8 @@ def main() -> int:
     lines += [f"| {f}:{l} | `{n}` | `{a}` | {e} |" for f, l, n, a, e in loops]
     lines += ["", f"## Eigene Endlosschleifen ({len(endless)})", "", "| Datei:Zeile | Funktion | Pause (`asyncio.sleep`) | Fehlerbehandlung |", "|---|---|---|---|"]
     lines += [f"| {f}:{l} | `{n}` | `{s}` | {e} |" for f, l, n, s, e in endless]
-    lines += ["", f"## `create_task` / `ensure_future` ({len(spawns)})", "",
-              "Ohne gehaltene Referenz kann der Task vom Garbage Collector eingesammelt werden, Fehler gehen verloren (P-07).", "",
+    lines += ["", f"## `create_task` / `ensure_future` / `pulse_tasks.spawn` ({len(spawns)})", "",
+              "`pulse_tasks.spawn` hält Tasks bis zum Abschluss, protokolliert unbehandelte Fehler und begrenzt normale Hintergrundarbeit; kritische Kernaufgaben können die weiche Obergrenze übergehen.", "",
               "| Datei:Zeile | Aufruf |", "|---|---|"]
     lines += [f"| {f}:{l} | `{c.replace('|', '¦')}` |" for f, l, c in spawns]
     lines += ["", "## Rechte-Schlüssel", "",
@@ -104,7 +118,7 @@ def main() -> int:
         grants = ", ".join(sorted(perm_grants[key])) or "—"
         lines.append(f"| `{key}` | {origin} | {reads} | {grants} |")
     (ROOT / "docs" / "JOBS_UND_RECHTE.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"tasks.loop: {len(loops)} · Endlosschleifen: {len(endless)} · create_task: {len(spawns)} · Rechte-Schlüssel: {len(all_keys)}")
+    print(f"tasks.loop: {len(loops)} · Endlosschleifen: {len(endless)} · Hintergrund-Tasks: {len(spawns)} · Rechte-Schlüssel: {len(all_keys)}")
     return 0
 
 

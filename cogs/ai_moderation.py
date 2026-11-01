@@ -18,6 +18,7 @@ from discord import app_commands
 from discord.ext import commands
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 import pulse_paths
+from pulse_tasks import spawn as spawn_task
 
 from pulse_ai_client import resolve_provider
 from pulse_ai_resilience import (
@@ -225,7 +226,7 @@ class AIModeration(commands.Cog):
 
     async def cog_load(self):
         # Do not wait for readiness here: setup_hook loads cogs before login.
-        self.worker_task = asyncio.create_task(self._worker(), name="pulse-ai-moderation-worker")
+        self.worker_task = spawn_task(self._worker(), name="pulse-ai-moderation-worker", critical=True)
 
     async def cog_unload(self):
         if self.worker_task:
@@ -336,9 +337,10 @@ class AIModeration(commands.Cog):
 
     def _schedule_outage_notice(self) -> None:
         if self._outage_notice_task is None or self._outage_notice_task.done():
-            self._outage_notice_task = asyncio.create_task(
+            self._outage_notice_task = spawn_task(
                 self._wait_and_publish_outage_notice(),
                 name="pulse-ai-moderation-outage-notice",
+                critical=True,
             )
 
     async def _wait_and_publish_outage_notice(self) -> None:

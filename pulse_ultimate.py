@@ -39,6 +39,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import pulse_db as db
 import pulse_paths
 import pulse_sqlite
+from pulse_tasks import spawn as spawn_task
 from pulse_safe_path import contained_file
 from pulse_safety import (
     RAM_CRITICAL_MB,
@@ -3108,7 +3109,7 @@ async def start_automation(bot):
     global _AUTOMATION_TASK
     if _AUTOMATION_TASK and not _AUTOMATION_TASK.done():
         return _AUTOMATION_TASK
-    _AUTOMATION_TASK = asyncio.create_task(automation_loop(bot), name="pulse-automation")
+    _AUTOMATION_TASK = spawn_task(automation_loop(bot), name="pulse-automation", critical=True)
     return _AUTOMATION_TASK
 
 

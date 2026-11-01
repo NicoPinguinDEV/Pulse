@@ -28,30 +28,27 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | pulse_ultimate.py:2394 | `automation_loop` | `60, 60` | 3 except, davon 2 breit |
 | webserver.py:9429 | `auto_backup_loop` | `300` | 3 except, davon 1 breit |
 
-## `create_task` / `ensure_future` (11)
+## `create_task` / `ensure_future` / `pulse_tasks.spawn` (15)
 
-Ohne gehaltene Referenz kann der Task vom Garbage Collector eingesammelt werden, Fehler gehen verloren (P-07).
+`pulse_tasks.spawn` hält Tasks bis zum Abschluss, protokolliert unbehandelte Fehler und begrenzt normale Hintergrundarbeit; kritische Kernaufgaben können die weiche Obergrenze übergehen.
 
 | Datei:Zeile | Aufruf |
 |---|---|
-| cogs/advanced_logs.py:94 | `loop.create_task(self._flush(channel))` |
-| cogs/ai_moderation.py:221 | `asyncio.create_task(self._worker(), name="pulse-ai-moderation-worker")` |
-| cogs/ai_moderation.py:332 | `asyncio.create_task(
-                self._wait_and_publish_outage_notice(),
-             ` |
-| cogs/role_nickname_prefixes.py:518 | `asyncio.create_task(
-            self._run_sync_existing_members(), name="pulse-role-nickn` |
-| cogs/server_stats.py:106 | `asyncio.create_task(
-            wait_then_refresh(), name="pulse-server-stats-deferred-re` |
-| cogs/server_stats.py:79 | `asyncio.create_task(
-                self._refresh_loop(), name="pulse-server-stats-refres` |
-| cogs/teamliste.py:387 | `asyncio.create_task(
-                self._debounced_update_teamlist(after.guild),
-       ` |
-| main.py:123 | `asyncio.create_task(server.serve(), name="pulse-webserver")` |
+| cogs/advanced_logs.py:95 | `spawn_task(self._flush(channel), name=..., loop=loop, critical=True)` |
+| cogs/ai_moderation.py:229 | `spawn_task(self._worker(), name="pulse-ai-moderation-worker", critical=True)` |
+| cogs/ai_moderation.py:340 | `spawn_task(self._wait_and_publish_outage_notice(), name=..., critical=True)` |
+| cogs/pulse_suite.py:253 | `spawn(web._notify_team_safety_incident(...), ...)` |
+| cogs/recovery.py:141 | `spawn_task(self._run_all_sync(...), name="pulse-recovery-sync-all", critical=True)` |
+| cogs/role_nickname_prefixes.py:533 | `spawn_task(self._run_sync_existing_members(), name=..., critical=True)` |
+| cogs/server_stats.py:80 | `spawn_task(self._refresh_loop(), name="pulse-server-stats-refresh", critical=True)` |
+| cogs/server_stats.py:107 | `spawn_task(wait_then_refresh(), name="pulse-server-stats-deferred-refresh", critical=True)` |
+| cogs/teamliste.py:396 | `spawn_task(self._debounced_update_teamlist(after.guild), name=..., critical=True)` |
+| cogs/voice_support.py:1165 | `spawn(self._continue_waiting_audio(...), name="voice-support-audio", loop=loop)` |
+| main.py:99 | `spawn_task(self.close(), name="pulse-sigterm-close", loop=loop, critical=True)` |
+| main.py:171 | `spawn_task(server.serve(), name="pulse-webserver", critical=True)` |
 | pulse_tasks.py:44 | `target.create_task(coro, name=name)` |
-| pulse_ultimate.py:2423 | `asyncio.create_task(automation_loop(bot))` |
-| webserver.py:9506 | `asyncio.create_task(auto_backup_loop())` |
+| pulse_ultimate.py:3112 | `spawn_task(automation_loop(bot), name="pulse-automation", critical=True)` |
+| webserver.py:9671 | `spawn_task(auto_backup_loop(), name="pulse-auto-backup", critical=True)` |
 
 ## Rechte-Schlüssel
 

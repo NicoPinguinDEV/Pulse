@@ -9,6 +9,7 @@ import time
 import discord
 from discord.ext import commands
 import pulse_paths
+from pulse_tasks import spawn as spawn_task
 
 from pulse_nickname_utils import (
     ABSENCE_SUFFIX,
@@ -529,8 +530,8 @@ class RoleNicknamePrefixes(commands.Cog):
                 self._sync_requested_again = True
             return False
         self._sync_requested_again = False
-        self._bulk_sync_task = asyncio.create_task(
-            self._run_sync_existing_members(), name="pulse-role-nickname-prefix-sync"
+        self._bulk_sync_task = spawn_task(
+            self._run_sync_existing_members(), name="pulse-role-nickname-prefix-sync", critical=True
         )
         return True
 
