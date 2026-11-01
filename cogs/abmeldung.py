@@ -1,7 +1,6 @@
 from datetime import datetime
 import sqlite3
 from typing import Optional
-from pathlib import Path
 
 import discord
 from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
@@ -10,10 +9,11 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import pulse_jobs
+import pulse_paths
 
 from pulse_nickname_utils import looks_like_date_only, split_absence_suffix
 
-DB_NAME = str(Path(__file__).resolve().parents[1] / "abmeldungen.db")
+DB_NAME = pulse_paths.data_file("abmeldungen.db")  # Phase 13: data directory (PULSE_DATA_DIR)
 
 
 def _embed_signature(embed: discord.Embed) -> tuple:

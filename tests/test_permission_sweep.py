@@ -64,7 +64,7 @@ class LowPrivilegeWriteSweep(unittest.TestCase):
         self.patches = [
             patch.object(pulse_db, "DB_PATH", str(tmp / "pulse.db")),
             patch.object(suite, "DB_PATH", str(tmp / "suite.db")),
-            patch.object(ws, "BASE_DIR", tmp),
+            patch.object(ws, "BASE_DIR", tmp), patch.object(ws, "DATA_DIR", tmp),
             patch.object(ws, "get_current_user", lambda _s: {"id": "7", "global_name": "Tess", "username": "tess"}),
             patch.object(ws, "compute_perms", lambda _g, _u, _c: (dict(perms), self.me)),
             patch.object(ws, "load_config", lambda *_a, **_k: {"team_role_ids": [100]}),

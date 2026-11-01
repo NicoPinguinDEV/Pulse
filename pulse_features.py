@@ -137,7 +137,7 @@ def register(app):
         # Gleiche Regel wie /tickets/transcript/{ticket_id}: Transkripte nur mit Ticketverwaltung (oder Admin).
         if not (c.perms.get('can_manage_tickets') or c.perms.get('is_admin')): raise HTTPException(403,'Dafür fehlt dir die Berechtigung.')
         safe=os.path.basename(filename)
-        path=contained_file(os.path.join(str(ws.BASE_DIR),'transcripts'),safe)
+        path=contained_file(os.path.join(str(ws.DATA_DIR),'transcripts'),safe)
         if not safe.endswith('.txt') or not path or not os.path.isfile(path): raise HTTPException(404,'Transcript nicht gefunden.')
         return __import__('fastapi').responses.FileResponse(path,filename=safe,media_type='text/plain')
 
@@ -245,7 +245,7 @@ def register(app):
             except Exception: pass
         flag_correct=0
         try:
-            with __import__('sqlite3').connect('flaggenquiz.db') as qdb:
+            with __import__('sqlite3').connect(ws.pulse_paths.data_file('flaggenquiz.db')) as qdb:
                 row=qdb.execute('SELECT points FROM quiz_scores WHERE guild_id=? AND user_id=?',(c.guild.id,int(c.user['id']))).fetchone(); flag_correct=int(row[0]) if row else 0
         except Exception: pass
         stats={'shifts':len(all_shifts),'hours':int(total_user_seconds/3600),'tickets_closed':ticket_count,'meetings':meeting_count,'flag_correct':flag_correct}

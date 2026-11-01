@@ -7,9 +7,10 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
+import pulse_paths
 import pulse_sqlite
 
-DB_PATH = os.getenv("PULSE_DB_PATH", "pulse.db")
+DB_PATH = os.getenv("PULSE_DB_PATH") or pulse_paths.data_file("pulse.db")  # Phase 13: data directory
 _LOCK = threading.RLock()
 
 

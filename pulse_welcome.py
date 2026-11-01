@@ -9,6 +9,7 @@ import os
 import re
 from datetime import datetime
 
+import pulse_paths
 from pulse_embed_design import (
     build_embed_spec, discord_timestamp, neutralize_mentions, render_template,
     safe_image_url, truncate, validate_template,
@@ -114,7 +115,7 @@ def banner_path(filename: str, base_dir: str = "") -> str | None:
     name = os.path.basename(str(filename or ""))
     if not _BANNER_NAME_RE.fullmatch(name):
         return None
-    path = os.path.join(base_dir, BANNER_DIR, name) if base_dir else os.path.join(BANNER_DIR, name)
+    path = os.path.join(base_dir or str(pulse_paths.DATA_DIR), BANNER_DIR, name)  # Phase 13: data directory
     return path if os.path.isfile(path) else None
 
 

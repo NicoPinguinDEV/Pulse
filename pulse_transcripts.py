@@ -11,6 +11,7 @@ import re
 
 import discord
 
+import pulse_paths
 from pulse_discord_style import is_v2, message_texts
 
 TRANSCRIPT_DIR = "transcripts"
@@ -28,6 +29,7 @@ def _safe(name: str, fallback: str = "datei") -> str:
 async def build_transcript(channel, ticket_id: str, base_dir: str = "") -> tuple[str, int]:
     """(transcript text, number of attachments saved). History errors propagate to the caller."""
     rows, saved = [], 0
+    base_dir = base_dir or str(pulse_paths.DATA_DIR)  # Phase 13: data directory
     files_dir = os.path.join(base_dir, TRANSCRIPT_DIR, f"{_safe(ticket_id, 'ticket')}_anhaenge")
     async for m in channel.history(limit=None, oldest_first=True):
         stamp = m.created_at.strftime("%d.%m.%Y %H:%M:%S")
@@ -65,7 +67,7 @@ async def archive_transcript(channel, ticket_id: str, *, base_dir: str = "", log
     except Exception as exc:
         raise TranscriptError(f"Verlauf konnte nicht gelesen werden ({type(exc).__name__})") from exc
     name = f"{_safe(ticket_id, 'ticket')}.txt"
-    path = os.path.join(base_dir, TRANSCRIPT_DIR, name)
+    path = os.path.join(base_dir or str(pulse_paths.DATA_DIR), TRANSCRIPT_DIR, name)
     try:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         with open(path, "w", encoding="utf-8") as handle:

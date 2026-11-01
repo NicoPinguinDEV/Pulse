@@ -21,7 +21,7 @@ class TempDb(unittest.TestCase):
         root = Path(self.tmp.name)
         self.patches = [patch.object(pulse_db, "DB_PATH", str(root / "pulse.db")),
                         patch.object(ws, "AUDIT_FILE", str(root / "audit_logs.json")),
-                        patch.object(ws, "BASE_DIR", root)]
+                        patch.object(ws, "BASE_DIR", root), patch.object(ws, "DATA_DIR", root)]
         for p in self.patches:
             p.start()
         pulse_db.init_db()

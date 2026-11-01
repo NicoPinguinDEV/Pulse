@@ -37,6 +37,7 @@ from fastapi import Cookie, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
+import pulse_paths
 import pulse_sqlite
 from pulse_safe_path import contained_file
 from pulse_safety import (
@@ -51,7 +52,7 @@ from pulse_safety import (
 )
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
-BASE = Path(__file__).resolve().parent
+BASE = pulse_paths.DATA_DIR  # Phase 13: runtime data (attachments, pulse.db) – not the code folder
 ATTACHMENTS_DIR = BASE / "attachments"  # A-04: created where a file is stored (and in webserver.init_runtime), not on import
 ULTIMATE_DB = BASE / "pulse.db"  # kept for compatibility; use ultimate_db() (D-05)
 
@@ -2572,7 +2573,7 @@ window.setInterval(loadPulseMonitor, 15000);
         disk_free_mb = 0
         disk_used_percent = 100.0
         try:
-            disk = shutil.disk_usage(str(webserver.BASE_DIR))
+            disk = shutil.disk_usage(str(webserver.DATA_DIR))
             disk_free_mb = round(disk.free / (1024 * 1024))
             disk_used_percent = round((disk.total - disk.free) * 100 / max(1, disk.total), 1)
         except OSError:

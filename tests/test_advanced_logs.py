@@ -22,7 +22,7 @@ class AdvancedLogsTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.patches = [patch.object(pulse_db, "DB_PATH", str(Path(self.tmp.name) / "pulse.db")),
-                        patch.object(ws, "BASE_DIR", Path(self.tmp.name)),
+                        patch.object(ws, "BASE_DIR", Path(self.tmp.name)), patch.object(ws, "DATA_DIR", Path(self.tmp.name)),
                         patch.object(ws, "log_audit", lambda *a, **k: None),
                         patch("builtins.print")]
         for p in self.patches:

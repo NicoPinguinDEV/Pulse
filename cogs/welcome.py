@@ -115,7 +115,7 @@ class WelcomeLeave(commands.Cog):
             settings = normalize_settings(raw)
             if self.base_dir is None:
                 import webserver
-                self.base_dir = str(webserver.BASE_DIR)
+                self.base_dir = str(webserver.DATA_DIR)
             payload = build_member_message(kind, settings, member_info(member, guild),
                                            now=discord.utils.utcnow(), base_dir=self.base_dir)
         except Exception as exc:

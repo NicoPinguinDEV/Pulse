@@ -36,7 +36,7 @@ class _Temp(unittest.TestCase):
         base = Path(self.tmp.name)
         self.patches = [
             patch.object(pulse_db, "DB_PATH", str(base / "pulse.db")),
-            patch.object(ws, "BASE_DIR", base),
+            patch.object(ws, "BASE_DIR", base), patch.object(ws, "DATA_DIR", base),
             patch.object(ws, "SHIFTS_FILE", str(base / "shifts.json")),
             patch.object(ws, "DATA_FILE", str(base / "team_data.json")),
             patch.object(ws, "APPS_FILE", str(base / "applications.json")),

@@ -8,7 +8,9 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 
-PANEL_IMAGE_DIR = "uploads/ticket_panels"
+import pulse_paths
+
+PANEL_IMAGE_DIR = pulse_paths.data_file("uploads", "ticket_panels")  # Phase 13: data directory
 MAX_PANEL_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_QUESTIONS = 5
 BUTTON_STYLES = ("primary", "secondary", "success", "danger")

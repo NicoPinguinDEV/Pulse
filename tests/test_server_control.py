@@ -216,7 +216,7 @@ class RouteTests(unittest.TestCase):
         self.audit = []
         self.patches = [
             patch.object(pulse_db, "DB_PATH", str(Path(self.tmp.name) / "pulse.db")),
-            patch.object(ws, "BASE_DIR", Path(self.tmp.name)),
+            patch.object(ws, "BASE_DIR", Path(self.tmp.name)), patch.object(ws, "DATA_DIR", Path(self.tmp.name)),
             patch.object(ws, "BACKUP_DIR", str(Path(self.tmp.name) / "backups")),
             patch.object(ws, "log_audit", lambda *a, **k: self.audit.append(a)),
             patch.dict(os.environ, {"PULSE_HOST_AGENT_URL": "", "PULSE_HOST_AGENT_TOKEN": "", "PULSE_GITHUB_REPO": ""}),

@@ -165,7 +165,7 @@ def register(app) -> None:
 
     e = ws.esc
     def banner_root():
-        return ws.BASE_DIR / BANNER_DIR
+        return ws.DATA_DIR / BANNER_DIR
 
     def admin_ctx(request, session):
         return ws.auth(request, session, perm=None, admin=True)
@@ -257,10 +257,10 @@ def register(app) -> None:
         banner_href = f"/admin/discord/banner/{e(vset['banner_file'])}" if vset.get("banner_file") else ""
         remove_banner_box = ('<label class="pulse-check"><input type="checkbox" name="remove_banner" value="1"> Hochgeladenes Banner entfernen</label>'
                              if vset.get("banner_file") else "")
-        preview = render_preview({"spec": verification.build_panel_spec(vset, icon_url="", base_dir=str(ws.BASE_DIR)), "content": ""},
+        preview = render_preview({"spec": verification.build_panel_spec(vset, icon_url="", base_dir=str(ws.DATA_DIR)), "content": ""},
                                  guild, banner_href)
         if branding().get("style") == "modern":
-            preview = render_preview({"spec": verification.build_panel_spec(vset, icon_url="", base_dir=str(ws.BASE_DIR)), "content": ""},
+            preview = render_preview({"spec": verification.build_panel_spec(vset, icon_url="", base_dir=str(ws.DATA_DIR)), "content": ""},
                                      guild, banner_href, button_label=vset["button_label"])
         else:
             preview += f'<div style="margin-top:8px"><span class="dc-button">✅ {e(vset["button_label"])}</span></div>'
@@ -388,7 +388,7 @@ def register(app) -> None:
             entry = settings[kind]
             label = "Willkommen" if kind == "welcome" else "Abschied"
             payload = build_member_message(kind, settings, preview_member(ctx), now=None,
-                                           base_dir=str(ws.BASE_DIR), force=True)
+                                           base_dir=str(ws.DATA_DIR), force=True)
             banner_href = f"/admin/discord/banner/{e(entry['banner_file'])}" if entry.get("banner_file") else ""
             welcome_only = ""
             if kind == "welcome":
@@ -892,7 +892,7 @@ def register(app) -> None:
         from cogs.welcome import member_info, send_member_message
         import discord
         payload = build_member_message(kind, settings, member_info(member, ctx.guild), now=discord.utils.utcnow(),
-                                       base_dir=str(ws.BASE_DIR), force=True)
+                                       base_dir=str(ws.DATA_DIR), force=True)
         ok, error = await send_member_message(getattr(request.app.state, "bot", None), ctx.guild, payload)
         if not ok:
             return ws.back("/admin/discord", f"Test fehlgeschlagen: {error}", False)

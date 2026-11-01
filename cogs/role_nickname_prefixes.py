@@ -5,10 +5,10 @@ import asyncio
 import json
 import os
 import time
-from pathlib import Path
 
 import discord
 from discord.ext import commands
+import pulse_paths
 
 from pulse_nickname_utils import (
     ABSENCE_SUFFIX,
@@ -24,7 +24,7 @@ from pulse_nickname_utils import (
 )
 from webserver import GUILD_ID, load_config
 
-STATE_FILE = Path(__file__).resolve().parents[1] / "role_nickname_state.json"
+STATE_FILE = pulse_paths.data_path("role_nickname_state.json")  # Phase 13: data directory
 MAX_CONFIGURED_PREFIX_ROLES = 150
 
 

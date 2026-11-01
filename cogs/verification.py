@@ -316,7 +316,7 @@ class Verification(commands.Cog):
             icon = guild.icon.url if getattr(guild, "icon", None) else ""
             if self.base_dir is None:
                 import webserver
-                self.base_dir = str(webserver.BASE_DIR)
+                self.base_dir = str(webserver.DATA_DIR)
             banner = banner_path(settings, self.base_dir)
             if banner and perms is not None and not getattr(perms, "attach_files", True):
                 raise ValueError(f"Pulse fehlt in #{channel.name} das Recht „Dateien anhängen“ für das hochgeladene Banner.")

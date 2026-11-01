@@ -24,6 +24,7 @@ from discord.ext import commands, tasks
 
 import pulse_jobs
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
+import pulse_paths
 
 from pulse_social_utils import (
     announcement_text,
@@ -37,7 +38,7 @@ from pulse_social_utils import (
 
 TARGET_CHANNEL_ID = _pulse_ids.SOCIAL_TARGET_CHANNEL_ID
 SOCIAL_PING_ROLE_ID = _pulse_ids.SOCIAL_PING_ROLE_ID
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = pulse_paths.DATA_DIR  # Phase 13: data directory, not the code folder
 DATA_FILE = Path(os.getenv("PULSE_SOCIAL_PROMO_FILE", str(ROOT / "social_promo_sources.json")))
 RSSHUB_BASE_URL = os.getenv("PULSE_RSSHUB_BASE_URL", "https://rsshub.app").strip().rstrip("/")
 # Public RSSHub mirrors listed by the RSSHub project. They are best-effort fallbacks:

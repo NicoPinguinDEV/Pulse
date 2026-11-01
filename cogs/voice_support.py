@@ -20,6 +20,7 @@ import pulse_db as db
 from pulse_jobs import tracked
 from pulse_voice_support_utils import DEFAULT_HOURS, DAYS, DAY_NAMES, shift_is_online, support_open_now
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
+import pulse_paths
 
 CONFIG_KEY = "voice_support_config"
 CASES_KEY = "voice_support_cases"
@@ -1043,7 +1044,7 @@ class VoiceSupport(commands.Cog):
             return None
         candidate = Path(raw)
         if not candidate.is_absolute():
-            candidate = Path(__file__).resolve().parents[1] / candidate
+            candidate = pulse_paths.DATA_DIR / candidate  # Phase 13: uploaded audio lives in the data directory
         try:
             candidate = candidate.resolve()
             return candidate if candidate.is_file() and candidate.stat().st_size > 0 else None

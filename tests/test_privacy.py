@@ -132,7 +132,7 @@ class RetentionTests(unittest.TestCase):
                         patch.object(ws, "SHIFTS_FILE", str(base / "shifts.json")),
                         patch.object(ws, "DB_ABMELDUNGEN", str(base / "abmeldungen.db")),
                         patch.object(ws, "BACKUP_DIR", str(base / "backups")),
-                        patch.object(ws, "BASE_DIR", base)]
+                        patch.object(ws, "BASE_DIR", base), patch.object(ws, "DATA_DIR", base)]
         for p in self.patches:
             p.start()
         pulse_db.init_db()
@@ -165,7 +165,7 @@ class RetentionTests(unittest.TestCase):
     def test_cleanup_keeps_open_and_recent_and_is_logged(self):
         import pulse_retention
         pulse_retention.save_settings({"enabled": True})
-        self.pulse_backup.create_full_backup(ws.BASE_DIR, ws.full_backup_dir())
+        self.pulse_backup.create_full_backup(ws.DATA_DIR, ws.full_backup_dir())
         report = pulse_retention.run(ws, __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
         self.assertTrue(report["ran"])
         self.assertEqual(sorted(ws.load_json(ws.APPS_FILE, {})), ["alt_offen", "neu"])
@@ -183,7 +183,7 @@ class RetentionTests(unittest.TestCase):
     def test_failure_is_recorded_once_per_day(self):
         import pulse_retention
         pulse_retention.save_settings({"enabled": True})
-        self.pulse_backup.create_full_backup(ws.BASE_DIR, ws.full_backup_dir())
+        self.pulse_backup.create_full_backup(ws.DATA_DIR, ws.full_backup_dir())
         with patch.object(ws, "save_json", side_effect=ws.JsonWriteBlocked("gesperrt")):
             report = pulse_retention.run(ws, __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
         self.assertFalse(report["ran"])
@@ -194,7 +194,7 @@ class RetentionTests(unittest.TestCase):
         import json as _json
         import sqlite3
         import pulse_retention
-        con = sqlite3.connect(Path(ws.BASE_DIR) / "pulse_suite.db")
+        con = sqlite3.connect(Path(ws.DATA_DIR) / "pulse_suite.db")
         con.execute("CREATE TABLE suite_members(user_id TEXT, notes TEXT)")
         con.execute("INSERT INTO suite_members VALUES ('100000000000000001','Notiz')")
         con.commit()

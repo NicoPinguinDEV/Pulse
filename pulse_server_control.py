@@ -209,6 +209,17 @@ def read_git_head(base_dir) -> dict:
         return {}
 
 
+def installed_commit(base_dir) -> dict:
+    """Phase 13: the image carries its commit as build information (PULSE_GIT_SHA, Dockerfile ARG) because
+    .git is no longer mounted into the container. Without it (bot hosting, local checkout) .git is read."""
+    sha = os.getenv("PULSE_GIT_SHA", "").strip().lower()
+    if SHA_RE.match(sha):
+        branch = re.sub(r"[^\w./-]", "", os.getenv("PULSE_GIT_BRANCH", "").strip())[:80]
+        return {"sha": sha, "short": sha[:7], "branch": branch, "source": "build"}
+    head = read_git_head(base_dir)
+    return {**head, "source": "git"} if head else {}
+
+
 def cgroup_memory_limit_mb() -> float | None:
     for raw in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
         try:
@@ -427,12 +438,12 @@ def app_facts(ws, app) -> dict:
         except OSError:
             pass
     return {
-        "version": ws.PULSE_VERSION, "commit": read_git_head(ws.BASE_DIR),
+        "version": ws.PULSE_VERSION, "commit": installed_commit(ws.BASE_DIR),
         "process_uptime_seconds": int(time.time() - _PROCESS_STARTED),
         "bot_ready": bot_ready, "guild_ready": bool(guild), "guild_name": getattr(guild, "name", None),
         "member_count": getattr(guild, "member_count", None) if guild else None, "database_ok": db_ok,
         "gateway_latency_ms": round(latency * 1000) if isinstance(latency, (int, float)) and latency == latency and latency != float("inf") else None,
-        "memory": _memory_facts(), "disk": _disk_facts(ws.BASE_DIR), "jobs_failing": jobs.get("jobs_failing", []),
+        "memory": _memory_facts(), "disk": _disk_facts(ws.DATA_DIR), "jobs_failing": jobs.get("jobs_failing", []),
         "last_job_ok": jobs.get("last_job_ok"), "backup": {**backup, "latest_age_hours": latest_age_h},
     }
 
@@ -658,7 +669,7 @@ def register(app) -> None:
         limited(ctx, "read", 240, 60)
         git = await agent_or_unavailable("GET", "/v1/git", timeout=20)
         jobs = await agent_or_unavailable("GET", "/v1/jobs/current")
-        return JSONResponse({"ok": True, "git": git, "jobs": jobs, "installed_local": read_git_head(ws.BASE_DIR) or None,
+        return JSONResponse({"ok": True, "git": git, "jobs": jobs, "installed_local": installed_commit(ws.BASE_DIR) or None,
                              "github": await github_main()})
 
     @app.get("/admin/server/api/backups")
@@ -668,7 +679,7 @@ def register(app) -> None:
         rows = await asyncio.to_thread(backups_overview, ws.full_backup_dir())
         status = ws.full_backup_status()
         return JSONResponse({"ok": True, "backups": rows, "status": status, "can_restore": bool(ctx.perms.get("is_admin")),
-                             "disk": _disk_facts(ws.full_backup_dir() if os.path.isdir(ws.full_backup_dir()) else ws.BASE_DIR)})
+                             "disk": _disk_facts(ws.full_backup_dir() if os.path.isdir(ws.full_backup_dir()) else ws.DATA_DIR)})
 
     @app.get("/admin/server/api/health")
     async def scc_health(request: Request, user_session: str = Cookie(None)):
@@ -677,7 +688,7 @@ def register(app) -> None:
         import pulse_db
         import pulse_health
         bot = getattr(request.app.state, "bot", None)
-        data = await asyncio.to_thread(pulse_health.collect, _memory_facts(), ws.BASE_DIR, pulse_db.DB_PATH, bot)
+        data = await asyncio.to_thread(pulse_health.collect, _memory_facts(), ws.DATA_DIR, pulse_db.DB_PATH, bot)
         return JSONResponse({"ok": True, **data})
 
     @app.get("/admin/server/api/diagnose")
@@ -944,7 +955,7 @@ def register(app) -> None:
             except Exception as exc:
                 structure = None
                 _local_log(job, f"Discord-Struktur nicht lesbar ({type(exc).__name__}) – Backup ohne Struktur.")
-            base_dir, backup_dir = ws.BASE_DIR, ws.full_backup_dir()
+            base_dir, backup_dir = ws.DATA_DIR, ws.full_backup_dir()
             threading.Thread(target=run_backup_job, name="pulse-scc-backup", daemon=True, args=(job, lambda: pulse_backup.create_full_backup(
                 base_dir, backup_dir, discord_structure=structure))).start()
             audit(ctx, action, "gestartet")
