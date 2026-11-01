@@ -168,11 +168,15 @@ def warns(m,web,team_data=None):
     return web.active_warns(web.user_entry(td,str(m.id)))
 
 def total_time(m,web):
-    s=web.load_shifts();total=sum(web.credited_shift_seconds(x) for x in s.get("history",[]) if str(x.get("mod_id"))==str(m.id));a=s.get("active_shifts",{}).get(str(m.id))
-    return total+(web.shift_elapsed(a) if a else 0)
+    uid=str(m.id);s=web.load_shift_state();active=s.get("active_shifts",{}).get(uid)
+    total=(sum(web.credited_shift_seconds(x) for x in s.get("history",[]) if isinstance(x,dict) and str(x.get("mod_id"))==uid)
+           if "history" in s else web.shift_total_credited_seconds(uid))
+    return total+(web.shift_elapsed(active) if active else 0)
 
 def weekly(m,web):
-    s=web.load_shifts();return web.calculate_weekly_seconds(str(m.id),s.get("history",[]),s.get("active_shifts",{}))
+    uid=str(m.id);s=web.load_shift_state()
+    return (web.calculate_weekly_seconds(uid,s.get("history",[]),s.get("active_shifts",{}))
+            if "history" in s else web.calculate_weekly_seconds_for_member(uid,s.get("active_shifts",{})))
 
 def team_score(m,web,task_rows=None,ticket_rows=None,team_data=None):
     w=weekly(m,web);goal=max(1,float(setting("weekly_goal_hours",3))*3600);activity=min(100,int(w/goal*100))

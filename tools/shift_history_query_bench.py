@@ -84,6 +84,7 @@ def measure_backend(ws, store, members: list[str], now, runs: int) -> dict:
         return {
             "weekly": store.weekly_totals(ws, mod_ids=members),
             "lifetime_seconds": store.total_credited_seconds(ws),
+            "range": store.range_totals(ws, members, date_from, date_to),
         }
 
     history = full_read()
@@ -109,6 +110,7 @@ def measure_backend(ws, store, members: list[str], now, runs: int) -> dict:
         "period_matching_rows": period["total"],
         "period_page_rows": len(period["items"]),
         "weekly_members_with_rows": len(aggregate["weekly"]),
+        "range_members_with_rows": len(aggregate["range"]),
         "lifetime_credited_seconds": aggregate["lifetime_seconds"],
         "full_history_sha256": digest(history),
         "member_result_sha256": digest(member["items"]),

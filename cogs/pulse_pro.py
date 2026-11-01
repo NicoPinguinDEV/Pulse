@@ -314,7 +314,7 @@ class PulsePro(commands.Cog):
             if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
                 await interaction.response.send_message("❌ Du hast keinen Zugriff auf Pulse.", ephemeral=True)
                 return
-            shifts = webserver.load_shifts()
+            shifts = webserver.load_shift_state()
             active = len(shifts.get("active_shifts", {}))
             tickets = len([x for x in db.list_tickets(limit=1000, open_only=True) if x.get("status") != "closed"])
             tasks_open = len([x for x in db.list_tasks(limit=1000) if x.get("status") in ("open", "in_progress")])
@@ -327,7 +327,10 @@ class PulsePro(commands.Cog):
             # Personal block: the most common question is "how am I doing this week?".
             uid = str(interaction.user.id)
             own = shifts.get("active_shifts", {}).get(uid)
-            weekly = webserver.calculate_weekly_seconds(uid, shifts.get("history", []), shifts.get("active_shifts", {}))
+            weekly = (
+                webserver.calculate_weekly_seconds(uid, shifts.get("history", []), shifts.get("active_shifts", {}))
+                if "history" in shifts else webserver.calculate_weekly_seconds_for_member(uid, shifts.get("active_shifts", {}))
+            )
             goal = float(cfg.get("weekly_goal_hours", 3.0) or 0)
             pct = min(100, int(weekly * 100 / (goal * 3600))) if goal else 100
             state = {"online": "🟢 Im Dienst", "break": "☕ Pause"}.get(own.get("status") if own else "", "⚪ Nicht im Dienst")

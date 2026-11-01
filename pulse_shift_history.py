@@ -717,29 +717,78 @@ def query_history(
                 raise ValueError("history muss eine Liste sein")
             matches = []
             uid = None if mod_id is None else str(mod_id)
+            start_day = date.fromisoformat(date_from) if date_from is not None else None
+            end_day = date.fromisoformat(date_to) if date_to is not None else None
             for seq, entry in enumerate(history):
                 if uid is not None and (not isinstance(entry, dict) or str(entry.get("mod_id")) != uid):
                     continue
-                day = entry.get("date") if isinstance(entry, dict) else None
-                if date_from is not None and (not isinstance(day, str) or day < date_from):
-                    continue
-                if date_to is not None and (not isinstance(day, str) or day >= date_to):
-                    continue
+                if start_day is not None or end_day is not None:
+                    day = _legacy_shift_date(entry.get("date")) if isinstance(entry, dict) else None
+                    if day is None or (start_day is not None and day < start_day) or (end_day is not None and day >= end_day):
+                        continue
                 matches.append((seq, entry))
             remaining = [(seq, item) for seq, item in matches if seq > cursor]
             page, has_more = remaining[:limit], len(remaining) > limit
             return {"items": [item for _, item in page], "total": len(matches),
                     "next_cursor": page[-1][0] if has_more and page else None, "has_more": has_more}
 
-        where, params = _history_where(mod_id, date_from, date_to)
         con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
         try:
-            total = con.execute(f"SELECT COUNT(*) FROM shift_history{where}", params).fetchone()[0]
-            page_where = (where + " AND " if where else " WHERE ") + "seq > ?"
-            rows = con.execute(
-                f"SELECT seq, payload FROM shift_history{page_where} ORDER BY seq LIMIT ?",
-                [*params, cursor, limit + 1],
-            ).fetchall()
+            identity_where, identity_params = _history_where(mod_id)
+            if date_from is None and date_to is None:
+                total = con.execute(f"SELECT COUNT(*) FROM shift_history{identity_where}", identity_params).fetchone()[0]
+                page_where = (identity_where + " AND " if identity_where else " WHERE ") + "seq > ?"
+                rows = con.execute(
+                    f"SELECT seq, payload FROM shift_history{page_where} ORDER BY seq LIMIT ?",
+                    [*identity_params, cursor, limit + 1],
+                ).fetchall()
+            else:
+                _register_read_functions(con)
+                canonical_clauses = ["shift_date GLOB '????-??-??'", "pulse_valid_iso_day(shift_date)=1"]
+                canonical_params = []
+                if mod_id is not None:
+                    if str(mod_id) == "None":
+                        canonical_clauses.insert(0, "(mod_id=? OR mod_id IS NULL)")
+                    else:
+                        canonical_clauses.insert(0, "mod_id=?")
+                    canonical_params.append(str(mod_id))
+                if date_from is not None:
+                    canonical_clauses.append("shift_date >= ?")
+                    canonical_params.append(date_from)
+                if date_to is not None:
+                    canonical_clauses.append("shift_date < ?")
+                    canonical_params.append(date_to)
+                canonical_where = " WHERE " + " AND ".join(canonical_clauses)
+                total = con.execute(
+                    "SELECT COUNT(*) FROM shift_history" + canonical_where, canonical_params
+                ).fetchone()[0]
+                legacy_clause = (
+                    "(shift_date IS NULL OR shift_date NOT GLOB '????-??-??' "
+                    "OR pulse_valid_iso_day(shift_date)=0)"
+                )
+                legacy_where = (identity_where + " AND " if identity_where else " WHERE ") + legacy_clause
+                legacy_rows = con.execute(
+                    f"SELECT seq, payload FROM shift_history{legacy_where} ORDER BY seq",
+                    identity_params,
+                ).fetchall()
+                start_day = date.fromisoformat(date_from) if date_from is not None else None
+                end_day = date.fromisoformat(date_to) if date_to is not None else None
+                selected_legacy = []
+                for seq, payload in legacy_rows:
+                    entry = json.loads(payload)
+                    day = _legacy_shift_date(entry.get("date")) if isinstance(entry, dict) else None
+                    if day is None or (start_day is not None and day < start_day) or (end_day is not None and day >= end_day):
+                        continue
+                    total += 1
+                    if seq > cursor:
+                        selected_legacy.append((seq, payload))
+                canonical_page_where = canonical_where + " AND seq > ?"
+                canonical_page = con.execute(
+                    "SELECT seq, payload FROM shift_history" + canonical_page_where +
+                    " ORDER BY seq LIMIT ?",
+                    [*canonical_params, cursor, limit + 1],
+                ).fetchall()
+                rows = sorted([*canonical_page, *selected_legacy], key=lambda item: item[0])[:limit + 1]
             has_more, page = len(rows) > limit, rows[:limit]
             return {"items": [json.loads(payload) for _seq, payload in page], "total": total,
                     "next_cursor": page[-1][0] if has_more and page else None, "has_more": has_more}
@@ -796,7 +845,10 @@ def weekly_totals(ws, mod_ids=None) -> dict:
                 "AND pulse_valid_iso_day(shift_date)=1" + member_sql + " GROUP BY mod_id",
                 [start_text, *member_params],
             ).fetchall()
-            totals = {str(uid): int(seconds or 0) for uid, seconds in canonical}
+            totals = {}
+            for uid, seconds in canonical:
+                key = str(uid)
+                totals[key] = totals.get(key, 0) + int(seconds or 0)
             legacy = con.execute(
                 "SELECT payload FROM shift_history WHERE "
                 "(shift_date IS NULL OR shift_date NOT GLOB '????-??-??')" + member_sql + " ORDER BY seq",
@@ -815,19 +867,184 @@ def weekly_totals(ws, mod_ids=None) -> dict:
             con.close()
 
 
-def total_credited_seconds(ws) -> int:
-    """Sum all creditable seconds in SQLite without loading all payloads into Python."""
+
+
+def _legacy_shift_date(value):
+    """Same parser as pulse_cockpit_utils._entry_date, including non-padded legacy dates."""
+    try:
+        return datetime.strptime(str(value or ""), "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def range_totals(ws, mod_ids, date_from: str, date_to: str) -> dict:
+    """Credited seconds per member for [date_from, date_to), using the member/date index."""
+    date_from = _validated_date_bound(date_from, "date_from")
+    date_to = _validated_date_bound(date_to, "date_to")
+    if date_from is None or date_to is None or date_from >= date_to:
+        raise ValueError("Ein gültiger Zeitraum mit date_from < date_to ist erforderlich")
+    selected = list(dict.fromkeys(str(value) for value in mod_ids))
+    if not selected:
+        return {}
+    start, end = date.fromisoformat(date_from), date.fromisoformat(date_to)
     path = ws.SHIFTS_FILE
     with ws._io_lock:
         raw = _read_raw(path)
         if not is_sqlite(raw):
             shifts = ws.load_shifts()
-            return sum(ws.credited_shift_seconds(entry) for entry in shifts.get("history", []))
+            totals = {}
+            for entry in shifts.get("history", []):
+                if not isinstance(entry, dict):
+                    continue
+                day = _legacy_shift_date(entry.get("date"))
+                uid = str(entry.get("mod_id"))
+                if uid in selected and day is not None and start <= day < end:
+                    totals[uid] = totals.get(uid, 0) + ws.credited_shift_seconds(entry)
+            return totals
+
+        con, _row_count, raw = _open_indexed_snapshot(ws, path, raw)
+        try:
+            _register_read_functions(con)
+            placeholders = ",".join("?" for _ in selected)
+            member_clause = (
+                f"(mod_id IN ({placeholders}) OR mod_id IS NULL)"
+                if "None" in selected else f"mod_id IN ({placeholders})"
+            )
+            canonical = con.execute(
+                "SELECT mod_id, SUM(pulse_credited_seconds(payload)) FROM shift_history "
+                f"WHERE {member_clause} AND shift_date >= ? AND shift_date < ? "
+                "AND shift_date GLOB '????-??-??' AND pulse_valid_iso_day(shift_date)=1 "
+                "GROUP BY mod_id",
+                [*selected, date_from, date_to],
+            ).fetchall()
+            totals = {}
+            for uid, seconds in canonical:
+                key = str(uid)
+                totals[key] = totals.get(key, 0) + int(seconds or 0)
+            legacy = con.execute(
+                "SELECT payload FROM shift_history "
+                f"WHERE {member_clause} AND "
+                "(shift_date IS NULL OR shift_date NOT GLOB '????-??-??' "
+                "OR pulse_valid_iso_day(shift_date)=0) ORDER BY seq",
+                selected,
+            ).fetchall()
+            for (payload,) in legacy:
+                entry = json.loads(payload)
+                if not isinstance(entry, dict):
+                    continue
+                day = _legacy_shift_date(entry.get("date"))
+                uid = str(entry.get("mod_id"))
+                if uid in selected and day is not None and start <= day < end:
+                    totals[uid] = totals.get(uid, 0) + ws.credited_shift_seconds(entry)
+            return totals
+        finally:
+            con.close()
+
+
+def latest_shift_dates(ws, mod_ids) -> dict:
+    """Latest shift date per member; SQLite MAX handles canonical dates and Python handles legacy dates."""
+    selected = list(dict.fromkeys(str(value) for value in mod_ids))
+    if not selected:
+        return {}
+    path = ws.SHIFTS_FILE
+    with ws._io_lock:
+        raw = _read_raw(path)
+        if not is_sqlite(raw):
+            from pulse_cockpit_utils import last_shift_dates
+            shifts = ws.load_shifts()
+            latest = last_shift_dates(shifts.get("history", []))
+            return {uid: latest[uid] for uid in selected if uid in latest}
+
         con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
         try:
             _register_read_functions(con)
-            value = con.execute("SELECT COALESCE(SUM(pulse_credited_seconds(payload)), 0) FROM shift_history").fetchone()[0]
-            return int(value)
+            placeholders = ",".join("?" for _ in selected)
+            member_clause = (
+                f"(mod_id IN ({placeholders}) OR mod_id IS NULL)"
+                if "None" in selected else f"mod_id IN ({placeholders})"
+            )
+            canonical = con.execute(
+                "SELECT mod_id, MAX(shift_date) FROM shift_history "
+                f"WHERE {member_clause} AND shift_date GLOB '????-??-??' "
+                "AND pulse_valid_iso_day(shift_date)=1 GROUP BY mod_id",
+                selected,
+            ).fetchall()
+            latest = {}
+            for uid, day in canonical:
+                if day is None:
+                    continue
+                key = str(uid)
+                parsed_day = date.fromisoformat(day)
+                if key not in latest or parsed_day > latest[key]:
+                    latest[key] = parsed_day
+            legacy = con.execute(
+                "SELECT mod_id, payload FROM shift_history "
+                f"WHERE {member_clause} AND "
+                "(shift_date IS NULL OR shift_date NOT GLOB '????-??-??' "
+                "OR pulse_valid_iso_day(shift_date)=0) ORDER BY seq",
+                selected,
+            ).fetchall()
+            for uid, payload in legacy:
+                entry = json.loads(payload)
+                if not isinstance(entry, dict):
+                    continue
+                day = _legacy_shift_date(entry.get("date"))
+                key = str(uid) if uid is not None else str(entry.get("mod_id"))
+                if day is not None and (key not in latest or day > latest[key]):
+                    latest[key] = day
+            # load_shifts() also projects an expired active shift as a synthetic zero-credit history row.
+            active = raw.get("active_shifts", {})
+            if isinstance(active, dict):
+                now = ws.now_de()
+                selected_set = set(selected)
+                for uid, shift in active.items():
+                    key = str(uid)
+                    if key not in selected_set or not isinstance(shift, dict):
+                        continue
+                    age = ws.shift_age_seconds(shift.get("started_at_iso"), now)
+                    if age is None or age < ws.AUTO_SHIFT_END_SECONDS:
+                        continue
+                    day = _legacy_shift_date(shift.get("date"))
+                    if day is not None and (key not in latest or day > latest[key]):
+                        latest[key] = day
+            return latest
+        finally:
+            con.close()
+
+
+def total_credited_seconds(ws, mod_id=None) -> int:
+    """Sum all or one member's creditable seconds without materializing history."""
+    path = ws.SHIFTS_FILE
+    uid = None if mod_id is None else str(mod_id)
+    with ws._io_lock:
+        raw = _read_raw(path)
+        if not is_sqlite(raw):
+            shifts = ws.load_shifts()
+            return sum(
+                ws.credited_shift_seconds(entry)
+                for entry in shifts.get("history", [])
+                if uid is None or (isinstance(entry, dict) and str(entry.get("mod_id")) == uid)
+            )
+        con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
+        try:
+            _register_read_functions(con)
+            if uid is None:
+                row = con.execute(
+                    "SELECT COALESCE(SUM(pulse_credited_seconds(payload)), 0) FROM shift_history"
+                ).fetchone()
+            elif uid == "None":
+                row = con.execute(
+                    "SELECT COALESCE(SUM(pulse_credited_seconds(payload)), 0) "
+                    "FROM shift_history WHERE mod_id=? OR mod_id IS NULL",
+                    (uid,),
+                ).fetchone()
+            else:
+                row = con.execute(
+                    "SELECT COALESCE(SUM(pulse_credited_seconds(payload)), 0) "
+                    "FROM shift_history WHERE mod_id=?",
+                    (uid,),
+                ).fetchone()
+            return int(row[0])
         finally:
             con.close()
 
