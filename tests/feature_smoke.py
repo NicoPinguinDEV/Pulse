@@ -441,9 +441,11 @@ def main() -> None:
     assert "⚙ Team-Aktionen" in pro
     assert 'value="promote"' in pro
     assert 'value="demote"' in pro
-    assert 'name="action" value="kick"' in pro
+    assert 'name="action" value="team_kick"' in pro
     assert "Pflicht: Grund für Beförderung / Degradierung" in pro
-    assert "Pflicht: Grund für den Kick" in pro
+    assert "Pflicht: Grund für die Team-Entfernung" in pro
+    assert "🚪 Aus dem Team entfernen" in pro
+    assert "vom Discord-Server kicken" not in pro
     assert "ws.team_since_for(target, entry)" in pro
     assert 'placeholder="Pflicht: Rücknahmegrund"' in pro
 
