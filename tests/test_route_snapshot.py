@@ -225,6 +225,52 @@ class RouteSnapshotTests(unittest.TestCase):
                 self.assertEqual(module, "pulse_pro")
                 self.assertTrue(active_function.endswith(function))
 
+
+    def test_displaced_pulse_features_handlers_and_job_are_removed(self):
+        import pulse_features
+
+        removed_handlers = {
+            "inbox_page", "inbox_read", "search_page", "tasks_page", "task_update",
+            "tickets_page", "ticket_update", "calendar_page", "system_page",
+            "achievements_page", "stats_page", "meetings_history_page", "restore_backup",
+        }
+        route_map = load_route_map()
+        static = route_map.static_registrations()
+        remaining = {
+            item["function"]
+            for item in static
+            if item["file"] == "pulse_features.py"
+        }
+        self.assertTrue(removed_handlers.isdisjoint(remaining), sorted(removed_handlers & remaining))
+
+        tree = ast.parse(inspect.getsource(pulse_features.register))
+        nested_functions = {
+            node.name for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertNotIn("housekeeping", nested_functions)
+
+        active = {
+            (item["method"], item["path"]): (item["module"], item["function"])
+            for item in self.routes
+        }
+        for method, path, function in (
+            ("POST", "/tasks/create", "task_create"),
+            ("GET", "/ticket/transcript/{filename}", "ticket_transcript"),
+            ("POST", "/tickets/rate", "ticket_rate"),
+            ("GET", "/wiki", "wiki_page"),
+            ("POST", "/wiki/save", "wiki_save"),
+            ("GET", "/wiki/{page_id}", "wiki_detail"),
+            ("GET", "/training", "training_page"),
+            ("POST", "/training/create", "training_create"),
+            ("GET", "/training/{training_id}", "training_detail"),
+            ("POST", "/training/{training_id}/submit", "training_submit"),
+        ):
+            with self.subTest(path=path):
+                module, active_function = active[(method, path)]
+                self.assertEqual(module, "pulse_features")
+                self.assertTrue(active_function.endswith(function))
+
     def test_no_public_api_docs(self):
         paths = {r["path"] for r in self.routes}
         self.assertFalse(paths & {"/docs", "/redoc", "/openapi.json"})
