@@ -341,6 +341,39 @@ class RoleEscalationTests(TempDb):
             saved.assert_not_called()
         self.assertTrue(all(w["active"] for e in team.values() for w in e["warns_list"]))
 
+    def test_team_rank_uses_the_explicit_guild_and_discord_role_positions(self):
+        # FakeMember intentionally has no .guild attribute: the domain caller must pass its guild.
+        self.assertEqual(ws.team_rank(self.support, TEAM_IDS, self.guild), 0)
+        self.assertEqual(ws.team_rank(self.lead, TEAM_IDS, self.guild), 2)
+
+    def test_unranked_target_cannot_bypass_warning_withdrawal_hierarchy(self):
+        unranked = member(401, "Nicht konfigurierte Rolle", HELPER_MOD)
+        team = {str(unranked.id): {"warns_list": [{"id": "w3", "reason": "r", "active": True}]}}
+        with patch.object(ws, "load_json", lambda *_a, **_k: team), patch.object(ws, "save_json") as saved:
+            result = asyncio.run(ws.revoke_team_warning(
+                self.guild, member=unranked, warn_id="w3", revoke_reason="Irrtum",
+                actor_name="Lena", actor_id=str(self.lead.id), config=self.config, actor_member=self.lead,
+            ))
+        self.assertFalse(result["stored"])
+        self.assertIn("keine konfigurierte Teamrolle", result["message"])
+        saved.assert_not_called()
+        self.assertTrue(team[str(unranked.id)]["warns_list"][0]["active"])
+
+    def test_unranked_actor_cannot_withdraw_team_warning(self):
+        unranked_actor = member(402, "Externer Rang", HELPER_MOD)
+        target = self.support
+        team = {str(target.id): {"warns_list": [{"id": "w4", "reason": "r", "active": True}]}}
+        with patch.object(ws, "load_json", lambda *_a, **_k: team), patch.object(ws, "save_json") as saved:
+            result = asyncio.run(ws.revoke_team_warning(
+                self.guild, member=target, warn_id="w4", revoke_reason="Irrtum",
+                actor_name="Extern", actor_id=str(unranked_actor.id), config=self.config,
+                actor_member=unranked_actor,
+            ))
+        self.assertFalse(result["stored"])
+        self.assertIn("Teamrang konnte nicht ermittelt", result["message"])
+        saved.assert_not_called()
+        self.assertTrue(team[str(target.id)]["warns_list"][0]["active"])
+
     # SEC-07 ------------------------------------------------------------------------------------------
     def test_hire_after_interview_respects_own_rank(self):
         apps = {"A1": {"status": "interview", "user_id": str(self.alt.id), "name": "Alt", "interview_invited_at": "01.10.2026 10:00"}}
