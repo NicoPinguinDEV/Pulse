@@ -64,6 +64,7 @@ class PulseNextEvents(commands.Cog):
             members = pulse_next.members(guild)
         except Exception as exc:
             print(f"Pulse Teammitglieder konnten nicht geladen werden: {exc}")
+            pulse_jobs.record_error("TeamOS-Housekeeping (5 min)", exc)  # Phase 14.6: visible in /healthz
             return
 
         for member in members:

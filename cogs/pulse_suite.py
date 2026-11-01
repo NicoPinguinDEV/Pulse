@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import pulse_db as db
 import pulse_paths
 import pulse_sqlite
+import pulse_jobs
 from pulse_jobs import tracked
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
 
@@ -817,9 +818,10 @@ class PulseSuite(commands.Cog):
     async def auto(self):
         g=self.guild()
         if not g:return
-        try:
-            await self.sync_members(g);await self.warn_sync(g);await self.reminders(g);await self.activity_reminder(g);await self.long_shift_check(g);await self.inactivity(g);await self.reports(g);await self.shift_reminders(g);await self.update_presence(g)
-        except Exception as e:print("⚠️ Pulse Suite:",e)
+        # Phase 14.6: one failing step (e.g. Discord 403 in sync_members) skipped all later steps and was only printed.
+        for step in (self.sync_members,self.warn_sync,self.reminders,self.activity_reminder,self.long_shift_check,self.inactivity,self.reports,self.shift_reminders,self.update_presence):
+            try:await step(g)
+            except Exception as e:print("⚠️ Pulse Suite:",e);pulse_jobs.record_error("Suite-Automatik (5 min)",e)
 
     @auto.before_loop
     async def before_auto(self):await self.bot.wait_until_ready()

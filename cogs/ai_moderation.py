@@ -240,7 +240,10 @@ class AIModeration(commands.Cog):
         # Restore button callbacks for unresolved reports after restart.
         for case_id, case in list(self.cases.items()):
             if case.get("status") == "pending" and case.get("review_message_id"):
-                self.bot.add_view(ModerationReviewView(self, case_id, str(case.get("role_kind", "OTHER"))), message_id=int(case["review_message_id"]))
+                try:
+                    self.bot.add_view(ModerationReviewView(self, case_id, str(case.get("role_kind", "OTHER"))), message_id=int(case["review_message_id"]))
+                except Exception as exc:  # Phase 14.6: one broken stored case must not end the worker for the whole process
+                    print(f"⚠️ KI-Moderation: Prüfansicht für Fall {case_id} nicht wiederhergestellt ({type(exc).__name__}: {exc}).")
         while not self.bot.is_closed():
             item = await self.queue.get()
             try:

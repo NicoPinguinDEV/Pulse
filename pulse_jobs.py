@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import random
+import secrets
 import sys
 import threading
 import time
@@ -17,6 +18,8 @@ import traceback
 from datetime import datetime, timezone
 
 LAG_WARN_SECONDS = 0.25
+BACKOFF_MAX_SECONDS = 300.0  # Phase 14.6: a failing fast loop is retried at least every 5 minutes, never faster than its interval
+TRACEBACK_REPEAT_SECONDS = 600.0  # the same error of one job prints its full traceback at most every 10 minutes
 _JOBS: dict[str, dict] = {}
 _LAG = {"last": 0.0, "max": 0.0, "max_at": "", "warnings": 0, "stalls": 0}
 
@@ -28,8 +31,7 @@ def _now_iso() -> str:
 @contextlib.asynccontextmanager
 async def job(name: str, interval_seconds: float | None = None):
     """Record one run of a background job. Errors are recorded and re-raised (the caller decides)."""
-    entry = _JOBS.setdefault(name, {"name": name, "interval": interval_seconds, "runs": 0, "failures": 0,
-                                    "last_start": "", "last_duration": 0.0, "last_error": "", "last_error_at": ""})
+    entry = _entry(name, interval_seconds)
     entry["interval"] = interval_seconds
     entry["last_start"] = _now_iso()
     started = time.monotonic()
@@ -45,12 +47,13 @@ async def job(name: str, interval_seconds: float | None = None):
             entry["failures"] += 1
             entry["last_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
             entry["last_error_at"] = _now_iso()
+            entry["last_error_id"] = secrets.token_hex(3).upper()
             try:
                 exc._pulse_job_counted = True  # record_error must not count/log it twice
             except AttributeError:
                 pass
             import pulse_logging
-            pulse_logging.report_error(f"job.{name}", entry["last_error"])
+            pulse_logging.report_error(f"job.{name}", entry["last_error"], entry["last_error_id"])
             _alert(name, entry["last_error"])
         raise
     finally:
@@ -60,35 +63,73 @@ async def job(name: str, interval_seconds: float | None = None):
 
 def tracked(name: str, interval_seconds: float | None = None, pausable: bool = True):
     """Decorator for `@tasks.loop` bodies: every run is recorded in the registry.
-    pausable=False: live support (voice queue, music) keeps running in maintenance mode (F-04)."""
+    pausable=False: live support (voice queue, music) keeps running in maintenance mode (F-04).
+
+    Phase 14.6: discord.ext.tasks only retries network errors; any other exception (sqlite3 "database is locked",
+    discord.Forbidden, ...) ended the loop for the rest of the process. A failed run is recorded (error ID, alert,
+    /healthz) and the loop keeps its schedule. Consecutive failures of a fast loop skip runs with exponential backoff
+    (interval * 2^n, at most BACKOFF_MAX_SECONDS); loops with an interval of 5 minutes or more are never skipped.
+    Cancellation (shutdown, cog_unload) still propagates."""
     def decorate(fn):
         @functools.wraps(fn)
         async def wrapper(*args, **kwargs):
             import pulse_flags
             if pausable and pulse_flags.automations_paused():  # F-04: maintenance mode skips the run (recorded, not an error)
-                _JOBS.setdefault(name, {"name": name, "interval": interval_seconds, "runs": 0, "failures": 0, "last_start": "",
-                                        "last_duration": 0.0, "last_error": "", "last_error_at": ""})["paused_at"] = _now_iso()
+                _entry(name, interval_seconds)["paused_at"] = _now_iso()
                 return None
-            async with job(name, interval_seconds):
-                return await fn(*args, **kwargs)
+            entry = _entry(name, interval_seconds)
+            now = time.monotonic()
+            if now < entry.get("_retry_at", 0.0):
+                return None  # backoff after repeated failures; the next run retries
+            try:
+                async with job(name, interval_seconds):
+                    result = await fn(*args, **kwargs)
+            except Exception as exc:
+                failures = entry["consecutive_failures"] = entry.get("consecutive_failures", 0) + 1
+                delay = min((interval_seconds or 0) * 2 ** (failures - 1), BACKOFF_MAX_SECONDS) if failures > 1 else 0.0
+                # Measured from the start of this run: discord.ext.tasks schedules from the previous start, so a
+                # 5-minute loop (delay capped at 300 s) is never skipped. 1 s tolerance for early wake-ups.
+                entry["_retry_at"] = now + delay - 1.0 if delay > (interval_seconds or 0) else 0.0
+                print(f"⚠️ Hintergrundjob {name} fehlgeschlagen [Fehler-ID {entry.get('last_error_id', '?')}]: "
+                      f"{entry['last_error']} – {failures}. Fehler in Folge, nächster Versuch planmäßig"
+                      + (f" frühestens in {delay:.0f} s." if entry["_retry_at"] else "."))
+                _print_traceback(entry, exc)
+                return None
+            entry["consecutive_failures"] = 0
+            entry["_retry_at"] = 0.0
+            return result
         return wrapper
     return decorate
 
 
+def _entry(name: str, interval_seconds: float | None = None) -> dict:
+    return _JOBS.setdefault(name, {"name": name, "interval": interval_seconds, "runs": 0, "failures": 0, "last_start": "",
+                                   "last_duration": 0.0, "last_error": "", "last_error_at": ""})
+
+
+def _print_traceback(entry: dict, exc: BaseException) -> None:
+    """Full traceback for a new error; a repeating error (every 8 s in the music loop) only every 10 minutes."""
+    now = time.monotonic()
+    if entry.get("_tb_error") == entry["last_error"] and now - entry.get("_tb_at", -TRACEBACK_REPEAT_SECONDS) < TRACEBACK_REPEAT_SECONDS:
+        return
+    entry["_tb_error"], entry["_tb_at"] = entry["last_error"], now
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
+
+
 def record_error(name: str, exc: BaseException, already_counted: bool = False) -> None:
     """For loops that catch errors themselves: log with traceback and keep the last error per job."""
-    entry = _JOBS.setdefault(name, {"name": name, "interval": None, "runs": 0, "failures": 0, "last_start": "",
-                                    "last_duration": 0.0, "last_error": "", "last_error_at": ""})
+    entry = _entry(name)
     if not already_counted:
         entry["failures"] += 1
+        entry["last_error_id"] = secrets.token_hex(3).upper()
     entry["last_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
     entry["last_error_at"] = _now_iso()
-    print(f"⚠️ Hintergrundjob {name} fehlgeschlagen: {entry['last_error']}")
+    print(f"⚠️ Hintergrundjob {name} fehlgeschlagen [Fehler-ID {entry.get('last_error_id', '?')}]: {entry['last_error']}")
     if not already_counted:  # job() has reported it already
         import pulse_logging
-        pulse_logging.report_error(f"job.{name}", entry["last_error"])
+        pulse_logging.report_error(f"job.{name}", entry["last_error"], entry["last_error_id"])
         _alert(name, entry["last_error"])
-    traceback.print_exception(type(exc), exc, exc.__traceback__)
+    _print_traceback(entry, exc)
 
 
 def _alert(name: str, error: str) -> None:
@@ -186,4 +227,5 @@ def jitter(seconds: float, spread: float = 0.1) -> float:
 
 
 def snapshot() -> dict:
-    return {"jobs": sorted((dict(v) for v in _JOBS.values()), key=lambda j: j["name"]), "lag": dict(_LAG)}
+    jobs = ({k: v for k, v in j.items() if not k.startswith("_")} for j in _JOBS.values())  # _retry_at/_tb_*: internal
+    return {"jobs": sorted(jobs, key=lambda j: j["name"]), "lag": dict(_LAG)}

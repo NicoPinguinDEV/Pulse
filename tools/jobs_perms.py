@@ -60,7 +60,11 @@ def main() -> int:
                     target = deco.func if isinstance(deco, ast.Call) else deco
                     if isinstance(target, ast.Attribute) and target.attr == "loop" and getattr(target.value, "id", "") == "tasks":
                         args = ", ".join(ast.get_source_segment(text, kw) or "" for kw in getattr(deco, "keywords", []))
-                        loops.append((rel(path), node.lineno, node.name, args or "(Standard)", error_handling(node)))
+                        handling = error_handling(node)
+                        if any("tracked" in (getattr(t, "id", ""), getattr(t, "attr", "")) for t in (d.func if isinstance(d, ast.Call) else d for d in node.decorator_list)):
+                            # Phase 14.6: @tracked records the error and keeps the loop running (backoff for fast loops)
+                            handling = handling.replace("keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt)", "keine eigene") + "; `@tracked`: Fehler erfasst, Schleife läuft weiter"
+                        loops.append((rel(path), node.lineno, node.name, args or "(Standard)", handling))
                 if isinstance(node, ast.AsyncFunctionDef):
                     for inner in ast.walk(node):
                         if isinstance(inner, ast.While) and (
