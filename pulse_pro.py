@@ -63,6 +63,13 @@ EXTRA_PERMS = (
 )
 
 
+def is_recommended_team_lead_role_name(role_name: object) -> bool:
+    """Recognise explicit team-lead titles and the BOCHUM RP abbreviation LPL."""
+    role_words = re.sub(r"[^a-z0-9äöüß]+", " ", str(role_name or "").casefold()).strip()
+    is_lpl = bool(re.search(r"(?<![a-z0-9])lpl(?![a-z0-9])", role_words))
+    return is_lpl or any(word in role_words for word in ("teamleitung", "team leitung", "teamlead", "team lead"))
+
+
 def recent_event_title(event_type: str | None) -> str:
     """Render a readable activity label instead of exposing serialized event payloads."""
     name = str(event_type or "Ereignis").strip()
@@ -952,7 +959,7 @@ def register(app):
         pk_role = bool(re.search(r"(?<![a-z0-9])pk(?![a-z0-9])", name)) or any(
             word in role_words for word in ("personalkommission", "personal kontrolle", "personalkontrolle")
         )
-        team_lead_role = any(word in role_words for word in ("teamleitung", "team leitung", "teamlead", "team lead"))
+        team_lead_role = is_recommended_team_lead_role_name(name)
         support_role = any(word in name for word in ("support", "supporter", "lowteam", "low team", "teamler", "ticket"))
         leadership_role = any(word in name for word in (
             "highteam", "high team", "führungsebene", "fuehrungsebene", "führung",
