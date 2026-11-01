@@ -78,6 +78,91 @@ class RouteSnapshotTests(unittest.TestCase):
         self.assertIs(endpoints.get("POST"), existing_handler)
         self.assertIs(endpoints.get("PUT"), existing_handler)
 
+
+    def test_remove_and_add_replaces_implicit_head_with_get(self):
+        from pulse_pro import remove_and_add
+
+        app = FastAPI()
+
+        async def existing_handler():
+            return {"handler": "existing"}
+
+        async def replacement_handler():
+            return {"handler": "replacement"}
+
+        app.api_route("/head-aware", methods=["GET", "POST", "PUT"])(existing_handler)
+        remove_and_add(app, "/head-aware", {"GET"}, replacement_handler)
+
+        head_routes = [
+            route for route in app.router.routes
+            if getattr(route, "path", None) == "/head-aware"
+            and "HEAD" in (getattr(route, "methods", None) or ())
+        ]
+        self.assertEqual(len(head_routes), 1)
+        self.assertIs(head_routes[0].endpoint, replacement_handler)
+        self.assertIn("POST", head_routes[0].methods if head_routes[0].endpoint is existing_handler else set())
+        preserved = next(
+            route for route in app.router.routes
+            if getattr(route, "path", None) == "/head-aware"
+            and "POST" in (getattr(route, "methods", None) or ())
+        )
+        self.assertIs(preserved.endpoint, existing_handler)
+        self.assertIn("PUT", preserved.methods)
+
+    def test_remaining_remove_and_add_calls_match_reviewed_inventory(self):
+        import pulse_pro
+
+        expected = {
+            ("GET", "/dashboard", "dashboard_v5"),
+            ("GET", "/pulse-inbox", "inbox_v5"),
+            ("POST", "/pulse-inbox/read", "inbox_read_all"),
+            ("GET", "/tasks", "tasks_v5"),
+            ("POST", "/tasks/update", "update_task_v5"),
+            ("GET", "/tickets", "tickets_v5"),
+            ("POST", "/tickets/update", "ticket_update_v5"),
+            ("GET", "/stats", "stats_v5"),
+            ("GET", "/calendar", "calendar_v5"),
+            ("GET", "/search", "search_v5"),
+            ("GET", "/settings", "settings_v5"),
+            ("GET", "/health", "api_health"),
+            ("GET", "/manifest.webmanifest", "manifest"),
+            ("GET", "/sw.js", "service_worker"),
+            ("GET", "/system", "system_v5"),
+            ("GET", "/member/{user_id}", "member_v5"),
+            ("GET", "/achievements", "achievements_v5"),
+            ("GET", "/meetings-history", "meetings_history_v5"),
+            ("GET", "/melonly", "melonly_page"),
+            ("POST", "/backup/restore", "ws.restore_backup"),
+        }
+
+        def expression_name(node):
+            if isinstance(node, ast.Name):
+                return node.id
+            if isinstance(node, ast.Attribute):
+                parent = expression_name(node.value)
+                return f"{parent}.{node.attr}" if parent else None
+            return None
+
+        tree = ast.parse(inspect.getsource(pulse_pro.register))
+        actual = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or expression_name(node.func) != "remove_and_add":
+                continue
+            if len(node.args) < 4 or not isinstance(node.args[1], ast.Constant):
+                self.fail("remove_and_add-Aufruf hat kein statisches Pfadargument")
+            method_node = node.args[2]
+            if not isinstance(method_node, (ast.Set, ast.List, ast.Tuple)):
+                self.fail("remove_and_add-Aufruf hat keine statische Methodenliste")
+            if not all(isinstance(item, ast.Constant) for item in method_node.elts):
+                self.fail("remove_and_add-Aufruf enthält dynamische HTTP-Methoden")
+            methods = [str(item.value).upper() for item in method_node.elts]
+            if len(methods) != 1:
+                self.fail("Jeder verbleibende Aufruf muss genau eine Methode ersetzen")
+            actual.append((methods[0], node.args[1].value, expression_name(node.args[3])))
+
+        self.assertEqual(len(actual), 20)
+        self.assertEqual(set(actual), expected)
+
     def test_remove_and_add_rejects_unsupported_methods_without_mutating_routes(self):
         from pulse_pro import remove_and_add
 
