@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 
 from pulse_channel_rename_utils import rename_wait_seconds
+from pulse_tasks import spawn as spawn_task
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 
 STATS_CATEGORY_ID = _pulse_ids.STATS_CATEGORY_ID
@@ -76,8 +77,8 @@ class ServerStatsVoiceChannels(commands.Cog):
         """Coalesce bursts of join/boost events into one set of channel updates."""
         self._refresh_requested = True
         if self._refresh_task is None or self._refresh_task.done():
-            self._refresh_task = asyncio.create_task(
-                self._refresh_loop(), name="pulse-server-stats-refresh"
+            self._refresh_task = spawn_task(
+                self._refresh_loop(), name="pulse-server-stats-refresh", critical=True
             )
 
     async def _refresh_loop(self) -> None:
@@ -103,8 +104,8 @@ class ServerStatsVoiceChannels(commands.Cog):
             await asyncio.sleep(delay + 1)
             self.schedule_refresh()
 
-        self._deferred_refresh_task = asyncio.create_task(
-            wait_then_refresh(), name="pulse-server-stats-deferred-refresh"
+        self._deferred_refresh_task = spawn_task(
+            wait_then_refresh(), name="pulse-server-stats-deferred-refresh", critical=True
         )
 
     @staticmethod
