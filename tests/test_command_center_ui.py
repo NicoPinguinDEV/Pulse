@@ -39,6 +39,8 @@ class CommandCenterInteractionTests(unittest.TestCase):
         self.assertIn('"pulse-cursor-hover"', js)
         self.assertIn('"pulse-cursor-pressed"', js)
         self.assertIn('"pulse-cursor-text"', js)
+        self.assertIn('function pointerOver(event)', js)
+        self.assertIn('document.addEventListener("pointerover",pointerOver,true)', js)
 
     def test_navigation_menus_and_surfaces_share_the_existing_red_brand(self):
         css = pulse_pro.PULSE_INTERACTION_CSS
