@@ -812,6 +812,7 @@ PULSE_INTERACTION_JS = r"""
     root.classList.add("is-visible");
     setHover(event.target);
   }
+  function pointerOver(event){setHover(event.target);}
   function pointerOut(event){
     if(!event.relatedTarget){
       root.classList.remove("is-visible");
@@ -832,7 +833,7 @@ PULSE_INTERACTION_JS = r"""
     window.removeEventListener("pointermove",move);
     window.removeEventListener("blur",hide);
     document.removeEventListener("pointerout",pointerOut,true);
-    document.removeEventListener("pointerover",setHover,true);
+    document.removeEventListener("pointerover",pointerOver,true);
     document.removeEventListener("pointerdown",pointerDown,true);
     document.removeEventListener("pointerup",pointerUp,true);
     document.removeEventListener("pointercancel",pointerUp,true);
@@ -851,7 +852,7 @@ PULSE_INTERACTION_JS = r"""
   window.addEventListener("pointermove",move,{passive:true});
   window.addEventListener("blur",hide);
   document.addEventListener("pointerout",pointerOut,true);
-  document.addEventListener("pointerover",setHover,true);
+  document.addEventListener("pointerover",pointerOver,true);
   document.addEventListener("pointerdown",pointerDown,true);
   document.addEventListener("pointerup",pointerUp,true);
   document.addEventListener("pointercancel",pointerUp,true);
