@@ -697,8 +697,11 @@ def search_all(q,ctx):
             for r in c.execute(f"SELECT * FROM {table} ORDER BY rowid DESC LIMIT 500").fetchall():
                 d=dict(r)
                 if q in json.dumps(d,ensure_ascii=False).lower():out.append({"type":typ,"title":str(d.get(col,"")),"meta":str(d.get("request_id") or d.get("id") or ""),"url":url})
-    for x in web.load_json(web.LOGS_FILE,[]):
-        if q in json.dumps(x,ensure_ascii=False).lower():out.append({"type":"Roblox/MOD","title":str(x.get("target_user","Spieler")),"meta":str(x.get("roblox_id","N/A")),"url":"/melonly"})
+    if web.can_access_melonly(ctx):
+        for x in web.load_json(web.LOGS_FILE, []):
+            if q in json.dumps(x, ensure_ascii=False).lower():
+                out.append({"type": "Roblox/MOD", "title": str(x.get("target_user", "Spieler")),
+                            "meta": str(x.get("roblox_id", "N/A")), "url": "/melonly"})
     seen=set();res=[]
     for x in out:
         k=(x["type"],x["title"],x.get("meta"))
