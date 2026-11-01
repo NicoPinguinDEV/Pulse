@@ -6,6 +6,7 @@ import discord
 from pulse_command_errors import PulseCommandTree
 from pulse_interactions import DEFAULT_ALLOWED_MENTIONS
 import pulse_logging
+from pulse_tasks import spawn as spawn_task
 from discord.ext import commands
 from dotenv import load_dotenv
 import uvicorn
@@ -95,7 +96,7 @@ class CustomBot(commands.Bot):
             if self._pulse_sigterm_close is not None:
                 return
             print("🛑 SIGTERM empfangen – Pulse wird sauber beendet.")
-            self._pulse_sigterm_close = loop.create_task(self.close(), name="pulse-sigterm-close")
+            self._pulse_sigterm_close = spawn_task(self.close(), name="pulse-sigterm-close", loop=loop, critical=True)
         try:
             loop.add_signal_handler(signal.SIGTERM, on_sigterm)
         except (NotImplementedError, RuntimeError, ValueError, AttributeError):
@@ -167,7 +168,7 @@ class CustomBot(commands.Bot):
         server = uvicorn.Server(config)
         pulse_logging.quiet_healthcheck_access_log()  # Docker's 30-s probe flooded the live log
         self._pulse_web_server = server
-        self._pulse_web_server_task = asyncio.create_task(server.serve(), name="pulse-webserver")
+        self._pulse_web_server_task = spawn_task(server.serve(), name="pulse-webserver", critical=True)
         print(f"🌐 Webserver gestartet auf Port {port}")
         return self._pulse_web_server_task
 
