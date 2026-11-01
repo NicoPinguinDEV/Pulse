@@ -3338,7 +3338,10 @@ def _roblox_http_client() -> httpx.AsyncClient:
 
 @app.get("/api/roblox-user")
 async def roblox_user_lookup(request: Request, username: str, user_session: str = Cookie(None)):
-    user = get_current_user(user_session)
+    ctx = auth(request, user_session)
+    if not can_access_melonly(ctx):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Melonly.")
+    user = ctx.user
     client_key = f"roblox-lookup:{user.get('id')}:{request.client.host if request.client else 'unknown'}"
     if rate_limited(client_key, limit=60, window=60):
         return JSONResponse({"success": False, "message": "Zu viele Roblox-Abfragen. Bitte kurz warten."}, status_code=429)
@@ -3400,7 +3403,10 @@ async def roblox_user_lookup(request: Request, username: str, user_session: str 
 # =============================================================
 @app.get("/api/roblox-search")
 async def roblox_search(request: Request, query: str, user_session: str = Cookie(None)):
-    user = get_current_user(user_session)
+    ctx = auth(request, user_session)
+    if not can_access_melonly(ctx):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Melonly.")
+    user = ctx.user
     client_key = f"roblox-search:{user.get('id')}:{request.client.host if request.client else 'unknown'}"
     if rate_limited(client_key, limit=120, window=60):
         return JSONResponse({"success": False, "users": [], "message": "Zu viele Roblox-Suchanfragen. Bitte kurz warten."}, status_code=429)
@@ -5094,6 +5100,22 @@ async def delete_log(
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Log Gelöscht",
               f"{entry.get('target_user')} ({entry.get('type')}) – ID {log_id}")
     return back(return_to, "Melonly-Eintrag gelöscht.")
+
+
+def can_access_melonly(ctx) -> bool:
+    """Return whether the member may read the Melonly player records.
+
+    Keep this read gate aligned with the permission set used by the Melonly page.
+    Per-action write permissions remain enforced separately by can_manage_melonly_entry.
+    """
+    perms = getattr(ctx, "perms", {}) or {}
+    return bool(
+        perms.get("is_admin")
+        or any(perms.get(key) for key in (
+            "can_warn", "can_moderate_kicks", "can_moderate_bans",
+            "can_moderate_bolo", "can_add_notes",
+        ))
+    )
 
 
 def can_manage_melonly_entry(ctx, entry: dict, target_type: str | None = None) -> bool:
