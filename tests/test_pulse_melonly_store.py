@@ -94,6 +94,37 @@ class MelonlyStoreTests(unittest.TestCase):
         self.assertEqual(seqs, list(range(1, 21)))
 
 
+    def test_player_history_matches_numeric_id_then_name_fallback(self):
+        entries = [
+            {"target_user": "Alpha", "roblox_id": "100", "type": "Warn"},
+            {"target_user": "Beta", "roblox_id": "200", "type": "Ban"},
+            {"target_user": "AlphaAlt", "roblox_id": "100", "type": "Kick"},
+            {"target_user": "Alpha", "roblox_id": "300", "type": "Note"},
+        ]
+        self.store.import_entries(entries)
+        self.assertEqual(self.store.player_history("100"), [entries[0], entries[2], entries[3]])
+        self.assertEqual(self.store.player_history("@Alpha"), [entries[0], entries[2], entries[3]])
+        self.assertEqual(self.store.player_history("lph"), [entries[0], entries[2], entries[3]])
+        self.assertEqual(self.store.player_history("missing"), [])
+
+    def test_roblox_suggestions_are_newest_first_and_capped(self):
+        entries = [{"id": str(i)} for i in range(8)]
+        self.store.import_entries(entries)
+        self.assertEqual(self.store.roblox_suggestions(3), list(reversed(entries[-3:])))
+        self.assertEqual(self.store.roblox_suggestions(0), [])
+        self.assertEqual(len(self.store.roblox_suggestions(9000)), 8)
+
+    def test_search_payload_uses_case_insensitive_serialized_substring(self):
+        entries = [
+            {"target_user": "Alpha", "reason": "Appeal reviewed"},
+            {"target_user": "Beta", "reason": "No action"},
+            {"extra": {"reference": "Appeal-Case-42"}},
+        ]
+        self.store.import_entries(entries)
+        self.assertEqual(self.store.search_payload("APPEAL"), [entries[0], entries[2]])
+        self.assertEqual(self.store.search_payload("  "), [])
+
+
 def sqlite3_connect(path):
     import sqlite3
     return sqlite3.connect(path)
