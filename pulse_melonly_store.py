@@ -139,6 +139,21 @@ class MelonlyStore:
         )
         return int(seq)
 
+    @staticmethod
+    def initialize_in_transaction(con: sqlite3.Connection) -> None:
+        """Create the repository schema inside a caller-owned transaction."""
+        for statement in _SCHEMA.split(";"):
+            statement = statement.strip()
+            if statement:
+                con.execute(statement)
+        for key, value in _META_DEFAULTS.items():
+            if key == "generation":
+                value = uuid.uuid4().hex
+            con.execute(
+                "INSERT OR IGNORE INTO melonly_logs_meta(key,value) VALUES (?,?)",
+                (key, value),
+            )
+
     def initialize(self) -> None:
         """Create the additive schema. Safe to call repeatedly."""
         con = self._connect()
