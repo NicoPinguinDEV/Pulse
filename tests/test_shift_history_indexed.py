@@ -201,6 +201,7 @@ class IndexedReadTests(ShiftHistoryBase):
             date_to=(this_end + timedelta(days=1)).isoformat(), limit=10
         )
         self.assertEqual(missing_id_sqlite, missing_id_json)
+        self.assertEqual(store.total_credited_seconds(ws, mod_id="None"), 21)
 
     def test_expired_active_shift_updates_the_latest_recorded_date(self):
         now = ws.now_de()

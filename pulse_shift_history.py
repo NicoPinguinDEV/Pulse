@@ -845,7 +845,10 @@ def weekly_totals(ws, mod_ids=None) -> dict:
                 "AND pulse_valid_iso_day(shift_date)=1" + member_sql + " GROUP BY mod_id",
                 [start_text, *member_params],
             ).fetchall()
-            totals = {str(uid): int(seconds or 0) for uid, seconds in canonical}
+            totals = {}
+            for uid, seconds in canonical:
+                key = str(uid)
+                totals[key] = totals.get(key, 0) + int(seconds or 0)
             legacy = con.execute(
                 "SELECT payload FROM shift_history WHERE "
                 "(shift_date IS NULL OR shift_date NOT GLOB '????-??-??')" + member_sql + " ORDER BY seq",
@@ -914,7 +917,10 @@ def range_totals(ws, mod_ids, date_from: str, date_to: str) -> dict:
                 "GROUP BY mod_id",
                 [*selected, date_from, date_to],
             ).fetchall()
-            totals = {str(uid): int(seconds or 0) for uid, seconds in canonical}
+            totals = {}
+            for uid, seconds in canonical:
+                key = str(uid)
+                totals[key] = totals.get(key, 0) + int(seconds or 0)
             legacy = con.execute(
                 "SELECT payload FROM shift_history "
                 f"WHERE {member_clause} AND "
@@ -963,7 +969,14 @@ def latest_shift_dates(ws, mod_ids) -> dict:
                 "AND pulse_valid_iso_day(shift_date)=1 GROUP BY mod_id",
                 selected,
             ).fetchall()
-            latest = {str(uid): date.fromisoformat(day) for uid, day in canonical if day is not None}
+            latest = {}
+            for uid, day in canonical:
+                if day is None:
+                    continue
+                key = str(uid)
+                parsed_day = date.fromisoformat(day)
+                if key not in latest or parsed_day > latest[key]:
+                    latest[key] = parsed_day
             legacy = con.execute(
                 "SELECT mod_id, payload FROM shift_history "
                 f"WHERE {member_clause} AND "
@@ -1018,6 +1031,12 @@ def total_credited_seconds(ws, mod_id=None) -> int:
             if uid is None:
                 row = con.execute(
                     "SELECT COALESCE(SUM(pulse_credited_seconds(payload)), 0) FROM shift_history"
+                ).fetchone()
+            elif uid == "None":
+                row = con.execute(
+                    "SELECT COALESCE(SUM(pulse_credited_seconds(payload)), 0) "
+                    "FROM shift_history WHERE mod_id=? OR mod_id IS NULL",
+                    (uid,),
                 ).fetchone()
             else:
                 row = con.execute(
