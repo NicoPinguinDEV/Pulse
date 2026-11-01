@@ -163,6 +163,7 @@ def migrate_json_to_sqlite(
                     (key, value),
                 )
 
+        was_applied = MIGRATION_NAME in _applied_migrations(database)
         report = pulse_migrations.run(
             str(database), str(backups), [(MIGRATION_NAME, apply_migration)]
         )
@@ -193,7 +194,7 @@ def migrate_json_to_sqlite(
             raise MelonlyMigrationError("Die Migration darf das aktive Backend nicht umschalten.")
 
         return {
-            "status": "already_migrated" if MIGRATION_NAME in _applied_migrations(database) else "migrated",
+            "status": "already_migrated" if was_applied else "migrated",
             "count": existing_count,
             "source_sha256": source_hash,
             "json_backup": str(json_backup),
@@ -230,6 +231,10 @@ def export_sqlite_to_json(
             raise MelonlyMigrationError("SQLite enthält Einträge außerhalb des unterstützten JSON-Objektformats.")
 
         destination.parent.mkdir(parents=True, exist_ok=True)
+        destination_backup = ""
+        if destination.is_file():
+            saved = _backup_json(destination, destination.parent, destination.read_bytes())
+            destination_backup = str(saved)
         fd, temp_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
         temp = Path(temp_name)
         try:
@@ -255,4 +260,5 @@ def export_sqlite_to_json(
             "generation": metadata.get("generation", ""),
             "sha256": _sha256_file(destination),
             "path": str(destination),
+            "previous_json_backup": destination_backup,
         }
