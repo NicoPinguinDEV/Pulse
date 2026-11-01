@@ -342,20 +342,21 @@ def main() -> None:
     # A-09: value lives in pulse_ids.py, the module takes it from there
     assert "TEAM_KICK_KEEP_ROLE_IDS = (1531303733311307997, 1489912887949394082)" in read("pulse_ids.py")
     assert "TEAM_KICK_KEEP_ROLE_IDS = _pulse_ids.TEAM_KICK_KEEP_ROLE_IDS" in web
-    kick_start = web.index('            if action == "kick":')
+    kick_start = web.index('            if action == "team_kick":')
     kick_end = web.index('            if action == "promote":', kick_start)
     kick_block = web[kick_start:kick_end]
-    assert "roles_to_remove = [" in kick_block
-    assert "blocked_roles = [" in kick_block
-    assert "role.managed or role.position >= guild.me.top_role.position" in kick_block
-    assert "await member.edit(" in kick_block
-    assert "roles=keep_roles" in kick_block
+    assert 'action = normalize_dashboard_action(action)' in web
+    assert 'return "team_kick" if action == "kick" else action' in web
+    assert "await apply_team_kick_role_reset(" in kick_block
     assert "Verbleibende Rollen" in kick_block
-    assert "TEAM_KICK_KEEP_ROLE_IDS" in kick_block
+    assert "TEAM_KICK_KEEP_ROLE_IDS" in web
     assert "async def apply_team_kick_role_reset(" in web
     assert "await member.edit(roles=keep_roles" in web
     assert "team_kick_permanent" in web
     assert 'await member.kick(' not in web
+    assert 'name="action" value="team_kick"' in read("pulse_pro.py")
+    assert "🚪 Aus dem Team entfernen" in read("pulse_pro.py")
+    assert "Dieses Mitglied wirklich vom Discord-Server kicken" not in read("pulse_pro.py")
     ultimate = read("pulse_ultimate.py")
     assert "RAM_TREND_GROWTH_MB_PER_HOUR = 20.0" in ultimate
     assert "Verbrauch wieder im Normalbereich" in ultimate
@@ -440,9 +441,11 @@ def main() -> None:
     assert "⚙ Team-Aktionen" in pro
     assert 'value="promote"' in pro
     assert 'value="demote"' in pro
-    assert 'name="action" value="kick"' in pro
+    assert 'name="action" value="team_kick"' in pro
     assert "Pflicht: Grund für Beförderung / Degradierung" in pro
-    assert "Pflicht: Grund für den Kick" in pro
+    assert "Pflicht: Grund für die Team-Entfernung" in pro
+    assert "🚪 Aus dem Team entfernen" in pro
+    assert "vom Discord-Server kicken" not in pro
     assert "ws.team_since_for(target, entry)" in pro
     assert 'placeholder="Pflicht: Rücknahmegrund"' in pro
 
@@ -700,8 +703,8 @@ def main() -> None:
     assert "def team_since_for(member, entry=None, apps=None)" in web  # Phase 10: applications.json once per list
     assert 'href="/team/{member.id}/roles"' in web
     assert 'name="action_reason"' in web
-    assert 'action == "kick"' in web
-    assert "not guild.me.guild_permissions.manage_roles" in web
+    assert 'action == "team_kick"' in web
+    assert "not bot_member.guild_permissions.manage_roles" in web
     assert "role.position >= bot_member.top_role.position" in web
     assert "def ordered_team_role_ids(guild, team_role_ids) -> list[int]:" in web
     assert "return sorted(role_ids, key=sort_key)" in web

@@ -2487,7 +2487,7 @@ def register(app):
                 actions_html = f'''
         <section class="pulse-card mb-4">
           <div class="pulse-card-h">
-            <div><div class="pulse-section-title">⚙ Team-Aktionen</div><div class="pulse-section-sub">Beförderung, Degradierung, Rollenverwaltung und Server-Kick.</div></div>
+            <div><div class="pulse-section-title">⚙ Team-Aktionen</div><div class="pulse-section-sub">Beförderung, Degradierung, Rollenverwaltung und Team-Entfernung.</div></div>
             <span class="pulse-pill good">Führung</span>
           </div>
           <div class="pulse-card-b space-y-4">
@@ -2504,12 +2504,12 @@ def register(app):
             </div>
             <div class="flex flex-wrap gap-2">
               <a href="/team/{target.id}/roles" class="pulse-btn primary">⚙️ Rollen ändern</a>
-              <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Dieses Mitglied wirklich vom Discord-Server kicken?')">
-                <input type="hidden" name="action" value="kick">
+              <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Möchtest du dieses Mitglied wirklich aus dem BOCHUM-RP-Team entfernen?\n\nEs werden die Teamrollen und übrigen entfernbaren Rollen entfernt. Die Bürgerrolle und Ex-Teamler-Rolle bleiben erhalten.\n\nDas Mitglied bleibt weiterhin auf dem Discord-Server.')">
+                <input type="hidden" name="action" value="team_kick">
                 <input type="hidden" name="user_id" value="{target.id}">
                 <input type="hidden" name="redirect_to_member" value="0">
-                <input type="text" name="action_reason" maxlength="500" required class="pulse-input min-w-[260px]" placeholder="Pflicht: Grund für den Kick">
-                <button class="pulse-btn bad">🚪 Kicken</button>
+                <input type="text" name="action_reason" maxlength="500" required class="pulse-input min-w-[260px]" placeholder="Pflicht: Grund für die Team-Entfernung">
+                <button class="pulse-btn bad">🚪 Aus dem Team entfernen</button>
               </form>
             </div>
           </div>

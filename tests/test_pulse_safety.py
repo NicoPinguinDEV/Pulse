@@ -47,6 +47,8 @@ class TeamActionTests(unittest.TestCase):
     def test_server_kick_and_team_exit_are_not_interchangeable(self):
         self.assertEqual(approved_action_operation("server-exit"), "kick_member")
         self.assertEqual(approved_action_operation("team-exit"), "remove_team_roles")
+        self.assertIsNone(approved_action_operation("kick"))
+        self.assertIsNone(approved_action_operation("team_kick"))
         self.assertIsNone(approved_action_operation("unknown"))
 
 

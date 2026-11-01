@@ -264,6 +264,54 @@ class RoleEscalationTests(TempDb):
         self.assertIn("befördert", self._msg(r))
         self.assertEqual(self.support.added_roles, [MOD])
 
+    def _assert_dashboard_team_kick_is_role_only(self, submitted_action):
+        citizen = Role(1531303733311307997, "Bürger", 1)
+        ex_team = Role(1489912887949394082, "Ex-Teamler", 2)
+        extra = Role(23, "Ankündigungen", 3)
+        self.guild.roles.extend([citizen, ex_team, extra])
+        self.support.roles = [SUPPORT, citizen, ex_team, extra]
+        self.support.kick = AsyncMock()
+
+        async def edit_roles(*, roles, reason):
+            self.support.roles = list(roles)
+
+        self.support.edit = AsyncMock(side_effect=edit_roles)
+        action_route = next(
+            route for route in ws.app.routes
+            if getattr(route, "path", None) == "/action" and "POST" in (getattr(route, "methods", set()) or set())
+        )
+        self.assertIs(action_route.endpoint, ws.handle_action)
+
+        with patch.object(ws, "apply_team_kick_role_reset", wraps=ws.apply_team_kick_role_reset) as role_reset, \
+             patch.object(ws, "send_dm_notification", new_callable=AsyncMock) as dm, \
+             patch.object(ws, "send_team_update_embed", new_callable=AsyncMock) as team_update, \
+             patch.object(ws, "log_audit") as audit:
+            response = self.client.post(
+                "/action",
+                data={"action": submitted_action, "user_id": self.support.id,
+                      "action_reason": "P0-Regressionstest", "redirect_to_member": "0"},
+                follow_redirects=False,
+            )
+
+        self.assertIn(response.status_code, (302, 303))
+        role_reset.assert_awaited_once()
+        self.assertEqual(
+            {role.id for role in self.support.roles},
+            {citizen.id, ex_team.id},
+        )
+        self.assertIs(self.guild.get_member(self.support.id), self.support)
+        self.support.kick.assert_not_awaited()
+        dm.assert_awaited_once()
+        team_update.assert_awaited_once()
+        audit.assert_called_once()
+
+    def test_dashboard_legacy_kick_form_is_only_a_team_kick(self):
+        # Old cached/client forms remain safe: action=kick is normalized to team_kick.
+        self._assert_dashboard_team_kick_is_role_only("kick")
+
+    def test_dashboard_canonical_team_kick_uses_the_active_action_route(self):
+        self._assert_dashboard_team_kick_is_role_only("team_kick")
+
     # SEC-08 ------------------------------------------------------------------------------------------
     def test_role_manager_refuses_roles_with_server_rights(self):
         for role in (ADMINROLE, HELPER_MOD):
@@ -423,11 +471,12 @@ class SecondApprovalTests(TempDb):
         self.dbp = patch.object(pulse_suite, "DB_PATH", str(Path(self.tmp.name) / "suite.db"))
         self.dbp.start()
         pulse_suite.init_db()
+        self.creator = member(1, "Ersteller", LEAD)
         self.approver = member(2, "Freigeber", LEAD)
         self.approver.guild_permissions = discord.Permissions()  # no kick_members
         self.target = member(3, "Ziel", SUPPORT)
         self.target.kick = AsyncMock()
-        self.guild = FakeGuild(members=[self.approver, self.target], roles=[SUPPORT, LEAD])
+        self.guild = FakeGuild(members=[self.creator, self.approver, self.target], roles=[SUPPORT, LEAD])
         self.guild.me.top_role = Role(99, "Pulse", 50)
         self.guild.me.guild_permissions = discord.Permissions(kick_members=True, manage_roles=True)
         self.sent = []
@@ -470,6 +519,31 @@ class SecondApprovalTests(TempDb):
         self.target.kick.assert_not_awaited()
         self.assertIn("Emergency Lock", self.sent[-1])
 
+
+    def test_server_kick_is_executed_only_after_distinct_leader_approval(self):
+        self.approver.guild_permissions = discord.Permissions(kick_members=True)
+        self.assertNotEqual(self.creator.id, self.approver.id)
+        self.assertEqual(self._approve(), "approved")
+        self.target.kick.assert_awaited_once()
+
+    def test_request_creator_cannot_approve_their_own_server_kick(self):
+        self.interaction.user = self.creator
+        self.assertEqual(self._approve(), "awaiting_second")
+        self.target.kick.assert_not_awaited()
+        self.assertIn("Ersteller", self.sent[-1])
+
+    def test_team_exit_approval_never_calls_server_kick(self):
+        from cogs import pulse_suite
+        self.aid = pulse_suite.action_record(
+            "team-exit", {"target_id": self.target.id, "reason": "Team-Offboarding"}, self.creator
+        )
+        with patch.object(
+            ws, "apply_team_kick_role_reset", new_callable=AsyncMock,
+            return_value={"ok": True, "changed": True, "keep_roles": []},
+        ) as role_reset:
+            self.assertEqual(self._approve(), "approved")
+        role_reset.assert_awaited_once()
+        self.target.kick.assert_not_awaited()
 
 # ---------------------------------------------------------------------------------------------------------
 # SEC-14 – SSRF guard of the social feeds: only globally routable targets, also inside IPv6 wrappers.
