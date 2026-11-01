@@ -2,6 +2,7 @@
 import ast
 import asyncio
 import inspect
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -44,6 +45,14 @@ class LegacyJobInventoryTests(unittest.TestCase):
 class HousekeepingErrorReportingTests(unittest.TestCase):
     def setUp(self):
         pulse_jobs._JOBS.clear()
+        self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        import pulse_db
+        self._db_path = patch.object(pulse_db, "DB_PATH", str(Path(self._tmp.name) / "pulse.db"))
+        self._db_path.start()
+
+    def tearDown(self):
+        self._db_path.stop()
+        self._tmp.cleanup()
 
     def test_caught_subtask_failure_is_visible_and_loop_continues(self):
         import webserver as ws
