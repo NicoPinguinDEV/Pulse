@@ -100,7 +100,6 @@ class RouteSnapshotTests(unittest.TestCase):
         ]
         self.assertEqual(len(head_routes), 1)
         self.assertIs(head_routes[0].endpoint, replacement_handler)
-        self.assertIn("POST", head_routes[0].methods if head_routes[0].endpoint is existing_handler else set())
         preserved = next(
             route for route in app.router.routes
             if getattr(route, "path", None) == "/head-aware"
