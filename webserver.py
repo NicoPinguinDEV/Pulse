@@ -1403,6 +1403,20 @@ def load_shifts() -> dict:
     return db
 
 
+def load_member_shifts(mod_id) -> dict:
+    """Optimized personal view; SQLite reads only this member's history, JSON retains the old fallback."""
+    import sys
+    import pulse_shift_history
+    return pulse_shift_history.load_member_view(sys.modules[__name__], str(mod_id))
+
+
+def load_shift_state() -> dict:
+    """Optimized active-shift state; SQLite does not materialize the history list."""
+    import sys
+    import pulse_shift_history
+    return pulse_shift_history.load_shift_state(sys.modules[__name__])
+
+
 async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
     """Schließt Schichten nach 24h, vergibt genau eine Team-Warn und protokolliert sie."""
     report = {"checked": 0, "closed": 0, "warned": 0, "failed": 0, "max_warns": 0}
@@ -1640,6 +1654,40 @@ def calculate_weekly_seconds(mod_id, history, active_shifts=None) -> int:
 
 def calculate_weekly_hours(mod_id_str, shifts_history):  # Kompatibilität zum alten Code
     return f"{calculate_weekly_seconds(mod_id_str, shifts_history) / 3600:.1f}h"
+
+def shift_weekly_totals(mod_ids=None) -> dict:
+    """Historical current-week totals; indexed SQL aggregation in SQLite, old calculation in JSON mode."""
+    import sys
+    import pulse_shift_history
+    return pulse_shift_history.weekly_totals(sys.modules[__name__], mod_ids=mod_ids)
+
+
+def shift_total_credited_seconds() -> int:
+    """All-time credited seconds without materializing the SQLite history."""
+    import sys
+    import pulse_shift_history
+    return pulse_shift_history.total_credited_seconds(sys.modules[__name__])
+
+
+def calculate_weekly_seconds_from_totals(mod_id, totals: dict, active_shifts=None) -> int:
+    """Apply the existing active-shift rule to already aggregated historical totals."""
+    start, total = week_start(), totals.get(str(mod_id), 0)
+    active = (active_shifts or {}).get(str(mod_id))
+    if active:
+        try:
+            if datetime.strptime(active.get("date"), "%Y-%m-%d") >= start:
+                total += shift_elapsed(active)
+        except Exception:
+            pass
+    return total
+
+
+def calculate_weekly_seconds_for_member(mod_id, active_shifts=None) -> int:
+    """Store-backed equivalent of calculate_weekly_seconds() for one member."""
+    active = active_shifts if active_shifts is not None else load_shift_state().get("active_shifts", {})
+    totals = shift_weekly_totals([str(mod_id)])
+    return calculate_weekly_seconds_from_totals(mod_id, totals, active)
+
 
 # =============================================================
 # DISCORD-HELFER
