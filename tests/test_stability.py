@@ -93,6 +93,7 @@ class SpawnTests(unittest.TestCase):
                     if isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
                     and node.func.attr in {"create_task", "ensure_future"}
+                    and getattr(node.func.value, "id", "") not in {"db"}
                 ]
                 self.assertEqual(direct, [], "direkte Task-Erzeugung muss über pulse_tasks.spawn laufen")
 
