@@ -224,6 +224,61 @@ class FullBackupTests(unittest.TestCase):
                 pulse_backup.create_full_backup(self.base, self.backups)
         self.assertEqual(sorted(p.name for p in self.backups.iterdir()), [])
 
+    def test_duplicate_zip_members_are_rejected(self):
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        duplicated = self.backups / "pulse_full_20261001_000001.zip"
+        with zipfile.ZipFile(path) as src, zipfile.ZipFile(duplicated, "w") as dst:
+            for item in src.infolist():
+                data = src.read(item.filename)
+                dst.writestr(item, data)
+                if item.filename == "json/team_data.json":
+                    dst.writestr(item.filename, data)
+        problems = pulse_backup.verify_full_backup(duplicated)
+        self.assertTrue(any("Doppelte ZIP-Einträge" in problem for problem in problems), problems)
+        with self.assertRaises(ValueError):
+            pulse_backup.restore_full_backup(duplicated, self.base, self.backups)
+
+    def test_unlisted_and_unknown_restore_entries_are_rejected(self):
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        unlisted = self.backups / "pulse_full_20261001_000002.zip"
+        with zipfile.ZipFile(path) as src, zipfile.ZipFile(unlisted, "w") as dst:
+            for item in src.infolist():
+                dst.writestr(item, src.read(item.filename))
+            dst.writestr("files/unexpected/private.bin", b"private")
+        self.assertTrue(any("Nicht im Manifest deklarierte" in problem for problem in pulse_backup.verify_full_backup(unlisted)))
+
+        unknown = self._rewrite(path, {"files/secret/x.txt": b"ohne Ziel"})
+        self.assertTrue(any("Kein unterstütztes Wiederherstellungsziel" in problem for problem in pulse_backup.verify_full_backup(unknown)))
+
+    def test_manifest_size_and_sha256_metadata_must_match_archive(self):
+        path, _ = pulse_backup.create_full_backup(self.base, self.backups)
+        with zipfile.ZipFile(path) as src:
+            manifest = json.loads(src.read("manifest.json"))
+            payloads = {name: src.read(name) for name in src.namelist() if name != "manifest.json"}
+        manifest["files"][0]["size"] += 1
+        bad_size = self.backups / "pulse_full_20261001_000003.zip"
+        with zipfile.ZipFile(bad_size, "w") as dst:
+            for name, data in payloads.items():
+                dst.writestr(name, data)
+            dst.writestr("manifest.json", json.dumps(manifest))
+        self.assertTrue(any("Dateigröße weicht" in problem for problem in pulse_backup.verify_full_backup(bad_size)))
+
+        manifest["files"][0]["size"] -= 1
+        manifest["files"][0]["sha256"] = "not-a-hash"
+        bad_hash = self.backups / "pulse_full_20261001_000004.zip"
+        with zipfile.ZipFile(bad_hash, "w") as dst:
+            for name, data in payloads.items():
+                dst.writestr(name, data)
+            dst.writestr("manifest.json", json.dumps(manifest))
+        self.assertTrue(any("Ungültige SHA-256" in problem for problem in pulse_backup.verify_full_backup(bad_hash)))
+
+    def test_manifest_must_be_a_supported_object_with_a_file_list(self):
+        self.backups.mkdir(parents=True, exist_ok=True)
+        malformed = self.backups / "pulse_full_20261001_000005.zip"
+        with zipfile.ZipFile(malformed, "w") as dst:
+            dst.writestr("manifest.json", json.dumps(["not", "an", "object"]))
+        self.assertTrue(pulse_backup.verify_full_backup(malformed))
+
     def test_preview_of_damaged_backup_reports_problems_instead_of_crashing(self):
         """Phase 8: the dry run must show *why* a backup is unusable (restore stays locked) – a damaged database
         with a matching checksum or an entry missing from the archive used to raise DatabaseError/KeyError (HTTP 500)."""
