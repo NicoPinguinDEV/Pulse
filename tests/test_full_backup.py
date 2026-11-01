@@ -273,6 +273,7 @@ class FullBackupTests(unittest.TestCase):
         self.assertTrue(any("Ungültige SHA-256" in problem for problem in pulse_backup.verify_full_backup(bad_hash)))
 
     def test_manifest_must_be_a_supported_object_with_a_file_list(self):
+        self.backups.mkdir(parents=True, exist_ok=True)
         malformed = self.backups / "pulse_full_20261001_000005.zip"
         with zipfile.ZipFile(malformed, "w") as dst:
             dst.writestr("manifest.json", json.dumps(["not", "an", "object"]))
