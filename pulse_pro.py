@@ -64,9 +64,13 @@ EXTRA_PERMS = (
 
 
 def is_recommended_team_lead_role_name(role_name: object) -> bool:
-    """Recognise explicit team-lead titles and the BOCHUM RP abbreviation LPL."""
+    """Recognise team-lead roles, including BOCHUM RP's Leitende Projektleitung (LPL/L.PL)."""
     role_words = re.sub(r"[^a-z0-9äöüß]+", " ", str(role_name or "").casefold()).strip()
-    is_lpl = bool(re.search(r"(?<![a-z0-9])lpl(?![a-z0-9])", role_words))
+    is_lpl = (
+        bool(re.search(r"(?<![a-z0-9])lpl(?![a-z0-9])", role_words))
+        or bool(re.search(r"(?<![a-z0-9])l\s*pl(?![a-z0-9])", role_words))
+        or "leitende projektleitung" in role_words
+    )
     return is_lpl or any(word in role_words for word in ("teamleitung", "team leitung", "teamlead", "team lead"))
 
 
