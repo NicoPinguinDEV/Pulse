@@ -63,10 +63,20 @@ def _unique_backup_path(directory: Path, prefix: str, suffix: str) -> Path:
 def _backup_json(source: Path, backup_dir: Path, source_bytes: bytes) -> Path:
     backup_dir.mkdir(parents=True, exist_ok=True)
     target = _unique_backup_path(backup_dir, "logs_pre_sqlite_", ".json")
-    shutil.copy2(source, target)
-    if target.read_bytes() != source_bytes or _sha256_file(target) != _sha256_bytes(source_bytes):
-        target.unlink(missing_ok=True)
-        raise MelonlyMigrationError("Sicherheitskopie von logs.json konnte nicht verifiziert werden.")
+    fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=backup_dir)
+    temp = Path(temp_name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(source_bytes)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temp, 0o600)
+        os.replace(temp, target)
+        if target.read_bytes() != source_bytes or _sha256_file(target) != _sha256_bytes(source_bytes):
+            target.unlink(missing_ok=True)
+            raise MelonlyMigrationError("Sicherheitskopie von logs.json konnte nicht verifiziert werden.")
+    finally:
+        temp.unlink(missing_ok=True)
     return target
 
 
