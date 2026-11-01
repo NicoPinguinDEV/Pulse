@@ -75,11 +75,15 @@ class PermissionModelTests(unittest.TestCase):
 
     def test_lpl_is_recognised_as_a_team_lead_role_for_recommended_permissions(self):
         import pulse_pro
-        for role_name in ("LPL", "LPL · Leitung Personal", "Stellv. LPL"):
+        for role_name in (
+            "LPL", "LPL · Leitung Personal", "Stellv. LPL",
+            "Leitende Projektleitung", "Leitende Projektleitung (L.PL)", "L.PL",
+        ):
             with self.subTest(role_name=role_name):
                 self.assertTrue(pulse_pro.is_recommended_team_lead_role_name(role_name))
-        self.assertFalse(pulse_pro.is_recommended_team_lead_role_name("LowTeam"))
-        self.assertFalse(pulse_pro.is_recommended_team_lead_role_name("XLPL"))
+        for role_name in ("LowTeam", "XLPL", "Projektleitung", "L.PK"):
+            with self.subTest(role_name=role_name):
+                self.assertFalse(pulse_pro.is_recommended_team_lead_role_name(role_name))
 
     def test_webserver_uses_the_model_without_runtime_patch(self):
         m = member(OTHER)
