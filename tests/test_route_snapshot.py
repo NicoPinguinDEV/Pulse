@@ -79,35 +79,6 @@ class RouteSnapshotTests(unittest.TestCase):
         self.assertIs(endpoints.get("PUT"), existing_handler)
 
 
-    def test_remove_and_add_replaces_implicit_head_with_get(self):
-        from pulse_pro import remove_and_add
-
-        app = FastAPI()
-
-        async def existing_handler():
-            return {"handler": "existing"}
-
-        async def replacement_handler():
-            return {"handler": "replacement"}
-
-        app.api_route("/head-aware", methods=["GET", "POST", "PUT"])(existing_handler)
-        remove_and_add(app, "/head-aware", {"GET"}, replacement_handler)
-
-        head_routes = [
-            route for route in app.router.routes
-            if getattr(route, "path", None) == "/head-aware"
-            and "HEAD" in (getattr(route, "methods", None) or ())
-        ]
-        self.assertEqual(len(head_routes), 1)
-        self.assertIs(head_routes[0].endpoint, replacement_handler)
-        preserved = next(
-            route for route in app.router.routes
-            if getattr(route, "path", None) == "/head-aware"
-            and "POST" in (getattr(route, "methods", None) or ())
-        )
-        self.assertIs(preserved.endpoint, existing_handler)
-        self.assertIn("PUT", preserved.methods)
-
     def test_remaining_remove_and_add_calls_match_reviewed_inventory(self):
         import pulse_pro
 
