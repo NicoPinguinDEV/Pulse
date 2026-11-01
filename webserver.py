@@ -1404,17 +1404,25 @@ def load_shifts() -> dict:
 
 
 def load_member_shifts(mod_id) -> dict:
-    """Optimized personal view; SQLite reads only this member's history, JSON retains the old fallback."""
+    """Optimized personal view; preserve load_json's blocked-file fallback on read errors."""
     import sys
     import pulse_shift_history
-    return pulse_shift_history.load_member_view(sys.modules[__name__], str(mod_id))
+    try:
+        return pulse_shift_history.load_member_view(sys.modules[__name__], str(mod_id))
+    except Exception as exc:
+        _mark_corrupt(SHIFTS_FILE, exc)
+        return {"active_shifts": {}, "history": []}
 
 
 def load_shift_state() -> dict:
-    """Optimized active-shift state; SQLite does not materialize the history list."""
+    """Optimized active-shift state; preserve load_json's blocked-file fallback on read errors."""
     import sys
     import pulse_shift_history
-    return pulse_shift_history.load_shift_state(sys.modules[__name__])
+    try:
+        return pulse_shift_history.load_shift_state(sys.modules[__name__])
+    except Exception as exc:
+        _mark_corrupt(SHIFTS_FILE, exc)
+        return {"active_shifts": {}, "history": []}
 
 
 async def process_overdue_shifts(guild, config: dict | None = None) -> dict:
@@ -1656,17 +1664,25 @@ def calculate_weekly_hours(mod_id_str, shifts_history):  # Kompatibilität zum a
     return f"{calculate_weekly_seconds(mod_id_str, shifts_history) / 3600:.1f}h"
 
 def shift_weekly_totals(mod_ids=None) -> dict:
-    """Historical current-week totals; indexed SQL aggregation in SQLite, old calculation in JSON mode."""
+    """Historical current-week totals; report indexed-store errors through the existing data status."""
     import sys
     import pulse_shift_history
-    return pulse_shift_history.weekly_totals(sys.modules[__name__], mod_ids=mod_ids)
+    try:
+        return pulse_shift_history.weekly_totals(sys.modules[__name__], mod_ids=mod_ids)
+    except Exception as exc:
+        _mark_corrupt(SHIFTS_FILE, exc)
+        return {}
 
 
 def shift_total_credited_seconds() -> int:
     """All-time credited seconds without materializing the SQLite history."""
     import sys
     import pulse_shift_history
-    return pulse_shift_history.total_credited_seconds(sys.modules[__name__])
+    try:
+        return pulse_shift_history.total_credited_seconds(sys.modules[__name__])
+    except Exception as exc:
+        _mark_corrupt(SHIFTS_FILE, exc)
+        return 0
 
 
 def calculate_weekly_seconds_from_totals(mod_id, totals: dict, active_shifts=None) -> int:
