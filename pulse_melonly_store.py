@@ -141,8 +141,10 @@ class MelonlyStore:
 
     def initialize(self) -> None:
         """Create the additive schema. Safe to call repeatedly."""
-        with self._connect() as con:
+        con = self._connect()
+        try:
             con.executescript(_SCHEMA)
+            con.execute("BEGIN IMMEDIATE")
             for key, value in _META_DEFAULTS.items():
                 if key == "generation":
                     value = uuid.uuid4().hex
@@ -150,6 +152,13 @@ class MelonlyStore:
                     "INSERT OR IGNORE INTO melonly_logs_meta(key,value) VALUES (?,?)",
                     (key, value),
                 )
+            con.execute("COMMIT")
+        except Exception:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
+        finally:
+            con.close()
 
     def count(self) -> int:
         with self._read() as con:
@@ -235,8 +244,8 @@ class MelonlyStore:
         active_backend: str = "json",
     ) -> int:
         """Import once into an empty table; caller must verify source bytes and backup first."""
-        if active_backend not in {"json", "sqlite"}:
-            raise ValueError("active_backend must be 'json' or 'sqlite'")
+        if active_backend != "json":
+            raise ValueError("This foundation phase cannot activate SQLite; active_backend must remain 'json'")
         materialized = list(entries)
         with self._write() as con:
             existing = int(con.execute("SELECT COUNT(*) FROM melonly_logs").fetchone()[0])
