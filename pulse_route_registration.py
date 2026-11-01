@@ -21,12 +21,6 @@ def remove_and_add(app, path: str, methods: Iterable[str], endpoint, **kwargs) -
         names = ", ".join(sorted(unsupported))
         raise ValueError(f"unsupported route replacement method(s): {names}")
 
-    # FastAPI implicitly registers HEAD for GET. Replace that implicit method too,
-    # otherwise an earlier route may continue to serve HEAD with the old endpoint.
-    methods_to_replace = set(replacement_methods)
-    if "GET" in replacement_methods:
-        methods_to_replace.add("HEAD")
-
     retained_routes = []
     for route in app.router.routes:
         if getattr(route, "path", None) != path:
@@ -39,11 +33,11 @@ def remove_and_add(app, path: str, methods: Iterable[str], endpoint, **kwargs) -
             continue
 
         current_methods = {str(method).upper() for method in current_methods}
-        if not current_methods.intersection(methods_to_replace):
+        if not current_methods.intersection(replacement_methods):
             retained_routes.append(route)
             continue
 
-        untouched_methods = current_methods.difference(methods_to_replace)
+        untouched_methods = current_methods.difference(replacement_methods)
         if untouched_methods:
             preserved_route = copy.copy(route)
             preserved_route.methods = untouched_methods
