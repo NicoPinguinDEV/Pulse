@@ -141,7 +141,6 @@ class RouteSnapshotTests(unittest.TestCase):
                 self.assertEqual(direct.get(path), [method])
                 self.assertNotIn(path, replaced)
 
-
     def test_no_public_api_docs(self):
         paths = {r["path"] for r in self.routes}
         self.assertFalse(paths & {"/docs", "/redoc", "/openapi.json"})
