@@ -173,6 +173,15 @@ class IndexedReadTests(ShiftHistoryBase):
             ws, member_ids, previous_start.isoformat(), (previous_end + timedelta(days=1)).isoformat()
         ), expected_prev)
         self.assertEqual(store.latest_shift_dates(ws, member_ids), expected_latest)
+        range_page = store.query_history(
+            ws, date_from=this_start.isoformat(), date_to=(this_end + timedelta(days=1)).isoformat(), limit=1000
+        )
+        expected_range_page = [
+            row for row in legacy_rows
+            if (day := __import__("datetime").datetime.strptime(row.get("date", ""), "%Y-%m-%d").date())
+            and this_start <= day <= this_end
+        ]
+        self.assertEqual(range_page["items"], expected_range_page)
         self.migrate()
         self.assertEqual(store.range_totals(
             ws, member_ids, this_start.isoformat(), (this_end + timedelta(days=1)).isoformat()
@@ -181,6 +190,23 @@ class IndexedReadTests(ShiftHistoryBase):
             ws, member_ids, previous_start.isoformat(), (previous_end + timedelta(days=1)).isoformat()
         ), expected_prev)
         self.assertEqual(store.latest_shift_dates(ws, member_ids), expected_latest)
+        range_page = store.query_history(
+            ws, date_from=this_start.isoformat(), date_to=(this_end + timedelta(days=1)).isoformat(), limit=1000
+        )
+        self.assertEqual(range_page["items"], expected_range_page)
+
+    def test_expired_active_shift_updates_the_latest_recorded_date(self):
+        old_day = (ws.now_de().date() - timedelta(days=3))
+        started = (ws.now_de() - timedelta(days=30)).isoformat()
+        active = {"1000": {"status": "online", "date": old_day.isoformat(),
+                           "started_at_iso": started, "segment_start_iso": started,
+                           "accumulated_seconds": 0}}
+        self.seed(self.history, active)
+        expected = ws.load_shifts()
+        from pulse_cockpit_utils import last_shift_dates
+        expected_latest = last_shift_dates(expected["history"])
+        self.migrate()
+        self.assertEqual(store.latest_shift_dates(ws, ["1000"]), expected_latest)
 
     def test_per_member_lifetime_totals_match_legacy_filter(self):
         uid = "1000"

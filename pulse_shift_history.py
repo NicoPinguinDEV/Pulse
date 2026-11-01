@@ -717,29 +717,75 @@ def query_history(
                 raise ValueError("history muss eine Liste sein")
             matches = []
             uid = None if mod_id is None else str(mod_id)
+            start_day = date.fromisoformat(date_from) if date_from is not None else None
+            end_day = date.fromisoformat(date_to) if date_to is not None else None
             for seq, entry in enumerate(history):
                 if uid is not None and (not isinstance(entry, dict) or str(entry.get("mod_id")) != uid):
                     continue
-                day = entry.get("date") if isinstance(entry, dict) else None
-                if date_from is not None and (not isinstance(day, str) or day < date_from):
-                    continue
-                if date_to is not None and (not isinstance(day, str) or day >= date_to):
-                    continue
+                if start_day is not None or end_day is not None:
+                    day = _legacy_shift_date(entry.get("date")) if isinstance(entry, dict) else None
+                    if day is None or (start_day is not None and day < start_day) or (end_day is not None and day >= end_day):
+                        continue
                 matches.append((seq, entry))
             remaining = [(seq, item) for seq, item in matches if seq > cursor]
             page, has_more = remaining[:limit], len(remaining) > limit
             return {"items": [item for _, item in page], "total": len(matches),
                     "next_cursor": page[-1][0] if has_more and page else None, "has_more": has_more}
 
-        where, params = _history_where(mod_id, date_from, date_to)
         con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
         try:
-            total = con.execute(f"SELECT COUNT(*) FROM shift_history{where}", params).fetchone()[0]
-            page_where = (where + " AND " if where else " WHERE ") + "seq > ?"
-            rows = con.execute(
-                f"SELECT seq, payload FROM shift_history{page_where} ORDER BY seq LIMIT ?",
-                [*params, cursor, limit + 1],
-            ).fetchall()
+            identity_where, identity_params = _history_where(mod_id)
+            if date_from is None and date_to is None:
+                total = con.execute(f"SELECT COUNT(*) FROM shift_history{identity_where}", identity_params).fetchone()[0]
+                page_where = (identity_where + " AND " if identity_where else " WHERE ") + "seq > ?"
+                rows = con.execute(
+                    f"SELECT seq, payload FROM shift_history{page_where} ORDER BY seq LIMIT ?",
+                    [*identity_params, cursor, limit + 1],
+                ).fetchall()
+            else:
+                _register_read_functions(con)
+                canonical_clauses = ["shift_date GLOB '????-??-??'", "pulse_valid_iso_day(shift_date)=1"]
+                canonical_params = []
+                if mod_id is not None:
+                    canonical_clauses.insert(0, "mod_id=?")
+                    canonical_params.append(str(mod_id))
+                if date_from is not None:
+                    canonical_clauses.append("shift_date >= ?")
+                    canonical_params.append(date_from)
+                if date_to is not None:
+                    canonical_clauses.append("shift_date < ?")
+                    canonical_params.append(date_to)
+                canonical_where = " WHERE " + " AND ".join(canonical_clauses)
+                total = con.execute(
+                    "SELECT COUNT(*) FROM shift_history" + canonical_where, canonical_params
+                ).fetchone()[0]
+                legacy_clause = (
+                    "(shift_date IS NULL OR shift_date NOT GLOB '????-??-??' "
+                    "OR pulse_valid_iso_day(shift_date)=0)"
+                )
+                legacy_where = (identity_where + " AND " if identity_where else " WHERE ") + legacy_clause
+                legacy_rows = con.execute(
+                    f"SELECT seq, payload FROM shift_history{legacy_where} ORDER BY seq",
+                    identity_params,
+                ).fetchall()
+                start_day = date.fromisoformat(date_from) if date_from is not None else None
+                end_day = date.fromisoformat(date_to) if date_to is not None else None
+                selected_legacy = []
+                for seq, payload in legacy_rows:
+                    entry = json.loads(payload)
+                    day = _legacy_shift_date(entry.get("date")) if isinstance(entry, dict) else None
+                    if day is None or (start_day is not None and day < start_day) or (end_day is not None and day >= end_day):
+                        continue
+                    total += 1
+                    if seq > cursor:
+                        selected_legacy.append((seq, payload))
+                canonical_page_where = canonical_where + " AND seq > ?"
+                canonical_page = con.execute(
+                    "SELECT seq, payload FROM shift_history" + canonical_page_where +
+                    " ORDER BY seq LIMIT ?",
+                    [*canonical_params, cursor, limit + 1],
+                ).fetchall()
+                rows = sorted([*canonical_page, *selected_legacy], key=lambda item: item[0])[:limit + 1]
             has_more, page = len(rows) > limit, rows[:limit]
             return {"items": [json.loads(payload) for _seq, payload in page], "total": total,
                     "next_cursor": page[-1][0] if has_more and page else None, "has_more": has_more}
@@ -922,6 +968,21 @@ def latest_shift_dates(ws, mod_ids) -> dict:
                 key = str(uid) if uid is not None else str(entry.get("mod_id"))
                 if day is not None and (key not in latest or day > latest[key]):
                     latest[key] = day
+            # load_shifts() also projects an expired active shift as a synthetic zero-credit history row.
+            active = raw.get("active_shifts", {})
+            if isinstance(active, dict):
+                now = ws.now_de()
+                selected_set = set(selected)
+                for uid, shift in active.items():
+                    key = str(uid)
+                    if key not in selected_set or not isinstance(shift, dict):
+                        continue
+                    age = ws.shift_age_seconds(shift.get("started_at_iso"), now)
+                    if age is None or age < ws.AUTO_SHIFT_END_SECONDS:
+                        continue
+                    day = _legacy_shift_date(shift.get("date"))
+                    if day is not None and (key not in latest or day > latest[key]):
+                        latest[key] = day
             return latest
         finally:
             con.close()

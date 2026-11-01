@@ -236,7 +236,7 @@ jobs:
   shift-history-benchmark:
     name: Schichthistorie – 20.000 Einträge (JSON vs. SQLite)
     needs: syntax
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'phase/14-8-indexed-shift-history')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.head.ref, 'phase/14-8-indexed-shift-history'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
