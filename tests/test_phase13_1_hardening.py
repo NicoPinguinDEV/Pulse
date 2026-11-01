@@ -278,6 +278,57 @@ class PathSafetyTests(unittest.TestCase):
                 mig.tracked_files(Path(tmp))
 
 
+class ReviewFindingTests(Base):
+    """PR #94 review: planted symlink at the marker temp path, symlinked root, re-plan under the lock, boot lock."""
+
+    def test_marker_write_never_follows_a_planted_symlink(self):
+        self.target.mkdir()
+        victim = Path(self.tmp.name) / "victim.txt"
+        victim.write_text("unberührt", encoding="utf-8")
+        try:
+            (self.target / f"{mig.MARKER_NAME}.tmp").symlink_to(victim)  # the old fixed temp name
+            (self.target / mig.MARKER_NAME).symlink_to(victim)
+        except (OSError, NotImplementedError):
+            self.skipTest("Symlinks auf diesem System nicht erlaubt")
+        mig.write_marker(self.target, "complete")
+        self.assertEqual(victim.read_text(encoding="utf-8"), "unberührt")
+        self.assertFalse((self.target / mig.MARKER_NAME).is_symlink())  # the entry itself was replaced
+        self.assertEqual(mig.read_marker(self.target)[1]["state"], "complete")
+
+    def test_marker_temp_name_is_unique_and_exclusive(self):
+        body = read("scripts/pulse_migrate_data.py").split("def write_marker", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("secrets.token_hex", body)
+        self.assertIn("O_EXCL", body)
+        self.assertIn("O_NOFOLLOW", body)
+        self.assertNotIn("write_text(", body)
+
+    def test_symlinked_root_keeps_its_top_level_files(self):
+        link = Path(self.tmp.name) / "Pulse-link"
+        try:
+            link.symlink_to(self.source, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("Symlinks auf diesem System nicht erlaubt")
+        self.assertEqual(mig.inventory(link, tracked=set()), mig.inventory(self.source, tracked=set()))
+        self.assertIn("config.json", mig.inventory(link, tracked=set()))
+
+    def test_target_directory_is_created_under_the_lock(self):
+        self.assertFalse(self.target.exists())
+        self.assertEqual(self.execute(), 0)
+        self.assertEqual(pulse_paths.read_marker(self.target)["state"], "complete")
+
+    def test_rollback_replans_under_the_lock(self):
+        body = read("scripts/pulse_migrate_data.py").split("def rollback(", 1)[1].split("\ndef ", 1)[0]
+        locked = body.split("with run_lock(target):", 1)[1]
+        self.assertLess(locked.index("rollback_plan("), locked.index("os.rename("))
+        self.assertLess(locked.index("rollback_plan("), locked.index("create_backup("))
+
+    def test_boot_update_leaves_a_locked_container_alone(self):
+        boot = read("scripts/pulse-vps-boot-update.sh")
+        busy = boot.split('if ! exec 9>"$LOCK_FILE" || ! flock -w 600 9; then', 1)[1].split("fi\n", 1)[0]
+        self.assertNotIn("start_current_version", busy)
+        self.assertIn("exit 1", busy)
+
+
 class SqliteWalTests(Base):
     def test_uncheckpointed_wal_content_is_migrated_and_verified(self):
         db = self.source / "pulse.db"

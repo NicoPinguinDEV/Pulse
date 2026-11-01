@@ -122,7 +122,9 @@ def tracked_files(source: Path) -> set[str]:
 
 
 def inventory(source: Path, *, tracked: set[str] | None = None, skip_folders: tuple[str, ...] = ()) -> list[str]:
-    """Relative POSIX paths of every runtime file below source (regular files only, symlinks are skipped)."""
+    """Relative POSIX paths of every runtime file below source (regular files only, symlinks are skipped).
+    The root itself may be a symlink (e.g. /opt/pulse/Pulse → /srv/…); it is resolved, links below it are not."""
+    source = source.resolve()
     tracked = tracked_files(source) if tracked is None else tracked
     found: set[str] = set()
 
@@ -190,9 +192,21 @@ def read_marker(target: Path) -> tuple[str, dict | None]:
 def write_marker(target: Path, state: str, **extra) -> None:
     payload = {"format": MARKER_FORMAT, "version": 1, "state": state,
                "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), **extra}
-    tmp = target / (MARKER_NAME + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(tmp, target / MARKER_NAME)  # the marker itself is ours and is meant to be updated
+    # The data directory belongs to the container user: a fixed temp name could be a planted symlink that root would
+    # follow. A unique name opened with O_EXCL (fails on any existing path, symlinks included) and O_NOFOLLOW cannot;
+    # os.replace then swaps the directory entry itself and never follows a symlink at the marker name.
+    tmp = target / f"{MARKER_NAME}.{secrets.token_hex(6)}.tmp"
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    fd = os.open(tmp, flags, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write((json.dumps(payload, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, target / MARKER_NAME)  # the marker itself is ours and is meant to be updated
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
 
 
 # --------------------------------------------------------------------------------------------- docker
@@ -374,8 +388,8 @@ def set_permissions(target: Path, uid: int, gid: int) -> None:
     for path in paths:
         if path.is_symlink():
             continue
-        if hasattr(os, "chown") and getattr(os, "geteuid", lambda: -1)() == 0:
-            getattr(os, "chown")(path, uid, gid)
+        if hasattr(os, "lchown") and getattr(os, "geteuid", lambda: -1)() == 0:
+            getattr(os, "lchown")(path, uid, gid)  # never follows a link swapped in after the check
         mode = 0o750 if path.is_dir() else (0o600 if path.name in (".session_secret", MARKER_NAME, LOCK_NAME) else 0o640)
         os.chmod(path, mode)
 
@@ -480,14 +494,7 @@ def rollback(args, source: Path, target: Path, backup_dir: Path) -> int:
     blocked = [rel for rel in inventory(target, tracked=set()) if rel in tracked]
     if blocked:
         raise MigrationError(f"Datenverzeichnis enthält versionierte Dateinamen: {blocked[:5]} – Rückweg abgebrochen.")
-    replace, new, same, total = [], [], [], 0
-    for rel in items:
-        src, dst = safe_path(target, rel), safe_path(source, rel)
-        total += src.stat().st_size
-        if dst.exists() or dst.is_symlink():
-            (same if dst.is_file() and not dst.is_symlink() and sha256(dst) == sha256(src) else replace).append(rel)
-        else:
-            new.append(rel)
+    replace, new, same, total = rollback_plan(source, target, items)
     log(f"Rückweg: {target} → {source}")
     log(f"  neu: {len(new)} · veraltet (werden beiseitegelegt): {len(replace)} · identisch: {len(same)} · "
         f"Größe: {total / 1024 / 1024:.1f} MB")
@@ -502,6 +509,9 @@ def rollback(args, source: Path, target: Path, backup_dir: Path) -> int:
     log(f"Container {args.container}: {container} – keine Schreibzugriffe möglich.")
     confirm(args, ROLLBACK_WORD)
     with run_lock(target):
+        # Re-planned under the lock: what is moved aside and copied is decided on the current state, not the dry run.
+        items = [rel for rel in inventory(target, tracked=set()) if rel not in tracked]
+        replace, new, _same, _total = rollback_plan(source, target, items)
         archive, _ = create_backup(target, items, backup_dir, "prerollback-data")
         log(f"✅ Backup des Datenverzeichnisses: {archive}")
         legacy_items = [rel for rel in replace if (source / rel).is_file()]
@@ -530,6 +540,19 @@ def rollback(args, source: Path, target: Path, backup_dir: Path) -> int:
     log("Jetzt den alten Code-Stand starten (VPS_DEPLOYMENT.md, Rückweg). Das Datenverzeichnis ist als rolled_back "
         "markiert – der neue Stand startet darauf erst nach einer neuen Migration.")
     return 0
+
+
+def rollback_plan(source: Path, target: Path, items: list[str]) -> tuple[list[str], list[str], list[str], int]:
+    """(outdated in the checkout → moved aside, new, identical, bytes) – reads only."""
+    replace, new, same, total = [], [], [], 0
+    for rel in items:
+        src, dst = safe_path(target, rel), safe_path(source, rel)
+        total += src.stat().st_size
+        if dst.exists() or dst.is_symlink():
+            (same if dst.is_file() and not dst.is_symlink() and sha256(dst) == sha256(src) else replace).append(rel)
+        else:
+            new.append(rel)
+    return replace, new, same, total
 
 
 def set_permissions_files(root: Path, rels: list[str], uid: int, gid: int) -> None:

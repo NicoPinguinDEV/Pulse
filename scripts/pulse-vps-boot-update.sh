@@ -112,11 +112,18 @@ export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(
 # Phase 13.1: an image built while starting the current version must carry its commit too (system status).
 export PULSE_GIT_SHA="$(git rev-parse HEAD 2>/dev/null || true)" PULSE_GIT_BRANCH=main
 # Phase 13.1: same lock as remote_deploy.sh/rollback_code.sh – a deploy started over SSH right after a reboot must
-# not build and start in parallel. Without flock nothing is changed, only the installed version is started.
+# not build and start in parallel.
+#  * lock held by someone else (deploy/rollback running): do not touch the container at all – that run owns it.
+#  * flock missing: every other root script refuses to run without it, so nothing can run in parallel; only the
+#    installed version is started (no update), otherwise Pulse would stay down after every reboot.
 LOCK_FILE="${PULSE_DEPLOY_LOCK:-/run/lock/pulse-deploy.lock}"
-if ! command -v flock >/dev/null 2>&1 || ! exec 9>"$LOCK_FILE" || ! flock -w 600 9; then
-    log "ABBRUCH: Deploy-Sperre $LOCK_FILE nicht verfügbar – kein Update, starte den installierten Stand."
+if ! command -v flock >/dev/null 2>&1; then
+    log "WARNUNG: flock fehlt – kein Update; starte nur den installierten Stand (Deploys sind ohne flock gesperrt)."
     start_current_version || true
+    exit 1
+fi
+if ! exec 9>"$LOCK_FILE" || ! flock -w 600 9; then
+    log "ABBRUCH: Deploy-Sperre $LOCK_FILE seit 600 s belegt – ein Deploy/Rollback läuft; Container bleibt unberührt."
     exit 1
 fi
 
