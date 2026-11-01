@@ -20,12 +20,11 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | cogs/voice_support.py:1628 | `duty_status_loop` | `minutes=1` | keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt) |
 | cogs/voice_support.py:1647 | `music_loop` | `seconds=8` | 1 except, **1 still (`pass`)** |
 
-## Eigene Endlosschleifen (4)
+## Eigene Endlosschleifen (3)
 
 | Datei:Zeile | Funktion | Pause (`asyncio.sleep`) | Fehlerbehandlung |
 |---|---|---|---|
 | cogs/ai_moderation.py:340 | `_wait_and_publish_outage_notice` | `min(max(remaining + 0.25, 1.0` | keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt) |
-| pulse_features.py:324 | `housekeeping` | `300` | 5 except, davon 4 breit, **3 still (`pass`)** |
 | pulse_ultimate.py:2394 | `automation_loop` | `60, 60` | 3 except, davon 2 breit |
 | webserver.py:9429 | `auto_backup_loop` | `300` | 3 except, davon 1 breit |
 
