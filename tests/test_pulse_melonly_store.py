@@ -50,6 +50,8 @@ class MelonlyStoreTests(unittest.TestCase):
         self.assertFalse(self.store.delete_by_seq(second))
         self.assertEqual(self.store.metadata()["revision"], "4")
         self.assertEqual(self.store.export_all(), [{"id": "a", "target_user": "Nico", "type": "Kick"}])
+        third = self.store.append({"id": "c"})
+        self.assertGreater(third, second)
 
     def test_duplicate_ids_resolve_to_first_original_position(self):
         entries = [{"id": "duplicate", "value": 1}, {"id": "duplicate", "value": 2}]
@@ -67,6 +69,11 @@ class MelonlyStoreTests(unittest.TestCase):
         entries = [{"id": str(i)} for i in range(7)]
         self.store.import_entries(entries)
         self.assertEqual(list(self.store.iter_all(batch_size=2)), entries)
+
+    def test_import_rejects_attempt_to_activate_sqlite(self):
+        with self.assertRaises(ValueError):
+            self.store.import_entries([], active_backend="sqlite")
+        self.assertEqual(self.store.count(), 0)
 
     def test_parallel_appends_have_unique_monotonic_sequences(self):
         errors = []
