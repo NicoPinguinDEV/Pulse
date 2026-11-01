@@ -123,5 +123,26 @@ class IndexedReadTests(ShiftHistoryBase):
         self.assertEqual(result["total"], 0)
 
 
+    def test_store_backed_member_weekly_seconds_matches_existing_calculation(self):
+        active = {"1000": {"date": ws.now_de().strftime("%Y-%m-%d"), "started_at_iso": ws.now_de().isoformat(),
+                           "segment_start_iso": ws.now_de().isoformat(), "accumulated_seconds": 0}}
+        expected = ws.calculate_weekly_seconds("1000", self.history, active)
+        self.migrate()
+        state = ws.load_shift_state()
+        actual = ws.calculate_weekly_seconds_for_member("1000", state["active_shifts"])
+        self.assertEqual(actual, expected)
+
+    def test_json_member_view_remains_the_legacy_full_view(self):
+        view = ws.load_member_shifts("1000")
+        self.assertEqual(view["history"], self.history)
+        self.assertEqual(view["active_shifts"]["1000"]["status"], "online")
+
+    def test_json_aggregates_match_the_legacy_calculations(self):
+        expected_weekly = ws.weekly_history_totals(self.history)
+        expected_total = sum(credited_shift_seconds(entry) for entry in self.history)
+        self.assertEqual(store.weekly_totals(ws), expected_weekly)
+        self.assertEqual(store.total_credited_seconds(ws), expected_total)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -744,11 +744,12 @@ def register(app):
     LIVE_CACHE={'at':0.0,'data':None}; LIVE_CACHE_SECONDS=15
 
     def work_stats(c):
-        shifts=ws.load_shifts(); active=shifts.get("active_shifts",{}); hist=shifts.get("history",[])
+        shifts=ws.load_shift_state(); active=shifts.get("active_shifts",{}); hist=shifts.get("history",[])
         logs=ws.load_json(ws.LOGS_FILE,[]); apps=ws.load_json(ws.APPS_FILE,{}); loas=ws.get_loas()
         tickets=db.list_tickets(limit=2000); tasks=db.list_tasks(limit=2000); promos=db.promotion_requests("pending",200)
         current=active.get(str(c.user["id"]))
-        weekly=ws.calculate_weekly_seconds(str(c.user["id"]),hist,active)
+        weekly=(ws.calculate_weekly_seconds(str(c.user["id"]),hist,active) if "history" in shifts
+                else ws.calculate_weekly_seconds_for_member(str(c.user["id"]),active))
         active_count=sum(1 for s in active.values() if s.get("status") in ("online","break"))
         return {"active":active_count,"logs":len(logs),"apps":sum(1 for a in apps.values() if a.get("status")=="pending"),"loas":sum(1 for l in loas.values() if l.get("active")),"tickets":tickets,"tasks":tasks,"promos":promos,"weekly":weekly,"current":current}
 
@@ -2123,12 +2124,20 @@ def register(app):
 
     # ---------------- Modern stats / calendar / settings / system / search ----------------
     async def stats_v5(request: Request, user_session: str=Cookie(None)):
-        c=cctx(request,user_session,perm='can_view_analytics'); s=work_stats(c); members=team(c.guild,c.config.get('team_role_ids',[])); shifts=ws.load_shifts(); hist=shifts.get('history',[]); active=shifts.get('active_shifts',{}); week=[]
-        for m in members: week.append((ws.calculate_weekly_seconds(str(m.id),hist,active),m.display_name))  # P-03: shifts loaded once
+        c=cctx(request,user_session,perm='can_view_analytics'); s=work_stats(c); members=team(c.guild,c.config.get('team_role_ids',[])); shifts=ws.load_shift_state(); active=shifts.get('active_shifts',{}); week=[]
+        if "history" in shifts:
+            hist=shifts.get("history",[])
+            for m in members: week.append((ws.calculate_weekly_seconds(str(m.id),hist,active),m.display_name))
+            total_seconds=sum(credited_shift_seconds(h) for h in hist)
+        else:
+            member_ids=[str(m.id) for m in members]
+            weekly=ws.shift_weekly_totals(member_ids)
+            for m in members: week.append((ws.calculate_weekly_seconds_from_totals(str(m.id),weekly,active),m.display_name))
+            total_seconds=ws.shift_total_credited_seconds()
         week.sort(reverse=True); maxs=max([x[0] for x in week],default=0) or 1  # nobody on duty yet this week → 0 %
         rows=''.join(f'<div class="pulse-row"><div class="flex items-center gap-3"><div class="pulse-avatar">{e(initials(n))}</div><div><div class="pulse-row-title">{e(n)}</div><div class="pulse-progress mt-2 w-[180px]"><span style="width:{round(v/maxs*100)}%"></span></div></div></div><div class="pulse-time font-bold">{ws.fmt_duration(v)}</div></div>' for v,n in week[:20])
         closed=sum(1 for t in s['tickets'] if t['status']=='closed'); rated=[t['rating'] for t in s['tickets'] if t.get('rating')]; avg=sum(rated)/len(rated) if rated else 0
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">◒ Team-Analytics</div><div class="pulse-section-sub">Zahlen für Planung, Support und Aktivität.</div></div><a href="/export/team.csv" class="pulse-btn ghost">⇩ CSV Export</a></div><div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Dienststunden</div><div class="value">{sum(credited_shift_seconds(h) for h in hist)/3600:.1f}h</div></div><div class="pulse-stat"><div class="icon">▣</div><div class="label">Tickets gesamt</div><div class="value">{len(s['tickets'])}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Ticketbewertung</div><div class="value">{avg:.1f}</div></div><div class="pulse-stat"><div class="icon">!</div><div class="label">Warnungen</div><div class="value">{sum(len(v.get('warns_list',[])) for v in ws.load_json(ws.DATA_FILE,{}).values() if isinstance(v,dict))}</div></div></div><div class="pulse-two">{card('Dienstzeit diese Woche',rows or '<div class="pulse-empty">Keine Daten.</div>','⏱')}{card('Support',f'<div class="grid grid-cols-2 gap-3"><div class="pulse-stat"><div class="label">Geschlossen</div><div class="value">{closed}</div></div><div class="pulse-stat"><div class="label">Offen</div><div class="value">{len(s["tickets"])-closed}</div></div></div>','▣')}</div>'''
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">◒ Team-Analytics</div><div class="pulse-section-sub">Zahlen für Planung, Support und Aktivität.</div></div><a href="/export/team.csv" class="pulse-btn ghost">⇩ CSV Export</a></div><div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Dienststunden</div><div class="value">{total_seconds/3600:.1f}h</div></div><div class="pulse-stat"><div class="icon">▣</div><div class="label">Tickets gesamt</div><div class="value">{len(s['tickets'])}</div></div><div class="pulse-stat"><div class="icon">★</div><div class="label">Ø Ticketbewertung</div><div class="value">{avg:.1f}</div></div><div class="pulse-stat"><div class="icon">!</div><div class="label">Warnungen</div><div class="value">{sum(len(v.get('warns_list',[])) for v in ws.load_json(ws.DATA_FILE,{}).values() if isinstance(v,dict))}</div></div></div><div class="pulse-two">{card('Dienstzeit diese Woche',rows or '<div class="pulse-empty">Keine Daten.</div>','⏱')}{card('Support',f'<div class="grid grid-cols-2 gap-3"><div class="pulse-stat"><div class="label">Geschlossen</div><div class="value">{closed}</div></div><div class="pulse-stat"><div class="label">Offen</div><div class="value">{len(s["tickets"])-closed}</div></div></div>','▣')}</div>'''
         return render_pro_page(ws,'Analytics',c,'stats',body)
 
     async def calendar_v5(request: Request, user_session: str=Cookie(None), month: str=""):
