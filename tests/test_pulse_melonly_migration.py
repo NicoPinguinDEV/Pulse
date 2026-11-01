@@ -101,6 +101,21 @@ class MelonlyMigrationTests(unittest.TestCase):
                 None,
             )
 
+    def test_nonempty_unregistered_store_aborts_without_overwriting_existing_rows(self):
+        store = MelonlyStore(self.database)
+        store.initialize()
+        store.append({"id": "preexisting", "target_user": "KeepMe"})
+        original = self.write_source([{"id": "incoming"}])
+        with self.assertRaises(MelonlyStoreNotEmpty):
+            migrate_json_to_sqlite(self.source, self.database, self.backups)
+        self.assertEqual(store.export_all(), [{"id": "preexisting", "target_user": "KeepMe"}])
+        self.assertEqual(self.source.read_bytes(), original)
+        with sqlite3.connect(self.database) as con:
+            self.assertEqual(
+                con.execute("SELECT COUNT(*) FROM schema_migrations WHERE name='melonly_logs_sqlite_v1'").fetchone()[0],
+                0,
+            )
+
     def test_sqlite_export_requires_sqlite_backend_marker(self):
         self.write_source([{"id": "a"}])
         migrate_json_to_sqlite(self.source, self.database, self.backups)
