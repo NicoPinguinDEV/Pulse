@@ -66,7 +66,7 @@ def register(app) -> None:
         perms = ctx.perms
 
         # ---- Schicht & Wochenziel ----
-        shifts = ws.load_shifts()
+        shifts = ws.load_member_shifts(uid)
         active = shifts.get("active_shifts", {})
         history = shifts.get("history", [])
         current = active.get(uid)

@@ -42,7 +42,7 @@ import os
 import shutil
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 ENV_VAR = "PULSE_SHIFT_HISTORY_BACKEND"
 MARKER_KEY = "_history_store"
@@ -612,3 +612,317 @@ def apply_configured_backend(ws) -> dict:
         print(f"✅ Schichthistorie: {report['rows']} Einträge auf {wanted} umgestellt "
               f"(Sicherung: {os.path.basename(report.get('json_backup') or '')}).")
     return report
+
+
+# ---------------------------------------------------------------------------
+# Phase 14.8 – indexed read paths.
+_MAX_PAGE_SIZE = 1000
+_DEFAULT_PAGE_SIZE = 100
+
+
+def _validated_date_bound(value, name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{name} muss ein ISO-Datum (YYYY-MM-DD) sein")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} muss ein gültiges ISO-Datum (YYYY-MM-DD) sein") from exc
+    if parsed.isoformat() != value:
+        raise ValueError(f"{name} muss im Format YYYY-MM-DD stehen")
+    return value
+
+
+def _history_where(mod_id=None, date_from=None, date_to=None) -> tuple[str, list]:
+    clauses, params = [], []
+    if mod_id is not None:
+        uid = str(mod_id)
+        if uid == "None":
+            clauses.append("(mod_id = ? OR mod_id IS NULL)")
+            params.append(uid)
+        else:
+            clauses.append("mod_id = ?")
+            params.append(uid)
+    if date_from is not None:
+        clauses.append("shift_date >= ?")
+        params.append(date_from)
+    if date_to is not None:
+        clauses.append("shift_date < ?")
+        params.append(date_to)
+    return (" WHERE " + " AND ".join(clauses) if clauses else ""), params
+
+
+def _open_indexed_snapshot(ws, path: str, raw: dict):
+    """Open a validated read transaction and finish only a verified pending 14.7b journal."""
+    for _attempt in range(2):
+        con = _connect()
+        try:
+            if not _table_exists(con):
+                raise ShiftHistoryUnavailable("Tabelle shift_history fehlt in pulse.db")
+            con.execute("BEGIN")
+            row_count = con.execute("SELECT COUNT(*) FROM shift_history").fetchone()[0]
+            meta = _read_meta(con)
+            state, pending = _pair_state(raw.get(MARKER_KEY) or {}, meta, path)
+            if state == "pending":
+                con.close()
+                _roll_forward(ws, path, pending)
+                raw = _read_raw(path) or {}
+                continue
+            expected = (raw.get(MARKER_KEY) or {}).get("rows")
+            if isinstance(expected, int) and expected > row_count:
+                raise ShiftHistoryUnavailable(f"pulse.db enthält {row_count} statt {expected} Schichteinträge")
+            if isinstance(expected, int) and expected != row_count:
+                print(f"⚠️ Schichthistorie: {row_count} Einträge in pulse.db, shifts.json erwartet {expected}. "
+                      "Es wird mit pulse.db weitergearbeitet.")
+            return con, row_count, raw
+        except BaseException:
+            try:
+                con.close()
+            except Exception:
+                pass
+            raise
+    raise ShiftHistoryUnavailable("Schichthistorie konnte nach der Wiederherstellung nicht stabil gelesen werden")
+
+
+def query_history(
+    ws,
+    *,
+    mod_id=None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = _DEFAULT_PAGE_SIZE,
+    after_seq: int | None = None,
+) -> dict:
+    """Return a stable seq-ordered page. date_from is inclusive; date_to is exclusive.
+
+    The JSON fallback applies the same filters and cursor. Payloads are returned
+    unchanged and duplicate rows stay separate.
+    """
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= _MAX_PAGE_SIZE:
+        raise ValueError(f"limit muss zwischen 1 und {_MAX_PAGE_SIZE} liegen")
+    if after_seq is not None and (isinstance(after_seq, bool) or not isinstance(after_seq, int) or after_seq < 0):
+        raise ValueError("after_seq muss eine nichtnegative seq oder None sein")
+    date_from = _validated_date_bound(date_from, "date_from")
+    date_to = _validated_date_bound(date_to, "date_to")
+    if date_from is not None and date_to is not None and date_from >= date_to:
+        raise ValueError("date_from muss vor date_to liegen")
+    path, cursor = ws.SHIFTS_FILE, (-1 if after_seq is None else after_seq)
+    with ws._io_lock:
+        raw = _read_raw(path)
+        if not is_sqlite(raw):
+            data = raw if isinstance(raw, dict) else {}
+            history = data.get("history", [])
+            if not isinstance(history, list):
+                raise ValueError("history muss eine Liste sein")
+            matches = []
+            uid = None if mod_id is None else str(mod_id)
+            for seq, entry in enumerate(history):
+                if uid is not None and (not isinstance(entry, dict) or str(entry.get("mod_id")) != uid):
+                    continue
+                day = entry.get("date") if isinstance(entry, dict) else None
+                if date_from is not None and (not isinstance(day, str) or day < date_from):
+                    continue
+                if date_to is not None and (not isinstance(day, str) or day >= date_to):
+                    continue
+                matches.append((seq, entry))
+            remaining = [(seq, item) for seq, item in matches if seq > cursor]
+            page, has_more = remaining[:limit], len(remaining) > limit
+            return {"items": [item for _, item in page], "total": len(matches),
+                    "next_cursor": page[-1][0] if has_more and page else None, "has_more": has_more}
+
+        where, params = _history_where(mod_id, date_from, date_to)
+        con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
+        try:
+            total = con.execute(f"SELECT COUNT(*) FROM shift_history{where}", params).fetchone()[0]
+            page_where = (where + " AND " if where else " WHERE ") + "seq > ?"
+            rows = con.execute(
+                f"SELECT seq, payload FROM shift_history{page_where} ORDER BY seq LIMIT ?",
+                [*params, cursor, limit + 1],
+            ).fetchall()
+            has_more, page = len(rows) > limit, rows[:limit]
+            return {"items": [json.loads(payload) for _seq, payload in page], "total": total,
+                    "next_cursor": page[-1][0] if has_more and page else None, "has_more": has_more}
+        finally:
+            con.close()
+
+
+def _valid_iso_day(value) -> int:
+    if not isinstance(value, str):
+        return 0
+    try:
+        return int(date.fromisoformat(value).isoformat() == value)
+    except ValueError:
+        return 0
+
+
+def _credited_payload(payload: str) -> int:
+    entry = json.loads(payload)
+    from pulse_shift_utils import credited_shift_seconds
+    return int(credited_shift_seconds(entry))
+
+
+def _register_read_functions(con) -> None:
+    con.create_function("pulse_valid_iso_day", 1, _valid_iso_day, deterministic=True)
+    con.create_function("pulse_credited_seconds", 1, _credited_payload, deterministic=True)
+
+
+def weekly_totals(ws, mod_ids=None) -> dict:
+    """Indexed current-week totals with the existing legacy-date parsing rules."""
+    selected = None if mod_ids is None else list(dict.fromkeys(str(value) for value in mod_ids))
+    if selected == []:
+        return {}
+    start, start_text = ws.week_start(), ws.week_start().strftime("%Y-%m-%d")
+    path = ws.SHIFTS_FILE
+    with ws._io_lock:
+        raw = _read_raw(path)
+        if not is_sqlite(raw):
+            shifts = ws.load_shifts()
+            totals = ws.weekly_history_totals(shifts.get("history", []))
+            return totals if selected is None else {uid: totals[uid] for uid in selected if uid in totals}
+
+        con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
+        try:
+            _register_read_functions(con)
+            member_sql, member_params = "", []
+            if selected is not None:
+                placeholders = ",".join("?" for _ in selected)
+                member_sql = (f" AND (mod_id IN ({placeholders}) OR mod_id IS NULL)"
+                              if "None" in selected else f" AND mod_id IN ({placeholders})")
+                member_params = selected
+            canonical = con.execute(
+                "SELECT mod_id, SUM(pulse_credited_seconds(payload)) FROM shift_history "
+                "WHERE shift_date >= ? AND shift_date GLOB '????-??-??' "
+                "AND pulse_valid_iso_day(shift_date)=1" + member_sql + " GROUP BY mod_id",
+                [start_text, *member_params],
+            ).fetchall()
+            totals = {str(uid): int(seconds or 0) for uid, seconds in canonical}
+            legacy = con.execute(
+                "SELECT payload FROM shift_history WHERE "
+                "(shift_date IS NULL OR shift_date NOT GLOB '????-??-??')" + member_sql + " ORDER BY seq",
+                member_params,
+            ).fetchall()
+            for (payload,) in legacy:
+                entry = json.loads(payload)
+                try:
+                    if ws._in_week(entry.get("date"), start, start_text):
+                        uid = str(entry.get("mod_id"))
+                        totals[uid] = totals.get(uid, 0) + ws.credited_shift_seconds(entry)
+                except Exception:
+                    pass
+            return totals
+        finally:
+            con.close()
+
+
+def total_credited_seconds(ws) -> int:
+    """Sum all creditable seconds in SQLite without loading all payloads into Python."""
+    path = ws.SHIFTS_FILE
+    with ws._io_lock:
+        raw = _read_raw(path)
+        if not is_sqlite(raw):
+            shifts = ws.load_shifts()
+            return sum(ws.credited_shift_seconds(entry) for entry in shifts.get("history", []))
+        con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
+        try:
+            _register_read_functions(con)
+            value = con.execute("SELECT COALESCE(SUM(pulse_credited_seconds(payload)), 0) FROM shift_history").fetchone()[0]
+            return int(value)
+        finally:
+            con.close()
+
+
+def _visible_active_shifts(ws, raw: dict, only_mod_id=None) -> dict:
+    active = raw.get("active_shifts", {})
+    active = dict(active) if isinstance(active, dict) else {}
+    now = ws.now_de()
+    for uid, shift in list(active.items()):
+        if only_mod_id is not None and str(uid) != str(only_mod_id):
+            active.pop(uid, None)
+            continue
+        age = ws.shift_age_seconds(shift.get("started_at_iso"), now)
+        if age is not None and age >= ws.AUTO_SHIFT_END_SECONDS:
+            active.pop(uid, None)
+    return active
+
+
+def load_shift_state(ws) -> dict:
+    """Read only active shifts in SQLite mode; JSON retains the full compatibility view."""
+    path = ws.SHIFTS_FILE
+    with ws._io_lock:
+        raw = _read_raw(path)
+        if not is_sqlite(raw):
+            return ws.load_shifts()
+        con, _row_count, raw = _open_indexed_snapshot(ws, path, raw)
+        try:
+            data = {key: value for key, value in raw.items() if key != MARKER_KEY}
+            data.pop("history", None)
+            data["active_shifts"] = _visible_active_shifts(ws, raw)
+            return data
+        finally:
+            con.close()
+
+
+def load_member_view(ws, mod_id) -> dict:
+    """Read one member's complete history plus only that member's active-shift view."""
+    path, uid = ws.SHIFTS_FILE, str(mod_id)
+    with ws._io_lock:
+        raw = _read_raw(path)
+        if not is_sqlite(raw):
+            return ws.load_shifts()
+
+        history, cursor = [], None
+        while True:
+            page = query_history(ws, mod_id=uid, limit=_MAX_PAGE_SIZE, after_seq=cursor)
+            history.extend(page["items"])
+            if not page["has_more"]:
+                break
+            cursor = page["next_cursor"]
+
+        # A page read may have recovered a pending journal; always use the current small marker file.
+        raw = _read_raw(path) or {}
+        con, _row_count, raw = _open_indexed_snapshot(ws, path, raw)
+        try:
+            data = {key: value for key, value in raw.items() if key != MARKER_KEY}
+        finally:
+            con.close()
+        active = _visible_active_shifts(ws, raw, only_mod_id=uid)
+        data["active_shifts"] = active
+        original_active = raw.get("active_shifts", {}) if isinstance(raw.get("active_shifts"), dict) else {}
+        expired = original_active.get(uid)
+        if expired and uid not in active:
+            age = ws.shift_age_seconds(expired.get("started_at_iso"), ws.now_de())
+            if age is not None and age >= ws.AUTO_SHIFT_END_SECONDS:
+                now = ws.now_de()
+                started_at = str(expired.get("started_at_iso") or "")
+                history.append({
+                    "mod_id": uid, "date": expired.get("date"),
+                    "started_at_iso": started_at, "ended_at_iso": now.isoformat(timespec="seconds"),
+                    "duration_seconds": 0, "duration_confirmed": False,
+                    "measured_seconds": min(ws.shift_elapsed(expired), ws.AUTO_SHIFT_END_SECONDS),
+                    "auto_closed": True, "shift_event_id": ws.shift_event_id(uid, started_at),
+                    "auto_warn_status": "pending",
+                    "auto_warn_reason": "Schicht nicht innerhalb von 24 Stunden beendet.",
+                })
+        data["history"] = history
+        return data
+
+
+def explain_member_query_plan(ws, mod_id, date_from: str | None = None) -> list[str]:
+    """Read-only EXPLAIN QUERY PLAN for the indexed member/date query."""
+    date_from = _validated_date_bound(date_from, "date_from")
+    path = ws.SHIFTS_FILE
+    with ws._io_lock:
+        raw = _read_raw(path)
+        if not is_sqlite(raw):
+            return []
+        where, params = _history_where(mod_id, date_from, None)
+        con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
+        try:
+            rows = con.execute(
+                f"EXPLAIN QUERY PLAN SELECT seq, payload FROM shift_history{where} ORDER BY seq LIMIT ?",
+                [*params, _DEFAULT_PAGE_SIZE],
+            ).fetchall()
+            return [str(row[3]) for row in rows]
+        finally:
+            con.close()
