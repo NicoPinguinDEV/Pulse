@@ -393,5 +393,30 @@ class DeployChainTests(unittest.TestCase):
         self.assertIn("chmod go-rwx .env", read("deploy/remote_deploy.sh"))
 
 
+class ComposeIntegrationConfigTests(unittest.TestCase):
+    def test_ci_override_only_replaces_the_command(self):
+        override = read("tests/compose.ci.yaml")
+        for forbidden in ("volumes:", "read_only", "tmpfs", "mem_limit", "cap_drop", "security_opt", "ports:", "user:"):
+            with self.subTest(key=forbidden):
+                self.assertNotIn(forbidden, override)
+        self.assertIn('command: ["python", "tests/compose_probe.py"]', override)
+
+    def test_integration_script_covers_the_required_cases(self):
+        script = read("tests/compose_integration.sh")
+        for needle in ("fehlt", "for case in none in_progress damaged rolled_back", '= 78 ]', "touch /app/pulse_ci_probe",
+                       "touch /data/ci-write-probe", "/proc/mounts", ".pulse-agent", "wait_healthy", "docker compose stop",
+                       "shutdown ok", "PULSE_GIT_SHA", "id -u"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, script)
+        self.assertNotIn("down -v", script)
+        self.assertIn("bash tests/compose_integration.sh", read(".github/workflows/python-syntax.yml"))
+
+    def test_probe_never_logs_into_discord(self):
+        probe = read("tests/compose_probe.py")
+        self.assertNotIn(".run(token", probe)
+        self.assertNotIn("CustomBot", probe)
+        self.assertNotIn("DISCORD_TOKEN", probe)
+
+
 if __name__ == "__main__":
     unittest.main()

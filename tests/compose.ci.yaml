@@ -1,0 +1,10 @@
+# Phase 13.1: override for the Docker Compose integration test only (tests/compose_integration.sh).
+# Same service, mounts, limits and hardening as compose.yaml – only the command is replaced so the container never
+# connects to Discord, and the automatic backup loop is off. Never used on the VPS (the root scripts pin
+# COMPOSE_FILE=compose.yaml).
+services:
+  pulse:
+    command: ["python", "tests/compose_probe.py"]
+    environment:
+      PULSE_SMOKE_EXPECT_READONLY_CODE: "1"
+      AUTO_BACKUP_HOURS: "0"
