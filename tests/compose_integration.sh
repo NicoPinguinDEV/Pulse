@@ -5,7 +5,7 @@
 #
 # Uses the real compose.yaml (read_only, /data bind mount with create_host_path: false, tmpfs /tmp, .pulse-agent,
 # limits, healthcheck, stop_grace_period) – plus tests/compose.ci.yaml, which only swaps the command for
-# tests/compose_probe.py (no Discord connection). Only isolated temp data; never a real .env, never `down -v`.
+# tests/compose_probe.py (no Discord connection). Only isolated temp data; never a real .env, volumes are never removed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
