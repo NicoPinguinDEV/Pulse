@@ -1,0 +1,54 @@
+{
+  "head": {
+    "dashboard": {
+      "length": 45572,
+      "sha256": "fd7fa8a636360ac5e8589eef93da0bcd536af0a4e0a68e48b3ae054e53909cd9"
+    },
+    "empty": {
+      "length": 45551,
+      "sha256": "b7f6b990b2b35bc5c40f3e580b51cbb0dc0792e5235101b58bfcf7e9a16686cb"
+    },
+    "escaped": {
+      "length": 45609,
+      "sha256": "1b176007549bcae7b42ddbbe72550563ca8b41aaf014d5e182cb7b6ed1027ad5"
+    },
+    "login": {
+      "length": 45572,
+      "sha256": "0c16b6c0254d700e9a1db70a7dea50e346ed201c0c7d3d2f29ad1adc23bcf1e3"
+    }
+  },
+  "sidebar": {
+    "admin_area": {
+      "length": 10184,
+      "sha256": "724bfaf57f2d76433372ff6f19a0773255e76348b51ecdb75e20186011d1664d"
+    },
+    "admin_dashboard": {
+      "length": 21717,
+      "sha256": "51b93c2d258bb14ace9601e9adb43f355c0c2cb6f52267ffe8b40824141e44b6"
+    },
+    "admin_server_area": {
+      "length": 10184,
+      "sha256": "58717937058a9813dffbe6c3fc388c8cd81b45385bd2fa8a516644535af82662"
+    },
+    "guest": {
+      "length": 13910,
+      "sha256": "929045856eef083d80086a6ab02349130f7efda467bb6aa3035eac48be62ca0b"
+    },
+    "leader_advanced": {
+      "length": 21620,
+      "sha256": "fa866de5b070a2948931f73db4ec3ad0faa7b487cd033037f3d6aebe3f754403"
+    },
+    "leader_factions": {
+      "length": 21623,
+      "sha256": "056b6419d4b6755ec9f25c1009ae1dec2b7c64e35e64741b47f8b5140506951b"
+    },
+    "teamler_inbox_unread": {
+      "length": 14292,
+      "sha256": "af0f483c01b2382dabe1caf4a5064d4d14f87ac9ec4b69bfbfad292dee959bcd"
+    },
+    "teamler_me": {
+      "length": 14181,
+      "sha256": "395df57ead72be55fd4337c0cd53812581991787fb819265bf14789f02cd1927"
+    }
+  }
+}

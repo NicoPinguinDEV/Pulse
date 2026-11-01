@@ -118,7 +118,7 @@ class DiscordLogRegressionTests(unittest.TestCase):
 
     def test_requested_workflow_items_are_removed_from_normal_navigation(self):
         source = read_source("pulse_pro.py")
-        sidebar = get_method(source, "patched_sidebar")
+        sidebar = get_method(source, "pro_sidebar_html")
         palette = get_method(source, "build_command_modal")
         for path in ("/tasks", "/approvals", "/handover"):
             self.assertNotIn(path, sidebar)

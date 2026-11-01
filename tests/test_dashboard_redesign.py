@@ -14,7 +14,7 @@ SOURCE = (ROOT / "pulse_pro.py").read_text(encoding="utf-8")
 class DashboardRedesignTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.sidebar = SOURCE.split("def patched_sidebar(", 1)[1].split("user_name =", 1)[0]
+        cls.sidebar = SOURCE.split("def pro_sidebar_html(", 1)[1].split("user_name =", 1)[0]
         cls.dashboard = SOURCE.split("async def dashboard_v5(", 1)[1].split("return render_pro_page(ws,'Übersicht'", 1)[0]
 
     def test_primary_navigation_has_six_clear_groups(self):
@@ -93,7 +93,7 @@ class DashboardRedesignTests(unittest.TestCase):
     def test_particle_script_is_lightweight_and_respects_the_browser(self):
         import pulse_pro
         js = pulse_pro.PARTICLE_JS
-        self.assertIn("PARTICLE_JS", SOURCE.split("def patched_head(", 1)[1].split("def patched_log(", 1)[0])
+        self.assertIn("PARTICLE_JS", SOURCE.split("def pro_head_extra(", 1)[1].split("def pro_audit_mirror(", 1)[0])
         for marker in (
             "requestAnimationFrame(frame)", "cancelAnimationFrame(raf)",       # one loop, cancellable
             "prefers-reduced-motion: reduce", "RM.matches",                      # static frame when motion is off

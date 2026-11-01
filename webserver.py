@@ -534,6 +534,37 @@ def load_meetings() -> dict:
     return d
 
 
+# A-01a: explicit shell hooks instead of replacing get_head_html/get_sidebar_html/log_audit at runtime.
+# One implementation per slot; webserver's own functions stay in place and call the registered hook.
+#   head_extra(title) -> str        appended to get_head_html
+#   sidebar(guild_name, current_page, current_user, perms) -> str   replaces the built-in sidebar markup
+#   audit_listener(actor_name, actor_id, action, details)            called after the audit entry was saved
+SHELL_HOOK_SLOTS = ("head_extra", "sidebar", "audit_listener")
+_shell_hooks: dict = {}
+
+
+def register_shell_hook(slot: str, hook) -> None:
+    """Register one hook per slot. The same function again is a no-op; a different one is refused."""
+    if slot not in SHELL_HOOK_SLOTS:
+        raise ValueError(f"Unbekannter Shell-Hook {slot!r} (erlaubt: {', '.join(SHELL_HOOK_SLOTS)})")
+    if not callable(hook):
+        raise TypeError(f"Shell-Hook {slot!r} muss aufrufbar sein")
+    current = _shell_hooks.get(slot)
+    if current is hook:
+        return
+    if current is not None:
+        raise RuntimeError(f"Shell-Hook {slot!r} ist bereits durch "
+                           f"{current.__module__}.{current.__qualname__} registriert")
+    _shell_hooks[slot] = hook
+
+
+def shell_hook(slot: str):
+    """The registered hook of a slot or None (built-in behaviour)."""
+    if slot not in SHELL_HOOK_SLOTS:
+        raise ValueError(f"Unbekannter Shell-Hook {slot!r}")
+    return _shell_hooks.get(slot)
+
+
 def log_audit(actor_name: str, actor_id: str, action: str, details: str):
     audit_data = load_json(AUDIT_FILE, [])
     audit_data.append({
@@ -545,6 +576,12 @@ def log_audit(actor_name: str, actor_id: str, action: str, details: str):
         "timestamp": now_de().strftime("%d.%m.%Y %H:%M:%S")
     })
     save_json(AUDIT_FILE, audit_data[-5000:])  # Datei wächst nicht unendlich
+    listener = _shell_hooks.get("audit_listener")
+    if listener is not None:
+        try:
+            listener(actor_name, actor_id, action, details)
+        except Exception:
+            pass  # the saved audit entry stays authoritative; a mirror must not fail the action
 
 
 def team_safety_admin_exempt(guild, member) -> bool:
@@ -2912,6 +2949,11 @@ HEAD_SCRIPT = TAILWIND_TAG + """
 
 
 def get_head_html(title: str):
+    extra = _shell_hooks.get("head_extra")
+    return _base_head_html(title) + (extra(title) if extra is not None else "")
+
+
+def _base_head_html(title: str):
     return (
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
@@ -2925,6 +2967,9 @@ def get_head_html(title: str):
 
 
 def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, perms=None):
+    renderer = _shell_hooks.get("sidebar")
+    if renderer is not None:
+        return renderer(guild_name, current_page, current_user, perms)
     perms = perms or {}
     user_name = esc(current_user.get("global_name", "Team Mitglied")) if current_user else "Gast"
     avatar_id = current_user.get("avatar") if current_user else None
