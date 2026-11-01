@@ -83,17 +83,25 @@ jobs:
           if [ -n "$leaked" ]; then echo "Von Tests angelegt/verändert:"; echo "$leaked"; exit 1; fi
 
   syntax-image-python:
-    # Phase 13.2: the production image runs python:3.15-slim (Dockerfile), the other jobs test 3.14. This job runs the
-    # same suite on the image's Python so a Dependabot base-image bump is covered by the full tests, not only the build.
-    name: Regressionstests mit der Python-Version des Images (3.15)
+    # Phase 13.2: the production image runs the Python of the Dockerfile's FROM line, the other jobs test 3.14. This job
+    # reads the version from FROM (no second place to update) and runs the same suite on it, so a Dependabot
+    # base-image bump is covered by the full tests, not only the build.
+    name: Regressionstests mit der Python-Version des Images
     runs-on: ubuntu-latest
     steps:
       - name: Repository auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Python-Version aus dem Dockerfile lesen
+        id: image
+        run: |
+          version="$(sed -n -E 's/^FROM python:([0-9]+\.[0-9]+)-slim[[:space:]]*$/\1/p' Dockerfile)"
+          if [ -z "$version" ]; then echo "::error::FROM python:X.Y-slim nicht im Dockerfile gefunden"; exit 1; fi
+          echo "python=$version" >> "$GITHUB_OUTPUT"
+          echo "Python des Produktionsimages: $version"
       - name: Python einrichten (gleiche Version wie FROM im Dockerfile)
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.15"
+          python-version: ${{ steps.image.outputs.python }}
           cache: pip
           cache-dependency-path: requirements.lock
       - name: Abhaengigkeiten installieren (exakt die Versionen des Docker-Images)

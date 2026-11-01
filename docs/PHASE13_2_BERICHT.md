@@ -28,6 +28,7 @@ Stand: 01.11.2026 · Branch `ops/phase13.2-vps-migration-readiness` · Basis `or
 | W7 | Python-Version | `Dockerfile`-Kommentar „Keep Python 3.14“ bei `FROM python:3.15-slim`; `VPS_DEPLOYMENT.md` „Python 3.14“; `docs/SECURITY_HARDENING.md` R-07 `python:3.14-slim`. |
 | W8 | Testabdeckung Python | Alle CI-Testjobs liefen auf 3.14; auf 3.15 (Produktion) nur Image-Build, Imports, Smoke und Compose-Test – **nicht** die ~1.240 Unittests. |
 | W9 | Bedienbarkeit | verkettete Befehle (`touch … && cd … && docker compose stop`), `git`-Befehle als root ohne `safe.directory` (Checkout gehört UID 1000 → „dubious ownership“), keine erwarteten Ausgaben, keine Abbruchpunkte. |
+| W11 | Review PR #96 | Aussage „bis Schritt 29 nichts verändert“ zu stark (Root-Helfer sind dann schon ersetzt); 3.15 im CI-Job fest eingetragen statt aus `FROM` gelesen – beides korrigiert. |
 | W10 | Rückweg | Phase-13-Bericht beschrieb noch `cp -a` (überschreibend); Rückweg-Befehle nicht einzeln, `git reset` ohne `safe.directory`. |
 
 ## 3. Korrigierte Stellen
@@ -36,7 +37,7 @@ Stand: 01.11.2026 · Branch `ops/phase13.2-vps-migration-readiness` · Basis `or
 - **`docs/BETRIEB.md`:** Deploy „nur von Hand“ / `PULSE_AUTO_DEPLOY`, Verweis auf die Migrationsanleitung, Layoutwechsel-Ausnahme.
 - **`docs/PHASE13_BERICHT.md` §9, `docs/PHASE13_1_BERICHT.md` §10:** Hinweis, dass die dortigen Schritte historisch sind und ausschließlich die neue Anleitung gilt.
 - **Python:** `Dockerfile`-Kommentar (nur Kommentar), `CLAUDE.md`, `docs/ARCHITEKTUR.md`, `docs/SECURITY_HARDENING.md` (R-07).
-- **CI:** neuer Job „Regressionstests mit der Python-Version des Images (3.15)“ in `.github/workflows/python-syntax.yml` (compileall, feature_smoke, smoke_test, unittest auf 3.15 mit `requirements.lock --require-hashes`). Die bestehenden 3.14-Jobs bleiben unverändert (kein Zurückstellen, sondern zusätzliche Abdeckung).
+- **CI:** neuer Job „Regressionstests mit der Python-Version des Images“ in `.github/workflows/python-syntax.yml`: liest die Version aus der `FROM`-Zeile des `Dockerfile` (keine zweite Stelle, die bei einem Dependabot-Bump veralten kann) und führt compileall, feature_smoke, smoke_test und unittest darauf aus (`requirements.lock --require-hashes`). Die bestehenden 3.14-Jobs bleiben unverändert (kein Zurückstellen, sondern zusätzliche Abdeckung).
 - **Tests:** `tests/test_ops_docs.py` (19 Tests).
 
 ## 4. Verifizierte Python-Version
@@ -62,7 +63,7 @@ Ablauf in `VPS_DEPLOYMENT.md` (Kurzfassung der 41 Schritte): Snapshot (1) → Ko
 
 ## 6. Rückweg und Abbruchbedingungen
 
-- **Bis Schritt 29:** nichts verändert; Abbruch = `docker start pulse-teamos`, Pausen-Datei entfernen.
+- **Bis Schritt 29:** Pulse-Code und -Daten unverändert; ersetzt sind nur die beiden Root-Helfer (Schritt 20, starten den alten Stand weiter korrekt und bleiben installiert) und die Pausen-Datei. Abbruch = `docker start pulse-teamos`, Pausen-Datei entfernen.
 - **Nach Schritt 32, vor 33:** alter Stand startbar; `/opt/pulse/data` ist dann veraltet → umbenennen (nicht löschen), später ab Schritt 25 neu.
 - **Deploy meldet `noch nicht migriert`:** nichts verändert, Markierung prüfen.
 - **Deploy meldet `KRITISCH … Layoutwechsel`:** Pulse gestoppt, Code auf neuem Commit, Daten unverändert in `/opt/pulse/data` → Ursache beheben und starten, sonst Rückweg.

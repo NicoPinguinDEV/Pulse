@@ -112,7 +112,7 @@ Ohne `PULSE_DATA_DIR` (Bot-Hosting ohne Docker, lokale Entwicklung) bleibt alles
 - 🪟 **Windows (Browser oder PowerShell)** – auf deinem Windows-11-PC.
 - 🐧 **VPS (Bash)** – auf dem Ubuntu-24.04-Server, nachdem du dich per SSH verbunden hast. Diese Befehle **nie** in PowerShell eingeben.
 - Jeden Befehl **einzeln** kopieren und mit Enter ausführen. Danach die Zeile *Erwartet* vergleichen.
-- ⛔ **STOPP** heißt: nicht weitermachen. Ausgabe sichern (Screenshot oder Text) und erst nach Klärung fortfahren. Bis einschließlich Schritt 29 (Probelauf) ist nichts an Code oder Daten verändert – ein Abbruch bis dahin ist folgenlos.
+- ⛔ **STOPP** heißt: nicht weitermachen. Ausgabe sichern (Screenshot oder Text) und erst nach Klärung fortfahren. Bis einschließlich Schritt 29 (Probelauf) sind Pulse-Code (Checkout und Image) und Pulse-Daten unverändert. Geändert sind bis dahin nur die beiden Root-Helfer in `/usr/local/sbin` (Schritt 20) und die Pausen-Datei (Schritt 25). Die neuen Helfer starten den alten Stand weiterhin korrekt und verweigern nur ein Update ins neue Layout ohne Migration. Sie bleiben bei einem Abbruch daher bewusst installiert. Ein Abbruch bis Schritt 29 ist damit für Pulse folgenlos (Container starten, Pausen-Datei entfernen).
 
 **Warum diese Reihenfolge (aus dem Code abgeleitet)**
 

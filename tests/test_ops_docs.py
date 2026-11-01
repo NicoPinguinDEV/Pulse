@@ -58,7 +58,11 @@ class PythonVersionTests(unittest.TestCase):
     def test_ci_runs_the_full_suite_on_the_image_python(self):
         ci = read(".github/workflows/python-syntax.yml")
         job = ci.split("  syntax-image-python:", 1)[1].split("\n  e2e-scope:", 1)[0]
-        self.assertIn(f'python-version: "{image_python()}"', job)
+        # The version is read from the Dockerfile's FROM line inside the job – no second place that can drift.
+        self.assertIn("python-version: ${{ steps.image.outputs.python }}", job)
+        self.assertIn("sed -n -E 's/^FROM python:([0-9]+\\.[0-9]+)-slim[[:space:]]*$/\\1/p' Dockerfile", job)
+        self.assertNotRegex(job, r'python-version: "\d')
+        self.assertLess(job.index("id: image"), job.index("actions/setup-python"))
         self.assertIn("--require-hashes -r requirements.lock", job)
         self.assertIn("python -m unittest discover -s tests -p 'test_*.py'", job)
         self.assertIn("python tests/feature_smoke.py", job)
@@ -106,6 +110,13 @@ class MigrationOrderTests(unittest.TestCase):
                 positions.append(t.index(needle))
         self.assertEqual(positions, sorted(positions),
                          [label for (_needle, label), _pos in sorted(zip(order, positions), key=lambda x: x[1])])
+
+    def test_abort_statement_names_what_already_changed(self):
+        """PR #96 review: before the dry run the root helpers are already replaced – the docs must say so."""
+        intro = read("VPS_DEPLOYMENT.md").split("#### A", 1)[0].split("(Schritt für Schritt)", 1)[1]
+        self.assertNotIn("ist nichts an Code oder Daten verändert", intro)
+        self.assertIn("nur die beiden Root-Helfer", intro)
+        self.assertIn("bleiben bei einem Abbruch daher bewusst installiert", intro)
 
     def test_helpers_come_from_the_checked_main(self):
         self.assertIn("git show origin/main:scripts/pulse-vps-boot-update.sh > /root/pulse-vps-boot-update.sh", self.text)
