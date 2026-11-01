@@ -163,6 +163,7 @@ class IndexedReadTests(ShiftHistoryBase):
         ]
         self.seed(legacy_rows)
         member_ids = ["1000", "1001"]
+        member_ids = ["1000", "1001", "None"]
         expected_this = seconds_per_member(legacy_rows, this_start, this_end)
         expected_prev = seconds_per_member(legacy_rows, previous_start, previous_end)
         expected_latest = last_shift_dates(legacy_rows)
