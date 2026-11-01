@@ -27,7 +27,7 @@ class _TempDb(unittest.TestCase):
         self.audits = []
         self.patches = [
             patch.object(pulse_db, "DB_PATH", self.db_path),
-            patch.object(ws, "BASE_DIR", Path(self.tmp.name)),
+            patch.object(ws, "BASE_DIR", Path(self.tmp.name)), patch.object(ws, "DATA_DIR", Path(self.tmp.name)),
             patch.object(ws, "log_audit", lambda *a, **k: self.audits.append(a)),
             patch.object(pulse_ultimate, "_INIT", False),
             patch.object(pulse_next, "_INIT", False),

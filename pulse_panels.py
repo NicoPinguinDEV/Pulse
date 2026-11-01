@@ -8,11 +8,11 @@ or change a file. "Neu veröffentlichen" is offered where a tested publish funct
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 
 import pulse_db
+import pulse_paths
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = pulse_paths.DATA_DIR  # Phase 13: the cogs' SQLite files live in the data directory
 REPUBLISH = ("tickets", "verification", "duty")
 
 

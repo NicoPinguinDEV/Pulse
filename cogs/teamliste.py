@@ -2,15 +2,15 @@ import asyncio
 import json
 import sqlite3
 from contextlib import closing
-from pathlib import Path
 import discord
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
 
 import pulse_jobs
+import pulse_paths
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = pulse_paths.DATA_DIR  # Phase 13: runtime data (databases, shifts.json) – not the code folder
 DB_NAME = str(BASE_DIR / "teamliste.db")
 ABMELDUNGEN_DB = str(BASE_DIR / "abmeldungen.db")
 

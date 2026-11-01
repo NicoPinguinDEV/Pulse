@@ -61,3 +61,9 @@ logs/
 
 # Server Control Center: Unix-Socket des Host-Verwaltungsdienstes (Laufzeit)
 .pulse-agent/
+
+# Phase 13: marker of a data directory (only if PULSE_DATA_DIR points into a checkout) and migration leftovers
+.pulse-data.json
+.pulse-data.json.tmp
+*.pulse-migrate.tmp
+/tmp/

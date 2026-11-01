@@ -9,8 +9,9 @@ from discord import app_commands
 from discord.ext import commands
 
 import pulse_db
+import pulse_paths
 
-DB_NAME = "rp_verwaltung.db"
+DB_NAME = pulse_paths.data_file("rp_verwaltung.db")  # Phase 13: data directory
 # K-02: who may use the panel besides admins and leaders (can_promote) – role IDs set in the dashboard.
 ROLE_SETTING_KEY = "rp_panel_role_ids"
 ANNOUNCE_COOLDOWN_SECONDS = 60

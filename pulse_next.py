@@ -24,11 +24,12 @@ from fastapi import Cookie, Form, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 import pulse_db as db
+import pulse_paths
 import pulse_sqlite
 from pulse_safe_path import contained_file
 import pulse_ultimate as u
 
-BASE = Path(__file__).resolve().parent
+BASE = pulse_paths.DATA_DIR  # Phase 13: runtime data (JSON, backups) – not the code folder
 BACKUP_DIR = BASE / "backups"  # A-04: created by create_backup() and webserver.init_runtime, not on import
 
 _INIT = False

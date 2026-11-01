@@ -129,6 +129,7 @@ def main() -> int:
     for name in ("DATA_FILE", "CONFIG_FILE", "LOGS_FILE", "SHIFTS_FILE", "MEETINGS_FILE", "APPS_FILE", "AUDIT_FILE"):
         setattr(ws, name, str(Path(tmp) / Path(getattr(ws, name)).name))
     ws.BASE_DIR = Path(tmp)
+    ws.DATA_DIR = Path(tmp)  # Phase 13: runtime data root
     import pulse_panels
     pulse_panels.BASE_DIR = Path(tmp)  # reads the cogs' own SQLite files (read-only) – never the checkout's local ones
     os.chdir(tmp)  # same guard as preview_server/load_test (tests/test_tool_isolation.py): runtime files stay in tmp

@@ -9,6 +9,7 @@
 set -euo pipefail
 
 REPO_DIR="${1:-/opt/pulse/Pulse}"
+DATA_DIR="${PULSE_DATA_HOST_DIR:-/opt/pulse/data}"
 REPO_URL="${PULSE_REPO_URL:-https://github.com/NicoPinguinDEV/Pulse.git}"
 PULSE_UID="${PULSE_UID:-1000}"
 SWAP_SIZE="${PULSE_SWAP_SIZE:-2G}"
@@ -76,6 +77,10 @@ fi
 
 echo "== 6/6 Rechte für den Container-Benutzer (UID $PULSE_UID, siehe Dockerfile)"
 chown -R "$PULSE_UID:$PULSE_UID" "$REPO_DIR"
+# Phase 13: separate data directory (mounted as /data). Created empty and never filled here – existing data comes
+# in with scripts/pulse_migrate_data.py, a new installation starts once with PULSE_DATA_DIR_INIT=1.
+install -d -o "$PULSE_UID" -g "$PULSE_UID" -m 750 "$DATA_DIR"
+install -d -o "$PULSE_UID" -g "$PULSE_UID" -m 750 "$REPO_DIR/.pulse-agent"
 if [ -f "$REPO_DIR/.env" ]; then
   chmod 600 "$REPO_DIR/.env"
 fi
@@ -83,8 +88,9 @@ fi
 cat <<EOF
 
 Fertig. Nächste Schritte (VPS_DEPLOYMENT.md):
-  1. Laufzeitdaten (config.json, *.db, JSON-Dateien, backups/, transcripts/) nach $REPO_DIR kopieren
-     und danach erneut: chown -R $PULSE_UID:$PULSE_UID $REPO_DIR
+  1. Laufzeitdaten (config.json, *.db, JSON-Dateien, uploads/, attachments/, backups/, transcripts/) in einen
+     Ordner kopieren und mit scripts/pulse_migrate_data.py --source <ordner> --target $DATA_DIR übernehmen
+     (erst Probelauf, dann --execute). Ganz neue Installation ohne Altdaten: einmal PULSE_DATA_DIR_INIT=1 in .env.
   2. cp $REPO_DIR/.env.example $REPO_DIR/.env && nano $REPO_DIR/.env && chmod 600 $REPO_DIR/.env
   3. cd $REPO_DIR && docker compose up -d --build   (mit Domain: docker compose --profile https up -d --build)
   4. docker compose logs -f --tail=150 pulse

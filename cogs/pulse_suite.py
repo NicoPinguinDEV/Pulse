@@ -21,11 +21,12 @@ from fastapi import Cookie, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
+import pulse_paths
 import pulse_sqlite
 from pulse_jobs import tracked
 from pulse_safety import approved_action_operation, rank_role_ids_after_change
 
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE = str(pulse_paths.DATA_DIR)  # Phase 13: data directory (pulse_suite.db, activity_check.db)
 DB_PATH = os.path.join(BASE, "pulse_suite.db")
 GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "0") or 0)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")

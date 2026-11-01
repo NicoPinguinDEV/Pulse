@@ -51,6 +51,7 @@ Ohne Host-Dienst funktionieren Übersicht (Werte aus dem eigenen Prozess), Anwen
    sudo nano /etc/pulse-host-agent.env
    ```
    In `/etc/pulse-host-agent.env` bei `PULSE_AGENT_TOKEN=` das erzeugte Token eintragen. `PULSE_AGENT_SOCKET=/opt/pulse/Pulse/.pulse-agent/agent.sock` so lassen.
+   Seit Phase 13 wird nur dieser Socket-Ordner in den Container eingebunden (`./.pulse-agent:/app/.pulse-agent`). Er muss UID 1000 gehören: `sudo install -d -o 1000 -g 1000 -m 750 /opt/pulse/Pulse/.pulse-agent` (die Deploy-Skripte legen ihn sonst an).
 
 4. **systemd-Unit installieren und starten.**
    ```bash

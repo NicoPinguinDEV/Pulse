@@ -34,6 +34,7 @@ from pulse_db import (
 from pulse_ticket_design import category_block, load_line, ticket_channel_name
 from pulse_transcripts import TranscriptError, archive_transcript, keep_channel_after_failure
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
+import pulse_paths
 from pulse_ticket_design import (
     PANEL_IMAGE_DIR,
     automation_actions,
@@ -46,7 +47,7 @@ from pulse_ticket_design import (
     welcome_texts,
 )
 
-os.makedirs("transcripts", exist_ok=True)
+os.makedirs(pulse_paths.data_file("transcripts"), exist_ok=True)  # Phase 13: data directory
 
 TICKET_PARENT_NAME = "🎫・Tickets"
 TEAM_UPDATE_CHANNEL_ID = _pulse_ids.TEAM_UPDATE_CHANNEL_ID

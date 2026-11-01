@@ -10,6 +10,7 @@ import discord
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
+import pulse_paths
 
 from pulse_announcement_utils import (
     build_announcement_explanation,
@@ -17,7 +18,6 @@ from pulse_announcement_utils import (
     score_announcement,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SCAN_LIMIT = 2000
 MAX_SCAN_LIMIT = 5000
 MENTIONS_NONE = discord.AllowedMentions.none()
@@ -53,7 +53,7 @@ class AnnouncementArchive(commands.Cog):
         self.config_path = Path(
             os.getenv(
                 "PULSE_ANNOUNCEMENT_ARCHIVE_CONFIG",
-                str(PROJECT_ROOT / "pulse_announcement_archive.json"),
+                pulse_paths.data_file("pulse_announcement_archive.json"),
             )
         )
 

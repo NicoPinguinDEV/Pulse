@@ -2036,7 +2036,7 @@ def register(app):
             try:
                 candidate = Path(raw)
                 if not candidate.is_absolute():
-                    candidate = ws.BASE_DIR / candidate
+                    candidate = ws.DATA_DIR / candidate
                 candidate = candidate.resolve()
                 expected_prefix = f"{c.guild.id}_support_{audio_type}_"
                 if candidate.parent == audio_dir and candidate.name.startswith(expected_prefix) and candidate.is_file():
@@ -2068,9 +2068,9 @@ def register(app):
         written_audio_paths = []
         try:
             if waiting_music_data is not None:
-                asset_dir = Path(ws.BASE_DIR) / "assets"
+                asset_dir = Path(ws.DATA_DIR) / "assets"  # Phase 13: uploaded waiting music = runtime data
                 asset_dir.mkdir(parents=True, exist_ok=True)
-                (Path(ws.BASE_DIR) / music_path).write_bytes(waiting_music_data)
+                (Path(ws.DATA_DIR) / music_path).write_bytes(waiting_music_data)
 
             audio_dir.mkdir(parents=True, exist_ok=True)
             for audio_type, config_key, old_path, extension, data in prepared_audio:
@@ -2078,7 +2078,7 @@ def register(app):
                 temporary = target.with_name(target.name + ".uploading")
                 temporary.write_bytes(data)
                 os.replace(temporary, target)
-                relative_path = target.resolve().relative_to(Path(ws.BASE_DIR).resolve()).as_posix()
+                relative_path = target.resolve().relative_to(Path(ws.DATA_DIR).resolve()).as_posix()
                 new_audio_paths[config_key] = relative_path
                 written_audio_paths.append((relative_path, audio_type))
                 if old_path:
@@ -2674,7 +2674,7 @@ def register(app):
         flag_points=0
         try:
             import sqlite3
-            with closing(sqlite3.connect('flaggenquiz.db')) as cx, cx:
+            with closing(sqlite3.connect(ws.pulse_paths.data_file('flaggenquiz.db'))) as cx, cx:
                 row=cx.execute('SELECT points FROM quiz_scores WHERE guild_id=? AND user_id=?',(c.guild.id,int(uid))).fetchone(); flag_points=int(row[0]) if row else 0
         except Exception: pass
         metrics={'shifts':shift_count,'hours':hours,'tickets_closed':tickets_closed,'meetings':meeting_count,'flag_correct':flag_points,'handovers':handovers,'tasks_done':tasks_done}
@@ -3208,7 +3208,7 @@ def register(app):
             import pulse_consistency  # D-10 report only, D-07 growth watch
             for finding in pulse_consistency.check(ws,c.guild):
                 checks.append((f"Konsistenz · {finding['area']}",finding['ok'],finding['text']))
-            for item in pulse_consistency.growth(ws.BASE_DIR):
+            for item in pulse_consistency.growth(ws.DATA_DIR):
                 if not item['ok']:
                     checks.append((f"Dateigröße · {item['name']}",False,f"{item['size']/(1024*1024):.1f} MB – wird bei fast jeder Seite komplett gelesen (Auslagerung in A-05)"))
         except Exception as exc:
@@ -3248,7 +3248,7 @@ def register(app):
             checks.extend(pulse_system_checks.run(bot,c.guild,c.config))
         except Exception as exc:
             checks.append(('Erweiterte Prüfungen',False,f'fehlgeschlagen ({type(exc).__name__})'))
-        total,used,free=shutil.disk_usage(ws.BASE_DIR); checks.append(('Speicher',free>200*1024*1024,f'{free/1024/1024:.0f} MB frei'))
+        total,used,free=shutil.disk_usage(ws.DATA_DIR); checks.append(('Speicher',free>200*1024*1024,f'{free/1024/1024:.0f} MB frei'))
         rows=''.join(f'<div class="pulse-row"><div class="flex items-center gap-2"><span class="pulse-status-dot {"bg-emerald-500" if ok else "bg-rose-500"}"></span><div class="pulse-row-title">{e(name)}</div></div><div class="text-right"><div class="text-[11px] font-semibold">{e(detail)}</div><div class="pulse-row-meta">{"OK" if ok else "Prüfen"}</div></div></div>' for name,ok,detail in checks)
         body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">♥ Systemstatus</div><div class="pulse-section-sub">Live-Prüfung der wichtigsten Pulse-Komponenten.</div></div><span class="pulse-pill {'good' if all(x[1] for x in checks) else 'warn'}">{'Alles grün' if all(x[1] for x in checks) else 'Prüfung nötig'}</span></div>{card('System-Checks',rows,'♥')}{card('Letzte Fehler',''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(x["source"])}</div><div class="pulse-row-meta">{ws.time_tag(x["at"])} · {e(x["error_id"] or "–")} · {e(x["message"])}</div></div></div>' for x in __import__('pulse_logging').recent(20)) or ws.empty_state('Keine Fehler seit dem Start.','✅'),'⚠')}{card('Slash-Befehle','<form method="post" action="/admin/commands/sync" onsubmit="return confirm(&#39;Slash-Befehle jetzt bei Discord synchronisieren?&#39;)"><p class="text-xs text-slate-400 mb-2">Pulse synchronisiert nur noch, wenn sich Befehle geändert haben. Fehlen Befehle in Discord, hier manuell auslösen.</p><button class="pulse-btn ghost">🔄 Jetzt synchronisieren</button></form>','🔄')}'''
         return render_pro_page(ws,'Systemstatus',c,'system',body)

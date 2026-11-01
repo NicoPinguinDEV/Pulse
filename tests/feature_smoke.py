@@ -68,9 +68,11 @@ def main() -> None:
     activity_pro = read("pulse_pro.py")
     assert "DB_NAME = str(BASE_DIR / \"activity_check.db\")" in activity_cog
     assert "ABMELDUNGEN_DB = str(BASE_DIR / \"abmeldungen.db\")" in activity_cog
-    assert 'DB_NAME = str(Path(__file__).resolve().parents[1] / "abmeldungen.db")' in read("cogs/abmeldung.py")
+    assert 'DB_NAME = pulse_paths.data_file("abmeldungen.db")' in read("cogs/abmeldung.py")
+    # Phase 13: bot and dashboard resolve the same files below the one data directory (PULSE_DATA_DIR)
+    assert "BASE_DIR = pulse_paths.DATA_DIR" in activity_cog and "BASE_DIR = pulse_paths.DATA_DIR" in read("cogs/teamliste.py")
     assert "ABMELDUNGEN_DB = str(BASE_DIR / \"abmeldungen.db\")" in read("cogs/teamliste.py")
-    assert "ACTIVITY_DB = str(BASE_DIR / \"activity_check.db\")" in web
+    assert "ACTIVITY_DB = str(DATA_DIR / \"activity_check.db\")" in web
     assert "sqlite3.connect(ws.ACTIVITY_DB)" in activity_pro
     assert "import sqlite3\n" in activity_pro.split("PRO_CSS", 1)[0]
     assert "Activity Check reparieren / einrichten" in activity_pro

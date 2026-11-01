@@ -6,6 +6,9 @@ SERVICE_NAME="pulse"
 UPDATE_HELPER="/usr/local/sbin/pulse-vps-boot-update.sh"
 HEALTH_URL="http://127.0.0.1:25095/healthz"
 BACKUP_ROOT="/root/pulse-auto-deploy-backups"
+# Phase 13: runtime data directory (mounted as /data); same lookup as deploy/remote_deploy.sh.
+DATA_HOST_DIR="${PULSE_DATA_HOST_DIR:-}"
+PULSE_UID="${PULSE_UID:-1000}"
 # Only compose.yaml from git – never a compose.override.yaml or a COMPOSE_FILE from .env, which the container
 # (bind mount) could create to start a privileged container through this root script.
 export COMPOSE_FILE=compose.yaml
@@ -35,6 +38,9 @@ wait_for_health() {
 
 start_current_version() {
     log "Starte den derzeit ausgecheckten Stand, ohne lokale Änderungen zu überschreiben."
+    if uses_data_dir HEAD; then
+        prepare_mounts
+    fi
     if ! docker compose up -d; then
         log "WARNUNG: Der vorhandene Pulse-Stand konnte nicht gestartet werden."
         return 1
@@ -62,6 +68,19 @@ backup_runtime_data() {
             return 1
         fi
     fi
+    # Phase 13: the live data lives in the data directory – back up its databases, JSON stores and waiting music too.
+    if [[ -d "$DATA_HOST_DIR" ]]; then
+        install -d -m 700 "$backup/data"
+        for file in "$DATA_HOST_DIR"/*.json "$DATA_HOST_DIR"/.pulse-data.json "$DATA_HOST_DIR"/*.db "$DATA_HOST_DIR"/*.sqlite \
+                    "$DATA_HOST_DIR"/*.sqlite3 "$DATA_HOST_DIR"/*.db-shm "$DATA_HOST_DIR"/*.db-wal "$DATA_HOST_DIR"/assets/support_wait.*; do
+            if [[ -f "$file" ]]; then
+                if ! cp -p -- "$file" "$backup/data/$(basename "$file")"; then
+                    log "FEHLER: Sicherung fehlgeschlagen für $file"
+                    return 1
+                fi
+            fi
+        done
+    fi
     log "Runtime-Daten und lokale Wartemusik gesichert: $backup"
 }
 
@@ -76,6 +95,16 @@ install_updated_helper() {
 }
 
 cd "$REPO_DIR"
+if [[ -z "$DATA_HOST_DIR" ]]; then
+    DATA_HOST_DIR="$( { sed -n 's/^PULSE_DATA_HOST_DIR=//p' .env 2>/dev/null || true; } | tail -n 1 | tr -d '\r"')"
+fi
+DATA_HOST_DIR="${DATA_HOST_DIR:-/opt/pulse/data}"
+uses_data_dir() { git show "$1:compose.yaml" 2>/dev/null | grep -q 'target: /data'; }
+data_dir_ready() { [[ -f "$DATA_HOST_DIR/.pulse-data.json" ]] && grep -Eq '"state": "(complete|initialized)"' "$DATA_HOST_DIR/.pulse-data.json"; }
+prepare_mounts() {
+    # The compose file mounts the socket folder of the host agent; create it for the container user if missing.
+    [[ -d .pulse-agent ]] || install -d -o "$PULSE_UID" -g "$PULSE_UID" -m 750 .pulse-agent || true
+}
 # Root runs this script, but the checkout belongs to the container user (UID 1000, O-01). Without this, git
 # refuses every command ("dubious ownership"), set -e ends the script before start_current_version and Pulse
 # stays down after a reboot (same line as deploy/remote_deploy.sh; valid only for this script's git calls).
@@ -125,6 +154,12 @@ if [[ "$previous" == "$target" ]]; then
 fi
 
 log "Neuer GitHub-Stand erkannt: $previous -> $target"
+# Phase 13: an update to the data-directory layout needs the separate, confirmed migration first.
+if uses_data_dir "$target" && ! data_dir_ready; then
+    log "ABBRUCH: $target nutzt das Datenverzeichnis $DATA_HOST_DIR, das noch nicht migriert ist (VPS_DEPLOYMENT.md, Phase 13)."
+    start_current_version || true
+    exit 1
+fi
 docker compose stop "$SERVICE_NAME" || true
 if ! backup_runtime_data; then
     log "ABBRUCH: Vor dem Update konnte keine vollständige Sicherung erstellt werden."
@@ -139,6 +174,10 @@ if ! git merge --ff-only "$target"; then
 fi
 
 install_updated_helper
+export PULSE_GIT_SHA="$target" PULSE_GIT_BRANCH=main
+if uses_data_dir "$target"; then
+    prepare_mounts
+fi
 if docker compose up -d --build; then
     if wait_for_health; then
         log "Update erfolgreich."
@@ -153,6 +192,7 @@ fi
 log "Update fehlgeschlagen. Stelle den vorherigen Code-Stand $previous wieder her."
 git reset --hard "$previous"
 install_updated_helper
+export PULSE_GIT_SHA="$previous"
 docker compose up -d --build || {
     log "KRITISCH: Auch der vorherige Code-Stand konnte nicht gestartet werden."
     docker compose ps

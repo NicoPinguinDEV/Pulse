@@ -8,8 +8,9 @@ from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
+import pulse_paths
 
-DB_NAME = "buero_system.db"
+DB_NAME = pulse_paths.data_file("buero_system.db")  # Phase 13: data directory
 
 # Aktuelle Server-Zuordnung für das Büro-System. Die bestehende /setup_buero-
 # Konfiguration bleibt weiterhin änderbar; die Version-Migration korrigiert einmalig

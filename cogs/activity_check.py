@@ -3,7 +3,6 @@ import json
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta, time as datetime_time
-from pathlib import Path
 import zoneinfo
 
 import discord
@@ -12,6 +11,7 @@ from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
 from pulse_jobs import tracked
+import pulse_paths
 
 from pulse_activity_utils import (
     activity_action_is_terminal,
@@ -21,7 +21,7 @@ from pulse_activity_utils import (
     leave_covers_date,
 )
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = pulse_paths.DATA_DIR  # Phase 13: runtime data (databases, config.json) – not the code folder
 DB_NAME = str(BASE_DIR / "activity_check.db")
 ABMELDUNGEN_DB = str(BASE_DIR / "abmeldungen.db")
 BERLIN_TZ = zoneinfo.ZoneInfo("Europe/Berlin")

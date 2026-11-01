@@ -3,6 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Phase 13: the installed commit travels as build information (no .git inside the container).
+      args:
+        PULSE_GIT_SHA: ${PULSE_GIT_SHA:-}
+        PULSE_GIT_BRANCH: ${PULSE_GIT_BRANCH:-}
     container_name: pulse-teamos
     # systemd updates GitHub main before Pulse starts on every VPS boot.
     # Avoid racing ahead with an old checkout while the update service runs.
@@ -19,11 +23,21 @@ services:
     security_opt:
       - no-new-privileges:true
     pids_limit: 256
+    # Phase 13 (SEC R-05 / D-06): the root filesystem – and with it the code in /app – is read-only. Pulse writes
+    # only to /data (runtime data, logs, TMPDIR) and to a small /tmp in RAM.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777,nosuid,nodev,noexec
+    # .env stays on the host: compose reads it and passes the values as environment variables – the file itself
+    # is not inside the container (neither readable nor writable for Pulse).
     env_file:
       - .env
     environment:
       SERVER_PORT: ${SERVER_PORT:-25095}
-      PULSE_DB_PATH: ${PULSE_DB_PATH:-/app/pulse.db}
+      # Fixed on purpose (no ${...} from .env): an old PULSE_DB_PATH=/app/pulse.db must not point into the code.
+      PULSE_DATA_DIR: /data
+      PULSE_DB_PATH: /data/pulse.db
+      TMPDIR: /data/tmp
       # O-02: X-Forwarded-For is trusted only from the Caddy container (fixed address below) or from the
       # network gateway 172.30.0.1, through which a reverse proxy on the host reaches the loopback-published
       # port – never from the internet, so nobody can fake an IP to dodge the rate limit or the login audit.
@@ -36,18 +50,21 @@ services:
       pulse_net:
         ipv4_address: 172.30.0.2
     volumes:
-      # Keep config, JSON state, SQLite databases, backups and transcripts
-      # on the VPS between image rebuilds and deployments.
-      - ./:/app
-      # Read-only inside the container: files root on the host runs or reads (git in deploy/boot scripts, compose,
-      # helper scripts, systemd units). A compromised Pulse process must not be able to plant e.g. a git hook,
-      # core.fsmonitor or a changed deploy script that root later executes. Pulse only reads .git (installed commit).
-      - ./.git:/app/.git:ro
-      - ./compose.yaml:/app/compose.yaml:ro
-      - ./Dockerfile:/app/Dockerfile:ro
-      - ./deploy:/app/deploy:ro
-      - ./scripts:/app/scripts:ro
-      - ./systemd:/app/systemd:ro
+      # Phase 13 (D-06): only the data directory is mounted – no part of the checkout. Config, JSON state, SQLite
+      # databases, uploads, attachments, transcripts, backups, the uploaded waiting music and logs stay on the host
+      # (/opt/pulse/data) across image rebuilds, deploys and rollbacks. The checkout (.git, deploy/, scripts/,
+      # systemd/, compose.yaml, .env) is invisible to the container, so a compromised Pulse process cannot plant
+      # anything that root later executes. create_host_path: false – a missing data directory stops the start
+      # instead of Docker creating an empty one (scripts/pulse_migrate_data.py prepares it).
+      - type: bind
+        source: ${PULSE_DATA_HOST_DIR:-/opt/pulse/data}
+        target: /data
+        bind:
+          create_host_path: false
+      # Server Control Center: only the socket folder of the host agent (docs/SERVER_CONTROL_CENTER.md), at the
+      # same path as before so PULSE_HOST_AGENT_URL=unix:///app/.pulse-agent/agent.sock keeps working. The deploy
+      # and boot scripts create it for UID 1000; it holds nothing root executes.
+      - ./.pulse-agent:/app/.pulse-agent
     working_dir: /app
     stop_grace_period: 40s
     healthcheck:

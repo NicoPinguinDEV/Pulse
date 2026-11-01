@@ -19,11 +19,24 @@ def prepare_process() -> None:
     (real tokens and data paths) into the importing process."""
     os.chdir(BASE_DIR)
     pulse_logging.safe_console()  # emoji output must not crash on a cp1252 console
-    pulse_logging.setup(str(BASE_DIR))  # P-10: logs/pulse.log (1 MB x 3) + error ring buffer
 
     # .env muss vor dem Import von webserver/pulse_db geladen sein, da diese
-    # Module ihre Konfiguration beim Import lesen.
+    # Module ihre Konfiguration beim Import lesen. In Docker gibt es keine .env-Datei im Container
+    # (Phase 13: env_file) – load_dotenv tut dann nichts.
     load_dotenv(BASE_DIR / ".env")
+
+    # Phase 13: PULSE_DATA_DIR is read here, after .env – pulse_paths must not be imported earlier.
+    import pulse_paths
+    data_problems = pulse_paths.verify_data_dir()
+    if data_problems:
+        for problem in data_problems:
+            print(f"❌ Datenverzeichnis: {problem}")
+        raise SystemExit(pulse_paths.EXIT_CONFIG)
+    pulse_paths.ensure_runtime_dirs()
+    if pulse_paths.configured():
+        # Large temp files (backup restore staging) go to the data disk, not into RAM-backed /tmp (768 MiB limit).
+        os.environ.setdefault("TMPDIR", pulse_paths.data_file("tmp"))
+    pulse_logging.setup(str(pulse_paths.DATA_DIR))  # P-10: logs/pulse.log (1 MB x 3) + error ring buffer
 
     # O-06: before webserver is imported – a malformed SESSION_DAYS/MAX_BACKUPS would stop the import there,
     # and this message names the cause. Only names and expected ranges are printed, never values.

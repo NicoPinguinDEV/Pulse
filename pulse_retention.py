@@ -194,7 +194,7 @@ def export_person(ws, discord_id: str) -> dict:
         "notice": f"Höchstens {EXPORT_ROW_LIMIT} Zeilen je Tabelle. Ticket-Transkripte liegen als Dateien unter transcripts/ (Ticket-IDs siehe databases).",
     }
     for name in pulse_backup.SQLITE_FILES:
-        path = pulse_backup.sqlite_path(ws.BASE_DIR, name)
+        path = pulse_backup.sqlite_path(ws.DATA_DIR, name)
         if not path.is_file():
             continue
         try:
@@ -203,7 +203,7 @@ def export_person(ws, discord_id: str) -> dict:
             rows = {"_fehler": type(exc).__name__}
         if rows:
             result["databases"][name] = rows
-    ai_cases = ws.load_json(os.getenv("PULSE_AI_MODERATION_CASES_FILE", str(Path(ws.BASE_DIR) / "ai_moderation_cases.json")), {})
+    ai_cases = ws.load_json(os.getenv("PULSE_AI_MODERATION_CASES_FILE", str(Path(ws.DATA_DIR) / "ai_moderation_cases.json")), {})
     result["ai_moderation_cases"] = [c for c in (ai_cases.values() if isinstance(ai_cases, dict) else [])
                                      if isinstance(c, dict) and uid in {str(v) for k, v in c.items() if str(k).endswith("_id")}]
     try:

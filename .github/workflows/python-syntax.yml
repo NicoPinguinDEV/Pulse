@@ -149,16 +149,41 @@ jobs:
     steps:
       - name: Repository auschecken
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Compose-Konfiguration prüfen (Mounts, Limits; leere .env nur für die Prüfung)
+      - name: Compose-Konfiguration prüfen (Phase 13 – read-only, nur /data; leere .env nur für die Prüfung)
         run: |
           touch .env
+          mkdir -p "$RUNNER_TEMP/compose-data"
+          export PULSE_DATA_HOST_DIR="$RUNNER_TEMP/compose-data"
           docker compose config --quiet
-          docker compose config --format json | python3 -c "import json,sys; v=json.load(sys.stdin)['services']['pulse']['volumes']; ro={x['target'] for x in v if x.get('read_only')}; need={'/app/.git','/app/compose.yaml','/app/Dockerfile','/app/deploy','/app/scripts','/app/systemd'}; sys.exit(0 if need<=ro else print('nicht schreibgeschützt:', need-ro) or 1)"
+          docker compose config --format json | python3 -c "
+          import json, sys
+          s = json.load(sys.stdin)['services']['pulse']
+          vols = s['volumes']
+          bad = [v for v in vols if v['target'] == '/app' or v['target'] not in ('/data', '/app/.pulse-agent')]
+          data = [v for v in vols if v['target'] == '/data']
+          ok = s.get('read_only') is True and not bad and len(data) == 1 and s['environment'].get('PULSE_DATA_DIR') == '/data'
+          ok = ok and s.get('mem_limit') and s.get('cap_drop') == ['ALL'] and 'no-new-privileges:true' in s.get('security_opt', [])
+          sys.exit(0 if ok else print('Container-Layout verletzt:', bad, data, s.get('read_only')) or 1)"
       - name: Image bauen
         run: |
-          docker build --pull -t pulse-ci:${{ github.sha }} .
+          docker build --pull --build-arg PULSE_GIT_SHA=${{ github.sha }} --build-arg PULSE_GIT_BRANCH=ci -t pulse-ci:${{ github.sha }} .
       - name: Laufzeitabhängigkeiten im Image prüfen
         run: |
           docker run --rm --entrypoint python pulse-ci:${{ github.sha }} -c "import discord, fastapi, uvicorn, httpx, nacl, davey, multipart, dotenv; print('imports ok')"
           docker run --rm --entrypoint ffmpeg pulse-ci:${{ github.sha }} -hide_banner -version
           test "$(docker run --rm --entrypoint id pulse-ci:${{ github.sha }} -u)" != "0"
+      - name: Read-only-Container mit Datenverzeichnis starten (Phase 13, ohne Discord)
+        run: |
+          data="$RUNNER_TEMP/pulse-data"
+          mkdir -p "$data" && sudo chown 1000:1000 "$data"
+          docker run --rm --read-only --tmpfs /tmp:size=64m --cap-drop ALL --security-opt no-new-privileges:true \
+            -e PULSE_DATA_DIR_INIT=1 -e PULSE_SMOKE_EXPECT_READONLY_CODE=1 -v "$data:/data" \
+            --entrypoint python pulse-ci:${{ github.sha }} tests/container_smoke.py
+          sudo test -f "$data/.pulse-data.json" && sudo test -f "$data/pulse.db" && sudo test -d "$data/backups"
+          # Without the marker (no migration, no PULSE_DATA_DIR_INIT) Pulse must refuse to start with exit code 78.
+          empty="$RUNNER_TEMP/pulse-empty" && mkdir -p "$empty" && sudo chown 1000:1000 "$empty"
+          set +e
+          docker run --rm --read-only --tmpfs /tmp:size=64m -v "$empty:/data" pulse-ci:${{ github.sha }}
+          code=$?
+          set -e
+          test "$code" = "78" && test -z "$(sudo ls -A "$empty")"

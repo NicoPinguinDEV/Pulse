@@ -37,6 +37,7 @@ import discord
 from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
+import pulse_paths
 import pulse_logging
 from pulse_safe_path import contained_file
 pulse_logging.safe_console()  # status prints with emoji must not crash on a cp1252 console (no file access)
@@ -57,7 +58,9 @@ try:
 except ImportError:  # pragma: no cover
     ZoneInfo = None
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent  # code (static/, cogs/) – read-only in Docker
+# Phase 13 (D-06): everything Pulse writes lives below DATA_DIR (PULSE_DATA_DIR, default: working directory).
+DATA_DIR = pulse_paths.DATA_DIR
 # Phase 9: no os.chdir and no .env loading on import – main.prepare_process() does both for the bot process
 # before webserver is imported (P8-06; tests importing webserver got the checkout's real .env).
 
@@ -179,22 +182,22 @@ MAX_SHIFT_HOURS = AUTO_SHIFT_END_HOURS
 MAX_CONFIRMED_SHIFT_HOURS = parse_max_shift_hours(os.getenv("MAX_SHIFT_HOURS"))
 AUTO_BACKUP_HOURS = float(os.getenv("AUTO_BACKUP_HOURS", "24")) # 0 = aus
 MAX_BACKUPS = int(os.getenv("MAX_BACKUPS", "30"))
-VOICE_SUPPORT_AUDIO_DIR = BASE_DIR / "uploads" / "voice_support_audio"
+VOICE_SUPPORT_AUDIO_DIR = DATA_DIR / "uploads" / "voice_support_audio"
 MAX_VOICE_SUPPORT_AUDIO_BYTES = 10 * 1024 * 1024
 VOICE_SUPPORT_AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".m4a"}
 COOKIE_SECURE = bool(PUBLIC_BASE_URL and PUBLIC_BASE_URL.startswith("https://"))
 
-DATA_FILE = "team_data.json"
-CONFIG_FILE = "config.json"
-APPS_FILE = "applications.json"
-SHIFTS_FILE = "shifts.json"
-LOGS_FILE = "logs.json"
-AUDIT_FILE = "audit_logs.json"
-MEETINGS_FILE = "meetings.json"
-DB_ABMELDUNGEN = str(BASE_DIR / "abmeldungen.db")
-ACTIVITY_DB = str(BASE_DIR / "activity_check.db")
-BACKUP_DIR = "backups"
-SECRET_FILE = ".session_secret"
+DATA_FILE = str(DATA_DIR / "team_data.json")
+CONFIG_FILE = str(DATA_DIR / "config.json")
+APPS_FILE = str(DATA_DIR / "applications.json")
+SHIFTS_FILE = str(DATA_DIR / "shifts.json")
+LOGS_FILE = str(DATA_DIR / "logs.json")
+AUDIT_FILE = str(DATA_DIR / "audit_logs.json")
+MEETINGS_FILE = str(DATA_DIR / "meetings.json")
+DB_ABMELDUNGEN = str(DATA_DIR / "abmeldungen.db")
+ACTIVITY_DB = str(DATA_DIR / "activity_check.db")
+BACKUP_DIR = str(DATA_DIR / "backups")
+SECRET_FILE = str(DATA_DIR / ".session_secret")
 
 VALID_LOG_TYPES = ("Warn", "Kick", "Ban", "Notiz", "Ban BOLO")
 PERM_KEYS = (
@@ -5851,7 +5854,7 @@ async def pulse_ticket_panel_save(
     return back(target, f"Panel „{cleaned_name}“ wurde gespeichert. Klicke auf „Panel veröffentlichen / aktualisieren“, um es in Discord anzuzeigen.", True)
 
 
-TICKET_PANEL_IMAGE_DIR = BASE_DIR / "uploads" / "ticket_panels"
+TICKET_PANEL_IMAGE_DIR = DATA_DIR / "uploads" / "ticket_panels"
 
 
 async def _store_ticket_panel_image(upload: UploadFile, panel_id: str, kind: str):
@@ -6210,7 +6213,7 @@ async def pulse_ticket_transcript(request: Request, ticket_id: str, user_session
     transcript_name = os.path.basename(str(ticket.get("transcript_path") or ""))
     if not transcript_name or transcript_name != f"{ticket_id}.txt":
         raise HTTPException(status_code=404, detail="Für dieses Ticket ist kein Transkript gespeichert.")
-    transcript_dir = (BASE_DIR / "transcripts").resolve()
+    transcript_dir = (DATA_DIR / "transcripts").resolve()
     transcript_file = (transcript_dir / transcript_name).resolve()
     if transcript_file.parent != transcript_dir or not transcript_file.is_file():
         raise HTTPException(status_code=404, detail="Transkriptdatei ist nicht vorhanden.")
@@ -6221,7 +6224,7 @@ def _ticket_transcript_file(ticket):
     transcript_name = os.path.basename(str(ticket.get("transcript_path") or ""))
     if not transcript_name or transcript_name != f"{ticket.get('id')}.txt":
         return None
-    transcript_dir = (BASE_DIR / "transcripts").resolve()
+    transcript_dir = (DATA_DIR / "transcripts").resolve()
     transcript_file = (transcript_dir / transcript_name).resolve()
     return transcript_file if transcript_file.parent == transcript_dir and transcript_file.is_file() else None
 
@@ -6978,7 +6981,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             try:
                 candidate = Path(raw_path)
                 if not candidate.is_absolute():
-                    candidate = BASE_DIR / candidate
+                    candidate = DATA_DIR / candidate
                 candidate = candidate.resolve()
                 if candidate.is_file():
                     return f"✅ Eigene Audiodatei aktiv: {esc(candidate.name)} · {round(candidate.stat().st_size / 1024, 1)} KB"
@@ -7090,7 +7093,7 @@ async def manage_voice_support_audio(
         try:
             candidate = Path(raw)
             if not candidate.is_absolute():
-                candidate = BASE_DIR / candidate
+                candidate = DATA_DIR / candidate
             candidate = candidate.resolve()
             if candidate.parent == audio_dir and candidate.name.startswith(expected_prefix) and candidate.is_file():
                 candidate.unlink()
@@ -7154,7 +7157,7 @@ async def manage_voice_support_audio(
         temporary = target.with_name(target.name + ".uploading")
         temporary.write_bytes(raw)
         os.replace(temporary, target)
-        relative_path = target.resolve().relative_to(BASE_DIR.resolve()).as_posix()
+        relative_path = target.resolve().relative_to(DATA_DIR.resolve()).as_posix()
         config[config_key] = relative_path
         pulse_db.set_setting("voice_support_config", config)
         if old_path and old_path != relative_path:
@@ -8776,7 +8779,7 @@ def add_panel_data(data: dict) -> dict:
     # warning idempotency state, so it must travel with the backup as well.
     sqlite_files = {}
     for db_name in ("activity_check.db",):
-        db_path = str(BASE_DIR / db_name)
+        db_path = str(DATA_DIR / db_name)
         if not os.path.isfile(db_path):
             continue
         try:
@@ -8793,7 +8796,7 @@ def add_panel_data(data: dict) -> dict:
     # a large transcript directory from exhausting memory during backup creation.
     transcripts = {}
     transcript_bytes = 0
-    transcript_dir = os.path.join(BASE_DIR, "transcripts")
+    transcript_dir = os.path.join(DATA_DIR, "transcripts")
     if os.path.isdir(transcript_dir):
         for name in sorted(os.listdir(transcript_dir)):
             path = os.path.join(transcript_dir, name)
@@ -9869,17 +9872,17 @@ async def restore_backup(
             decoded = base64.b64decode(sqlite_files["activity_check.db"], validate=True)
             if not decoded.startswith(b"SQLite format 3\x00") or len(decoded) > 20 * 1024 * 1024:
                 raise ValueError("Activity-Check-Datenbank im Backup ist beschädigt.")
-            db_path = str(BASE_DIR / "activity_check.db")
+            db_path = str(DATA_DIR / "activity_check.db")
             temp_db = db_path + ".restore.tmp"
             with open(temp_db, "wb") as fh:
                 fh.write(decoded)
             os.replace(temp_db, db_path)
 
-        os.makedirs(os.path.join(BASE_DIR, "transcripts"), exist_ok=True)
+        os.makedirs(os.path.join(DATA_DIR, "transcripts"), exist_ok=True)
         for name, transcript in (panel.get("transcripts") or {}).items():
             safe = os.path.basename(str(name))
             if safe.endswith(".txt") and isinstance(transcript, str) and len(transcript) <= 2 * 1024 * 1024:
-                with open(os.path.join(BASE_DIR, "transcripts", safe), "w", encoding="utf-8") as fh:
+                with open(os.path.join(DATA_DIR, "transcripts", safe), "w", encoding="utf-8") as fh:
                     fh.write(transcript)
 
         warning_text = ""
@@ -9951,7 +9954,7 @@ async def create_full_backup_async(guild, prefix: str = ""):
     """D-03: Discord structure is copied in the event loop, all file/ZIP work runs in a thread."""
     import pulse_backup
     structure = build_discord_structure(guild) if guild is not None else None
-    return await asyncio.to_thread(pulse_backup.create_full_backup, BASE_DIR, full_backup_dir(),
+    return await asyncio.to_thread(pulse_backup.create_full_backup, DATA_DIR, full_backup_dir(),
                                    discord_structure=structure, prefix=prefix)
 
 
@@ -10068,7 +10071,7 @@ async def full_backup_preview(request: Request, filename: str, user_session: str
     if not path:
         raise HTTPException(status_code=404, detail="Backup nicht gefunden.")
     try:
-        preview = await asyncio.to_thread(pulse_backup.preview_restore, path, BASE_DIR)
+        preview = await asyncio.to_thread(pulse_backup.preview_restore, path, DATA_DIR)
     except (ValueError, OSError, KeyError, sqlite3.Error, zipfile.BadZipFile) as exc:
         return back("/backups", f"Backup nicht lesbar: {str(exc)[:200]}", False)
     manifest = preview["manifest"]
@@ -10119,7 +10122,7 @@ async def full_backup_restore(request: Request, filename: str = Form(...), confi
     log_audit(actor, ctx.user["id"], "Komplett-Wiederherstellung gestartet", os.path.basename(path))
     try:
         # The JSON I/O lock is held while files are written, so no load-modify-save can interleave.
-        report = await asyncio.to_thread(pulse_backup.restore_full_backup, path, BASE_DIR, full_backup_dir(), lock=_io_lock)
+        report = await asyncio.to_thread(pulse_backup.restore_full_backup, path, DATA_DIR, full_backup_dir(), lock=_io_lock)
     except Exception as exc:
         log_audit(actor, ctx.user["id"], "Komplett-Wiederherstellung fehlgeschlagen", f"{type(exc).__name__}: {str(exc)[:200]}")
         return back("/backups", f"Wiederherstellung fehlgeschlagen: {str(exc)[:240]}", False)

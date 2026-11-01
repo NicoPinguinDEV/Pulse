@@ -17,6 +17,7 @@ import httpx
 from discord import app_commands
 from discord.ext import commands
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
+import pulse_paths
 
 from pulse_ai_client import resolve_provider
 from pulse_ai_resilience import (
@@ -32,7 +33,7 @@ MODERATION_DECISION_ROLE_ID = _pulse_ids.MODERATION_DECISION_ROLE_ID
 # SEC-06: team warnings from a review run through webserver.issue_team_warning, which needs a validity –
 # same default as the dashboard form and /warn.
 AI_TEAM_WARN_DAYS = 7
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = pulse_paths.DATA_DIR  # Phase 13: data directory, not the code folder
 CASES_PATH = Path(os.getenv("PULSE_AI_MODERATION_CASES_FILE", str(ROOT / "ai_moderation_cases.json")))
 
 RULE_SUMMARY = """Bochum RP V1 Discord-Regeln:

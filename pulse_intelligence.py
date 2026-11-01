@@ -440,12 +440,12 @@ def collect_snapshot(request):
         except Exception:
             pass
     try:
-        base = Path(webserver.BASE_DIR)
+        base = Path(webserver.DATA_DIR)
         metrics["disk_free_mb"] = round(shutil.disk_usage(base).free / (1024 * 1024), 1)
     except (OSError, AttributeError):
         pass
     try:
-        backup_dir = Path(webserver.BASE_DIR) / str(webserver.BACKUP_DIR)
+        backup_dir = Path(webserver.BACKUP_DIR)
         backups = [path for path in backup_dir.iterdir() if path.is_file()] if backup_dir.is_dir() else []
         backups.sort(key=lambda path: path.stat().st_mtime, reverse=True)
         metrics["backup_count"] = len(backups)
