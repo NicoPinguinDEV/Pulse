@@ -350,8 +350,9 @@ class SqliteModeTests(ShiftHistoryBase):
             ws.apply_shift_action("1", "start")
         self.assertEqual(self.raw_file()[store.MARKER_KEY]["rows"], 500)
 
-    def test_failed_commit_restores_the_previous_json(self):
-        before = self.file_bytes()
+    def test_failed_file_write_after_commit_keeps_the_committed_state(self):
+        # Phase 14.7b: the file is written only after COMMIT – a failure there no longer rolls anything back;
+        # pulse.db holds the save and the journal brings shifts.json up to it (tests/test_shift_history_crash.py).
         data = ws.load_shifts_raw()
         data["active_shifts"]["9"] = {"status": "online"}
         data["history"].append({"mod_id": "9"})
@@ -361,10 +362,13 @@ class SqliteModeTests(ShiftHistoryBase):
             real_write(path, payload)
             raise sqlite3.OperationalError("disk I/O error")
 
-        with patch.object(ws, "_write_json_file", write_then_fail), self.assertRaises(sqlite3.OperationalError):
+        with patch.object(ws, "_write_json_file", write_then_fail):  # committed: no error for the caller
             ws.save_json(ws.SHIFTS_FILE, data)
-        self.assertEqual(json.loads(self.file_bytes())["active_shifts"], json.loads(before)["active_shifts"])
-        self.assertEqual(len(self.db_rows()), 500)
+        self.assertEqual(len(self.db_rows()), 501)
+        stored = ws.load_shifts_raw()
+        self.assertEqual(stored["active_shifts"], {"9": {"status": "online"}})
+        self.assertEqual(stored["history"], data["history"])
+        self.assertTrue(store.status(ws)["consistent"])
 
     def test_failing_commit_rolls_back_rows_and_file(self):
         before = self.file_bytes()

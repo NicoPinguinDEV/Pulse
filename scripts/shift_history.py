@@ -27,8 +27,9 @@ def main(argv: list[str]) -> int:
             info["readable_rows"] = len(pulse_shift_history.read_history())
         except Exception as exc:  # report, never repair
             info["error"] = f"{type(exc).__name__}: {exc}"
-    info["consistent"] = "error" not in info and (info.get("backend") != "sqlite"
-                                                   or info.get("marker_rows") == info.get("db_rows") == info.get("readable_rows"))
+    # Phase 14.7b: "pending" = a save committed in pulse.db but not yet in shifts.json (Pulse finishes it at start)
+    info["consistent"] = "error" not in info and not info.get("pending") and (
+        info.get("backend") != "sqlite" or info.get("marker_rows") == info.get("db_rows") == info.get("readable_rows"))
     print(json.dumps(info, indent=2, ensure_ascii=False))
     return 0 if info["consistent"] else 1
 
