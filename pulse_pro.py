@@ -717,7 +717,7 @@ def voice_waiting(guild) -> int:
 PULSE_INTERACTION_CSS = r"""
 <style>
 /* Phase 16.0 – cursor-first interaction layer. The existing red/black Pulse tokens remain authoritative. */
-@media (pointer:fine) and (prefers-reduced-motion:no-preference) {
+@media (pointer:fine) and (hover:hover) and (prefers-reduced-motion:no-preference) {
   body.pulse-cursor-enabled,body.pulse-cursor-enabled *{cursor:none!important}
   body.pulse-cursor-enabled input:not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button]):not([type=file]),
   body.pulse-cursor-enabled textarea,body.pulse-cursor-enabled [contenteditable="true"]{cursor:text!important}
@@ -779,7 +779,8 @@ PULSE_INTERACTION_JS = r"""
   if(window.PulseCustomCursor||!window.matchMedia||!document.body)return;
   const reduced=window.matchMedia("(prefers-reduced-motion: reduce)");
   const fine=window.matchMedia("(pointer: fine)");
-  if(reduced.matches||!fine.matches)return;
+  const hover=window.matchMedia("(hover: hover)");
+  if(reduced.matches||!fine.matches||!hover.matches)return;
 
   const root=document.createElement("div");
   root.id="pulseCustomCursor";
@@ -843,12 +844,14 @@ PULSE_INTERACTION_JS = r"""
     else if(reduced.removeListener)reduced.removeListener(onPreferenceChange);
     if(fine.removeEventListener)fine.removeEventListener("change",onPreferenceChange);
     else if(fine.removeListener)fine.removeListener(onPreferenceChange);
+    if(hover.removeEventListener)hover.removeEventListener("change",onPreferenceChange);
+    else if(hover.removeListener)hover.removeListener(onPreferenceChange);
     root.remove();
     document.body.classList.remove("pulse-cursor-enabled","pulse-cursor-hover","pulse-cursor-text","pulse-cursor-pressed");
     delete window.PulseCustomCursor;
   }
   function onVisibility(){if(document.visibilityState==="hidden")hide();}
-  function onPreferenceChange(){if(reduced.matches||!fine.matches)destroy();}
+  function onPreferenceChange(){if(reduced.matches||!fine.matches||!hover.matches)destroy();}
   window.addEventListener("pointermove",move,{passive:true});
   window.addEventListener("blur",hide);
   document.addEventListener("pointerout",pointerOut,true);
@@ -862,6 +865,8 @@ PULSE_INTERACTION_JS = r"""
   else if(reduced.addListener)reduced.addListener(onPreferenceChange);
   if(fine.addEventListener)fine.addEventListener("change",onPreferenceChange);
   else if(fine.addListener)fine.addListener(onPreferenceChange);
+  if(hover.addEventListener)hover.addEventListener("change",onPreferenceChange);
+  else if(hover.addListener)hover.addListener(onPreferenceChange);
   window.PulseCustomCursor={destroy:destroy};
 })();
 </script>
