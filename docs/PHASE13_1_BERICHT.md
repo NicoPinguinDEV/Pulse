@@ -109,6 +109,8 @@ Keine Regel, kein Pfad pauschal ausgenommen; neue Funde an derselben Stelle (and
 
 ## 10. Konkrete Vorbereitung für die VPS-Migration (erst nach Freigabe)
 
+> **Phase 13.2:** Die maßgebliche, geprüfte Reihenfolge der VPS-Migration (Root-Helfer zuerst, Deploy nur über GitHub Actions, Crash-Neustart zuletzt) steht ausschließlich in `VPS_DEPLOYMENT.md` → „Phase 13.1: einmalige Datenmigration auf dem VPS (Schritt für Schritt)“. Die Schritte in diesem Abschnitt sind historisch.
+
 Voraussetzungen: PR #94 gemergt; Wartungsfenster außerhalb der RP-Zeiten; Vionity-Snapshot.
 
 1. `cd /opt/pulse/Pulse && git fetch origin main` – **noch nicht deployen**.

@@ -30,14 +30,14 @@ Transkripte und Anhänge bis 8 MB werden unbegrenzt aufbewahrt (E-7). Datenschut
 
 ## 4. Deployment und Rollback
 
-Automatisch nach einem Merge auf `main` (`.github/workflows/deploy-vps.yml` → `deploy/remote_deploy.sh`), nur wenn die `PULSE_VPS_*`-Secrets gesetzt sind:
+**Nur von Hand:** GitHub → Actions → „Deploy Pulse VPS“ → Run workflow (`.github/workflows/deploy-vps.yml` → `deploy/remote_deploy.sh`), nur wenn die `PULSE_VPS_*`-Secrets gesetzt sind. Nach grüner CI wird nur automatisch deployt, wenn die Repository-Variable `PULSE_AUTO_DEPLOY` ausdrücklich `true` ist (Standard: nicht gesetzt). Der **erste** Deploy von Phase 13.1 setzt die Datenmigration voraus: `VPS_DEPLOYMENT.md` → „Phase 13.1: einmalige Datenmigration“.
 
 1. Es wird genau der Commit ausgerollt, auf dem die Qualitäts- und Sicherheitsprüfungen erfolgreich liefen; nie zwei Deploys gleichzeitig.
 2. Abbruch ohne Änderung, wenn der Commit nicht auf `origin/main` liegt, älter als der laufende Stand ist oder auf dem VPS versionierte lokale Änderungen existieren.
 3. Backup mit der laufenden Version (`predeploy_*`) – schlägt es fehl, bricht der Deploy ab.
 4. `git reset --hard <sha>` (fasst nur versionierte Dateien an; die Laufzeitdaten liegen seit Phase 13 ohnehin in `/opt/pulse/data`) und `docker compose up -d --build` mit dem Commit als Build-Information (`PULSE_GIT_SHA`).
    Ab Phase 13 bricht der Deploy ohne Änderung ab, solange das Datenverzeichnis nicht migriert ist (`VPS_DEPLOYMENT.md`, Phase 13).
-5. `/healthz` muss innerhalb von `PULSE_DEPLOY_HEALTH_SECONDS` (Standard 240 s) 200 liefern, sonst automatischer Rollback auf den vorherigen Commit; Ergebnis optional per `PULSE_DEPLOY_WEBHOOK_URL` in Discord.
+5. `/healthz` muss innerhalb von `PULSE_DEPLOY_HEALTH_SECONDS` (Standard 240 s) 200 liefern, sonst automatischer Rollback auf den vorherigen Commit (beim Wechsel ins Datenverzeichnis-Layout stattdessen Stopp, Exit 2); Ergebnis optional per `PULSE_DEPLOY_WEBHOOK_URL` in Discord.
 
 **Aus dem Dashboard (ab 7.17.0):** Verwaltung → Serververwaltung → Server Control Center startet dasselbe `remote_deploy.sh` (plus Code-Rollback über `deploy/rollback_code.sh`, kontrollierten Neustart, Container-Logs) über den eingeschränkten Host-Verwaltungsdienst – Einrichtung und Testschritte: `docs/SERVER_CONTROL_CENTER.md`.
 

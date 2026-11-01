@@ -121,6 +121,8 @@ Zusätzlich lokal mit Git Bash ausgeführt (unter Windows sonst übersprungen): 
 
 ## 9. Erforderliche manuelle VPS-Schritte (erst nach Freigabe und Merge)
 
+> **Phase 13.2:** Die maßgebliche, geprüfte Reihenfolge der VPS-Migration (Root-Helfer zuerst, Deploy nur über GitHub Actions, Crash-Neustart zuletzt) steht ausschließlich in `VPS_DEPLOYMENT.md` → „Phase 13.1: einmalige Datenmigration auf dem VPS (Schritt für Schritt)“. Die Schritte in diesem Abschnitt sind historisch.
+
 Ausführlich in `VPS_DEPLOYMENT.md` → „Phase 13: einmalige Datenmigration auf dem VPS“. Kurzfassung:
 
 1. Vionity-Snapshot + Komplett-Backup im Dashboard.

@@ -29,7 +29,7 @@ Du entwickelst Pulse für © BOCHUM RP | V1: Discord-Bot und FastAPI-Dashboard. 
 - Standardprüfung: /pulse-verify targeted. /pulse-e2e, /pulse-security-audit und /pulse-performance nur gezielt bei passender Änderung. Das Playwright-MCP-Plugin ersetzt keine versionierten Tests in tests/.
 
 ## Code und Tests
-- Python 3.14+, discord.py, FastAPI und Uvicorn; Bot und Webserver laufen im selben Prozess.
+- Python 3.14+ (Produktionsimage: die Version aus `FROM` im `Dockerfile`, derzeit 3.15; CI testet 3.14 und 3.15), discord.py, FastAPI und Uvicorn; Bot und Webserver laufen im selben Prozess.
 - Teste zuerst gezielt. Änderungen an Rechten, Daten, mehreren Modulen, Start/Shutdown oder Deployment zusätzlich mit dem vollen CI-Satz prüfen.
 - CI-Referenz: .github/workflows/python-syntax.yml. Sie führt Ruff, compileall, tests/feature_smoke.py, tests/smoke_test.py und unittest discovery aus.
 - Tests dürfen nicht unbeabsichtigt Live-Discord, echte OAuth-Dienste, Rollenänderungen, Nachrichten oder Produktionsdaten verwenden.
