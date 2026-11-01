@@ -222,7 +222,7 @@ class RouteSnapshotTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 module, active_function = active[("GET", path)]
-                self.assertEqual(module, "pulse_pro.register")
+                self.assertEqual(module, "pulse_pro")
                 self.assertTrue(active_function.endswith(function))
 
     def test_no_public_api_docs(self):
