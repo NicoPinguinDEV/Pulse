@@ -23,6 +23,8 @@ from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 from fastapi import Cookie, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+
+from pulse_route_registration import remove_and_add
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
@@ -716,13 +718,6 @@ def render_pro_page(ws, title, ctx, page, body, extra=""):
     import pulse_flags
     body = '<div class="pulse-shell">' + pulse_flags.banner_html(ws.esc) + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung</div></div>' + build_command_modal(ws, getattr(ctx, "perms", None))
     return ws.render_page(title, ctx, page, body, extra)
-
-
-def remove_and_add(app, path, methods, endpoint, **kwargs):
-    app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) != path]
-    for method in methods:
-        decorator = app.get if method == "GET" else app.post
-        decorator(path, **kwargs)(endpoint)
 
 
 def register(app):
@@ -3297,15 +3292,15 @@ def register(app):
     # Re-register selected pages on top of the v4 versions.
     remove_and_add(app,'/dashboard',{'GET'},dashboard_v5,response_class=HTMLResponse)
     remove_and_add(app,'/pulse-inbox',{'GET'},inbox_v5,response_class=HTMLResponse)
-    remove_and_add(app,'/pulse-inbox/read/{nid}',{'POST'},inbox_read_one)
+    app.post('/pulse-inbox/read/{nid}')(inbox_read_one)
     remove_and_add(app,'/pulse-inbox/read',{'POST'},inbox_read_all)
-    remove_and_add(app,'/pulse-inbox/settings',{'POST'},inbox_settings)
-    remove_and_add(app,'/pulse-inbox/server-quiet',{'POST'},inbox_server_quiet)
+    app.post('/pulse-inbox/settings')(inbox_settings)
+    app.post('/pulse-inbox/server-quiet')(inbox_server_quiet)
     remove_and_add(app,'/tasks',{'GET'},tasks_v5,response_class=HTMLResponse)
     remove_and_add(app,'/tasks/update',{'POST'},update_task_v5)
     remove_and_add(app,'/tickets',{'GET'},tickets_v5,response_class=HTMLResponse)
-    remove_and_add(app,'/voice-support',{'GET'},voice_support_v5,response_class=HTMLResponse)
-    remove_and_add(app,'/voice-support/save',{'POST'},voice_support_save)
+    app.get('/voice-support',response_class=HTMLResponse)(voice_support_v5)
+    app.post('/voice-support/save')(voice_support_save)
     remove_and_add(app,'/tickets/update',{'POST'},ticket_update_v5)
     remove_and_add(app,'/stats',{'GET'},stats_v5,response_class=HTMLResponse)
     remove_and_add(app,'/calendar',{'GET'},calendar_v5,response_class=HTMLResponse)
@@ -3319,20 +3314,20 @@ def register(app):
     remove_and_add(app,'/member/{user_id}',{'GET'},member_v5,response_class=HTMLResponse)
     app.get('/warns',response_class=HTMLResponse)(warns_v5)
     app.get('/warns.csv')(warns_csv)  # U-05
-    remove_and_add(app,'/ticket/{ticket_id}',{'GET'},ticket_detail_v5,response_class=HTMLResponse)
-    remove_and_add(app,'/export/team.csv',{'GET'},team_export)
+    app.get('/ticket/{ticket_id}',response_class=HTMLResponse)(ticket_detail_v5)
+    app.get('/export/team.csv')(team_export)
     app.get('/api/pulse/live')(api_live)
     remove_and_add(app,'/achievements',{'GET'},achievements_v5,response_class=HTMLResponse)
     remove_and_add(app,'/meetings-history',{'GET'},meetings_history_v5,response_class=HTMLResponse)
     app.get('/team-status',response_class=HTMLResponse)(team_status_page)
     remove_and_add(app,'/melonly',{'GET'},melonly_page,response_class=HTMLResponse)
-    remove_and_add(app,'/shift/admin-end',{'POST'},admin_end_shift)
-    remove_and_add(app,'/shift/history/confirm-duration',{'POST'},confirm_auto_closed_shift_duration)
-    remove_and_add(app,'/api/team/discord-status',{'GET'},discord_status_api,response_class=JSONResponse)
+    app.post('/shift/admin-end')(admin_end_shift)
+    app.post('/shift/history/confirm-duration')(confirm_auto_closed_shift_duration)
+    app.get('/api/team/discord-status',response_class=JSONResponse)(discord_status_api)
 
     async def robots_txt():
         return Response("User-agent: *\nDisallow: /\n", media_type="text/plain")
-    remove_and_add(app,'/robots.txt',{'GET'},robots_txt)
+    app.get('/robots.txt')(robots_txt)
     app.post('/team-status/set')(set_team_status)
     app.get('/activity-check',response_class=HTMLResponse)(activity_check_page)
     app.post('/activity-check/setup')(activity_check_setup)
