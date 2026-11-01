@@ -67,3 +67,6 @@ logs/
 .pulse-data.json.tmp
 *.pulse-migrate.tmp
 /tmp/
+# Phase 13.1: outdated checkout copies moved aside by pulse_migrate_data.py --rollback, and its lock
+/.pulse-legacy-*/
+.pulse-migrate.lock

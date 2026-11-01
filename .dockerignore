@@ -46,3 +46,6 @@ assets/support_wait.*
 .pulse-data.json
 *.db-journal
 .claude
+.pulse-legacy-*
+.pulse-agent
+.pulse-migrate.lock
