@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from urllib.parse import quote
 
 from fastapi import Request, Form, Cookie, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 import pulse_db as db
 from pulse_safe_path import contained_file
@@ -313,18 +313,6 @@ def register(app):
         rows=''.join(f'<div class="flex justify-between p-3 rounded-xl bg-slate-50 dark:bg-[#0b0e14] border border-slate-200 dark:border-slate-800 text-xs"><span>{i} {esc(n)}</span><b>{esc(d)}</b></div>' for i,n,d in checks)
         body=f'<h1 class="text-2xl font-bold mb-2">🩺 Systemstatus</h1><p class="text-xs text-slate-500 mb-5">Konfigurations- und Verbindungscheck.</p><div class="space-y-2">{rows}</div>'
         return ws.render_page('Systemstatus',c,'system',body)
-
-    @app.get("/health", response_class=JSONResponse)
-    async def health():
-        return {"ok":True,"time":ws.now_de().isoformat(),"db":os.path.exists(db.DB_PATH)}
-
-    @app.get('/manifest.webmanifest')
-    async def manifest():
-        return JSONResponse({"name":"Pulse TeamOS","short_name":"Pulse","start_url":"/dashboard","display":"standalone","background_color":"#0b0e14","theme_color":"#4f46e5","icons":[]})
-
-    @app.get('/sw.js')
-    async def service_worker():
-        return Response("self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>clients.claim());",media_type='application/javascript')
 
     async def housekeeping():
         last_day=''

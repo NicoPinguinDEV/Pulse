@@ -5,7 +5,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 - **Effektive Routen (Methode × Pfad):** 372
 - **Doppelt registriert:** 1 → `GET /ultimate`
-- **Im Quelltext registriert, zur Laufzeit verdrängt:** 21
+- **Im Quelltext registriert, zur Laufzeit verdrängt:** 18
 - **Ohne erkennbare Prüfung:** 30 (Login/OAuth/Health/Bewerbungsportal/öffentliche Seiten – einzeln prüfen)
 
 > Achtung `remove_and_add` (`pulse_pro.py`): ersetzt nur die angegebenen HTTP-Methoden; andere Methoden desselben Pfads bleiben erhalten.
@@ -21,11 +21,9 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | Methode | Pfad | verdrängte Funktion | Ort | aktiv stattdessen |
 |---|---|---|---|---|
 | GET | `/achievements` | `achievements_page` | pulse_features.py:235 | `pulse_pro.register.<locals>.achievements_v5` |
-| POST | `/backup/restore` | `restore_backup` | pulse_features.py:375 | `webserver.restore_backup` |
+| POST | `/backup/restore` | `restore_backup` | pulse_features.py:363 | `webserver.restore_backup` |
 | GET | `/calendar` | `calendar_page` | pulse_features.py:298 | `pulse_pro.register.<locals>.calendar_v5` |
 | GET | `/dashboard` | `dashboard_main` | webserver.py:3926 | `pulse_pro.register.<locals>.dashboard_v5` |
-| GET | `/health` | `health` | pulse_features.py:318 | `pulse_pro.register.<locals>.api_health` |
-| GET | `/manifest.webmanifest` | `manifest` | pulse_features.py:322 | `pulse_pro.register.<locals>.manifest` |
 | GET | `/meetings-history` | `meetings_history_page` | pulse_features.py:282 | `pulse_pro.register.<locals>.meetings_history_v5` |
 | GET | `/melonly` | `melonly_alias` | webserver.py:4449 | `pulse_pro.register.<locals>.melonly_page` |
 | GET | `/member/{user_id}` | `member_detail` | webserver.py:7228 | `pulse_pro.register.<locals>.member_v5` |
@@ -34,7 +32,6 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/search` | `search_page` | pulse_features.py:65 | `pulse_pro.register.<locals>.search_v5` |
 | GET | `/settings` | `settings_page` | webserver.py:10253 | `pulse_pro.register.<locals>.settings_v5` |
 | GET | `/stats` | `stats_page` | pulse_features.py:268 | `pulse_pro.register.<locals>.stats_v5` |
-| GET | `/sw.js` | `service_worker` | pulse_features.py:326 | `pulse_pro.register.<locals>.service_worker` |
 | GET | `/system` | `system_page` | pulse_features.py:307 | `pulse_pro.register.<locals>.system_v5` |
 | GET | `/tasks` | `tasks_page` | pulse_features.py:85 | `pulse_pro.register.<locals>.tasks_v5` |
 | POST | `/tasks/update` | `task_update` | pulse_features.py:116 | `pulse_pro.register.<locals>.update_task_v5` |

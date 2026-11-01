@@ -196,6 +196,35 @@ class RouteSnapshotTests(unittest.TestCase):
                 self.assertEqual(direct.get(path), [method])
                 self.assertNotIn(path, replaced)
 
+
+    def test_displaced_health_and_pwa_handlers_are_removed_but_active_routes_remain(self):
+        route_map = load_route_map()
+        static = route_map.static_registrations()
+        removed = {
+            ("GET", "/health", "health", "pulse_features.py"),
+            ("GET", "/manifest.webmanifest", "manifest", "pulse_features.py"),
+            ("GET", "/sw.js", "service_worker", "pulse_features.py"),
+        }
+        legacy = {
+            (item["method"], item["path"], item["function"], item["file"])
+            for item in static
+        }
+        self.assertTrue(removed.isdisjoint(legacy), "verdrängte Health-/PWA-Handler sind noch registriert")
+
+        active = {
+            (item["method"], item["path"]): (item["module"], item["function"])
+            for item in self.routes
+        }
+        for path, function in (
+            ("/health", "api_health"),
+            ("/manifest.webmanifest", "manifest"),
+            ("/sw.js", "service_worker"),
+        ):
+            with self.subTest(path=path):
+                module, active_function = active[("GET", path)]
+                self.assertEqual(module, "pulse_pro")
+                self.assertTrue(active_function.endswith(function))
+
     def test_no_public_api_docs(self):
         paths = {r["path"] for r in self.routes}
         self.assertFalse(paths & {"/docs", "/redoc", "/openapi.json"})
