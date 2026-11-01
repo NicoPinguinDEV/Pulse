@@ -37,6 +37,7 @@ import discord
 from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
+from pulse_tasks import spawn as spawn_task
 import pulse_paths
 import pulse_logging
 from pulse_safe_path import contained_file
@@ -9667,7 +9668,7 @@ async def _start_background_tasks():
     _roblox_http_client()
     task = getattr(app.state, "backup_task", None)
     if task is None or task.done():
-        app.state.backup_task = asyncio.create_task(auto_backup_loop())
+        app.state.backup_task = spawn_task(auto_backup_loop(), name="pulse-auto-backup", critical=True)
 
 
 async def _stop_background_tasks():
