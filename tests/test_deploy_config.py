@@ -224,6 +224,8 @@ class RemoteDeployRunTests(unittest.TestCase):
             f'case "$*" in *"{failing}"*) exit 1;; esac\n'  # "build" matches `up -d --build` and `compose build`
             "exit 0\n", encoding="utf-8", newline="\n")
         (tmp / "bin" / "sleep").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8", newline="\n")
+        # Phase 13.1: the deploy lock is mandatory (fail-closed); Git Bash on Windows has no flock.
+        (tmp / "bin" / "flock").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8", newline="\n")
         script = (
             f'export PATH="$(cd "{(tmp / "bin").as_posix()}" && pwd):$PATH"; chmod +x "{(tmp / "bin").as_posix()}"/*; '
             f'export PULSE_UID="$(stat -c %u "{(tmp / "repo").as_posix()}")" PULSE_DEPLOY_HEALTH_SECONDS=5 '

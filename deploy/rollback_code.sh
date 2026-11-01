@@ -23,6 +23,11 @@ export COMPOSE_FILE=compose.yaml
 # Root runs this script, but the checkout belongs to the container user (UID 1000, O-01). Without this,
 # git refuses every command ("dubious ownership"). Valid only for the git calls of this script.
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(pwd -P)"
+# Phase 13.1: same lock as remote_deploy.sh, the boot update and the crash watchdog – never two at once.
+LOCK_FILE="${PULSE_DEPLOY_LOCK:-/run/lock/pulse-deploy.lock}"
+command -v flock >/dev/null 2>&1 || { echo "Abbruch: flock fehlt (util-linux) – ohne Sperre kein Rollback."; exit 1; }
+exec 9>"$LOCK_FILE" || { echo "Abbruch: Sperre $LOCK_FILE nicht anlegbar."; exit 1; }
+flock -w 120 9 || { echo "Abbruch: Sperre $LOCK_FILE wird seit 120 s gehalten (Deploy läuft?)."; exit 1; }
 PREV="$(git rev-parse HEAD)"
 echo "Aktuell: $PREV · Rollback-Ziel: $SHA"
 

@@ -22,9 +22,10 @@ export COMPOSE_FILE=compose.yaml
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(pwd -P)"
 # Shared with scripts/pulse-crash-restart.sh: while a deploy runs, the crash watchdog leaves the container alone.
 LOCK_FILE="${PULSE_DEPLOY_LOCK:-/run/lock/pulse-deploy.lock}"
-if command -v flock >/dev/null 2>&1 && exec 9>"$LOCK_FILE"; then
-  flock -w 120 9 || { echo "Abbruch: Sperre $LOCK_FILE wird seit 120 s gehalten (anderer Deploy?)."; exit 1; }
-fi
+# Phase 13.1: fail-closed – without the lock two deploys/rollbacks/boot updates could build and start at once.
+command -v flock >/dev/null 2>&1 || { echo "Abbruch: flock fehlt (util-linux) – ohne Sperre kein Deploy."; exit 1; }
+exec 9>"$LOCK_FILE" || { echo "Abbruch: Sperre $LOCK_FILE nicht anlegbar."; exit 1; }
+flock -w 120 9 || { echo "Abbruch: Sperre $LOCK_FILE wird seit 120 s gehalten (anderer Deploy?)."; exit 1; }
 PREV="$(git rev-parse HEAD)"
 echo "Aktuell: $PREV · Ziel: $SHA"
 
@@ -99,6 +100,10 @@ fix_owner() {
   fi
 }
 fix_owner .
+# Secrets stay private on the host (compose reads .env as root; the container never sees the file since Phase 13).
+if [ -f .env ]; then
+  chmod go-rwx .env 2>/dev/null || echo "::warning::.env-Rechte konnten nicht auf 600 gesetzt werden."
+fi
 if uses_data_dir "$SHA"; then
   fix_owner "$DATA_HOST_DIR"
   [ -d .pulse-agent ] || install -d -o "$PULSE_UID" -g "$PULSE_UID" -m 750 .pulse-agent 2>/dev/null \
@@ -124,14 +129,21 @@ if docker compose up -d </dev/null && wait_healthy; then
   exit 0
 fi
 
-echo "::error::/healthz nicht innerhalb von ${HEALTH_SECONDS}s gesund – Rollback auf $PREV."
 docker compose logs --tail 80 pulse </dev/null || true
+# Phase 13.1: switching from the old layout to the data directory – the old code would run on the checkout copies,
+# which are outdated as soon as the new container has written anything. Never start that automatically: stop
+# Pulse, keep the new code checked out (it matches the current data) and leave the decision to a person.
+if uses_data_dir "$SHA" && ! uses_data_dir "$PREV"; then
+  echo "::error::KRITISCH: /healthz nicht innerhalb von ${HEALTH_SECONDS}s gesund – Layoutwechsel, KEIN automatischer Rollback."
+  docker compose stop pulse </dev/null || true
+  echo "Pulse ist gestoppt. Aktuelle Daten: $DATA_HOST_DIR (unverändert, nichts gelöscht). Code bleibt auf $SHA."
+  echo "Entweder Fehler beheben und Pulse von Hand starten – oder Rückweg: scripts/pulse_migrate_data.py --rollback,"
+  echo "danach den alten Stand $PREV starten (VPS_DEPLOYMENT.md, Phase 13 Rückweg)."
+  exit 2
+fi
+echo "::error::/healthz nicht innerhalb von ${HEALTH_SECONDS}s gesund – Rollback auf $PREV."
 git reset --hard "$PREV"
 export PULSE_GIT_SHA="$PREV"
-if uses_data_dir "$SHA" && ! uses_data_dir "$PREV"; then
-  echo "Hinweis: Rückkehr zum alten Layout – Pulse nutzt wieder die Daten im Checkout. Was der neue Stand seit dem"
-  echo "Start in $DATA_HOST_DIR geschrieben hat, bleibt dort erhalten (nichts gelöscht), fehlt aber im alten Stand."
-fi
 if docker compose up -d --build </dev/null && wait_healthy; then
   echo "Rollback erfolgreich: $PREV läuft wieder."
 else
