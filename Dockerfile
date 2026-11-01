@@ -1,5 +1,5 @@
 # Pulse TeamOS production image. Keep Python 3.14 to match the current runtime.
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
