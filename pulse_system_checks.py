@@ -158,4 +158,18 @@ def run(bot, guild, config, environ=None):
     checks += discord_ids(guild)
     checks.append(role_hierarchy(guild, config))
     checks += moderation_permissions(bot, guild, config)
+    checks.append(shift_history())
     return checks
+
+
+def shift_history():
+    """Phase 14.7b: backend, revision and the last crash recovery of the shift history."""
+    import sys
+    ws = sys.modules.get("webserver")
+    if ws is None:
+        return ("Schichthistorie", True, "Dashboard nicht geladen")
+    try:
+        import pulse_shift_history
+        return pulse_shift_history.system_check(ws)
+    except Exception as exc:
+        return ("Schichthistorie", False, f"Prüfung fehlgeschlagen ({type(exc).__name__})")

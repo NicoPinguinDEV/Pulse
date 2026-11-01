@@ -359,6 +359,7 @@ def init_runtime() -> None:
     import pulse_migrations  # A-05: versioned migrations (backup before the first pending one)
     pulse_migrations.run(os.path.abspath(pulse_db.DB_PATH), os.path.abspath(BACKUP_DIR))
     import pulse_shift_history  # Phase 14.7: switches only when PULSE_SHIFT_HISTORY_BACKEND is set explicitly
+    pulse_shift_history.recover(sys.modules[__name__])  # Phase 14.7b: finish a save a crash interrupted
     pulse_shift_history.apply_configured_backend(sys.modules[__name__])
     _session_key()  # computes SESSION_SECRET_PROBLEM for the system status
     _RUNTIME_READY = True
@@ -393,7 +394,9 @@ def _mark_corrupt(filepath, exc) -> None:
             shutil.copy2(filepath, backup)
         except OSError:
             backup = ""
-    _CORRUPT_JSON[key] = (f"{os.path.basename(filepath)} ist beschädigt ({type(exc).__name__})"
+    import pulse_shift_history  # Phase 14.7b: say why the shift history is blocked (no data in the message)
+    reason = f"{type(exc).__name__}: {exc}" if isinstance(exc, pulse_shift_history.ShiftHistoryUnavailable) else type(exc).__name__
+    _CORRUPT_JSON[key] = (f"{os.path.basename(filepath)} ist beschädigt ({reason})"
                           + (f" – Sicherung: {os.path.basename(backup)}" if backup else ""))
     print(f"🔴 DATEN: {_CORRUPT_JSON[key]}. Pulse schreibt diese Datei nicht mehr, bis sie repariert "
           "oder aus einem Backup wiederhergestellt ist.")
@@ -428,7 +431,7 @@ def _attach_shift_history(filepath, data, stat_key=None):
     import pulse_shift_history
     pulse_shift_history.remember_mode(filepath, data, stat_key)
     if pulse_shift_history.is_sqlite(data):
-        data = pulse_shift_history.attach(data)
+        data = pulse_shift_history.attach(data, sys.modules[__name__], filepath)  # 14.7b: may finish a crashed save
     return data
 
 
