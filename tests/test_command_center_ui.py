@@ -25,11 +25,13 @@ class CommandCenterInteractionTests(unittest.TestCase):
         js = pulse_pro.PULSE_INTERACTION_JS
         self.assertIn("(pointer:fine)", css)
         self.assertIn("(pointer:coarse)", css)
+        self.assertIn("(hover:hover)", css.replace(" ", ""))
         self.assertIn("prefers-reduced-motion:reduce", css.replace(" ", ""))
         self.assertIn('(pointer: fine)', js)
         self.assertIn('(prefers-reduced-motion: reduce)', js)
-        self.assertIn('if(reduced.matches||!fine.matches)return;', js)
-        self.assertIn('if(reduced.matches||!fine.matches)destroy();', js)
+        self.assertIn('(hover: hover)', js)
+        self.assertIn('if(reduced.matches||!fine.matches||!hover.matches)return;', js)
+        self.assertIn('if(reduced.matches||!fine.matches||!hover.matches)destroy();', js)
 
     def test_cursor_never_blocks_clicks_and_preserves_text_selection(self):
         css = pulse_pro.PULSE_INTERACTION_CSS
