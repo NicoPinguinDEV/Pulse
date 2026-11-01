@@ -710,7 +710,7 @@ def main() -> None:
     assert "return sorted(role_ids, key=sort_key)" in web
     assert "ordered_ids = ordered_team_role_ids(guild, team_role_ids)" in web
     assert "ranked_team_role_ids = ordered_team_role_ids(guild, team_role_ids)" in web
-    assert '"team_rank_idx": team_rank(member, team_role_ids)' in web
+    assert '"team_rank_idx": team_rank(member, team_role_ids, guild)' in web
     assert "await member.edit(" in web
     assert "await member.kick(" not in web
     assert "def _record_team_since" in read("cogs/pulse_next.py")
