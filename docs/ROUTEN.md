@@ -509,7 +509,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
 | GET | `/tasks` | `pulse_pro.register.<locals>.tasks_v5` | pulse_pro.py:1383 | can_view_dashboard (+ can_manage_tasks, can_promote, is_admin) |
-| POST | `/tasks/create` | `pulse_features.register.<locals>.task_create` | pulse_features.py:105 | angemeldet (+ can_manage_tasks, can_promote, is_admin) |
+| POST | `/tasks/create` | `pulse_features.register.<locals>.task_create` | pulse_features.py:32 | angemeldet (+ can_manage_tasks, can_promote, is_admin) |
 | POST | `/tasks/update` | `pulse_pro.register.<locals>.update_task_v5` | pulse_pro.py:1400 | can_view_dashboard (+ can_manage_tasks, can_promote, is_admin) |
 
 ### `/team` (10)
@@ -538,7 +538,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/ticket/transcript/{filename}` | `pulse_features.register.<locals>.ticket_transcript` | pulse_features.py:134 | ctx (+ can_manage_tickets, is_admin) |
+| GET | `/ticket/transcript/{filename}` | `pulse_features.register.<locals>.ticket_transcript` | pulse_features.py:45 | ctx (+ can_manage_tickets, is_admin) |
 | GET | `/ticket/{ticket_id}` | `pulse_pro.register.<locals>.ticket_detail_v5` | pulse_pro.py:2270 | can_manage_tickets |
 
 ### `/tickets` (20)
@@ -556,7 +556,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/tickets/panels/media/{filename}` | `webserver.pulse_ticket_panel_media` | webserver.py:5822 | Admin |
 | POST | `/tickets/panels/publish` | `webserver.pulse_ticket_panel_publish` | webserver.py:5872 | Admin |
 | POST | `/tickets/panels/save` | `webserver.pulse_ticket_panel_save` | webserver.py:5653 | Admin |
-| POST | `/tickets/rate` | `pulse_features.register.<locals>.ticket_rate` | pulse_features.py:144 | ctx |
+| POST | `/tickets/rate` | `pulse_features.register.<locals>.ticket_rate` | pulse_features.py:55 | ctx |
 | POST | `/tickets/settings` | `webserver.pulse_tickets_dashboard_settings` | webserver.py:5559 | Admin |
 | POST | `/tickets/setup-panels` | `webserver.pulse_ticket_panels_setup` | webserver.py:5630 | Admin |
 | GET | `/tickets/tools` | `webserver.pulse_ticket_tools` | webserver.py:6335 | can_manage_tickets (+ is_admin) |
@@ -570,10 +570,10 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/training` | `pulse_features.register.<locals>.training_page` | pulse_features.py:184 | ctx (+ can_manage_training, can_promote, is_admin) |
-| POST | `/training/create` | `pulse_features.register.<locals>.training_create` | pulse_features.py:195 | angemeldet (+ can_manage_training, can_promote, is_admin) |
-| GET | `/training/{training_id}` | `pulse_features.register.<locals>.training_detail` | pulse_features.py:211 | ctx |
-| POST | `/training/{training_id}/submit` | `pulse_features.register.<locals>.training_submit` | pulse_features.py:219 | ctx |
+| GET | `/training` | `pulse_features.register.<locals>.training_page` | pulse_features.py:95 | ctx (+ can_manage_training, can_promote, is_admin) |
+| POST | `/training/create` | `pulse_features.register.<locals>.training_create` | pulse_features.py:106 | angemeldet (+ can_manage_training, can_promote, is_admin) |
+| GET | `/training/{training_id}` | `pulse_features.register.<locals>.training_detail` | pulse_features.py:122 | ctx |
+| POST | `/training/{training_id}/submit` | `pulse_features.register.<locals>.training_submit` | pulse_features.py:130 | ctx |
 
 ### `/ultimate` (103)
 
@@ -706,7 +706,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/wiki` | `pulse_features.register.<locals>.wiki_page` | pulse_features.py:154 | ctx (+ can_manage_wiki, can_promote, is_admin) |
-| POST | `/wiki/save` | `pulse_features.register.<locals>.wiki_save` | pulse_features.py:176 | angemeldet (+ can_manage_wiki, can_promote, is_admin) |
-| GET | `/wiki/{page_id}` | `pulse_features.register.<locals>.wiki_detail` | pulse_features.py:166 | ctx (+ can_manage_wiki, can_promote, is_admin) |
+| GET | `/wiki` | `pulse_features.register.<locals>.wiki_page` | pulse_features.py:65 | ctx (+ can_manage_wiki, can_promote, is_admin) |
+| POST | `/wiki/save` | `pulse_features.register.<locals>.wiki_save` | pulse_features.py:87 | angemeldet (+ can_manage_wiki, can_promote, is_admin) |
+| GET | `/wiki/{page_id}` | `pulse_features.register.<locals>.wiki_detail` | pulse_features.py:77 | ctx (+ can_manage_wiki, can_promote, is_admin) |
 
