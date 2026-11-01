@@ -84,7 +84,7 @@ Bleiben im Code: `static/`, `assets/voice_support_after_hours.mp3.b64`, `support
 | `python -m compileall -q .` | ✅ |
 | `python tests/feature_smoke.py` | ✅ OK |
 | `python tests/smoke_test.py` | ✅ OK |
-| `python -m unittest discover -s tests -p 'test_*.py'` (mit `PULSE_TEST_BASH` = Git Bash) | Ergebnis siehe Abschnitt 6a |
+| `python -m unittest discover -s tests -p 'test_*.py'` (mit `PULSE_TEST_BASH` = Git Bash) | ✅ 1190 Tests OK, 4 übersprungen; danach 1 neuer Crash-Restart-Test (Exit 78) ergänzt, Modul einzeln ✅ 8/8 |
 | `tests/test_phase13_data_isolation.py` (45 Tests) | ✅ inkl. echter Bash-Läufe von `remote_deploy.sh` gegen Fake-git/docker |
 | `tests/container_smoke.py` lokal mit `PULSE_DATA_DIR`=Temp | ✅ Start-Prüfung, `init_runtime`, JSON, Transkript, Upload, Wartemusik, Komplett-Backup + Verify + Restore-Test + echter Restore, Commit aus `PULSE_GIT_SHA`; `git status --ignored` vorher/nachher identisch (nichts in den Code-Ordner geschrieben) |
 | `python main.py` mit leerem `PULSE_DATA_DIR` | ✅ Exit 78, Ordner bleibt leer |
@@ -92,13 +92,21 @@ Bleiben im Code: `static/`, `assets/voice_support_after_hours.mp3.b64`, `support
 
 Gefunden und behoben durch die neuen Bash-Läufe: Die neue `.env`-Auswertung in `remote_deploy.sh`/Boot-Update hätte ohne `.env` wegen `set -e` + `pipefail` mit Exit 2 abgebrochen (eigener Zwischenstand, nie committet).
 
-### 6a. Volle Suite
+### 6a. CI auf GitHub (Branch, manuell gestartet: Run 41256460686)
 
-Siehe Abschluss dieses Berichts (wird nach dem letzten Lauf eingetragen).
+| Job | Ergebnis |
+|---|---|
+| syntax (Ruff, compileall, Smoke-Tests, unittest discovery unter Linux) | ✅ |
+| **Docker-Image bauen** – Compose-Layout-Prüfung, Build mit `PULSE_GIT_SHA`, Imports/ffmpeg/Nicht-root, **Read-only-Container mit `/data`**: `tests/container_smoke.py` im Container, Schreibversuch in `/app` scheitert, leeres `/data` → Exit 78 und bleibt leer | ✅ |
+| Dashboard-E2E (Playwright) | ✅ |
+| Abhängigkeiten auf Sicherheitslücken | ✅ |
+| Geheimnis-Scan (Gitleaks) | ❌ – **nicht durch Phase 13**: 3 bekannte Fehlalarme (Variablennamen) in alten Commits `82f3180`, `1094de3`, `f392d6a`. Beim manuellen Start scannt Gitleaks die gesamte Historie, bei Push/PR nur den neuen Bereich (dort ist `main` grün). |
+
+Zusätzlich lokal mit Git Bash ausgeführt (unter Windows sonst übersprungen): die echten Bash-Läufe von `remote_deploy.sh` und `pulse-crash-restart.sh` gegen Fake-`git`/`docker`.
 
 ## 7. Nicht ausgeführte Prüfungen
 
-- **Docker lokal nicht verfügbar** (kein Docker/WSL auf dem Entwicklungsrechner): Image-Build, `docker compose config` und der Start des Read-only-Containers wurden lokal **nicht** ausgeführt. Sie sind als CI-Schritte im Job „Docker-Image bauen“ hinterlegt (Compose-Layout-Prüfung, Build mit `PULSE_GIT_SHA`, `tests/container_smoke.py` im Container mit `--read-only`, Schreibversuch in `/app`, Exit 78 bei leerem `/data`). Ergebnis nur als bestanden werten, wenn der CI-Lauf grün ist.
+- **Docker lokal nicht verfügbar** (kein Docker/WSL auf dem Entwicklungsrechner): Image-Build und Read-only-Container liefen nur in der GitHub-CI (✅, Abschnitt 6a). Ein `docker compose up` mit dem kompletten Compose-Stack (inkl. Mount `./.pulse-agent` und Healthcheck mit Discord) wurde nirgends ausgeführt – das passiert erst beim Deploy auf dem VPS.
 - Kein Test auf dem echten VPS, keine echte Migration, kein Deployment, kein Discord-Start (kein Token).
 - Playwright-E2E (`tests/test_e2e_dashboard.py`) nicht lokal ausgeführt; keine UI-Änderung in dieser Phase.
 
