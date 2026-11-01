@@ -1,6 +1,6 @@
 # Doppelte Seiten: Tabelle „alt → neu“ (Entscheidungsvorlage nach E-6)
 
-Stand 20.10.2026, Version 7.12.0. **Es wurde nichts zusammengeführt oder gelöscht.** Das passiert erst nach deiner Entscheidung je Zeile (A-01/U-01).
+Stand 20.10.2026, Version 7.12.0; **Teil A am 01.11.2026 (7.17.0) zur Laufzeit nachgeprüft**, Details und Pakete in `docs/PHASE14_2_VORBEREITUNG.md`. **Es wurde nichts zusammengeführt oder gelöscht.** Das passiert erst nach deiner Entscheidung je Zeile (A-01/U-01).
 Grundlage: `docs/ROUTEN.md` und `docs/routen_snapshot.json`. Der Routen-Snapshot-Test (K-16) belegt nach jedem Schritt, welche Handler aktiv sind.
 
 ## A. Verdrängte Handler – heute nicht erreichbar (toter Code)
@@ -12,14 +12,17 @@ Jeder dieser Handler wird beim Start registriert und danach durch eine neuere Ve
 | `/dashboard` | `webserver.dashboard_main` | `pulse_pro.dashboard_v5` | löschen |
 | `/member/{id}` | `webserver.member_detail` | `pulse_pro.member_v5` | löschen |
 | `/settings` | `webserver.settings_page` | `pulse_pro.settings_v5` | löschen |
-| `/tickets` | `webserver.pulse_tickets_dashboard`, `pulse_features.tickets_page` | `pulse_pro.tickets_v5` | löschen (Test-Assert in `feature_smoke` wird ersetzt) |
+| `/tickets` | `pulse_features.tickets_page`; bei `webserver.pulse_tickets_dashboard` **nur der Decorator** `@app.get("/tickets")` | `pulse_pro.tickets_v5` | `tickets_page` löschen; an `pulse_tickets_dashboard` nur den `/tickets`-Decorator entfernen – **die Funktion bedient weiterhin `/tickets/panels` (Panel-Builder) und bleibt**. Rechte weichen ab (alt `can_manage_tickets`, aktiv `can_view_dashboard`) → Entscheidung E-6b |
 | `/melonly` | `webserver.melonly_alias` | `pulse_pro.melonly_page` | löschen |
 | `/system` | `pulse_features.system_page` | `pulse_pro.system_v5` | löschen |
 | `/achievements`, `/calendar`, `/stats`, `/tasks`, `/search`, `/pulse-inbox`, `/meetings-history` | jeweils `pulse_features.*_page` | `pulse_pro.*_v5` | löschen |
-| `POST /tasks/update`, `/tickets/update`, `/pulse-inbox/read`, `/backup/restore` | `pulse_features.*` | `pulse_pro.*` bzw. `webserver.restore_backup` | löschen |
+| `POST /tasks/update`, `/tickets/update`, `/pulse-inbox/read`, `/backup/restore` | `pulse_features.*` | `pulse_pro.*` bzw. **`webserver.restore_backup` (aktiv, bleibt)** | `pulse_features.*` löschen |
 | `/health`, `/manifest.webmanifest`, `/sw.js` | `pulse_features.*` | `pulse_pro.*` | löschen |
 | – (Hintergrundschleife) | `pulse_features.housekeeping` – wird nie gestartet, `pulse_pro` hat die aktive Housekeeping-Schleife | `cogs/pulse_pro.housekeeping_loop` | löschen |
-| `GET /ultimate` (doppelt registriert) | `pulse_ultimate` (2. Treffer) | `webserver` (1. Treffer) | den nie erreichten Zweig löschen |
+| `GET /ultimate` (doppelt registriert) | `pulse_ultimate.ultimate_home` (2. Treffer) | `webserver.ultimate_dashboard` (1. Treffer) | den nie erreichten Zweig löschen – vorher bestätigen, dass die heute aktive Seite die gewollte ist (E-6c) |
+| – (Helfer) | `pulse_pro.replace_paths` – wird nirgends aufgerufen | – | löschen |
+
+Zählung (01.11.2026): 31 `remove_and_add`-Aufrufe; 20 verdrängte Handler-Funktionen + der zweite `/ultimate`-Handler = **21 unerreichbare Routen-Handler**, dazu ein toter Decorator, die nie gestartete Schleife und ein ungenutzter Helfer. Kein versionierter Test hängt an einem toten Handler.
 
 ## B. Gleiche Aufgabe unter mehreren Adressen (sichtbar für Nutzer)
 
