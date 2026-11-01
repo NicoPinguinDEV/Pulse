@@ -87,6 +87,11 @@ CREATE INDEX IF NOT EXISTS idx_melonly_logs_target_user
 
 CREATE INDEX IF NOT EXISTS idx_melonly_logs_action
     ON melonly_logs(action_type, seq);
+
+CREATE TABLE IF NOT EXISTS melonly_logs_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 ```
 
 **Verbindliche Eigenschaften:**
@@ -97,7 +102,8 @@ CREATE INDEX IF NOT EXISTS idx_melonly_logs_action
 4. Die Indexfelder werden aus dem Originalobjekt extrahiert, ohne dessen Werte zu verändern. Für `target_user_key` wird eine gesonderte, dokumentierte Normalisierung nur für die Suche verwendet.
 5. `created_at` bleibt Text. Es wird kein Datum rückwirkend neu geparst oder normalisiert.
 6. Es werden weder Fremdschlüssel zu Discord noch Abhängigkeiten von externen Suchdiensten eingeführt.
-7. FTS5 ist keine Pflicht. Die globale Suche kann zunächst auf dem gespeicherten Payload laufen. Ein optionaler Suchindex ist nur zulässig, wenn Verfügbarkeit, Ergebnisgleichheit und Update-/Delete-Konsistenz nachgewiesen sind.
+7. `melonly_logs_meta` hält mindestens `format_version`, `generation`, `active_backend`, `revision`, `import_source_sha256` und `import_count`. Das Backend-Merkmal wird innerhalb derselben Transaktion wie ein Schreibvorgang aktualisiert.
+8. FTS5 ist keine Pflicht. Die globale Suche kann zunächst auf dem gespeicherten Payload laufen. Ein optionaler Suchindex ist nur zulässig, wenn Verfügbarkeit, Ergebnisgleichheit und Update-/Delete-Konsistenz nachgewiesen sind.
 
 Der Entwurf ist additiv und unterstützt das bestehende Migrationsmuster. Vor der Implementierung werden Spaltennamen und Typen mit allen tatsächlich vorkommenden historischen Payloads gegengeprüft.
 
@@ -154,9 +160,12 @@ Keine verdrängten Legacy-Handler werden als aktive Aufrufer behandelt. Der Rout
 
 Die Migration ist ein eigener, ausdrücklich aktivierter Betriebsschritt. Ein normaler Start im Standardmodus verändert nichts.
 
-- Standardbackend bleibt JSON.
-- Ein zukünftiger Opt-in-Schalter (vorgeschlagener Name `PULSE_LOGS_BACKEND=sqlite`) wird nur beim Start ausgewertet, bevor Dashboard oder Bot Schreiboperationen ausführen.
-- Ein unbekannter Schalterwert führt zu einem sichtbaren Konfigurationsfehler und nicht zu einer stillen Backend-Wahl.
+- Vor der ersten Aktivierung ist JSON die Standardquelle; eine Installation ohne Melonly-Migrationsmetadaten bleibt unverändert im JSON-Modus.
+- Der zukünftige Schalter `PULSE_LOGS_BACKEND` akzeptiert ausschließlich `json` und `sqlite` und wird nur beim Start ausgewertet, bevor Dashboard oder Bot Schreiboperationen ausführen.
+- Nach Aktivierung speichert `melonly_logs_meta.active_backend` die tatsächlich maßgebliche Quelle. `PULSE_LOGS_BACKEND=sqlite` plus Metadaten `active_backend=sqlite` ist ein gültiger Startzustand.
+- Bei vorhandenen Metadaten `active_backend=sqlite` und fehlendem/abweichendem Schalter darf Pulse **nicht** still auf die alte JSON-Sicherung zurückfallen. Der Start meldet einen eindeutigen Konfigurationsfehler; die Datenbank bleibt die maßgebliche Quelle.
+- `PULSE_LOGS_BACKEND=json` ist ein ausdrücklich angeforderter Rückweg: JSON wird zunächst aus SQLite exportiert, geprüft und atomar ersetzt; erst danach wird `active_backend=json` gespeichert.
+- Ein unbekannter Schalterwert oder eine nicht passende Generation führt zu einem sichtbaren Fehler und nicht zu einer stillen Backend-Wahl.
 - Die Migration darf nicht allein durch das Vorhandensein der Tabelle oder durch einen Deploy automatisch aktiviert werden.
 
 ### 5.2 JSON → SQLite
@@ -179,15 +188,16 @@ Der Rückweg wird vor dem Umschalten vorbereitet, nicht durch einen stillen Fall
 3. Die Datei wird erneut eingelesen; Anzahl, Reihenfolge und vollständige Objekte müssen dem SQLite-Stand entsprechen.
 4. Erst nach erfolgreicher Prüfung wird beim nächsten kontrollierten Start JSON als Quelle gewählt.
 5. Die SQLite-Tabelle bleibt zunächst erhalten; sie wird nicht automatisch gelöscht.
-6. Schlägt Export oder Prüfung fehl, bleibt SQLite die maßgebliche Quelle und der Prozess meldet den Fehler. Es wird nicht auf eine möglicherweise veraltete JSON-Sicherung zurückgeschaltet.
+6. Die Metadaten werden erst nach erfolgreichem Export und Read-back auf `active_backend=json` umgestellt; die Generation und letzte SQLite-Revision bleiben für Nachweis und Diagnose erhalten.
+7. Schlägt Export oder Prüfung fehl, bleibt SQLite die maßgebliche Quelle und der Prozess meldet den Fehler. Es wird nicht auf eine möglicherweise veraltete JSON-Sicherung zurückgeschaltet.
 
 **Wichtig:** Im SQLite-Modus ist die ursprüngliche `logs.json` nur eine unveränderte Migrationssicherung und kein automatisch aktueller Lese-Fallback. Das muss im Systemstatus und in der Betriebsdokumentation eindeutig sichtbar sein.
 
 ## 6. Backup, Restore und Datenschutz
 
-- Das bestehende Voll-Backup muss im SQLite-Modus `pulse.db` und die zugehörige `logs.json` als zusammengehörigen Stand sichern. Die Snapshot-Grenze muss gegen gleichzeitige Melonly-Schreiboperationen geschützt sein.
+- Das bestehende Voll-Backup muss im SQLite-Modus `pulse.db` und die archivierte `logs.json` gemeinsam erfassen und im Manifest Backend, Generation und Revision aus `melonly_logs_meta` dokumentieren. Die Snapshot-Grenze muss gegen gleichzeitige Melonly-Schreiboperationen geschützt sein.
 - Ein Backup weist im Manifest Größe und SHA-256 aus; `pulse.db` wird über SQLite Backup API und mit `PRAGMA integrity_check` geprüft.
-- Der Restore muss Datenbank und JSON-Paar gemeinsam validieren. Ein Restore darf nicht eine aktuelle SQLite-Tabelle mit einer JSON-Datei aus einer anderen Generation verbinden.
+- Der Restore validiert den aktiven Backend-Marker innerhalb von `pulse.db` und die dazugehörigen Archiv-Metadaten. Eine alte JSON-Migrationssicherung wird nie als aktuelle Datenquelle interpretiert, wenn der Marker SQLite ausweist.
 - Vor Restore wird das aktuelle System gesichert; anschließend werden Wartungsmodus, Integritätskontrolle und Rückweg genutzt.
 - Tests laufen ausschließlich mit synthetischen Daten in isolierten temporären Verzeichnissen.
 - Keine Retention oder automatische Löschung wird in dieser Phase eingeführt. Die bestehende manuelle Löschfunktion bleibt die einzige fachliche Löschaktion.
