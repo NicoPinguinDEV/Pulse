@@ -91,8 +91,8 @@ def measure_backend(ws, store, members: list[str], now, runs: int) -> dict:
     period = range_read()
     aggregate = aggregate_read()
 
-    if len(history) != 20000:
-        raise RuntimeError(f"Baseline enthält {len(history)} statt 20.000 Einträge")
+    if len(history) < 20000:
+        raise RuntimeError(f"Baseline enthält nur {len(history)} Einträge; mindestens 20.000 erwartet")
 
     metrics = {
         "full_history_ms": median_ms(full_read, runs),
@@ -133,6 +133,7 @@ def main() -> int:
 
     os.environ.pop("PULSE_SHIFT_HISTORY_BACKEND", None)
     os.environ.pop("DISCORD_TOKEN", None)
+    original_cwd = os.getcwd()
     with tempfile.TemporaryDirectory(prefix="pulse-phase148-bench-") as tmp:
         root = Path(tmp)
         os.environ["PULSE_DB_PATH"] = str(root / "pulse.db")
@@ -152,6 +153,7 @@ def main() -> int:
 
         members = [str(10000 + index) for index in range(args.members)]
         now = ws.now_de()
+        date_from = (now.date() - timedelta(days=30)).isoformat()
         history = seed_history(ws, args.history, members)
         ws.save_json(ws.SHIFTS_FILE, {"active_shifts": {}, "history": history})
         json_metrics = measure_backend(ws, store, members, now, args.runs)
@@ -192,7 +194,8 @@ def main() -> int:
         }
         output = json.dumps(report, indent=2, ensure_ascii=False)
         print(output)
-        Path(args.json).write_text(output + "\n", encoding="utf-8")
+    os.chdir(original_cwd)
+    Path(args.json).write_text(output + "\n", encoding="utf-8")
     return 0
 
 
