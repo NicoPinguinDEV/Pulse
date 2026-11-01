@@ -284,3 +284,70 @@ class MelonlyStore:
             """INSERT INTO melonly_logs_meta(key,value) VALUES ('revision','1')
                ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1"""
         )
+
+
+    def player_history(self, query: str) -> list[Any]:
+        """Return complete player history using the legacy ID/name fallback rules."""
+        needle = str(query or "").strip()[:80].lstrip("@").strip().casefold()
+        if not needle:
+            return []
+        with self._read() as con:
+            rows = con.execute(
+                "SELECT payload FROM melonly_logs ORDER BY seq ASC"
+            ).fetchall()
+        entries = [json.loads(row["payload"]) for row in rows]
+
+        def player_name(entry: Any) -> str:
+            if not isinstance(entry, Mapping):
+                return ""
+            return str(entry.get("target_user") or "").strip().lstrip("@").casefold()
+
+        def player_id(entry: Any) -> str:
+            if not isinstance(entry, Mapping):
+                return ""
+            value = str(entry.get("roblox_id") or "").strip()
+            return value if value.isdigit() else ""
+
+        candidates = []
+        if needle.isdigit():
+            candidates = [entry for entry in entries if player_id(entry) == needle]
+        if not candidates:
+            exact = [entry for entry in entries if player_name(entry) == needle]
+            candidates = exact or [
+                entry for entry in entries if needle in player_name(entry)
+            ]
+        names = {player_name(entry) for entry in candidates if player_name(entry)}
+        ids = {player_id(entry) for entry in candidates if player_id(entry)}
+        return [
+            entry for entry in entries
+            if (player_name(entry) and player_name(entry) in names)
+            or (player_id(entry) and player_id(entry) in ids)
+        ]
+
+    def roblox_suggestions(self, limit: int = 5000) -> list[Any]:
+        """Return the newest bounded candidate window, newest entry first."""
+        safe_limit = max(0, min(int(limit), 5000))
+        if not safe_limit:
+            return []
+        with self._read() as con:
+            rows = con.execute(
+                "SELECT payload FROM melonly_logs ORDER BY seq DESC LIMIT ?",
+                (safe_limit,),
+            ).fetchall()
+            return [json.loads(row["payload"]) for row in rows]
+
+    def search_payload(self, query: str) -> list[Any]:
+        """Search serialized payloads with the legacy case-insensitive substring rule."""
+        needle = str(query or "").lower().strip()
+        if not needle:
+            return []
+        with self._read() as con:
+            rows = con.execute(
+                "SELECT payload FROM melonly_logs ORDER BY seq ASC"
+            ).fetchall()
+        matches = []
+        for row in rows:
+            entry = json.loads(row["payload"])
+            if needle in json.dumps(entry, ensure_ascii=False).lower():
+                matches.append(entry)
+        return matches
