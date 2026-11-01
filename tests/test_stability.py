@@ -1,4 +1,5 @@
 """Phase 3: background tasks (P-07), on_ready once (P-08), command sync only on change (P-09)."""
+import ast
 import asyncio
 import tempfile
 import unittest
