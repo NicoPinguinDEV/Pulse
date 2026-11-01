@@ -73,6 +73,14 @@ class PermissionModelTests(unittest.TestCase):
         self.assertEqual(tuple(ws.PERM_KEYS), perms.BASE_KEYS)
         self.assertEqual(tuple(pulse_pro.EXTRA_PERMS), perms.EXTRA_KEYS)
 
+    def test_lpl_is_recognised_as_a_team_lead_role_for_recommended_permissions(self):
+        import pulse_pro
+        for role_name in ("LPL", "LPL · Leitung Personal", "Stellv. LPL"):
+            with self.subTest(role_name=role_name):
+                self.assertTrue(pulse_pro.is_recommended_team_lead_role_name(role_name))
+        self.assertFalse(pulse_pro.is_recommended_team_lead_role_name("LowTeam"))
+        self.assertFalse(pulse_pro.is_recommended_team_lead_role_name("XLPL"))
+
     def test_webserver_uses_the_model_without_runtime_patch(self):
         m = member(OTHER)
         self.assertEqual(ws.compute_perms(guild_with(m), m.id, CONFIG)[0], self.compute(m))
