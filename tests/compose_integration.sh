@@ -114,7 +114,7 @@ in_container sh -c 'test "$PULSE_DATA_DIR" = /data && test "$PULSE_DB_PATH" = /d
 in_container sh -c 'test ! -e /app/.env && test ! -e /app/.git' || fail ".env oder .git im Container sichtbar"
 in_container sh -c 'grep -E "^tmpfs /tmp tmpfs .*noexec" /proc/mounts | grep -q "size=65536k"' || fail "/tmp ist kein 64-MB-tmpfs mit noexec"
 in_container sh -c 'touch /tmp/ci-tmp-probe' || fail "/tmp nicht beschreibbar"
-echo probe > .pulse-agent/ci-host-probe
+echo probe | sudo tee .pulse-agent/ci-host-probe >/dev/null  # the folder belongs to UID 1000, like on the VPS
 in_container sh -c 'test -f /app/.pulse-agent/ci-host-probe && touch /app/.pulse-agent/ci-container-probe' \
   || fail ".pulse-agent-Mount fehlt oder ist nicht beschreibbar"
 for f in pulse.db .session_secret config.json logs/pulse.log transcripts/T-1.txt assets/support_wait.mp3; do
