@@ -501,139 +501,138 @@ def status_meta(status: str):
     }.get(status, ("⚪", "Offline", ""))
 
 
-def make_shell_helpers(ws):
-    old_head = ws.get_head_html
-    old_sidebar = ws.get_sidebar_html
-    old_log = ws.log_audit
-
-    def patched_head(title: str):
-        return old_head(title) + '<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#08090B"><meta name="mobile-web-app-capable" content="yes">' + PRO_CSS + PRO_JS + PARTICLE_JS
+def pro_head_extra(title: str):
+    """Shell hook "head_extra": appended by webserver.get_head_html (A-01a)."""
+    return '<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#08090B"><meta name="mobile-web-app-capable" content="yes">' + PRO_CSS + PRO_JS + PARTICLE_JS
 
 
-    def patched_log(actor_name, actor_id, action, details):
-        old_log(actor_name, actor_id, action, details)
-        try:
-            db.record_event("audit", "panel", "", actor_id, actor_name or "System", {"action": action, "details": details})
-        except Exception:
-            pass
+def pro_audit_mirror(actor_name, actor_id, action, details):
+    """Shell hook "audit_listener": mirrors every saved audit entry into the event table (A-01a)."""
+    try:
+        db.record_event("audit", "panel", "", actor_id, actor_name or "System", {"action": action, "details": details})
+    except Exception:
+        pass
 
-    def nav_item(key, href, icon, label, active, badge_text=""):
-        cls = "nav-active" if active else ""
-        badge = f'<span class="ml-auto min-w-5 text-center text-[9px] rounded-full bg-rose-500 text-white px-1.5 py-0.5">{badge_text}</span>' if badge_text else ""
-        return f'<a href="{href}" aria-label="{label}" title="{label}" class="{cls} flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium transition hover:bg-slate-100 dark:hover:bg-slate-800/60">{icon}<span>{label}</span>{badge}</a>'
 
-    def patched_sidebar(guild_name, current_page="dashboard", current_user=None, perms=None):
-        perms = perms or {}; current_user = current_user or {}
-        uid = current_user.get("id")
-        try: unread = db.unread_count(uid) if uid else 0
-        except Exception: unread = 0
-        groups = [
-            ("Mein Bereich", [
-                ("me","/me","★","Mein Pulse",True,False),
-                ("dashboard","/dashboard","⌂","Übersicht",True,False),
-                ("inbox","/pulse-inbox","◈","Inbox",True,False),
-                ("cockpit","/cockpit","◆","Leitungs-Cockpit",perms.get("can_promote") or perms.get("is_admin"),False),
-            ]),
-            ("Team", [
-                ("team","/team","◌","Teamliste",True,False),
-                ("team-status","/team-status","◉","Teamstatus",perms.get("can_view_team_status",True),False),
-                ("activity-check","/activity-check","✓","Activity Check",perms.get("can_manage_checkins") or perms.get("is_admin"),False),
-                ("melonly","/melonly","🛡️","Melonly",perms.get("can_warn") or perms.get("can_add_notes") or perms.get("is_admin"),False),
-                ("warns","/warns","⚠","Verwarnungszentrale",perms.get("can_warn") or perms.get("is_admin"),False),
-                ("wiki","/wiki","▤","Team-Wiki",True,False),
-                ("factions","/factions","⚑","Fraktionsverwaltung",perms.get("can_manage_factions"),False),
-            ]),
-            ("Support", [
-                ("tickets","/tickets","▣","Tickets",True,False),
-                ("voice-support","/voice-support","🎧","Sprach-Support",perms.get("can_manage_tickets") or perms.get("can_promote") or perms.get("is_admin"),False),
-            ]),
-            ("Recruiting", [
-                ("applications","/applications","✎","Bewerbungen",True,False),
-            ]),
-            ("Planung", [
-                ("meetings","/meetings","◫","Meetings",True,False),
-                ("meeting-history","/meetings-history","▤","Meeting-Historie",True,False),
-                ("calendar","/calendar","□","Kalender",True,False),
-                ("loa","/loa","☾","Abmeldungen",True,False),
-                ("training","/training","◇","Schulungen",True,False),
-            ]),
-            ("Auswertung", [
-                ("stats","/stats","◒","Analytics",perms.get("can_view_analytics",False),False),
-                ("achievements","/achievements","◆","Achievements",True,False),
-            ]),
-        ]
-        # Two clearly separated areas: daily team work vs. administration/configuration.
-        # The switch only mirrors permissions; every admin route authorizes server-side.
-        from pulse_admin import ADMIN_PAGE_KEYS, admin_sections
-        admin_entries = admin_sections(perms)
-        admin_mode = bool(admin_entries) and current_page in ADMIN_PAGE_KEYS
-        nav = []
-        if admin_entries:
-            nav.append('<div class="pulse-area-switch" role="tablist">'
-                       f'<a href="/me" role="tab" class="{"" if admin_mode else "on"}" aria-selected="{"false" if admin_mode else "true"}">👥 Team</a>'
-                       f'<a href="/admin" role="tab" class="{"on" if admin_mode else ""}" aria-selected="{"true" if admin_mode else "false"}">🛠 Verwaltung</a></div>')
-        if admin_mode:
-            from pulse_admin import SERVER_SECTION_KEYS
-            groups = [("Verwaltung", [("admin", "/admin", "◆", "Übersicht", True, False)]
-                       + [(key, href, icon, label, True, False) for key, href, icon, label, _ in admin_entries
-                          if key not in SERVER_SECTION_KEYS]),
-                      ("Serververwaltung", [(key, href, icon, label, True, False) for key, href, icon, label, _ in admin_entries
-                                            if key in SERVER_SECTION_KEYS])]
-        for group, items in groups:
-            visible = [x for x in items if x[4]]
-            if not visible:
+def _nav_item(key, href, icon, label, active, badge_text=""):
+    cls = "nav-active" if active else ""
+    badge = f'<span class="ml-auto min-w-5 text-center text-[9px] rounded-full bg-rose-500 text-white px-1.5 py-0.5">{badge_text}</span>' if badge_text else ""
+    return f'<a href="{href}" aria-label="{label}" title="{label}" class="{cls} flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium transition hover:bg-slate-100 dark:hover:bg-slate-800/60">{icon}<span>{label}</span>{badge}</a>'
+
+def pro_sidebar_html(guild_name, current_page="dashboard", current_user=None, perms=None):
+    """Shell hook "sidebar": the TeamOS navigation rendered by webserver.get_sidebar_html (A-01a)."""
+    import webserver as ws
+    perms = perms or {}; current_user = current_user or {}
+    uid = current_user.get("id")
+    try: unread = db.unread_count(uid) if uid else 0
+    except Exception: unread = 0
+    groups = [
+        ("Mein Bereich", [
+            ("me","/me","★","Mein Pulse",True,False),
+            ("dashboard","/dashboard","⌂","Übersicht",True,False),
+            ("inbox","/pulse-inbox","◈","Inbox",True,False),
+            ("cockpit","/cockpit","◆","Leitungs-Cockpit",perms.get("can_promote") or perms.get("is_admin"),False),
+        ]),
+        ("Team", [
+            ("team","/team","◌","Teamliste",True,False),
+            ("team-status","/team-status","◉","Teamstatus",perms.get("can_view_team_status",True),False),
+            ("activity-check","/activity-check","✓","Activity Check",perms.get("can_manage_checkins") or perms.get("is_admin"),False),
+            ("melonly","/melonly","🛡️","Melonly",perms.get("can_warn") or perms.get("can_add_notes") or perms.get("is_admin"),False),
+            ("warns","/warns","⚠","Verwarnungszentrale",perms.get("can_warn") or perms.get("is_admin"),False),
+            ("wiki","/wiki","▤","Team-Wiki",True,False),
+            ("factions","/factions","⚑","Fraktionsverwaltung",perms.get("can_manage_factions"),False),
+        ]),
+        ("Support", [
+            ("tickets","/tickets","▣","Tickets",True,False),
+            ("voice-support","/voice-support","🎧","Sprach-Support",perms.get("can_manage_tickets") or perms.get("can_promote") or perms.get("is_admin"),False),
+        ]),
+        ("Recruiting", [
+            ("applications","/applications","✎","Bewerbungen",True,False),
+        ]),
+        ("Planung", [
+            ("meetings","/meetings","◫","Meetings",True,False),
+            ("meeting-history","/meetings-history","▤","Meeting-Historie",True,False),
+            ("calendar","/calendar","□","Kalender",True,False),
+            ("loa","/loa","☾","Abmeldungen",True,False),
+            ("training","/training","◇","Schulungen",True,False),
+        ]),
+        ("Auswertung", [
+            ("stats","/stats","◒","Analytics",perms.get("can_view_analytics",False),False),
+            ("achievements","/achievements","◆","Achievements",True,False),
+        ]),
+    ]
+    # Two clearly separated areas: daily team work vs. administration/configuration.
+    # The switch only mirrors permissions; every admin route authorizes server-side.
+    from pulse_admin import ADMIN_PAGE_KEYS, admin_sections
+    admin_entries = admin_sections(perms)
+    admin_mode = bool(admin_entries) and current_page in ADMIN_PAGE_KEYS
+    nav = []
+    if admin_entries:
+        nav.append('<div class="pulse-area-switch" role="tablist">'
+                   f'<a href="/me" role="tab" class="{"" if admin_mode else "on"}" aria-selected="{"false" if admin_mode else "true"}">👥 Team</a>'
+                   f'<a href="/admin" role="tab" class="{"on" if admin_mode else ""}" aria-selected="{"true" if admin_mode else "false"}">🛠 Verwaltung</a></div>')
+    if admin_mode:
+        from pulse_admin import SERVER_SECTION_KEYS
+        groups = [("Verwaltung", [("admin", "/admin", "◆", "Übersicht", True, False)]
+                   + [(key, href, icon, label, True, False) for key, href, icon, label, _ in admin_entries
+                      if key not in SERVER_SECTION_KEYS]),
+                  ("Serververwaltung", [(key, href, icon, label, True, False) for key, href, icon, label, _ in admin_entries
+                                        if key in SERVER_SECTION_KEYS])]
+    for group, items in groups:
+        visible = [x for x in items if x[4]]
+        if not visible:
+            continue
+        is_open = any(item[0] == current_page for item in visible)
+        links = "".join(
+            _nav_item(
+                key, href, icon, label, current_page == key,
+                str(unread if key == "inbox" and unread else "")
+            )
+            for key, href, icon, label, _shown, _ in visible
+        )
+        nav.append(
+            f'<details class="pulse-nav-group pulse-primary-group"{" open" if is_open else ""}>'
+            f'<summary>{group}</summary><div class="pulse-primary-content">{links}</div></details>'
+        )
+    # Erweiterte Funktionen bleiben vollständig erreichbar, beanspruchen aber nicht länger
+    # zwei dauerhaft sichtbare Navigationsblöcke. Die aktive Untergruppe öffnet sich automatisch.
+    from pulse_design import SUITE_NAV, ULTIMATE_NAV, visible_nav
+    leader = bool(perms.get("can_promote") or perms.get("is_admin"))
+    if not admin_mode:
+        advanced = []
+        advanced_count = 0
+        for prefix, group, items in (("u", "Command Center", ULTIMATE_NAV), ("s", "Operations Suite", SUITE_NAV)):
+            # Aufgaben, Freigaben und Übergaben bleiben über ihre URLs erreichbar,
+            # werden aber auf Wunsch nicht als zusätzliche Sidebar-Menüpunkte geführt.
+            hidden_keys = {"handover", "approvals", "tasks2"} if prefix == "u" else {"tasks"}
+            entries = [item for item in visible_nav(items, leader) if item[0] not in hidden_keys]
+            if not entries:
                 continue
-            is_open = any(item[0] == current_page for item in visible)
+            advanced_count += len(entries)
+            is_open = str(current_page).startswith(prefix + ":")
             links = "".join(
-                nav_item(
-                    key, href, icon, label, current_page == key,
-                    str(unread if key == "inbox" and unread else "")
+                _nav_item(
+                    f"{prefix}:{key}", href, label.split(" ", 1)[0],
+                    label.split(" ", 1)[1] if " " in label else label,
+                    current_page == f"{prefix}:{key}"
                 )
-                for key, href, icon, label, _shown, _ in visible
+                for key, href, label, _ in entries
             )
+            advanced.append(
+                f'<details class="pulse-nav-group pulse-nav-subgroup"{" open" if is_open else ""}>'
+                f'<summary>{group}</summary><div class="pulse-sidebar-sub">{links}</div></details>'
+            )
+        if advanced:
+            is_open = str(current_page).startswith(("u:", "s:"))
             nav.append(
-                f'<details class="pulse-nav-group pulse-primary-group"{" open" if is_open else ""}>'
-                f'<summary>{group}</summary><div class="pulse-primary-content">{links}</div></details>'
+                f'<details class="pulse-nav-group pulse-advanced-group"{" open" if is_open else ""}>'
+                f'<summary>Erweiterte Funktionen <span class="pulse-nav-count">{advanced_count}</span></summary>'
+                f'<div class="pulse-advanced-content">{"".join(advanced)}</div></details>'
             )
-        # Erweiterte Funktionen bleiben vollständig erreichbar, beanspruchen aber nicht länger
-        # zwei dauerhaft sichtbare Navigationsblöcke. Die aktive Untergruppe öffnet sich automatisch.
-        from pulse_design import SUITE_NAV, ULTIMATE_NAV, visible_nav
-        leader = bool(perms.get("can_promote") or perms.get("is_admin"))
-        if not admin_mode:
-            advanced = []
-            advanced_count = 0
-            for prefix, group, items in (("u", "Command Center", ULTIMATE_NAV), ("s", "Operations Suite", SUITE_NAV)):
-                # Aufgaben, Freigaben und Übergaben bleiben über ihre URLs erreichbar,
-                # werden aber auf Wunsch nicht als zusätzliche Sidebar-Menüpunkte geführt.
-                hidden_keys = {"handover", "approvals", "tasks2"} if prefix == "u" else {"tasks"}
-                entries = [item for item in visible_nav(items, leader) if item[0] not in hidden_keys]
-                if not entries:
-                    continue
-                advanced_count += len(entries)
-                is_open = str(current_page).startswith(prefix + ":")
-                links = "".join(
-                    nav_item(
-                        f"{prefix}:{key}", href, label.split(" ", 1)[0],
-                        label.split(" ", 1)[1] if " " in label else label,
-                        current_page == f"{prefix}:{key}"
-                    )
-                    for key, href, label, _ in entries
-                )
-                advanced.append(
-                    f'<details class="pulse-nav-group pulse-nav-subgroup"{" open" if is_open else ""}>'
-                    f'<summary>{group}</summary><div class="pulse-sidebar-sub">{links}</div></details>'
-                )
-            if advanced:
-                is_open = str(current_page).startswith(("u:", "s:"))
-                nav.append(
-                    f'<details class="pulse-nav-group pulse-advanced-group"{" open" if is_open else ""}>'
-                    f'<summary>Erweiterte Funktionen <span class="pulse-nav-count">{advanced_count}</span></summary>'
-                    f'<div class="pulse-advanced-content">{"".join(advanced)}</div></details>'
-                )
-        user_name = ws.esc(current_user.get("global_name") or current_user.get("username") or "Team")
-        avatar_id=current_user.get("avatar"); user_id=current_user.get("id")
-        avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_id}.png" if avatar_id and user_id else "https://cdn.discordapp.com/embed/avatars/0.png"
-        return f'''<style>
+    user_name = ws.esc(current_user.get("global_name") or current_user.get("username") or "Team")
+    avatar_id=current_user.get("avatar"); user_id=current_user.get("id")
+    avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_id}.png" if avatar_id and user_id else "https://cdn.discordapp.com/embed/avatars/0.png"
+    return f'''<style>
         #pulseSidebar{{transition:transform .18s ease,width .18s ease}}#pulseSidebar .nav-active{{background:linear-gradient(90deg,rgba(91,92,240,.12),rgba(124,58,237,.06));color:#5b5cf0;border:1px solid rgba(91,92,240,.14);box-shadow:0 7px 20px rgba(91,92,240,.07)}}
         .dark #pulseSidebar .nav-active{{color:#a8abff}}
         .pulse-area-switch{{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:rgba(148,163,184,.12);margin-bottom:6px}}
@@ -677,10 +676,14 @@ def make_shell_helpers(ws):
         </script>
         '''
 
-    ws.get_head_html = patched_head
-    ws.get_sidebar_html = patched_sidebar
-    # A-03: ws.compute_perms is no longer replaced at runtime – pulse_permissions covers the extra permissions.
-    ws.log_audit = patched_log
+
+def make_shell_helpers(ws):
+    """A-01a: register the Pro shell hooks explicitly; webserver's functions are no longer replaced.
+    Idempotent (same functions again are a no-op). A-03: ws.compute_perms is not replaced either –
+    pulse_permissions covers the extra permissions."""
+    ws.register_shell_hook("head_extra", pro_head_extra)
+    ws.register_shell_hook("sidebar", pro_sidebar_html)
+    ws.register_shell_hook("audit_listener", pro_audit_mirror)
 
 
 def build_command_modal(ws, perms=None):

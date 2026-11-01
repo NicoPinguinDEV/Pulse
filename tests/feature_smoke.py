@@ -1244,7 +1244,7 @@ def main() -> None:
     # User-facing menu and palette hide the three removed workflow items.
     pulse_pro_source = read("pulse_pro.py")
     sidebar_tree = ast.parse(pulse_pro_source)
-    sidebar_fn = next(node for node in ast.walk(sidebar_tree) if isinstance(node, ast.FunctionDef) and node.name == "patched_sidebar")
+    sidebar_fn = next(node for node in ast.walk(sidebar_tree) if isinstance(node, ast.FunctionDef) and node.name == "pro_sidebar_html")
     palette_fn = next(node for node in ast.walk(sidebar_tree) if isinstance(node, ast.FunctionDef) and node.name == "build_command_modal")
     sidebar_text = ast.get_source_segment(pulse_pro_source, sidebar_fn) or ""
     palette_text = ast.get_source_segment(pulse_pro_source, palette_fn) or ""
