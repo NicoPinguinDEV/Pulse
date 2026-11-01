@@ -245,7 +245,7 @@ class MigrationTests(unittest.TestCase):
 
     def run_mig(self, *args):
         argv = ["--source", str(self.source), "--target", str(self.target), "--backup-dir", str(self.backups), *args]
-        with patch.object(mig, "container_running", lambda name: False), patch("builtins.print"):
+        with patch.object(mig, "container_state", lambda name: "exited"), patch("builtins.print"):
             return mig.main(argv)
 
     def assert_source_unchanged(self):
@@ -284,7 +284,7 @@ class MigrationTests(unittest.TestCase):
     def test_running_container_blocks_the_migration(self):
         argv = ["--source", str(self.source), "--target", str(self.target), "--backup-dir", str(self.backups),
                 "--execute", "--confirm", mig.CONFIRM_WORD]
-        with patch.object(mig, "container_running", lambda name: True), patch("builtins.print"):
+        with patch.object(mig, "container_state", lambda name: "running"), patch("builtins.print"):
             self.assertEqual(mig.main(argv), 2)
         self.assertFalse(self.target.exists())
 
@@ -514,7 +514,7 @@ class RemoteDeployDataDirRunTests(unittest.TestCase):
             raise unittest.SkipTest("bash nicht lauffähig")
         return bash
 
-    def _run(self, marker_state: str | None):
+    def _run(self, marker_state: str | None, failing: str = "never-fails"):
         bash = self._bash()
         tmp = Path(tempfile.mkdtemp())
         for name in ("bin", "repo", "data"):
@@ -528,8 +528,10 @@ class RemoteDeployDataDirRunTests(unittest.TestCase):
             f'if [ "$1" = rev-parse ]; then echo {"a" * 40}; fi\n'
             'if [ "$1" = show ]; then case "$2" in ' + "b" * 40 + ':*) echo "        target: /data";; esac; fi\n'
             "exit 0\n", encoding="utf-8", newline="\n")
-        (tmp / "bin" / "docker").write_text(f'#!/usr/bin/env bash\necho "docker $*" >> "{log}"\nexit 0\n',
+        (tmp / "bin" / "docker").write_text(f'#!/usr/bin/env bash\necho "docker $*" >> "{log}"\n'
+                                            f'case "$*" in *"{failing}"*) exit 1;; esac\nexit 0\n',
                                             encoding="utf-8", newline="\n")
+        (tmp / "bin" / "flock").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8", newline="\n")
         (tmp / "bin" / "sleep").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8", newline="\n")
         script = (
             f'export PATH="$(cd "{(tmp / "bin").as_posix()}" && pwd):$PATH"; chmod +x "{(tmp / "bin").as_posix()}"/*; '
@@ -554,6 +556,16 @@ class RemoteDeployDataDirRunTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace") + result.stderr.decode(errors="replace"))
         self.assertEqual([c for c in calls if c.startswith("git reset --hard")], [f"git reset --hard {'b' * 40}"])
         self.assertTrue(any(c.startswith("docker compose build") for c in calls), calls)
+
+    def test_failed_layout_switch_stops_instead_of_starting_outdated_data(self):
+        """Phase 13.1: PREV (old layout) must never be started automatically on the outdated checkout data."""
+        result, calls = self._run("complete", failing="exec -T pulse")  # /healthz never answers
+        out = result.stdout.decode(errors="replace")
+        self.assertEqual(result.returncode, 2, out + result.stderr.decode(errors="replace"))
+        self.assertIn("KEIN automatischer Rollback", out)
+        self.assertEqual([c for c in calls if c.startswith("git reset --hard")], [f"git reset --hard {'b' * 40}"])
+        self.assertIn("docker compose stop pulse", calls)
+        self.assertFalse([c for c in calls if c.startswith("docker compose up -d --build")], calls)
 
 
 if __name__ == "__main__":

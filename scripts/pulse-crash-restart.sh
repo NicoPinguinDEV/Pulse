@@ -33,13 +33,16 @@ if [[ "$update_state" == "activating" ]]; then
     exit 0
 fi
 
-# Same lock as deploy/remote_deploy.sh: a running deploy owns the container.
-if command -v flock >/dev/null 2>&1; then
-    exec 9>"$LOCK_FILE"
-    if ! flock -n 9; then
-        log "Ein Deploy läuft gerade – nichts zu tun."
-        exit 0
-    fi
+# Same lock as deploy/remote_deploy.sh: a running deploy owns the container. Phase 13.1: fail-closed – without
+# flock it cannot be proven that no deploy runs, so nothing is started.
+if ! command -v flock >/dev/null 2>&1; then
+    log "flock fehlt – ohne Deploy-Sperre kein automatischer Neustart."
+    exit 0
+fi
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    log "Ein Deploy läuft gerade – nichts zu tun."
+    exit 0
 fi
 
 if ! info="$(docker inspect --format '{{.State.Status}} {{.State.ExitCode}} {{.State.OOMKilled}}' "$CONTAINER" 2>/dev/null)"; then

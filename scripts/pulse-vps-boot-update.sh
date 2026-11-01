@@ -109,6 +109,23 @@ prepare_mounts() {
 # refuses every command ("dubious ownership"), set -e ends the script before start_current_version and Pulse
 # stays down after a reboot (same line as deploy/remote_deploy.sh; valid only for this script's git calls).
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$(pwd -P)"
+# Phase 13.1: an image built while starting the current version must carry its commit too (system status).
+export PULSE_GIT_SHA="$(git rev-parse HEAD 2>/dev/null || true)" PULSE_GIT_BRANCH=main
+# Phase 13.1: same lock as remote_deploy.sh/rollback_code.sh – a deploy started over SSH right after a reboot must
+# not build and start in parallel.
+#  * lock held by someone else (deploy/rollback running): do not touch the container at all – that run owns it.
+#  * flock missing: every other root script refuses to run without it, so nothing can run in parallel; only the
+#    installed version is started (no update), otherwise Pulse would stay down after every reboot.
+LOCK_FILE="${PULSE_DEPLOY_LOCK:-/run/lock/pulse-deploy.lock}"
+if ! command -v flock >/dev/null 2>&1; then
+    log "WARNUNG: flock fehlt – kein Update; starte nur den installierten Stand (Deploys sind ohne flock gesperrt)."
+    start_current_version || true
+    exit 1
+fi
+if ! exec 9>"$LOCK_FILE" || ! flock -w 600 9; then
+    log "ABBRUCH: Deploy-Sperre $LOCK_FILE seit 600 s belegt – ein Deploy/Rollback läuft; Container bleibt unberührt."
+    exit 1
+fi
 
 current_branch="$(git branch --show-current)"
 if [[ -n "$current_branch" && "$current_branch" != "main" ]]; then
@@ -189,6 +206,13 @@ else
     log "Build oder Containerstart fehlgeschlagen."
 fi
 
+# Phase 13.1: never start the old layout on outdated checkout data after the switch to the data directory.
+if uses_data_dir "$target" && ! uses_data_dir "$previous"; then
+    log "KRITISCH: Update auf das Datenverzeichnis-Layout nicht gesund – KEIN automatischer Rückfall auf $previous."
+    docker compose stop "$SERVICE_NAME" || true
+    log "Pulse ist gestoppt, Code bleibt auf $target, Daten in $DATA_HOST_DIR. Rückweg nur manuell (VPS_DEPLOYMENT.md)."
+    exit 2
+fi
 log "Update fehlgeschlagen. Stelle den vorherigen Code-Stand $previous wieder her."
 git reset --hard "$previous"
 install_updated_helper

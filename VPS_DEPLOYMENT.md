@@ -118,7 +118,7 @@ Ohne `PULSE_DATA_DIR` (Bot-Hosting ohne Docker, lokale Entwicklung) bleibt alles
    cd /opt/pulse/Pulse && git fetch origin main && git show origin/main:scripts/pulse_migrate_data.py > /root/pulse_migrate_data.py
    python3 /root/pulse_migrate_data.py --source /opt/pulse/Pulse --target /opt/pulse/data
    ```
-4. Echte Migration (fragt nach `MIGRIEREN`; bricht ab, wenn der Container läuft):
+4. Echte Migration (fragt nach `MIGRIEREN`). Seit Phase 13.1 fail-closed: Sie läuft nur, wenn der Docker-Daemon erreichbar ist und `pulse-teamos` nachweislich gestoppt ist (`exited`/`created`); fehlt Docker, ist der Daemon aus oder scheitert `docker inspect`, bricht sie ohne Änderung ab. Auf einem neuen Server ohne Container: `--container-absent`. Eine zweite gleichzeitige Ausführung verhindert die Sperre `.pulse-migrate.lock`:
    ```bash
    python3 /root/pulse_migrate_data.py --source /opt/pulse/Pulse --target /opt/pulse/data --execute
    python3 /root/pulse_migrate_data.py --source /opt/pulse/Pulse --target /opt/pulse/data --verify
@@ -126,7 +126,7 @@ Ohne `PULSE_DATA_DIR` (Bot-Hosting ohne Docker, lokale Entwicklung) bleibt alles
    Das Skript erstellt zuerst `/root/pulse-migration-backups/pulse-premigration-<Zeit>.tar.gz` und prüft es per SHA-256, setzt die Markierung auf `in_progress`, kopiert ohne zu überschreiben, vergleicht Anzahl und Prüfsumme jeder Datei sowie die SQLite-Integrität, setzt Besitzer UID/GID 1000 (Ordner 0750, Dateien 0640, `.session_secret` 0600) und erst danach `complete`. Die Quelle im Checkout bleibt unverändert. Ein Abbruch hinterlässt `in_progress` – dann einfach erneut ausführen (identische Dateien werden übersprungen). Konflikte (Zieldatei mit anderem Inhalt) stoppen vor jeder Kopie.
 5. Deploy des Phase-13-Commits wie gewohnt (Actions → Deploy Pulse VPS oder Server Control Center). `remote_deploy.sh` prüft die Markierung, sichert, baut mit `PULSE_GIT_SHA` und wartet auf `/healthz`.
 6. Prüfen: `curl -s http://127.0.0.1:25095/healthz`, Systemstatus (Commit, Speicher), Tickets, Bewerbungen, Schichten, Transkripte, Wartemusik, Backups-Liste. `docker compose exec pulse sh -c 'touch /app/x'` muss mit „Read-only file system“ scheitern.
-7. Crash-Neustart wieder aktivieren und die neuen Root-Skripte installieren:
+7. Crash-Neustart wieder aktivieren und die neuen Root-Skripte installieren (Phase 13.1: alle Root-Skripte verlangen `flock` und dieselbe Sperre `/run/lock/pulse-deploy.lock`):
    ```bash
    rm /var/lib/pulse-crash-restart/paused
    install -m 755 scripts/pulse-crash-restart.sh /usr/local/sbin/pulse-crash-restart.sh
@@ -137,13 +137,13 @@ Die alten Dateien im Checkout bleiben als zusätzliche Sicherung liegen und werd
 
 ### Phase 13: Rückweg zur bisherigen Struktur
 
-Ein automatischer Code-Rollback auf einen Commit vor Phase 13 wird von `rollback_code.sh` abgelehnt, weil er mit den veralteten Daten im Checkout starten würde. Manueller Rückweg:
+Ein automatischer Code-Rollback auf einen Commit vor Phase 13 wird von `rollback_code.sh` abgelehnt, weil er mit den veralteten Daten im Checkout starten würde. Scheitert der **erste** Deploy ins neue Layout, rollt `remote_deploy.sh` (und das Boot-Update) seit Phase 13.1 **nicht** automatisch zurück, sondern stoppt Pulse (Exit 2) – lieber kurz offline als mit veralteten Daten online. Rückweg mit dem Werkzeug (Phase 13.1):
 
 1. `touch /var/lib/pulse-crash-restart/paused && cd /opt/pulse/Pulse && docker compose stop pulse`
-2. Aktuellen Stand beider Orte sichern: `tar czf /root/pulse-rueckweg-$(date +%Y%m%d%H%M).tar.gz -C /opt/pulse data Pulse --exclude=Pulse/.git`
-3. Die aktuellen Daten zurück in den Checkout kopieren (überschreibt die veralteten Altdateien dort bewusst): `cp -a /opt/pulse/data/. /opt/pulse/Pulse/ && rm -f /opt/pulse/Pulse/.pulse-data.json && chown -R 1000:1000 /opt/pulse/Pulse`
-4. `git reset --hard <letzter Commit vor Phase 13>` und `docker compose up -d --build`, dann `/healthz` prüfen.
-5. `/opt/pulse/data` nicht löschen, bis der alte Stand nachweislich läuft.
+2. Probelauf: `python3 /root/pulse_migrate_data.py --rollback` – zeigt neue, identische und veraltete Dateien im Checkout.
+3. `python3 /root/pulse_migrate_data.py --rollback --execute` (Bestätigung `ZURUECK`): sichert Datenverzeichnis **und** veraltete Checkout-Kopien als `tar.gz`, verschiebt die veralteten Kopien nach `/opt/pulse/Pulse/.pulse-legacy-<Zeit>/` (nichts gelöscht), kopiert die aktuellen Daten ohne Überschreiben zurück, prüft Prüfsummen und setzt die Markierung auf `rolled_back` (der neue Stand startet darauf erst nach einer neuen Migration).
+4. `git reset --hard <letzter Commit vor Phase 13>` und `PULSE_GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build`, dann `/healthz` prüfen.
+5. `/opt/pulse/data` und `.pulse-legacy-*` nicht löschen, bis der alte Stand nachweislich läuft. Für eine spätere neue Migration den Ordner `/opt/pulse/data` erst umbenennen (er ist `rolled_back`).
 
 ### Neustart nach Absturz oder OOM-Kill (optional, empfohlen)
 

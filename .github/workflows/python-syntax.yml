@@ -187,3 +187,14 @@ jobs:
           code=$?
           set -e
           test "$code" = "78" && test -z "$(sudo ls -A "$empty")"
+  compose-integration:
+    name: Docker-Compose-Integration (read-only, /data, ohne Discord)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compose-Stack mit isolierten Testdaten starten, prüfen und stoppen
+        env:
+          PULSE_GIT_SHA: ${{ github.sha }}
+        run: bash tests/compose_integration.sh

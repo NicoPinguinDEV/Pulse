@@ -1,0 +1,9 @@
+# Phase 13.1: geprüfte Fehlalarme des vollständigen Historien-Scans (Gitleaks 8.24, Standardregeln).
+# Nur exakte Fingerprints (Commit:Datei:Regel:Zeile) – keine Regel, Datei oder Pfad wird pauschal ausgenommen.
+# Begründung: docs/PHASE13_1_BERICHT.md, Abschnitt Gitleaks.
+#
+# Variablenname "DISCORD_APPLICATION_REDIRECT_URI" in einem Tupel von URL-Variablennamen (kein Wert):
+82f318062e749f5fc9711ba1123d0078fcebf8d6:pulse_env_validation.py:discord-client-secret:47
+# Funktionsaufruf provider_request_slot(self.api_base, self.api_key, min_interval=2.0) – Attributzugriff, kein Schlüssel:
+1094de3876b76679f9e5bcd36df110441d02ef74:cogs/support_assistant.py:generic-api-key:252
+f392d6a0838a0437e7d2f4eb7b7485d043b0b4d1:cogs/support_assistant.py:generic-api-key:252

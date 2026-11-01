@@ -107,6 +107,9 @@ def verify_data_dir(data_dir=None, *, allow_init: bool | None = None) -> list[st
     if state == "in_progress":
         return [f"Die Datenmigration nach {data_dir} wurde nicht abgeschlossen (Zustand in_progress). "
                 "Bitte Migration prüfen und erneut ausführen – Pulse startet nicht mit halb kopierten Daten."]
+    if state in {"rolled_back", "rollback_in_progress"}:
+        return [f"Die Daten in {data_dir} wurden per Rückweg (pulse_migrate_data.py --rollback) in den alten Checkout "
+                f"zurückgegeben (Zustand {state}) – dieser Stand ist veraltet. Erst neu migrieren."]
     if state not in {"complete", "initialized"}:
         return [f"Unbekannter Zustand {state!r} in {MARKER_NAME}."]
     return outside_data_dir(data_dir)
