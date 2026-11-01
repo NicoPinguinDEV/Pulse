@@ -1,7 +1,7 @@
 """P-06 / O-07: every @tasks.loop is visible in the job registry (system status, /healthz jobs_failing)."""
 import ast
-import inspect
 import asyncio
+import inspect
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -39,6 +39,45 @@ class LegacyJobInventoryTests(unittest.TestCase):
         endless = jobs_doc.split("## Eigene Endlosschleifen", 1)[1].split("## ", 1)[0]
         self.assertIn("(3)", endless.splitlines()[0])
         self.assertNotIn("pulse_features.py", endless)
+
+
+class HousekeepingErrorReportingTests(unittest.TestCase):
+    def setUp(self):
+        pulse_jobs._JOBS.clear()
+
+    def test_caught_subtask_failure_is_visible_and_loop_continues(self):
+        import webserver as ws
+        import pulse_db as db
+        import pulse_presence
+        import pulse_retention
+        from cogs.pulse_pro import PulsePro
+
+        cog = object.__new__(PulsePro)
+        cog.bot = object()
+        cog.guild = lambda: SimpleNamespace(members=[])
+        cog.manager_members = lambda _guild: []
+
+        with patch.object(ws, "load_config", return_value={}), \
+                patch.object(ws, "cleanup_expired_team_warnings", AsyncMock(return_value={})), \
+                patch.object(ws, "cleanup_expired_warn_restrictions", AsyncMock(return_value={})), \
+                patch.object(ws, "process_expired_probations", AsyncMock(return_value={})), \
+                patch.object(ws, "process_overdue_shifts", AsyncMock(side_effect=RuntimeError("Shift-Backend nicht erreichbar"))), \
+                patch.object(ws, "load_json", return_value={}), \
+                patch.object(ws, "get_loas", return_value={}), \
+                patch.object(db, "list_tasks", return_value=[]), \
+                patch.object(db, "list_tickets", return_value=[]), \
+                patch.object(db, "purge_old_notifications"), \
+                patch.object(pulse_retention, "due_today", return_value=False), \
+                patch.object(pulse_presence, "update", new=AsyncMock()) as update_presence, \
+                patch("pulse_logging.report_error"), \
+                patch("pulse_alerts.raise_alert"), \
+                patch("traceback.print_exception"), \
+                patch("builtins.print"):
+            asyncio.run(PulsePro.housekeeping_loop.coro(cog))
+
+        self.assertIn("Housekeeping (5 min)", pulse_jobs.health_summary()["jobs_failing"])
+        self.assertEqual(pulse_jobs.snapshot()["jobs"][0]["runs"], 1)
+        update_presence.assert_awaited_once_with(cog.bot)
 
 
 class CaughtErrorsAreReportedTests(unittest.TestCase):

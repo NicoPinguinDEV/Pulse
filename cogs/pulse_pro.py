@@ -12,7 +12,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import pulse_db as db
-from pulse_jobs import tracked
+from pulse_jobs import record_error, tracked
 from pulse_time import parse_timestamp
 
 
@@ -41,7 +41,8 @@ class PulsePro(commands.Cog):
             cfg = webserver.load_config()
             role_ids = set(cfg.get("team_role_ids", []))
             return [m for m in guild.members if not m.bot and any(r.id in role_ids for r in m.roles)]
-        except Exception:
+        except Exception as exc:
+            record_error("Housekeeping (5 min)", exc)
             return []
 
     def manager_members(self, guild):
@@ -55,7 +56,8 @@ class PulsePro(commands.Cog):
                 if perms.get("can_promote") or perms.get("is_admin"):
                     out.append(m)
             return out
-        except Exception:
+        except Exception as exc:
+            record_error("Housekeeping (5 min)", exc)
             return []
 
     @tasks.loop(minutes=5)
@@ -83,16 +85,18 @@ class PulsePro(commands.Cog):
                         f"Sperrrollen {penalty_expiry}; Probezeiten {probation_expiry}"
                     )
             except Exception as exc:
-                print(f"⚠️ Warn-/Probezeit-Ablaufkontrolle fehlgeschlagen: {exc}")
+                record_error("Housekeeping (5 min)", exc)
             try:
                 shift_report = await webserver.process_overdue_shifts(guild, housekeeping_cfg)
                 if shift_report.get("closed") or shift_report.get("warned") or shift_report.get("failed") or shift_report.get("max_warns"):
                     print(f"⏱ Automatische Schichtkontrolle: {shift_report}")
             except Exception as exc:
-                print(f"⚠️ Automatische Schichtkontrolle fehlgeschlagen: {exc}")
+                record_error("Housekeeping (5 min)", exc)
             if now.hour == 3 and now.minute < 5:
-                try: db.purge_old_notifications(90)
-                except Exception: pass
+                try:
+                    db.purge_old_notifications(90)
+                except Exception as exc:
+                    record_error("Housekeeping (5 min)", exc)
             try:
                 # D-08: retention periods (off by default) – at most once a day, in a worker thread.
                 import pulse_retention
@@ -101,7 +105,7 @@ class PulsePro(commands.Cog):
                     if report.get("ran"):
                         print(f"🔒 Datenbereinigung: {report['applications']} Bewerbungen, {report['audit']} Audit-Einträge entfernt.")
             except Exception as exc:
-                print(f"⚠️ Datenbereinigung fehlgeschlagen: {type(exc).__name__}")
+                record_error("Housekeeping (5 min)", exc)
             overdue = [t for t in db.list_tasks(limit=1000) if t.get("due_at") and t.get("status") not in ("done", "archived")]
             for task in overdue:
                 try:
@@ -132,8 +136,8 @@ class PulsePro(commands.Cog):
                         continue
                     for manager in manager_cache:
                         db.notify(manager.id, "📝 Bewerbung wartet", f"Bewerbung {aid} von {app_data.get('name','Unbekannt')} wartet seit über 48 Stunden.", "warning", "/applications", f"stale-application:{aid}", 86400)
-            except Exception:
-                pass
+            except Exception as exc:
+                record_error("Housekeeping (5 min)", exc)
 
             for ticket in db.list_tickets(limit=1000, open_only=True):
                 if ticket.get("status") == "closed":
@@ -174,15 +178,15 @@ class PulsePro(commands.Cog):
                                 db.notify(uid, "🌴 LOA endet bald", "Deine Abmeldung endet innerhalb der nächsten 24 Stunden.", "info", "/loa", f"loa-ending:{uid}:{raw}", 86400)
                     except Exception:
                         continue
-            except Exception:
-                pass
+            except Exception as exc:
+                record_error("Housekeeping (5 min)", exc)
             try:
                 import pulse_presence  # BOT-13
                 await pulse_presence.update(self.bot)
-            except Exception:
-                pass
+            except Exception as exc:
+                record_error("Housekeeping (5 min)", exc)
         except Exception as exc:
-            print(f"⚠️ Pulse Pro Housekeeping: {exc}")
+            record_error("Housekeeping (5 min)", exc)
 
     @housekeeping_loop.before_loop
     async def before_housekeeping(self):
