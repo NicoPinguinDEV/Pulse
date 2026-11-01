@@ -232,3 +232,31 @@ jobs:
         env:
           PULSE_GIT_SHA: ${{ github.sha }}
         run: bash tests/compose_integration.sh
+
+  shift-history-benchmark:
+    name: Schichthistorie – 20.000 Einträge (JSON vs. SQLite)
+    needs: syntax
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'phase/14-8-indexed-shift-history')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Python einrichten
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Abhängigkeiten exakt installieren
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r requirements.lock
+      - name: JSON-/SQLite-Benchmark ausführen
+        run: python tools/shift_history_query_bench.py --history 20000 --members 200 --runs 5 --json shift-history-benchmark.json
+      - name: Messbericht hochladen
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: shift-history-phase-14-8-benchmark
+          path: shift-history-benchmark.json
+          retention-days: 14
