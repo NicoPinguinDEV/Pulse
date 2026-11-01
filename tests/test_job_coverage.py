@@ -1,7 +1,7 @@
 """P-06 / O-07: every @tasks.loop is visible in the job registry (system status, /healthz jobs_failing)."""
 import ast
-import inspect
 import asyncio
+import inspect
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
