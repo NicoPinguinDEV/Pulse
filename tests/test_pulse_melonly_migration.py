@@ -106,7 +106,7 @@ class MelonlyMigrationTests(unittest.TestCase):
         store.initialize()
         store.append({"id": "preexisting", "target_user": "KeepMe"})
         original = self.write_source([{"id": "incoming"}])
-        with self.assertRaises(MelonlyStoreNotEmpty):
+        with self.assertRaises(MelonlyMigrationError):
             migrate_json_to_sqlite(self.source, self.database, self.backups)
         self.assertEqual(store.export_all(), [{"id": "preexisting", "target_user": "KeepMe"}])
         self.assertEqual(self.source.read_bytes(), original)
