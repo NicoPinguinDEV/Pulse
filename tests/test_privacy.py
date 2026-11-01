@@ -90,12 +90,17 @@ class WarningLeakTests(unittest.TestCase):
         self.patches = [patch.object(pulse_db, "DB_PATH", str(base / "pulse.db")),
                         patch.object(ws, "DATA_FILE", str(base / "team_data.json")),
                         patch.object(ws, "APPS_FILE", str(base / "applications.json")),
+                        patch.object(ws, "LOGS_FILE", str(base / "logs.json")),
                         patch.object(pulse_suite, "DB_PATH", str(base / "suite.db"))]
         for p in self.patches:
             p.start()
         pulse_db.init_db()
         pulse_suite.init_db()
         ws.save_json(ws.DATA_FILE, {"555": {"warns_list": [{"id": "w1", "reason": "Geheimer Warngrund"}]}})
+        ws.save_json(ws.LOGS_FILE, [{
+            "id": "ml1", "target_user": "RobloxGeheim", "roblox_id": "987654321",
+            "type": "Ban", "reason": "MelonlyGeheim",
+        }])
 
     def tearDown(self):
         for p in reversed(self.patches):
@@ -110,6 +115,32 @@ class WarningLeakTests(unittest.TestCase):
         self.assertEqual(self.search(TEAMLER), [])
         self.assertEqual(len(self.search(TEAMLER, user_id="555")), 1)  # own warning
         self.assertEqual(len(self.search(dict(TEAMLER, can_warn=True))), 1)
+
+    def melonly_search(self, perms, user_id="123"):
+        ctx = SimpleNamespace(guild=guild_with_target(), perms=perms, user={"id": user_id})
+        return [r for r in self.suite.search_all("melonlygeheim", ctx) if r["type"] == "Roblox/MOD"]
+
+    def test_search_hides_melonly_entries_without_melonly_access(self):
+        self.assertEqual(self.melonly_search(TEAMLER), [])
+        self.assertEqual(len(self.melonly_search(dict(TEAMLER, can_warn=True))), 1)
+        self.assertEqual(len(self.melonly_search(dict(TEAMLER, can_moderate_bans=True))), 1)
+        self.assertEqual(len(self.melonly_search(ADMIN)), 1)
+
+    def test_roblox_apis_require_melonly_access(self):
+        ctx = SimpleNamespace(perms=dict(TEAMLER), user={"id": "123"})
+        client = TestClient(ws.app)
+        with patch.object(ws, "auth", return_value=ctx) as authenticate:
+            suggestions = client.get("/api/roblox-search?query=RobloxGeheim")
+            lookup = client.get("/api/roblox-user?username=RobloxGeheim")
+        self.assertEqual(suggestions.status_code, 403)
+        self.assertEqual(lookup.status_code, 403)
+        self.assertEqual(authenticate.call_count, 2)
+
+    def test_melonly_read_access_helper_matches_existing_permission_set(self):
+        self.assertFalse(ws.can_access_melonly(SimpleNamespace(perms=dict(TEAMLER))))
+        for key in ("can_warn", "can_moderate_kicks", "can_moderate_bans",
+                    "can_moderate_bolo", "can_add_notes", "is_admin"):
+            self.assertTrue(ws.can_access_melonly(SimpleNamespace(perms={key: True})), key)
 
     def test_helpers(self):
         self.assertFalse(ws.can_see_warnings(TEAMLER, "1", "2"))
