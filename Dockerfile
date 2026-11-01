@@ -1,4 +1,5 @@
-# Pulse TeamOS production image. Keep Python 3.14 to match the current runtime.
+# Pulse TeamOS production image. Python version = this FROM line (Dependabot bumps it); CI runs the full test suite
+# on it as well (python-syntax.yml: "Regressionstests mit der Python-Version des Images").
 FROM python:3.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
