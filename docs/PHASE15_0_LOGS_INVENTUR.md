@@ -188,7 +188,10 @@ Die folgenden Fundstellen wurden gegen den Ausgangs-Commit dieser Phase geprüft
 - `pulse_consistency.py`: 5-MiB-Wachstumswarnung.
 - `scripts/pulse_migrate_data.py`: Übernahme der Laufzeitdatei.
 - `docs/routen_snapshot.json` und `docs/ROUTEN.md`: aktive gegenüber verdrängten Handlern.
-- `tests/test_pulse_melonly.py`, `tests/test_permission_sweep.py`, `tests/test_full_backup.py`: vorhandene Testabdeckung.
+- `tests/test_pulse_melonly.py`: Kandidaten-Ranking und Aktionstyp-Rechte, keine Dateipersistenz der CRUD-Routen.
+- `tests/test_permission_sweep.py`: blockiert unberechtigte `/log/create`-Aufrufe sowie unberechtigte Bearbeitung/Löschung fremder Melonly-Einträge.
+- `tests/test_full_backup.py`: allgemeine Komplett-Backup-/Restore-Abdeckung.
+- In den gezielt geprüften Testdateien wurde kein erfolgreicher Create→Read→Edit→Delete-Roundtrip für `logs.json`, kein Gleichheitstest für CSV/Spielerhistorie und kein konkurrierender Melonly-Write-Test gefunden. Diese Fälle gehören deshalb in Phase 15.1.
 
 ## 10. Abschluss von Phase 15.0
 
