@@ -30,12 +30,25 @@ def _backup(db_path: str, backup_dir: str, name: str) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)[:60]
     target = os.path.join(backup_dir, f"pre_migration_{safe}_{stamp}_{os.getpid()}_{datetime.now().microsecond}.db")
-    src, dst = sqlite3.connect(db_path), sqlite3.connect(target)
+    src = dst = None
     try:
+        src, dst = sqlite3.connect(db_path), sqlite3.connect(target)
         src.backup(dst)
+        integrity = dst.execute("PRAGMA integrity_check").fetchone()
+        if not integrity or integrity[0] != "ok":
+            raise sqlite3.DatabaseError("Pre-Migration-Sicherung besteht integrity_check nicht")
+    except Exception:
+        if os.path.exists(target):
+            try:
+                os.remove(target)
+            except OSError:
+                pass
+        raise
     finally:
-        dst.close()
-        src.close()
+        if dst is not None:
+            dst.close()
+        if src is not None:
+            src.close()
     old = sorted((f for f in os.listdir(backup_dir) if f.startswith("pre_migration_") and f.endswith(".db")),
                  key=lambda f: os.path.getmtime(os.path.join(backup_dir, f)), reverse=True)
     for name in old[KEEP_BACKUPS:]:
