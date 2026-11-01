@@ -103,6 +103,8 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--json", default="", help="write the result as JSON to this path")
     parser.add_argument("--only", default="", help="comma-separated paths to measure (default: all GET pages)")
+    parser.add_argument("--shift-backend", choices=("json", "sqlite"), default="json",
+                        help="Phase 14.7: migrate the seeded shift history to SQLite before measuring")
     args = parser.parse_args()
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -164,6 +166,10 @@ def main() -> int:
     ws.init_runtime()
     ws.save_json(ws.CONFIG_FILE, {"team_role_ids": [100, 101], "permissions": {"101": {k: True for k in ws.PERM_KEYS}}})
     _seed(ws, args.history, [m.id for m in members if m.roles])
+    if args.shift_backend == "sqlite":
+        import pulse_shift_history
+        if pulse_shift_history.migrate(ws)["status"] != "migrated":
+            raise SystemExit("Migration der Schichthistorie fehlgeschlagen")
     user = members[0]
 
     def fake_auth(request, session, perm="can_view_dashboard", admin=False):
@@ -203,7 +209,7 @@ def main() -> int:
                               "sqlite_connects": counter.connects, "bytes": len(r.content)}
         finally:
             counter.uninstall()
-    summary = {"python": sys.version.split()[0], "history": args.history, "members": args.members, "runs": args.runs,
+    summary = {"python": sys.version.split()[0], "shift_backend": args.shift_backend, "history": args.history, "members": args.members, "runs": args.runs,
                "import_webserver_s": round(import_s, 2), "rss_start_mb": rss_start, "rss_after_import_mb": rss_import,
                "rss_end_mb": _rss_mb(), "data_mb": {f: round(os.path.getsize(Path(tmp) / f) / 1048576, 2)
                                                    for f in ("shifts.json", "logs.json", "applications.json", "audit_logs.json")},

@@ -170,17 +170,42 @@ def create_full_backup(base_dir, backup_dir, *, discord_structure: dict | None =
     return target, manifest
 
 
+def _json_io_lock():
+    """Phase 14.7: the JSON I/O lock of the dashboard, if it is loaded (tools/tests may back up without it)."""
+    import sys
+    lock = getattr(sys.modules.get("webserver"), "_io_lock", None)
+    return lock if lock is not None else contextlib.nullcontext()
+
+
 def _write_archive(base_dir, partial, manifest, add, add_stream, discord_structure, budget_bytes) -> None:
     with tempfile.TemporaryDirectory(prefix="pulse-backup-") as tmp, \
             zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+        # Phase 14.7: shifts.json (active shifts) and pulse.db (shift history in SQLite mode) are copied together
+        # under the JSON lock of the dashboard, so no save of a finished shift lands between the two copies.
+        early: dict = {}
+        shifts_copy = Path(tmp) / "shifts_tmp_copy.json"
+        with _json_io_lock():
+            source = sqlite_path(base_dir, "pulse.db")
+            if source.is_file():
+                try:
+                    _snapshot_sqlite(source, Path(tmp) / "pulse.db")
+                    early["pulse.db"] = None
+                except sqlite3.Error as exc:
+                    early["pulse.db"] = exc
+            if json_path(base_dir, "shifts.json").is_file():
+                shutil.copy2(json_path(base_dir, "shifts.json"), shifts_copy)
         for name in SQLITE_FILES:
             source = sqlite_path(base_dir, name)
-            if not source.is_file():
+            if name not in early and not source.is_file():
                 manifest["skipped"].append({"name": f"db/{name}", "reason": "nicht vorhanden"})
                 continue
             snap = Path(tmp) / name
             try:
-                _snapshot_sqlite(source, snap)
+                if name in early:
+                    if early[name] is not None:
+                        raise early[name]
+                else:
+                    _snapshot_sqlite(source, snap)
             except sqlite3.Error as exc:
                 manifest["warnings"].append(f"{name}: Datenbank nicht lesbar ({type(exc).__name__}) – nicht gesichert")
                 manifest["skipped"].append({"name": f"db/{name}", "reason": "nicht lesbar"})
@@ -188,7 +213,7 @@ def _write_archive(base_dir, partial, manifest, add, add_stream, discord_structu
             add(zf, snap, f"db/{name}", "sqlite")
             snap.unlink()
         for name in JSON_FILES:
-            source = json_path(base_dir, name)
+            source = shifts_copy if name == "shifts.json" else json_path(base_dir, name)
             if source.is_file():
                 add(zf, source, f"json/{name}", "json")
         used = 0
