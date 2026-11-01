@@ -68,7 +68,8 @@ statischer Test verhindert neue Zuweisungen/`setattr` auf diese Namen.
 
 Neue Tests (`tests/test_shell_hooks.py`, 18 Tests):
 - Snapshot: 4 Köpfe, 8 Sidebars (Gast, Teamler, ungelesene Inbox, Leitung, erweiterte Funktionen,
-  Admin Übersicht/Verwaltung/Serververwaltung); SHA-256 + Länge, Version normalisiert.
+  Admin Übersicht/Verwaltung/Serververwaltung); SHA-256 + Länge; Version und CSS-Cache-Buster (`pulse.css?v=<Inhalts-Hash>`, unter Windows durch CRLF
+  anders als auf dem Linux-Runner) normalisiert.
   **Der Snapshot wurde aus `origin/main` (alter Code, Worktree) erzeugt**; der neue Code liefert
   byte-identisches HTML.
 - Ausgabe, `render_page`-Integration, Rechtefilter der Sidebar.

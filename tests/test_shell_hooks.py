@@ -55,6 +55,8 @@ SIDEBAR_CASES = {
 
 def _digest(html: str) -> dict:
     normalized = html.replace(pulse_version.PULSE_VERSION, "{VERSION}")  # version bumps are no markup change
+    if ws.STATIC_CSS_VERSION:  # content hash of static/pulse.css: differs with CRLF (Windows) vs LF (CI)
+        normalized = normalized.replace(f"pulse.css?v={ws.STATIC_CSS_VERSION}", "pulse.css?v={CSS_VERSION}")
     return {"sha256": hashlib.sha256(normalized.encode("utf-8")).hexdigest(), "length": len(normalized)}
 
 
