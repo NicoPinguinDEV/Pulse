@@ -21,7 +21,7 @@
 6. Die Quelldatei wird erneut gehasht. Eine Änderung während des Vorgangs führt zum Fehler.
 7. Wiederholung ist nur dann erfolgreich, wenn Migrationsmarker, Quellhash, Anzahl und vollständiger Datenbestand übereinstimmen. Fremde oder abweichende SQLite-Daten werden nicht überschrieben.
 
-Bei einem Fehler bleibt logs.json unverändert. Ein fehlgeschlagener Import kann eine leere additive Tabellenstruktur hinterlassen, aber keine halben Einträge; Datenimport und Migrationsmarker werden gemeinsam zurückgerollt.
+Bei einem Fehler bleibt logs.json unverändert. Datenimport, Melonly-Schema und Migrationsmarker werden innerhalb derselben Transaktion zurückgerollt. Die bereits vor der Migration angelegte Tabelle schema_migrations kann bestehen bleiben; sie enthält dann keinen erfolgreichen Melonly-Marker.
 
 ## Manuelle Verwendung
 
