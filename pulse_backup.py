@@ -236,8 +236,19 @@ def _write_archive(base_dir, partial, manifest, add, add_stream, discord_structu
 def read_manifest(path) -> dict:
     with zipfile.ZipFile(path) as zf:
         manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
-    if manifest.get("format") != FORMAT or int(manifest.get("format_version", 0)) > FORMAT_VERSION:
+    if not isinstance(manifest, dict):
+        raise ValueError("Backup-Manifest muss ein JSON-Objekt sein.")
+    version = manifest.get("format_version")
+    if (
+        manifest.get("format") != FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, int)
+        or version > FORMAT_VERSION
+        or version < 1
+    ):
         raise ValueError("Keine unterstützte Pulse-Komplettsicherung.")
+    if not isinstance(manifest.get("files"), list):
+        raise ValueError("Backup-Manifest enthält keine gültige Dateiliste.")
     return manifest
 
 
@@ -246,29 +257,86 @@ def _safe_member(name: str) -> bool:
     return bool(parts) and not name.startswith("/") and ".." not in parts and ":" not in name and "\\" not in name
 
 
+def _supported_backup_member(name: str) -> bool:
+    """Only restore targets owned by the current backup format are accepted."""
+    if name == "discord_structure.json":
+        return True
+    if name.startswith("db/"):
+        return name[3:] in SQLITE_FILES
+    if name.startswith("json/"):
+        return name[5:] in JSON_FILES
+    if name.startswith("files/"):
+        relative = PurePosixPath(name[6:])
+        return bool(relative.parts) and (
+            relative.parts[0] in FOLDERS or relative.as_posix() in MEDIA_FILES
+        ) and _safe_member(name)
+    return False
+
+
 def verify_full_backup(path) -> list[str]:
-    """Problems found (empty list = archive complete and unchanged)."""
+    """Problems found (empty list = archive complete, unambiguous and unchanged)."""
     problems = []
     try:
+        with zipfile.ZipFile(path) as zf:
+            infos = zf.infolist()
+            names = [info.filename for info in infos]
+            if names.count("manifest.json") != 1:
+                return ["Manifest fehlt oder ist mehrfach im Archiv enthalten."]
+            if len(names) != len(set(names)):
+                duplicates = sorted({name for name in names if names.count(name) > 1})
+                return ["Doppelte ZIP-Einträge: " + ", ".join(duplicates[:5])]
         manifest = read_manifest(path)
-    except (KeyError, ValueError, zipfile.BadZipFile, json.JSONDecodeError) as exc:
-        return [f"Manifest fehlt oder ist ungültig ({type(exc).__name__})"]
-    with zipfile.ZipFile(path) as zf:
-        names = set(zf.namelist())
-        for entry in manifest.get("files", []):
-            name = str(entry.get("name", ""))
-            if not _safe_member(name):
-                problems.append(f"Unzulässiger Pfad: {name}")
-                continue
-            if name not in names:
-                problems.append(f"Fehlt im Archiv: {name}")
-                continue
-            digest = hashlib.sha256()
-            with zf.open(name) as fh:
-                for block in iter(lambda: fh.read(_CHUNK), b""):
-                    digest.update(block)
-            if digest.hexdigest() != entry.get("sha256"):
-                problems.append(f"Prüfsumme falsch: {name}")
+    except (KeyError, ValueError, TypeError, zipfile.BadZipFile, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return [f"Manifest fehlt oder ist ungültig ({type(exc).__name__}: {exc})"]
+
+    seen = set()
+    try:
+        with zipfile.ZipFile(path) as zf:
+            info_by_name = {info.filename: info for info in zf.infolist()}
+            for index, entry in enumerate(manifest["files"]):
+                if not isinstance(entry, dict):
+                    problems.append(f"Dateieintrag {index} im Manifest ist kein Objekt.")
+                    continue
+                name = entry.get("name")
+                if not isinstance(name, str) or not name:
+                    problems.append(f"Dateieintrag {index} im Manifest hat keinen gültigen Namen.")
+                    continue
+                if name in seen:
+                    problems.append(f"Doppelter Manifest-Eintrag: {name}")
+                    continue
+                seen.add(name)
+                if not _safe_member(name):
+                    problems.append(f"Unzulässiger Pfad: {name}")
+                    continue
+                if not _supported_backup_member(name):
+                    problems.append(f"Kein unterstütztes Wiederherstellungsziel: {name}")
+                    continue
+                info = info_by_name.get(name)
+                if info is None:
+                    problems.append(f"Fehlt im Archiv: {name}")
+                    continue
+                size = entry.get("size")
+                if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+                    problems.append(f"Ungültige Dateigröße im Manifest: {name}")
+                    continue
+                if info.file_size != size:
+                    problems.append(f"Dateigröße weicht vom Manifest ab: {name}")
+                    continue
+                digest_value = entry.get("sha256")
+                if not isinstance(digest_value, str) or re.fullmatch(r"[0-9a-f]{64}", digest_value) is None:
+                    problems.append(f"Ungültige SHA-256-Prüfsumme im Manifest: {name}")
+                    continue
+                digest = hashlib.sha256()
+                with zf.open(info) as fh:
+                    for block in iter(lambda: fh.read(_CHUNK), b""):
+                        digest.update(block)
+                if digest.hexdigest() != digest_value:
+                    problems.append(f"Prüfsumme falsch: {name}")
+            extra = sorted(set(info_by_name) - seen - {"manifest.json"})
+            if extra:
+                problems.append("Nicht im Manifest deklarierte ZIP-Einträge: " + ", ".join(extra[:5]))
+    except (OSError, RuntimeError, zipfile.BadZipFile, KeyError) as exc:
+        problems.append(f"Archiv konnte nicht vollständig gelesen werden ({type(exc).__name__}: {exc})")
     return problems
 
 
