@@ -268,7 +268,7 @@ class FullBackupRouteTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         base = Path(self.tmp.name)
         (base / "team_data.json").write_text('{"1": {}}', encoding="utf-8")
-        self.patches = [patch.object(ws, "BASE_DIR", base), patch.object(ws, "BACKUP_DIR", str(base / "backups")),
+        self.patches = [patch.object(ws, "BASE_DIR", base), patch.object(ws, "DATA_DIR", base), patch.object(ws, "BACKUP_DIR", str(base / "backups")),
                         patch.object(pulse_db, "DB_PATH", str(base / "pulse.db")),
                         patch.object(ws, "build_discord_structure", lambda guild, icon=None: {"roles": []}),
                         patch.object(ws, "log_audit", lambda *a, **k: None)]
@@ -362,7 +362,8 @@ class FullBackupRouteTests(unittest.TestCase):
 class CoverageTests(unittest.TestCase):
     """A new runtime file (*.db / *.json literal in the code) must be added to the backup or excluded on purpose."""
 
-    IGNORED = {"manifest.json", "discord_structure.json", "routen_snapshot.json", "package.json", "manifest.webmanifest"}
+    IGNORED = {"manifest.json", "discord_structure.json", "routen_snapshot.json", "package.json", "manifest.webmanifest",
+               "pulse-migration-manifest.json"}  # Phase 13: member of the migration archive, not a store
 
     def test_every_runtime_store_is_in_the_backup(self):
         found = set()
