@@ -51,6 +51,7 @@ Erfolg bedeutet nicht möglichst viele Menüpunkte oder Commands. Erfolg bedeute
 | Phase 14.6 | Wiederkehrende Hintergrundjobs sollen nach nicht-netzwerkbedingten Fehlern nicht dauerhaft ausfallen. |
 | Phase 14.7 / 14.7b | Schichthistorie kann verlustgeprüft in SQLite gespeichert werden; Crash-Recovery und Rückweg sind umgesetzt. |
 | Phase 14.8 | Indexierte Schichthistorien-Abfragen und Regressionstests sind über PR #111 und PR #112 in main. PR #112 ist Teil des Ausgangs-HEADs dieser Roadmap. |
+| Phase 15.0 | Read-only-Inventur von `logs.json` ist in PR #114 dokumentiert; der Melonly-Lesezugriff wurde mit PR #119 abgesichert. Das unabhängige Review des Inventurberichts bleibt als Nachweis offen. |
 
 ### 3.2 Wichtige offene Punkte aus dem bestehenden Plan
 
@@ -73,7 +74,7 @@ Die Funktionslandkarte in PULSE_INNOVATION_ROADMAP.md und die aktuellen Tests di
 
 ### 3.4 Noch zu bestätigende Betriebs-/Repository-Einstellungen
 
-Der Sicherheitscheck vom 24.10.2026 kennzeichnete Branch-Schutz, Reviewer für die Deploy-Umgebung und Dependabot-Sicherheitsupdates als offen bzw. durch Repository-Einstellungen blockiert. Diese Einstellungen konnten bei der Erstellung dieser Roadmap nicht erneut über die API verifiziert werden. Sie gelten deshalb als **zu prüfen**, nicht als bestätigter aktueller Zustand.
+Der aktuelle GitHub-Branch-Endpunkt meldet `main` am 02.11.2026 als **nicht geschützt** (`protected: false`, Branch-Protection deaktiviert). Reviewer für die Deploy-Umgebung und Dependabot-Sicherheitsupdates sind in diesem Arbeitsschritt nicht erneut verifiziert worden und bleiben separat zu prüfen.
 
 ---
 
@@ -83,14 +84,14 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 
 ### Phase 15 – Datenhaltung, Datenintegrität und Wachstum
 
-**Priorität:** P0 · **Status:** geplant · **Abhängigkeit:** keine
+**Priorität:** P0 · **Status:** in Arbeit (Phase 15.1 – Speichervertrag) · **Abhängigkeit:** keine
 
 **Ziel:** Wachsende Dateien sicher behandeln und Datenmigrationen nachvollziehbar, messbar und rückgängig machbar durchführen.
 
 | ID | Arbeitspaket | Ergebnis / Abnahme |
 |---|---|---|
 | 15.0 | Read-only-Inventur von logs.json | Alle aktuellen Leser, Schreiber, Datenformen, Aufbewahrungsregeln, Locks und Backup-Pfade sind im Code verifiziert. Die alte Datenlandkarte wird bei Abweichungen korrigiert. |
-| 15.1 | logs.json: Speicher- und Abfragekonzept | Ein dokumentiertes Schema und ein Migrations-/Rollback-Konzept liegen vor. Bestehende Logeinträge und Reihenfolge bleiben erhalten. |
+| 15.1 | logs.json: Speicher- und Abfragekonzept | Entwurf für Schema, Repository-Vertrag, Transaktionsgrenzen, Migration, Rollback, Backup und Regressionstests: [PHASE15_1_LOGS_STORAGE_DESIGN.md](PHASE15_1_LOGS_STORAGE_DESIGN.md). Abnahme und Review stehen noch aus. |
 | 15.2 | logs.json: inkrementelle SQLite-Umsetzung | Indexe passen zu echten Abfragen; Dashboard-/Melonly-Ausgaben bleiben fachlich identisch. JSON-Kompatibilität und Rückweg sind getestet. |
 | 15.3 | applications.json: Datenschutz- und Migrationsprüfung | Alle Verbraucher und Schreibpfade sind bekannt. Die beschlossene Aufbewahrung von sechs Monaten und der noch offene verantwortliche Kontakt für den Bewerbungshinweis werden berücksichtigt. |
 | 15.4 | applications.json: Migration in einer eigenen Teilphase | Daten, Status, Anhänge/Verweise und Altformate bleiben erhalten. Aufbewahrung ist nachvollziehbar, protokolliert und standardmäßig nicht überraschend aktiviert. |
