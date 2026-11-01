@@ -56,11 +56,20 @@ def run(db_path: str, backup_dir: str, migrations: list[Migration] | None = None
     # so a failed migration would leave half a schema behind. SQLite itself can roll DDL back.
     con = sqlite3.connect(db_path, timeout=30, isolation_level=None)
     try:
-        done = _applied(con)
+        # Inspect the migration ledger without creating it. The first database write
+        # must happen only after the pre-migration snapshot has been completed.
+        ledger_exists = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+        ).fetchone() is not None
+        done = (
+            {row[0] for row in con.execute("SELECT name FROM schema_migrations")}
+            if ledger_exists else set()
+        )
         pending = [(name, fn) for name, fn in migrations if name not in done]
         if not pending:
             return report
         report["backup"] = _backup(db_path, backup_dir, pending[0][0])
+        _applied(con)  # create the ledger only after the verified pre-migration backup
         for name, fn in pending:
             try:
                 con.execute("BEGIN")
