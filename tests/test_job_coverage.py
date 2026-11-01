@@ -38,7 +38,8 @@ class LegacyJobInventoryTests(unittest.TestCase):
 
         jobs_doc = (ROOT / "docs" / "JOBS_UND_RECHTE.md").read_text(encoding="utf-8")
         endless = jobs_doc.split("## Eigene Endlosschleifen", 1)[1].split("## ", 1)[0]
-        self.assertIn("(3)", endless.splitlines()[0])
+        # Phase 14.6: (4) = automation, auto-backup, AI outage notice + the paged recovery sync (manual one-shot run)
+        self.assertIn("(4)", endless.splitlines()[0])
         self.assertNotIn("pulse_features.py", endless)
 
 

@@ -174,8 +174,8 @@ class JobRegistryTests(unittest.TestCase):
         async def fail():
             raise ValueError("kaputt")
         self.assertEqual(asyncio.run(ok()), 1)
-        with self.assertRaises(ValueError):
-            asyncio.run(fail())
+        with patch("traceback.print_exception"), patch("builtins.print"):
+            self.assertIsNone(asyncio.run(fail()))  # Phase 14.6: recorded, not re-raised (would end the tasks.loop)
         jobs = {j["name"]: j for j in pulse_jobs.snapshot()["jobs"]}
         self.assertEqual(jobs["test-job"]["runs"], 1)
         self.assertTrue(jobs["test-job"]["last_ok"])

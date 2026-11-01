@@ -115,15 +115,19 @@ class PulsePro(commands.Cog):
                 except Exception:
                     continue
                 if due <= now and task.get("assignee_id"):
-                    db.notify(
-                        task["assignee_id"],
-                        "⏰ Aufgabe überfällig",
-                        f"{task['title']} ist überfällig.",
-                        "warning",
-                        "/tasks",
-                        f"overdue:{task['id']}",
-                        21600,
-                    )
+                    try:
+                        db.notify(
+                            task["assignee_id"],
+                            "⏰ Aufgabe überfällig",
+                            f"{task['title']} ist überfällig.",
+                            "warning",
+                            "/tasks",
+                            f"overdue:{task['id']}",
+                            21600,
+                        )
+                    except Exception as exc:  # Phase 14.6: must not skip ticket/LOA reminders and presence
+                        record_error("Housekeeping (5 min)", exc)
+                        break
             # Bewerbungen, die länger als 48h offen sind, an berechtigte Entscheider melden.
             try:
                 apps = webserver.load_json(webserver.APPS_FILE, {})
@@ -150,16 +154,20 @@ class PulsePro(commands.Cog):
                     continue
                 age = (now - opened).total_seconds()
                 if age >= 1800:
-                    for member in manager_cache:
-                        db.notify(
-                            member.id,
-                            "🎫 Ticket wartet",
-                            f"{ticket['category']} · {ticket['user_name']} wartet seit mehr als 30 Minuten.",
-                            "warning",
-                            "/tickets",
-                            f"stale-ticket:{ticket['id']}",
-                            21600,
-                        )
+                    try:
+                        for member in manager_cache:
+                            db.notify(
+                                member.id,
+                                "🎫 Ticket wartet",
+                                f"{ticket['category']} · {ticket['user_name']} wartet seit mehr als 30 Minuten.",
+                                "warning",
+                                "/tickets",
+                                f"stale-ticket:{ticket['id']}",
+                                21600,
+                            )
+                    except Exception as exc:  # Phase 14.6: must not skip LOA reminders and presence
+                        record_error("Housekeeping (5 min)", exc)
+                        break
             # LOA end reminder when the existing web data contains ISO dates.
             try:
                 import webserver

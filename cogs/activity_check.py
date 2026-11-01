@@ -10,6 +10,7 @@ from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guar
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands, tasks
+import pulse_jobs
 from pulse_jobs import tracked
 import pulse_paths
 
@@ -409,6 +410,7 @@ class ActivityCheckCog(commands.Cog):
             await self.send_check_message(channel, role)
         except Exception as exc:
             print(f"⚠️ Activity Check: Tagescheck konnte nicht erstellt werden ({type(exc).__name__}: {exc}).")
+            raise  # Phase 14.6: @tracked records it (/healthz, alert); the 5-minute recovery loop retries until 20:00
 
     @tasks.loop(minutes=1)
     @tracked("Activity-Check Warnungen (1 min)", 60)  # P-06
@@ -424,6 +426,7 @@ class ActivityCheckCog(commands.Cog):
                     print(f"⚠️ Automatischer Activity-Check-Warnlauf: Guild={guild.id} Bericht={report}")
             except Exception as exc:
                 print(f"⚠️ Activity-Check-Warnlauf fehlgeschlagen für Guild {guild.id}: {type(exc).__name__}: {exc}")
+                pulse_jobs.record_error("Activity-Check Warnungen (1 min)", exc)  # Phase 14.6: visible in /healthz
 
     async def process_daily_warnings(self, guild, now=None):
         """Warn unconfirmed snapshot members after 20:00, excluding active leaves."""
