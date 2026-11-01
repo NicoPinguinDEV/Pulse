@@ -17,7 +17,7 @@ from typing import Any, Iterable, Iterator, Mapping
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS melonly_logs (
-    seq             INTEGER PRIMARY KEY,
+    seq             INTEGER PRIMARY KEY AUTOINCREMENT,
     log_id          TEXT,
     target_user     TEXT,
     target_user_key TEXT,
