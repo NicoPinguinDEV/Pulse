@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import pulse_jobs
+from pulse_tasks import spawn as spawn_task
 import pulse_paths
 
 BASE_DIR = pulse_paths.DATA_DIR  # Phase 13: runtime data (databases, shifts.json) – not the code folder
@@ -392,9 +393,10 @@ class TeamlisteCog(commands.Cog):
         if before.roles != after.roles or before.display_name != after.display_name:
             if self._update_debounce_task and not self._update_debounce_task.done():
                 self._update_debounce_task.cancel()
-            self._update_debounce_task = asyncio.create_task(
+            self._update_debounce_task = spawn_task(
                 self._debounced_update_teamlist(after.guild),
                 name="pulse-teamlist-debounced-update",
+                critical=True,
             )
 
     # COMMANDS
