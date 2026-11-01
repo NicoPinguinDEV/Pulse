@@ -8,6 +8,7 @@ from discord.ext import commands
 
 import pulse_db
 import pulse_logcfg
+from pulse_tasks import spawn as spawn_task
 
 # K-12: the channel is chosen in Verwaltung → Discord-Auftritt (setting in pulse.db) instead of a hard-coded 0.
 LOG_SETTING_KEY = "moderation_log_channel_id"
@@ -91,9 +92,17 @@ class AdvancedLogs(commands.Cog):
 
         def start():
             self._timers.discard(timer)
-            task = loop.create_task(self._flush(channel))
-            self._tasks.add(task)  # keep a reference until it is done
-            task.add_done_callback(self._tasks.discard)
+            task = spawn_task(
+                self._flush(channel),
+                name=f"pulse-advanced-logs-flush-{channel.id}",
+                loop=loop,
+                critical=True,
+            )
+            if task is not None:
+                self._tasks.add(task)  # keep a local handle for cog unload
+                task.add_done_callback(self._tasks.discard)
+            else:
+                self._scheduled.discard(channel.id)
         timer = loop.call_later(delay, start)
         self._timers.add(timer)
 
