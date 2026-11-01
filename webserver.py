@@ -2028,7 +2028,7 @@ async def _apply_warn4_downrank(guild, member, warn: dict, team_role_ids: list[i
         return {"ok": False, "message": "Keine Team-Rollen konfiguriert.", "changed": False}
 
     ranked_team_role_ids = ordered_team_role_ids(guild, team_role_ids)
-    target_idx = team_rank(member, ranked_team_role_ids)
+    target_idx = team_rank(member, ranked_team_role_ids, guild)
     if target_idx <= 0:
         return {"ok": True, "message": "Bereits auf niedrigster Team-Rangstufe.", "changed": False}
 
@@ -3009,12 +3009,20 @@ def ordered_team_role_ids(guild, team_role_ids) -> list[int]:
     return sorted(role_ids, key=sort_key)
 
 
-def team_rank(member, team_role_ids) -> int:
-    """Return hierarchy index based on actual Discord role positions, lowest -> highest."""
-    guild = getattr(member, "guild", None)
-    ordered_ids = ordered_team_role_ids(guild, team_role_ids)
-    idx = [ordered_ids.index(r.id) for r in member.roles if r.id in ordered_ids]
-    return max(idx) if idx else -1
+def team_rank(member, team_role_ids, guild=None) -> int:
+    """Return the member's highest configured team rank (lowest -> highest).
+
+    Prefer the guild explicitly supplied by the caller. Discord Member objects expose
+    member.guild, but detached/test/proxy member objects do not always do so. The
+    authorization decision must use the same guild that resolved the target and config.
+    """
+    if member is None:
+        return -1
+    rank_guild = guild if guild is not None else getattr(member, "guild", None)
+    ordered_ids = ordered_team_role_ids(rank_guild, team_role_ids)
+    member_role_ids = {getattr(role, "id", None) for role in getattr(member, "roles", ()) or ()}
+    indexes = [index for index, role_id in enumerate(ordered_ids) if role_id in member_role_ids]
+    return max(indexes) if indexes else -1
 
 # =============================================================
 # UI-BAUSTEINE
@@ -6892,7 +6900,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
         members.append({
             "id": member.id, "name": member.display_name, "username": member.name,
             "avatar": member.display_avatar.url, "role": top.name, "role_id": top.id,
-            "team_rank_idx": team_rank(member, team_role_ids), "pos": top.position,
+            "team_rank_idx": team_rank(member, team_role_ids, guild), "pos": top.position,
             "team_since": team_since_for(member, team_db.get(str(member.id)) if isinstance(team_db, dict) else None,
                                          apps_once),
             "color": role_hex(top),
@@ -6958,13 +6966,13 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
     </section>"""
 
     rows_html = ""
-    actor_team_rank = team_rank(ctx.member, team_role_ids) if ctx.member else -1
+    actor_team_rank = team_rank(ctx.member, team_role_ids, guild) if ctx.member else -1
     for m in members:
         style = BADGE_WARN if m["on_loa"] else (BADGE_OK if m["reached"] else BADGE_BAD)
         can_manage_target = bool(
             not ctx.perms.get("is_admin")
             and ctx.member
-            and team_rank(ctx.member, team_role_ids) > m["team_rank_idx"]
+            and team_rank(ctx.member, team_role_ids, guild) > m["team_rank_idx"]
         ) or bool(ctx.perms.get("is_admin"))
         can_promote_target = bool(
             can_manage_target
@@ -6972,7 +6980,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
             and m["team_rank_idx"] + 1 < len(team_role_ids)
             and (
                 ctx.perms.get("is_admin")
-                or (ctx.member and team_rank(ctx.member, team_role_ids) > m["team_rank_idx"] + 1)
+                or (ctx.member and team_rank(ctx.member, team_role_ids, guild) > m["team_rank_idx"] + 1)
             )
         )
         can_demote_target = bool(can_manage_target and m["team_rank_idx"] >= 0)
@@ -7368,8 +7376,8 @@ async def team_role_manager(request: Request, user_id: int, user_session: str = 
 
     team_role_ids = ordered_team_role_ids(guild, config.get("team_role_ids", []))
     was_team_member = bool(team_role_ids and any(r.id in team_role_ids for r in member.roles))
-    actor_idx = team_rank(ctx.member, team_role_ids) if ctx.member else -1
-    target_idx = team_rank(member, team_role_ids)
+    actor_idx = team_rank(ctx.member, team_role_ids, guild) if ctx.member else -1
+    target_idx = team_rank(member, team_role_ids, guild)
     if not ctx.perms.get("is_admin") and actor_idx <= target_idx:
         raise HTTPException(status_code=403, detail="Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.")
 
@@ -7412,8 +7420,8 @@ async def team_role_manager_save(
         return back(f"/team/{user_id}/roles", "Eine Rolle darf nicht gleichzeitig hinzugefügt und entfernt werden.", False)
 
     team_role_ids = ordered_team_role_ids(guild, config.get("team_role_ids", []))
-    actor_idx = team_rank(ctx.member, team_role_ids) if ctx.member else -1
-    target_idx = team_rank(member, team_role_ids)
+    actor_idx = team_rank(ctx.member, team_role_ids, guild) if ctx.member else -1
+    target_idx = team_rank(member, team_role_ids, guild)
     if not ctx.perms.get("is_admin") and actor_idx <= target_idx:
         return back(f"/team/{user_id}/roles", "Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.", False)
 
@@ -7558,7 +7566,7 @@ async def member_detail(request: Request, user_id: int, user_session: str = Cook
     actions_html = ""
     if ctx.perms["can_promote"] and not is_self:
         can_manage_target = ctx.perms.get("is_admin") or (
-            team_role_ids and team_rank(ctx.member, team_role_ids) > team_rank(member, team_role_ids)
+            team_role_ids and team_rank(ctx.member, team_role_ids, guild) > team_rank(member, team_role_ids, guild)
         )
         if can_manage_target:
             actions_html = f"""
@@ -10950,8 +10958,8 @@ async def issue_team_warning(guild, *, actor_member, actor_name: str, actor_id: 
     if team_role_ids and not any(r.id in team_role_ids for r in member.roles):
         return refused("Team-Verwarnungen können nur an Teammitglieder vergeben werden.")
     if not actor_is_admin and actor_member:
-        actor_rank = team_rank(actor_member, team_role_ids)
-        target_rank = team_rank(member, team_role_ids)
+        actor_rank = team_rank(actor_member, team_role_ids, guild)
+        target_rank = team_rank(member, team_role_ids, guild)
         if target_rank >= 0 and (actor_rank < 0 or target_rank >= actor_rank):
             return refused("Du darfst keine Team-Warnung an ein Mitglied mit gleichem oder höherem Teamrang vergeben.")
 
@@ -11059,9 +11067,16 @@ async def revoke_team_warning(guild, *, member, warn_id: str, revoke_reason: str
         if str(member.id) == str(actor_id):
             return {"ok": False, "stored": False, "message": "Eigene Verwarnungen kann nur die Leitung (Admin) zurückziehen."}
         team_role_ids = config.get("team_role_ids", [])
-        target_rank = team_rank(member, team_role_ids)
-        actor_rank = team_rank(actor_member, team_role_ids) if actor_member is not None else -1
-        if target_rank >= 0 and target_rank >= actor_rank:
+        target_rank = team_rank(member, team_role_ids, guild)
+        actor_rank = team_rank(actor_member, team_role_ids, guild) if actor_member is not None else -1
+        # Fail closed: an unrecognised target/actor rank must never bypass the hierarchy guard.
+        if actor_rank < 0:
+            return {"ok": False, "stored": False,
+                    "message": "Dein Teamrang konnte nicht ermittelt werden. Prüfe deine konfigurierte Teamrolle."}
+        if target_rank < 0:
+            return {"ok": False, "stored": False,
+                    "message": "Für dieses Mitglied wurde keine konfigurierte Teamrolle gefunden. Die Verwarnung wurde nicht verändert."}
+        if target_rank >= actor_rank:
             return {"ok": False, "stored": False,
                     "message": "Du darfst keine Verwarnung eines Mitglieds mit gleichem oder höherem Teamrang zurückziehen."}
     if not revoke_reason:
@@ -11401,7 +11416,7 @@ async def handle_action(
             return back("/team", f"{target.display_name} besitzt bereits eine Teamrolle. Verwende stattdessen die Rollenverwaltung.", False)
 
         selected_rank = team_role_ids.index(role.id)
-        actor_rank = team_rank(ctx.member, team_role_ids) if ctx.member else -1
+        actor_rank = team_rank(ctx.member, team_role_ids, guild) if ctx.member else -1
         if not ctx.perms.get("is_admin") and actor_rank <= selected_rank:
             return back("/team", "Du darfst niemanden auf deinen eigenen Rang oder einen höheren Rang einstellen.", False)
 
@@ -11451,8 +11466,8 @@ async def handle_action(
             return back(member_url, "Du kannst diese Aktion nicht bei dir selbst ausführen.", False)
         if member.id == guild.owner_id or member.bot:
             return back(member_url, "Dieses Mitglied kann nicht bearbeitet werden.", False)
-        actor_idx = team_rank(ctx.member, team_role_ids) if ctx.member else -1
-        target_idx = team_rank(member, team_role_ids)
+        actor_idx = team_rank(ctx.member, team_role_ids, guild) if ctx.member else -1
+        target_idx = team_rank(member, team_role_ids, guild)
         if not ctx.perms["is_admin"] and actor_idx <= target_idx:
             return back(member_url, "Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.", False)
 
@@ -11783,7 +11798,7 @@ async def handle_action(
                 return back("/applications", "Du kannst dich nicht selbst einstellen.", False)
             ordered_ids = ordered_team_role_ids(guild, team_role_ids)
             selected_rank = ordered_ids.index(role.id) if role.id in ordered_ids else len(ordered_ids)
-            actor_rank = team_rank(ctx.member, team_role_ids) if ctx.member else -1
+            actor_rank = team_rank(ctx.member, team_role_ids, guild) if ctx.member else -1
             if not ctx.perms.get("is_admin") and actor_rank <= selected_rank:
                 return back("/applications", "Du darfst niemanden auf deinen eigenen Rang oder einen höheren Rang einstellen.", False)
             application_role = guild.get_role(APPLICATION_ROLE_ID)
