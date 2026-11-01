@@ -466,5 +466,37 @@ class TeamMemberPermissionE2ETests(_PreviewE2EBase):
         self.assertEqual(list(Path(self.tmp.name).glob("pulse-preview-*/backups/pulse_full_*")), [])
 
 
+class CommandCenterInteractionE2ETests(_PreviewE2EBase):
+    def test_custom_cursor_tracks_mouse_and_highlights_navigation(self):
+        page, errors = self._page(viewport={"width": 1366, "height": 900})
+        response = page.goto(self._url("/dashboard"))
+        self.assertEqual(response.status, 200)
+        cursor = page.locator("#pulseCustomCursor")
+        self.assertEqual(cursor.count(), 1)
+
+        page.mouse.move(360, 220)
+        page.wait_for_function(
+            "document.querySelector('#pulseCustomCursor')?.classList.contains('is-visible')"
+        )
+        nav_link = page.locator('#pulseSidebar a[href="/dashboard"]')
+        self.assertEqual(nav_link.count(), 1)
+        nav_link.hover()
+        page.wait_for_function("document.body.classList.contains('pulse-cursor-hover')")
+        coords = cursor.evaluate(
+            "el => [el.style.getPropertyValue('--pulse-cursor-x'), el.style.getPropertyValue('--pulse-cursor-y')]"
+        )
+        self.assertTrue(all(coords), f"Cursorposition wurde nicht gesetzt: {coords}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_custom_cursor_respects_reduced_motion(self):
+        page, errors = self._page(viewport={"width": 1366, "height": 900})
+        page.emulate_media(reduced_motion="reduce")
+        response = page.goto(self._url("/dashboard"))
+        self.assertEqual(response.status, 200)
+        self.assertEqual(page.locator("#pulseCustomCursor").count(), 0)
+        self.assertNotIn("pulse-cursor-enabled", page.locator("body").get_attribute("class") or "")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+
 if __name__ == "__main__":
     unittest.main()
