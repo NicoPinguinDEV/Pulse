@@ -14,7 +14,7 @@ Stand: 30.10.2026 · 7.17.0 (`main`). Grundlage: DOC-03, zuletzt an Backup-/Rest
 - Lokal: `python main.py` · Server: `docker compose up -d --build` (mit HTTPS: `docker compose --profile https up -d --build`).
 - `GET /healthz` antwortet **200** nur, wenn Bot verbunden, Server im Cache und Datenbank erreichbar sind (sonst 503). Zusätzlich: `version`, `gateway_latency_ms`, `memory_mb` (Container-RAM). Auf dem VPS: `curl -s http://127.0.0.1:25095/healthz`.
 - 200 heißt nicht, dass jeder Cog fehlerfrei arbeitet – dafür Systemstatus und Logs prüfen.
-- Logs: `docker compose logs --tail=200 pulse` und `logs/pulse.log` (1 MB × 3). Die letzten 200 Fehler stehen mit Fehler-ID im Systemstatus.
+- Logs: `docker compose logs --tail=200 pulse` und `logs/pulse.log` im Datenverzeichnis (VPS: `/opt/pulse/data/logs/pulse.log`, 1 MB × 3). Die letzten 200 Fehler stehen mit Fehler-ID im Systemstatus.
 - Hintergrundjobs: Jede `@tasks.loop` steht im Job-Register (Systemstatus, `/healthz` → `jobs_failing`); auch abgefangene Fehler zählen dort als fehlgeschlagener Lauf.
 - Absturz/OOM zur Laufzeit: `pulse-crash-restart.timer` startet den Container nach höchstens 2 Minuten neu (max. 3×/Stunde, nie während Boot-Update oder Deploy) – Einrichtung `VPS_DEPLOYMENT.md`.
 
@@ -35,12 +35,13 @@ Automatisch nach einem Merge auf `main` (`.github/workflows/deploy-vps.yml` → 
 1. Es wird genau der Commit ausgerollt, auf dem die Qualitäts- und Sicherheitsprüfungen erfolgreich liefen; nie zwei Deploys gleichzeitig.
 2. Abbruch ohne Änderung, wenn der Commit nicht auf `origin/main` liegt, älter als der laufende Stand ist oder auf dem VPS versionierte lokale Änderungen existieren.
 3. Backup mit der laufenden Version (`predeploy_*`) – schlägt es fehl, bricht der Deploy ab.
-4. `git reset --hard <sha>` (fasst nur versionierte Dateien an) und `docker compose up -d --build`.
+4. `git reset --hard <sha>` (fasst nur versionierte Dateien an; die Laufzeitdaten liegen seit Phase 13 ohnehin in `/opt/pulse/data`) und `docker compose up -d --build` mit dem Commit als Build-Information (`PULSE_GIT_SHA`).
+   Ab Phase 13 bricht der Deploy ohne Änderung ab, solange das Datenverzeichnis nicht migriert ist (`VPS_DEPLOYMENT.md`, Phase 13).
 5. `/healthz` muss innerhalb von `PULSE_DEPLOY_HEALTH_SECONDS` (Standard 240 s) 200 liefern, sonst automatischer Rollback auf den vorherigen Commit; Ergebnis optional per `PULSE_DEPLOY_WEBHOOK_URL` in Discord.
 
 **Aus dem Dashboard (ab 7.17.0):** Verwaltung → Serververwaltung → Server Control Center startet dasselbe `remote_deploy.sh` (plus Code-Rollback über `deploy/rollback_code.sh`, kontrollierten Neustart, Container-Logs) über den eingeschränkten Host-Verwaltungsdienst – Einrichtung und Testschritte: `docs/SERVER_CONTROL_CENTER.md`.
 
-**Manueller Notfall-Rollback:** `cd /opt/pulse/Pulse && git rev-parse HEAD` notieren, Komplett-Backup erstellen, dann `git reset --hard <letzter guter Commit>` und `docker compose up -d --build`. Nie `git clean`, `rm` auf Datendateien oder `docker compose down -v`.
+**Manueller Notfall-Rollback:** `cd /opt/pulse/Pulse && git rev-parse HEAD` notieren, Komplett-Backup erstellen, dann `git reset --hard <letzter guter Commit>` und `PULSE_GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build`. Ein Rollback auf einen Commit **vor** Phase 13 braucht den Rückweg aus `VPS_DEPLOYMENT.md` (Daten zurückkopieren). Nie `git clean`, `rm` auf Datendateien oder `docker compose down -v`.
 
 ## 5. Wartungsmodus (F-04)
 

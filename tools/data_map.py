@@ -117,6 +117,15 @@ def main() -> int:
     missing = sorted(t for t in created if t not in exported)
     lines += ["", f"**Nicht im JSON-Backup:** {len(missing)} von {len(created)} Tabellen.", ""]
     lines += [
+        "## Speicherort (Phase 13, `pulse_paths`)",
+        "",
+        "- Alle oben genannten Ablagen liegen unter **`PULSE_DATA_DIR`** (`pulse_paths.DATA_DIR`): im Docker-Setup `/data`, "
+        "auf dem VPS `/opt/pulse/data`. Ohne `PULSE_DATA_DIR` gilt wie bisher das Arbeitsverzeichnis (Bot-Hosting, lokal).",
+        "- Zusätzlich dort: `logs/` (`logs/pulse.log`), `tmp/` (`TMPDIR`), die Markierung `.pulse-data.json` (Zustand der Migration) "
+        "und die hochgeladene Wartemusik `assets/support_wait.*`. Mitgelieferte Assets (`assets/*.b64`, `static/`) bleiben im Code.",
+        "- `.env` liegt nicht im Datenverzeichnis, sondern neben `compose.yaml` auf dem Host und wird als Umgebungsvariablen übergeben.",
+        "- Übernahme aus dem alten Checkout: `scripts/pulse_migrate_data.py` (Probelauf, Backup, Prüfsummen, keine Überschreibungen).",
+        "",
         "## Komplett-Backup `pulse_backup` (aktueller Stand, maßgeblich)",
         "",
         "- Enthält alle Datenbanken aus `pulse_backup.SQLITE_FILES`, alle JSON-Dateien aus `JSON_FILES`, die Ordner "
