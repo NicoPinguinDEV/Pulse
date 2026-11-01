@@ -80,7 +80,7 @@ def main() -> int:
                 )
                 managed_task = isinstance(func, ast.Name) and func.id in spawn_aliases
                 if direct_task or managed_task:
-                    call = ast.get_source_segment(text, node) or ""
+                    call = " ".join((ast.get_source_segment(text, node) or "").split())
                     spawns.append((rel(path), node.lineno, call[:90]))
         for key in re.findall(r"perms\.get\(\s*['\"]([a-z_]+)['\"]", text):
             perm_reads[key][rel(path)] += 1
@@ -103,7 +103,7 @@ def main() -> int:
     lines += ["", f"## Eigene Endlosschleifen ({len(endless)})", "", "| Datei:Zeile | Funktion | Pause (`asyncio.sleep`) | Fehlerbehandlung |", "|---|---|---|---|"]
     lines += [f"| {f}:{l} | `{n}` | `{s}` | {e} |" for f, l, n, s, e in endless]
     lines += ["", f"## `create_task` / `ensure_future` / `pulse_tasks.spawn` ({len(spawns)})", "",
-              "Ohne gehaltene Referenz kann der Task vom Garbage Collector eingesammelt werden, Fehler gehen verloren (P-07).", "",
+              "`pulse_tasks.spawn` hält Tasks bis zum Abschluss, protokolliert unbehandelte Fehler und begrenzt normale Hintergrundarbeit; kritische Kernaufgaben können die weiche Obergrenze übergehen.", "",
               "| Datei:Zeile | Aufruf |", "|---|---|"]
     lines += [f"| {f}:{l} | `{c.replace('|', '¦')}` |" for f, l, c in spawns]
     lines += ["", "## Rechte-Schlüssel", "",
