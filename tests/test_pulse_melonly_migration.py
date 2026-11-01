@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 import sqlite3
 import tempfile
 import unittest
@@ -45,6 +44,7 @@ class MelonlyMigrationTests(unittest.TestCase):
         self.assertEqual(MelonlyStore(self.database).export_all(), entries)
         self.assertTrue(Path(result["json_backup"]).is_file())
         self.assertEqual(Path(result["json_backup"]).read_bytes(), original)
+        self.assertEqual(Path(result["json_backup"]).stat().st_mode & 0o777, 0o600)
         with sqlite3.connect(self.database) as con:
             self.assertEqual(con.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(
