@@ -144,5 +144,51 @@ class IndexedReadTests(ShiftHistoryBase):
         self.assertEqual(store.total_credited_seconds(ws), expected_total)
 
 
-if __name__ == "__main__":
+    def test_cockpit_date_aggregates_match_legacy_helper_with_old_dates(self):
+        from pulse_cockpit_utils import last_shift_dates, seconds_per_member
+
+        today = ws.now_de().date()
+        this_start = today - timedelta(days=today.weekday())
+        this_end = today
+        previous_start = this_start - timedelta(days=7)
+        previous_end = today - timedelta(days=7)
+        old_this = f"{this_start.year}-{this_start.month}-{this_start.day}"
+        old_previous = f"{previous_start.year}-{previous_start.month}-{previous_start.day}"
+        legacy_rows = [
+            {"mod_id": "1000", "date": old_this, "duration_seconds": 125},
+            {"mod_id": "1000", "date": this_start.isoformat(), "duration_seconds": 300},
+            {"mod_id": "1001", "date": old_previous, "duration_seconds": 500},
+            {"mod_id": "1001", "date": "20.10.2026", "duration_seconds": 99},
+            {"mod_id": "1001", "date": "2026-13-01", "duration_seconds": 99},
+        ]
+        self.seed(legacy_rows)
+        member_ids = ["1000", "1001"]
+        expected_this = seconds_per_member(legacy_rows, this_start, this_end)
+        expected_prev = seconds_per_member(legacy_rows, previous_start, previous_end)
+        expected_latest = last_shift_dates(legacy_rows)
+        self.assertEqual(store.range_totals(
+            ws, member_ids, this_start.isoformat(), (this_end + timedelta(days=1)).isoformat()
+        ), expected_this)
+        self.assertEqual(store.range_totals(
+            ws, member_ids, previous_start.isoformat(), (previous_end + timedelta(days=1)).isoformat()
+        ), expected_prev)
+        self.assertEqual(store.latest_shift_dates(ws, member_ids), expected_latest)
+        self.migrate()
+        self.assertEqual(store.range_totals(
+            ws, member_ids, this_start.isoformat(), (this_end + timedelta(days=1)).isoformat()
+        ), expected_this)
+        self.assertEqual(store.range_totals(
+            ws, member_ids, previous_start.isoformat(), (previous_end + timedelta(days=1)).isoformat()
+        ), expected_prev)
+        self.assertEqual(store.latest_shift_dates(ws, member_ids), expected_latest)
+
+    def test_per_member_lifetime_totals_match_legacy_filter(self):
+        uid = "1000"
+        expected = sum(
+            credited_shift_seconds(entry) for entry in self.history
+            if isinstance(entry, dict) and str(entry.get("mod_id")) == uid
+        )
+        self.migrate()
+        self.assertEqual(store.total_credited_seconds(ws, mod_id=uid), expected)
+
     unittest.main()

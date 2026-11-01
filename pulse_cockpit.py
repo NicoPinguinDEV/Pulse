@@ -54,15 +54,25 @@ def register(app) -> None:
             key=lambda m: m.display_name.lower(),
         )
 
-        shifts = ws.load_shifts()
+        shifts = ws.load_shift_state()
         active = shifts.get("active_shifts", {})
-        history = shifts.get("history", [])
         (this_start, this_end), (prev_start, prev_end) = week_to_date_windows(today)
-        this_week = seconds_per_member(history, this_start, this_end)
-        prev_week = seconds_per_member(history, prev_start, prev_end)
+        member_ids = [str(member.id) for member in members]
+        if "history" in shifts:  # JSON fallback: preserve the established calculation path
+            history = shifts.get("history", [])
+            this_week = seconds_per_member(history, this_start, this_end)
+            prev_week = seconds_per_member(history, prev_start, prev_end)
+            last_dates = last_shift_dates(history)
+        else:  # SQLite: only the selected team's rows / aggregates are read
+            this_week = ws.shift_range_totals(
+                member_ids, this_start.isoformat(), (this_end + timedelta(days=1)).isoformat()
+            )
+            prev_week = ws.shift_range_totals(
+                member_ids, prev_start.isoformat(), (prev_end + timedelta(days=1)).isoformat()
+            )
+            last_dates = ws.shift_latest_dates(member_ids)
         for uid, shift in active.items():
             this_week[str(uid)] = this_week.get(str(uid), 0) + ws.shift_elapsed(shift)
-        last_dates = last_shift_dates(history)
         for uid in active:
             last_dates[str(uid)] = today
         loas = ws.get_loas()

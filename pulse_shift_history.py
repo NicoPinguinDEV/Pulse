@@ -815,19 +815,145 @@ def weekly_totals(ws, mod_ids=None) -> dict:
             con.close()
 
 
-def total_credited_seconds(ws) -> int:
-    """Sum all creditable seconds in SQLite without loading all payloads into Python."""
+
+
+def _legacy_shift_date(value):
+    """Same parser as pulse_cockpit_utils._entry_date, including non-padded legacy dates."""
+    try:
+        return datetime.strptime(str(value or ""), "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def range_totals(ws, mod_ids, date_from: str, date_to: str) -> dict:
+    """Credited seconds per member for [date_from, date_to), using the member/date index."""
+    date_from = _validated_date_bound(date_from, "date_from")
+    date_to = _validated_date_bound(date_to, "date_to")
+    if date_from is None or date_to is None or date_from >= date_to:
+        raise ValueError("Ein gültiger Zeitraum mit date_from < date_to ist erforderlich")
+    selected = list(dict.fromkeys(str(value) for value in mod_ids))
+    if not selected:
+        return {}
+    start, end = date.fromisoformat(date_from), date.fromisoformat(date_to)
     path = ws.SHIFTS_FILE
     with ws._io_lock:
         raw = _read_raw(path)
         if not is_sqlite(raw):
             shifts = ws.load_shifts()
-            return sum(ws.credited_shift_seconds(entry) for entry in shifts.get("history", []))
+            totals = {}
+            for entry in shifts.get("history", []):
+                if not isinstance(entry, dict):
+                    continue
+                day = _legacy_shift_date(entry.get("date"))
+                uid = str(entry.get("mod_id"))
+                if uid in selected and day is not None and start <= day < end:
+                    totals[uid] = totals.get(uid, 0) + ws.credited_shift_seconds(entry)
+            return totals
+
         con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
         try:
             _register_read_functions(con)
-            value = con.execute("SELECT COALESCE(SUM(pulse_credited_seconds(payload)), 0) FROM shift_history").fetchone()[0]
-            return int(value)
+            placeholders = ",".join("?" for _ in selected)
+            canonical = con.execute(
+                "SELECT mod_id, SUM(pulse_credited_seconds(payload)) FROM shift_history "
+                f"WHERE mod_id IN ({placeholders}) AND shift_date >= ? AND shift_date < ? "
+                "AND shift_date GLOB '????-??-??' AND pulse_valid_iso_day(shift_date)=1 "
+                "GROUP BY mod_id",
+                [*selected, date_from, date_to],
+            ).fetchall()
+            totals = {str(uid): int(seconds or 0) for uid, seconds in canonical}
+            legacy = con.execute(
+                "SELECT payload FROM shift_history "
+                f"WHERE mod_id IN ({placeholders}) AND "
+                "(shift_date IS NULL OR shift_date NOT GLOB '????-??-??' "
+                "OR pulse_valid_iso_day(shift_date)=0) ORDER BY seq",
+                selected,
+            ).fetchall()
+            for (payload,) in legacy:
+                entry = json.loads(payload)
+                if not isinstance(entry, dict):
+                    continue
+                day = _legacy_shift_date(entry.get("date"))
+                uid = str(entry.get("mod_id"))
+                if uid in selected and day is not None and start <= day < end:
+                    totals[uid] = totals.get(uid, 0) + ws.credited_shift_seconds(entry)
+            return totals
+        finally:
+            con.close()
+
+
+def latest_shift_dates(ws, mod_ids) -> dict:
+    """Latest shift date per member; SQLite MAX handles canonical dates and Python handles legacy dates."""
+    selected = list(dict.fromkeys(str(value) for value in mod_ids))
+    if not selected:
+        return {}
+    path = ws.SHIFTS_FILE
+    with ws._io_lock:
+        raw = _read_raw(path)
+        if not is_sqlite(raw):
+            from pulse_cockpit_utils import last_shift_dates
+            shifts = ws.load_shifts()
+            latest = last_shift_dates(shifts.get("history", []))
+            return {uid: latest[uid] for uid in selected if uid in latest}
+
+        con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
+        try:
+            _register_read_functions(con)
+            placeholders = ",".join("?" for _ in selected)
+            canonical = con.execute(
+                "SELECT mod_id, MAX(shift_date) FROM shift_history "
+                f"WHERE mod_id IN ({placeholders}) AND shift_date GLOB '????-??-??' "
+                "AND pulse_valid_iso_day(shift_date)=1 GROUP BY mod_id",
+                selected,
+            ).fetchall()
+            latest = {str(uid): date.fromisoformat(day) for uid, day in canonical if day is not None}
+            legacy = con.execute(
+                "SELECT mod_id, payload FROM shift_history "
+                f"WHERE mod_id IN ({placeholders}) AND "
+                "(shift_date IS NULL OR shift_date NOT GLOB '????-??-??' "
+                "OR pulse_valid_iso_day(shift_date)=0) ORDER BY seq",
+                selected,
+            ).fetchall()
+            for uid, payload in legacy:
+                entry = json.loads(payload)
+                if not isinstance(entry, dict):
+                    continue
+                day = _legacy_shift_date(entry.get("date"))
+                key = str(uid) if uid is not None else str(entry.get("mod_id"))
+                if day is not None and (key not in latest or day > latest[key]):
+                    latest[key] = day
+            return latest
+        finally:
+            con.close()
+
+
+def total_credited_seconds(ws, mod_id=None) -> int:
+    """Sum all or one member's creditable seconds without materializing history."""
+    path = ws.SHIFTS_FILE
+    uid = None if mod_id is None else str(mod_id)
+    with ws._io_lock:
+        raw = _read_raw(path)
+        if not is_sqlite(raw):
+            shifts = ws.load_shifts()
+            return sum(
+                ws.credited_shift_seconds(entry)
+                for entry in shifts.get("history", [])
+                if uid is None or (isinstance(entry, dict) and str(entry.get("mod_id")) == uid)
+            )
+        con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
+        try:
+            _register_read_functions(con)
+            if uid is None:
+                row = con.execute(
+                    "SELECT COALESCE(SUM(pulse_credited_seconds(payload)), 0) FROM shift_history"
+                ).fetchone()
+            else:
+                row = con.execute(
+                    "SELECT COALESCE(SUM(pulse_credited_seconds(payload)), 0) "
+                    "FROM shift_history WHERE mod_id=?",
+                    (uid,),
+                ).fetchone()
+            return int(row[0])
         finally:
             con.close()
 

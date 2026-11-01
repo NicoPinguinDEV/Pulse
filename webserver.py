@@ -1674,15 +1674,37 @@ def shift_weekly_totals(mod_ids=None) -> dict:
         return {}
 
 
-def shift_total_credited_seconds() -> int:
-    """All-time credited seconds without materializing the SQLite history."""
+def shift_total_credited_seconds(mod_id=None) -> int:
+    """All-time credited seconds, optionally for one member, without materializing SQLite history."""
     import sys
     import pulse_shift_history
     try:
-        return pulse_shift_history.total_credited_seconds(sys.modules[__name__])
+        return pulse_shift_history.total_credited_seconds(sys.modules[__name__], mod_id=mod_id)
     except Exception as exc:
         _mark_corrupt(SHIFTS_FILE, exc)
         return 0
+
+
+def shift_range_totals(mod_ids, date_from: str, date_to: str) -> dict:
+    """Credited seconds per member for a calendar-date range."""
+    import sys
+    import pulse_shift_history
+    try:
+        return pulse_shift_history.range_totals(sys.modules[__name__], mod_ids, date_from, date_to)
+    except Exception as exc:
+        _mark_corrupt(SHIFTS_FILE, exc)
+        return {}
+
+
+def shift_latest_dates(mod_ids) -> dict:
+    """Latest recorded shift date per member."""
+    import sys
+    import pulse_shift_history
+    try:
+        return pulse_shift_history.latest_shift_dates(sys.modules[__name__], mod_ids)
+    except Exception as exc:
+        _mark_corrupt(SHIFTS_FILE, exc)
+        return {}
 
 
 def calculate_weekly_seconds_from_totals(mod_id, totals: dict, active_shifts=None) -> int:
