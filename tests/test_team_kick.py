@@ -1,6 +1,7 @@
 """Regression tests for the post-team-kick Discord role reset."""
 import unittest
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import webserver
 
@@ -22,6 +23,8 @@ class FakeMember:
         self.roles = list(roles)
         self.default_role = default_role
         self.edit_calls = []
+        self.id = 3001
+        self.kick = AsyncMock()
 
     async def edit(self, *, roles, reason):
         self.edit_calls.append({"roles": list(roles), "reason": reason})
@@ -36,6 +39,10 @@ class FakeGuild:
             guild_permissions=SimpleNamespace(manage_roles=manage_roles),
             top_role=SimpleNamespace(position=bot_top_position),
         )
+        self.members = []
+
+    def get_member(self, member_id):
+        return next((item for item in self.members if item.id == member_id), None)
 
     def get_role(self, role_id):
         return self._roles.get(role_id)
@@ -52,6 +59,7 @@ class TeamKickRoleResetTests(unittest.IsolatedAsyncioTestCase):
         roles = [everyone, citizen, ex_team, team, warn, ping]
         guild = FakeGuild(roles, everyone)
         member = FakeMember([everyone, citizen, ex_team, team, warn, ping], everyone)
+        guild.members.append(member)
 
         result = await webserver.apply_team_kick_role_reset(
             guild, member, {}, "Test Team-Kick"
@@ -64,6 +72,8 @@ class TeamKickRoleResetTests(unittest.IsolatedAsyncioTestCase):
             {1531303733311307997, 1489912887949394082},
         )
         self.assertEqual(len(member.edit_calls), 1)
+        self.assertIs(guild.get_member(member.id), member)  # still a guild member
+        member.kick.assert_not_awaited()
         self.assertIn(2001, result["removed_role_ids"])
         self.assertIn(2002, result["removed_role_ids"])
         self.assertIn(2003, result["removed_role_ids"])
@@ -87,6 +97,39 @@ class TeamKickRoleResetTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(member.roles, before)
         self.assertEqual(member.edit_calls, [])
 
+
+    async def test_missing_required_role_aborts_without_any_role_change(self):
+        everyone = FakeRole(1, "@everyone", 0, default=True)
+        citizen = FakeRole(1531303733311307997, "Bürger", 10)
+        team = FakeRole(2001, "Supporter", 20)
+        guild = FakeGuild([citizen, team], everyone)
+        member = FakeMember([everyone, citizen, team], everyone)
+        before = list(member.roles)
+
+        result = await webserver.apply_team_kick_role_reset(guild, member, {}, "Test Team-Kick")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("nicht gefunden", result["message"])
+        self.assertEqual(member.roles, before)
+        self.assertEqual(member.edit_calls, [])
+        member.kick.assert_not_awaited()
+
+    async def test_missing_manage_roles_aborts_without_any_role_change(self):
+        everyone = FakeRole(1, "@everyone", 0, default=True)
+        citizen = FakeRole(1531303733311307997, "Bürger", 10)
+        ex_team = FakeRole(1489912887949394082, "Ex-Teamler", 11)
+        team = FakeRole(2001, "Supporter", 20)
+        guild = FakeGuild([citizen, ex_team, team], everyone, manage_roles=False)
+        member = FakeMember([everyone, citizen, ex_team, team], everyone)
+        before = list(member.roles)
+
+        result = await webserver.apply_team_kick_role_reset(guild, member, {}, "Test Team-Kick")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("Rollen verwalten", result["message"])
+        self.assertEqual(member.roles, before)
+        self.assertEqual(member.edit_calls, [])
+        member.kick.assert_not_awaited()
 
 if __name__ == "__main__":
     unittest.main()

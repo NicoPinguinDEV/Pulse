@@ -10568,11 +10568,16 @@ async def settings_page(request: Request, user_session: str = Cookie(None)):
     return render_page("Einstellungen & Rechte", ctx, "settings", body, head)
 
 
+def normalize_dashboard_action(action: str) -> str:
+    """Map legacy dashboard ``kick`` forms to the safe, team-only action."""
+    return "team_kick" if action == "kick" else action
+
+
 # =============================================================
 # ZENTRALER ACTION-HANDLER (jede Aktion mit Rechteprüfung)
 # =============================================================
 ACTION_PERMS = {
-    "promote": "can_promote", "demote": "can_promote", "kick": "can_promote", "hire": "can_promote",
+    "promote": "can_promote", "demote": "can_promote", "team_kick": "can_promote", "hire": "can_promote",
     "warn_with_proof": "can_warn", "remove_warn": "can_warn", "add_note": "can_add_notes",
     "submit_loa": "can_view_dashboard", "cancel_loa": "can_view_dashboard",
     "vote_app": "can_view_dashboard", "decide_app": "can_manage_applications",
@@ -11071,6 +11076,8 @@ async def handle_action(
     user_session: str = Cookie(None),
     apply_session: str = Cookie(None)
 ):
+    # Old forms may still submit action=kick; it is never a server-membership operation.
+    action = normalize_dashboard_action(action)
     # ---------- Öffentliche Bewerbung inklusive serverseitig bewerteten Laufbahn-Test ----------
     if action == "submit_application":
         ip = request.client.host if request.client else "unknown"
@@ -11171,7 +11178,7 @@ async def handle_action(
     member_url = f"/member/{user_id}" if redirect_to_member and user_id else "/dashboard"
 
     # Active safety lockouts also block alternate high-impact dashboard actions.
-    if action in {"promote", "demote", "kick", "hire", "remove_warn"}:
+    if action in {"promote", "demote", "team_kick", "hire", "remove_warn"}:
         actor_member = ctx.member or guild.get_member(int(actor_id)) if str(actor_id).isdigit() else ctx.member
         guard_target = guild.get_member(user_id) if user_id else None
         allowed_safety_action, safety_message = await enforce_team_safety_action_lockout(
@@ -11319,68 +11326,48 @@ async def handle_action(
             return back(member_url, "Du kannst nur Mitglieder mit niedrigerem Rang bearbeiten.", False)
 
         action_reason = (action_reason or "").strip()[:500]
-        if action in ("promote", "demote", "kick") and not action_reason:
+        if action in ("promote", "demote", "team_kick") and not action_reason:
             return back(member_url, "Bitte einen Grund für die Maßnahme angeben.", False)
         if action == "promote" and probation_days not in VALID_PROBATION_DAYS:
             return back(member_url, "Für jede Beförderung muss eine Probezeit von 3 oder 7 Tagen ausgewählt werden.", False)
 
         try:
-            if action == "kick":
+            if action == "team_kick":
                 if not guild.me:
                     return back(member_url, "Der Bot ist auf diesem Server noch nicht verfügbar.", False)
-                if not guild.me.guild_permissions.manage_roles:
-                    return back(member_url, "Der Bot hat keine Berechtigung 'Rollen verwalten'.", False)
 
-                team_roles = [r for r in member.roles if r.id in team_role_ids]
+                if not guild.guild_permissions.manage_roles if hasattr(guild, "guild_permissions") else False:
+                    return back(member_url, "Die Rollenverwaltung kann nicht sicher geprüft werden.", False)
+
+                team_roles = [role for role in member.roles if role.id in team_role_ids and not role.is_default()]
                 if not team_roles:
                     return back(member_url, "Dieses Mitglied hat keine Teamrolle mehr.", False)
 
-                # Rollen vor jeder Änderung vollständig prüfen, damit ein Kick nicht
-                # mitten im Rollen-Reset endet und zusätzliche Rollen zurückbleiben.
-                resolved_keep_role_ids = tuple(
-                    resolve_backup_role_id(role_id, config) for role_id in TEAM_KICK_KEEP_ROLE_IDS
+                # One shared, fail-closed implementation performs every role and hierarchy check
+                # before making the single role update. It never calls Member.kick().
+                kick_result = await apply_team_kick_role_reset(
+                    guild, member, config, f"Dashboard durch {actor}: {action_reason}"
                 )
-                keep_roles = [guild.get_role(role_id) for role_id in resolved_keep_role_ids]
-                if any(role is None for role in keep_roles):
-                    return back(member_url, "Team-Kick abgebrochen: Die Bürgerrolle oder die zweite Pflichtrolle wurde auf dem Server nicht gefunden.", False)
-                if any(role.managed or role.position >= guild.me.top_role.position for role in keep_roles):
-                    return back(member_url, "Team-Kick abgebrochen: Der Bot kann die Bürgerrolle oder die zweite Pflichtrolle wegen der Rollenverwaltung/-hierarchie nicht setzen.", False)
-
-                keep_role_ids = set(resolved_keep_role_ids)
-                roles_to_remove = [
-                    role for role in member.roles
-                    if role.id != guild.id and role.id not in keep_role_ids
-                ]
-                blocked_roles = [
-                    role for role in roles_to_remove
-                    if role.managed or role.position >= guild.me.top_role.position
-                ]
-                if blocked_roles:
-                    blocked_names = ", ".join(role.name for role in blocked_roles)
+                if not kick_result.get("ok"):
                     return back(
                         member_url,
-                        f"Team-Kick abgebrochen: Der Bot kann folgende Rollen nicht entfernen: {blocked_names}. Bitte Rollen-Hierarchie bzw. verwaltete Rollen prüfen.",
+                        str(kick_result.get("message") or "Team-Entfernung wurde sicherheitshalber abgebrochen."),
                         False,
                     )
 
-                removed_role_names = [role.name for role in roles_to_remove]
-                # Ein einzelner Member-Edit setzt die Rollen gezielt auf die beiden
-                # gewünschten Rollen zurück. Das ist kein Discord-Server-Kick.
-                await member.edit(
-                    roles=keep_roles,
-                    reason=f"Team-Kick durch {actor}: {action_reason}",
-                )
+                keep_roles = kick_result.get("keep_roles", [])
+                removed_role_names = kick_result.get("removed_roles", [])
+                keep_role_names = ", ".join(role.name for role in keep_roles)
                 await send_dm_notification(
                     member,
                     f"❌ Du wurdest aus dem Team von **{guild.name}** entfernt. "
-                    f"Du bleibst auf dem Discord-Server und erhältst nur noch die Rollen "
-                    f"{keep_roles[0].mention} und {keep_roles[1].mention}. Grund: {action_reason}",
+                    f"Du bleibst auf dem Discord-Server und behältst {keep_role_names}. Grund: {action_reason}",
                 )
                 await send_team_update_embed(
                     guild,
                     "🚪 Team-Update: Team-Kick",
-                    f"{member.mention} wurde aus dem Team entfernt. Die übrigen Rollen wurden entfernt; "
-                    f"die Person bleibt auf dem Discord-Server.",
+                    f"{member.mention} wurde aus dem BOCHUM-RP-Team entfernt. "
+                    "Die Person bleibt weiterhin auf dem Discord-Server.",
                     _pulse_color("danger"),
                     target=member.mention,
                     action="Team-Kick",
@@ -11396,11 +11383,13 @@ async def handle_action(
                     actor,
                     actor_id,
                     "Team-Kick",
-                    f"{member.display_name}: Rollen zurückgesetzt auf {', '.join(role.name for role in keep_roles)} · Grund: {action_reason}",
+                    f"{member.display_name}: entfernte Rollen {', '.join(removed_role_names)} · "
+                    f"behalten {keep_role_names} · Grund: {action_reason}",
                 )
                 return back(
                     "/team",
-                    f"{member.display_name} wurde aus dem Team entfernt. Es bleiben nur Bürgerrolle und die festgelegte Zusatzrolle; der Discord-Server-Kick wurde nicht ausgeführt.",
+                    f"{member.display_name} wurde aus dem BOCHUM-RP-Team entfernt. "
+                    "Das Mitglied bleibt auf dem Discord-Server.",
                 )
 
             if action == "promote":
