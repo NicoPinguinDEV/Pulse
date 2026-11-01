@@ -714,9 +714,167 @@ def voice_waiting(guild) -> int:
         return 0
 
 
+PULSE_INTERACTION_CSS = r"""
+<style>
+/* Phase 16.0 – cursor-first interaction layer. The existing red/black Pulse tokens remain authoritative. */
+@media (pointer:fine) and (hover:hover) and (prefers-reduced-motion:no-preference) {
+  body.pulse-cursor-enabled,body.pulse-cursor-enabled *{cursor:none!important}
+  body.pulse-cursor-enabled input:not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button]):not([type=file]),
+  body.pulse-cursor-enabled textarea,body.pulse-cursor-enabled [contenteditable="true"]{cursor:text!important}
+}
+#pulseCustomCursor{--pulse-cursor-x:-100px;--pulse-cursor-y:-100px;position:fixed;inset:0;z-index:10000;pointer-events:none;opacity:0;contain:layout style;transition:opacity .14s ease}
+#pulseCustomCursor.is-visible{opacity:1}
+#pulseCustomCursor .pulse-cursor-ring,#pulseCustomCursor .pulse-cursor-dot{position:absolute;left:var(--pulse-cursor-x);top:var(--pulse-cursor-y);border-radius:50%;pointer-events:none;transform:translate(-50%,-50%)}
+#pulseCustomCursor .pulse-cursor-ring{width:34px;height:34px;border:1px solid rgba(255,80,88,.68);background:rgba(227,27,35,.035);box-shadow:0 0 0 1px rgba(227,27,35,.045),0 0 22px rgba(227,27,35,.12);transition:left .13s cubic-bezier(.2,.8,.2,1),top .13s cubic-bezier(.2,.8,.2,1),width .18s ease,height .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease}
+#pulseCustomCursor .pulse-cursor-dot{width:5px;height:5px;background:#FF5058;box-shadow:0 0 12px rgba(255,80,88,.72)}
+body.pulse-cursor-hover #pulseCustomCursor .pulse-cursor-ring{width:48px;height:48px;border-color:rgba(255,80,88,.95);background:rgba(227,27,35,.09);box-shadow:0 0 0 5px rgba(227,27,35,.045),0 0 30px rgba(227,27,35,.2)}
+body.pulse-cursor-pressed #pulseCustomCursor .pulse-cursor-ring{width:25px;height:25px;background:rgba(227,27,35,.17)}
+body.pulse-cursor-text #pulseCustomCursor{opacity:0}
+@media (hover:none),(pointer:coarse),(prefers-reduced-motion:reduce){#pulseCustomCursor{display:none!important}}
+
+/* Navigation: clearer hierarchy, calmer surfaces and an intentional active state. */
+#pulseSidebar nav a{min-height:42px;padding:10px 12px!important;border-radius:12px!important;letter-spacing:-.01em;transition:background .18s ease,color .18s ease,border-color .18s ease,transform .18s ease,box-shadow .18s ease}
+#pulseSidebar nav a:hover:not(.nav-active){background:color-mix(in srgb,var(--surface2) 82%,var(--p) 18%)!important;border-color:rgba(227,27,35,.14)!important;color:var(--text)!important;transform:translateX(3px)}
+#pulseSidebar nav .nav-active{background:linear-gradient(100deg,rgba(227,27,35,.17),rgba(227,27,35,.045))!important;border-color:rgba(227,27,35,.24)!important;box-shadow:inset 0 0 0 1px rgba(227,27,35,.035),0 5px 18px rgba(227,27,35,.055)!important}
+#pulseSidebar .pulse-nav-group>summary{padding:10px 11px;margin:8px 0 5px;border:1px solid transparent;border-radius:11px;letter-spacing:.12em;font-size:9px;font-weight:850;transition:background .18s ease,border-color .18s ease,color .18s ease}
+#pulseSidebar .pulse-nav-group>summary:hover{background:var(--surface2);border-color:var(--border);color:var(--text)}
+#pulseSidebar .pulse-nav-group>summary:after{content:"+";float:none;margin-left:auto;font-size:14px;line-height:1;font-weight:500;opacity:.72;transform:none;transition:color .18s ease,opacity .18s ease}
+#pulseSidebar .pulse-nav-group[open]>summary:after{content:"−";color:var(--p);opacity:1;transform:none}
+#pulseSidebar .pulse-primary-content{gap:4px;padding-bottom:7px}
+#pulseSidebar .pulse-nav-subgroup>summary{margin-top:5px;padding:8px 10px;font-size:9px;letter-spacing:.055em}
+#pulseSidebar .pulse-nav-count{background:rgba(227,27,35,.10);color:var(--p);border:1px solid rgba(227,27,35,.13)}
+#pulseSidebar .pulse-area-switch{padding:4px;border-radius:12px}
+#pulseSidebar .pulse-area-switch a{min-height:36px;display:flex;align-items:center;justify-content:center;border-radius:9px;transition:background .18s ease,color .18s ease,box-shadow .18s ease}
+#pulseSidebar .pulse-area-switch a:hover{color:var(--text);background:var(--surface3)}
+#pulseSidebar .pulse-area-switch a.on{background:rgba(227,27,35,.13);color:var(--p);box-shadow:inset 0 0 0 1px rgba(227,27,35,.20)}
+
+/* Topbar and page surfaces: consistent elevation, responsive transitions and refined focus. */
+.pulse-topbar{position:sticky;top:10px;z-index:30;min-height:60px;padding:12px 16px;border-radius:17px;border-color:rgba(255,255,255,.075);box-shadow:0 15px 42px rgba(0,0,0,.11),inset 0 1px 0 rgba(255,255,255,.025)}
+.pulse-topbar:after{content:"";position:absolute;left:18px;top:-1px;width:44px;height:2px;border-radius:0 0 4px 4px;background:linear-gradient(90deg,#E31B23,#FF656C);box-shadow:0 0 16px rgba(227,27,35,.55);pointer-events:none}
+.pulse-topbar .pulse-section-title{font-size:15px;font-weight:850;letter-spacing:-.025em}
+.pulse-topbar .pulse-section-sub{line-height:1.55}
+.pulse-card,.pulse-stat{transition:transform .2s cubic-bezier(.2,.8,.2,1),border-color .2s ease,box-shadow .2s ease}
+.pulse-card:hover,.pulse-stat:hover{transform:translateY(-2px);border-color:rgba(227,27,35,.24)!important;box-shadow:0 15px 36px rgba(0,0,0,.105),0 0 0 1px rgba(227,27,35,.035)}
+.pulse-row{transition:background .16s ease,border-color .16s ease,transform .16s ease}
+.pulse-row:hover{border-color:rgba(227,27,35,.22)!important;background:color-mix(in srgb,var(--surface2) 91%,var(--p) 9%)}
+.pulse-btn,.pulse-icon-btn{transition:transform .16s ease,border-color .16s ease,background .16s ease,color .16s ease,box-shadow .16s ease}
+.pulse-btn:active,.pulse-icon-btn:active{transform:translateY(1px) scale(.975)}
+.pulse-btn.primary{box-shadow:0 8px 22px rgba(227,27,35,.17),inset 0 1px 0 rgba(255,255,255,.13)}
+.pulse-btn.primary:hover{box-shadow:0 12px 28px rgba(227,27,35,.25),inset 0 1px 0 rgba(255,255,255,.16)}
+.pulse-input,.pulse-table td,.pulse-pill{transition:border-color .16s ease,background .16s ease,box-shadow .16s ease}
+.pulse-table tbody tr:hover td{background:var(--surface3);border-color:rgba(227,27,35,.17)}
+.pulse-modal{backdrop-filter:blur(22px);border-color:rgba(255,255,255,.10)}
+.pulse-command-item{transition:background .16s ease,color .16s ease,transform .16s ease}
+.pulse-command-item:hover{background:rgba(227,27,35,.09);color:var(--text);transform:translateX(2px)}
+.pulse-key{background:var(--surface2);border-radius:7px}
+#main-content{min-width:0}
+@media(max-width:767px){#pulseSidebar nav a:hover{transform:none}.pulse-card:hover,.pulse-stat:hover{transform:none}.pulse-topbar{top:7px}}
+@media(prefers-reduced-motion:reduce){#pulseCustomCursor{display:none!important}.pulse-card,.pulse-stat,.pulse-row,.pulse-btn,.pulse-icon-btn,#pulseSidebar nav a{transition:none!important;transform:none!important}}
+</style>
+"""
+
+PULSE_INTERACTION_JS = r"""
+<script>
+(function(){
+  if(window.PulseCustomCursor||!window.matchMedia||!document.body)return;
+  const reduced=window.matchMedia("(prefers-reduced-motion: reduce)");
+  const fine=window.matchMedia("(pointer: fine)");
+  const hover=window.matchMedia("(hover: hover)");
+  if(reduced.matches||!fine.matches||!hover.matches)return;
+
+  const root=document.createElement("div");
+  root.id="pulseCustomCursor";
+  root.setAttribute("aria-hidden","true");
+  root.innerHTML='<span class="pulse-cursor-ring"></span><span class="pulse-cursor-dot"></span>';
+  document.body.appendChild(root);
+  document.body.classList.add("pulse-cursor-enabled");
+  let active=true;
+
+  function elementFrom(node){
+    if(!node)return null;
+    return node.nodeType===1?node:node.parentElement||null;
+  }
+  function setHover(node){
+    const el=elementFrom(node);
+    if(!el){document.body.classList.remove("pulse-cursor-hover","pulse-cursor-text");return;}
+    const textEntry=el.closest('input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="file"]),textarea,[contenteditable="true"]');
+    const interactive=el.closest('a[href],button:not([disabled]),summary,[role="button"],[aria-haspopup],input[type="submit"],input[type="button"],.pulse-btn,.pulse-icon-btn,.pulse-command-item,[data-cursor-hover]');
+    document.body.classList.toggle("pulse-cursor-text",!!textEntry);
+    document.body.classList.toggle("pulse-cursor-hover",!!interactive&&!textEntry);
+  }
+  function move(event){
+    if(event.pointerType&&event.pointerType!=="mouse"){
+      root.classList.remove("is-visible");
+      setHover(null);
+      return;
+    }
+    root.style.setProperty("--pulse-cursor-x",Math.round(event.clientX)+"px");
+    root.style.setProperty("--pulse-cursor-y",Math.round(event.clientY)+"px");
+    root.classList.add("is-visible");
+    setHover(event.target);
+  }
+  function pointerOver(event){setHover(event.target);}
+  function pointerOut(event){
+    if(!event.relatedTarget){
+      root.classList.remove("is-visible");
+      setHover(null);
+    }else setHover(event.relatedTarget);
+  }
+  function pointerDown(event){
+    if(!event.pointerType||event.pointerType==="mouse")document.body.classList.add("pulse-cursor-pressed");
+  }
+  function pointerUp(){document.body.classList.remove("pulse-cursor-pressed");}
+  function hide(){
+    root.classList.remove("is-visible");
+    document.body.classList.remove("pulse-cursor-hover","pulse-cursor-text","pulse-cursor-pressed");
+  }
+  function destroy(){
+    if(!active)return;
+    active=false;
+    window.removeEventListener("pointermove",move);
+    window.removeEventListener("blur",hide);
+    document.removeEventListener("pointerout",pointerOut,true);
+    document.removeEventListener("pointerover",pointerOver,true);
+    document.removeEventListener("pointerdown",pointerDown,true);
+    document.removeEventListener("pointerup",pointerUp,true);
+    document.removeEventListener("pointercancel",pointerUp,true);
+    document.removeEventListener("visibilitychange",onVisibility);
+    window.removeEventListener("pagehide",destroy);
+    if(reduced.removeEventListener)reduced.removeEventListener("change",onPreferenceChange);
+    else if(reduced.removeListener)reduced.removeListener(onPreferenceChange);
+    if(fine.removeEventListener)fine.removeEventListener("change",onPreferenceChange);
+    else if(fine.removeListener)fine.removeListener(onPreferenceChange);
+    if(hover.removeEventListener)hover.removeEventListener("change",onPreferenceChange);
+    else if(hover.removeListener)hover.removeListener(onPreferenceChange);
+    root.remove();
+    document.body.classList.remove("pulse-cursor-enabled","pulse-cursor-hover","pulse-cursor-text","pulse-cursor-pressed");
+    delete window.PulseCustomCursor;
+  }
+  function onVisibility(){if(document.visibilityState==="hidden")hide();}
+  function onPreferenceChange(){if(reduced.matches||!fine.matches||!hover.matches)destroy();}
+  window.addEventListener("pointermove",move,{passive:true});
+  window.addEventListener("blur",hide);
+  document.addEventListener("pointerout",pointerOut,true);
+  document.addEventListener("pointerover",pointerOver,true);
+  document.addEventListener("pointerdown",pointerDown,true);
+  document.addEventListener("pointerup",pointerUp,true);
+  document.addEventListener("pointercancel",pointerUp,true);
+  document.addEventListener("visibilitychange",onVisibility);
+  window.addEventListener("pagehide",destroy,{once:true});
+  if(reduced.addEventListener)reduced.addEventListener("change",onPreferenceChange);
+  else if(reduced.addListener)reduced.addListener(onPreferenceChange);
+  if(fine.addEventListener)fine.addEventListener("change",onPreferenceChange);
+  else if(fine.addListener)fine.addListener(onPreferenceChange);
+  if(hover.addEventListener)hover.addEventListener("change",onPreferenceChange);
+  else if(hover.addListener)hover.addListener(onPreferenceChange);
+  window.PulseCustomCursor={destroy:destroy};
+})();
+</script>
+"""
+
 def render_pro_page(ws, title, ctx, page, body, extra=""):
     import pulse_flags
-    body = '<div class="pulse-shell">' + pulse_flags.banner_html(ws.esc) + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung</div></div>' + build_command_modal(ws, getattr(ctx, "perms", None))
+    body = PULSE_INTERACTION_CSS + PULSE_INTERACTION_JS + '<div class="pulse-shell">' + pulse_flags.banner_html(ws.esc) + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung</div></div>' + build_command_modal(ws, getattr(ctx, "perms", None))
     return ws.render_page(title, ctx, page, body, extra)
 
 
