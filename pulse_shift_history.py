@@ -899,7 +899,7 @@ def range_totals(ws, mod_ids, date_from: str, date_to: str) -> dict:
                     totals[uid] = totals.get(uid, 0) + ws.credited_shift_seconds(entry)
             return totals
 
-        con, _row_count, _raw = _open_indexed_snapshot(ws, path, raw)
+        con, _row_count, raw = _open_indexed_snapshot(ws, path, raw)
         try:
             _register_read_functions(con)
             placeholders = ",".join("?" for _ in selected)
