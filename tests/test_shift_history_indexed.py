@@ -162,7 +162,6 @@ class IndexedReadTests(ShiftHistoryBase):
             {"date": old_this, "duration_seconds": 21},  # legacy mod_id=None maps to the string "None"
         ]
         self.seed(legacy_rows)
-        member_ids = ["1000", "1001"]
         member_ids = ["1000", "1001", "None"]
         expected_this = seconds_per_member(legacy_rows, this_start, this_end)
         expected_prev = seconds_per_member(legacy_rows, previous_start, previous_end)
@@ -202,6 +201,35 @@ class IndexedReadTests(ShiftHistoryBase):
         )
         self.assertEqual(missing_id_sqlite, missing_id_json)
         self.assertEqual(store.total_credited_seconds(ws, mod_id="None"), 21)
+
+    def test_canonical_null_and_literal_none_ids_merge_in_member_aggregates(self):
+        base_day = ws.week_start().date()
+        next_day = base_day + timedelta(days=1)
+        history = [
+            {"date": base_day.isoformat(), "duration_seconds": 10},
+            {"mod_id": "None", "date": base_day.isoformat(), "duration_seconds": 20},
+            {"mod_id": None, "date": next_day.isoformat(), "duration_seconds": 30},
+            {"mod_id": "None", "date": next_day.isoformat(), "duration_seconds": 40},
+        ]
+        self.seed(history)
+        date_from = base_day.isoformat()
+        date_to = (next_day + timedelta(days=1)).isoformat()
+        expected_totals = {"None": 100}
+        expected_latest = {"None": next_day}
+
+        # JSON baseline: missing IDs and the legacy string key belong to one logical member.
+        self.assertEqual(store.weekly_totals(ws, ["None"]), expected_totals)
+        self.assertEqual(store.range_totals(ws, ["None"], date_from, date_to), expected_totals)
+        self.assertEqual(store.latest_shift_dates(ws, ["None"]), expected_latest)
+        self.assertEqual(store.total_credited_seconds(ws, mod_id="None"), 100)
+
+        self.migrate()
+
+        # SQLite must preserve the exact same logical-member aggregation.
+        self.assertEqual(store.weekly_totals(ws, ["None"]), expected_totals)
+        self.assertEqual(store.range_totals(ws, ["None"], date_from, date_to), expected_totals)
+        self.assertEqual(store.latest_shift_dates(ws, ["None"]), expected_latest)
+        self.assertEqual(store.total_credited_seconds(ws, mod_id="None"), 100)
 
     def test_expired_active_shift_updates_the_latest_recorded_date(self):
         now = ws.now_de()
