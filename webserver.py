@@ -17,6 +17,7 @@ import re
 import secrets
 import shutil
 import sqlite3
+import sys
 from contextlib import closing
 import threading
 import time
@@ -357,6 +358,8 @@ def init_runtime() -> None:
     pulse_next.setup_next()  # Phase 9: tables of pulse_ultimate/pulse_next, before registration created them on import
     import pulse_migrations  # A-05: versioned migrations (backup before the first pending one)
     pulse_migrations.run(os.path.abspath(pulse_db.DB_PATH), os.path.abspath(BACKUP_DIR))
+    import pulse_shift_history  # Phase 14.7: switches only when PULSE_SHIFT_HISTORY_BACKEND is set explicitly
+    pulse_shift_history.apply_configured_backend(sys.modules[__name__])
     _session_key()  # computes SESSION_SECRET_PROBLEM for the system status
     _RUNTIME_READY = True
 
@@ -400,8 +403,12 @@ def load_json(filepath, default):
     with _io_lock:
         if os.path.exists(filepath):
             try:
+                shifts = os.path.abspath(filepath) == os.path.abspath(SHIFTS_FILE)
+                stat_key = _shift_stat_key(filepath) if shifts else None
                 with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                if shifts:
+                    data = _attach_shift_history(filepath, data, stat_key)
             except Exception as exc:
                 _mark_corrupt(filepath, exc)
                 return default
@@ -410,11 +417,45 @@ def load_json(filepath, default):
     return default
 
 
+def _shift_stat_key(filepath):
+    import pulse_shift_history
+    return pulse_shift_history._stat_key(filepath)
+
+
+def _attach_shift_history(filepath, data, stat_key=None):
+    """Phase 14.7: in SQLite mode the history of shifts.json lives in pulse.db – callers see the old shape.
+    If pulse.db cannot deliver it, the error marks shifts.json as unreadable, so nothing writes over it."""
+    import pulse_shift_history
+    pulse_shift_history.remember_mode(filepath, data, stat_key)
+    if pulse_shift_history.is_sqlite(data):
+        data = pulse_shift_history.attach(data)
+    return data
+
+
 def abspath_corrupt_free(filepath) -> bool:
     return os.path.abspath(filepath) not in _CORRUPT_JSON
 
 
 def save_json(filepath, data):
+    with _io_lock:
+        if os.path.abspath(filepath) == os.path.abspath(SHIFTS_FILE) and isinstance(data, dict):
+            import pulse_shift_history  # Phase 14.7: the one write point for shifts – JSON or SQLite history
+            if pulse_shift_history.file_is_sqlite(filepath):
+                problem = _CORRUPT_JSON.get(os.path.abspath(filepath))
+                if problem:
+                    raise JsonWriteBlocked(problem)
+                import pulse_backup
+                if pulse_backup.maintenance_active():
+                    raise JsonWriteBlocked("Wartungsmodus – eine Wiederherstellung läuft gerade")
+                pulse_shift_history.save(sys.modules[__name__], filepath, data)
+                return
+        _write_json_file(filepath, data)
+        if os.path.abspath(filepath) == os.path.abspath(SHIFTS_FILE) and isinstance(data, dict):
+            import pulse_shift_history
+            pulse_shift_history.remember_mode(filepath, data)
+
+
+def _write_json_file(filepath, data):
     import pulse_settings_history
     with _io_lock:
         config_before = None
