@@ -11312,7 +11312,7 @@ async def handle_action(
         return back("/team", f"{target.display_name} wurde mit der Rolle {role.name} erfolgreich eingestellt.")
 
     # ---------- Befördern / Degradieren / Kicken ----------
-    if action in ("promote", "demote", "kick"):
+    if action in ("promote", "demote", "team_kick"):
         member = guild.get_member(user_id) if user_id else None
         if not member:
             return back("/team", "Mitglied nicht gefunden.", False)
@@ -11335,9 +11335,6 @@ async def handle_action(
             if action == "team_kick":
                 if not guild.me:
                     return back(member_url, "Der Bot ist auf diesem Server noch nicht verfügbar.", False)
-
-                if not guild.guild_permissions.manage_roles if hasattr(guild, "guild_permissions") else False:
-                    return back(member_url, "Die Rollenverwaltung kann nicht sicher geprüft werden.", False)
 
                 team_roles = [role for role in member.roles if role.id in team_role_ids and not role.is_default()]
                 if not team_roles:

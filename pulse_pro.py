@@ -2504,7 +2504,7 @@ def register(app):
             </div>
             <div class="flex flex-wrap gap-2">
               <a href="/team/{target.id}/roles" class="pulse-btn primary">⚙️ Rollen ändern</a>
-              <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Möchtest du dieses Mitglied wirklich aus dem BOCHUM-RP-Team entfernen?\\n\\nEs werden die Teamrollen und übrigen entfernbaren Rollen entfernt. Die Bürgerrolle und Ex-Teamler-Rolle bleiben erhalten.\\n\\nDas Mitglied bleibt weiterhin auf dem Discord-Server.')">
+              <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Möchtest du dieses Mitglied wirklich aus dem BOCHUM-RP-Team entfernen?\n\nEs werden die Teamrollen und übrigen entfernbaren Rollen entfernt. Die Bürgerrolle und Ex-Teamler-Rolle bleiben erhalten.\n\nDas Mitglied bleibt weiterhin auf dem Discord-Server.')">
                 <input type="hidden" name="action" value="team_kick">
                 <input type="hidden" name="user_id" value="{target.id}">
                 <input type="hidden" name="redirect_to_member" value="0">

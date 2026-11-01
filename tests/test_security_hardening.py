@@ -282,9 +282,9 @@ class RoleEscalationTests(TempDb):
         )
         self.assertIs(action_route.endpoint, ws.handle_action)
 
-        with patch.object(ws, "apply_team_kick_role_reset", wraps=ws.apply_team_kick_role_reset) as role_reset, \\
-             patch.object(ws, "send_dm_notification", new_callable=AsyncMock) as dm, \\
-             patch.object(ws, "send_team_update_embed", new_callable=AsyncMock) as team_update, \\
+        with patch.object(ws, "apply_team_kick_role_reset", wraps=ws.apply_team_kick_role_reset) as role_reset, \
+             patch.object(ws, "send_dm_notification", new_callable=AsyncMock) as dm, \
+             patch.object(ws, "send_team_update_embed", new_callable=AsyncMock) as team_update, \
              patch.object(ws, "log_audit") as audit:
             response = self.client.post(
                 "/action",
