@@ -5,9 +5,10 @@
 #
 # Started only by the Pulse host agent (deploy/pulse_host_agent.py) after it validated the target
 # (40 hex characters, an earlier first-parent commit of HEAD). Same safety rules as remote_deploy.sh:
-# verified backup first, never over local changes, only tracked files change – config/JSON/SQLite/
-# backups/uploads are untracked and git-ignored and stay untouched. If the older code is not healthy,
-# the previous code is restored and checked again.
+# verified backup first, never over local changes, only tracked files change – the runtime data (since Phase 13 in
+# the data directory, before that untracked in the checkout) stays untouched. A rollback from the data-directory
+# layout to a commit with the old layout is refused: it would run on stale data in the checkout (manual way:
+# VPS_DEPLOYMENT.md, Phase 13 "Rückweg"). If the older code is not healthy, the previous code is restored.
 set -euo pipefail
 
 SHA="${1:?Commit-SHA fehlt}"
@@ -31,14 +32,21 @@ if [ "$PREV" = "$SHA" ]; then
   exit 0
 fi
 git merge-base --is-ancestor "$SHA" "$PREV" || { echo "Abbruch: Ziel ist kein früherer Commit des installierten Stands."; exit 1; }
+uses_data_dir() { git show "$1:compose.yaml" 2>/dev/null | grep -q 'target: /data'; }
+if uses_data_dir "$PREV" && ! uses_data_dir "$SHA"; then
+  echo "Abbruch: $SHA nutzt noch das alte Layout (Daten im Checkout) – ein Code-Rollback dorthin würde mit veralteten"
+  echo "Daten starten. Rückweg nur manuell nach VPS_DEPLOYMENT.md (Phase 13, Rückweg)."
+  exit 1
+fi
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "Abbruch: versionierte lokale Änderungen auf dem VPS – bitte erst prüfen."
   exit 1
 fi
 
 # 1) Verified backup with the running version (same format as before a deploy). A failed backup stops here.
-BACKUP_PY='import sys, pulse_backup as b
-path, manifest = b.create_full_backup(".", "backups", prefix="prerollback_")
+BACKUP_PY='import os, sys, pulse_backup as b
+base = os.getenv("PULSE_DATA_DIR") or "."
+path, manifest = b.create_full_backup(base, os.path.join(base, "backups"), prefix="prerollback_")
 problems = b.verify_full_backup(path)
 print(path)
 sys.exit(1 if problems else 0)'
@@ -67,8 +75,9 @@ wait_healthy() {
   return 1
 }
 
-# 2) Older code, rebuild, health check.
+# 2) Older code, rebuild, health check (the commit is baked into the image for the system status).
 git reset --hard "$SHA"
+export PULSE_GIT_SHA="$SHA"
 if docker compose up -d --build </dev/null && wait_healthy; then
   echo "Rollback erfolgreich: $SHA ist gesund."
   exit 0
@@ -77,6 +86,7 @@ fi
 echo "::error::Rollback-Stand $SHA nicht innerhalb von ${HEALTH_SECONDS}s gesund – zurück auf $PREV."
 docker compose logs --tail 80 pulse </dev/null || true
 git reset --hard "$PREV"
+export PULSE_GIT_SHA="$PREV"
 docker compose up -d --build </dev/null || true
 if wait_healthy; then
   echo "Vorheriger Stand wiederhergestellt: $PREV ist gesund."

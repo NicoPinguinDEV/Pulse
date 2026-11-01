@@ -4,7 +4,8 @@
 #   bash deploy/remote_deploy.sh <commit-sha> [repo-dir]
 #
 # Runs on the VPS (the GitHub workflow pipes it over SSH). Never deletes runtime data: `git reset --hard`
-# only touches tracked files; config/JSON/SQLite/backups/uploads are untracked and git-ignored.
+# only touches tracked files. Since Phase 13 the runtime data lives outside the checkout in the data directory
+# (PULSE_DATA_HOST_DIR, default /opt/pulse/data, mounted as /data); older layouts kept it untracked in the checkout.
 set -euo pipefail
 
 SHA="${1:?Commit-SHA fehlt}"
@@ -27,6 +28,13 @@ fi
 PREV="$(git rev-parse HEAD)"
 echo "Aktuell: $PREV · Ziel: $SHA"
 
+# Phase 13: same value compose.yaml interpolates (environment first, then .env, then the default).
+DATA_HOST_DIR="${PULSE_DATA_HOST_DIR:-$( { sed -n 's/^PULSE_DATA_HOST_DIR=//p' .env 2>/dev/null || true; } | tail -n 1 | tr -d '\r"')}"
+DATA_HOST_DIR="${DATA_HOST_DIR:-/opt/pulse/data}"
+# A commit uses the data-directory layout when its compose.yaml mounts /data.
+uses_data_dir() { git show "$1:compose.yaml" 2>/dev/null | grep -q 'target: /data'; }
+data_dir_ready() { [ -f "$DATA_HOST_DIR/.pulse-data.json" ] && grep -Eq '"state": "(complete|initialized)"' "$DATA_HOST_DIR/.pulse-data.json"; }
+
 git fetch --quiet origin main
 git cat-file -e "${SHA}^{commit}" || { echo "Commit $SHA ist auf dem VPS nicht vorhanden."; exit 1; }
 if [ "$PREV" = "$SHA" ]; then
@@ -40,10 +48,19 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "Abbruch: versionierte lokale Änderungen auf dem VPS – bitte erst prüfen."
   exit 1
 fi
+# Phase 13: never start the new layout on an empty or half-migrated data directory – that would look like a blank
+# server. The migration (scripts/pulse_migrate_data.py) is a separate, explicitly confirmed step.
+if uses_data_dir "$SHA" && ! data_dir_ready; then
+  echo "Abbruch: $SHA nutzt das Datenverzeichnis $DATA_HOST_DIR, das noch nicht migriert ist (.pulse-data.json fehlt"
+  echo "oder steht nicht auf complete). Erst die Datenmigration ausführen: VPS_DEPLOYMENT.md, Abschnitt Phase 13."
+  exit 1
+fi
 
 # 1) Backup with the running version (format from D-01, verified). A failed backup stops the deploy.
-BACKUP_PY='import sys, pulse_backup as b
-path, manifest = b.create_full_backup(".", "backups", prefix="predeploy_")
+# Works in both layouts: the running image tells where its data is (PULSE_DATA_DIR=/data since Phase 13).
+BACKUP_PY='import os, sys, pulse_backup as b
+base = os.getenv("PULSE_DATA_DIR") or "."
+path, manifest = b.create_full_backup(base, os.path.join(base, "backups"), prefix="predeploy_")
 problems = b.verify_full_backup(path)
 print(path)
 sys.exit(1 if problems else 0)'
@@ -72,16 +89,28 @@ wait_healthy() {
   return 1
 }
 
-# 2) The image runs as an unprivileged user (O-01): the bind-mounted folder must belong to that UID.
-if [ "$(stat -c %u .)" != "$PULSE_UID" ]; then
-  chown -R "$PULSE_UID:$PULSE_UID" . 2>/dev/null || sudo -n chown -R "$PULSE_UID:$PULSE_UID" . 2>/dev/null \
-    || echo "::warning::Ordner gehört nicht UID $PULSE_UID – bitte einmal 'chown -R $PULSE_UID:$PULSE_UID $REPO_DIR' ausführen."
+# 2) The image runs as an unprivileged user (O-01): the folders it writes must belong to that UID. Old layout: the
+#    bind-mounted checkout (still needed for a rollback to an older commit). Phase 13: the data directory and the
+#    socket folder of the host agent – the checkout itself is no longer mounted.
+fix_owner() {
+  if [ -d "$1" ] && [ "$(stat -c %u "$1")" != "$PULSE_UID" ]; then
+    chown -R "$PULSE_UID:$PULSE_UID" "$1" 2>/dev/null || sudo -n chown -R "$PULSE_UID:$PULSE_UID" "$1" 2>/dev/null \
+      || echo "::warning::$1 gehört nicht UID $PULSE_UID – bitte einmal 'chown -R $PULSE_UID:$PULSE_UID $1' ausführen."
+  fi
+}
+fix_owner .
+if uses_data_dir "$SHA"; then
+  fix_owner "$DATA_HOST_DIR"
+  [ -d .pulse-agent ] || install -d -o "$PULSE_UID" -g "$PULSE_UID" -m 750 .pulse-agent 2>/dev/null \
+    || mkdir -p .pulse-agent || true
 fi
 
 # 3) Exactly the tested commit, then rebuild. The build runs while the old container keeps serving; if it fails
 #    (network, PyPI, disk), the checkout goes back to the running commit – otherwise the next deploy would see
 #    "läuft bereits" and a VPS reboot would start the untested code.
 git reset --hard "$SHA"
+# Phase 13: the commit shown in the system status is baked into the image (no .git in the container).
+export PULSE_GIT_SHA="$SHA" PULSE_GIT_BRANCH=main
 if ! docker compose build </dev/null; then
   echo "::error::Image-Build für $SHA fehlgeschlagen – der laufende Stand $PREV bleibt unverändert."
   git reset --hard "$PREV"
@@ -98,6 +127,11 @@ fi
 echo "::error::/healthz nicht innerhalb von ${HEALTH_SECONDS}s gesund – Rollback auf $PREV."
 docker compose logs --tail 80 pulse </dev/null || true
 git reset --hard "$PREV"
+export PULSE_GIT_SHA="$PREV"
+if uses_data_dir "$SHA" && ! uses_data_dir "$PREV"; then
+  echo "Hinweis: Rückkehr zum alten Layout – Pulse nutzt wieder die Daten im Checkout. Was der neue Stand seit dem"
+  echo "Start in $DATA_HOST_DIR geschrieben hat, bleibt dort erhalten (nichts gelöscht), fehlt aber im alten Stand."
+fi
 if docker compose up -d --build </dev/null && wait_healthy; then
   echo "Rollback erfolgreich: $PREV läuft wieder."
 else

@@ -61,6 +61,14 @@ class CrashRestartTests(unittest.TestCase):
         _, starts = self._run("exited 137 true")
         self.assertEqual(starts, ["docker start pulse-teamos"])
 
+    def test_refused_data_directory_is_not_restarted(self):
+        """Phase 13: exit 78 = Pulse refused an unmigrated/aborted data directory – restarting cannot fix that."""
+        result, starts = self._run("exited 78 false")
+        self.assertEqual(starts, [])
+        self.assertNotEqual(result.returncode, 0)
+        _, starts = self._run("exited 78 true")  # an OOM kill that happens to report 78 is still a crash
+        self.assertEqual(starts, ["docker start pulse-teamos"])
+
     def test_clean_stop_running_or_missing_container_is_left_alone(self):
         for inspect in ("exited 0 false", "running 0 false", "created 0 false", "restarting 1 false"):
             with self.subTest(inspect=inspect):

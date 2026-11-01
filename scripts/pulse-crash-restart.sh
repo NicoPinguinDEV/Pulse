@@ -53,6 +53,12 @@ fi
 if [[ "$exit_code" == "0" && "$oom_killed" != "true" ]]; then
     exit 0  # clean stop (manual stop, shutdown): intended, leave it stopped
 fi
+if [[ "$exit_code" == "78" && "$oom_killed" != "true" ]]; then
+    # Phase 13: EX_CONFIG – Pulse refused to start (data directory missing, not migrated or migration aborted).
+    # Restarting cannot fix that; a person has to look.
+    log "KRITISCH: $CONTAINER verweigert den Start wegen der Datenverzeichnis-Prüfung (Exit 78) – kein Neustart. Logs: docker logs --tail 50 $CONTAINER"
+    exit 1
+fi
 
 # Crash loop guard: at most MAX_PER_HOUR automatic starts per hour, then a person has to look.
 now="$(date +%s)"
