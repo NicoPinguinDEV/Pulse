@@ -157,7 +157,7 @@ def main() -> int:
         f"- **Im Quelltext registriert, zur Laufzeit verdrängt:** {len(displaced)}",
         f"- **Ohne erkennbare Prüfung:** {sum(1 for r in routes if r['auth'].startswith('—'))} (Login/OAuth/Health/Bewerbungsportal/öffentliche Seiten – einzeln prüfen)",
         "",
-        "> Achtung `remove_and_add` (`pulse_pro.py`): entfernt **alle Methoden** eines Pfads, bevor es die neue Methode registriert.",
+        "> Achtung `remove_and_add` (`pulse_pro.py`): ersetzt nur die angegebenen HTTP-Methoden; andere Methoden desselben Pfads bleiben erhalten.",
         "",
     ]
     if duplicates:
