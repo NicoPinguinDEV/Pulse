@@ -258,16 +258,18 @@ class RemoteDeployRunTests(unittest.TestCase):
 class HostBoundaryTests(unittest.TestCase):
     """The container may write its data, but never the files root on the host executes or reads."""
 
-    READ_ONLY = (".git", "compose.yaml", "Dockerfile", "deploy", "scripts", "systemd")
+    HOST_ONLY = (".git", "compose.yaml", "Dockerfile", "deploy", "scripts", "systemd", ".env")
 
-    def test_infra_and_git_are_read_only_in_the_container(self):
+    def test_infra_and_git_are_not_visible_in_the_container(self):
+        """Phase 13 (SEC R-05): no part of the checkout is mounted – only the data directory, read-only rootfs."""
         compose = read("compose.yaml")
-        self.assertIn("- ./:/app\n", compose)  # runtime data stays where it is (no migration)
-        for path in self.READ_ONLY:
+        self.assertNotIn("./:/app", compose)
+        for path in self.HOST_ONLY:
             with self.subTest(path=path):
-                self.assertIn(f"- ./{path}:/app/{path}:ro", compose)
-        for path in self.READ_ONLY:  # all of them are tracked, so the bind source always exists (no empty dir)
-            self.assertTrue((ROOT / path).exists(), path)
+                self.assertNotIn(f"- ./{path}:", compose)
+        self.assertIn("    read_only: true\n", compose)
+        self.assertIn("target: /data\n", compose)
+        self.assertIn("create_host_path: false", compose)
 
     def test_root_scripts_ignore_compose_overrides(self):
         for name in ("deploy/remote_deploy.sh", "deploy/rollback_code.sh", "scripts/pulse-vps-boot-update.sh"):

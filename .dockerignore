@@ -40,3 +40,9 @@ attachments
 *.corrupt-*
 logs
 *.vor-reparatur-*.bak
+
+# Phase 13: never bake runtime data or local tooling into the image (code only)
+assets/support_wait.*
+.pulse-data.json
+*.db-journal
+.claude

@@ -21,13 +21,29 @@ COPY requirements.lock /app/requirements.lock
 RUN python -m pip install --upgrade pip \
     && python -m pip install --require-hashes -r /app/requirements.lock
 
-# O-01: run as an unprivileged user. With the compose bind mount (./:/app) the host folder must belong to
-# the same UID – see VPS_DEPLOYMENT.md ("chown -R 1000:1000 /opt/pulse/Pulse"). PULSE_UID changes it.
+# O-01: run as an unprivileged user. PULSE_UID changes it (the data directory on the host must belong to it).
 ARG PULSE_UID=1000
 RUN useradd --create-home --uid "${PULSE_UID}" --shell /usr/sbin/nologin pulse
 
-# Runtime state is persisted on the host through the compose bind mount.
-COPY --chown=pulse:pulse . /app
+# Phase 13 (D-06 / SEC R-05): the code belongs to root and is only readable for the container user – together
+# with `read_only: true` in compose.yaml a compromised process cannot change *.py files any more. Byte code is
+# compiled at build time because the code folder is not writable at runtime.
+COPY . /app
+RUN chmod -R a+rX,go-w /app && python -m compileall -q /app
+
+# Runtime data lives only in /data (compose: bind mount of /opt/pulse/data). TMPDIR on the data disk keeps large
+# temporary files (backup restore staging) out of the RAM-backed /tmp.
+RUN install -d -o pulse -g pulse -m 750 /data
+ENV PULSE_DATA_DIR=/data \
+    TMPDIR=/data/tmp \
+    XDG_CACHE_HOME=/tmp/.cache
+
+# Commit shown in the system status (no .git in the container). Set by deploy/remote_deploy.sh and the
+# boot update via compose build args; empty for a plain `docker build`.
+ARG PULSE_GIT_SHA=""
+ARG PULSE_GIT_BRANCH=""
+ENV PULSE_GIT_SHA=${PULSE_GIT_SHA} \
+    PULSE_GIT_BRANCH=${PULSE_GIT_BRANCH}
 USER pulse
 
 EXPOSE 25095
