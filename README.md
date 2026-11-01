@@ -2,6 +2,8 @@
 
 Pulse ist eine Discord-Teamverwaltung mit Web-Dashboard für Moderation, Dienstzeit, Activity Checks, Tickets, Recruiting, Aufgaben, Schulungen und Audit-Funktionen.
 
+**Entwicklungsplanung:** [Pulse Roadmap 2.0](docs/PULSE_ROADMAP_2_0.md) – strategische Entwicklungsphasen, Prioritäten und Abnahmekriterien.
+
 ## Kernfunktionen
 
 - Discord-OAuth-Dashboard mit signierten Sessions

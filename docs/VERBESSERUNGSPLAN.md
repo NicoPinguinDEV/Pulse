@@ -1,6 +1,8 @@
 # Pulse TeamOS – Verbesserungsauftrag für Claude Code
 **Discord-Bot + Team-Dashboard · © BOCHUM RP | V1**
 
+> **Strategische Gesamtplanung:** Die langfristige Entwicklungsreihenfolge steht in [Pulse Roadmap 2.0](PULSE_ROADMAP_2_0.md). Diese Datei bleibt der detaillierte technische Alt-Aufgabenbestand mit Befunden, Entscheidungen und Checklisten. Die Roadmap bestimmt die strategische Reihenfolge; CLAUDE.md und die jeweils aktuellen Phasenberichte bleiben für technische Regeln und Nachweise maßgeblich.
+
 > **Analysegrundlage:** `main` @ `8d66bdf` (pulse_version 7.9.7), Stand 20.10.2026. Zeilenangaben sind Orientierung – such im Zweifel nach dem Funktions- oder Variablennamen.
 > **Kennzeichnung:** **[Nachgewiesen]** im Code belegt · **[Prüfen]** begründeter Verdacht, erst verifizieren · **[Idee]** neue Funktion, nur nach Freigabe und abschaltbar.
 
