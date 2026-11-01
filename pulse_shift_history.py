@@ -747,7 +747,10 @@ def query_history(
                 canonical_clauses = ["shift_date GLOB '????-??-??'", "pulse_valid_iso_day(shift_date)=1"]
                 canonical_params = []
                 if mod_id is not None:
-                    canonical_clauses.insert(0, "mod_id=?")
+                    if str(mod_id) == "None":
+                        canonical_clauses.insert(0, "(mod_id=? OR mod_id IS NULL)")
+                    else:
+                        canonical_clauses.insert(0, "mod_id=?")
                     canonical_params.append(str(mod_id))
                 if date_from is not None:
                     canonical_clauses.append("shift_date >= ?")
@@ -900,9 +903,13 @@ def range_totals(ws, mod_ids, date_from: str, date_to: str) -> dict:
         try:
             _register_read_functions(con)
             placeholders = ",".join("?" for _ in selected)
+            member_clause = (
+                f"(mod_id IN ({placeholders}) OR mod_id IS NULL)"
+                if "None" in selected else f"mod_id IN ({placeholders})"
+            )
             canonical = con.execute(
                 "SELECT mod_id, SUM(pulse_credited_seconds(payload)) FROM shift_history "
-                f"WHERE mod_id IN ({placeholders}) AND shift_date >= ? AND shift_date < ? "
+                f"WHERE {member_clause} AND shift_date >= ? AND shift_date < ? "
                 "AND shift_date GLOB '????-??-??' AND pulse_valid_iso_day(shift_date)=1 "
                 "GROUP BY mod_id",
                 [*selected, date_from, date_to],
@@ -946,9 +953,13 @@ def latest_shift_dates(ws, mod_ids) -> dict:
         try:
             _register_read_functions(con)
             placeholders = ",".join("?" for _ in selected)
+            member_clause = (
+                f"(mod_id IN ({placeholders}) OR mod_id IS NULL)"
+                if "None" in selected else f"mod_id IN ({placeholders})"
+            )
             canonical = con.execute(
                 "SELECT mod_id, MAX(shift_date) FROM shift_history "
-                f"WHERE mod_id IN ({placeholders}) AND shift_date GLOB '????-??-??' "
+                f"WHERE {member_clause} AND shift_date GLOB '????-??-??' "
                 "AND pulse_valid_iso_day(shift_date)=1 GROUP BY mod_id",
                 selected,
             ).fetchall()
