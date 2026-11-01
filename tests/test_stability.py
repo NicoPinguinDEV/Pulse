@@ -32,6 +32,28 @@ class SpawnTests(unittest.TestCase):
         self.assertTrue(any("Fehler-ID" in str(c) and "test-task" in str(c) for c in printed.call_args_list))
 
 
+    def test_critical_task_bypasses_capacity_and_regular_task_is_closed(self):
+        async def work():
+            await asyncio.sleep(0)
+            return "done"
+
+        async def scenario():
+            with patch.object(pulse_tasks, "MAX_RUNNING", 0), patch("builtins.print"):
+                dropped_coro = work()
+                dropped = pulse_tasks.spawn(dropped_coro, name="capacity-drop")
+                self.assertIsNone(dropped)
+                self.assertIsNone(dropped_coro.cr_frame, "rejected coroutine must be closed")
+
+                critical = pulse_tasks.spawn(work(), name="critical-task", critical=True)
+                self.assertIsNotNone(critical)
+                self.assertIn(critical, pulse_tasks._RUNNING)
+                self.assertEqual(await critical, "done")
+                await asyncio.sleep(0)
+                self.assertNotIn(critical, pulse_tasks._RUNNING)
+
+        asyncio.run(scenario())
+
+
 class ReadyOnceTests(unittest.TestCase):
     def test_once_and_interval(self):
         bot = SimpleNamespace()
