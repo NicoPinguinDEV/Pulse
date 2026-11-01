@@ -11,7 +11,7 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | cogs/activity_check.py:378 | `activity_check_recovery` | `minutes=5` | keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt) |
 | cogs/activity_check.py:415 | `activity_warning_check` | `minutes=1` | 1 except, davon 1 breit |
 | cogs/pulse_next.py:39 | `housekeeping` | `minutes=5` | keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt) |
-| cogs/pulse_pro.py:63 | `housekeeping_loop` | `minutes=5` | 11 except, davon 11 breit; Fehler werden zentral protokolliert |
+| cogs/pulse_pro.py:63 | `housekeeping_loop` | `minutes=5` | 11 except, davon 11 breit |
 | cogs/pulse_suite.py:805 | `auto` | `minutes=5` | 1 except, davon 1 breit |
 | cogs/social_promo.py:664 | `poll_sources` | `minutes=POLL_INTERVAL_MINUTES` | 2 except, davon 1 breit |
 | cogs/teamliste.py:359 | `update_list_loop` | `minutes=5` | keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt) |
