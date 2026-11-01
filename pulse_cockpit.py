@@ -1,6 +1,8 @@
 """Leitungs-Cockpit: early-warning signals, week trends and one-click actions for leadership."""
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi import Cookie, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
