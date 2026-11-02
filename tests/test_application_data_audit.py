@@ -231,7 +231,7 @@ class ApplicationDataAuditTests(unittest.TestCase):
         table_cursor = MagicMock()
         table_cursor.fetchone.return_value = (1,)
         schema_cursor = MagicMock()
-        schema_cursor.fetchall.return_value = [{"name": "id"}]
+        schema_cursor.fetchall.return_value = [{"name": "id", "pk": 1}]
         rows_cursor = MagicMock()
         rows_cursor.fetchall.return_value = [{"id": "event"}]
         connection.execute.side_effect = [table_cursor, schema_cursor, rows_cursor]
