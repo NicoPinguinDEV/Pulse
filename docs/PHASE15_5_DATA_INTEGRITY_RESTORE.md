@@ -49,14 +49,18 @@ Damit wird der manuelle Recovery-Weg nach einem Prozessabbruch getestet. Eine au
 
 ## Ausführung
 
-GitHub Actions → **Melonly Backup Restore Rehearsal** → **Run workflow**.
+Damit der Test bereits vor dem Merge des Draft-PRs ausführbar ist, wird der bereits in `main` vorhandene manuelle Workflow erweitert:
+
+GitHub Actions → **Melonly Storage Benchmark** → **Run workflow**.
 
 - Branch: `phase/15-5-backup-restore-rehearsal`
-- Einträge: `100000`
-- Der Workflow ist ausschließlich manuell startbar.
+- Option `restore_rehearsal`: aktivieren
+- Die Eintragszahl ist fest auf `100000` begrenzt.
+- Der normale JSON-/SQLite-Benchmark wird bei aktiviertem Restore-Modus übersprungen.
 - Das JSON-Ergebnis erscheint im Job-Summary und als Actions-Artefakt.
+- Nach Merge steht zusätzlich der separate Workflow **Melonly Backup Restore Rehearsal** zur Verfügung.
 
-Der normale CI-Lauf führt zusätzlich den kleinen Prozessabbruch-Regressionstest aus.
+Der normale CI-Lauf führt zusätzlich den Prozessabbruch-Regressionstest aus.
 
 ## Abnahmekriterien
 
