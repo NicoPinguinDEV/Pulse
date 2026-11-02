@@ -21,6 +21,7 @@ from pulse_melonly_store import MelonlyStore, MelonlyStoreNotEmpty
 
 
 MIGRATION_NAME = "melonly_logs_sqlite_v1"
+MIGRATION_ROBLOX_ID_INDEX = "melonly_logs_roblox_id_key_v1"
 
 
 class MelonlyMigrationError(RuntimeError):
@@ -147,6 +148,11 @@ def migrate_json_to_sqlite(
         database.parent.mkdir(parents=True, exist_ok=True)
         store = MelonlyStore(database)
 
+        def apply_roblox_id_index(con: sqlite3.Connection) -> None:
+            # Separate versioned migration upgrades databases that already ran v1
+            # before the normalized, stored lookup column existed.
+            MelonlyStore._ensure_roblox_id_key_index(con)
+
         def apply_migration(con: sqlite3.Connection) -> None:
             store.initialize_in_transaction(con)
             existing = int(con.execute("SELECT COUNT(*) FROM melonly_logs").fetchone()[0])
@@ -176,7 +182,12 @@ def migrate_json_to_sqlite(
 
         was_applied = MIGRATION_NAME in _applied_migrations(database)
         report = pulse_migrations.run(
-            str(database), str(backups), [(MIGRATION_NAME, apply_migration)]
+            str(database),
+            str(backups),
+            [
+                (MIGRATION_NAME, apply_migration),
+                (MIGRATION_ROBLOX_ID_INDEX, apply_roblox_id_index),
+            ],
         )
         if report.get("failed"):
             raise MelonlyMigrationError(
@@ -206,6 +217,10 @@ def migrate_json_to_sqlite(
 
         return {
             "status": "already_migrated" if was_applied else "migrated",
+            "schema_upgrade": (
+                "applied" if MIGRATION_ROBLOX_ID_INDEX in report.get("applied", [])
+                else "already_applied"
+            ),
             "count": existing_count,
             "source_sha256": source_hash,
             "json_backup": str(json_backup),
