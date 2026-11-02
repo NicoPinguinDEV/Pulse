@@ -580,6 +580,8 @@ def _apply(staged, report) -> None:
             shutil.copyfile(extracted, partial)
             with open(partial, "rb+") as fh:
                 os.fsync(fh.fileno())
+            if target.name == "applications.json" and os.name == "posix":
+                os.chmod(partial, 0o600)
             os.replace(partial, target)
             if kind == "json":
                 report["json"].append(target.name)
