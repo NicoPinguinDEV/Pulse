@@ -125,6 +125,26 @@ class MelonlyRepositoryParityTests(unittest.TestCase):
             self.assertIsNone(repo.find_first_by_id("duplicate"))
         self.assertEqual(self.json_repo.export_all(), self.sqlite_repo.export_all())
 
+    def test_numeric_id_is_not_coerced_to_form_string_for_edit_or_delete(self):
+        rows = [{"id": 123, "target_user": "Numeric"}, {"id": "123", "target_user": "Text"}]
+        memory = MemoryJson(rows)
+        json_repo = MelonlyRepository(
+            json_path=self.root / "numeric.json", db_path=self.root / "numeric.db",
+            load_json=memory.load, save_json=memory.save, environ={}
+        )
+        numeric_db, store = make_sqlite_backend(self.root / "numeric-db", rows)
+        # use a separate path for this fixture and emulate an already-active SQLite backend
+        with sqlite3.connect(numeric_db) as con:
+            con.execute("UPDATE melonly_logs_meta SET value='sqlite' WHERE key='active_backend'")
+        sqlite_repo = MelonlyRepository(
+            json_path=self.root / "numeric.json", db_path=numeric_db,
+            load_json=memory.load, save_json=memory.save, environ={"PULSE_LOGS_BACKEND": "sqlite"}
+        )
+        for repo in (json_repo, sqlite_repo):
+            self.assertEqual(repo.find_first_by_id("123"), (2, rows[1]))
+            self.assertEqual(repo.delete_all_by_id("123"), 1)
+            self.assertEqual(repo.export_all(), [rows[0]])
+
     def test_page_filter_is_newest_matching_entries_not_newest_raw_rows(self):
         for repo in (self.json_repo, self.sqlite_repo):
             got = repo.latest_matching_types(("Warn", "Kick"), 2)
