@@ -425,6 +425,10 @@ class MelonlySqliteIndexedHistoryTests(unittest.TestCase):
             root = Path(temporary)
             memory = MemoryJson(rows)
             db_path, store = make_sqlite_backend(root / "sqlite", rows)
+            lock = threading.RLock()
+            json_repo = JsonMelonlyRepository(
+                root / "logs.json", memory.load, memory.save, lock
+            )
             with sqlite3.connect(db_path) as con:
                 con.execute("UPDATE melonly_logs_meta SET value='sqlite' WHERE key='active_backend'")
             common = {
@@ -432,9 +436,8 @@ class MelonlySqliteIndexedHistoryTests(unittest.TestCase):
                 "db_path": db_path,
                 "load_json": memory.load,
                 "save_json": memory.save,
-                "io_lock": threading.RLock(),
+                "io_lock": lock,
             }
-            json_repo = MelonlyRepository(**common, environ={})
             sqlite_repo = MelonlyRepository(
                 **common, environ={"PULSE_LOGS_BACKEND": "sqlite"}
             )
