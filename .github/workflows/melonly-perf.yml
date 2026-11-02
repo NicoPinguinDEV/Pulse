@@ -1,0 +1,54 @@
+name: Melonly Storage Benchmark
+
+# Manual only: compares the existing JSON and SQLite repository contracts with
+# deterministic synthetic data. It never reads live Pulse data or activates SQLite.
+on:
+  workflow_dispatch:
+    inputs:
+      entries:
+        description: "Synthetic record counts (comma-separated; maximum 100000 each)"
+        required: true
+        default: "20000,100000"
+        type: string
+      repeats:
+        description: "Measurements per operation (1-10)"
+        required: true
+        default: "3"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pulse-melonly-benchmark
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Melonly JSON vs SQLite (2 vCPU / 2 GB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Docker-Image bauen
+        run: docker build --pull -t pulse-melonly-bench:${{ github.sha }} .
+      - name: Synthetischen Benchmark ausführen
+        env:
+          ENTRIES: ${{ inputs.entries }}
+          REPEATS: ${{ inputs.repeats }}
+        run: |
+          [[ "$ENTRIES" =~ ^[0-9]+(,[0-9]+)*$ ]] || { echo "::error::Ungültige Eintragsliste."; exit 1; }
+          [[ "$REPEATS" =~ ^[0-9]+$ ]] && (( REPEATS >= 1 && REPEATS <= 10 )) || { echo "::error::Wiederholungen müssen 1–10 sein."; exit 1; }
+          IFS=',' read -ra SIZES <<< "$ENTRIES"
+          for size in "${SIZES[@]}"; do
+            (( size >= 1 && size <= 100000 )) || { echo "::error::Jede Größe muss 1–100000 betragen."; exit 1; }
+          done
+          docker run --rm --memory=2g --memory-swap=2g --cpus=2 --read-only \
+            --env TMPDIR=/tmp --tmpfs /tmp:rw,size=512m --entrypoint python \
+            pulse-melonly-bench:${{ github.sha }} tools/melonly_bench.py \
+            --entries "$ENTRIES" --repeats "$REPEATS" | tee melonly_benchmark.json
+      - name: Benchmark-Ergebnis veröffentlichen
+        if: always()
+        run: |
+          { echo '## Melonly JSON vs SQLite'; echo; echo 'Nur synthetische Daten · kein Produktiv-Backend geändert'; echo; echo 'JSON_RESULT_BEGIN'; cat melonly_benchmark.json 2>/dev/null || echo "Kein Ergebnis erzeugt"; echo 'JSON_RESULT_END'; } >> "$GITHUB_STEP_SUMMARY"
