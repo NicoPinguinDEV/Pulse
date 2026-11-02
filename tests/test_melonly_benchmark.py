@@ -1,6 +1,12 @@
+import json
+import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
+from pathlib import Path
+from unittest.mock import patch
 
-from tools.melonly_bench import run_benchmark
+from tools.melonly_bench import _json_repository, main, run_benchmark
 
 
 class MelonlyBenchmarkTests(unittest.TestCase):
@@ -17,6 +23,27 @@ class MelonlyBenchmarkTests(unittest.TestCase):
         self.assertGreater(measured["sqlite_bytes"], 0)
         self.assertIn("player_history_by_name", measured["operations"])
         self.assertIn("search_payload_unique", measured["operations"])
+
+    def test_json_repository_fixture_can_read_and_write_its_temp_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "logs.json"
+            repo = _json_repository(path)
+            self.assertEqual(repo.export_all(), [])
+            repo.append({"id": "fixture", "type": "Warn"})
+            self.assertEqual(repo.export_all(), [{"id": "fixture", "type": "Warn"}])
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))[0]["id"], "fixture")
+
+    def test_cli_writes_a_machine_readable_report(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            report = Path(temporary) / "benchmark.json"
+            args = ["melonly_bench.py", "--entries", "30", "--repeats", "1",
+                    "--players", "6", "--json", str(report)]
+            output = StringIO()
+            with patch("sys.argv", args), redirect_stdout(output):
+                self.assertEqual(main(), 0)
+            parsed = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(parsed["results"][0]["entries"], 30)
+            self.assertIn('"production_backend_changed": false', output.getvalue())
 
     def test_benchmark_rejects_unsafe_or_unbounded_parameters(self):
         for entries, repeats, players in (
