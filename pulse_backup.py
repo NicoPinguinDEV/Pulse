@@ -177,6 +177,70 @@ def _json_io_lock():
     return lock if lock is not None else contextlib.nullcontext()
 
 
+
+def _sqlite_snapshot_metadata(path) -> dict:
+    """Metadata needed to prove that a pulse.db snapshot contains the declared Melonly generation."""
+    with sqlite3.connect(path, timeout=15) as con:
+        integrity = str(con.execute("PRAGMA integrity_check").fetchone()[0])
+        if integrity.lower() != "ok":
+            raise sqlite3.DatabaseError("PRAGMA integrity_check ist nicht OK")
+        user_version = int(con.execute("PRAGMA user_version").fetchone()[0])
+        tables = {str(row[0]) for row in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        has_meta = "melonly_logs_meta" in tables
+        has_logs = "melonly_logs" in tables
+        if has_meta != has_logs:
+            raise sqlite3.DatabaseError("Melonly-Schema ist unvollständig")
+        melonly = {"schema_present": has_meta}
+        if has_meta:
+            values = {str(key): str(value) for key, value in con.execute(
+                "SELECT key,value FROM melonly_logs_meta"
+            ).fetchall()}
+            melonly.update({
+                key: values.get(key, "")
+                for key in (
+                    "format_version", "active_backend", "generation", "revision",
+                    "import_count", "import_source_sha256",
+                )
+            })
+            melonly["row_count"] = int(con.execute(
+                "SELECT COUNT(*) FROM melonly_logs"
+            ).fetchone()[0])
+        return {"integrity": integrity, "user_version": user_version, "melonly": melonly}
+
+
+def _verify_sqlite_manifest_metadata(zf, manifest, archive_names: set[str]) -> list[str]:
+    """Validate optional Melonly metadata against the actual archived SQLite snapshot."""
+    declared = manifest.get("sqlite_metadata")
+    if declared is None:  # backwards compatibility with older full backups
+        return []
+    if not isinstance(declared, dict):
+        return ["SQLite-Metadaten im Backup-Manifest sind ungültig."]
+    problems = []
+    for name, expected in declared.items():
+        if not isinstance(name, str) or not name.startswith("db/") or name[3:] not in SQLITE_FILES:
+            problems.append("SQLite-Metadaten verweisen auf kein unterstütztes Datenbankziel.")
+            continue
+        if name not in archive_names or not isinstance(expected, dict):
+            problems.append(f"SQLite-Metadaten oder Datenbank-Snapshot fehlen: {name}")
+            continue
+        try:
+            with tempfile.TemporaryDirectory(prefix="pulse-backup-meta-") as tmp:
+                snapshot = Path(tmp) / Path(name).name
+                with zf.open(name) as src, open(snapshot, "wb") as dst:
+                    shutil.copyfileobj(src, dst, _CHUNK)
+                actual = _sqlite_snapshot_metadata(snapshot)
+            if actual != expected:
+                problems.append(f"SQLite-Metadaten stimmen nicht mit dem Snapshot überein: {name}")
+            melonly = actual.get("melonly", {})
+            if melonly.get("active_backend") == "sqlite" and "json/logs.json" not in archive_names:
+                problems.append("SQLite-Melonly ist aktiv, aber die archivierte logs.json-Migrationssicherung fehlt.")
+        except (OSError, sqlite3.Error, ValueError, TypeError, zipfile.BadZipFile) as exc:
+            problems.append(f"SQLite-Metadaten konnten nicht geprüft werden ({type(exc).__name__}).")
+    return problems
+
+
 def _write_archive(base_dir, partial, manifest, add, add_stream, discord_structure, budget_bytes) -> None:
     with tempfile.TemporaryDirectory(prefix="pulse-backup-") as tmp, \
             zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
@@ -184,16 +248,31 @@ def _write_archive(base_dir, partial, manifest, add, add_stream, discord_structu
         # under the JSON lock of the dashboard, so no save of a finished shift lands between the two copies.
         early: dict = {}
         shifts_copy = Path(tmp) / "shifts_tmp_copy.json"
+        logs_copy = Path(tmp) / "logs_tmp_copy.json"
+        logs_snapshot_exists = False
         with _json_io_lock():
             source = sqlite_path(base_dir, "pulse.db")
             if source.is_file():
                 try:
                     _snapshot_sqlite(source, Path(tmp) / "pulse.db")
                     early["pulse.db"] = None
+                    manifest.setdefault("sqlite_metadata", {})["db/pulse.db"] = _sqlite_snapshot_metadata(
+                        Path(tmp) / "pulse.db"
+                    )
                 except sqlite3.Error as exc:
                     early["pulse.db"] = exc
-            if json_path(base_dir, "shifts.json").is_file():
-                shutil.copy2(json_path(base_dir, "shifts.json"), shifts_copy)
+                    manifest.setdefault("warnings", []).append(
+                        f"pulse.db: SQLite-Metadaten konnten nicht sicher erfasst werden ({type(exc).__name__})"
+                    )
+            shifts_source = json_path(base_dir, "shifts.json")
+            if shifts_source.is_file():
+                shutil.copy2(shifts_source, shifts_copy)
+            # Melonly JSON writes and pulse.db writes use this same lock. Snapshotting both
+            # together prevents an export/restore pair with a mismatched SQLite revision.
+            logs_source = json_path(base_dir, "logs.json")
+            logs_snapshot_exists = logs_source.is_file()
+            if logs_snapshot_exists:
+                shutil.copy2(logs_source, logs_copy)
         for name in SQLITE_FILES:
             source = sqlite_path(base_dir, name)
             if name not in early and not source.is_file():
@@ -213,8 +292,13 @@ def _write_archive(base_dir, partial, manifest, add, add_stream, discord_structu
             add(zf, snap, f"db/{name}", "sqlite")
             snap.unlink()
         for name in JSON_FILES:
-            source = shifts_copy if name == "shifts.json" else json_path(base_dir, name)
-            if source.is_file():
+            if name == "shifts.json":
+                source = shifts_copy
+            elif name == "logs.json":
+                source = logs_copy if logs_snapshot_exists else None
+            else:
+                source = json_path(base_dir, name)
+            if source is not None and source.is_file():
                 add(zf, source, f"json/{name}", "json")
         used = 0
         media = [base_dir / rel for rel in MEDIA_FILES if (base_dir / rel).is_file()]
@@ -362,6 +446,13 @@ def verify_full_backup(path) -> list[str]:
                 problems.append("Nicht im Manifest deklarierte ZIP-Einträge: " + ", ".join(extra[:5]))
     except (OSError, RuntimeError, zipfile.BadZipFile, KeyError) as exc:
         problems.append(f"Archiv konnte nicht vollständig gelesen werden ({type(exc).__name__}: {exc})")
+    if not problems:
+        try:
+            with zipfile.ZipFile(path) as zf:
+                archive_names = set(zf.namelist())
+                problems.extend(_verify_sqlite_manifest_metadata(zf, manifest, archive_names))
+        except (OSError, zipfile.BadZipFile) as exc:
+            problems.append(f"SQLite-Metadatenprüfung fehlgeschlagen ({type(exc).__name__}).")
     return problems
 
 
@@ -389,7 +480,8 @@ def _table_counts(path) -> dict[str, int]:
 def preview_restore(path, base_dir) -> dict:
     """Dry run: what would change (files new/changed/unchanged, row counts per table). Writes nothing."""
     manifest = read_manifest(path)
-    result = {"manifest": manifest, "problems": verify_full_backup(path), "files": [], "tables": []}
+    result = {"manifest": manifest, "problems": verify_full_backup(path), "files": [], "tables": [],
+              "sqlite_metadata": manifest.get("sqlite_metadata", {})}
     with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-preview-") as tmp:
         present = set(zf.namelist())
         for entry in manifest.get("files", []):
@@ -519,6 +611,11 @@ def restore_full_backup(path, base_dir, backup_dir, *, include_files: bool = Tru
         try:
             try:
                 report = _restore_from(path, base_dir, include_files, lock)
+                expected_sqlite = (read_manifest(path).get("sqlite_metadata") or {}).get("db/pulse.db")
+                if expected_sqlite is not None:
+                    actual_sqlite = _sqlite_snapshot_metadata(sqlite_path(base_dir, "pulse.db"))
+                    if actual_sqlite != expected_sqlite:
+                        raise ValueError("Wiederhergestellte Melonly-Metadaten stimmen nicht mit dem Backup überein.")
             except Exception as exc:
                 try:
                     _restore_from(safety, base_dir, include_files, lock)
@@ -530,6 +627,7 @@ def restore_full_backup(path, base_dir, backup_dir, *, include_files: bool = Tru
         finally:
             _MAINTENANCE.clear()
         report["safety_backup"] = safety.name
+        report["sqlite_metadata"] = read_manifest(path).get("sqlite_metadata", {})
         return report
     finally:
         _RESTORE_LOCK.release()
@@ -545,12 +643,14 @@ def restore_test(path) -> dict:
     An entry a real restore would not know where to put is reported, so such data cannot be lost silently.
     """
     result = {"backup": Path(path).name, "ok": False, "problems": [], "at": datetime.now().astimezone().isoformat(timespec="seconds"),
-              "databases": 0, "tables": 0, "rows": 0, "json": 0, "files": 0, "skipped": 0}
+              "databases": 0, "tables": 0, "rows": 0, "json": 0, "files": 0, "skipped": 0,
+              "sqlite_metadata": {}}
     result["problems"] = verify_full_backup(path)
     if not result["problems"]:
         try:
             manifest = read_manifest(path)
             result["skipped"] = len(manifest.get("skipped") or [])
+            result["sqlite_metadata"] = manifest.get("sqlite_metadata", {})
             with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory(prefix="pulse-restoretest-") as tmp:
                 root = Path(tmp) / "restored"
                 for entry in manifest["files"]:
