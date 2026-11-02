@@ -49,6 +49,7 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
     empty = {
         "provided": path is not None,
         "table_found": False,
+        "schema_valid": False,
         "rows": 0,
         "orphan_application_refs": 0,
         "orphan_interview_records": 0,
@@ -66,6 +67,12 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
     with closing(_readonly_db(path)) as connection:
         if not _table_exists(connection, "suite_interviews"):
             return empty
+        columns = {
+            str(row["name"])
+            for row in connection.execute('PRAGMA table_info("suite_interviews")').fetchall()
+        }
+        if not {"id", "application_id"}.issubset(columns):
+            return {**empty, "table_found": True}
         rows = connection.execute(
             "SELECT id, application_id FROM suite_interviews"
         ).fetchall()
@@ -92,6 +99,7 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
     return {
         "provided": True,
         "table_found": True,
+        "schema_valid": True,
         "rows": len(rows),
         "orphan_application_refs": 0,
         "orphan_interview_records": 0,
@@ -111,13 +119,22 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
 def _calendar_events(path: str | Path | None) -> dict[str, Any]:
     if path is None:
         return {
-            "provided": False, "table_found": False, "rows": 0,
+            "provided": False, "table_found": False, "schema_valid": False, "rows": 0,
             "rows_without_id": 0, "_ids": set(),
         }
     with closing(_readonly_db(path)) as connection:
         if not _table_exists(connection, "calendar_events"):
             return {
-                "provided": True, "table_found": False, "rows": 0,
+                "provided": True, "table_found": False, "schema_valid": False, "rows": 0,
+                "rows_without_id": 0, "_ids": set(),
+            }
+        columns = {
+            str(row["name"])
+            for row in connection.execute('PRAGMA table_info("calendar_events")').fetchall()
+        }
+        if "id" not in columns:
+            return {
+                "provided": True, "table_found": True, "schema_valid": False, "rows": 0,
                 "rows_without_id": 0, "_ids": set(),
             }
         rows = connection.execute("SELECT id FROM calendar_events").fetchall()
@@ -125,6 +142,7 @@ def _calendar_events(path: str | Path | None) -> dict[str, Any]:
     return {
         "provided": True,
         "table_found": True,
+        "schema_valid": True,
         "rows": len(rows),
         "rows_without_id": sum(not str(row["id"] or "").strip() for row in rows),
         "_ids": ids,
@@ -248,6 +266,7 @@ def audit_application_data(
         "interviews": {
             "database_provided": interviews["provided"],
             "table_found": interviews["table_found"],
+            "schema_valid": interviews["schema_valid"],
             "rows": interviews["rows"],
             "orphan_application_refs": interviews["orphan_application_refs"],
             "orphan_interview_records": interviews["orphan_interview_records"],
@@ -262,6 +281,7 @@ def audit_application_data(
         "calendar": {
             "database_provided": calendar["provided"],
             "table_found": calendar["table_found"],
+            "schema_valid": calendar["schema_valid"],
             "rows": calendar["rows"],
             "rows_without_id": calendar["rows_without_id"],
             "application_appointment_references": appointment_references,
@@ -280,8 +300,8 @@ def audit_application_data(
                 or missing_calendar_events
                 or calendar["rows_without_id"]
                 or shared_calendar_event_ids
-                or (interviews["provided"] and not interviews["table_found"])
-                or (calendar["provided"] and not calendar["table_found"])
+                or (interviews["provided"] and not interviews["schema_valid"])
+                or (calendar["provided"] and not calendar["schema_valid"])
                 or (appointment_references and not calendar["table_found"])
                 or (interview_references and not interviews["table_found"])
             ),
