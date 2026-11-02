@@ -698,8 +698,15 @@ def search_all(q,ctx):
         if q in json.dumps(t,ensure_ascii=False).lower():out.append({"type":"Ticket","title":f"Ticket {t.get('id')}","meta":str(t.get('category','')),"url":"/tickets"})
     for t in db.list_tasks(limit=3000,include_archived=True):
         if q in json.dumps(t,ensure_ascii=False).lower():out.append({"type":"Aufgabe","title":t.get("title","Aufgabe"),"meta":t.get("id"),"url":"/suite/tasks"})
+    searchable_tables = [
+        ("suite_events","Kalender","title","/suite/calendar"),
+        ("suite_audit","Audit","action","/suite/audit"),
+        ("suite_cases","Fall","id","/suite/cases"),
+    ]
+    if web.can_review_applications(ctx):
+        searchable_tables.append(("suite_interviews","Gespräch","applicant_name","/suite/interviews"))
     with cx() as c:
-        for table,typ,col,url in [("suite_events","Kalender","title","/suite/calendar"),("suite_audit","Audit","action","/suite/audit"),("suite_interviews","Gespräch","applicant_name","/suite/interviews"),("suite_cases","Fall","id","/suite/cases")]:
+        for table,typ,col,url in searchable_tables:
             for r in c.execute(f"SELECT * FROM {table} ORDER BY rowid DESC LIMIT 500").fetchall():
                 d=dict(r)
                 if q in json.dumps(d,ensure_ascii=False).lower():out.append({"type":typ,"title":str(d.get(col,"")),"meta":str(d.get("request_id") or d.get("id") or ""),"url":url})
