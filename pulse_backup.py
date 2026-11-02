@@ -667,6 +667,9 @@ def restore_test(path) -> dict:
                     try:
                         if kind == "sqlite":
                             restore_sqlite_file(extracted, target)
+                            expected_meta = (manifest.get("sqlite_metadata") or {}).get(name)
+                            if expected_meta is not None and _sqlite_snapshot_metadata(target) != expected_meta:
+                                result["problems"].append(f"{name}: Melonly-Metadaten nach Test-Restore abweichend")
                             counts = _table_counts(target)
                             result["databases"] += 1
                             result["tables"] += len(counts)
