@@ -193,9 +193,11 @@ class ApplicationDataAuditTests(unittest.TestCase):
         connection = MagicMock()
         table_cursor = MagicMock()
         table_cursor.fetchone.return_value = (1,)
+        schema_cursor = MagicMock()
+        schema_cursor.fetchall.return_value = [{"name": "id"}]
         rows_cursor = MagicMock()
         rows_cursor.fetchall.return_value = [{"id": "event"}]
-        connection.execute.side_effect = [table_cursor, rows_cursor]
+        connection.execute.side_effect = [table_cursor, schema_cursor, rows_cursor]
 
         with patch("application_data_audit._readonly_db", return_value=connection):
             result = _calendar_events(self.pulse_db)
