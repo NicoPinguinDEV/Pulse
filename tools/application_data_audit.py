@@ -107,10 +107,21 @@ def audit_application_data(
     states: Counter[str] = Counter()
     unknown_states = 0
     for item in records.values():
-        # Never echo arbitrary status strings: legacy/free-text values may contain private data.
-        state = str(item.get("status") or "").strip().lower()
-        if state in KNOWN_STATES:
-            states[state] += 1
+        # Compare against fixed literals only; never reuse input text in report keys.
+        raw_state = item.get("status")
+        state = str(raw_state).strip().lower() if isinstance(raw_state, str) else ""
+        if state == "pending":
+            states["pending"] += 1
+        elif state == "in_review":
+            states["in_review"] += 1
+        elif state == "interview":
+            states["interview"] += 1
+        elif state == "accepted":
+            states["accepted"] += 1
+        elif state == "rejected":
+            states["rejected"] += 1
+        elif state == "hired":
+            states["hired"] += 1
         else:
             unknown_states += 1
     if unknown_states:
@@ -144,7 +155,6 @@ def audit_application_data(
     interview_references = 0
     for application_id, item in records.items():
         interview_id = str(item.get("interview_id") or "").strip()
-        linked_rows = interviews_by_application.get(application_id, [])
         if not interview_id:
             continue
         interview_references += 1
