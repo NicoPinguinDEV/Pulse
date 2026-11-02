@@ -1,6 +1,6 @@
 # Phase 15.4 – Melonly 100k Query-Optimierung
 
-**Status:** Implementierung im Review-PR · keine Produktivmigration  
+**Status:** Code in PR #128 in main gemergt · Performance-Nachweis in PR #130 dokumentiert  
 **Produktiv-Backend:** JSON bleibt unverändert aktiv  
 **Datenbestand:** keine Payloads umgeschrieben, entfernt oder normalisiert
 
@@ -54,12 +54,16 @@ Die häufigen Lesezugriffe dürfen bei 100.000 Melonly-Einträgen nicht bei jede
 - Bereits aktivierte SQLite-Datenbanken ohne die neue Spalte bleiben funktionsfähig; solange sie nicht durch ein separates, gesichertes Offline-Schema-Upgrade ergänzt wurden, verwendet die Spielerhistorie den kompatiblen Scan-Pfad.
 - Kein automatisches Upgrade einer bestehenden Datenbank beim Bot-Start.
 
+## Performance-Nachweis
+
+Die Messung mit 20.000 und 100.000 synthetischen Einträgen ist abgeschlossen. Beide Paritätsprüfungen waren erfolgreich. Vollständige Laufzeit-, Speicher- und Bewertungsdaten stehen im [Phase-15.4-Performancebericht](PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md). Der Benchmark-Fix aus PR #129 ist in main enthalten.
+
 ## Freigabekriterien
 
 1. Normale CI vollständig grün.
 2. JSON-/SQLite-Paritätstests vollständig grün.
-3. Melonly Storage Benchmark mit 20.000 und 100.000 Einträgen ausführen.
-4. Laufzeit und Speicherbedarf vergleichen; keine harten Performance-Versprechen ohne Messwerte.
-5. Getrennten PR für weitere Suchoptimierungen erst nach Auswertung der Messwerte erstellen.
+3. Melonly Storage Benchmark mit 20.000 und 100.000 Einträgen ausgeführt; beide Paritätsprüfungen bestanden.
+4. Laufzeit und Speicherbedarf im Performancebericht dokumentiert; Runner-Messwerte ausdrücklich nicht als VPS-Messwerte behandeln.
+5. Weitere Suchoptimierungen nur nach separatem Query-Plan-/Profiling-Nachweis umsetzen.
 
 **Kein VPS-Deploy, keine Datenbankmigration, keine Backend-Aktivierung und keine Änderung an Produktivdaten sind Bestandteil dieses PR.**
