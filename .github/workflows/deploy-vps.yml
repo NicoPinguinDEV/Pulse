@@ -24,11 +24,14 @@ concurrency:
 jobs:
   deploy:
     name: GitHub main → Pulse VPS
+    # A workflow_run is only deployable after a successful push to main. Scheduled,
+    # pull-request and failed runs must be skipped, not reported as failed deployments.
+    # Manual deployments remain available, and auto-deploy still requires explicit opt-in.
+    if: github.event_name == 'workflow_dispatch' || (vars.PULSE_AUTO_DEPLOY == 'true' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success')
     # No production deploy just because CI went green: the workflow_run trigger only deploys when the repository
     # variable PULSE_AUTO_DEPLOY is explicitly "true" (Settings → Secrets and variables → Actions → Variables).
     # Default (unset): only a manual "Run workflow" deploys. The environment "production" can additionally require
     # a reviewer approval (Settings → Environments → production → Required reviewers).
-    if: github.event_name == 'workflow_dispatch' || vars.PULSE_AUTO_DEPLOY == 'true'
     environment: production
     runs-on: ubuntu-latest
     # O-03 / M-A4-1: every step uses steps.verified.outputs.sha – exactly the commit the checks ran on, never the
@@ -115,9 +118,9 @@ jobs:
         shell: bash
         run: |
           install -m 700 -d "$HOME/.ssh"
-          printf '%s\n' "$VPS_KEY" > "$HOME/.ssh/pulse_vps"
+          printf '%s\\n' "$VPS_KEY" > "$HOME/.ssh/pulse_vps"
           chmod 600 "$HOME/.ssh/pulse_vps"
-          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          printf '%s\\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
       - name: Backup, Deploy, Health-Check, ggf. Rollback
@@ -135,12 +138,12 @@ jobs:
             exit 1
           fi
           PORT="${VPS_PORT:-22}"
-          ssh -p "$PORT" \
-            -i "$HOME/.ssh/pulse_vps" \
-            -o IdentitiesOnly=yes \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            "$VPS_USER@$VPS_HOST" \
+          ssh -p "$PORT" \\
+            -i "$HOME/.ssh/pulse_vps" \\
+            -o IdentitiesOnly=yes \\
+            -o BatchMode=yes \\
+            -o StrictHostKeyChecking=yes \\
+            "$VPS_USER@$VPS_HOST" \\
             "bash -s -- '$DEPLOY_SHA' /opt/pulse/Pulse" < deploy/remote_deploy.sh
 
       - name: Ergebnis in den Alert-Kanal melden (optional)
@@ -156,5 +159,5 @@ jobs:
             exit 0
           fi
           if [[ "$OUTCOME" == "success" ]]; then TEXT="✅ Pulse-Deploy ${DEPLOY_SHA:0:7} erfolgreich."; else TEXT="⚠️ Pulse-Deploy ${DEPLOY_SHA:0:7} fehlgeschlagen – Rollback versucht, bitte Actions-Log prüfen."; fi
-          python3 -c 'import json, os, sys; print(json.dumps({"content": sys.argv[1], "allowed_mentions": {"parse": []}}))' "$TEXT" \
+          python3 -c 'import json, os, sys; print(json.dumps({"content": sys.argv[1], "allowed_mentions": {"parse": []}}))' "$TEXT" \\
             | curl -fsS -H "Content-Type: application/json" -d @- "$WEBHOOK" >/dev/null || echo "::warning::Discord-Meldung fehlgeschlagen."
