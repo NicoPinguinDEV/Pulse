@@ -156,6 +156,27 @@ class ApplicationDataAuditTests(unittest.TestCase):
         self.assertFalse(report["calendar"]["schema_valid"])
         self.assertTrue(report["readiness"]["requires_review"])
 
+    def test_reference_ids_must_be_primary_keys_and_duplicate_calendar_ids_are_detected(self):
+        bad_suite = self.base / "suite_without_primary_key.db"
+        bad_pulse = self.base / "calendar_without_primary_key.db"
+        with closing(sqlite3.connect(bad_suite)) as con:
+            con.execute("CREATE TABLE suite_interviews(id TEXT, application_id TEXT)")
+            con.execute("INSERT INTO suite_interviews VALUES(?,?)", ("same_interview", "app_a"))
+            con.execute("INSERT INTO suite_interviews VALUES(?,?)", ("same_interview", "app_b"))
+        with closing(sqlite3.connect(bad_pulse)) as con:
+            con.execute("CREATE TABLE calendar_events(id TEXT)")
+            con.execute("INSERT INTO calendar_events VALUES(?)", ("same_event",))
+            con.execute("INSERT INTO calendar_events VALUES(?)", ("same_event",))
+
+        report = audit_application_data({}, {}, bad_suite, bad_pulse)
+
+        self.assertFalse(report["interviews"]["schema_valid"])
+        self.assertEqual(report["interviews"]["duplicate_interview_ids"], 1)
+        self.assertFalse(report["calendar"]["schema_valid"])
+        self.assertEqual(report["calendar"]["duplicate_event_ids"], 1)
+        self.assertTrue(report["readiness"]["requires_review"])
+
+
     def test_detects_interview_rows_without_application_or_interview_ids(self):
         with closing(sqlite3.connect(self.suite_db)) as con:
             con.execute(
