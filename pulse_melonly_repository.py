@@ -215,7 +215,10 @@ class JsonMelonlyRepository:
 
     def find_first_by_id(self, log_id: str) -> tuple[int, Any] | None:
         rows, indexes = self._snapshot()
-        positions = indexes["log_id"].get(log_id, ())
+        try:
+            positions = indexes["log_id"].get(log_id, ())
+        except TypeError:
+            positions = ()
         for position in positions:
             entry = rows[position]
             if isinstance(entry, Mapping) and entry.get("id") == log_id:
@@ -254,7 +257,10 @@ class JsonMelonlyRepository:
     def delete_all_by_id(self, log_id: str) -> int:
         with self._lock:
             current, indexes = self._snapshot_locked()
-            positions = set(indexes["log_id"].get(log_id, ()))
+            try:
+                positions = set(indexes["log_id"].get(log_id, ()))
+            except TypeError:
+                positions = set()
             if not positions:
                 # Rare unhashable IDs preserve the legacy comparison behavior.
                 positions = {
