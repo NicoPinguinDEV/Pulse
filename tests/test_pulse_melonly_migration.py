@@ -210,6 +210,7 @@ class MelonlyMigrationTests(unittest.TestCase):
             [entry["id"] for entry in MelonlyStore(self.database).player_history("0")],
             [],
         )
+        with sqlite3.connect(self.database) as con:
             self.assertEqual(con.execute("PRAGMA integrity_check").fetchone()[0], "ok")
 
 if __name__ == "__main__":
