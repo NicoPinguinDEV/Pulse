@@ -914,13 +914,13 @@ def register(app):
 
     def work_stats(c):
         shifts=ws.load_shift_state(); active=shifts.get("active_shifts",{}); hist=shifts.get("history",[])
-        logs=ws.load_json(ws.LOGS_FILE,[]); apps=ws.load_json(ws.APPS_FILE,{}); loas=ws.get_loas()
+        logs_count=ws.get_melonly_repository().count(); apps=ws.load_json(ws.APPS_FILE,{}); loas=ws.get_loas()
         tickets=db.list_tickets(limit=2000); tasks=db.list_tasks(limit=2000); promos=db.promotion_requests("pending",200)
         current=active.get(str(c.user["id"]))
         weekly=(ws.calculate_weekly_seconds(str(c.user["id"]),hist,active) if "history" in shifts
                 else ws.calculate_weekly_seconds_for_member(str(c.user["id"]),active))
         active_count=sum(1 for s in active.values() if s.get("status") in ("online","break"))
-        return {"active":active_count,"logs":len(logs),"apps":sum(1 for a in apps.values() if a.get("status")=="pending"),"loas":sum(1 for l in loas.values() if l.get("active")),"tickets":tickets,"tasks":tasks,"promos":promos,"weekly":weekly,"current":current}
+        return {"active":active_count,"logs":logs_count,"apps":sum(1 for a in apps.values() if a.get("status")=="pending"),"loas":sum(1 for l in loas.values() if l.get("active")),"tickets":tickets,"tasks":tasks,"promos":promos,"weekly":weekly,"current":current}
 
     def legacy_recommended_role_profile(role):
         """Version-1 defaults, used only to detect profiles not manually customized."""
@@ -1091,8 +1091,9 @@ def register(app):
         if not melonly_types:
             raise HTTPException(403,"Dafür fehlt dir eine Melonly-Berechtigung. Bitte wende dich an die Führungsebene.")
 
-        logs=ws.load_json(ws.LOGS_FILE,[])
-        relevant=[x for x in reversed(logs) if x.get("type") in ("Warn","Ban","Kick","Notiz","Ban BOLO")][:120]
+        relevant=ws.get_melonly_repository().latest_matching_types(
+            ("Warn","Ban","Kick","Notiz","Ban BOLO"), 120
+        )
         edit_log_id=str(request.query_params.get("edit_log") or "")
         items=[]
         for x in relevant:

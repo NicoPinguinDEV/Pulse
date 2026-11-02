@@ -606,7 +606,10 @@ def main() -> None:
     assert "await notify_new_application(request, app_id_new, apps[app_id_new])" in submit_source
     assert "discord.AllowedMentions(" in web
     assert "roles=[alert_role] if alert_role else []" in web
-    assert 'can_decide = ctx.perms["can_manage_applications"] or ctx.perms["can_promote"] or ctx.perms["is_admin"]' in web
+    assert "def can_review_applications(ctx)" in web
+    assert "can_review = can_review_applications(ctx)" in web
+    assert 'perms.get("can_manage_applications")' in web
+    assert "Motivation, Testantworten und interne Bewertungen" in web
     assert 'action="/log/edit"' in pro_melonly
     assert 'action="/log/delete"' in pro_melonly
     assert 'name="return_to" value="/melonly"' in pro_melonly

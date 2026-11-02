@@ -40,6 +40,19 @@ class ClosingConnectionTests(unittest.TestCase):
             c.execute("SELECT 1")
         self.assertEqual(self._count(), 0)
 
+    def test_readonly_open_never_creates_a_missing_database(self):
+        missing = os.path.join(self.tmp.name, "optional.db")
+        with self.assertRaises(sqlite3.OperationalError):
+            pulse_sqlite.connect_readonly(missing)
+        self.assertFalse(os.path.exists(missing))
+
+    def test_readonly_open_reads_existing_database_but_rejects_writes(self):
+        with pulse_sqlite.connect_readonly(self.path) as c:
+            self.assertEqual(c.execute("SELECT v FROM t").fetchall(), [])
+            with self.assertRaises(sqlite3.OperationalError):
+                c.execute("INSERT INTO t VALUES(7)")
+        self.assertEqual(self._count(), 0)
+
     def test_rows_stay_readable_after_close(self):
         with pulse_sqlite.connect(self.path) as c:
             c.execute("INSERT INTO t VALUES(7)")
