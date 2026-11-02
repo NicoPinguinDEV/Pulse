@@ -220,12 +220,17 @@ class MelonlyStore:
             return seq
 
     def find_first_by_id(self, log_id: str) -> tuple[int, Any] | None:
+        """Resolve IDs with the legacy Python equality rule (no numeric-to-string coercion)."""
         with self._read() as con:
-            row = con.execute(
-                "SELECT seq,payload FROM melonly_logs WHERE log_id=? ORDER BY seq ASC LIMIT 1",
+            rows = con.execute(
+                "SELECT seq,payload FROM melonly_logs WHERE log_id=? ORDER BY seq ASC",
                 (str(log_id),),
-            ).fetchone()
-            return None if row is None else (int(row["seq"]), json.loads(row["payload"]))
+            ).fetchall()
+            for row in rows:
+                entry = json.loads(row["payload"])
+                if isinstance(entry, Mapping) and entry.get("id") == log_id:
+                    return int(row["seq"]), entry
+            return None
 
     def update_by_seq(self, seq: int, entry: Mapping[str, Any]) -> bool:
         if not isinstance(entry, Mapping):
@@ -251,13 +256,23 @@ class MelonlyStore:
             return changed
 
     def delete_all_by_id(self, log_id: str) -> int:
-        """Match the legacy delete route, which removes every row sharing the ID."""
+        """Match the legacy delete route, including its strict payload-ID equality."""
         with self._write() as con:
-            cursor = con.execute("DELETE FROM melonly_logs WHERE log_id=?", (str(log_id),))
-            removed = int(cursor.rowcount)
-            if removed:
-                self._bump_revision(con)
-            return removed
+            candidates = con.execute(
+                "SELECT seq,payload FROM melonly_logs WHERE log_id=? ORDER BY seq ASC",
+                (str(log_id),),
+            ).fetchall()
+            seqs = [
+                int(row["seq"])
+                for row in candidates
+                if isinstance((entry := json.loads(row["payload"])), Mapping)
+                and entry.get("id") == log_id
+            ]
+            if not seqs:
+                return 0
+            con.executemany("DELETE FROM melonly_logs WHERE seq=?", [(seq,) for seq in seqs])
+            self._bump_revision(con)
+            return len(seqs)
 
     def export_all(self) -> list[Any]:
         with self._read() as con:
