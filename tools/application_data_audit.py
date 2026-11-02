@@ -402,6 +402,7 @@ def main() -> int:
     report = audit_application_data(applications, team_data, args.suite_db, args.pulse_db)
     # This fixed-schema report contains only aggregate counts, fixed labels and booleans.
     # The privacy regression test verifies that applicant IDs, names, answers, notes and event IDs are absent.
+
     # codeql[py/clear-text-logging-sensitive-data]
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
