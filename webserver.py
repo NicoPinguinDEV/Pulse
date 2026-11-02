@@ -11322,32 +11322,38 @@ async def handle_action(
         except ValueError as exc:
             return HTMLResponse(simple_page("⚠️", "Online-Test unvollständig", str(exc), back_link), status_code=400)
 
-        apps = load_json(APPS_FILE, {})
-        if any(a.get("user_id") == str(applicant_id) and a.get("status") in {"pending", "interview"} for a in apps.values()):
-            return HTMLResponse(simple_page("ℹ️", "Bewerbung liegt bereits vor", "Deine Bewerbung wird gerade geprüft. Ein weiterer Antrag ist währenddessen nicht möglich.", back_link))
-        app_id_new = f"app_{uuid.uuid4().hex[:10]}"
-        apps[app_id_new] = {
-            "user_id": str(applicant_id),
-            "name": name,
-            "text": text,
-            "status": "pending",
-            "career_path": test_result["career_path"],
-            "career_label": test_result["career_label"],
-            "test_score": test_result["score"],
-            "test_total": test_result["total"],
-            "test_percent": test_result["percent"],
-            "test_pass_percent": test_result["pass_percent"],
-            "test_passed": test_result["passed"],
-            "test_details": test_result["details"],
-            "test_version": 3,
-            "practical_answers": practical_result["answers"],
-            "practical_review_status": "pending",
-            "practical_version": 1,
-            "upvotes": [],
-            "downvotes": [],
-            "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
-        }
-        save_json(APPS_FILE, apps)
+        # K-04: duplicate check + insert must be one critical section; two concurrent
+        # submissions by the same applicant must not create two active applications.
+        with _io_lock:
+            apps = load_json(APPS_FILE, {})
+            if any(a.get("user_id") == str(applicant_id) and a.get("status") in {"pending", "interview"}
+                   for a in apps.values()):
+                return HTMLResponse(simple_page("ℹ️", "Bewerbung liegt bereits vor",
+                                                "Deine Bewerbung wird gerade geprüft. Ein weiterer Antrag ist währenddessen nicht möglich.",
+                                                back_link))
+            app_id_new = f"app_{uuid.uuid4().hex[:10]}"
+            apps[app_id_new] = {
+                "user_id": str(applicant_id),
+                "name": name,
+                "text": text,
+                "status": "pending",
+                "career_path": test_result["career_path"],
+                "career_label": test_result["career_label"],
+                "test_score": test_result["score"],
+                "test_total": test_result["total"],
+                "test_percent": test_result["percent"],
+                "test_pass_percent": test_result["pass_percent"],
+                "test_passed": test_result["passed"],
+                "test_details": test_result["details"],
+                "test_version": 3,
+                "practical_answers": practical_result["answers"],
+                "practical_review_status": "pending",
+                "practical_version": 1,
+                "upvotes": [],
+                "downvotes": [],
+                "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
+            }
+            save_json(APPS_FILE, apps)
         await notify_new_application(request, app_id_new, apps[app_id_new])
         await dm_applicant(request, applicant_id, "received", id=app_id_new)  # BOT-10
         result_status = "Bestanden" if test_result["passed"] else "noch nicht bestanden"
