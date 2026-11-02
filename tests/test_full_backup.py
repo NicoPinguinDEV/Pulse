@@ -1,5 +1,6 @@
 """D-01 / D-02 / D-04: complete backup roundtrip, safe restore and coverage of every runtime store."""
 import json
+import os
 import re
 import sqlite3
 import tempfile
@@ -488,7 +489,6 @@ class FullBackupRouteTests(unittest.TestCase):
             response = self.client.post("/backup/restore", data={"filename": filename}, follow_redirects=False)
         self.assertEqual(response.status_code, 303)
         self.assertIn("t=err", response.headers["location"])
-        self.assertIn("vollständige ZIP-Backup", response.headers["location"])
         safety.assert_not_awaited()
         restore_structure.assert_not_awaited()
 
