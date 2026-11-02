@@ -341,21 +341,28 @@ class JsonMelonlyRepository:
         needle = str(query or "").lower().strip()
         if not needle:
             return []
-        rows, _indexes = self._snapshot()
-        if rows is self._cache_rows and self._cache_search_texts is None:
-            self._cache_search_texts = [
-                json.dumps(entry, ensure_ascii=False).lower() for entry in rows
+        with self._lock:
+            rows, _indexes = self._snapshot_locked()
+            if rows is self._cache_rows:
+                if self._cache_search_texts is None:
+                    search_texts = [
+                        json.dumps(entry, ensure_ascii=False).lower() for entry in rows
+                    ]
+                    # Keep the lazy index tied to the exact immutable snapshot
+                    # that was serialized while the repository lock was held.
+                    if rows is self._cache_rows:
+                        self._cache_search_texts = search_texts
+                else:
+                    search_texts = self._cache_search_texts
+            else:
+                search_texts = [
+                    json.dumps(entry, ensure_ascii=False).lower() for entry in rows
+                ]
+            return [
+                copy.deepcopy(rows[position])
+                for position, text in enumerate(search_texts)
+                if needle in text
             ]
-        search_texts = (
-            self._cache_search_texts
-            if rows is self._cache_rows and self._cache_search_texts is not None
-            else [json.dumps(entry, ensure_ascii=False).lower() for entry in rows]
-        )
-        return [
-            copy.deepcopy(rows[position])
-            for position, text in enumerate(search_texts)
-            if needle in text
-        ]
 
 
 class MelonlyRepository:
