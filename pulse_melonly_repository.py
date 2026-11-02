@@ -82,7 +82,7 @@ class JsonMelonlyRepository:
             return self._read()[-safe_limit:]
 
     def latest_matching_types(self, log_types: Iterable[str], limit: int = 120) -> list[Any]:
-        allowed = set(log_types)
+        allowed = tuple(log_types)
         safe_limit = max(0, min(int(limit), 10000))
         if not safe_limit or not allowed:
             return []
