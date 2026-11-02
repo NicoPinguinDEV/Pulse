@@ -28,7 +28,8 @@ jobs:
     # variable PULSE_AUTO_DEPLOY is explicitly "true" (Settings → Secrets and variables → Actions → Variables).
     # Default (unset): only a manual "Run workflow" deploys. The environment "production" can additionally require
     # a reviewer approval (Settings → Environments → production → Required reviewers).
-    if: github.event_name == 'workflow_dispatch' || vars.PULSE_AUTO_DEPLOY == 'true'
+    # Scheduled, pull-request and failed workflow runs must be skipped instead of reported as failed deployments.
+    if: github.event_name == 'workflow_dispatch' || (vars.PULSE_AUTO_DEPLOY == 'true' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success')
     environment: production
     runs-on: ubuntu-latest
     # O-03 / M-A4-1: every step uses steps.verified.outputs.sha – exactly the commit the checks ran on, never the

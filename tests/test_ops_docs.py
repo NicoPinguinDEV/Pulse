@@ -211,7 +211,12 @@ class RollbackDocumentationTests(unittest.TestCase):
 class ManualDeployTests(unittest.TestCase):
     def test_workflow_deploys_only_manually_or_with_explicit_variable(self):
         workflow = read(".github/workflows/deploy-vps.yml")
-        self.assertIn("if: github.event_name == 'workflow_dispatch' || vars.PULSE_AUTO_DEPLOY == 'true'", workflow)
+        job = workflow.split("  deploy:\n", 1)[1].split("\n    environment:", 1)[0]
+        self.assertIn("github.event_name == 'workflow_dispatch'", job)
+        self.assertIn("vars.PULSE_AUTO_DEPLOY == 'true'", job)
+        self.assertIn("github.event.workflow_run.event == 'push'", job)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", job)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", job)
 
     def test_docs_do_not_claim_automatic_deploys(self):
         for name in ("docs/BETRIEB.md", "VPS_DEPLOYMENT.md"):

@@ -24,7 +24,12 @@ class DeploymentWorkflowTests(unittest.TestCase):
     def test_green_ci_alone_never_deploys_without_explicit_opt_in(self):
         workflow = (ROOT / ".github" / "workflows" / "deploy-vps.yml").read_text(encoding="utf-8")
 
-        self.assertIn("if: github.event_name == 'workflow_dispatch' || vars.PULSE_AUTO_DEPLOY == 'true'", workflow)
+        job = workflow.split("  deploy:\n", 1)[1].split("\n    environment:", 1)[0]
+        self.assertIn("github.event_name == 'workflow_dispatch'", job)
+        self.assertIn("vars.PULSE_AUTO_DEPLOY == 'true'", job)
+        self.assertIn("github.event.workflow_run.event == 'push'", job)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", job)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", job)
         self.assertIn("environment: production", workflow)  # optional reviewer approval in GitHub
         self.assertNotIn("branches: [main]\n  push:", workflow)
         self.assertNotRegex(workflow, r"(?m)^  push:")  # no deploy directly on a commit
