@@ -136,6 +136,19 @@ class FullBackupTests(unittest.TestCase):
         self.assertIn("pulse.db", report["databases"])  # still restored through the SQLite backup API
         self.assertEqual(self.cons[0].execute("SELECT COUNT(*) FROM t").fetchone()[0], 2)
 
+    def test_restored_applications_file_keeps_private_permissions(self):
+        import os
+        if os.name != "posix":
+            self.skipTest("POSIX-Anwendungsdateirechte werden nur auf Serverbetriebssystemen geprüft.")
+        applications = self.base / "applications.json"
+        applications.write_text(json.dumps({"app": {"user_id": "123", "text": "private"}}), encoding="utf-8")
+        archive, _manifest = pulse_backup.create_full_backup(self.base, self.backups)
+        applications.write_text(json.dumps({"app": {"user_id": "456", "text": "changed"}}), encoding="utf-8")
+        os.chmod(applications, 0o644)
+        pulse_backup.restore_full_backup(archive, self.base, self.backups)
+        self.assertEqual(json.loads(applications.read_text(encoding="utf-8"))["app"]["user_id"], "123")
+        self.assertEqual(applications.stat().st_mode & 0o777, 0o600)
+
     def test_full_backup_permissions_are_private_on_posix(self):
         import os
         if os.name != "posix":
