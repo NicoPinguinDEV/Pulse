@@ -72,6 +72,12 @@ Das Voll-Backup hält `pulse.db` und `logs.json` unter demselben I/O-Lock zusamm
 
 Beim Backup-Check wird der deklarierte Wert mit der tatsächlichen archivierten Datenbank verglichen. Der Test-Restore und ein echter Restore prüfen die Metadaten nach dem Zurückspielen erneut. Frühere Archive ohne `sqlite_metadata` bleiben lesbar. Ist SQLite aktiv, muss zusätzlich die archivierte JSON-Migrationssicherung vorhanden sein.
 
+## Älteres Serverstruktur-Backup
+
+Der separate JSON-Serverstruktur-Backup-Pfad nutzt beim Export jetzt ebenfalls das aktive Repository und speichert dessen Backend-Metadaten. Dadurch wird bei einem SQLite-Betrieb nicht versehentlich eine veraltete `logs.json` als aktueller Datenstand archiviert.
+
+Der zugehörige alte Restore kann die Tabellen `melonly_logs` und `melonly_logs_meta` jedoch nicht zurückspielen. Er wird deshalb bei aktivem SQLite **vor jeder Discord- oder Pulse-Änderung abgebrochen**. Für einen SQLite-Stand ist ausschließlich das vollständige ZIP-Backup mit Datenbank-Snapshot, Manifest-Prüfung und Restore-Verifikation freigegeben. Bei JSON-Betrieb bleibt der bisherige Serverstruktur-Restore verfügbar.
+
 ## Sicherheitsgrenzen
 
 - Der SQLite-Adapter setzt keine neue Berechtigung durch: alle bisherigen Roblox-API- und Dashboard-Gates bleiben erhalten.
