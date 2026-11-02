@@ -31,6 +31,8 @@ CREATE INDEX IF NOT EXISTS idx_melonly_logs_log_id
     ON melonly_logs(log_id, seq);
 CREATE INDEX IF NOT EXISTS idx_melonly_logs_roblox_id
     ON melonly_logs(roblox_id, seq);
+CREATE INDEX IF NOT EXISTS idx_melonly_logs_player_id_key
+    ON melonly_logs(pulse_roblox_id_key(roblox_id), seq);
 CREATE INDEX IF NOT EXISTS idx_melonly_logs_target_user
     ON melonly_logs(target_user_key, seq);
 CREATE INDEX IF NOT EXISTS idx_melonly_logs_action
@@ -40,6 +42,12 @@ CREATE TABLE IF NOT EXISTS melonly_logs_meta (
     value TEXT NOT NULL
 );
 """
+
+def _player_roblox_id_key(value: Any) -> str | None:
+    """Mirror the legacy player-history ID normalization without touching payloads."""
+    normalized = str(value or "").strip()
+    return normalized if normalized.isdigit() else None
+
 
 _META_DEFAULTS = {
     "format_version": "1",
@@ -71,6 +79,9 @@ class MelonlyStore:
         os.makedirs(parent, exist_ok=True)
         con = sqlite3.connect(self.db_path, timeout=self.timeout, isolation_level=None)
         con.row_factory = sqlite3.Row
+        con.create_function(
+            "pulse_roblox_id_key", 1, _player_roblox_id_key, deterministic=True
+        )
         con.execute(f"PRAGMA busy_timeout={int(self.timeout * 1000)}")
         con.execute("PRAGMA foreign_keys=ON")
         return con
@@ -142,6 +153,9 @@ class MelonlyStore:
     @staticmethod
     def initialize_in_transaction(con: sqlite3.Connection) -> None:
         """Create the repository schema inside a caller-owned transaction."""
+        con.create_function(
+            "pulse_roblox_id_key", 1, _player_roblox_id_key, deterministic=True
+        )
         for statement in _SCHEMA.split(";"):
             statement = statement.strip()
             if statement:
@@ -374,53 +388,113 @@ class MelonlyStore:
 
 
     def player_history(self, query: str) -> list[Any]:
-        """Return complete player history using the legacy ID/name fallback rules."""
+        """Return complete player history through normalized, indexed lookup columns."""
         needle = str(query or "").strip()[:80].lstrip("@").strip().casefold()
         if not needle:
             return []
         with self._read() as con:
+            if needle.isdigit():
+                candidates = con.execute(
+                    """SELECT target_user_key,
+                              pulse_roblox_id_key(roblox_id) AS player_id
+                       FROM melonly_logs
+                       WHERE pulse_roblox_id_key(roblox_id)=?
+                       ORDER BY seq ASC""",
+                    (needle,),
+                ).fetchall()
+            else:
+                candidates = []
+
+            if not candidates:
+                candidates = con.execute(
+                    """SELECT target_user_key,
+                              pulse_roblox_id_key(roblox_id) AS player_id
+                       FROM melonly_logs
+                       WHERE target_user_key=?
+                       ORDER BY seq ASC""",
+                    (needle,),
+                ).fetchall()
+            if not candidates:
+                # Substring fallback is part of the old UI contract. Scan only
+                # the narrow, indexed lookup columns; do not decode every payload.
+                candidates = con.execute(
+                    """SELECT target_user_key,
+                              pulse_roblox_id_key(roblox_id) AS player_id
+                       FROM melonly_logs
+                       WHERE target_user_key IS NOT NULL
+                         AND instr(target_user_key,?)>0
+                       ORDER BY seq ASC""",
+                    (needle,),
+                ).fetchall()
+
+            names = {
+                str(row["target_user_key"])
+                for row in candidates
+                if row["target_user_key"]
+            }
+            ids = {
+                str(row["player_id"])
+                for row in candidates
+                if row["player_id"]
+            }
+            if not names and not ids:
+                return []
+
+            # Temporary key tables avoid SQLite's bind-parameter limit when a
+            # partial name resolves to many distinct users at 100k+ records.
+            con.execute(
+                "CREATE TEMP TABLE melonly_player_names(value TEXT PRIMARY KEY) WITHOUT ROWID"
+            )
+            con.execute(
+                "CREATE TEMP TABLE melonly_player_ids(value TEXT PRIMARY KEY) WITHOUT ROWID"
+            )
+            if names:
+                con.executemany(
+                    "INSERT OR IGNORE INTO melonly_player_names(value) VALUES (?)",
+                    ((value,) for value in names),
+                )
+            if ids:
+                con.executemany(
+                    "INSERT OR IGNORE INTO melonly_player_ids(value) VALUES (?)",
+                    ((value,) for value in ids),
+                )
             rows = con.execute(
-                "SELECT payload FROM melonly_logs ORDER BY seq ASC"
+                """SELECT payload FROM melonly_logs
+                   WHERE target_user_key IN (SELECT value FROM melonly_player_names)
+                      OR pulse_roblox_id_key(roblox_id) IN
+                         (SELECT value FROM melonly_player_ids)
+                   ORDER BY seq ASC"""
             ).fetchall()
-        entries = [json.loads(row["payload"]) for row in rows]
-
-        def player_name(entry: Any) -> str:
-            if not isinstance(entry, Mapping):
-                return ""
-            return str(entry.get("target_user") or "").strip().lstrip("@").casefold()
-
-        def player_id(entry: Any) -> str:
-            if not isinstance(entry, Mapping):
-                return ""
-            value = str(entry.get("roblox_id") or "").strip()
-            return value if value.isdigit() else ""
-
-        candidates = []
-        if needle.isdigit():
-            candidates = [entry for entry in entries if player_id(entry) == needle]
-        if not candidates:
-            exact = [entry for entry in entries if player_name(entry) == needle]
-            candidates = exact or [
-                entry for entry in entries if needle in player_name(entry)
-            ]
-        names = {player_name(entry) for entry in candidates if player_name(entry)}
-        ids = {player_id(entry) for entry in candidates if player_id(entry)}
-        return [
-            entry for entry in entries
-            if (player_name(entry) and player_name(entry) in names)
-            or (player_id(entry) and player_id(entry) in ids)
-        ]
+            return [json.loads(row["payload"]) for row in rows]
 
     def roblox_user_history(self, roblox_id: str, username: str) -> list[Any]:
-        """Match the legacy Roblox API predicate exactly (ID OR case-insensitive name)."""
+        """Use indexed candidates, then apply the original Python predicate exactly."""
         id_value, name_value = str(roblox_id), str(username).lower()
-        return [
-            entry for entry in self.export_all()
+        name_key = name_value.strip().lstrip("@").casefold()
+        clauses = ["roblox_id=?"]
+        params: list[str] = [id_value]
+        if id_value == "None":
+            clauses.append("roblox_id IS NULL")
+        if name_key:
+            clauses.append("target_user_key=?")
+            params.append(name_key)
+        else:
+            clauses.append("target_user_key IS NULL")
+
+        with self._read() as con:
+            rows = con.execute(
+                "SELECT payload FROM melonly_logs WHERE (" + " OR ".join(clauses) + ") ORDER BY seq ASC",
+                params,
+            ).fetchall()
+        matches = []
+        for row in rows:
+            entry = json.loads(row["payload"])
             if isinstance(entry, Mapping) and (
                 str(entry.get("roblox_id")) == id_value
                 or str(entry.get("target_user", "")).lower() == name_value
-            )
-        ]
+            ):
+                matches.append(entry)
+        return matches
 
     def roblox_suggestions(self, limit: int = 5000) -> list[Any]:
         """Return the newest bounded candidate window, newest entry first."""
