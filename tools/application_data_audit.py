@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+from datetime import datetime
 from collections import Counter, defaultdict
 from contextlib import closing
 from pathlib import Path
@@ -16,6 +17,70 @@ from typing import Any
 
 REPORT_VERSION = 1
 EMPLOYMENT_STATES = {"accepted", "hired"}
+
+
+def _valid_team_since(value: Any) -> bool:
+    """Match the exact legacy team_since_for() accepted formats."""
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z", "%d.%m.%Y %H:%M"):
+        try:
+            datetime.strptime(raw, fmt)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _valid_application_timestamp(value: Any) -> bool:
+    """Match pulse_time.parse_timestamp() formats used by team_since_for() fallback."""
+    if value is None or value == "":
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            datetime.fromtimestamp(float(value))
+            return True
+        except (OverflowError, OSError, ValueError):
+            return False
+    raw = str(value).strip()
+    if not raw:
+        return False
+    try:
+        datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return True
+    except ValueError:
+        pass
+    formats = (
+        "%d.%m.%Y %H:%M:%S",
+        "%d.%m.%Y %H:%M",
+        "%d.%m.%Y",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%d/%m/%Y",
+    )
+    for fmt in formats:
+        try:
+            datetime.strptime(raw, fmt)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _has_resolvable_team_since(user_id: str, team_data: dict, records: dict[str, dict]) -> bool:
+    """Mirror team_since_for(): valid team_data value first, then exact-status application fallback."""
+    if not user_id or user_id == "None":
+        return False
+    entry = team_data.get(user_id)
+    if isinstance(entry, dict) and _valid_team_since(entry.get("team_since")):
+        return True
+    for item in records.values():
+        if str(item.get("user_id")) != user_id or item.get("status") not in EMPLOYMENT_STATES:
+            continue
+        if _valid_application_timestamp(item.get("decided_at")):
+            return True
+    return False
 
 
 def _read_json(path: str | Path, label: str, expected: type) -> Any:
@@ -164,8 +229,8 @@ def audit_application_data(
     unknown_states = 0
     for item in records.values():
         # Compare against fixed literals only; never reuse input text in report keys.
-        raw_state = item.get("status")
-        state = str(raw_state).strip().lower() if isinstance(raw_state, str) else ""
+        # Match runtime status comparisons exactly; whitespace/case variants are not silently accepted.
+        state = item.get("status")
         if state == "pending":
             states["pending"] += 1
         elif state == "in_review":
@@ -183,21 +248,19 @@ def audit_application_data(
     if unknown_states:
         states["unknown_or_missing"] = unknown_states
     missing_user_ids = sum(
-        not str(item.get("user_id") or item.get("discord_id") or "").strip()
+        not str(item.get("user_id") or "").strip()
         for item in records.values()
     )
 
     employment_records = 0
     employment_without_team_since = 0
     for item in records.values():
-        raw_state = item.get("status")
-        state = str(raw_state).strip().lower() if isinstance(raw_state, str) else ""
-        if state not in EMPLOYMENT_STATES:
+        # team_since_for() uses exact status values and only the user_id field.
+        if item.get("status") not in EMPLOYMENT_STATES:
             continue
         employment_records += 1
-        user_id = str(item.get("user_id") or item.get("discord_id") or "").strip()
-        team_entry = team_data.get(user_id) if user_id else None
-        if not isinstance(team_entry, dict) or not str(team_entry.get("team_since") or "").strip():
+        user_id = str(item.get("user_id") or "").strip()
+        if not _has_resolvable_team_since(user_id, team_data, records):
             employment_without_team_since += 1
 
     interviews = _suite_interviews(suite_db_path)
@@ -300,6 +363,8 @@ def audit_application_data(
                 or missing_calendar_events
                 or calendar["rows_without_id"]
                 or shared_calendar_event_ids
+                or not interviews["provided"]
+                or not calendar["provided"]
                 or (interviews["provided"] and not interviews["schema_valid"])
                 or (calendar["provided"] and not calendar["schema_valid"])
                 or (appointment_references and not calendar["table_found"])
