@@ -87,18 +87,20 @@ def _verify_import(store: MelonlyStore, expected: list[dict[str, Any]]) -> None:
         raise MelonlyMigrationError("SQLite-Payload oder Reihenfolge weicht vom JSON-Original ab.")
     with sqlite3.connect(store.db_path, timeout=15) as con:
         rows = con.execute(
-            """SELECT seq,log_id,target_user,target_user_key,roblox_id,
+            """SELECT seq,log_id,target_user,target_user_key,roblox_id,roblox_id_key,
                       action_type,created_at,moderator_id,payload
                FROM melonly_logs ORDER BY seq ASC"""
         ).fetchall()
     if len(rows) != len(expected):
         raise MelonlyMigrationError("SQLite-Prüfung lieferte eine abweichende Zeilenanzahl.")
     for position, (row, entry) in enumerate(zip(rows, expected), start=1):
-        seq, log_id, target_user, target_key, roblox_id, action_type, created_at, moderator_id, payload = row
+        (seq, log_id, target_user, target_key, roblox_id, roblox_key,
+         action_type, created_at, moderator_id, payload) = row
         if seq != position:
             raise MelonlyMigrationError("SQLite-Sequenz bildet die ursprüngliche Listenposition nicht ab.")
         values = MelonlyStore._index_values(entry)
-        if (log_id, target_user, target_key, roblox_id, action_type, created_at, moderator_id) != values:
+        if (log_id, target_user, target_key, roblox_id, roblox_key,
+            action_type, created_at, moderator_id) != values:
             raise MelonlyMigrationError(f"SQLite-Indexfelder weichen an Position {position} von der Payload ab.")
         if json.loads(payload) != entry:
             raise MelonlyMigrationError(f"SQLite-Payload ist an Position {position} nicht identisch.")
