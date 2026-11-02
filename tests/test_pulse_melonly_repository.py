@@ -436,6 +436,8 @@ class MelonlySqliteIndexedHistoryTests(unittest.TestCase):
                         roblox_id TEXT, action_type TEXT, created_at TEXT,
                         moderator_id TEXT, payload TEXT NOT NULL
                     );
+                    CREATE TABLE melonly_logs_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                    INSERT INTO melonly_logs_meta(key,value) VALUES ('revision','0');
                     """
                 )
                 for seq, entry in enumerate(rows, start=1):
