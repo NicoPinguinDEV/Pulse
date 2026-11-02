@@ -434,12 +434,16 @@ def register_routes():
 
     @app.get("/suite/applications",response_class=HTMLResponse)
     async def applications_page(request:Request,user_session:str=Cookie(None)):
-        ctx=auth(request,user_session);apps=webserver.load_json(webserver.APPS_FILE,{});rows=''.join(f'<div class=card><div class=row><span><b>{esc(appname(aid,x))}</b><div class=tiny>{esc(aid)} · {esc(x.get("status","pending"))} · {esc(x.get("processor_name","—"))}</div></span><a class=btn href="/suite/applications/{esc(aid)}">Öffnen</a></div></div>' for aid,x in apps.items())
+        ctx=auth(request,user_session)
+        if not webserver.can_review_applications(ctx):raise HTTPException(403,"Keine Recruiting-Berechtigung.")
+        apps=webserver.load_json(webserver.APPS_FILE,{});rows=''.join(f'<div class=card><div class=row><span><b>{esc(appname(aid,x))}</b><div class=tiny>{esc(aid)} · {esc(x.get("status","pending"))} · {esc(x.get("processor_name","—"))}</div></span><a class=btn href="/suite/applications/{esc(aid)}">Öffnen</a></div></div>' for aid,x in apps.items())
         return page(ctx,"apps","Bewerbungszentrum 2.0","Bewerbungsnummer · Bearbeiter · Status · Gespräch · Testergebnis · Entscheidung",rows or "<div class=card>Keine Bewerbungen.</div>")
 
     @app.get("/suite/applications/{app_id}",response_class=HTMLResponse)
     async def application_page(request:Request,app_id:str,user_session:str=Cookie(None)):
-        ctx=auth(request,user_session,manager=True);apps=webserver.load_json(webserver.APPS_FILE,{});item=apps.get(app_id)
+        ctx=auth(request,user_session)
+        if not webserver.can_review_applications(ctx):raise HTTPException(403,"Keine Recruiting-Berechtigung.")
+        apps=webserver.load_json(webserver.APPS_FILE,{});item=apps.get(app_id)
         if not item:raise HTTPException(404,"Bewerbung nicht gefunden")
         hist=item.get("history",[]);body=f'<div class="grid g2"><div class=card><h3>👤 {esc(appname(app_id,item))}</h3><div class=tiny>{esc(app_id)}</div><pre style="white-space:pre-wrap">{esc(json.dumps(item,ensure_ascii=False,indent=2))}</pre></div><div class=card><form method=post action="/suite/applications/{esc(app_id)}/update"><div class=field><label>Status</label><select class=select name=status><option>pending</option><option>in_review</option><option>interview</option><option>accepted</option><option>rejected</option></select></div><div class=field><label>Testergebnis</label><input class=input name=testergebnis></div><div class=field><label>Interne Notizen</label><textarea class=ta name=note></textarea></div><button class="btn primary">Speichern</button></form><h3>🕘 Historie</h3>{''.join(f'<div class=row><span>{esc(x.get("action"))}</span><span class=tiny>{esc(x.get("at"))} · {esc(x.get("by"))}</span></div>' for x in hist) or "Keine Historie."}</div></div>'
         return page(ctx,"apps",f"Bewerbung · {appname(app_id,item)}","Recruiting-Fall mit Status, Bearbeiter, Testergebnis, Gespräch und Verlauf",body)
@@ -454,6 +458,7 @@ def register_routes():
     @app.get("/suite/interviews",response_class=HTMLResponse)
     async def interviews_page(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session)
+        if not webserver.can_review_applications(ctx):raise HTTPException(403,"Keine Recruiting-Berechtigung.")
         with cx() as c:rows=[dict(x) for x in c.execute("SELECT * FROM suite_interviews ORDER BY created_at DESC LIMIT 200").fetchall()]
         listing=''.join(f'<div class=card><b>{esc(x["applicant_name"])}</b><div class=tiny>{esc(x["application_id"])} · {esc(x["created_at"])}</div><div class=metric>{x["overall"]}% geeignet</div><div>{esc(x["recommendation"])}</div></div>' for x in rows)
         return page(ctx,"interviews","Bewerbungsgespräche","Bewertung von Auftreten, Kommunikation, Regelkenntnis, Aktivität und Teamfähigkeit",f'<div class=card><a class="btn primary" href=/suite/interview/create>🎤 Gespräch starten</a></div><div class="grid g3" style="margin-top:13px">{listing or "Keine Gespräche."}</div>')
@@ -685,23 +690,36 @@ def search_all(q,ctx):
         if isinstance(e,dict) and web.can_see_warnings(ctx.perms,ctx.user.get("id"),uid):
             for w in e.get("warns_list",[]):
                 if q in str(w).lower() or q in str(w.get("id","")).lower():out.append({"type":"Warnung","title":str(w.get("id","Warn")),"meta":str(w.get("reason","")),"url":f"/suite/member/{uid}"})
-    apps=web.load_json(web.APPS_FILE,{})
-    for aid,a in apps.items():
-        if q in json.dumps(a,ensure_ascii=False).lower():out.append({"type":"Bewerbung","title":appname(aid,a),"meta":aid,"url":f"/suite/applications/{aid}"})
+    if web.can_review_applications(ctx):
+        apps=web.load_json(web.APPS_FILE,{})
+        for aid,a in apps.items():
+            if q in json.dumps(a,ensure_ascii=False).lower():out.append({"type":"Bewerbung","title":appname(aid,a),"meta":aid,"url":f"/suite/applications/{aid}"})
     for t in db.list_tickets(limit=3000):
         if q in json.dumps(t,ensure_ascii=False).lower():out.append({"type":"Ticket","title":f"Ticket {t.get('id')}","meta":str(t.get('category','')),"url":"/tickets"})
     for t in db.list_tasks(limit=3000,include_archived=True):
         if q in json.dumps(t,ensure_ascii=False).lower():out.append({"type":"Aufgabe","title":t.get("title","Aufgabe"),"meta":t.get("id"),"url":"/suite/tasks"})
+    searchable_tables = [
+        ("suite_events","Kalender","title","/suite/calendar"),
+        ("suite_audit","Audit","action","/suite/audit"),
+        ("suite_cases","Fall","id","/suite/cases"),
+    ]
+    if web.can_review_applications(ctx):
+        searchable_tables.append(("suite_interviews","Gespräch","applicant_name","/suite/interviews"))
     with cx() as c:
-        for table,typ,col,url in [("suite_events","Kalender","title","/suite/calendar"),("suite_audit","Audit","action","/suite/audit"),("suite_interviews","Gespräch","applicant_name","/suite/interviews"),("suite_cases","Fall","id","/suite/cases")]:
+        for table,typ,col,url in searchable_tables:
             for r in c.execute(f"SELECT * FROM {table} ORDER BY rowid DESC LIMIT 500").fetchall():
                 d=dict(r)
+                if table in {"suite_audit", "suite_events"} and not web.can_review_applications(ctx):
+                    # Recruitment names and interview notes also appear in calendar/audit payloads.
+                    # Exclude the whole recruiting event rather than merely hiding its title.
+                    recruiting_text = json.dumps(d, ensure_ascii=False).casefold()
+                    if any(term in recruiting_text for term in ("bewerbung", "interview", "gespräch", "applicant")):
+                        continue
                 if q in json.dumps(d,ensure_ascii=False).lower():out.append({"type":typ,"title":str(d.get(col,"")),"meta":str(d.get("request_id") or d.get("id") or ""),"url":url})
     if web.can_access_melonly(ctx):
-        for x in web.load_json(web.LOGS_FILE, []):
-            if q in json.dumps(x, ensure_ascii=False).lower():
-                out.append({"type": "Roblox/MOD", "title": str(x.get("target_user", "Spieler")),
-                            "meta": str(x.get("roblox_id", "N/A")), "url": "/melonly"})
+        for x in web.get_melonly_repository().search_payload(q):
+            out.append({"type": "Roblox/MOD", "title": str(x.get("target_user", "Spieler")),
+                        "meta": str(x.get("roblox_id", "N/A")), "url": "/melonly"})
     seen=set();res=[]
     for x in out:
         k=(x["type"],x["title"],x.get("meta"))

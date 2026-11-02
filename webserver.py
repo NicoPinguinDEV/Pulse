@@ -361,6 +361,9 @@ def init_runtime() -> None:
     import pulse_shift_history  # Phase 14.7: switches only when PULSE_SHIFT_HISTORY_BACKEND is set explicitly
     pulse_shift_history.recover(sys.modules[__name__])  # Phase 14.7b: finish a save a crash interrupted
     pulse_shift_history.apply_configured_backend(sys.modules[__name__])
+    secure_application_storage()  # applications.json contains private applicant answers and reviews
+    melonly_repository = get_melonly_repository()  # validate backend before bot/dashboard writes start
+    print(f"✅ Melonly-Speicher: {melonly_repository.backend_name.upper()}")
     _session_key()  # computes SESSION_SECRET_PROBLEM for the system status
     _RUNTIME_READY = True
 
@@ -439,6 +442,15 @@ def abspath_corrupt_free(filepath) -> bool:
     return os.path.abspath(filepath) not in _CORRUPT_JSON
 
 
+def secure_application_storage() -> None:
+    """Restrict persisted applicant records to the Pulse service account on POSIX servers."""
+    if os.name != "posix":
+        return
+    with _io_lock:
+        if os.path.isfile(APPS_FILE):
+            os.chmod(APPS_FILE, 0o600)
+
+
 def save_json(filepath, data):
     with _io_lock:
         if os.path.abspath(filepath) == os.path.abspath(SHIFTS_FILE) and isinstance(data, dict):
@@ -482,6 +494,8 @@ def _write_json_file(filepath, data):
                 json.dump(data, f, indent=4, ensure_ascii=False)
                 f.flush()
                 os.fsync(f.fileno())
+            if os.path.abspath(filepath) == os.path.abspath(APPS_FILE) and os.name == "posix":
+                os.chmod(tmp, 0o600)  # applicant answers and reviews are readable only by the service account
             os.replace(tmp, filepath)  # verhindert kaputte Dateien bei Absturz
         except BaseException:
             try:  # M-D2: no half-written .tmp file left behind; the original stays untouched
@@ -3387,9 +3401,8 @@ async def roblox_user_lookup(request: Request, username: str, user_session: str 
         except Exception:
             return JSONResponse({"success": False, "message": "Roblox ist gerade nicht erreichbar"})
 
-    # Vorstrafen-Hinweis aus den eigenen Logs
-    previous = [l for l in load_json(LOGS_FILE, [])
-                if str(l.get("roblox_id")) == info["id"] or str(l.get("target_user", "")).lower() == info["username"].lower()]
+    # Vorstrafen-Hinweis aus dem aktiven Melonly-Repository.
+    previous = get_melonly_repository().roblox_user_history(info["id"], info["username"])
     counts = {}
     for l in previous:
         counts[l.get("type", "Log")] = counts.get(l.get("type", "Log"), 0) + 1
@@ -3417,7 +3430,7 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
     # Lokale Einträge fangen Roblox-Ausfälle ab; fuzzy Treffer helfen auch bei Tippfehlern.
     users_map = {}
     query_lower = clean.lower()
-    for entry in reversed(load_json(LOGS_FILE, [])[-5000:]):
+    for entry in get_melonly_repository().roblox_suggestions(5000):
         saved_name = str(entry.get("target_user") or "").strip()
         saved_id = str(entry.get("roblox_id") or "")
         if not saved_name:
@@ -4185,7 +4198,8 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
     mod_id = ctx.user["id"]
 
     shifts_db = load_shifts()
-    logs_db = load_json(LOGS_FILE, [])
+    melonly_repository = get_melonly_repository()
+    logs_total = melonly_repository.count()
     apps_db = load_json(APPS_FILE, {})
     active_shifts = shifts_db["active_shifts"]
     loas = get_loas()
@@ -4244,50 +4258,12 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
     player_history_query = str(request.query_params.get("player_history") or "").strip()[:80]
     normalized_query = player_history_query.lstrip("@").strip().casefold()
 
-    def normalized_player_name(log):
-        return str(log.get("target_user") or "").strip().lstrip("@").casefold()
-
-    def normalized_player_id(log):
-        value = str(log.get("roblox_id") or "").strip()
-        return value if value.isdigit() else ""
-
-    player_history_matches = []
-    if normalized_query:
-        if normalized_query.isdigit():
-            seed_matches = [
-                log for log in logs_db
-                if normalized_player_id(log) == normalized_query
-            ]
-            if not seed_matches:
-                exact_names = [
-                    log for log in logs_db
-                    if normalized_player_name(log) == normalized_query
-                ]
-                seed_matches = exact_names or [
-                    log for log in logs_db
-                    if normalized_query in normalized_player_name(log)
-                ]
-        else:
-            exact_names = [
-                log for log in logs_db
-                if normalized_player_name(log) == normalized_query
-            ]
-            seed_matches = exact_names or [
-                log for log in logs_db
-                if normalized_query in normalized_player_name(log)
-            ]
-
-        # Link records under an older username if their saved Roblox ID matches.
-        matched_names = {normalized_player_name(log) for log in seed_matches if normalized_player_name(log)}
-        matched_ids = {normalized_player_id(log) for log in seed_matches if normalized_player_id(log)}
-        player_history_matches = [
-            log for log in logs_db
-            if (normalized_player_name(log) and normalized_player_name(log) in matched_names)
-            or (normalized_player_id(log) and normalized_player_id(log) in matched_ids)
-        ]
-
+    player_history_matches = melonly_repository.player_history(player_history_query) if normalized_query else []
     history_active = bool(normalized_query)
-    logs_to_render = reversed(player_history_matches) if history_active else reversed(logs_db[-50:])
+    logs_to_render = (
+        reversed(player_history_matches)
+        if history_active else reversed(melonly_repository.latest(50))
+    )
     history_query_param = f"player_history={quote(player_history_query, safe='')}&" if history_active else ""
     history_return_to = (
         f"/dashboard?player_history={quote(player_history_query, safe='')}#playerlog"
@@ -4393,7 +4369,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
     body = f"""
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {stat_card("🛡️", "Team im Dienst", active_staff_count, "emerald")}
-        {stat_card("📜", "Registrierte Logs", len(logs_db), "indigo")}
+        {stat_card("📜", "Registrierte Logs", logs_total, "indigo")}
         {stat_card("🌴", "Aktive Abmeldungen", loa_count, "amber")}
         {stat_card("📋", "Offene Bewerbungen", pending_apps_count, "purple")}
     </div>
@@ -4472,7 +4448,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                 <h2 class="text-lg font-bold text-slate-900 dark:text-white">Protokoll</h2>
                 <div class="flex items-center gap-2">
                     <a href="/export/logs" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 transition shadow-sm">📊 CSV</a>
-                    <span class="text-xs text-slate-400 font-mono">{len(logs_db)} gesamt</span>
+                    <span class="text-xs text-slate-400 font-mono">{logs_total} gesamt</span>
                 </div>
             </div>
             <form action="/dashboard#playerlog" method="get" class="flex flex-col sm:flex-row gap-2">
@@ -4504,7 +4480,6 @@ async def ultimate_dashboard(request: Request, user_session: str = Cookie(None))
     team_role_ids = ctx.config.get("team_role_ids", [])
     shifts_db = load_shifts()
     active_shifts = shifts_db.get("active_shifts", {})
-    logs_db = load_json(LOGS_FILE, [])
     apps_db = load_json(APPS_FILE, {})
     loas = get_loas()
 
@@ -4707,43 +4682,22 @@ async def melonly_alias(request: Request, user_session: str = Cookie(None)):
     if not (ctx.perms.get("can_warn") or ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung.")
 
-    logs_db = load_json(LOGS_FILE, [])
+    repository = get_melonly_repository()
     query = str(request.query_params.get("player_history") or "").strip()[:80]
     needle = query.lstrip("@").strip().casefold()
     edit_log_id = str(request.query_params.get("edit_log") or "")
 
-    def player_name(log):
-        return str(log.get("target_user") or "").strip().lstrip("@").casefold()
-
-    def player_id(log):
-        rid = str(log.get("roblox_id") or "").strip()
-        return rid if rid.isdigit() else ""
-
-    matches = []
-    if needle:
-        if needle.isdigit():
-            candidates = [log for log in logs_db if player_id(log) == needle]
-        else:
-            candidates = []
-        if not candidates:
-            exact = [log for log in logs_db if player_name(log) == needle]
-            candidates = exact or [log for log in logs_db if needle in player_name(log)]
-        names = {player_name(log) for log in candidates if player_name(log)}
-        ids = {player_id(log) for log in candidates if player_id(log)}
-        matches = [
-            log for log in logs_db
-            if (player_name(log) and player_name(log) in names)
-            or (player_id(log) and player_id(log) in ids)
-        ]
-
+    matches = repository.player_history(query) if needle else []
     searched = bool(needle)
-    selected_logs = list(reversed(matches if searched else logs_db[-50:]))
+    selected_logs = list(reversed(matches if searched else repository.latest(50)))
     return_to = f"/melonly?player_history={quote(query, safe='')}" if searched else "/melonly"
     search_param = f"player_history={quote(query, safe='')}&" if searched else ""
 
-    ban_count = sum(1 for log in logs_db if log.get("type") in {"Ban", "Ban BOLO"})
-    kick_count = sum(1 for log in logs_db if log.get("type") == "Kick")
-    note_count = sum(1 for log in logs_db if log.get("type") == "Notiz")
+    type_counts = repository.count_by_type()
+    ban_count = type_counts.get("Ban", 0) + type_counts.get("Ban BOLO", 0)
+    kick_count = type_counts.get("Kick", 0)
+    note_count = type_counts.get("Notiz", 0)
+    logs_total = repository.count()
 
     summary = ""
     if searched:
@@ -4813,7 +4767,7 @@ async def melonly_alias(request: Request, user_session: str = Cookie(None)):
         <a href="/ultimate" class="inline-flex items-center justify-center px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold">← Übersicht</a>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        {stat_card("🚫", "Bans / BOLOs", ban_count, "rose")}{stat_card("🚪", "Kicks", kick_count, "amber")}{stat_card("📝", "Notizen", note_count, "indigo")}{stat_card("📚", "Alle Einträge", len(logs_db), "purple")}
+        {stat_card("🚫", "Bans / BOLOs", ban_count, "rose")}{stat_card("🚪", "Kicks", kick_count, "amber")}{stat_card("📝", "Notizen", note_count, "indigo")}{stat_card("📚", "Alle Einträge", logs_total, "purple")}
       </div>
       <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <section class="xl:col-span-4">
@@ -5010,8 +4964,7 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
     if not re.fullmatch(r"\d{1,15}", roblox_id):
         roblox_id = "N/A"
 
-    logs_db = load_json(LOGS_FILE, [])
-    logs_db.append({
+    get_melonly_repository().append({
         "id": f"log_{uuid.uuid4().hex[:6]}",
         "target_user": target_user,
         "roblox_id": roblox_id,
@@ -5021,7 +4974,6 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
         "moderator_id": ctx.user["id"],
         "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
     })
-    save_json(LOGS_FILE, logs_db)
     # Melonly bleibt ausschließlich im Panel. Es gibt dafür bewusst kein Discord-Team-Update.
     log_audit(
         ctx.user.get("global_name"),
@@ -5045,10 +4997,11 @@ async def edit_log(
 ):
     return_to = safe_log_return_to(return_to)
     ctx = auth(request, user_session)
-    logs_db = load_json(LOGS_FILE, [])
-    entry = next((l for l in logs_db if l.get("id") == log_id), None)
-    if not entry:
+    repository = get_melonly_repository()
+    found = repository.find_first_by_id(log_id)
+    if not found:
         return back(return_to, "Log nicht gefunden.", False)
+    log_seq, entry = found
 
     if not can_manage_melonly_entry(ctx, entry, target_type=log_type):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung, diesen Melonly-Eintrag zu bearbeiten.")
@@ -5071,7 +5024,8 @@ async def edit_log(
         "edited_at": now_de().strftime("%d.%m.%Y %H:%M"),
         "edited_by": ctx.user.get("global_name") or ctx.user.get("username") or "Team",
     })
-    save_json(LOGS_FILE, logs_db)
+    if not repository.update_by_seq(log_seq, entry):
+        return back(return_to, "Log konnte nicht gespeichert werden. Bitte erneut laden.", False)
     log_audit(
         ctx.user.get("global_name"),
         ctx.user["id"],
@@ -5090,16 +5044,29 @@ async def delete_log(
 ):
     return_to = safe_log_return_to(return_to)
     ctx = auth(request, user_session)
-    logs_db = load_json(LOGS_FILE, [])
-    entry = next((l for l in logs_db if l.get("id") == log_id), None)
-    if not entry:
+    repository = get_melonly_repository()
+    found = repository.find_first_by_id(log_id)
+    if not found:
         return back(return_to, "Log nicht gefunden.", False)
+    _log_seq, entry = found
     if not can_manage_melonly_entry(ctx, entry):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung, diesen Melonly-Eintrag zu löschen.")
-    save_json(LOGS_FILE, [l for l in logs_db if l.get("id") != log_id])
+    if not repository.delete_all_by_id(log_id):
+        return back(return_to, "Log konnte nicht gelöscht werden. Bitte erneut laden.", False)
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Log Gelöscht",
               f"{entry.get('target_user')} ({entry.get('type')}) – ID {log_id}")
     return back(return_to, "Melonly-Eintrag gelöscht.")
+
+
+
+def can_review_applications(ctx) -> bool:
+    """Full applicant answers, evaluations and internal notes are restricted to recruiting staff."""
+    perms = getattr(ctx, "perms", {}) or {}
+    return bool(
+        perms.get("can_manage_applications")
+        or perms.get("can_promote")
+        or perms.get("is_admin")
+    )
 
 
 def can_access_melonly(ctx) -> bool:
@@ -5115,6 +5082,19 @@ def can_access_melonly(ctx) -> bool:
             "can_warn", "can_moderate_kicks", "can_moderate_bans",
             "can_moderate_bolo", "can_add_notes",
         ))
+    )
+
+
+
+def get_melonly_repository():
+    """Return the configured Melonly repository without changing or migrating data."""
+    from pulse_melonly_repository import MelonlyRepository
+    return MelonlyRepository(
+        json_path=LOGS_FILE,
+        db_path=pulse_db.DB_PATH,
+        load_json=load_json,
+        save_json=save_json,
+        io_lock=_io_lock,
     )
 
 
@@ -5151,7 +5131,7 @@ async def export_logs(request: Request, user_session: str = Cookie(None)):
     output.write("\ufeff")  # BOM: Excel zeigt Umlaute korrekt an
     writer = csv.writer(output, delimiter=';')
     writer.writerow(["ID", "Datum", "Typ", "Ziel-Nutzer", "Roblox ID", "Moderator", "Grund"])
-    for log in load_json(LOGS_FILE, []):
+    for log in get_melonly_repository().iter_all():
         writer.writerow([csv_safe(log.get(k)) for k in
                          ("id", "created_at", "type", "target_user", "roblox_id", "moderator", "reason")])
     filename = f"punishment_logs_{now_de().strftime('%Y-%m-%d')}.csv"
@@ -8380,7 +8360,8 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Bewerbungen.")
     uid = ctx.user["id"]
     show_history = request.query_params.get("view") == "history"
-    can_decide = ctx.perms["can_manage_applications"] or ctx.perms["can_promote"] or ctx.perms["is_admin"]
+    can_review = can_review_applications(ctx)
+    can_decide = can_review
     apps = load_json(APPS_FILE, {})
 
     active_application_statuses = {"pending", "interview"}
@@ -8396,7 +8377,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
         )
         test_summary = ""
         test_review_html = ""
-        if item.get("test_percent") is not None:
+        if can_review and item.get("test_percent") is not None:
             test_passed = bool(item.get("test_passed"))
             test_badge_class = BADGE_OK if test_passed else BADGE_BAD
             test_status_label = "Richtwert erreicht" if test_passed else "Richtwert nicht erreicht"
@@ -8425,7 +8406,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     f'<details class="mt-3"><summary class="cursor-pointer text-xs font-semibold text-indigo-600 dark:text-indigo-300">'
                     f'Online-Testantworten anzeigen</summary><div class="grid gap-2 mt-3">{"".join(detail_parts)}</div></details>'
                 )
-        practical_answers = item.get("practical_answers", [])
+        practical_answers = item.get("practical_answers", []) if can_review else []
         practical_review_html = ""
         if practical_answers:
             practical_parts = []
@@ -8444,7 +8425,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                 + "".join(practical_parts) + '</div></details>'
             )
 
-        reviews = item.get("reviews", {})
+        reviews = item.get("reviews", {}) if can_review else {}
         if not isinstance(reviews, dict):
             reviews = {}
         all_scores = [
@@ -8537,7 +8518,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
             <div class="flex justify-between items-center">
                 <div>
                     <h3 class="font-bold text-slate-900 dark:text-white text-sm">{esc(item.get('name'))}</h3>
-                    <span class="text-[10px] text-slate-400 font-mono">ID: {esc(item.get('user_id'))} · {esc(item.get('created_at'))}</span>
+                    <span class="text-[10px] text-slate-400 font-mono">{'ID: ' + esc(item.get('user_id')) + ' · ' if can_review else ''}{esc(item.get('created_at'))}</span>
                     <div class="flex flex-wrap gap-2 mt-2 text-[10px]">{career_summary}{test_summary}</div>
                 </div>
                 <div class="flex items-center gap-2 text-xs font-semibold">
@@ -8545,7 +8526,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     <span class="text-rose-600 dark:text-rose-400">👎 {len(down)}</span>
                 </div>
             </div>
-            <p class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800/80 whitespace-pre-wrap break-words">{esc(item.get('text'))}</p>
+            {f'<p class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800/80 whitespace-pre-wrap break-words">{esc(item.get("text"))}</p>' if can_review else '<p class="text-xs text-slate-500">Motivation, Testantworten und interne Bewertungen sind nur für Recruiting-Berechtigte sichtbar.</p>'}
             {review_summary_html}
             {test_review_html}
             {practical_review_html}
@@ -8970,9 +8951,22 @@ def add_panel_data(data: dict) -> dict:
         "team_data": {}, "config": {}, "logs": [],
         "shifts": {}, "meetings": {}, "applications": {},
     }
-    for key, path in (("team_data", DATA_FILE), ("config", CONFIG_FILE), ("logs", LOGS_FILE),
+    for key, path in (("team_data", DATA_FILE), ("config", CONFIG_FILE),
                       ("shifts", SHIFTS_FILE), ("meetings", MEETINGS_FILE), ("applications", APPS_FILE)):
         data["panel_data"][key] = load_json(path, backup_defaults[key])
+
+    # The legacy server-structure backup stores an exported view of the active
+    # Melonly repository. It must never serialize a stale logs.json in SQLite mode.
+    melonly_repository = get_melonly_repository()
+    with _io_lock:
+        data["panel_data"]["logs"] = melonly_repository.export_all()
+        data["panel_data"]["melonly_storage"] = {
+            "backend": melonly_repository.backend_name,
+            "metadata": (
+                melonly_repository.metadata()
+                if melonly_repository.backend_name == "sqlite" else {}
+            ),
+        }
 
     try:
         data["panel_data"]["pulse_db"] = pulse_db.export_state()
@@ -9034,6 +9028,15 @@ def add_panel_data(data: dict) -> dict:
     return data
 
 
+def ensure_panel_backup_restore_backend_compatible(repository) -> None:
+    """Prevent the legacy JSON/Discord-structure restore from overwriting live SQLite Melonly."""
+    if getattr(repository, "backend_name", "json") == "sqlite":
+        raise ValueError(
+            "Das Serverstruktur-Backup kann das aktive SQLite-Melonly-Schema nicht wiederherstellen. "
+            "Bitte das geprüfte vollständige ZIP-Backup verwenden."
+        )
+
+
 def validate_backup_document(backup: dict, guild_id: int | None = None) -> None:
     """Validate imported/local backup shape before it can touch runtime data."""
     if not isinstance(backup, dict) or not isinstance(backup.get("panel_data"), dict):
@@ -9053,8 +9056,14 @@ def validate_backup_document(backup: dict, guild_id: int | None = None) -> None:
         "team_data": dict, "config": dict, "logs": list,
         "shifts": dict, "meetings": dict, "applications": dict,
         "pulse_db": dict, "loas": list, "transcripts": dict,
-        "sqlite_files_base64": dict,
+        "sqlite_files_base64": dict, "melonly_storage": dict,
     }
+    if "melonly_storage" in panel:
+        storage = panel["melonly_storage"]
+        if storage.get("backend") not in {"json", "sqlite"}:
+            raise ValueError("Ungültiges Melonly-Backend im Server-Backup.")
+        if not isinstance(storage.get("metadata", {}), dict):
+            raise ValueError("Ungültige Melonly-Metadaten im Server-Backup.")
     if panel.get("logs") == {}:
         panel["logs"] = []
     for key, expected_type in expected_types.items():
@@ -10024,6 +10033,11 @@ async def restore_backup(
             backup = json.load(fh)
         validate_backup_document(backup, ctx.guild.id)
         panel = backup["panel_data"]
+
+        # The legacy server-structure archive contains exported JSON only. It
+        # cannot restore melonly_logs/melonly_logs_meta. Refuse before any
+        # Discord or application state is modified; use the verified Full ZIP.
+        ensure_panel_backup_restore_backend_compatible(get_melonly_repository())
 
         # Current state is snapshotted before touching Discord or Pulse runtime data.
         safety_snapshot = await create_backup_file_async(ctx.guild, "pre_restore_")
@@ -11294,32 +11308,38 @@ async def handle_action(
         except ValueError as exc:
             return HTMLResponse(simple_page("⚠️", "Online-Test unvollständig", str(exc), back_link), status_code=400)
 
-        apps = load_json(APPS_FILE, {})
-        if any(a.get("user_id") == str(applicant_id) and a.get("status") in {"pending", "interview"} for a in apps.values()):
-            return HTMLResponse(simple_page("ℹ️", "Bewerbung liegt bereits vor", "Deine Bewerbung wird gerade geprüft. Ein weiterer Antrag ist währenddessen nicht möglich.", back_link))
-        app_id_new = f"app_{uuid.uuid4().hex[:10]}"
-        apps[app_id_new] = {
-            "user_id": str(applicant_id),
-            "name": name,
-            "text": text,
-            "status": "pending",
-            "career_path": test_result["career_path"],
-            "career_label": test_result["career_label"],
-            "test_score": test_result["score"],
-            "test_total": test_result["total"],
-            "test_percent": test_result["percent"],
-            "test_pass_percent": test_result["pass_percent"],
-            "test_passed": test_result["passed"],
-            "test_details": test_result["details"],
-            "test_version": 3,
-            "practical_answers": practical_result["answers"],
-            "practical_review_status": "pending",
-            "practical_version": 1,
-            "upvotes": [],
-            "downvotes": [],
-            "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
-        }
-        save_json(APPS_FILE, apps)
+        # K-04: duplicate check + insert must be one critical section; two concurrent
+        # submissions by the same applicant must not create two active applications.
+        with _io_lock:
+            apps = load_json(APPS_FILE, {})
+            if any(a.get("user_id") == str(applicant_id) and a.get("status") in {"pending", "interview"}
+                   for a in apps.values()):
+                return HTMLResponse(simple_page("ℹ️", "Bewerbung liegt bereits vor",
+                                                "Deine Bewerbung wird gerade geprüft. Ein weiterer Antrag ist währenddessen nicht möglich.",
+                                                back_link))
+            app_id_new = f"app_{uuid.uuid4().hex[:10]}"
+            apps[app_id_new] = {
+                "user_id": str(applicant_id),
+                "name": name,
+                "text": text,
+                "status": "pending",
+                "career_path": test_result["career_path"],
+                "career_label": test_result["career_label"],
+                "test_score": test_result["score"],
+                "test_total": test_result["total"],
+                "test_percent": test_result["percent"],
+                "test_pass_percent": test_result["pass_percent"],
+                "test_passed": test_result["passed"],
+                "test_details": test_result["details"],
+                "test_version": 3,
+                "practical_answers": practical_result["answers"],
+                "practical_review_status": "pending",
+                "practical_version": 1,
+                "upvotes": [],
+                "downvotes": [],
+                "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
+            }
+            save_json(APPS_FILE, apps)
         await notify_new_application(request, app_id_new, apps[app_id_new])
         await dm_applicant(request, applicant_id, "received", id=app_id_new)  # BOT-10
         result_status = "Bestanden" if test_result["passed"] else "noch nicht bestanden"

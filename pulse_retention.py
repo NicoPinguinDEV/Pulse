@@ -226,8 +226,11 @@ def privacy_notice_html(esc) -> str:
     return (
         '<details class="rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-[11px] text-slate-500 dark:text-slate-400">'
         '<summary class="cursor-pointer font-semibold">🔒 Datenschutzhinweis</summary><p class="mt-2">'
-        "Gespeichert werden deine Discord-ID, dein Discord-Name und Profilbild, deine Antworten, das automatisch "
-        "berechnete Testergebnis und der Zeitpunkt. Zweck ist ausschließlich die Auswahl neuer Teammitglieder. "
-        "Einsehen können die Bewerbung nur Personen mit Bewerbungs- oder Leitungsrechten im Team-Dashboard. "
+        "Gespeichert werden deine Discord-ID, dein Discord-Name, deine Motivation, deine Test- und Praxisantworten, "
+        "das automatisch berechnete Testergebnis sowie Zeitpunkte und der Bearbeitungsverlauf. Im internen Verfahren "
+        "können zusätzlich Bewertungen, Gesprächsnotizen, Termin- und Entscheidungsdaten entstehen. Zweck ist ausschließlich "
+        "die Auswahl und Einstellung neuer Teammitglieder. Vollständige Bewerbungsdaten sehen nur Personen mit der Berechtigung "
+        "„Bewerbungen verwalten“, Leitungsrechte oder Administratorrechte. Teammitglieder mit reiner Dashboard-/Abstimmungsberechtigung "
+        "sehen nur eine reduzierte Übersicht ohne Antworten, interne Bewertungen oder Nutzer-ID. "
         f"{esc(keep)}{esc(ai)} Auskunft oder Löschung: {esc(contact)}.</p></details>"
     )
