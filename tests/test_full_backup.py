@@ -431,6 +431,67 @@ class FullBackupRouteTests(unittest.TestCase):
             self.assertEqual(self.client.get("/backup/full/download/..%2Fteam_data.json").status_code, 404)
         self.assertEqual((Path(self.tmp.name) / "team_data.json").read_text(encoding="utf-8"), '{"1": {}}')
 
+    def test_panel_backup_uses_active_melonly_repository_snapshot(self):
+        import webserver as ws
+        fake_repository = type("Repo", (), {
+            "backend_name": "sqlite",
+            "export_all": lambda self: [{"id": "sqlite-row", "type": "Warn"}],
+            "metadata": lambda self: {"active_backend": "sqlite", "generation": "gen-1", "revision": "4"},
+        })()
+        with patch.object(ws, "get_melonly_repository", return_value=fake_repository), \
+             patch.object(ws, "load_json", side_effect=lambda _path, default: default):
+            result = ws.add_panel_data({"panel_data": {}})
+        self.assertEqual(result["panel_data"]["logs"], [{"id": "sqlite-row", "type": "Warn"}])
+        self.assertEqual(result["panel_data"]["melonly_storage"], {
+            "backend": "sqlite",
+            "metadata": {"active_backend": "sqlite", "generation": "gen-1", "revision": "4"},
+        })
+        ws.validate_backup_document({
+            "backup_version": 3, "guild_id": 1,
+            "panel_data": {
+                "team_data": {}, "config": {}, "logs": result["panel_data"]["logs"],
+                "shifts": {}, "meetings": {}, "applications": {},
+                "melonly_storage": result["panel_data"]["melonly_storage"],
+            },
+            "roles": [], "categories": [], "uncategorized_channels": [],
+            "member_assignments": [], "guild_settings": {},
+        }, 1)
+
+    def test_legacy_panel_restore_refuses_active_sqlite_before_discord_changes(self):
+        import asyncio
+        import webserver as ws
+        from unittest.mock import AsyncMock
+        from pulse_melonly_store import MelonlyStore
+
+        store = MelonlyStore(Path(self.tmp.name) / "pulse.db")
+        store.initialize()
+        with sqlite3.connect(Path(self.tmp.name) / "pulse.db") as con:
+            con.execute("UPDATE melonly_logs_meta SET value='sqlite' WHERE key='active_backend'")
+        backup_dir = Path(ws.BACKUP_DIR)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        filename = "pulse_backup_20261102_000000.json"
+        backup_path = backup_dir / filename
+        backup_path.write_text(json.dumps({
+            "backup_version": 3, "guild_id": 1,
+            "panel_data": {
+                "team_data": {}, "config": {}, "logs": [],
+                "shifts": {}, "meetings": {}, "applications": {},
+            },
+            "roles": [], "categories": [], "uncategorized_channels": [],
+            "member_assignments": [], "guild_settings": {},
+        }), encoding="utf-8")
+        safety = AsyncMock()
+        restore_structure = AsyncMock()
+        with patch.object(ws, "auth", self.fake_auth_for(self.ADMIN)), \
+             patch.object(ws, "create_backup_file_async", safety), \
+             patch.object(ws, "restore_guild_structure", restore_structure):
+            response = self.client.post("/backup/restore", data={"filename": filename}, follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("t=err", response.headers["location"])
+        self.assertIn("vollständige ZIP-Backup", response.headers["location"])
+        safety.assert_not_awaited()
+        restore_structure.assert_not_awaited()
+
     def test_preview_route_locks_restore_for_damaged_backup(self):
         """Phase 8: the dry run page shows the problem and offers no restore form (previously HTTP 500)."""
         import hashlib
