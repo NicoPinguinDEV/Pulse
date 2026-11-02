@@ -76,7 +76,8 @@ def _has_resolvable_team_since(user_id: str, team_data: dict, records: dict[str,
     if isinstance(entry, dict) and _valid_team_since(entry.get("team_since")):
         return True
     for item in records.values():
-        if str(item.get("user_id")) != user_id or item.get("status") not in EMPLOYMENT_STATES:
+        status = item.get("status")
+        if str(item.get("user_id")) != user_id or not isinstance(status, str) or status not in EMPLOYMENT_STATES:
             continue
         if _valid_application_timestamp(item.get("decided_at")):
             return True
@@ -249,6 +250,7 @@ def audit_application_data(
         states["unknown_or_missing"] = unknown_states
     missing_user_ids = sum(
         not str(item.get("user_id") or "").strip()
+        or str(item.get("user_id") or "") != str(item.get("user_id") or "").strip()
         for item in records.values()
     )
 
@@ -256,10 +258,11 @@ def audit_application_data(
     employment_without_team_since = 0
     for item in records.values():
         # team_since_for() uses exact status values and only the user_id field.
-        if item.get("status") not in EMPLOYMENT_STATES:
+        status = item.get("status")
+        if not isinstance(status, str) or status not in EMPLOYMENT_STATES:
             continue
         employment_records += 1
-        user_id = str(item.get("user_id") or "").strip()
+        user_id = str(item.get("user_id") or "")
         if not _has_resolvable_team_since(user_id, team_data, records):
             employment_without_team_since += 1
 
