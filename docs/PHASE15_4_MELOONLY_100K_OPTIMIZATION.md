@@ -22,8 +22,8 @@ Die häufigen Lesezugriffe dürfen bei 100.000 Melonly-Einträgen nicht bei jede
 
 ### SQLite – künftiger optionaler Pfad
 
-- Neuer deterministischer Ausdrucksindex auf der normalisierten Roblox-ID.
-- Spielerhistorie ermittelt zuerst kleine Kandidatenmengen über Indexspalten und lädt danach die benötigten Payloads.
+- Neue gespeicherte Spalte `roblox_id_key` plus normaler B-Tree-Index auf der normalisierten Roblox-ID. Kein benutzerdefinierter SQLite-Ausdruck und keine UDF-Abhängigkeit bei Backups oder `PRAGMA integrity_check`.
+- Spielerhistorie ermittelt zuerst kleine Kandidatenmengen über Indexspalten und lädt danach die benötigten Payloads. Die neue Spalte wird nur bei expliziter Schema-Initialisierung offline angelegt und aus den vorhandenen Lookup-Werten befüllt.
 - Die bestehende Teilstring-Suche nach Namen bleibt erhalten.
 - Temporäre Schlüssel-Tabellen verhindern SQL-Parameterlimits bei vielen Treffern.
 - Roblox-Verlauf nutzt die vorhandenen ID- und normalisierten Namensindizes und prüft jeden Kandidaten anschließend gegen die ursprüngliche Python-Predicate.
@@ -44,14 +44,14 @@ Die häufigen Lesezugriffe dürfen bei 100.000 Melonly-Einträgen nicht bei jede
 - Defensive Kopien der zurückgegebenen Einträge.
 - JSON-/SQLite-Gleichheit bei Spielerhistorie und Roblox-Verlauf.
 - Sonderfälle: numerische Null gegenüber String-Null, None, fehlende Felder, gepolsterte Roblox-IDs und Teilnamenssuche.
-- Verwendung des normalisierten SQLite-Ausdrucksindex via EXPLAIN QUERY PLAN.
+- Verwendung des normalen `roblox_id_key`-Indexes via `EXPLAIN QUERY PLAN`; Backup-Integritätsprüfung ohne benutzerdefinierte SQLite-Funktionen.
 - Bestehende CRUD-, CSV-, Backup-, Berechtigungs- und Repository-Tests.
 
 ## Bewusste Grenzen
 
 - search_payload() im SQLite-Backend hat aktuell noch keine trigram-/FTS-Suche. Der JSON-Pfad vermeidet wiederholte JSON-Serialisierung, aber ein erster Cache-Aufbau durchsucht alle Datensätze.
 - Der JSON-Snapshot benötigt zusätzlichen Prozessspeicher. Die 20k-/100k-Benchmarkmessung muss deshalb Laufzeit und Speicher auf derselben Hardware dokumentieren.
-- Bereits vorhandene SQLite-Datenbanken ohne den neuen Ausdrucksindex bleiben funktionsfähig; solange der Index dort nicht durch ein separates, gesichertes Offline-Upgrade angelegt wurde, kann SQLite für diese Abfrage auf einen Tabellen-Scan zurückfallen.
+- Bereits aktivierte SQLite-Datenbanken ohne die neue Spalte bleiben funktionsfähig; solange sie nicht durch ein separates, gesichertes Offline-Schema-Upgrade ergänzt wurden, verwendet die Spielerhistorie den kompatiblen Scan-Pfad.
 - Kein automatisches Upgrade einer bestehenden Datenbank beim Bot-Start.
 
 ## Freigabekriterien
