@@ -458,18 +458,17 @@ class FullBackupRouteTests(unittest.TestCase):
         }, 1)
 
     def test_legacy_panel_restore_refuses_active_sqlite_before_discord_changes(self):
-        import asyncio
         import webserver as ws
         from unittest.mock import AsyncMock
         from pulse_melonly_store import MelonlyStore
 
-        store = MelonlyStore(Path(self.tmp.name) / "pulse.db")
+        store = MelonlyStore(pulse_db.DB_PATH)
         store.initialize()
-        with sqlite3.connect(Path(self.tmp.name) / "pulse.db") as con:
+        with sqlite3.connect(pulse_db.DB_PATH) as con:
             con.execute("UPDATE melonly_logs_meta SET value='sqlite' WHERE key='active_backend'")
         backup_dir = Path(ws.BACKUP_DIR)
         backup_dir.mkdir(parents=True, exist_ok=True)
-        filename = "pulse_backup_20261102_000000.json"
+        filename = "backup_20261102_000000.json"
         backup_path = backup_dir / filename
         backup_path.write_text(json.dumps({
             "backup_version": 3, "guild_id": 1,
@@ -482,7 +481,8 @@ class FullBackupRouteTests(unittest.TestCase):
         }), encoding="utf-8")
         safety = AsyncMock()
         restore_structure = AsyncMock()
-        with patch.object(ws, "auth", self.fake_auth_for(self.ADMIN)), \
+        with patch.dict(os.environ, {"PULSE_LOGS_BACKEND": "sqlite"}), \
+             patch.object(ws, "auth", self.fake_auth_for(self.ADMIN)), \
              patch.object(ws, "create_backup_file_async", safety), \
              patch.object(ws, "restore_guild_structure", restore_structure):
             response = self.client.post("/backup/restore", data={"filename": filename}, follow_redirects=False)
