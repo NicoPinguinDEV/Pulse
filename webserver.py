@@ -4198,7 +4198,8 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
     mod_id = ctx.user["id"]
 
     shifts_db = load_shifts()
-    logs_db = load_json(LOGS_FILE, [])
+    melonly_repository = get_melonly_repository()
+    logs_total = melonly_repository.count()
     apps_db = load_json(APPS_FILE, {})
     active_shifts = shifts_db["active_shifts"]
     loas = get_loas()
@@ -4257,50 +4258,12 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
     player_history_query = str(request.query_params.get("player_history") or "").strip()[:80]
     normalized_query = player_history_query.lstrip("@").strip().casefold()
 
-    def normalized_player_name(log):
-        return str(log.get("target_user") or "").strip().lstrip("@").casefold()
-
-    def normalized_player_id(log):
-        value = str(log.get("roblox_id") or "").strip()
-        return value if value.isdigit() else ""
-
-    player_history_matches = []
-    if normalized_query:
-        if normalized_query.isdigit():
-            seed_matches = [
-                log for log in logs_db
-                if normalized_player_id(log) == normalized_query
-            ]
-            if not seed_matches:
-                exact_names = [
-                    log for log in logs_db
-                    if normalized_player_name(log) == normalized_query
-                ]
-                seed_matches = exact_names or [
-                    log for log in logs_db
-                    if normalized_query in normalized_player_name(log)
-                ]
-        else:
-            exact_names = [
-                log for log in logs_db
-                if normalized_player_name(log) == normalized_query
-            ]
-            seed_matches = exact_names or [
-                log for log in logs_db
-                if normalized_query in normalized_player_name(log)
-            ]
-
-        # Link records under an older username if their saved Roblox ID matches.
-        matched_names = {normalized_player_name(log) for log in seed_matches if normalized_player_name(log)}
-        matched_ids = {normalized_player_id(log) for log in seed_matches if normalized_player_id(log)}
-        player_history_matches = [
-            log for log in logs_db
-            if (normalized_player_name(log) and normalized_player_name(log) in matched_names)
-            or (normalized_player_id(log) and normalized_player_id(log) in matched_ids)
-        ]
-
+    player_history_matches = melonly_repository.player_history(player_history_query) if normalized_query else []
     history_active = bool(normalized_query)
-    logs_to_render = reversed(player_history_matches) if history_active else reversed(logs_db[-50:])
+    logs_to_render = (
+        reversed(player_history_matches)
+        if history_active else reversed(melonly_repository.latest(50))
+    )
     history_query_param = f"player_history={quote(player_history_query, safe='')}&" if history_active else ""
     history_return_to = (
         f"/dashboard?player_history={quote(player_history_query, safe='')}#playerlog"
@@ -4406,7 +4369,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
     body = f"""
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {stat_card("🛡️", "Team im Dienst", active_staff_count, "emerald")}
-        {stat_card("📜", "Registrierte Logs", len(logs_db), "indigo")}
+        {stat_card("📜", "Registrierte Logs", logs_total, "indigo")}
         {stat_card("🌴", "Aktive Abmeldungen", loa_count, "amber")}
         {stat_card("📋", "Offene Bewerbungen", pending_apps_count, "purple")}
     </div>
@@ -4485,7 +4448,7 @@ async def dashboard_main(request: Request, user_session: str = Cookie(None)):
                 <h2 class="text-lg font-bold text-slate-900 dark:text-white">Protokoll</h2>
                 <div class="flex items-center gap-2">
                     <a href="/export/logs" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-300 transition shadow-sm">📊 CSV</a>
-                    <span class="text-xs text-slate-400 font-mono">{len(logs_db)} gesamt</span>
+                    <span class="text-xs text-slate-400 font-mono">{logs_total} gesamt</span>
                 </div>
             </div>
             <form action="/dashboard#playerlog" method="get" class="flex flex-col sm:flex-row gap-2">
@@ -4517,7 +4480,6 @@ async def ultimate_dashboard(request: Request, user_session: str = Cookie(None))
     team_role_ids = ctx.config.get("team_role_ids", [])
     shifts_db = load_shifts()
     active_shifts = shifts_db.get("active_shifts", {})
-    logs_db = load_json(LOGS_FILE, [])
     apps_db = load_json(APPS_FILE, {})
     loas = get_loas()
 
@@ -4720,43 +4682,22 @@ async def melonly_alias(request: Request, user_session: str = Cookie(None)):
     if not (ctx.perms.get("can_warn") or ctx.perms.get("can_add_notes") or ctx.perms.get("is_admin")):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung.")
 
-    logs_db = load_json(LOGS_FILE, [])
+    repository = get_melonly_repository()
     query = str(request.query_params.get("player_history") or "").strip()[:80]
     needle = query.lstrip("@").strip().casefold()
     edit_log_id = str(request.query_params.get("edit_log") or "")
 
-    def player_name(log):
-        return str(log.get("target_user") or "").strip().lstrip("@").casefold()
-
-    def player_id(log):
-        rid = str(log.get("roblox_id") or "").strip()
-        return rid if rid.isdigit() else ""
-
-    matches = []
-    if needle:
-        if needle.isdigit():
-            candidates = [log for log in logs_db if player_id(log) == needle]
-        else:
-            candidates = []
-        if not candidates:
-            exact = [log for log in logs_db if player_name(log) == needle]
-            candidates = exact or [log for log in logs_db if needle in player_name(log)]
-        names = {player_name(log) for log in candidates if player_name(log)}
-        ids = {player_id(log) for log in candidates if player_id(log)}
-        matches = [
-            log for log in logs_db
-            if (player_name(log) and player_name(log) in names)
-            or (player_id(log) and player_id(log) in ids)
-        ]
-
+    matches = repository.player_history(query) if needle else []
     searched = bool(needle)
-    selected_logs = list(reversed(matches if searched else logs_db[-50:]))
+    selected_logs = list(reversed(matches if searched else repository.latest(50)))
     return_to = f"/melonly?player_history={quote(query, safe='')}" if searched else "/melonly"
     search_param = f"player_history={quote(query, safe='')}&" if searched else ""
 
-    ban_count = sum(1 for log in logs_db if log.get("type") in {"Ban", "Ban BOLO"})
-    kick_count = sum(1 for log in logs_db if log.get("type") == "Kick")
-    note_count = sum(1 for log in logs_db if log.get("type") == "Notiz")
+    type_counts = repository.count_by_type()
+    ban_count = type_counts.get("Ban", 0) + type_counts.get("Ban BOLO", 0)
+    kick_count = type_counts.get("Kick", 0)
+    note_count = type_counts.get("Notiz", 0)
+    logs_total = repository.count()
 
     summary = ""
     if searched:
@@ -4826,7 +4767,7 @@ async def melonly_alias(request: Request, user_session: str = Cookie(None)):
         <a href="/ultimate" class="inline-flex items-center justify-center px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold">← Übersicht</a>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        {stat_card("🚫", "Bans / BOLOs", ban_count, "rose")}{stat_card("🚪", "Kicks", kick_count, "amber")}{stat_card("📝", "Notizen", note_count, "indigo")}{stat_card("📚", "Alle Einträge", len(logs_db), "purple")}
+        {stat_card("🚫", "Bans / BOLOs", ban_count, "rose")}{stat_card("🚪", "Kicks", kick_count, "amber")}{stat_card("📝", "Notizen", note_count, "indigo")}{stat_card("📚", "Alle Einträge", logs_total, "purple")}
       </div>
       <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <section class="xl:col-span-4">
