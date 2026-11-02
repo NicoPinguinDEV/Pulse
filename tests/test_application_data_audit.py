@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -26,7 +27,7 @@ def sqlite_connection(path):
 
 sys.path.insert(0, str(ROOT / "tools"))
 
-from application_data_audit import _calendar_events, audit_application_data  # noqa: E402
+from application_data_audit import _calendar_events, audit_application_data, main  # noqa: E402
 
 
 class ApplicationDataAuditTests(unittest.TestCase):
@@ -340,6 +341,41 @@ class ApplicationDataAuditTests(unittest.TestCase):
             audit_application_data([], self.team_data)  # type: ignore[arg-type]
         with self.assertRaises(ValueError):
             audit_application_data(self.applications, [])  # type: ignore[arg-type]
+
+    def test_cli_writes_private_report_file_without_logging_or_overwriting(self):
+        applications_path = self.base / "applications.json"
+        team_data_path = self.base / "team_data.json"
+        report_path = self.base / "audit-report.json"
+        applications_path.write_text(json.dumps(self.applications), encoding="utf-8")
+        team_data_path.write_text(json.dumps(self.team_data), encoding="utf-8")
+        argv = [
+            "application_data_audit.py",
+            "--applications", str(applications_path),
+            "--team-data", str(team_data_path),
+            "--suite-db", str(self.suite_db),
+            "--pulse-db", str(self.pulse_db),
+            "--output", str(report_path),
+        ]
+
+        with patch.object(sys, "argv", argv), patch("builtins.print") as print_mock:
+            self.assertEqual(main(), 0)
+        print_mock.assert_not_called()
+
+        report_text = report_path.read_text(encoding="utf-8")
+        report = json.loads(report_text)
+        self.assertTrue(report["read_only"])
+        for private_value in (
+            "Private Applicant", "Other Private Applicant", "Private interview notes",
+            "111111111111111111", "222222222222222222", "evt_private", "int_private",
+        ):
+            self.assertNotIn(private_value, report_text)
+        if os.name != "nt":
+            self.assertEqual(report_path.stat().st_mode & 0o777, 0o600)
+
+        before = report_path.read_bytes()
+        with patch.object(sys, "argv", argv), self.assertRaises(FileExistsError):
+            main()
+        self.assertEqual(report_path.read_bytes(), before)
 
 
 if __name__ == "__main__":
