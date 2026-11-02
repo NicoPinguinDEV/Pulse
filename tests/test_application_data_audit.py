@@ -6,6 +6,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -22,7 +23,7 @@ class ApplicationDataAuditTests(unittest.TestCase):
         self.suite_db = self.base / "pulse_suite.db"
         self.pulse_db = self.base / "pulse.db"
 
-        with sqlite3.connect(self.suite_db) as con:
+        with closing(sqlite3.connect(self.suite_db)) as con:
             con.execute(
                 "CREATE TABLE suite_interviews("
                 "id TEXT PRIMARY KEY, application_id TEXT, applicant_id TEXT, applicant_name TEXT, "
@@ -40,7 +41,7 @@ class ApplicationDataAuditTests(unittest.TestCase):
                  "Geeignet", "Other private notes", "222222222222222222", "Reviewer", "2026-11-02T11:00:00"),
             )
 
-        with sqlite3.connect(self.pulse_db) as con:
+        with closing(sqlite3.connect(self.pulse_db)) as con:
             con.execute(
                 "CREATE TABLE calendar_events("
                 "id TEXT PRIMARY KEY, title TEXT NOT NULL, starts_at TEXT NOT NULL, ends_at TEXT, "
@@ -142,9 +143,9 @@ class ApplicationDataAuditTests(unittest.TestCase):
     def test_tables_with_incomplete_schema_require_review(self):
         bad_suite = self.base / "bad_suite.db"
         bad_pulse = self.base / "bad_pulse.db"
-        with sqlite3.connect(bad_suite) as con:
+        with closing(sqlite3.connect(bad_suite)) as con:
             con.execute("CREATE TABLE suite_interviews(id TEXT)")
-        with sqlite3.connect(bad_pulse) as con:
+        with closing(sqlite3.connect(bad_pulse)) as con:
             con.execute("CREATE TABLE calendar_events(title TEXT)")
 
         report = audit_application_data({}, {}, bad_suite, bad_pulse)
@@ -156,7 +157,7 @@ class ApplicationDataAuditTests(unittest.TestCase):
         self.assertTrue(report["readiness"]["requires_review"])
 
     def test_detects_interview_rows_without_application_or_interview_ids(self):
-        with sqlite3.connect(self.suite_db) as con:
+        with closing(sqlite3.connect(self.suite_db)) as con:
             con.execute(
                 "INSERT INTO suite_interviews VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 ("int_unassigned", None, "", "", "{}", None, "", "", "", "", ""),
@@ -292,10 +293,10 @@ class ApplicationDataAuditTests(unittest.TestCase):
         self.assertTrue(report["readiness"]["requires_review"])
 
     def test_sqlite_inputs_are_read_only_and_existing_metadata_is_unchanged(self):
-        with sqlite3.connect(self.suite_db) as con:
+        with closing(sqlite3.connect(self.suite_db)) as con:
             con.execute("PRAGMA user_version=17")
         audit_application_data(self.applications, self.team_data, self.suite_db, self.pulse_db)
-        with sqlite3.connect(self.suite_db) as con:
+        with closing(sqlite3.connect(self.suite_db)) as con:
             self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 17)
 
     def test_non_object_top_level_data_is_rejected(self):
