@@ -399,7 +399,7 @@ class MelonlyJsonSnapshotCacheTests(unittest.TestCase):
 
 
 class MelonlySqliteIndexedHistoryTests(unittest.TestCase):
-    def test_normalized_id_expression_index_exists_and_is_used(self):
+    def test_normalized_id_index_exists_and_is_used(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             rows = [
@@ -409,23 +409,59 @@ class MelonlySqliteIndexedHistoryTests(unittest.TestCase):
             ]
             _db_path, store = make_sqlite_backend(root, rows)
             with sqlite3.connect(store.db_path) as con:
-                con.create_function(
-                    "pulse_roblox_id_key", 1,
-                    lambda value: (
-                        str(value or "").strip()
-                        if str(value or "").strip().isdigit() else None
-                    ),
-                    deterministic=True,
-                )
                 plan = con.execute(
                     """EXPLAIN QUERY PLAN
-                       SELECT seq FROM melonly_logs
-                       WHERE pulse_roblox_id_key(roblox_id)=?""",
+                       SELECT seq FROM melonly_logs WHERE roblox_id_key=?""",
                     ("1001",),
                 ).fetchall()
             self.assertTrue(
                 any("idx_melonly_logs_player_id_key" in str(row[3]) for row in plan),
                 plan,
+            )
+
+    def test_old_sqlite_schema_without_normalized_column_keeps_compatible_history(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "old.sqlite"
+            rows = [
+                {"id": "a", "target_user": "@Alpha", "roblox_id": " 100 "},
+                {"id": "b", "target_user": "AlphaAlt", "roblox_id": "100"},
+                {"id": "c", "target_user": "Beta", "roblox_id": "200"},
+            ]
+            with sqlite3.connect(database) as con:
+                con.executescript(
+                    """
+                    CREATE TABLE melonly_logs (
+                        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                        log_id TEXT, target_user TEXT, target_user_key TEXT,
+                        roblox_id TEXT, action_type TEXT, created_at TEXT,
+                        moderator_id TEXT, payload TEXT NOT NULL
+                    );
+                    """
+                )
+                for seq, entry in enumerate(rows, start=1):
+                    con.execute(
+                        """INSERT INTO melonly_logs
+                           (seq,log_id,target_user,target_user_key,roblox_id,payload)
+                           VALUES (?,?,?,?,?,?)""",
+                        (seq, entry.get("id"), entry.get("target_user"),
+                         (entry.get("target_user") or "").strip().lstrip("@").casefold(),
+                         entry.get("roblox_id"), json.dumps(entry)),
+                    )
+            from pulse_melonly_store import MelonlyStore
+            store = MelonlyStore(database)
+            self.assertEqual(
+                [row["id"] for row in store.player_history("100")],
+                ["a", "b"],
+            )
+            self.assertNotIn(
+                "roblox_id_key",
+                {row[1] for row in sqlite3.connect(database).execute("PRAGMA table_info(melonly_logs)")},
+            )
+            # Explicit offline initialization adds/backfills the key and its index.
+            store.initialize()
+            self.assertEqual(
+                [row["id"] for row in store.player_history("100")],
+                ["a", "b"],
             )
 
     def test_sqlite_history_is_payload_compatible_for_legacy_edge_values(self):
