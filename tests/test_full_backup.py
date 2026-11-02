@@ -119,6 +119,82 @@ class FullBackupTests(unittest.TestCase):
         self.assertEqual(self.cons[0].execute("SELECT COUNT(*) FROM t").fetchone()[0], 3)
         self.assertFalse(pulse_backup.maintenance_active())
 
+    def test_abrupt_process_abort_can_be_recovered_from_pre_restore_backup(self):
+        """A hard process exit mid-restore leaves a verified pre-restore archive for manual recovery."""
+        import shutil
+        import subprocess
+        import sys
+
+        # Close setup connections so the child process can restore the same SQLite file.
+        for connection in self.cons:
+            connection.close()
+        self.cons = []
+
+        logs = self.base / "logs.json"
+        logs.write_text(json.dumps([{"state": "archived"}]), encoding="utf-8")
+        archive, _manifest = pulse_backup.create_full_backup(self.base, self.backups)
+
+        # This is the live state that must survive an interrupted attempt to restore
+        # the older archive.
+        with sqlite3.connect(self.base / "pulse.db") as connection:
+            connection.execute("INSERT INTO t(v) VALUES ('current-state')")
+        logs.write_text(json.dumps([{"state": "current"}]), encoding="utf-8")
+
+        crash_tmp = self.base / "crash-tmp"
+        crash_tmp.mkdir()
+        child = (
+            "import os, sys\n"
+            "from pathlib import Path\n"
+            "import pulse_backup, pulse_db\n"
+            "root = Path(sys.argv[1])\n"
+            "pulse_db.DB_PATH = str(root / 'pulse.db')\n"
+            "real_apply = pulse_backup._apply\n"
+            "def abort_after_database(staged, report):\n"
+            "    target = next(item for item in staged if item[0] == 'sqlite' and item[2].name == 'pulse.db')\n"
+            "    real_apply([target], report)\n"
+            "    os._exit(73)\n"
+            "pulse_backup._apply = abort_after_database\n"
+            "pulse_backup.restore_full_backup(sys.argv[2], root, Path(sys.argv[3]))\n"
+            "os._exit(74)\n"
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(ROOT)
+        env["TMPDIR"] = str(crash_tmp)
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", child, str(self.base), str(archive), str(self.backups)],
+                cwd=str(ROOT),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            self.assertEqual(
+                result.returncode, 73,
+                f"Kindprozess hat den vorgesehenen Abbruchpunkt nicht erreicht: {result.stderr[-2000:]}",
+            )
+
+            safety_archives = sorted(self.backups.glob("pulse_full_pre_restore_*.zip"))
+            self.assertTrue(safety_archives, "Vor dem Restore wurde keine Sicherheitskopie angelegt.")
+            safety = safety_archives[-1]
+            self.assertEqual(pulse_backup.verify_full_backup(safety), [])
+
+            # The child restored the first SQLite database and then exited before
+            # replacing logs.json. The state is intentionally mixed at this point.
+            with sqlite3.connect(self.base / "pulse.db") as connection:
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM t").fetchone()[0], 2)
+            self.assertEqual(json.loads(logs.read_text(encoding="utf-8")), [{"state": "current"}])
+
+            # Recover the exact pre-attempt state from the automatically retained archive.
+            recovery = pulse_backup.restore_full_backup(safety, self.base, self.backups)
+            self.assertIn("pulse.db", recovery["databases"])
+            with sqlite3.connect(self.base / "pulse.db") as connection:
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM t").fetchone()[0], 3)
+            self.assertEqual(json.loads(logs.read_text(encoding="utf-8")), [{"state": "current"}])
+            self.assertFalse(pulse_backup.maintenance_active())
+        finally:
+            shutil.rmtree(crash_tmp, ignore_errors=True)
+
     def test_kind_comes_from_path_not_manifest(self):
         path, _ = pulse_backup.create_full_backup(self.base, self.backups)
         forged = self.backups / "pulse_full_20260102_000000.zip"
