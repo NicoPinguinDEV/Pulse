@@ -710,10 +710,19 @@ def search_all(q,ctx):
             for r in c.execute(f"SELECT * FROM {table} ORDER BY rowid DESC LIMIT 500").fetchall():
                 d=dict(r)
                 if table in {"suite_audit", "suite_events"} and not web.can_review_applications(ctx):
-                    # Recruitment names and interview notes also appear in calendar/audit payloads.
-                    # Exclude the whole recruiting event rather than merely hiding its title.
+                    # Audit actions such as "application_updated" contain no German display
+                    # keyword. Classify structured action names as sensitive as well as payloads.
                     recruiting_text = json.dumps(d, ensure_ascii=False).casefold()
-                    if any(term in recruiting_text for term in ("bewerbung", "interview", "gespräch", "applicant")):
+                    recruiting_action = str(d.get("action") or d.get("kind") or "").casefold()
+                    sensitive_action = any(
+                        term in recruiting_action
+                        for term in ("application", "bewerbung", "interview", "gespräch", "recruit")
+                    )
+                    sensitive_payload = any(
+                        term in recruiting_text
+                        for term in ("bewerbung", "interview", "gespräch", "applicant", "recruit", "application")
+                    )
+                    if sensitive_action or sensitive_payload:
                         continue
                 if q in json.dumps(d,ensure_ascii=False).lower():out.append({"type":typ,"title":str(d.get(col,"")),"meta":str(d.get("request_id") or d.get("id") or ""),"url":url})
     if web.can_access_melonly(ctx):

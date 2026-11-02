@@ -1,4 +1,5 @@
 """/stats must render when nobody has duty time this week yet (e.g. Monday morning)."""
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +23,13 @@ class EmptyWeekStatsTests(unittest.TestCase):
     def tearDown(self):
         self.db.stop()
         self.tmp.cleanup()
+
+    def test_get_loas_returns_empty_for_existing_database_without_legacy_table(self):
+        path = Path(self.tmp.name) / "abmeldungen.db"
+        with sqlite3.connect(path):
+            pass
+        with patch.object(ws, "DB_ABMELDUNGEN", str(path)):
+            self.assertEqual(ws.get_loas(), {})
 
     def test_team_without_hours_does_not_crash(self):
         member = SimpleNamespace(id=42, bot=False, display_name="Anna", roles=[SimpleNamespace(id=5)])

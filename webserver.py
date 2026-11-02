@@ -1057,7 +1057,15 @@ def get_loas() -> dict:
         return result
     conn = sqlite3.connect(DB_ABMELDUNGEN)
     try:
-        rows = conn.execute("SELECT user_id, user_name, grund, von, bis FROM abmeldungen").fetchall()
+        try:
+            rows = conn.execute("SELECT user_id, user_name, grund, von, bis FROM abmeldungen").fetchall()
+        except sqlite3.OperationalError as exc:
+            # Older/test installations can contain an empty SQLite file without the
+            # optional LOA table. Absences are informational for shift start; do not
+            # make dashboards and unrelated shift actions fail with HTTP 500.
+            if "no such table: abmeldungen" not in str(exc).casefold():
+                raise
+            return result
     finally:
         conn.close()
     today = now_de().date()

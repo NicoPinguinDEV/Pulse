@@ -109,8 +109,8 @@ class MelonlyRepositoryParityTests(unittest.TestCase):
             ("roblox_user_history", ("100", "Alpha")),
             ("roblox_user_history", ("999", "Beta")),
             ("roblox_suggestions", (3,)),
-            ("search_payload", ("ERSTER")),
-            ("search_payload", ("unicode")),
+            ("search_payload", ("ERSTER",)),
+            ("search_payload", ("unicode",)),
         )
         for method, args in methods:
             with self.subTest(method=method, args=args):
