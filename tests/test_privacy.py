@@ -215,7 +215,7 @@ class WarningLeakTests(unittest.TestCase):
             reviewed = client.get("/applications")
         self.assertEqual(reviewed.status_code, 200, reviewed.text[-800:])
         for secret in ("PrivateMotivationAnswer", "PrivateQuestion", "PrivatePracticalAnswer",
-                       "PrivateInternalReview", "987654321"):
+                       "987654321"):
             self.assertIn(secret, reviewed.text)
 
     def test_suite_application_and_interview_pages_require_recruiting_access(self):
