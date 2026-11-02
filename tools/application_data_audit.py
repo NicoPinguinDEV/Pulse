@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+from contextlib import closing
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -50,7 +51,7 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
         return {"provided": False, "table_found": False, "rows": 0, "orphan_application_refs": 0,
                 "applications_with_multiple_interviews": 0, "application_interview_id_mismatches": 0,
                 "_by_application": {}, "_ids": set()}
-    with _readonly_db(path) as connection:
+    with closing(_readonly_db(path)) as connection:
         if not _table_exists(connection, "suite_interviews"):
             return {"provided": True, "table_found": False, "rows": 0, "orphan_application_refs": 0,
                     "applications_with_multiple_interviews": 0, "application_interview_id_mismatches": 0,
@@ -128,12 +129,16 @@ def audit_application_data(
     interviews["orphan_application_refs"] = orphan_interviews
 
     missing_interview_records = 0
+    interview_references = 0
     for application_id, item in records.items():
         interview_id = str(item.get("interview_id") or "").strip()
         linked_rows = interviews_by_application.get(application_id, [])
-        if interview_id and interviews["table_found"] and interview_id not in interviews["_ids"]:
+        if not interview_id:
+            continue
+        interview_references += 1
+        if interviews["table_found"] and interview_id not in interviews["_ids"]:
             missing_interview_records += 1
-        elif linked_rows and interview_id and interview_id not in linked_rows:
+        elif linked_rows and interview_id not in linked_rows:
             interviews["application_interview_id_mismatches"] += 1
 
     appointment_references = 0
@@ -170,6 +175,7 @@ def audit_application_data(
             "orphan_application_refs": interviews["orphan_application_refs"],
             "applications_with_multiple_interviews": interviews["applications_with_multiple_interviews"],
             "application_interview_id_mismatches": interviews["application_interview_id_mismatches"],
+            "application_interview_references": interview_references,
             "application_refs_without_matching_interview": missing_interview_records,
         },
         "calendar": {
@@ -184,6 +190,7 @@ def audit_application_data(
                 or orphan_interviews or missing_interview_records
                 or interviews["application_interview_id_mismatches"] or missing_calendar_events
                 or (appointment_references and not calendar["table_found"])
+                or (interview_references and not interviews["table_found"])
                 or (interviews["rows"] and not interviews["table_found"])
             ),
         },
