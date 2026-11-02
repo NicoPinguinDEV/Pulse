@@ -15,7 +15,6 @@ from typing import Any
 
 
 REPORT_VERSION = 1
-KNOWN_STATES = {"pending", "in_review", "interview", "accepted", "rejected", "hired"}
 EMPLOYMENT_STATES = {"accepted", "hired"}
 
 
@@ -149,8 +148,18 @@ def audit_application_data(
         # Compare against fixed literals only; never reuse input text in report keys.
         raw_state = item.get("status")
         state = str(raw_state).strip().lower() if isinstance(raw_state, str) else ""
-        if state in KNOWN_STATES:
-            states[state] += 1
+        if state == "pending":
+            states["pending"] += 1
+        elif state == "in_review":
+            states["in_review"] += 1
+        elif state == "interview":
+            states["interview"] += 1
+        elif state == "accepted":
+            states["accepted"] += 1
+        elif state == "rejected":
+            states["rejected"] += 1
+        elif state == "hired":
+            states["hired"] += 1
         else:
             unknown_states += 1
     if unknown_states:
