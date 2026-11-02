@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 from collections import Counter, defaultdict
 from contextlib import closing
@@ -387,6 +388,19 @@ def audit_application_data(
     }
 
 
+def _write_report(path: str | Path, report: dict[str, Any]) -> None:
+    """Create a new private report file; never log report contents or overwrite a file."""
+    serialized = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    # O_EXCL prevents following/overwriting an existing destination; 0o600 limits access.
+    descriptor = os.open(
+        str(Path(path)),
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(serialized)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Read-only audit of applications.json, team_data.json and related Pulse SQLite references."
@@ -395,16 +409,16 @@ def main() -> int:
     parser.add_argument("--team-data", required=True, help="Explicit path to a team_data.json fixture/export")
     parser.add_argument("--suite-db", help="Optional explicit path to pulse_suite.db")
     parser.add_argument("--pulse-db", help="Optional explicit path to pulse.db")
+    parser.add_argument(
+        "--output", required=True,
+        help="New path for the aggregate JSON report; an existing file is never overwritten",
+    )
     args = parser.parse_args()
 
     applications = _read_json(args.applications, "applications", dict)
     team_data = _read_json(args.team_data, "team_data", dict)
     report = audit_application_data(applications, team_data, args.suite_db, args.pulse_db)
-    # This fixed-schema report contains only aggregate counts, fixed labels and booleans.
-    # The privacy regression test verifies that applicant IDs, names, answers, notes and event IDs are absent.
-
-    # codeql[py/clear-text-logging-sensitive-data]
-    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    _write_report(args.output, report)
     return 0
 
 
