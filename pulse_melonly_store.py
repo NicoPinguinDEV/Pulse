@@ -392,51 +392,62 @@ class MelonlyStore:
         needle = str(query or "").strip()[:80].lstrip("@").strip().casefold()
         if not needle:
             return []
+
+        def player_name(entry: Any) -> str:
+            if not isinstance(entry, Mapping):
+                return ""
+            return str(entry.get("target_user") or "").strip().lstrip("@").casefold()
+
+        def player_id(entry: Any) -> str:
+            if not isinstance(entry, Mapping):
+                return ""
+            value = str(entry.get("roblox_id") or "").strip()
+            return value if value.isdigit() else ""
+
         with self._read() as con:
+            candidates = []
             if needle.isdigit():
-                candidates = con.execute(
-                    """SELECT target_user_key,
-                              pulse_roblox_id_key(roblox_id) AS player_id
-                       FROM melonly_logs
+                candidate_rows = con.execute(
+                    """SELECT payload FROM melonly_logs
                        WHERE pulse_roblox_id_key(roblox_id)=?
                        ORDER BY seq ASC""",
                     (needle,),
                 ).fetchall()
-            else:
-                candidates = []
+                candidates = [
+                    entry for row in candidate_rows
+                    if player_id(entry := json.loads(row["payload"])) == needle
+                ]
 
             if not candidates:
-                candidates = con.execute(
-                    """SELECT target_user_key,
-                              pulse_roblox_id_key(roblox_id) AS player_id
-                       FROM melonly_logs
+                exact_rows = con.execute(
+                    """SELECT payload FROM melonly_logs
                        WHERE target_user_key=?
                        ORDER BY seq ASC""",
                     (needle,),
                 ).fetchall()
-            if not candidates:
-                # Substring fallback is part of the old UI contract. Scan only
-                # the narrow, indexed lookup columns; do not decode every payload.
-                candidates = con.execute(
-                    """SELECT target_user_key,
-                              pulse_roblox_id_key(roblox_id) AS player_id
-                       FROM melonly_logs
-                       WHERE target_user_key IS NOT NULL
-                         AND instr(target_user_key,?)>0
-                       ORDER BY seq ASC""",
-                    (needle,),
-                ).fetchall()
+                exact = [
+                    entry for row in exact_rows
+                    if player_name(entry := json.loads(row["payload"])) == needle
+                ]
+                if exact:
+                    candidates = exact
+                else:
+                    # Substring fallback is part of the old UI contract. Filter
+                    # indexed lookup candidates, not the full JSON payload table.
+                    partial_rows = con.execute(
+                        """SELECT payload FROM melonly_logs
+                           WHERE target_user_key IS NOT NULL
+                             AND instr(target_user_key,?)>0
+                           ORDER BY seq ASC""",
+                        (needle,),
+                    ).fetchall()
+                    candidates = [
+                        entry for row in partial_rows
+                        if needle in player_name(entry := json.loads(row["payload"]))
+                    ]
 
-            names = {
-                str(row["target_user_key"])
-                for row in candidates
-                if row["target_user_key"]
-            }
-            ids = {
-                str(row["player_id"])
-                for row in candidates
-                if row["player_id"]
-            }
+            names = {player_name(entry) for entry in candidates if player_name(entry)}
+            ids = {player_id(entry) for entry in candidates if player_id(entry)}
             if not names and not ids:
                 return []
 
@@ -465,7 +476,13 @@ class MelonlyStore:
                          (SELECT value FROM melonly_player_ids)
                    ORDER BY seq ASC"""
             ).fetchall()
-            return [json.loads(row["payload"]) for row in rows]
+            matches = []
+            for row in rows:
+                entry = json.loads(row["payload"])
+                name, player = player_name(entry), player_id(entry)
+                if (name and name in names) or (player and player in ids):
+                    matches.append(entry)
+            return matches
 
     def roblox_user_history(self, roblox_id: str, username: str) -> list[Any]:
         """Use indexed candidates, then apply the original Python predicate exactly."""
@@ -479,6 +496,10 @@ class MelonlyStore:
             clauses.append("target_user_key=?")
             params.append(name_key)
         else:
+            clauses.append("target_user_key IS NULL")
+        if name_value == "none":
+            # Explicit JSON null values stringify to "None" in the legacy
+            # predicate, while their normalized lookup key is SQL NULL.
             clauses.append("target_user_key IS NULL")
 
         with self._read() as con:
