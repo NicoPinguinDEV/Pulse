@@ -361,6 +361,8 @@ def init_runtime() -> None:
     import pulse_shift_history  # Phase 14.7: switches only when PULSE_SHIFT_HISTORY_BACKEND is set explicitly
     pulse_shift_history.recover(sys.modules[__name__])  # Phase 14.7b: finish a save a crash interrupted
     pulse_shift_history.apply_configured_backend(sys.modules[__name__])
+    melonly_repository = get_melonly_repository()  # validate backend before bot/dashboard writes start
+    print(f"✅ Melonly-Speicher: {melonly_repository.backend_name.upper()}")
     _session_key()  # computes SESSION_SECRET_PROBLEM for the system status
     _RUNTIME_READY = True
 
