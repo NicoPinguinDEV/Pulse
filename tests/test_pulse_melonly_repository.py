@@ -234,9 +234,42 @@ class MelonlyActiveRouteTests(unittest.TestCase):
         self.assertEqual(deleted.status_code, 303, deleted.text)
         self.assertEqual(self.ws.load_json(str(self.logs_path), []), [])
 
+    def test_crud_routes_use_explicitly_activated_sqlite_backend(self):
+        from unittest.mock import patch
+
+        store = MelonlyStore(self.db_path)
+        store.initialize()
+        store.import_entries([], source_sha256="empty-route-fixture")
+        with sqlite3.connect(self.db_path) as con:
+            con.execute("UPDATE melonly_logs_meta SET value='sqlite' WHERE key='active_backend'")
+
+        with patch.dict(os.environ, {"PULSE_LOGS_BACKEND": "sqlite"}):
+            created = self.client.post("/log/create", data={
+                "target_user": "SQLitePlayer", "roblox_id": "98765", "log_type": "Warn",
+                "reason": "SQLite create", "return_to": "/melonly",
+            }, follow_redirects=False)
+            self.assertEqual(created.status_code, 303, created.text)
+            entries = store.export_all()
+            self.assertEqual(len(entries), 1)
+            log_id = entries[0]["id"]
+
+            edited = self.client.post("/log/edit", data={
+                "log_id": log_id, "target_user": "SQLitePlayer", "roblox_id": "98765",
+                "log_type": "Warn", "reason": "SQLite edit", "return_to": "/melonly",
+            }, follow_redirects=False)
+            self.assertEqual(edited.status_code, 303, edited.text)
+            self.assertEqual(store.find_first_by_id(log_id)[1]["reason"], "SQLite edit")
+
+            deleted = self.client.post("/log/delete", data={
+                "log_id": log_id, "return_to": "/melonly",
+            }, follow_redirects=False)
+            self.assertEqual(deleted.status_code, 303, deleted.text)
+            self.assertEqual(store.export_all(), [])
+
     def test_csv_bytes_keep_the_existing_bom_header_columns_and_row_order(self):
         import csv
         import io
+        from unittest.mock import patch
         rows = [
             {"id": "1", "created_at": "01.11.2026 10:00", "type": "Warn",
              "target_user": "=Formula", "roblox_id": "123", "moderator": "A", "reason": "Erste Zeile"},
@@ -260,7 +293,7 @@ class MelonlyActiveRouteTests(unittest.TestCase):
         store.import_entries(rows, source_sha256="csv-fixture")
         with sqlite3.connect(self.db_path) as con:
             con.execute("UPDATE melonly_logs_meta SET value='sqlite' WHERE key='active_backend'")
-        with __import__("unittest.mock").mock.patch.dict(os.environ, {"PULSE_LOGS_BACKEND": "sqlite"}):
+        with patch.dict(os.environ, {"PULSE_LOGS_BACKEND": "sqlite"}):
             response_sqlite = self.client.get("/export/logs")
         self.assertEqual(response_sqlite.status_code, 200)
         self.assertEqual(response_sqlite.content, response_json.content)
