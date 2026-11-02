@@ -45,7 +45,7 @@ jobs:
             (( size >= 1 && size <= 100000 )) || { echo "::error::Jede Größe muss 1–100000 betragen."; exit 1; }
           done
           docker run --rm --memory=2g --memory-swap=2g --cpus=2 --read-only \
-            --tmpfs /tmp:rw,size=512m --entrypoint python \
+            --env TMPDIR=/tmp --tmpfs /tmp:rw,size=512m --entrypoint python \
             pulse-melonly-bench:${{ github.sha }} tools/melonly_bench.py \
             --entries "$ENTRIES" --repeats "$REPEATS" | tee melonly_benchmark.json
       - name: Benchmark-Ergebnis veröffentlichen
