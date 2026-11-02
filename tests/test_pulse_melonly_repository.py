@@ -218,6 +218,12 @@ class MelonlyActiveRouteTests(unittest.TestCase):
         self.ws = ws
         self.client = TestClient(ws.app)
 
+    def test_get_melonly_repository_reuses_snapshot_owner_for_same_runtime_config(self):
+        first = self.ws.get_melonly_repository()
+        second = self.ws.get_melonly_repository()
+        self.assertIs(first, second)
+        self.assertEqual(first.backend_name, "json")
+
     def test_create_edit_and_delete_routes_use_the_json_repository(self):
         created = self.client.post("/log/create", data={
             "target_user": "PlayerOne", "roblox_id": "12345", "log_type": "Warn",
