@@ -190,14 +190,16 @@ class MelonlyStore:
                WHERE type='index' AND name='idx_melonly_logs_player_id_key'"""
         ).fetchone()
         if not index_exists:
-            cursor = con.execute("SELECT seq,roblox_id FROM melonly_logs ORDER BY seq ASC")
+            cursor = con.execute("SELECT seq,payload FROM melonly_logs ORDER BY seq ASC")
             while True:
                 rows = cursor.fetchmany(2000)
                 if not rows:
                     break
                 updates = []
                 for row in rows:
-                    raw = str(row[1] or "").strip()
+                    entry = json.loads(row[1])
+                    original_id = entry.get("roblox_id") if isinstance(entry, Mapping) else None
+                    raw = str(original_id or "").strip()
                     updates.append((raw if raw.isdigit() else None, int(row[0])))
                 con.executemany(
                     "UPDATE melonly_logs SET roblox_id_key=? WHERE seq=?", updates
