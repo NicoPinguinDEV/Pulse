@@ -8951,9 +8951,22 @@ def add_panel_data(data: dict) -> dict:
         "team_data": {}, "config": {}, "logs": [],
         "shifts": {}, "meetings": {}, "applications": {},
     }
-    for key, path in (("team_data", DATA_FILE), ("config", CONFIG_FILE), ("logs", LOGS_FILE),
+    for key, path in (("team_data", DATA_FILE), ("config", CONFIG_FILE),
                       ("shifts", SHIFTS_FILE), ("meetings", MEETINGS_FILE), ("applications", APPS_FILE)):
         data["panel_data"][key] = load_json(path, backup_defaults[key])
+
+    # The legacy server-structure backup stores an exported view of the active
+    # Melonly repository. It must never serialize a stale logs.json in SQLite mode.
+    melonly_repository = get_melonly_repository()
+    with _io_lock:
+        data["panel_data"]["logs"] = melonly_repository.export_all()
+        data["panel_data"]["melonly_storage"] = {
+            "backend": melonly_repository.backend_name,
+            "metadata": (
+                melonly_repository.metadata()
+                if melonly_repository.backend_name == "sqlite" else {}
+            ),
+        }
 
     try:
         data["panel_data"]["pulse_db"] = pulse_db.export_state()
@@ -9015,6 +9028,15 @@ def add_panel_data(data: dict) -> dict:
     return data
 
 
+def ensure_panel_backup_restore_backend_compatible(repository) -> None:
+    """Prevent the legacy JSON/Discord-structure restore from overwriting live SQLite Melonly."""
+    if getattr(repository, "backend_name", "json") == "sqlite":
+        raise ValueError(
+            "Das Serverstruktur-Backup kann das aktive SQLite-Melonly-Schema nicht wiederherstellen. "
+            "Bitte das geprüfte vollständige ZIP-Backup verwenden."
+        )
+
+
 def validate_backup_document(backup: dict, guild_id: int | None = None) -> None:
     """Validate imported/local backup shape before it can touch runtime data."""
     if not isinstance(backup, dict) or not isinstance(backup.get("panel_data"), dict):
@@ -9034,8 +9056,14 @@ def validate_backup_document(backup: dict, guild_id: int | None = None) -> None:
         "team_data": dict, "config": dict, "logs": list,
         "shifts": dict, "meetings": dict, "applications": dict,
         "pulse_db": dict, "loas": list, "transcripts": dict,
-        "sqlite_files_base64": dict,
+        "sqlite_files_base64": dict, "melonly_storage": dict,
     }
+    if "melonly_storage" in panel:
+        storage = panel["melonly_storage"]
+        if storage.get("backend") not in {"json", "sqlite"}:
+            raise ValueError("Ungültiges Melonly-Backend im Server-Backup.")
+        if not isinstance(storage.get("metadata", {}), dict):
+            raise ValueError("Ungültige Melonly-Metadaten im Server-Backup.")
     if panel.get("logs") == {}:
         panel["logs"] = []
     for key, expected_type in expected_types.items():
@@ -10005,6 +10033,11 @@ async def restore_backup(
             backup = json.load(fh)
         validate_backup_document(backup, ctx.guild.id)
         panel = backup["panel_data"]
+
+        # The legacy server-structure archive contains exported JSON only. It
+        # cannot restore melonly_logs/melonly_logs_meta. Refuse before any
+        # Discord or application state is modified; use the verified Full ZIP.
+        ensure_panel_backup_restore_backend_compatible(get_melonly_repository())
 
         # Current state is snapshotted before touching Discord or Pulse runtime data.
         safety_snapshot = await create_backup_file_async(ctx.guild, "pre_restore_")
