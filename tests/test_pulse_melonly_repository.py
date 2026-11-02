@@ -52,7 +52,10 @@ class MelonlyRepositoryParityTests(unittest.TestCase):
         ]
         self.memory = MemoryJson(self.rows)
         self.lock = threading.RLock()
-        self.db_path, self.store = make_sqlite_backend(self.root, self.rows)
+        self.db_path = self.root / "pulse.db"
+        self.store = MelonlyStore(self.db_path)
+        self.store.initialize()
+        self.store.import_entries(self.rows, source_sha256="test-fixture")
         common = {
             "json_path": self.root / "logs.json",
             "db_path": self.db_path,
@@ -60,7 +63,10 @@ class MelonlyRepositoryParityTests(unittest.TestCase):
             "save_json": self.memory.save,
             "io_lock": self.lock,
         }
+        # JSON selection must be constructed while the database marker still says JSON.
         self.json_repo = MelonlyRepository(**common, environ={})
+        with sqlite3.connect(self.db_path) as con:
+            con.execute("UPDATE melonly_logs_meta SET value='sqlite' WHERE key='active_backend'")
         self.sqlite_repo = MelonlyRepository(**common, environ={"PULSE_LOGS_BACKEND": "sqlite"})
 
     def test_backend_selection_is_opt_in_and_does_not_create_a_database(self):
