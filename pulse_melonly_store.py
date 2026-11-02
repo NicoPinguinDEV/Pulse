@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS melonly_logs (
     target_user     TEXT,
     target_user_key TEXT,
     roblox_id       TEXT,
+    roblox_id_key   TEXT,
     action_type     TEXT,
     created_at      TEXT,
     moderator_id    TEXT,
@@ -104,40 +105,109 @@ class MelonlyStore:
     @staticmethod
     def _index_values(entry: Any) -> tuple[str | None, ...]:
         if not isinstance(entry, Mapping):
-            return (None, None, None, None, None, None, None)
+            return (None, None, None, None, None, None, None, None)
         target = entry.get("target_user")
         target_text = None if target is None else str(target)
         target_key = (target_text or "").strip().lstrip("@").casefold() or None
+        roblox_id = entry.get("roblox_id")
+        roblox_text = None if roblox_id is None else str(roblox_id)
+        roblox_key = str(roblox_id or "").strip()
+        if not roblox_key.isdigit():
+            roblox_key = None
         values = (
             entry.get("id"),
             target_text,
             target_key,
-            entry.get("roblox_id"),
+            roblox_text,
+            roblox_key,
             entry.get("type"),
             entry.get("created_at"),
             entry.get("moderator_id"),
         )
         return tuple(None if value is None else str(value) for value in values)
 
+    @staticmethod
+    def _has_roblox_id_key(con: sqlite3.Connection) -> bool:
+        return any(
+            str(row[1]) == "roblox_id_key"
+            for row in con.execute("PRAGMA table_info(melonly_logs)").fetchall()
+        )
+
     @classmethod
-    def _insert(cls, con: sqlite3.Connection, entry: Any, seq: int | None = None) -> int:
+    def _insert(
+        cls,
+        con: sqlite3.Connection,
+        entry: Any,
+        seq: int | None = None,
+        *,
+        has_roblox_id_key: bool | None = None,
+    ) -> int:
         values = cls._index_values(entry)
         payload = cls._json(entry)
+        has_id_key = (
+            cls._has_roblox_id_key(con)
+            if has_roblox_id_key is None else has_roblox_id_key
+        )
+        if has_id_key:
+            columns = (
+                "log_id,target_user,target_user_key,roblox_id,roblox_id_key,"
+                "action_type,created_at,moderator_id,payload"
+            )
+            stored_values = (*values, payload)
+        else:
+            # Old explicitly-activated databases remain writable until their
+            # separately-reviewed offline schema upgrade is performed.
+            columns = (
+                "log_id,target_user,target_user_key,roblox_id,"
+                "action_type,created_at,moderator_id,payload"
+            )
+            stored_values = (*values[:4], *values[5:], payload)
+        placeholders = ",".join("?" for _ in stored_values)
         if seq is None:
             cursor = con.execute(
-                """INSERT INTO melonly_logs
-                   (log_id,target_user,target_user_key,roblox_id,action_type,created_at,moderator_id,payload)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (*values, payload),
+                f"INSERT INTO melonly_logs ({columns}) VALUES ({placeholders})",
+                stored_values,
             )
             return int(cursor.lastrowid)
         con.execute(
-            """INSERT INTO melonly_logs
-               (seq,log_id,target_user,target_user_key,roblox_id,action_type,created_at,moderator_id,payload)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            (int(seq), *values, payload),
+            f"INSERT INTO melonly_logs (seq,{columns}) VALUES (?,{placeholders})",
+            (int(seq), *stored_values),
         )
         return int(seq)
+
+    @staticmethod
+    def _ensure_roblox_id_key_index(con: sqlite3.Connection) -> None:
+        """Add/backfill a normal indexed column (no connection-local SQLite UDF)."""
+        columns = {
+            str(row[1])
+            for row in con.execute("PRAGMA table_info(melonly_logs)").fetchall()
+        }
+        if "roblox_id_key" not in columns:
+            con.execute("ALTER TABLE melonly_logs ADD COLUMN roblox_id_key TEXT")
+
+        index_exists = con.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type='index' AND name='idx_melonly_logs_player_id_key'"""
+        ).fetchone()
+        if not index_exists:
+            cursor = con.execute("SELECT seq,payload FROM melonly_logs ORDER BY seq ASC")
+            while True:
+                rows = cursor.fetchmany(2000)
+                if not rows:
+                    break
+                updates = []
+                for row in rows:
+                    entry = json.loads(row[1])
+                    original_id = entry.get("roblox_id") if isinstance(entry, Mapping) else None
+                    raw = str(original_id or "").strip()
+                    updates.append((raw if raw.isdigit() else None, int(row[0])))
+                con.executemany(
+                    "UPDATE melonly_logs SET roblox_id_key=? WHERE seq=?", updates
+                )
+            con.execute(
+                """CREATE INDEX IF NOT EXISTS idx_melonly_logs_player_id_key
+                   ON melonly_logs(roblox_id_key,seq)"""
+            )
 
     @staticmethod
     def initialize_in_transaction(con: sqlite3.Connection) -> None:
@@ -146,6 +216,7 @@ class MelonlyStore:
             statement = statement.strip()
             if statement:
                 con.execute(statement)
+        MelonlyStore._ensure_roblox_id_key_index(con)
         for key, value in _META_DEFAULTS.items():
             if key == "generation":
                 value = uuid.uuid4().hex
@@ -160,6 +231,7 @@ class MelonlyStore:
         try:
             con.executescript(_SCHEMA)
             con.execute("BEGIN IMMEDIATE")
+            self._ensure_roblox_id_key_index(con)
             for key, value in _META_DEFAULTS.items():
                 if key == "generation":
                     value = uuid.uuid4().hex
@@ -246,11 +318,18 @@ class MelonlyStore:
             raise TypeError("Melonly entries must be mappings")
         values = self._index_values(entry)
         with self._write() as con:
-            cursor = con.execute(
-                """UPDATE melonly_logs SET log_id=?,target_user=?,target_user_key=?,roblox_id=?,
-                   action_type=?,created_at=?,moderator_id=?,payload=? WHERE seq=?""",
-                (*values, self._json(dict(entry)), int(seq)),
-            )
+            if self._has_roblox_id_key(con):
+                cursor = con.execute(
+                    """UPDATE melonly_logs SET log_id=?,target_user=?,target_user_key=?,roblox_id=?,
+                       roblox_id_key=?,action_type=?,created_at=?,moderator_id=?,payload=? WHERE seq=?""",
+                    (*values, self._json(dict(entry)), int(seq)),
+                )
+            else:
+                cursor = con.execute(
+                    """UPDATE melonly_logs SET log_id=?,target_user=?,target_user_key=?,roblox_id=?,
+                       action_type=?,created_at=?,moderator_id=?,payload=? WHERE seq=?""",
+                    (*values[:4], *values[5:], self._json(dict(entry)), int(seq)),
+                )
             changed = cursor.rowcount == 1
             if changed:
                 self._bump_revision(con)
@@ -317,8 +396,11 @@ class MelonlyStore:
             ).fetchone()
             if existing or (marker and marker[0]):
                 raise MelonlyStoreNotEmpty("Melonly SQLite storage already contains an import")
+            has_id_key = self._has_roblox_id_key(con)
             for position, entry in enumerate(materialized, start=1):
-                self._insert(con, entry, seq=position)
+                self._insert(
+                    con, entry, seq=position, has_roblox_id_key=has_id_key
+                )
             meta = {
                 "format_version": "1",
                 "generation": uuid.uuid4().hex,
@@ -374,15 +456,10 @@ class MelonlyStore:
 
 
     def player_history(self, query: str) -> list[Any]:
-        """Return complete player history using the legacy ID/name fallback rules."""
+        """Return complete player history through normalized, indexed lookup columns."""
         needle = str(query or "").strip()[:80].lstrip("@").strip().casefold()
         if not needle:
             return []
-        with self._read() as con:
-            rows = con.execute(
-                "SELECT payload FROM melonly_logs ORDER BY seq ASC"
-            ).fetchall()
-        entries = [json.loads(row["payload"]) for row in rows]
 
         def player_name(entry: Any) -> str:
             if not isinstance(entry, Mapping):
@@ -395,32 +472,148 @@ class MelonlyStore:
             value = str(entry.get("roblox_id") or "").strip()
             return value if value.isdigit() else ""
 
-        candidates = []
-        if needle.isdigit():
-            candidates = [entry for entry in entries if player_id(entry) == needle]
-        if not candidates:
-            exact = [entry for entry in entries if player_name(entry) == needle]
-            candidates = exact or [
-                entry for entry in entries if needle in player_name(entry)
-            ]
-        names = {player_name(entry) for entry in candidates if player_name(entry)}
-        ids = {player_id(entry) for entry in candidates if player_id(entry)}
-        return [
-            entry for entry in entries
-            if (player_name(entry) and player_name(entry) in names)
-            or (player_id(entry) and player_id(entry) in ids)
-        ]
+        with self._read() as con:
+            columns = {
+                str(row[1])
+                for row in con.execute("PRAGMA table_info(melonly_logs)").fetchall()
+            }
+            has_id_index_column = "roblox_id_key" in columns
+            candidates = []
+            if needle.isdigit() and has_id_index_column:
+                candidate_rows = con.execute(
+                    """SELECT payload FROM melonly_logs
+                       WHERE roblox_id_key=?
+                       ORDER BY seq ASC""",
+                    (needle,),
+                ).fetchall()
+                candidates = [
+                    entry for row in candidate_rows
+                    if player_id(entry := json.loads(row["payload"])) == needle
+                ]
+            elif needle.isdigit():
+                # Existing activated databases are not altered on startup.
+                # Until an operator performs the explicit offline schema upgrade,
+                # retain the old correct path rather than referencing a missing column.
+                candidate_rows = con.execute(
+                    "SELECT payload FROM melonly_logs ORDER BY seq ASC"
+                ).fetchall()
+                candidates = [
+                    entry for row in candidate_rows
+                    if player_id(entry := json.loads(row["payload"])) == needle
+                ]
+
+            if not candidates:
+                exact_rows = con.execute(
+                    """SELECT payload FROM melonly_logs
+                       WHERE target_user_key=?
+                       ORDER BY seq ASC""",
+                    (needle,),
+                ).fetchall()
+                exact = [
+                    entry for row in exact_rows
+                    if player_name(entry := json.loads(row["payload"])) == needle
+                ]
+                if exact:
+                    candidates = exact
+                else:
+                    partial_rows = con.execute(
+                        """SELECT payload FROM melonly_logs
+                           WHERE target_user_key IS NOT NULL
+                             AND instr(target_user_key,?)>0
+                           ORDER BY seq ASC""",
+                        (needle,),
+                    ).fetchall()
+                    candidates = [
+                        entry for row in partial_rows
+                        if needle in player_name(entry := json.loads(row["payload"]))
+                    ]
+
+            names = {player_name(entry) for entry in candidates if player_name(entry)}
+            ids = {player_id(entry) for entry in candidates if player_id(entry)}
+            if not names and not ids:
+                return []
+
+            if not has_id_index_column:
+                # Compatibility branch for older SQLite files without the
+                # explicitly-added normalized ID column.
+                rows = con.execute(
+                    "SELECT payload FROM melonly_logs ORDER BY seq ASC"
+                ).fetchall()
+                return [
+                    entry for row in rows
+                    if (
+                        (name := player_name(entry := json.loads(row["payload"])))
+                        and name in names
+                    ) or (
+                        (player := player_id(entry))
+                        and player in ids
+                    )
+                ]
+
+            # Temporary key tables avoid SQLite's bind-parameter limit when a
+            # partial name resolves to many distinct users at 100k+ records.
+            con.execute(
+                "CREATE TEMP TABLE melonly_player_names(value TEXT PRIMARY KEY) WITHOUT ROWID"
+            )
+            con.execute(
+                "CREATE TEMP TABLE melonly_player_ids(value TEXT PRIMARY KEY) WITHOUT ROWID"
+            )
+            if names:
+                con.executemany(
+                    "INSERT OR IGNORE INTO melonly_player_names(value) VALUES (?)",
+                    ((value,) for value in names),
+                )
+            if ids:
+                con.executemany(
+                    "INSERT OR IGNORE INTO melonly_player_ids(value) VALUES (?)",
+                    ((value,) for value in ids),
+                )
+            rows = con.execute(
+                """SELECT payload FROM melonly_logs
+                   WHERE target_user_key IN (SELECT value FROM melonly_player_names)
+                      OR roblox_id_key IN (SELECT value FROM melonly_player_ids)
+                   ORDER BY seq ASC"""
+            ).fetchall()
+            matches = []
+            for row in rows:
+                entry = json.loads(row["payload"])
+                name, player = player_name(entry), player_id(entry)
+                if (name and name in names) or (player and player in ids):
+                    matches.append(entry)
+            return matches
 
     def roblox_user_history(self, roblox_id: str, username: str) -> list[Any]:
-        """Match the legacy Roblox API predicate exactly (ID OR case-insensitive name)."""
+        """Use indexed candidates, then apply the original Python predicate exactly."""
         id_value, name_value = str(roblox_id), str(username).lower()
-        return [
-            entry for entry in self.export_all()
+        name_key = name_value.strip().lstrip("@").casefold()
+        clauses = ["roblox_id=?"]
+        params: list[str] = [id_value]
+        if id_value == "None":
+            clauses.append("roblox_id IS NULL")
+        if name_key:
+            clauses.append("target_user_key=?")
+            params.append(name_key)
+        else:
+            clauses.append("target_user_key IS NULL")
+        if name_value == "none":
+            # Explicit JSON null values stringify to "None" in the legacy
+            # predicate, while their normalized lookup key is SQL NULL.
+            clauses.append("target_user_key IS NULL")
+
+        with self._read() as con:
+            rows = con.execute(
+                "SELECT payload FROM melonly_logs WHERE (" + " OR ".join(clauses) + ") ORDER BY seq ASC",
+                params,
+            ).fetchall()
+        matches = []
+        for row in rows:
+            entry = json.loads(row["payload"])
             if isinstance(entry, Mapping) and (
                 str(entry.get("roblox_id")) == id_value
                 or str(entry.get("target_user", "")).lower() == name_value
-            )
-        ]
+            ):
+                matches.append(entry)
+        return matches
 
     def roblox_suggestions(self, limit: int = 5000) -> list[Any]:
         """Return the newest bounded candidate window, newest entry first."""

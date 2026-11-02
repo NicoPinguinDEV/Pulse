@@ -95,6 +95,42 @@ def _measure(operation: Callable[[], Any], repeats: int) -> float:
     return round(statistics.median(samples), 3)
 
 
+def _memory_snapshot() -> dict[str, dict[str, float | None]]:
+    """Report process and container memory without optional third-party packages."""
+    process: dict[str, float | None] = {
+        "rss_mb": None,
+        "peak_rss_mb": None,
+    }
+    try:
+        values = {}
+        with open("/proc/self/status", encoding="ascii") as stream:
+            for line in stream:
+                if line.startswith(("VmRSS:", "VmHWM:")):
+                    key, raw, *_unit = line.split()
+                    values[key.rstrip(":")] = int(raw) / 1024
+        process["rss_mb"] = round(values["VmRSS"], 1) if "VmRSS" in values else None
+        process["peak_rss_mb"] = round(values["VmHWM"], 1) if "VmHWM" in values else None
+    except (OSError, ValueError):
+        pass
+
+    container: dict[str, float | None] = {
+        "current_mb": None,
+        "peak_mb": None,
+        "limit_mb": None,
+    }
+    for filename, key in (
+        ("memory.current", "current_mb"),
+        ("memory.peak", "peak_mb"),
+        ("memory.max", "limit_mb"),
+    ):
+        try:
+            raw = Path("/sys/fs/cgroup", filename).read_text(encoding="ascii").strip()
+            container[key] = None if raw == "max" else round(int(raw) / 1024 / 1024, 1)
+        except (OSError, ValueError):
+            continue
+    return {"process": process, "container": container}
+
+
 def benchmark_size(entry_count: int, repeats: int, players: int) -> dict[str, Any]:
     rows = synthetic_entries(entry_count, players)
     with tempfile.TemporaryDirectory(prefix="pulse-melonly-bench-") as temporary:
@@ -143,6 +179,7 @@ def benchmark_size(entry_count: int, repeats: int, players: int) -> dict[str, An
             "json_bytes": len(json_bytes),
             "sqlite_bytes": database_path.stat().st_size,
             "sqlite_import_ms": sqlite_import_ms,
+            "memory": _memory_snapshot(),
             "operations": timings,
         }
 

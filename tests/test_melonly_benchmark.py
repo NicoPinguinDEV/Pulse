@@ -23,6 +23,8 @@ class MelonlyBenchmarkTests(unittest.TestCase):
         self.assertGreater(measured["sqlite_bytes"], 0)
         self.assertIn("player_history_by_name", measured["operations"])
         self.assertIn("search_payload_unique", measured["operations"])
+        self.assertIn("process", measured["memory"])
+        self.assertIn("container", measured["memory"])
 
     def test_json_repository_fixture_can_read_and_write_its_temp_file(self):
         with tempfile.TemporaryDirectory() as temporary:

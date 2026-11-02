@@ -7,7 +7,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from pulse_melonly_repository import MelonlyBackendError, MelonlyRepository
+from pulse_melonly_repository import JsonMelonlyRepository, MelonlyBackendError, MelonlyRepository
 from pulse_melonly_store import MelonlyStore
 
 
@@ -218,6 +218,12 @@ class MelonlyActiveRouteTests(unittest.TestCase):
         self.ws = ws
         self.client = TestClient(ws.app)
 
+    def test_get_melonly_repository_reuses_snapshot_owner_for_same_runtime_config(self):
+        first = self.ws.get_melonly_repository()
+        second = self.ws.get_melonly_repository()
+        self.assertIs(first, second)
+        self.assertEqual(first.backend_name, "json")
+
     def test_create_edit_and_delete_routes_use_the_json_repository(self):
         created = self.client.post("/log/create", data={
             "target_user": "PlayerOne", "roblox_id": "12345", "log_type": "Warn",
@@ -308,6 +314,216 @@ class MelonlyActiveRouteTests(unittest.TestCase):
         self.assertEqual(response_sqlite.status_code, 200)
         self.assertEqual(response_sqlite.content, response_json.content)
         self.assertEqual(response_sqlite.headers["content-type"], response_json.headers["content-type"])
+
+
+
+
+
+class MelonlyJsonSnapshotCacheTests(unittest.TestCase):
+    def test_snapshot_cache_reuses_reads_invalidates_external_replace_and_returns_copies(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "logs.json"
+            initial = [{"id": "one", "target_user": "Alpha", "roblox_id": "100",
+                        "reason": "Initial", "extra": {"keep": True}}]
+            path.write_text(json.dumps(initial, ensure_ascii=False), encoding="utf-8")
+            calls = {"loads": 0, "saves": 0}
+
+            def load_json(source, default):
+                calls["loads"] += 1
+                try:
+                    return json.loads(Path(source).read_text(encoding="utf-8"))
+                except FileNotFoundError:
+                    return default
+
+            def save_json(target, rows):
+                calls["saves"] += 1
+                temporary_path = Path(str(target) + ".tmp")
+                temporary_path.write_text(
+                    json.dumps(rows, ensure_ascii=False), encoding="utf-8"
+                )
+                os.replace(temporary_path, target)
+
+            repo = JsonMelonlyRepository(path, load_json, save_json, threading.RLock())
+            first = repo.export_all()
+            self.assertEqual(repo.count(), 1)
+            self.assertEqual(repo.search_payload("initial")[0]["id"], "one")
+            self.assertEqual(calls["loads"], 1)
+
+            first[0]["extra"]["keep"] = False
+            first[0]["reason"] = "caller mutation"
+            self.assertTrue(repo.export_all()[0]["extra"]["keep"])
+            self.assertEqual(repo.export_all()[0]["reason"], "Initial")
+            streamed = next(repo.iter_all())
+            streamed["reason"] = "stream consumer mutation"
+            self.assertEqual(repo.export_all()[0]["reason"], "Initial")
+            self.assertEqual(calls["loads"], 1)
+
+            replacement = [{"id": "two", "target_user": "Beta", "roblox_id": "200",
+                            "reason": "External replacement"}]
+            replacement_path = Path(temporary) / "replacement.json"
+            replacement_path.write_text(json.dumps(replacement), encoding="utf-8")
+            os.replace(replacement_path, path)
+            self.assertEqual(repo.export_all(), replacement)
+            self.assertEqual(calls["loads"], 2)
+
+            repo.append({"id": "three", "target_user": "Gamma", "roblox_id": "300"})
+            self.assertEqual(repo.count(), 2)
+            self.assertEqual(calls["loads"], 2)
+            self.assertEqual(calls["saves"], 1)
+
+    def test_cached_lookup_indexes_preserve_roblox_history_and_partial_name_order(self):
+        rows = [
+            {"id": "1", "target_user": "@Alpha", "roblox_id": " 100 ", "reason": "padded"},
+            {"id": "2", "target_user": "AlphaAlt", "roblox_id": "100", "reason": "normal"},
+            {"id": "3", "target_user": "Beta", "roblox_id": 0, "reason": "numeric zero"},
+            {"id": "4", "target_user": "Zero", "roblox_id": "0", "reason": "string zero"},
+            {"id": "5", "target_user": None, "roblox_id": None, "reason": "explicit null"},
+            {"id": "6", "roblox_id": "50", "reason": "missing name"},
+            {"id": "7", "target_user": "AlphaPartial", "roblox_id": "300", "reason": "partial"},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "logs.json"
+            path.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+            repo = JsonMelonlyRepository(
+                path,
+                lambda source, default: json.loads(Path(source).read_text(encoding="utf-8")),
+                lambda target, data: Path(target).write_text(json.dumps(data), encoding="utf-8"),
+            )
+            self.assertEqual([x["id"] for x in repo.player_history("100")], ["1", "2"])
+            self.assertEqual([x["id"] for x in repo.player_history("lph")], ["1", "2", "7"])
+            self.assertEqual([x["id"] for x in repo.player_history("0")], ["4"])
+            self.assertEqual(
+                [x["id"] for x in repo.roblox_user_history("None", "none")],
+                ["5"],
+            )
+
+
+class MelonlySqliteIndexedHistoryTests(unittest.TestCase):
+    def test_normalized_id_index_exists_and_is_used(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rows = [
+                {"id": f"row-{i}", "target_user": f"Spieler-{i % 100:03d}",
+                 "roblox_id": f"{1000 + i % 500}", "type": "Warn"}
+                for i in range(5000)
+            ]
+            _db_path, store = make_sqlite_backend(root, rows)
+            with sqlite3.connect(store.db_path) as con:
+                plan = con.execute(
+                    """EXPLAIN QUERY PLAN
+                       SELECT seq FROM melonly_logs WHERE roblox_id_key=?""",
+                    ("1001",),
+                ).fetchall()
+            self.assertTrue(
+                any("idx_melonly_logs_player_id_key" in str(row[3]) for row in plan),
+                plan,
+            )
+
+    def test_old_sqlite_schema_without_normalized_column_keeps_compatible_history(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "old.sqlite"
+            rows = [
+                {"id": "a", "target_user": "@Alpha", "roblox_id": " 100 "},
+                {"id": "b", "target_user": "AlphaAlt", "roblox_id": "100"},
+                {"id": "c", "target_user": "Beta", "roblox_id": "200"},
+            ]
+            with sqlite3.connect(database) as con:
+                con.executescript(
+                    """
+                    CREATE TABLE melonly_logs (
+                        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                        log_id TEXT, target_user TEXT, target_user_key TEXT,
+                        roblox_id TEXT, action_type TEXT, created_at TEXT,
+                        moderator_id TEXT, payload TEXT NOT NULL
+                    );
+                    CREATE TABLE melonly_logs_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                    INSERT INTO melonly_logs_meta(key,value) VALUES ('revision','0');
+                    """
+                )
+                for seq, entry in enumerate(rows, start=1):
+                    con.execute(
+                        """INSERT INTO melonly_logs
+                           (seq,log_id,target_user,target_user_key,roblox_id,payload)
+                           VALUES (?,?,?,?,?,?)""",
+                        (seq, entry.get("id"), entry.get("target_user"),
+                         (entry.get("target_user") or "").strip().lstrip("@").casefold(),
+                         entry.get("roblox_id"), json.dumps(entry)),
+                    )
+            from pulse_melonly_store import MelonlyStore
+            store = MelonlyStore(database)
+            self.assertEqual(
+                [row["id"] for row in store.player_history("100")],
+                ["a", "b"],
+            )
+            with sqlite3.connect(database) as con:
+                old_columns = {row[1] for row in con.execute("PRAGMA table_info(melonly_logs)")}
+            self.assertNotIn("roblox_id_key", old_columns)
+
+            # Existing activated databases keep CRUD working before the offline
+            # schema upgrade; their history reader uses the compatible scan path.
+            store.append({"id": "d", "target_user": "Delta", "roblox_id": "400"})
+            self.assertTrue(store.update_by_seq(
+                4, {"id": "d", "target_user": "Delta", "roblox_id": "400",
+                    "reason": "updated on old schema"}
+            ))
+            self.assertEqual(store.find_first_by_id("d")[1]["reason"], "updated on old schema")
+            self.assertEqual([row["id"] for row in store.player_history("400")], ["d"])
+
+            # Explicit offline initialization adds/backfills the key and its index.
+            store.initialize()
+            self.assertEqual(
+                [row["id"] for row in store.player_history("100")],
+                ["a", "b"],
+            )
+
+    def test_sqlite_history_is_payload_compatible_for_legacy_edge_values(self):
+        rows = [
+            {"id": "1", "target_user": "@Alpha", "roblox_id": " 100 ", "reason": "padded"},
+            {"id": "2", "target_user": "AlphaAlt", "roblox_id": "100", "reason": "normal"},
+            {"id": "3", "target_user": "Beta", "roblox_id": 0, "reason": "numeric zero"},
+            {"id": "4", "target_user": "Zero", "roblox_id": "0", "reason": "string zero"},
+            {"id": "5", "target_user": None, "roblox_id": None, "reason": "explicit null"},
+            {"id": "6", "roblox_id": "50", "reason": "missing name"},
+            {"id": "7", "target_user": "AlphaPartial", "roblox_id": "300", "reason": "partial"},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            memory = MemoryJson(rows)
+            db_path, store = make_sqlite_backend(root / "sqlite", rows)
+            lock = threading.RLock()
+            json_repo = JsonMelonlyRepository(
+                root / "logs.json", memory.load, memory.save, lock
+            )
+            with sqlite3.connect(db_path) as con:
+                con.execute("UPDATE melonly_logs_meta SET value='sqlite' WHERE key='active_backend'")
+            common = {
+                "json_path": root / "logs.json",
+                "db_path": db_path,
+                "load_json": memory.load,
+                "save_json": memory.save,
+                "io_lock": lock,
+            }
+            sqlite_repo = MelonlyRepository(
+                **common, environ={"PULSE_LOGS_BACKEND": "sqlite"}
+            )
+            for query in ("100", "lph", "0", "none", "300"):
+                with self.subTest(query=query):
+                    self.assertEqual(
+                        json_repo.player_history(query),
+                        sqlite_repo.player_history(query),
+                    )
+            for roblox_id, username in (
+                (" 100 ", "Alpha"),
+                ("100", "alphaalt"),
+                ("None", "none"),
+                ("50", ""),
+                ("0", "zero"),
+            ):
+                with self.subTest(roblox_id=roblox_id, username=username):
+                    self.assertEqual(
+                        json_repo.roblox_user_history(roblox_id, username),
+                        sqlite_repo.roblox_user_history(roblox_id, username),
+                    )
 
 
 if __name__ == "__main__":

@@ -140,5 +140,78 @@ class MelonlyMigrationTests(unittest.TestCase):
         self.assertTrue(result["sha256"])
 
 
+    def test_existing_v1_database_gets_backed_up_and_upgraded_to_normalized_id_key(self):
+        entries = [
+            {"id": "a", "target_user": "Alpha", "roblox_id": " 100 ", "type": "Warn"},
+            {"id": "b", "target_user": "Beta", "roblox_id": "200", "type": "Ban"},
+            {"id": "zero", "target_user": "NumericZero", "roblox_id": 0, "type": "Notiz"},
+        ]
+        raw = self.write_source(entries)
+        source_hash = hashlib.sha256(raw).hexdigest()
+        with sqlite3.connect(self.database) as con:
+            con.executescript(
+                """
+                CREATE TABLE melonly_logs (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    log_id TEXT, target_user TEXT, target_user_key TEXT,
+                    roblox_id TEXT, action_type TEXT, created_at TEXT,
+                    moderator_id TEXT, payload TEXT NOT NULL
+                );
+                CREATE TABLE melonly_logs_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE schema_migrations (
+                    name TEXT PRIMARY KEY, applied_at TEXT NOT NULL
+                );
+                """
+            )
+            for seq, entry in enumerate(entries, start=1):
+                con.execute(
+                    """INSERT INTO melonly_logs
+                       (seq,log_id,target_user,target_user_key,roblox_id,action_type,payload)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (
+                        seq, entry["id"], entry["target_user"],
+                        entry["target_user"].casefold(), entry["roblox_id"],
+                        entry["type"], json.dumps(entry, ensure_ascii=False),
+                    ),
+                )
+            con.executemany(
+                "INSERT INTO melonly_logs_meta(key,value) VALUES (?,?)",
+                [
+                    ("format_version", "1"),
+                    ("generation", "legacy-generation"),
+                    ("active_backend", "json"),
+                    ("revision", "0"),
+                    ("import_source_sha256", source_hash),
+                    ("import_count", str(len(entries))),
+                ],
+            )
+            con.execute(
+                "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+                ("melonly_logs_sqlite_v1", "2026-11-02T00:00:00+00:00"),
+            )
+
+        result = migrate_json_to_sqlite(self.source, self.database, self.backups)
+        self.assertEqual(result["status"], "already_migrated")
+        self.assertEqual(result["schema_upgrade"], "applied")
+        self.assertTrue(Path(result["database_backup"]).is_file())
+        self.assertEqual(MelonlyStore(self.database).export_all(), entries)
+        self.assertEqual(
+            [entry["id"] for entry in MelonlyStore(self.database).player_history("100")],
+            ["a"],
+        )
+        with sqlite3.connect(self.database) as con:
+            columns = {row[1] for row in con.execute("PRAGMA table_info(melonly_logs)")}
+            self.assertIn("roblox_id_key", columns)
+            self.assertEqual(
+                con.execute("SELECT roblox_id_key FROM melonly_logs ORDER BY seq").fetchall(),
+                [("100",), ("200",), (None,)],
+            )
+        self.assertEqual(
+            [entry["id"] for entry in MelonlyStore(self.database).player_history("0")],
+            [],
+        )
+        with sqlite3.connect(self.database) as con:
+            self.assertEqual(con.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+
 if __name__ == "__main__":
     unittest.main()

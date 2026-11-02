@@ -49,6 +49,15 @@ python scripts/migrate_melonly.py \
 
 Der Import stellt Daten in SQLite bereit, schaltet aber keine Route und kein Backend um. Der normale Betrieb liest weiterhin JSON.
 
+### Versioniertes Folge-Upgrade für den Roblox-ID-Index
+
+- Nach `melonly_logs_sqlite_v1` wird zusätzlich `melonly_logs_roblox_id_key_v1` ausgeführt.
+- Die zweite Migration ergänzt `roblox_id_key`, berechnet den Wert aus der ursprünglichen JSON-Payload und legt einen normalen B-Tree-Index an.
+- Bereits mit v1 migrierte Datenbanken erhalten vor dem Schema-Upgrade eine neue SQLite-Sicherheitskopie. Das Upgrade läuft in einer separaten Migrationstransaktion.
+- Der B-Tree-Index verwendet keine benutzerdefinierte SQLite-Funktion; normale SQLite-Backup- und `PRAGMA integrity_check`-Verbindungen bleiben kompatibel.
+- Ein erneuter expliziter Offline-Importbefehl erkennt eine bereits ausgeführte v1-Migration und führt nur das noch offene Index-Upgrade aus. Daten-Payloads und active_backend bleiben unverändert.
+- Bis ein altes SQLite-Schema explizit aktualisiert wurde, bleiben dessen Lese- und Schreibzugriffe über kompatible Fallbacks nutzbar.
+
 SQLite→JSON-Rückexport ist nur zulässig, wenn die Metadaten SQLite bereits als aktives Backend ausweisen:
 
 ~~~bash

@@ -21,6 +21,7 @@ from pulse_melonly_store import MelonlyStore, MelonlyStoreNotEmpty
 
 
 MIGRATION_NAME = "melonly_logs_sqlite_v1"
+MIGRATION_ROBLOX_ID_INDEX = "melonly_logs_roblox_id_key_v1"
 
 
 class MelonlyMigrationError(RuntimeError):
@@ -87,18 +88,20 @@ def _verify_import(store: MelonlyStore, expected: list[dict[str, Any]]) -> None:
         raise MelonlyMigrationError("SQLite-Payload oder Reihenfolge weicht vom JSON-Original ab.")
     with sqlite3.connect(store.db_path, timeout=15) as con:
         rows = con.execute(
-            """SELECT seq,log_id,target_user,target_user_key,roblox_id,
+            """SELECT seq,log_id,target_user,target_user_key,roblox_id,roblox_id_key,
                       action_type,created_at,moderator_id,payload
                FROM melonly_logs ORDER BY seq ASC"""
         ).fetchall()
     if len(rows) != len(expected):
         raise MelonlyMigrationError("SQLite-Prüfung lieferte eine abweichende Zeilenanzahl.")
     for position, (row, entry) in enumerate(zip(rows, expected), start=1):
-        seq, log_id, target_user, target_key, roblox_id, action_type, created_at, moderator_id, payload = row
+        (seq, log_id, target_user, target_key, roblox_id, roblox_key,
+         action_type, created_at, moderator_id, payload) = row
         if seq != position:
             raise MelonlyMigrationError("SQLite-Sequenz bildet die ursprüngliche Listenposition nicht ab.")
         values = MelonlyStore._index_values(entry)
-        if (log_id, target_user, target_key, roblox_id, action_type, created_at, moderator_id) != values:
+        if (log_id, target_user, target_key, roblox_id, roblox_key,
+            action_type, created_at, moderator_id) != values:
             raise MelonlyMigrationError(f"SQLite-Indexfelder weichen an Position {position} von der Payload ab.")
         if json.loads(payload) != entry:
             raise MelonlyMigrationError(f"SQLite-Payload ist an Position {position} nicht identisch.")
@@ -145,6 +148,11 @@ def migrate_json_to_sqlite(
         database.parent.mkdir(parents=True, exist_ok=True)
         store = MelonlyStore(database)
 
+        def apply_roblox_id_index(con: sqlite3.Connection) -> None:
+            # Separate versioned migration upgrades databases that already ran v1
+            # before the normalized, stored lookup column existed.
+            MelonlyStore._ensure_roblox_id_key_index(con)
+
         def apply_migration(con: sqlite3.Connection) -> None:
             store.initialize_in_transaction(con)
             existing = int(con.execute("SELECT COUNT(*) FROM melonly_logs").fetchone()[0])
@@ -155,8 +163,11 @@ def migrate_json_to_sqlite(
                 raise MelonlyStoreNotEmpty(
                     "SQLite enthält bereits Daten oder eine andere Migration."
                 )
+            has_id_key = store._has_roblox_id_key(con)
             for position, entry in enumerate(entries, start=1):
-                store._insert(con, entry, seq=position)
+                store._insert(
+                    con, entry, seq=position, has_roblox_id_key=has_id_key
+                )
             metadata = {
                 "format_version": "1",
                 "generation": uuid.uuid4().hex,
@@ -174,7 +185,12 @@ def migrate_json_to_sqlite(
 
         was_applied = MIGRATION_NAME in _applied_migrations(database)
         report = pulse_migrations.run(
-            str(database), str(backups), [(MIGRATION_NAME, apply_migration)]
+            str(database),
+            str(backups),
+            [
+                (MIGRATION_NAME, apply_migration),
+                (MIGRATION_ROBLOX_ID_INDEX, apply_roblox_id_index),
+            ],
         )
         if report.get("failed"):
             raise MelonlyMigrationError(
@@ -204,6 +220,10 @@ def migrate_json_to_sqlite(
 
         return {
             "status": "already_migrated" if was_applied else "migrated",
+            "schema_upgrade": (
+                "applied" if MIGRATION_ROBLOX_ID_INDEX in report.get("applied", [])
+                else "already_applied"
+            ),
             "count": existing_count,
             "source_sha256": source_hash,
             "json_backup": str(json_backup),
