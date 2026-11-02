@@ -163,8 +163,11 @@ def migrate_json_to_sqlite(
                 raise MelonlyStoreNotEmpty(
                     "SQLite enthält bereits Daten oder eine andere Migration."
                 )
+            has_id_key = store._has_roblox_id_key(con)
             for position, entry in enumerate(entries, start=1):
-                store._insert(con, entry, seq=position)
+                store._insert(
+                    con, entry, seq=position, has_roblox_id_key=has_id_key
+                )
             metadata = {
                 "format_version": "1",
                 "generation": uuid.uuid4().hex,
