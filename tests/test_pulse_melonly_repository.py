@@ -167,5 +167,88 @@ class MelonlyRepositoryParityTests(unittest.TestCase):
         self.assertEqual(json.loads(backups[0].read_text(encoding="utf-8")), [{"id": "stale"}])
 
 
+class MelonlyActiveRouteTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        import pulse_db
+        import webserver as ws
+        from fastapi.testclient import TestClient
+        from types import SimpleNamespace
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.logs_path = root / "logs.json"
+        self.db_path = root / "pulse.db"
+        self.patches = [
+            patch.object(ws, "LOGS_FILE", str(self.logs_path)),
+            patch.object(pulse_db, "DB_PATH", str(self.db_path)),
+            patch.dict(os.environ, {"PULSE_LOGS_BACKEND": ""}),
+            patch.object(ws, "log_audit", lambda *args, **kwargs: None),
+        ]
+        for item in self.patches:
+            item.start()
+            self.addCleanup(item.stop)
+        self.ctx = SimpleNamespace(
+            perms={"can_warn": True, "can_add_notes": True, "can_moderate_kicks": True,
+                   "can_moderate_bans": True, "can_moderate_bolo": True, "can_view_analytics": True},
+            user={"id": "123", "global_name": "Tester", "username": "tester"},
+        )
+        self.auth_patch = patch.object(ws, "auth", return_value=self.ctx)
+        self.auth_patch.start()
+        self.addCleanup(self.auth_patch.stop)
+        self.ws = ws
+        self.client = TestClient(ws.app)
+
+    def test_create_edit_and_delete_routes_use_the_json_repository(self):
+        created = self.client.post("/log/create", data={
+            "target_user": "PlayerOne", "roblox_id": "12345", "log_type": "Warn",
+            "reason": "Initial reason", "return_to": "/melonly",
+        }, follow_redirects=False)
+        self.assertEqual(created.status_code, 303, created.text)
+        entries = self.ws.load_json(str(self.logs_path), [])
+        self.assertEqual(len(entries), 1)
+        log_id = entries[0]["id"]
+        self.assertEqual(entries[0]["reason"], "Initial reason")
+
+        edited = self.client.post("/log/edit", data={
+            "log_id": log_id, "target_user": "PlayerOne", "roblox_id": "12345",
+            "log_type": "Warn", "reason": "Updated reason", "return_to": "/melonly",
+        }, follow_redirects=False)
+        self.assertEqual(edited.status_code, 303, edited.text)
+        entries = self.ws.load_json(str(self.logs_path), [])
+        self.assertEqual(entries[0]["reason"], "Updated reason")
+        self.assertEqual(entries[0]["edited_by"], "Tester")
+
+        deleted = self.client.post("/log/delete", data={
+            "log_id": log_id, "return_to": "/melonly",
+        }, follow_redirects=False)
+        self.assertEqual(deleted.status_code, 303, deleted.text)
+        self.assertEqual(self.ws.load_json(str(self.logs_path), []), [])
+
+    def test_csv_bytes_keep_the_existing_bom_header_columns_and_row_order(self):
+        import csv
+        import io
+        rows = [
+            {"id": "1", "created_at": "01.11.2026 10:00", "type": "Warn",
+             "target_user": "=Formula", "roblox_id": "123", "moderator": "A", "reason": "Erste Zeile"},
+            {"id": "2", "created_at": "01.11.2026 11:00", "type": "Ban",
+             "target_user": "PlayerTwo", "roblox_id": "456", "moderator": "B", "reason": "Zweite Zeile"},
+        ]
+        self.ws.save_json(str(self.logs_path), rows)
+        response = self.client.get("/export/logs")
+        self.assertEqual(response.status_code, 200)
+        output = io.StringIO()
+        output.write("\\ufeff")
+        writer = csv.writer(output, delimiter=";")
+        writer.writerow(["ID", "Datum", "Typ", "Ziel-Nutzer", "Roblox ID", "Moderator", "Grund"])
+        writer.writerow(["1", rows[0]["created_at"], "Warn", "'=Formula", "123", "A", "Erste Zeile"])
+        writer.writerow(["2", rows[1]["created_at"], "Ban", "PlayerTwo", "456", "B", "Zweite Zeile"])
+        self.assertEqual(response.content.decode("utf-8"), output.getvalue())
+        self.assertEqual(response.headers["content-type"], "text/csv; charset=utf-8")
+
+
 if __name__ == "__main__":
     unittest.main()
