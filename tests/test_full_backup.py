@@ -439,9 +439,13 @@ class FullBackupRouteTests(unittest.TestCase):
             "export_all": lambda self: [{"id": "sqlite-row", "type": "Warn"}],
             "metadata": lambda self: {"active_backend": "sqlite", "generation": "gen-1", "revision": "4"},
         })()
+        missing_loa_db = Path(self.tmp.name) / "optional-abmeldungen.db"
         with patch.object(ws, "get_melonly_repository", return_value=fake_repository), \
+             patch.object(ws, "DB_ABMELDUNGEN", str(missing_loa_db)), \
              patch.object(ws, "load_json", side_effect=lambda _path, default: default):
             result = ws.add_panel_data({"panel_data": {}})
+        self.assertFalse(missing_loa_db.exists(), "ein Backup-Lesezugriff darf keine optionale DB anlegen")
+        self.assertEqual(result["panel_data"]["loas"], [])
         self.assertEqual(result["panel_data"]["logs"], [{"id": "sqlite-row", "type": "Warn"}])
         self.assertEqual(result["panel_data"]["melonly_storage"], {
             "backend": "sqlite",

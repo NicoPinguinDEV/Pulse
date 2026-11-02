@@ -9020,7 +9020,7 @@ def add_panel_data(data: dict) -> dict:
     data["panel_data"]["transcripts"] = transcripts
 
     try:
-        with closing(sqlite3.connect(DB_ABMELDUNGEN, timeout=3.0)) as conn, conn:
+        with pulse_sqlite.connect_readonly(DB_ABMELDUNGEN, timeout=3.0) as conn:
             rows = conn.execute(
                 "SELECT user_id,user_name,grund,von,bis,original_nick,guild_id FROM abmeldungen"
             ).fetchall()
