@@ -7,11 +7,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from application_data_audit import audit_application_data  # noqa: E402
+from application_data_audit import _calendar_events, audit_application_data  # noqa: E402
 
 
 class ApplicationDataAuditTests(unittest.TestCase):
@@ -99,11 +100,13 @@ class ApplicationDataAuditTests(unittest.TestCase):
         self.assertEqual(report["employment"]["records_without_team_since"], 1)
         self.assertEqual(report["interviews"]["rows"], 2)
         self.assertEqual(report["interviews"]["orphan_application_refs"], 1)
+        self.assertEqual(report["interviews"]["orphan_interview_records"], 1)
         self.assertEqual(report["interviews"]["application_interview_references"], 3)
         self.assertEqual(report["interviews"]["application_refs_without_matching_interview"], 1)
         self.assertEqual(report["interviews"]["application_interview_id_mismatches"], 1)
         self.assertEqual(report["calendar"]["application_appointment_references"], 2)
         self.assertEqual(report["calendar"]["references_without_matching_event"], 1)
+        self.assertEqual(report["calendar"]["event_ids_shared_by_multiple_applications"], 0)
         self.assertTrue(report["readiness"]["requires_review"])
 
     def test_report_does_not_emit_names_ids_answers_notes_or_event_ids(self):
@@ -123,6 +126,78 @@ class ApplicationDataAuditTests(unittest.TestCase):
         self.assertFalse(report["interviews"]["database_provided"])
         self.assertFalse(report["calendar"]["database_provided"])
         self.assertTrue(report["readiness"]["requires_review"])
+
+    def test_database_with_missing_expected_tables_requires_review_even_without_refs(self):
+        empty_suite = self.base / "empty_suite.db"
+        empty_pulse = self.base / "empty_pulse.db"
+        sqlite3.connect(empty_suite).close()
+        sqlite3.connect(empty_pulse).close()
+
+        report = audit_application_data({}, {}, empty_suite, empty_pulse)
+
+        self.assertFalse(report["interviews"]["table_found"])
+        self.assertFalse(report["calendar"]["table_found"])
+        self.assertTrue(report["readiness"]["requires_review"])
+
+    def test_detects_interview_rows_without_application_or_interview_ids(self):
+        with sqlite3.connect(self.suite_db) as con:
+            con.execute(
+                "INSERT INTO suite_interviews VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                ("int_unassigned", None, "", "", "{}", None, "", "", "", "", ""),
+            )
+            con.execute(
+                "INSERT INTO suite_interviews VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                ("", "hired_app", "", "", "{}", None, "", "", "", "", ""),
+            )
+
+        report = audit_application_data(
+            self.applications, self.team_data, self.suite_db, self.pulse_db
+        )
+
+        self.assertEqual(report["interviews"]["interview_rows_without_application_id"], 1)
+        self.assertEqual(report["interviews"]["interview_rows_without_id"], 1)
+        self.assertEqual(report["interviews"]["orphan_interview_records"], 2)
+        self.assertTrue(report["readiness"]["requires_review"])
+
+    def test_detects_calendar_event_referenced_by_multiple_applications(self):
+        applications = dict(self.applications)
+        applications["another_application"] = {
+            "status": "pending",
+            "interview_event_id": "evt_private",
+        }
+
+        report = audit_application_data(
+            applications, self.team_data, self.suite_db, self.pulse_db
+        )
+
+        self.assertEqual(report["calendar"]["event_ids_shared_by_multiple_applications"], 1)
+        self.assertTrue(report["readiness"]["requires_review"])
+
+    def test_calendar_sqlite_connection_is_closed(self):
+        connection = MagicMock()
+        table_cursor = MagicMock()
+        table_cursor.fetchone.return_value = (1,)
+        rows_cursor = MagicMock()
+        rows_cursor.fetchall.return_value = [{"id": "event"}]
+        connection.execute.side_effect = [table_cursor, rows_cursor]
+
+        with patch("application_data_audit._readonly_db", return_value=connection):
+            result = _calendar_events(self.pulse_db)
+
+        self.assertTrue(result["table_found"])
+        connection.close.assert_called_once_with()
+
+    def test_employment_status_detection_uses_same_normalization_as_status_buckets(self):
+        applications = {
+            "hired_app": {
+                "user_id": "111111111111111111",
+                "status": " HIRED ",
+            }
+        }
+        report = audit_application_data(applications, self.team_data)
+
+        self.assertEqual(report["applications"]["states"]["hired"], 1)
+        self.assertEqual(report["employment"]["accepted_or_hired_records"], 1)
 
     def test_sqlite_inputs_are_read_only_and_existing_metadata_is_unchanged(self):
         with sqlite3.connect(self.suite_db) as con:
