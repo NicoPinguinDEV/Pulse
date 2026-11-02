@@ -64,9 +64,8 @@ def _json_repository(path: Path) -> JsonMelonlyRepository:
 
 def _operations(rows: list[dict[str, Any]]) -> dict[str, Callable[[Any], Any]]:
     middle = len(rows) // 2
-    player_slot = rows[middle]["fixture_sequence"] % 5_000
-    player_name = f"Spieler-{player_slot:05d}"
-    player_id = str(1_000_000_000 + player_slot)
+    player_name = rows[middle]["target_user"]
+    player_id = rows[middle]["roblox_id"]
     unique_marker = f"marker-{len(rows) - 1:08d}"
     record_id = rows[-1]["id"]
     return {
