@@ -285,8 +285,11 @@ class JsonMelonlyRepository:
         return copy.deepcopy(rows)
 
     def iter_all(self, batch_size: int = 500):
-        # JSON is already materialized by load_json; preserve complete list order.
-        yield from self.export_all()
+        # Copy one row at a time: CSV/backup consumers need the full sequence,
+        # but should not duplicate the entire cached dataset in memory.
+        rows, _indexes = self._snapshot()
+        for entry in rows:
+            yield copy.deepcopy(entry)
 
     def player_history(self, query: str) -> list[Any]:
         needle = str(query or "").strip()[:80].lstrip("@").strip().casefold()
