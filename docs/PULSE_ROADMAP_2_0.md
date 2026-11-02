@@ -1,8 +1,8 @@
 # Pulse TeamOS – Roadmap 2.0
 
 **Strategische Entwicklungsplanung für Discord-Bot und Web-Dashboard · © BOCHUM RP | V1**  
-**Stand:** 01.11.2026  
-**Verbindliche Ausgangsbasis:** main @ 690b14bbca79f694c103a5d8d4f0a19e450f84df (Merge von PR #112)  
+**Stand:** 02.11.2026  
+**Verbindliche Ausgangsbasis:** main @ 7208736c6f8445de81465937f0990be40389071a (nach PR #129)  
 **Produktionsumgebung:** Ubuntu 24.04 · 2 vCores · 2 GB RAM · 50 GB SSD
 
 > Diese Roadmap beschreibt die langfristige Richtung und die Reihenfolge der nächsten Entwicklungsblöcke. Sie ersetzt nicht die technischen Einzelnachweise in den Phasenberichten und nicht die verbindlichen Sicherheitsregeln aus CLAUDE.md. Der detaillierte Alt-Aufgabenbestand bleibt in VERBESSERUNGSPLAN.md; vorhandene Funktionen werden vor jeder Umsetzung im aktuellen Code geprüft.
@@ -84,7 +84,7 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 
 ### Phase 15 – Datenhaltung, Datenintegrität und Wachstum
 
-**Priorität:** P0 · **Status:** in Arbeit (Phase 15.1 – Speichervertrag) · **Abhängigkeit:** keine
+**Priorität:** P0 · **Status:** Phase 15.4 abgeschlossen; Phase 15.5 in Vorbereitung · **Abhängigkeit:** keine
 
 **Ziel:** Wachsende Dateien sicher behandeln und Datenmigrationen nachvollziehbar, messbar und rückgängig machbar durchführen.
 
@@ -94,9 +94,11 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 | 15.1 | logs.json: Speicher- und Abfragekonzept | Entwurf für Schema, Repository-Vertrag, Transaktionsgrenzen, Migration, Rollback, Backup und Regressionstests: [PHASE15_1_LOGS_STORAGE_DESIGN.md](PHASE15_1_LOGS_STORAGE_DESIGN.md). Abnahme und Review stehen noch aus. |
 | 15.2 | logs.json: inkrementelle SQLite-Umsetzung | Indexe passen zu echten Abfragen; Dashboard-/Melonly-Ausgaben bleiben fachlich identisch. JSON-Kompatibilität und Rückweg sind getestet. |
 | 15.3 | applications.json: Datenschutz- und Migrationsprüfung | Alle Verbraucher und Schreibpfade sind bekannt. Die beschlossene Aufbewahrung von sechs Monaten und der noch offene verantwortliche Kontakt für den Bewerbungshinweis werden berücksichtigt. |
-| 15.4 | applications.json: Migration in einer eigenen Teilphase | Daten, Status, Anhänge/Verweise und Altformate bleiben erhalten. Aufbewahrung ist nachvollziehbar, protokolliert und standardmäßig nicht überraschend aktiviert. |
-| 15.5 | Backup-/Restore-Probelauf | Vorschau des Restore-Diffs, Sicherheitskopie, Validierung und Wiederherstellung werden mit synthetischen Daten und isolierten Pfaden getestet. |
-| 15.6 | Weitere JSON-/SQLite-Dateien bewerten | Kleine Datenbanken werden einzeln bewertet. Eine Zusammenführung erfolgt nur, wenn Eigentümerschaft, Tabellenkollisionen, Backup und Rückweg geklärt sind. |
+| 15.4a | Melonly 100K: Cache, Indizes, SQLite-Abfragen und speicherschonender Export | Code in PR #128 gemergt. JSON bleibt Produktiv-Backend; keine automatische Migration oder Umschaltung. |
+| 15.4b | Melonly 100K: Performance-Nachweis | 20K-/100K-Benchmark mit drei Wiederholungen und bestandenen Paritätsprüfungen dokumentiert: [PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md](PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md). Messwerte stammen vom GitHub-Runner, nicht vom VPS. |
+| 15.5 | Datenintegrität und Wiederherstellung | Vollständiger synthetischer Backup-/Restore-Rehearsal bei 100K; SQLite-Metadaten und Integrität prüfen; abrupten Prozessabbruch mit Wiederherstellung aus Safety-Backup simulieren; JSON-Rückexport mit Generation-/Revision-Guard testen. |
+| 15.6 | applications.json: Migration in einer eigenen Teilphase | Daten, Status, Anhänge/Verweise und Altformate bleiben erhalten. Aufbewahrung ist nachvollziehbar, protokolliert und standardmäßig nicht überraschend aktiviert. |
+| 15.7 | Weitere JSON-/SQLite-Dateien bewerten | Kleine Datenbanken werden einzeln bewertet. Eine Zusammenführung erfolgt nur, wenn Eigentümerschaft, Tabellenkollisionen, Backup und Rückweg geklärt sind. |
 
 **Separater Betriebsschritt – Schichthistorie aktivieren:** Die Umschaltung von PULSE_SHIFT_HISTORY_BACKEND auf sqlite ist kein automatischer Teil dieser Codephase. Erst nach geprüftem Backup, dokumentiertem Status und ausdrücklicher Freigabe darf sie auf dem VPS erfolgen. Der Rückweg auf JSON muss genauso dokumentiert bleiben.
 
