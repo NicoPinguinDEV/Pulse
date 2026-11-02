@@ -165,8 +165,8 @@ class MelonlyStore:
                 break
             updates = []
             for row in rows:
-                raw = str(row["roblox_id"] or "").strip()
-                updates.append((raw if raw.isdigit() else None, int(row["seq"])))
+                raw = str(row[1] or "").strip()
+                updates.append((raw if raw.isdigit() else None, int(row[0])))
             con.executemany(
                 "UPDATE melonly_logs SET roblox_id_key=? WHERE seq=?", updates
             )
@@ -458,7 +458,7 @@ class MelonlyStore:
                     if player_id(entry := json.loads(row["payload"])) == needle
                 ]
 
-            if not candidates and not needle.isdigit() or (not candidates and not has_id_index_column):
+            if not candidates:
                 exact_rows = con.execute(
                     """SELECT payload FROM melonly_logs
                        WHERE target_user_key=?
