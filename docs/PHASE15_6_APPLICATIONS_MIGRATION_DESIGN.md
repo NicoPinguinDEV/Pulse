@@ -51,7 +51,7 @@ Der Bericht enthält nur:
 - fehlende Kalenderereignisse und Kalender-IDs, die von mehreren Bewerbungen geteilt werden;
 - einen booleschen Prüfhinweis.
 
-Nicht ausgegeben werden Namen, Discord-IDs, Bewerbungs-IDs, Antworten, Bewertungen, Notizen, Termin-IDs oder rohe JSON-Payloads. SQLite wird mit `mode=ro` geöffnet. Die Tests nutzen synthetische Daten und prüfen, dass Datenbank-Metadaten unverändert bleiben. Auch fehlerhafte Interviewzeilen ohne ID/Bewerbungsreferenz, fehlende erwartete Tabellen, unvollständige Tabellenschemata, mehrfach verwendete Kalender-IDs und das Schließen der SQLite-Verbindungen werden getestet.
+Nicht ausgegeben werden Namen, Discord-IDs, Bewerbungs-IDs, Antworten, Bewertungen, Notizen, Termin-IDs oder rohe JSON-Payloads. SQLite wird mit `mode=ro` geöffnet. Die Tests nutzen synthetische Daten und prüfen, dass Datenbank-Metadaten unverändert bleiben. Auch fehlerhafte Interviewzeilen ohne ID/Bewerbungsreferenz, fehlende erwartete Tabellen, ID-Primärschlüssel, doppelte Datenbank-IDs, mehrfach verwendete Kalenderreferenzen und das Schließen der SQLite-Verbindungen werden getestet.
 
 Beispiel für einen lokalen Export-Ordner:
 
@@ -115,7 +115,9 @@ Für alte `accepted`-/`hired`-Fälle muss vor dem Backfill geprüft werden, ob s
 
 Die erste Migration lässt `suite_interviews` in `pulse_suite.db` und `calendar_events` in `pulse.db`; ein Zusammenführen der Datenbanken ist nicht Teil von 15.6.
 
-Zu jedem Bewerbungsdatensatz werden die strukturierten Referenzen explizit verfolgt:
+**Grenze der heutigen Kalenderdaten:** `calendar_events` besitzt keine strukturierte `application_id`. Der Audit kann deshalb nur noch vorhandene `interview_event_id`-Verweise prüfen. Bereits verwaiste Termine nach einer früheren Löschung der Bewerbungsakte lassen sich nicht sicher identifizieren. Titel- oder Freitextsuche ist ausdrücklich kein zulässiger Ersatz. Die spätere Retention muss die Event-ID vor dem Entfernen des Bewerbungsdatensatzes in einem Löschjournal sichern oder eine strukturierte Eigentümer-Referenz einführen.
+
+Zu jedem noch vorhandenen Bewerbungsdatensatz werden die strukturierten Referenzen explizit verfolgt:
 - `interview_id` ↔ `suite_interviews.id` und `suite_interviews.application_id`;
 - `interview_event_id` ↔ `calendar_events.id`;
 - Reminder-Felder innerhalb der Bewerbungsakte.
