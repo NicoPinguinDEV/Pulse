@@ -241,7 +241,7 @@ class MelonlyActiveRouteTests(unittest.TestCase):
         response = self.client.get("/export/logs")
         self.assertEqual(response.status_code, 200)
         output = io.StringIO()
-        output.write("\\ufeff")
+        output.write("\ufeff")
         writer = csv.writer(output, delimiter=";")
         writer.writerow(["ID", "Datum", "Typ", "Ziel-Nutzer", "Roblox ID", "Moderator", "Grund"])
         writer.writerow(["1", rows[0]["created_at"], "Warn", "'=Formula", "123", "A", "Erste Zeile"])
