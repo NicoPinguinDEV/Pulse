@@ -44,7 +44,7 @@ Neues Werkzeug: `tools/application_data_audit.py`.
 Es erwartet explizite Pfade zu `applications.json` und `team_data.json`; die Datenbanken können zusätzlich als Pfade übergeben werden. Es durchsucht keine Standard-/Produktivpfade und führt keine SQL-Schreiboperation aus.
 
 Der Bericht enthält nur:
-- Anzahl der Bewerbungsobjekte und Status-Buckets;
+- Anzahl der Bewerbungsobjekte und feste Status-Buckets (nur bekannte Statusnamen; unbekannte/freie Werte werden zusammengefasst);
 - Datensätze mit fehlender Nutzer-ID oder unbekanntem Status;
 - `accepted`-/`hired`-Anzahl und fehlende `team_since`-Werte;
 - verwaiste oder nicht passende Interview-Referenzen;
