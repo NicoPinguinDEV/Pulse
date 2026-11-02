@@ -144,6 +144,7 @@ class MelonlyMigrationTests(unittest.TestCase):
         entries = [
             {"id": "a", "target_user": "Alpha", "roblox_id": " 100 ", "type": "Warn"},
             {"id": "b", "target_user": "Beta", "roblox_id": "200", "type": "Ban"},
+            {"id": "zero", "target_user": "NumericZero", "roblox_id": 0, "type": "Notiz"},
         ]
         raw = self.write_source(entries)
         source_hash = hashlib.sha256(raw).hexdigest()
@@ -203,8 +204,12 @@ class MelonlyMigrationTests(unittest.TestCase):
             self.assertIn("roblox_id_key", columns)
             self.assertEqual(
                 con.execute("SELECT roblox_id_key FROM melonly_logs ORDER BY seq").fetchall(),
-                [("100",), ("200",)],
+                [("100",), ("200",), (None,)],
             )
+        self.assertEqual(
+            [entry["id"] for entry in MelonlyStore(self.database).player_history("0")],
+            [],
+        )
             self.assertEqual(con.execute("PRAGMA integrity_check").fetchone()[0], "ok")
 
 if __name__ == "__main__":
