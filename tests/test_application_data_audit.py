@@ -68,7 +68,7 @@ class ApplicationDataAuditTests(unittest.TestCase):
             },
             "future_status": {
                 "user_id": "555555555555555555",
-                "status": "withdrawn",
+                "status": "private-status-value-should-not-leak",
                 "interview_id": "int_orphan",
             },
             "missing_user": {
@@ -113,6 +113,7 @@ class ApplicationDataAuditTests(unittest.TestCase):
         for private_value in (
             "Private Applicant", "Other Private Applicant", "Private interview notes",
             "111111111111111111", "222222222222222222", "evt_private", "int_private",
+            "private-status-value-should-not-leak",
         ):
             with self.subTest(value=private_value):
                 self.assertNotIn(private_value, serialized)
