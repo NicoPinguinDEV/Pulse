@@ -198,7 +198,8 @@ class MelonlyStore:
 
     def latest_matching_types(self, log_types: Iterable[str], limit: int = 120) -> list[Any]:
         """Return matching records newest-first, preserving the legacy page limit."""
-        allowed = tuple(dict.fromkeys(str(value) for value in log_types))
+        raw_allowed = tuple(log_types)
+        allowed = tuple(dict.fromkeys(str(value) for value in raw_allowed))
         safe_limit = max(0, min(int(limit), 10000))
         if not allowed or not safe_limit:
             return []
@@ -215,7 +216,7 @@ class MelonlyStore:
         matched = [
             entry for row in rows
             if isinstance((entry := json.loads(row["payload"])), Mapping)
-            and entry.get("type") in log_types
+            and entry.get("type") in raw_allowed
         ]
         return matched[:safe_limit]
 
