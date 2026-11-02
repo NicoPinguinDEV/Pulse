@@ -179,7 +179,6 @@ def audit_application_data(
             "applications_with_multiple_interviews": interviews["applications_with_multiple_interviews"],
             "application_interview_id_mismatches": interviews["application_interview_id_mismatches"],
             "application_interview_references": interview_references,
-            "application_interview_references": interview_references,
             "application_refs_without_matching_interview": missing_interview_records,
         },
         "calendar": {
