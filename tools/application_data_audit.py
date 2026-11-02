@@ -139,7 +139,8 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
         }
         if not {"id", "application_id"}.issubset(columns):
             return {**empty, "table_found": True}
-        schema_valid = int(columns["id"]["pk"] or 0) > 0
+        primary_key_columns = sum(int(column["pk"] or 0) > 0 for column in columns.values())
+        schema_valid = int(columns["id"]["pk"] or 0) > 0 and primary_key_columns == 1
         rows = connection.execute(
             "SELECT id, application_id FROM suite_interviews"
         ).fetchall()
@@ -204,7 +205,8 @@ def _calendar_events(path: str | Path | None) -> dict[str, Any]:
                 "provided": True, "table_found": True, "schema_valid": False, "rows": 0,
                 "rows_without_id": 0, "duplicate_event_ids": 0, "_ids": set(),
             }
-        schema_valid = int(columns["id"]["pk"] or 0) > 0
+        primary_key_columns = sum(int(column["pk"] or 0) > 0 for column in columns.values())
+        schema_valid = int(columns["id"]["pk"] or 0) > 0 and primary_key_columns == 1
         rows = connection.execute("SELECT id FROM calendar_events").fetchall()
     event_id_counts = Counter(
         str(row["id"]).strip() for row in rows if str(row["id"] or "").strip()
