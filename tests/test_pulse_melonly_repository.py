@@ -353,6 +353,9 @@ class MelonlyJsonSnapshotCacheTests(unittest.TestCase):
             first[0]["reason"] = "caller mutation"
             self.assertTrue(repo.export_all()[0]["extra"]["keep"])
             self.assertEqual(repo.export_all()[0]["reason"], "Initial")
+            streamed = next(repo.iter_all())
+            streamed["reason"] = "stream consumer mutation"
+            self.assertEqual(repo.export_all()[0]["reason"], "Initial")
             self.assertEqual(calls["loads"], 1)
 
             replacement = [{"id": "two", "target_user": "Beta", "roblox_id": "200",
