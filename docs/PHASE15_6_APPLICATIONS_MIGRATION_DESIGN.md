@@ -47,11 +47,11 @@ Der Bericht enthält nur:
 - Anzahl der Bewerbungsobjekte und feste Status-Buckets (nur bekannte Statusnamen; unbekannte/freie Werte werden zusammengefasst);
 - Datensätze mit fehlender Nutzer-ID oder unbekanntem Status;
 - `accepted`-/`hired`-Anzahl und fehlende `team_since`-Werte;
-- verwaiste oder nicht passende Interview-Referenzen;
-- fehlende Kalenderereignisse;
+- verwaiste, nicht zugeordnete, doppelte oder nicht passende Interview-Referenzen;
+- fehlende Kalenderereignisse und Kalender-IDs, die von mehreren Bewerbungen geteilt werden;
 - einen booleschen Prüfhinweis.
 
-Nicht ausgegeben werden Namen, Discord-IDs, Bewerbungs-IDs, Antworten, Bewertungen, Notizen, Termin-IDs oder rohe JSON-Payloads. SQLite wird mit `mode=ro` geöffnet. Die Tests nutzen synthetische Daten und prüfen, dass Datenbank-Metadaten unverändert bleiben.
+Nicht ausgegeben werden Namen, Discord-IDs, Bewerbungs-IDs, Antworten, Bewertungen, Notizen, Termin-IDs oder rohe JSON-Payloads. SQLite wird mit `mode=ro` geöffnet. Die Tests nutzen synthetische Daten und prüfen, dass Datenbank-Metadaten unverändert bleiben. Auch fehlerhafte Interviewzeilen ohne ID/Bewerbungsreferenz, nicht vorhandene erwartete Tabellen, mehrfach verwendete Kalender-IDs und das Schließen der SQLite-Verbindungen werden getestet.
 
 Beispiel für einen lokalen Export-Ordner:
 
