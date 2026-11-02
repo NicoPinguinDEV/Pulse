@@ -100,7 +100,9 @@ class ApplicationEligibilityTests(unittest.TestCase):
     def test_application_managers_can_see_decision_controls(self):
         source = read_web()
         applications = function_source(source, "applications_page")
-        self.assertIn('can_decide = ctx.perms["can_manage_applications"] or ctx.perms["can_promote"] or ctx.perms["is_admin"]', applications)
+        self.assertIn("can_review = can_review_applications(ctx)", applications)
+        self.assertIn("can_decide = can_review", applications)
+        self.assertIn("def can_review_applications(ctx)", source)
 
     def test_accepting_application_only_invites_to_mandatory_interview(self):
         source = read_web()
