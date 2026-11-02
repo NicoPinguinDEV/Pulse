@@ -205,17 +205,58 @@ class ApplicationDataAuditTests(unittest.TestCase):
         self.assertTrue(result["table_found"])
         connection.close.assert_called_once_with()
 
-    def test_employment_status_detection_uses_same_normalization_as_status_buckets(self):
+    def test_noncanonical_employment_status_is_not_accepted_by_runtime_or_audit(self):
         applications = {
             "hired_app": {
                 "user_id": "111111111111111111",
                 "status": " HIRED ",
             }
         }
-        report = audit_application_data(applications, self.team_data)
+        report = audit_application_data(applications, self.team_data, self.suite_db, self.pulse_db)
 
-        self.assertEqual(report["applications"]["states"]["hired"], 1)
+        self.assertNotIn("hired", report["applications"]["states"])
+        self.assertEqual(report["applications"]["unknown_or_missing_states"], 1)
+        self.assertEqual(report["employment"]["accepted_or_hired_records"], 0)
+        self.assertTrue(report["readiness"]["requires_review"])
+
+    def test_employment_decided_at_fallback_matches_team_since_runtime(self):
+        applications = {
+            "hired_app": {
+                "user_id": "111111111111111111",
+                "status": "hired",
+                "decided_at": "02.11.2026 10:30",
+            }
+        }
+        report = audit_application_data(applications, {}, self.suite_db, self.pulse_db)
+
         self.assertEqual(report["employment"]["accepted_or_hired_records"], 1)
+        self.assertEqual(report["employment"]["records_without_team_since"], 0)
+
+    def test_discord_id_does_not_replace_user_id_for_team_since_lookup(self):
+        applications = {
+            "hired_app": {
+                "discord_id": "111111111111111111",
+                "status": "hired",
+                "decided_at": "invalid-date",
+            }
+        }
+        report = audit_application_data(
+            applications,
+            {"111111111111111111": {"team_since": "2026-10-01T10:00:00+02:00"}},
+            self.suite_db,
+            self.pulse_db,
+        )
+
+        self.assertEqual(report["applications"]["missing_user_ids"], 1)
+        self.assertEqual(report["employment"]["records_without_team_since"], 1)
+        self.assertTrue(report["readiness"]["requires_review"])
+
+    def test_missing_databases_require_review_even_without_application_references(self):
+        report = audit_application_data({}, {})
+
+        self.assertFalse(report["interviews"]["database_provided"])
+        self.assertFalse(report["calendar"]["database_provided"])
+        self.assertTrue(report["readiness"]["requires_review"])
 
     def test_sqlite_inputs_are_read_only_and_existing_metadata_is_unchanged(self):
         with sqlite3.connect(self.suite_db) as con:
