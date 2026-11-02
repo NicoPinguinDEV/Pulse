@@ -69,10 +69,12 @@ class ApplicationDataAuditTests(unittest.TestCase):
             "future_status": {
                 "user_id": "555555555555555555",
                 "status": "withdrawn",
+                "interview_id": "int_orphan",
             },
             "missing_user": {
                 "status": "pending",
             },
+            "invalid_record": "not-an-object",
         }
         self.team_data = {
             "111111111111111111": {"team_since": "2026-10-01T10:00:00+02:00"},
@@ -88,14 +90,18 @@ class ApplicationDataAuditTests(unittest.TestCase):
 
         self.assertTrue(report["read_only"])
         self.assertFalse(report["personal_data_emitted"])
-        self.assertEqual(report["applications"]["records"], 4)
+        self.assertEqual(report["applications"]["records"], 5)
+        self.assertEqual(report["applications"]["valid_object_records"], 4)
+        self.assertEqual(report["applications"]["non_object_records"], 1)
         self.assertEqual(report["applications"]["unknown_or_missing_states"], 1)
         self.assertEqual(report["applications"]["missing_user_ids"], 1)
         self.assertEqual(report["employment"]["accepted_or_hired_records"], 2)
         self.assertEqual(report["employment"]["records_without_team_since"], 1)
         self.assertEqual(report["interviews"]["rows"], 2)
         self.assertEqual(report["interviews"]["orphan_application_refs"], 1)
+        self.assertEqual(report["interviews"]["application_interview_references"], 3)
         self.assertEqual(report["interviews"]["application_refs_without_matching_interview"], 1)
+        self.assertEqual(report["interviews"]["application_interview_id_mismatches"], 1)
         self.assertEqual(report["calendar"]["application_appointment_references"], 2)
         self.assertEqual(report["calendar"]["references_without_matching_event"], 1)
         self.assertTrue(report["readiness"]["requires_review"])
