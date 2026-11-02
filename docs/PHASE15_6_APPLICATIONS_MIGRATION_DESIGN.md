@@ -46,7 +46,7 @@ Es erwartet explizite Pfade zu `applications.json` und `team_data.json`; die Dat
 Der Bericht enthält nur:
 - Anzahl der Bewerbungsobjekte und feste Status-Buckets (nur bekannte Statusnamen; unbekannte/freie Werte werden zusammengefasst);
 - Datensätze mit fehlender Nutzer-ID oder unbekanntem Status;
-- `accepted`-/`hired`-Anzahl und fehlende `team_since`-Werte;
+- `accepted`-/`hired`-Anzahl und nicht auflösbare Team-Eintrittszeitpunkte nach derselben `user_id`-, Status- und Fallback-Logik wie `team_since_for`;
 - verwaiste, nicht zugeordnete, doppelte oder nicht passende Interview-Referenzen;
 - fehlende Kalenderereignisse und Kalender-IDs, die von mehreren Bewerbungen geteilt werden;
 - einen booleschen Prüfhinweis.
@@ -63,7 +63,7 @@ python tools/application_data_audit.py \
   --pulse-db /path/to/export/pulse.db
 ```
 
-Das Werkzeug verändert keine Dateien. Ein erfolgreicher Exit-Code bedeutet nur, dass der Bericht lesbar erstellt wurde; `readiness.requires_review` bleibt bei offenen Referenzen oder fehlender Datenbankprüfung gesetzt.
+Das Werkzeug verändert keine Dateien. Ein erfolgreicher Exit-Code bedeutet nur, dass der Bericht lesbar erstellt wurde; `readiness.requires_review` bleibt bei offenen Referenzen oder fehlender Datenbankprüfung gesetzt. Beide Referenzdatenbanken müssen für einen vollständigen Audit explizit angegeben werden – auch wenn keine Bewerbungsreferenzen vorhanden sind, da sonst eigenständige verwaiste Datensätze unentdeckt bleiben können.
 
 ## 3. Zielarchitektur für die spätere Umsetzung
 
