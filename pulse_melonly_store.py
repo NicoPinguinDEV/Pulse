@@ -185,22 +185,27 @@ class MelonlyStore:
         if "roblox_id_key" not in columns:
             con.execute("ALTER TABLE melonly_logs ADD COLUMN roblox_id_key TEXT")
 
-        cursor = con.execute("SELECT seq,roblox_id FROM melonly_logs ORDER BY seq ASC")
-        while True:
-            rows = cursor.fetchmany(2000)
-            if not rows:
-                break
-            updates = []
-            for row in rows:
-                raw = str(row[1] or "").strip()
-                updates.append((raw if raw.isdigit() else None, int(row[0])))
-            con.executemany(
-                "UPDATE melonly_logs SET roblox_id_key=? WHERE seq=?", updates
+        index_exists = con.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type='index' AND name='idx_melonly_logs_player_id_key'"""
+        ).fetchone()
+        if not index_exists:
+            cursor = con.execute("SELECT seq,roblox_id FROM melonly_logs ORDER BY seq ASC")
+            while True:
+                rows = cursor.fetchmany(2000)
+                if not rows:
+                    break
+                updates = []
+                for row in rows:
+                    raw = str(row[1] or "").strip()
+                    updates.append((raw if raw.isdigit() else None, int(row[0])))
+                con.executemany(
+                    "UPDATE melonly_logs SET roblox_id_key=? WHERE seq=?", updates
+                )
+            con.execute(
+                """CREATE INDEX IF NOT EXISTS idx_melonly_logs_player_id_key
+                   ON melonly_logs(roblox_id_key,seq)"""
             )
-        con.execute(
-            """CREATE INDEX IF NOT EXISTS idx_melonly_logs_player_id_key
-               ON melonly_logs(roblox_id_key,seq)"""
-        )
 
     @staticmethod
     def initialize_in_transaction(con: sqlite3.Connection) -> None:
