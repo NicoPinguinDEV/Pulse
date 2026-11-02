@@ -15,6 +15,11 @@ on:
         required: true
         default: "3"
         type: string
+      restore_rehearsal:
+        description: "Instead of the benchmark, run the isolated 100K backup/restore rehearsal"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -25,6 +30,7 @@ concurrency:
 
 jobs:
   benchmark:
+    if: ${{ inputs.restore_rehearsal != true }}
     name: Melonly JSON vs SQLite (2 vCPU / 2 GB)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -69,3 +75,46 @@ jobs:
             fi
             echo 'JSON_RESULT_END'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  restore-rehearsal:
+    if: ${{ inputs.restore_rehearsal == true }}
+    name: Melonly 100K backup / restore rehearsal (2 vCPU / 2 GB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Docker-Image bauen
+        run: docker build --pull -t pulse-melonly-restore:${{ github.sha }} .
+      - name: Isolierten Rehearsal ausführen
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --memory=2g --memory-swap=2g --cpus=2 --read-only \
+            --env TMPDIR=/tmp --env PYTHONPATH=/app \
+            --tmpfs /tmp:rw,size=1g --entrypoint python \
+            pulse-melonly-restore:${{ github.sha }} tools/melonly_restore_rehearsal.py \
+            --entries 100000 | tee melonly_restore_rehearsal.json
+      - name: Rehearsal-Ergebnis veröffentlichen
+        if: always()
+        run: |
+          {
+            echo '## Melonly Backup / Restore Rehearsal'
+            echo
+            echo 'Nur synthetische Daten · kein Produktiv-Backend geändert'
+            echo
+            echo 'JSON_RESULT_BEGIN'
+            if [[ -s melonly_restore_rehearsal.json ]]; then
+              cat melonly_restore_rehearsal.json
+            else
+              echo "Kein Ergebnis erzeugt – siehe fehlgeschlagenen Rehearsal-Schritt."
+            fi
+            echo 'JSON_RESULT_END'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Rehearsal-JSON als Artefakt speichern
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: melonly-restore-rehearsal-${{ github.run_id }}
+          path: melonly_restore_rehearsal.json
+          if-no-files-found: warn
+          retention-days: 14
