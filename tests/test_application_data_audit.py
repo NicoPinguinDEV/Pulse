@@ -139,6 +139,22 @@ class ApplicationDataAuditTests(unittest.TestCase):
         self.assertFalse(report["calendar"]["table_found"])
         self.assertTrue(report["readiness"]["requires_review"])
 
+    def test_tables_with_incomplete_schema_require_review(self):
+        bad_suite = self.base / "bad_suite.db"
+        bad_pulse = self.base / "bad_pulse.db"
+        with sqlite3.connect(bad_suite) as con:
+            con.execute("CREATE TABLE suite_interviews(id TEXT)")
+        with sqlite3.connect(bad_pulse) as con:
+            con.execute("CREATE TABLE calendar_events(title TEXT)")
+
+        report = audit_application_data({}, {}, bad_suite, bad_pulse)
+
+        self.assertTrue(report["interviews"]["table_found"])
+        self.assertFalse(report["interviews"]["schema_valid"])
+        self.assertTrue(report["calendar"]["table_found"])
+        self.assertFalse(report["calendar"]["schema_valid"])
+        self.assertTrue(report["readiness"]["requires_review"])
+
     def test_detects_interview_rows_without_application_or_interview_ids(self):
         with sqlite3.connect(self.suite_db) as con:
             con.execute(
