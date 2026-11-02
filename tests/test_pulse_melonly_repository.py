@@ -244,16 +244,27 @@ class MelonlyActiveRouteTests(unittest.TestCase):
              "target_user": "PlayerTwo", "roblox_id": "456", "moderator": "B", "reason": "Zweite Zeile"},
         ]
         self.ws.save_json(str(self.logs_path), rows)
-        response = self.client.get("/export/logs")
-        self.assertEqual(response.status_code, 200)
+        response_json = self.client.get("/export/logs")
+        self.assertEqual(response_json.status_code, 200)
         output = io.StringIO()
         output.write("\ufeff")
         writer = csv.writer(output, delimiter=";")
         writer.writerow(["ID", "Datum", "Typ", "Ziel-Nutzer", "Roblox ID", "Moderator", "Grund"])
         writer.writerow(["1", rows[0]["created_at"], "Warn", "'=Formula", "123", "A", "Erste Zeile"])
         writer.writerow(["2", rows[1]["created_at"], "Ban", "PlayerTwo", "456", "B", "Zweite Zeile"])
-        self.assertEqual(response.content.decode("utf-8"), output.getvalue())
-        self.assertEqual(response.headers["content-type"], "text/csv; charset=utf-8")
+        self.assertEqual(response_json.content.decode("utf-8"), output.getvalue())
+        self.assertEqual(response_json.headers["content-type"], "text/csv; charset=utf-8")
+
+        store = MelonlyStore(self.db_path)
+        store.initialize()
+        store.import_entries(rows, source_sha256="csv-fixture")
+        with sqlite3.connect(self.db_path) as con:
+            con.execute("UPDATE melonly_logs_meta SET value='sqlite' WHERE key='active_backend'")
+        with __import__("unittest.mock").mock.patch.dict(os.environ, {"PULSE_LOGS_BACKEND": "sqlite"}):
+            response_sqlite = self.client.get("/export/logs")
+        self.assertEqual(response_sqlite.status_code, 200)
+        self.assertEqual(response_sqlite.content, response_json.content)
+        self.assertEqual(response_sqlite.headers["content-type"], response_json.headers["content-type"])
 
 
 if __name__ == "__main__":
