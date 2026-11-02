@@ -5092,16 +5092,39 @@ def can_access_melonly(ctx) -> bool:
 
 
 
+_MELONLY_REPOSITORY_CACHE = None
+_MELONLY_REPOSITORY_CACHE_KEY = None
+
+
 def get_melonly_repository():
-    """Return the configured Melonly repository without changing or migrating data."""
-    from pulse_melonly_repository import MelonlyRepository
-    return MelonlyRepository(
-        json_path=LOGS_FILE,
-        db_path=pulse_db.DB_PATH,
-        load_json=load_json,
-        save_json=save_json,
-        io_lock=_io_lock,
+    """Return the process-wide Melonly repository without changing or migrating data.
+
+    Reusing one adapter lets the JSON backend keep its file-signature-validated
+    snapshot and search indexes between dashboard requests. A changed data path,
+    loader/saver, lock or backend setting creates a fresh adapter (important for
+    test isolation and explicit backend selection).
+    """
+    global _MELONLY_REPOSITORY_CACHE, _MELONLY_REPOSITORY_CACHE_KEY
+    key = (
+        os.path.abspath(os.fspath(LOGS_FILE)),
+        os.path.abspath(os.fspath(pulse_db.DB_PATH)),
+        id(load_json),
+        id(save_json),
+        id(_io_lock),
+        str(os.environ.get("PULSE_LOGS_BACKEND", "") or "").strip().lower(),
     )
+    with _io_lock:
+        if _MELONLY_REPOSITORY_CACHE is None or key != _MELONLY_REPOSITORY_CACHE_KEY:
+            from pulse_melonly_repository import MelonlyRepository
+            _MELONLY_REPOSITORY_CACHE = MelonlyRepository(
+                json_path=LOGS_FILE,
+                db_path=pulse_db.DB_PATH,
+                load_json=load_json,
+                save_json=save_json,
+                io_lock=_io_lock,
+            )
+            _MELONLY_REPOSITORY_CACHE_KEY = key
+        return _MELONLY_REPOSITORY_CACHE
 
 
 def can_manage_melonly_entry(ctx, entry: dict, target_type: str | None = None) -> bool:
