@@ -136,6 +136,14 @@ class FullBackupTests(unittest.TestCase):
         self.assertIn("pulse.db", report["databases"])  # still restored through the SQLite backup API
         self.assertEqual(self.cons[0].execute("SELECT COUNT(*) FROM t").fetchone()[0], 2)
 
+    def test_full_backup_permissions_are_private_on_posix(self):
+        import os
+        if os.name != "posix":
+            self.skipTest("POSIX-Backup-Dateirechte werden nur auf Serverbetriebssystemen geprüft.")
+        archive, _manifest = pulse_backup.create_full_backup(self.base, self.backups)
+        self.assertEqual(self.backups.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
+
     def test_melonly_sqlite_metadata_is_snapshotted_verified_and_restored(self):
         from pulse_melonly_store import MelonlyStore
 
