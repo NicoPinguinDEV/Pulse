@@ -70,7 +70,7 @@ def _valid_application_timestamp(value: Any) -> bool:
 
 def _has_resolvable_team_since(user_id: str, team_data: dict, records: dict[str, dict]) -> bool:
     """Mirror team_since_for(): valid team_data value first, then exact-status application fallback."""
-    if not user_id or user_id == "None":
+    if not user_id or user_id == "None" or user_id != user_id.strip():
         return False
     entry = team_data.get(user_id)
     if isinstance(entry, dict) and _valid_team_since(entry.get("team_since")):
