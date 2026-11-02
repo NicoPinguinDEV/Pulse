@@ -50,22 +50,24 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
     if path is None:
         return {"provided": False, "table_found": False, "rows": 0, "orphan_application_refs": 0,
                 "applications_with_multiple_interviews": 0, "application_interview_id_mismatches": 0,
-                "_by_application": {}, "_ids": set()}
+                "_by_application": {}, "_ids": set(), "_owner_by_id": {}}
     with closing(_readonly_db(path)) as connection:
         if not _table_exists(connection, "suite_interviews"):
             return {"provided": True, "table_found": False, "rows": 0, "orphan_application_refs": 0,
                     "applications_with_multiple_interviews": 0, "application_interview_id_mismatches": 0,
-                    "_by_application": {}, "_ids": set()}
+                    "_by_application": {}, "_ids": set(), "_owner_by_id": {}}
         rows = connection.execute(
             "SELECT id, application_id FROM suite_interviews"
         ).fetchall()
     by_application: dict[str, list[str]] = defaultdict(list)
     ids: set[str] = set()
+    owner_by_id: dict[str, str] = {}
     for row in rows:
         interview_id = str(row["id"] or "")
         application_id = str(row["application_id"] or "")
         if interview_id:
             ids.add(interview_id)
+            owner_by_id[interview_id] = application_id
         if application_id:
             by_application[application_id].append(interview_id)
     return {
@@ -77,6 +79,7 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
         "application_interview_id_mismatches": 0,
         "_by_application": dict(by_application),
         "_ids": ids,
+        "_owner_by_id": owner_by_id,
     }
 
 
@@ -176,6 +179,7 @@ def audit_application_data(
             "applications_with_multiple_interviews": interviews["applications_with_multiple_interviews"],
             "application_interview_id_mismatches": interviews["application_interview_id_mismatches"],
             "application_interview_references": interview_references,
+            "application_interview_references": interview_references,
             "application_refs_without_matching_interview": missing_interview_records,
         },
         "calendar": {
@@ -187,6 +191,7 @@ def audit_application_data(
         "readiness": {
             "requires_review": bool(
                 unknown_states or missing_user_ids or employment_without_team_since
+                or len(applications) != len(records)
                 or orphan_interviews or missing_interview_records
                 or interviews["application_interview_id_mismatches"] or missing_calendar_events
                 or (appointment_references and not calendar["table_found"])
