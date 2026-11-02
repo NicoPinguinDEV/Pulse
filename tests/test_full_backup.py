@@ -154,7 +154,7 @@ class FullBackupTests(unittest.TestCase):
             "    real_apply([target], report)\n"
             "    os._exit(73)\n"
             "pulse_backup._apply = abort_after_database\n"
-            "pulse_backup.restore_full_backup(sys.argv[2], root, root / 'backups')\n"
+            "pulse_backup.restore_full_backup(sys.argv[2], root, Path(sys.argv[3]))\n"
             "os._exit(74)\n"
         )
         env = os.environ.copy()
@@ -162,7 +162,7 @@ class FullBackupTests(unittest.TestCase):
         env["TMPDIR"] = str(crash_tmp)
         try:
             result = subprocess.run(
-                [sys.executable, "-c", child, str(self.base), str(archive)],
+                [sys.executable, "-c", child, str(self.base), str(archive), str(self.backups)],
                 cwd=str(ROOT),
                 env=env,
                 capture_output=True,
