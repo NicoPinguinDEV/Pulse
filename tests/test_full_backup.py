@@ -136,6 +136,58 @@ class FullBackupTests(unittest.TestCase):
         self.assertIn("pulse.db", report["databases"])  # still restored through the SQLite backup API
         self.assertEqual(self.cons[0].execute("SELECT COUNT(*) FROM t").fetchone()[0], 2)
 
+    def test_melonly_sqlite_metadata_is_snapshotted_verified_and_restored(self):
+        from pulse_melonly_store import MelonlyStore
+
+        # In SQLite mode logs.json remains the archived migration copy, not the live source.
+        (self.base / "logs.json").write_text('[{"id":"migration-copy"}]', encoding="utf-8")
+        store = MelonlyStore(self.base / "pulse.db")
+        store.initialize()
+        rows = [
+            {"id": "M-1", "target_user": "PlayerOne", "roblox_id": "12345",
+             "type": "Warn", "reason": "synthetic fixture", "extra": {"keep": True}}
+        ]
+        store.import_entries(rows, source_sha256="fixture-sha256")
+        with sqlite3.connect(self.base / "pulse.db") as con:
+            con.execute("UPDATE melonly_logs_meta SET value='sqlite' WHERE key='active_backend'")
+
+        archive, manifest = pulse_backup.create_full_backup(self.base, self.backups)
+        metadata = manifest["sqlite_metadata"]["db/pulse.db"]["melonly"]
+        self.assertTrue(metadata["schema_present"])
+        self.assertEqual(metadata["active_backend"], "sqlite")
+        self.assertEqual(metadata["row_count"], 1)
+        self.assertEqual(pulse_backup.verify_full_backup(archive), [])
+        preview = pulse_backup.preview_restore(archive, self.base)
+        self.assertEqual(preview["sqlite_metadata"], manifest["sqlite_metadata"])
+        trial = pulse_backup.restore_test(archive)
+        self.assertTrue(trial["ok"], trial["problems"])
+        self.assertEqual(trial["sqlite_metadata"], manifest["sqlite_metadata"])
+
+        # A manifest cannot claim a different backend/revision from the archived DB.
+        forged = self.backups / "pulse_full_20260103_000000.zip"
+        with zipfile.ZipFile(archive) as src, zipfile.ZipFile(forged, "w") as dst:
+            for item in src.infolist():
+                data = src.read(item.filename)
+                if item.filename == "manifest.json":
+                    updated = json.loads(data)
+                    updated["sqlite_metadata"]["db/pulse.db"]["melonly"]["revision"] = "999999"
+                    data = json.dumps(updated).encode("utf-8")
+                dst.writestr(item, data)
+        self.assertTrue(any("Metadaten stimmen nicht" in item
+                            for item in pulse_backup.verify_full_backup(forged)))
+
+        # Live changes after the snapshot must be rolled back to the archived generation.
+        store.append({"id": "M-2", "target_user": "Later", "type": "Ban"})
+        self.assertEqual(store.count(), 2)
+        report = pulse_backup.restore_full_backup(archive, self.base, self.backups)
+        self.assertIn("db/pulse.db", report["sqlite_metadata"])
+        self.assertEqual(store.export_all(), rows)
+        restored_meta = store.metadata()
+        self.assertEqual(restored_meta["active_backend"], "sqlite")
+        self.assertEqual(restored_meta["generation"], metadata["generation"])
+        self.assertEqual(restored_meta["revision"], metadata["revision"])
+
+
     def test_safety_copies_are_thinned_out(self):
         for _ in range(5):
             pulse_backup.create_full_backup(self.base, self.backups, prefix="pre_restore_")
