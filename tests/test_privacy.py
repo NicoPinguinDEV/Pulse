@@ -168,6 +168,59 @@ class WarningLeakTests(unittest.TestCase):
         for key in ("can_manage_applications", "can_promote", "is_admin"):
             self.assertTrue(ws.can_review_applications(SimpleNamespace(perms={key: True})), key)
 
+    def test_application_page_redacts_sensitive_answers_for_dashboard_only_users(self):
+        ws.save_json(ws.APPS_FILE, {
+            "app_private": {
+                "user_id": "987654321", "name": "BewerberExample", "status": "pending",
+                "text": "PrivateMotivationAnswer",
+                "career_label": "High-Team",
+                "test_percent": 100, "test_score": 12, "test_total": 12,
+                "test_details": [{"question": "PrivateQuestion", "selected_answer": "PrivateTestAnswer",
+                                  "correct_answer": "PrivateCorrectAnswer", "correct": True}],
+                "practical_answers": [{"title": "PrivateTask", "answer": "PrivatePracticalAnswer",
+                                       "prompt": "PrivatePrompt", "review_guide": "PrivateReviewGuide"}],
+                "reviews": {"777": {"notes": "PrivateInternalReview", "ratings": {"teamwork": 5}}},
+            }
+        })
+        client = TestClient(ws.app)
+        with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
+            response = client.get("/applications")
+        self.assertEqual(response.status_code, 200, response.text[-800:])
+        self.assertIn("BewerberExample", response.text)  # limited identity needed for the existing vote flow
+        for secret in ("PrivateMotivationAnswer", "PrivateQuestion", "PrivateTestAnswer",
+                       "PrivateCorrectAnswer", "PrivatePracticalAnswer", "PrivateReviewGuide",
+                       "PrivateInternalReview", "987654321"):
+            self.assertNotIn(secret, response.text)
+        self.assertIn("nur für Recruiting-Berechtigte sichtbar", response.text)
+
+        recruiter = dict(TEAMLER, can_manage_applications=True)
+        with patch.object(ws, "auth", fake_auth_for(recruiter)):
+            reviewed = client.get("/applications")
+        self.assertEqual(reviewed.status_code, 200, reviewed.text[-800:])
+        for secret in ("PrivateMotivationAnswer", "PrivateQuestion", "PrivatePracticalAnswer",
+                       "PrivateInternalReview", "987654321"):
+            self.assertIn(secret, reviewed.text)
+
+    def test_suite_application_and_interview_pages_require_recruiting_access(self):
+        from cogs import pulse_suite
+        pulse_suite.register_routes()
+        client = TestClient(ws.app)
+        with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
+            for url in ("/suite/applications", "/suite/applications/app_private", "/suite/interviews"):
+                response = client.get(url)
+                self.assertEqual(response.status_code, 403, url)
+
+    def test_application_json_file_is_restricted_to_service_account(self):
+        import os
+        if os.name != "posix":
+            self.skipTest("POSIX-Dateirechte werden nur auf Serverbetriebssystemen geprüft.")
+        ws.save_json(ws.APPS_FILE, {"sensitive": {"text": "answer"}})
+        os.chmod(ws.APPS_FILE, 0o644)
+        ws.secure_application_storage()
+        self.assertEqual(Path(ws.APPS_FILE).stat().st_mode & 0o777, 0o600)
+        ws.save_json(ws.APPS_FILE, {"sensitive": {"text": "updated"}})
+        self.assertEqual(Path(ws.APPS_FILE).stat().st_mode & 0o777, 0o600)
+
     def test_melonly_read_access_helper_matches_existing_permission_set(self):
         self.assertFalse(ws.can_access_melonly(SimpleNamespace(perms=dict(TEAMLER))))
         for key in ("can_warn", "can_moderate_kicks", "can_moderate_bans",
