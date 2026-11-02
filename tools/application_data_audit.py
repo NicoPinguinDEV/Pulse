@@ -134,11 +134,12 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
         if not _table_exists(connection, "suite_interviews"):
             return empty
         columns = {
-            str(row["name"])
+            str(row["name"]): row
             for row in connection.execute('PRAGMA table_info("suite_interviews")').fetchall()
         }
         if not {"id", "application_id"}.issubset(columns):
             return {**empty, "table_found": True}
+        schema_valid = int(columns["id"]["pk"] or 0) > 0
         rows = connection.execute(
             "SELECT id, application_id FROM suite_interviews"
         ).fetchall()
@@ -165,7 +166,7 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
     return {
         "provided": True,
         "table_found": True,
-        "schema_valid": True,
+        "schema_valid": schema_valid,
         "rows": len(rows),
         "orphan_application_refs": 0,
         "orphan_interview_records": 0,
@@ -186,31 +187,36 @@ def _calendar_events(path: str | Path | None) -> dict[str, Any]:
     if path is None:
         return {
             "provided": False, "table_found": False, "schema_valid": False, "rows": 0,
-            "rows_without_id": 0, "_ids": set(),
+            "rows_without_id": 0, "duplicate_event_ids": 0, "_ids": set(),
         }
     with closing(_readonly_db(path)) as connection:
         if not _table_exists(connection, "calendar_events"):
             return {
                 "provided": True, "table_found": False, "schema_valid": False, "rows": 0,
-                "rows_without_id": 0, "_ids": set(),
+                "rows_without_id": 0, "duplicate_event_ids": 0, "_ids": set(),
             }
         columns = {
-            str(row["name"])
+            str(row["name"]): row
             for row in connection.execute('PRAGMA table_info("calendar_events")').fetchall()
         }
         if "id" not in columns:
             return {
                 "provided": True, "table_found": True, "schema_valid": False, "rows": 0,
-                "rows_without_id": 0, "_ids": set(),
+                "rows_without_id": 0, "duplicate_event_ids": 0, "_ids": set(),
             }
+        schema_valid = int(columns["id"]["pk"] or 0) > 0
         rows = connection.execute("SELECT id FROM calendar_events").fetchall()
-    ids = {str(row["id"]).strip() for row in rows if str(row["id"] or "").strip()}
+    event_id_counts = Counter(
+        str(row["id"]).strip() for row in rows if str(row["id"] or "").strip()
+    )
+    ids = set(event_id_counts)
     return {
         "provided": True,
         "table_found": True,
-        "schema_valid": True,
+        "schema_valid": schema_valid,
         "rows": len(rows),
         "rows_without_id": sum(not str(row["id"] or "").strip() for row in rows),
+        "duplicate_event_ids": sum(count > 1 for count in event_id_counts.values()),
         "_ids": ids,
     }
 
@@ -350,6 +356,7 @@ def audit_application_data(
             "schema_valid": calendar["schema_valid"],
             "rows": calendar["rows"],
             "rows_without_id": calendar["rows_without_id"],
+            "duplicate_event_ids": calendar["duplicate_event_ids"],
             "application_appointment_references": appointment_references,
             "references_without_matching_event": missing_calendar_events,
             "event_ids_shared_by_multiple_applications": shared_calendar_event_ids,
@@ -365,6 +372,7 @@ def audit_application_data(
                 or interviews["application_interview_id_mismatches"]
                 or missing_calendar_events
                 or calendar["rows_without_id"]
+                or calendar["duplicate_event_ids"]
                 or shared_calendar_event_ids
                 or not interviews["provided"]
                 or not calendar["provided"]
