@@ -3387,9 +3387,8 @@ async def roblox_user_lookup(request: Request, username: str, user_session: str 
         except Exception:
             return JSONResponse({"success": False, "message": "Roblox ist gerade nicht erreichbar"})
 
-    # Vorstrafen-Hinweis aus den eigenen Logs
-    previous = [l for l in load_json(LOGS_FILE, [])
-                if str(l.get("roblox_id")) == info["id"] or str(l.get("target_user", "")).lower() == info["username"].lower()]
+    # Vorstrafen-Hinweis aus dem aktiven Melonly-Repository.
+    previous = get_melonly_repository().roblox_user_history(info["id"], info["username"])
     counts = {}
     for l in previous:
         counts[l.get("type", "Log")] = counts.get(l.get("type", "Log"), 0) + 1
@@ -3417,7 +3416,7 @@ async def roblox_search(request: Request, query: str, user_session: str = Cookie
     # Lokale Einträge fangen Roblox-Ausfälle ab; fuzzy Treffer helfen auch bei Tippfehlern.
     users_map = {}
     query_lower = clean.lower()
-    for entry in reversed(load_json(LOGS_FILE, [])[-5000:]):
+    for entry in get_melonly_repository().roblox_suggestions(5000):
         saved_name = str(entry.get("target_user") or "").strip()
         saved_id = str(entry.get("roblox_id") or "")
         if not saved_name:
@@ -5010,8 +5009,7 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
     if not re.fullmatch(r"\d{1,15}", roblox_id):
         roblox_id = "N/A"
 
-    logs_db = load_json(LOGS_FILE, [])
-    logs_db.append({
+    get_melonly_repository().append({
         "id": f"log_{uuid.uuid4().hex[:6]}",
         "target_user": target_user,
         "roblox_id": roblox_id,
@@ -5021,7 +5019,6 @@ async def create_log(request: Request, target_user: str = Form(...), roblox_id: 
         "moderator_id": ctx.user["id"],
         "created_at": now_de().strftime("%d.%m.%Y %H:%M"),
     })
-    save_json(LOGS_FILE, logs_db)
     # Melonly bleibt ausschließlich im Panel. Es gibt dafür bewusst kein Discord-Team-Update.
     log_audit(
         ctx.user.get("global_name"),
@@ -5045,10 +5042,11 @@ async def edit_log(
 ):
     return_to = safe_log_return_to(return_to)
     ctx = auth(request, user_session)
-    logs_db = load_json(LOGS_FILE, [])
-    entry = next((l for l in logs_db if l.get("id") == log_id), None)
-    if not entry:
+    repository = get_melonly_repository()
+    found = repository.find_first_by_id(log_id)
+    if not found:
         return back(return_to, "Log nicht gefunden.", False)
+    log_seq, entry = found
 
     if not can_manage_melonly_entry(ctx, entry, target_type=log_type):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung, diesen Melonly-Eintrag zu bearbeiten.")
@@ -5071,7 +5069,8 @@ async def edit_log(
         "edited_at": now_de().strftime("%d.%m.%Y %H:%M"),
         "edited_by": ctx.user.get("global_name") or ctx.user.get("username") or "Team",
     })
-    save_json(LOGS_FILE, logs_db)
+    if not repository.update_by_seq(log_seq, entry):
+        return back(return_to, "Log konnte nicht gespeichert werden. Bitte erneut laden.", False)
     log_audit(
         ctx.user.get("global_name"),
         ctx.user["id"],
@@ -5090,13 +5089,15 @@ async def delete_log(
 ):
     return_to = safe_log_return_to(return_to)
     ctx = auth(request, user_session)
-    logs_db = load_json(LOGS_FILE, [])
-    entry = next((l for l in logs_db if l.get("id") == log_id), None)
-    if not entry:
+    repository = get_melonly_repository()
+    found = repository.find_first_by_id(log_id)
+    if not found:
         return back(return_to, "Log nicht gefunden.", False)
+    _log_seq, entry = found
     if not can_manage_melonly_entry(ctx, entry):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung, diesen Melonly-Eintrag zu löschen.")
-    save_json(LOGS_FILE, [l for l in logs_db if l.get("id") != log_id])
+    if not repository.delete_all_by_id(log_id):
+        return back(return_to, "Log konnte nicht gelöscht werden. Bitte erneut laden.", False)
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Log Gelöscht",
               f"{entry.get('target_user')} ({entry.get('type')}) – ID {log_id}")
     return back(return_to, "Melonly-Eintrag gelöscht.")
@@ -5115,6 +5116,19 @@ def can_access_melonly(ctx) -> bool:
             "can_warn", "can_moderate_kicks", "can_moderate_bans",
             "can_moderate_bolo", "can_add_notes",
         ))
+    )
+
+
+
+def get_melonly_repository():
+    """Return the configured Melonly repository without changing or migrating data."""
+    from pulse_melonly_repository import MelonlyRepository
+    return MelonlyRepository(
+        json_path=LOGS_FILE,
+        db_path=pulse_db.DB_PATH,
+        load_json=load_json,
+        save_json=save_json,
+        io_lock=_io_lock,
     )
 
 
@@ -5151,7 +5165,7 @@ async def export_logs(request: Request, user_session: str = Cookie(None)):
     output.write("\ufeff")  # BOM: Excel zeigt Umlaute korrekt an
     writer = csv.writer(output, delimiter=';')
     writer.writerow(["ID", "Datum", "Typ", "Ziel-Nutzer", "Roblox ID", "Moderator", "Grund"])
-    for log in load_json(LOGS_FILE, []):
+    for log in get_melonly_repository().iter_all():
         writer.writerow([csv_safe(log.get(k)) for k in
                          ("id", "created_at", "type", "target_user", "roblox_id", "moderator", "reason")])
     filename = f"punishment_logs_{now_de().strftime('%Y-%m-%d')}.csv"
