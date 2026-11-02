@@ -8,9 +8,9 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
-from datetime import datetime
 from collections import Counter, defaultdict
 from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +39,7 @@ def _valid_application_timestamp(value: Any) -> bool:
         return False
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         try:
-            datetime.fromtimestamp(float(value))
+            datetime.fromtimestamp(float(value), tz=timezone.utc)
             return True
         except (OverflowError, OSError, ValueError):
             return False
