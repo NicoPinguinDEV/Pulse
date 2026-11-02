@@ -406,6 +406,14 @@ class MelonlySqliteIndexedHistoryTests(unittest.TestCase):
             ]
             _db_path, store = make_sqlite_backend(root, rows)
             with sqlite3.connect(store.db_path) as con:
+                con.create_function(
+                    "pulse_roblox_id_key", 1,
+                    lambda value: (
+                        str(value or "").strip()
+                        if str(value or "").strip().isdigit() else None
+                    ),
+                    deterministic=True,
+                )
                 plan = con.execute(
                     """EXPLAIN QUERY PLAN
                        SELECT seq FROM melonly_logs
