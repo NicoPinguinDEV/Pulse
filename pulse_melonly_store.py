@@ -196,6 +196,21 @@ class MelonlyStore:
             ).fetchall()
             return [json.loads(row["payload"]) for row in reversed(rows)]
 
+    def latest_matching_types(self, log_types: Iterable[str], limit: int = 120) -> list[Any]:
+        """Return matching records newest-first, preserving the legacy page limit."""
+        allowed = tuple(dict.fromkeys(str(value) for value in log_types))
+        safe_limit = max(0, min(int(limit), 10000))
+        if not allowed or not safe_limit:
+            return []
+        placeholders = ",".join("?" for _ in allowed)
+        with self._read() as con:
+            rows = con.execute(
+                f"SELECT payload FROM melonly_logs WHERE action_type IN ({placeholders}) "
+                "ORDER BY seq DESC LIMIT ?",
+                (*allowed, safe_limit),
+            ).fetchall()
+            return [json.loads(row["payload"]) for row in rows]
+
     def append(self, entry: Mapping[str, Any]) -> int:
         if not isinstance(entry, Mapping):
             raise TypeError("Melonly entries must be mappings")
@@ -234,6 +249,15 @@ class MelonlyStore:
             if changed:
                 self._bump_revision(con)
             return changed
+
+    def delete_all_by_id(self, log_id: str) -> int:
+        """Match the legacy delete route, which removes every row sharing the ID."""
+        with self._write() as con:
+            cursor = con.execute("DELETE FROM melonly_logs WHERE log_id=?", (str(log_id),))
+            removed = int(cursor.rowcount)
+            if removed:
+                self._bump_revision(con)
+            return removed
 
     def export_all(self) -> list[Any]:
         with self._read() as con:
@@ -293,6 +317,30 @@ class MelonlyStore:
                 "SELECT key,value FROM melonly_logs_meta"
             ).fetchall()}
 
+    def set_active_backend(
+        self,
+        backend: str,
+        *,
+        expected_generation: str | None = None,
+        expected_revision: str | None = None,
+    ) -> None:
+        """Mark JSON active only after a verified SQLite-to-JSON rollback export."""
+        if backend != "json":
+            raise ValueError("This method only supports the explicit SQLite-to-JSON rollback.")
+        with self._write() as con:
+            values = {str(row["key"]): str(row["value"]) for row in con.execute(
+                "SELECT key,value FROM melonly_logs_meta"
+            ).fetchall()}
+            if values.get("active_backend") != "sqlite":
+                raise ValueError("SQLite is not the currently active Melonly backend.")
+            if expected_generation is not None and values.get("generation") != str(expected_generation):
+                raise ValueError("Melonly generation changed during rollback.")
+            if expected_revision is not None and values.get("revision") != str(expected_revision):
+                raise ValueError("Melonly revision changed during rollback.")
+            con.execute(
+                "UPDATE melonly_logs_meta SET value='json' WHERE key='active_backend'"
+            )
+
     @staticmethod
     def _bump_revision(con: sqlite3.Connection) -> None:
         con.execute(
@@ -337,6 +385,17 @@ class MelonlyStore:
             entry for entry in entries
             if (player_name(entry) and player_name(entry) in names)
             or (player_id(entry) and player_id(entry) in ids)
+        ]
+
+    def roblox_user_history(self, roblox_id: str, username: str) -> list[Any]:
+        """Match the legacy Roblox API predicate exactly (ID OR case-insensitive name)."""
+        id_value, name_value = str(roblox_id), str(username).lower()
+        return [
+            entry for entry in self.export_all()
+            if isinstance(entry, Mapping) and (
+                str(entry.get("roblox_id")) == id_value
+                or str(entry.get("target_user", "")).lower() == name_value
+            )
         ]
 
     def roblox_suggestions(self, limit: int = 5000) -> list[Any]:
