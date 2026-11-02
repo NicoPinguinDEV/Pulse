@@ -126,25 +126,42 @@ class MelonlyStore:
         )
         return tuple(None if value is None else str(value) for value in values)
 
+    @staticmethod
+    def _has_roblox_id_key(con: sqlite3.Connection) -> bool:
+        return any(
+            str(row[1]) == "roblox_id_key"
+            for row in con.execute("PRAGMA table_info(melonly_logs)").fetchall()
+        )
+
     @classmethod
     def _insert(cls, con: sqlite3.Connection, entry: Any, seq: int | None = None) -> int:
         values = cls._index_values(entry)
         payload = cls._json(entry)
+        has_id_key = cls._has_roblox_id_key(con)
+        if has_id_key:
+            columns = (
+                "log_id,target_user,target_user_key,roblox_id,roblox_id_key,"
+                "action_type,created_at,moderator_id,payload"
+            )
+            stored_values = (*values, payload)
+        else:
+            # Old explicitly-activated databases remain writable until their
+            # separately-reviewed offline schema upgrade is performed.
+            columns = (
+                "log_id,target_user,target_user_key,roblox_id,"
+                "action_type,created_at,moderator_id,payload"
+            )
+            stored_values = (*values[:4], *values[5:], payload)
+        placeholders = ",".join("?" for _ in stored_values)
         if seq is None:
             cursor = con.execute(
-                """INSERT INTO melonly_logs
-                   (log_id,target_user,target_user_key,roblox_id,roblox_id_key,
-                    action_type,created_at,moderator_id,payload)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
-                (*values, payload),
+                f"INSERT INTO melonly_logs ({columns}) VALUES ({placeholders})",
+                stored_values,
             )
             return int(cursor.lastrowid)
         con.execute(
-            """INSERT INTO melonly_logs
-               (seq,log_id,target_user,target_user_key,roblox_id,roblox_id_key,
-                action_type,created_at,moderator_id,payload)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
-            (int(seq), *values, payload),
+            f"INSERT INTO melonly_logs (seq,{columns}) VALUES (?,{placeholders})",
+            (int(seq), *stored_values),
         )
         return int(seq)
 
@@ -284,11 +301,18 @@ class MelonlyStore:
             raise TypeError("Melonly entries must be mappings")
         values = self._index_values(entry)
         with self._write() as con:
-            cursor = con.execute(
-                """UPDATE melonly_logs SET log_id=?,target_user=?,target_user_key=?,roblox_id=?,
-                   roblox_id_key=?,action_type=?,created_at=?,moderator_id=?,payload=? WHERE seq=?""",
-                (*values, self._json(dict(entry)), int(seq)),
-            )
+            if self._has_roblox_id_key(con):
+                cursor = con.execute(
+                    """UPDATE melonly_logs SET log_id=?,target_user=?,target_user_key=?,roblox_id=?,
+                       roblox_id_key=?,action_type=?,created_at=?,moderator_id=?,payload=? WHERE seq=?""",
+                    (*values, self._json(dict(entry)), int(seq)),
+                )
+            else:
+                cursor = con.execute(
+                    """UPDATE melonly_logs SET log_id=?,target_user=?,target_user_key=?,roblox_id=?,
+                       action_type=?,created_at=?,moderator_id=?,payload=? WHERE seq=?""",
+                    (*values[:4], *values[5:], self._json(dict(entry)), int(seq)),
+                )
             changed = cursor.rowcount == 1
             if changed:
                 self._bump_revision(con)
