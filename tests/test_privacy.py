@@ -150,11 +150,24 @@ class WarningLeakTests(unittest.TestCase):
                 ("int_secret", "app_secret", "555", "InterviewSecretName", "{}", 90,
                  "Very suitable", "InterviewSecretNotes", "123", "Reviewer", "2026-11-02T10:00:00"),
             )
+        pulse_suite.audit(1, "123", "Reviewer", "app_secret", "RecruitingSecretName",
+                          "application_updated", "RecruitingSecretAuditNotes")
+        with pulse_suite.cx() as con:
+            con.execute(
+                "INSERT INTO suite_events VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                ("event_secret", "1", "Bewerbungsgespräch RecruitingSecretCalendarName", "event",
+                 "2026-11-03T10:00:00", "2026-11-03T10:30:00",
+                 "RecruitingSecretCalendarNotes", "555", "123", "Reviewer", "2026-11-02T10:00:00"),
+            )
         viewer = SimpleNamespace(guild=guild_with_target(), perms=dict(TEAMLER), user={"id": "123"})
         self.assertFalse(any(x["type"] in {"Bewerbung", "Gespräch"}
                              for x in pulse_suite.search_all("RecruitingSecret", viewer)))
         self.assertFalse(any(x["type"] == "Gespräch"
                              for x in pulse_suite.search_all("InterviewSecret", viewer)))
+        self.assertFalse(any(x["type"] == "Audit"
+                             for x in pulse_suite.search_all("RecruitingSecretAuditNotes", viewer)))
+        self.assertFalse(any(x["type"] == "Kalender"
+                             for x in pulse_suite.search_all("RecruitingSecretCalendarNotes", viewer)))
 
         recruiter_perms = dict(TEAMLER, can_manage_applications=True)
         recruiter = SimpleNamespace(guild=guild_with_target(), perms=recruiter_perms, user={"id": "123"})
@@ -162,6 +175,10 @@ class WarningLeakTests(unittest.TestCase):
                             for x in pulse_suite.search_all("RecruitingSecret", recruiter)))
         self.assertTrue(any(x["type"] == "Gespräch"
                             for x in pulse_suite.search_all("InterviewSecret", recruiter)))
+        self.assertTrue(any(x["type"] == "Audit"
+                            for x in pulse_suite.search_all("RecruitingSecretAuditNotes", recruiter)))
+        self.assertTrue(any(x["type"] == "Kalender"
+                            for x in pulse_suite.search_all("RecruitingSecretCalendarNotes", recruiter)))
 
     def test_application_read_permission_helper_is_explicit(self):
         self.assertFalse(ws.can_review_applications(SimpleNamespace(perms=dict(TEAMLER))))
