@@ -709,6 +709,12 @@ def search_all(q,ctx):
         for table,typ,col,url in searchable_tables:
             for r in c.execute(f"SELECT * FROM {table} ORDER BY rowid DESC LIMIT 500").fetchall():
                 d=dict(r)
+                if table in {"suite_audit", "suite_events"} and not web.can_review_applications(ctx):
+                    # Recruitment names and interview notes also appear in calendar/audit payloads.
+                    # Exclude the whole recruiting event rather than merely hiding its title.
+                    recruiting_text = json.dumps(d, ensure_ascii=False).casefold()
+                    if any(term in recruiting_text for term in ("bewerbung", "interview", "gespräch", "applicant")):
+                        continue
                 if q in json.dumps(d,ensure_ascii=False).lower():out.append({"type":typ,"title":str(d.get(col,"")),"meta":str(d.get("request_id") or d.get("id") or ""),"url":url})
     if web.can_access_melonly(ctx):
         for x in web.get_melonly_repository().search_payload(q):
