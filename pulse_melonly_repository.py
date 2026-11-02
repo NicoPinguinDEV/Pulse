@@ -358,11 +358,15 @@ class JsonMelonlyRepository:
                 search_texts = [
                     json.dumps(entry, ensure_ascii=False).lower() for entry in rows
                 ]
-            return [
-                copy.deepcopy(rows[position])
-                for position, text in enumerate(search_texts)
-                if needle in text
-            ]
+
+        # A writer replaces the complete cached list; both captured objects stay
+        # immutable and valid after releasing the lock, so the full scan itself
+        # must not hold up CRUD requests.
+        return [
+            copy.deepcopy(rows[position])
+            for position, text in enumerate(search_texts)
+            if needle in text
+        ]
 
 
 class MelonlyRepository:
