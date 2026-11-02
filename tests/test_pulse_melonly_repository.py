@@ -453,10 +453,20 @@ class MelonlySqliteIndexedHistoryTests(unittest.TestCase):
                 [row["id"] for row in store.player_history("100")],
                 ["a", "b"],
             )
-            self.assertNotIn(
-                "roblox_id_key",
-                {row[1] for row in sqlite3.connect(database).execute("PRAGMA table_info(melonly_logs)")},
-            )
+            with sqlite3.connect(database) as con:
+                old_columns = {row[1] for row in con.execute("PRAGMA table_info(melonly_logs)")}
+            self.assertNotIn("roblox_id_key", old_columns)
+
+            # Existing activated databases keep CRUD working before the offline
+            # schema upgrade; their history reader uses the compatible scan path.
+            store.append({"id": "d", "target_user": "Delta", "roblox_id": "400"})
+            self.assertTrue(store.update_by_seq(
+                4, {"id": "d", "target_user": "Delta", "roblox_id": "400",
+                    "reason": "updated on old schema"}
+            ))
+            self.assertEqual(store.find_first_by_id("d")[1]["reason"], "updated on old schema")
+            self.assertEqual([row["id"] for row in store.player_history("400")], ["d"])
+
             # Explicit offline initialization adds/backfills the key and its index.
             store.initialize()
             self.assertEqual(
