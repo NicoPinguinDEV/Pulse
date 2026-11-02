@@ -9,6 +9,7 @@ include = [
     "pulse_transcripts.py", "pulse_voice_queue.py", "pulse_env_validation.py",
     "pulse_access.py", "pulse_board.py", "pulse_flags.py", "pulse_insights.py", "pulse_phase7.py", "pulse_public_status.py", "pulse_settings_history.py",
     "pulse_server_control.py", "pulse_live_console.py", "deploy/pulse_host_agent.py", "pulse_health_api.py",
+    "tools/application_data_audit.py", "tests/test_application_data_audit.py",
 ]
 
 [lint]
