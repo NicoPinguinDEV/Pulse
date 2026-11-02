@@ -160,13 +160,15 @@ class ApplicationDataAuditTests(unittest.TestCase):
         bad_suite = self.base / "suite_without_primary_key.db"
         bad_pulse = self.base / "calendar_without_primary_key.db"
         with closing(sqlite3.connect(bad_suite)) as con:
-            con.execute("CREATE TABLE suite_interviews(id TEXT, application_id TEXT)")
-            con.execute("INSERT INTO suite_interviews VALUES(?,?)", ("same_interview", "app_a"))
-            con.execute("INSERT INTO suite_interviews VALUES(?,?)", ("same_interview", "app_b"))
+            con.execute(
+                "CREATE TABLE suite_interviews(id TEXT, application_id TEXT, marker TEXT, PRIMARY KEY(id, marker))"
+            )
+            con.execute("INSERT INTO suite_interviews VALUES(?,?,?)", ("same_interview", "app_a", "one"))
+            con.execute("INSERT INTO suite_interviews VALUES(?,?,?)", ("same_interview", "app_b", "two"))
         with closing(sqlite3.connect(bad_pulse)) as con:
-            con.execute("CREATE TABLE calendar_events(id TEXT)")
-            con.execute("INSERT INTO calendar_events VALUES(?)", ("same_event",))
-            con.execute("INSERT INTO calendar_events VALUES(?)", ("same_event",))
+            con.execute("CREATE TABLE calendar_events(id TEXT, marker TEXT, PRIMARY KEY(id, marker))")
+            con.execute("INSERT INTO calendar_events VALUES(?,?)", ("same_event", "one"))
+            con.execute("INSERT INTO calendar_events VALUES(?,?)", ("same_event", "two"))
 
         report = audit_application_data({}, {}, bad_suite, bad_pulse)
 
