@@ -49,6 +49,8 @@ class MelonlyRepositoryParityTests(unittest.TestCase):
              "reason": "Unicode: äöü"},
             {"id": "unexpected", "target_user": "Unknown", "roblox_id": "N/A", "type": "Legacy",
              "reason": "Unbekannter Typ"},
+            {"id": "legacy-int-type", "target_user": "OldFormat", "roblox_id": "999",
+             "type": 1, "reason": "Legacy numeric action type"},
         ]
         self.memory = MemoryJson(self.rows)
         self.lock = threading.RLock()
@@ -150,6 +152,14 @@ class MelonlyRepositoryParityTests(unittest.TestCase):
             self.assertEqual(repo.find_first_by_id("123"), (2, rows[1]))
             self.assertEqual(repo.delete_all_by_id("123"), 1)
             self.assertEqual(repo.export_all(), [rows[0]])
+
+    def test_action_type_filter_does_not_coerce_legacy_numeric_values(self):
+        self.assertEqual(self.json_repo.latest_matching_types(("1",), 10), [])
+        self.assertEqual(self.sqlite_repo.latest_matching_types(("1",), 10), [])
+        self.assertEqual(
+            self.json_repo.latest_matching_types((1,), 10),
+            self.sqlite_repo.latest_matching_types((1,), 10),
+        )
 
     def test_page_filter_is_newest_matching_entries_not_newest_raw_rows(self):
         for repo in (self.json_repo, self.sqlite_repo):
