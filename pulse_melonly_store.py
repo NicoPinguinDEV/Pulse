@@ -206,10 +206,18 @@ class MelonlyStore:
         with self._read() as con:
             rows = con.execute(
                 f"SELECT payload FROM melonly_logs WHERE action_type IN ({placeholders}) "
-                "ORDER BY seq DESC LIMIT ?",
-                (*allowed, safe_limit),
+                "ORDER BY seq DESC",
+                allowed,
             ).fetchall()
-            return [json.loads(row["payload"]) for row in rows]
+        # Index columns normalize values to text for efficient lookup. Re-check the
+        # original payload's Python equality to preserve JSON behavior for legacy
+        # rows with non-string action types.
+        matched = [
+            entry for row in rows
+            if isinstance((entry := json.loads(row["payload"])), Mapping)
+            and entry.get("type") in log_types
+        ]
+        return matched[:safe_limit]
 
     def append(self, entry: Mapping[str, Any]) -> int:
         if not isinstance(entry, Mapping):
