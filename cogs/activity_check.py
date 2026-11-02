@@ -13,6 +13,7 @@ from discord.ext import commands, tasks
 import pulse_jobs
 from pulse_jobs import tracked
 import pulse_paths
+import pulse_sqlite
 
 from pulse_activity_utils import (
     activity_action_is_terminal,
@@ -122,7 +123,7 @@ def get_warn_action(check_id: int, user_id: int):
 def is_abgemeldet(user_id: int, check_date: str) -> bool | None:
     """Query the shared Abmeldungsmodul DB; return None on read errors so we can retry."""
     try:
-        with closing(sqlite3.connect(ABMELDUNGEN_DB, timeout=3.0)) as conn, conn:
+        with pulse_sqlite.connect_readonly(ABMELDUNGEN_DB, timeout=3.0) as conn:
             rows = conn.execute(
                 "SELECT von,bis FROM abmeldungen WHERE user_id=?",
                 (int(user_id),),

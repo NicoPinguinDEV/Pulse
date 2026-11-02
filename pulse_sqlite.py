@@ -12,6 +12,7 @@ garbage collection (a leak somewhere). Counting is a few integer updates.
 
 import sqlite3
 import threading
+from pathlib import Path
 
 _STATS_LOCK = threading.Lock()
 _STATS = {"open": 0, "peak": 0, "opened_total": 0, "closed_by_gc": 0}
@@ -59,6 +60,16 @@ class ClosingConnection(sqlite3.Connection):
 
 def connect(path, timeout: float = 5.0, **kwargs) -> ClosingConnection:
     conn = sqlite3.connect(path, timeout=timeout, factory=ClosingConnection, **kwargs)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def connect_readonly(path, timeout: float = 5.0, **kwargs) -> ClosingConnection:
+    """Open an existing SQLite database without ever creating a missing file."""
+    uri = f"{Path(path).expanduser().resolve().as_uri()}?mode=ro"
+    conn = sqlite3.connect(
+        uri, timeout=timeout, uri=True, factory=ClosingConnection, **kwargs
+    )
     conn.row_factory = sqlite3.Row
     return conn
 

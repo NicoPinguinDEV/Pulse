@@ -9,6 +9,7 @@ import time
 import discord
 from discord.ext import commands
 import pulse_paths
+import pulse_sqlite
 from pulse_tasks import spawn as spawn_task
 
 from pulse_nickname_utils import (
@@ -194,17 +195,13 @@ class RoleNicknamePrefixes(commands.Cog):
         # absence cog is registered. Read its existing SQLite source of truth.
         try:
             def _lookup_absence_record() -> bool:
-                import sqlite3
                 from cogs.abmeldung import DB_NAME
 
-                connection = sqlite3.connect(DB_NAME, timeout=2.0)
-                try:
+                with pulse_sqlite.connect_readonly(DB_NAME, timeout=2.0) as connection:
                     return connection.execute(
                         "SELECT 1 FROM abmeldungen WHERE user_id = ? LIMIT 1",
                         (member.id,),
                     ).fetchone() is not None
-                finally:
-                    connection.close()
 
             return await asyncio.to_thread(_lookup_absence_record)
         except Exception as exc:

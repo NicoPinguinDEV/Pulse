@@ -40,6 +40,7 @@ from pulse_embed_design import color as _pulse_color
 import pulse_db as pulse_db
 from pulse_tasks import spawn as spawn_task
 import pulse_paths
+import pulse_sqlite
 import pulse_logging
 from pulse_safe_path import contained_file
 pulse_logging.safe_console()  # status prints with emoji must not crash on a cp1252 console (no file access)
@@ -1055,19 +1056,16 @@ def get_loas() -> dict:
     result = {}
     if not os.path.exists(DB_ABMELDUNGEN):
         return result
-    conn = sqlite3.connect(DB_ABMELDUNGEN)
     try:
-        try:
+        with pulse_sqlite.connect_readonly(DB_ABMELDUNGEN, timeout=5.0) as conn:
             rows = conn.execute("SELECT user_id, user_name, grund, von, bis FROM abmeldungen").fetchall()
-        except sqlite3.OperationalError as exc:
-            # Older/test installations can contain an empty SQLite file without the
-            # optional LOA table. Absences are informational for shift start; do not
-            # make dashboards and unrelated shift actions fail with HTTP 500.
-            if "no such table: abmeldungen" not in str(exc).casefold():
-                raise
+    except sqlite3.OperationalError as exc:
+        # Optional legacy storage can be missing or contain an empty, uninitialized
+        # file. Read access must never create it; both states mean no known LOAs.
+        message = str(exc).casefold()
+        if "no such table: abmeldungen" in message or "unable to open database file" in message:
             return result
-    finally:
-        conn.close()
+        raise
     today = now_de().date()
     for uid, name, grund, von, bis in rows:
         active = True
