@@ -60,10 +60,11 @@ python tools/application_data_audit.py \
   --applications /path/to/export/applications.json \
   --team-data /path/to/export/team_data.json \
   --suite-db /path/to/export/pulse_suite.db \
-  --pulse-db /path/to/export/pulse.db
+  --pulse-db /path/to/export/pulse.db \
+  --output /path/to/export/audit-report.json
 ```
 
-Das Werkzeug verändert keine Dateien. Ein erfolgreicher Exit-Code bedeutet nur, dass der Bericht lesbar erstellt wurde; `readiness.requires_review` bleibt bei offenen Referenzen oder fehlender Datenbankprüfung gesetzt. Beide Referenzdatenbanken müssen für einen vollständigen Audit explizit angegeben werden – auch wenn keine Bewerbungsreferenzen vorhanden sind, da sonst eigenständige verwaiste Datensätze unentdeckt bleiben können.
+Das Werkzeug verändert keine Eingabe-JSON- oder SQLite-Dateien. Der aggregierte Bericht wird ausschließlich in die ausdrücklich angegebene `--output`-Datei geschrieben; der Zielpfad muss neu sein und vorhandene Dateien werden nicht überschrieben. Die Ausgabedatei wird mit restriktiven Dateirechten (POSIX: `0600`) angelegt. Es erfolgt keine Berichtsausgabe auf Konsole oder in Logs. Ein erfolgreicher Exit-Code bedeutet nur, dass der Bericht lesbar erstellt wurde; `readiness.requires_review` bleibt bei offenen Referenzen oder fehlender Datenbankprüfung gesetzt. Beide Referenzdatenbanken müssen für einen vollständigen Audit explizit angegeben werden – auch wenn keine Bewerbungsreferenzen vorhanden sind, da sonst eigenständige verwaiste Datensätze unentdeckt bleiben können.
 
 ## 3. Zielarchitektur für die spätere Umsetzung
 
