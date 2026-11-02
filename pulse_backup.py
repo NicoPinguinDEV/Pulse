@@ -139,6 +139,8 @@ def create_full_backup(base_dir, backup_dir, *, discord_structure: dict | None =
     """Write a complete backup ZIP and return (path, manifest)."""
     base_dir, backup_dir = Path(base_dir), Path(backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix":
+        os.chmod(backup_dir, 0o700)  # full archives contain applications, staff data and private transcripts
     target = backup_dir / backup_name(prefix)
     partial = target.with_name(target.name + ".tmp")
     manifest = {"format": FORMAT, "format_version": FORMAT_VERSION, "pulse_version": _pulse_version(),
@@ -166,6 +168,8 @@ def create_full_backup(base_dir, backup_dir, *, discord_structure: dict | None =
         with contextlib.suppress(OSError):
             partial.unlink()
         raise
+    if os.name == "posix":
+        os.chmod(partial, 0o600)
     os.replace(partial, target)
     return target, manifest
 
