@@ -104,8 +104,17 @@ def audit_application_data(
         raise ValueError("applications and team_data must both be JSON objects")
 
     records = {str(key): item for key, item in applications.items() if isinstance(item, dict)}
-    states = Counter(str(item.get("status") or "missing") for item in records.values())
-    unknown_states = sum(count for state, count in states.items() if state not in KNOWN_STATES)
+    states: Counter[str] = Counter()
+    unknown_states = 0
+    for item in records.values():
+        # Never echo arbitrary status strings: legacy/free-text values may contain private data.
+        state = str(item.get("status") or "").strip().lower()
+        if state in KNOWN_STATES:
+            states[state] += 1
+        else:
+            unknown_states += 1
+    if unknown_states:
+        states["unknown_or_missing"] = unknown_states
     missing_user_ids = sum(not str(item.get("user_id") or item.get("discord_id") or "").strip()
                            for item in records.values())
 
@@ -139,9 +148,13 @@ def audit_application_data(
         if not interview_id:
             continue
         interview_references += 1
-        if interviews["table_found"] and interview_id not in interviews["_ids"]:
+        if interviews["table_found"] and interview_id not in interviews["_owner_by_id"]:
             missing_interview_records += 1
-        elif linked_rows and interview_id not in linked_rows:
+        elif (
+            interviews["table_found"]
+            and interviews["_owner_by_id"].get(interview_id) != application_id
+        ):
+            # An existing interview ID is still invalid when it belongs to another application.
             interviews["application_interview_id_mismatches"] += 1
 
     appointment_references = 0
