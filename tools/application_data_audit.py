@@ -8,8 +8,8 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
-from contextlib import closing
 from collections import Counter, defaultdict
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +28,7 @@ def _read_json(path: str | Path, label: str, expected: type) -> Any:
     return value
 
 
-def _readonly_db(path: str | Path):
+def _readonly_db(path: str | Path) -> sqlite3.Connection:
     source = Path(path)
     if not source.is_file():
         raise FileNotFoundError(f"SQLite input for the audit is not a file: {source.name}")
@@ -47,50 +47,89 @@ def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
 
 
 def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
+    empty = {
+        "provided": path is not None,
+        "table_found": False,
+        "rows": 0,
+        "orphan_application_refs": 0,
+        "orphan_interview_records": 0,
+        "interview_rows_without_application_id": 0,
+        "interview_rows_without_id": 0,
+        "duplicate_interview_ids": 0,
+        "applications_with_multiple_interviews": 0,
+        "application_interview_id_mismatches": 0,
+        "_by_application": {},
+        "_owners_by_id": {},
+    }
     if path is None:
-        return {"provided": False, "table_found": False, "rows": 0, "orphan_application_refs": 0,
-                "applications_with_multiple_interviews": 0, "application_interview_id_mismatches": 0,
-                "_by_application": {}, "_ids": set(), "_owner_by_id": {}}
+        return empty
+
     with closing(_readonly_db(path)) as connection:
         if not _table_exists(connection, "suite_interviews"):
-            return {"provided": True, "table_found": False, "rows": 0, "orphan_application_refs": 0,
-                    "applications_with_multiple_interviews": 0, "application_interview_id_mismatches": 0,
-                    "_by_application": {}, "_ids": set(), "_owner_by_id": {}}
+            return empty
         rows = connection.execute(
             "SELECT id, application_id FROM suite_interviews"
         ).fetchall()
+
     by_application: dict[str, list[str]] = defaultdict(list)
-    ids: set[str] = set()
-    owner_by_id: dict[str, str] = {}
+    owners_by_id: dict[str, set[str]] = defaultdict(set)
+    id_counts: Counter[str] = Counter()
+    rows_without_application_id = 0
+    rows_without_id = 0
+
     for row in rows:
-        interview_id = str(row["id"] or "")
-        application_id = str(row["application_id"] or "")
-        if interview_id:
-            ids.add(interview_id)
-            owner_by_id[interview_id] = application_id
+        interview_id = str(row["id"] or "").strip()
+        application_id = str(row["application_id"] or "").strip()
         if application_id:
             by_application[application_id].append(interview_id)
+        else:
+            rows_without_application_id += 1
+        if interview_id:
+            id_counts[interview_id] += 1
+            owners_by_id[interview_id].add(application_id)
+        else:
+            rows_without_id += 1
+
     return {
         "provided": True,
         "table_found": True,
         "rows": len(rows),
         "orphan_application_refs": 0,
-        "applications_with_multiple_interviews": sum(len(values) > 1 for values in by_application.values()),
+        "orphan_interview_records": 0,
+        "interview_rows_without_application_id": rows_without_application_id,
+        "interview_rows_without_id": rows_without_id,
+        "duplicate_interview_ids": sum(count > 1 for count in id_counts.values()),
+        "applications_with_multiple_interviews": sum(
+            sum(bool(interview_id) for interview_id in values) > 1
+            for values in by_application.values()
+        ),
         "application_interview_id_mismatches": 0,
         "_by_application": dict(by_application),
-        "_ids": ids,
-        "_owner_by_id": owner_by_id,
+        "_owners_by_id": {key: set(value) for key, value in owners_by_id.items()},
     }
 
 
 def _calendar_events(path: str | Path | None) -> dict[str, Any]:
     if path is None:
-        return {"provided": False, "table_found": False, "_ids": set()}
-    with _readonly_db(path) as connection:
+        return {
+            "provided": False, "table_found": False, "rows": 0,
+            "rows_without_id": 0, "_ids": set(),
+        }
+    with closing(_readonly_db(path)) as connection:
         if not _table_exists(connection, "calendar_events"):
-            return {"provided": True, "table_found": False, "_ids": set()}
+            return {
+                "provided": True, "table_found": False, "rows": 0,
+                "rows_without_id": 0, "_ids": set(),
+            }
         rows = connection.execute("SELECT id FROM calendar_events").fetchall()
-    return {"provided": True, "table_found": True, "_ids": {str(row["id"]) for row in rows if row["id"]}}
+    ids = {str(row["id"]).strip() for row in rows if str(row["id"] or "").strip()}
+    return {
+        "provided": True,
+        "table_found": True,
+        "rows": len(rows),
+        "rows_without_id": sum(not str(row["id"] or "").strip() for row in rows),
+        "_ids": ids,
+    }
 
 
 def audit_application_data(
@@ -110,29 +149,23 @@ def audit_application_data(
         # Compare against fixed literals only; never reuse input text in report keys.
         raw_state = item.get("status")
         state = str(raw_state).strip().lower() if isinstance(raw_state, str) else ""
-        if state == "pending":
-            states["pending"] += 1
-        elif state == "in_review":
-            states["in_review"] += 1
-        elif state == "interview":
-            states["interview"] += 1
-        elif state == "accepted":
-            states["accepted"] += 1
-        elif state == "rejected":
-            states["rejected"] += 1
-        elif state == "hired":
-            states["hired"] += 1
+        if state in KNOWN_STATES:
+            states[state] += 1
         else:
             unknown_states += 1
     if unknown_states:
         states["unknown_or_missing"] = unknown_states
-    missing_user_ids = sum(not str(item.get("user_id") or item.get("discord_id") or "").strip()
-                           for item in records.values())
+    missing_user_ids = sum(
+        not str(item.get("user_id") or item.get("discord_id") or "").strip()
+        for item in records.values()
+    )
 
     employment_records = 0
     employment_without_team_since = 0
     for item in records.values():
-        if str(item.get("status") or "") not in EMPLOYMENT_STATES:
+        raw_state = item.get("status")
+        state = str(raw_state).strip().lower() if isinstance(raw_state, str) else ""
+        if state not in EMPLOYMENT_STATES:
             continue
         employment_records += 1
         user_id = str(item.get("user_id") or item.get("discord_id") or "").strip()
@@ -145,11 +178,17 @@ def audit_application_data(
     application_ids = set(records)
     interviews_by_application = interviews["_by_application"]
 
-    orphan_interviews = (
-        sum(1 for application_id in interviews_by_application if application_id not in application_ids)
-        if interviews["table_found"] else 0
+    orphan_application_ids = {
+        application_id
+        for application_id in interviews_by_application
+        if application_id not in application_ids
+    }
+    orphan_interview_records = (
+        sum(len(interviews_by_application[application_id]) for application_id in orphan_application_ids)
+        + interviews["interview_rows_without_application_id"]
     )
-    interviews["orphan_application_refs"] = orphan_interviews
+    interviews["orphan_application_refs"] = len(orphan_application_ids)
+    interviews["orphan_interview_records"] = orphan_interview_records
 
     missing_interview_records = 0
     interview_references = 0
@@ -158,26 +197,29 @@ def audit_application_data(
         if not interview_id:
             continue
         interview_references += 1
-        if interviews["table_found"] and interview_id not in interviews["_owner_by_id"]:
+        owners = interviews["_owners_by_id"].get(interview_id)
+        if interviews["table_found"] and owners is None:
             missing_interview_records += 1
-        elif (
-            interviews["table_found"]
-            and interviews["_owner_by_id"].get(interview_id) != application_id
-        ):
-            # An existing interview ID is still invalid when it belongs to another application.
+        elif interviews["table_found"] and (len(owners) != 1 or application_id not in owners):
+            # An existing interview ID is invalid when it is unowned, duplicated, or belongs elsewhere.
             interviews["application_interview_id_mismatches"] += 1
 
     appointment_references = 0
     missing_calendar_events = 0
-    for item in records.values():
+    event_applications: dict[str, set[str]] = defaultdict(set)
+    for application_id, item in records.items():
         event_id = str(item.get("interview_event_id") or "").strip()
         if not event_id:
             continue
         appointment_references += 1
+        event_applications[event_id].add(application_id)
         if calendar["table_found"] and event_id not in calendar["_ids"]:
             missing_calendar_events += 1
+    shared_calendar_event_ids = sum(
+        len(application_ids_for_event) > 1 for application_ids_for_event in event_applications.values()
+    )
 
-    # Keep the machine report deliberately limited to counts and state buckets.
+    # Keep the machine report deliberately limited to counts and fixed labels.
     return {
         "report_version": REPORT_VERSION,
         "read_only": True,
@@ -199,6 +241,10 @@ def audit_application_data(
             "table_found": interviews["table_found"],
             "rows": interviews["rows"],
             "orphan_application_refs": interviews["orphan_application_refs"],
+            "orphan_interview_records": interviews["orphan_interview_records"],
+            "interview_rows_without_application_id": interviews["interview_rows_without_application_id"],
+            "interview_rows_without_id": interviews["interview_rows_without_id"],
+            "duplicate_interview_ids": interviews["duplicate_interview_ids"],
             "applications_with_multiple_interviews": interviews["applications_with_multiple_interviews"],
             "application_interview_id_mismatches": interviews["application_interview_id_mismatches"],
             "application_interview_references": interview_references,
@@ -207,18 +253,28 @@ def audit_application_data(
         "calendar": {
             "database_provided": calendar["provided"],
             "table_found": calendar["table_found"],
+            "rows": calendar["rows"],
+            "rows_without_id": calendar["rows_without_id"],
             "application_appointment_references": appointment_references,
             "references_without_matching_event": missing_calendar_events,
+            "event_ids_shared_by_multiple_applications": shared_calendar_event_ids,
         },
         "readiness": {
             "requires_review": bool(
                 unknown_states or missing_user_ids or employment_without_team_since
                 or len(applications) != len(records)
-                or orphan_interviews or missing_interview_records
-                or interviews["application_interview_id_mismatches"] or missing_calendar_events
+                or orphan_interview_records
+                or interviews["interview_rows_without_id"]
+                or interviews["duplicate_interview_ids"]
+                or missing_interview_records
+                or interviews["application_interview_id_mismatches"]
+                or missing_calendar_events
+                or calendar["rows_without_id"]
+                or shared_calendar_event_ids
+                or (interviews["provided"] and not interviews["table_found"])
+                or (calendar["provided"] and not calendar["table_found"])
                 or (appointment_references and not calendar["table_found"])
                 or (interview_references and not interviews["table_found"])
-                or (interviews["rows"] and not interviews["table_found"])
             ),
         },
     }
