@@ -361,6 +361,7 @@ def init_runtime() -> None:
     import pulse_shift_history  # Phase 14.7: switches only when PULSE_SHIFT_HISTORY_BACKEND is set explicitly
     pulse_shift_history.recover(sys.modules[__name__])  # Phase 14.7b: finish a save a crash interrupted
     pulse_shift_history.apply_configured_backend(sys.modules[__name__])
+    secure_application_storage()  # applications.json contains private applicant answers and reviews
     melonly_repository = get_melonly_repository()  # validate backend before bot/dashboard writes start
     print(f"✅ Melonly-Speicher: {melonly_repository.backend_name.upper()}")
     _session_key()  # computes SESSION_SECRET_PROBLEM for the system status
@@ -441,6 +442,15 @@ def abspath_corrupt_free(filepath) -> bool:
     return os.path.abspath(filepath) not in _CORRUPT_JSON
 
 
+def secure_application_storage() -> None:
+    """Restrict persisted applicant records to the Pulse service account on POSIX servers."""
+    if os.name != "posix":
+        return
+    with _io_lock:
+        if os.path.isfile(APPS_FILE):
+            os.chmod(APPS_FILE, 0o600)
+
+
 def save_json(filepath, data):
     with _io_lock:
         if os.path.abspath(filepath) == os.path.abspath(SHIFTS_FILE) and isinstance(data, dict):
@@ -484,6 +494,8 @@ def _write_json_file(filepath, data):
                 json.dump(data, f, indent=4, ensure_ascii=False)
                 f.flush()
                 os.fsync(f.fileno())
+            if os.path.abspath(filepath) == os.path.abspath(APPS_FILE) and os.name == "posix":
+                os.chmod(tmp, 0o600)  # applicant answers and reviews are readable only by the service account
             os.replace(tmp, filepath)  # verhindert kaputte Dateien bei Absturz
         except BaseException:
             try:  # M-D2: no half-written .tmp file left behind; the original stays untouched
