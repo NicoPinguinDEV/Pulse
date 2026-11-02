@@ -205,6 +205,19 @@ class ApplicationDataAuditTests(unittest.TestCase):
         self.assertTrue(result["table_found"])
         connection.close.assert_called_once_with()
 
+    def test_non_string_status_values_are_reported_without_crashing(self):
+        applications = {
+            "bad_list_status": {"user_id": "111", "status": ["hired"]},
+            "bad_object_status": {"user_id": "222", "status": {"value": "accepted"}},
+        }
+
+        report = audit_application_data(applications, {}, self.suite_db, self.pulse_db)
+
+        self.assertEqual(report["applications"]["unknown_or_missing_states"], 2)
+        self.assertEqual(report["employment"]["accepted_or_hired_records"], 0)
+        self.assertTrue(report["readiness"]["requires_review"])
+
+
     def test_noncanonical_employment_status_is_not_accepted_by_runtime_or_audit(self):
         applications = {
             "hired_app": {
