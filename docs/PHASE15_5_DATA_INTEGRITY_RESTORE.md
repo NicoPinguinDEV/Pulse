@@ -1,6 +1,6 @@
 # Phase 15.5 – Datenintegrität und Wiederherstellung
 
-**Status:** Rehearsal-Code und Abbruch-Regressionstest im Review · 100K-GitHub-Lauf noch auszuführen  
+**Status:** Rehearsal-Code und Abbruch-Regressionstest in `main` (PR #131 gemergt) · tatsächlicher 100K-Restore-Lauf und Abnahme noch offen (Issue #133)  
 **Sicherheitsgrenze:** ausschließlich synthetische Daten in temporären Verzeichnissen · keine VPS-Daten · keine Produktivmigration
 
 ## Ausgangslage im Bestand
@@ -49,18 +49,20 @@ Damit wird der manuelle Recovery-Weg nach einem Prozessabbruch getestet. Eine au
 
 ## Ausführung
 
-Damit der Test bereits vor dem Merge des Draft-PRs ausführbar ist, wird der bereits in `main` vorhandene manuelle Workflow erweitert:
+## Ausführung nach Merge
 
-GitHub Actions → **Melonly Storage Benchmark** → **Run workflow**.
+Der Code aus PR #131 ist bereits in `main`. Für die tatsächliche Abnahme ist daher der separate manuelle Workflow zu verwenden:
 
-- Branch: `phase/15-5-backup-restore-rehearsal`
-- Option `restore_rehearsal`: aktivieren
-- Die Eintragszahl ist fest auf `100000` begrenzt.
-- Der normale JSON-/SQLite-Benchmark wird bei aktiviertem Restore-Modus übersprungen.
-- Das JSON-Ergebnis erscheint im Job-Summary und als Actions-Artefakt.
-- Nach Merge steht zusätzlich der separate Workflow **Melonly Backup Restore Rehearsal** zur Verfügung.
+GitHub Actions → **Melonly Backup Restore Rehearsal** → **Run workflow** auf `main`.
 
-Der normale CI-Lauf führt zusätzlich den Prozessabbruch-Regressionstest aus.
+- Eingabe `entries`: Standardwert `100000` beibehalten.
+- Der Workflow läuft ausschließlich mit synthetischen Daten in einem isolierten Docker-Container.
+- Das Ergebnis muss im Job-Summary und als Actions-Artefakt vorhanden sein.
+- Job-Status `success` allein reicht nicht: Summary und JSON-Ausgabe müssen die Restore-, Integritäts- und Paritätsprüfungen tatsächlich belegen.
+- Der frühere Lauf #41436692148 ist **kein** Restore-Nachweis: Er führte nur den JSON-/SQLite-Benchmark aus; der Restore-Job wurde übersprungen.
+- Nachweis und Abnahme werden in [Issue #133](https://github.com/NicoPinguinDEV/Pulse/issues/133) festgehalten.
+
+Der normale CI-Lauf führt zusätzlich den Prozessabbruch-Regressionstest aus. Ein bestandener Unit-Test ersetzt den separaten 100K-Rehearsal nicht.
 
 ## Abnahmekriterien
 
