@@ -136,6 +136,38 @@ class WarningLeakTests(unittest.TestCase):
         self.assertEqual(lookup.status_code, 403)
         self.assertEqual(authenticate.call_count, 2)
 
+    def test_application_search_is_restricted_to_recruiting_roles(self):
+        from cogs import pulse_suite
+        ws.save_json(ws.APPS_FILE, {
+            "app_secret": {
+                "user_id": "555", "name": "RecruitingSecretName", "status": "pending",
+                "text": "RecruitingSecretMotivation",
+            }
+        })
+        with pulse_suite.cx() as con:
+            con.execute(
+                "INSERT INTO suite_interviews VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                ("int_secret", "app_secret", "555", "InterviewSecretName", "{}", 90,
+                 "Very suitable", "InterviewSecretNotes", "123", "Reviewer", "2026-11-02T10:00:00"),
+            )
+        viewer = SimpleNamespace(guild=guild_with_target(), perms=dict(TEAMLER), user={"id": "123"})
+        self.assertFalse(any(x["type"] in {"Bewerbung", "Gespräch"}
+                             for x in pulse_suite.search_all("RecruitingSecret", viewer)))
+        self.assertFalse(any(x["type"] == "Gespräch"
+                             for x in pulse_suite.search_all("InterviewSecret", viewer)))
+
+        recruiter_perms = dict(TEAMLER, can_manage_applications=True)
+        recruiter = SimpleNamespace(guild=guild_with_target(), perms=recruiter_perms, user={"id": "123"})
+        self.assertTrue(any(x["type"] == "Bewerbung"
+                            for x in pulse_suite.search_all("RecruitingSecret", recruiter)))
+        self.assertTrue(any(x["type"] == "Gespräch"
+                            for x in pulse_suite.search_all("InterviewSecret", recruiter)))
+
+    def test_application_read_permission_helper_is_explicit(self):
+        self.assertFalse(ws.can_review_applications(SimpleNamespace(perms=dict(TEAMLER))))
+        for key in ("can_manage_applications", "can_promote", "is_admin"):
+            self.assertTrue(ws.can_review_applications(SimpleNamespace(perms={key: True})), key)
+
     def test_melonly_read_access_helper_matches_existing_permission_set(self):
         self.assertFalse(ws.can_access_melonly(SimpleNamespace(perms=dict(TEAMLER))))
         for key in ("can_warn", "can_moderate_kicks", "can_moderate_bans",
