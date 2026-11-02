@@ -84,7 +84,7 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 
 ### Phase 15 – Datenhaltung, Datenintegrität und Wachstum
 
-**Priorität:** P0 · **Status:** 15.4 abgeschlossen; 15.5 implementiert, 100K-Restore-Abnahme offen (#133); 15.6a Read-only-Inventur und Entwurf in PR-Vorbereitung · **Abhängigkeit:** keine
+**Priorität:** P0 · **Status:** 15.4 abgeschlossen; 15.5 implementiert, 100K-Restore-Abnahme offen (#133); 15.6a Read-only-Inventur und Entwurf in PR #136 im Review · **Abhängigkeit:** keine
 
 **Ziel:** Wachsende Dateien sicher behandeln und Datenmigrationen nachvollziehbar, messbar und rückgängig machbar durchführen.
 
