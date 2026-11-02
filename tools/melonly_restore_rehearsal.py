@@ -177,6 +177,25 @@ def run_rehearsal(count: int) -> dict:
         timings["sqlite_to_json_rollback_ms"] = round((time.perf_counter() - started) * 1000, 3)
         if rollback_report.get("count") != count or rollback_report.get("sha256") != source_hash:
             raise RuntimeError("JSON-Rückexport ist nicht bytegleich mit dem ursprünglichen logs.json.")
+        for stale_guard in (
+            {
+                "expected_generation": "stale-generation",
+                "expected_revision": baseline_meta["revision"],
+            },
+            {
+                "expected_generation": baseline_meta["generation"],
+                "expected_revision": "stale-revision",
+            },
+        ):
+            try:
+                store.set_active_backend("json", **stale_guard)
+            except ValueError:
+                pass
+            else:
+                raise RuntimeError("Ein veralteter Generation-/Revision-Guard wurde akzeptiert.")
+            if store.metadata().get("active_backend") != "sqlite":
+                raise RuntimeError("Ein abgelehnter Guard hat den Backend-Marker verändert.")
+
         store.set_active_backend(
             "json",
             expected_generation=baseline_meta["generation"],
