@@ -5105,6 +5105,17 @@ async def delete_log(
     return back(return_to, "Melonly-Eintrag gelöscht.")
 
 
+
+def can_review_applications(ctx) -> bool:
+    """Full applicant answers, evaluations and internal notes are restricted to recruiting staff."""
+    perms = getattr(ctx, "perms", {}) or {}
+    return bool(
+        perms.get("can_manage_applications")
+        or perms.get("can_promote")
+        or perms.get("is_admin")
+    )
+
+
 def can_access_melonly(ctx) -> bool:
     """Return whether the member may read the Melonly player records.
 
@@ -8396,7 +8407,8 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
         raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Bewerbungen.")
     uid = ctx.user["id"]
     show_history = request.query_params.get("view") == "history"
-    can_decide = ctx.perms["can_manage_applications"] or ctx.perms["can_promote"] or ctx.perms["is_admin"]
+    can_review = can_review_applications(ctx)
+    can_decide = can_review
     apps = load_json(APPS_FILE, {})
 
     active_application_statuses = {"pending", "interview"}
@@ -8412,7 +8424,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
         )
         test_summary = ""
         test_review_html = ""
-        if item.get("test_percent") is not None:
+        if can_review and item.get("test_percent") is not None:
             test_passed = bool(item.get("test_passed"))
             test_badge_class = BADGE_OK if test_passed else BADGE_BAD
             test_status_label = "Richtwert erreicht" if test_passed else "Richtwert nicht erreicht"
@@ -8441,7 +8453,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     f'<details class="mt-3"><summary class="cursor-pointer text-xs font-semibold text-indigo-600 dark:text-indigo-300">'
                     f'Online-Testantworten anzeigen</summary><div class="grid gap-2 mt-3">{"".join(detail_parts)}</div></details>'
                 )
-        practical_answers = item.get("practical_answers", [])
+        practical_answers = item.get("practical_answers", []) if can_review else []
         practical_review_html = ""
         if practical_answers:
             practical_parts = []
@@ -8460,7 +8472,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                 + "".join(practical_parts) + '</div></details>'
             )
 
-        reviews = item.get("reviews", {})
+        reviews = item.get("reviews", {}) if can_review else {}
         if not isinstance(reviews, dict):
             reviews = {}
         all_scores = [
@@ -8553,7 +8565,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
             <div class="flex justify-between items-center">
                 <div>
                     <h3 class="font-bold text-slate-900 dark:text-white text-sm">{esc(item.get('name'))}</h3>
-                    <span class="text-[10px] text-slate-400 font-mono">ID: {esc(item.get('user_id'))} · {esc(item.get('created_at'))}</span>
+                    <span class="text-[10px] text-slate-400 font-mono">{'ID: ' + esc(item.get('user_id')) + ' · ' if can_review else ''}{esc(item.get('created_at'))}</span>
                     <div class="flex flex-wrap gap-2 mt-2 text-[10px]">{career_summary}{test_summary}</div>
                 </div>
                 <div class="flex items-center gap-2 text-xs font-semibold">
@@ -8561,7 +8573,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     <span class="text-rose-600 dark:text-rose-400">👎 {len(down)}</span>
                 </div>
             </div>
-            <p class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800/80 whitespace-pre-wrap break-words">{esc(item.get('text'))}</p>
+            {f'<p class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800/80 whitespace-pre-wrap break-words">{esc(item.get("text"))}</p>' if can_review else '<p class="text-xs text-slate-500">Motivation, Testantworten und interne Bewertungen sind nur für Recruiting-Berechtigte sichtbar.</p>'}
             {review_summary_html}
             {test_review_html}
             {practical_review_html}
