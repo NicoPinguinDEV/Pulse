@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from tools.application_data_audit import audit_application_data
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+
+from application_data_audit import audit_application_data  # noqa: E402
 
 
 class ApplicationDataAuditTests(unittest.TestCase):
