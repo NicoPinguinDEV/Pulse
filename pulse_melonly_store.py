@@ -134,10 +134,20 @@ class MelonlyStore:
         )
 
     @classmethod
-    def _insert(cls, con: sqlite3.Connection, entry: Any, seq: int | None = None) -> int:
+    def _insert(
+        cls,
+        con: sqlite3.Connection,
+        entry: Any,
+        seq: int | None = None,
+        *,
+        has_roblox_id_key: bool | None = None,
+    ) -> int:
         values = cls._index_values(entry)
         payload = cls._json(entry)
-        has_id_key = cls._has_roblox_id_key(con)
+        has_id_key = (
+            cls._has_roblox_id_key(con)
+            if has_roblox_id_key is None else has_roblox_id_key
+        )
         if has_id_key:
             columns = (
                 "log_id,target_user,target_user_key,roblox_id,roblox_id_key,"
@@ -379,8 +389,11 @@ class MelonlyStore:
             ).fetchone()
             if existing or (marker and marker[0]):
                 raise MelonlyStoreNotEmpty("Melonly SQLite storage already contains an import")
+            has_id_key = self._has_roblox_id_key(con)
             for position, entry in enumerate(materialized, start=1):
-                self._insert(con, entry, seq=position)
+                self._insert(
+                    con, entry, seq=position, has_roblox_id_key=has_id_key
+                )
             meta = {
                 "format_version": "1",
                 "generation": uuid.uuid4().hex,
