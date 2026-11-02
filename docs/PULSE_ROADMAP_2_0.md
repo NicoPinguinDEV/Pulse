@@ -84,7 +84,7 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 
 ### Phase 15 – Datenhaltung, Datenintegrität und Wachstum
 
-**Priorität:** P0 · **Status:** Phase 15.4 abgeschlossen; Phase 15.5 in Vorbereitung · **Abhängigkeit:** keine
+**Priorität:** P0 · **Status:** Phase 15.4 abgeschlossen; Implementierung von 15.5 in `main`; 100K-Restore-Abnahme noch offen (#133) · **Abhängigkeit:** keine
 
 **Ziel:** Wachsende Dateien sicher behandeln und Datenmigrationen nachvollziehbar, messbar und rückgängig machbar durchführen.
 
@@ -96,7 +96,7 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 | 15.3 | applications.json: Datenschutz- und Migrationsprüfung | Alle Verbraucher und Schreibpfade sind bekannt. Die beschlossene Aufbewahrung von sechs Monaten und der noch offene verantwortliche Kontakt für den Bewerbungshinweis werden berücksichtigt. |
 | 15.4a | Melonly 100K: Cache, Indizes, SQLite-Abfragen und speicherschonender Export | Code in PR #128 gemergt. JSON bleibt Produktiv-Backend; keine automatische Migration oder Umschaltung. |
 | 15.4b | Melonly 100K: Performance-Nachweis | 20K-/100K-Benchmark mit drei Wiederholungen und bestandenen Paritätsprüfungen dokumentiert: [PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md](PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md). Messwerte stammen vom GitHub-Runner, nicht vom VPS. |
-| 15.5 | Datenintegrität und Wiederherstellung | Vollständiger synthetischer Backup-/Restore-Rehearsal bei 100K; SQLite-Metadaten und Integrität prüfen; abrupten Prozessabbruch mit Wiederherstellung aus Safety-Backup simulieren; JSON-Rückexport mit Generation-/Revision-Guard testen. |
+| 15.5 | Datenintegrität und Wiederherstellung | Rehearsal-Code und Prozessabbruch-Test in PR #131 gemergt. Tatsächlicher 100K-Backup-/Restore-Lauf und Abnahme noch offen; separater Workflow „Melonly Backup Restore Rehearsal“, Nachverfolgung in [Issue #133](https://github.com/NicoPinguinDEV/Pulse/issues/133). |
 | 15.6 | applications.json: Migration in einer eigenen Teilphase | Daten, Status, Anhänge/Verweise und Altformate bleiben erhalten. Aufbewahrung ist nachvollziehbar, protokolliert und standardmäßig nicht überraschend aktiviert. |
 | 15.7 | Weitere JSON-/SQLite-Dateien bewerten | Kleine Datenbanken werden einzeln bewertet. Eine Zusammenführung erfolgt nur, wenn Eigentümerschaft, Tabellenkollisionen, Backup und Rückweg geklärt sind. |
 
