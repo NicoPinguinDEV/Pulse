@@ -5,8 +5,10 @@ import json
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from pulse_applications_repository import (
     ApplicationRepositoryError,
@@ -100,11 +102,10 @@ class JsonApplicationRepositoryTests(unittest.TestCase):
                     lambda records: records.__setitem__("count", records["count"] + 1)
                 )
 
-        threads = [threading.Thread(target=increment, args=(index,)) for index in range(4)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(increment, index) for index in range(4)]
+            for future in futures:
+                future.result()
 
         self.assertEqual(self.repository.load({})["count"], 100)
 
@@ -150,6 +151,32 @@ class JsonApplicationRepositoryTests(unittest.TestCase):
     def test_snapshot_requires_an_existing_explicit_json_file(self):
         with self.assertRaises(FileNotFoundError):
             self.repository.snapshot()
+
+    def test_webserver_helpers_delegate_to_the_lazy_application_repository(self):
+        import webserver as ws
+
+        stored = {}
+        expected = {"app": {"status": "pending", "unknown_field": ["kept"]}}
+
+        def read(_path, default):
+            return stored.get("records", default)
+
+        def write(_path, records):
+            stored["records"] = records.copy()
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = str(Path(temp) / "applications.json")
+            with (
+                patch.object(ws, "APPS_FILE", path),
+                patch.object(ws, "_APPLICATION_REPOSITORY", None),
+                patch.object(ws, "_APPLICATION_REPOSITORY_PATH", ""),
+                patch.object(ws, "_load_json_file", side_effect=read),
+                patch.object(ws, "_write_json_file", side_effect=write),
+            ):
+                ws.save_json(path, expected)
+                self.assertEqual(ws.load_json(path, {}), expected)
+                self.assertEqual(ws.get_applications_repository().path, str(Path(path).resolve()))
+                self.assertEqual(stored["records"], expected)
 
 
 if __name__ == "__main__":
