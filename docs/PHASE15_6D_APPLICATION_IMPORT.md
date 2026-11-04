@@ -1,6 +1,6 @@
 # Phase 15.6d – Bewerbungsrepository und kontrollierter JSON-Import
 
-**Status:** JSON-Repository-Adapter implementiert auf Feature-Branch · PR-Prüfung ausstehend · Phase 15.6d noch nicht abgeschlossen
+**Status:** JSON-Repository-Adapter in PR #145 auf Feature-Branch · CI/Review ausstehend · Phase 15.6d noch nicht abgeschlossen
 **Basis:** main @ 149b9ad60a6a827bfcdc92d5b57d9829ddc9afc3
 **Branch:** phase/15-6d-json-repository-adapter
 **Sicherheitsgrenze:** Testumfang: synthetische Fixtures und temporäre Dateien; keine Produktivdaten, Migration oder VPS-Aktion.
