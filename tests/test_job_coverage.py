@@ -107,18 +107,7 @@ class CaughtErrorsAreReportedTests(unittest.TestCase):
         cog.run_automation.assert_awaited_once()  # the second step still ran
         self.assertIn("Tickets Panels & Automatik (5 min)", pulse_jobs.health_summary()["jobs_failing"])
 
-    def test_tracked_loops_are_not_paused_by_maintenance_mode(self):
-        """These six loops ran during maintenance mode before; tracking them must not change that."""
-        from cogs import verification
-        cog = object.__new__(verification.Verification) if hasattr(verification, "Verification") else None
-        if cog is None:
-            self.skipTest("Verifikations-Cog-Klasse nicht gefunden")
-        cog.guild_id = 1
-        cog.bot = SimpleNamespace(get_guild=lambda _: object())
-        cog.run_reminder = AsyncMock(return_value="ok")
-        with patch("pulse_flags.automations_paused", return_value=True):
-            asyncio.run(verification.Verification.reminder_loop.coro(cog))
-        cog.run_reminder.assert_awaited_once()
+
 
 
 if __name__ == "__main__":

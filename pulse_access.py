@@ -1,9 +1,9 @@
-"""F-01 "Wer darf was?" and F-02 channel visibility for unverified members – both read-only.
+"""F-01 "Wer darf was?" and F-02 channel visibility for members with the citizen role – both read-only.
 
 F-01 builds on pulse_permissions (A-03): the matrix of every team member × dashboard permission with the
 origin of each permission, and a simulation "what could this person do with these team roles?" that
 never touches Discord roles.
-F-02 computes, from Discord's own overwrite rules, which channels @everyone plus the unverified role can
+F-02 computes, from Discord's own overwrite rules, which channels @everyone plus the citizen role can
 see. Nothing is changed in Discord; the result is a warning list for an admin.
 """
 from __future__ import annotations
@@ -84,11 +84,11 @@ def can_view(channel, roles: list, everyone) -> bool:
 EXPECTED_KEY = "visibility_expected_channels"
 
 
-def visibility(guild, unverified_role_id: int, expected_ids: set[int]) -> dict:
+def visibility(guild, member_role_id: int, expected_ids: set[int]) -> dict:
     """{"role_found": bool, "visible": [...], "warnings": [...]} – warnings = visible but not marked as expected."""
     everyone = guild.default_role
-    unverified = guild.get_role(int(unverified_role_id))
-    roles = [everyone] + ([unverified] if unverified is not None else [])
+    member_role = guild.get_role(int(member_role_id))
+    roles = [everyone] + ([member_role] if member_role is not None else [])
     visible = []
     for channel in getattr(guild, "channels", []) or []:
         if getattr(channel, "type", None) is not None and str(channel.type) == "category":
@@ -97,4 +97,4 @@ def visibility(guild, unverified_role_id: int, expected_ids: set[int]) -> dict:
             visible.append(channel)
     visible.sort(key=lambda c: (getattr(c, "position", 0), c.name))
     warnings = [c for c in visible if c.id not in expected_ids]
-    return {"role_found": unverified is not None, "visible": visible, "warnings": warnings}
+    return {"role_found": member_role is not None, "visible": visible, "warnings": warnings}

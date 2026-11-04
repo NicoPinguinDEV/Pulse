@@ -331,16 +331,16 @@ async def complete_consent(code: str, redirect_uri: str, bot) -> tuple[bool, str
             import webserver as ws
             primary_guild = bot.get_guild(int(ws.GUILD_ID)) if bot else None
             if primary_guild is None:
-                return False, "Der Hauptserver ist gerade nicht verfügbar; die Verifikation kann nicht geprüft werden.", uid
+                return False, "Der Hauptserver ist gerade nicht verfügbar; die Mitgliedschaft kann nicht geprüft werden.", uid
             primary_member = primary_guild.get_member(int(uid))
             if primary_member is None:
                 try:
                     primary_member = await primary_guild.fetch_member(int(uid))
                 except Exception:
                     return False, "Nur Mitglieder des Hauptservers können den Backup-Zugang freischalten.", uid
-            from pulse_verification import CITIZEN_ROLE_ID
+            from pulse_ids import CITIZEN_ROLE_ID
             if not any(getattr(member_role, "id", None) == int(CITIZEN_ROLE_ID) for member_role in getattr(primary_member, "roles", [])):
-                return False, "Bitte verifiziere dich zuerst im Hauptserver. Der Backup-Zugang ist nur für verifizierte Bürger freigegeben.", uid
+                return False, "Für den Backup-Zugang wird die Bürgerrolle im Hauptserver benötigt.", uid
             bot_token = os.getenv("DISCORD_TOKEN", "").strip()
             if not bot_token:
                 return False, "Pulse ist nicht korrekt für die Backup-Wiederherstellung konfiguriert.", ""

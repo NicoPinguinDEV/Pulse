@@ -95,11 +95,10 @@ class MentionTests(unittest.TestCase):
         self.assertIn("allowed_mentions=DEFAULT_ALLOWED_MENTIONS", (ROOT / "main.py").read_text(encoding="utf-8"))
 
     def test_wanted_pings_allow_themselves_explicitly(self):
-        # inventory from the plan: recruiting, verification reminder, ticket ping roles, office roles,
+        # inventory from the plan: recruiting, ticket ping roles, office roles,
         # RP @everyone, social promo – each passes its own allowed_mentions
         checks = {
             "webserver.py": "content = alert_role.mention if alert_role else",
-            "cogs/verification.py": "reminder_content(settings, role_id=UNVERIFIED_ROLE_ID",
             "cogs/rp_verwaltung.py": "allowed_mentions=discord.AllowedMentions(everyone=True, users=False, roles=False)",
             "cogs/buero_system.py": "role_mentions = \" \".join(role.mention for role in office_roles)",
             "cogs/social_promo.py": "content = f\"<@&{SOCIAL_PING_ROLE_ID}>\\n\"",

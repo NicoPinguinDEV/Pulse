@@ -16,7 +16,7 @@ REQUIRED_ENV = ("DISCORD_TOKEN", "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET")
 REDIRECT_ENV = ("DISCORD_REDIRECT_URI", "PUBLIC_BASE_URL")
 # Roles Pulse hands out or takes away itself; the bot's highest role must sit above them.
 MANAGED_ROLE_NAMES = ("APPLICATION_ROLE_ID", "TEST_SUPPORTER_ROLE_ID", "WARN_UPRANK_LOCK_ROLE_ID",
-                      "WARN_IC_LOCK_ROLE_ID", "EX_TEAMLER_ROLE_ID", "UNVERIFIED_ROLE_ID", "CITIZEN_ROLE_ID")
+                      "WARN_IC_LOCK_ROLE_ID", "EX_TEAMLER_ROLE_ID", "CITIZEN_ROLE_ID")
 
 
 def _ids(value):

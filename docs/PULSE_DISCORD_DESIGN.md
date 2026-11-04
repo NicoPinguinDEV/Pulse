@@ -48,15 +48,13 @@ Alle 116 bisher fest verdrahteten Farbaufrufe in 19 Dateien nutzen jetzt die Pal
 - **Pings:** Nur das neue Mitglied, und nur wenn „Erwähnen“ aktiv ist (`allowed_mentions`). `@everyone`/`@here`/Rollen werden aus Vorlagen und Namen entschärft. Abschied pingt nie.
 - **Standard:** beide Nachrichten **aus**, bis ein Admin Kanal und Schalter setzt.
 
-## 2a. Verifikation neuer Mitglieder
+## 2a. Automatische Bürgerrollenvergabe
 
-- **Rollen (vom Betreiber vorgegeben, fest im Code):** Unverifiziert `1532762237284913363` (beim Beitritt), Bürger `1531303733311307997` (nach Klick).
-- **Ablauf:** Beitritt → Unverifiziert-Rolle. Klick auf „Jetzt verifizieren“ → Pulse vergibt **zuerst** die Bürgerrolle und entfernt **danach** die Unverifiziert-Rolle. Schlägt die Bürgerrolle fehl, bleibt die Schutzrolle bestehen. Rückmeldung immer ephemer.
-- **Robust:** persistenter Button (`custom_id` `pulse:verify:v1`, nach Neustart funktionsfähig), Klick-Sperre je Mitglied, 5-s-Cooldown, 60-s-Duplikatschutz beim Beitritt, nur der konfigurierte Server, Rollen werden nie aus Nutzereingaben übernommen.
-- **Voraussetzungen in Discord:** Pulse braucht „Rollen verwalten“, und die höchste Pulse-Rolle muss **über** beiden Rollen liegen. Kanalrechte so setzen, dass die Unverifiziert-Rolle nur Begrüßung, Regeln und Verifikation sieht – Pulse ändert Kanalrechte bewusst nicht automatisch.
-- **Einrichtung:** Verwaltung → Discord-Auftritt → Verifikation: Kanal + Texte speichern → „Panel veröffentlichen“ → „Verifikation aktiv“ anhaken → speichern. Standard ist **aus**, damit niemand eingesperrt wird, bevor das Panel existiert.
-- **Erinnerung:** Standardmäßig alle 60 Minuten (15–1440 einstellbar) erwähnt Pulse die Unverifiziert-Rolle im Verifikationskanal – nur wenn die Verifikation aktiv, das Panel veröffentlicht und mindestens eine Person unverifiziert ist. Vor jeder neuen Erinnerung wird die vorherige gelöscht, es steht also immer höchstens eine im Kanal. Zeitpunkt wird gespeichert, ein Neustart pingt nicht vorzeitig. Ist die Rolle nicht erwähnbar, braucht Pulse „@everyone, @here und alle Rollen erwähnen“.
-- **Diagnose:** Rollenstatus und Rechteprobleme werden live angezeigt; die letzten 10 Fehler (ohne Namen) erscheinen unter „Letzte Probleme“.
+- **Rolle:** Neue menschliche Mitglieder erhalten beim Beitritt automatisch die Bürgerrolle `1531303733311307997`.
+- **Kein Verify-Ablauf:** Es gibt keine Unverifiziert-Rolle, keinen Bestätigungsbutton, kein Verifikations-Panel und keine Erinnerungs-Pings. Der Zugang hängt nicht von einer manuellen Bestätigung ab.
+- **Sicherheit:** Pulse reagiert nur auf Beitritte im konfigurierten Hauptserver, überspringt Bot-Accounts und vergibt die Rolle idempotent. Fehlende Rolle, Berechtigung oder Rollen-Hierarchie werden protokolliert; fehlgeschlagene Zuweisungen werden nicht still als erfolgreich behandelt.
+- **Discord-Voraussetzungen:** Pulse benötigt „Rollen verwalten“ und seine höchste Rolle muss über der Bürgerrolle stehen.
+- **Bestand:** Die Automatik gilt für neue Beitritte. Bereits vorhandene Mitglieder werden nicht ohne gesonderte, geprüfte Aktion nachträglich geändert.
 
 ## 3. Team und Verwaltung
 

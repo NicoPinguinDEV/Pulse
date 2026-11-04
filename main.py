@@ -75,7 +75,7 @@ class CustomBot(commands.Bot):
             max_messages=MESSAGE_CACHE_SIZE,
             tree_cls=self.TREE_CLASS,
             # BOT-01: no @everyone/@here and no role pings unless a message allows them explicitly.
-            # Every wanted ping already passes its own allowed_mentions (recruiting, verification reminder,
+            # Every wanted ping already passes its own allowed_mentions (recruiting,
             # ticket ping roles, office roles, RP @everyone, social promo, send_styled) – see tests/test_interactions.py.
             allowed_mentions=DEFAULT_ALLOWED_MENTIONS,
         )

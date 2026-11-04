@@ -13,7 +13,7 @@ import pulse_db
 import pulse_paths
 
 BASE_DIR = pulse_paths.DATA_DIR  # Phase 13: the cogs' SQLite files live in the data directory
-REPUBLISH = ("tickets", "verification", "duty")
+REPUBLISH = ("tickets", "duty")
 
 
 def _cog_config(db_file: str, key: str):
@@ -75,9 +75,6 @@ def collect(guild_id: int) -> list[dict]:
     if not panels and not legacy:
         items.append(_entry("tickets", "Ticket-Panel", how="Dashboard → Tickets → Panels", republish=True))
 
-    verification = pulse_db.get_setting("verification_config", {}) or {}
-    items.append(_entry("verification", "Verifizierung", verification.get("published_channel_id") or verification.get("channel_id"),
-                        verification.get("message_id"), "Dashboard → Verwaltung → Discord-Auftritt", True))
     duty = pulse_db.get_setting("duty_panel", {}) or {}
     items.append(_entry("duty", "Dienst-Panel", duty.get("channel_id"), duty.get("message_id"), "/dienst panel im Zielkanal", True))
     items.append(_entry("abmeldung", "Abmeldungsliste", _cog_config("abmeldungen.db", "list_channel_id"),
@@ -124,12 +121,6 @@ async def republish(bot, guild, key: str) -> str:
             raise ValueError("Das Ticket-System ist nicht geladen.")
         await cog.refresh_panels()
         return "Ticket-Panels wurden aktualisiert."
-    if key == "verification":
-        cog = next((c for c in bot.cogs.values() if hasattr(c, "publish_panel")), None)
-        if cog is None:
-            raise ValueError("Die Verifizierung ist nicht geladen.")
-        await cog.publish_panel(guild)
-        return "Verifizierungs-Panel wurde veröffentlicht."
     if key == "duty":
         from cogs.dienst import PANEL_SETTING, DutyPanelView, panel_embed
         stored = pulse_db.get_setting(PANEL_SETTING, {}) or {}
