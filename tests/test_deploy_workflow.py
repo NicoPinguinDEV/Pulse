@@ -7,18 +7,28 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DeploymentWorkflowTests(unittest.TestCase):
-    def test_deploy_is_gated_by_successful_main_push_quality_run(self):
+    def test_deploy_is_gated_by_protected_main_and_both_successful_ci_runs(self):
         workflow = (ROOT / ".github" / "workflows" / "deploy-vps.yml").read_text(encoding="utf-8")
 
-        self.assertIn('workflows: ["Pulse Quality and Security Checks"]', workflow)
-        self.assertIn('run.conclusion !== "success"', workflow)
-        self.assertIn('run.event !== "push"', workflow)
-        self.assertIn('run.head_branch !== "main"', workflow)
+        self.assertIn('- "Pulse Quality and Security Checks"', workflow)
+        self.assertIn('- "Pulse Sicherheit & Abdeckung"', workflow)
+        self.assertIn('triggerRun.conclusion !== "success"', workflow)
+        self.assertIn('triggerRun.event !== "push"', workflow)
+        self.assertIn('triggerRun.head_branch !== "main"', workflow)
+        self.assertIn('branch.data.protected !== true', workflow)
         self.assertIn('workflow_id: "python-syntax.yml"', workflow)
-        self.assertIn('latestMainPush.conclusion !== "success"', workflow)
-        self.assertIn('latestMainPush.status !== "completed"', workflow)
+        self.assertIn('workflow_id: "security.yml"', workflow)
+        self.assertIn('run.status !== "completed"', workflow)
+        self.assertIn('run.conclusion !== "success"', workflow)
         self.assertIn('run.event === "push"', workflow)
-        self.assertIn('core.setOutput("sha", run.head_sha)', workflow)
+        self.assertIn('run.head_branch === "main"', workflow)
+        self.assertIn("github.rest.actions.listJobsForWorkflowRun", workflow)
+        self.assertIn('job.conclusion !== "success"', workflow)
+        self.assertIn('job.conclusion === "skipped"', workflow)
+        self.assertIn('triggerRun.id !== latestCompletedRun.id', workflow)
+        self.assertIn('core.setOutput("ready", "false")', workflow)
+        self.assertIn('core.setOutput("ready", "true")', workflow)
+        self.assertIn('core.setOutput("sha", sha)', workflow)
         self.assertNotIn("git reset --hard origin/main", workflow)
 
     def test_green_ci_alone_never_deploys_without_explicit_opt_in(self):
