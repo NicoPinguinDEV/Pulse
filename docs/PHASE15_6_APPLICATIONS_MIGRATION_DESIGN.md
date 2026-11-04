@@ -1,15 +1,16 @@
 # Phase 15.6 – Bewerbungsdaten: Versionierung, Referenzen und Migration
 
-**Status:** 15.6a Read-only-Inventur und Migrationsentwurf in PR #136 gemergt · 15.6b Daten-/Retention-Matrix im Review · keine Produktivmigration  
-**Basis der Inventur:** `main` @ `e7311e7b9bb3fb90706629eaf0fabe2086e4782d`  
-**Datum:** 02.11.2026  
+**Status (05.11.2026):** 15.6a Read-only-Inventur und Migrationsentwurf in PR #136 gemergt · 15.6b technische Prüfung/Korrektur der Daten-/Retention-Matrix in PR #140 gemergt · 15.6c als nächster Umsetzungsschritt geplant · keine Produktivmigration  
+**Codebasis der Read-only-Inventur 15.6a:** `main` @ `e7311e7b9bb3fb90706629eaf0fabe2086e4782d` (nach PR #136)  
+**Aktueller Repository-Stand:** `main` @ `e9f8e40cb3ff6733ced3a8896431bb23bd043ad2` (nach PR #141)  
+**Datum:** 05.11.2026  
 **Nachverfolgung:** [Issue #134](https://github.com/NicoPinguinDEV/Pulse/issues/134)
 
 > Diese Phase ändert noch kein aktives Bewerbungs-Backend. Die vorhandenen JSON- und SQLite-Daten bleiben die maßgeblichen Quellen. Alle Inventurtests verwenden ausschließlich synthetische Fixtures oder ausdrücklich angegebene Exporte.
 
 ## Ergänzung: Phase 15.6b
 
-Der Codeabgleich zu Statuswerten, Retention, Einstellungsdatum, Interview-/Kalenderreferenzen, Datenschutzexport und Backup-Grenzen ist in [PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md](PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md) dokumentiert. Die Matrix enthält ausdrücklich keine Implementierung oder Produktivdateninventur. Sie muss fachlich geprüft werden, bevor 15.6c beginnt.
+Der Codeabgleich zu Statuswerten, Retention, Einstellungsdatum, Interview-/Kalenderreferenzen, Datenschutzexport und Backup-Grenzen ist in [PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md](PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md) dokumentiert. Die technische Review-Korrektur wurde mit PR #140 gemergt. Die Matrix enthält weiterhin keine Implementierung oder Produktivdateninventur. Offene fachliche Entscheidungen zu Status- und Aufbewahrungsregeln bleiben vor 15.6e/15.6f zu klären; sie verhindern nicht die isolierte Vorbereitung des minimierten Einstellungsereignisses in 15.6c.
 
 ## 1. Verifizierter Ist-Zustand
 
@@ -141,6 +142,12 @@ Da die drei Dateien/Datenbanken keine gemeinsame Transaktion besitzen, ist die L
 | 15.6d | Versioniertes Repository und JSON-Import | JSON-Parität, Snapshot, SHA-256, Generation/Revision |
 | 15.6e | Referenzsichere Retention und Löschung | Vollbackup, Dry-Run, idempotenter Ablauf und Recovery-Test |
 | 15.6f | Produktive Migration als separater Betriebsschritt | Ausdrückliche Freigabe, geprüftes Backup und Rückweg |
+
+### 4.1 Abgrenzung des nächsten Schritts 15.6c
+
+15.6c darf ausschließlich einen minimalen, unabhängigen Beschäftigungsnachweis nach tatsächlich bestätigter Einstellung ergänzen. Vorher sind alle produktiven Einstellungspfade im aktuellen Code erneut zu inventarisieren: Bewerbung nach Interview, manuelle Einstellung und erstmalige Vergabe einer Teamrolle. Der Datensatz muss idempotent sein und die bisherige `team_since_for`-Priorität ohne vollständige Bewerbungsantworten erhalten.
+
+Kein Ereignis darf allein aus dem Suite-Status `accepted` entstehen. Es gibt keinen automatischen Backfill alter `accepted`-/`hired`-Fälle. Statusnormalisierung, Retention, Löschung/Anonymisierung, JSON-/SQLite-Umschaltung und Produktivmigration bleiben außerhalb von 15.6c. Das Ereignis erhält nur die wirklich erforderlichen Felder und eine nachvollziehbare Audit-Referenz.
 
 ## 5. Abnahmekriterien
 
