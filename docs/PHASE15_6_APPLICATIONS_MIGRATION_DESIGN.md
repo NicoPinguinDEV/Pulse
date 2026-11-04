@@ -1,8 +1,8 @@
 # Phase 15.6 – Bewerbungsdaten: Versionierung, Referenzen und Migration
 
-**Status (05.11.2026):** 15.6a (PR #136) und 15.6b (PR #140) abgeschlossen · 15.6c mit PR #143 gemergt · 15.6d mit einem isolierten JSON-Import-Snapshot-Vertrag begonnen · keine Produktivmigration  
+**Status (05.11.2026):** 15.6a (PR #136), 15.6b (PR #140) und 15.6c (PR #143) abgeschlossen · 15.6d: Snapshot-Vertrag aus PR #144 gemergt; JSON-Repository-Adapter in Feature-PR in Prüfung · keine Produktivmigration  
 **Codebasis der Read-only-Inventur 15.6a:** `main` @ `e7311e7b9bb3fb90706629eaf0fabe2086e4782d` (nach PR #136)  
-**Aktueller Repository-Stand:** `main` @ `bf62017ab4ea992d183ac1ba521ab71e0ee5a0ed` (nach PR #143)  
+**Aktueller main-Stand bei Branch-Erstellung:** `149b9ad60a6a827bfcdc92d5b57d9829ddc9afc3` (nach PR #144)  
 **Datum:** 05.11.2026  
 **Nachverfolgung:** [Issue #134](https://github.com/NicoPinguinDEV/Pulse/issues/134)
 
@@ -153,6 +153,12 @@ PR #143 implementiert den minimierten employment_event-Nachweis in der bestehend
 pulse_application_import.py ist ein reiner, nebenwirkungsfreier Vorabvertrag für einen späteren Import. Er nimmt einen explizit bereitgestellten JSON-Byte-Stream entgegen, prüft UTF-8 und ein JSON-Top-Level-Objekt, lehnt doppelte Schlüssel und NaN/Infinity ab und hält SHA-256, Record-Anzahl, Schema-Version, Generation und Revision fest. Der ursprüngliche Byte-Stream bleibt die Exportquelle; unbekannte Alt-Felder, Werte, Formatierung und Reihenfolge werden nicht neu serialisiert.
 
 Der Baustein erstellt keine Dateien und Tabellen, greift nicht auf APPS_FILE zu, führt keinen Import aus und wird von keinem Laufzeitpfad verwendet. Als nächster separater Schritt folgen ein JSON-Repository-Adapter und ein reproduzierbarer Import-/Snapshot-/Rollback-Ablauf mit synthetischen Tests. Keine produktive Backend-Umschaltung ohne eigene Freigabe.
+
+### 4.3 JSON-Repository-Adapter (Feature-Branch)
+
+Der Branch `phase/15-6d-json-repository-adapter` ergänzt `pulse_applications_repository.py`. Der Adapter kapselt die bestehende Mapping-API und delegiert Dateizugriffe an die vorhandenen JSON-Sicherheitshelfer. `webserver.load_json` und `webserver.save_json` leiten Zugriffe auf `APPS_FILE` verzögert an ihn weiter; alle anderen JSON-Dateien bleiben unverändert. `mutate()` bietet eine gemeinsame synchrone Read-Modify-Write-Grenze unter demselben `_io_lock`. Snapshot und Importvorschau bleiben reine Validierungs-/Exportoperationen und schreiben nichts.
+
+Der Adapter ist im Feature-Branch noch nicht gemergt und migriert nicht automatisch alle einzelnen Schreibabläufe auf `mutate()`. Persistente Snapshots, Importausführung, Rollback, SQLite und Produktionsmigration sind weiterhin offen. Der aktuelle PR ist damit ein Adapter-Schritt innerhalb von 15.6d, kein Abschluss der gesamten Teilphase.
 
 ## 5. Abnahmekriterien
 
