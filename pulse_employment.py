@@ -13,6 +13,7 @@ _EMPLOYMENT_SOURCES = frozenset({
     "application_interview",
     "manual_hire",
     "team_role_assignment",
+    "discord_team_sync",
 })
 _DISCORD_ID = re.compile(r"^[0-9]{1,20}$")
 _AUDIT_REF = re.compile(r"^audit_[0-9a-f]{6}$")
@@ -26,6 +27,7 @@ def build_employment_event(
     actor_id: Any,
     source: str,
     audit_ref: str,
+    actor_id: Any = None,
     career_path: Any = None,
 ) -> dict[str, Any]:
     """Build a validated, minimal v1 employment event."""
@@ -35,8 +37,8 @@ def build_employment_event(
     normalized_audit_ref = str(audit_ref or "").strip()
     if not _DISCORD_ID.fullmatch(normalized_user_id):
         raise ValueError("employment event requires a valid Discord user ID")
-    if not _DISCORD_ID.fullmatch(normalized_actor_id):
-        raise ValueError("employment event requires a valid actor ID")
+    if normalized_actor_id and not _DISCORD_ID.fullmatch(normalized_actor_id):
+        raise ValueError("employment event actor ID must be a valid Discord user ID")
     if normalized_source not in _EMPLOYMENT_SOURCES:
         raise ValueError("employment event source is not supported")
     if not _AUDIT_REF.fullmatch(normalized_audit_ref):
@@ -54,10 +56,11 @@ def build_employment_event(
         "version": 1,
         "user_id": normalized_user_id,
         "hired_at": parsed.isoformat(timespec="seconds"),
-        "actor_id": normalized_actor_id,
         "source": normalized_source,
         "audit_ref": normalized_audit_ref,
     }
+    if normalized_actor_id:
+        event["actor_id"] = normalized_actor_id
     normalized_career_path = str(career_path or "").strip().casefold()
     if normalized_career_path and _CAREER_PATH.fullmatch(normalized_career_path):
         event["career_path"] = normalized_career_path
