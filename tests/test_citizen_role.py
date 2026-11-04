@@ -47,6 +47,15 @@ class CitizenRoleJoinTests(unittest.TestCase):
         self.env.stop()
     def join(self, member):
         return asyncio.run(self.cog.on_member_join(member))
+    def test_empty_or_invalid_guild_environment_uses_fixed_server(self):
+        self.env.stop()
+        try:
+            for raw in ("", "not-a-guild-id", "0", "-1"):
+                with self.subTest(raw=raw), patch.dict(os.environ, {"DISCORD_GUILD_ID": raw}):
+                    self.assertEqual(CitizenRoleOnJoin(SimpleNamespace()).guild_id, GUILD_ID)
+        finally:
+            self.env.start()
+
     def test_new_human_gets_citizen_role(self):
         member = FakeMember(self.guild)
         self.assertEqual(self.join(member), "assigned")
