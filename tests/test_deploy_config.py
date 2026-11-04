@@ -64,9 +64,17 @@ class DockerTests(unittest.TestCase):
 class DeployTests(unittest.TestCase):
     def test_workflow_deploys_the_tested_commit_one_at_a_time(self):
         workflow = read(".github/workflows/deploy-vps.yml")
-        # The automatic path takes the SHA of the finished check run (context.payload.workflow_run.head_sha) and every
-        # later step uses that verified output – also the checkout of the deploy script (M-A4-1).
-        self.assertIn('core.setOutput("sha", run.head_sha)', workflow)
+        # Automatic and manual deploys share a fail-closed gate: protected main, both CI workflows,
+        # required jobs, and the exact commit SHA are checked before any deploy step can run.
+        self.assertIn("triggerRun.head_sha", workflow)
+        self.assertIn('branch.data.protected !== true', workflow)
+        self.assertIn('workflow_id: "python-syntax.yml"', workflow)
+        self.assertIn('workflow_id: "security.yml"', workflow)
+        self.assertIn("github.rest.actions.listJobsForWorkflowRun", workflow)
+        self.assertIn('job.conclusion !== "success"', workflow)
+        self.assertIn('job.conclusion === "skipped"', workflow)
+        self.assertIn('core.setOutput("ready", "true")', workflow)
+        self.assertIn('core.setOutput("sha", sha)', workflow)
         self.assertEqual(workflow.count("${{ steps.verified.outputs.sha }}"), 3)
         self.assertIn("concurrency:", workflow)
         self.assertNotIn("reset --hard origin/main", workflow)
