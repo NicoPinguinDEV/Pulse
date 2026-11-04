@@ -16,7 +16,6 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | cogs/social_promo.py:712 | `poll_sources` | `minutes=POLL_INTERVAL_MINUTES` | 2 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/teamliste.py:363 | `update_list_loop` | `minutes=5` | 1 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/tickets.py:1277 | `panel_refresh` | `minutes=5` | 2 except, davon 2 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
-| cogs/verification.py:243 | `reminder_loop` | `minutes=5` | 1 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/voice_support.py:1645 | `duty_status_loop` | `minutes=1` | keine eigene; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/voice_support.py:1664 | `music_loop` | `seconds=8` | 1 except, **1 still (`pass`)**; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 

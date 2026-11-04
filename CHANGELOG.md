@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Automatische Bürgerrolle und Entfernung der Verifikation (November 2026)
+
+- Neue menschliche Mitglieder erhalten beim Serverbeitritt automatisch die Bürgerrolle `1531303733311307997`.
+- Das bisherige Verify-System wurde entfernt: keine Unverifiziert-Rolle, kein Button, kein Verifikations-Panel und keine Erinnerungs-Pings mehr.
+- Die Zuweisung prüft Zielserver, Rollenexistenz, „Rollen verwalten“ und Rollen-Hierarchie. Bestehende Mitglieder werden nicht automatisch verändert.
+
 ## Unveröffentlicht – Betrieb auf dem Vionity-VPS
 
 - **Sicherheit/Betrieb (Phase 13.1 – Production Readiness, Details `docs/PHASE13_1_BERICHT.md`):** Die Datenmigration ist fail-closed (nur mit erreichbarem Docker-Daemon und nachweislich gestopptem Container), kopiert atomar ohne Überschreiben und folgt keinen Symlinks; neuer Rückweg `pulse_migrate_data.py --rollback` (veraltete Kopien werden beiseitegelegt, nie gelöscht). Alle Root-Skripte nutzen dieselbe Deploy-Sperre; scheitert der erste Deploy ins Datenverzeichnis-Layout, wird Pulse gestoppt statt mit veralteten Daten gestartet. Neuer CI-Job testet die echte Docker-Compose-Konfiguration (read-only, `/data`, Healthcheck, Shutdown) ohne Discord.

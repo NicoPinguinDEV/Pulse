@@ -29,13 +29,12 @@ class IdTests(unittest.TestCase):
     def test_modules_use_the_central_values(self):
         import webserver
         from cogs import honeypot, tickets
-        import pulse_verification
         self.assertEqual(webserver.WARN_ROLE_IDS, pulse_ids.WARN_ROLE_IDS)
         self.assertEqual(webserver.TEAM_KICK_KEEP_ROLE_IDS, (1531303733311307997, 1489912887949394082))
         self.assertEqual(tickets.DEFAULT_TICKET_OPEN_LOG_CHANNEL_ID, 1543914075308818503)
         self.assertEqual(tickets.DEFAULT_TICKET_CLAIM_LOG_CHANNEL_ID, 1535025111722098778)
         self.assertEqual(honeypot.HONEYPOT_CHANNEL_ID, pulse_ids.HONEYPOT_CHANNEL_ID)
-        self.assertEqual(pulse_verification.UNVERIFIED_ROLE_ID, 1532762237284913363)
+        self.assertEqual(pulse_ids.CITIZEN_ROLE_ID, 1531303733311307997)
 
     def test_no_new_module_level_id_literals(self):
         offenders = []

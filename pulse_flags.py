@@ -20,7 +20,7 @@ CACHE_SECONDS = 5.0
 # key → (plan id, label, description)
 FEATURES: dict[str, tuple[str, str, str]] = {
     "rights_check": ("F-01", "Wer darf was?", "Rechte-Matrix und Simulation für eine Person (nur lesend)."),
-    "visibility_check": ("F-02", "Kanal-Sichtprüfung", "Welche Kanäle sehen Unverifizierte? Nur lesend, Warnliste."),
+    "visibility_check": ("F-02", "Kanal-Sichtprüfung", "Welche Kanäle sehen Mitglieder mit der Bürgerrolle? Nur lesend, Warnliste."),
     "settings_history": ("F-03", "Einstellungs-Historie", "Wer hat wann welche Einstellung geändert – mit Diff und Zurücksetzen."),
     "maintenance": ("F-04", "Wartungsmodus", "Banner, Schreibaktionen gesperrt, Bot-Automationen pausiert."),
     "capacity_heatmap": ("F-05", "Kapazitäts-Heatmap", "Ticket- und Voice-Aufkommen gegen Dienstzeiten je Wochentag und Stunde."),

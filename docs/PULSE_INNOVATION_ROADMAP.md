@@ -12,7 +12,7 @@ Kennzeichnung: **[Nachgewiesen]** = im Code/Laufzeitlog belegt · **[Hypothese]*
 | Verwaltung | `/admin`, `/admin/discord` | `pulse_admin.py` | `test_pulse_admin_area.py` |
 | Discord-Design | `pulse_embed_design.py` | Palette `discord_branding` | `test_pulse_embed_design.py` |
 | Willkommen/Abschied | `cogs/welcome.py` | `pulse_welcome.py` | `test_pulse_welcome.py` |
-| Verifikation | `cogs/verification.py` | `pulse_verification.py` | `test_pulse_verification.py` |
+| Bürgerrolle | `cogs/citizen_role.py` | Automatische Bürgerrolle beim Serverbeitritt | `test_citizen_role.py` |
 | Tickets | `cogs/tickets.py`, `/tickets` | `pulse_ticket_*` | `test_pulse_ticket_*` |
 | Voice-Support | `cogs/voice_support.py` | `pulse_voice_support_utils.py` | `test_voice_support_*` |
 | Abmeldungen | `cogs/abmeldung.py`, `/loa` | `pulse_absence_repair.py` | `test_pulse_absence_repair.py` |
@@ -23,7 +23,7 @@ Kennzeichnung: **[Nachgewiesen]** = im Code/Laufzeitlog belegt · **[Hypothese]*
 
 | Prio | Bereich | Problem | Lösung | Tests |
 |---|---|---|---|---|
-| P0 | Verifikation (B.1) | **[Nachgewiesen]** Kein Verifikationssystem vorhanden; Bürgerrolle `1531303733311307997` wurde nur für Bewerbungen genutzt. | Beitritt → Unverifiziert-Rolle `1532762237284913363`; persistenter Button `pulse:verify:v1` → **zuerst** Bürgerrolle, **dann** Unverifiziert entfernen. Rechte-/Hierarchieprüfung vor jeder Rollenänderung, Klick-Sperre + Cooldown, Duplikatschutz beim Join, Fehlerprotokoll (max. 10) im Dashboard, Panel bearbeitet statt dupliziert. Standardmäßig **aus**. | `test_pulse_verification.py` (Abnahmepunkte 1–8), `test_pulse_admin_area.py` (9) |
+| P0 | Bürgerrolle beim Beitritt | **[Implementiert]** Neue menschliche Mitglieder erhalten direkt die Bürgerrolle `1531303733311307997`. | Das bisherige Verify-System mit Unverifiziert-Rolle, Button, Panel und Erinnerungen ist entfernt. Die Automatik prüft Server, Rollenexistenz, Berechtigung und Hierarchie; bestehende Mitglieder werden nicht nachträglich verändert. | `test_citizen_role.py`, Admin-Routen-Test |
 | P0 | Abmeldungen | **[Nachgewiesen]** Dashboard-Abmeldungen wurden in der migrierten Tabelle mit vertauschten Spalten gespeichert: Ende = Startdatum, Nickname = Enddatum (Live: „Stv.TL ✗ 2026-10-19“). | Insert repariert (88059cc) **und** neue einmalige, idempotente Reparatur bestehender Einträge beim Start mit Dateisicherung vorher (`pulse_absence_repair.py`). | `test_pulse_absence_repair.py` |
 | P0 | Namenspräfixe | **[Nachgewiesen]** Gestapelte Präfixe nach Rangwechsel („Jr.Admin ✗ L.Mod ✗ Dawo“). | Pulse-eigene Präfixe werden vollständig entfernt; „Unverifiziert ✗“ ebenfalls, damit es nach der Verifikation nicht stapelt. | `test_role_nickname_utils.py` |
 | P1 | Discord-Design | Farben in 19 Dateien hart codiert. | Zentrale, änderbare Palette; Willkommen/Abschied mit Avatar + Banner. | siehe oben |

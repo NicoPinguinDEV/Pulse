@@ -206,11 +206,11 @@ def register(app) -> None:
     @app.get("/admin/visibility", response_class=HTMLResponse)
     async def visibility_page(request: Request, user_session: str = Cookie(None)):
         import pulse_access
-        import pulse_verification
+        import pulse_ids
         ctx = admin_ctx(request, user_session)
         pulse_flags.require("visibility_check")
         expected = {int(x) for x in (pulse_db.get_setting(pulse_access.EXPECTED_KEY, []) or []) if str(x).isdigit()}
-        result = pulse_access.visibility(ctx.guild, pulse_verification.UNVERIFIED_ROLE_ID, expected)
+        result = pulse_access.visibility(ctx.guild, pulse_ids.CITIZEN_ROLE_ID, expected)
 
         def row(channel, warn):
             action = ("Als erwartet markieren" if warn else "Markierung entfernen")
@@ -219,9 +219,9 @@ def register(app) -> None:
                     f'<form method="post" action="/admin/visibility/expected"><input type="hidden" name="channel_id" value="{channel.id}">'
                     f'<input type="hidden" name="expected" value="{"1" if warn else "0"}"><button class="pulse-btn ghost" type="submit">{action}</button></form></div>')
         warn_ids = {c.id for c in result["warnings"]}
-        note = "" if result["role_found"] else "<p class=\"mb-2\">⚠️ Die Rolle für Unverifizierte gibt es auf dem Server nicht – geprüft wird nur @everyone.</p>"
+        note = "" if result["role_found"] else "<p class=\"mb-2\">⚠️ Die Bürgerrolle gibt es auf dem Server nicht – geprüft wird nur @everyone.</p>"
         body = card(f"👁 Kanal-Sichtprüfung · {len(result['warnings'])} Warnung(en)",
-                    "Kanäle, die @everyone zusammen mit der Rolle „Unverifiziert“ sehen kann. Nur lesend – Pulse ändert keine Kanalrechte. "
+                    "Kanäle, die @everyone zusammen mit der Bürgerrolle sehen kann. Nur lesend – Pulse ändert keine Kanalrechte. "
                     "Kanäle, die sichtbar sein sollen (Regeln, Verifizierung), markierst du als erwartet.",
                     note + ('<div class="space-y-1">' + "".join(row(c, c.id in warn_ids) for c in result["visible"]) + "</div>"
                             if result["visible"] else ws.empty_state("Unverifizierte sehen keinen Kanal.", "👁")))
