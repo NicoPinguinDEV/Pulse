@@ -47,8 +47,6 @@ Der Elternprozess prüft anschließend:
 
 Damit wird der manuelle Recovery-Weg nach einem Prozessabbruch getestet. Eine automatische Startzeit-Recovery wird nicht behauptet oder neu aktiviert.
 
-## Ausführung
-
 ## Ausführung nach Merge
 
 Der Code aus PR #131 ist bereits in `main`. Für die tatsächliche Abnahme ist daher der separate manuelle Workflow zu verwenden:
@@ -73,7 +71,7 @@ Im JSON-Ergebnis nachgewiesen:
 - Isolierter Test-Restore und vollständiger Restore: `passed`.
 - SQLite `PRAGMA integrity_check`: `ok`; Zeilenanzahl nach Restore: `100000`.
 - Generation und Revision wurden wiederhergestellt. Der Rehearsal-Code prüft zusätzlich `active_backend`, `import_count` und `import_source_sha256) gegen die Ausgangsmetadaten.
-- SQLite→JSON-Rückexport: `count=100000`, `sha256_matches_source=true), Backend nach kontrolliertem Rollback: `json`.
+- SQLite→JSON-Rückexport: `count=100000`, `sha256_matches_source=true`, Backend nach kontrolliertem Rollback: `json`.
 - Erzeugtes Backup: `9.546.738` Bytes; das Manifest enthielt in diesem synthetischen Fixture zwei Dateien (`pulse.db` und `logs.json`).
 - Vollständiger Restore: `2.825,786 ms`; JSON-Rückexport: `1.955,389 ms`; Backup-Erstellung: `1.205,284 ms`; Archivprüfung: `495,258 ms`.
 - Container-Spitzenverbrauch laut cgroup: `547,7 MB` bei einem Limit von `2.048 MB`; aktueller Verbrauch am Messpunkt `158,5 MB`, Prozess-HWM `434,2 MB`.
