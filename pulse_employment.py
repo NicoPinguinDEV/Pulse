@@ -24,7 +24,6 @@ def build_employment_event(
     *,
     user_id: Any,
     hired_at: Any,
-    actor_id: Any,
     source: str,
     audit_ref: str,
     actor_id: Any = None,
