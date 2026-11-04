@@ -195,8 +195,6 @@
  "POST /admin/discord/log-routing -> pulse_admin.register.<locals>.admin_discord_log_routing",
  "POST /admin/discord/logs -> pulse_admin.register.<locals>.admin_discord_logs",
  "POST /admin/discord/test -> pulse_admin.register.<locals>.admin_discord_test",
- "POST /admin/discord/verification -> pulse_admin.register.<locals>.admin_verification_save",
- "POST /admin/discord/verification/publish -> pulse_admin.register.<locals>.admin_verification_publish",
  "POST /admin/discord/welcome -> pulse_admin.register.<locals>.admin_discord_welcome",
  "POST /admin/features/maintenance -> pulse_phase7.register.<locals>.features_maintenance",
  "POST /admin/features/toggle -> pulse_phase7.register.<locals>.features_toggle",
