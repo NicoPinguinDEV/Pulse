@@ -53,6 +53,12 @@ class CitizenRoleJoinTests(unittest.TestCase):
         self.assertEqual([role.id for role in member.roles], [CITIZEN_ROLE_ID])
         self.assertEqual(len(member.calls), 1)
         self.assertIn("automatisch beim Serverbeitritt", member.calls[0][1])
+    def test_join_assignment_is_not_blocked_by_maintenance_mode(self):
+        member = FakeMember(self.guild)
+        with patch("pulse_flags.automations_paused", return_value=True):
+            self.assertEqual(self.join(member), "assigned")
+        self.assertEqual([role.id for role in member.roles], [CITIZEN_ROLE_ID])
+
     def test_duplicate_join_event_does_not_assign_twice(self):
         member = FakeMember(self.guild)
         self.assertEqual(self.join(member), "assigned")
