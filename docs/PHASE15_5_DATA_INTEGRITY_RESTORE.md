@@ -70,7 +70,7 @@ Im JSON-Ergebnis nachgewiesen:
 - `entries=100000`, `parity=passed`, `backup_verified=true`.
 - Isolierter Test-Restore und vollständiger Restore: `passed`.
 - SQLite `PRAGMA integrity_check`: `ok`; Zeilenanzahl nach Restore: `100000`.
-- Generation und Revision wurden wiederhergestellt. Der Rehearsal-Code prüft zusätzlich `active_backend`, `import_count` und `import_source_sha256) gegen die Ausgangsmetadaten.
+- Generation und Revision wurden wiederhergestellt. Der Rehearsal-Code prüft zusätzlich `active_backend`, `import_count` und `import_source_sha256` gegen die Ausgangsmetadaten.
 - SQLite→JSON-Rückexport: `count=100000`, `sha256_matches_source=true`, Backend nach kontrolliertem Rollback: `json`.
 - Erzeugtes Backup: `9.546.738` Bytes; das Manifest enthielt in diesem synthetischen Fixture zwei Dateien (`pulse.db` und `logs.json`).
 - Vollständiger Restore: `2.825,786 ms`; JSON-Rückexport: `1.955,389 ms`; Backup-Erstellung: `1.205,284 ms`; Archivprüfung: `495,258 ms`.
