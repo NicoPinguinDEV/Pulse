@@ -44,7 +44,7 @@ class CommandCenterInteractionTests(unittest.TestCase):
         self.assertIn('function pointerOver(event)', js)
         self.assertIn('document.addEventListener("pointerover",pointerOver,true)', js)
 
-    def test_navigation_menus_and_surfaces_share_the_existing_red_brand(self):
+    def test_navigation_menus_and_surfaces_share_the_coral_brand(self):
         css = pulse_pro.PULSE_INTERACTION_CSS
         for marker in (
             "#pulseSidebar nav a:hover:not(.nav-active)",
@@ -53,7 +53,8 @@ class CommandCenterInteractionTests(unittest.TestCase):
             ".pulse-card:hover,.pulse-stat:hover",
             ".pulse-row:hover",
             ".pulse-command-item:hover",
-            "rgba(227,27,35",
+            "rgba(255,118,92",
+            "#B94732",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, css)

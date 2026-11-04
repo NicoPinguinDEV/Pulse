@@ -457,7 +457,7 @@ def register(app) -> None:
         game = await ps.game_status(ws._roblox_http_client)
 
         def tile(label, value, good=None):
-            color = "#16a34a" if good is True else ("#dc2626" if good is False else "#4f46e5")
+            color = "#16a34a" if good is True else ("#dc2626" if good is False else "#B94732")
             return (f'<div style="background:#fff;border-radius:16px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.08)">'
                     f'<div style="font-size:12px;color:#64748b">{_e(label)}</div><div style="font-size:24px;font-weight:800;color:{color}">{_e(value)}</div></div>')
         support = "geschlossen" if not data["support_active"] else ("geöffnet" if data["support_open"] else "außerhalb der Zeiten")

@@ -65,23 +65,79 @@ class DashboardRedesignTests(unittest.TestCase):
         self.assertIn('perms.get("can_view_analytics",False)', self.sidebar)
         self.assertIn("from pulse_admin import ADMIN_PAGE_KEYS, admin_sections", self.sidebar)
 
-    def test_shared_theme_uses_black_and_red_tokens(self):
+    def test_shared_theme_uses_anthracite_and_accessible_coral_tokens(self):
         css = SOURCE.split('PRO_CSS = r"""', 1)[1].split('"""', 1)[0]
         dark = css.split(".dark{", 1)[1].split("}", 1)[0]
-        for token in ("--p:#E31B23", "--p2:#FF333D", "--p3:#FF5058", "--bg:#08090B", "--bg2:#0E1014",
+        for token in ("--p:#FF947B", "--p2:#FF765C", "--p3:#FF947B", "--bg:#08090B", "--bg2:#0E1014",
                       "--surface:#13161B", "--surface2:#191D24", "--text:#F5F5F5", "--muted:#A1A1AA",
-                      "--border:rgba(255,255,255,.07)", "--glow:rgba(255,40,55,.20)"):
+                      "--border:rgba(255,255,255,.07)", "--glow:rgba(255,118,92,.20)"):
             with self.subTest(token=token):
                 self.assertIn(token, dark)
-        # Light mode keeps its own readable tokens, status colours stay semantic.
+        # Light mode keeps readable surfaces, while semantic status colours stay distinct.
         light = css.split(":root{", 1)[1].split("}", 1)[0]
+        self.assertIn("--p:#B94732", light)
+        self.assertIn("--p2:#BE4A34", light)
+        self.assertIn("--p3:#FF765C", light)
         self.assertIn("--bg:#F4F4F5", light)
         self.assertIn("--text:#18181B", light)
         for token in ("--good:#12B76A", "--warn:#F79009", "--bad:#F04438"):
             self.assertIn(token, light)
         self.assertIn("Pulse OpenClaw visual system", css)
-        self.assertIn("Pulse Red Particle Experience", css)
-        self.assertNotIn("255,118,92", css)
+        self.assertIn("Pulse Coral Particle Experience", css)
+        self.assertNotIn("227,27,35", css)
+        self.assertNotIn("99,102,241", css)
+        self.assertNotIn("91,92,240", css)
+        self.assertNotIn("124,58,237", css)
+        for old_accent in ("#E31B23", "#FF333D", "#FF5058", "rgba(227,27,35,", "rgba(255,80,88,"):
+            self.assertNotIn(old_accent, SOURCE)
+
+    def test_coral_primary_colors_meet_white_text_contrast(self):
+        css = SOURCE.split('PRO_CSS = r"""', 1)[1].split('"""', 1)[0]
+        dark = css.split(".dark{", 1)[1].split("}", 1)[0]
+
+        def luminance(hex_color):
+            channels = [int(hex_color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+            linear = [
+                channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+                for channel in channels
+            ]
+            return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+        def contrast(first, second):
+            values = sorted((luminance(first), luminance(second)), reverse=True)
+            return (values[0] + 0.05) / (values[1] + 0.05)
+
+        for token in ("--p:#B94732", "--p2:#BE4A34"):
+            value = token.split(":", 1)[1]
+            self.assertGreaterEqual(contrast(value, "#FFFFFF"), 4.5)
+        dark_primary = dark.split("--p:", 1)[1].split(";", 1)[0]
+        self.assertGreaterEqual(contrast(dark_primary, "#08090B"), 4.5)
+
+    def test_legacy_and_page_specific_accents_follow_the_shared_palette(self):
+        legacy = (ROOT / "pulse_design.py").read_text(encoding="utf-8")
+        ultimate = (ROOT / "pulse_ultimate.py").read_text(encoding="utf-8")
+        home = (ROOT / "pulse_home.py").read_text(encoding="utf-8")
+        ticket_builder = (ROOT / "pulse_ticket_builder.py").read_text(encoding="utf-8")
+        admin = (ROOT / "pulse_admin.py").read_text(encoding="utf-8")
+        security = (ROOT / "pulse_guard_admin.py").read_text(encoding="utf-8")
+        factions = (ROOT / "pulse_factions_dashboard.py").read_text(encoding="utf-8")
+        status = (ROOT / "pulse_phase7.py").read_text(encoding="utf-8")
+
+        for source in (legacy, ticket_builder):
+            self.assertNotIn("rgba(91,92,240", source)
+            self.assertNotIn("#9296f6", source)
+        self.assertIn("color:#2563EB", legacy)  # informational blue remains semantic
+        self.assertNotIn("#6366f1", ultimate.lower())
+        self.assertIn('"accent": "#B94732"', ultimate)
+        self.assertNotIn("#4338ca", home.lower())
+        self.assertIn("color:#B94732", home)
+        self.assertIn(".pulse-crumb a{color:var(--p)}", admin)
+        self.assertNotIn("#6366f1", security.lower())
+        self.assertNotIn("#6366f1", factions.lower())
+        self.assertIn('else "#B94732"', status)
+        # Discord's own preview uses Discord's brand colors intentionally.
+        preview = ticket_builder.split("/* Discord preview */", 1)[1]
+        self.assertIn("#5865f2", preview)
 
     def test_particle_canvas_never_blocks_interaction(self):
         css = SOURCE.split('PRO_CSS = r"""', 1)[1].split('"""', 1)[0]

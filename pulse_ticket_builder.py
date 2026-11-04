@@ -33,17 +33,17 @@ BUILDER_CSS = """
 .tb-form label{display:grid;gap:6px;font-size:12px;font-weight:700}.tb-form .wide{grid-column:1/-1}
 .tb-form input:not([type=checkbox]):not([type=color]):not([type=file]),.tb-form select,.tb-form textarea{width:100%;border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:12px;padding:10px 12px;font-size:13px;outline:0}
 .tb-form textarea{min-height:110px;resize:vertical;font-family:inherit}
-.tb-form input:focus,.tb-form select:focus,.tb-form textarea:focus{border-color:#9296f6;box-shadow:0 0 0 4px rgba(91,92,240,.08)}
+.tb-form input:focus,.tb-form select:focus,.tb-form textarea:focus{border-color:var(--p);box-shadow:0 0 0 4px rgba(255,118,92,.08)}
 .tb-roles{display:grid;gap:6px;margin-top:6px}
 .tb-form .tb-role-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px;max-height:240px;overflow-y:auto;overflow-x:hidden;padding:6px;border:1px solid var(--border);border-radius:12px;background:var(--surface2)}
 .tb-form label.tb-role{display:flex!important;flex-direction:row;align-items:center;gap:8px!important;font-size:12px;font-weight:600;padding:7px 9px;border-radius:9px;cursor:pointer;min-width:0;line-height:1.25}
-.tb-form label.tb-role:hover{background:rgba(91,92,240,.08)}
-.tb-form label.tb-role input[type=checkbox]{flex:0 0 auto;width:15px;height:15px;margin:0;accent-color:#5b5cf0}
+.tb-form label.tb-role:hover{background:rgba(255,118,92,.08)}
+.tb-form label.tb-role input[type=checkbox]{flex:0 0 auto;width:15px;height:15px;margin:0;accent-color:var(--p)}
 .tb-form label.tb-role .dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
 .tb-form label.tb-role .name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.tb-form label.tb-role:has(input:checked){background:rgba(91,92,240,.16);outline:1px solid rgba(91,92,240,.4)}
+.tb-form label.tb-role:has(input:checked){background:rgba(255,118,92,.16);outline:1px solid rgba(255,118,92,.40)}
 .tb-check{display:flex!important;align-items:center;gap:9px!important;font-weight:600!important;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface2);cursor:pointer}
-.tb-check input{width:16px;height:16px;accent-color:#5b5cf0}
+.tb-check input{width:16px;height:16px;accent-color:var(--p)}
 .tb-cats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .tb-cat{display:flex;gap:10px;align-items:flex-start;padding:11px;border:1px solid var(--border);border-radius:13px;background:var(--surface2);cursor:pointer}
 .tb-cat small{display:block;color:var(--muted);font-weight:500;margin-top:2px}.tb-cat .tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
@@ -54,7 +54,7 @@ BUILDER_CSS = """
 .tb-img>div{min-width:0}.tb-img input{max-width:100%;min-width:0;width:100%}.tb-img input[type=file]{font-size:12px}
 .tb-chip{display:inline-flex;font-size:10px;font-family:ui-monospace,monospace;border:1px solid var(--border);border-radius:8px;padding:3px 7px;margin:0 4px 4px 0;cursor:pointer;background:var(--surface2)}
 .tb-panel{display:flex;gap:12px;align-items:center;padding:13px;border:1px solid var(--border);border-radius:15px;background:var(--surface);margin-bottom:10px}
-.tb-panel.active{border-color:#8f92f7;box-shadow:0 0 0 4px rgba(91,92,240,.08)}
+.tb-panel.active{border-color:var(--p);box-shadow:0 0 0 4px rgba(255,118,92,.08)}
 .tb-dot{width:12px;height:42px;border-radius:8px;flex:0 0 auto}
 .tb-panel .meta{flex:1;min-width:0}.tb-panel .meta b{display:block;font-size:13px}.tb-panel .meta span{font-size:11px;color:var(--muted)}
 .tb-actions{display:flex;gap:6px;flex-wrap:wrap}.tb-actions form{margin:0}

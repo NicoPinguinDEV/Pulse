@@ -153,7 +153,7 @@ PREVIEW_CSS = """<style>
 .dc-footer{margin-top:10px;font-size:11px;color:#949ba4}
 .pulse-check{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600}
 .pulse-check input{width:16px;height:16px}
-.pulse-crumb{font-size:11px;color:#94a3b8;margin-bottom:8px}.pulse-crumb a{color:#6366f1}
+.pulse-crumb{font-size:11px;color:#94a3b8;margin-bottom:8px}.pulse-crumb a{color:var(--p)}
 </style>"""
 
 

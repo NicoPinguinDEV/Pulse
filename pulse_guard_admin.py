@@ -433,7 +433,7 @@ def register(app) -> None:
  <label class="guard-check"><input type="checkbox" name="kick_unverified_bots" value="1"{" checked" if antinuke["kick_unverified_bots"] else ""}><span><strong>Bots sofort entfernen, die eine nicht freigegebene Person hinzufügt</strong><small>Benötigt das Ereignis „Bot hinzugefügt“ und das Recht „Mitglieder kicken“. Im Alarmmodus wird nur gemeldet.</small></span></label>
  <label class="guard-check"><input type="checkbox" name="notify_admins" value="1"{" checked" if antinuke["notify_admins"] else ""}><span><strong>Administratoren in der Pulse-Inbox benachrichtigen (Standardregel)</strong></span></label>
  <label class="guard-field">Sicherheits- und Alarmkanal Anti-Nuke{alert_select(guild, "alert_channel_id", antinuke["alert_channel_id"])}</label>
- <div class="guard-hint">Vertrauenswürdige Personen und Rollen: Abschnitt <a href="#trusted" style="color:#6366f1">🤝 Ausnahmen</a>.</div>
+ <div class="guard-hint">Vertrauenswürdige Personen und Rollen: Abschnitt <a href="#trusted" style="color:var(--p)">🤝 Ausnahmen</a>.</div>
  <div><button class="pulse-btn primary" type="submit">💾 Globale Einstellungen speichern</button></div>
 </form></div></section>'''
 
@@ -490,7 +490,7 @@ def register(app) -> None:
                        f'Anti-Nuke: {"aktiv" if antinuke["enabled"] else "inaktiv"} · Überwacht: '
                        f'{e(", ".join(pm.ANTINUKE_EVENT_LABELS[x] for x in antinuke["events"]) or "keine")}')
         return f'''{GUARD_CSS}
-<div class="pulse-crumb" style="font-size:11px;color:#94a3b8;margin-bottom:8px"><a href="/admin" style="color:#6366f1">Verwaltung</a> › Sicherheit</div>
+<div class="pulse-crumb" style="font-size:11px;color:#94a3b8;margin-bottom:8px"><a href="/admin" style="color:var(--p)">Verwaltung</a> › Sicherheit</div>
 <div class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Verwaltung · Sicherheit</div>
 <div class="pulse-title">AutoMod &amp; Anti-Nuke</div>
 <div class="pulse-sub">Schutz vor Spam, Werbung, Massen-Pings und vor dem Zerstören des Servers durch übernommene oder böswillige Konten. Alles lokal, ohne KI-Kosten; jede Änderung steht im Audit-Log.</div></div>

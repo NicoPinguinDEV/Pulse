@@ -78,18 +78,18 @@ LEGACY_CSS = r"""
 .pulse-legacy .kicker{font-size:10px;text-transform:uppercase;letter-spacing:.16em;font-weight:800;color:var(--muted);margin-bottom:5px}
 .pulse-legacy .grid{display:grid;gap:14px}.pulse-legacy .g4{grid-template-columns:repeat(4,minmax(0,1fr))}.pulse-legacy .g3{grid-template-columns:repeat(3,minmax(0,1fr))}.pulse-legacy .g2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .pulse-legacy .card{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:17px;box-shadow:0 7px 26px rgba(15,23,42,.045);min-width:0}
-.pulse-legacy .hero{border:1px solid rgba(99,102,241,.18);border-radius:22px;padding:22px;margin-bottom:14px;background:linear-gradient(135deg,rgba(91,92,240,.12),rgba(124,58,237,.06)),var(--surface)}
+.pulse-legacy .hero{border:1px solid rgba(255,118,92,.20);border-radius:22px;padding:22px;margin-bottom:14px;background:linear-gradient(135deg,rgba(255,118,92,.12),rgba(255,148,123,.06)),var(--surface)}
 .pulse-legacy .metric{font-size:28px;font-weight:850;letter-spacing:-.02em;margin:6px 0}
 .pulse-legacy .row{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:13px;background:var(--surface2);margin:7px 0}
 .pulse-legacy .badge,.pulse-legacy .pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;border:1px solid var(--border);padding:4px 8px;font-size:10px;font-weight:800;background:var(--surface2)}
-.pulse-legacy .ok{color:#079455;background:rgba(18,183,106,.08);border-color:rgba(18,183,106,.2)}.pulse-legacy .warn{color:#b54708;background:rgba(247,144,9,.09);border-color:rgba(247,144,9,.22)}.pulse-legacy .bad{color:#d92d20;background:rgba(240,68,56,.08);border-color:rgba(240,68,56,.22)}.pulse-legacy .blue{color:#4f46e5;background:rgba(91,92,240,.08);border-color:rgba(91,92,240,.2)}
-.dark .pulse-legacy .ok{color:#75e2b0}.dark .pulse-legacy .warn{color:#fdba74}.dark .pulse-legacy .bad{color:#ff9d96}.dark .pulse-legacy .blue{color:#a8abff}
+.pulse-legacy .ok{color:#079455;background:rgba(18,183,106,.08);border-color:rgba(18,183,106,.2)}.pulse-legacy .warn{color:#b54708;background:rgba(247,144,9,.09);border-color:rgba(247,144,9,.22)}.pulse-legacy .bad{color:#d92d20;background:rgba(240,68,56,.08);border-color:rgba(240,68,56,.22)}.pulse-legacy .blue{color:#2563EB;background:rgba(59,130,246,.08);border-color:rgba(59,130,246,.2)}
+.dark .pulse-legacy .ok{color:#75e2b0}.dark .pulse-legacy .warn{color:#fdba74}.dark .pulse-legacy .bad{color:#ff9d96}.dark .pulse-legacy .blue{color:#93C5FD}
 .pulse-legacy .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:12px;padding:9px 12px;font-weight:750;font-size:12px;cursor:pointer;transition:.17s}
-.pulse-legacy .btn:hover{transform:translateY(-1px);border-color:rgba(91,92,240,.45)}
+.pulse-legacy .btn:hover{transform:translateY(-1px);border-color:rgba(255,118,92,.45)}
 .pulse-legacy .primary{background:linear-gradient(135deg,var(--p),var(--p2));border-color:transparent;color:#fff}
 .pulse-legacy .danger{background:rgba(240,68,56,.1);color:#d92d20;border-color:rgba(240,68,56,.25)}.dark .pulse-legacy .danger{color:#ff9d96}
 .pulse-legacy .input,.pulse-legacy .select,.pulse-legacy .ta{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--surface2);color:var(--text);outline:none;font-size:13px}
-.pulse-legacy .input:focus,.pulse-legacy .select:focus,.pulse-legacy .ta:focus{border-color:#9296f6;box-shadow:0 0 0 4px rgba(91,92,240,.08)}
+.pulse-legacy .input:focus,.pulse-legacy .select:focus,.pulse-legacy .ta:focus{border-color:var(--p);box-shadow:0 0 0 4px rgba(255,118,92,.10)}
 .pulse-legacy .ta{min-height:110px;resize:vertical}
 .pulse-legacy .form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.pulse-legacy .span2{grid-column:span 2}
 .pulse-legacy .table{width:100%;border-collapse:separate;border-spacing:0}.pulse-legacy .table th,.pulse-legacy .table td{padding:10px;border-bottom:1px solid var(--border);text-align:left;font-size:12px}.pulse-legacy .table th{color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:9px}

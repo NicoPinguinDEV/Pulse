@@ -332,7 +332,7 @@ def init_db() -> None:
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
                 description TEXT DEFAULT '',
-                color TEXT DEFAULT '#6366f1',
+                color TEXT DEFAULT '#B94732',
                 leader_id TEXT,
                 active INTEGER DEFAULT 1,
                 created_at TEXT NOT NULL
@@ -566,7 +566,7 @@ def set_setting(key: str, value) -> None:
 
 def seed_defaults() -> None:
     defaults = {
-        "branding": {"name": "Pulse TeamOS", "accent": "#6366f1", "logo_url": ""},
+        "branding": {"name": "Pulse TeamOS", "accent": "#B94732", "logo_url": ""},
         "features": {
             "cases": True, "roblox_records": True, "departments": True,
             "feedback": True, "polls": True, "calendar": True,
@@ -1383,7 +1383,7 @@ def register(app) -> None:
             cards.append(card(f"<div class=row><b>{esc(d['name'])}</b><span class='pill'>{count} Mitglieder</span></div><div class=tiny>{esc(d['description'])}</div><div style='margin-top:8px'><a class='btn' href='/ultimate/departments/{d['id']}'>Öffnen</a></div>"))
         body = f"""<div class="card"><h3>🏢 Abteilung anlegen</h3><form class="form" method="post" action="/ultimate/departments/create">
           <input class="input" name="name" placeholder="Support / Recruiting / Moderation" required>
-          <input class="input" name="color" placeholder="#6366f1">
+          <input class="input" name="color" placeholder="#B94732">
           <textarea class="ta span2" name="description" placeholder="Aufgabe und Zuständigkeit"></textarea>
           <select class="select" name="leader_id"><option value="">Keine Leitung</option>{opts}</select>
           <button class="btn primary">Abteilung erstellen</button></form></div><div class="grid g2" style="margin-top:13px">{"".join(cards) or card("<div class=tiny>Keine Abteilungen.</div>")}</div>"""
@@ -1392,12 +1392,12 @@ def register(app) -> None:
     @app.post("/ultimate/departments/create")
     async def ultimate_department_create(
         request: Request, name: str = Form(...), description: str = Form(""),
-        color: str = Form("#6366f1"), leader_id: str = Form(""),
+        color: str = Form("#B94732"), leader_id: str = Form(""),
         user_session: str = Cookie(None),
     ):
         ctx = ctx_auth(request, user_session, manager=True)
         if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color.strip()):
-            color = "#6366f1"
+            color = "#B94732"
         try:
             with cx() as c:
                 c.execute(
@@ -2173,7 +2173,7 @@ def register(app) -> None:
             checks.append(("🟡", "Warnrollen", "nicht prüfbar"))
         body = "<div class='grid g2'>" + "".join(card(f"<div class=row><b>{esc(n)}</b><span>{i} {esc(d)}</span></div>") for i,n,d in checks) + "</div>"
         body += card("<h3>🛰 Live-Systemmonitor</h3><div id='pulse-monitor' class='tiny'>Systemdaten werden geladen …</div><div class='tiny' style='margin-top:8px'>Aktualisierung alle 15 Sekunden · nur für berechtigte Führungskräfte</div>")
-        body += card(f"<h3>🎨 Branding</h3><form method='post' action='/ultimate/system/branding' class='form'><input class='input' name='name' value='{esc((setting('branding',{}) or {}).get('name','Pulse TeamOS'))}'><input class='input' name='accent' value='{esc((setting('branding',{}) or {}).get('accent','#6366f1'))}'><input class='input span2' name='logo_url' value='{esc((setting('branding',{}) or {}).get('logo_url',''))}' placeholder='Logo URL'><button class='btn primary span2'>Branding speichern</button></form>")
+        body += card(f"<h3>🎨 Branding</h3><form method='post' action='/ultimate/system/branding' class='form'><input class='input' name='name' value='{esc((setting('branding',{}) or {}).get('name','Pulse TeamOS'))}'><input class='input' name='accent' value='{esc((setting('branding',{}) or {}).get('accent','#B94732'))}'><input class='input span2' name='logo_url' value='{esc((setting('branding',{}) or {}).get('logo_url',''))}' placeholder='Logo URL'><button class='btn primary span2'>Branding speichern</button></form>")
         body += card("<h3>🔑 API-Zugriff</h3><form method='post' action='/ultimate/system/api-key' class='form'><input class='input span2' name='name' placeholder='z.B. Mobile App / externe Website' required><input type='hidden' name='scopes_sent' value='1'>" + "".join(f"<label class='tiny'><input type='checkbox' name='scopes' value='{k}' checked> {esc(v)}</label>" for k, v in API_SCOPES.items()) + "<select class='select span2' name='expires_days' aria-label='Gültigkeit'><option value='30'>30 Tage gültig</option><option value='90'>90 Tage gültig</option><option value='365' selected>1 Jahr gültig</option><option value='0'>unbefristet</option></select><button class='btn primary span2'>API-Key erstellen</button></form><div class='tiny' style='margin-top:8px'>Die v2-Endpunkte nutzen den Header X-Pulse-API-Key. Schlüssel werden nur einmal angezeigt.</div><div style='margin-top:8px'><a class='btn' href='/ultimate/system/api-keys'>🔑 Schlüssel verwalten</a></div>")
         body += card("<h3>🛡 Sicherheitsmaßnahmen</h3><div class='tiny'>Rate Limits, signierte Sessions, Sicherheitsheader, Warnrollen-Healthcheck, Audit-Logs, Backups und Health-Endpunkt sind aktiv.</div>")
         return page(ctx, "system", "System & Branding", "Diagnose, Feature Flags und visuelle Serveranpassungen.", body, """
@@ -2270,7 +2270,7 @@ window.setInterval(loadPulseMonitor, 15000);
 
     @app.post("/ultimate/system/branding")
     async def ultimate_branding(
-        request: Request, name: str = Form(...), accent: str = Form("#6366f1"),
+        request: Request, name: str = Form(...), accent: str = Form("#B94732"),
         logo_url: str = Form(""), user_session: str = Cookie(None),
     ):
         ctx = ctx_auth(request, user_session, manager=True)
