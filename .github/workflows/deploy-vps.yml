@@ -224,7 +224,7 @@ jobs:
           ref: ${{ steps.verified.outputs.sha }}
 
       - name: SSH vorbereiten
-        if: steps.setup.outputs.enabled == 'true'
+        if: steps.verified.outputs.ready == 'true' && steps.setup.outputs.enabled == 'true'
         env:
           VPS_KEY: ${{ secrets.PULSE_VPS_SSH_KEY }}
           VPS_KNOWN_HOSTS: ${{ secrets.PULSE_VPS_KNOWN_HOSTS }}
@@ -238,7 +238,7 @@ jobs:
 
       - name: Backup, Deploy, Health-Check, ggf. Rollback
         id: deploy
-        if: steps.setup.outputs.enabled == 'true'
+        if: steps.verified.outputs.ready == 'true' && steps.setup.outputs.enabled == 'true'
         env:
           VPS_HOST: ${{ secrets.PULSE_VPS_HOST }}
           VPS_USER: ${{ secrets.PULSE_VPS_USER }}
