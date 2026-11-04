@@ -104,7 +104,7 @@ PROBE = r"""
 import json, sys
 from pathlib import Path
 import pulse_paths, pulse_db, webserver as ws, pulse_next, pulse_ultimate, pulse_panels, pulse_ticket_design
-import pulse_transcripts, pulse_welcome, pulse_verification
+import pulse_transcripts, pulse_welcome, cogs.citizen_role
 import cogs.abmeldung as ab, cogs.activity_check as ac, cogs.teamliste as tl, cogs.buero_system as bs
 import cogs.flaggenquiz as fq, cogs.rp_verwaltung as rp, cogs.pulse_suite as su, cogs.social_promo as sp
 import cogs.ai_moderation as aim, cogs.role_nickname_prefixes as rn
