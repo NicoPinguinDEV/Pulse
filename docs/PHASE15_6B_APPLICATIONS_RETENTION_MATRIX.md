@@ -1,7 +1,8 @@
 # Phase 15.6b – Daten- und Retention-Matrix für Bewerbungen
 
 **Status:** Technisches Review abgeschlossen; Korrekturen in PR #140 am 04.11.2026 gemergt · keine Implementierung, keine Produktionsdaten gelesen  
-**Codebasis:** `main` @ `94c76fe5cd2c353bbb93af2de68a92b390332a7a` (04.11.2026; nach PR #139)  
+**Codebasis der Quellcodeprüfung:** `main` @ `94c76fe5cd2c353bbb93af2de68a92b390332a7a` (04.11.2026; nach PR #139; die Bewerbungs-/Retention-Module wurden durch PR #140/#141 nicht verändert)  
+**Aktueller Repository-Stand:** `main` @ `e9f8e40cb3ff6733ced3a8896431bb23bd043ad2` (05.11.2026)  
 **Grundlagen:** PR #136 / Phase 15.6a, `tools/application_data_audit.py`, `pulse_retention.py`, `webserver.py`, `cogs/pulse_suite.py`, `pulse_db.py`, `pulse_backup.py`, `docs/PHASE15_3_APPLICATIONS_SECURITY.md`  
 **Sicherheitsgrenze:** Nur Quellcode, Dokumentation und synthetische Tests ausgewertet. Keine Produktivdateien, Exporte oder VPS-Daten geöffnet. Keine Löschung, Migration, Retention-Aktivierung oder Backend-Umschaltung.
 
