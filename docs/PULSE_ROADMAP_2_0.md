@@ -1,8 +1,8 @@
 # Pulse TeamOS – Roadmap 2.0
 
 **Strategische Entwicklungsplanung für Discord-Bot und Web-Dashboard · © BOCHUM RP | V1**  
-**Stand:** 02.11.2026  
-**Verbindliche Ausgangsbasis:** main @ 7208736c6f8445de81465937f0990be40389071a (nach PR #129)  
+**Stand:** 04.11.2026  
+**Verbindliche Ausgangsbasis:** main @ e7311e7b9bb3fb90706629eaf0fabe2086e4782d (nach PR #136)  
 **Produktionsumgebung:** Ubuntu 24.04 · 2 vCores · 2 GB RAM · 50 GB SSD
 
 > Diese Roadmap beschreibt die langfristige Richtung und die Reihenfolge der nächsten Entwicklungsblöcke. Sie ersetzt nicht die technischen Einzelnachweise in den Phasenberichten und nicht die verbindlichen Sicherheitsregeln aus CLAUDE.md. Der detaillierte Alt-Aufgabenbestand bleibt in VERBESSERUNGSPLAN.md; vorhandene Funktionen werden vor jeder Umsetzung im aktuellen Code geprüft.
@@ -84,7 +84,7 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 
 ### Phase 15 – Datenhaltung, Datenintegrität und Wachstum
 
-**Priorität:** P0 · **Status:** 15.4 abgeschlossen; 15.5 implementiert, 100K-Restore-Abnahme offen (#133); 15.6a Read-only-Inventur und Entwurf in PR #136 im Review · **Abhängigkeit:** keine
+**Priorität:** P0 · **Status:** 15.4 und 15.5 abgeschlossen; 15.6a Read-only-Inventur in PR #136 gemergt; 15.6b Daten-/Retention-Matrix als Review-PR vorbereitet · **Abhängigkeit:** keine
 
 **Ziel:** Wachsende Dateien sicher behandeln und Datenmigrationen nachvollziehbar, messbar und rückgängig machbar durchführen.
 
@@ -96,8 +96,8 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 | 15.3 | applications.json: Datenschutz- und Migrationsprüfung | Alle Verbraucher und Schreibpfade sind bekannt. Die beschlossene Aufbewahrung von sechs Monaten und der noch offene verantwortliche Kontakt für den Bewerbungshinweis werden berücksichtigt. |
 | 15.4a | Melonly 100K: Cache, Indizes, SQLite-Abfragen und speicherschonender Export | Code in PR #128 gemergt. JSON bleibt Produktiv-Backend; keine automatische Migration oder Umschaltung. |
 | 15.4b | Melonly 100K: Performance-Nachweis | 20K-/100K-Benchmark mit drei Wiederholungen und bestandenen Paritätsprüfungen dokumentiert: [PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md](PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md). Messwerte stammen vom GitHub-Runner, nicht vom VPS. |
-| 15.5 | Datenintegrität und Wiederherstellung | Rehearsal-Code und Prozessabbruch-Test in PR #131 gemergt. Tatsächlicher 100K-Backup-/Restore-Lauf und Abnahme noch offen; separater Workflow „Melonly Backup Restore Rehearsal“, Nachverfolgung in [Issue #133](https://github.com/NicoPinguinDEV/Pulse/issues/133). |
-| 15.6 | applications.json: Migration in einer eigenen Teilphase | Read-only-Inventurwerkzeug und Migrationsentwurf in `docs/PHASE15_6_APPLICATIONS_MIGRATION_DESIGN.md`; keine Produktivdaten geändert. Folgeschritte: minimiertes Einstellungsereignis, versioniertes Repository und referenzsichere Retention. |
+| 15.5 | Datenintegrität und Wiederherstellung | **Abgeschlossen 04.11.2026.** Manueller [100K-Backup-/Restore-Rehearsal #41817023415](https://github.com/NicoPinguinDEV/Pulse/actions/runs/41817023415) auf `main`: Backup-Prüfung, isolierter und vollständiger Restore, SQLite-Integrität, Metadaten, Parität und JSON-Rückexport bestanden. Prozessabbruch-Test in CI #41437223612 (1.472 Tests, 19 Skips) bestanden. Messwerte und Aussagegrenzen: [PHASE15_5_DATA_INTEGRITY_RESTORE.md](PHASE15_5_DATA_INTEGRITY_RESTORE.md). Kein Produktions-VPS-Restore. |
+| 15.6 | applications.json: Migration in einer eigenen Teilphase | 15.6a Read-only-Inventur und Entwurf in PR #136 gemergt. 15.6b Daten-/Retention-Matrix mit Status-, Feld-, Interview-, Kalender-, Audit-, Export- und Backup-Abgleich in [PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md](PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md) (Review-PR; keine Codeänderung). Danach 15.6c minimiertes Einstellungsereignis, 15.6d versioniertes Repository, 15.6e referenzsichere Retention und 15.6f separat freigegebene Produktivmigration. |
 | 15.7 | Weitere JSON-/SQLite-Dateien bewerten | Kleine Datenbanken werden einzeln bewertet. Eine Zusammenführung erfolgt nur, wenn Eigentümerschaft, Tabellenkollisionen, Backup und Rückweg geklärt sind. |
 
 **Separater Betriebsschritt – Schichthistorie aktivieren:** Die Umschaltung von PULSE_SHIFT_HISTORY_BACKEND auf sqlite ist kein automatischer Teil dieser Codephase. Erst nach geprüftem Backup, dokumentiertem Status und ausdrücklicher Freigabe darf sie auf dem VPS erfolgen. Der Rückweg auf JSON muss genauso dokumentiert bleiben.
