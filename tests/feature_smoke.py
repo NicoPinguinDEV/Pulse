@@ -721,6 +721,8 @@ def main() -> None:
     assert "await member.kick(" not in web
     assert "def _record_team_since" in read("cogs/pulse_next.py")
     assert 'entry["team_since"]' in read("cogs/pulse_next.py")
+    assert 'source="discord_team_sync"' in read("cogs/pulse_next.py")
+    assert "store_employment_event(" in read("cogs/pulse_next.py")
     # Required reasons for personnel actions.
     assert 'name="action_reason"' in web
     assert 'action_reason: str = Form(None)' in web
