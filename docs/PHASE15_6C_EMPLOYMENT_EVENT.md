@@ -1,7 +1,8 @@
 # Phase 15.6c – Minimiertes Einstellungsereignis
 
-**Status:** Implementierung in eigenem PR · keine Produktionsmigration  
-**Basis:** `main` @ `742ec1d59e248c895761cb01f366dab8b3b964bc`  
+**Status:** Abgeschlossen · PR [#143](https://github.com/NicoPinguinDEV/Pulse/pull/143) am 05.11.2026 (lokale Zeit) gemergt · keine Produktionsmigration  
+**Implementierungsbasis:** `main` @ `742ec1d59e248c895761cb01f366dab8b3b964bc`  
+**Merge-Commit:** `bf62017ab4ea992d183ac1ba521ab71e0ee5a0ed`  
 **Ziel:** Ein bestätigter Team-Eintritt bleibt unabhängig von vollständigen Bewerbungsdaten nachvollziehbar.
 
 ## 1. Datenmodell
@@ -56,4 +57,4 @@ Damit bleiben bisherige Teamakten unverändert priorisiert. Neue bestätigte Ein
 
 `tests/test_employment_events.py` prüft das minimierte Schema, optionale Laufbahn- und Akteursdaten, Eingabevalidierung, Zeitzonen, Idempotenz, Wiedereinstellung und die Zuordnung zur richtigen Discord-ID. AST-basierte Regressionstests sichern alle vier Schreibpfade, die Fallback-Reihenfolge von `team_since_for`, den resultierenden Teamrollenbestand, die Rückgabe der Audit-ID und die Abgrenzung zur Suite-Statusänderung ab.
 
-Die normalen CI-Workflows bleiben zusätzlich verpflichtend. Ein grüner CI-Lauf ist kein Merge- oder Deployment-Auftrag.
+Die beiden PR-CI-Workflows liefen auf dem Implementierungs-Commit `8268292e6eed70efb6bab21d5e94141f9b5d3e4f` erfolgreich; Python-3.15-Regressionen, Syntax, Feature-Smoke, Docker/Compose, Security/Coverage und Dashboard-E2E waren erfolgreich. Der bedingte Schichthistorie-20K-Job war übersprungen. Die separaten push-Workflows auf dem Merge-Commit müssen unabhängig davon abgeschlossen sein. Ein Merge ist kein Deployment-Auftrag; der VPS blieb von PR #143 unangetastet.

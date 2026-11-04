@@ -1,8 +1,8 @@
 # Phase 15.6 – Bewerbungsdaten: Versionierung, Referenzen und Migration
 
-**Status (05.11.2026):** 15.6a Read-only-Inventur und Migrationsentwurf in PR #136 gemergt · 15.6b technische Prüfung/Korrektur der Daten-/Retention-Matrix in PR #140 gemergt · 15.6c als nächster Umsetzungsschritt geplant · keine Produktivmigration  
+**Status (05.11.2026):** 15.6a (PR #136) und 15.6b (PR #140) abgeschlossen · 15.6c mit PR #143 gemergt · 15.6d mit einem isolierten JSON-Import-Snapshot-Vertrag begonnen · keine Produktivmigration  
 **Codebasis der Read-only-Inventur 15.6a:** `main` @ `e7311e7b9bb3fb90706629eaf0fabe2086e4782d` (nach PR #136)  
-**Aktueller Repository-Stand:** `main` @ `e9f8e40cb3ff6733ced3a8896431bb23bd043ad2` (nach PR #141)  
+**Aktueller Repository-Stand:** `main` @ `bf62017ab4ea992d183ac1ba521ab71e0ee5a0ed` (nach PR #143)  
 **Datum:** 05.11.2026  
 **Nachverfolgung:** [Issue #134](https://github.com/NicoPinguinDEV/Pulse/issues/134)
 
@@ -10,7 +10,7 @@
 
 ## Ergänzung: Phase 15.6b
 
-Der Codeabgleich zu Statuswerten, Retention, Einstellungsdatum, Interview-/Kalenderreferenzen, Datenschutzexport und Backup-Grenzen ist in [PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md](PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md) dokumentiert. Die technische Review-Korrektur wurde mit PR #140 gemergt. Die Matrix enthält weiterhin keine Implementierung oder Produktivdateninventur. Offene fachliche Entscheidungen zu Status- und Aufbewahrungsregeln bleiben vor 15.6e/15.6f zu klären; sie verhindern nicht die isolierte Vorbereitung des minimierten Einstellungsereignisses in 15.6c.
+Der Codeabgleich zu Statuswerten, Retention, Einstellungsdatum, Interview-/Kalenderreferenzen, Datenschutzexport und Backup-Grenzen ist in [PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md](PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md) dokumentiert. Die technische Review-Korrektur wurde mit PR #140 gemergt. PR #143 ergänzt inzwischen den minimierten Beschäftigungsnachweis in der Teamakte; die Matrix wurde entsprechend um die neue team_since_for-Priorität ergänzt. Offene fachliche Entscheidungen zu Status- und Aufbewahrungsregeln bleiben vor 15.6e/15.6f zu klären.
 
 ## 1. Verifizierter Ist-Zustand
 
@@ -28,11 +28,12 @@ Die Beziehungen sind derzeit überwiegend anwendungsseitig. `suite_interviews.ap
 
 ### 1.1 Eintrittsdatum und Altbestand
 
-`webserver.team_since_for(member, entry, apps)` liest in dieser Reihenfolge:
+`webserver.team_since_for(member, entry, apps)` liest seit PR #143 in dieser Reihenfolge:
 
-1. `team_data.json[discord_id].team_since`;
-2. bei fehlendem Wert das älteste gültige `decided_at` eines `hired`-/`accepted`-Bewerbungsdatensatzes;
-3. als letzten Fallback `member.joined_at`.
+1. Gültiges vorhandenes `team_data.json[discord_id].team_since`;
+2. gültiges `employment_event.hired_at`, wenn die gespeicherte user_id zur Discord-Person passt;
+3. bei fehlendem/unbrauchbarem Ereignis das älteste gültige `decided_at` eines `hired`-/`accepted`-Bewerbungsdatensatzes (Legacy-Fallback);
+4. als letzten Fallback `member.joined_at`.
 
 Der aktuelle Flow `decide_app → hire_after_interview` schreibt `team_data.json.team_since` und danach die Bewerbungsakte. Das belegt einen aktuellen unabhängigen Teamzeit-Wert für diesen Flow. Für Altbestand ist die Abdeckung ohne Produktionsinventur nicht bewiesen. Die Statuswerte `accepted` und `hired` dürfen deshalb nicht pauschal gelöscht oder gleichgesetzt werden.
 
@@ -138,16 +139,20 @@ Da die drei Dateien/Datenbanken keine gemeinsame Transaktion besitzen, ist die L
 |---|---|---|
 | 15.6a | Read-only-Inventur und Ergebnisbericht | Nur explizite Exporte bzw. synthetische Fixtures |
 | 15.6b | Migrations- und Retention-Plan pro Status/Feld/Referenz | Keine Löschung und keine Schemaumschaltung |
-| 15.6c | Minimiertes Einstellungsereignis mit Legacy-Fallback | `Team seit` muss vor/nach Migration gleich bleiben |
-| 15.6d | Versioniertes Repository und JSON-Import | JSON-Parität, Snapshot, SHA-256, Generation/Revision |
+| 15.6c | Minimiertes Einstellungsereignis mit Legacy-Fallback | **Mit PR #143 gemergt.** Vier bestätigte Schreibpfade; keine automatische Altbestandsbefüllung oder Migration. |
+| 15.6d | Versioniertes Repository und JSON-Import | Begonnen mit einem reinen Import-Snapshot-Vertrag; vollständiger Adapter, Snapshot-Persistenz und Import/Restore bleiben offen. JSON-Byte-Parität, SHA-256, Schema-Version, Generation/Revision und Konflikttests sind Abnahmepunkte. |
 | 15.6e | Referenzsichere Retention und Löschung | Vollbackup, Dry-Run, idempotenter Ablauf und Recovery-Test |
 | 15.6f | Produktive Migration als separater Betriebsschritt | Ausdrückliche Freigabe, geprüftes Backup und Rückweg |
 
-### 4.1 Abgrenzung des nächsten Schritts 15.6c
+### 4.1 Abnahme von Phase 15.6c
 
-15.6c darf ausschließlich einen minimalen, unabhängigen Beschäftigungsnachweis nach tatsächlich bestätigter Einstellung ergänzen. Vorher sind alle produktiven Einstellungspfade im aktuellen Code erneut zu inventarisieren: Bewerbung nach Interview, manuelle Einstellung und erstmalige Vergabe einer Teamrolle. Der Datensatz muss idempotent sein und die bisherige `team_since_for`-Priorität ohne vollständige Bewerbungsantworten erhalten.
+PR #143 implementiert den minimierten employment_event-Nachweis in der bestehenden Teamakte. Die Schreibpfade sind: Bewerbung nach verpflichtendem Gespräch, manuelle Einstellung, erstmaliger Teamrolleneintritt über die Teamrollenverwaltung und Discord-Erkennung. team_since_for priorisiert team_since, danach das passende Ereignis, dann den Legacy-Fallback für hired/accepted und zuletzt Discord joined_at. Das bloße Setzen von accepted in der Suite erzeugt kein Ereignis. Es gibt keinen automatischen Backfill alter Fälle.
 
-Kein Ereignis darf allein aus dem Suite-Status `accepted` entstehen. Es gibt keinen automatischen Backfill alter `accepted`-/`hired`-Fälle. Statusnormalisierung, Retention, Löschung/Anonymisierung, JSON-/SQLite-Umschaltung und Produktivmigration bleiben außerhalb von 15.6c. Das Ereignis erhält nur die wirklich erforderlichen Felder und eine nachvollziehbare Audit-Referenz.
+### 4.2 Abgrenzung des ersten 15.6d-Bausteins
+
+pulse_application_import.py ist ein reiner, nebenwirkungsfreier Vorabvertrag für einen späteren Import. Er nimmt einen explizit bereitgestellten JSON-Byte-Stream entgegen, prüft UTF-8 und ein JSON-Top-Level-Objekt, lehnt doppelte Schlüssel und NaN/Infinity ab und hält SHA-256, Record-Anzahl, Schema-Version, Generation und Revision fest. Der ursprüngliche Byte-Stream bleibt die Exportquelle; unbekannte Alt-Felder, Werte, Formatierung und Reihenfolge werden nicht neu serialisiert.
+
+Der Baustein erstellt keine Dateien und Tabellen, greift nicht auf APPS_FILE zu, führt keinen Import aus und wird von keinem Laufzeitpfad verwendet. Als nächster separater Schritt folgen ein JSON-Repository-Adapter und ein reproduzierbarer Import-/Snapshot-/Rollback-Ablauf mit synthetischen Tests. Keine produktive Backend-Umschaltung ohne eigene Freigabe.
 
 ## 5. Abnahmekriterien
 
