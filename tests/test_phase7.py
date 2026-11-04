@@ -222,17 +222,17 @@ class AccessTests(unittest.TestCase):
 
     def test_channel_visibility_follows_discord_overwrites(self):
         everyone = PermRole(1, discord.Permissions(view_channel=True))
-        unverified = PermRole(5, discord.Permissions.none())
+        citizen_role = PermRole(5, discord.Permissions.none())
         open_ch = SimpleNamespace(id=100, name="regeln", position=1, overwrites={})
         hidden = SimpleNamespace(id=101, name="team", position=2,
                                  overwrites={everyone: discord.PermissionOverwrite(view_channel=False)})
-        unverified_denied = SimpleNamespace(id=102, name="rp", position=3,
-                                            overwrites={unverified: discord.PermissionOverwrite(view_channel=False)})
+        citizen_denied = SimpleNamespace(id=102, name="rp", position=3,
+                                            overwrites={citizen_role: discord.PermissionOverwrite(view_channel=False)})
         leak = SimpleNamespace(id=103, name="intern", position=4,
                                overwrites={everyone: discord.PermissionOverwrite(view_channel=False),
-                                           unverified: discord.PermissionOverwrite(view_channel=True)})
-        guild = SimpleNamespace(default_role=everyone, channels=[open_ch, hidden, unverified_denied, leak],
-                                get_role=lambda rid: unverified if rid == 5 else None)
+                                           citizen_role: discord.PermissionOverwrite(view_channel=True)})
+        guild = SimpleNamespace(default_role=everyone, channels=[open_ch, hidden, citizen_denied, leak],
+                                get_role=lambda rid: citizen_role if rid == 5 else None)
         result = pulse_access.visibility(guild, 5, expected_ids={100})
         self.assertEqual([c.name for c in result["visible"]], ["regeln", "intern"])
         self.assertEqual([c.name for c in result["warnings"]], ["intern"])
