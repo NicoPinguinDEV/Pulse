@@ -152,7 +152,7 @@ PR #143 implementiert den minimierten employment_event-Nachweis in der bestehend
 
 pulse_application_import.py ist ein reiner, nebenwirkungsfreier Vorabvertrag für einen späteren Import. Er nimmt einen explizit bereitgestellten JSON-Byte-Stream entgegen, prüft UTF-8 und ein JSON-Top-Level-Objekt, lehnt doppelte Schlüssel und NaN/Infinity ab und hält SHA-256, Record-Anzahl, Schema-Version, Generation und Revision fest. Der ursprüngliche Byte-Stream bleibt die Exportquelle; unbekannte Alt-Felder, Werte, Formatierung und Reihenfolge werden nicht neu serialisiert.
 
-Der Baustein erstellt keine Dateien und Tabellen, greift nicht auf APPS_FILE zu, führt keinen Import aus und wird von keinem Laufzeitpfad verwendet. Als nächster separater Schritt folgen ein JSON-Repository-Adapter und ein reproduzierbarer Import-/Snapshot-/Rollback-Ablauf mit synthetischen Tests. Keine produktive Backend-Umschaltung ohne eigene Freigabe.
+Der Snapshot-Vertrag bleibt eine reine Validierungs- und Byte-Paritätskomponente; er erstellt selbst keine Dateien/Tabellen und führt keinen Import aus. Der JSON-Repository-Adapter wird separat mit PR #145 integriert. Ein reproduzierbarer Import-/Snapshot-/Rollback-Ablauf und jede produktive Backend-Umschaltung benötigen weiterhin eigene Tests und Freigaben.
 
 ### 4.3 JSON-Repository-Adapter (Feature-Branch)
 
