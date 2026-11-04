@@ -1,11 +1,15 @@
 # Phase 15.6 – Bewerbungsdaten: Versionierung, Referenzen und Migration
 
-**Status:** Read-only-Inventurwerkzeug und Migrationsentwurf im Review · keine Produktivmigration  
-**Basis:** `main` @ `0297176a1d63cdadac8cadf5f6a2fcfd26217d1d`  
+**Status:** 15.6a Read-only-Inventur und Migrationsentwurf in PR #136 gemergt · 15.6b Daten-/Retention-Matrix im Review · keine Produktivmigration  
+**Basis der Inventur:** `main` @ `e7311e7b9bb3fb90706629eaf0fabe2086e4782d`  
 **Datum:** 02.11.2026  
 **Nachverfolgung:** [Issue #134](https://github.com/NicoPinguinDEV/Pulse/issues/134)
 
 > Diese Phase ändert noch kein aktives Bewerbungs-Backend. Die vorhandenen JSON- und SQLite-Daten bleiben die maßgeblichen Quellen. Alle Inventurtests verwenden ausschließlich synthetische Fixtures oder ausdrücklich angegebene Exporte.
+
+## Ergänzung: Phase 15.6b
+
+Der Codeabgleich zu Statuswerten, Retention, Einstellungsdatum, Interview-/Kalenderreferenzen, Datenschutzexport und Backup-Grenzen ist in [PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md](PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md) dokumentiert. Die Matrix enthält ausdrücklich keine Implementierung oder Produktivdateninventur. Sie muss fachlich geprüft werden, bevor 15.6c beginnt.
 
 ## 1. Verifizierter Ist-Zustand
 
