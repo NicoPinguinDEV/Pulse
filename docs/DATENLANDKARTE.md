@@ -3,6 +3,8 @@
 Automatisch erzeugt von `python tools/data_map.py` (statische Analyse, liest keine Laufzeitdaten).
 *Schreibstellen* sind Zeilen mit typischen Schreibaufrufen (`save_json`, `INSERT/UPDATE/DELETE`, `write_text`, `os.replace` …) – als Einstieg, nicht vollständig.
 
+Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben ausschließlich die älteren Backup-Wege; das aktuelle `pulse_backup`-Komplett-Backup ist separat weiter unten dokumentiert.
+
 ## Dateien und Ordner
 
 | Ablage | Module (lesen/schreiben) | Schreibstellen (Auszug) | JSON-Backup `/backups` | ZIP-Backup `/ultimate/backup` |
@@ -142,7 +144,7 @@ Automatisch erzeugt von `python tools/data_map.py` (statische Analyse, liest kei
 
 ## Komplett-Backup `pulse_backup` (aktueller Stand, maßgeblich)
 
-- Enthält alle Datenbanken aus `pulse_backup.SQLITE_FILES`, alle JSON-Dateien aus `JSON_FILES`, die Ordner `uploads/`, `attachments/`, `transcripts/` (im Rahmen von `PULSE_BACKUP_MAX_MB`, Übersprungenes steht im Manifest) und die hochgeladene Wartemusik `assets/support_wait.{mp3,ogg,wav}`; bewusst nicht: `backups/`, `.env`, `.session_secret`.
+- Enthält alle Datenbanken aus `pulse_backup.SQLITE_FILES`, alle JSON-Dateien aus `JSON_FILES`, die Ordner `uploads/`, `attachments/`, `transcripts/` (im Rahmen von `PULSE_BACKUP_MAX_MB`, Übersprungenes steht im Manifest) und die hochgeladene Wartemusik `assets/support_wait.{mp3,ogg,wav}`; bewusst nicht: `backups/`, `.env`, `.session_secret`. Nicht lesbare oder am Größenbudget scheiternde Einträge werden im Manifest als übersprungen bzw. mit Warnung ausgewiesen.
 - `tests/test_full_backup.py` (CoverageTests) schlägt fehl, wenn eine neue `*.db`/`*.json`-Ablage im Code auftaucht, die weder gesichert noch bewusst ausgenommen ist.
 - Der Restore-Test (`pulse_backup.restore_test`, wöchentlich und im Systemstatus) stellt das ganze Archiv probeweise in ein Temp-Verzeichnis wieder her: Prüfsummen, Integrität jeder Datenbank, Tabellen/Zeilen, JSON-Gültigkeit und für jeden Eintrag ein Wiederherstellungsziel.
 - Die Abschnitte unten beschreiben den Stand **vor** dem Komplett-Backup und die älteren Backup-Wege (JSON-Backup, ZIP-Backup).
@@ -152,7 +154,8 @@ Automatisch erzeugt von `python tools/data_map.py` (statische Analyse, liest kei
 - **ZIP-Backup und `backups/`:** Der Ordner ist nur das *Ziel* der ZIP-Datei (`pulse_next.create_backup`), kein Inhalt – die Spalte zeigt dort fälschlich ✅.
 - **Transkripte im JSON-Backup:** Dateien über 2 MB oder über 10 MB gesamt werden **still übersprungen** (`webserver.build_backup`).
 - **ZIP-Backup:** ganze `pulse.db` + 7 JSON-Dateien + `attachments/` bis zu einem Größenlimit; ohne `abmeldungen.db`, `activity_check.db`, die fünf weiteren Datenbanken, `uploads/` und `transcripts/`.
-- **In keinem Backup:** `pulse_suite.db`, `teamliste.db`, `buero_system.db`, `rp_verwaltung.db`, `flaggenquiz.db`, `pulse_announcement_archive.json`, `role_nickname_state.json`, `social_promo_sources.json`, `ai_moderation_cases.json`, `uploads/` (Panel-/Banner-Bilder, Voice-Audio), `.session_secret`.
+- **Nur in den älteren JSON-/ZIP-Backup-Pfaden nicht enthalten:** `pulse_suite.db`, `teamliste.db`, `buero_system.db`, `rp_verwaltung.db`, `flaggenquiz.db`, `pulse_announcement_archive.json`, `role_nickname_state.json`, `social_promo_sources.json`, `ai_moderation_cases.json` und `uploads/` (Panel-/Banner-Bilder, Voice-Audio). Diese Aussage gilt ausdrücklich nicht für das oben beschriebene aktuelle `pulse_backup`-Komplett-Backup; dort sind die konfigurierten Datenbanken, JSON-Dateien und Upload-Ordner enthalten, soweit sie lesbar sind und das Größenbudget eingehalten wird.
+- **Auch im aktuellen Komplett-Backup bewusst ausgeschlossen:** `.session_secret` (sowie `.env` und `backups/`, siehe Abschnitt „Komplett-Backup `pulse_backup`“).
 - **Wachstum ohne Grenze:** `shifts.json` (`history` wird nie gekürzt), `logs.json` (kein Kürzen beim Speichern), `applications.json`. Begrenzt: `audit_logs.json` (letzte 5.000), Bewertungen Voice (1.000), Pending-Bewertungen (500), Verifikations-Fehler (10).
 - **Pfadabhängigkeit:** `PULSE_DB_PATH` gilt nur in `pulse_db.py`; `pulse_ultimate.py` nutzt fest `BASE/"pulse.db"` (D-05).
 
