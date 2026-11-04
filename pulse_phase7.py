@@ -222,7 +222,7 @@ def register(app) -> None:
         note = "" if result["role_found"] else "<p class=\"mb-2\">⚠️ Die Bürgerrolle gibt es auf dem Server nicht – geprüft wird nur @everyone.</p>"
         body = card(f"👁 Kanal-Sichtprüfung · {len(result['warnings'])} Warnung(en)",
                     "Kanäle, die @everyone zusammen mit der Bürgerrolle sehen kann. Nur lesend – Pulse ändert keine Kanalrechte. "
-                    "Kanäle, die sichtbar sein sollen (Regeln, Verifizierung), markierst du als erwartet.",
+                    "Kanäle, die sichtbar sein sollen (Regeln, öffentliche Informationen), markierst du als erwartet.",
                     note + ('<div class="space-y-1">' + "".join(row(c, c.id in warn_ids) for c in result["visible"]) + "</div>"
                             if result["visible"] else ws.empty_state("Unverifizierte sehen keinen Kanal.", "👁")))
         return page("Kanal-Sichtprüfung", ctx, "admin-visibility", "Kanal-Sichtprüfung", body)
