@@ -12,11 +12,15 @@ WARNING_INTERVAL_SECONDS = 3600
 MAX_TRACKED = 500
 
 def _guild_id() -> int:
-    raw = os.getenv("DISCORD_GUILD_ID", str(pulse_ids.GUILD_ID))
+    fallback = int(pulse_ids.GUILD_ID)
+    raw = os.getenv("DISCORD_GUILD_ID", "").strip()
+    if not raw:
+        return fallback
     try:
-        return int(raw or 0)
+        configured = int(raw)
     except (TypeError, ValueError):
-        return pulse_ids.GUILD_ID
+        return fallback
+    return configured if configured > 0 else fallback
 
 class CitizenRoleOnJoin(commands.Cog):
     """Grant the citizen role once on join; never gate access behind a verify action."""
