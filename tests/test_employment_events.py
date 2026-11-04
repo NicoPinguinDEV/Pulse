@@ -55,6 +55,16 @@ class EmploymentEventDomainTests(unittest.TestCase):
         event = build_employment_event(**VALID_EVENT, career_path="Bewerber mit Notizen")
         self.assertNotIn("career_path", event)
 
+    def test_discord_detected_event_omits_unknown_actor(self):
+        event = build_employment_event(
+            user_id=VALID_EVENT["user_id"],
+            hired_at=VALID_EVENT["hired_at"],
+            source="discord_team_sync",
+            audit_ref="audit_d4e5f6",
+        )
+        self.assertNotIn("actor_id", event)
+        self.assertEqual(event["source"], "discord_team_sync")
+
     def test_event_requires_timezone_aware_time_and_valid_source(self):
         with self.assertRaises(ValueError):
             build_employment_event(**{**VALID_EVENT, "hired_at": "2026-11-05T12:34:56"})
@@ -102,6 +112,7 @@ class EmploymentEventIntegrationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.web = read_source("webserver.py")
         cls.suite = read_source("cogs/pulse_suite.py")
+        cls.next = read_source("cogs/pulse_next.py")
 
     def test_manual_hire_records_only_after_discord_role_add_succeeds(self):
         handler = function_source(self.web, "handle_action")
@@ -133,6 +144,21 @@ class EmploymentEventIntegrationTests(unittest.TestCase):
         self.assertLess(route.index("await member.add_roles("), transition)
         self.assertLess(transition, event)
         self.assertIn('source="team_role_assignment"', route)
+
+    def test_discord_detected_team_entry_is_audited_and_stored(self):
+        recorder = function_source(self.next, "_record_team_since")
+
+        self.assertIn("webserver.log_audit(", recorder)
+        self.assertIn('source="discord_team_sync"', recorder)
+        self.assertIn("store_employment_event(", recorder)
+        self.assertIn("employment_hired_at(entry, member.id)", recorder)
+        self.assertIn("<= 120", recorder)
+
+    def test_role_manager_uses_resulting_role_set_after_discord_writes(self):
+        route = function_source(self.web, "team_role_manager_save")
+        self.assertIn("resulting_role_ids =", route)
+        self.assertIn("{r.id for r in to_add}", route)
+        self.assertIn("{r.id for r in to_remove}", route)
 
     def test_team_since_prefers_explicit_value_then_event_then_legacy_applications(self):
         resolver = function_source(self.web, "team_since_for")
