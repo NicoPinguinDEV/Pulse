@@ -2,7 +2,7 @@
 
 **Status:** Technisches Review abgeschlossen; Korrekturen in PR #140 am 04.11.2026 gemergt · keine Implementierung, keine Produktionsdaten gelesen  
 **Codebasis der Quellcodeprüfung:** `main` @ `94c76fe5cd2c353bbb93af2de68a92b390332a7a` (04.11.2026; nach PR #139; die Bewerbungs-/Retention-Module wurden durch PR #140/#141 nicht verändert)  
-**Aktueller Repository-Stand:** `main` @ `e9f8e40cb3ff6733ced3a8896431bb23bd043ad2` (05.11.2026)  
+**Aktueller Repository-Stand:** `main` @ `bf62017ab4ea992d183ac1ba521ab71e0ee5a0ed` (nach PR #143; 05.11.2026)  
 **Grundlagen:** PR #136 / Phase 15.6a, `tools/application_data_audit.py`, `pulse_retention.py`, `webserver.py`, `cogs/pulse_suite.py`, `pulse_db.py`, `pulse_backup.py`, `docs/PHASE15_3_APPLICATIONS_SECURITY.md`  
 **Sicherheitsgrenze:** Nur Quellcode, Dokumentation und synthetische Tests ausgewertet. Keine Produktivdateien, Exporte oder VPS-Daten geöffnet. Keine Löschung, Migration, Retention-Aktivierung oder Backend-Umschaltung.
 
@@ -52,15 +52,16 @@ Zusätzliche Regeln und Grenzen:
 
 ## 4. Team-Eintrittsdatum: unabhängiger Nachweis
 
-`webserver.team_since_for(member, entry, apps)` verwendet aktuell diese Reihenfolge:
+`webserver.team_since_for(member, entry, apps)` verwendet seit PR #143 diese Reihenfolge:
 
-1. Gültiges `team_data.json[discord_id].team_since`.
-2. Sonst das älteste gültige `decided_at` aller Bewerbungen derselben `user_id` mit Status exakt `hired` oder `accepted`.
-3. Sonst `member.joined_at` aus Discord; wenn auch das fehlt, `unbekannt`.
+1. Gültiges explizites `team_data.json[discord_id].team_since`.
+2. Gültiges `team_data.json[discord_id].employment_event.hired_at`, aber nur wenn `employment_event.user_id` zur Discord-ID passt.
+3. Sonst das älteste gültige `decided_at` aller Bewerbungen derselben `user_id` mit Status exakt `hired` oder `accepted` (Legacy-Fallback).
+4. Sonst `member.joined_at` aus Discord; wenn auch das fehlt, `unbekannt`.
 
 Der primäre Einstellungspfad nach dem Bewerbungsgespräch setzt `team_data.json.team_since` vor dem Speichern des aktualisierten Bewerbungsdatensatzes. Die manuelle Teameinstellung und die Teamrollen-Verwaltung beim erstmaligen Eintritt in eine Teamrolle können `team_since` ebenfalls direkt in die Teamakte schreiben – auch ohne Bewerbungsdatensatz. Der Fallback auf `accepted`/`hired` bleibt dennoch für Altbestand relevant.
 
-**Sichere Zielrichtung für Phase 15.6c:** Ein minimiertes, unabhängiges Einstellungsereignis muss mindestens eine eindeutige Nutzerzuordnung, den fachlich bestätigten Eintrittszeitpunkt, die benötigte Laufbahn und eine notwendige Audit-Referenz enthalten. Es darf keine Motivation, Test-/Praxisantworten, Reviews oder Gesprächsnotizen kopieren. Vor einem Backfill sind alte `accepted`- und `hired`-Fälle einzeln auf tatsächliche Einstellung und korrekten Zeitpunkt zu prüfen. Nicht auflösbare Fälle blockieren die Bereinigung.
+**Abnahme Phase 15.6c:** PR #143 speichert einen minimierten, versionierten employment_event-Nachweis mit user_id, hired_at, source, audit_ref und optional actor_id/career_path. Die bestätigten Quellen sind Interview-Hire, manuelle Einstellung, erstmaliger Teamrolleneintritt und Discord-Team-Synchronisierung. Der Suite-Status accepted allein erzeugt kein Ereignis. Es gibt keinen automatischen Backfill alter accepted/hired-Fälle; diese bleiben bis zu einer gesondert geprüften Entscheidung unverändert.
 
 ## 5. Interview- und Kalenderbeziehungen
 
@@ -153,7 +154,7 @@ Die vorhandenen Tests decken wichtige Einzelpfade ab, schließen die folgenden L
 - `tests/test_application_data_audit.py` prüft Status-Buckets und vorhandene Interview-/Kalenderreferenzen mit synthetischen Daten. Es testet bewusst keine echte Löschung/Anonymisierung und keinen Migration-Runner.
 - `tests/test_full_backup.py` enthält isolierte SQLite-/JSON-Restore-Tests und prüft auch `pulse_suite.db`; der 100K-Rehearsal aus 15.5 hatte jedoch nur `pulse.db` und `logs.json` im Manifest. Keine dieser Prüfungen belegt bislang die fachliche Parität eines gemeinsamen Bewerbungs-/Team-/Interview-/Kalender-/Audit-Datensatzes.
 
-Ein versioniertes Application-Repository bzw. ein produktiver Bewerbungs-Migrationspfad ist auf `main` noch nicht implementiert. Idempotenz, JSON-Kompatibilität, Import-/Rückexport-Parität und Wiederherstellung sind deshalb Anforderungen an 15.6c–15.6f, keine bereits nachgewiesenen Laufzeiteigenschaften.
+Ein produktiver Bewerbungs-Repository-Adapter bzw. Migrationspfad ist auf main weiterhin nicht implementiert. Der erste 15.6d-Baustein in diesem Entwicklungszweig ist nur ein nebenwirkungsfreier JSON-Import-Snapshot-Vertrag; er erstellt keine Datei/Tabelle und wird nicht vom Laufzeitcode verwendet. Idempotenz, Snapshot-Persistenz, Import-/Rückexport-Parität, Konfliktbehandlung und Wiederherstellung sind weiterhin offene Abnahmepunkte für 15.6d–15.6f.
 
 ## 11. Abnahme für Phase 15.6b
 
@@ -168,6 +169,6 @@ Ein versioniertes Application-Repository bzw. ein produktiver Bewerbungs-Migrati
 
 **Review-Abschluss:** Die technische Prüfung und Korrektur dieser Matrix wurde in PR #140 gemergt. Sie bestätigt die dokumentierten Code-Befunde, ist aber keine Produktentscheidung und keine Prüfung von Produktionsdaten.
 
-**Nächster Schritt:** Phase 15.6c – minimiertes, unabhängiges Einstellungsereignis. Vor der Umsetzung sind die realen Einstellungspfade im aktuellen Code erneut zu verifizieren. Das Ereignis entsteht nur nach bestätigter Einstellung und darf keine vollständigen Bewerbungsantworten kopieren. Kein automatischer Backfill, keine Retention-Änderung, keine Löschung/Anonymisierung und keine Produktivmigration.
+**Nächster Schritt:** Phase 15.6d – versioniertes Bewerbungs-Repository und kontrollierter JSON-Import. Der erste Import-Snapshot-Vertrag wird isoliert ergänzt; die eigentliche Repository-Anbindung, Snapshot-Persistenz und ein Dry-Run-/Rollback-Import folgen in getrennten, getesteten Schritten.
 
-Die offenen Produktentscheidungen zu `in_review`, `accepted`/`hired`, Aufbewahrungsfristen und dem verantwortlichen Kontakt für den Bewerbungshinweis bleiben vor 15.6e/15.6f zu klären. 15.6d/15.6e bleiben getrennte PRs; eine Produktivmigration in 15.6f benötigt weiterhin eine eigene ausdrückliche Freigabe.
+Die offenen Produktentscheidungen zu `in_review`, `accepted`/`hired`, Aufbewahrungsfristen und dem verantwortlichen Kontakt für den Bewerbungshinweis bleiben vor 15.6e/15.6f zu klären. 15.6e (referenzsichere Retention) und 15.6f (Produktivmigration) bleiben getrennte Vorhaben; 15.6f benötigt weiterhin eine eigene ausdrückliche Freigabe.
