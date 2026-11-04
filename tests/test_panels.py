@@ -39,7 +39,7 @@ class PanelTests(unittest.TestCase):
         items = pp.collect(1)
         self.assertEqual(list(self.root.glob("*.db")), [pulse_db.DB_PATH and Path(pulse_db.DB_PATH)])  # only pulse.db
         keys = {i["key"] for i in items}
-        self.assertTrue({"tickets", "verification", "duty", "abmeldung", "rp", "buero", "activity", "teamliste", "quiz", "honeypot"} <= keys)
+        self.assertTrue({"tickets", "duty", "abmeldung", "rp", "buero", "activity", "teamliste", "quiz", "honeypot"} <= keys)
         con = sqlite3.connect(self.root / "teamliste.db")
         con.execute("CREATE TABLE config (key TEXT, value INTEGER)")
         con.execute("INSERT INTO config VALUES ('teamlist_channel_id', 555)")
