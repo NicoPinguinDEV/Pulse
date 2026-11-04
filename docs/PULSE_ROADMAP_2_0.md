@@ -1,8 +1,8 @@
 # Pulse TeamOS – Roadmap 2.0
 
 **Strategische Entwicklungsplanung für Discord-Bot und Web-Dashboard · © BOCHUM RP | V1**  
-**Stand:** 04.11.2026  
-**Verbindliche Ausgangsbasis:** main @ e7311e7b9bb3fb90706629eaf0fabe2086e4782d (nach PR #136)  
+**Stand:** 05.11.2026  
+**Verbindliche Ausgangsbasis:** main @ `e9f8e40cb3ff6733ced3a8896431bb23bd043ad2` (nach PR #141; Stand 05.11.2026)  
 **Produktionsumgebung:** Ubuntu 24.04 · 2 vCores · 2 GB RAM · 50 GB SSD
 
 > Diese Roadmap beschreibt die langfristige Richtung und die Reihenfolge der nächsten Entwicklungsblöcke. Sie ersetzt nicht die technischen Einzelnachweise in den Phasenberichten und nicht die verbindlichen Sicherheitsregeln aus CLAUDE.md. Der detaillierte Alt-Aufgabenbestand bleibt in VERBESSERUNGSPLAN.md; vorhandene Funktionen werden vor jeder Umsetzung im aktuellen Code geprüft.
@@ -74,7 +74,7 @@ Die Funktionslandkarte in PULSE_INNOVATION_ROADMAP.md und die aktuellen Tests di
 
 ### 3.4 Noch zu bestätigende Betriebs-/Repository-Einstellungen
 
-Der aktuelle GitHub-Branch-Endpunkt meldet `main` am 02.11.2026 als **nicht geschützt** (`protected: false`, Branch-Protection deaktiviert). Reviewer für die Deploy-Umgebung und Dependabot-Sicherheitsupdates sind in diesem Arbeitsschritt nicht erneut verifiziert worden und bleiben separat zu prüfen.
+Der aktuelle GitHub-Branch-Endpunkt meldet `main` am 05.11.2026 weiterhin als **nicht geschützt** (`protected: false`); die Ruleset-Liste ist leer. PR #141 ist inzwischen gemergt und blockiert die eigentlichen VPS-Deploy-Schritte, solange dieser Zustand besteht. Die erforderlichen Repository-Regeln müssen noch direkt in GitHub Settings eingerichtet werden. Reviewer der `production`-Umgebung sowie native Dependabot-/Code-Scanning-/Secret-Scanning-Einstellungen sind separat zu verifizieren.
 
 ---
 
@@ -84,7 +84,7 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 
 ### Phase 15 – Datenhaltung, Datenintegrität und Wachstum
 
-**Priorität:** P0 · **Status:** 15.4 und 15.5 abgeschlossen; 15.6a Read-only-Inventur in PR #136 gemergt; 15.6b Daten-/Retention-Matrix als Review-PR vorbereitet · **Abhängigkeit:** keine
+**Priorität:** P0 · **Status:** 15.4 und 15.5 abgeschlossen; 15.6a Read-only-Inventur in PR #136 gemergt; 15.6b technische Matrixprüfung und Korrekturen in PR #140 gemergt; 15.6c ist der nächste Umsetzungsschritt · **Abhängigkeit:** offene Produktentscheidungen zu Status-/Aufbewahrungsregeln bleiben vor 15.6e/15.6f zu klären
 
 **Ziel:** Wachsende Dateien sicher behandeln und Datenmigrationen nachvollziehbar, messbar und rückgängig machbar durchführen.
 
@@ -97,7 +97,7 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 | 15.4a | Melonly 100K: Cache, Indizes, SQLite-Abfragen und speicherschonender Export | Code in PR #128 gemergt. JSON bleibt Produktiv-Backend; keine automatische Migration oder Umschaltung. |
 | 15.4b | Melonly 100K: Performance-Nachweis | 20K-/100K-Benchmark mit drei Wiederholungen und bestandenen Paritätsprüfungen dokumentiert: [PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md](PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md). Messwerte stammen vom GitHub-Runner, nicht vom VPS. |
 | 15.5 | Datenintegrität und Wiederherstellung | **Abgeschlossen 04.11.2026.** Manueller [100K-Backup-/Restore-Rehearsal #41817023415](https://github.com/NicoPinguinDEV/Pulse/actions/runs/41817023415) auf `main`: Backup-Prüfung, isolierter und vollständiger Restore, SQLite-Integrität, Metadaten, Parität und JSON-Rückexport bestanden. Prozessabbruch-Test in CI #41437223612 (1.472 Tests, 19 Skips) bestanden. Messwerte und Aussagegrenzen: [PHASE15_5_DATA_INTEGRITY_RESTORE.md](PHASE15_5_DATA_INTEGRITY_RESTORE.md). Kein Produktions-VPS-Restore. |
-| 15.6 | applications.json: Migration in einer eigenen Teilphase | 15.6a Read-only-Inventur und Entwurf in PR #136 gemergt. 15.6b Daten-/Retention-Matrix mit Status-, Feld-, Interview-, Kalender-, Audit-, Export- und Backup-Abgleich in [PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md](PHASE15_6B_APPLICATIONS_RETENTION_MATRIX.md) (Review-PR; keine Codeänderung). Danach 15.6c minimiertes Einstellungsereignis, 15.6d versioniertes Repository, 15.6e referenzsichere Retention und 15.6f separat freigegebene Produktivmigration. |
+| 15.6 | applications.json: Migration in einer eigenen Teilphase | 15.6a Read-only-Inventur und Entwurf in PR #136 gemergt. 15.6b technische Prüfung und Korrektur der Daten-/Retention-Matrix in PR #140 gemergt; keine Produktivdaten oder Laufzeitlogik geändert. Nächster Schritt: 15.6c minimiertes Einstellungsereignis, danach 15.6d versioniertes Repository, 15.6e referenzsichere Retention und 15.6f separat freigegebene Produktivmigration. Die fachlichen Entscheidungen zu `in_review`, `accepted`/`hired` und Aufbewahrungsfristen bleiben vor Retention/Migration offen. |
 | 15.7 | Weitere JSON-/SQLite-Dateien bewerten | Kleine Datenbanken werden einzeln bewertet. Eine Zusammenführung erfolgt nur, wenn Eigentümerschaft, Tabellenkollisionen, Backup und Rückweg geklärt sind. |
 
 **Separater Betriebsschritt – Schichthistorie aktivieren:** Die Umschaltung von PULSE_SHIFT_HISTORY_BACKEND auf sqlite ist kein automatischer Teil dieser Codephase. Erst nach geprüftem Backup, dokumentiertem Status und ausdrücklicher Freigabe darf sie auf dem VPS erfolgen. Der Rückweg auf JSON muss genauso dokumentiert bleiben.
@@ -322,21 +322,16 @@ Eine Phase gilt erst als abgeschlossen, wenn alle zutreffenden Punkte erfüllt s
 | Schichthistorie auf SQLite umschalten | Code und Rückweg vorhanden; produktiv nicht aktiviert. | separater, ausdrücklich freigegebener VPS-Betriebsschritt |
 | Navigation / doppelte Seiten (E-6) | Alt-neu-Entscheidungsvorlage existiert. | aktualisierte Zuordnung vor dem Zusammenführen vorlegen |
 | Bewerbungsdatenschutz | Aufbewahrung 6 Monate beschlossen; verantwortlicher Kontakt für den Hinweis ist offen. | Kontakt vor Änderung des Bewerbungshinweises festlegen |
-| Repository-Schutz | Audit vom 24.10. meldete fehlenden Branch-Schutz/Deploy-Reviewer; aktueller Status nicht erneut verifiziert. | Repository-Einstellungen mit Inhaber prüfen |
+| Repository-Schutz | `main.protected: false`, keine aktiven Rulesets (Nachprüfung 05.11.2026). PR #141 verlangt Branch-Schutz und beide CI-Gates; die VPS-Deploy-Schritte werden bis dahin übersprungen. | Aktives Ruleset für `main` mit PR-Pflicht, beiden CI-Checks, aufgelösten Review-Konversationen sowie Force-Push-/Löschschutz einrichten; danach Test-PR und Issue #121 abnehmen |
 | Neue Automationen / Sanktionen | sichere Defaults und menschliche Prüfung sind verbindlich. | jede neue Aktion einzeln beschreiben und ausdrücklich freigeben |
 
 ## 9. Startpunkt nach Annahme der Roadmap
 
-Der nächste technische Schritt ist **Phase 15.0: eine rein lesende, aktuelle Inventur von logs.json**. Sie liefert:
+Der nächste technische Schritt ist **Phase 15.6c: ein minimiertes, unabhängiges Einstellungsereignis**. Vor der Implementierung werden die tatsächlichen Einstellungspfade (Bewerbungs-Hire, manuelle Einstellung und erstmalige Teamrollenvergabe) erneut am aktuellen Code geprüft. Das Ereignis wird nur nach bestätigter Einstellung geschrieben, muss idempotent sein und `team_since_for` ohne vollständige Bewerbungsantworten zuverlässig halten.
 
-- alle aktiven Leser und Schreiber, nicht nur ältere Dokumentationsstellen;
-- Datenformate, optionale Felder, Zeitstempel und Sortierregeln;
-- alle Dashboard-, Bot-, Export-, Backup- und Retention-Aufrufer;
-- Locking, parallele Schreibvorgänge und Fehlerverhalten;
-- reale Abfrageprofile und passende Indexkandidaten;
-- notwendige Tests und einen sicheren Migrations-/Rollback-Vorschlag.
+15.6c enthält ausdrücklich keinen automatischen Backfill alter `accepted`-/`hired`-Datensätze, keine Retention-Änderung, keine Löschung/Anonymisierung, keine Backend-Umschaltung und keine Produktivmigration. `in_review`-/`accepted`-/`hired`-Statusentscheidungen und der verantwortliche Kontakt für den Bewerbungshinweis bleiben als Produktentscheidungen offen; sie müssen vor 15.6e/15.6f geklärt sein.
 
-Erst nach dieser Inventur wird entschieden, welche Implementierung wirklich erforderlich ist. Phase 15.0 verändert keine Daten, keine Routen und keinen Produktivbetrieb.
+Die Branch-Regeln für `main` sind unabhängig davon noch manuell in GitHub einzurichten (Issue #121). Bis dahin blockiert das gemergte Deployment-Gate die eigentlichen VPS-Deploy-Schritte.
 
 ---
 

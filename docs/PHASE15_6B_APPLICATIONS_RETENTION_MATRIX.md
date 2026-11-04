@@ -1,7 +1,8 @@
 # Phase 15.6b – Daten- und Retention-Matrix für Bewerbungen
 
-**Status:** Dokumentationsentwurf zur Prüfung · keine Implementierung, keine Produktionsdaten gelesen  
-**Codebasis:** `main` @ `94c76fe5cd2c353bbb93af2de68a92b390332a7a` (04.11.2026; nach PR #139)  
+**Status:** Technisches Review abgeschlossen; Korrekturen in PR #140 am 04.11.2026 gemergt · keine Implementierung, keine Produktionsdaten gelesen  
+**Codebasis der Quellcodeprüfung:** `main` @ `94c76fe5cd2c353bbb93af2de68a92b390332a7a` (04.11.2026; nach PR #139; die Bewerbungs-/Retention-Module wurden durch PR #140/#141 nicht verändert)  
+**Aktueller Repository-Stand:** `main` @ `e9f8e40cb3ff6733ced3a8896431bb23bd043ad2` (05.11.2026)  
 **Grundlagen:** PR #136 / Phase 15.6a, `tools/application_data_audit.py`, `pulse_retention.py`, `webserver.py`, `cogs/pulse_suite.py`, `pulse_db.py`, `pulse_backup.py`, `docs/PHASE15_3_APPLICATIONS_SECURITY.md`  
 **Sicherheitsgrenze:** Nur Quellcode, Dokumentation und synthetische Tests ausgewertet. Keine Produktivdateien, Exporte oder VPS-Daten geöffnet. Keine Löschung, Migration, Retention-Aktivierung oder Backend-Umschaltung.
 
@@ -165,4 +166,8 @@ Ein versioniertes Application-Repository bzw. ein produktiver Bewerbungs-Migrati
 - [x] Nur Quellcode und synthetische Tests geprüft; keine Produktionsdaten oder Laufzeitdateien geöffnet.
 - [x] Keine Änderung an Produktiv-/Anwendungslogik, Migration, Retention-Aktivierung, Löschung oder VPS-Aktion vorgenommen; angepasst wurden nur Review-Dokumentation und deren statischer Generator.
 
-**Nächster Schritt:** fachliches Review dieser Matrix und Entscheidung über die offenen Punkte. Erst danach Phase 15.6c (minimiertes Einstellungsereignis) implementieren. 15.6d/15.6e bleiben getrennte PRs; eine Produktivmigration in 15.6f benötigt weiterhin eine eigene ausdrückliche Freigabe.
+**Review-Abschluss:** Die technische Prüfung und Korrektur dieser Matrix wurde in PR #140 gemergt. Sie bestätigt die dokumentierten Code-Befunde, ist aber keine Produktentscheidung und keine Prüfung von Produktionsdaten.
+
+**Nächster Schritt:** Phase 15.6c – minimiertes, unabhängiges Einstellungsereignis. Vor der Umsetzung sind die realen Einstellungspfade im aktuellen Code erneut zu verifizieren. Das Ereignis entsteht nur nach bestätigter Einstellung und darf keine vollständigen Bewerbungsantworten kopieren. Kein automatischer Backfill, keine Retention-Änderung, keine Löschung/Anonymisierung und keine Produktivmigration.
+
+Die offenen Produktentscheidungen zu `in_review`, `accepted`/`hired`, Aufbewahrungsfristen und dem verantwortlichen Kontakt für den Bewerbungshinweis bleiben vor 15.6e/15.6f zu klären. 15.6d/15.6e bleiben getrennte PRs; eine Produktivmigration in 15.6f benötigt weiterhin eine eigene ausdrückliche Freigabe.
