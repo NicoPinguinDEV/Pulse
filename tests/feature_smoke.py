@@ -695,9 +695,12 @@ def main() -> None:
     assert "guild.fetch_member(target_id)" in web
     assert "name_query in field(m)" in web
     assert "selected_rank = team_role_ids.index(role.id)" in web
-    assert 'team_entry["team_since"] = now_de().isoformat(timespec="seconds")' in web
+    assert 'team_entry["team_since"] = hired_at' in web
+    assert 'source="manual_hire"' in web
+    assert "store_employment_event(team_entry, build_employment_event(" in web
     assert '"🎉 Team-Update: Manuelle Einstellung"' in web
-    assert 'log_audit(actor, actor_id, "Manuelle Einstellung"' in web
+    assert "audit_ref = log_audit(" in web
+    assert 'actor, actor_id, "Manuelle Einstellung"' in web
 
     # Team list keeps member actions inside the Details/eye menu.
     assert "details-only" not in web  # no stale marker should leak into UI
