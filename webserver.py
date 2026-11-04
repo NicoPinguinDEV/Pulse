@@ -7498,7 +7498,8 @@ async def team_role_manager_save(
         if to_remove:
             await member.remove_roles(*to_remove, reason=f"Rollenänderung durch {ctx.user.get('global_name') or ctx.user.get('username') or 'Team'}: {action_reason}")
 
-        is_team_member = bool(team_role_ids and any(r.id in team_role_ids for r in member.roles))
+        resulting_role_ids = ({r.id for r in member.roles} | {r.id for r in to_add}) - {r.id for r in to_remove}
+        is_team_member = bool(team_role_ids and any(rid in team_role_ids for rid in resulting_role_ids))
         actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
         add_text = ", ".join(r.mention for r in to_add) or "Keine"
         remove_text = ", ".join(r.mention for r in to_remove) or "Keine"
