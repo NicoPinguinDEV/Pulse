@@ -13,8 +13,8 @@ Das aktuelle Beschäftigungsereignis liegt als `employment_event` im bestehenden
 | `version` | Version des kleinen Ereignisformats (aktuell 1) |
 | `user_id` | Discord-ID der eingestellten Person |
 | `hired_at` | Zeitzonenbehafteter ISO-8601-Einstellungszeitpunkt |
-| `actor_id` | Discord-ID der handelnden Person |
-| `source` | Bestätigter Herkunftspfad: `application_interview`, `manual_hire` oder `team_role_assignment` |
+| `actor_id` | Optionale Discord-ID der handelnden Person; bei Discord-Listenern nicht zuverlässig verfügbar und deshalb nicht erfunden |
+| `source` | Bestätigter Herkunftspfad: `application_interview`, `manual_hire`, `team_role_assignment` oder `discord_team_sync` |
 | `audit_ref` | ID des zugehörigen Eintrags in `audit_logs.json` |
 | `career_path` | Optionaler, begrenzter Laufbahnschlüssel (kein Freitext) |
 
@@ -28,7 +28,8 @@ Ein Ereignis wird erst nach erfolgreicher Discord-Rollenänderung geschrieben:
 
 1. `handle_action` / `hire_after_interview`: das verpflichtende Bewerbungsgespräch ist dokumentiert und Discord hat die Teamrolle vergeben sowie die Bewerberolle entfernt.
 2. `handle_action` / `hire`: die manuelle Einstellung hat die Teamrolle erfolgreich vergeben.
-3. `team_role_manager_save`: eine Person wechselt von keiner konfigurierten Teamrolle zu mindestens einer Teamrolle.
+3. `team_role_manager_save`: eine Person wechselt von keiner konfigurierten Teamrolle zu mindestens einer Teamrolle. Die resultierende Rollenmenge wird aus Ausgangsrollen plus/minus bestätigten Änderungen berechnet, statt auf einen möglicherweise veralteten lokalen Discord-Cache zu vertrauen.
+4. `cogs/pulse_next.py`: Discord meldet einen Wechsel von keiner Teamrolle zu einer Teamrolle oder ein Teammitglied tritt dem Server bereits mit Teamrolle bei. Der Listener protokolliert ein Systemereignis; da Discord in diesem Member-Event den handelnden Moderator nicht zuverlässig mitliefert, bleibt `actor_id` leer. Ein zeitnah bereits vom konkreten Dashboard-Hire geschriebenes Ereignis wird nicht durch das Listener-Ereignis überschrieben.
 
 Das bloße Setzen von `accepted` über die Suite-Statusverwaltung erzeugt ausdrücklich **kein** Einstellungsereignis. Eine Einladung zum Gespräch ist ebenfalls keine Einstellung.
 
@@ -53,6 +54,6 @@ Damit bleiben bisherige Teamakten unverändert priorisiert. Neue bestätigte Ein
 
 ## 5. Tests
 
-`tests/test_employment_events.py` prüft das minimierte Schema, optionale Laufbahndaten, Eingabevalidierung, Zeitzonen, Idempotenz, Wiedereinstellung und die Zuordnung zur richtigen Discord-ID. AST-basierte Regressionstests sichern alle drei bestätigten Schreibpfade, die Fallback-Reihenfolge von `team_since_for`, die Rückgabe der Audit-ID und die Abgrenzung zur Suite-Statusänderung ab.
+`tests/test_employment_events.py` prüft das minimierte Schema, optionale Laufbahn- und Akteursdaten, Eingabevalidierung, Zeitzonen, Idempotenz, Wiedereinstellung und die Zuordnung zur richtigen Discord-ID. AST-basierte Regressionstests sichern alle vier Schreibpfade, die Fallback-Reihenfolge von `team_since_for`, den resultierenden Teamrollenbestand, die Rückgabe der Audit-ID und die Abgrenzung zur Suite-Statusänderung ab.
 
 Die normalen CI-Workflows bleiben zusätzlich verpflichtend. Ein grüner CI-Lauf ist kein Merge- oder Deployment-Auftrag.
