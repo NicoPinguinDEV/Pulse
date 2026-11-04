@@ -163,6 +163,6 @@ Ein versioniertes Application-Repository bzw. ein produktiver Bewerbungs-Migrati
 - [x] Datenschutzexport und Abdeckungslücke bei `suite_interviews` benannt.
 - [x] 15.5-Melonly-Ergebnis von einem anwendungsübergreifenden Bewerbungs-Restore-Nachweis abgegrenzt.
 - [x] Nur Quellcode und synthetische Tests geprüft; keine Produktionsdaten oder Laufzeitdateien geöffnet.
-- [x] Keine Codeänderung, Migration, Retention-Aktivierung, Löschung oder VPS-Aktion vorgenommen.
+- [x] Keine Änderung an Produktiv-/Anwendungslogik, Migration, Retention-Aktivierung, Löschung oder VPS-Aktion vorgenommen; angepasst wurden nur Review-Dokumentation und deren statischer Generator.
 
 **Nächster Schritt:** fachliches Review dieser Matrix und Entscheidung über die offenen Punkte. Erst danach Phase 15.6c (minimiertes Einstellungsereignis) implementieren. 15.6d/15.6e bleiben getrennte PRs; eine Produktivmigration in 15.6f benötigt weiterhin eine eigene ausdrückliche Freigabe.
