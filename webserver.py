@@ -46,6 +46,7 @@ from pulse_safe_path import contained_file
 pulse_logging.safe_console()  # status prints with emoji must not crash on a cp1252 console (no file access)
 from pulse_version import PULSE_VERSION
 from pulse_time import display, parse_timestamp
+from pulse_employment import build_employment_event, employment_hired_at, store_employment_event
 
 from pulse_shift_utils import (AUTO_SHIFT_END_HOURS, AUTO_SHIFT_END_SECONDS, OFFBOARDING_CLOSE_REASON, credited_shift_seconds,
                                needs_duration_confirmation, parse_max_shift_hours, shift_age_seconds, shift_event_id)
@@ -625,10 +626,11 @@ def shell_hook(slot: str):
     return _shell_hooks.get(slot)
 
 
-def log_audit(actor_name: str, actor_id: str, action: str, details: str):
+def log_audit(actor_name: str, actor_id: str, action: str, details: str) -> str:
+    audit_id = f"audit_{uuid.uuid4().hex[:6]}"
     audit_data = load_json(AUDIT_FILE, [])
     audit_data.append({
-        "id": f"audit_{uuid.uuid4().hex[:6]}",
+        "id": audit_id,
         "actor": actor_name,
         "actor_id": str(actor_id),
         "action": action,
@@ -642,6 +644,7 @@ def log_audit(actor_name: str, actor_id: str, action: str, details: str):
             listener(actor_name, actor_id, action, details)
         except Exception:
             pass  # the saved audit entry stays authoritative; a mirror must not fail the action
+    return audit_id
 
 
 def team_safety_admin_exempt(guild, member) -> bool:
@@ -7495,16 +7498,31 @@ async def team_role_manager_save(
         if to_remove:
             await member.remove_roles(*to_remove, reason=f"Rollenänderung durch {ctx.user.get('global_name') or ctx.user.get('username') or 'Team'}: {action_reason}")
 
-        is_team_member = bool(team_role_ids and any(r.id in team_role_ids for r in member.roles))
-        if not was_team_member and is_team_member:
-            team_db = load_json(DATA_FILE, {})
-            team_entry = user_entry(team_db, str(member.id))
-            team_entry["team_since"] = now_de().isoformat(timespec="seconds")
-            save_json(DATA_FILE, team_db)
-
+        resulting_role_ids = ({r.id for r in member.roles} | {r.id for r in to_add}) - {r.id for r in to_remove}
+        is_team_member = bool(team_role_ids and any(rid in team_role_ids for rid in resulting_role_ids))
         actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
         add_text = ", ".join(r.mention for r in to_add) or "Keine"
         remove_text = ", ".join(r.mention for r in to_remove) or "Keine"
+        audit_ref = log_audit(
+            actor,
+            ctx.user["id"],
+            "Rollenänderung",
+            f"{member.display_name}: +{[r.name for r in to_add]} -{[r.name for r in to_remove]} · Grund: {action_reason}",
+        )
+        if not was_team_member and is_team_member:
+            hired_at = now_de().isoformat(timespec="seconds")
+            team_db = load_json(DATA_FILE, {})
+            team_entry = user_entry(team_db, str(member.id))
+            team_entry["team_since"] = hired_at
+            store_employment_event(team_entry, build_employment_event(
+                user_id=member.id,
+                hired_at=hired_at,
+                actor_id=ctx.user["id"],
+                source="team_role_assignment",
+                audit_ref=audit_ref,
+                career_path=team_entry.get("career_path"),
+            ))
+            save_json(DATA_FILE, team_db)
         await send_team_update_embed(
             guild,
             "⚙️ Team-Update: Rollenänderung",
@@ -7520,7 +7538,6 @@ async def team_role_manager_save(
             ],
             thumbnail=member.display_avatar.url,
         )
-        log_audit(actor, ctx.user["id"], "Rollenänderung", f"{member.display_name}: +{[r.name for r in to_add]} -{[r.name for r in to_remove]} · Grund: {action_reason}")
         return back(f"/team/{user_id}/roles", "Rollenänderung erfolgreich gespeichert.")
     except discord.Forbidden:
         return back(f"/team/{user_id}/roles", "Discord verweigert die Rollenänderung. Prüfe Bot-Rolle und Rollenrechte.", False)
@@ -10854,10 +10871,11 @@ def commit_shift_event(event: dict) -> None:
 
 
 def team_since_for(member, entry=None, apps=None) -> str:
-    """Bestmögliches Team-Eintrittsdatum aus Pulse-Historie bzw. Discord.
+    """Resolve team entry date without depending on complete application records.
 
-    Phase 10: lists over many members pass `apps` – the parsed applications.json or a callable returning it (loaded
-    once per page, only when needed); without it the file is read here as before."""
+    Priority: explicit team_since, independent employment event, legacy accepted/hired
+    application timestamps, then Discord joined_at. Lists can pass a preloaded apps snapshot.
+    """
     entry = entry if isinstance(entry, dict) else {}
     raw = str(entry.get("team_since") or "").strip()
     if raw:
@@ -10866,6 +10884,15 @@ def team_since_for(member, entry=None, apps=None) -> str:
                 return datetime.strptime(raw, fmt).strftime("%d.%m.%Y")
             except Exception:
                 pass
+
+    event_hired_at = employment_hired_at(entry, member.id)
+    if event_hired_at:
+        try:
+            event_timestamp = parse_timestamp(event_hired_at)
+            if event_timestamp is not None:
+                return display(event_timestamp, with_time=False)
+        except Exception:
+            pass
 
     try:
         if callable(apps):
@@ -11498,11 +11525,24 @@ async def handle_action(
         except discord.HTTPException:
             return back("/team", "Die Teamrolle konnte gerade nicht vergeben werden. Bitte versuche es erneut.", False)
 
+        hired_at = now_de().isoformat(timespec="seconds")
+        audit_ref = log_audit(
+            actor, actor_id, "Manuelle Einstellung",
+            f"{target.display_name} ({target.id}) -> {role.name} · Grund: {action_reason}",
+        )
         team_db = load_json(DATA_FILE, {})
         team_entry = user_entry(team_db, str(target.id))
-        team_entry["team_since"] = now_de().isoformat(timespec="seconds")
+        team_entry["team_since"] = hired_at
         team_entry["manual_hire_by"] = str(actor)
         team_entry["manual_hire_reason"] = action_reason
+        store_employment_event(team_entry, build_employment_event(
+            user_id=target.id,
+            hired_at=hired_at,
+            actor_id=actor_id,
+            source="manual_hire",
+            audit_ref=audit_ref,
+            career_path=team_entry.get("career_path"),
+        ))
         save_json(DATA_FILE, team_db)
 
         await send_dm_notification(
@@ -11525,7 +11565,6 @@ async def handle_action(
             ],
             thumbnail=target.display_avatar.url,
         )
-        log_audit(actor, actor_id, "Manuelle Einstellung", f"{target.display_name} ({target.id}) -> {role.name} · Grund: {action_reason}")
         return back("/team", f"{target.display_name} wurde mit der Rolle {role.name} erfolgreich eingestellt.")
 
     # ---------- Befördern / Degradieren / Kicken ----------
@@ -11899,7 +11938,9 @@ async def handle_action(
                 print(f"Einstellung nach Bewerbungsgespräch für {applicant.id} fehlgeschlagen: {exc}")
                 return back("/applications", "Die Einstellung konnte wegen eines Discord-Fehlers nicht durchgeführt werden.", False)
 
-            decided_at = now_de().strftime("%d.%m.%Y %H:%M")
+            hired_time = now_de()
+            hired_at = hired_time.isoformat(timespec="seconds")
+            decided_at = hired_time.strftime("%d.%m.%Y %H:%M")
             item["status"] = "hired"
             item["hired_role_id"] = role.id
             item["hired_role"] = role.name
@@ -11909,14 +11950,26 @@ async def handle_action(
             item["decision_reason"] = action_reason
             item["decided_by"] = actor
             item["decided_at"] = decided_at
+            audit_ref = log_audit(
+                actor, actor_id, "Einstellung nach Bewerbungsgespräch",
+                f"{applicant.display_name} -> {role.name}; Bewerberolle {APPLICATION_ROLE_ID} entfernt. Grund: {action_reason}",
+            )
             team_db = load_json(DATA_FILE, {})
             team_entry = user_entry(team_db, str(applicant.id))
-            team_entry["team_since"] = now_de().isoformat(timespec="seconds")
+            team_entry["team_since"] = hired_at
             if item.get("career_path"):
                 team_entry["career_path"] = item.get("career_path")
                 team_entry["career_label"] = item.get("career_label")
                 team_entry["application_test_percent"] = item.get("test_percent")
                 team_entry["application_test_passed"] = item.get("test_passed")
+            store_employment_event(team_entry, build_employment_event(
+                user_id=applicant.id,
+                hired_at=hired_at,
+                actor_id=actor_id,
+                source="application_interview",
+                audit_ref=audit_ref,
+                career_path=item.get("career_path"),
+            ))
             save_json(DATA_FILE, team_db)
             store_item()
             import pulse_app_comms  # BOT-10
@@ -11940,10 +11993,6 @@ async def handle_action(
                     ("Zeitpunkt", decided_at, True),
                 ],
                 thumbnail=applicant.display_avatar.url,
-            )
-            log_audit(
-                actor, actor_id, "Einstellung nach Bewerbungsgespräch",
-                f"{applicant.display_name} -> {role.name}; Bewerberolle {APPLICATION_ROLE_ID} entfernt. Grund: {action_reason}",
             )
             return back("/applications", f"{applicant.display_name} wurde nach dem Bewerbungsgespräch als {role.name} eingestellt.")
 

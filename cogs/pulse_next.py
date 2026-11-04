@@ -112,12 +112,46 @@ class PulseNextEvents(commands.Cog):
             return False
 
     def _record_team_since(self, member: discord.Member) -> None:
-        """Speichert den Beginn der aktuellen Teamzugehörigkeit."""
+        """Speichert einen erkannten Teambeitritt mit minimalem Beschäftigungsnachweis."""
         try:
+            from datetime import datetime
+
             import webserver
+            from pulse_employment import (
+                build_employment_event,
+                employment_hired_at,
+                store_employment_event,
+            )
+
             team_db = webserver.load_json(webserver.DATA_FILE, {})
             entry = webserver.user_entry(team_db, str(member.id))
-            entry["team_since"] = webserver.now_de().isoformat(timespec="seconds")
+            now = webserver.now_de()
+
+            # Discord may emit on_member_update immediately after a dashboard hire.
+            # Reuse that confirmed event instead of replacing its real actor/source
+            # with a second system event for the same role transition.
+            existing_hired_at = employment_hired_at(entry, member.id)
+            current_team_since = str(entry.get("team_since") or "").strip()
+            if existing_hired_at and current_team_since == existing_hired_at:
+                existing_dt = datetime.fromisoformat(existing_hired_at)
+                if abs((now - existing_dt).total_seconds()) <= 120:
+                    return
+
+            hired_at = now.isoformat(timespec="seconds")
+            audit_ref = webserver.log_audit(
+                "Pulse Discord Listener",
+                "",
+                "Teambeitritt erkannt",
+                f"Discord-Teamrollen-Synchronisierung für Mitglied {member.id}.",
+            )
+            entry["team_since"] = hired_at
+            store_employment_event(entry, build_employment_event(
+                user_id=member.id,
+                hired_at=hired_at,
+                source="discord_team_sync",
+                audit_ref=audit_ref,
+                career_path=entry.get("career_path"),
+            ))
             webserver.save_json(webserver.DATA_FILE, team_db)
         except Exception as exc:
             print(f"Team-Eintritt konnte nicht gespeichert werden: {exc}")
