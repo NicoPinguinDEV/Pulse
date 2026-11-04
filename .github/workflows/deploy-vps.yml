@@ -2,7 +2,9 @@ name: Deploy Pulse VPS
 
 on:
   workflow_run:
-    workflows: ["Pulse Quality and Security Checks"]
+    workflows:
+      - "Pulse Quality and Security Checks"
+      - "Pulse Sicherheit & Abdeckung"
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -24,12 +26,10 @@ concurrency:
 jobs:
   deploy:
     name: GitHub main → Pulse VPS
-    # No production deploy just because CI went green: the workflow_run trigger only deploys when the repository
-    # variable PULSE_AUTO_DEPLOY is explicitly "true" (Settings → Secrets and variables → Actions → Variables).
-    # Default (unset): only a manual "Run workflow" deploys. The environment "production" can additionally require
-    # a reviewer approval (Settings → Environments → production → Required reviewers).
-    # Scheduled, pull-request and failed workflow runs must be skipped instead of reported as failed deployments.
-    if: github.event_name == 'workflow_dispatch' || (vars.PULSE_AUTO_DEPLOY == 'true' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success')
+    # Automatic deployment is opt-in and requires both CI workflows to finish successfully for the same main commit.
+    # The main branch must also be protected; otherwise deployment fails closed until Issue #121 is completed.
+    # Manual deployment follows the exact same branch-protection and CI gates.
+    if: github.event_name == 'workflow_dispatch' || (vars.PULSE_AUTO_DEPLOY == 'true' && github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success')
     environment: production
     runs-on: ubuntu-latest
     # O-03 / M-A4-1: every step uses steps.verified.outputs.sha – exactly the commit the checks ran on, never the
@@ -41,53 +41,168 @@ jobs:
         with:
           script: |
             const isManual = context.eventName === "workflow_dispatch";
-            if (!isManual) {
-              const run = context.payload.workflow_run;
-              if (
-                !run ||
-                run.conclusion !== "success" ||
-                run.event !== "push" ||
-                run.head_branch !== "main"
-              ) {
-                core.setFailed("Deployment nur nach erfolgreichen Sicherheitsprüfungen eines main-Pushes.");
-                return;
-              }
-              core.setOutput("sha", run.head_sha);
-              return;
-            }
+            const triggerRun = context.payload.workflow_run;
 
-            // The workflow file and deploy script come from the dispatched ref – only main may deploy.
-            // (Hard guarantee only with a deployment branch policy on the "production" environment.)
-            if (context.ref !== "refs/heads/main") {
+            const stopAutomaticDeployment = (message) => {
+              core.setOutput("ready", "false");
+              core.notice(message);
+            };
+
+            if (isManual && context.ref !== "refs/heads/main") {
               core.setFailed(`Manuelles Deployment nur von main aus starten (gestartet von ${context.ref}).`);
               return;
             }
-            const sha = (context.payload.inputs?.commit_sha || context.sha).trim();
+
+            if (
+              !isManual &&
+              (!triggerRun ||
+                triggerRun.event !== "push" ||
+                triggerRun.head_branch !== "main" ||
+                triggerRun.conclusion !== "success")
+            ) {
+              stopAutomaticDeployment("Kein Deployment: Auslöser ist kein erfolgreicher main-Push.");
+              return;
+            }
+
+            const sha = (isManual
+              ? (context.payload.inputs?.commit_sha || context.sha)
+              : triggerRun.head_sha).trim();
             if (!/^[0-9a-f]{40}$/.test(sha)) {
               core.setFailed("Bitte eine gültige vollständige Commit-SHA angeben.");
               return;
             }
 
-            const result = await github.rest.actions.listWorkflowRuns({
+            // Fail closed: GitHub's branch endpoint exposes whether main is protected.
+            const branch = await github.rest.repos.getBranch({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              workflow_id: "python-syntax.yml",
-              head_sha: sha,
-              per_page: 100,
+              branch: "main",
             });
-            const latestMainPush = result.data.workflow_runs.find(run =>
-              run.head_sha === sha &&
-              run.head_branch === "main" &&
-              run.event === "push"
-            );
-            if (!latestMainPush || latestMainPush.status !== "completed" || latestMainPush.conclusion !== "success") {
-              core.setFailed("Für diesen Commit wurde kein erfolgreicher Sicherheits- und Qualitätstest auf main gefunden.");
+            if (branch.data.protected !== true) {
+              const message = "Deployment blockiert: GitHub meldet main als ungeschützt (protected=false). Aktiviere Branch Protection oder ein Ruleset für main und erfülle Issue #121.";
+              if (isManual) core.setFailed(message);
+              else stopAutomaticDeployment(message);
               return;
             }
+
+            const workflows = [
+              {
+                workflow_id: "python-syntax.yml",
+                label: "Pulse Quality and Security Checks",
+                required_jobs: [
+                  "Docker-Compose-Integration (read-only, /data, ohne Discord)",
+                  "Abhängigkeiten auf Sicherheitslücken prüfen",
+                  "Regressionstests mit der Python-Version des Images",
+                  "syntax",
+                  "Docker-Image bauen (wie auf dem VPS, ohne Push)",
+                  "E2E nötig? (Pfadfilter)",
+                  "Repository auf offengelegte Geheimnisse prüfen",
+                ],
+                allowed_skipped_jobs: [
+                  "Dashboard-E2E (Playwright, lokal mit Fake-Login)",
+                  "Schichthistorie – 20.000 Einträge (JSON vs. SQLite)",
+                ],
+              },
+              {
+                workflow_id: "security.yml",
+                label: "Pulse Sicherheit & Abdeckung",
+                required_jobs: ["Lock-Datei (Hashes) + pip-audit"],
+                allowed_skipped_jobs: [],
+              },
+            ];
+
+            const checks = [];
+            for (const workflow of workflows) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: workflow.workflow_id,
+                head_sha: sha,
+                per_page: 100,
+              });
+              const candidates = response.data.workflow_runs
+                .filter(run =>
+                  run.head_sha === sha &&
+                  run.head_branch === "main" &&
+                  run.event === "push"
+                )
+                .sort((a, b) =>
+                  Date.parse(b.created_at) - Date.parse(a.created_at) ||
+                  (b.run_attempt || 1) - (a.run_attempt || 1) ||
+                  b.id - a.id
+                );
+              const run = candidates[0];
+
+              if (!run || run.status !== "completed" || run.conclusion !== "success") {
+                checks.push({
+                  workflow: workflow.label,
+                  ok: false,
+                  reason: "Kein vollständig erfolgreicher main-Push-Lauf für diesen Commit.",
+                });
+                continue;
+              }
+
+              const jobsResponse = await github.rest.actions.listJobsForWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id,
+                per_page: 100,
+              });
+              const jobs = jobsResponse.data.jobs || [];
+              const jobNames = new Set(jobs.map(job => job.name));
+              const missingJobs = workflow.required_jobs.filter(name => !jobNames.has(name));
+              const allowedSkips = new Set(workflow.allowed_skipped_jobs);
+              const blockingJobs = jobs.filter(job =>
+                job.conclusion !== "success" &&
+                !(job.conclusion === "skipped" && allowedSkips.has(job.name))
+              );
+
+              if (jobs.length === 0 || missingJobs.length > 0 || blockingJobs.length > 0) {
+                const details = [
+                  missingJobs.length ? `fehlende Pflichtjobs: ${missingJobs.join(", ")}` : "",
+                  blockingJobs.length
+                    ? `nicht erfolgreiche oder unerwartet übersprungene Jobs: ${blockingJobs.map(job => `${job.name} (${job.conclusion || job.status})`).join(", ")}`
+                    : "",
+                  jobs.length === 0 ? "keine Job-Ergebnisse vorhanden" : "",
+                ].filter(Boolean).join("; ");
+                checks.push({ workflow: workflow.label, ok: false, reason: details });
+                continue;
+              }
+
+              checks.push({ workflow: workflow.label, ok: true, run });
+            }
+
+            const failedChecks = checks.filter(check => !check.ok);
+            if (failedChecks.length > 0) {
+              const message = `Deployment blockiert: ${failedChecks.map(check => `${check.workflow}: ${check.reason}`).join(" | ")}`;
+              if (isManual) core.setFailed(message);
+              else stopAutomaticDeployment(message);
+              return;
+            }
+
+            if (!isManual) {
+              // Both workflow_run events may arrive after both workflows have finished.
+              // Only the event belonging to the later-completed CI run is allowed to deploy.
+              const latestCompletedRun = checks
+                .map(check => check.run)
+                .sort((a, b) =>
+                  Date.parse(a.completed_at || a.updated_at) -
+                  Date.parse(b.completed_at || b.updated_at) ||
+                  a.id - b.id
+                )
+                .at(-1);
+              if (triggerRun.id !== latestCompletedRun.id) {
+                stopAutomaticDeployment("Kein Deployment: Der andere CI-Workflow wurde später abgeschlossen und übernimmt den gemeinsamen Deployment-Gate.");
+                return;
+              }
+            }
+
+            core.setOutput("ready", "true");
             core.setOutput("sha", sha);
 
       - name: Deployment-Secrets prüfen
         id: setup
+        if: steps.verified.outputs.ready == 'true'
         env:
           VPS_HOST: ${{ secrets.PULSE_VPS_HOST }}
           VPS_USER: ${{ secrets.PULSE_VPS_USER }}
@@ -103,7 +218,7 @@ jobs:
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
       - name: Geprüften Stand auschecken (für das Deploy-Skript)
-        if: steps.setup.outputs.enabled == 'true'
+        if: steps.verified.outputs.ready == 'true' && steps.setup.outputs.enabled == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.verified.outputs.sha }}
@@ -145,7 +260,7 @@ jobs:
             "bash -s -- '$DEPLOY_SHA' /opt/pulse/Pulse" < deploy/remote_deploy.sh
 
       - name: Ergebnis in den Alert-Kanal melden (optional)
-        if: always() && steps.setup.outputs.enabled == 'true'
+        if: always() && steps.verified.outputs.ready == 'true' && steps.setup.outputs.enabled == 'true'
         env:
           WEBHOOK: ${{ secrets.PULSE_DEPLOY_WEBHOOK_URL }}
           OUTCOME: ${{ steps.deploy.outcome }}
