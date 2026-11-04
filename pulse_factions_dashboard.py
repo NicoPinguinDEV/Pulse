@@ -280,7 +280,7 @@ Bitte die Seite in ein paar Sekunden <a href="" style="text-decoration:underline
         elif item["status"] == "official" and item.get("official_since"):
             since = f' · offiziell seit {e(item["official_since"][:10])}'
 
-        body = f'''<div class="pulse-crumb" style="font-size:11px;color:#94a3b8;margin-bottom:8px"><a href="/factions" style="color:#6366f1">Fraktionsverwaltung</a> › {e(item["name"])}</div>
+        body = f'''<div class="pulse-crumb" style="font-size:11px;color:#94a3b8;margin-bottom:8px"><a href="/factions" style="color:var(--p)">Fraktionsverwaltung</a> › {e(item["name"])}</div>
 <div class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Fraktion</div>
 <div class="pulse-title">{e(item["name"])}</div>
 <div class="fx-actions mt-2">{status_pill(item)}{category_pill(item)}</div>

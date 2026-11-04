@@ -44,9 +44,9 @@ def register(app) -> None:
             f'<div class="pulse-card-b">{inner}</div></section>'
         )
 
-    # Buttons sit on the purple hero, so they use white/translucent styles for contrast.
+    # Buttons sit on the coral/anthracite hero, so they use white/translucent styles for contrast.
     HERO_BTN = {
-        "primary": "background:#fff;color:#4338ca;border-color:#fff",
+        "primary": "background:#fff;color:#B94732;border-color:#fff",
         "ghost": "background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.35)",
     }
 
