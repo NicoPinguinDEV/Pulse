@@ -1,7 +1,7 @@
 # Phase 15.6b – Daten- und Retention-Matrix für Bewerbungen
 
 **Status:** Dokumentationsentwurf zur Prüfung · keine Implementierung, keine Produktionsdaten gelesen  
-**Codebasis:** `main` @ `e7311e7b9bb3fb90706629eaf0fabe2086e4782d` (04.11.2026)  
+**Codebasis:** `main` @ `94c76fe5cd2c353bbb93af2de68a92b390332a7a` (04.11.2026; nach PR #139)  
 **Grundlagen:** PR #136 / Phase 15.6a, `tools/application_data_audit.py`, `pulse_retention.py`, `webserver.py`, `cogs/pulse_suite.py`, `pulse_db.py`, `pulse_backup.py`, `docs/PHASE15_3_APPLICATIONS_SECURITY.md`  
 **Sicherheitsgrenze:** Nur Quellcode, Dokumentation und synthetische Tests ausgewertet. Keine Produktivdateien, Exporte oder VPS-Daten geöffnet. Keine Löschung, Migration, Retention-Aktivierung oder Backend-Umschaltung.
 
@@ -20,15 +20,15 @@ Die Statuswerte werden nicht an nur einer Stelle verwaltet. Der Read-only-Audit 
 | Status | Im Code belegte Verwendung | Aktuelle Retention | Bewertung für die Planung |
 |---|---|---|---|
 | `pending` | Öffentliche Einreichung legt neue Bewerbung mit `pending` an. Hauptentscheidung erlaubt `accept` oder `reject`. | Geschützt; wird nicht automatisch entfernt. | Offener Vorgang. Erst nach einer nachvollziehbaren Entscheidung in eine Abschlussfrist überführen. |
-| `in_review` | `cogs/pulse_suite.py` erlaubt diesen Status in der allgemeinen Bewerbungsaktualisierung. Die Hauptansicht betrachtet nur `pending` und `interview` als aktiv. | Nicht geschützt; nach 183 Tagen löschbar, sofern der verwendete Zeitstempel gültig und alt genug ist. | **Risiko:** Kann als laufende Prüfung missverstanden werden, landet aber in der aktuellen Historienansicht und ist nicht in der Retention-Ausnahmemenge. Produktentscheidung nötig. |
+| `in_review` | `cogs/pulse_suite.py` erlaubt diesen Status in der allgemeinen Bewerbungsaktualisierung. Suite-Zähler/Tagesbericht führen ihn als offenen Vorgang; die Hauptansicht `/applications` betrachtet nur `pending` und `interview` als aktiv. | Nicht geschützt; nach 183 Tagen löschbar, sofern der verwendete Zeitstempel gültig und alt genug ist. | **Risiko:** Kann als laufende Prüfung behandelt werden, landet in der Hauptansicht aber in der Historie und ist nicht in der Retention-Ausnahmemenge. Bis zu einer fachlichen Entscheidung nicht automatisch löschen. |
 | `interview` | Hauptentscheidung lädt zur verpflichtenden Gesprächsphase ein. Suite-Interviewbewertung und Terminplanung verwenden diesen Status ebenfalls. | Geschützt; wird nicht automatisch entfernt. | Offener Vorgang. Gesprächsnotizen, Termin und Reminder müssen vor einer späteren Statusbereinigung berücksichtigt werden. |
-| `accepted` | Von der Suite-Verwaltung als Status zulässig; wird von Team-Board und `team_since_for` als Beschäftigungs-/Teamstatus behandelt. | Dauerhaft geschützt. | Legacy-/Altstatus. Nicht pauschal mit `hired` gleichsetzen oder löschen, bevor der tatsächliche Einstellungsfall und Eintrittszeitpunkt geprüft wurden. |
+| `accepted` | Die Suite-Verwaltung lässt den Status weiterhin direkt über `/suite/applications/{app_id}/update` setzen; Team-Board und `team_since_for` behandeln ihn als Beschäftigungs-/Teamstatus. Der Hauptflow `decide_app` setzt dagegen `hired` erst nach dem verpflichtenden Gespräch. | Dauerhaft geschützt. | **Kein reiner Legacystatus:** Er kann aktuell neu gesetzt werden, ist allein aber kein verlässlicher Nachweis einer tatsächlich erfolgten Einstellung. Nicht mit `hired` gleichsetzen oder löschen, bevor Fall und Eintrittszeitpunkt geprüft wurden. |
 | `hired` | Hauptflow `decide_app → hire_after_interview` setzt diesen Status nach dem verpflichtenden Gespräch und schreibt `team_data.json.team_since`. | Dauerhaft geschützt. | Beschäftigungsnachweis muss künftig unabhängig von vollständigen Antworten und Interviewnotizen erhalten bleiben. |
 | `rejected` | Hauptflow kann aus `pending` oder `interview` ablehnen; Suite-Verwaltung kann den Status ebenfalls setzen. | Nach 183 Tagen löschbar, wenn der maßgebliche Zeitstempel gültig ist. | Kandidat für eine referenzsichere Löschung/Anonymisierung nach Ablauf der beschlossenen Frist. |
 
 Zusätzliche Regeln und Grenzen:
 
-- Die Hauptentscheidung akzeptiert nur `pending → interview/rejected` und `interview → hired/rejected`. Die allgemeine Suite-Aktualisierung lässt dagegen `pending`, `in_review`, `interview`, `accepted` und `rejected` direkt setzen. Die zwei Wege bilden daher keine einheitliche, strikt durchgesetzte Zustandsmaschine.
+- Die Hauptentscheidung akzeptiert nur `pending → interview/rejected` und `interview → hired/rejected`. Die allgemeine Suite-Aktualisierung lässt dagegen `pending`, `in_review`, `interview`, `accepted` und `rejected` direkt setzen. Die zwei Wege bilden daher keine einheitliche, strikt durchgesetzte Zustandsmaschine. Insbesondere kann die Suite `accepted` ohne den Hauptflow und ohne dessen verpflichtenden Gesprächs-/Einstellungsablauf setzen.
 - `rejected_after_interview` ist ein Nachrichten-/Vorlagenschlüssel, kein zusätzlicher gespeicherter Bewerbungsstatus; gespeichert wird `rejected`.
 - Der Audit gruppiert unbekannte, fehlende oder abweichend geschriebene Werte in `unknown_or_missing`. Die Retention schützt solche Werte nicht automatisch: Jeder Status außerhalb von `pending`, `interview`, `accepted` und `hired` kann nach Fristablauf löschbar sein.
 - Für einen unbekannten oder nicht normalisierten Status ist eine manuelle Prüfung sicherer als eine automatische Löschung. Statuswerte dürfen beim Import nicht still normalisiert werden.
@@ -57,7 +57,7 @@ Zusätzliche Regeln und Grenzen:
 2. Sonst das älteste gültige `decided_at` aller Bewerbungen derselben `user_id` mit Status exakt `hired` oder `accepted`.
 3. Sonst `member.joined_at` aus Discord; wenn auch das fehlt, `unbekannt`.
 
-Der primäre Einstellungspfad nach dem Bewerbungsgespräch setzt `team_data.json.team_since` vor dem Speichern des aktualisierten Bewerbungsdatensatzes. Die manuelle Teameinstellung schreibt ebenfalls `team_since` in die Teamakte. Der Fallback auf `accepted`/`hired` bleibt dennoch für Altbestand relevant.
+Der primäre Einstellungspfad nach dem Bewerbungsgespräch setzt `team_data.json.team_since` vor dem Speichern des aktualisierten Bewerbungsdatensatzes. Die manuelle Teameinstellung und die Teamrollen-Verwaltung beim erstmaligen Eintritt in eine Teamrolle können `team_since` ebenfalls direkt in die Teamakte schreiben – auch ohne Bewerbungsdatensatz. Der Fallback auf `accepted`/`hired` bleibt dennoch für Altbestand relevant.
 
 **Sichere Zielrichtung für Phase 15.6c:** Ein minimiertes, unabhängiges Einstellungsereignis muss mindestens eine eindeutige Nutzerzuordnung, den fachlich bestätigten Eintrittszeitpunkt, die benötigte Laufbahn und eine notwendige Audit-Referenz enthalten. Es darf keine Motivation, Test-/Praxisantworten, Reviews oder Gesprächsnotizen kopieren. Vor einem Backfill sind alte `accepted`- und `hired`-Fälle einzeln auf tatsächliche Einstellung und korrekten Zeitpunkt zu prüfen. Nicht auflösbare Fälle blockieren die Bereinigung.
 
@@ -103,15 +103,17 @@ Vor dem Lauf verlangt die Funktion ein frisches Full-Backup (im Regelfall maxima
 
 `pulse_retention.export_person()` durchsucht JSON-Speicher und SQLite-Tabellen anhand einer festen Liste von ID-Spalten (`user_id`, `member_id`, `actor_id`, `target_id`, u. a.). Diese Liste enthält **nicht** `applicant_id` und **nicht** `interviewer_id`. In `suite_interviews` heißen die beteiligten Spalten aber genau `applicant_id` und `interviewer_id`.
 
-Damit wird `suite_interviews` durch den aktuellen generischen ID-Spaltenfilter nicht zuverlässig im personenbezogenen Export gefunden. Der vorhandene Exporttest prüft eine synthetische Tabelle mit `user_id`, nicht die Bewerber-/Interviewerreferenzen der Interviewtabelle.
+Damit wird `suite_interviews` durch den aktuellen generischen ID-Spaltenfilter nicht zuverlässig im personenbezogenen Export gefunden. Der vorhandene Exporttest `test_export_covers_all_databases` prüft nur eine synthetische Tabelle mit `user_id`, nicht die Bewerber-/Interviewerreferenzen der Interviewtabelle.
 
-**Blocker vor 15.6e/15.6f:** Exportabdeckung für Bewerber- und Interviewer-ID korrigieren und mit getrennten synthetischen Testfällen belegen. Kein personenbezogener Datenexport oder Löschprozess darf auf eine unvollständige Referenzsuche vertrauen.
+Eine zweite Lücke betrifft `audit_logs.json`: `export_person()` nimmt daraus ausschließlich `audit_as_actor` anhand `actor_id` auf. Bewerbungsaktionen, bei denen die betroffene Person nicht selbst der Akteur ist und ihre ID nur in `details` vorkommt, werden nicht zuverlässig als Daten dieser Person exportiert. Dafür fehlt im zentralen Audit-Datensatz ein strukturiertes Ziel-/Bewerbungsfeld. Zusätzlich ist der Export auf höchstens 5.000 Zeilen je SQLite-Tabelle begrenzt; diese Grenze wird im Exporthinweis offengelegt.
+
+**Blocker vor 15.6e/15.6f:** `suite_interviews.applicant_id` und `interviewer_id` aufnehmen und getrennt testen; die Audit-Zuordnung für betroffene Personen strukturiert lösen oder die Grenze bewusst dokumentieren. Kein personenbezogener Datenexport oder Löschprozess darf auf eine unvollständige Referenzsuche vertrauen.
 
 ## 8. Backup-Abgleich und Aussagegrenze von Phase 15.5
 
-Der Quellcode von `pulse_backup.py` listet `pulse_suite.db` sowie `pulse.db` und weitere Datenbanken in `SQLITE_FILES`; vorhandene Dateien werden durch den Full-Backup-Pfad aufgenommen. `applications.json`, `team_data.json` und `audit_logs.json` stehen in `JSON_FILES`.
+Der Quellcode von `pulse_backup.py` führt `pulse_suite.db`, `pulse.db` und weitere Datenbanken in `SQLITE_FILES`; `applications.json`, `team_data.json` und `audit_logs.json` stehen in `JSON_FILES`. Diese Listen definieren die Abdeckung des aktuellen Komplett-Backups. Für ein einzelnes Archiv gilt dennoch: Nicht vorhandene oder nicht lesbare Dateien sowie Dateien/Ordner, die am Größenbudget scheitern, sind nicht automatisch enthalten; Übersprungenes und Fehler werden im Manifest unter `skipped` bzw. `warnings` ausgewiesen. Die tatsächliche Abdeckung eines konkreten Archivs muss daher anhand seines Manifests geprüft werden.
 
-Die erzeugte `docs/DATENLANDKARTE.md` markiert den ZIP-Backup-Status mehrerer dieser Datenbanken jedoch weiterhin mit `❌`. Das widerspricht der aktuellen `pulse_backup.SQLITE_FILES`-Liste. Für die Backup-Abdeckung ist deshalb bis zur Korrektur des Data-Map-Generators der ausführbare Backup-Code maßgeblich. Die automatisierte Datenlandkarte muss in einer getrennten Dokumentations-/Tooling-Aufgabe wieder mit dem Code in Einklang gebracht werden.
+Die Tabelle in `docs/DATENLANDKARTE.md` bezeichnet ihre Spalten ausdrücklich als historisches JSON-Backup `/backups` und ZIP-Backup `/ultimate/backup`. `tools/data_map.py` ermittelt diese Spalten aus `webserver.build_backup` bzw. `pulse_next.create_backup`; sie beschreiben nicht das moderne `pulse_backup`-Komplett-Backup. Die dortigen `❌`-Werte für `pulse_suite.db` und weitere Speicher widersprechen `pulse_backup.SQLITE_FILES` deshalb nicht. Das aktuelle Komplett-Backup wird in der Datenlandkarte separat im Abschnitt „Komplett-Backup `pulse_backup`“ beschrieben. Die frühere pauschale Ergänzung „In keinem Backup“ war für mehrere dieser Dateien veraltet und wird auf die älteren Backup-Wege begrenzt.
 
 Der erfolgreiche 100K-Rehearsal aus Phase 15.5 hatte im synthetischen Fixture `pulse.db` und `logs.json` als zwei Manifestdateien. Er beweist den Melonly-Backup-/Restore-Pfad, aber **keinen** Ende-zu-Ende-Restore von Bewerbungsinterviews aus `pulse_suite.db`, Kalenderterminen aus `pulse.db` und den zugehörigen JSON-Referenzen. Diese fachübergreifende Prüfung gehört in die spätere 15.6e-Abnahme.
 
@@ -139,6 +141,18 @@ Der erfolgreiche 100K-Rehearsal aus Phase 15.5 hatte im synthetischen Fixture `p
 5. **Backup-Abnahme:** 15.5 nicht als Nachweis für Bewerbungsdaten-Restore auslegen. Eine eigene synthetische 15.6e-Probe muss `applications.json`, `team_data.json`, `pulse_suite.db`, `pulse.db` und `audit_logs.json` gemeinsam abdecken.
 6. **Mehrdateien-Löschung:** Journal/Recovery-Zustand, Idempotenz, Dry-Run und Teilfehler-Wiederherstellung definieren; `_io_lock` ersetzt keine dateiübergreifende Transaktion.
 7. **Aufbewahrung und Hinweis:** Frist je Datenart/Status beschließen und verantwortlichen Kontakt für den Datenschutzhinweis festlegen. Bis dahin bestehende Werte und Hinweis nicht verändern.
+
+### Testlücken für die Folgephasen
+
+Die vorhandenen Tests decken wichtige Einzelpfade ab, schließen die folgenden Lücken aber noch nicht:
+
+- `tests/test_privacy.py::RetentionTests`: Die Retention-Fixtures prüfen einen alten abgelehnten, einen alten offenen und einen aktuellen `hired`-Fall. Der separate Schutztest deckt `hired` und `rejected` ab. Explizite Fälle für `interview`, `accepted`, `in_review`, fehlenden Status, unbekannte Werte sowie abweichende Groß-/Kleinschreibung/Leerzeichen fehlen. Der bestehende Test sollte diese Werte nicht implizit als sicher behandeln.
+- `tests/test_privacy.py::test_export_covers_all_databases` erstellt nur `suite_members(user_id, notes)`. Es fehlen getrennte synthetische Treffer ausschließlich über `suite_interviews.applicant_id` und `interviewer_id` sowie ein Test, der Audit-Einträge für die betroffene Person (nicht nur den Akteur) adressiert.
+- `tests/test_privacy.py::test_failure_is_recorded_once_per_day` simuliert einen Schreibfehler, aber keinen Fehler **nach** erfolgreichem Schreiben der ersten JSON-Datei. Der dateiübergreifende Teilzustand und eine Wiederaufnahme/Recovery sind damit nicht getestet.
+- `tests/test_application_data_audit.py` prüft Status-Buckets und vorhandene Interview-/Kalenderreferenzen mit synthetischen Daten. Es testet bewusst keine echte Löschung/Anonymisierung und keinen Migration-Runner.
+- `tests/test_full_backup.py` enthält isolierte SQLite-/JSON-Restore-Tests und prüft auch `pulse_suite.db`; der 100K-Rehearsal aus 15.5 hatte jedoch nur `pulse.db` und `logs.json` im Manifest. Keine dieser Prüfungen belegt bislang die fachliche Parität eines gemeinsamen Bewerbungs-/Team-/Interview-/Kalender-/Audit-Datensatzes.
+
+Ein versioniertes Application-Repository bzw. ein produktiver Bewerbungs-Migrationspfad ist auf `main` noch nicht implementiert. Idempotenz, JSON-Kompatibilität, Import-/Rückexport-Parität und Wiederherstellung sind deshalb Anforderungen an 15.6c–15.6f, keine bereits nachgewiesenen Laufzeiteigenschaften.
 
 ## 11. Abnahme für Phase 15.6b
 
