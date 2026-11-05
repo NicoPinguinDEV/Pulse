@@ -373,6 +373,8 @@ def init_runtime() -> None:
 # DATEI-HELFER (thread-safe + atomares Schreiben)
 # =============================================================
 _io_lock = threading.RLock()
+_APPLICATION_REPOSITORY = None
+_APPLICATION_REPOSITORY_PATH = ""
 
 
 # K-05: files that could not be read/parsed. Writing them is blocked so defaults never overwrite real data.
@@ -407,7 +409,8 @@ def _mark_corrupt(filepath, exc) -> None:
           "oder aus einem Backup wiederhergestellt ist.")
 
 
-def load_json(filepath, default):
+def _load_json_file(filepath, default):
+    """Read JSON using the established corruption marker and legacy fallback behavior."""
     with _io_lock:
         if os.path.exists(filepath):
             try:
@@ -423,6 +426,12 @@ def load_json(filepath, default):
             _CORRUPT_JSON.pop(os.path.abspath(filepath), None)  # repaired by hand → writable again
             return data
     return default
+
+
+def load_json(filepath, default):
+    if os.path.abspath(filepath) == os.path.abspath(APPS_FILE):
+        return get_applications_repository().load(default)
+    return _load_json_file(filepath, default)
 
 
 def _shift_stat_key(filepath):
@@ -444,6 +453,23 @@ def abspath_corrupt_free(filepath) -> bool:
     return os.path.abspath(filepath) not in _CORRUPT_JSON
 
 
+def get_applications_repository():
+    """Return the JSON adapter for the current APPS_FILE path (lazy, test-path aware)."""
+    global _APPLICATION_REPOSITORY, _APPLICATION_REPOSITORY_PATH
+    path = os.path.abspath(APPS_FILE)
+    if _APPLICATION_REPOSITORY is None or _APPLICATION_REPOSITORY_PATH != path:
+        from pulse_applications_repository import JsonApplicationRepository
+
+        _APPLICATION_REPOSITORY = JsonApplicationRepository(
+            path,
+            read_json=_load_json_file,
+            write_json=_write_json_file,
+            lock=_io_lock,
+        )
+        _APPLICATION_REPOSITORY_PATH = path
+    return _APPLICATION_REPOSITORY
+
+
 def secure_application_storage() -> None:
     """Restrict persisted applicant records to the Pulse service account on POSIX servers."""
     if os.name != "posix":
@@ -454,6 +480,9 @@ def secure_application_storage() -> None:
 
 
 def save_json(filepath, data):
+    if os.path.abspath(filepath) == os.path.abspath(APPS_FILE):
+        get_applications_repository().save(data)
+        return
     with _io_lock:
         if os.path.abspath(filepath) == os.path.abspath(SHIFTS_FILE) and isinstance(data, dict):
             import pulse_shift_history  # Phase 14.7: the one write point for shifts – JSON or SQLite history
