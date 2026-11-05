@@ -222,7 +222,10 @@ class PersistentApplicationSnapshotManager:
             "created_at": created,
         }
 
-    def create_snapshot(\n        self, payload: bytes | bytearray | None = None, *, purpose: str = "manual",\n        snapshot_id: str | None = None,\n    ) -> dict[str, Any]:
+    def create_snapshot(
+        self, payload: bytes | bytearray | None = None, *, purpose: str = "manual",
+        snapshot_id: str | None = None,
+    ) -> dict[str, Any]:
         """Persist an immutable snapshot of explicit bytes or the current file."""
         if not isinstance(purpose, str) or not purpose.strip() or len(purpose) > 64:
             raise ValueError("purpose must be a non-empty label of at most 64 characters")
@@ -237,6 +240,7 @@ class PersistentApplicationSnapshotManager:
                 state = self._state_from_db(db)
                 if state["active_operation_id"]:
                     raise ApplicationSnapshotNeedsRecovery("application replacement requires recovery")
+                db.commit()
                 db.execute("BEGIN IMMEDIATE")
                 state = self._state_from_db(db)
                 if state["active_operation_id"]:
@@ -467,6 +471,7 @@ class PersistentApplicationSnapshotManager:
     ) -> None:
         with self._connect_factory() as db:
             self._ensure_schema(db)
+            db.commit()
             db.execute("BEGIN IMMEDIATE")
             state = self._state_from_db(db)
             journal = db.execute(
@@ -562,6 +567,7 @@ class PersistentApplicationSnapshotManager:
                 raise ApplicationSnapshotConflict("application file changed after preview")
             with self._connect_factory() as db:
                 self._ensure_schema(db)
+                db.commit()
                 db.execute("BEGIN IMMEDIATE")
                 operation_id, recorded_before, target_digest = self._insert_operation(
                     db,
@@ -663,11 +669,16 @@ class PersistentApplicationSnapshotManager:
                 if row is None:
                     raise ApplicationSnapshotError("completed operation does not exist")
                 snapshot_id = str(row[0])
-            return self.restore_snapshot(
-                snapshot_id,
+            with self._connect_factory() as db:
+                self._ensure_schema(db)
+                snapshot, _ = self._read_snapshot(db, snapshot_id)
+            return self._replace_payload(
+                snapshot.payload,
+                operation_type="rollback",
                 expected_current_sha256=expected_current_sha256,
                 expected_generation=expected_generation,
                 expected_revision=expected_revision,
+                target_snapshot_id=snapshot_id,
             )
 
     def recover_pending(self) -> dict[str, Any]:
