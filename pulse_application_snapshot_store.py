@@ -35,9 +35,7 @@ class ApplicationSnapshotNeedsRecovery(ApplicationSnapshotError):
     """A previous replacement has an ambiguous on-disk state and needs explicit recovery."""
 
 
-_PENDING_STATES = ("prepared", "applying", "needs_recovery")
-_TERMINAL_STATES = ("completed", "rolled_back", "failed")
-_JOURNAL_STATES = (*_PENDING_STATES, *_TERMINAL_STATES)
+_JOURNAL_STATES = ("prepared", "applying", "completed", "rolled_back", "failed", "needs_recovery")
 
 
 def _now() -> str:
@@ -179,6 +177,14 @@ class PersistentApplicationSnapshotManager:
         db.execute(
             """CREATE UNIQUE INDEX IF NOT EXISTS idx_application_snapshots_sequence
                ON application_snapshots(snapshot_sequence)"""
+        )
+        db.execute(
+            """UPDATE application_snapshot_state
+               SET snapshot_sequence=MAX(
+                   snapshot_sequence,
+                   (SELECT COALESCE(MAX(snapshot_sequence),0) FROM application_snapshots)
+               )
+               WHERE singleton=1"""
         )
 
     @staticmethod
