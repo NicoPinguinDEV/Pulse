@@ -154,7 +154,7 @@ Auf `phase/15-6f-isolated-staging-parity` wird der Staging-Vertrag durch `pulse_
 - `verify_application_staging_database()` öffnet die Stage-Datei ausschließlich mit `mode=ro` und `query_only`. Es vergleicht IDs, vollständige kanonische Payloads, projizierte Felder, Quell-SHA-256, Generation/Revision, die erwarteten Tabellen-/Indexnamen und -spalten, Schema-Version und `PRAGMA integrity_check`.
 - Der Bericht enthält ausschließlich aggregierte Werte und Prüfflags, keine Bewerbungs-IDs, Discord-IDs, Namen, Antworten oder Notizen.
 
-Neue synthetische Tests in `tests/test_application_staging.py` prüfen Payload-Parität, Legacy-/unbekannte Statuswerte, Dateirechte, Read-only-Verifikation, beschädigte Payloads, ungültige Datensätze, Zielpfadschutz, Nichtüberschreiben und Fehlerbereinigung.
+Das neue Modul und der dazugehörige Test sind ausdrücklich in `ruff.toml` aufgenommen. Neue synthetische Tests in `tests/test_application_staging.py` prüfen Payload-Parität, Legacy-/unbekannte Statuswerte, Dateirechte, Read-only-Verifikation, beschädigte Payloads, ungültige Datensätze, Zielpfadschutz, Nichtüberschreiben und Fehlerbereinigung.
 
 Dieser Baustein beweist noch keinen Cross-Store-Referenzabgleich, keinen vollständigen Backup-/Restore-Rehearsal und keinen Produktiv-Cutover. Diese Nachweise bleiben vor einer separaten Freigabe verpflichtend.
 
