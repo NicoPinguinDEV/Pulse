@@ -232,7 +232,12 @@ class PersistentApplicationSnapshotManager:
         *, snapshot_id: str | None = None,
     ) -> dict[str, Any]:
         snapshot = self._make_snapshot(payload, generation, revision)
-        identifier = str(snapshot_id or uuid.uuid4())
+        identifier = str(uuid.uuid4()) if snapshot_id is None else str(snapshot_id)
+        if not identifier or len(identifier) > 128 or not all(
+            character.isascii() and (character.isalnum() or character in "_-")
+            for character in identifier
+        ):
+            raise ValueError("snapshot_id must be 1-128 safe ASCII letters, digits, '_' or '-'")
         created = _now()
         state = self._state_from_db(db)
         sequence = state["snapshot_sequence"] + 1
@@ -273,8 +278,11 @@ class PersistentApplicationSnapshotManager:
         snapshot_id: str | None = None,
     ) -> dict[str, Any]:
         """Persist an immutable snapshot of explicit bytes or the current file."""
-        if not isinstance(purpose, str) or not purpose.strip() or len(purpose) > 64:
-            raise ValueError("purpose must be a non-empty label of at most 64 characters")
+        if (
+            not isinstance(purpose, str) or not purpose or len(purpose) > 64
+            or not all(character.isascii() and (character.isalnum() or character in "_-") for character in purpose)
+        ):
+            raise ValueError("purpose must contain only safe ASCII letters, digits, '_' or '-' (max 64)")
         with self._lock:
             source = self._read_current() if payload is None else bytes(payload)
             try:
