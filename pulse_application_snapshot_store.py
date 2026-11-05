@@ -246,7 +246,8 @@ class PersistentApplicationSnapshotManager:
                 if state["active_operation_id"]:
                     raise ApplicationSnapshotNeedsRecovery("application replacement requires recovery")
                 return self._insert_snapshot(
-                    db, source, purpose.strip(), state["generation"], state["revision"]
+                    db, source, purpose.strip(), state["generation"], state["revision"],
+                    snapshot_id=snapshot_id,
                 )
 
     def _read_snapshot(self, db, snapshot_id: str) -> tuple[ApplicationImportSnapshot, dict[str, Any]]:
@@ -565,6 +566,8 @@ class PersistentApplicationSnapshotManager:
             before_digest = _sha256(before_payload)
             if before_digest != expected_current_sha256:
                 raise ApplicationSnapshotConflict("application file changed after preview")
+            if _sha256(target_payload) == before_digest:
+                raise ApplicationSnapshotConflict("target payload is already the current application store")
             with self._connect_factory() as db:
                 self._ensure_schema(db)
                 db.commit()
@@ -694,6 +697,7 @@ class PersistentApplicationSnapshotManager:
                        ORDER BY created_at,operation_id"""
                 ).fetchall()
                 pending = [dict(row) for row in rows]
+                state = self._state_from_db(db)
             outcomes = []
             try:
                 current_digest = _sha256(self._read_current())
@@ -739,9 +743,12 @@ class PersistentApplicationSnapshotManager:
                             (_now(), operation_id),
                         )
                     outcomes.append({"operation_id": operation_id, "state": "needs_recovery"})
+            orphaned_lock = bool(state["active_operation_id"]) and not any(
+                row["operation_id"] == state["active_operation_id"] for row in pending
+            )
             return {
                 "checked": len(pending),
-                "recovery_required": any(item["state"] == "needs_recovery" for item in outcomes),
+                "recovery_required": orphaned_lock or any(item["state"] == "needs_recovery" for item in outcomes),
                 "operations": outcomes,
             }
 
