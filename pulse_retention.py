@@ -116,6 +116,15 @@ def plan_linked_retention(ws, settings: dict | None = None, now: datetime | None
     apps = raw_apps if isinstance(raw_apps, dict) else {}
     audit = ws.load_json(ws.AUDIT_FILE, [])
     team = ws.load_json(ws.DATA_FILE, {})
+    audit_entries = audit if isinstance(audit, list) else []
+    unstructured_recruiting_audit = sum(
+        isinstance(entry, dict)
+        and any(token in str(entry.get("action") or "").casefold()
+                for token in ("bewerb", "application", "interview", "recruit"))
+        and not any(str(entry.get(field) or "").strip()
+                    for field in ("application_id", "subject_id", "target_id", "audit_ref"))
+        for entry in audit_entries
+    )
     candidate_ids = expired_applications(apps, settings["applications_days"], now)
     candidate_set = set(candidate_ids)
     candidate_users = {
@@ -149,7 +158,8 @@ def plan_linked_retention(ws, settings: dict | None = None, now: datetime | None
         ),
         "unmatched_calendar_references": 0,
         "linked_suite_audit_rows": 0,
-        "legacy_audit_entries_unresolved": len(audit) if isinstance(audit, list) else 0,
+        "legacy_audit_entries_total": len(audit_entries),
+        "legacy_recruiting_audit_entries_unstructured": unstructured_recruiting_audit,
         "employment_event_collisions": sum(
             isinstance(team, dict)
             and isinstance(team.get(user_id), dict)
@@ -209,7 +219,8 @@ def plan_linked_retention(ws, settings: dict | None = None, now: datetime | None
     except (OSError, sqlite3.Error) as exc:
         result["blockers"].append(f"suite_database_unavailable:{type(exc).__name__}")
 
-    pulse_path = Path(ws.DATA_DIR) / "pulse.db"
+    import pulse_backup
+    pulse_path = pulse_backup.sqlite_path(ws.DATA_DIR, "pulse.db")
     try:
         with closing(_read_only_connection(pulse_path)) as connection:
             tables = {
