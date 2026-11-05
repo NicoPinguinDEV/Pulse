@@ -640,6 +640,8 @@ class PersistentApplicationSnapshotManager:
                 raise ApplicationSnapshotError("pre-operation snapshot digest mismatch")
             self._set_journal_state(operation_id, "applying")
             try:
+                if _sha256(self._read_current()) != before_digest:
+                    raise ApplicationSnapshotConflict("application file changed before atomic replacement")
                 self._atomic_write(target_payload)
                 if _sha256(self._read_current()) != target_digest:
                     raise ApplicationSnapshotError("application file digest mismatch after write")
