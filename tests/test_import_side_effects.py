@@ -18,6 +18,7 @@ pathlib.Path.mkdir = lambda self, *a, **k: calls.append(str(self))
 os.makedirs = lambda name, *a, **k: calls.append(str(name))
 import webserver  # noqa: F401
 import pulse_ultimate, pulse_next  # noqa: F401,E401
+import pulse_application_snapshot_store  # noqa: F401
 print("CALLS=" + json.dumps(calls))
 """
 
