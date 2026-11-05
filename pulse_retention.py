@@ -35,7 +35,7 @@ MAX_BACKUP_AGE = timedelta(days=2)
 EXPORT_ROW_LIMIT = 5000
 _ID_COLUMNS = ("user_id", "member_id", "actor_id", "target_id", "mod_id", "creator_id", "assignee_id",
                "claimed_by_id", "closed_by_id", "staff_id", "reporter_id", "discord_id",
-               "applicant_id", "interviewer_id")
+               "applicant_id", "interviewer_id", "created_by_id", "approved_by_id")
 
 
 def load_settings() -> dict:
@@ -147,6 +147,7 @@ def plan_linked_retention(ws, settings: dict | None = None, now: datetime | None
         "shared_calendar_event_references": sum(
             len(all_event_owners.get(event_id, set())) > 1 for event_id in event_ids
         ),
+        "unmatched_calendar_references": 0,
         "linked_suite_audit_rows": 0,
         "legacy_audit_entries_unresolved": len(audit) if isinstance(audit, list) else 0,
         "employment_event_collisions": sum(
@@ -224,10 +225,15 @@ def plan_linked_retention(ws, settings: dict | None = None, now: datetime | None
                     f'SELECT COUNT(*) FROM calendar_events WHERE id IN ({marks})',
                     sorted(event_ids),
                 ).fetchone()[0])
+                result["unmatched_calendar_references"] = max(
+                    0, len(event_ids) - result["linked_calendar_events"]
+                )
+                if result["unmatched_calendar_references"]:
+                    result["blockers"].append("calendar_references_missing_or_unresolvable")
     except (OSError, sqlite3.Error) as exc:
         result["blockers"].append(f"pulse_database_unavailable:{type(exc).__name__}")
 
-    if candidate_ids and result["linked_interview_rows"]:
+    if candidate_ids and (result["linked_interview_rows"] or result["interview_rows_by_applicant"]):
         result["blockers"].append("linked_interview_data_requires_separate_retention_decision")
     if candidate_ids and result["linked_calendar_events"]:
         result["blockers"].append("linked_calendar_data_requires_explicit_ownership")
@@ -315,27 +321,6 @@ def due_today(now: datetime | None = None) -> bool:
     settings = load_settings()
     today = (now or datetime.now(timezone.utc)).date().isoformat()
     return settings["enabled"] and settings.get("last_run") != today
-
-
-def _rows_for(path, uid: str) -> dict:
-    """All rows of every table in one SQLite file whose id-like columns contain the Discord ID."""
-    out = {}
-    con = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
-    con.row_factory = sqlite3.Row
-    try:
-        tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
-        for table in tables:
-            columns = [r[1] for r in con.execute(f'PRAGMA table_info("{table}")')]
-            matches = [c for c in columns if c in _ID_COLUMNS]
-            if not matches:
-                continue
-            where = " OR ".join(f'CAST("{c}" AS TEXT)=?' for c in matches)
-            rows = [dict(r) for r in con.execute(f'SELECT * FROM "{table}" WHERE {where} LIMIT {EXPORT_ROW_LIMIT}', [uid] * len(matches))]
-            if rows:
-                out[table] = rows
-    finally:
-        con.close()
-    return out
 
 
 def _quote_identifier(value: str) -> str:
