@@ -125,8 +125,13 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
         "duplicate_interview_ids": 0,
         "applications_with_multiple_interviews": 0,
         "application_interview_id_mismatches": 0,
+        "interview_rows_without_applicant_id": 0,
+        "interview_rows_without_interviewer_id": 0,
+        "application_applicant_id_mismatches": 0,
         "_by_application": {},
         "_owners_by_id": {},
+        "_applicants_by_application": {},
+        "_interviewers": set(),
     }
     if path is None:
         return empty
@@ -138,12 +143,24 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
             str(row["name"]): row
             for row in connection.execute('PRAGMA table_info("suite_interviews")').fetchall()
         }
-        if not {"id", "application_id"}.issubset(columns):
+        required_reference_columns = {"id", "application_id"}
+        if not required_reference_columns.issubset(columns):
             return {**empty, "table_found": True}
+        has_applicant_id = "applicant_id" in columns
+        has_interviewer_id = "interviewer_id" in columns
         primary_key_columns = sum(int(column["pk"] or 0) > 0 for column in columns.values())
-        schema_valid = int(columns["id"]["pk"] or 0) > 0 and primary_key_columns == 1
+        schema_valid = (
+            has_applicant_id and has_interviewer_id
+            and int(columns["id"]["pk"] or 0) > 0
+            and primary_key_columns == 1
+        )
+        selected_columns = ["id", "application_id"]
+        if has_applicant_id:
+            selected_columns.append("applicant_id")
+        if has_interviewer_id:
+            selected_columns.append("interviewer_id")
         rows = connection.execute(
-            "SELECT id, application_id FROM suite_interviews"
+            f"SELECT {', '.join(selected_columns)} FROM suite_interviews"
         ).fetchall()
 
     by_application: dict[str, list[str]] = defaultdict(list)
@@ -151,14 +168,28 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
     id_counts: Counter[str] = Counter()
     rows_without_application_id = 0
     rows_without_id = 0
+    rows_without_applicant_id = 0
+    rows_without_interviewer_id = 0
+    applicants_by_application: dict[str, set[str]] = defaultdict(set)
+    interviewers: set[str] = set()
 
     for row in rows:
         interview_id = str(row["id"] or "").strip()
         application_id = str(row["application_id"] or "").strip()
+        applicant_id = str(row["applicant_id"] or "").strip() if "applicant_id" in row.keys() else ""
+        interviewer_id = str(row["interviewer_id"] or "").strip() if "interviewer_id" in row.keys() else ""
         if application_id:
             by_application[application_id].append(interview_id)
+            if applicant_id:
+                applicants_by_application[application_id].add(applicant_id)
         else:
             rows_without_application_id += 1
+        if not applicant_id:
+            rows_without_applicant_id += 1
+        if interviewer_id:
+            interviewers.add(interviewer_id)
+        else:
+            rows_without_interviewer_id += 1
         if interview_id:
             id_counts[interview_id] += 1
             owners_by_id[interview_id].add(application_id)
@@ -180,8 +211,15 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
             for values in by_application.values()
         ),
         "application_interview_id_mismatches": 0,
+        "interview_rows_without_applicant_id": rows_without_applicant_id,
+        "interview_rows_without_interviewer_id": rows_without_interviewer_id,
+        "application_applicant_id_mismatches": 0,
         "_by_application": dict(by_application),
         "_owners_by_id": {key: set(value) for key, value in owners_by_id.items()},
+        "_applicants_by_application": {
+            key: set(value) for key, value in applicants_by_application.items()
+        },
+        "_interviewers": interviewers,
     }
 
 
@@ -224,11 +262,116 @@ def _calendar_events(path: str | Path | None) -> dict[str, Any]:
     }
 
 
+def _explicit_audit_references(records: dict, team_data: dict) -> set[str]:
+    """Collect structured audit references only; never inspect arbitrary note/details text."""
+    refs: set[str] = set()
+    for record in records.values():
+        if not isinstance(record, dict):
+            continue
+        if record.get("audit_ref"):
+            refs.add(str(record["audit_ref"]))
+        history = record.get("history", [])
+        if isinstance(history, list):
+            for event in history:
+                if isinstance(event, dict) and event.get("audit_ref"):
+                    refs.add(str(event["audit_ref"]))
+    for entry in team_data.values():
+        event = entry.get("employment_event") if isinstance(entry, dict) else None
+        if isinstance(event, dict) and event.get("audit_ref"):
+            refs.add(str(event["audit_ref"]))
+    return refs
+
+
+def _suite_audit(path: str | Path | None, application_ids: set[str]) -> dict[str, Any]:
+    result = {
+        "database_provided": path is not None,
+        "table_found": False,
+        "schema_valid": False,
+        "rows": 0,
+        "rows_targeting_applications": 0,
+        "recruiting_rows_without_structured_target": 0,
+        "requires_review": path is None,
+    }
+    if path is None:
+        return result
+    with closing(_readonly_db(path)) as connection:
+        if not _table_exists(connection, "suite_audit"):
+            result["requires_review"] = True
+            return result
+        columns = {str(row["name"]) for row in connection.execute('PRAGMA table_info("suite_audit")')}
+        if not {"id", "target_id", "action"}.issubset(columns):
+            result["table_found"] = True
+            result["requires_review"] = True
+            return result
+        result["table_found"] = True
+        pk_columns = [
+            row for row in connection.execute('PRAGMA table_info("suite_audit")')
+            if str(row["name"]) == "id" and int(row["pk"] or 0) > 0
+        ]
+        result["schema_valid"] = bool(pk_columns)
+        rows = connection.execute("SELECT target_id, action FROM suite_audit").fetchall()
+    result["rows"] = len(rows)
+    result["rows_targeting_applications"] = sum(
+        str(row["target_id"] or "") in application_ids for row in rows
+    )
+    result["recruiting_rows_without_structured_target"] = sum(
+        any(token in str(row["action"] or "").casefold() for token in ("bewerb", "application", "interview", "recruit"))
+        and not str(row["target_id"] or "").strip()
+        for row in rows
+    )
+    result["requires_review"] = (
+        not result["schema_valid"] or result["recruiting_rows_without_structured_target"] > 0
+    )
+    return result
+
+
+def _central_audit_report(
+    path: str | Path | None, application_ids: set[str], audit_refs: set[str]
+) -> dict[str, Any]:
+    result = {
+        "file_provided": path is not None,
+        "rows": 0,
+        "rows_with_structured_subject": 0,
+        "rows_targeting_applications": 0,
+        "rows_matching_explicit_audit_refs": 0,
+        "recruiting_rows_without_structured_subject": 0,
+        "requires_review": path is None,
+    }
+    if path is None:
+        return result
+    entries = _read_json(path, "audit_logs", list)
+    result["rows"] = len(entries)
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        subject = (
+            str(entry.get("application_id") or "").strip()
+            or str(entry.get("subject_id") or "").strip()
+            or str(entry.get("target_id") or "").strip()
+        )
+        if subject:
+            result["rows_with_structured_subject"] += 1
+            if subject in application_ids:
+                result["rows_targeting_applications"] += 1
+        if str(entry.get("id") or "") in audit_refs:
+            result["rows_matching_explicit_audit_refs"] += 1
+        action = str(entry.get("action") or "").casefold()
+        if (
+            any(token in action for token in ("bewerb", "application", "interview", "recruit"))
+            and not subject
+            and str(entry.get("id") or "") not in audit_refs
+        ):
+            result["recruiting_rows_without_structured_subject"] += 1
+    result["requires_review"] = result["recruiting_rows_without_structured_subject"] > 0
+    return result
+
+
 def audit_application_data(
     applications: dict,
     team_data: dict,
     suite_db_path: str | Path | None = None,
     pulse_db_path: str | Path | None = None,
+    audit_logs_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Summarize application records and cross-storage links without exposing personal data."""
     if not isinstance(applications, dict) or not isinstance(team_data, dict):
@@ -278,6 +421,19 @@ def audit_application_data(
     interviews = _suite_interviews(suite_db_path)
     calendar = _calendar_events(pulse_db_path)
     application_ids = set(records)
+    applicants_by_application = interviews["_applicants_by_application"]
+    application_user_ids = {
+        key: str(value.get("user_id") or "").strip()
+        for key, value in records.items()
+    }
+    applicant_mismatches = sum(
+        bool(application_user_ids.get(application_id))
+        and bool(applicant_ids)
+        and application_user_ids[application_id] not in applicant_ids
+        for application_id, applicant_ids in applicants_by_application.items()
+        if application_id in application_ids
+    )
+    interviews["application_applicant_id_mismatches"] = applicant_mismatches
     interviews_by_application = interviews["_by_application"]
 
     orphan_application_ids = {
@@ -321,6 +477,12 @@ def audit_application_data(
         len(application_ids_for_event) > 1 for application_ids_for_event in event_applications.values()
     )
 
+    suite_audit = _suite_audit(suite_db_path, application_ids)
+    explicit_audit_refs = _explicit_audit_references(records, team_data)
+    central_audit = _central_audit_report(
+        audit_logs_path, application_ids, explicit_audit_refs
+    )
+
     # Keep the machine report deliberately limited to counts and fixed labels.
     return {
         "report_version": REPORT_VERSION,
@@ -350,9 +512,16 @@ def audit_application_data(
             "duplicate_interview_ids": interviews["duplicate_interview_ids"],
             "applications_with_multiple_interviews": interviews["applications_with_multiple_interviews"],
             "application_interview_id_mismatches": interviews["application_interview_id_mismatches"],
+            "interview_rows_without_applicant_id": interviews["interview_rows_without_applicant_id"],
+            "interview_rows_without_interviewer_id": interviews["interview_rows_without_interviewer_id"],
+            "application_applicant_id_mismatches": interviews["application_applicant_id_mismatches"],
+            "interviewers_with_team_record": len(interviews["_interviewers"] & set(team_data)),
+            "interviewers_without_team_record": len(interviews["_interviewers"] - set(team_data)),
             "application_interview_references": interview_references,
             "application_refs_without_matching_interview": missing_interview_records,
         },
+        "suite_audit": suite_audit,
+        "audit_logs": central_audit,
         "calendar": {
             "database_provided": calendar["provided"],
             "table_found": calendar["table_found"],
@@ -373,6 +542,11 @@ def audit_application_data(
                 or interviews["duplicate_interview_ids"]
                 or missing_interview_records
                 or interviews["application_interview_id_mismatches"]
+                or interviews["interview_rows_without_applicant_id"]
+                or interviews["interview_rows_without_interviewer_id"]
+                or interviews["application_applicant_id_mismatches"]
+                or suite_audit["requires_review"]
+                or central_audit["requires_review"]
                 or missing_calendar_events
                 or calendar["rows_without_id"]
                 or calendar["duplicate_event_ids"]
@@ -409,6 +583,7 @@ def main() -> int:
     parser.add_argument("--team-data", required=True, help="Explicit path to a team_data.json fixture/export")
     parser.add_argument("--suite-db", help="Optional explicit path to pulse_suite.db")
     parser.add_argument("--pulse-db", help="Optional explicit path to pulse.db")
+    parser.add_argument("--audit-logs", help="Optional explicit path to audit_logs.json")
     parser.add_argument(
         "--output", required=True,
         help="New path for the aggregate JSON report; an existing file is never overwritten",
@@ -417,7 +592,9 @@ def main() -> int:
 
     applications = _read_json(args.applications, "applications", dict)
     team_data = _read_json(args.team_data, "team_data", dict)
-    report = audit_application_data(applications, team_data, args.suite_db, args.pulse_db)
+    report = audit_application_data(
+        applications, team_data, args.suite_db, args.pulse_db, args.audit_logs
+    )
     _write_report(args.output, report)
     return 0
 

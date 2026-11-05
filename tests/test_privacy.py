@@ -292,19 +292,21 @@ class RetentionTests(unittest.TestCase):
         with patch.object(ws, "log_audit", lambda *a, **k: None):
             report = pulse_retention.run(ws, self.now)
         self.assertFalse(report["ran"])
-        self.assertIn("Komplett-Backup", report["reason"])
+        self.assertIn("referenzsicheren Phase 15.6e gesperrt", report["reason"])
         self.assertEqual(len(ws.load_json(ws.APPS_FILE, {})), 3)
 
-    def test_cleanup_keeps_open_and_recent_and_is_logged(self):
+    def test_cleanup_is_fail_closed_until_linked_recovery_is_approved(self):
         import pulse_retention
         pulse_retention.save_settings({"enabled": True})
         self.pulse_backup.create_full_backup(ws.DATA_DIR, ws.full_backup_dir())
+        before_apps = Path(ws.APPS_FILE).read_bytes()
+        before_audit = Path(ws.AUDIT_FILE).read_bytes()
         report = pulse_retention.run(ws, __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
-        self.assertTrue(report["ran"])
-        self.assertEqual(sorted(ws.load_json(ws.APPS_FILE, {})), ["alt_offen", "neu"])
-        actions = [e["action"] for e in ws.load_json(ws.AUDIT_FILE, [])]
-        self.assertNotIn("alt", actions)
-        self.assertIn("Datenbereinigung (Aufbewahrungsfristen)", actions)
+        self.assertFalse(report["ran"])
+        self.assertIn("referenzsicheren Phase 15.6e gesperrt", report["reason"])
+        self.assertEqual(Path(ws.APPS_FILE).read_bytes(), before_apps)
+        self.assertEqual(Path(ws.AUDIT_FILE).read_bytes(), before_audit)
+        self.assertEqual(sorted(ws.load_json(ws.APPS_FILE, {})), ["alt_abgelehnt", "alt_offen", "neu"])
         self.assertFalse(pulse_retention.due_today())
 
     def test_hired_applications_are_kept_for_team_since(self):
@@ -313,14 +315,15 @@ class RetentionTests(unittest.TestCase):
                 "abgelehnt": {"status": "rejected", "decided_at": "01.01.2020 10:00"}}
         self.assertEqual(pulse_retention.expired_applications(apps, 183, self.now), ["abgelehnt"])
 
-    def test_failure_is_recorded_once_per_day(self):
+    def test_retention_lock_does_not_attempt_json_mutations(self):
         import pulse_retention
         pulse_retention.save_settings({"enabled": True})
         self.pulse_backup.create_full_backup(ws.DATA_DIR, ws.full_backup_dir())
-        with patch.object(ws, "save_json", side_effect=ws.JsonWriteBlocked("gesperrt")):
+        with patch.object(ws, "save_json", side_effect=ws.JsonWriteBlocked("gesperrt")) as writer:
             report = pulse_retention.run(ws, __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
         self.assertFalse(report["ran"])
-        self.assertIn("fehlgeschlagen", report["reason"])
+        self.assertIn("referenzsicheren Phase 15.6e gesperrt", report["reason"])
+        writer.assert_not_called()
         self.assertFalse(pulse_retention.due_today())
 
     def test_export_covers_all_databases(self):
@@ -335,6 +338,153 @@ class RetentionTests(unittest.TestCase):
         data = pulse_retention.export_person(ws, "100000000000000001")
         self.assertEqual(data["databases"]["pulse_suite.db"]["suite_members"][0]["notes"], "Notiz")
         _json.dumps(data, default=str)
+
+    def test_expired_applications_protect_in_review_and_unknown_statuses(self):
+        import pulse_retention
+        apps = {
+            "rejected": {"status": "rejected", "decided_at": "01.01.2020 10:00"},
+            "in_review": {"status": "in_review", "decided_at": "01.01.2020 10:00"},
+            "unknown": {"status": "legacy_custom_state", "decided_at": "01.01.2020 10:00"},
+            "missing": {"decided_at": "01.01.2020 10:00"},
+            "accepted": {"status": "accepted", "decided_at": "01.01.2020 10:00"},
+            "hired": {"status": "hired", "decided_at": "01.01.2020 10:00"},
+        }
+        self.assertEqual(
+            pulse_retention.expired_applications(apps, 183, self.now),
+            ["rejected"],
+        )
+
+    def test_export_includes_interviews_calendar_and_explicit_audit_references(self):
+        import sqlite3
+        import json as _json
+        import pulse_retention
+
+        applicant_id = "100000000000000011"
+        interviewer_id = "100000000000000022"
+        app_id = "app_export_subject"
+        event_id = "event_export_subject"
+        audit_ref = "audit_export_subject"
+        ws.save_json(ws.APPS_FILE, {
+            app_id: {
+                "user_id": applicant_id, "status": "rejected",
+                "interview_event_id": event_id,
+                "history": [{"action": "interview_reviewed", "audit_ref": audit_ref}],
+            }
+        })
+        ws.save_json(ws.DATA_FILE, {
+            applicant_id: {"employment_event": {"audit_ref": audit_ref}}
+        })
+        ws.save_json(ws.AUDIT_FILE, [
+            {"id": audit_ref, "actor_id": "900", "action": "Recruiting", "details": "Explicit reference"},
+            {"id": "legacy-unlinked", "actor_id": "901", "action": "Recruiting", "details": applicant_id},
+        ])
+
+        suite_path = Path(ws.DATA_DIR) / "pulse_suite.db"
+        with sqlite3.connect(suite_path) as con:
+            con.execute(
+                "CREATE TABLE suite_interviews("
+                "id TEXT PRIMARY KEY, application_id TEXT, applicant_id TEXT, applicant_name TEXT, "
+                "scores_json TEXT, overall INTEGER, recommendation TEXT, notes TEXT, "
+                "interviewer_id TEXT, interviewer_name TEXT, created_at TEXT)"
+            )
+            con.execute(
+                "INSERT INTO suite_interviews VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                ("interview-linked", app_id, "different-legacy-id", "Synthetic Applicant", "{}",
+                 90, "Geeignet", "Synthetic interview notes", interviewer_id, "Synthetic Reviewer",
+                 "2026-11-02T10:00:00"),
+            )
+            con.execute(
+                "CREATE TABLE suite_audit("
+                "id TEXT PRIMARY KEY, guild_id TEXT, occurred_at TEXT, actor_id TEXT, actor_name TEXT, "
+                "target_id TEXT, target_name TEXT, action TEXT, details TEXT, request_id TEXT, prev_hash TEXT, hash TEXT)"
+            )
+            con.execute(
+                "INSERT INTO suite_audit VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("suite-audit-linked", "1", "2026-11-02T10:00:00", "900", "Reviewer",
+                 app_id, "Synthetic Applicant", "application_reviewed", "Synthetic detail", "req-1", "GENESIS", "hash"),
+            )
+        with sqlite3.connect(Path(ws.DATA_DIR) / "pulse.db") as con:
+            con.execute(
+                "INSERT INTO calendar_events(id,title,starts_at,created_by_id,created_by_name,created_at) "
+                "VALUES(?,?,?,?,?,?)",
+                (event_id, "Synthetic interview", "2026-11-05T10:00:00Z", "900", "Reviewer", "2026-11-02T10:00:00"),
+            )
+
+        applicant_export = pulse_retention.export_person(ws, applicant_id)
+        suite_rows = applicant_export["databases"]["pulse_suite.db"]
+        self.assertEqual(suite_rows["suite_interviews"][0]["notes"], "Synthetic interview notes")
+        self.assertEqual(suite_rows["suite_audit"][0]["id"], "suite-audit-linked")
+        self.assertEqual(
+            applicant_export["databases"]["pulse.db"]["calendar_events"][0]["id"],
+            event_id,
+        )
+        self.assertEqual(
+            applicant_export["audit_as_explicit_application_reference"][0]["id"],
+            audit_ref,
+        )
+        self.assertNotIn("legacy-unlinked", {
+            entry["id"] for entry in applicant_export["audit_as_explicit_application_reference"]
+        })
+
+        interviewer_export = pulse_retention.export_person(ws, interviewer_id)
+        self.assertEqual(interviewer_export["applications"], {})
+        self.assertEqual(
+            interviewer_export["databases"]["pulse_suite.db"]["suite_interviews"][0]["interviewer_id"],
+            interviewer_id,
+        )
+        _json.dumps(applicant_export, default=str)
+
+    def test_export_reports_sqlite_table_truncation(self):
+        import sqlite3
+        import pulse_retention
+        suite_path = Path(ws.DATA_DIR) / "pulse_suite.db"
+        with sqlite3.connect(suite_path) as con:
+            con.execute("CREATE TABLE suite_members(user_id TEXT, notes TEXT)")
+            con.executemany(
+                "INSERT INTO suite_members VALUES(?,?)",
+                [("100000000000000033", "one"), ("100000000000000033", "two")],
+            )
+        with patch.object(pulse_retention, "EXPORT_ROW_LIMIT", 1):
+            exported = pulse_retention.export_person(ws, "100000000000000033")
+        self.assertEqual(len(exported["databases"]["pulse_suite.db"]["suite_members"]), 1)
+        self.assertIn("suite_members", exported["database_export_truncated"]["pulse_suite.db"])
+
+    def test_linked_retention_preview_is_read_only_and_never_authorizes_deletion(self):
+        import sqlite3
+        import pulse_retention
+        old = __import__("datetime").datetime(2026, 10, 20, tzinfo=__import__("datetime").timezone.utc)
+        ws.save_json(ws.APPS_FILE, {
+            "old_rejected": {
+                "user_id": "100000000000000044", "status": "rejected",
+                "decided_at": "01.01.2025 10:00", "interview_event_id": "evt-linked",
+            }
+        })
+        suite_path = Path(ws.DATA_DIR) / "pulse_suite.db"
+        with sqlite3.connect(suite_path) as con:
+            con.execute("CREATE TABLE suite_interviews(id TEXT PRIMARY KEY, application_id TEXT, applicant_id TEXT)")
+            con.execute("INSERT INTO suite_interviews VALUES(?,?,?)", ("int-linked", "old_rejected", "100000000000000044"))
+            con.execute("CREATE TABLE suite_audit(id TEXT PRIMARY KEY, target_id TEXT)")
+            con.execute("INSERT INTO suite_audit VALUES(?,?)", ("aud-linked", "old_rejected"))
+        with sqlite3.connect(Path(ws.DATA_DIR) / "pulse.db") as con:
+            con.execute(
+                "INSERT INTO calendar_events(id,title,starts_at,created_by_id,created_by_name,created_at) "
+                "VALUES(?,?,?,?,?,?)",
+                ("evt-linked", "Synthetic", "2025-01-02T10:00:00Z", "0", "System", "2025-01-01"),
+            )
+        before_apps = Path(ws.APPS_FILE).read_bytes()
+        preview = pulse_retention.plan_linked_retention(
+            ws, settings={"applications_days": 183, "audit_days": 730}, now=old
+        )
+        self.assertTrue(preview["read_only"])
+        self.assertFalse(preview["deletion_performed"])
+        self.assertFalse(preview["deletion_supported"])
+        self.assertFalse(preview["deletion_allowed"])
+        self.assertEqual(preview["candidate_applications"], 1)
+        self.assertEqual(preview["linked_interview_rows"], 1)
+        self.assertEqual(preview["linked_calendar_events"], 1)
+        self.assertEqual(preview["linked_suite_audit_rows"], 1)
+        self.assertIn("multi_store_apply_and_recovery_not_implemented", preview["blockers"])
+        self.assertEqual(Path(ws.APPS_FILE).read_bytes(), before_apps)
 
     def test_export_and_admin_routes(self):
         import json as _json
@@ -358,6 +508,14 @@ class RetentionTests(unittest.TestCase):
         self.assertIn("dashboard_login_ip_audit", _json.loads(export.text))
         import pulse_retention
         self.assertIn("Leitung per Ticket", pulse_retention.privacy_notice_html(ws.esc))
+        self.assertIn(
+            "Eine automatische Löschung abgeschlossener Bewerbungen ist derzeit nicht aktiviert",
+            pulse_retention.privacy_notice_html(ws.esc),
+        )
+        self.assertNotIn(
+            "wird deine Bewerbung nach etwa 6 Monaten automatisch gelöscht",
+            pulse_retention.privacy_notice_html(ws.esc),
+        )
 
 
 if __name__ == "__main__":

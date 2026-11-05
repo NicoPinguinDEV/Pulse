@@ -124,6 +124,65 @@ class ApplicationDataAuditTests(unittest.TestCase):
         self.assertEqual(report["calendar"]["event_ids_shared_by_multiple_applications"], 0)
         self.assertTrue(report["readiness"]["requires_review"])
 
+    def test_audit_checks_applicant_interviewer_and_central_audit_references(self):
+        audit_path = self.base / "audit_logs.json"
+        applications = {
+            "application-linked": {
+                "user_id": "777777777777777777",
+                "status": "pending",
+                "interview_id": "interview-linked",
+                "history": [{"action": "reviewed", "audit_ref": "audit-explicit"}],
+            }
+        }
+        team_data = {"888888888888888888": {"team_since": "2026-10-01T10:00:00+00:00"}}
+        with sqlite_connection(self.suite_db) as con:
+            con.execute(
+                "INSERT INTO suite_interviews VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                ("interview-linked", "application-linked", "999999999999999999", "Synthetic",
+                 "{}", 90, "Geeignet", "Private notes", "888888888888888888",
+                 "Reviewer", "2026-11-02T10:00:00"),
+            )
+            con.execute(
+                "CREATE TABLE suite_audit("
+                "id TEXT PRIMARY KEY, guild_id TEXT, occurred_at TEXT, actor_id TEXT, actor_name TEXT, "
+                "target_id TEXT, target_name TEXT, action TEXT, details TEXT, request_id TEXT, prev_hash TEXT, hash TEXT)"
+            )
+            con.execute(
+                "INSERT INTO suite_audit VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("suite-audit", "1", "2026-11-02", "888888888888888888", "Reviewer",
+                 "application-linked", "Synthetic", "application_updated", "Details", "req", "GENESIS", "hash"),
+            )
+            con.execute(
+                "INSERT INTO suite_audit VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("suite-audit-unlinked", "1", "2026-11-02", "888888888888888888", "Reviewer",
+                 "", "", "application_reviewed", "Unlinked", "req2", "hash", "hash2"),
+            )
+        audit_path.write_text(json.dumps([
+            {"id": "audit-explicit", "actor_id": "888888888888888888", "action": "Teambeitritt", "details": "Private"},
+            {"id": "audit-unstructured", "actor_id": "888888888888888888",
+             "action": "Bewerbung entschieden", "details": "777777777777777777"},
+        ]), encoding="utf-8")
+
+        report = audit_application_data(
+            applications, team_data, self.suite_db, self.pulse_db, audit_path
+        )
+        self.assertEqual(report["interviews"]["application_applicant_id_mismatches"], 1)
+        self.assertEqual(report["interviews"]["interview_rows_without_applicant_id"], 0)
+        self.assertEqual(report["interviews"]["interview_rows_without_interviewer_id"], 0)
+        self.assertEqual(report["interviews"]["interviewers_with_team_record"], 1)
+        self.assertEqual(report["suite_audit"]["rows_targeting_applications"], 1)
+        self.assertEqual(report["suite_audit"]["recruiting_rows_without_structured_target"], 1)
+        self.assertEqual(report["audit_logs"]["rows_matching_explicit_audit_refs"], 1)
+        self.assertEqual(report["audit_logs"]["recruiting_rows_without_structured_subject"], 1)
+        self.assertTrue(report["readiness"]["requires_review"])
+
+        serialized = json.dumps(report)
+        for private_value in (
+            "777777777777777777", "888888888888888888", "999999999999999999",
+            "Private notes", "audit-explicit", "application-linked",
+        ):
+            self.assertNotIn(private_value, serialized)
+
     def test_report_does_not_emit_names_ids_answers_notes_or_event_ids(self):
         serialized = json.dumps(audit_application_data(
             self.applications, self.team_data, self.suite_db, self.pulse_db

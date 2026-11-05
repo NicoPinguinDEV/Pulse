@@ -172,3 +172,18 @@ Ein produktiver Bewerbungs-Repository-Adapter bzw. Migrationspfad ist auf main w
 **Nächster Schritt:** Phase 15.6d – versioniertes Bewerbungs-Repository und kontrollierter JSON-Import. Der erste Import-Snapshot-Vertrag wird isoliert ergänzt; die eigentliche Repository-Anbindung, Snapshot-Persistenz und ein Dry-Run-/Rollback-Import folgen in getrennten, getesteten Schritten.
 
 Die offenen Produktentscheidungen zu `in_review`, `accepted`/`hired`, Aufbewahrungsfristen und dem verantwortlichen Kontakt für den Bewerbungshinweis bleiben vor 15.6e/15.6f zu klären. 15.6e (referenzsichere Retention) und 15.6f (Produktivmigration) bleiben getrennte Vorhaben; 15.6f benötigt weiterhin eine eigene ausdrückliche Freigabe.
+
+
+## 12. Nachtrag Phase 15.6e – Export-/Statusschutz und Retention-Sperre
+
+**Implementierungsstand:** Feature-Branch `phase/15-6e-privacy-retention-audit`; CI/Review noch offen. Dieser Nachtrag dokumentiert den Codezweig und ersetzt keine Produktionsinventur.
+
+- `pulse_retention.export_person()` findet Interviewzeilen zusätzlich über `applicant_id`, `interviewer_id` und die strukturierten `application_id`-Referenzen der eigenen Bewerbungen.
+- Kalenderereignisse werden über `interview_event_id` einbezogen. `suite_audit` wird über strukturierte Bewerbungs-`target_id`-Referenzen ergänzt.
+- Explizite `audit_ref`-Verweise aus Bewerbungshistorie und `employment_event` werden in `audit_logs.json` aufgelöst. Historische Freitextdetails werden bewusst nicht durchsucht.
+- Ein Export mit mehr als 5.000 SQLite-Zeilen je Tabelle weist gekürzte Tabellen im Feld `database_export_truncated` aus; er darf nicht als vollständiger Export bezeichnet werden.
+- Der Read-only-Audit prüft nun fehlende/abweichende Interview-Bewerber-IDs, fehlende Interviewer-IDs, Teamakten-Zuordnung, `suite_audit.target_id` und strukturierte Audit-Refs in `audit_logs.json`.
+- `in_review` ist als offen geschützt. Nur exakte `rejected`-Einträge werden als Kandidaten für eine spätere Fristvorschau betrachtet. `accepted`, `hired`, unbekannte und fehlende Statuswerte bleiben geschützt.
+- Jede Retention-Mutation ist während 15.6e hard fail-closed gesperrt, auch bei `force=True`. `plan_linked_retention()` ist read-only und gibt niemals ein Löschrecht aus.
+
+Weiterhin offen ist die historische Zuordnung von Bewerbungsaktionen in `audit_logs.json`, wenn nur Freitextdetails vorhanden sind. Ebenso fehlen ein journalisiertes, dateiübergreifendes Apply-/Recovery-Verfahren und eine fachlich freigegebene Retention-Matrix. Deshalb bleibt die Sperre bestehen.

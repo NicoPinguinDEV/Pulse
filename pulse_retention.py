@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -21,13 +22,20 @@ from pulse_time import age_days
 
 SETTING_KEY = "data_retention"
 DEFAULTS = {"enabled": False, "applications_days": 183, "audit_days": 730, "contact": "", "last_run": "", "last_report": {}}
-OPEN_APPLICATION_STATES = {"pending", "interview"}
-# Accepted applications are the source of "Team seit" (webserver.team_since_for) – never removed.
+OPEN_APPLICATION_STATES = {"pending", "in_review", "interview"}
+# Only an exact, explicitly completed rejection is currently retention-eligible.
+# Unknown/missing statuses are protected until a product decision defines their meaning.
+RETENTION_ELIGIBLE_APPLICATION_STATES = {"rejected"}
+# Accepted/hired remain protected because they can be used as legacy employment evidence.
 KEPT_APPLICATION_STATES = OPEN_APPLICATION_STATES | {"hired", "accepted"}
+# Phase 15.6e: all destructive retention remains fail-closed until linked multi-store
+# cleanup, journaled rollback and a separately approved policy are implemented.
+RETENTION_MUTATIONS_ENABLED = False
 MAX_BACKUP_AGE = timedelta(days=2)
 EXPORT_ROW_LIMIT = 5000
 _ID_COLUMNS = ("user_id", "member_id", "actor_id", "target_id", "mod_id", "creator_id", "assignee_id",
-               "claimed_by_id", "closed_by_id", "staff_id", "reporter_id", "discord_id")
+               "claimed_by_id", "closed_by_id", "staff_id", "reporter_id", "discord_id",
+               "applicant_id", "interviewer_id", "created_by_id", "approved_by_id")
 
 
 def load_settings() -> dict:
@@ -57,9 +65,10 @@ def _application_stamp(app: dict):
 
 
 def expired_applications(apps: dict, days: int, now: datetime | None = None) -> list[str]:
+    """Return only explicitly eligible rejected records; ambiguous states are protected."""
     out = []
     for app_id, app in (apps or {}).items():
-        if not isinstance(app, dict) or str(app.get("status")) in KEPT_APPLICATION_STATES:
+        if not isinstance(app, dict) or app.get("status") not in RETENTION_ELIGIBLE_APPLICATION_STATES:
             continue
         age = age_days(_application_stamp(app), now)
         if age is not None and age > days:
@@ -85,6 +94,174 @@ def plan(ws, settings: dict | None = None, now: datetime | None = None) -> dict:
             "audit": len(expired_audit_entries(audit if isinstance(audit, list) else [], settings["audit_days"], now))}
 
 
+def _read_only_connection(path):
+    """Open an existing SQLite store without creating files or applying migrations."""
+    source = Path(path)
+    if not source.is_file():
+        raise FileNotFoundError(source.name)
+    uri = source.resolve().as_uri() + "?mode=ro"
+    connection = sqlite3.connect(uri, uri=True, timeout=5)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def plan_linked_retention(ws, settings: dict | None = None, now: datetime | None = None) -> dict:
+    """Read-only cross-store preview for expired applications and their explicit references.
+
+    This function never removes or updates records. It intentionally reports blockers
+    instead of claiming a deletion is safe when audit links are only free text.
+    """
+    settings = settings or load_settings()
+    raw_apps = ws.load_json(ws.APPS_FILE, {})
+    apps = raw_apps if isinstance(raw_apps, dict) else {}
+    audit = ws.load_json(ws.AUDIT_FILE, [])
+    team = ws.load_json(ws.DATA_FILE, {})
+    audit_entries = audit if isinstance(audit, list) else []
+    unstructured_recruiting_audit = sum(
+        isinstance(entry, dict)
+        and any(token in str(entry.get("action") or "").casefold()
+                for token in ("bewerb", "application", "interview", "recruit"))
+        and not any(str(entry.get(field) or "").strip()
+                    for field in ("application_id", "subject_id", "target_id", "audit_ref"))
+        for entry in audit_entries
+    )
+    candidate_ids = expired_applications(apps, settings["applications_days"], now)
+    candidate_set = set(candidate_ids)
+    candidate_users = {
+        str(apps[app_id].get("user_id") or "").strip()
+        for app_id in candidate_ids
+        if isinstance(apps.get(app_id), dict) and str(apps[app_id].get("user_id") or "").strip()
+    }
+    event_ids = {
+        str(apps[app_id].get("interview_event_id") or "").strip()
+        for app_id in candidate_ids
+        if isinstance(apps.get(app_id), dict) and str(apps[app_id].get("interview_event_id") or "").strip()
+    }
+    all_event_owners: dict[str, set[str]] = {}
+    for app_id, app in apps.items():
+        if isinstance(app, dict):
+            event_id = str(app.get("interview_event_id") or "").strip()
+            if event_id:
+                all_event_owners.setdefault(event_id, set()).add(str(app_id))
+
+    result = {
+        "read_only": True,
+        "deletion_performed": False,
+        "deletion_supported": False,
+        "deletion_allowed": False,
+        "candidate_applications": len(candidate_ids),
+        "linked_interview_rows": 0,
+        "interview_rows_by_applicant": 0,
+        "linked_calendar_events": 0,
+        "shared_calendar_event_references": sum(
+            len(all_event_owners.get(event_id, set())) > 1 for event_id in event_ids
+        ),
+        "unmatched_calendar_references": 0,
+        "linked_suite_audit_rows": 0,
+        "legacy_audit_entries_total": len(audit_entries),
+        "legacy_recruiting_audit_entries_unstructured": unstructured_recruiting_audit,
+        "employment_event_collisions": sum(
+            isinstance(team, dict)
+            and isinstance(team.get(user_id), dict)
+            and isinstance(team[user_id].get("employment_event"), dict)
+            for user_id in candidate_users
+        ),
+        "full_backup": "",
+        "blockers": [],
+        "warnings": [],
+    }
+    if not candidate_ids:
+        result["warnings"].append("no_expired_application_candidates")
+    if candidate_ids:
+        result["blockers"].append("legacy_audit_subject_linkage_unstructured")
+    if result["shared_calendar_event_references"]:
+        result["blockers"].append("calendar_event_shared_by_multiple_applications")
+    if result["employment_event_collisions"]:
+        result["blockers"].append("candidate_user_has_employment_event")
+
+    suite_path = Path(ws.DATA_DIR) / "pulse_suite.db"
+    try:
+        with closing(_read_only_connection(suite_path)) as connection:
+            tables = {
+                str(row[0]) for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            }
+            if "suite_interviews" not in tables:
+                result["blockers"].append("suite_interviews_table_unavailable")
+            else:
+                columns = {
+                    str(row[1]) for row in connection.execute('PRAGMA table_info("suite_interviews")').fetchall()
+                }
+                if not {"application_id", "applicant_id"}.issubset(columns):
+                    result["blockers"].append("suite_interviews_schema_incomplete")
+                else:
+                    if candidate_set:
+                        marks = ",".join("?" for _ in candidate_set)
+                        result["linked_interview_rows"] = int(connection.execute(
+                            f'SELECT COUNT(*) FROM suite_interviews WHERE application_id IN ({marks})',
+                            sorted(candidate_set),
+                        ).fetchone()[0])
+                    if candidate_users:
+                        marks = ",".join("?" for _ in candidate_users)
+                        result["interview_rows_by_applicant"] = int(connection.execute(
+                            f'SELECT COUNT(*) FROM suite_interviews WHERE applicant_id IN ({marks})',
+                            sorted(candidate_users),
+                        ).fetchone()[0])
+            if "suite_audit" not in tables:
+                result["blockers"].append("suite_audit_table_unavailable")
+            elif candidate_set:
+                marks = ",".join("?" for _ in candidate_set)
+                result["linked_suite_audit_rows"] = int(connection.execute(
+                    f'SELECT COUNT(*) FROM suite_audit WHERE target_id IN ({marks})',
+                    sorted(candidate_set),
+                ).fetchone()[0])
+    except (OSError, sqlite3.Error) as exc:
+        result["blockers"].append(f"suite_database_unavailable:{type(exc).__name__}")
+
+    import pulse_backup
+    pulse_path = pulse_backup.sqlite_path(ws.DATA_DIR, "pulse.db")
+    try:
+        with closing(_read_only_connection(pulse_path)) as connection:
+            tables = {
+                str(row[0]) for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            }
+            if "calendar_events" not in tables:
+                result["blockers"].append("calendar_events_table_unavailable")
+            elif event_ids:
+                marks = ",".join("?" for _ in event_ids)
+                result["linked_calendar_events"] = int(connection.execute(
+                    f'SELECT COUNT(*) FROM calendar_events WHERE id IN ({marks})',
+                    sorted(event_ids),
+                ).fetchone()[0])
+                result["unmatched_calendar_references"] = max(
+                    0, len(event_ids) - result["linked_calendar_events"]
+                )
+                if result["unmatched_calendar_references"]:
+                    result["blockers"].append("calendar_references_missing_or_unresolvable")
+    except (OSError, sqlite3.Error) as exc:
+        result["blockers"].append(f"pulse_database_unavailable:{type(exc).__name__}")
+
+    if candidate_ids and (result["linked_interview_rows"] or result["interview_rows_by_applicant"]):
+        result["blockers"].append("linked_interview_data_requires_separate_retention_decision")
+    if candidate_ids and result["linked_calendar_events"]:
+        result["blockers"].append("linked_calendar_data_requires_explicit_ownership")
+    if candidate_ids:
+        result["blockers"].append("multi_store_apply_and_recovery_not_implemented")
+    try:
+        result["full_backup"] = recent_full_backup(ws, now)
+    except Exception:
+        result["warnings"].append("full_backup_status_unavailable")
+    if candidate_ids and not result["full_backup"]:
+        result["blockers"].append("fresh_full_backup_missing")
+
+    # This phase is preview-only by design. Even a blocker-free report is not a delete token.
+    result["blockers"] = sorted(set(result["blockers"]))
+    return result
+
+
 def recent_full_backup(ws, now: datetime | None = None) -> str:
     import pulse_backup
     backups = pulse_backup.list_backups(ws.full_backup_dir())
@@ -103,6 +280,16 @@ def run(ws, now: datetime | None = None, force: bool = False) -> dict:
     report = {"ran": False, "applications": 0, "audit": 0, "reason": ""}
     if not (settings["enabled"] or force):
         report["reason"] = "Aufbewahrungsfristen sind ausgeschaltet."
+        return report
+    if not RETENTION_MUTATIONS_ENABLED:
+        report["reason"] = (
+            "Automatische Bereinigung ist bis zur referenzsicheren Phase 15.6e gesperrt. "
+            "Es wurde nichts gelöscht oder anonymisiert."
+        )
+        save_settings({
+            "last_run": (now or datetime.now(timezone.utc)).date().isoformat(),
+            "last_report": report,
+        })
         return report
     backup = recent_full_backup(ws, now)
     if not backup:
@@ -147,79 +334,186 @@ def due_today(now: datetime | None = None) -> bool:
     return settings["enabled"] and settings.get("last_run") != today
 
 
-def _rows_for(path, uid: str) -> dict:
-    """All rows of every table in one SQLite file whose id-like columns contain the Discord ID."""
+def _quote_identifier(value: str) -> str:
+    return '"' + str(value).replace('"', '""') + '"'
+
+
+def _rows_for(
+    path, uid: str, *, extra_values_by_table: dict[str, dict[str, set[str]]] | None = None
+) -> tuple[dict, list[str]]:
+    """Return all matching rows and a per-table truncation list from one read-only DB."""
     out = {}
-    con = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
-    con.row_factory = sqlite3.Row
+    truncated = []
+    con = _read_only_connection(path)
     try:
-        tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+        tables = [r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )]
         for table in tables:
-            columns = [r[1] for r in con.execute(f'PRAGMA table_info("{table}")')]
+            quoted_table = _quote_identifier(str(table))
+            columns = {str(r[1]) for r in con.execute(f"PRAGMA table_info({quoted_table})")}
+            clauses, params = [], []
             matches = [c for c in columns if c in _ID_COLUMNS]
-            if not matches:
+            for column in matches:
+                clauses.append(f"CAST({_quote_identifier(column)} AS TEXT)=?")
+                params.append(uid)
+            for column, values in (extra_values_by_table or {}).get(str(table), {}).items():
+                if column not in columns:
+                    continue
+                clean = sorted({str(value) for value in values if str(value)})
+                if clean:
+                    marks = ",".join("?" for _ in clean)
+                    clauses.append(f"{_quote_identifier(column)} IN ({marks})")
+                    params.extend(clean)
+            if not clauses:
                 continue
-            where = " OR ".join(f'CAST("{c}" AS TEXT)=?' for c in matches)
-            rows = [dict(r) for r in con.execute(f'SELECT * FROM "{table}" WHERE {where} LIMIT {EXPORT_ROW_LIMIT}', [uid] * len(matches))]
+            rows = [dict(r) for r in con.execute(
+                f"SELECT DISTINCT * FROM {quoted_table} WHERE ({' OR '.join(clauses)}) LIMIT ?",
+                [*params, EXPORT_ROW_LIMIT + 1],
+            ).fetchall()]
+            if len(rows) > EXPORT_ROW_LIMIT:
+                truncated.append(str(table))
+                rows = rows[:EXPORT_ROW_LIMIT]
             if rows:
-                out[table] = rows
+                out[str(table)] = rows
     finally:
         con.close()
-    return out
+    return out, sorted(truncated)
+
+
+def _application_audit_references(applications: dict, team_entry: dict | None) -> set[str]:
+    """Collect only explicit audit IDs; never search arbitrary details or notes text."""
+    references: set[str] = set()
+    for application in applications.values():
+        if not isinstance(application, dict):
+            continue
+        direct = application.get("audit_ref")
+        if direct:
+            references.add(str(direct))
+        history = application.get("history", [])
+        if isinstance(history, list):
+            for event in history:
+                if isinstance(event, dict) and event.get("audit_ref"):
+                    references.add(str(event["audit_ref"]))
+    employment = team_entry.get("employment_event") if isinstance(team_entry, dict) else None
+    if isinstance(employment, dict) and employment.get("audit_ref"):
+        references.add(str(employment["audit_ref"]))
+    return references
 
 
 def export_person(ws, discord_id: str) -> dict:
-    """Auskunft: what Pulse stores about one Discord ID (read only; run in a worker thread).
-
-    Covers every SQLite database of the backup (all tables with an id column such as user_id/actor_id),
-    the JSON stores and the voice-support cases kept in settings. Row count per table is limited.
-    """
+    """Read-only personal-data export with explicit recruiting cross-reference resolution."""
     import pulse_backup
     uid = str(discord_id).strip()
     team = ws.load_json(ws.DATA_FILE, {})
-    apps = ws.load_json(ws.APPS_FILE, {})
+    raw_apps = ws.load_json(ws.APPS_FILE, {})
+    apps = raw_apps if isinstance(raw_apps, dict) else {}
+    own_apps = {
+        str(key): value for key, value in apps.items()
+        if isinstance(value, dict) and str(value.get("user_id") or "") == uid
+    }
+    team_entry = team.get(uid) if isinstance(team, dict) else None
+    application_ids = set(own_apps)
+    event_ids = {
+        str(value.get("interview_event_id") or "").strip()
+        for value in own_apps.values()
+        if str(value.get("interview_event_id") or "").strip()
+    }
+    audit_refs = _application_audit_references(own_apps, team_entry)
     shifts = ws.load_json(ws.SHIFTS_FILE, {})
     audit = ws.load_json(ws.AUDIT_FILE, [])
+    audit_entries = audit if isinstance(audit, list) else []
     result = {
         "discord_id": uid,
         "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "team_file": team.get(uid) if isinstance(team, dict) else None,
-        "applications": {k: v for k, v in (apps or {}).items() if isinstance(v, dict) and str(v.get("user_id")) == uid},
+        "team_file": team_entry,
+        "applications": own_apps,
         "shifts": {
             "active": (shifts.get("active_shifts", {}) or {}).get(uid) if isinstance(shifts, dict) else None,
-            "history": [h for h in (shifts.get("history", []) if isinstance(shifts, dict) else []) if str(h.get("mod_id")) == uid],
+            "history": [
+                h for h in (shifts.get("history", []) if isinstance(shifts, dict) else [])
+                if isinstance(h, dict) and str(h.get("mod_id")) == uid
+            ],
         },
-        "audit_as_actor": [e for e in (audit or []) if isinstance(e, dict) and str(e.get("actor_id")) == uid],
+        "audit_as_actor": [
+            entry for entry in audit_entries
+            if isinstance(entry, dict) and str(entry.get("actor_id") or "") == uid
+        ],
+        "audit_as_explicit_application_reference": [
+            entry for entry in audit_entries
+            if isinstance(entry, dict) and str(entry.get("id") or "") in audit_refs
+        ],
         "databases": {},
-        "notice": f"Höchstens {EXPORT_ROW_LIMIT} Zeilen je Tabelle. Ticket-Transkripte liegen als Dateien unter transcripts/ (Ticket-IDs siehe databases).",
+        "database_export_truncated": {},
+        "linked_recruiting_data": {
+            "application_records": len(application_ids),
+            "explicit_calendar_references": len(event_ids),
+            "explicit_audit_references": len(audit_refs),
+        },
+        "notice": (
+            f"Höchstens {EXPORT_ROW_LIMIT} Zeilen je SQLite-Tabelle; gekürzte Tabellen werden separat ausgewiesen. "
+            "Interviewzeilen werden über applicant_id/interviewer_id und die eigenen application_id-Referenzen "
+            "einbezogen. Kalendertermine werden über interview_event_id einbezogen. Legacy-Audit-Freitext wird "
+            "nicht per Textsuche einer Person zugeordnet, da dies unzuverlässige Fehlzuordnungen erzeugen würde."
+        ),
+        "audit_linkage_limitations": [
+            "audit_logs.json besitzt für historische Einträge kein strukturiertes subject_id/application_id-Feld.",
+            "Nur actor_id und explizit gespeicherte audit_ref-Verweise sind eindeutig exportierbar.",
+            "Freitextdetails werden nicht automatisch nach Discord-IDs oder Bewerbungs-IDs durchsucht.",
+        ],
     }
     for name in pulse_backup.SQLITE_FILES:
         path = pulse_backup.sqlite_path(ws.DATA_DIR, name)
         if not path.is_file():
             continue
+        extras: dict[str, dict[str, set[str]]] = {}
+        if name == "pulse_suite.db":
+            extras = {
+                "suite_interviews": {"application_id": application_ids},
+                "suite_audit": {"target_id": application_ids},
+            }
+        elif name == "pulse.db":
+            extras = {"calendar_events": {"id": event_ids}}
         try:
-            rows = _rows_for(path, uid)
-        except sqlite3.Error as exc:
-            rows = {"_fehler": type(exc).__name__}
+            rows, truncated = _rows_for(path, uid, extra_values_by_table=extras)
+        except (sqlite3.Error, OSError) as exc:
+            rows, truncated = {"_fehler": type(exc).__name__}, []
         if rows:
             result["databases"][name] = rows
-    ai_cases = ws.load_json(os.getenv("PULSE_AI_MODERATION_CASES_FILE", str(Path(ws.DATA_DIR) / "ai_moderation_cases.json")), {})
-    result["ai_moderation_cases"] = [c for c in (ai_cases.values() if isinstance(ai_cases, dict) else [])
-                                     if isinstance(c, dict) and uid in {str(v) for k, v in c.items() if str(k).endswith("_id")}]
+        if truncated:
+            result["database_export_truncated"][name] = truncated
+
+    ai_cases = ws.load_json(
+        os.getenv("PULSE_AI_MODERATION_CASES_FILE", str(Path(ws.DATA_DIR) / "ai_moderation_cases.json")), {}
+    )
+    result["ai_moderation_cases"] = [
+        case for case in (ai_cases.values() if isinstance(ai_cases, dict) else [])
+        if isinstance(case, dict)
+        and uid in {str(value) for key, value in case.items() if str(key).endswith("_id")}
+    ]
     try:
         cases = pulse_db.get_setting("voice_support_cases", {}) or {}
-        result["voice_support_open_cases"] = [c for c in cases.values() if isinstance(c, dict) and str(c.get("user_id")) == uid]
+        result["voice_support_open_cases"] = [
+            case for case in cases.values()
+            if isinstance(case, dict) and str(case.get("user_id")) == uid
+        ]
     except Exception as exc:
         result["voice_support_open_cases_error"] = type(exc).__name__
     return result
-
 
 def privacy_notice_html(esc) -> str:
     """Notice for /apply: which data, purpose, who, how long, contact."""
     settings = load_settings()
     months = round(settings["applications_days"] / 30.4)
-    keep = (f"Nach der Entscheidung wird deine Bewerbung nach etwa {months} Monaten automatisch gelöscht."
-            if settings["enabled"] else "Abgeschlossene Bewerbungen werden von der Leitung regelmäßig gelöscht.")
+    if not RETENTION_MUTATIONS_ENABLED:
+        keep = (
+            "Eine automatische Löschung abgeschlossener Bewerbungen ist derzeit nicht aktiviert. "
+            "Aufbewahrung und Löschanfragen werden bis zur abgeschlossenen Datenschutzprüfung durch die Leitung geprüft."
+        )
+    elif settings["enabled"]:
+        keep = f"Nach der Entscheidung wird deine Bewerbung nach etwa {months} Monaten automatisch gelöscht."
+    else:
+        keep = "Abgeschlossene Bewerbungen werden nicht automatisch gelöscht; wende dich bei Fragen an die Leitung."
     contact = settings["contact"] or "die Serverleitung über ein Support-Ticket"
     ai = (" Hinweis: Auf dem Discord-Server ist eine KI-gestützte Moderation aktiv; sie liefert nur Verdachtsfälle, "
           "Entscheidungen trifft immer ein Mensch.") if str(os.getenv("PULSE_AI_MODERATION_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"} else ""
