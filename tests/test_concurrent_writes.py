@@ -176,10 +176,14 @@ class ConcurrencyTests(unittest.TestCase):
         self.assertEqual(stored["42"]["probation"]["status"], "ended")
 
     def test_application_decision_keeps_application_submitted_meanwhile(self):
-        """decide_app awaits Discord role changes; its save must not drop an application that arrived meanwhile."""
+        """decide_app must merge decision fields into the latest repository mapping."""
         block = CallSiteTests().block("webserver.py", '    if action == "decide_app":', '\n    if action ==')
         self.assertNotIn("save_json(APPS_FILE, apps)", block)
-        self.assertIn("fresh[app_id] = item", block)
+        self.assertIn("get_applications_repository().update_entry(", block)
+        self.assertIn("expected_status=current_status", block)
+        self.assertIn("before=original_item", block)
+        self.assertIn("updated=item", block)
+        self.assertIn("ApplicationRepositoryConflict", block)
 
 
 if __name__ == "__main__":

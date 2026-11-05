@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import json
 import os
@@ -450,10 +451,17 @@ def register_routes():
 
     @app.post("/suite/applications/{app_id}/update")
     async def application_update(request:Request,app_id:str,status:str=Form(...),testergebnis:str=Form(""),note:str=Form(""),user_session:str=Cookie(None)):
-        ctx=auth(request,user_session,manager=True);apps=webserver.load_json(webserver.APPS_FILE,{});item=apps.get(app_id)
-        if not item:raise HTTPException(404,"Bewerbung nicht gefunden")
-        if status not in {"pending","in_review","interview","accepted","rejected"}:raise HTTPException(400,"Ungültiger Status")
-        item["status"]=status;item["processor_id"]=ctx.user["id"];item["processor_name"]=ctx.user.get("global_name","");item["testergebnis"]=testergebnis[:1000];item["internal_notes"]=note[:3000];item.setdefault("history",[]).append({"at":iso(),"action":status,"by":ctx.user.get("global_name",""),"details":note[:1000]});item["history"]=item["history"][-100:];webserver.save_json(webserver.APPS_FILE,apps);audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),app_id,appname(app_id,item),"application_updated",f"{status} · {note}");return RedirectResponse(f"/suite/applications/{app_id}",303)
+        ctx=auth(request,user_session,manager=True)
+        async with webserver.APPLICATION_DECISION_LOCK:
+            apps=webserver.load_json(webserver.APPS_FILE,{})
+            item=apps.get(app_id)
+            if not item:raise HTTPException(404,"Bewerbung nicht gefunden")
+            if status not in {"pending","in_review","interview","accepted","rejected"}:raise HTTPException(400,"Ungültiger Status")
+            before=copy.deepcopy(item);expected_status=str(item.get("status") or "")
+            item["status"]=status;item["processor_id"]=ctx.user["id"];item["processor_name"]=ctx.user.get("global_name","");item["testergebnis"]=testergebnis[:1000];item["internal_notes"]=note[:3000];item.setdefault("history",[]).append({"at":iso(),"action":status,"by":ctx.user.get("global_name",""),"details":note[:1000]});item["history"]=item["history"][-100:]
+            webserver.get_applications_repository().update_entry(app_id,expected_status=expected_status,before=before,updated=item)
+            audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),app_id,appname(app_id,item),"application_updated",f"{status} · {note}")
+        return RedirectResponse(f"/suite/applications/{app_id}",303)
 
     @app.get("/suite/interviews",response_class=HTMLResponse)
     async def interviews_page(request:Request,user_session:str=Cookie(None)):
@@ -471,11 +479,18 @@ def register_routes():
 
     @app.post("/suite/interview/create")
     async def interview_create(request:Request,application_id:str=Form(...),auftreten:int=Form(...),kommunikation:int=Form(...),regeln:int=Form(...),aktivitaet:int=Form(...),team:int=Form(...),notes:str=Form(""),user_session:str=Cookie(None)):
-        ctx=auth(request,user_session,manager=True);apps=webserver.load_json(webserver.APPS_FILE,{});item=apps.get(application_id)
-        if not item:raise HTTPException(404,"Bewerbung nicht gefunden")
-        v=[max(0,min(100,x)) for x in (auftreten,kommunikation,regeln,aktivitaet,team)];overall=sum(v)//5;rec="Sehr geeignet" if overall>=85 else "Geeignet" if overall>=70 else "Bedingt geeignet" if overall>=55 else "Nicht empfohlen";iid="int_"+uuid.uuid4().hex[:10]
-        with cx() as c:c.execute("INSERT INTO suite_interviews VALUES(?,?,?,?,?,?,?,?,?,?,?)",(iid,application_id,str(item.get("discord_id") or item.get("user_id") or ""),appname(application_id,item),json.dumps(dict(zip(("Auftreten","Kommunikation","Regelkenntnis","Aktivität","Teamfähigkeit"),v)),ensure_ascii=False),overall,rec,notes[:3000],str(ctx.user["id"]),ctx.user.get("global_name",""),iso()))
-        item["interview_id"]=iid;item["testergebnis"]=f"{overall}% · {rec}";item["status"]="interview";item.setdefault("history",[]).append({"at":iso(),"action":"interview","by":ctx.user.get("global_name",""),"details":f"{overall}% · {rec}"});webserver.save_json(webserver.APPS_FILE,apps);audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),application_id,appname(application_id,item),"interview_created",f"{overall}% · {rec}");return RedirectResponse("/suite/interviews",303)
+        ctx=auth(request,user_session,manager=True)
+        async with webserver.APPLICATION_DECISION_LOCK:
+            apps=webserver.load_json(webserver.APPS_FILE,{})
+            item=apps.get(application_id)
+            if not item:raise HTTPException(404,"Bewerbung nicht gefunden")
+            before=copy.deepcopy(item);expected_status=str(item.get("status") or "")
+            v=[max(0,min(100,x)) for x in (auftreten,kommunikation,regeln,aktivitaet,team)];overall=sum(v)//5;rec="Sehr geeignet" if overall>=85 else "Geeignet" if overall>=70 else "Bedingt geeignet" if overall>=55 else "Nicht empfohlen";iid="int_"+uuid.uuid4().hex[:10]
+            with cx() as c:c.execute("INSERT INTO suite_interviews VALUES(?,?,?,?,?,?,?,?,?,?,?)",(iid,application_id,str(item.get("discord_id") or item.get("user_id") or ""),appname(application_id,item),json.dumps(dict(zip(("Auftreten","Kommunikation","Regelkenntnis","Aktivität","Teamfähigkeit"),v)),ensure_ascii=False),overall,rec,notes[:3000],str(ctx.user["id"]),ctx.user.get("global_name",""),iso()))
+            item["interview_id"]=iid;item["testergebnis"]=f"{overall}% · {rec}";item["status"]="interview";item.setdefault("history",[]).append({"at":iso(),"action":"interview","by":ctx.user.get("global_name",""),"details":f"{overall}% · {rec}"})
+            webserver.get_applications_repository().update_entry(application_id,expected_status=expected_status,before=before,updated=item)
+            audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),application_id,appname(application_id,item),"interview_created",f"{overall}% · {rec}")
+        return RedirectResponse("/suite/interviews",303)
 
     @app.get("/suite/promotions",response_class=HTMLResponse)
     async def promotions_page(request:Request,user_session:str=Cookie(None)):
