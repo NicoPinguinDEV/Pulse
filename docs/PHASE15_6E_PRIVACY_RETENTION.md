@@ -71,6 +71,7 @@ Die bestehende Löschfunktion ist für diesen Zwischenstand hart gesperrt:
 - `run()` beendet sich vor jeder Änderung an `applications.json` oder `audit_logs.json`.
 - Nur der exakte Status `rejected` wird noch als Kandidat für eine spätere Fristprüfung betrachtet.
 - `in_review`, `pending`, `interview`, `accepted`, `hired`, unbekannte und fehlende Statuswerte werden nicht als abgelaufen zurückgegeben.
+- Der öffentliche Bewerbungshinweis verspricht während der Sperre keine automatische Löschung; er informiert transparent, dass die automatische Bereinigung derzeit nicht aktiviert ist.
 
 `plan_linked_retention()` ist eine zusätzliche ausschließlich lesende Vorschau. Sie zählt Kandidaten und explizite Interview-, Kalender- und Suite-Audit-Referenzen, prüft geteilte Kalender-IDs, Employment-Event-Kollisionen und das Alter des Komplett-Backups. Das Ergebnis enthält immer `deletion_supported=false` und `deletion_allowed=false`. Die Funktion ist kein versteckter Löschpfad und führt keine Mutation aus.
 
