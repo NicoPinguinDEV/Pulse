@@ -222,7 +222,7 @@ class PersistentApplicationSnapshotManager:
             "created_at": created,
         }
 
-    def create_snapshot(self, payload: bytes | bytearray | None = None, *, purpose: str = "manual") -> dict[str, Any]:
+    def create_snapshot(\n        self, payload: bytes | bytearray | None = None, *, purpose: str = "manual",\n        snapshot_id: str | None = None,\n    ) -> dict[str, Any]:
         """Persist an immutable snapshot of explicit bytes or the current file."""
         if not isinstance(purpose, str) or not purpose.strip() or len(purpose) > 64:
             raise ValueError("purpose must be a non-empty label of at most 64 characters")
