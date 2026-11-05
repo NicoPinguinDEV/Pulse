@@ -143,13 +143,24 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
             str(row["name"]): row
             for row in connection.execute('PRAGMA table_info("suite_interviews")').fetchall()
         }
-        required_columns = {"id", "application_id", "applicant_id", "interviewer_id"}
-        if not required_columns.issubset(columns):
+        required_reference_columns = {"id", "application_id"}
+        if not required_reference_columns.issubset(columns):
             return {**empty, "table_found": True}
+        has_applicant_id = "applicant_id" in columns
+        has_interviewer_id = "interviewer_id" in columns
         primary_key_columns = sum(int(column["pk"] or 0) > 0 for column in columns.values())
-        schema_valid = int(columns["id"]["pk"] or 0) > 0 and primary_key_columns == 1
+        schema_valid = (
+            has_applicant_id and has_interviewer_id
+            and int(columns["id"]["pk"] or 0) > 0
+            and primary_key_columns == 1
+        )
+        selected_columns = ["id", "application_id"]
+        if has_applicant_id:
+            selected_columns.append("applicant_id")
+        if has_interviewer_id:
+            selected_columns.append("interviewer_id")
         rows = connection.execute(
-            "SELECT id, application_id, applicant_id, interviewer_id FROM suite_interviews"
+            f"SELECT {', '.join(selected_columns)} FROM suite_interviews"
         ).fetchall()
 
     by_application: dict[str, list[str]] = defaultdict(list)
@@ -165,8 +176,8 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
     for row in rows:
         interview_id = str(row["id"] or "").strip()
         application_id = str(row["application_id"] or "").strip()
-        applicant_id = str(row["applicant_id"] or "").strip()
-        interviewer_id = str(row["interviewer_id"] or "").strip()
+        applicant_id = str(row["applicant_id"] or "").strip() if "applicant_id" in row.keys() else ""
+        interviewer_id = str(row["interviewer_id"] or "").strip() if "interviewer_id" in row.keys() else ""
         if application_id:
             by_application[application_id].append(interview_id)
             if applicant_id:
