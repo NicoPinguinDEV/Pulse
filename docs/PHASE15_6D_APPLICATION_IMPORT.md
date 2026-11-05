@@ -18,7 +18,7 @@ Die neue Schicht `pulse_application_snapshot_store.py` ergänzt eine explizite, 
 Die Verwaltung legt drei Tabellen an:
 
 - `application_snapshot_state`: Singleton mit `generation`, `revision`, optionaler `active_operation_id` und Aktualisierungszeit.
-- `application_snapshots`: Snapshot-ID, Zweck, Schema-Version, Generation, Revision, SHA-256, Record-Anzahl, Payload-Größe, unveränderte Payload-Bytes und Erstellzeit.
+- `application_snapshots`: Snapshot-ID, Zweck, Schema-Version, Generation, Revision, eindeutige Snapshot-Sequenz, SHA-256, Record-Anzahl, Payload-Größe, unveränderte Payload-Bytes und Erstellzeit.
 - `application_snapshot_journal`: Operationstyp, Zustand, Vorher-/Ziel-Snapshot-IDs und Prüfsummen, erwartete und resultierende Zähler sowie Zeitstempel.
 
 Snapshot-IDs sind Primärschlüssel. Snapshot-Datensätze werden mit `INSERT` gespeichert und nicht überschrieben. Exporte prüfen Schema-Version, SHA-256, Record-Anzahl und Payload-Größe erneut.
@@ -27,7 +27,7 @@ Die Zähler sind bewusst eng definiert:
 - **Generation** bezeichnet die Generation des installierten Bewerbungs-JSON-Datenstands. Sie steigt nach einem erfolgreich abgeschlossenen kontrollierten Import oder Restore um eins.
 - **Revision** zählt dieselben erfolgreich abgeschlossenen kontrollierten Austauschoperationen monoton und dauerhaft.
 - Normale Bewerbungsänderungen durch bestehende JSON-Schreibpfade erhöhen diese Zähler nicht. Sie werden durch den aktuellen SHA-256-Vergleich erkannt.
-- Das bloße Speichern eines Snapshots erhöht Generation und Revision nicht.
+- Das bloße Speichern eines Snapshots erhöht Generation und Revision nicht. Eine separate, eindeutige `snapshot_sequence` wird bei jeder Snapshot-Anlage in derselben SQLite-Transaktion monoton erhöht. Damit können parallele Snapshot-Erstellungen keine Sequenznummer doppelt vergeben.
 
 Damit wird keine Versionierung jedes einzelnen normalen Bewerbungs-Writes behauptet.
 
