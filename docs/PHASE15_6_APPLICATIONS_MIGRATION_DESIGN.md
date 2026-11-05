@@ -1,8 +1,8 @@
 # Phase 15.6 – Bewerbungsdaten: Versionierung, Referenzen und Migration
 
-**Status (05.11.2026):** 15.6a (PR #136), 15.6b (PR #140) und 15.6c (PR #143) abgeschlossen · 15.6d: Snapshot-Vertrag aus PR #144 und JSON-Repository-Adapter aus PR #145 gemergt; konfliktarme Entscheidungsupdates in PR #146 in Prüfung · keine Produktivmigration  
+**Status (05.11.2026):** 15.6a (#136), 15.6b (#140), 15.6c (#143) und 15.6d (#147) gemergt · 15.6e Datenschutzexport/Retention-Schutz auf Feature-Branch · 15.6f nur als Staging-/Paritätsvorbereitung dokumentiert · keine Produktivmigration  
 **Codebasis der Read-only-Inventur 15.6a:** `main` @ `e7311e7b9bb3fb90706629eaf0fabe2086e4782d` (nach PR #136)  
-**Aktueller main-Stand bei Branch-Erstellung:** `d635b8038486ee719bad2a14a5c850da61dac8ae` (nach PR #145)  
+**Aktueller main-Stand vor Phase 15.6e:** `385e235978f976df361ecc75bb1597e6995684e4` (Merge PR #147)  
 **Datum:** 05.11.2026  
 **Nachverfolgung:** [Issue #134](https://github.com/NicoPinguinDEV/Pulse/issues/134)
 
@@ -164,7 +164,7 @@ Der Adapter ändert das aktive JSON-Format nicht. Persistente Snapshots, Importa
 
 `update_entry()` übernimmt nur die Felder, die ein Entscheidungsablauf gegenüber seinem ursprünglichen Datensatz verändert hat. Gleichzeitig geschriebene Reviews, Votes, Reminder-Felder und andere unabhängige Felder bleiben bestehen; neue Verlaufseinträge werden an den aktuellen Verlauf angefügt. Wenn der Status während eines externen Discord-Ablaufs geändert wurde oder die Bewerbung nicht mehr existiert, wird ein Konflikt ausgelöst statt einen neueren Datensatz zu überschreiben.
 
-Der Discord-Entscheidungsablauf und die Suite-Endpunkte für Status-/Interviewänderungen teilen einen Prozess-Lock. Damit können nicht zwei Einstellungsentscheidungen parallel dieselbe Bewerbungsakte und Rollenfolge abarbeiten. Der Lock ersetzt keine verteilte Sperre für mehrere Anwendungsprozesse; Pulse muss dafür weiterhin als einzelner aktiver Schreiber betrieben werden. Der PR ist zum Stand dieses Entwurfs noch in CI/Review.
+Der Discord-Entscheidungsablauf und die Suite-Endpunkte für Status-/Interviewänderungen teilen einen Prozess-Lock. Damit können nicht zwei Einstellungsentscheidungen parallel dieselbe Bewerbungsakte und Rollenfolge abarbeiten. Der Lock ersetzt keine verteilte Sperre für mehrere Anwendungsprozesse; Pulse muss dafür weiterhin als einzelner aktiver Schreiber betrieben werden. PR #146 wurde in PR #147 in `main` integriert; die CI für PR #147 war erfolgreich.
 
 
 ## 5. Abnahmekriterien
@@ -188,3 +188,12 @@ Der Discord-Entscheidungsablauf und die Suite-Endpunkte für Status-/Interviewä
 - keine produktive Dateninventur und kein Zugriff auf VPS-Daten;
 - keine Änderung an Bewerbungsrechten oder Datenschutzhinweisen;
 - kein Merge und kein Deployment.
+
+
+## 4.5 Phase 15.6d abgeschlossen und nächste Freigabestufen
+
+PR [#147](https://github.com/NicoPinguinDEV/Pulse/pull/147) ergänzt persistente Application-Snapshots und Journal-/Recovery-Grundlagen in `pulse.db`. Der Merge-Commit ist `385e235978f976df361ecc75bb1597e6995684e4`. Das ist weiterhin keine Produktivmigration.
+
+Phase 15.6e wird separat bearbeitet: Interview-/Kalender-/Audit-Exportreferenzen, read-only Referenzaudit, Retention-Dry-Run und fail-closed-Verhalten. Der aktuelle Zwischenstand blockiert jede Retention-Mutation. Historische Freitext-Auditdetails werden nicht als strukturierte Referenz ausgelegt.
+
+Phase 15.6f ist als Vorbereitungsdokument beschrieben: isolierter Staging-Import, vollständiger Payload-Erhalt, Paritätsnachweis und expliziter Cutover-/Rollback-Vertrag. Das Zielschema ist nur ein Entwurf; es wird kein SQLite-Backend aktiviert oder produktiv angelegt.
