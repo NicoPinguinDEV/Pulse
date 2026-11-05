@@ -151,7 +151,6 @@ def create_staging_database(
         connection = sqlite3.connect(target, timeout=10)
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA journal_mode=DELETE")
-        connection.execute("BEGIN IMMEDIATE")
         connection.executescript(
             """
             CREATE TABLE application_staging_manifest (
@@ -180,6 +179,8 @@ def create_staging_database(
                 ON application_records(status, updated_at);
             """
         )
+        # executescript implicitly ends any prior transaction; begin only after DDL.
+        connection.execute("BEGIN IMMEDIATE")
         connection.execute(
             """INSERT INTO application_staging_manifest
                (singleton,schema_version,source_sha256,source_record_count,
