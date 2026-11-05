@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -259,17 +260,51 @@ def verify_application_staging_database(
                 FROM application_staging_meta WHERE singleton = 1
                 """
             ).fetchall()
-            schema_objects = {
-                tuple(row) for row in db.execute(
-                    "SELECT type, name FROM sqlite_master "
-                    "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
-                ).fetchall()
+            schema_rows = db.execute(
+                "SELECT type, name, sql FROM sqlite_master "
+                "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+            ).fetchall()
+            schema_objects = {(row[0], row[1]) for row in schema_rows}
+            actual_schema_sql = {
+                row[1]: re.sub(r"\s+", " ", str(row[2] or "")).strip().lower()
+                for row in schema_rows
             }
             expected_objects = {
                 ("table", "application_staging_meta"),
                 ("table", "application_records"),
                 ("index", "idx_application_records_user"),
                 ("index", "idx_application_records_status_updated"),
+            }
+            # Compare complete SQLite DDL, not only names/columns. table_info()
+            # omits CHECK constraints, so a weakened schema could otherwise pass.
+            expected_schema_sql = {
+                "application_staging_meta": (
+                    "create table application_staging_meta ( "
+                    "singleton integer primary key check (singleton = 1), "
+                    "schema_version integer not null, "
+                    "source_sha256 text not null check (length(source_sha256) = 64), "
+                    "source_generation integer not null check (source_generation >= 0), "
+                    "source_revision integer not null check (source_revision >= 0), "
+                    "source_record_count integer not null check (source_record_count >= 0) )"
+                ),
+                "application_records": (
+                    "create table application_records ( "
+                    "application_id text primary key, user_id text, status text, "
+                    "created_at text, updated_at text, "
+                    "record_schema_version integer not null, payload_json text not null )"
+                ),
+                "idx_application_records_user": (
+                    "create index idx_application_records_user "
+                    "on application_records(user_id, application_id)"
+                ),
+                "idx_application_records_status_updated": (
+                    "create index idx_application_records_status_updated "
+                    "on application_records(status, updated_at)"
+                ),
+            }
+            expected_schema_sql = {
+                name: re.sub(r"\s+", " ", sql).strip().lower()
+                for name, sql in expected_schema_sql.items()
             }
             expected_columns = {
                 "application_staging_meta": (
@@ -316,6 +351,7 @@ def verify_application_staging_database(
 
     schema_matches = (
         schema_objects == expected_objects
+        and actual_schema_sql == expected_schema_sql
         and actual_columns == expected_columns
         and index_columns == {
             "idx_application_records_user": ("user_id", "application_id"),

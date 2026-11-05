@@ -96,6 +96,67 @@ class ApplicationStagingTests(unittest.TestCase):
         self.assertFalse(report["valid"])
         self.assertFalse(report["schema_matches"])
 
+    def test_schema_contract_detects_missing_not_null_constraint(self):
+        create_application_staging_database(self.snapshot, self.target)
+        with sqlite3.connect(self.target) as db:
+            db.execute("DROP INDEX idx_application_records_user")
+            db.execute("DROP INDEX idx_application_records_status_updated")
+            db.execute("ALTER TABLE application_records RENAME TO application_records_old")
+            db.execute(
+                """
+                CREATE TABLE application_records (
+                    application_id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    status TEXT,
+                    created_at TEXT,
+                    updated_at TEXT,
+                    record_schema_version INTEGER NOT NULL,
+                    payload_json TEXT
+                )
+                """
+            )
+            db.execute(
+                "INSERT INTO application_records SELECT * FROM application_records_old"
+            )
+            db.execute("DROP TABLE application_records_old")
+            db.execute(
+                "CREATE INDEX idx_application_records_user "
+                "ON application_records(user_id, application_id)"
+            )
+            db.execute(
+                "CREATE INDEX idx_application_records_status_updated "
+                "ON application_records(status, updated_at)"
+            )
+        report = verify_application_staging_database(self.snapshot, self.target)
+        self.assertFalse(report["valid"])
+        self.assertFalse(report["schema_matches"])
+
+    def test_schema_contract_detects_missing_metadata_check_constraints(self):
+        create_application_staging_database(self.snapshot, self.target)
+        with sqlite3.connect(self.target) as db:
+            db.execute(
+                "ALTER TABLE application_staging_meta RENAME TO application_staging_meta_old"
+            )
+            db.execute(
+                """
+                CREATE TABLE application_staging_meta (
+                    singleton INTEGER PRIMARY KEY,
+                    schema_version INTEGER NOT NULL,
+                    source_sha256 TEXT NOT NULL,
+                    source_generation INTEGER NOT NULL,
+                    source_revision INTEGER NOT NULL,
+                    source_record_count INTEGER NOT NULL
+                )
+                """
+            )
+            db.execute(
+                "INSERT INTO application_staging_meta SELECT * FROM application_staging_meta_old"
+            )
+            db.execute("DROP TABLE application_staging_meta_old")
+        report = verify_application_staging_database(self.snapshot, self.target)
+        self.assertFalse(report["valid"])
+        self.assertFalse(report["schema_matches"])
+
     def test_non_mapping_records_are_rejected_before_creating_target(self):
         invalid = build_application_import_snapshot(b'{"app-1":[]}')
         with self.assertRaises(ApplicationStagingError):
