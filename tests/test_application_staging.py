@@ -79,7 +79,7 @@ class ApplicationStagingTests(unittest.TestCase):
         self.assertTrue(report["read_only"])
         self.assertFalse(report["valid"])
         self.assertFalse(report["payloads_equal"])
-        with sqlite3.connect(f"file:{self.target}?mode=ro", uri=True) as db:
+        with sqlite3.connect(self.target.as_uri() + "?mode=ro", uri=True) as db:
             self.assertEqual(
                 db.execute(
                     "SELECT payload_json FROM application_records WHERE application_id=?",
@@ -87,6 +87,14 @@ class ApplicationStagingTests(unittest.TestCase):
                 ).fetchone()[0],
                 '{"status":"changed"}',
             )
+
+    def test_schema_drift_is_detected_by_read_only_verification(self):
+        create_application_staging_database(self.snapshot, self.target)
+        with sqlite3.connect(self.target) as db:
+            db.execute("DROP INDEX idx_application_records_user")
+        report = verify_application_staging_database(self.snapshot, self.target)
+        self.assertFalse(report["valid"])
+        self.assertFalse(report["schema_matches"])
 
     def test_non_mapping_records_are_rejected_before_creating_target(self):
         invalid = build_application_import_snapshot(b'{"app-1":[]}')

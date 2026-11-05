@@ -259,6 +259,47 @@ def verify_application_staging_database(
                 FROM application_staging_meta WHERE singleton = 1
                 """
             ).fetchall()
+            schema_objects = {
+                tuple(row) for row in db.execute(
+                    "SELECT type, name FROM sqlite_master "
+                    "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+                ).fetchall()
+            }
+            expected_objects = {
+                ("table", "application_staging_meta"),
+                ("table", "application_records"),
+                ("index", "idx_application_records_user"),
+                ("index", "idx_application_records_status_updated"),
+            }
+            expected_columns = {
+                "application_staging_meta": (
+                    "singleton", "schema_version", "source_sha256",
+                    "source_generation", "source_revision", "source_record_count",
+                ),
+                "application_records": (
+                    "application_id", "user_id", "status", "created_at",
+                    "updated_at", "record_schema_version", "payload_json",
+                ),
+            }
+            actual_columns = {
+                table: tuple(
+                    column[1]
+                    for column in db.execute(f"PRAGMA table_info({table})").fetchall()
+                )
+                for table in expected_columns
+            }
+            index_columns = {
+                "idx_application_records_user": tuple(
+                    row[2] for row in db.execute(
+                        "PRAGMA index_info(idx_application_records_user)"
+                    ).fetchall()
+                ),
+                "idx_application_records_status_updated": tuple(
+                    row[2] for row in db.execute(
+                        "PRAGMA index_info(idx_application_records_status_updated)"
+                    ).fetchall()
+                ),
+            }
             rows = db.execute(
                 """
                 SELECT application_id, user_id, status, created_at, updated_at,
@@ -273,6 +314,14 @@ def verify_application_staging_database(
             "staging database could not be verified read-only"
         ) from exc
 
+    schema_matches = (
+        schema_objects == expected_objects
+        and actual_columns == expected_columns
+        and index_columns == {
+            "idx_application_records_user": ("user_id", "application_id"),
+            "idx_application_records_status_updated": ("status", "updated_at"),
+        }
+    )
     metadata_matches = len(metadata_rows) == 1
     if metadata_matches:
         metadata_matches = tuple(metadata_rows[0]) == (
@@ -309,6 +358,7 @@ def verify_application_staging_database(
         integrity == "ok"
         and user_version == APPLICATION_STAGING_SCHEMA_VERSION
         and metadata_matches
+        and schema_matches
         and record_ids_equal
         and payloads_equal
         and projected_columns_equal
@@ -327,6 +377,7 @@ def verify_application_staging_database(
         "payloads_equal": payloads_equal,
         "projected_columns_equal": projected_columns_equal,
         "metadata_matches": metadata_matches,
+        "schema_matches": schema_matches,
         "integrity_check": integrity,
     }
 

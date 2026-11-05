@@ -140,7 +140,7 @@ Auf `phase/15-6f-isolated-staging-parity` wird der Staging-Vertrag durch `pulse_
 - Die Datei wird mit privaten Rechten (POSIX `0600`), SQLite-Rollback-Journal und `synchronous=FULL` angelegt.
 - Tabellenanlage, Metadaten und Datensätze laufen in einer einzigen SQLite-Transaktion. Ein Fehler entfernt nur die durch diesen Aufruf neu erzeugte Staging-Datei samt SQLite-Nebendateien.
 - `application_records.payload_json` bewahrt den kompletten Datensatz einschließlich unbekannter Legacy-Felder. Unbekannte Statuswerte bleiben unverändert. Fehlende oder nicht als Text darstellbare optionale Projektionsfelder werden als `NULL` abgebildet; der Originalwert bleibt im Payload.
-- `verify_application_staging_database()` öffnet die Stage-Datei ausschließlich mit `mode=ro` und `query_only`. Es vergleicht IDs, vollständige kanonische Payloads, projizierte Felder, Quell-SHA-256, Generation/Revision, Schema-Version und `PRAGMA integrity_check`.
+- `verify_application_staging_database()` öffnet die Stage-Datei ausschließlich mit `mode=ro` und `query_only`. Es vergleicht IDs, vollständige kanonische Payloads, projizierte Felder, Quell-SHA-256, Generation/Revision, die erwarteten Tabellen-/Indexnamen und -spalten, Schema-Version und `PRAGMA integrity_check`.
 - Der Bericht enthält ausschließlich aggregierte Werte und Prüfflags, keine Bewerbungs-IDs, Discord-IDs, Namen, Antworten oder Notizen.
 
 Neue synthetische Tests in `tests/test_application_staging.py` prüfen Payload-Parität, Legacy-/unbekannte Statuswerte, Dateirechte, Read-only-Verifikation, beschädigte Payloads, ungültige Datensätze, Zielpfadschutz, Nichtüberschreiben und Fehlerbereinigung.
