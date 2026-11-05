@@ -266,7 +266,7 @@ def verify_application_staging_database(
             ).fetchall()
             schema_objects = {(row[0], row[1]) for row in schema_rows}
             actual_schema_sql = {
-                row[1]: re.sub(r"\\s+", " ", str(row[2] or "")).strip().lower()
+                row[1]: re.sub(r"\s+", " ", str(row[2] or "")).strip().lower()
                 for row in schema_rows
             }
             expected_objects = {
@@ -303,7 +303,7 @@ def verify_application_staging_database(
                 ),
             }
             expected_schema_sql = {
-                name: re.sub(r"\\s+", " ", sql).strip().lower()
+                name: re.sub(r"\s+", " ", sql).strip().lower()
                 for name, sql in expected_schema_sql.items()
             }
             expected_columns = {
