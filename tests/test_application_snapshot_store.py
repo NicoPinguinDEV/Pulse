@@ -67,6 +67,19 @@ class SnapshotManagerTests(unittest.TestCase):
         with self.assertRaises(ApplicationSnapshotConflict):
             reopened.create_snapshot(purpose="duplicate", snapshot_id="snapshot-fixed")
 
+    def test_parallel_snapshot_creation_uses_unique_monotonic_sequences(self):
+        def create(index):
+            return self.manager.create_snapshot(purpose=f"parallel-{index}")["snapshot_sequence"]
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            sequences = list(pool.map(create, range(18)))
+        self.assertEqual(sorted(sequences), list(range(1, 19)))
+        reopened = PersistentApplicationSnapshotManager(
+            self.repository, connect_factory=self._connect
+        )
+        self.assertEqual(reopened.state()["snapshot_sequence"], 18)
+        self.assertEqual(reopened.state()["revision"], 0)
+
     def test_snapshot_export_rechecks_persisted_payload_integrity(self):
         saved = self.manager.create_snapshot(snapshot_id="tamper-me")
         with self._connect() as db:
