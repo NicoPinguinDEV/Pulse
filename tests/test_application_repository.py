@@ -11,6 +11,7 @@ from typing import Any
 from unittest.mock import patch
 
 from pulse_applications_repository import (
+    ApplicationRepositoryConflict,
     ApplicationRepositoryError,
     JsonApplicationRepository,
 )
@@ -151,6 +152,92 @@ class JsonApplicationRepositoryTests(unittest.TestCase):
     def test_snapshot_requires_an_existing_explicit_json_file(self):
         with self.assertRaises(FileNotFoundError):
             self.repository.snapshot()
+
+
+    def test_update_entry_preserves_concurrent_fields_and_merges_history(self):
+        self.repository.save({
+            "app": {
+                "status": "pending",
+                "name": "Synthetic Applicant",
+                "decision_reason": "",
+                "reviews": {"reviewer_a": {"notes": "original"}},
+                "history": [{"event": "created"}],
+            }
+        })
+        before = self.repository.load({})
+        updated = json.loads(json.dumps(before))
+        updated["app"]["status"] = "interview"
+        updated["app"]["decision_reason"] = "synthetic reason"
+        updated["app"]["history"].append({"event": "decision"})
+
+        # A review and history event land while Discord is processing the decision.
+        latest = self.repository.load({})
+        latest["app"]["reviews"]["reviewer_b"] = {"notes": "concurrent review"}
+        latest["app"]["history"].append({"event": "concurrent review"})
+        latest["app"]["concurrent_field"] = "keep me"
+        self.repository.save(latest)
+        writes_before_merge = self.write_count
+
+        self.repository.update_entry(
+            "app",
+            expected_status="pending",
+            before=before["app"],
+            updated=updated["app"],
+        )
+
+        result = self.repository.load({})["app"]
+        self.assertEqual(result["status"], "interview")
+        self.assertEqual(result["decision_reason"], "synthetic reason")
+        self.assertEqual(result["reviews"]["reviewer_a"]["notes"], "original")
+        self.assertEqual(result["reviews"]["reviewer_b"]["notes"], "concurrent review")
+        self.assertEqual(result["concurrent_field"], "keep me")
+        self.assertEqual(
+            result["history"],
+            [
+                {"event": "created"},
+                {"event": "concurrent review"},
+                {"event": "decision"},
+            ],
+        )
+        self.assertEqual(self.write_count, writes_before_merge + 1)
+
+    def test_update_entry_rejects_a_stale_status_without_writing(self):
+        self.repository.save({"app": {"status": "pending", "name": "Synthetic"}})
+        before = self.repository.load({})
+        updated = json.loads(json.dumps(before))
+        updated["app"]["status"] = "interview"
+
+        latest = self.repository.load({})
+        latest["app"]["status"] = "rejected"
+        self.repository.save(latest)
+        writes_before_conflict = self.write_count
+
+        with self.assertRaises(ApplicationRepositoryConflict):
+            self.repository.update_entry(
+                "app",
+                expected_status="pending",
+                before=before["app"],
+                updated=updated["app"],
+            )
+
+        self.assertEqual(self.repository.load({})["app"]["status"], "rejected")
+        self.assertEqual(self.write_count, writes_before_conflict)
+
+    def test_update_entry_rejects_a_deleted_application(self):
+        self.repository.save({"app": {"status": "pending"}})
+        before = self.repository.load({})
+        updated = json.loads(json.dumps(before))
+        updated["app"]["status"] = "interview"
+        self.repository.save({})
+
+        with self.assertRaises(ApplicationRepositoryConflict):
+            self.repository.update_entry(
+                "app",
+                expected_status="pending",
+                before=before["app"],
+                updated=updated["app"],
+            )
+        self.assertEqual(self.repository.load({}), {})
 
     def test_webserver_helpers_delegate_to_the_lazy_application_repository(self):
         import webserver as ws
