@@ -107,7 +107,7 @@ class PersistentApplicationSnapshotManager:
                 schema_version INTEGER NOT NULL,
                 generation INTEGER NOT NULL CHECK (generation >= 0),
                 revision INTEGER NOT NULL CHECK (revision >= 0),
-                snapshot_sequence INTEGER NOT NULL UNIQUE CHECK (snapshot_sequence > 0),
+                snapshot_sequence INTEGER NOT NULL CHECK (snapshot_sequence > 0),
                 sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
                 record_count INTEGER NOT NULL CHECK (record_count >= 0),
                 payload_bytes INTEGER NOT NULL CHECK (payload_bytes >= 0),
@@ -145,6 +145,37 @@ class PersistentApplicationSnapshotManager:
                (singleton, generation, revision, snapshot_sequence, active_operation_id, updated_at)
                VALUES (1, 0, 0, 0, NULL, ?)""",
             (_now(),),
+        )
+        # Idempotent upgrade for a partially initialized pre-sequence schema.
+        state_columns = {str(row[1]) for row in db.execute(
+            "PRAGMA table_info(application_snapshot_state)"
+        ).fetchall()}
+        if "snapshot_sequence" not in state_columns:
+            db.execute(
+                "ALTER TABLE application_snapshot_state ADD COLUMN snapshot_sequence INTEGER NOT NULL DEFAULT 0"
+            )
+        snapshot_columns = {str(row[1]) for row in db.execute(
+            "PRAGMA table_info(application_snapshots)"
+        ).fetchall()}
+        if "snapshot_sequence" not in snapshot_columns:
+            db.execute(
+                "ALTER TABLE application_snapshots ADD COLUMN snapshot_sequence INTEGER NOT NULL DEFAULT 0"
+            )
+            existing = db.execute(
+                "SELECT snapshot_id FROM application_snapshots ORDER BY created_at,snapshot_id"
+            ).fetchall()
+            for sequence, row in enumerate(existing, start=1):
+                db.execute(
+                    "UPDATE application_snapshots SET snapshot_sequence=? WHERE snapshot_id=?",
+                    (sequence, str(row[0])),
+                )
+            db.execute(
+                "UPDATE application_snapshot_state SET snapshot_sequence=? WHERE singleton=1",
+                (len(existing),),
+            )
+        db.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_application_snapshots_sequence
+               ON application_snapshots(snapshot_sequence)"""
         )
 
     @staticmethod
