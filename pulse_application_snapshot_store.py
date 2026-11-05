@@ -140,13 +140,6 @@ class PersistentApplicationSnapshotManager:
                 ON application_snapshot_journal(state, created_at);
             """
         )
-        db.execute(
-            """INSERT OR IGNORE INTO application_snapshot_state
-               (singleton, generation, revision, snapshot_sequence, active_operation_id, updated_at)
-               VALUES (1, 0, 0, 0, NULL, ?)""",
-            (_now(),),
-        )
-        # Idempotent upgrade for a partially initialized pre-sequence schema.
         state_columns = {str(row[1]) for row in db.execute(
             "PRAGMA table_info(application_snapshot_state)"
         ).fetchall()}
@@ -154,13 +147,23 @@ class PersistentApplicationSnapshotManager:
             db.execute(
                 "ALTER TABLE application_snapshot_state ADD COLUMN snapshot_sequence INTEGER NOT NULL DEFAULT 0"
             )
+
         snapshot_columns = {str(row[1]) for row in db.execute(
             "PRAGMA table_info(application_snapshots)"
         ).fetchall()}
-        if "snapshot_sequence" not in snapshot_columns:
+        snapshot_sequence_added = "snapshot_sequence" not in snapshot_columns
+        if snapshot_sequence_added:
             db.execute(
                 "ALTER TABLE application_snapshots ADD COLUMN snapshot_sequence INTEGER NOT NULL DEFAULT 0"
             )
+
+        db.execute(
+            """INSERT OR IGNORE INTO application_snapshot_state
+               (singleton, generation, revision, snapshot_sequence, active_operation_id, updated_at)
+               VALUES (1, 0, 0, 0, NULL, ?)""",
+            (_now(),),
+        )
+        if snapshot_sequence_added:
             existing = db.execute(
                 "SELECT snapshot_id FROM application_snapshots ORDER BY created_at,snapshot_id"
             ).fetchall()
