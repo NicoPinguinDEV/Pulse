@@ -505,8 +505,15 @@ def privacy_notice_html(esc) -> str:
     """Notice for /apply: which data, purpose, who, how long, contact."""
     settings = load_settings()
     months = round(settings["applications_days"] / 30.4)
-    keep = (f"Nach der Entscheidung wird deine Bewerbung nach etwa {months} Monaten automatisch gelöscht."
-            if settings["enabled"] else "Abgeschlossene Bewerbungen werden von der Leitung regelmäßig gelöscht.")
+    if not RETENTION_MUTATIONS_ENABLED:
+        keep = (
+            "Eine automatische Löschung abgeschlossener Bewerbungen ist derzeit nicht aktiviert. "
+            "Aufbewahrung und Löschanfragen werden bis zur abgeschlossenen Datenschutzprüfung durch die Leitung geprüft."
+        )
+    elif settings["enabled"]:
+        keep = f"Nach der Entscheidung wird deine Bewerbung nach etwa {months} Monaten automatisch gelöscht."
+    else:
+        keep = "Abgeschlossene Bewerbungen werden nicht automatisch gelöscht; wende dich bei Fragen an die Leitung."
     contact = settings["contact"] or "die Serverleitung über ein Support-Ticket"
     ai = (" Hinweis: Auf dem Discord-Server ist eine KI-gestützte Moderation aktiv; sie liefert nur Verdachtsfälle, "
           "Entscheidungen trifft immer ein Mensch.") if str(os.getenv("PULSE_AI_MODERATION_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"} else ""
