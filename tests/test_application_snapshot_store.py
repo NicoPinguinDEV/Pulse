@@ -182,6 +182,26 @@ class SnapshotManagerTests(unittest.TestCase):
         self.assertFalse(self.manager.state()["recovery_required"])
         self.assertEqual(self.manager.list_journal()[0]["state"], "rolled_back")
 
+    def test_file_change_between_journal_and_replace_is_never_overwritten(self):
+        incoming = self._json({
+            "app-old": {"status": "legacy", "unknown_field": {"keep": True}},
+            "app-new": {"status": "pending"},
+        })
+        preview = self.manager.preview_import(incoming)
+        external = b'{"external-writer":{"status":"pending"}}'
+        original_set_state = self.manager._set_journal_state
+
+        def concurrent_change(operation_id, state):
+            original_set_state(operation_id, state)
+            self.app_path.write_bytes(external)
+
+        with patch.object(self.manager, "_set_journal_state", side_effect=concurrent_change):
+            with self.assertRaises(ApplicationSnapshotNeedsRecovery):
+                self.manager.apply_import(incoming, preview)
+        self.assertEqual(self.app_path.read_bytes(), external)
+        self.assertTrue(self.manager.state()["recovery_required"])
+        self.assertEqual(self.manager.list_journal()[0]["state"], "needs_recovery")
+
     def test_recovery_finalizes_a_complete_file_written_before_journal_commit(self):
         incoming = self._json({
             "app-old": {"status": "legacy", "unknown_field": {"keep": True}},
