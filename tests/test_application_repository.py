@@ -201,6 +201,43 @@ class JsonApplicationRepositoryTests(unittest.TestCase):
         )
         self.assertEqual(self.write_count, writes_before_merge + 1)
 
+    def test_update_entry_preserves_a_new_application_submitted_concurrently(self):
+        self.repository.save({
+            "app": {"status": "pending", "decision_reason": ""},
+        })
+        before = self.repository.load({})
+        updated = json.loads(json.dumps(before))
+        updated["app"]["status"] = "interview"
+        updated["app"]["decision_reason"] = "synthetic reason"
+
+        # A separate submission is persisted while the decision waits on Discord.
+        latest = self.repository.load({})
+        latest["new-app"] = {
+            "status": "pending",
+            "name": "Concurrent Synthetic Applicant",
+        }
+        self.repository.save(latest)
+        writes_before_merge = self.write_count
+
+        self.repository.update_entry(
+            "app",
+            expected_status="pending",
+            before=before["app"],
+            updated=updated["app"],
+        )
+
+        result = self.repository.load({})
+        self.assertEqual(result["app"]["status"], "interview")
+        self.assertEqual(result["app"]["decision_reason"], "synthetic reason")
+        self.assertEqual(
+            result["new-app"],
+            {
+                "status": "pending",
+                "name": "Concurrent Synthetic Applicant",
+            },
+        )
+        self.assertEqual(self.write_count, writes_before_merge + 1)
+
     def test_update_entry_rejects_a_stale_status_without_writing(self):
         self.repository.save({"app": {"status": "pending", "name": "Synthetic"}})
         before = self.repository.load({})
