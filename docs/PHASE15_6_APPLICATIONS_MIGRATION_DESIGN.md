@@ -1,8 +1,8 @@
 # Phase 15.6 – Bewerbungsdaten: Versionierung, Referenzen und Migration
 
-**Status (05.11.2026):** 15.6a (PR #136), 15.6b (PR #140) und 15.6c (PR #143) abgeschlossen · 15.6d: Snapshot-Vertrag aus PR #144 gemergt; JSON-Repository-Adapter in Feature-PR in Prüfung · keine Produktivmigration  
+**Status (05.11.2026):** 15.6a (PR #136), 15.6b (PR #140) und 15.6c (PR #143) abgeschlossen · 15.6d: Snapshot-Vertrag aus PR #144 und JSON-Repository-Adapter aus PR #145 gemergt; konfliktarme Entscheidungsupdates in PR #146 in Prüfung · keine Produktivmigration  
 **Codebasis der Read-only-Inventur 15.6a:** `main` @ `e7311e7b9bb3fb90706629eaf0fabe2086e4782d` (nach PR #136)  
-**Aktueller main-Stand bei Branch-Erstellung:** `149b9ad60a6a827bfcdc92d5b57d9829ddc9afc3` (nach PR #144)  
+**Aktueller main-Stand bei Branch-Erstellung:** `d635b8038486ee719bad2a14a5c850da61dac8ae` (nach PR #145)  
 **Datum:** 05.11.2026  
 **Nachverfolgung:** [Issue #134](https://github.com/NicoPinguinDEV/Pulse/issues/134)
 
@@ -154,11 +154,18 @@ pulse_application_import.py ist ein reiner, nebenwirkungsfreier Vorabvertrag fü
 
 Der Snapshot-Vertrag bleibt eine reine Validierungs- und Byte-Paritätskomponente; er erstellt selbst keine Dateien/Tabellen und führt keinen Import aus. Der JSON-Repository-Adapter wird separat mit PR #145 integriert. Ein reproduzierbarer Import-/Snapshot-/Rollback-Ablauf und jede produktive Backend-Umschaltung benötigen weiterhin eigene Tests und Freigaben.
 
-### 4.3 JSON-Repository-Adapter (Feature-Branch)
+### 4.3 JSON-Repository-Adapter (PR #145, gemergt)
 
-Der Branch `phase/15-6d-json-repository-adapter` ergänzt `pulse_applications_repository.py`. Der Adapter kapselt die bestehende Mapping-API und delegiert Dateizugriffe an die vorhandenen JSON-Sicherheitshelfer. `webserver.load_json` und `webserver.save_json` leiten Zugriffe auf `APPS_FILE` verzögert an ihn weiter; alle anderen JSON-Dateien bleiben unverändert. `mutate()` bietet eine gemeinsame synchrone Read-Modify-Write-Grenze unter demselben `_io_lock`. Snapshot und Importvorschau bleiben reine Validierungs-/Exportoperationen und schreiben nichts.
+`pulse_applications_repository.py` kapselt die bestehende Mapping-API und delegiert Dateioperationen an die vorhandenen JSON-Sicherheitshelfer. `webserver.load_json` und `webserver.save_json` leiten Zugriffe auf `APPS_FILE` verzögert an den Adapter weiter; alle anderen JSON-Dateien bleiben unverändert. `mutate()` bietet eine gemeinsame synchrone Read-Modify-Write-Grenze unter demselben `_io_lock`. Snapshot und Importvorschau bleiben reine Validierungs-/Exportoperationen und schreiben nichts.
 
-Der Adapter ist im Feature-Branch noch nicht gemergt und migriert nicht automatisch alle einzelnen Schreibabläufe auf `mutate()`. Persistente Snapshots, Importausführung, Rollback, SQLite und Produktionsmigration sind weiterhin offen. Der aktuelle PR ist damit ein Adapter-Schritt innerhalb von 15.6d, kein Abschluss der gesamten Teilphase.
+Der Adapter ändert das aktive JSON-Format nicht. Persistente Snapshots, Importausführung, Rollback, SQLite und Produktionsmigration bleiben offen.
+
+### 4.4 Konfliktarme Einstellungs- und Entscheidungsupdates (PR #146)
+
+`update_entry()` übernimmt nur die Felder, die ein Entscheidungsablauf gegenüber seinem ursprünglichen Datensatz verändert hat. Gleichzeitig geschriebene Reviews, Votes, Reminder-Felder und andere unabhängige Felder bleiben bestehen; neue Verlaufseinträge werden an den aktuellen Verlauf angefügt. Wenn der Status während eines externen Discord-Ablaufs geändert wurde oder die Bewerbung nicht mehr existiert, wird ein Konflikt ausgelöst statt einen neueren Datensatz zu überschreiben.
+
+Der Discord-Entscheidungsablauf und die Suite-Endpunkte für Status-/Interviewänderungen teilen einen Prozess-Lock. Damit können nicht zwei Einstellungsentscheidungen parallel dieselbe Bewerbungsakte und Rollenfolge abarbeiten. Der Lock ersetzt keine verteilte Sperre für mehrere Anwendungsprozesse; Pulse muss dafür weiterhin als einzelner aktiver Schreiber betrieben werden. Der PR ist zum Stand dieses Entwurfs noch in CI/Review.
+
 
 ## 5. Abnahmekriterien
 
