@@ -292,7 +292,7 @@ class RetentionTests(unittest.TestCase):
         with patch.object(ws, "log_audit", lambda *a, **k: None):
             report = pulse_retention.run(ws, self.now)
         self.assertFalse(report["ran"])
-        self.assertIn("referenzsichere Phase 15.6e gesperrt", report["reason"])
+        self.assertIn("referenzsicheren Phase 15.6e gesperrt", report["reason"])
         self.assertEqual(len(ws.load_json(ws.APPS_FILE, {})), 3)
 
     def test_cleanup_is_fail_closed_until_linked_recovery_is_approved(self):
@@ -303,7 +303,7 @@ class RetentionTests(unittest.TestCase):
         before_audit = Path(ws.AUDIT_FILE).read_bytes()
         report = pulse_retention.run(ws, __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
         self.assertFalse(report["ran"])
-        self.assertIn("referenzsichere Phase 15.6e gesperrt", report["reason"])
+        self.assertIn("referenzsicheren Phase 15.6e gesperrt", report["reason"])
         self.assertEqual(Path(ws.APPS_FILE).read_bytes(), before_apps)
         self.assertEqual(Path(ws.AUDIT_FILE).read_bytes(), before_audit)
         self.assertEqual(sorted(ws.load_json(ws.APPS_FILE, {})), ["alt_abgelehnt", "alt_offen", "neu"])
@@ -322,7 +322,7 @@ class RetentionTests(unittest.TestCase):
         with patch.object(ws, "save_json", side_effect=ws.JsonWriteBlocked("gesperrt")) as writer:
             report = pulse_retention.run(ws, __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
         self.assertFalse(report["ran"])
-        self.assertIn("referenzsichere Phase 15.6e gesperrt", report["reason"])
+        self.assertIn("referenzsicheren Phase 15.6e gesperrt", report["reason"])
         writer.assert_not_called()
         self.assertFalse(pulse_retention.due_today())
 
