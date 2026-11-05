@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -169,7 +170,7 @@ def plan_linked_retention(ws, settings: dict | None = None, now: datetime | None
 
     suite_path = Path(ws.DATA_DIR) / "pulse_suite.db"
     try:
-        with _read_only_connection(suite_path) as connection:
+        with closing(_read_only_connection(suite_path)) as connection:
             tables = {
                 str(row[0]) for row in connection.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
@@ -209,7 +210,7 @@ def plan_linked_retention(ws, settings: dict | None = None, now: datetime | None
 
     pulse_path = Path(ws.DATA_DIR) / "pulse.db"
     try:
-        with _read_only_connection(pulse_path) as connection:
+        with closing(_read_only_connection(pulse_path)) as connection:
             tables = {
                 str(row[0]) for row in connection.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
