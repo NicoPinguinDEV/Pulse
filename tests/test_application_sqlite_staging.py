@@ -25,7 +25,7 @@ class ApplicationSQLiteStagingTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.source = (
             b'{\n'
-            b'  "app_1": {"user_id":"111", "status":"rejected", "text":"Gr\\xc3\\xbc\\xc3\\x9fe", '
+            b'  "app_1": {"user_id":"111", "status":"rejected", "text":"Gr\\u00fc\\u00dfe", '
             b'"unknown":{"keep":[1,true,null]}},\n'
             b'  "app_2": {"user_id":"222", "status":"legacy_custom", "created_at":"2026-11-01T10:00:00Z"},\n'
             b'  "app_3": {"status": "pending"}\n'
@@ -97,7 +97,7 @@ class ApplicationSQLiteStagingTests(unittest.TestCase):
 
     def test_invalid_payloads_are_rejected_before_a_stage_file_is_created(self):
         invalid_payloads = (
-            b"\\xff",
+            bytes([0xff]),
             b'{"app": {"status":"pending"}, "app": {"status":"hired"}}',
             b"[]",
             b'{"app": "not-an-object"}',
