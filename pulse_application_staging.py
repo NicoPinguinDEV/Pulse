@@ -47,7 +47,7 @@ def _records_from_snapshot(snapshot: ApplicationImportSnapshot) -> dict[str, dic
 
     validated: dict[str, dict[str, Any]] = {}
     for application_id, record in records.items():
-        if not isinstance(application_id, str) or not application_id.strip():
+        if not isinstance(application_id, str) or not application_id.strip() or "\\x00" in application_id:
             raise ApplicationStagingError("source contains an empty or invalid application id")
         if not isinstance(record, dict):
             raise ApplicationStagingError("source contains a non-object application record")
@@ -153,7 +153,7 @@ def create_application_staging_database(
         raise ApplicationStagingError(
             "staging target already exists; refusing to overwrite"
         ) from exc
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise ApplicationStagingError("staging target could not be created safely") from exc
 
     os.close(descriptor)

@@ -26,7 +26,7 @@ CREATE TABLE application_records (
     status TEXT,
     created_at TEXT,
     updated_at TEXT,
-    schema_version INTEGER NOT NULL,
+    record_schema_version INTEGER NOT NULL,
     payload_json TEXT NOT NULL
 );
 
@@ -35,7 +35,18 @@ CREATE INDEX idx_application_records_user
 
 CREATE INDEX idx_application_records_status_updated
     ON application_records(status, updated_at);
+
+CREATE TABLE application_staging_meta (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    schema_version INTEGER NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    source_generation INTEGER NOT NULL,
+    source_revision INTEGER NOT NULL,
+    source_record_count INTEGER NOT NULL
+);
 ```
+
+Die Staging-Implementierung hält den globalen Migrations-/Quell-Snapshot-Stand in `application_staging_meta`. `record_schema_version` markiert die Projektion jeder Zeile. Ein fehlender oder nicht-textueller Status bleibt im Payload erhalten und wird in der optionalen Indexspalte als `NULL` abgebildet.
 
 Regeln:
 - `payload_json` enthält jeden Datensatz inklusive unbekannter Alt-Felder.

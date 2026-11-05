@@ -108,6 +108,12 @@ class ApplicationStagingTests(unittest.TestCase):
             create_application_staging_database(invalid, self.target)
         self.assertFalse(self.target.exists())
 
+    def test_invalid_os_path_is_rejected_without_creating_artifacts(self):
+        invalid_target = str(self.root / "bad\\x00.staging.sqlite3")
+        with self.assertRaises(ApplicationStagingError):
+            create_application_staging_database(self.snapshot, invalid_target)
+        self.assertEqual(list(self.root.iterdir()), [])
+
     def test_existing_file_is_never_overwritten(self):
         self.target.write_bytes(b"do-not-touch")
         with self.assertRaisesRegex(ApplicationStagingError, "already exists"):
