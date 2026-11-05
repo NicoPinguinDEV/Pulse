@@ -2,7 +2,7 @@
 
 **Strategische Entwicklungsplanung für Discord-Bot und Web-Dashboard · © BOCHUM RP | V1**  
 **Stand:** 05.11.2026  
-**Verbindliche Ausgangsbasis bei Branch-Erstellung:** main @ `385e235978f976df361ecc75bb1597e6995684e4` (Merge PR #147; Stand 05.11.2026)  
+**Verbindliche Ausgangsbasis bei Branch-Erstellung:** main @ `2f57f717c5a219c50685ab8a94837fb684c5249e` (Merge PR #148; Stand 05.11.2026)  
 **Produktionsumgebung:** Ubuntu 24.04 · 2 vCores · 2 GB RAM · 50 GB SSD
 
 > Diese Roadmap beschreibt die langfristige Richtung und die Reihenfolge der nächsten Entwicklungsblöcke. Sie ersetzt nicht die technischen Einzelnachweise in den Phasenberichten und nicht die verbindlichen Sicherheitsregeln aus CLAUDE.md. Der detaillierte Alt-Aufgabenbestand bleibt in VERBESSERUNGSPLAN.md; vorhandene Funktionen werden vor jeder Umsetzung im aktuellen Code geprüft.
@@ -84,7 +84,7 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 
 ### Phase 15 – Datenhaltung, Datenintegrität und Wachstum
 
-**Priorität:** P0 · **Status:** 15.4 und 15.5 abgeschlossen; 15.6a (PR #136) und 15.6b (PR #140) abgeschlossen; 15.6c mit PR #143 gemergt; 15.6d begonnen mit einem isolierten, unveränderlichen JSON-Import-Snapshot-Vertrag · **Abhängigkeit:** offene Produktentscheidungen zu Status-/Aufbewahrungsregeln bleiben vor 15.6e/15.6f zu klären
+**Priorität:** P0 · **Status:** 15.4/15.5 und 15.6a–15.6d abgeschlossen; 15.6e mit PR #148 gemergt; 15.6f mit isoliertem SQLite-Staging-/Paritätsbaustein auf Feature-Branch begonnen · **Abhängigkeit:** Staging-Review, Referenz-/Backup-Nachweise und separater Cutover-Entscheid
 
 **Ziel:** Wachsende Dateien sicher behandeln und Datenmigrationen nachvollziehbar, messbar und rückgängig machbar durchführen.
 
@@ -97,7 +97,7 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 | 15.4a | Melonly 100K: Cache, Indizes, SQLite-Abfragen und speicherschonender Export | Code in PR #128 gemergt. JSON bleibt Produktiv-Backend; keine automatische Migration oder Umschaltung. |
 | 15.4b | Melonly 100K: Performance-Nachweis | 20K-/100K-Benchmark mit drei Wiederholungen und bestandenen Paritätsprüfungen dokumentiert: [PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md](PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md). Messwerte stammen vom GitHub-Runner, nicht vom VPS. |
 | 15.5 | Datenintegrität und Wiederherstellung | **Abgeschlossen 04.11.2026.** Manueller [100K-Backup-/Restore-Rehearsal #41817023415](https://github.com/NicoPinguinDEV/Pulse/actions/runs/41817023415) auf `main`: Backup-Prüfung, isolierter und vollständiger Restore, SQLite-Integrität, Metadaten, Parität und JSON-Rückexport bestanden. Prozessabbruch-Test in CI #41437223612 (1.472 Tests, 19 Skips) bestanden. Messwerte und Aussagegrenzen: [PHASE15_5_DATA_INTEGRITY_RESTORE.md](PHASE15_5_DATA_INTEGRITY_RESTORE.md). Kein Produktions-VPS-Restore. |
-| 15.6 | Bewerbungsdaten: Referenzen, Datenschutz und Migration | 15.6a (#136), 15.6b (#140), 15.6c (#143) und 15.6d (#147) sind gemergt. PR #147 enthält persistente JSON-Snapshots, Import-Dry-Run, guarded Apply/Restore/Rollback und Recovery-Journal; CI war grün, Performance-Pfadjob bewusst übersprungen. 15.6e wird auf Feature-Branch bearbeitet: Bewerber-/Interviewer-/Kalender-/Audit-Exportreferenzen, read-only Cross-Store-Preview und hard fail-closed für Retention. 15.6f ist nur als Staging-/Paritäts- und Rollback-Vorbereitung dokumentiert; kein Backend-Cutover. |
+| 15.6 | Bewerbungsdaten: Referenzen, Datenschutz und Migration | 15.6a (#136), 15.6b (#140), 15.6c (#143) und 15.6d (#147) sind gemergt. PR #148 hat 15.6e mit Bewerber-/Interviewer-/Kalender-/Audit-Exportreferenzen, read-only Cross-Store-Audit und hard fail-closed Retention gemergt. 15.6f ergänzt aktuell ausschließlich einen isolierten Staging-SQLite-Import mit vollständigem Payload und read-only Paritätsprüfung; PR/CI/Review stehen aus. Keine Backend-Umschaltung, keine Produktivmigration. |
 | 15.7 | Weitere JSON-/SQLite-Dateien bewerten | Kleine Datenbanken werden einzeln bewertet. Eine Zusammenführung erfolgt nur, wenn Eigentümerschaft, Tabellenkollisionen, Backup und Rückweg geklärt sind. |
 
 **Separater Betriebsschritt – Schichthistorie aktivieren:** Die Umschaltung von PULSE_SHIFT_HISTORY_BACKEND auf sqlite ist kein automatischer Teil dieser Codephase. Erst nach geprüftem Backup, dokumentiertem Status und ausdrücklicher Freigabe darf sie auf dem VPS erfolgen. Der Rückweg auf JSON muss genauso dokumentiert bleiben.
@@ -327,9 +327,9 @@ Eine Phase gilt erst als abgeschlossen, wenn alle zutreffenden Punkte erfüllt s
 
 ## 9. Aktueller nächster Entwicklungsschritt
 
-PR #147 ist auf `main` gemergt und hat Phase 15.6d mit persistenten Snapshots, Import-Dry-Run, Restore/Rollback und Recovery-Journal ergänzt. Der aktuelle Merge-Commit dieser Roadmap ist `385e235978f976df361ecc75bb1597e6995684e4`.
+PR #148 ist auf `main` gemergt und hat Phase 15.6e mit erweitertem Datenschutzexport, Read-only-Referenzaudit und Fail-Closed-Retention abgeschlossen. Die aktuelle Branch-Basis ist `2f57f717c5a219c50685ab8a94837fb684c5249e`.
 
-Der nächste aktive Block ist Phase 15.6e: Datenschutzexport, strukturierte Cross-Store-Referenzen, Statusschutz und ausschließlich synthetische Retention-Preview-Tests. Automatische Retention bleibt fail-closed. Anschließend ist Phase 15.6f zunächst eine reine Staging-/Paritätsvorbereitung; eine Produktivmigration benötigt einen eigenen PR und eine separate ausdrückliche Freigabe.
+Der aktive Block ist Phase 15.6f. Der erste technische Schritt erstellt ausschließlich aus explizit übergebenen Snapshot-Bytes eine neue Datei mit der Endung `.staging.sqlite3`, speichert vollständige Bewerbungs-Payloads und verifiziert IDs, Payloads, Projektionen, Snapshot-Metadaten und SQLite-Integrität read-only. Der Feature-Branch ist `phase/15-6f-isolated-staging-parity`; CI und unabhängiges Review stehen noch aus. JSON bleibt autoritativ; Backend-Cutover, Produktivmigration und Retention bleiben gesperrt.
 
 Phase 16–22 bleiben die nachfolgenden, bereits in Abschnitt 4 beschriebenen eigenständigen Entwicklungsphasen: Architektur, Security Center, Dashboard 2.0, Teamprozesse, Automatisierung, Analytics und Release-/Betriebsqualität. Sie werden nacheinander und jeweils mit eigenem Baseline-Audit, Feature-Branch, Regressionen, Review und PR umgesetzt; nicht als ungetesteter Sammelumbau.
 
