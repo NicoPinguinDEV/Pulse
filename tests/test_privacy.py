@@ -508,6 +508,14 @@ class RetentionTests(unittest.TestCase):
         self.assertIn("dashboard_login_ip_audit", _json.loads(export.text))
         import pulse_retention
         self.assertIn("Leitung per Ticket", pulse_retention.privacy_notice_html(ws.esc))
+        self.assertIn(
+            "Eine automatische Löschung abgeschlossener Bewerbungen ist derzeit nicht aktiviert",
+            pulse_retention.privacy_notice_html(ws.esc),
+        )
+        self.assertNotIn(
+            "wird deine Bewerbung nach etwa 6 Monaten automatisch gelöscht",
+            pulse_retention.privacy_notice_html(ws.esc),
+        )
 
 
 if __name__ == "__main__":
