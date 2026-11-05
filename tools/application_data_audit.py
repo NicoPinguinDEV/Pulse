@@ -173,9 +173,7 @@ def _suite_interviews(path: str | Path | None) -> dict[str, Any]:
                 applicants_by_application[application_id].add(applicant_id)
         else:
             rows_without_application_id += 1
-        if applicant_id:
-            pass
-        else:
+        if not applicant_id:
             rows_without_applicant_id += 1
         if interviewer_id:
             interviewers.add(interviewer_id)
