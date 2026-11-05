@@ -273,7 +273,7 @@ class PersistentApplicationSnapshotManager:
         ).fetchone()
         if row is None:
             raise ApplicationSnapshotError("snapshot does not exist")
-        payload = bytes(row[8])
+        payload = bytes(row[9])
         snapshot = ApplicationImportSnapshot(
             schema_version=int(row[2]),
             generation=int(row[3]),
