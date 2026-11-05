@@ -338,7 +338,9 @@ def _quote_identifier(value: str) -> str:
     return '"' + str(value).replace('"', '""') + '"'
 
 
-def _rows_for(path, uid: str, *, extra_values: dict[str, set[str]] | None = None) -> tuple[dict, list[str]]:
+def _rows_for(
+    path, uid: str, *, extra_values_by_table: dict[str, dict[str, set[str]]] | None = None
+) -> tuple[dict, list[str]]:
     """Return all matching rows and a per-table truncation list from one read-only DB."""
     out = {}
     truncated = []
@@ -355,7 +357,7 @@ def _rows_for(path, uid: str, *, extra_values: dict[str, set[str]] | None = None
             for column in matches:
                 clauses.append(f"CAST({_quote_identifier(column)} AS TEXT)=?")
                 params.append(uid)
-            for column, values in (extra_values or {}).items():
+            for column, values in (extra_values_by_table or {}).get(str(table), {}).items():
                 if column not in columns:
                     continue
                 clean = sorted({str(value) for value in values if str(value)})
@@ -464,16 +466,16 @@ def export_person(ws, discord_id: str) -> dict:
         path = pulse_backup.sqlite_path(ws.DATA_DIR, name)
         if not path.is_file():
             continue
-        extras: dict[str, set[str]] = {}
+        extras: dict[str, dict[str, set[str]]] = {}
         if name == "pulse_suite.db":
             extras = {
-                "application_id": application_ids,
-                "target_id": application_ids,
+                "suite_interviews": {"application_id": application_ids},
+                "suite_audit": {"target_id": application_ids},
             }
         elif name == "pulse.db":
-            extras = {"id": event_ids}
+            extras = {"calendar_events": {"id": event_ids}}
         try:
-            rows, truncated = _rows_for(path, uid, extra_values=extras)
+            rows, truncated = _rows_for(path, uid, extra_values_by_table=extras)
         except (sqlite3.Error, OSError) as exc:
             rows, truncated = {"_fehler": type(exc).__name__}, []
         if rows:
