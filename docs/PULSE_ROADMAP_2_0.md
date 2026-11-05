@@ -2,7 +2,7 @@
 
 **Strategische Entwicklungsplanung für Discord-Bot und Web-Dashboard · © BOCHUM RP | V1**  
 **Stand:** 05.11.2026  
-**Verbindliche Ausgangsbasis:** main @ `bf62017ab4ea992d183ac1ba521ab71e0ee5a0ed` (Merge PR #143; Stand 05.11.2026)  
+**Verbindliche Ausgangsbasis bei Branch-Erstellung:** main @ `d635b8038486ee719bad2a14a5c850da61dac8ae` (Merge PR #145; Stand 05.11.2026)  
 **Produktionsumgebung:** Ubuntu 24.04 · 2 vCores · 2 GB RAM · 50 GB SSD
 
 > Diese Roadmap beschreibt die langfristige Richtung und die Reihenfolge der nächsten Entwicklungsblöcke. Sie ersetzt nicht die technischen Einzelnachweise in den Phasenberichten und nicht die verbindlichen Sicherheitsregeln aus CLAUDE.md. Der detaillierte Alt-Aufgabenbestand bleibt in VERBESSERUNGSPLAN.md; vorhandene Funktionen werden vor jeder Umsetzung im aktuellen Code geprüft.
@@ -97,7 +97,7 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 | 15.4a | Melonly 100K: Cache, Indizes, SQLite-Abfragen und speicherschonender Export | Code in PR #128 gemergt. JSON bleibt Produktiv-Backend; keine automatische Migration oder Umschaltung. |
 | 15.4b | Melonly 100K: Performance-Nachweis | 20K-/100K-Benchmark mit drei Wiederholungen und bestandenen Paritätsprüfungen dokumentiert: [PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md](PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md). Messwerte stammen vom GitHub-Runner, nicht vom VPS. |
 | 15.5 | Datenintegrität und Wiederherstellung | **Abgeschlossen 04.11.2026.** Manueller [100K-Backup-/Restore-Rehearsal #41817023415](https://github.com/NicoPinguinDEV/Pulse/actions/runs/41817023415) auf `main`: Backup-Prüfung, isolierter und vollständiger Restore, SQLite-Integrität, Metadaten, Parität und JSON-Rückexport bestanden. Prozessabbruch-Test in CI #41437223612 (1.472 Tests, 19 Skips) bestanden. Messwerte und Aussagegrenzen: [PHASE15_5_DATA_INTEGRITY_RESTORE.md](PHASE15_5_DATA_INTEGRITY_RESTORE.md). Kein Produktions-VPS-Restore. |
-| 15.6 | applications.json: Migration in einer eigenen Teilphase | 15.6a Read-only-Inventur und Entwurf in PR #136 gemergt. 15.6b Daten-/Retention-Matrix in PR #140 gemergt. 15.6c minimiertes employment_event in PR #143 gemergt: vier bestätigte Einstiegspfade, Legacy-Fallback für Team seit, keine Retention oder Migration. 15.6d: Import-Snapshot-Vertrag mit SHA-256, Schema-Version, Generation/Revision und Byte-Parität in PR #144 gemergt; JSON-kompatibler Repository-Adapter, zentrale APPS_FILE load/save-Delegation, mutate()-API und synthetische Tests in PR #145 (CI/Review offen). Persistente Snapshots/Manifeste, Import-Dry-Run, Restore/Rollback und SQLite-Adapter bleiben offen. 15.6e Retention und 15.6f Produktivmigration sind nicht abgeschlossen; offene Status-/Aufbewahrungsentscheidungen bleiben davor zu klären. |
+| 15.6 | applications.json: Migration in einer eigenen Teilphase | 15.6a Read-only-Inventur und Entwurf in PR #136 gemergt. 15.6b Daten-/Retention-Matrix in PR #140 gemergt. 15.6c minimiertes employment_event in PR #143 gemergt: vier bestätigte Einstiegspfade, Legacy-Fallback für Team seit, keine Retention oder Migration. 15.6d: Import-Snapshot-Vertrag in PR #144 und JSON-Repository-Adapter mit zentraler APPS_FILE load/save-Delegation in PR #145 gemergt. PR #146 ergänzt konfliktarme Feldänderungen, History-Merge, Status-Konfliktschutz und einen gemeinsamen Lock über Discord-Entscheidungen sowie Recruiting-Statusänderungen; CI/Review offen. Persistente Snapshots/Manifeste, Import-Dry-Run, Restore/Rollback und SQLite-Adapter bleiben offen. 15.6e Retention und 15.6f Produktivmigration sind nicht abgeschlossen; offene Status-/Aufbewahrungsentscheidungen bleiben davor zu klären. |
 | 15.7 | Weitere JSON-/SQLite-Dateien bewerten | Kleine Datenbanken werden einzeln bewertet. Eine Zusammenführung erfolgt nur, wenn Eigentümerschaft, Tabellenkollisionen, Backup und Rückweg geklärt sind. |
 
 **Separater Betriebsschritt – Schichthistorie aktivieren:** Die Umschaltung von PULSE_SHIFT_HISTORY_BACKEND auf sqlite ist kein automatischer Teil dieser Codephase. Erst nach geprüftem Backup, dokumentiertem Status und ausdrücklicher Freigabe darf sie auf dem VPS erfolgen. Der Rückweg auf JSON muss genauso dokumentiert bleiben.
@@ -327,11 +327,11 @@ Eine Phase gilt erst als abgeschlossen, wenn alle zutreffenden Punkte erfüllt s
 
 ## 9. Aktueller nächster Entwicklungsschritt
 
-Phase 15.6c ist mit PR #143 und der reine Import-Snapshot-Vertrag mit PR #144 in main abgeschlossen. Der JSON-Repository-Adapter wird in [PR #145](https://github.com/NicoPinguinDEV/Pulse/pull/145) umgesetzt: zentrale, rückwärtskompatible load/save-Delegation für APPS_FILE sowie eine atomare mutate()-Schnittstelle. PR #145 ist noch offen; CI und Review entscheiden über die Freigabe.
+PR #145 hat den JSON-Repository-Adapter in main integriert. PR #146 sichert jetzt die nebenläufigen Bewerbungsentscheidungen gegen verlorene Änderungen: gezielte Feldzusammenführung, History-Merge, Status-Konfliktschutz und gemeinsame Serialisierung von Discord-Entscheidungen und Recruiting-Statusänderungen.
 
-Danach folgen getrennte Schritte für die Umstellung risikoreicher Schreibpfade auf mutate(), persistente Snapshot-/Manifest-Metadaten, Import-Dry-Run und Wiederherstellung mit synthetischen Daten. SQLite-Adapter und Backend-Umschaltung erhalten eigene Abnahmen. Kein automatischer Backfill alter accepted/hired-Datensätze, keine Retention-Änderung, Löschung/Anonymisierung oder Produktivmigration.
+Danach folgen persistente Snapshot-/Manifest-Metadaten, Import-Dry-Run, Wiederherstellung und Paritätsprüfungen mit synthetischen Daten. Erst nach separater Abnahme können SQLite-Adapter und Migration vorbereitet werden. Retention 15.6e und Produktivmigration 15.6f bleiben bis zur Klärung offener Datenschutz- und Statusentscheidungen gesperrt.
 
-Die Branch-Regeln für `main` sind unabhängig davon noch manuell in GitHub einzurichten (Issue #121). Der Deploy Pulse VPS-Workflow für den Merge von PR #144 meldete Erfolg, übersprang aber sämtliche eigentlichen Deploy-Schritte; damit ist kein VPS-Update aus diesem Lauf belegt.
+GitHub-Branch-Schutz für `main` bleibt manuell unter Settings → Rules → Rulesets einzurichten (Issue #121). Das Deploy-Gate überspringt die eigentlichen VPS-Schritte, solange `main` nicht nachweislich geschützt ist.
 ---
 
 **Leitlinie:** Pulse wird nicht durch möglichst viele parallele Baustellen professionell, sondern durch eine klare Reihenfolge, sichere Daten, verständliche Bedienung, konsequente Tests und kontrollierte Releases.
