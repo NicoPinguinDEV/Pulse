@@ -1,8 +1,8 @@
 # Phase 15.6f – Vorbereitung der kontrollierten SQLite-Migration
 
-**Status:** Architektur- und Freigabevorbereitung; keine Migration implementiert oder ausgeführt  
-**Aktueller main-Basisstand:** `385e235978f976df361ecc75bb1597e6995684e4`  
-**Voraussetzung:** Phase 15.6e muss fachlich, im Review und in CI abgeschlossen sein  
+**Status:** erster isolierter Staging-/Paritätsbaustein implementiert; PR/CI/Review ausstehend; keine Produktivmigration  
+**Aktueller main-Basisstand:** `2f57f717c5a219c50685ab8a94837fb684c5249e` (Merge PR #148)  
+**Voraussetzung:** Phase 15.6e ist gemergt; weitere fachliche und technische Freigaben bleiben für Cutover erforderlich  
 **Sicherheitsgrenze:** Kein Produktivdatenzugriff, kein Backfill, keine Backend-Umschaltung, keine Produktionsdatei-/Datenbankänderung, kein VPS und kein Discord.
 
 ## 1. Zweck und Ausgangspunkt
@@ -17,13 +17,13 @@ Die erste SQLite-Migration soll **nur die Bewerbungsakte** betreffen. `suite_int
 
 Das bereits im älteren Entwurf definierte Prinzip bleibt sinnvoll: vollständiger Anwendungsdatensatz bleibt als JSON-Payload erhalten; nur häufig benötigte Felder werden zusätzlich projiziert und indexiert.
 
-Vorgeschlagenes Schema:
+Vorgeschlagenes Schema (im isolierten Staging-Baustein umgesetzt; nur in einer neu angelegten Staging-Datei):
 
 ```sql
 CREATE TABLE application_records (
     application_id TEXT PRIMARY KEY,
     user_id TEXT,
-    status TEXT NOT NULL,
+    status TEXT,
     created_at TEXT,
     updated_at TEXT,
     schema_version INTEGER NOT NULL,
@@ -45,7 +45,7 @@ Regeln:
 - URLs, Formfelder, `custom_id`, Rechte, Discord-IDs, Formularantworten und Dashboard-Darstellungen bleiben kompatibel.
 - Snapshot-/Journal-Metadaten und Migrationsstatus müssen getrennt vom eigentlichen Bewerbungs-Payload geführt werden.
 
-Die Tabellen sind in dieser Vorbereitungsphase noch nicht angelegt.
+Die Tabellen werden ausschließlich durch den expliziten Staging-Aufruf in einer neu angelegten Datei erstellt. Sie werden weder in `pulse.db` noch in `pulse_suite.db` angelegt.
 
 ## 3. Migrationsablauf – verpflichtender späterer Vertrag
 
@@ -130,5 +130,21 @@ Vor einer Migrationsfreigabe müssen erfüllt sein:
 - keine Änderung der Bewerbungsformulare, URLs, custom_id oder Rechte;
 - keine Zusammenführung von `pulse.db` und `pulse_suite.db`;
 - kein VPS-Deployment und keine Discord-Aktion.
+
+## 7. Erste technische Umsetzung – isolierter Staging-Import
+
+Auf `phase/15-6f-isolated-staging-parity` wird der Staging-Vertrag durch `pulse_application_staging.py` implementiert. Die Implementierung ist ein Offline-Werkzeug und wird nicht vom Bot-Start, vom Dashboard oder von einem API-Endpunkt aufgerufen.
+
+- Eingang ist ausschließlich ein bereits verifizierter `ApplicationImportSnapshot`; das Werkzeug liest keine Quelldatei und ermittelt keinen Runtime-Pfad.
+- Ziel muss explizit angegeben sein, das Zielverzeichnis muss bereits existieren und der Dateiname muss auf `.staging.sqlite3` enden. Existierende Dateien werden mit exklusiver Dateierstellung abgelehnt und niemals überschrieben.
+- Die Datei wird mit privaten Rechten (POSIX `0600`), SQLite-Rollback-Journal und `synchronous=FULL` angelegt.
+- Tabellenanlage, Metadaten und Datensätze laufen in einer einzigen SQLite-Transaktion. Ein Fehler entfernt nur die durch diesen Aufruf neu erzeugte Staging-Datei samt SQLite-Nebendateien.
+- `application_records.payload_json` bewahrt den kompletten Datensatz einschließlich unbekannter Legacy-Felder. Unbekannte Statuswerte bleiben unverändert. Fehlende oder nicht als Text darstellbare optionale Projektionsfelder werden als `NULL` abgebildet; der Originalwert bleibt im Payload.
+- `verify_application_staging_database()` öffnet die Stage-Datei ausschließlich mit `mode=ro` und `query_only`. Es vergleicht IDs, vollständige kanonische Payloads, projizierte Felder, Quell-SHA-256, Generation/Revision, Schema-Version und `PRAGMA integrity_check`.
+- Der Bericht enthält ausschließlich aggregierte Werte und Prüfflags, keine Bewerbungs-IDs, Discord-IDs, Namen, Antworten oder Notizen.
+
+Neue synthetische Tests in `tests/test_application_staging.py` prüfen Payload-Parität, Legacy-/unbekannte Statuswerte, Dateirechte, Read-only-Verifikation, beschädigte Payloads, ungültige Datensätze, Zielpfadschutz, Nichtüberschreiben und Fehlerbereinigung.
+
+Dieser Baustein beweist noch keinen Cross-Store-Referenzabgleich, keinen vollständigen Backup-/Restore-Rehearsal und keinen Produktiv-Cutover. Diese Nachweise bleiben vor einer separaten Freigabe verpflichtend.
 
 Phase 15.6f gilt erst als abgeschlossen, wenn diese Vorbereitung unabhängig reviewed wurde und ein gesonderter, ausdrücklich autorisierter Cutover-PR alle Staging-, Paritäts-, Backup- und Rollback-Gates bestanden hat.
