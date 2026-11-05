@@ -96,6 +96,7 @@ class PersistentApplicationSnapshotManager:
                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                 generation INTEGER NOT NULL DEFAULT 0 CHECK (generation >= 0),
                 revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+                snapshot_sequence INTEGER NOT NULL DEFAULT 0 CHECK (snapshot_sequence >= 0),
                 active_operation_id TEXT,
                 updated_at TEXT NOT NULL
             );
@@ -106,6 +107,7 @@ class PersistentApplicationSnapshotManager:
                 schema_version INTEGER NOT NULL,
                 generation INTEGER NOT NULL CHECK (generation >= 0),
                 revision INTEGER NOT NULL CHECK (revision >= 0),
+                snapshot_sequence INTEGER NOT NULL UNIQUE CHECK (snapshot_sequence > 0),
                 sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
                 record_count INTEGER NOT NULL CHECK (record_count >= 0),
                 payload_bytes INTEGER NOT NULL CHECK (payload_bytes >= 0),
@@ -140,15 +142,15 @@ class PersistentApplicationSnapshotManager:
         )
         db.execute(
             """INSERT OR IGNORE INTO application_snapshot_state
-               (singleton, generation, revision, active_operation_id, updated_at)
-               VALUES (1, 0, 0, NULL, ?)""",
+               (singleton, generation, revision, snapshot_sequence, active_operation_id, updated_at)
+               VALUES (1, 0, 0, 0, NULL, ?)""",
             (_now(),),
         )
 
     @staticmethod
     def _state_from_db(db) -> dict[str, Any]:
         row = db.execute(
-            """SELECT generation, revision, active_operation_id, updated_at
+            """SELECT generation, revision, snapshot_sequence, active_operation_id, updated_at
                FROM application_snapshot_state WHERE singleton=1"""
         ).fetchone()
         if row is None:
@@ -156,8 +158,9 @@ class PersistentApplicationSnapshotManager:
         return {
             "generation": int(row[0]),
             "revision": int(row[1]),
-            "active_operation_id": row[2],
-            "updated_at": str(row[3]),
+            "snapshot_sequence": int(row[2]),
+            "active_operation_id": row[3],
+            "updated_at": str(row[4]),
         }
 
     def state(self) -> dict[str, Any]:
@@ -169,6 +172,7 @@ class PersistentApplicationSnapshotManager:
                 return {
                     "generation": state["generation"],
                     "revision": state["revision"],
+                    "snapshot_sequence": state["snapshot_sequence"],
                     "recovery_required": bool(state["active_operation_id"]),
                 }
 
@@ -196,15 +200,22 @@ class PersistentApplicationSnapshotManager:
         snapshot = self._make_snapshot(payload, generation, revision)
         identifier = str(snapshot_id or uuid.uuid4())
         created = _now()
+        state = self._state_from_db(db)
+        sequence = state["snapshot_sequence"] + 1
+        db.execute(
+            """UPDATE application_snapshot_state SET snapshot_sequence=?,updated_at=?
+               WHERE singleton=1""",
+            (sequence, created),
+        )
         try:
             db.execute(
                 """INSERT INTO application_snapshots
-                   (snapshot_id,purpose,schema_version,generation,revision,sha256,
-                    record_count,payload_bytes,payload,created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                   (snapshot_id,purpose,schema_version,generation,revision,snapshot_sequence,
+                    sha256,record_count,payload_bytes,payload,created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     identifier, purpose, snapshot.schema_version, snapshot.generation,
-                    snapshot.revision, snapshot.sha256, snapshot.record_count,
+                    snapshot.revision, sequence, snapshot.sha256, snapshot.record_count,
                     len(snapshot.payload), sqlite3.Binary(snapshot.payload), created,
                 ),
             )
@@ -216,6 +227,7 @@ class PersistentApplicationSnapshotManager:
             "schema_version": snapshot.schema_version,
             "generation": snapshot.generation,
             "revision": snapshot.revision,
+            "snapshot_sequence": sequence,
             "sha256": snapshot.sha256,
             "record_count": snapshot.record_count,
             "payload_bytes": len(snapshot.payload),
@@ -254,8 +266,8 @@ class PersistentApplicationSnapshotManager:
         if not isinstance(snapshot_id, str) or not snapshot_id or len(snapshot_id) > 128:
             raise ValueError("invalid snapshot identifier")
         row = db.execute(
-            """SELECT snapshot_id,purpose,schema_version,generation,revision,sha256,
-                      record_count,payload_bytes,payload,created_at
+            """SELECT snapshot_id,purpose,schema_version,generation,revision,snapshot_sequence,
+                      sha256,record_count,payload_bytes,payload,created_at
                FROM application_snapshots WHERE snapshot_id=?""",
             (snapshot_id,),
         ).fetchone()
@@ -266,22 +278,22 @@ class PersistentApplicationSnapshotManager:
             schema_version=int(row[2]),
             generation=int(row[3]),
             revision=int(row[4]),
-            sha256=str(row[5]),
-            record_count=int(row[6]),
+            sha256=str(row[6]),
+            record_count=int(row[7]),
             payload=payload,
         )
         try:
             verify_application_import_snapshot(snapshot)
-            if len(payload) != int(row[7]):
+            if len(payload) != int(row[8]):
                 raise ApplicationImportError("snapshot payload size does not match")
         except ApplicationImportError as exc:
             raise ApplicationSnapshotError("stored snapshot failed integrity verification") from exc
         metadata = {
             "snapshot_id": str(row[0]), "purpose": str(row[1]),
             "schema_version": int(row[2]), "generation": int(row[3]),
-            "revision": int(row[4]), "sha256": str(row[5]),
-            "record_count": int(row[6]), "payload_bytes": int(row[7]),
-            "created_at": str(row[9]),
+            "revision": int(row[4]), "snapshot_sequence": int(row[5]),
+            "sha256": str(row[6]), "record_count": int(row[7]),
+            "payload_bytes": int(row[8]), "created_at": str(row[10]),
         }
         return snapshot, metadata
 
@@ -319,6 +331,7 @@ class PersistentApplicationSnapshotManager:
             "current_sha256": current_digest,
             "generation": state["generation"],
             "revision": state["revision"],
+            "snapshot_sequence": state["snapshot_sequence"],
             "schema_version": None,
             "record_count": 0,
             "payload_bytes": len(source),
