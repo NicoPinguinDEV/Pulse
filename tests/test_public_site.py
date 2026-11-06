@@ -17,13 +17,14 @@ import webserver as ws
 LEGAL_ENV = {
     "PULSE_LEGAL_NAME": "Test Person", "PULSE_LEGAL_ADDRESS": "Teststraße 1|12345 Teststadt",
     "PULSE_LEGAL_EMAIL": "kontakt@example.invalid", "PULSE_LEGAL_HOSTER": "Test Hosting GmbH",
+    "PULSE_LEGAL_REVIEWED": "1", "PULSE_TERMS_APPROVED": "1", "PULSE_TERMS_EFFECTIVE_DATE": "2026-11-06",
 }
 PAGES = ("/", "/regelwerk", "/faq", "/fraktionen", "/news", "/team-vorstellung", "/nutzungsbedingungen",
          "/impressum", "/datenschutz", "/cookies", "/sicherheit")
 
 
 def clean_env():
-    return {key: value for key, value in os.environ.items() if not key.startswith(("PULSE_LEGAL_", "PULSE_PUBLIC_"))}
+    return {key: value for key, value in os.environ.items() if not key.startswith(("PULSE_LEGAL_", "PULSE_PUBLIC_", "PULSE_TERMS_"))}
 
 
 class Base(unittest.TestCase):
@@ -216,7 +217,7 @@ class WebsiteAdmin(Base):
 class Legal(Base):
     def test_nothing_is_invented_while_details_are_missing(self):
         html = self.client.get("/impressum").text
-        self.assertIn("noch nicht vollständig", html)
+        self.assertIn("noch nicht zur Veröffentlichung freigegeben", html)
         self.assertIn("fehlt", html)
         self.assertFalse(legal.ready())
 
