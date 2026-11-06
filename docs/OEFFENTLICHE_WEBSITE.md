@@ -26,7 +26,8 @@ Verwaltung nur für Administratoren unter `/admin/website/team`.
 
 - Profile werden manuell angelegt und sind immer zunächst unveröffentlicht.
 - Erst der separate Button „Veröffentlichen“ macht das Profil sichtbar.
-- Veröffentlicht werden nur Anzeigename, freigegebene Teamfunktion und Kurzbeschreibung.
+- Veröffentlicht werden nur Anzeigename, freigegebene Teamfunktion, Kurzbeschreibung und optional ein ausdrücklich freigegebenes Profilbild.
+- Profilbilder werden als PNG (maximal 512 KB und 1024 × 1024 Pixel) lokal in der bestehenden Pulse-Datenbank gespeichert und als Data-URI ausgeliefert; es entstehen keine externen Bildabrufe.
 - Es gibt keine automatische Übernahme der Discord-Mitglieder-/Teamliste und keinen Avatar-/Bildabruf von Drittanbietern.
 - Discord-IDs, interne Rollen, Notizen, Verwarnungen, Dienstzeiten, private Kontaktdaten und interne Rechte werden nicht gespeichert oder gerendert.
 - Veröffentlichungen, Rücknahmen und Löschungen werden im Audit-Log erfasst.
