@@ -93,12 +93,13 @@ class PermissionModelTests(unittest.TestCase):
 
 
 PUBLIC_GET = {"/", "/favicon.ico", "/callback", "/apply", "/health", "/healthz", "/manifest.webmanifest", "/sw.js",
-              "/robots.txt", "/ultimate/status", "/apply/callback", "/apply/login", "/login",
+              "/robots.txt", "/sitemap.xml", "/ultimate/status", "/apply/callback", "/apply/login", "/login",
               "/logout",  # U-13: GET /logout only shows a confirmation; logging out is POST
               "/recovery/authorize",  # Public, voluntary Discord OAuth consent page; eligibility is checked at callback
-              "/team-login", "/regelwerk", "/faq", "/fraktionen", "/news", "/impressum", "/datenschutz", "/cookies",
-              "/sicherheit", "/static/public.css", "/static/public.js",  # public website: only approved content, no session
+              "/team-login", "/regelwerk", "/faq", "/fraktionen", "/news", "/team-vorstellung", "/nutzungsbedingungen",
+              "/impressum", "/datenschutz", "/cookies", "/sicherheit", "/static/public.css", "/static/public.js",
               "/status", "/status.json"}  # F-08: public status page on purpose (404 while off, no personal data)
+PUBLIC_GET_PREFIXES = ("/news/",)  # Published news detail pages; missing IDs correctly return 404.
 # Write routes that are public on purpose: the application portal (own session check inside) and the
 # central /action handler (unknown actions are refused with 400 before login; real ones: see test).
 PUBLIC_WRITE = {"/apply/keepalive", "/action", "/recovery/authorize/start"}  # OAuth initiation only; no state change besides short-lived CSRF cookie
@@ -123,7 +124,7 @@ class RouteMatrixTests(unittest.TestCase):
         leaks = []
         for route in ws.app.routes:
             path, methods = getattr(route, "path", ""), getattr(route, "methods", set()) or set()
-            if "GET" not in methods or path in PUBLIC_GET or path.startswith("/static"):
+            if "GET" not in methods or path in PUBLIC_GET or path.startswith("/static") or path.startswith(PUBLIC_GET_PREFIXES):
                 continue
             # Routes with path parameters ({id}, {file}, …) are called with a dummy value instead of being skipped.
             status = self.client.get(re.sub(r"\{[^}]+\}", "1", path), follow_redirects=False).status_code

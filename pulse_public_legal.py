@@ -7,6 +7,7 @@ the site stays out of search engines. docs/RECHTLICHE_FREIGABE.md lists what a p
 from __future__ import annotations
 
 import os
+from datetime import date
 from html import escape
 
 REQUIRED_FIELDS = {
@@ -16,7 +17,8 @@ REQUIRED_FIELDS = {
     "PULSE_LEGAL_HOSTER": "Name und Sitz des Hosting-Anbieters",
 }
 CONFIG_NOTICE = (
-    '<p class="notice">Diese Seite ist noch nicht vollständig: Der Betreiber muss die fehlenden Angaben ergänzen.</p>'
+    '<p class="notice">Diese Seite ist noch nicht zur Veröffentlichung freigegeben. '
+    'Es fehlen Betreiberangaben und/oder die dokumentierte Prüfung der Rechtstexte.</p>'
 )
 
 
@@ -33,7 +35,28 @@ def missing_fields() -> dict[str, str]:
 
 
 def ready() -> bool:
+    """Whether all four operator/provider fields are present (not a legal approval)."""
     return not missing_fields()
+
+
+def publication_blockers() -> dict[str, str]:
+    """Return every operator-controlled blocker before indexing or declaring the site released."""
+    blockers = missing_fields()
+    if value("PULSE_LEGAL_REVIEWED") != "1":
+        blockers["PULSE_LEGAL_REVIEWED"] = "Rechts- und Datenschutztexte müssen vom Betreiber geprüft/freigegeben sein"
+    if value("PULSE_TERMS_APPROVED") != "1":
+        blockers["PULSE_TERMS_APPROVED"] = "Nutzungsbedingungen müssen ausdrücklich freigegeben sein"
+    effective = value("PULSE_TERMS_EFFECTIVE_DATE")
+    try:
+        date.fromisoformat(effective)
+    except ValueError:
+        blockers["PULSE_TERMS_EFFECTIVE_DATE"] = "Gültigkeitsdatum der freigegebenen Nutzungsbedingungen (JJJJ-MM-TT)"
+    return blockers
+
+
+def publication_ready() -> bool:
+    """Only an explicit operator release unlocks indexing; presence of text alone is not approval."""
+    return not publication_blockers()
 
 
 def _or_missing(key: str) -> str:
@@ -56,7 +79,7 @@ def impressum_html() -> str:
     responsible = value("PULSE_LEGAL_CONTENT_RESPONSIBLE")
     extra = value("PULSE_LEGAL_EXTRA")
     return f"""<div class="doc"><h1>Impressum</h1>
-{"" if ready() else CONFIG_NOTICE}
+{"" if publication_ready() else CONFIG_NOTICE}
 <h2>Angaben nach § 5 DDG</h2>{_operator()}
 {f"<h2>Inhaltlich verantwortlich</h2><p>{e(responsible)}</p>" if responsible else ""}
 {f"<h2>Weitere Angaben</h2><p>{e(extra)}</p>" if extra else ""}
@@ -77,6 +100,10 @@ SECTIONS = (
     ("Team-Dashboard", "Für Teammitglieder speichert Pulse Dienstzeiten, Aufgaben, Abwesenheiten, Verwarnungen, Notizen und Aktionsprotokolle.",
      "Art. 6 Abs. 1 lit. b und f DSGVO (Organisation des Teams).", "Berechtigte Teammitglieder, Hosting-Anbieter.",
      "Bis zum Ende der Teamzugehörigkeit und danach, solange es zur Nachvollziehbarkeit nötig ist. Die Frist legt der Betreiber fest."),
+    ("Öffentliche Teamprofile", "Wenn ein Teammitglied ausdrücklich zustimmt und ein Administrator die Freigabe bestätigt, veröffentlichen wir den freigegebenen Anzeigenamen, die Teamfunktion und eine kurze Beschreibung auf der öffentlichen Website. Die Profile werden nicht automatisch aus Discord oder der internen Teamliste übernommen.",
+     "Einwilligung der betroffenen Person, Art. 6 Abs. 1 lit. a DSGVO; die Einwilligung kann durch Rücknahme der Veröffentlichung für die Zukunft widerrufen werden.",
+     "Besucher der öffentlichen Website und der Hosting-Anbieter. Es werden keine Discord-ID, privaten Kontaktdaten, internen Rollen, Dienstzeiten oder Moderationsdaten auf der öffentlichen Seite angezeigt.",
+     "Bis zur Rücknahme der Veröffentlichung oder Löschung des Profils. Sicherungskopien können bis zum regulären Ablauf der Backup-Rotation fortbestehen."),
     ("Discord-Server und Bot", "Der Bot verarbeitet Nachrichten in Support-Kanälen, Tickets, Rollen und Sprachkanal-Ereignisse. Ticket-Transkripte werden derzeit ohne Frist aufbewahrt, Moderationsprotokolle für die Fallbearbeitung.",
      "Art. 6 Abs. 1 lit. f DSGVO (Betrieb und Moderation der Community).", "Discord, berechtigte Teammitglieder.",
      "Ticket-Transkripte bis zur manuellen Löschung. Abgeschlossene KI-Prüffälle 30 Tage."),
@@ -98,7 +125,7 @@ def privacy_html() -> str:
         for title, what, basis, recipients, period in SECTIONS
     )
     return f"""<div class="doc"><h1>Datenschutzerklärung</h1>
-{"" if ready() else CONFIG_NOTICE}
+{"" if publication_ready() else CONFIG_NOTICE}
 <p>Hier steht, welche personenbezogenen Daten Bochum RP und das System Pulse verarbeiten, warum und wie lange. Die Beschreibung folgt dem tatsächlichen Verhalten der Software.</p>
 <h2>Verantwortlicher</h2>{_operator()}
 <h2>Hosting</h2><p>Die Website und der Bot laufen bei: {_or_missing("PULSE_LEGAL_HOSTER")}.</p>
@@ -145,6 +172,31 @@ def cookies_html(optional_services=()) -> str:
 <div class="scroll"><table><thead><tr><th scope="col">Name</th><th scope="col">Art</th><th scope="col">Zweck</th><th scope="col">Dauer</th></tr></thead><tbody>{rows}</tbody></table></div>
 {choice}
 <p>Gespeicherte Daten können Sie jederzeit in Ihrem Browser löschen. Danach müssen Sie sich neu anmelden.</p>
+</div>"""
+
+
+
+def terms_html() -> str:
+    """Community terms remain visibly marked as draft until the operator approves them."""
+    if not publication_ready():
+        return """<div class="doc"><h1>Nutzungsbedingungen</h1>
+<p class="notice">Entwurf – noch nicht freigegeben. Diese Hinweise sind noch keine abschließend geprüften Vertragsbedingungen. Die Veröffentlichung wird erst nach Betreiberprüfung aktiviert.</p>
+<p>Die Bedingungen werden vor dem öffentlichen Start mit den Verantwortlichen abgestimmt. Bis dahin gelten die auf den jeweiligen Plattformen veröffentlichten Regeln und die aktuell im Discord bereitgestellten Community-Regeln.</p>
+<h2>Vorgesehene Themen</h2>
+<ul><li>Geltungsbereich der Website und Community-Angebote</li><li>Verhaltensregeln und Verweis auf das aktuelle Regelwerk</li>
+<li>Umgang mit Beiträgen und Rechten Dritter</li><li>Moderation, Meldungen und Beschwerden</li>
+<li>Verfügbarkeit, externe Plattformen und Kontakt</li></ul>
+<p><a href="/regelwerk">Zum aktuellen Community-Regelwerk</a></p></div>"""
+    effective = date.fromisoformat(value("PULSE_TERMS_EFFECTIVE_DATE")).strftime("%d.%m.%Y")
+    return f"""<div class="doc"><h1>Nutzungsbedingungen</h1>
+<p>Stand: {e(effective)}. Diese Bedingungen ergänzen das <a href="/regelwerk">Community-Regelwerk</a> und gelten für die Nutzung der öffentlichen BOCHUM-RP-Website und der von BOCHUM RP bereitgestellten Community-Angebote.</p>
+<h2>1. Geltungsbereich</h2><p>Diese Bedingungen beschreiben die Nutzung der Website und der Community-Angebote von BOCHUM RP. Für Discord, Roblox und weitere externe Dienste gelten zusätzlich deren eigene Bedingungen.</p>
+<h2>2. Zulässige Nutzung</h2><p>Die Angebote dürfen nur im Rahmen der geltenden Gesetze, der Plattformbedingungen und des veröffentlichten Community-Regelwerks genutzt werden. Nutzer dürfen keine fremden Rechte verletzen, Sicherheitsmaßnahmen umgehen, andere belästigen oder den Betrieb absichtlich stören.</p>
+<h2>3. Inhalte und Rechte Dritter</h2><p>Wer Inhalte einreicht oder veröffentlicht, muss dazu berechtigt sein und darf keine Rechte Dritter verletzen. Personenbezogene Angaben anderer Personen dürfen nicht ohne geeignete Berechtigung veröffentlicht werden.</p>
+<h2>4. Moderation und Regelverstöße</h2><p>Das Team darf gemeldete Inhalte prüfen und bei Regelverstößen angemessene Maßnahmen nach dem veröffentlichten Regelwerk und den geltenden Plattformregeln treffen. Automatisierte Systeme ersetzen keine menschliche Prüfung, soweit eine Teamentscheidung erforderlich ist.</p>
+<h2>5. Verfügbarkeit und Änderungen</h2><p>Die Community-Angebote können weiterentwickelt, zeitweise eingeschränkt oder eingestellt werden. Änderungen dieser Bedingungen werden mit einem aktualisierten Stand kenntlich gemacht.</p>
+<h2>6. Externe Plattformen</h2><p>Links zu Discord, Roblox und weiteren externen Angeboten führen zu Diensten Dritter. Für deren Verfügbarkeit, Inhalte und Datenverarbeitung sind die jeweiligen Anbieter nach ihren eigenen Bedingungen verantwortlich.</p>
+<h2>7. Kontakt</h2><p>Fragen zu diesen Bedingungen können über die im <a href="/impressum">Impressum</a> angegebene Kontaktmöglichkeit gestellt werden.</p>
 </div>"""
 
 

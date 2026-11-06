@@ -3503,9 +3503,9 @@ def register(app):
     app.post('/shift/history/confirm-duration')(confirm_auto_closed_shift_duration)
     app.get('/api/team/discord-status',response_class=JSONResponse)(discord_status_api)
 
-    async def robots_txt():
+    async def robots_txt(request: Request):
         import pulse_public_site
-        return Response(pulse_public_site.robots_text(), media_type="text/plain")
+        return Response(pulse_public_site.robots_text(str(request.base_url).rstrip("/")), media_type="text/plain")
     app.get('/robots.txt')(robots_txt)
     app.post('/team-status/set')(set_team_status)
     app.get('/activity-check',response_class=HTMLResponse)(activity_check_page)

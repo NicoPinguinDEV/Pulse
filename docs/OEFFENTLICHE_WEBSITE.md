@@ -1,57 +1,85 @@
-# Öffentliche Website: Veröffentlichung
+# Öffentliche Website BOCHUM RP
 
-Stand: vorbereitet, nicht ausgerollt. Domain, DNS und Discord-Einstellungen ändert nur der Betreiber.
+Stand: technischer Ausbau im Feature-Branch `feature/public-site-complete`. Die Website wird vom bestehenden Pulse-Webserver ausgeliefert, bleibt aber eine eigenständige öffentliche Oberfläche. Das Teamdashboard ist weiterhin getrennt und geschützt.
 
-## Aufbau
+## Öffentliche Seiten
 
 | Route | Inhalt |
 |---|---|
-| `/` | Öffentliche Startseite. Angemeldete Teammitglieder werden wie bisher zu ihrer Startseite geleitet. |
-| `/regelwerk`, `/faq`, `/fraktionen`, `/news` | Öffentliche Inhalte |
-| `/impressum`, `/datenschutz`, `/cookies`, `/sicherheit` | Rechtliches und Sicherheit |
-| `/team-login` | Bisherige Login-Karte, Discord OAuth wie zuvor über `/login` |
-| `/apply` | Bewerbungsportal, unverändert |
-| `/team`, `/dashboard` und alle internen Seiten | Unverändert geschützt |
-| `/admin/website` | News veröffentlichen, fehlende Angaben sehen (nur Administratoren) |
+| `/` | Öffentliche Startseite |
+| `/regelwerk` | Freigegebene Ingame- und Discord-Regeln |
+| `/fraktionen` | Ausschließlich offizielle Fraktionen |
+| `/team-vorstellung` | Nur ausdrücklich veröffentlichte öffentliche Teamprofile |
+| `/news`, `/news/{id}` | News-/Blog-Übersicht und einzelne Beiträge |
+| `/faq` | Häufige Fragen |
+| `/nutzungsbedingungen` | Community-/Nutzungsbedingungen; bis zur Betreiberfreigabe als Entwurf markiert |
+| `/impressum`, `/datenschutz`, `/cookies`, `/sicherheit` | Rechtliche Informationen und Sicherheitsseite |
+| `/sitemap.xml` | Sitemap, nur nach vollständiger Freigabe |
+| `/team-login` | Separater Login-Einstieg für Teammitglieder |
+| `/apply` | Vorhandenes Bewerbungsportal |
 
-Inhalte stammen aus `support_knowledge.md` (Kapitel A und B), den offiziellen Fraktionen der Fraktionsverwaltung und der Tabelle `public_news`. Sie sind Teil des Komplett-Backups, weil sie in `pulse.db` liegen.
+`/team`, `/dashboard` und alle übrigen internen Pulse-Routen bleiben geschützt. Die öffentliche Teamseite ist keine Ansicht der internen Teamliste.
 
-## Veröffentlichen
+## Öffentliche Teamprofile
 
-Voraussetzung: Domain, die auf den VPS zeigt, Ports 80 und 443 offen. Auf dem VPS läuft bereits ein Reverse Proxy? Dann nur einen von beiden Wegen nutzen, Port 80/443 können nicht doppelt belegt werden.
+Verwaltung nur für Administratoren unter `/admin/website/team`.
 
-1. A-Eintrag (und AAAA, falls IPv6) der Domain auf den VPS setzen und abwarten, bis er auflöst.
-2. In `.env` setzen, Werte aus `.env.example`:
+- Profile werden manuell angelegt und sind immer zunächst unveröffentlicht.
+- Erst der separate Button „Veröffentlichen“ macht das Profil sichtbar.
+- Veröffentlicht werden nur Anzeigename, freigegebene Teamfunktion und Kurzbeschreibung.
+- Es gibt keine automatische Übernahme der Discord-Mitglieder-/Teamliste und keinen Avatar-/Bildabruf von Drittanbietern.
+- Discord-IDs, interne Rollen, Notizen, Verwarnungen, Dienstzeiten, private Kontaktdaten und interne Rechte werden nicht gespeichert oder gerendert.
+- Veröffentlichungen, Rücknahmen und Löschungen werden im Audit-Log erfasst.
 
-   ```
-   PULSE_DOMAIN=<deine-domain>
-   PUBLIC_BASE_URL=https://<deine-domain>
-   DISCORD_REDIRECT_URI=https://<deine-domain>/callback
-   ```
+## News und Blog
 
-   Dazu die Angaben aus [RECHTLICHE_FREIGABE.md](RECHTLICHE_FREIGABE.md).
-3. Im Discord Developer Portal unter OAuth2 die Redirect-URI `https://<deine-domain>/callback` ergänzen. Bewerbungs- und Wiederherstellungs-URIs ebenso, falls eine eigene Anwendung genutzt wird (`DISCORD_APPLICATION_REDIRECT_URI`).
-4. Deployment wie in [VPS_DEPLOYMENT.md](../VPS_DEPLOYMENT.md) beschrieben, inklusive Sicherung. Für das Caddy-Profil:
+Administratoren pflegen Beiträge unter `/admin/website`. Jeder Beitrag hat Titel, Kategorie, Veröffentlichungsdatum und Text sowie eine eigene Seite unter `/news/{id}`. Die Datenbankmigration für die Kategorie ist additiv und ergänzt vorhandene News mit der Kategorie „Community“. Ein Titelbild wird derzeit bewusst nicht von extern geladen.
 
-   ```
-   docker compose --profile https up -d
-   ```
+## Cookies und Einwilligung
 
-   Caddy holt das TLS-Zertifikat von Let's Encrypt automatisch und leitet HTTP auf HTTPS um.
-5. Prüfen: `https://<deine-domain>/` lädt mit gültigem Zertifikat, Team-Login funktioniert, `https://<deine-domain>/healthz` antwortet 404 (nur auf dem Host erreichbar).
+Die öffentliche Website lädt standardmäßig keine Drittanbieterinhalte, Analyse-, Marketing- oder Einbettungsdienste und speichert beim bloßen Seitenaufruf nichts im Browser. Daher wird kein künstlicher Cookie-Banner angezeigt. Die Cookie-Seite dokumentiert die tatsächlich genutzten Cookies und Browser-Speicher im Team-Login, Bewerbungsportal und Dashboard.
 
-## Sicherheit im Betrieb
+Soll ein optionaler Dienst ergänzt werden, muss er vor Zustimmung blockiert bleiben, in `OPTIONAL_SERVICES` registriert werden und ausschließlich nach der gespeicherten Auswahl geladen werden. Die vorhandene Consent-Logik bietet „Alle akzeptieren“, „Nur notwendige“ und individuelle Auswahl; die Einstellung lässt sich über die Cookie-Seite erneut öffnen. Kein Dienst darf per Default aktiviert werden. CSP und Datenschutzhinweise sind im selben PR zu aktualisieren.
 
-- Der Container-Port bleibt an `127.0.0.1` gebunden, nach außen spricht nur Caddy.
-- `/healthz` und `/health` sperrt Caddy. Ein Reverse Proxy außerhalb dieses Profils sollte das nachbilden. Zusätzlich erhalten Aufrufer von öffentlichen Adressen nur noch `{"ok": ...}` ohne Version, Speicher oder Jobnamen.
-- `PULSE_FORWARDED_ALLOW_IPS` muss die Proxy-Adresse enthalten, sonst zählt die Begrenzung pro Adresse alle Besucher zusammen.
-- Öffentliche Seiten laufen unter einer strengen Content-Security-Policy ohne Inline-Code und fremde Quellen.
-- Bei Rechtsangaben: Erst wenn alle vier Pflichtfelder gesetzt sind, gibt `robots.txt` die öffentlichen Seiten frei.
+## Betreiberangaben und Veröffentlichungssperre
 
-## Ressourcen
+Die folgenden Variablen werden ausschließlich auf dem VPS in der privaten `.env` gepflegt. Keine echten Werte in GitHub, Code, Issues oder Screenshots veröffentlichen.
 
-Die Seiten sind Server-gerendert und ohne Framework. CSS und JS zusammen unter 20 KB, Fraktionen, News und Regelwerk werden 60 Sekunden im Speicher gehalten. Das RAM-Budget aus `CLAUDE.md` ändert sich dadurch nicht messbar.
+```dotenv
+PULSE_LEGAL_NAME=
+PULSE_LEGAL_ADDRESS=
+PULSE_LEGAL_EMAIL=
+PULSE_LEGAL_HOSTER=
+PULSE_LEGAL_REVIEWED=0
+PULSE_TERMS_APPROVED=0
+PULSE_TERMS_EFFECTIVE_DATE=
+```
 
-## Schriften
+Indexierung und Sitemap werden erst freigeschaltet, wenn alle vier Betreiberangaben ausgefüllt und die drei Freigabewerte bewusst gesetzt sind:
+- `PULSE_LEGAL_REVIEWED=1`: Betreiber hat Datenschutzerklärung, Impressum, Datenflüsse, Fristen und Rechtsgrundlagen geprüft.
+- `PULSE_TERMS_APPROVED=1`: Betreiber hat die Nutzungsbedingungen ausdrücklich freigegeben.
+- `PULSE_TERMS_EFFECTIVE_DATE=YYYY-MM-DD`: tatsächliches Inkrafttretensdatum.
 
-Die Website lädt bewusst keine Webfonts von Dritten. Sie nutzt die DIN-Schrift Bahnschrift, wo vorhanden, sonst Systemschriften. Für ein einheitliches Bild auf allen Geräten lässt sich eine frei lizenzierte Schrift lokal unter `static/` ablegen.
+Diese Schalter sind keine Rechtsprüfung durch die Software und kein Rechtsgutachten. Sie dokumentieren ausschließlich die manuelle Betreiberentscheidung. Solange einer der Werte fehlt, liefern öffentliche Seiten `noindex, nofollow`, `robots.txt` sperrt die Indexierung und `sitemap.xml` ist nicht abrufbar.
+
+Den Freigabestatus sieht ein Administrator unter `/admin/website`.
+
+## Domain und HTTPS
+
+Eine trycloudflare-Quick-Tunnel-Adresse ist nur temporär und hat keine Uptime-Garantie. Für die dauerhafte Website wird eine registrierte Domain und eine dauerhaft laufende, benannte Tunnel-/Reverse-Proxy-Konfiguration benötigt.
+
+Wenn `bochumrp.de` bei netcup tatsächlich registriert und verwaltbar ist:
+
+1. Registrierung/Domainstatus im netcup CCP bestätigen. Eine Bestellbestätigung ist noch kein Nachweis der abgeschlossenen Registrierung.
+2. DNS passend zum gewählten Ziel einrichten. Nicht gleichzeitig einen zweiten Reverse Proxy starten, bevor Ports 80/443 und bestehende Proxy-Dienste geprüft wurden.
+3. `PULSE_DOMAIN`, `PUBLIC_BASE_URL` und `DISCORD_REDIRECT_URI` in der privaten `.env` auf die endgültige Domain setzen.
+4. Die Discord OAuth-Redirect-URI im Discord Developer Portal exakt ergänzen. Für Bewerbungs-/Recovery-OAuth die tatsächlich verwendete Anwendung separat prüfen.
+5. HTTPS für die Domain einrichten und die öffentliche Seite, OAuth-Login und geschützte Routen extern testen.
+
+## Bereitstellung und Sicherheit
+
+- Öffentliche Seiten sind servergerendert; CSS/JS werden lokal ausgeliefert.
+- Strenge Content-Security-Policy, X-Frame-Options und Rate-Limits bleiben aktiv.
+- `/healthz` und `/health` dürfen nicht über einen öffentlichen Reverse Proxy offengelegt werden.
+- Keine Freigabe von `/team`, `/dashboard`, internen APIs oder Admin-Routen.
+- Änderungen aus diesem Ausbau erst nach grünen Tests und Review mergen. Deployment/Domain/DNS/VPS-Änderungen separat und nur mit ausdrücklicher Freigabe.
