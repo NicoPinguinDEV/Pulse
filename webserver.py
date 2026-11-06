@@ -3768,13 +3768,12 @@ async def static_pulse_css():
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, user_session: str = Cookie(None)):
-    """Public homepage; signed-in team members go on to their start page."""
-    session = dashboard_session(user_session)  # same check as every protected page (no redirect loop)
-    if session:
-        return RedirectResponse(url=start_page_for(session.get("id")), status_code=303)
+    """Always show the public BOCHUM RP homepage; TeamOS is entered via /team-login."""
     response = pulse_public_site.home_response(request)
-    if user_session:
-        response.delete_cookie(key="user_session")  # ended or revoked session: clear it
+    # Keep the public root route public even when a team session already exists.
+    # A stale/revoked cookie is still cleared without redirecting visitors to the login.
+    if user_session and not dashboard_session(user_session):
+        response.delete_cookie(key="user_session")
     return response
 
 

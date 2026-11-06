@@ -31,15 +31,26 @@ class StartPageTests(unittest.TestCase):
     def session(self, uid="123"):
         return ws.sign_payload({"id": uid, "exp": int(time.time() + 60)}, typ=ws.TOKEN_DASHBOARD)
 
-    def test_default_is_mein_pulse_and_choice_is_used(self):
+    def test_default_is_mein_pulse_and_choice_is_used_only_after_team_login(self):
         self.client.cookies.set("user_session", self.session())
-        self.assertEqual(self.client.get("/", follow_redirects=False).headers["location"], "/me")
+        self.assertEqual(ws.start_page_for("123"), "/me")
+        public_home = self.client.get("/", follow_redirects=False)
+        self.assertEqual(public_home.status_code, 200)
+        self.assertIn("BOCHUM", public_home.text)
         with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
             saved = self.client.post("/me/start-page", data={"start_page": "/tickets"}, follow_redirects=False)
             self.assertIn("t=ok", saved.headers["location"])
             bad = self.client.post("/me/start-page", data={"start_page": "https://evil.example"}, follow_redirects=False)
             self.assertIn("t=err", bad.headers["location"])
-        self.assertEqual(self.client.get("/", follow_redirects=False).headers["location"], "/tickets")
+        self.assertEqual(ws.start_page_for("123"), "/tickets")
+        # The configured personal start page is entered deliberately through Team-Login,
+        # never by opening the public root URL.
+        team_login = self.client.get("/team-login", follow_redirects=False)
+        self.assertEqual(team_login.status_code, 303)
+        self.assertEqual(team_login.headers["location"], "/tickets")
+        public_home_after_login = self.client.get("/", follow_redirects=False)
+        self.assertEqual(public_home_after_login.status_code, 200)
+        self.assertIn("BOCHUM", public_home_after_login.text)
 
     def test_unknown_stored_value_falls_back(self):
         pulse_db.set_setting("start_page:9", "//evil.example")

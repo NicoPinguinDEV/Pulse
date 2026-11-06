@@ -152,13 +152,22 @@ class Separation(Base):
     def test_dashboard_stays_protected(self):
         self.assertIn(self.client.get("/dashboard").status_code, (302, 303, 401, 503))
 
-    def test_signed_in_member_keeps_start_page(self):
+    def test_public_homepage_stays_public_for_signed_in_member(self):
+        self.client.cookies.set("user_session", "valid")
         with patch.object(ws, "dashboard_session", return_value={"id": "1"}), \
                 patch.object(ws, "start_page_for", return_value="/tickets"):
-            for path in ("/", "/team-login"):
-                response = self.client.get(path)
-                self.assertEqual(response.status_code, 303)
-                self.assertEqual(response.headers["location"], "/tickets")
+            response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("BOCHUM", response.text)
+        self.assertNotIn("Team Management Panel", response.text)
+
+    def test_team_login_takes_signed_in_member_to_start_page(self):
+        self.client.cookies.set("user_session", "valid")
+        with patch.object(ws, "dashboard_session", return_value={"id": "1"}), \
+                patch.object(ws, "start_page_for", return_value="/tickets"):
+            response = self.client.get("/team-login")
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/tickets")
 
     def test_login_card_moved_with_privacy_notice(self):
         html = self.client.get("/team-login").text
