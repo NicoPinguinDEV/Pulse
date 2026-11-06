@@ -476,10 +476,11 @@ def _team_cards(profiles: list[dict]) -> str:
     cards = []
     for profile in profiles:
         initials = "".join(part[0] for part in profile["display_name"].split()[:2]).upper()
+        bio_html = f"<p>{e(profile['bio'])}</p>" if profile.get("bio") else ""
         cards.append(
             f'<article class="team-card"><div class="team-initials" aria-hidden="true">{e(initials)}</div>'
             f'<p class="tag">{e(profile["role_label"])}</p><h3>{e(profile["display_name"])}</h3>'
-            f'{f"<p>{e(profile[\"bio\"])}</p>" if profile.get("bio") else ""}</article>'
+            f'{bio_html}</article>'
         )
     return '<div class="team-grid">' + "".join(cards) + "</div>"
 
