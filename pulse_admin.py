@@ -31,6 +31,7 @@ ADMIN_PAGE_KEYS = frozenset({
     "admin", "admin-discord", "ticket-panels", "settings", "backups", "system", "announcements", "social",
     "admin-privacy", "admin-features", "admin-rights", "admin-visibility", "admin-settings-history",
     "team-capacity", "team-readiness", "applications-board", "admin-security", "admin-console", "server-control",
+    "website",
 })
 # Shown in the sidebar group "Serververwaltung" (pulse_pro) instead of the general "Verwaltung" group.
 SERVER_SECTION_KEYS = frozenset({"server-control", "admin-console", "system", "backups"})
@@ -45,7 +46,7 @@ def admin_sections(perms: dict) -> list[tuple]:
         ("ticket-panels", "/tickets/panels", "🎛️", "Ticket-Panels", "Panels, Kategorien, Begrüßungen, Formulare", is_admin),
         ("admin-panels", "/admin/panels", "▦", "Discord-Panels", "Alle Panels, Status, neu veröffentlichen", is_admin),
         ("admin-security", "/admin/security", "🛡️", "Sicherheit", "AutoMod, Anti-Nuke, Quarantäne, Vorfälle", is_admin),
-        ("website", "/admin/website", "🌐", "Website", "Öffentliche News und rechtliche Angaben", is_admin),
+        ("website", "/admin/website", "🌐", "Website", "Öffentliche Website, Teamprofile, News und Freigaben", is_admin),
         ("team-checklists", "/team/checklists", "☑", "On- & Offboarding", "Checklisten für Teambeitritt und -austritt",
          is_admin or bool(perms.get("can_promote"))),
         ("mod-cases", "/mod-cases", "⚖", "Bürger-Moderation", "Fallakte: Verwarnungen, Timeouts, Kicks, Bans",
