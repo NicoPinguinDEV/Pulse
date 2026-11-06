@@ -485,8 +485,16 @@ def _team_cards(profiles: list[dict]) -> str:
     return '<div class="team-grid">' + "".join(cards) + "</div>"
 
 
+def _safe_public_profiles(limit: int | None = None) -> list[dict]:
+    try:
+        profiles = public_content.list_profiles(published_only=True)
+        return profiles[:limit] if limit is not None else profiles
+    except sqlite3.Error:
+        return []
+
+
 def public_team_html() -> str:
-    profiles = public_content.list_profiles(published_only=True)
+    profiles = _safe_public_profiles()
     if not profiles:
         return (
             '<div class="doc"><h1>Unser Team</h1><p>Hier stellen wir die Menschen vor, die Bochum RP betreuen.</p>'
@@ -499,7 +507,7 @@ def public_team_html() -> str:
 
 
 def public_team_teaser() -> str:
-    profiles = public_content.list_profiles(published_only=True)[:3]
+    profiles = _safe_public_profiles(3)
     if not profiles:
         return (
             '<section class="band band-alt" id="team"><h2>Das Team hinter Bochum RP</h2>'
