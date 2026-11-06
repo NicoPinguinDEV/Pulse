@@ -1,4 +1,5 @@
 """Public website: pages, separation from the dashboard, legal state, consent and exposure."""
+import base64
 import os
 import re
 import tempfile
@@ -247,6 +248,44 @@ class WebsiteAdmin(Base):
         hidden = self.client.post(f"/admin/website/team/{profile_id}/publish", data={"published": "0"})
         self.assertEqual(hidden.status_code, 303)
         self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
+
+    def test_admin_can_upload_a_local_png_portrait_and_withdraw_it(self):
+        import pulse_public_content as content
+        self.login(True)
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/XioAAAAASUVORK5CYII="
+        )
+        created = self.client.post(
+            "/admin/website/team",
+            data={"display_name": "Nico", "role_label": "Leitung", "bio": "Öffentliches Profil"},
+            files={"avatar": ("portrait.png", png, "image/png")},
+        )
+        self.assertEqual(created.status_code, 303)
+        profile_id = content.list_profiles(published_only=False)[0]["id"]
+        self.assertNotIn("data:image/png", self.client.get("/team-vorstellung").text)
+        approved = self.client.post(
+            f"/admin/website/team/{profile_id}/publish",
+            data={"published": "1", "consent_confirmed": "1"},
+        )
+        self.assertEqual(approved.status_code, 303)
+        public_html = self.client.get("/team-vorstellung").text
+        self.assertIn('class="team-avatar"', public_html)
+        self.assertIn("data:image/png;base64,", public_html)
+        self.assertIn('alt="Porträt von Nico"', public_html)
+        withdrawn = self.client.post(
+            f"/admin/website/team/{profile_id}/publish", data={"published": "0"}
+        )
+        self.assertEqual(withdrawn.status_code, 303)
+        self.assertNotIn("data:image/png", self.client.get("/team-vorstellung").text)
+
+    def test_admin_rejects_non_png_team_portraits(self):
+        self.login(True)
+        response = self.client.post(
+            "/admin/website/team",
+            data={"display_name": "Nico", "role_label": "Leitung"},
+            files={"avatar": ("portrait.jpg", b"not a png", "image/jpeg")},
+        )
+        self.assertEqual(response.status_code, 422)
 
     def test_admin_page_shows_missing_details(self):
         self.login(True)
