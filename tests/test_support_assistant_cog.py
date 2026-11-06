@@ -95,6 +95,13 @@ class SupportAssistantCogTests(unittest.TestCase):
     def setUp(self):
         pulse_ai_resilience._STATES.clear()
 
+    def test_first_status_notice_is_not_suppressed_on_recent_process_start(self):
+        cog = make_cog([])
+        message = FakeMessage("Was gilt in Safezones?")
+        with mock.patch("cogs.support_assistant.time.monotonic", return_value=1.0):
+            asyncio.run(cog._reply_status_notice(message, "ℹ️ Testmeldung"))
+        self.assertEqual(message.replies, ["ℹ️ Testmeldung"])
+
     def test_gemini_key_without_provider_is_used(self):
         cog = make_cog([])
         self.assertEqual(cog.provider, "gemini")

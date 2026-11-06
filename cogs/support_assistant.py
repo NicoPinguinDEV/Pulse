@@ -248,7 +248,7 @@ class SupportAssistant(commands.Cog):
         now = time.monotonic()
         channel_id = message.channel.id
         last_notice = self._last_status_notice.get(channel_id, 0.0)
-        if now - last_notice < 30.0:
+        if last_notice and now - last_notice < 30.0:
             return
         self._last_status_notice[channel_id] = now
         self._last_status_notice.move_to_end(channel_id)
