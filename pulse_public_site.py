@@ -479,7 +479,7 @@ def _team_cards(profiles: list[dict]) -> str:
         cards.append(
             f'<article class="team-card"><div class="team-initials" aria-hidden="true">{e(initials)}</div>'
             f'<p class="tag">{e(profile["role_label"])}</p><h3>{e(profile["display_name"])}</h3>'
-            f'{f"<p>{e(profile[chr(98)+chr(105)+chr(111)])}</p>" if profile.get("bio") else ""}</article>'
+            f'{f"<p>{e(profile[\"bio\"])}</p>" if profile.get("bio") else ""}</article>'
         )
     return '<div class="team-grid">' + "".join(cards) + "</div>"
 
@@ -523,7 +523,7 @@ def respond(html: str, *, cache: bool = True, status_code: int = 200) -> HTMLRes
     if cache:
         response.headers["Cache-Control"] = "public, max-age=300"
     # Unfinished legal details: stay out of search engines until the operator completed them.
-    response.headers["X-Robots-Tag"] = "index, follow" if legal.ready() else "noindex, nofollow"
+    response.headers["X-Robots-Tag"] = "index, follow" if legal.publication_ready() else "noindex, nofollow"
     return response
 
 
@@ -531,7 +531,7 @@ def sitemap_xml(base_url: str) -> str:
     """Generate a minimal sitemap only after the operator has approved public/legal publication."""
     if not legal.publication_ready():
         return ""
-    paths = [*PUBLIC_PATHS]
+    paths = [path for path in PUBLIC_PATHS if path != "/sitemap.xml"]
     paths.extend(f"/news/{int(item['id'])}" for item in list_news(limit=NEWS_LIMIT))
     prefix = (
         '<?xml version="1.0" encoding="UTF-8"?>'
