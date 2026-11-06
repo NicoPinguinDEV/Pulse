@@ -22,9 +22,10 @@ from html import escape
 from pathlib import Path
 
 from fastapi import Cookie, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 import pulse_db
+import pulse_public_content as public_content
 import pulse_public_legal as legal
 
 ROOT = Path(__file__).resolve().parent
@@ -39,8 +40,8 @@ CSP = (
     "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; "
     "connect-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
 )
-PUBLIC_PATHS = ("/", "/regelwerk", "/faq", "/fraktionen", "/news", "/impressum", "/datenschutz", "/cookies",
-                "/sicherheit")
+PUBLIC_PATHS = ("/", "/regelwerk", "/faq", "/fraktionen", "/news", "/team-vorstellung",
+                "/nutzungsbedingungen", "/impressum", "/datenschutz", "/cookies", "/sicherheit", "/sitemap.xml")
 PUBLIC_RATE_LIMIT = 240  # page views per minute and address
 NEWS_LIMIT = 30
 CACHE_SECONDS = 60.0
@@ -82,27 +83,45 @@ def _news_table(db) -> None:
         "CREATE TABLE IF NOT EXISTS public_news (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, "
         "body TEXT NOT NULL, published_at TEXT NOT NULL, author TEXT NOT NULL DEFAULT '')"
     )
+    # Additive migration for existing installations created before public categories existed.
+    columns = {row[1] for row in db.execute("PRAGMA table_info(public_news)").fetchall()}
+    if "category" not in columns:
+        db.execute("ALTER TABLE public_news ADD COLUMN category TEXT NOT NULL DEFAULT 'Community'")
 
 
 def list_news(limit: int = NEWS_LIMIT) -> list[dict]:
     with pulse_db.connect() as db:
         _news_table(db)
         rows = db.execute(
-            "SELECT id, title, body, published_at FROM public_news ORDER BY published_at DESC, id DESC LIMIT ?",
+            "SELECT id, title, body, published_at, category FROM public_news "
+            "ORDER BY published_at DESC, id DESC LIMIT ?",
             (int(limit),),
         ).fetchall()
-    return [{"id": r[0], "title": r[1], "body": r[2], "published_at": r[3]} for r in rows]
+    return [{"id": r[0], "title": r[1], "body": r[2], "published_at": r[3], "category": r[4]} for r in rows]
 
 
-def add_news(title: str, body: str, author: str) -> int:
+def get_news(news_id: int) -> dict | None:
+    with pulse_db.connect() as db:
+        _news_table(db)
+        row = db.execute(
+            "SELECT id, title, body, published_at, category FROM public_news WHERE id=?",
+            (int(news_id),),
+        ).fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "title": row[1], "body": row[2], "published_at": row[3], "category": row[4]}
+
+
+def add_news(title: str, body: str, author: str, category: str = "Community") -> int:
     title, body = " ".join(str(title).split())[:120], str(body).strip()[:4000]
+    category = " ".join(str(category or "Community").split())[:40] or "Community"
     if not title or not body:
         raise ValueError("Titel und Text sind Pflichtfelder.")
     with pulse_db.connect() as db:
         _news_table(db)
         cursor = db.execute(
-            "INSERT INTO public_news(title, body, published_at, author) VALUES (?,?,?,?)",
-            (title, body, datetime.now(timezone.utc).isoformat(timespec="seconds"), str(author)[:100]),
+            "INSERT INTO public_news(title, body, published_at, author, category) VALUES (?,?,?,?,?)",
+            (title, body, datetime.now(timezone.utc).isoformat(timespec="seconds"), str(author)[:100], category),
         )
         news_id = int(cursor.lastrowid)
     _cache.pop("news", None)
@@ -201,13 +220,14 @@ def _discord_button(css: str = "btn btn-main", label: str = "Discord beitreten")
     return f'<a class="{css}" href="{e(invite)}" rel="noopener noreferrer">{label}</a>' if invite else ""
 
 
-NAV = (("/#ueber", "Über uns"), ("/fraktionen", "Fraktionen"), ("/regelwerk", "Regelwerk"), ("/news", "News"),
-       ("/faq", "FAQ"), ("/apply", "Bewerben"))
+NAV = (("/#ueber", "Über uns"), ("/fraktionen", "Fraktionen"), ("/team-vorstellung", "Team"),
+       ("/regelwerk", "Regelwerk"), ("/news", "News"), ("/faq", "FAQ"), ("/apply", "Bewerben"))
 
 
 def page(title: str, description: str, body: str, *, path: str) -> str:
     links = "".join(
-        f'<a href="{href}"{" aria-current=page" if href == path else ""}>{label}</a>' for href, label in NAV
+        f'<a href="{href}"{" aria-current=page" if href == path or (href == "/news" and path.startswith("/news/")) else ""}>{label}</a>'
+        for href, label in NAV
     )
     actions = f'{_discord_button("btn btn-main btn-small")}<a class="btn btn-quiet btn-small" href="/team-login">Team-Login</a>'
     consent = ""
@@ -244,8 +264,8 @@ def page(title: str, description: str, body: str, *, path: str) -> str:
     <p class="brand">BOCHUM <span>RP</span></p>
     <p>© BOCHUM RP | V1. Roleplay-Community auf Discord.</p>
   </div>
-  <nav aria-label="Community"><a href="/regelwerk">Regelwerk</a><a href="/fraktionen">Fraktionen</a><a href="/news">News</a><a href="/faq">FAQ</a><a href="/apply">Bewerben</a></nav>
-  <nav aria-label="Rechtliches"><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="/cookies">Cookies</a><a href="/sicherheit">Sicherheit</a></nav>
+  <nav aria-label="Community"><a href="/">Startseite</a><a href="/team-vorstellung">Team</a><a href="/regelwerk">Regelwerk</a><a href="/fraktionen">Fraktionen</a><a href="/news">News & Blog</a><a href="/faq">FAQ</a><a href="/apply">Bewerben</a></nav>
+  <nav aria-label="Rechtliches"><a href="/nutzungsbedingungen">Nutzungsbedingungen</a><a href="/sicherheit">Sicherheit</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="/cookies">Cookies</a></nav>
 </footer>
 {consent}
 </body>
@@ -363,6 +383,7 @@ def home_html(request: Request) -> str:
   {faction_block}
   <p><a class="more" href="/fraktionen">Alle Fraktionen ansehen</a></p>
 </section>
+{public_team_teaser()}
 <section class="band band-shaft" id="mitglied">
   <h2>So wirst du Mitglied</h2>
   <ol class="shaft">{steps}</ol>
@@ -386,10 +407,14 @@ def home_html(request: Request) -> str:
 def _news_item(item: dict) -> str:
     try:
         when = datetime.fromisoformat(item["published_at"]).strftime("%d.%m.%Y")
-    except ValueError:
+    except (ValueError, TypeError):
         when = ""
-    paragraphs = "".join(f"<p>{e(part)}</p>" for part in item["body"].split("\n") if part.strip())
-    return f'<article class="news"><time>{e(when)}</time><h3>{e(item["title"])}</h3>{paragraphs}</article>'
+    paragraphs = "".join(f"<p>{_inline(part)}</p>" for part in item["body"].split("\n") if part.strip())
+    return (
+        f'<article class="news"><time>{e(when)}</time><p class="tag">{e(item.get("category") or "Community")}</p>'
+        f'<h3><a href="/news/{int(item["id"])}">{e(item["title"])}</a></h3>{paragraphs}'
+        f'<p><a class="more" href="/news/{int(item["id"])}">Beitrag öffnen</a></p></article>'
+    )
 
 
 def rules_html() -> str:
@@ -429,8 +454,60 @@ def factions_html() -> str:
 def news_html() -> str:
     items = _safe_news()
     return (
-        '<div class="doc"><h1>News</h1>'
+        '<div class="doc"><h1>News & Blog</h1><p>Offizielle Neuigkeiten und Einblicke aus der Community.</p>'
         f'{"".join(_news_item(item) for item in items) or "<p class=empty>Noch keine Neuigkeiten. Aktuelle Ankündigungen findest du im Discord.</p>"}</div>'
+    )
+
+
+def news_detail_html(item: dict) -> str:
+    try:
+        when = datetime.fromisoformat(item["published_at"]).strftime("%d.%m.%Y")
+    except (ValueError, TypeError):
+        when = ""
+    paragraphs = "".join(f"<p>{_inline(part)}</p>" for part in item["body"].split("\n") if part.strip())
+    return (
+        f'<article class="doc article"><p><a class="more" href="/news">← Alle News</a></p>'
+        f'<p class="tag">{e(item.get("category") or "Community")} · {e(when)}</p>'
+        f'<h1>{e(item["title"])}</h1>{paragraphs}<p><a class="more" href="/news">Zurück zu News</a></p></article>'
+    )
+
+
+def _team_cards(profiles: list[dict]) -> str:
+    cards = []
+    for profile in profiles:
+        initials = "".join(part[0] for part in profile["display_name"].split()[:2]).upper()
+        cards.append(
+            f'<article class="team-card"><div class="team-initials" aria-hidden="true">{e(initials)}</div>'
+            f'<p class="tag">{e(profile["role_label"])}</p><h3>{e(profile["display_name"])}</h3>'
+            f'{f"<p>{e(profile[chr(98)+chr(105)+chr(111)])}</p>" if profile.get("bio") else ""}</article>'
+        )
+    return '<div class="team-grid">' + "".join(cards) + "</div>"
+
+
+def public_team_html() -> str:
+    profiles = public_content.list_profiles(published_only=True)
+    if not profiles:
+        return (
+            '<div class="doc"><h1>Unser Team</h1><p>Hier stellen wir die Menschen vor, die Bochum RP betreuen.</p>'
+            '<p class="empty">Die öffentlichen Teamprofile werden nach ausdrücklicher Freigabe ergänzt.</p></div>'
+        )
+    return (
+        '<div class="doc"><h1>Unser Team</h1><p>Diese Profile wurden ausdrücklich für die öffentliche Website freigegeben.</p>'
+        f'{_team_cards(profiles)}</div>'
+    )
+
+
+def public_team_teaser() -> str:
+    profiles = public_content.list_profiles(published_only=True)[:3]
+    if not profiles:
+        return (
+            '<section class="band band-alt" id="team"><h2>Das Team hinter Bochum RP</h2>'
+            '<p>Unser Team sorgt für einen geordneten Ablauf und hilft bei Fragen weiter.</p>'
+            '<p><a class="more" href="/team-vorstellung">Teamvorstellung ansehen</a></p></section>'
+        )
+    return (
+        '<section class="band band-alt" id="team"><h2>Das Team hinter Bochum RP</h2>'
+        f'{_team_cards(profiles)}<p><a class="more" href="/team-vorstellung">Alle Teamprofile ansehen</a></p></section>'
     )
 
 
@@ -450,11 +527,26 @@ def respond(html: str, *, cache: bool = True, status_code: int = 200) -> HTMLRes
     return response
 
 
-def robots_text() -> str:
-    if not legal.ready():
+def sitemap_xml(base_url: str) -> str:
+    """Generate a minimal sitemap only after the operator has approved public/legal publication."""
+    if not legal.publication_ready():
+        return ""
+    paths = [*PUBLIC_PATHS]
+    paths.extend(f"/news/{int(item['id'])}" for item in list_news(limit=NEWS_LIMIT))
+    prefix = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+    )
+    urls = "".join(f"<url><loc>{e(base_url.rstrip('/') + path)}</loc></url>" for path in paths)
+    return prefix + urls + "</urlset>"
+
+
+def robots_text(base_url: str = "") -> str:
+    if not legal.publication_ready():
         return "User-agent: *\nDisallow: /\n"
     allowed = "".join(f"Allow: {path}$\n" for path in PUBLIC_PATHS)
-    return f"User-agent: *\n{allowed}Allow: /static/public\nDisallow: /\n"
+    sitemap = f"Sitemap: {base_url.rstrip('/')}/sitemap.xml\n" if base_url else ""
+    return f"User-agent: *\n{allowed}Allow: /news/\nAllow: /static/public\nDisallow: /\n{sitemap}"
 
 
 def home_response(request: Request) -> HTMLResponse:
@@ -482,11 +574,39 @@ def register(app) -> None:
     add_page("/fraktionen", "Fraktionen | Bochum RP", "Die offiziellen Fraktionen von Bochum RP.", factions_html)
     add_page("/news", "News | Bochum RP", "Neuigkeiten von Bochum RP.", news_html)
     add_page("/faq", "Häufige Fragen | Bochum RP", "Antworten zu Server, Roleplay und Bewerbung.", faq_html)
+    add_page("/team-vorstellung", "Team | Bochum RP", "Öffentlich freigegebene Teamprofile von Bochum RP.", public_team_html)
+    add_page("/nutzungsbedingungen", "Nutzungsbedingungen | Bochum RP", "Nutzungs- und Community-Bedingungen von Bochum RP.", legal.terms_html)
     add_page("/impressum", "Impressum | Bochum RP", "Anbieterkennzeichnung von Bochum RP.", legal.impressum_html)
     add_page("/datenschutz", "Datenschutz | Bochum RP", "Wie Bochum RP und Pulse personenbezogene Daten verarbeiten.", legal.privacy_html)
     add_page("/cookies", "Cookies | Bochum RP", "Welche Cookies und Browser-Speicher eingesetzt werden.",
              lambda: legal.cookies_html(OPTIONAL_SERVICES))
     add_page("/sicherheit", "Sicherheit | Bochum RP", "So schützt Pulse Konten und Daten.", legal.security_html)
+
+    async def public_news_detail(news_id: int, request: Request):
+        limited_response = limited(request)
+        if limited_response:
+            return limited_response
+        item = get_news(news_id)
+        if not item:
+            raise HTTPException(status_code=404)
+        return respond(page(
+            f'{item["title"]} | Bochum RP',
+            f'Neuigkeiten von Bochum RP: {item["title"]}',
+            news_detail_html(item),
+            path="/news/" + str(news_id),
+        ))
+
+    app.add_api_route("/news/{news_id}", public_news_detail, methods=["GET"],
+                      response_class=HTMLResponse, include_in_schema=False)
+
+    async def sitemap(request: Request):
+        if not legal.publication_ready():
+            return Response("", status_code=404, media_type="application/xml")
+        base = str(request.base_url).rstrip("/")
+        return Response(sitemap_xml(base), media_type="application/xml",
+                        headers={"X-Robots-Tag": "noindex"})
+
+    app.add_api_route("/sitemap.xml", sitemap, methods=["GET"], include_in_schema=False)
 
     def add_static(name: str, media: str):
         async def handler():
@@ -501,14 +621,14 @@ def register(app) -> None:
     for name, media in STATIC_FILES.items():
         add_static(name, media)
 
-    # --- administrators publish the news; nothing appears on the website without them ---------
+    # --- administrators publish public content; profiles remain drafts until explicit approval ----
     async def website_admin(request: Request, user_session: str = Cookie(None)):
         from pulse_pro import render_pro_page
 
         ctx = ws.auth(request, user_session, admin=True)
-        missing = legal.missing_fields()
+        missing = legal.publication_blockers()
         status = (
-            '<p><span class="pulse-pill good">Pflichtangaben vollständig</span></p>'
+            '<p><span class="pulse-pill good">Freigaben vollständig</span></p>'
             if not missing
             else '<p><span class="pulse-pill warn">Website bleibt für Suchmaschinen gesperrt</span></p><ul>'
             + "".join(f"<li><code>{e(key)}</code>: {e(label)}</li>" for key, label in missing.items()) + "</ul>"
@@ -523,22 +643,82 @@ def register(app) -> None:
             f'<button class="btn" onclick="return confirm(\'News löschen?\')">Löschen</button></form></div>'
             for row in rows
         ) or "<p class='muted'>Noch keine News veröffentlicht.</p>"
-        body = f"""<div class="pulse-card"><h2>Rechtliche Angaben</h2>{status}</div>
+        body = f"""<div class="pulse-card"><h2>Freigabestatus</h2>{status}</div>
+        <div class="pulse-card"><h2>Öffentliche Teamprofile</h2>
+        <p class="muted">Profile sind nach dem Anlegen unveröffentlicht. Erst ein separater Klick auf „Veröffentlichen“ macht sie öffentlich.</p>
+        <a class="btn" href="/admin/website/team">Teamprofile verwalten</a></div>
         <div class="pulse-card"><h2>News veröffentlichen</h2>
-        <p class="muted">Alles, was du hier speicherst, ist sofort öffentlich sichtbar.</p>
+        <p class="muted">News werden nach dem Speichern sofort öffentlich angezeigt.</p>
         <form method="post" action="/admin/website/news" class="grid gap-3">
         <label>Titel <input class="pulse-input" name="title" maxlength="120" required></label>
+        <label>Kategorie <input class="pulse-input" name="category" maxlength="40" value="Community" required></label>
         <label>Text <textarea class="pulse-input" name="body" maxlength="4000" rows="6" required></textarea></label>
         <button class="btn btn-primary">Veröffentlichen</button></form></div>
         <div class="pulse-card"><h2>Veröffentlichte News</h2>{items}</div>"""
         return HTMLResponse(render_pro_page(ws, "Website", ctx, "website", body))
 
+    async def website_team_admin(request: Request, user_session: str = Cookie(None)):
+        from pulse_pro import render_pro_page
+
+        ctx = ws.auth(request, user_session, admin=True)
+        profiles = public_content.list_profiles(published_only=False)
+        rows = "".join(
+            f'<div class="pulse-row"><div class="pulse-row-main"><b>{e(item["display_name"])}</b>'
+            f'<div class="muted">{e(item["role_label"])} · { "Öffentlich" if item["is_published"] else "Entwurf" }</div>'
+            f'<div class="muted">{e(item["bio"])}</div></div>'
+            f'<form method="post" action="/admin/website/team/{int(item["id"])}/publish">'
+            f'<button class="btn" name="published" value="{0 if item["is_published"] else 1}">'
+            f'{"Veröffentlichung zurückziehen" if item["is_published"] else "Veröffentlichen"}</button></form>'
+            f'<form method="post" action="/admin/website/team/{int(item["id"])}/delete">'
+            f'<button class="btn" onclick="return confirm(\'Profil löschen?\')">Löschen</button></form></div>'
+            for item in profiles
+        ) or "<p class='muted'>Noch keine Profile angelegt.</p>"
+        body = f"""<div class="pulse-card"><h2>Profil anlegen</h2>
+        <p class="muted">Nur Angaben eintragen, deren Veröffentlichung ausdrücklich freigegeben wurde. Keine privaten Kontaktdaten oder internen Informationen.</p>
+        <form method="post" action="/admin/website/team" class="grid gap-3">
+        <label>Öffentlicher Anzeigename <input class="pulse-input" name="display_name" maxlength="40" required></label>
+        <label>Öffentliche Teamfunktion <input class="pulse-input" name="role_label" maxlength="80" required></label>
+        <label>Freigegebene Kurzbeschreibung <textarea class="pulse-input" name="bio" maxlength="360" rows="4"></textarea></label>
+        <button class="btn btn-primary">Als Entwurf speichern</button></form></div>
+        <div class="pulse-card"><h2>Profile und Veröffentlichungsstatus</h2>{rows}</div>"""
+        return HTMLResponse(render_pro_page(ws, "Öffentliche Teamprofile", ctx, "website", body))
+
+    async def website_team_add(request: Request, display_name: str = Form(...), role_label: str = Form(...),
+                               bio: str = Form(""), user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session, admin=True)
+        actor = ctx.user.get("global_name") or ctx.user.get("username") or "Admin"
+        try:
+            profile_id = public_content.create_profile(display_name, role_label, bio)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        ws.log_audit(actor, ctx.user["id"], "Öffentliches Teamprofil als Entwurf erstellt", f"#{profile_id}")
+        return RedirectResponse("/admin/website/team", status_code=303)
+
+    async def website_team_publish(profile_id: int, request: Request, published: int = Form(...),
+                                   user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session, admin=True)
+        if published not in (0, 1):
+            raise HTTPException(status_code=422, detail="Ungültiger Veröffentlichungsstatus.")
+        actor = ctx.user.get("global_name") or ctx.user.get("username") or "Admin"
+        if not public_content.set_published(profile_id, bool(published)):
+            raise HTTPException(status_code=404)
+        ws.log_audit(actor, ctx.user["id"], "Öffentlicher Teamprofil-Status geändert",
+                     f"#{profile_id}: {'veröffentlicht' if published else 'zurückgezogen'}")
+        return RedirectResponse("/admin/website/team", status_code=303)
+
+    async def website_team_delete(profile_id: int, request: Request, user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session, admin=True)
+        actor = ctx.user.get("global_name") or ctx.user.get("username") or "Admin"
+        if public_content.delete_profile(profile_id):
+            ws.log_audit(actor, ctx.user["id"], "Öffentliches Teamprofil gelöscht", f"#{profile_id}")
+        return RedirectResponse("/admin/website/team", status_code=303)
+
     async def website_news_add(request: Request, title: str = Form(...), body: str = Form(...),
-                               user_session: str = Cookie(None)):
+                               category: str = Form("Community"), user_session: str = Cookie(None)):
         ctx = ws.auth(request, user_session, admin=True)
         name = ctx.user.get("global_name") or ctx.user.get("username") or "Admin"
         try:
-            news_id = add_news(title, body, name)
+            news_id = add_news(title, body, name, category)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         ws.log_audit(name, ctx.user["id"], "Website-News veröffentlicht", f"#{news_id}")
@@ -552,6 +732,10 @@ def register(app) -> None:
         return RedirectResponse("/admin/website", status_code=303)
 
     app.add_api_route("/admin/website", website_admin, methods=["GET"], response_class=HTMLResponse)
+    app.add_api_route("/admin/website/team", website_team_admin, methods=["GET"], response_class=HTMLResponse)
+    app.add_api_route("/admin/website/team", website_team_add, methods=["POST"])
+    app.add_api_route("/admin/website/team/{profile_id}/publish", website_team_publish, methods=["POST"])
+    app.add_api_route("/admin/website/team/{profile_id}/delete", website_team_delete, methods=["POST"])
     app.add_api_route("/admin/website/news", website_news_add, methods=["POST"])
     app.add_api_route("/admin/website/news/{news_id}/delete", website_news_delete, methods=["POST"])
 
