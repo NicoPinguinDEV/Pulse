@@ -51,7 +51,7 @@ class Pages(Base):
                 self.assertEqual(response.status_code, 200)
                 self.assertIn("script-src 'self'", response.headers["content-security-policy"])
                 self.assertNotIn("unsafe-inline", response.headers["content-security-policy"])
-                self.assertIn("Team-Login", response.text)
+                self.assertIn("Anmelden", response.text)
                 self.assertNotIn("set-cookie", response.headers)
 
     def test_no_external_resource_and_no_inline_code(self):
