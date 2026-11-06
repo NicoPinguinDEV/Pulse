@@ -11,6 +11,7 @@ lives at /team-login. /team remains the internal team list.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -21,7 +22,7 @@ from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 
-from fastapi import Cookie, Form, HTTPException, Request
+from fastapi import Cookie, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 import pulse_db
@@ -476,9 +477,14 @@ def _team_cards(profiles: list[dict]) -> str:
     cards = []
     for profile in profiles:
         initials = "".join(part[0] for part in profile["display_name"].split()[:2]).upper()
+        avatar = profile.get("avatar_data") or ""
+        portrait = (
+            f'<img class="team-avatar" src="{e(avatar)}" alt="Porträt von {e(profile["display_name"])}" loading="lazy" decoding="async">'
+            if avatar else f'<div class="team-initials" aria-hidden="true">{e(initials)}</div>'
+        )
         bio_html = f"<p>{e(profile['bio'])}</p>" if profile.get("bio") else ""
         cards.append(
-            f'<article class="team-card"><div class="team-initials" aria-hidden="true">{e(initials)}</div>'
+            f'<article class="team-card">{portrait}'
             f'<p class="tag">{e(profile["role_label"])}</p><h3>{e(profile["display_name"])}</h3>'
             f'{bio_html}</article>'
         )
@@ -504,6 +510,22 @@ def public_team_html() -> str:
         '<div class="doc"><h1>Unser Team</h1><p>Diese Profile wurden ausdrücklich für die öffentliche Website freigegeben.</p>'
         f'{_team_cards(profiles)}</div>'
     )
+
+
+def _read_team_avatar(upload: UploadFile | None) -> str:
+    """Store a small local PNG portrait; public pages never contact third-party image hosts."""
+    if upload is None or not upload.filename:
+        return ""
+    payload = upload.file.read(512 * 1024 + 1)
+    if not payload:
+        return ""
+    if len(payload) > 512 * 1024 or len(payload) < 24 or payload[:8] != bytes.fromhex("89504e470d0a1a0a") or payload[12:16] != b"IHDR":
+        raise ValueError("Profilbild: Bitte ein PNG bis 512 KB hochladen.")
+    width = int.from_bytes(payload[16:20], "big")
+    height = int.from_bytes(payload[20:24], "big")
+    if not (1 <= width <= 1024 and 1 <= height <= 1024):
+        raise ValueError("Profilbild: Maximal 1024 × 1024 Pixel.")
+    return "data:image/png;base64," + base64.b64encode(payload).decode("ascii")
 
 
 def public_team_teaser() -> str:
@@ -695,21 +717,24 @@ def register(app) -> None:
             )
         rows = "".join(row_parts) or "<p class='muted'>Noch keine Profile angelegt.</p>"
         body = f"""<div class="pulse-card"><h2>Profil anlegen</h2>
-        <p class="muted">Nur Angaben eintragen, deren Veröffentlichung ausdrücklich freigegeben wurde. Keine privaten Kontaktdaten oder internen Informationen.</p>
-        <form method="post" action="/admin/website/team" class="grid gap-3">
+        <p class="muted">Nur Angaben und Bilder eintragen, deren Veröffentlichung ausdrücklich freigegeben wurde. Keine privaten Kontaktdaten oder internen Informationen.</p>
+        <form method="post" enctype="multipart/form-data" action="/admin/website/team" class="grid gap-3">
         <label>Öffentlicher Anzeigename <input class="pulse-input" name="display_name" maxlength="40" required></label>
         <label>Öffentliche Teamfunktion <input class="pulse-input" name="role_label" maxlength="80" required></label>
         <label>Freigegebene Kurzbeschreibung <textarea class="pulse-input" name="bio" maxlength="360" rows="4"></textarea></label>
+        <label>Öffentlich freigegebenes Profilbild (PNG, max. 512 KB, 1024 × 1024 px) <input class="pulse-input" type="file" name="avatar" accept="image/png"></label>
         <button class="btn btn-primary">Als Entwurf speichern</button></form></div>
         <div class="pulse-card"><h2>Profile und Veröffentlichungsstatus</h2>{rows}</div>"""
         return HTMLResponse(render_pro_page(ws, "Öffentliche Teamprofile", ctx, "website", body))
 
     async def website_team_add(request: Request, display_name: str = Form(...), role_label: str = Form(...),
-                               bio: str = Form(""), user_session: str = Cookie(None)):
+                               bio: str = Form(""), avatar: UploadFile | None = File(None),
+                               user_session: str = Cookie(None)):
         ctx = ws.auth(request, user_session, admin=True)
         actor = ctx.user.get("global_name") or ctx.user.get("username") or "Admin"
         try:
-            profile_id = public_content.create_profile(display_name, role_label, bio)
+            avatar_data = _read_team_avatar(avatar)
+            profile_id = public_content.create_profile(display_name, role_label, bio, avatar_data)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         ws.log_audit(actor, ctx.user["id"], "Öffentliches Teamprofil als Entwurf erstellt", f"#{profile_id}")
