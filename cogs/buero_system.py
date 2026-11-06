@@ -1,9 +1,10 @@
 import sqlite3
+import time
 from contextlib import closing
 import re
 import unicodedata
 import discord
-from pulse_interactions import PulseView  # BOT-01: error IDs, double-click guard, timeout
+from pulse_interactions import PulseView, defer_ephemeral, reply_ephemeral  # BOT-01: error IDs, double-click guard, timeout
 from pulse_embed_design import color as _pulse_color
 from discord import app_commands
 from discord.ext import commands
@@ -18,6 +19,15 @@ DB_NAME = pulse_paths.data_file("buero_system.db")  # Phase 13: data directory
 DEFAULT_WAITING_ROOM_ID = _pulse_ids.OFFICE_WAITING_ROOM_ID
 DEFAULT_PING_CHANNEL_ID = _pulse_ids.OFFICE_PING_CHANNEL_ID
 OFFICE_CONFIG_VERSION = 3
+
+# A claim only protects the short window of the Discord move. After this many seconds
+# (crash, lost connection) the request becomes claimable again instead of hanging forever.
+CLAIM_TTL_SECONDS = 60
+
+SELF_CLAIM_MESSAGE = (
+    "❌ Du kannst deine eigene Büro-Anfrage nicht übernehmen. "
+    "Ein anderes berechtigtes Teammitglied muss dich übernehmen."
+)
 
 # Explizite Rollen-Zuordnung pro Zielbüro. Mehrere Rollen pro Büro sind möglich.
 # Diese IDs werden nach der Auswahl in der DM gepingt; die Warteraum-Anfrage
@@ -44,6 +54,12 @@ def init_db():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Backward-compatible: existing databases only gain two nullable columns.
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(pending_requests)")}
+    if "claimed_by" not in columns:
+        cursor.execute("ALTER TABLE pending_requests ADD COLUMN claimed_by INTEGER")
+    if "claimed_at" not in columns:
+        cursor.execute("ALTER TABLE pending_requests ADD COLUMN claimed_at REAL")
     conn.commit()
     conn.close()
 
@@ -129,6 +145,56 @@ def clear_pending_request(user_id: int, message_id: int | None = None):
                 "DELETE FROM pending_requests WHERE user_id = ? AND message_id = ?",
                 (user_id, message_id),
             )
+
+
+def claim_pending_request(message_id: int, guild_id: int, claimer_id: int, *, now: float | None = None) -> str:
+    """Atomically reserve a request for one team member.
+
+    Returns "ok", "self", "taken" or "missing". The self check is part of the UPDATE, so no
+    interaction path can reserve a request for the person who is waiting in it.
+    """
+    now = time.time() if now is None else now
+    init_db()
+    with closing(sqlite3.connect(DB_NAME)) as conn, conn:
+        updated = conn.execute(
+            """UPDATE pending_requests SET claimed_by = ?, claimed_at = ?
+               WHERE message_id = ? AND guild_id = ? AND user_id != ?
+                 AND (claimed_by IS NULL OR claimed_at IS NULL OR claimed_at < ?)""",
+            (claimer_id, now, int(message_id), int(guild_id), claimer_id, now - CLAIM_TTL_SECONDS),
+        ).rowcount
+        if updated == 1:
+            return "ok"
+        row = conn.execute(
+            "SELECT user_id FROM pending_requests WHERE message_id = ? AND guild_id = ?",
+            (int(message_id), int(guild_id)),
+        ).fetchone()
+    if row is None:
+        return "missing"
+    return "self" if int(row[0]) == int(claimer_id) else "taken"
+
+
+def release_claim(message_id: int, claimer_id: int) -> None:
+    """Give a request back after a failed move, so another team member can take it."""
+    init_db()
+    with closing(sqlite3.connect(DB_NAME)) as conn, conn:
+        conn.execute(
+            "UPDATE pending_requests SET claimed_by = NULL, claimed_at = NULL WHERE message_id = ? AND claimed_by = ?",
+            (int(message_id), int(claimer_id)),
+        )
+
+
+def release_all_claims() -> None:
+    """At startup no move can be running any more; a crash must not leave requests reserved."""
+    init_db()
+    with closing(sqlite3.connect(DB_NAME)) as conn, conn:
+        conn.execute("UPDATE pending_requests SET claimed_by = NULL, claimed_at = NULL WHERE claimed_by IS NOT NULL")
+
+
+def claim_is_active(request: dict | None, *, now: float | None = None) -> bool:
+    if not request or request.get("claimed_by") is None:
+        return False
+    now = time.time() if now is None else now
+    return float(request.get("claimed_at") or 0) >= now - CLAIM_TTL_SECONDS
 
 
 _GENERIC_OFFICE_WORDS = {
@@ -248,6 +314,18 @@ async def delete_pending_ping(
     return True
 
 
+def _is_office_team(member) -> bool:
+    """Server-side check for team roles or administrator; fails closed to administrators only."""
+    try:
+        cfg = __import__("webserver").load_config()
+        team_ids = {int(role_id) for role_id in cfg.get("team_role_ids", [])}
+        return bool(member.guild_permissions.administrator) or any(
+            role.id in team_ids for role in getattr(member, "roles", [])
+        )
+    except Exception:
+        return bool(member.guild_permissions.administrator)
+
+
 # --- BUTTON FÜR BÜRO-PING (ÜBERNEHMEN) ---
 class BueroUebernehmenView(PulseView):
     def __init__(self, bot: commands.Bot, waiting_user_id: int, target_voice_id: int):
@@ -257,17 +335,36 @@ class BueroUebernehmenView(PulseView):
         self.target_voice_id = target_voice_id
 
     async def _request_state(self, interaction: discord.Interaction):
-        """(waiting user, target voice). K-07: the stateless view registered at startup reads it from the DB."""
-        if self.waiting_user_id:
-            return self.waiting_user_id, self.target_voice_id
-        request = get_pending_request_by_message(interaction.message.id) if interaction.message else None
+        """The open request of this message. The database is the only truth, also for views
+        created before a restart or for a ping that was replaced in the meantime."""
+        message = interaction.message
+        try:
+            request = get_pending_request_by_message(message.id) if message else None
+        except sqlite3.Error as exc:
+            print(f"⚠️ Büro-System: Anfrage konnte nicht gelesen werden ({type(exc).__name__}).")
+            await interaction.response.send_message(
+                "❌ Die Büro-Anfrage konnte gerade nicht geprüft werden. Bitte versuche es gleich erneut.",
+                ephemeral=True,
+            )
+            return None
+        if self.waiting_user_id and request and int(request["user_id"]) != int(self.waiting_user_id):
+            request = None  # ping belongs to someone else: never act on it
+        if request and interaction.guild and int(request["guild_id"]) != int(interaction.guild.id):
+            request = None
+        channel_id = getattr(interaction, "channel_id", None)
+        if request and channel_id and int(request["ping_channel_id"]) != int(channel_id):
+            request = None
         if not request:
             await interaction.response.send_message(
                 "ℹ️ Diese Büro-Anfrage ist nicht mehr aktiv. Die Person kann einfach erneut den Warteraum betreten.",
                 ephemeral=True
             )
+            try:
+                await message.delete()  # the outdated ping must not keep offering a dead button
+            except (discord.HTTPException, AttributeError):
+                pass
             return None
-        return int(request["user_id"]), int(request["target_voice_id"] or 0)
+        return request
 
     @discord.ui.button(
         label="Übernehmen",
@@ -280,26 +377,23 @@ class BueroUebernehmenView(PulseView):
         if guild is None:
             await interaction.response.send_message("❌ Diese Aktion ist nur auf dem Server verfügbar.", ephemeral=True)
             return
-        state = await self._request_state(interaction)
-        if state is None:
+        request = await self._request_state(interaction)
+        if request is None:
             return
-        waiting_user_id, target_voice_id = state
-        waiting_member = guild.get_member(waiting_user_id)
+        waiting_user_id, target_voice_id = int(request["user_id"]), int(request["target_voice_id"] or 0)
         team_member = interaction.user
 
+        # First: nobody takes their own request, whatever their roles are.
+        if int(team_member.id) == waiting_user_id:
+            await interaction.response.send_message(SELF_CLAIM_MESSAGE, ephemeral=True)
+            return
+
         # Nur Teamler/Administratoren dürfen Anfragen übernehmen.
-        try:
-            cfg = __import__("webserver").load_config()
-            team_ids = {int(role_id) for role_id in cfg.get("team_role_ids", [])}
-            allowed = team_member.guild_permissions.administrator or any(
-                role.id in team_ids for role in getattr(team_member, "roles", [])
-            )
-        except Exception:
-            allowed = team_member.guild_permissions.administrator
-        if not allowed:
+        if not _is_office_team(team_member):
             await interaction.response.send_message("❌ Nur Teammitglieder dürfen Büro-Anfragen übernehmen.", ephemeral=True)
             return
 
+        waiting_member = guild.get_member(waiting_user_id)
         warteraum_id = get_config("warteraum_channel_id")
         if (
             not waiting_member
@@ -328,35 +422,72 @@ class BueroUebernehmenView(PulseView):
                 )
                 return
             target_channel = team_member.voice.channel
+        if target_channel.id == warteraum_id:
+            await interaction.response.send_message(
+                "❌ Der Warteraum ist kein Büro. Betritt zuerst einen Büro-Sprachkanal.",
+                ephemeral=True,
+            )
+            return
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        bot_permissions = target_channel.permissions_for(guild.me)
+        if not (bot_permissions.move_members and bot_permissions.connect):
+            await interaction.response.send_message(
+                f"❌ Mir fehlen in **{target_channel.name}** die Rechte (Verbinden, Mitglieder verschieben).",
+                ephemeral=True,
+            )
+            return
+
+        # Exactly one team member wins here, also with simultaneous clicks.
         try:
+            claim = claim_pending_request(interaction.message.id, guild.id, team_member.id)
+        except sqlite3.Error as exc:
+            print(f"⚠️ Büro-System: Übernahme konnte nicht gespeichert werden ({type(exc).__name__}).")
+            await interaction.response.send_message(
+                "❌ Die Übernahme konnte nicht gespeichert werden. Die Anfrage bleibt offen, bitte versuche es erneut.",
+                ephemeral=True,
+            )
+            return
+        if claim != "ok":
+            await interaction.response.send_message(
+                {
+                    "self": SELF_CLAIM_MESSAGE,
+                    "taken": "ℹ️ Diese Anfrage wird bereits von einem anderen Teammitglied übernommen.",
+                }.get(claim, "ℹ️ Diese Büro-Anfrage ist nicht mehr aktiv."),
+                ephemeral=True,
+            )
+            return
+
+        failure = None
+        try:
+            await defer_ephemeral(interaction)
             await waiting_member.move_to(target_channel, reason=f"Büro-Anfrage übernommen von {team_member}")
-            # The voice-state listener also deletes the ping when the user leaves
-            # the waiting room. This second cleanup is safe if the listener won the race.
-            await delete_pending_ping(
-                self.bot,
-                waiting_user_id,
-                expected_message_id=interaction.message.id,
-                fallback_message=interaction.message,
-            )
-            await interaction.followup.send(
-                f"✅ Du hast {waiting_member.mention} erfolgreich in **{target_channel.name}** geholt. Die Ping-Nachricht wurde entfernt.",
-                ephemeral=True
-            )
         except discord.Forbidden:
-            await interaction.followup.send(
-                "❌ Mir fehlen die Rechte (Mitglieder verschieben), um diesen User zu verschieben!",
-                ephemeral=True
-            )
+            failure = "❌ Mir fehlen die Rechte (Mitglieder verschieben), um diesen User zu verschieben!"
         except discord.HTTPException as exc:
-            await interaction.followup.send(
-                f"❌ Discord konnte die Person nicht verschieben ({type(exc).__name__}).",
-                ephemeral=True
-            )
+            failure = f"❌ Discord konnte die Person nicht verschieben ({type(exc).__name__})."
         except Exception as exc:
             print(f"⚠️ Büro-System: Übernahme fehlgeschlagen ({type(exc).__name__}).")
-            await interaction.followup.send("❌ Die Übernahme ist fehlgeschlagen.", ephemeral=True)
+            failure = "❌ Die Übernahme ist fehlgeschlagen."
+        if failure:
+            try:
+                release_claim(interaction.message.id, team_member.id)
+            except sqlite3.Error as exc:  # the reservation then simply expires after CLAIM_TTL_SECONDS
+                print(f"⚠️ Büro-System: Übernahme konnte nicht freigegeben werden ({type(exc).__name__}).")
+            await reply_ephemeral(interaction, failure + " Die Anfrage bleibt offen.")
+            return
+
+        # The voice-state listener also deletes the ping when the user leaves
+        # the waiting room. This second cleanup is safe if the listener won the race.
+        await delete_pending_ping(
+            self.bot,
+            waiting_user_id,
+            expected_message_id=interaction.message.id,
+            fallback_message=interaction.message,
+        )
+        await reply_ephemeral(
+            interaction,
+            f"✅ Du hast {waiting_member.mention} erfolgreich in **{target_channel.name}** geholt. Die Ping-Nachricht wurde entfernt.",
+        )
 
 
     @discord.ui.button(
@@ -375,25 +506,23 @@ class BueroUebernehmenView(PulseView):
             return
 
         team_member = interaction.user
-        try:
-            cfg = __import__("webserver").load_config()
-            team_ids = {int(role_id) for role_id in cfg.get("team_role_ids", [])}
-            allowed = team_member.guild_permissions.administrator or any(
-                role.id in team_ids for role in getattr(team_member, "roles", [])
-            )
-        except Exception:
-            allowed = team_member.guild_permissions.administrator
-        if not allowed:
+        if not _is_office_team(team_member):
             await interaction.response.send_message(
                 "❌ Nur Teammitglieder dürfen Büro-Anfragen abschließen.",
                 ephemeral=True,
             )
             return
 
-        state = await self._request_state(interaction)
-        if state is None:
+        request = await self._request_state(interaction)
+        if request is None:
             return
-        waiting_user_id = state[0]
+        if claim_is_active(request):
+            await interaction.response.send_message(
+                "ℹ️ Diese Anfrage wird gerade übernommen.",
+                ephemeral=True,
+            )
+            return
+        waiting_user_id = int(request["user_id"])
         await interaction.response.defer(ephemeral=True, thinking=True)
         removed = await delete_pending_ping(
             self.bot,
@@ -460,12 +589,26 @@ class BueroSelect(discord.ui.Select):
             )
             return
 
+        if target_vc_id == warteraum_id:
+            await interaction.response.send_message("❌ Der Warteraum ist kein Büro.", ephemeral=True)
+            return
+
+        if claim_is_active(get_pending_request(interaction.user.id)):
+            await interaction.response.send_message(
+                "ℹ️ Deine Anfrage wird gerade von einem Teammitglied übernommen.",
+                ephemeral=True,
+            )
+            return
+
+        # Replacing the ping and sending the new one can take longer than Discord's 3 s.
+        await defer_ephemeral(interaction)
+
         ping_channel_id = int(get_config("ping_channel_id") or DEFAULT_PING_CHANNEL_ID)
         ping_channel = await resolve_ping_channel(guild, ping_channel_id)
         if not isinstance(ping_channel, discord.TextChannel):
-            await interaction.response.send_message(
+            await reply_ephemeral(
+                interaction,
                 "❌ Das Büro-Ping-System ist auf dem Server noch nicht vollständig eingerichtet.",
-                ephemeral=True
             )
             return
 
@@ -517,20 +660,20 @@ class BueroSelect(discord.ui.Select):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 pass
             print(f"⚠️ Büro-System: Anfrage konnte nicht angelegt werden ({type(exc).__name__}).")
-            await interaction.response.send_message(
+            await reply_ephemeral(
+                interaction,
                 "❌ Die Büro-Anfrage konnte nicht gespeichert oder gesendet werden. Prüfe die Bot-Rechte und versuche es erneut.",
-                ephemeral=True
             )
             return
 
-        await interaction.response.send_message(
+        await reply_ephemeral(
+            interaction,
             f"✅ Deine Anfrage für **{target_vc.name}** wurde weitergeleitet! Bitte bleibe im Warteraum."
             + (
                 ""
                 if office_roles
                 else "\n⚠️ Für dieses Büro wurde keine gültige Ping-Rolle gefunden. Ein Administrator kann sie mit /buero_rolle_setzen fest zuordnen."
             ),
-            ephemeral=True
         )
 
 
@@ -550,6 +693,7 @@ class BueroSystemCog(commands.Cog):
     async def cog_load(self):
         # K-07: stateless handler for "buero_uebernehmen_btn" on pings posted before a restart.
         self.bot.add_view(BueroUebernehmenView(self.bot, 0, 0))
+        release_all_claims()
 
     async def _send_arrival_ping(self, member: discord.Member, waiting_room: discord.VoiceChannel):
         """Publish an immediate office request on entry, even before the DM selection."""
@@ -674,6 +818,8 @@ class BueroSystemCog(commands.Cog):
                 await member.send(embed=embed, view=DMSelectView(office_channels, member.guild.id))
             except discord.Forbidden:
                 print(f"⚠️ Konnte {member.display_name} keine DM senden (DMs geschlossen).")
+            except discord.HTTPException as exc:
+                print(f"⚠️ Büro-System: DM-Auswahl fehlgeschlagen ({type(exc).__name__}).")
 
     # ADMIN COMMAND: SETUP
     @app_commands.command(name="setup_buero", description="[Admin] Richtet das Büro-Warteraum System ein")
