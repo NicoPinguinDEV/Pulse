@@ -229,7 +229,7 @@ def page(title: str, description: str, body: str, *, path: str) -> str:
         f'<a href="{href}"{" aria-current=page" if href == path or (href == "/news" and path.startswith("/news/")) else ""}>{label}</a>'
         for href, label in NAV
     )
-    actions = f'{_discord_button("btn btn-main btn-small")}<a class="btn btn-quiet btn-small" href="/team-login">Team-Login</a>'
+    actions = f'{_discord_button("btn btn-main btn-small")}<a class="btn btn-quiet btn-small" href="/team-login">Anmelden</a>'
     consent = ""
     if OPTIONAL_SERVICES:
         config = json.dumps({"version": CONSENT_VERSION, "services": list(OPTIONAL_SERVICES)}, ensure_ascii=False)
@@ -255,7 +255,7 @@ def page(title: str, description: str, body: str, *, path: str) -> str:
   <div class="top-actions">{actions}</div>
   <details class="menu">
     <summary>Menü</summary>
-    <nav aria-label="Menü">{links}{_discord_button("", "Discord beitreten")}<a href="/team-login">Team-Login</a></nav>
+    <nav aria-label="Menü">{links}{_discord_button("", "Discord beitreten")}<a href="/team-login">Anmelden</a></nav>
   </details>
 </header>
 <main id="inhalt">{body}</main>
