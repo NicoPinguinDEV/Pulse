@@ -1,44 +1,66 @@
 # Rechtliche Freigabe der öffentlichen Website
 
-Die Seiten `/impressum`, `/datenschutz` und `/cookies` beschreiben das tatsächliche Verhalten des Codes (geprüft am 2026-11-06). Sie ersetzen keine Rechtsberatung. Nichts davon ist als rechtssicher freigegeben.
+**Wichtiger Hinweis:** Die Seiten sind technische Informationsentwürfe auf Grundlage des aktuellen Codes. Sie sind keine Rechtsberatung und wurden nicht durch einen Rechtsanwalt oder Datenschutzbeauftragten freigegeben. Der Betreiber muss die tatsächlichen Verantwortlichen, Datenflüsse, Rechtsgrundlagen, Speicherdauern und Plattformbedingungen prüfen.
 
-Solange eine Pflichtangabe fehlt, zeigt die Seite einen Hinweis, `robots.txt` sperrt alles, und alle öffentlichen Seiten senden `noindex`.
+Solange Betreiberangaben oder Freigaben fehlen, bleiben öffentliche Seiten auf `noindex, nofollow`; `robots.txt` sperrt die Indexierung und `sitemap.xml` ist nicht abrufbar.
 
-## Vom Betreiber zu ergänzen
+## Pflichtangaben in der privaten VPS-`.env`
 
-| Variable in `.env` | Inhalt | Pflicht |
+| Variable | Inhalt | Pflicht |
 |---|---|---|
-| `PULSE_LEGAL_NAME` | Vollständiger Name oder Organisation | ja |
-| `PULSE_LEGAL_ADDRESS` | Zustellfähige Anschrift, Zeilen mit `\|` trennen | ja |
-| `PULSE_LEGAL_EMAIL` | Erreichbare E-Mail-Adresse | ja |
+| `PULSE_LEGAL_NAME` | Vollständiger Name oder Organisation des Anbieters/Verantwortlichen | ja |
+| `PULSE_LEGAL_ADDRESS` | Zustellfähige Anschrift; einzelne Zeilen mit `|` trennen | ja |
+| `PULSE_LEGAL_EMAIL` | Erreichbare Kontakt-E-Mail | ja |
 | `PULSE_LEGAL_HOSTER` | Name und Sitz des Hosting-Anbieters | ja |
-| `PULSE_LEGAL_PHONE` | Telefon, falls angeboten | nein |
-| `PULSE_LEGAL_CONTENT_RESPONSIBLE` | Inhaltlich Verantwortlicher, falls nötig | nein |
-| `PULSE_LEGAL_EXTRA` | Weitere Pflichtangaben (z. B. Register, USt-ID) | nein |
-| `PULSE_PUBLIC_DISCORD_URL` | Dauerhafte Discord-Einladung | nein, ohne sie fehlt der Beitritts-Button |
+| `PULSE_LEGAL_PHONE` | Telefonnummer, falls angeboten/erforderlich | nach Prüfung |
+| `PULSE_LEGAL_CONTENT_RESPONSIBLE` | Inhaltlich verantwortliche Person, falls erforderlich | nach Prüfung |
+| `PULSE_LEGAL_EXTRA` | Register-/USt-ID-/weitere Angaben, falls vorhanden/erforderlich | nach Prüfung |
 
-Der Stand ist im Dashboard unter Verwaltung → Website sichtbar.
+Keine echten Namen, Anschriften oder Kontaktangaben in öffentliche GitHub-Dateien, Issues, Commits oder Chatnachrichten eintragen. Die Angaben ausschließlich auf dem VPS in `.env` pflegen.
 
-## Checkliste für die juristische Prüfung
+## Manuelle Veröffentlichungsfreigabe
 
-1. **Impressum:** Gilt § 5 DDG (geschäftsmäßig, in der Regel gegen Entgelt) oder § 18 MStV? Gibt es Einnahmen, Spenden oder Vorteile? Reicht die Kontaktangabe für eine schnelle Kontaktaufnahme?
-2. **Verantwortlicher:** Wer genau ist Verantwortlicher (Einzelperson, Team, Verein)? Muss ein Datenschutzbeauftragter benannt werden?
-3. **Hosting:** Liegt ein Vertrag zur Auftragsverarbeitung nach Art. 28 DSGVO vor?
-4. **Discord:** Rollenverteilung zwischen Betreiber und Discord prüfen, Grundlage für die Übermittlung in die USA bestätigen.
-5. **KI-Anbieter:** Vor Aktivierung Vertrag und Nutzungsbedingungen prüfen: Auftragsverarbeitung, Nutzung für Training, Speicherdauer, Drittlandübermittlung. Kostenlose Stufen können abweichende Bedingungen haben. Die Prüfung aller Servernachrichten durch die KI-Moderation braucht eine belastbare Interessenabwägung, ein Hinweis an die Mitglieder ist zu empfehlen.
-6. **Minderjährige:** Die Community läuft auf Roblox/Discord, es ist mit Minderjährigen zu rechnen. Art. 8 DSGVO und die Verständlichkeit der Texte prüfen. In den Regelwerken ist kein Mindestalter hinterlegt.
-7. **Speicherfristen festlegen:**
-   - Bewerbungen: Die automatische Bereinigung ist gesperrt (`RETENTION_MUTATIONS_ENABLED = False`). Die Konfiguration nennt 183 Tage, sie wird derzeit nicht angewendet.
-   - Ticket-Transkripte werden ohne Frist aufbewahrt.
-   - Teamdaten und Moderationsfälle: Frist festlegen.
-   Danach die Tabelle `SECTIONS` in `pulse_public_legal.py` anpassen. Wer Fristen zusichert, muss sie auch umsetzen.
-8. **Datenschutzabläufe:** Wer beantwortet Auskunfts- und Löschanfragen, und in welcher Frist? `pulse_retention.export_person()` hilft beim Export.
-9. **Rechtsgrundlagen:** Die genannten Grundlagen sind ein Vorschlag aus der technischen Analyse. Besonders Art. 6 Abs. 1 lit. f braucht eine dokumentierte Abwägung.
-10. **Regelwerke:** Die Veröffentlichung auf `/regelwerk` ist mit der Serverleitung abzustimmen, die Rechte liegen dort.
-11. **Marken:** Nutzung von „Bochum“, „Discord“, „Roblox“ sowie die Nennung realer Organisationen (etwa „ADAC“ im Regelwerk) prüfen. Bochum RP sollte nicht wie ein Angebot der Stadt wirken.
-12. **Cookies:** Einstufung der Einträge unter `/cookies` als unbedingt erforderlich bestätigen, vor allem die Darstellungs-Einstellungen im Dashboard (§ 25 Abs. 2 Nr. 2 TDDDG).
-13. **Gesetzesstand:** Die Fundstellen (DDG, TDDDG, DSGVO) vor Veröffentlichung gegen die amtliche Fassung auf gesetze-im-internet.de prüfen.
+Die Website wird erst für Suchmaschinen freigegeben, wenn alle vier Pflichtangaben vorhanden sind und zusätzlich alle Schalter bewusst gesetzt wurden:
 
-## Optionale Dienste
+| Variable | Wert | Bedeutung |
+|---|---|---|
+| `PULSE_LEGAL_REVIEWED` | `1` | Betreiber hat Impressum, Datenschutz, tatsächliche Codeverarbeitung, Datenflüsse, Fristen und Rechtsgrundlagen geprüft |
+| `PULSE_TERMS_APPROVED` | `1` | Betreiber hat die Community-/Nutzungsbedingungen ausdrücklich freigegeben |
+| `PULSE_TERMS_EFFECTIVE_DATE` | `YYYY-MM-DD` | Tatsächliches Gültigkeitsdatum der freigegebenen Bedingungen |
 
-Aktuell lädt die Website nichts von Dritten und setzt keine Cookies, deshalb gibt es keinen Einwilligungsdialog. Soll ein optionaler Dienst dazukommen, gehört er in `OPTIONAL_SERVICES` in `pulse_public_site.py`, und sein Code in ein `<template data-consent-service="...">`. Der Dialog erscheint dann automatisch, Akzeptieren und Ablehnen sind gleichwertig, nichts ist vorausgewählt, und die Auswahl liegt versioniert im Browser. Die Content-Security-Policy muss dafür bewusst erweitert und die Datenschutzerklärung ergänzt werden.
+Die Software kann weder die Rechtmäßigkeit prüfen noch die inhaltliche Richtigkeit dieser Freigabe verifizieren. Die Schalter sind eine bewusste Betreiberbestätigung, keine automatische Zertifizierung und kein Ersatz für Rechtsberatung. Solange ein Punkt fehlt, bleibt die Website gesperrt.
+
+## Noch fachlich zu prüfen
+
+1. **Anbieterkennzeichnung:** Anwendbarkeit und Umfang von § 5 DDG und § 18 MStV, Betreiberidentität, Verantwortlichkeit, Erreichbarkeit und ggf. weitere Pflichtangaben.
+2. **Datenschutzverantwortung:** Wer entscheidet über Zwecke und Mittel der Verarbeitung? Ist ein Datenschutzbeauftragter zu benennen?
+3. **Hosting:** Auftragsverarbeitungsvertrag nach Art. 28 DSGVO, Rechenzentrumsort, Unterauftragnehmer und Backups.
+4. **Discord/Roblox:** Rollenverteilung, Datenübermittlungen, Plattformbedingungen und mögliche Drittlandtransfers.
+5. **KI-Anbieter:** Vor Aktivierung Auftragsverarbeitung, Drittlandtransfer, Nutzung zum Training und Speicherzeiten des konkreten Tarifs prüfen. KI-Moderation und Support müssen transparent beschrieben sein.
+6. **Minderjährige:** Verständlichkeit der Texte, Altersvorgaben und Einwilligungsfragen prüfen.
+7. **Speicherfristen:** Aktuelle technische Lücken nicht durch Versprechen verdecken:
+   - Die automatische Bereinigung von Bewerbungen ist aktuell deaktiviert; die dokumentierte Konfiguration ist keine ausgeführte Löschung.
+   - Ticket-Transkripte werden derzeit ohne automatische Frist aufbewahrt.
+   - Teamdaten und Moderationsfälle benötigen klare, technisch durchgesetzte Fristen.
+8. **Rechtsgrundlagen:** Insbesondere Art. 6 Abs. 1 lit. f DSGVO braucht eine dokumentierte Interessenabwägung.
+9. **Rechte der Betroffenen:** Verantwortlichkeit, Kontaktweg, Fristen und Ablauf für Auskunft, Berichtigung, Löschung und Widerspruch organisatorisch festlegen.
+10. **Regelwerk und Marken:** Veröffentlichung mit der Serverleitung abstimmen und fremde Marken-/Organisationsnennungen prüfen.
+11. **Cookies/TDDDG:** Jede Speicherung oder jeder Zugriff im Browser einzeln bewerten, auch lokale Präferenzen im Dashboard.
+12. **Gesetzesstand:** DDG, TDDDG, DSGVO und MStV vor Veröffentlichung anhand amtlicher aktueller Fassungen prüfen.
+
+## Cookie- und Consent-Verhalten
+
+Der öffentliche Auftritt lädt aktuell keine Analyse-, Marketing- oder Drittanbieter-Einbettungsdienste. Die öffentlichen Seiten setzen beim bloßen Aufruf keine Cookies oder Local-/Session-Storage-Einträge. Deshalb zeigt die Website keinen Einwilligungsdialog, der eine nicht vorhandene Verarbeitung vortäuschen würde.
+
+Die Cookie-Seite dokumentiert die Cookies und Browser-Speicher, die in Login, Bewerbung und Dashboard verwendet werden. Bei jeder späteren Integration optionaler Dienste müssen:
+- Dienst, Anbieter, Zweck und Datenfluss vorab dokumentiert werden;
+- sämtliche optionalen Anfragen standardmäßig blockiert bleiben;
+- „Alle akzeptieren“, „Nur notwendige“ und eine individuelle Auswahl gleichwertig zugänglich sein;
+- alle Optionen standardmäßig deaktiviert sein;
+- Widerruf/Änderung jederzeit erreichbar sein;
+- Datenschutzerklärung, Cookie-Tabelle, Consent-Version, CSP und Tests gemeinsam angepasst werden.
+
+## Öffentliche Teamprofile
+
+Teamprofile werden nicht aus Discord oder der internen Teamliste synchronisiert. Administratoren legen eine öffentliche Kurzfassung manuell an. Sie startet immer als Entwurf; erst die ausdrückliche Veröffentlichung macht Anzeigename, Funktion und Bio sichtbar. Vor Veröffentlichung muss die betroffene Person zugestimmt haben. Private IDs, Notizen, Verwarnungen, Dienstzeiten, Kontaktdaten und Rechte bleiben intern.
+
