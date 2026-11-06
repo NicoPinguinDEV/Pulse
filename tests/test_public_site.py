@@ -130,12 +130,17 @@ class Pages(Base):
         draft_page = self.client.get("/team-vorstellung").text
         self.assertNotIn("Mara", draft_page)
         self.assertTrue(content.set_published(profile_id, True))
-        public_page = self.client.get("/team-vorstellung").text
+        response = self.client.get("/team-vorstellung")
+        self.assertNotIn("public", response.headers.get("cache-control", "").lower())
+        public_page = response.text
         self.assertIn("Mara", public_page)
         self.assertIn("Support-Leitung", public_page)
         self.assertIn("Hilft bei Fragen.", public_page)
         for internal_field in ("discord_id", "private_note", "moderation_case", "service_hours"):
             self.assertNotIn(internal_field, public_page.lower())
+        self.assertTrue(content.set_published(profile_id, False))
+        withdrawn_page = self.client.get("/team-vorstellung").text
+        self.assertNotIn("Mara", withdrawn_page)
 
 
 class Separation(Base):
