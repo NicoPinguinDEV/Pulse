@@ -209,6 +209,23 @@ class WebsiteAdmin(Base):
         self.assertEqual(self.client.post(f"/admin/website/news/{news_id}/delete").status_code, 303)
         self.assertNotIn("Serverneustart", self.client.get("/news").text)
 
+    def test_public_team_profile_requires_subject_consent_before_publish(self):
+        import pulse_public_content as content
+        self.login(True)
+        profile_id = content.create_profile("Mara", "Support", "Freigegebener Text")
+        denied = self.client.post(f"/admin/website/team/{profile_id}/publish", data={"published": "1"})
+        self.assertEqual(denied.status_code, 422)
+        self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
+        approved = self.client.post(
+            f"/admin/website/team/{profile_id}/publish",
+            data={"published": "1", "consent_confirmed": "1"},
+        )
+        self.assertEqual(approved.status_code, 303)
+        self.assertIn("Mara", self.client.get("/team-vorstellung").text)
+        hidden = self.client.post(f"/admin/website/team/{profile_id}/publish", data={"published": "0"})
+        self.assertEqual(hidden.status_code, 303)
+        self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
+
     def test_admin_page_shows_missing_details(self):
         self.login(True)
         response = self.client.get("/admin/website")
