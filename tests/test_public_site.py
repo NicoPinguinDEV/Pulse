@@ -280,7 +280,8 @@ class Legal(Base):
 
     def test_privacy_names_every_processing_and_each_required_fact(self):
         html = self.client.get("/datenschutz").text
-        for term in ("Discord OAuth", "IP-Adresse", "Bewerbung", "KI-Anbieter", "Backups", "Art. 77", "Art. 21"):
+        for term in ("Discord OAuth", "IP-Adresse", "Bewerbung", "Öffentliche Teamprofile", "Einwilligung der betroffenen Person",
+                     "KI-Anbieter", "Backups", "Art. 77", "Art. 21"):
             self.assertIn(term, html)
         self.assertEqual(html.count("<dt>Rechtsgrundlage</dt>"), len(legal.SECTIONS))
         self.assertEqual(html.count("<dt>Speicherdauer</dt>"), len(legal.SECTIONS))
