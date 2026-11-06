@@ -45,6 +45,7 @@ def admin_sections(perms: dict) -> list[tuple]:
         ("ticket-panels", "/tickets/panels", "🎛️", "Ticket-Panels", "Panels, Kategorien, Begrüßungen, Formulare", is_admin),
         ("admin-panels", "/admin/panels", "▦", "Discord-Panels", "Alle Panels, Status, neu veröffentlichen", is_admin),
         ("admin-security", "/admin/security", "🛡️", "Sicherheit", "AutoMod, Anti-Nuke, Quarantäne, Vorfälle", is_admin),
+        ("website", "/admin/website", "🌐", "Website", "Öffentliche News und rechtliche Angaben", is_admin),
         ("team-checklists", "/team/checklists", "☑", "On- & Offboarding", "Checklisten für Teambeitritt und -austritt",
          is_admin or bool(perms.get("can_promote"))),
         ("mod-cases", "/mod-cases", "⚖", "Bürger-Moderation", "Fallakte: Verwarnungen, Timeouts, Kicks, Bans",

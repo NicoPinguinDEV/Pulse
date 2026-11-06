@@ -13,6 +13,7 @@ the browser sent an `Origin` header. Now:
 """
 from __future__ import annotations
 
+import ipaddress
 import os
 from urllib.parse import urlparse
 
@@ -34,6 +35,18 @@ def allowed_origins(host: str) -> set[str]:
     if public:
         allowed.add(_origin_of(public))
     return allowed
+
+
+def is_internal_client(host: str | None) -> bool:
+    """Docker, deploy scripts and the host agent ask from a private address. The proxy's trusted
+    X-Forwarded-For puts a visitor's real address here, so visitors never count as internal."""
+    if not host:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return True  # no network peer (in-process test client, unix socket)
+    return address.is_loopback or address.is_private
 
 
 SESSION_COOKIES = ("user_session=", "apply_session=")

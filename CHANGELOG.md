@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Öffentliche Website (November 2026)
+
+- Neue öffentliche Startseite unter `/` sowie `/regelwerk`, `/faq`, `/fraktionen`, `/news`, `/impressum`, `/datenschutz`, `/cookies` und `/sicherheit`. Die Login-Karte liegt jetzt unter `/team-login`, angemeldete Teammitglieder landen weiter auf ihrer Startseite.
+- News veröffentlichen Administratoren unter `/admin/website`. Dort stehen auch die noch fehlenden rechtlichen Angaben.
+- Solange Pflichtangaben fehlen, weisen die Seiten darauf hin und die Website bleibt für Suchmaschinen gesperrt. Siehe `docs/RECHTLICHE_FREIGABE.md` und `docs/OEFFENTLICHE_WEBSITE.md`.
+- Sicherheit: `/healthz`, `/health` und `/ultimate/status` zeigen Besuchern keine Version, Speicherwerte oder Jobnamen mehr. Caddy sperrt `/healthz` und `/health` nach außen.
+
 ## Automatische Bürgerrolle und Entfernung der Verifikation (November 2026)
 
 - Neue menschliche Mitglieder erhalten beim Serverbeitritt automatisch die Bürgerrolle `1531303733311307997`.

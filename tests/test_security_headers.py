@@ -12,7 +12,7 @@ class HeaderTests(unittest.TestCase):
         self.client = TestClient(ws.app, raise_server_exceptions=False)
 
     def test_headers_are_set_once_and_consistently(self):
-        response = self.client.get("/", follow_redirects=False)
+        response = self.client.get("/team-login", follow_redirects=False)  # "/" is the public site: test_public_site
         headers = response.headers
         self.assertEqual(headers.get("Content-Security-Policy"), pulse_security.CSP)
         self.assertIn("frame-ancestors 'self'", headers["Content-Security-Policy"])

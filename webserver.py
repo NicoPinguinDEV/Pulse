@@ -34,6 +34,7 @@ from fastapi import FastAPI, Form, Request, Cookie, HTTPException, UploadFile, F
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
+import pulse_public_site
 import discord
 from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
@@ -256,9 +257,9 @@ app = FastAPI(title="Pulse TeamOS", version=PULSE_VERSION, docs_url=None, redoc_
 
 # Small inline favicon avoids the browser's recurring default /favicon.ico 404.
 _FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-<rect width="64" height="64" rx="15" fill="#4f46e5"/>
+<rect width="64" height="64" rx="15" fill="#1f2225"/>
 <path d="M18 13h9v29h20v9H18z" fill="#fff"/>
-<circle cx="46" cy="17" r="5" fill="#a5f3fc"/>
+<circle cx="46" cy="17" r="5" fill="#ff6f4f"/>
 </svg>"""
 
 
@@ -3736,6 +3737,7 @@ def _system_alert(key: str, message: str) -> None:
 import pulse_health_api  # noqa: E402
 
 pulse_health_api.register(app)
+pulse_public_site.register(app)
 healthz = pulse_health_api.healthz
 
 
@@ -3765,8 +3767,20 @@ async def static_pulse_css():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def home(user_session: str = Cookie(None)):
+async def home(request: Request, user_session: str = Cookie(None)):
+    """Public homepage; signed-in team members go on to their start page."""
     session = dashboard_session(user_session)  # same check as every protected page (no redirect loop)
+    if session:
+        return RedirectResponse(url=start_page_for(session.get("id")), status_code=303)
+    response = pulse_public_site.home_response(request)
+    if user_session:
+        response.delete_cookie(key="user_session")  # ended or revoked session: clear it
+    return response
+
+
+@app.get("/team-login", response_class=HTMLResponse)
+async def team_login_page(user_session: str = Cookie(None)):
+    session = dashboard_session(user_session)
     if session:
         return RedirectResponse(url=start_page_for(session.get("id")), status_code=303)
     page = f"""

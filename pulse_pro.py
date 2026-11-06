@@ -3504,7 +3504,8 @@ def register(app):
     app.get('/api/team/discord-status',response_class=JSONResponse)(discord_status_api)
 
     async def robots_txt():
-        return Response("User-agent: *\nDisallow: /\n", media_type="text/plain")
+        import pulse_public_site
+        return Response(pulse_public_site.robots_text(), media_type="text/plain")
     app.get('/robots.txt')(robots_txt)
     app.post('/team-status/set')(set_team_status)
     app.get('/activity-check',response_class=HTMLResponse)(activity_check_page)

@@ -17,6 +17,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 import pulse_db
+import pulse_security
 
 
 async def healthz(request: Request):
@@ -34,6 +35,10 @@ async def healthz(request: Request):
     if not db_ok:
         ws._system_alert("database", "🔴 **Datenbank nicht erreichbar:** `/healthz` konnte `pulse.db` nicht abfragen.")
     ready = bool(bot and bot.is_ready() and guild and db_ok)
+    client = getattr(getattr(request, "client", None), "host", None)
+    if not pulse_security.is_internal_client(client):
+        # The status code stays meaningful for monitoring; version, memory and job names stay internal.
+        return JSONResponse({"ok": ready}, status_code=200 if ready else 503)
     # O-07: diagnostics only – they never change the status code the deploy/Docker health checks rely on.
     latency = getattr(bot, "latency", None) if bot else None
     latency_ms = round(latency * 1000) if isinstance(latency, (int, float)) and math.isfinite(latency) else None

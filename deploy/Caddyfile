@@ -2,6 +2,10 @@
 # Used by `docker compose --profile https up -d`; PULSE_DOMAIN and PULSE_UPSTREAM come from compose.yaml.
 {$PULSE_DOMAIN} {
 	encode gzip
+	header -Server
+	# Health data stays on the host: Docker and the deploy scripts ask on 127.0.0.1.
+	@internal path /healthz /health
+	respond @internal 404
 	reverse_proxy {$PULSE_UPSTREAM} {
 		# Pulse trusts X-Forwarded-For only from this proxy (PULSE_FORWARDED_ALLOW_IPS).
 		header_up X-Forwarded-Proto {scheme}

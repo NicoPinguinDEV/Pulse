@@ -96,6 +96,8 @@ PUBLIC_GET = {"/", "/favicon.ico", "/callback", "/apply", "/health", "/healthz",
               "/robots.txt", "/ultimate/status", "/apply/callback", "/apply/login", "/login",
               "/logout",  # U-13: GET /logout only shows a confirmation; logging out is POST
               "/recovery/authorize",  # Public, voluntary Discord OAuth consent page; eligibility is checked at callback
+              "/team-login", "/regelwerk", "/faq", "/fraktionen", "/news", "/impressum", "/datenschutz", "/cookies",
+              "/sicherheit", "/static/public.css", "/static/public.js",  # public website: only approved content, no session
               "/status", "/status.json"}  # F-08: public status page on purpose (404 while off, no personal data)
 # Write routes that are public on purpose: the application portal (own session check inside) and the
 # central /action handler (unknown actions are refused with 400 before login; real ones: see test).
