@@ -26,7 +26,8 @@ class ProviderConfigTests(unittest.TestCase):
     def test_model_chain(self):
         chain = ai.model_chain("gemini", "gemini-3.1-flash-lite", None)
         self.assertEqual(chain[0], "gemini-3.1-flash-lite")
-        self.assertIn("gemini-3.1-flash-lite-preview", chain)
+        self.assertIn("gemini-3.5-flash-lite", chain)
+        self.assertNotIn("gemini-3.1-flash-lite-preview", chain)  # shut down 2026-05-25
         self.assertEqual(ai.model_chain("gemini", "a", "b, a ,c"), ["a", "b", "c"])
         self.assertEqual(ai.model_chain("gemini", "a", "off"), ["a"])
         self.assertEqual(ai.model_chain("openai", "gpt-4.1-mini", ""), ["gpt-4.1-mini"])

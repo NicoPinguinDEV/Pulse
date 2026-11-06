@@ -134,7 +134,7 @@ def main() -> None:
     support = read("cogs/support_assistant.py")
     assert "DISCORD_MESSAGE_CACHE_SIZE" in main
     assert "max_messages=MESSAGE_CACHE_SIZE" in main
-    assert "await reference_channel.fetch_message(reference.message_id)" in support
+    assert "await message.channel.fetch_message(reference.message_id)" in support
     assert "process_peak_rss_mb" in read("pulse_ultimate.py")
     assert "discord_cached_messages" in read("pulse_ultimate.py")
     assert "_ROBLOX_CACHE_MAX_ENTRIES = 300" in web
