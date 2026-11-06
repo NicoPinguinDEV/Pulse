@@ -671,17 +671,28 @@ def register(app) -> None:
 
         ctx = ws.auth(request, user_session, admin=True)
         profiles = public_content.list_profiles(published_only=False)
-        rows = "".join(
-            f'<div class="pulse-row"><div class="pulse-row-main"><b>{e(item["display_name"])}</b>'
-            f'<div class="muted">{e(item["role_label"])} · { "Öffentlich" if item["is_published"] else "Entwurf" }</div>'
-            f'<div class="muted">{e(item["bio"])}</div></div>'
-            f'<form method="post" action="/admin/website/team/{int(item["id"])}/publish">'
-            f'<button class="btn" name="published" value="{0 if item["is_published"] else 1}">'
-            f'{"Veröffentlichung zurückziehen" if item["is_published"] else "Veröffentlichen"}</button></form>'
-            f'<form method="post" action="/admin/website/team/{int(item["id"])}/delete">'
-            f'<button class="btn" onclick="return confirm(\'Profil löschen?\')">Löschen</button></form></div>'
-            for item in profiles
-        ) or "<p class='muted'>Noch keine Profile angelegt.</p>"
+        row_parts = []
+        for item in profiles:
+            if item["is_published"]:
+                publication_action = (
+                    f'<form method="post" action="/admin/website/team/{int(item["id"])}/publish">'
+                    '<button class="btn" name="published" value="0">Veröffentlichung zurückziehen</button></form>'
+                )
+            else:
+                publication_action = (
+                    f'<form method="post" action="/admin/website/team/{int(item["id"])}/publish">'
+                    '<label><input type="checkbox" name="consent_confirmed" value="1" required> '
+                    'Die ausdrückliche Freigabe der betroffenen Person liegt vor.</label>'
+                    '<button class="btn" name="published" value="1">Veröffentlichen</button></form>'
+                )
+            row_parts.append(
+                f'<div class="pulse-row"><div class="pulse-row-main"><b>{e(item["display_name"])}</b>'
+                f'<div class="muted">{e(item["role_label"])} · {"Öffentlich" if item["is_published"] else "Entwurf"}</div>'
+                f'<div class="muted">{e(item["bio"])}</div></div>{publication_action}'
+                f'<form method="post" action="/admin/website/team/{int(item["id"])}/delete">'
+                f'<button class="btn" onclick="return confirm(\'Profil löschen?\')">Löschen</button></form></div>'
+            )
+        rows = "".join(row_parts) or "<p class='muted'>Noch keine Profile angelegt.</p>"
         body = f"""<div class="pulse-card"><h2>Profil anlegen</h2>
         <p class="muted">Nur Angaben eintragen, deren Veröffentlichung ausdrücklich freigegeben wurde. Keine privaten Kontaktdaten oder internen Informationen.</p>
         <form method="post" action="/admin/website/team" class="grid gap-3">
@@ -704,10 +715,12 @@ def register(app) -> None:
         return RedirectResponse("/admin/website/team", status_code=303)
 
     async def website_team_publish(profile_id: int, request: Request, published: int = Form(...),
-                                   user_session: str = Cookie(None)):
+                                   consent_confirmed: str = Form(""), user_session: str = Cookie(None)):
         ctx = ws.auth(request, user_session, admin=True)
         if published not in (0, 1):
             raise HTTPException(status_code=422, detail="Ungültiger Veröffentlichungsstatus.")
+        if published == 1 and consent_confirmed != "1":
+            raise HTTPException(status_code=422, detail="Vor der Veröffentlichung muss die ausdrückliche Freigabe der Person bestätigt werden.")
         actor = ctx.user.get("global_name") or ctx.user.get("username") or "Admin"
         if not public_content.set_published(profile_id, bool(published)):
             raise HTTPException(status_code=404)
