@@ -179,6 +179,14 @@ class Separation(Base):
 
 
 class WebsiteAdmin(Base):
+    def test_public_website_admin_is_in_administration_navigation(self):
+        import pulse_admin
+        self.assertIn("website", pulse_admin.ADMIN_PAGE_KEYS)
+        self.assertTrue(any(
+            item[0] == "website" and item[1] == "/admin/website"
+            for item in pulse_admin.admin_sections({"is_admin": True})
+        ))
+
     def login(self, is_admin):
         guild = SimpleNamespace(id=1, name="g", chunked=True, get_member=lambda _: None, get_role=lambda _: None,
                                 roles=[], member_count=1)
