@@ -134,7 +134,8 @@ class Pages(Base):
         self.assertIn("Mara", public_page)
         self.assertIn("Support-Leitung", public_page)
         self.assertIn("Hilft bei Fragen.", public_page)
-        self.assertNotIn(str(profile_id), public_page)
+        for internal_field in ("discord_id", "private_note", "moderation_case", "service_hours"):
+            self.assertNotIn(internal_field, public_page.lower())
 
 
 class Separation(Base):
@@ -173,6 +174,7 @@ class Separation(Base):
         self.assertIn(self.client.get("/admin/website").status_code, (302, 303, 401, 403, 503))
         response = self.client.post("/admin/website/news", data={"title": "x", "body": "y"})
         self.assertIn(response.status_code, (302, 303, 401, 403, 503))
+        self.assertIn(self.client.get("/admin/website/team").status_code, (302, 303, 401, 403, 503))
         self.assertEqual(site.list_news(), [])
 
 
