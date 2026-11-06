@@ -18,7 +18,8 @@ LEGAL_ENV = {
     "PULSE_LEGAL_NAME": "Test Person", "PULSE_LEGAL_ADDRESS": "Teststraße 1|12345 Teststadt",
     "PULSE_LEGAL_EMAIL": "kontakt@example.invalid", "PULSE_LEGAL_HOSTER": "Test Hosting GmbH",
 }
-PAGES = ("/", "/regelwerk", "/faq", "/fraktionen", "/news", "/impressum", "/datenschutz", "/cookies", "/sicherheit")
+PAGES = ("/", "/regelwerk", "/faq", "/fraktionen", "/news", "/team-vorstellung", "/nutzungsbedingungen",
+         "/impressum", "/datenschutz", "/cookies", "/sicherheit")
 
 
 def clean_env():
@@ -112,6 +113,28 @@ class Pages(Base):
         with patch.object(ws, "rate_limited", return_value=True):
             self.assertEqual(self.client.get("/faq").status_code, 429)
 
+    def test_news_articles_have_individual_pages_and_categories(self):
+        news_id = site.add_news("Eröffnung", "Wir starten bald.", "Admin", "Ankündigung")
+        listing = self.client.get("/news").text
+        detail = self.client.get(f"/news/{news_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn("Ankündigung", listing)
+        self.assertIn("Eröffnung", detail.text)
+        self.assertIn("Wir starten bald.", detail.text)
+        self.assertEqual(self.client.get("/news/999999").status_code, 404)
+
+    def test_public_team_profiles_are_hidden_until_explicitly_published(self):
+        import pulse_public_content as content
+        profile_id = content.create_profile("Mara", "Support-Leitung", "Hilft bei Fragen.")
+        draft_page = self.client.get("/team-vorstellung").text
+        self.assertNotIn("Mara", draft_page)
+        self.assertTrue(content.set_published(profile_id, True))
+        public_page = self.client.get("/team-vorstellung").text
+        self.assertIn("Mara", public_page)
+        self.assertIn("Support-Leitung", public_page)
+        self.assertIn("Hilft bei Fragen.", public_page)
+        self.assertNotIn(str(profile_id), public_page)
+
 
 class Separation(Base):
     def test_team_route_is_not_public(self):
@@ -202,6 +225,20 @@ class Legal(Base):
         self.assertIn("Disallow: /", self.client.get("/robots.txt").text)
         self.assertNotIn("Allow: /regelwerk", self.client.get("/robots.txt").text)
 
+    def test_publication_requires_explicit_legal_review_and_terms_approval(self):
+        with patch.dict(os.environ, LEGAL_ENV):
+            self.assertTrue(legal.publication_ready())
+        with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_LEGAL_REVIEWED": "0"}):
+            self.assertFalse(legal.publication_ready())
+        with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_TERMS_APPROVED": "0"}):
+            self.assertFalse(legal.publication_ready())
+
+    def test_terms_are_marked_as_draft_until_release(self):
+        with patch.dict(os.environ, clean_env(), clear=True):
+            html = self.client.get("/nutzungsbedingungen").text
+        self.assertIn("Entwurf – noch nicht freigegeben", html)
+        self.assertIn("keine abschließend geprüften Vertragsbedingungen", html)
+
     def test_complete_details_open_the_site(self):
         with patch.dict(os.environ, LEGAL_ENV):
             html = self.client.get("/impressum").text
@@ -211,6 +248,10 @@ class Legal(Base):
             self.assertEqual(self.client.get("/").headers["x-robots-tag"], "index, follow")
             robots = self.client.get("/robots.txt").text
             self.assertIn("Allow: /regelwerk$", robots)
+            self.assertIn("Allow: /team-vorstellung$", robots)
+            self.assertIn("Sitemap:", robots)
+            self.assertEqual(self.client.get("/sitemap.xml").status_code, 200)
+            self.assertIn("/team-vorstellung", self.client.get("/sitemap.xml").text)
             self.assertIn("Disallow: /", robots)
 
     def test_operator_values_are_escaped(self):
