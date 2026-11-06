@@ -193,7 +193,7 @@ def terms_html() -> str:
 <h2>5. Verfügbarkeit und Änderungen</h2><p>Die Community-Angebote können weiterentwickelt, zeitweise eingeschränkt oder eingestellt werden. Änderungen dieser Bedingungen werden mit einem aktualisierten Stand kenntlich gemacht.</p>
 <h2>6. Externe Plattformen</h2><p>Links zu Discord, Roblox und weiteren externen Angeboten führen zu Diensten Dritter. Für deren Verfügbarkeit, Inhalte und Datenverarbeitung sind die jeweiligen Anbieter nach ihren eigenen Bedingungen verantwortlich.</p>
 <h2>7. Kontakt</h2><p>Fragen zu diesen Bedingungen können über die im <a href="/impressum">Impressum</a> angegebene Kontaktmöglichkeit gestellt werden.</p>
-<p class="notice">Die rechtliche Einordnung und Anwendbarkeit dieser Bedingungen muss durch den Betreiber geprüft werden. Die technische Freigabe dokumentiert die Betreiberentscheidung, ersetzt aber keine Rechtsberatung.</p></div>"""
+</div>"""
 
 
 def security_html() -> str:
