@@ -572,9 +572,9 @@ def register(app) -> None:
             return ws.rate_limit_response("Zu viele Seitenaufrufe. Bitte versuche es in einer Minute erneut.")
         return None
 
-    def add_page(path: str, title: str, description: str, render):
+    def add_page(path: str, title: str, description: str, render, *, cache: bool = True):
         async def handler(request: Request):
-            return limited(request) or respond(page(title, description, render(), path=path))
+            return limited(request) or respond(page(title, description, render(), path=path), cache=cache)
 
         handler.__name__ = "public_" + path.strip("/")
         app.add_api_route(path, handler, methods=["GET"], response_class=HTMLResponse, include_in_schema=False)
@@ -583,7 +583,9 @@ def register(app) -> None:
     add_page("/fraktionen", "Fraktionen | Bochum RP", "Die offiziellen Fraktionen von Bochum RP.", factions_html)
     add_page("/news", "News | Bochum RP", "Neuigkeiten von Bochum RP.", news_html)
     add_page("/faq", "Häufige Fragen | Bochum RP", "Antworten zu Server, Roleplay und Bewerbung.", faq_html)
-    add_page("/team-vorstellung", "Team | Bochum RP", "Öffentlich freigegebene Teamprofile von Bochum RP.", public_team_html)
+    # Public profile withdrawals must not remain in intermediary caches.
+    add_page("/team-vorstellung", "Team | Bochum RP", "Öffentlich freigegebene Teamprofile von Bochum RP.",
+             public_team_html, cache=False)
     add_page("/nutzungsbedingungen", "Nutzungsbedingungen | Bochum RP", "Nutzungs- und Community-Bedingungen von Bochum RP.", legal.terms_html)
     add_page("/impressum", "Impressum | Bochum RP", "Anbieterkennzeichnung von Bochum RP.", legal.impressum_html)
     add_page("/datenschutz", "Datenschutz | Bochum RP", "Wie Bochum RP und Pulse personenbezogene Daten verarbeiten.", legal.privacy_html)
