@@ -612,8 +612,7 @@ def register(app) -> None:
         if not legal.publication_ready():
             return Response("", status_code=404, media_type="application/xml")
         base = str(request.base_url).rstrip("/")
-        return Response(sitemap_xml(base), media_type="application/xml",
-                        headers={"X-Robots-Tag": "noindex"})
+        return Response(sitemap_xml(base), media_type="application/xml")
 
     app.add_api_route("/sitemap.xml", sitemap, methods=["GET"], include_in_schema=False)
 
