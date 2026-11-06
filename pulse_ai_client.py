@@ -18,12 +18,16 @@ PROVIDERS = ("gemini", "openai")
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high")
 DEFAULT_MODELS = {"gemini": "gemini-3.1-flash-lite", "openai": "gpt-4.1-mini"}
 # Tried in order when the configured model is unknown to the provider (HTTP 404
-# or "model not found"). Preview IDs come first because Google often publishes
-# new Flash-Lite models only with a "-preview" suffix.
+# or "model not found"). Checked against Google's deprecation list on 2026-11-06:
+# gemini-3.1-flash-lite-preview was shut down on 2026-05-25, gemini-3.1-flash-lite
+# ends on 2027-05-07 with gemini-3.5-flash-lite as its successor.
 DEFAULT_FALLBACK_MODELS = {
-    "gemini": ("gemini-3.1-flash-lite-preview", "gemini-2.5-flash-lite", "gemini-2.5-flash"),
+    "gemini": ("gemini-3.5-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash"),
     "openai": (),
 }
+# Newer model generations reject or ignore classic sampling parameters.
+_NO_TEMPERATURE_MODEL = re.compile(r"^(?:o\d|gpt-[5-9]|gemini-(?:3\.[5-9]|[4-9]))", re.IGNORECASE)
+_COMPLETION_TOKENS_MODEL = re.compile(r"^(?:o\d|gpt-[5-9])", re.IGNORECASE)
 
 
 def resolve_provider(env: Mapping[str, str] | None = None) -> str:
@@ -73,6 +77,33 @@ def resolve_reasoning_effort(provider: str, raw: str | None) -> str | None:
     if value in REASONING_EFFORTS:
         return value
     return "low" if provider == "gemini" else None
+
+
+def adapt_payload(payload: dict[str, Any], *, drop_temperature: bool = False) -> dict[str, Any]:
+    """Fit a chat-completions payload to what the selected model family accepts."""
+    adapted = dict(payload)
+    model = str(adapted.get("model") or "")
+    if drop_temperature or _NO_TEMPERATURE_MODEL.match(model):
+        adapted.pop("temperature", None)
+    if _COMPLETION_TOKENS_MODEL.match(model) and "max_tokens" in adapted:
+        adapted["max_completion_tokens"] = adapted.pop("max_tokens")
+    return adapted
+
+
+def ai_mode(*, enabled: bool, has_key: bool, paused: bool = False, offline_available: bool = False) -> str:
+    """Operating mode: "ai" (provider usable), "offline" (local knowledge only) or "disabled"."""
+    if not enabled:
+        return "disabled"
+    if has_key and not paused:
+        return "ai"
+    return "offline" if offline_available else "disabled"
+
+
+MODE_LABELS = {
+    "ai": "🟢 KI verfügbar",
+    "offline": "📚 Offline-Wissensmodus (Auszüge ohne KI)",
+    "disabled": "⏸️ Deaktiviert oder nicht eingerichtet",
+}
 
 
 def extract_completion(data: Any) -> tuple[str, str]:
@@ -129,6 +160,11 @@ class ProviderError:
         return self.status_code == 400 and ("reasoning" in text or "thinking" in text)
 
     @property
+    def temperature_rejected(self) -> bool:
+        text = self.text
+        return self.status_code == 400 and ("temperature" in text or "sampling" in text)
+
+    @property
     def quota_exhausted(self) -> bool:
         """True for daily/billing quota (long pause), False for per-minute limits."""
         if self.status_code != 429:
@@ -175,6 +211,58 @@ def parse_provider_error(status_code: int, payload: Any) -> ProviderError:
         code=str(error.get("code") or "")[:80],
         message=" ".join(message.split())[:240] if isinstance(message, str) else "",
         retry_delay=min(3600, retry_delay),
+    )
+
+
+# --- Untrusted input and output ------------------------------------------------
+
+_INJECTION = re.compile(
+    r"(?:ignor\w*|vergiss|missacht\w*|ueberschreib\w*|disregard|forget|override)\b.{0,50}"
+    r"(?:anweisung|instruktion|instruction|regeln|rules|prompt|vorgabe)"
+    r"|(?:system\s*-?\s*prompt|systemanweisung|system\s+instruction|interne\s+anweisung)"
+    r"|(?:zeig|gib|nenn|verrat|print|show|reveal|leak)\w*\b.{0,50}"
+    r"(?:api\s*-?\s*key|api\s*-?\s*schluessel|token|passwort|password|secret|\.env|umgebungsvariable)"
+    r"|(?:zeig|gib|nenn|verrat|print|show|reveal|leak)\w*\b.{0,40}(?:team\s*-?\s*vorlage|interne\s+vorlage)"
+    r"|\b(?:developer|entwickler|debug|jailbreak|dan)\s*-?\s*(?:mode|modus)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_SECRET_PATTERNS = (
+    re.compile(r"\bAIza[0-9A-Za-z_-]{20,}"),
+    re.compile(r"\bsk-[0-9A-Za-z_-]{16,}"),
+    re.compile(r"\b[MNO][A-Za-z0-9_-]{23,}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\b(?:GEMINI_API_KEY|OPENAI_API_KEY|DISCORD_TOKEN|DISCORD_CLIENT_SECRET)\s*[=:]\s*\S+", re.IGNORECASE),
+)
+_URL = re.compile(r"\bhttps?://[^\s<>()\[\]]+", re.IGNORECASE)
+
+
+def looks_like_prompt_injection(text: str | None) -> bool:
+    """Deterministic check for attempts to read instructions, internal data or secrets."""
+    return bool(_INJECTION.search(_fold(text or "")))
+
+
+def sanitize_model_output(text: str | None, allowed_text: str = "") -> str:
+    """AI output is untrusted: remove secrets and every link that was not in the given material."""
+    clean = str(text or "")
+    for pattern in _SECRET_PATTERNS:
+        clean = pattern.sub("[entfernt]", clean)
+    allowed = {match.rstrip(".,;:!?").lower() for match in _URL.findall(allowed_text or "")}
+
+    def _keep_known(match: re.Match) -> str:
+        url = match.group(0)
+        return url if url.rstrip(".,;:!?").lower() in allowed else "[Link entfernt]"
+
+    return _URL.sub(_keep_known, clean)
+
+
+def leaks_protected(answer: str | None, protected: str | None, *, window: int = 80) -> bool:
+    """True when an answer repeats a long passage of confidential text verbatim."""
+    fold = lambda value: " ".join(_fold(value or "").split())  # noqa: E731
+    folded_answer, folded_protected = fold(answer), fold(protected)
+    if len(folded_answer) < window or len(folded_protected) < window:
+        return False
+    return any(
+        folded_answer[start:start + window] in folded_protected
+        for start in range(0, len(folded_answer) - window + 1, window // 2)
     )
 
 
@@ -310,6 +398,15 @@ def search_sections(question: str, sections: list[KnowledgeSection], limit: int 
         return []
     best = scored[0][0]
     return [section for score, _, section in scored[:limit] if score >= best * 0.6]
+
+
+def retrieval_hint(question: str, knowledge: str, templates: str | None = None, *, limit: int = 3) -> str:
+    """Titles of the best matching sections, so the model looks at the right place first."""
+    sections = split_sections(knowledge, "Wissensbasis")
+    if templates:
+        sections += split_sections(templates, "Team-Vorlagen")
+    titles = [f"{hit.title} ({hit.source})" for hit in search_sections(question, sections, limit=limit)]
+    return "; ".join(titles)
 
 
 def offline_answer(
