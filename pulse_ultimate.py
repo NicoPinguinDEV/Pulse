@@ -2430,6 +2430,9 @@ window.setInterval(loadPulseMonitor, 15000);
                 c.execute("SELECT 1")
         except Exception:
             db_ok = False
+        import pulse_security
+        if not pulse_security.is_internal_client(request.client.host if request.client else None):
+            return JSONResponse({"service": "Pulse TeamOS", "status": "ok" if bot and guild and db_ok else "degraded"})
         return JSONResponse({
             "service": "Pulse TeamOS",
             "version": getattr(webserver, "PULSE_VERSION", "unknown"),
