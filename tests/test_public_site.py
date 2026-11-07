@@ -437,7 +437,7 @@ class Legal(Base):
 
     def test_cookie_notice_does_not_claim_every_storage_entry_is_exempt(self):
         html = self.client.get("/cookies").text
-        self.assertIn("einzeln anhand ihrer objektiven Erforderlichkeit", html)
+        self.assertIn("gesondert anhand ihrer objektiven Erforderlichkeit", html)
         self.assertNotIn("Alle Einträge oben sind für die jeweilige Funktion unbedingt erforderlich", html)
 
     def test_operator_values_are_escaped(self):
