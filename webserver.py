@@ -3109,9 +3109,8 @@ STATIC_CSS_VERSION = _static_css_version()
 if STATIC_CSS_VERSION:
     TAILWIND_TAG = f'<link rel="stylesheet" href="/static/pulse.css?v={STATIC_CSS_VERSION}">'
 else:
-    print("⚠️ static/pulse.css fehlt – Dashboard nutzt ersatzweise das Tailwind-Play-CDN (tools/build_css.py ausführen).")
-    TAILWIND_TAG = ('<script src="https://cdn.tailwindcss.com"></script>\n'
-                    "<script>tailwind.config = { darkMode: 'class' }</script>")
+    print("⚠️ static/pulse.css fehlt – Dashboard wird ohne externe CDN-Ersatzressource ausgeliefert. tools/build_css.py ausführen.")
+    TAILWIND_TAG = ""
 
 HEAD_SCRIPT = TAILWIND_TAG + """
 <script>
