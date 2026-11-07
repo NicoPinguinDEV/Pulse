@@ -324,6 +324,7 @@ class Separation(Base):
             response = self.client.get("/")
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["location"], "/team-login")
+        self.assertEqual(response.headers.get("x-robots-tag"), "noindex, nofollow")
 
     def test_root_sends_signed_in_members_to_their_start_page_while_site_is_private(self):
         self.client.cookies.set("user_session", "valid")
@@ -379,6 +380,9 @@ class Separation(Base):
         self.assertIn("Mit Discord anmelden", html)
         self.assertIn("IP-Adresse", html)
         self.assertIn('href="/login"', html)
+        response = self.client.get("/team-login")
+        self.assertEqual(response.headers.get("x-robots-tag"), "noindex, nofollow")
+        self.assertEqual(response.headers.get("cache-control"), "no-store")
 
     def test_expired_session_cookie_is_cleared_on_home(self):
         self.client.cookies.set("user_session", "alt")
