@@ -285,22 +285,17 @@ class WebsiteAdmin(Base):
         self.assertEqual(self.client.post(f"/admin/website/news/{news_id}/delete").status_code, 303)
         self.assertNotIn("Serverneustart", self.client.get("/news").text)
 
-    def test_public_team_profile_requires_subject_consent_before_publish(self):
+    def test_legacy_manual_profiles_do_not_override_the_live_discord_roster(self):
         import pulse_public_content as content
         self.login(True)
-        profile_id = content.create_profile("Mara", "Support", "Freigegebener Text")
-        denied = self.client.post(f"/admin/website/team/{profile_id}/publish", data={"published": "1"})
-        self.assertEqual(denied.status_code, 422)
-        self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
+        profile_id = content.create_profile("Mara", "Support", "Legacy-Datensatz")
         approved = self.client.post(
             f"/admin/website/team/{profile_id}/publish",
             data={"published": "1", "consent_confirmed": "1"},
         )
         self.assertEqual(approved.status_code, 303)
-        self.assertIn("Mara", self.client.get("/team-vorstellung").text)
-        hidden = self.client.post(f"/admin/website/team/{profile_id}/publish", data={"published": "0"})
-        self.assertEqual(hidden.status_code, 303)
         self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
+        self.assertTrue(content.list_profiles(published_only=True))
 
     def test_admin_can_upload_a_local_png_portrait_and_withdraw_it(self):
         import pulse_public_content as content
@@ -322,9 +317,9 @@ class WebsiteAdmin(Base):
         )
         self.assertEqual(approved.status_code, 303)
         public_html = self.client.get("/team-vorstellung").text
-        self.assertIn('class="team-avatar"', public_html)
-        self.assertIn("data:image/png;base64,", public_html)
-        self.assertIn('alt="Porträt von Nico"', public_html)
+        self.assertNotIn('class="team-avatar"', public_html)
+        self.assertNotIn("data:image/png;base64,", public_html)
+        self.assertNotIn("Nico", public_html)
         withdrawn = self.client.post(
             f"/admin/website/team/{profile_id}/publish", data={"published": "0"}
         )
