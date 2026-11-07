@@ -522,7 +522,7 @@ def privacy_notice_html(esc) -> str:
         '<details class="rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-[11px] text-slate-500 dark:text-slate-400">'
         '<summary class="cursor-pointer font-semibold">🔒 Datenschutzhinweis</summary><p class="mt-2">'
         "Gespeichert werden deine Discord-ID, dein Discord-Name, deine Motivation, deine Test- und Praxisantworten, "
-        f"das automatisch berechnete Testergebnis sowie Zeitpunkte und der Bearbeitungsverlauf. Nicht abgesendete Entwürfe werden nur lokal im Browser gespeichert und nach {APPLICATION_DRAFT_TTL_DAYS} Tagen ohne Änderung beim nächsten Öffnen des Formulars entfernt. Im internen Verfahren "
+        f"das automatisch berechnete Testergebnis sowie Zeitpunkte und der Bearbeitungsverlauf. Nicht abgesendete Entwürfe werden nur lokal im Browser gespeichert und nach {APPLICATION_DRAFT_TTL_DAYS} Tagen ohne Änderung als abgelaufen behandelt und beim nächsten Öffnen des Formulars entfernt. Im internen Verfahren "
         "können zusätzlich Bewertungen, Gesprächsnotizen, Termin- und Entscheidungsdaten entstehen. Zweck ist ausschließlich "
         "die Auswahl und Einstellung neuer Teammitglieder. Vollständige Bewerbungsdaten sehen nur Personen mit der Berechtigung "
         "„Bewerbungen verwalten“, Leitungsrechte oder Administratorrechte. Teammitglieder mit reiner Dashboard-/Abstimmungsberechtigung "
