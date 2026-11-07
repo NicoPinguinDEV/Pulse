@@ -112,7 +112,7 @@ class PermissionModelTests(unittest.TestCase):
         self.assertTrue(permission_for(402))
         self.assertTrue(permission_for(403))
         self.assertTrue(permission_for(404))
-        self.assertFalse(permission_for(admin=True))  # Discord administrator alone is not a team rank
+        self.assertTrue(permission_for(admin=True))  # Discord administrators are above the configured team hierarchy
 
     def test_webserver_uses_the_model_without_runtime_patch(self):
         m = member(OTHER)
