@@ -91,7 +91,9 @@ def build_help(items, pulse_perms: dict, discord_perms: discord.Permissions | No
         need = NEEDS.get(top)
         if need == "lead" and not lead:
             continue
-        if need and need != "lead" and not (pulse_perms.get(need) or lead):
+        if need == "can_manage_team_warnings" and not pulse_perms.get(need):
+            continue
+        if need and need not in {"lead", "can_manage_team_warnings"} and not (pulse_perms.get(need) or lead):
             continue
         if needed is not None and not pulse_perms.get("is_admin") and not (discord_perms and discord_perms >= needed):
             continue
