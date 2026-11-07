@@ -11412,6 +11412,9 @@ async def handle_action(
 ):
     # Old forms may still submit action=kick; it is never a server-membership operation.
     action = normalize_dashboard_action(action)
+    # The shared dashboard action route must not bypass the public recruitment release gate.
+    if action == "submit_application" and not pulse_public_site.public_access_enabled():
+        raise HTTPException(status_code=404)
     # ---------- Öffentliche Bewerbung inklusive serverseitig bewerteten Laufbahn-Test ----------
     if action == "submit_application":
         ip = request.client.host if request.client else "unknown"
