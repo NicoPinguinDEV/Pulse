@@ -545,9 +545,10 @@ class Legal(Base):
     def test_nothing_is_invented_while_details_are_missing(self):
         with patch.dict(os.environ, clean_env(), clear=True):
             html = legal.impressum_html()
+            ready = legal.ready()
         self.assertIn("noch nicht zur Veröffentlichung freigegeben", html)
         self.assertIn("fehlt", html)
-        self.assertFalse(legal.ready())
+        self.assertFalse(ready)
 
     def test_site_stays_out_of_search_engines_until_ready(self):
         with patch.dict(os.environ, clean_env(), clear=True):
@@ -668,7 +669,10 @@ class Legal(Base):
         self.assertNotIn("<script>evil()", html)
 
     def test_vionity_hoster_is_disclosed_without_claiming_a_signed_avv(self):
-        html = legal.privacy_html()
+        with patch.dict(os.environ, clean_env(), clear=True):
+            html = legal.privacy_html()
+            imprint = legal.impressum_html()
+            missing = legal.missing_fields()
         for term in (
             "Henrik Kramer e.K.",
             "Prepaid-Hoster.de",
@@ -680,8 +684,8 @@ class Legal(Base):
         ):
             self.assertIn(term, html)
         # The hosting provider is a privacy recipient, not BOCHUM RP's website operator.
-        self.assertNotIn("Henrik Kramer e.K.", legal.impressum_html())
-        self.assertNotIn("PULSE_LEGAL_HOSTER", legal.missing_fields())
+        self.assertNotIn("Henrik Kramer e.K.", imprint)
+        self.assertNotIn("PULSE_LEGAL_HOSTER", missing)
         with patch.dict(os.environ, {"PULSE_LEGAL_HOSTER": "Vionity"}):
             self.assertIn("Henrik Kramer e.K.", legal.privacy_html())
 
