@@ -489,7 +489,7 @@ TEAM_LEVELS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     )),
     ("04", "Koordination, Direktion & Serverleitung", (
         "leitendeprojektkoordination", "lpk", "projektkoordination", "pk", "stvprojektkoordination", "stvpk",
-        "leitenderdirektor", "ldk", "direktor", "dk", "stvdirektor", "stvk",
+        "leitenderdirektor", "ldk", "direktor", "dk", "stvdirektor", "stvdk",
         "leitendeserverleitung", "lsl", "serverleitung", "sl", "stvserverleitung", "stvsl",
     )),
     ("05", "Management- & Teamleitungsebene", (
@@ -501,19 +501,19 @@ TEAM_LEVELS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "leitendersupervisor", "lsupervisor", "supervisor", "stvsupervisor",
     )),
     ("07", "Ausbildung & Fachbereiche", (
-        "ausbilderleitung", "ausbildl", "lab", "ausbilder", "ab", "highteamanwaerter", "hta",
+        "ausbilderleitung", "ausbildl", "ausbl", "lab", "ausbilder", "ab", "highteamanwärter", "highteamanwaerter", "hta",
         "communitymanagement", "cm", "stvcommunitymanagement", "stvm",
         "fraktionsverwaltung", "fv", "stvfraktionsverwaltung", "stvf",
         "eventleitung", "el",
     )),
     ("08", "Administrationsebene", (
-        "adminleitung", "ladmin", "sradmin", "admin", "jradmin",
+        "adminleitung", "adminl", "ladmin", "sradmin", "admin", "jradmin",
     )),
     ("09", "Moderationsebene", (
-        "modleitung", "lmod", "srmoderator", "srmod", "moderator", "mod", "jrmoderator", "jrmod",
+        "modleitung", "modl", "lmod", "srmoderator", "srmod", "moderator", "mod", "jrmoderator", "jrmod",
     )),
     ("10", "Supportebene", (
-        "supleitung", "lsup", "srsupporter", "srsup", "supporter", "sup", "testsupporter", "tsup",
+        "supleitung", "supl", "lsup", "srsupporter", "srsup", "supporter", "sup", "testsupporter", "tsup",
         "aushilfe", "aush",
     )),
     ("11", "Bauteam-Ebene", (
