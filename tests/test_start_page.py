@@ -35,8 +35,8 @@ class StartPageTests(unittest.TestCase):
         self.client.cookies.set("user_session", self.session())
         self.assertEqual(ws.start_page_for("123"), "/me")
         public_home = self.client.get("/", follow_redirects=False)
-        self.assertEqual(public_home.status_code, 200)
-        self.assertIn("BOCHUM", public_home.text)
+        self.assertEqual(public_home.status_code, 303)
+        self.assertEqual(public_home.headers["location"], "/me")
         with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
             saved = self.client.post("/me/start-page", data={"start_page": "/tickets"}, follow_redirects=False)
             self.assertIn("t=ok", saved.headers["location"])
@@ -49,8 +49,8 @@ class StartPageTests(unittest.TestCase):
         self.assertEqual(team_login.status_code, 303)
         self.assertEqual(team_login.headers["location"], "/tickets")
         public_home_after_login = self.client.get("/", follow_redirects=False)
-        self.assertEqual(public_home_after_login.status_code, 200)
-        self.assertIn("BOCHUM", public_home_after_login.text)
+        self.assertEqual(public_home_after_login.status_code, 303)
+        self.assertEqual(public_home_after_login.headers["location"], "/tickets")
 
     def test_unknown_stored_value_falls_back(self):
         pulse_db.set_setting("start_page:9", "//evil.example")
