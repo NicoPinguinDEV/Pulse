@@ -22,7 +22,7 @@ MANAGE_MESSAGES = {"messagedelete"}
 
 # Pulse right needed to *see* a command in the help (the command checks it again when used).
 NEEDS = {
-    "warn": "can_warn", "warns": "can_warn", "warn-remove": "can_warn",
+    "warn": "can_manage_team_warnings", "warns": "can_manage_team_warnings", "warn-remove": "can_manage_team_warnings",
     "promote": "lead", "demote": "lead", "team-kick": "lead", "team-exit": "lead", "kick": "lead",
     "server-exit": "lead", "pulse-approve": "lead", "teamtask": "lead", "teamannounce": "lead", "team-ping": "lead",
     "activity-check": "lead",
