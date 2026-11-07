@@ -185,7 +185,7 @@ Die Umsetzung auf dem Branch `legal/phase-1-privacy-accuracy` reduziert unnötig
 - Das Bewerbungsportal zeigt lokale Initialen statt Discord-Profilbildern. Die Bewerbungs-Sitzung enthält nur Discord-ID und Name; das Avatarfeld wird nicht gespeichert.
 - Nicht abgesendete Bewerbungsentwürfe bleiben lokal im jeweiligen Browser. Nach 30 Tagen ohne Änderung gelten sie als abgelaufen und werden beim nächsten Öffnen des Formulars entfernt; zusätzlich gibt es eine sichtbare Schaltfläche zur manuellen Löschung. Abgelaufene oder fehlerhafte Einträge werden beim Formularaufruf bereinigt.
 - Die Cookie-Übersicht nennt für `apply_session` 3 Stunden mit Verlängerung bei aktiver Nutzung und eine absolute Höchstgrenze von 12 Stunden.
-- Die internen Dashboard-/Teamansichten können weiterhin Discord-Profilbilder direkt vom Discord-CDN laden. Dieser externe Abruf wird in der Datenschutzerklärung ausdrücklich beschrieben.
+- Die internen Dashboard-/Teamansichten können weiterhin Discord-Profilbilder direkt vom Discord-CDN laden; die Roblox-Spielervorschau kann zusätzlich Roblox-Thumbnailbilder direkt im Browser laden. Diese externen Abrufe und Empfänger werden in der Datenschutzerklärung beschrieben.
 - Die Sicherheitsseite behauptet nicht länger, dass die öffentliche Teamseite Discord-Profilbilder lädt.
 
 Die 30-Tage-Frist betrifft ausschließlich nicht abgesendete, lokale Browserentwürfe. Sie ist keine automatische Löschfrist für serverseitig eingereichte Bewerbungen.
