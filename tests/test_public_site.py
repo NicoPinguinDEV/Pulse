@@ -466,7 +466,7 @@ class Legal(Base):
         html = self.client.get("/datenschutz").text
         self.assertIn("gilt er als abgelaufen und wird beim nächsten Öffnen des Formulars entfernt", html)
         self.assertIn("nicht automatisch gelöscht", html)
-        self.assertIn("Roblox-Spielersuche", html)
+        self.assertIn("Roblox-Abfragen", html)
         self.assertIn("Thumbnail", html)
 
     def test_application_draft_has_expiry_and_explicit_delete_control(self):

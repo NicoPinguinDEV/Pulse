@@ -508,7 +508,7 @@ def privacy_notice_html(esc) -> str:
     months = round(settings["applications_days"] / 30.4)
     if not RETENTION_MUTATIONS_ENABLED:
         keep = (
-            "Eine automatische serverseitige Löschung abgeschlossener Bewerbungen ist derzeit nicht aktiviert. "
+            "Eine automatische Löschung abgeschlossener Bewerbungen ist derzeit nicht aktiviert (auch nicht serverseitig). "
             "Die zentrale Bereinigung ist fail-closed/deaktiviert; Aufbewahrung und Löschanfragen werden durch die Leitung geprüft."
         )
     elif settings["enabled"]:
