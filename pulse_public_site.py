@@ -482,7 +482,7 @@ TEAM_LEVELS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "founder", "fnd", "inhaber", "inh", "stvinhaber", "stvinh", "rechtehand", "rh", "owner", "coowner",
     )),
     ("02", "Entwicklungsebene", (
-        "devleitung", "ldev", "dev", "developer",
+        "devleitung", "devl", "ldev", "dev", "developer",
     )),
     ("03", "Projektleitungsebene", (
         "leitendeprojektleitung", "lpl", "projektleitung", "pl", "stvprojektleitung", "stvpl",
@@ -503,7 +503,7 @@ TEAM_LEVELS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("07", "Ausbildung & Fachbereiche", (
         "ausbilderleitung", "ausbildl", "ausbl", "lab", "ausbilder", "ab", "highteamanwärter", "highteamanwaerter", "hta",
         "communitymanagement", "cm", "stvcommunitymanagement", "stvm",
-        "fraktionsverwaltung", "fv", "stvfraktionsverwaltung", "stvf",
+        "fraktionsverwaltung", "fv", "stvfraktionsverwaltung", "stvfv", "stvf",
         "eventleitung", "el",
     )),
     ("08", "Administrationsebene", (
@@ -517,7 +517,7 @@ TEAM_LEVELS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "aushilfe", "aush",
     )),
     ("11", "Bauteam-Ebene", (
-        "bauteamlerleitung", "lbau", "stvbauteamlerleitung", "stvlbau", "seniorbauteamler", "srbau",
+        "bauteamlerleitung", "baul", "lbau", "stvbauteamlerleitung", "stvbaul", "stvlbau", "seniorbauteamler", "srbau",
         "bauteamler", "bau", "testbauteamler", "tbau",
     )),
 )
