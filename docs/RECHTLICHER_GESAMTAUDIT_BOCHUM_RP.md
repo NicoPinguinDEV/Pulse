@@ -68,7 +68,7 @@
 - Bewerbungen, Teamdaten, Schicht-/Kalenderdaten, Verwarnungen, Moderationsfälle, Auditlogs, Consent-Nachweise, Tickets, Transkripte und Anhänge benötigen je einen sachlich begründeten Zweck und eine Frist.
 - Ticket-Transkripte und die gespeicherten Anhänge haben derzeit keine automatische Löschfrist.
 - Backups können aus Live-Stores gelöschte Daten bis zur Rotation enthalten. Restore darf gelöschte Daten nicht ohne erneute Prüfung dauerhaft zurückbringen.
-- Browserseitige, nicht abgesendete Antragsentwürfe erhalten mit Phase 1 eine technische Löschfrist von 30 Tagen seit letzter Änderung; dies betrifft keine bereits eingereichten Bewerbungen.
+- Browserseitige, nicht abgesendete Antragsentwürfe erhalten mit Phase 1 eine 30-Tage-Ablauffrist seit letzter Änderung. Abgelaufene Werte sind nicht wiederherstellbar und werden beim nächsten Formularaufruf entfernt; dies betrifft keine bereits eingereichten Bewerbungen.
 
 **Abnahmekriterien:** Dry-run mit Referenzgraph, Backup vor Bereinigung, sichere Wiederholung nach Fehler, vollständige Transaktions-/Journal-Strategie, Tests gegen verwaiste Bezüge, Löschprotokoll ohne Klartextdaten, getestete Backup-Rotation/Restore.
 
