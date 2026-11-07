@@ -264,6 +264,9 @@ class TeamlisteCog(commands.Cog):
             "Das hat keine Auswirkung auf deine Teamrolle oder Teammitgliedschaft. Nach Widerruf wird dein Profil "
             "bei der nächsten Seitenanfrage nicht mehr angezeigt; bereits erstellte Screenshots, Kopien, Browser-Caches "
             "oder externe Protokolle können außerhalb unseres Einflusses fortbestehen.\n\n"
+            "Bitte lies vor einer Entscheidung auch die [Datenschutzerklärung](https://39209-52526.pph-server.de/datenschutz). "
+            "Wenn du minderjährig bist, bestätige die Freigabe erst, nachdem mit deinen Erziehungsberechtigten und dem "
+            "Betreiber geklärt wurde, ob zusätzliche Zustimmung oder Schutzmaßnahmen erforderlich sind.\n\n"
             "Das bloße Öffnen dieser Nachricht oder das Nichtstun erteilt keine Freigabe."
         )
         await interaction.response.send_message(
