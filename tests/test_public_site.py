@@ -443,6 +443,11 @@ class WebsiteAdmin(Base):
 
 
 class Legal(Base):
+    def test_privacy_page_is_not_cached_and_contains_default_hosting_provider(self):
+        response = self.client.get("/datenschutz")
+        self.assertEqual(response.headers.get("cache-control"), "no-store")
+        for term in ("Henrik Kramer e.K.", "Prepaid-Hoster.de", "Vionity-Kundenportal", "Offenbach am Main"):
+            self.assertIn(term, response.text)
     def test_nothing_is_invented_while_details_are_missing(self):
         html = self.client.get("/impressum").text
         self.assertIn("noch nicht zur Veröffentlichung freigegeben", html)
