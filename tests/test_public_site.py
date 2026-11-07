@@ -351,14 +351,20 @@ class Separation(Base):
         incomplete_env = {"PULSE_PUBLIC_SITE_ENABLED": "1"}
         with patch.dict(os.environ, incomplete_env, clear=True):
             self.assertEqual(self.client.get("/regelwerk").status_code, 404)
-            self.assertEqual(self.client.get("/apply").status_code, 404)
+            apply_response = self.client.get("/apply")
+            self.assertEqual(apply_response.status_code, 404)
+            self.assertEqual(apply_response.headers.get("x-robots-tag"), "noindex, nofollow")
             self.assertEqual(self.client.get("/sitemap.xml").status_code, 404)
 
-    def test_robots_disallows_everything_until_public_release(self):
+    def test_robots_allows_recrawl_for_private_404_and_omits_sitemap(self):
         with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_PUBLIC_SITE_ENABLED": "0"}, clear=True):
             robots = self.client.get("/robots.txt").text
-        self.assertIn("Disallow: /", robots)
-        self.assertNotIn("Allow: /regelwerk", robots)
+            blocked = self.client.get("/regelwerk")
+        self.assertIn("Allow: /", robots)
+        self.assertNotIn("Disallow: /", robots)
+        self.assertNotIn("Sitemap:", robots)
+        self.assertEqual(blocked.status_code, 404)
+        self.assertEqual(blocked.headers.get("x-robots-tag"), "noindex, nofollow")
 
     def test_team_login_takes_signed_in_member_to_start_page(self):
         self.client.cookies.set("user_session", "valid")
@@ -555,9 +561,10 @@ class Legal(Base):
     def test_site_stays_out_of_search_engines_until_ready(self):
         with patch.dict(os.environ, clean_env(), clear=True):
             self.assertEqual(self.client.get("/").headers.get("location"), "/team-login")
-            self.assertEqual(self.client.get("/regelwerk").status_code, 404)
-            self.assertIn("Disallow: /", self.client.get("/robots.txt").text)
-            self.assertNotIn("Allow: /regelwerk", self.client.get("/robots.txt").text)
+            blocked = self.client.get("/regelwerk")
+            self.assertEqual(blocked.status_code, 404)
+            self.assertEqual(blocked.headers.get("x-robots-tag"), "noindex, nofollow")
+            self.assertIn("Allow: /", self.client.get("/robots.txt").text)
 
     def test_publication_requires_explicit_legal_review_and_terms_approval(self):
         with patch.dict(os.environ, LEGAL_ENV):
