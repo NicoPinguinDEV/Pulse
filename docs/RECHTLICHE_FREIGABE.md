@@ -76,7 +76,9 @@ Die Datenschutzerklärung unterscheidet nun stärker zwischen dem, was der Code 
 - Die öffentlichen Teamprofile werden seit dem Merge von PR #164 live aus den konfigurierten Discord-Teamrollen erzeugt. Sichtbar sind Anzeigename, Teamrolle und gegebenenfalls Profilbild; Präsenzstatus, Abwesenheiten, interne Notizen, Verwarnungen und private Kontaktdaten sind nicht Teil der öffentlichen Karten.
 - Bei Profilbildern fordert der Browser Ressourcen von Discord-CDN-Domains an. Eine CDN-Bildadresse kann technische Discord-Kennungen enthalten, auch wenn keine Discord-ID als sichtbares Profilfeld ausgegeben wird.
 
-**Offener Punkt:** Die Live-Synchronisierung erfasst im Code keinen gesonderten Zustimmungsnachweis. Der Betreiber muss vor einer endgültigen Veröffentlichung die konkrete Rechtsgrundlage der öffentlichen Teamdarstellung festlegen, die erforderliche Information der Teammitglieder sicherstellen und den Prozess für Widerspruch/Entfernung dokumentieren. Eine Discord-Rolle allein ist kein technischer Nachweis einer Einwilligung.
+**Technische Schutzmaßnahme in diesem PR:** Die öffentliche Teamseite zeigt nur noch Personen mit einer ausdrücklich erteilten, versionsgebundenen Freigabe. Die Person muss in Discord den Befehl `/teamseite_freigabe` aufrufen, die ausführliche Information lesen und eine separate Bestätigungsschaltfläche anklicken. Die Freigabe speichert Discord-ID, Textversion, Teamrollen-Scope und Zeitstempel in `pulse.db`. Ohne Nachweis wird kein Profil ausgegeben. Widerruf ist über `/teamseite_freigabe_widerrufen` möglich; Rollenänderungen und Serveraustritt beenden die aktuelle Freigabe. Die Freigabe hat keine Auswirkung auf Teammitgliedschaft oder Berechtigungen.
+
+**Weiterhin offen:** Der Betreiber muss sicherstellen, dass die Informationspflichten nach Art. 13 DSGVO vor der Freigabe erfüllt werden und – soweit Daten aus Discord übernommen werden – die Information nach Art. 14 DSGVO im konkreten Aufnahmeprozess erfolgt. Die tatsächliche Identität des Verantwortlichen, der Kontaktweg und eine zuständige Aufsichtsbehörde müssen korrekt sein. Bei Minderjährigen ist vor der Freigabe zu klären, ob zusätzliche Schutz- oder Zustimmungserfordernisse greifen. Die Löschfrist des minimalen Freigabenachweises (einschließlich Widerrufszeitpunkt) ist noch festzulegen und technisch umzusetzen.
 
 ### Bewerbungen, Teamdaten und Löschung
 
@@ -104,7 +106,8 @@ Die Cookie-Seite listet Login-Cookies, OAuth-State, Bewerbungsentwürfe sowie Da
 - [ ] Verantwortlichen und gegebenenfalls Datenschutzbeauftragten eindeutig bestimmen.
 - [ ] Für jeden Verarbeitungsvorgang Zweck, Rechtsgrundlage und – bei Art. 6 Abs. 1 lit. f DSGVO – dokumentiertes berechtigtes Interesse samt Abwägung festlegen.
 - [ ] Bei Daten aus Discord/anderen Quellen die Informationspflicht nach Art. 14 DSGVO prüfen und rechtzeitig erfüllen.
-- [ ] Für die öffentliche Live-Teamliste Rechtsgrundlage, Information, Widerspruch und Lösch-/Entfernungsprozess nachweisbar festlegen.
+- [ ] Vor Freigabe der öffentlichen Teamliste die individuelle Einwilligungs-UI und deren Textversion fachlich prüfen; Art. 13/14-Information, Minderjährigenschutz und Kontaktwege sicherstellen.
+- [ ] Aufbewahrungsfrist für den minimalen Einwilligungs-/Widerrufsnachweis festlegen und automatisiert durchsetzen.
 - [ ] Hosting-Vertrag, Rechenzentrumsort, Unterauftragnehmer und Art.-28-Vertrag prüfen.
 - [ ] Für Discord, Roblox, Gemini/OpenAI Empfängerrollen und mögliche internationale Übermittlungen mit konkretem Zielstaat und konkretem Transfermechanismus prüfen.
 - [ ] Tatsächliche KI-Konfiguration, Provider-Auswahl, Modell, Datenfelder, Konto-/Tarifbedingungen, Aufbewahrung und Trainingsverwendung prüfen.
