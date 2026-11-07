@@ -54,7 +54,7 @@ class PageTests(unittest.TestCase):
         pulse_db.init_db()
         self.members = [member(1, "Anna"), member(2, "Ben & Co")]
         guild = SimpleNamespace(**{**vars(GUILD), "members": self.members, "get_role": lambda _: None})
-        self.ctx = SimpleNamespace(user={"id": "123", "global_name": "Tester"}, guild=guild, guild_name="G", perms=ADMIN,
+        self.ctx = SimpleNamespace(user={"id": "123", "global_name": "Tester"}, guild=guild, guild_name="G", perms=dict(ADMIN, can_manage_team_warnings=True),
                                    config={"team_role_ids": [5]}, member=None, msg="", msg_ok=True)
         warns = [{"id": f"W{i}", "reason": f"Grund {i}", "by": "Leitung", "date": "01.10.2026", "active": True} for i in range(60)]
         self.teamdb = {"1": {"warns_list": warns}, "2": {"warns_list": [{"id": "WX", "reason": "=SUMME(A1)", "by": "L", "date": "02.10.2026",
