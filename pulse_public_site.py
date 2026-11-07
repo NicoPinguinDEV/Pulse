@@ -804,7 +804,8 @@ def sitemap_xml(base_url: str) -> str:
 
 def robots_text(base_url: str = "") -> str:
     if not public_access_enabled():
-        return "User-agent: *\nDisallow: /\n"
+        # Do not block crawling: bots must see 404/noindex so already indexed URLs can expire.
+        return "User-agent: *\nAllow: /\n"
     allowed = "".join(f"Allow: {path}$\n" for path in PUBLIC_PATHS)
     sitemap = f"Sitemap: {base_url.rstrip('/')}/sitemap.xml\n" if base_url else ""
     return f"User-agent: *\n{allowed}Allow: /news/\nAllow: /static/public\nDisallow: /\n{sitemap}"
@@ -827,7 +828,7 @@ def register(app) -> None:
     def add_page(path: str, title: str, description: str, render, *, cache: bool = True, with_request: bool = False):
         async def handler(request: Request):
             if not public_access_enabled():
-                raise HTTPException(status_code=404)
+                raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
             if limited_response := limited(request):
                 return limited_response
             body = render(request) if with_request else render()
@@ -854,7 +855,7 @@ def register(app) -> None:
 
     async def public_news_detail(news_id: int, request: Request):
         if not public_access_enabled():
-            raise HTTPException(status_code=404)
+            raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
         limited_response = limited(request)
         if limited_response:
             return limited_response
@@ -873,7 +874,8 @@ def register(app) -> None:
 
     async def sitemap(request: Request):
         if not public_access_enabled():
-            return Response("", status_code=404, media_type="application/xml")
+            return Response("", status_code=404, media_type="application/xml",
+                            headers={"X-Robots-Tag": "noindex, nofollow"})
         base = str(request.base_url).rstrip("/")
         return Response(sitemap_xml(base), media_type="application/xml")
 
