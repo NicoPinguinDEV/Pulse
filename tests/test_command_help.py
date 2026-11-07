@@ -137,19 +137,26 @@ class HelpTests(unittest.TestCase):
     def test_team_warn_help_requires_supervisor_even_for_admins(self):
         tree = tree_with("warn", "warns", "warn-remove")
         items = ch.entries(tree)
-        admin_without_rank = {"can_promote": True, "is_admin": True}
-        visible_admin = [name for _section, rows in ch.build_help(items, admin_without_rank, discord.Permissions.none())
-                         for name, _description in rows]
-        self.assertNotIn("/warn", visible_admin)
-        self.assertNotIn("/warns", visible_admin)
-        self.assertNotIn("/warn-remove", visible_admin)
+        leader_without_supervisor = {"can_promote": True}
+        visible_leader = [name for _section, rows in ch.build_help(items, leader_without_supervisor, discord.Permissions.none())
+                          for name, _description in rows]
+        self.assertNotIn("/warn", visible_leader)
+        self.assertNotIn("/warns", visible_leader)
+        self.assertNotIn("/warn-remove", visible_leader)
 
-        supervisor = admin_without_rank | {"can_manage_team_warnings": True}
+        supervisor = {"can_manage_team_warnings": True}
         visible_supervisor = [name for _section, rows in ch.build_help(items, supervisor, discord.Permissions.none())
                               for name, _description in rows]
         self.assertIn("/warn", visible_supervisor)
         self.assertIn("/warns", visible_supervisor)
         self.assertIn("/warn-remove", visible_supervisor)
+
+        admin = {"is_admin": True, "can_manage_team_warnings": True}
+        visible_admin = [name for _section, rows in ch.build_help(items, admin, discord.Permissions.none())
+                         for name, _description in rows]
+        self.assertIn("/warn", visible_admin)
+        self.assertIn("/warns", visible_admin)
+        self.assertIn("/warn-remove", visible_admin)
 
     def test_every_listed_command_exists(self):
         import ast
