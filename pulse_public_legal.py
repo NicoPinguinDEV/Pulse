@@ -11,11 +11,17 @@ from datetime import date
 from html import escape
 from urllib.parse import urlsplit
 
+# Public provider information verified against Prepaid-Hoster's legal notice. Vionity is
+# the customer's management portal, not a separate address for the website operator.
+DEFAULT_HOSTER = (
+    "Henrik Kramer e.K. (Prepaid-Hoster.de; Vionity-Kundenportal), "
+    "Kurpromenade 48, 23743 Grömitz, Deutschland"
+)
+
 REQUIRED_FIELDS = {
     "PULSE_LEGAL_NAME": "Vollständiger bürgerlicher Vor- und Nachname des privaten Anbieters",
     "PULSE_LEGAL_ADDRESS": "Zustellfähige Anschrift des privaten Anbieters (Straße, Nr., PLZ, Ort; Zeilen mit | trennen)",
     "PULSE_LEGAL_EMAIL": "E-Mail-Adresse",
-    "PULSE_LEGAL_HOSTER": "Name und Sitz des Hosting-Anbieters",
 }
 CONFIG_NOTICE = (
     '<p class="notice">Diese Seite ist noch nicht zur Veröffentlichung freigegeben. '
@@ -36,8 +42,14 @@ def missing_fields() -> dict[str, str]:
 
 
 def ready() -> bool:
-    """Whether all four operator/provider fields are present (not a legal approval)."""
+    """Whether the required operator identity fields are present (not a legal approval)."""
     return not missing_fields()
+
+
+def hoster_display() -> str:
+    """Return the known legal hoster identity, unless a verified contract names another provider."""
+    configured = value("PULSE_LEGAL_HOSTER")
+    return e(configured or DEFAULT_HOSTER)
 
 
 def _is_https_url(raw: str) -> bool:
@@ -184,7 +196,7 @@ def impressum_html() -> str:
 
 SECTIONS = (
     ("Website aufrufen", "Beim Aufruf verarbeitet der Server technisch Ihre IP-Adresse, den Zeitpunkt, die aufgerufene Seite und die Browserkennung, damit die Seite ausgeliefert und vor Überlastung geschützt werden kann. Zur Begrenzung von Anfragen hält der Server die Adresse kurzzeitig im Arbeitsspeicher.",
-     "Art. 6 Abs. 1 lit. f DSGVO (sicherer Betrieb).", "Hosting-Anbieter.",
+     "Art. 6 Abs. 1 lit. f DSGVO (sicherer Betrieb).", "Henrik Kramer e.K. (Prepaid-Hoster.de; Vionity-Kundenportal).",
      "Begrenzungsdaten im Arbeitsspeicher nur für das Zeitfenster. Technische Protokolle rotieren (vier Dateien mit je 1 MB)."),
     ("Team-Login mit Discord", "Der Login nutzt Discord OAuth mit dem Bereich „identify“. Pulse erhält Ihre Discord-ID, Ihren Namen und Ihr Avatar. Für jede Anmeldung werden IP-Adresse, Zeitpunkt und Browserkennung protokolliert, um Konten zu schützen. Nur Administratoren sehen diese Einträge.",
      "Art. 6 Abs. 1 lit. f DSGVO (Kontosicherheit), bei Teammitgliedern zusätzlich Art. 6 Abs. 1 lit. b DSGVO.", "Discord als Anmeldedienst, Hosting-Anbieter.",
@@ -244,10 +256,12 @@ def privacy_html() -> str:
 {_privacy_controller()}
 {dpo_html}
 <h2>Hosting und technische Dienstleister</h2>
-<p>Die Website und der Bot laufen bei: {_or_missing("PULSE_LEGAL_HOSTER")}. Der Hosting-Anbieter erhält technisch erforderliche Verbindungs- und Systemdaten. Ob und in welchem Umfang er als Auftragsverarbeiter nach Art. 28 DSGVO tätig ist, richtet sich nach dem tatsächlich geschlossenen Vertrag und den eingesetzten Unterauftragnehmern; dies muss der Verantwortliche anhand der Vertragsunterlagen prüfen.</p>
+<p>Die Website und der Bot werden auf einem KVM-vServer von {hoster_display()} betrieben. Vionity ist das Kunden- und Verwaltungsportal; die öffentliche Anbieterkennzeichnung von Prepaid-Hoster.de nennt Henrik Kramer e.K. als Anbieter. Im Kundenbereich des hier eingesetzten Servers wird Offenbach am Main als Standort angezeigt. Verbindliche Angaben zur konkreten Betriebs-, Backup- und Support-Infrastruktur sowie zu weiteren Unterauftragnehmern sind anhand der Vertragsunterlagen zu prüfen.</p>
+<p>Der Hostinganbieter kann technisch erforderliche Verbindungs-, System-, Betriebs- und Supportdaten verarbeiten. Ob und in welchem Umfang er dabei als Auftragsverarbeiter nach Art. 28 DSGVO tätig ist, richtet sich nach dem konkreten Vertrag und den tatsächlichen Zugriffsmöglichkeiten. Der Anbieter erklärt, dass er auf Anfrage prüft, ob eine Auftragsdatenverarbeitung erforderlich ist, und bei Bedarf ein Formular bereitstellt. Ein für diesen VPS abgeschlossener und unterzeichneter AVV ist derzeit nicht nachgewiesen; diese Datenschutzerklärung behauptet daher nicht, dass ein solcher Vertrag bereits besteht. Der Betreiber muss den Vertrag anfordern, prüfen und dauerhaft aufbewahren.</p>
+<p>Weitere Informationen: <a href="https://www.prepaid-hoster.de/info/impressum.html" rel="noopener noreferrer">Anbieterkennzeichnung</a>, <a href="https://www.prepaid-hoster.de/info/datenschutz.html" rel="noopener noreferrer">Datenschutzhinweise</a> und <a href="https://support.prepaid-hoster.de/faq/de/allgemein/auftragsdatenverarbeitung-anfordern.html" rel="noopener noreferrer">Anforderung einer Auftragsdatenverarbeitung</a>.</p>
 <h2>Verarbeitungen im Einzelnen</h2>{rows}
 <h2>Daten aus anderen Quellen (Art. 14 DSGVO)</h2>
-<p>Bei der öffentlichen Teamvorstellung erhält Pulse Teamrollen und Profilinformationen über den Discord-Server bzw. dessen Mitglieds- und Rollenobjekte. Die betroffene Person stellt diese Daten nicht bei jedem Abruf der Website erneut selbst bereit. Die öffentliche Darstellung ist auf Anzeigename, Teamrolle und – soweit vorhanden – Profilbild beschränkt. Rollen-/Profiländerungen werden aus dem aktuellen Discord-Zustand übernommen. Die Information der betroffenen Teammitglieder, die Rechtsgrundlage und der organisatorische Ablauf für Einwände oder Löschungswünsche müssen zusätzlich im Aufnahmeprozess und in der Praxis sichergestellt werden.</p>
+<p>Bei der öffentlichen Teamvorstellung erhält Pulse Teamrollen und Profilinformationen über den Discord-Server bzw. dessen Mitglieds- und Rollenobjekte. Die betroffene Person stellt diese Daten nicht bei jedem Abruf der Website erneut selbst bereit. Die öffentliche Darstellung ist auf Discord-Anzeigename und aktuelle Teamrolle beschränkt; Profilbilder werden nicht geladen oder angezeigt. Rollenänderungen werden aus dem aktuellen Discord-Zustand übernommen. Die Information der betroffenen Teammitglieder, die Rechtsgrundlage und der organisatorische Ablauf für Einwände oder Löschungswünsche müssen zusätzlich im Aufnahmeprozess und in der Praxis sichergestellt werden.</p>
 <h2>Empfänger und externe Plattformen</h2>
 <p>Je nach Funktion können Discord, Roblox, der Hosting-Anbieter, berechtigte Teammitglieder und – nur bei aktivierter KI-Funktion – der ausgewählte KI-Anbieter Daten erhalten. Discord und Roblox stellen eigenständige Plattformdienste bereit. Die rechtliche Rolle jedes Empfängers (eigener Verantwortlicher, gemeinsam Verantwortlicher oder Auftragsverarbeiter) muss anhand der konkreten Funktion und Verträge geprüft werden; die bloße Nennung eines Anbieters legt diese Rolle nicht fest.</p>
 <h2>Übermittlung außerhalb des EWR</h2><p>{transfer_html}</p>
