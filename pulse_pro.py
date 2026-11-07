@@ -551,7 +551,7 @@ def pro_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
             ("team-status","/team-status","◉","Teamstatus",perms.get("can_view_team_status",True),False),
             ("activity-check","/activity-check","✓","Activity Check",perms.get("can_manage_checkins") or perms.get("is_admin"),False),
             ("melonly","/melonly","🛡️","Melonly",perms.get("can_warn") or perms.get("can_add_notes") or perms.get("is_admin"),False),
-            ("warns","/warns","⚠","Verwarnungszentrale",perms.get("can_manage_team_warnings"),False),
+            ("warns","/warns","⚠","Verwarnungszentrale",perms.get("can_manage_team_warnings") or perms.get("is_admin"),False),
             ("wiki","/wiki","▤","Team-Wiki",True,False),
             ("factions","/factions","⚑","Fraktionsverwaltung",perms.get("can_manage_factions"),False),
         ]),
