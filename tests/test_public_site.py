@@ -14,6 +14,7 @@ import pulse_public_consent as public_team_consent
 import pulse_public_legal as legal
 import pulse_public_site as site
 import pulse_security
+import pulse_retention
 import webserver as ws
 
 LEGAL_ENV = {
@@ -448,6 +449,25 @@ class Legal(Base):
         self.assertEqual(response.headers.get("cache-control"), "no-store")
         for term in ("Henrik Kramer e.K.", "Prepaid-Hoster.de", "Vionity-Kundenportal", "Offenbach am Main"):
             self.assertIn(term, response.text)
+
+    def test_cookie_notice_matches_application_session_and_browser_draft_lifetimes(self):
+        html = self.client.get("/cookies").text
+        self.assertIn("3 Stunden", html)
+        self.assertIn("12 Stunden", html)
+        self.assertIn("30 Tagen ohne Änderung", html)
+        self.assertEqual(pulse_retention.APPLICATION_DRAFT_TTL_DAYS, 30)
+
+    def test_application_draft_has_expiry_and_explicit_delete_control(self):
+        self.assertIn("__TTL_MS__", ws.APPLY_DRAFT_SCRIPT)
+        self.assertIn("Date.now()-savedAt>TTL_MS", ws.APPLY_DRAFT_SCRIPT)
+        self.assertIn("localStorage.removeItem(KEY)", ws.APPLY_DRAFT_SCRIPT)
+        self.assertIn("Gespeicherten Entwurf löschen", ws.APPLY_DRAFT_SCRIPT)
+
+    def test_security_page_does_not_claim_public_discord_cdn_avatars(self):
+        html = self.client.get("/sicherheit").text
+        self.assertIn("keine Bilder, Skripte oder Stylesheets von Drittanbietern", html)
+        self.assertIn("Interne Dashboard- und Teamansichten", html)
+        self.assertNotIn("Die öffentliche Teamvorstellung kann Profilbilder", html)
     def test_nothing_is_invented_while_details_are_missing(self):
         html = self.client.get("/impressum").text
         self.assertIn("noch nicht zur Veröffentlichung freigegeben", html)
