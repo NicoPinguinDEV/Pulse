@@ -27,7 +27,7 @@ Vor dieser Änderung wurden Teamprofilbilder direkt über Discord-CDN-Adressen e
 
 **Umsetzung in Phase 1:** öffentliche Teamkarten verwenden lokale Initialen statt Discord-Profilbilder. Die Content-Security-Policy erlaubt keine Discord-CDN-Bildhosts mehr. Tests sollen sicherstellen, dass öffentliche Seiten keine externen `script`-, `link`- oder `img`-Ressourcen einbinden.
 
-Die Teamvorstellung verwendet weiterhin Discord-Mitglieds-/Rollendaten und einen internen Einwilligungsnachweis. Rechtsgrundlage, Art.-14-Information, Freiwilligkeit der Einwilligung und die Aufbewahrung des Nachweises bleiben gesondert zu prüfen.
+Die Teamvorstellung verwendet weiterhin Discord-Mitglieds-/Rollendaten und einen internen Einwilligungsnachweis. Die Offenlegungsfassung wurde auf Version 2 angehoben; alte Einwilligungen aus Version 1 reichen nicht mehr aus, sodass Mitglieder die aktualisierte Freigabe erneut erteilen müssen. Rechtsgrundlage, Art.-14-Information, Freiwilligkeit der Einwilligung und die Aufbewahrung des Nachweises bleiben gesondert zu prüfen.
 
 ### 2.2 Bewerbungen, Retention und Tickets
 
