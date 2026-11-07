@@ -293,13 +293,6 @@ class TeamlisteCog(commands.Cog):
         await interaction.response.send_message(message, ephemeral=True)
 
     @commands.Cog.listener()
-    async def on_member_update(self, before: discord.Member, after: discord.Member):
-        old_scope = self.public_team_role_ids(before)
-        new_scope = self.public_team_role_ids(after)
-        if old_scope != new_scope:
-            pulse_public_consent.withdraw(after.id)
-
-    @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
         pulse_public_consent.withdraw(member.id)
 
@@ -523,6 +516,12 @@ class TeamlisteCog(commands.Cog):
     async def on_member_update(
         self, before: discord.Member, after: discord.Member
     ):
+        if before.roles != after.roles:
+            old_scope = self.public_team_role_ids(before)
+            new_scope = self.public_team_role_ids(after)
+            if old_scope != new_scope:
+                pulse_public_consent.withdraw(after.id)
+
         if before.roles != after.roles or before.display_name != after.display_name:
             if self._update_debounce_task and not self._update_debounce_task.done():
                 self._update_debounce_task.cancel()
