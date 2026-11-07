@@ -342,9 +342,11 @@ class Separation(Base):
         with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_PUBLIC_SITE_ENABLED": "0"}, clear=True):
             for path in blocked_paths:
                 with self.subTest(path=path):
-                    response = self.client.get(path) if path != "/apply/keepalive" else self.client.post(path)
+                    response = (self.client.get(path) if path != "/apply/keepalive" else
+                                self.client.post(path, headers={"Origin": "http://testserver"}))
                     self.assertEqual(response.status_code, 403 if path == "/apply/keepalive" else 404)
-            submit = self.client.post("/action", data={"action": "submit_application"})
+            submit = self.client.post("/action", data={"action": "submit_application"},
+                                      headers={"Origin": "http://testserver"})
             self.assertEqual(submit.status_code, 404)
         incomplete_env = {"PULSE_PUBLIC_SITE_ENABLED": "1"}
         with patch.dict(os.environ, incomplete_env, clear=True):
