@@ -24,7 +24,8 @@ def _role_ids(values) -> list[int]:
 def _ensure_table(db) -> None:
     db.execute(
         """CREATE TABLE IF NOT EXISTS public_team_consents (
-            user_id TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
             consent_version INTEGER NOT NULL,
             role_ids_json TEXT NOT NULL,
             granted_at TEXT NOT NULL,
@@ -34,6 +35,10 @@ def _ensure_table(db) -> None:
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_public_team_consents_active "
         "ON public_team_consents(consent_version, withdrawn_at)"
+    )
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_public_team_consents_one_active "
+        "ON public_team_consents(user_id) WHERE withdrawn_at IS NULL"
     )
 
 
@@ -49,15 +54,15 @@ def grant(user_id: int | str, role_ids) -> dict:
     role_json = json.dumps(roles, separators=(",", ":"))
     with pulse_db.connect() as db:
         _ensure_table(db)
+        # Keep a separate, timestamped record for each grant/withdrawal cycle.
+        db.execute(
+            "UPDATE public_team_consents SET withdrawn_at=? WHERE user_id=? AND withdrawn_at IS NULL",
+            (granted_at, uid),
+        )
         db.execute(
             """INSERT INTO public_team_consents
                (user_id, consent_version, role_ids_json, granted_at, withdrawn_at)
-               VALUES (?, ?, ?, ?, NULL)
-               ON CONFLICT(user_id) DO UPDATE SET
-                 consent_version=excluded.consent_version,
-                 role_ids_json=excluded.role_ids_json,
-                 granted_at=excluded.granted_at,
-                 withdrawn_at=NULL""",
+               VALUES (?, ?, ?, ?, NULL)""",
             (uid, CONSENT_VERSION, role_json, granted_at),
         )
     return {"user_id": uid, "consent_version": CONSENT_VERSION,
