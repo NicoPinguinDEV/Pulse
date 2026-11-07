@@ -484,7 +484,7 @@ class Legal(Base):
         self.assertIn("§ 18 Abs. 1 MStV", html)
         self.assertIn("§ 5 DDG", html)
         self.assertIn("geschäftsmäßig und in der Regel gegen Entgelt", html)
-        self.assertIn("bürgerlichen Vor- und Nachname", html)
+        self.assertIn("bürgerliche Vor- und Nachname", html)
         self.assertIn("§ 18 Abs. 2 MStV", html)
 
     def test_publication_is_blocked_until_ddg_and_mstv_18_2_scope_is_assessed(self):
@@ -511,6 +511,29 @@ class Legal(Base):
             "PULSE_LEGAL_PHONE": "+49 123 456789",
         }):
             self.assertNotIn("PULSE_LEGAL_CONTACT_METHOD_URL", legal.publication_blockers())
+
+    def test_valid_https_contact_method_is_displayed_when_ddg_applies(self):
+        with patch.dict(os.environ, {
+            **LEGAL_ENV,
+            "PULSE_LEGAL_DDG_ASSESSMENT": "applicable",
+            "PULSE_LEGAL_CONTACT_METHOD_URL": "https://example.invalid/contact",
+            "PULSE_LEGAL_CONTACT_METHOD_LABEL": "Kontaktformular",
+        }):
+            html = legal.impressum_html()
+        self.assertIn("Kontaktformular", html)
+        self.assertIn('href="https://example.invalid/contact"', html)
+
+    def test_non_https_contact_method_does_not_satisfy_ddg_gate(self):
+        with patch.dict(os.environ, {
+            **LEGAL_ENV,
+            "PULSE_LEGAL_DDG_ASSESSMENT": "applicable",
+            "PULSE_LEGAL_PHONE": "",
+            "PULSE_LEGAL_CONTACT_METHOD_URL": "javascript:alert(1)",
+        }):
+            blockers = legal.publication_blockers()
+            html = legal.impressum_html()
+        self.assertIn("PULSE_LEGAL_CONTACT_METHOD_URL", blockers)
+        self.assertNotIn('href="javascript:alert(1)"', html)
 
     def test_mstv_18_2_requires_responsible_name_and_address_when_applicable(self):
         with patch.dict(os.environ, {
