@@ -311,7 +311,7 @@ a { transition: color .18s ease; }
 .more { display: inline-flex; align-items: center; gap: 10px; color: var(--coral); font-weight: 700; text-decoration: none; }
 .more::after { content: "↗"; transition: transform .18s ease; }
 .more:hover::after { transform: translate(3px,-3px); }
-.group { padding: 22px 26px; margin-top: 12px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.025); }
+.group { position: relative; overflow: hidden; padding: 22px 26px; margin-top: 12px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.025); }
 .group h3 { margin-top: 0; }
 
 /* Team, faction, news and FAQ cards */
@@ -331,7 +331,7 @@ a { transition: color .18s ease; }
 .news:hover { transform: translateY(-3px); border-color: rgba(255,118,87,.32); background: rgba(255,118,87,.035); }
 .news h3 { margin: 8px 0 10px; font-size: 1.5rem; }
 .news p:last-child { margin-bottom: 0; }
-.faq details { margin: 10px 0; padding: 0 20px; border: 1px solid rgba(255,255,255,.07); border-radius: 14px; background: rgba(255,255,255,.025); }
+.faq details { position: relative; overflow: hidden; margin: 10px 0; padding: 0 20px; border: 1px solid rgba(255,255,255,.07); border-radius: 14px; background: rgba(255,255,255,.025); }
 .faq summary { padding: 20px 0; list-style-position: inside; }
 .faq details[open] { border-color: rgba(255,118,87,.32); background: rgba(255,118,87,.035); }
 .faq details p { padding: 0 0 16px; color: #bfc5c4; }
@@ -362,7 +362,7 @@ a { transition: color .18s ease; }
 
 /* Content and legal pages are part of the same visual system */
 .doc {
-  width: min(100% - 2 * var(--gutter),1120px); max-width: 1120px;
+  width: min(calc(100% - var(--gutter) - var(--gutter)),1120px); max-width: 1120px;
   margin: clamp(42px,6vw,84px) auto; padding: clamp(30px,5.5vw,76px);
   border: 1px solid rgba(255,255,255,.075); border-radius: 24px;
   background: radial-gradient(ellipse at 95% 0%,rgba(255,118,87,.055),transparent 38%),linear-gradient(145deg,rgba(34,40,43,.92),rgba(24,29,32,.97));
