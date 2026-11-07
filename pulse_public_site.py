@@ -926,7 +926,7 @@ def register(app) -> None:
         <div class="pulse-card"><h2>Öffentliche Teamvorstellung</h2>
         <p class="muted">Die Teamseite wird automatisch aus den aktuellen Rollen der TeamBot-Kategorien Führungsebene, HighTeam und LowTeam erzeugt. Rollenänderungen werden direkt bei der nächsten Seitenanfrage übernommen; manuelle Profileinträge sind dafür nicht erforderlich.</p></div>
         <div class="pulse-card"><h2>News veröffentlichen</h2>
-        <p class="muted">News werden nach dem Speichern sofort öffentlich angezeigt.</p>
+        <p class="muted">News werden gespeichert und erst nach der ausdrücklichen Freigabe der öffentlichen Website sichtbar.</p>
         <form method="post" action="/admin/website/news" class="grid gap-3">
         <label>Titel <input class="pulse-input" name="title" maxlength="120" required></label>
         <label>Kategorie <input class="pulse-input" name="category" maxlength="40" value="Community" required></label>
