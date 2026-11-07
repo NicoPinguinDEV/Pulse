@@ -128,7 +128,9 @@ class TeamStatusApiTests(unittest.TestCase):
     def test_robots_and_noindex(self):
         response = self.client.get("/robots.txt")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Disallow: /", response.text)
+        # Private pages must remain crawlable as 404/noindex so stale search results can expire.
+        self.assertIn("Allow: /", response.text)
+        self.assertNotIn("Disallow: /", response.text)
         self.assertEqual(response.headers.get("X-Robots-Tag"), "noindex, nofollow")
 
 
