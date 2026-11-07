@@ -580,6 +580,8 @@ class Legal(Base):
         # The hosting provider is a privacy recipient, not BOCHUM RP's website operator.
         self.assertNotIn("Henrik Kramer e.K.", legal.impressum_html())
         self.assertNotIn("PULSE_LEGAL_HOSTER", legal.missing_fields())
+        with patch.dict(os.environ, {"PULSE_LEGAL_HOSTER": "Vionity"}):
+            self.assertIn("Henrik Kramer e.K.", legal.privacy_html())
 
     def test_privacy_controller_and_optional_dpo_are_separately_configurable(self):
         with patch.dict(os.environ, {
