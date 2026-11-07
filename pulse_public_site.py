@@ -804,10 +804,10 @@ def sitemap_xml(base_url: str) -> str:
 
 def robots_text(base_url: str = "") -> str:
     if not public_access_enabled():
-        return "User-agent: *\\nDisallow: /\\n"
-    allowed = "".join(f"Allow: {path}$\\n" for path in PUBLIC_PATHS)
-    sitemap = f"Sitemap: {base_url.rstrip('/')}/sitemap.xml\\n" if base_url else ""
-    return f"User-agent: *\\n{allowed}Allow: /news/\\nAllow: /static/public\\nDisallow: /\\n{sitemap}"
+        return "User-agent: *\nDisallow: /\n"
+    allowed = "".join(f"Allow: {path}$\n" for path in PUBLIC_PATHS)
+    sitemap = f"Sitemap: {base_url.rstrip('/')}/sitemap.xml\n" if base_url else ""
+    return f"User-agent: *\n{allowed}Allow: /news/\nAllow: /static/public\nDisallow: /\n{sitemap}"
 
 
 def home_response(request: Request) -> HTMLResponse:
