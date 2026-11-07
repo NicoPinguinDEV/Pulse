@@ -202,6 +202,7 @@ class Pages(Base):
             public_team_consent.grant(303, [3030])
             visible = self.client.get("/team-vorstellung").text
             self.assertIn("Testmitglied", visible)
+            self.assertEqual(self.client.get("/team-vorstellung").headers.get("cache-control"), "no-store")
             self.assertIn("Support", visible)
             self.assertNotIn("offline", visible)
             self.assertTrue(public_team_consent.withdraw(303))
