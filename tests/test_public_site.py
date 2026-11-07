@@ -146,29 +146,28 @@ class Pages(Base):
         self.assertIn('window.matchMedia("(prefers-reduced-motion: reduce)")', js)
         self.assertIn('body.style.setProperty("--cursor-x"', js)
 
-    def test_public_team_profiles_are_grouped_by_rank_level(self):
-        import pulse_public_content as content
-        profiles = (
-            ("Nico", "Founder"),
-            ("Mara", "Teamleitung"),
-            ("Lena", "Admin"),
-            ("Finn", "Moderator"),
-            ("Tom", "Support-Leitung"),
+    def test_public_team_page_uses_current_configured_discord_roles(self):
+        import cogs.teamliste as teamliste
+        member = SimpleNamespace(
+            id=42, display_name="Nico", status="offline",
+            display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatars/42/hash.png"),
         )
-        for name, rank in profiles:
-            profile_id = content.create_profile(name, rank)
-            self.assertTrue(content.set_published(profile_id, True))
-
-        html = self.client.get("/team-vorstellung").text
-        for name in ("Nico", "Mara", "Lena", "Finn", "Tom"):
-            self.assertIn(name, html)
-        self.assertIn("Inhaber- &amp; Führungsebene", html)
-        self.assertIn("Management- &amp; Teamleitungsebene", html)
-        self.assertIn("Administrationsebene", html)
-        self.assertIn("Moderationsebene", html)
-        self.assertIn("Supportebene", html)
-        self.assertLess(html.index("Inhaber- &amp; Führungsebene"), html.index("Management- &amp; Teamleitungsebene"))
-        self.assertLess(html.index("Management- &amp; Teamleitungsebene"), html.index("Administrationsebene"))
+        role = SimpleNamespace(id=101, name="Founder", position=90, members=[member])
+        guild = SimpleNamespace(get_role=lambda role_id: role if role_id == 101 else None)
+        bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
+        ws.app.state.bot = bot
+        self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
+        with patch.object(teamliste, "get_roles_by_category",
+                          side_effect=lambda category: [101] if category == "fuehrungsebene" else []):
+            html = self.client.get("/team-vorstellung").text
+        self.assertIn("Die Köpfe hinter BOCHUM RP", html)
+        self.assertIn("1 Mitglied", html)
+        self.assertIn("Founder", html)
+        self.assertIn("Nico", html)
+        self.assertIn("cdn.discordapp.com/avatars/42/hash.png", html)
+        self.assertNotIn("offline", html)
+        self.assertNotIn("42", html)
+        self.assertNotIn("Abgemeldet", html)
 
     def test_public_site_pointer_effect_is_progressive_and_respects_reduced_motion(self):
         public_css = (Path(site.ROOT) / "static" / "public.css").read_text(encoding="utf-8")
@@ -179,23 +178,19 @@ class Pages(Base):
         self.assertIn("function startPointerEffects()", public_js)
         self.assertIn("startPointerEffects();", public_js)
 
-    def test_public_team_profiles_are_hidden_until_explicitly_published(self):
-        import pulse_public_content as content
-        profile_id = content.create_profile("Mara", "Support-Leitung", "Hilft bei Fragen.")
-        draft_page = self.client.get("/team-vorstellung").text
-        self.assertNotIn("Mara", draft_page)
-        self.assertTrue(content.set_published(profile_id, True))
-        response = self.client.get("/team-vorstellung")
-        self.assertNotIn("public", response.headers.get("cache-control", "").lower())
-        public_page = response.text
-        self.assertIn("Mara", public_page)
-        self.assertIn("Support-Leitung", public_page)
-        self.assertIn("Hilft bei Fragen.", public_page)
-        for internal_field in ("discord_id", "private_note", "moderation_case", "service_hours"):
-            self.assertNotIn(internal_field, public_page.lower())
-        self.assertTrue(content.set_published(profile_id, False))
-        withdrawn_page = self.client.get("/team-vorstellung").text
-        self.assertNotIn("Mara", withdrawn_page)
+    def test_public_team_page_removes_members_when_they_leave_configured_role(self):
+        import cogs.teamliste as teamliste
+        member = SimpleNamespace(id=99, display_name="Mara", status="online",
+                                 display_avatar=SimpleNamespace(url=""))
+        role = SimpleNamespace(id=202, name="Supporter", position=10, members=[member])
+        guild = SimpleNamespace(get_role=lambda role_id: role if role_id == 202 else None)
+        ws.app.state.bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
+        self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
+        with patch.object(teamliste, "get_roles_by_category",
+                          side_effect=lambda category: [202] if category == "lowteam" else []):
+            self.assertIn("Mara", self.client.get("/team-vorstellung").text)
+            role.members = []
+            self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
 
 
 class Separation(Base):
