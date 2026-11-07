@@ -99,7 +99,8 @@ class SessionTests(TempDb):
         client = TestClient(ws.app, raise_server_exceptions=False, headers=BROWSER)
         client.cookies.set("user_session", signed)
         response = client.get("/", follow_redirects=False)
-        self.assertEqual(response.status_code, 200)               # login page instead of 303 → /me
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers.get("location"), "/team-login")
         self.assertIn('user_session=""', response.headers.get("set-cookie", ""))  # dead cookie removed
         client.cookies.set("user_session", signed)
         chain = client.get("/me")                                # following redirects must end on the login page
