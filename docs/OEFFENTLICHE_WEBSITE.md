@@ -22,15 +22,14 @@ Stand: technischer Ausbau im Feature-Branch `feature/public-site-complete`. Die 
 
 ## Öffentliche Teamprofile
 
-Verwaltung nur für Administratoren unter `/admin/website/team`.
+Die öffentliche Teamvorstellung wird aus den aktuell konfigurierten TeamBot-Rollen erzeugt. Angezeigt werden ausschließlich Mitglieder, für die eine versionsgebundene, freiwillige Freigabe gespeichert ist und deren aktueller Rollenumfang weiterhin zur Freigabe passt.
 
-- Profile werden manuell angelegt und sind immer zunächst unveröffentlicht.
-- Erst der separate Button „Veröffentlichen“ macht das Profil sichtbar.
-- Veröffentlicht werden nur Anzeigename, freigegebene Teamfunktion, Kurzbeschreibung und optional ein ausdrücklich freigegebenes Profilbild.
-- Profilbilder werden als PNG (maximal 512 KB und 1024 × 1024 Pixel) lokal in der bestehenden Pulse-Datenbank gespeichert und als Data-URI ausgeliefert; es entstehen keine externen Bildabrufe.
-- Es gibt keine automatische Übernahme der Discord-Mitglieder-/Teamliste und keinen Avatar-/Bildabruf von Drittanbietern.
-- Discord-IDs, interne Rollen, Notizen, Verwarnungen, Dienstzeiten, private Kontaktdaten und interne Rechte werden nicht gespeichert oder gerendert.
-- Veröffentlichungen, Rücknahmen und Löschungen werden im Audit-Log erfasst.
+- Die Freigabe wird vom jeweiligen Mitglied über `/teamseite_freigabe` erteilt und kann über `/teamseite_freigabe_widerrufen` beendet werden.
+- Ohne aktuelle Freigabe, nach Widerruf, bei geändertem Rollenumfang oder nach Serveraustritt wird kein öffentliches Profil angezeigt.
+- Öffentlich erscheinen nur Discord-Anzeigename und aktuelle Teamrolle sowie die daraus abgeleitete Team-Kategorie.
+- Profilbilder werden nicht eingebunden. Die Karte verwendet lokal gerenderte Initialen; der Browser fordert dafür keine Ressourcen von Discord-CDN-Domains an.
+- Discord-ID, Textversion, Rollenumfang sowie Erteilungs- und gegebenenfalls Widerrufszeitpunkt werden intern als minimaler Freigabenachweis gespeichert. Dieser Nachweis ist nicht Teil der öffentlichen Seite; seine Aufbewahrungsfrist muss noch festgelegt und technisch umgesetzt werden.
+- Präsenzstatus, Abwesenheiten, Verwarnungen, interne Notizen, private Kontaktdaten und interne Berechtigungen werden nicht öffentlich dargestellt.
 
 ## News und Blog
 
