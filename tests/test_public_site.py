@@ -35,7 +35,8 @@ def clean_env():
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.env = patch.dict(os.environ, clean_env(), clear=True)
+        test_env = {**clean_env(), **LEGAL_ENV, "PULSE_PUBLIC_SITE_ENABLED": "1"}
+        self.env = patch.dict(os.environ, test_env, clear=True)
         self.env.start()
         self.addCleanup(self.env.stop)
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
@@ -317,6 +318,43 @@ class Separation(Base):
         self.assertIn("BOCHUM", response.text)
         self.assertNotIn("Team Management Panel", response.text)
 
+
+    def test_root_sends_anonymous_visitors_to_team_login_while_site_is_private(self):
+        with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_PUBLIC_SITE_ENABLED": "0"}, clear=True):
+            response = self.client.get("/")
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/team-login")
+
+    def test_root_sends_signed_in_members_to_their_start_page_while_site_is_private(self):
+        self.client.cookies.set("user_session", "valid")
+        with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_PUBLIC_SITE_ENABLED": "0"}, clear=True), \\
+                patch.object(ws, "dashboard_session", return_value={"id": "1"}), \\
+                patch.object(ws, "start_page_for", return_value="/tickets"):
+            response = self.client.get("/")
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/tickets")
+
+    def test_public_pages_and_application_portal_require_both_release_gates(self):
+        blocked_paths = ("/regelwerk", "/faq", "/fraktionen", "/news", "/team-vorstellung",
+                         "/impressum", "/datenschutz", "/cookies", "/sicherheit", "/sitemap.xml",
+                         "/apply", "/apply/login", "/apply/callback", "/apply/keepalive")
+        with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_PUBLIC_SITE_ENABLED": "0"}, clear=True):
+            for path in blocked_paths:
+                with self.subTest(path=path):
+                    response = self.client.get(path) if path != "/apply/keepalive" else self.client.post(path)
+                    self.assertEqual(response.status_code, 404)
+        incomplete_env = {"PULSE_PUBLIC_SITE_ENABLED": "1"}
+        with patch.dict(os.environ, incomplete_env, clear=True):
+            self.assertEqual(self.client.get("/regelwerk").status_code, 404)
+            self.assertEqual(self.client.get("/apply").status_code, 404)
+            self.assertEqual(self.client.get("/sitemap.xml").status_code, 404)
+
+    def test_robots_disallows_everything_until_public_release(self):
+        with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_PUBLIC_SITE_ENABLED": "0"}, clear=True):
+            robots = self.client.get("/robots.txt").text
+        self.assertIn("Disallow: /", robots)
+        self.assertNotIn("Allow: /regelwerk", robots)
+
     def test_team_login_takes_signed_in_member_to_start_page(self):
         self.client.cookies.set("user_session", "valid")
         with patch.object(ws, "dashboard_session", return_value={"id": "1"}), \
@@ -443,9 +481,21 @@ class WebsiteAdmin(Base):
 
     def test_admin_page_shows_missing_details(self):
         self.login(True)
-        response = self.client.get("/admin/website")
+        with patch.dict(os.environ, clean_env(), clear=True):
+            response = self.client.get("/admin/website")
         self.assertEqual(response.status_code, 200)
         self.assertIn("PULSE_LEGAL_NAME", response.text)
+
+    def test_private_preview_requires_admin_and_works_without_public_release(self):
+        self.assertIn(self.client.get("/admin/website/preview").status_code, (302, 303, 401, 403, 503))
+        self.login(True)
+        with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_PUBLIC_SITE_ENABLED": "0"}, clear=True):
+            response = self.client.get("/admin/website/preview")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("BOCHUM <span>RP</span>", response.text)
+        self.assertEqual(response.headers.get("cache-control"), "no-store")
+        self.assertEqual(response.headers.get("x-robots-tag"), "noindex, nofollow")
+
 
 
 class Legal(Base):
@@ -490,15 +540,18 @@ class Legal(Base):
         self.assertIn("Interne Dashboard- und Teamansichten", html)
         self.assertNotIn("Die öffentliche Teamvorstellung kann Profilbilder", html)
     def test_nothing_is_invented_while_details_are_missing(self):
-        html = self.client.get("/impressum").text
+        with patch.dict(os.environ, clean_env(), clear=True):
+            html = legal.impressum_html()
         self.assertIn("noch nicht zur Veröffentlichung freigegeben", html)
         self.assertIn("fehlt", html)
         self.assertFalse(legal.ready())
 
     def test_site_stays_out_of_search_engines_until_ready(self):
-        self.assertEqual(self.client.get("/").headers["x-robots-tag"], "noindex, nofollow")
-        self.assertIn("Disallow: /", self.client.get("/robots.txt").text)
-        self.assertNotIn("Allow: /regelwerk", self.client.get("/robots.txt").text)
+        with patch.dict(os.environ, clean_env(), clear=True):
+            self.assertEqual(self.client.get("/").headers.get("location"), "/team-login")
+            self.assertEqual(self.client.get("/regelwerk").status_code, 404)
+            self.assertIn("Disallow: /", self.client.get("/robots.txt").text)
+            self.assertNotIn("Allow: /regelwerk", self.client.get("/robots.txt").text)
 
     def test_publication_requires_explicit_legal_review_and_terms_approval(self):
         with patch.dict(os.environ, LEGAL_ENV):
@@ -510,7 +563,7 @@ class Legal(Base):
 
     def test_terms_are_marked_as_draft_until_release(self):
         with patch.dict(os.environ, clean_env(), clear=True):
-            html = self.client.get("/nutzungsbedingungen").text
+            html = legal.terms_html()
         self.assertIn("Entwurf – noch nicht freigegeben", html)
         self.assertIn("nicht als abschließend geprüfte Vertragsfassung", html)
         self.assertIn("§ 305 Abs. 2 BGB", html)
