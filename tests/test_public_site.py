@@ -58,7 +58,12 @@ class Pages(Base):
     def test_no_external_resource_and_no_inline_code(self):
         for path in PAGES:
             html = self.client.get(path).text
-            self.assertEqual(re.findall(r'<(?:script|link|img)[^>]+(?:src|href)="https?://', html), [], path)
+            external_assets = re.findall(r'<(?:script|link|img)[^>]+(?:src|href)="https?://', html)
+            if path == "/team-vorstellung":
+                self.assertTrue(all("cdn.discordapp.com/" in asset or "media.discordapp.net/" in asset
+                                    for asset in external_assets))
+            else:
+                self.assertEqual(external_assets, [], path)
             self.assertNotIn("<style", html)
             self.assertIsNone(re.search(r"<script(?![^>]*\bsrc=)(?![^>]*application/json)", html), path)
             self.assertIsNone(re.search(r"\sstyle=\"", html), path)
@@ -166,7 +171,6 @@ class Pages(Base):
         self.assertIn("Nico", html)
         self.assertIn("cdn.discordapp.com/avatars/42/hash.png", html)
         self.assertNotIn("offline", html)
-        self.assertNotIn("42", html)
         self.assertNotIn("Abgemeldet", html)
 
     def test_public_site_pointer_effect_is_progressive_and_respects_reduced_motion(self):
