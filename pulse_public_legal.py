@@ -11,8 +11,8 @@ from datetime import date
 from html import escape
 
 REQUIRED_FIELDS = {
-    "PULSE_LEGAL_NAME": "Vollständiger Name oder Organisation des Anbieters",
-    "PULSE_LEGAL_ADDRESS": "Zustellfähige Anschrift (Zeilen mit | trennen)",
+    "PULSE_LEGAL_NAME": "Vollständiger bürgerlicher Vor- und Nachname des privaten Anbieters",
+    "PULSE_LEGAL_ADDRESS": "Zustellfähige Anschrift des privaten Anbieters (Straße, Nr., PLZ, Ort; Zeilen mit | trennen)",
     "PULSE_LEGAL_EMAIL": "E-Mail-Adresse",
     "PULSE_LEGAL_HOSTER": "Name und Sitz des Hosting-Anbieters",
 }
@@ -118,8 +118,8 @@ def impressum_html() -> str:
         "<p>Diese Angabe ist nur erforderlich, wenn das Angebot die Voraussetzungen des § 18 Abs. 2 MStV erfüllt. "
         "In diesem Fall müssen Name und Anschrift vollständig angegeben werden.</p>"
         if responsible else
-        "<p class=\"notice\">Ob ein Verantwortlicher nach § 18 Abs. 2 MStV benannt werden muss, "
-        "ist anhand der tatsächlich veröffentlichten Inhalte zu prüfen.</p>"
+        "<p class=\"notice\">Der News-/Blog-Bereich ist gesondert darauf zu prüfen, ob er die Voraussetzungen des § 18 Abs. 2 MStV erfüllt. "
+        "Falls ja, muss eine geeignete redaktionell verantwortliche Person mit vollständigem Vor- und Nachnamen und Anschrift benannt werden.</p>"
     )
     return f"""<div class="doc"><h1>Impressum</h1>
 {"" if publication_ready() else CONFIG_NOTICE}
