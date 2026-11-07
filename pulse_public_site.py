@@ -1,10 +1,8 @@
 """Public website of Bochum RP: homepage, rules, factions, news, FAQ and legal pages.
 
-Everything here is readable without login and shows only approved facts: rules from
-support_knowledge.md, official factions (name, category, description), news an administrator
-published, and the live member count from Discord. Nothing internal is rendered, and no external
-resource is loaded, so the pages need no consent. Should an optional service ever be added, list it in
-OPTIONAL_SERVICES: only then the consent banner appears and the service loads after a choice.
+Everything here is readable without login and shows only public-facing facts. The public team page
+uses the configured TeamBot role lists and renders only display names, role names and Discord CDN
+avatars. It never renders presence, leave data, moderation records or internal notes.
 
 The dashboard stays apart: / forwards signed-in team members to their start page, and the team login
 lives at /team-login. /team remains the internal team list.
@@ -636,7 +634,7 @@ def _discord_team_roster(request: Request) -> tuple[list[dict], int]:
         ("highteam", "HighTeam"),
         ("lowteam", "LowTeam"),
     )
-    sections: list[dict] = []
+    sections: list[str] = []
     unique_members: set[int] = set()
 
     for category_key, category_label in categories:
@@ -710,7 +708,7 @@ def public_team_html(request: Request) -> str:
 
 
 def _read_team_avatar(upload: UploadFile | None) -> str:
-    """Store a small local PNG portrait; public pages never contact third-party image hosts."""
+    """Validate an optional locally uploaded PNG for legacy manually managed profile records."""
     if upload is None or not upload.filename:
         return ""
     payload = upload.file.read(512 * 1024 + 1)
