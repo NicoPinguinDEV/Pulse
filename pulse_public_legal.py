@@ -180,9 +180,9 @@ def privacy_html() -> str:
         "<p>Ein Datenschutzbeauftragter ist nur zu benennen, wenn die gesetzlichen Voraussetzungen erfüllt sind. "
         "Ob dies hier der Fall ist, muss der Verantwortliche prüfen.</p>"
     )
-    authority_html = f"<p>Zuständige Datenschutzaufsichtsbehörde: {e(authority)}</p>" if authority else (
-        "<p>Die zuständige Datenschutzaufsichtsbehörde richtet sich nach der Niederlassung des Verantwortlichen "
-        "und den gesetzlichen Zuständigkeitsregeln. Bitte wenden Sie sich an die für den Verantwortlichen zuständige Behörde.</p>"
+    authority_html = f"Zuständige Datenschutzaufsichtsbehörde: {e(authority)}" if authority else (
+        "Die zuständige Datenschutzaufsichtsbehörde richtet sich nach der Niederlassung des Verantwortlichen "
+        "und den gesetzlichen Zuständigkeitsregeln. Bitte wenden Sie sich an die für den Verantwortlichen zuständige Behörde."
     )
     transfer_html = e(transfer) if transfer else (
         "Bei Discord und bei aktivierten KI-Diensten kann eine Verarbeitung außerhalb des Europäischen Wirtschaftsraums "
@@ -246,10 +246,11 @@ def cookies_html(optional_services=()) -> str:
         )
     else:
         choice = (
-            "<h2>Einwilligung</h2><p>Diese Website setzt keine Analyse-, Marketing- oder Einbettungsdienste ein. "
-            "Alle Einträge oben sind für die jeweilige Funktion unbedingt erforderlich (§ 25 Abs. 2 Nr. 2 TDDDG). "
-            "Deshalb gibt es keinen Einwilligungsdialog: Es gibt nichts, dem Sie zustimmen müssten. "
-            "Beim Besuch der öffentlichen Seiten wird nichts gespeichert.</p>"
+            "<h2>Optionale Dienste und Einwilligung</h2><p>Derzeit sind auf den öffentlichen Inhaltsseiten keine Analyse-, Marketing- oder optionalen Einbettungsdienste aktiviert. "
+            "Ein Einwilligungsdialog wird deshalb nicht für nicht vorhandene optionale Dienste eingeblendet. "
+            "Ob einzelne Cookies oder Browser-Speicher-Einträge unter die Ausnahme des § 25 Abs. 2 TDDDG fallen, "
+            "muss für die jeweilige Funktion gesondert anhand ihrer objektiven Erforderlichkeit geprüft werden. "
+            "Beim normalen Aufruf öffentlicher Inhaltsseiten wird kein dauerhaftes Browserprofil angelegt.</p>"
         )
     return f"""<div class="doc"><h1>Cookies und Browser-Speicher</h1>
 <p>Die Tabelle nennt alles, was Pulse in Ihrem Browser ablegt. Die öffentlichen Seiten selbst speichern nichts, die Einträge entstehen erst beim Login, im Bewerbungsportal oder im Dashboard.</p>
@@ -302,7 +303,7 @@ def security_html() -> str:
 <p>So schützt Pulse Konten und Daten.</p>
 <h2>Anmeldung</h2><p>Der Login läuft ausschließlich über Discord, Pulse speichert keine Passwörter. Sitzungen lassen sich widerrufen und enden, wenn jemand das Team verlässt.</p>
 <h2>Rechte</h2><p>Jede interne Seite prüft die Berechtigung auf dem Server. Standard ist: kein Zugriff.</p>
-<h2>Verbindung</h2><p>Im Produktivbetrieb ist die Verbindung per HTTPS verschlüsselt. Die öffentlichen Seiten laden keine Inhalte von fremden Servern.</p>
+<h2>Verbindung</h2><p>Im Produktivbetrieb ist die Verbindung per HTTPS verschlüsselt. Die öffentliche Teamvorstellung kann Profilbilder direkt von den ausdrücklich zugelassenen Discord-CDN-Domains laden; andere öffentliche Inhaltsseiten binden derzeit keine externen Medien ein.</p>
 <h2>KI</h2><p>KI-Einschätzungen lösen nie allein eine Sanktion aus. Ein Mensch prüft und bestätigt jede Maßnahme.</p>
 <h2>Sicherheitslücke melden</h2><p>Bitte melde Schwachstellen vertraulich über die Kontaktadresse im <a href="/impressum">Impressum</a> und nicht öffentlich im Discord.</p>
 </div>"""
