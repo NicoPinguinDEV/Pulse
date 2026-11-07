@@ -176,6 +176,7 @@ class Pages(Base):
 
     def test_team_consent_disclosure_matches_public_profile_output(self):
         disclosure = (Path(site.ROOT) / "cogs" / "teamliste.py").read_text(encoding="utf-8")
+        self.assertEqual(public_team_consent.CONSENT_VERSION, 2)
         self.assertIn("Profilbilder werden nicht eingebunden", disclosure)
         self.assertIn("lädt keine Bildressourcen von Discord-CDN-Domains", disclosure)
         self.assertNotIn("dein Discord-Profilbild anzeigt", disclosure)
