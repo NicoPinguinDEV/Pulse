@@ -724,16 +724,11 @@ def _read_team_avatar(upload: UploadFile | None) -> str:
 
 
 def public_team_teaser() -> str:
-    profiles = _safe_public_profiles(3)
-    if not profiles:
-        return (
-            '<section class="band band-alt" id="team"><p class="section-kicker">03 / DEINE ANSPRECHPARTNER</p><h2>Das Team hinter Bochum RP</h2>'
-            '<p>Unser Team sorgt für einen geordneten Ablauf und hilft bei Fragen weiter.</p>'
-            '<p><a class="more" href="/team-vorstellung">Teamvorstellung ansehen</a></p></section>'
-        )
     return (
-        '<section class="band band-alt" id="team"><p class="section-kicker">03 / DEINE ANSPRECHPARTNER</p><h2>Das Team hinter Bochum RP</h2>'
-        f'{_team_cards(profiles)}<p><a class="more" href="/team-vorstellung">Alle Teamprofile ansehen</a></p></section>'
+        '<section class="band band-alt" id="team"><p class="section-kicker">03 / DEINE ANSPRECHPARTNER</p>'
+        '<h2>Das Team hinter Bochum RP</h2>'
+        '<p>Die öffentliche Teamvorstellung wird automatisch aus den aktuellen Teamrollen gepflegt.</p>'
+        '<p><a class="more" href="/team-vorstellung">Teamvorstellung ansehen</a></p></section>'
     )
 
 
