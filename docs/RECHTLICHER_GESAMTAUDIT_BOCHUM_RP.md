@@ -109,7 +109,7 @@
 
 - Cookies, Local Storage und Session Storage jeweils nach § 25 TDDDG und tatsächlicher Erforderlichkeit prüfen.
 - Öffentliche Informationsseiten laden nach aktuellem Teststand nur First-Party-Bilder, Skripte und Stylesheets.
-- Interne Dashboard-/Teamansichten können Discord-CDN-Profilbilder laden; dies wird in der Datenschutzerklärung offengelegt. Das Bewerbungsportal lädt keine Avatarbilder mehr und speichert kein Avatarfeld in seiner signierten Sitzung.
+- Interne Dashboard-/Teamansichten können Discord-CDN-Profilbilder laden; die Roblox-Spielervorschau kann Roblox-Thumbnailbilder direkt im Browser laden. Beide Datenflüsse sind in der Datenschutzerklärung offenzulegen. Das Bewerbungsportal lädt keine Avatarbilder mehr und speichert kein Avatarfeld in seiner signierten Sitzung.
 - Optionalen Analytics-/Marketing-/Embed-Dienst nur nach wirksamer Einwilligung starten, falls erforderlich.
 - Cookie-Tabelle mit realen Laufzeiten und Löschverhalten synchron zu den Code-Konstanten halten.
 
