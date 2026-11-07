@@ -85,9 +85,40 @@ class PermissionModelTests(unittest.TestCase):
             with self.subTest(role_name=role_name):
                 self.assertFalse(pulse_pro.is_recommended_team_lead_role_name(role_name))
 
+    def test_team_warning_authority_is_derived_from_supervisor_role_and_higher(self):
+        roles = {
+            400: SimpleNamespace(id=400, name="Team", position=5),
+            401: SimpleNamespace(id=401, name="Stv.Supervisor", position=10),
+            402: SimpleNamespace(id=402, name="》BORP メ Supervisor", position=15),
+            403: SimpleNamespace(id=403, name="L.Supervisor", position=20),
+            404: SimpleNamespace(id=404, name="Leitung", position=30),
+        }
+
+        def permission_for(role_id=None, admin=False):
+            current = SimpleNamespace(
+                id=77,
+                roles=[roles[role_id]] if role_id else [],
+                guild_permissions=SimpleNamespace(administrator=admin),
+            )
+            guild = SimpleNamespace(
+                owner_id=1,
+                get_member=lambda uid: current if uid == current.id else None,
+                get_role=lambda rid: roles.get(rid),
+            )
+            config = {"team_role_ids": list(roles)}
+            return ws.compute_perms(guild, current.id, config)[0]["can_manage_team_warnings"]
+
+        self.assertFalse(permission_for(401))  # deputy Supervisor is below the minimum
+        self.assertTrue(permission_for(402))
+        self.assertTrue(permission_for(403))
+        self.assertTrue(permission_for(404))
+        self.assertFalse(permission_for(admin=True))  # Discord administrator alone is not a team rank
+
     def test_webserver_uses_the_model_without_runtime_patch(self):
         m = member(OTHER)
-        self.assertEqual(ws.compute_perms(guild_with(m), m.id, CONFIG)[0], self.compute(m))
+        computed = ws.compute_perms(guild_with(m), m.id, CONFIG)[0]
+        self.assertEqual({key: computed[key] for key in self.compute(m)}, self.compute(m))
+        self.assertFalse(computed["can_manage_team_warnings"])  # no configured Supervisor role in this fixture
         import pulse_pro
         self.assertNotIn("patched_compute", Path(pulse_pro.__file__).read_text(encoding="utf-8"))
 
