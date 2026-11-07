@@ -869,9 +869,8 @@ def register(app) -> None:
             for row in rows
         ) or "<p class='muted'>Noch keine News veröffentlicht.</p>"
         body = f"""<div class="pulse-card"><h2>Freigabestatus</h2>{status}</div>
-        <div class="pulse-card"><h2>Öffentliche Teamprofile</h2>
-        <p class="muted">Profile sind nach dem Anlegen unveröffentlicht. Erst ein separater Klick auf „Veröffentlichen“ macht sie öffentlich.</p>
-        <a class="btn" href="/admin/website/team">Teamprofile verwalten</a></div>
+        <div class="pulse-card"><h2>Öffentliche Teamvorstellung</h2>
+        <p class="muted">Die Teamseite wird automatisch aus den aktuellen Rollen der TeamBot-Kategorien Führungsebene, HighTeam und LowTeam erzeugt. Rollenänderungen werden direkt bei der nächsten Seitenanfrage übernommen; manuelle Profileinträge sind dafür nicht erforderlich.</p></div>
         <div class="pulse-card"><h2>News veröffentlichen</h2>
         <p class="muted">News werden nach dem Speichern sofort öffentlich angezeigt.</p>
         <form method="post" action="/admin/website/news" class="grid gap-3">
