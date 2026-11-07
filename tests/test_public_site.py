@@ -58,9 +58,9 @@ class Pages(Base):
     def test_no_external_resource_and_no_inline_code(self):
         for path in PAGES:
             html = self.client.get(path).text
-            external_assets = re.findall(r'<(?:script|link|img)[^>]+(?:src|href)="https?://', html)
+            external_assets = re.findall(r'<(?:script|link|img)[^>]+(?:src|href)="(https?://[^"]+)', html)
             if path == "/team-vorstellung":
-                self.assertTrue(all("cdn.discordapp.com/" in asset or "media.discordapp.net/" in asset
+                self.assertTrue(all(asset.startswith(("https://cdn.discordapp.com/", "https://media.discordapp.net/"))
                                     for asset in external_assets))
             else:
                 self.assertEqual(external_assets, [], path)
