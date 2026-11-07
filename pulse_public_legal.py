@@ -291,7 +291,7 @@ STORAGE = (
     ("apply_session", "Cookie", "Hält Bewerbende im Portal angemeldet; wird bei aktiver Nutzung verlängert", "3 Stunden, bei Aktivität verlängert; maximal 12 Stunden ab Anmeldung"),
     ("apply_oauth_state und Rücksprung-Cookie", "Cookie", "Schützen den Bewerbungs-Login", "10 Minuten"),
     ("recovery_oauth_state", "Cookie", "Schützt die freiwillige Wiederherstellungs-Zustimmung", "10 Minuten"),
-    ("Bewerbungsentwurf", "Local Storage", "Bewahrt einen nicht abgesendeten Entwurf lokal im Browser auf; manuell löschbar", "Nach 30 Tagen ohne Änderung automatisch gelöscht; nach Absenden entfernt"),
+    ("Bewerbungsentwurf", "Local Storage", "Bewahrt einen nicht abgesendeten Entwurf lokal im Browser auf; manuell löschbar", "Nach 30 Tagen ohne Änderung abgelaufen; Entfernung beim nächsten Formularaufruf; nach Absenden entfernt"),
     ("Formularentwürfe, Scrollposition", "Session Storage", "Stellt das Dashboard nach dem Speichern wieder her", "Bis zum Schließen des Tabs"),
     ("theme, pulse.sidebar.collapsed", "Local Storage", "Merkt sich Darstellung und Seitenleiste im Dashboard", "Bis zum Löschen"),
 )
