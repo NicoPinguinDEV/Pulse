@@ -8478,7 +8478,7 @@ async def apply_callback(request: Request, code: str=None, state: str=None, erro
 async def apply_keepalive(request: Request, apply_session: str = Cookie(None)):
     """K-01: renews the 3-hour application session while the applicant is typing (sliding expiry)."""
     if not pulse_public_site.public_access_enabled():
-        raise HTTPException(status_code=404)
+        return JSONResponse({"ok": False, "disabled": True}, status_code=403)
     applicant = verify_session_token(apply_session, TOKEN_APPLY)
     if not applicant:
         return JSONResponse({"ok": False, "expired": True}, status_code=401)
