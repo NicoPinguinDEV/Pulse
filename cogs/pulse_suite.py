@@ -245,7 +245,7 @@ def can_edit_task(ctx,t):
 def allowed(i,key,web):
     if not i.guild or not isinstance(i.user,discord.Member):return False
     p,_=web.compute_perms(i.guild,i.user.id,web.load_config())
-    if p.get("is_admin"):return True
+    if p.get("is_admin") and key not in {"warn", "warns", "warn-remove"}:return True
     # During a warning-abuse lockout, prevent rank changes, kicks and warn withdrawal
     # from being used as an alternate route around the temporary safety restriction.
     if key in {"warn-remove","server-exit","team-exit","kick","team-kick","promote","demote"}:
@@ -267,7 +267,9 @@ def allowed(i,key,web):
             except RuntimeError:
                 pass
             return False
-    need={"warn":"can_manage_team_warnings","warn-remove":"can_manage_team_warnings","server-exit":"can_promote","team-exit":"can_promote","kick":"can_promote","team-kick":"can_promote","promote":"can_promote","demote":"can_promote","team-ping":"can_view_dashboard","pulse-ticket":"can_manage_tickets","melden":"can_view_dashboard","pulse-panel":"can_view_dashboard","pulse-lock":"is_admin","pulse-unlock":"is_admin","pulse-permission":"is_admin","activity-check":"can_view_dashboard","pulse-suite":"can_view_dashboard"}.get(key,"can_view_dashboard")
+    if key in {"warn", "warns", "warn-remove"}:
+        return bool(p.get("can_manage_team_warnings"))
+    need={"warn":"can_manage_team_warnings","warns":"can_manage_team_warnings","warn-remove":"can_manage_team_warnings","server-exit":"can_promote","team-exit":"can_promote","kick":"can_promote","team-kick":"can_promote","promote":"can_promote","demote":"can_promote","team-ping":"can_view_dashboard","pulse-ticket":"can_manage_tickets","melden":"can_view_dashboard","pulse-panel":"can_view_dashboard","pulse-lock":"is_admin","pulse-unlock":"is_admin","pulse-permission":"is_admin","activity-check":"can_view_dashboard","pulse-suite":"can_view_dashboard"}.get(key,"can_view_dashboard")
     rm=setting("command_roles",{}) or {};ids={int(x) for x in rm.get(key,[]) if str(x).isdigit()}
     return bool(p.get(need)) or any(r.id in ids for r in i.user.roles)
 
