@@ -78,7 +78,7 @@ Die Datenschutzerklärung unterscheidet nun stärker zwischen dem, was der Code 
 
 **Technische Schutzmaßnahme in diesem PR:** Die öffentliche Teamseite zeigt nur noch Personen mit einer ausdrücklich erteilten, versionsgebundenen Freigabe. Die Person muss in Discord den Befehl `/teamseite_freigabe` aufrufen, die ausführliche Information lesen und eine separate Bestätigungsschaltfläche anklicken. Die Freigabe speichert Discord-ID, Textversion, Teamrollen-Scope und Zeitstempel in `pulse.db`. Ohne Nachweis wird kein Profil ausgegeben. Widerruf ist über `/teamseite_freigabe_widerrufen` möglich; Rollenänderungen und Serveraustritt beenden die aktuelle Freigabe. Die Freigabe hat keine Auswirkung auf Teammitgliedschaft oder Berechtigungen.
 
-**Weiterhin offen:** Der Betreiber muss sicherstellen, dass die Informationspflichten nach Art. 13 DSGVO vor der Freigabe erfüllt werden und – soweit Daten aus Discord übernommen werden – die Information nach Art. 14 DSGVO im konkreten Aufnahmeprozess erfolgt. Die tatsächliche Identität des Verantwortlichen, der Kontaktweg und eine zuständige Aufsichtsbehörde müssen korrekt sein. Bei Minderjährigen ist vor der Freigabe zu klären, ob zusätzliche Schutz- oder Zustimmungserfordernisse greifen. Die Löschfrist des minimalen Freigabenachweises (einschließlich Widerrufszeitpunkt) ist noch festzulegen und technisch umzusetzen.
+**Weiterhin offen:** Der Betreiber muss sicherstellen, dass die Informationspflichten nach Art. 13 DSGVO vor der Freigabe erfüllt werden und – soweit Daten aus Discord übernommen werden – die Information nach Art. 14 DSGVO im konkreten Aufnahmeprozess erfolgt. Die tatsächliche Identität des Verantwortlichen, der Kontaktweg und eine zuständige Aufsichtsbehörde müssen korrekt sein. Bei Minderjährigen ist vor der Freigabe zu klären, ob zusätzliche Schutz- oder Zustimmungserfordernisse greifen. Die Löschfrist des minimalen Freigabenachweises (einschließlich Widerrufszeitpunkt) ist noch festzulegen und technisch umzusetzen. Minderjährige müssen vor der Freigabe gesondert beurteilt werden; die technische Schaltfläche ersetzt keine gegebenenfalls erforderliche Zustimmung von Erziehungsberechtigten.
 
 ### Bewerbungen, Teamdaten und Löschung
 
@@ -108,6 +108,7 @@ Die Cookie-Seite listet Login-Cookies, OAuth-State, Bewerbungsentwürfe sowie Da
 - [ ] Bei Daten aus Discord/anderen Quellen die Informationspflicht nach Art. 14 DSGVO prüfen und rechtzeitig erfüllen.
 - [ ] Vor Freigabe der öffentlichen Teamliste die individuelle Einwilligungs-UI und deren Textversion fachlich prüfen; Art. 13/14-Information, Minderjährigenschutz und Kontaktwege sicherstellen.
 - [ ] Aufbewahrungsfrist für den minimalen Einwilligungs-/Widerrufsnachweis festlegen und automatisiert durchsetzen.
+- [ ] Bei Minderjährigen vor Veröffentlichung klären, ob eine Zustimmung der Erziehungsberechtigten oder weitere Schutzmaßnahmen erforderlich sind; ohne Klärung nicht veröffentlichen.
 - [ ] Hosting-Vertrag, Rechenzentrumsort, Unterauftragnehmer und Art.-28-Vertrag prüfen.
 - [ ] Für Discord, Roblox, Gemini/OpenAI Empfängerrollen und mögliche internationale Übermittlungen mit konkretem Zielstaat und konkretem Transfermechanismus prüfen.
 - [ ] Tatsächliche KI-Konfiguration, Provider-Auswahl, Modell, Datenfelder, Konto-/Tarifbedingungen, Aufbewahrung und Trainingsverwendung prüfen.
