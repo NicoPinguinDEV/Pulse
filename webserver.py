@@ -1235,7 +1235,7 @@ APPLY_RETURN_COOKIE = "apply_return_career"
 
 def set_apply_session_cookie(response, request: Request, applicant: dict) -> None:
     now = int(time.time())
-    session = {key: applicant.get(key) for key in ("id", "username", "global_name", "avatar")}
+    session = {key: applicant.get(key) for key in ("id", "username", "global_name")}
     session["login_at"] = int(applicant.get("login_at") or now)
     session["apply_exp"] = min(now + APPLY_SESSION_SECONDS, session["login_at"] + APPLY_SESSION_MAX_SECONDS)
     response.set_cookie("apply_session", sign_payload(session, typ=TOKEN_APPLY), httponly=True, samesite="lax",
@@ -3918,7 +3918,6 @@ async def callback(request: Request, code: str = None, state: str = None, error:
             "id": str(user_data.get("id")),
             "username": user_data.get("username"),
             "global_name": user_data.get("global_name") or user_data.get("username"),
-            "avatar": user_data.get("avatar"),
         }
         response = RedirectResponse(url="/apply", status_code=303)
         response.headers["location"] = apply_return_path(request)
@@ -8091,15 +8090,29 @@ def apply_draft_key(applicant_id, career_path: str) -> str:
 
 # K-01: browser-side draft (localStorage, per Discord ID + career) and session keep-alive.
 APPLY_DRAFT_SCRIPT = """
-<div id="applyDraftNote" hidden class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-[11px]"></div>
+<div id="applyDraftNote" hidden class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-[11px]">
+  <span id="applyDraftMessage"></span>
+  <button id="applyDraftDelete" type="button" hidden class="ml-2 underline font-semibold">Gespeicherten Entwurf löschen</button>
+</div>
 <div id="applySessionNote" hidden class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11px]"></div>
 <script>
 (function(){
   const form=document.querySelector('[data-apply-wizard]'); if(!form)return;
-  const KEY=__KEY__, LOGIN=__LOGIN__;
-  const note=document.getElementById('applyDraftNote'), sess=document.getElementById('applySessionNote');
+  const KEY=__KEY__, LOGIN=__LOGIN__, TTL_MS=__TTL_MS__;
+  const note=document.getElementById('applyDraftNote');
+  const message=document.getElementById('applyDraftMessage');
+  const removeButton=document.getElementById('applyDraftDelete');
+  const sess=document.getElementById('applySessionNote');
   const skip=new Set(['action','applicant_id','applicant_name','career_path']);
   const fields=()=>Array.from(form.querySelectorAll('input,textarea,select')).filter(el=>el.name&&!skip.has(el.name));
+  function showDraft(text, removable){
+    note.hidden=false;
+    message.textContent=text;
+    removeButton.hidden=!removable;
+  }
+  function removeStoredDraft(){
+    try{localStorage.removeItem(KEY);}catch(_){}
+  }
   function store(){
     try{
       const data={};
@@ -8108,33 +8121,52 @@ APPLY_DRAFT_SCRIPT = """
         else data[el.name]=el.value;
       });
       localStorage.setItem(KEY,JSON.stringify({at:Date.now(),data:data}));
+      showDraft('Dein Entwurf wird nur in diesem Browser gespeichert und läuft nach 30 Tagen ohne Änderung ab.',true);
     }catch(_){}
   }
   function restore(){
+    let payload;
     try{
-      const raw=localStorage.getItem(KEY); if(!raw)return false;
-      const saved=(JSON.parse(raw)||{}).data||{}; let n=0;
-      fields().forEach(el=>{
-        if(!(el.name in saved))return;
-        const v=saved[el.name];
-        if(el.type==='radio'||el.type==='checkbox')el.checked=Array.isArray(v)&&v.indexOf(el.value)>=0;
-        else el.value=v;
-        n++;
-      });
-      return n>0;
-    }catch(_){return false;}
+      const raw=localStorage.getItem(KEY);
+      if(!raw)return false;
+      payload=JSON.parse(raw);
+    }catch(_){
+      removeStoredDraft();
+      return false;
+    }
+    const savedAt=Number(payload && payload.at);
+    if(!Number.isFinite(savedAt)||savedAt<=0||savedAt>Date.now()+5*60*1000||Date.now()-savedAt>TTL_MS){
+      removeStoredDraft();
+      return false;
+    }
+    const saved=payload.data&&typeof payload.data==='object'?payload.data:{};
+    let n=0;
+    fields().forEach(el=>{
+      if(!(el.name in saved))return;
+      const v=saved[el.name];
+      if(el.type==='radio'||el.type==='checkbox')el.checked=Array.isArray(v)&&v.indexOf(el.value)>=0;
+      else el.value=String(v??'');
+      n++;
+    });
+    return n>0;
   }
   let timer=null, active=false;
   form.addEventListener('input',()=>{active=true;clearTimeout(timer);timer=setTimeout(store,400);});
   form.addEventListener('change',()=>{active=true;store();});
   form.addEventListener('submit',store);
+  removeButton.addEventListener('click',()=>{
+    clearTimeout(timer);
+    active=false;
+    removeStoredDraft();
+    showDraft('Der lokal gespeicherte Entwurf wurde gelöscht. Bereits abgesendete Bewerbungsdaten sind davon nicht betroffen.',false);
+  });
   if(restore()){
-    note.hidden=false;
-    note.textContent='💾 Dein gespeicherter Entwurf wurde wiederhergestellt.';
+    showDraft('Dein gespeicherter Entwurf wurde wiederhergestellt. Er wird nach 30 Tagen ohne Änderung automatisch entfernt.',true);
     form.dispatchEvent(new Event('change'));
   }
   async function keepAlive(){
-    if(!active)return; active=false;
+    if(!active)return;
+    active=false;
     try{
       const r=await fetch('/apply/keepalive',{method:'POST',credentials:'same-origin'});
       if(r.status===401){
@@ -8195,8 +8227,7 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
 
     applicant_name = applicant.get("global_name") or applicant.get("username") or "Discord-Mitglied"
     applicant_id = esc(applicant.get("id"))
-    avatar_hash = esc(applicant.get("avatar") or "0")
-    avatar_url = f"https://cdn.discordapp.com/avatars/{applicant_id}/{avatar_hash}.png"
+    applicant_initial = esc((applicant_name.strip()[:1] or "?").upper())
 
     if not career_path:
         career_cards = ""
@@ -8220,7 +8251,7 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
         <main class="w-full max-w-2xl space-y-5">
             <div class="{CARD} p-6 sm:p-8 space-y-5">
                 <div class="flex items-center gap-3">
-                    <img src="{avatar_url}" class="w-11 h-11 rounded-full" alt="">
+                    <span class="w-11 h-11 rounded-full bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-bold" aria-hidden="true">{applicant_initial}</span>
                     <div><div class="font-bold">{esc(applicant_name)}</div><div class="text-[10px] text-slate-400">Discord verifiziert · ID {applicant_id}</div></div>
                 </div>
                 <div><div class="text-xs uppercase tracking-widest font-bold text-indigo-500">Pulse Recruiting</div>
@@ -8238,16 +8269,18 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
     practical_markup = render_practical_tasks(career_path)
     import pulse_retention
     privacy_notice = pulse_retention.privacy_notice_html(esc)  # D-08
+    draft_ttl_ms = pulse_retention.APPLICATION_DRAFT_TTL_DAYS * 24 * 60 * 60 * 1000
     draft_script = (APPLY_DRAFT_SCRIPT
                     .replace("__KEY__", json.dumps(apply_draft_key(applicant.get("id"), career_path)))
-                    .replace("__LOGIN__", json.dumps(f"/apply/login?career={quote(career_path)}")))
+                    .replace("__LOGIN__", json.dumps(f"/apply/login?career={quote(career_path)}"))
+                    .replace("__TTL_MS__", str(draft_ttl_ms)))
     page = f"""
     <!DOCTYPE html><html lang="de"><head>{get_head_html("Online-Eignungstest · " + career["label"])}</head>
     <body class="bg-slate-50 dark:bg-[#0b0e14] text-slate-900 dark:text-white min-h-screen p-4 sm:p-6 font-sans">
         <main class="mx-auto w-full max-w-3xl space-y-5">
             <div class="{CARD} p-6 sm:p-8 space-y-5">
                 <div class="flex items-center gap-3">
-                    <img src="{avatar_url}" class="w-11 h-11 rounded-full" alt="">
+                    <span class="w-11 h-11 rounded-full bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-bold" aria-hidden="true">{applicant_initial}</span>
                     <div><div class="font-bold">{esc(applicant_name)}</div><div class="text-[10px] text-slate-400">Discord verifiziert</div></div>
                     <a href="/apply" class="ml-auto text-xs text-indigo-500 hover:underline">Laufbahn ändern</a>
                 </div>
@@ -8420,7 +8453,7 @@ async def apply_callback(request: Request, code: str=None, state: str=None, erro
     redirect_apply=oauth_redirect_uri(request, application=True)
     ud, problem = await discord_oauth_identify(code, redirect_apply)  # P-12
     if ud is None: return HTMLResponse(simple_page('❌','Bewerbungs-Login fehlgeschlagen',problem,retry),status_code=502)
-    session={'id':str(ud.get('id')),'username':ud.get('username'),'global_name':ud.get('global_name') or ud.get('username'),'avatar':ud.get('avatar')}
+    session={'id':str(ud.get('id')),'username':ud.get('username'),'global_name':ud.get('global_name') or ud.get('username')}
     response=RedirectResponse(apply_return_path(request),status_code=303); set_apply_session_cookie(response, request, session); response.delete_cookie('apply_oauth_state'); response.delete_cookie(APPLY_RETURN_COOKIE); return response
 
 
