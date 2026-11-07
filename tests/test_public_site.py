@@ -226,6 +226,41 @@ class Pages(Base):
             html = self.client.get("/team-vorstellung").text
         self.assertNotIn("Scope-Test", html)
 
+    def test_role_update_revokes_consent_and_still_schedules_teamlist_refresh(self):
+        import cogs.teamliste as teamliste
+        import asyncio
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        cog = teamliste.TeamlisteCog.__new__(teamliste.TeamlisteCog)
+        cog._update_debounce_task = None
+        cog._debounced_update_teamlist = lambda _guild: asyncio.sleep(0)
+        public_team_consent.grant(606, [6060])
+        before = SimpleNamespace(
+            id=606,
+            roles=[SimpleNamespace(id=6060)],
+            display_name="Before",
+            guild=SimpleNamespace(),
+        )
+        after = SimpleNamespace(
+            id=606,
+            roles=[SimpleNamespace(id=6060), SimpleNamespace(id=6061)],
+            display_name="After",
+            guild=before.guild,
+        )
+        cog.public_team_role_ids = lambda member: sorted(role.id for role in member.roles)
+        dummy_task = SimpleNamespace(done=lambda: True)
+
+        def consume_coroutine(coro, **_kwargs):
+            coro.close()
+            return dummy_task
+
+        with patch.object(teamliste, "spawn_task", side_effect=consume_coroutine) as spawn:
+            asyncio.run(cog.on_member_update(before, after))
+
+        self.assertNotIn("606", public_team_consent.active_consents())
+        spawn.assert_called_once()
+
     def test_public_team_consent_records_version_and_withdrawal(self):
         accepted = public_team_consent.grant(505, [5050, 5051, 5050])
         self.assertEqual(accepted["role_ids"], [5050, 5051])
