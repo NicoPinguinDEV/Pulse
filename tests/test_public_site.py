@@ -20,6 +20,8 @@ LEGAL_ENV = {
     "PULSE_LEGAL_NAME": "Test Person", "PULSE_LEGAL_ADDRESS": "Teststraße 1|12345 Teststadt",
     "PULSE_LEGAL_EMAIL": "kontakt@example.invalid", "PULSE_LEGAL_HOSTER": "Test Hosting GmbH",
     "PULSE_LEGAL_REVIEWED": "1", "PULSE_TERMS_APPROVED": "1", "PULSE_TERMS_EFFECTIVE_DATE": "2026-11-06",
+    "PULSE_LEGAL_DDG_ASSESSMENT": "not_applicable",
+    "PULSE_LEGAL_MSTV_18_2_ASSESSMENT": "not_applicable",
 }
 PAGES = ("/", "/regelwerk", "/faq", "/fraktionen", "/news", "/team-vorstellung", "/nutzungsbedingungen",
          "/impressum", "/datenschutz", "/cookies", "/sicherheit")
@@ -481,8 +483,45 @@ class Legal(Base):
         html = self.client.get("/impressum").text
         self.assertIn("§ 18 Abs. 1 MStV", html)
         self.assertIn("§ 5 DDG", html)
-        self.assertIn("geschäftsmäßige, in der Regel gegen Entgelt", html)
+        self.assertIn("geschäftsmäßig und in der Regel gegen Entgelt", html)
+        self.assertIn("bürgerlichen Vor- und Nachname", html)
         self.assertIn("§ 18 Abs. 2 MStV", html)
+
+    def test_publication_is_blocked_until_ddg_and_mstv_18_2_scope_is_assessed(self):
+        env = dict(LEGAL_ENV)
+        env.pop("PULSE_LEGAL_DDG_ASSESSMENT", None)
+        env.pop("PULSE_LEGAL_MSTV_18_2_ASSESSMENT", None)
+        with patch.dict(os.environ, env, clear=True):
+            blockers = legal.publication_blockers()
+        self.assertIn("PULSE_LEGAL_DDG_ASSESSMENT", blockers)
+        self.assertIn("PULSE_LEGAL_MSTV_18_2_ASSESSMENT", blockers)
+
+    def test_ddg_assessment_requires_second_contact_channel_when_applicable(self):
+        with patch.dict(os.environ, {
+            **LEGAL_ENV,
+            "PULSE_LEGAL_DDG_ASSESSMENT": "applicable",
+            "PULSE_LEGAL_PHONE": "",
+            "PULSE_LEGAL_CONTACT_METHOD_URL": "",
+        }):
+            blockers = legal.publication_blockers()
+        self.assertIn("PULSE_LEGAL_CONTACT_METHOD_URL", blockers)
+        with patch.dict(os.environ, {
+            **LEGAL_ENV,
+            "PULSE_LEGAL_DDG_ASSESSMENT": "applicable",
+            "PULSE_LEGAL_PHONE": "+49 123 456789",
+        }):
+            self.assertNotIn("PULSE_LEGAL_CONTACT_METHOD_URL", legal.publication_blockers())
+
+    def test_mstv_18_2_requires_responsible_name_and_address_when_applicable(self):
+        with patch.dict(os.environ, {
+            **LEGAL_ENV,
+            "PULSE_LEGAL_MSTV_18_2_ASSESSMENT": "applicable",
+            "PULSE_LEGAL_CONTENT_RESPONSIBLE_NAME": "",
+            "PULSE_LEGAL_CONTENT_RESPONSIBLE_ADDRESS": "",
+        }):
+            blockers = legal.publication_blockers()
+        self.assertIn("PULSE_LEGAL_CONTENT_RESPONSIBLE_NAME", blockers)
+        self.assertIn("PULSE_LEGAL_CONTENT_RESPONSIBLE_ADDRESS", blockers)
 
     def test_optional_imprint_details_are_rendered_only_when_supplied_and_escaped(self):
         env = {
