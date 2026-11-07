@@ -8150,9 +8150,9 @@ APPLY_DRAFT_SCRIPT = """
     });
     return n>0;
   }
-  let timer=null, active=false;
+  let timer=null, active=false, restoring=false;
   form.addEventListener('input',()=>{active=true;clearTimeout(timer);timer=setTimeout(store,400);});
-  form.addEventListener('change',()=>{active=true;store();});
+  form.addEventListener('change',()=>{if(restoring)return;active=true;store();});
   form.addEventListener('submit',store);
   removeButton.addEventListener('click',()=>{
     clearTimeout(timer);
@@ -8162,7 +8162,9 @@ APPLY_DRAFT_SCRIPT = """
   });
   if(restore()){
     showDraft('Dein gespeicherter Entwurf wurde wiederhergestellt. Er wird nach 30 Tagen ohne Änderung automatisch entfernt.',true);
+    restoring=true;
     form.dispatchEvent(new Event('change'));
+    restoring=false;
   }
   async function keepAlive(){
     if(!active)return;
