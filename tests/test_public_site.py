@@ -125,6 +125,39 @@ class Pages(Base):
         self.assertIn("Wir starten bald.", detail.text)
         self.assertEqual(self.client.get("/news/999999").status_code, 404)
 
+    def test_public_team_profiles_are_grouped_by_rank_level(self):
+        import pulse_public_content as content
+        profiles = (
+            ("Nico", "Founder"),
+            ("Mara", "Teamleitung"),
+            ("Lena", "Admin"),
+            ("Finn", "Moderator"),
+            ("Tom", "Support-Leitung"),
+        )
+        for name, rank in profiles:
+            profile_id = content.create_profile(name, rank)
+            self.assertTrue(content.set_published(profile_id, True))
+
+        html = self.client.get("/team-vorstellung").text
+        for name in ("Nico", "Mara", "Lena", "Finn", "Tom"):
+            self.assertIn(name, html)
+        self.assertIn("Inhaber- &amp; Führungsebene", html)
+        self.assertIn("Management- &amp; Teamleitungsebene", html)
+        self.assertIn("Administrationsebene", html)
+        self.assertIn("Moderationsebene", html)
+        self.assertIn("Supportebene", html)
+        self.assertLess(html.index("Inhaber- &amp; Führungsebene"), html.index("Management- &amp; Teamleitungsebene"))
+        self.assertLess(html.index("Management- &amp; Teamleitungsebene"), html.index("Administrationsebene"))
+
+    def test_public_site_pointer_effect_is_progressive_and_respects_reduced_motion(self):
+        public_css = (Path(site.ROOT) / "static" / "public.css").read_text(encoding="utf-8")
+        public_js = (Path(site.ROOT) / "static" / "public.js").read_text(encoding="utf-8")
+        self.assertIn("(pointer: fine)", public_css)
+        self.assertIn("prefers-reduced-motion: no-preference", public_css)
+        self.assertIn("prefers-reduced-motion: reduce", public_css)
+        self.assertIn("function startPointerEffects()", public_js)
+        self.assertIn("startPointerEffects();", public_js)
+
     def test_public_team_profiles_are_hidden_until_explicitly_published(self):
         import pulse_public_content as content
         profile_id = content.create_profile("Mara", "Support-Leitung", "Hilft bei Fragen.")
