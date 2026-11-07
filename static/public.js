@@ -94,12 +94,21 @@
     window.addEventListener("pointermove", function (event) {
       targetX = event.clientX;
       targetY = event.clientY;
+      body.style.setProperty("--cursor-x", targetX + "px");
+      body.style.setProperty("--cursor-y", targetY + "px");
       body.classList.add("cursor-active");
       var target = event.target instanceof Element ? event.target : null;
       body.classList.toggle(
         "cursor-hover",
         !!(target && target.closest("a, button, summary, input, select, textarea, [role='button']"))
       );
+
+      var card = target && target.closest(".trio > div, .facts li, .group, .news, .faq details");
+      if (card) {
+        var cardBounds = card.getBoundingClientRect();
+        card.style.setProperty("--card-x", ((event.clientX - cardBounds.left) / cardBounds.width * 100) + "%");
+        card.style.setProperty("--card-y", ((event.clientY - cardBounds.top) / cardBounds.height * 100) + "%");
+      }
 
       var hero = target && target.closest(".hero");
       if (hero) {
@@ -112,6 +121,29 @@
 
     window.addEventListener("blur", function () {
       body.classList.remove("cursor-active", "cursor-hover");
+    });
+    window.addEventListener("pointerout", function (event) {
+      if (event.relatedTarget === null) body.classList.remove("cursor-active", "cursor-hover");
+    });
+  }
+
+  function startScrollReveals() {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!("IntersectionObserver" in window)) return;
+    var items = document.querySelectorAll(
+      ".band, .final, .team-level, .trio > div, .team-card, .facts li, .news, .faq details"
+    );
+    if (!items.length) return;
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add("is-revealed");
+        observer.unobserve(entry.target);
+      });
+    }, { threshold: 0.12, rootMargin: "0px 0px -36px 0px" });
+    items.forEach(function (item) {
+      item.classList.add("reveal-ready");
+      observer.observe(item);
     });
   }
 
@@ -214,5 +246,6 @@
 
   startSparks();
   startPointerEffects();
+  startScrollReveals();
   startConsent();
 })();

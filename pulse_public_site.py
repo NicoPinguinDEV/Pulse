@@ -365,42 +365,53 @@ def home_html(request: Request) -> str:
   <canvas class="sparks" aria-hidden="true"></canvas>
   {HEADFRAME}
   <div class="hero-text">
-    <h1>BOCHUM<br>RP</h1>
-    <p>Roleplay in Bochum: Regeln, die für alle gelten, genehmigte Fraktionen und ein Team, das du erreichst.</p>
+    <p class="hero-kicker"><span aria-hidden="true"></span> BOCHUM · DEUTSCHLAND · ROLEPLAY</p>
+    <h1>BOCHUM <span>RP</span></h1>
+    <p class="hero-lead">Deine Stadt. Deine Geschichte. Dein Roleplay.</p>
+    <p class="hero-copy">Entdecke eine Community mit klaren Regeln, genehmigten Fraktionen und einem Team, das dich begleitet.</p>
     <div class="cta">{_discord_button()}<a class="btn btn-line" href="/apply">Jetzt bewerben</a><a class="btn btn-line" href="/regelwerk">Regelwerk lesen</a></div>
+    <div class="hero-meta"><span>COMMUNITY</span><i aria-hidden="true"></i><span>ROLEPLAY</span><i aria-hidden="true"></i><span>BOCHUM RP</span></div>
   </div>
+  <a class="hero-scroll" href="#ueber"><span>SCROLLEN</span><b aria-hidden="true"></b></a>
 </section>
 <section class="band" id="ueber">
+  <p class="section-kicker">01 / DIE COMMUNITY</p>
   <h2>Über Bochum RP</h2>
   <div class="trio">{about}</div>
 </section>
 <section class="band band-alt" id="community">
+  <p class="section-kicker">02 / WAS UNS AUSMACHT</p>
   <div class="split">
     <div><h2>Unsere Community</h2><p>Bochum RP lebt im Discord. Dort findest du Ankündigungen, den Support und alle, die mitspielen.</p>{community}</div>
     <div><h2>Was uns ausmacht</h2><ul class="facts">{features}</ul></div>
   </div>
 </section>
 <section class="band" id="fraktionen">
+  <p class="section-kicker">03 / FRAKTIONEN & BEREICHE</p>
   <h2>Fraktionen und Bereiche</h2>
   {faction_block}
   <p><a class="more" href="/fraktionen">Alle Fraktionen ansehen</a></p>
 </section>
 {public_team_teaser()}
 <section class="band band-shaft" id="mitglied">
+  <p class="section-kicker">04 / DEIN EINSTIEG</p>
   <h2>So wirst du Mitglied</h2>
   <ol class="shaft">{steps}</ol>
 </section>
 <section class="band" id="news">
+  <p class="section-kicker">05 / AUS DER COMMUNITY</p>
   <h2>News</h2>
   {news_block}
   <p><a class="more" href="/news">Alle News lesen</a></p>
 </section>
 <section class="band band-alt" id="faq">
+  <p class="section-kicker">06 / GUT ZU WISSEN</p>
   <h2>Häufige Fragen</h2>
   <div class="faq">{faq}</div>
   <p><a class="more" href="/faq">Alle Fragen ansehen</a></p>
 </section>
 <section class="final">
+  <p class="section-kicker">DEIN NÄCHSTES KAPITEL BEGINNT HIER</p>
   <h2>Bochum wartet auf deine Geschichte.</h2>
   <div class="cta">{_discord_button()}<a class="btn btn-line" href="/apply">Jetzt bewerben</a></div>
 </section>"""
@@ -649,12 +660,12 @@ def public_team_teaser() -> str:
     profiles = _safe_public_profiles(3)
     if not profiles:
         return (
-            '<section class="band band-alt" id="team"><h2>Das Team hinter Bochum RP</h2>'
+            '<section class="band band-alt" id="team"><p class="section-kicker">03 / DEINE ANSPRECHPARTNER</p><h2>Das Team hinter Bochum RP</h2>'
             '<p>Unser Team sorgt für einen geordneten Ablauf und hilft bei Fragen weiter.</p>'
             '<p><a class="more" href="/team-vorstellung">Teamvorstellung ansehen</a></p></section>'
         )
     return (
-        '<section class="band band-alt" id="team"><h2>Das Team hinter Bochum RP</h2>'
+        '<section class="band band-alt" id="team"><p class="section-kicker">03 / DEINE ANSPRECHPARTNER</p><h2>Das Team hinter Bochum RP</h2>'
         f'{_team_cards(profiles)}<p><a class="more" href="/team-vorstellung">Alle Teamprofile ansehen</a></p></section>'
     )
 
