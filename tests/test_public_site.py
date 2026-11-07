@@ -462,6 +462,13 @@ class Legal(Base):
         self.assertIn("30 Tagen ohne Änderung", html)
         self.assertEqual(pulse_retention.APPLICATION_DRAFT_TTL_DAYS, 30)
 
+    def test_application_privacy_notice_explains_next_visit_cleanup_and_server_retention(self):
+        html = self.client.get("/datenschutz").text
+        self.assertIn("gilt er als abgelaufen und wird beim nächsten Öffnen des Formulars entfernt", html)
+        self.assertIn("nicht automatisch gelöscht", html)
+        self.assertIn("Roblox-Spielersuche", html)
+        self.assertIn("Thumbnail", html)
+
     def test_application_draft_has_expiry_and_explicit_delete_control(self):
         self.assertIn("__TTL_MS__", ws.APPLY_DRAFT_SCRIPT)
         self.assertIn("Date.now()-savedAt>TTL_MS", ws.APPLY_DRAFT_SCRIPT)
