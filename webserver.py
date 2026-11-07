@@ -632,7 +632,8 @@ def load_meetings() -> dict:
 #   head_extra(title) -> str        appended to get_head_html
 #   sidebar(guild_name, current_page, current_user, perms) -> str   replaces the built-in sidebar markup
 #   audit_listener(actor_name, actor_id, action, details)            called after the audit entry was saved
-SHELL_HOOK_SLOTS = ("head_extra", "sidebar", "audit_listener")
+#   body_extra() -> str             prepended inside the shared dashboard body, before route content
+SHELL_HOOK_SLOTS = ("head_extra", "sidebar", "audit_listener", "body_extra")
 _shell_hooks: dict = {}
 
 
@@ -1280,7 +1281,9 @@ def compute_perms(guild, user_id, config):
     """A-03: one permission model (pulse_permissions) – team roles only, inheritance in one place,
     extra Pulse permissions included. Contract unchanged: (perms dict incl. is_admin, member)."""
     import pulse_permissions
-    return pulse_permissions.compute(guild, user_id, config)
+    perms, member = pulse_permissions.compute(guild, user_id, config)
+    perms["can_manage_team_warnings"] = can_manage_team_warnings(guild, member, config.get("team_role_ids", []))
+    return perms, member
 
 
 def _set_request_actor(user: dict) -> None:
@@ -3057,7 +3060,8 @@ def ordered_team_role_ids(guild, team_role_ids) -> list[int]:
             seen.add(role_id)
 
     def sort_key(role_id: int):
-        role = guild.get_role(role_id) if guild else None
+        get_role = getattr(guild, "get_role", None) if guild is not None else None
+        role = get_role(role_id) if callable(get_role) else None
         # Missing configured roles sort last but remain available for diagnostics.
         return (role is None, role.position if role else 0, role_id)
 
@@ -3078,6 +3082,25 @@ def team_rank(member, team_role_ids, guild=None) -> int:
     member_role_ids = {getattr(role, "id", None) for role in getattr(member, "roles", ()) or ()}
     indexes = [index for index, role_id in enumerate(ordered_ids) if role_id in member_role_ids]
     return max(indexes) if indexes else -1
+
+
+def team_supervisor_rank(guild, team_role_ids) -> int:
+    """Lowest configured role that is Supervisor or Leitender Supervisor; deputy ranks are excluded."""
+    candidates = []
+    get_role = getattr(guild, "get_role", None) if guild is not None else None
+    for index, role_id in enumerate(ordered_team_role_ids(guild, team_role_ids)):
+        role = get_role(role_id) if callable(get_role) else None
+        words = re.findall(r"[a-z0-9]+", str(getattr(role, "name", "") or "").casefold())
+        if words and words[-1] == "supervisor" and "stv" not in words[:-1]:
+            candidates.append(index)
+    return min(candidates) if candidates else -1
+
+
+def can_manage_team_warnings(guild, member, team_role_ids) -> bool:
+    """Derived authority: Supervisor/L.Supervisor or above, based on configured Discord team ranks."""
+    minimum_rank = team_supervisor_rank(guild, team_role_ids)
+    member_rank = team_rank(member, team_role_ids, guild)
+    return minimum_rank >= 0 and member_rank >= minimum_rank
 
 # =============================================================
 # UI-BAUSTEINE
@@ -3257,6 +3280,9 @@ def get_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
 
 def render_page(title: str, ctx, page: str, body: str, extra_head: str = "") -> str:
     """Gemeinsamer Seitenrahmen (vorher in jeder Route kopiert) inkl. Toast-Meldung."""
+    body_hook = shell_hook("body_extra")
+    if body_hook is not None:
+        body = body_hook() + body
     toast = ""
     if ctx.msg:
         color = BADGE_OK if ctx.msg_ok else BADGE_BAD
@@ -10898,7 +10924,7 @@ def normalize_dashboard_action(action: str) -> str:
 # =============================================================
 ACTION_PERMS = {
     "promote": "can_promote", "demote": "can_promote", "team_kick": "can_promote", "hire": "can_promote",
-    "warn_with_proof": "can_warn", "remove_warn": "can_warn", "add_note": "can_add_notes",
+    "warn_with_proof": "can_manage_team_warnings", "remove_warn": "can_manage_team_warnings", "add_note": "can_add_notes",
     "submit_loa": "can_view_dashboard", "cancel_loa": "can_view_dashboard",
     "vote_app": "can_view_dashboard", "decide_app": "can_manage_applications",
     "meeting_rsvp": "can_view_dashboard", "add_meeting_topic": "can_view_dashboard",
@@ -10921,7 +10947,7 @@ def user_entry(team_db: dict, key: str) -> dict:
 def can_see_warnings(perms: dict, viewer_id, target_id) -> bool:
     """E-3 / D-08: team warnings (incl. count and reason) only for the person themself, can_warn and admins."""
     perms = perms or {}
-    return str(viewer_id) == str(target_id) or bool(perms.get("can_warn") or perms.get("is_admin"))
+    return str(viewer_id) == str(target_id) or bool(perms.get("can_warn") or perms.get("can_manage_team_warnings") or perms.get("is_admin"))
 
 
 def can_see_notes(perms: dict) -> bool:
@@ -11146,13 +11172,18 @@ async def issue_team_warning(guild, *, actor_member, actor_name: str, actor_id: 
         return refused("Bots können keine Team-Verwarnung erhalten.")
     if str(member.id) == str(actor_id):
         return refused("Du kannst dir selbst keine Team-Verwarnung geben.")
-    if team_role_ids and not any(r.id in team_role_ids for r in member.roles):
-        return refused("Team-Verwarnungen können nur an Teammitglieder vergeben werden.")
-    if not actor_is_admin and actor_member:
-        actor_rank = team_rank(actor_member, team_role_ids, guild)
-        target_rank = team_rank(member, team_role_ids, guild)
-        if target_rank >= 0 and (actor_rank < 0 or target_rank >= actor_rank):
-            return refused("Du darfst keine Team-Warnung an ein Mitglied mit gleichem oder höherem Teamrang vergeben.")
+    configured_team_ids = {int(value) for value in team_role_ids if str(value).isdigit()}
+    if not configured_team_ids or not any(getattr(role, "id", None) in configured_team_ids for role in getattr(member, "roles", ()) or ()):
+        return refused("Team-Verwarnungen können nur an Teammitglieder mit einer konfigurierten Teamrolle vergeben werden.")
+    # Admin status never overrides the Team-Hierarchy for this action.
+    if not can_manage_team_warnings(guild, actor_member, team_role_ids):
+        return refused("Team-Verwarnungen dürfen erst ab Rang Supervisor vergeben werden.")
+    actor_rank = team_rank(actor_member, team_role_ids, guild)
+    target_rank = team_rank(member, team_role_ids, guild)
+    if actor_rank < 0 or target_rank < 0:
+        return refused("Der Teamrang von dir oder dem Zielmitglied konnte nicht sicher ermittelt werden. Die Verwarnung wurde nicht vergeben.")
+    if target_rank >= actor_rank:
+        return refused("Du darfst keine Team-Warnung an ein Mitglied mit gleichem oder höherem Teamrang vergeben.")
 
     team_db = load_json(DATA_FILE, {})
     entry = user_entry(team_db, str(member.id))
@@ -11252,24 +11283,26 @@ async def revoke_team_warning(guild, *, member, warn_id: str, revoke_reason: str
     revoke_reason = (revoke_reason or "").strip()[:500]
     if member is None:
         return {"ok": False, "stored": False, "message": "Mitglied nicht gefunden."}
-    # SEC-09: the same limits as issuing a warning – nobody (but admins) withdraws their own warnings or
-    # those of a member with the same or a higher team rank.
-    if not actor_is_admin:
-        if str(member.id) == str(actor_id):
-            return {"ok": False, "stored": False, "message": "Eigene Verwarnungen kann nur die Leitung (Admin) zurückziehen."}
-        team_role_ids = config.get("team_role_ids", [])
-        target_rank = team_rank(member, team_role_ids, guild)
-        actor_rank = team_rank(actor_member, team_role_ids, guild) if actor_member is not None else -1
-        # Fail closed: an unrecognised target/actor rank must never bypass the hierarchy guard.
-        if actor_rank < 0:
-            return {"ok": False, "stored": False,
-                    "message": "Dein Teamrang konnte nicht ermittelt werden. Prüfe deine konfigurierte Teamrolle."}
-        if target_rank < 0:
-            return {"ok": False, "stored": False,
-                    "message": "Für dieses Mitglied wurde keine konfigurierte Teamrolle gefunden. Die Verwarnung wurde nicht verändert."}
-        if target_rank >= actor_rank:
-            return {"ok": False, "stored": False,
-                    "message": "Du darfst keine Verwarnung eines Mitglieds mit gleichem oder höherem Teamrang zurückziehen."}
+    # SEC-09: self-revocation is forbidden for everyone, including Discord administrators.
+    if str(member.id) == str(actor_id):
+        return {"ok": False, "stored": False, "message": "Eigene Team-Verwarnungen kannst du nicht zurückziehen."}
+    team_role_ids = config.get("team_role_ids", [])
+    # Admin status never overrides the Team-Hierarchy for this action.
+    if not can_manage_team_warnings(guild, actor_member, team_role_ids):
+        return {"ok": False, "stored": False,
+                "message": "Team-Verwarnungen dürfen erst ab Rang Supervisor verwaltet werden."}
+    target_rank = team_rank(member, team_role_ids, guild)
+    actor_rank = team_rank(actor_member, team_role_ids, guild) if actor_member is not None else -1
+    # Fail closed: an unrecognised target/actor rank must never bypass the hierarchy guard.
+    if actor_rank < 0:
+        return {"ok": False, "stored": False,
+                "message": "Dein Teamrang konnte nicht ermittelt werden. Prüfe deine konfigurierte Teamrolle."}
+    if target_rank < 0:
+        return {"ok": False, "stored": False,
+                "message": "Für dieses Mitglied wurde keine konfigurierte Teamrolle gefunden. Die Verwarnung wurde nicht verändert."}
+    if target_rank >= actor_rank:
+        return {"ok": False, "stored": False,
+                "message": "Du darfst keine Verwarnung eines Mitglieds mit gleichem oder höherem Teamrang zurückziehen."}
     if not revoke_reason:
         return {"ok": False, "stored": False, "message": "Bitte einen Grund für die Rücknahme der Verwarnung angeben."}
     team_db = load_json(DATA_FILE, {})
