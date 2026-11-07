@@ -21,6 +21,7 @@ import pulse_db
 from pulse_time import age_days
 
 SETTING_KEY = "data_retention"
+APPLICATION_DRAFT_TTL_DAYS = 30
 DEFAULTS = {"enabled": False, "applications_days": 183, "audit_days": 730, "contact": "", "last_run": "", "last_report": {}}
 OPEN_APPLICATION_STATES = {"pending", "in_review", "interview"}
 # Only an exact, explicitly completed rejection is currently retention-eligible.
@@ -507,8 +508,8 @@ def privacy_notice_html(esc) -> str:
     months = round(settings["applications_days"] / 30.4)
     if not RETENTION_MUTATIONS_ENABLED:
         keep = (
-            "Eine automatische Löschung abgeschlossener Bewerbungen ist derzeit nicht aktiviert. "
-            "Aufbewahrung und Löschanfragen werden bis zur abgeschlossenen Datenschutzprüfung durch die Leitung geprüft."
+            "Eine automatische serverseitige Löschung abgeschlossener Bewerbungen ist derzeit nicht aktiviert. "
+            "Die zentrale Bereinigung ist fail-closed/deaktiviert; Aufbewahrung und Löschanfragen werden durch die Leitung geprüft."
         )
     elif settings["enabled"]:
         keep = f"Nach der Entscheidung wird deine Bewerbung nach etwa {months} Monaten automatisch gelöscht."
@@ -521,10 +522,10 @@ def privacy_notice_html(esc) -> str:
         '<details class="rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-[11px] text-slate-500 dark:text-slate-400">'
         '<summary class="cursor-pointer font-semibold">🔒 Datenschutzhinweis</summary><p class="mt-2">'
         "Gespeichert werden deine Discord-ID, dein Discord-Name, deine Motivation, deine Test- und Praxisantworten, "
-        "das automatisch berechnete Testergebnis sowie Zeitpunkte und der Bearbeitungsverlauf. Im internen Verfahren "
+        f"das automatisch berechnete Testergebnis sowie Zeitpunkte und der Bearbeitungsverlauf. Nicht abgesendete Entwürfe werden nur lokal im Browser gespeichert und nach {APPLICATION_DRAFT_TTL_DAYS} Tagen ohne Änderung automatisch entfernt. Im internen Verfahren "
         "können zusätzlich Bewertungen, Gesprächsnotizen, Termin- und Entscheidungsdaten entstehen. Zweck ist ausschließlich "
         "die Auswahl und Einstellung neuer Teammitglieder. Vollständige Bewerbungsdaten sehen nur Personen mit der Berechtigung "
         "„Bewerbungen verwalten“, Leitungsrechte oder Administratorrechte. Teammitglieder mit reiner Dashboard-/Abstimmungsberechtigung "
         "sehen nur eine reduzierte Übersicht ohne Antworten, interne Bewertungen oder Nutzer-ID. "
-        f"{esc(keep)}{esc(ai)} Auskunft oder Löschung: {esc(contact)}.</p></details>"
+        f"{esc(keep)}{esc(ai)} Auskunft oder Löschung: {esc(contact)}. <a href=\"/datenschutz\" class=\"underline\">Vollständige Datenschutzerklärung</a>.</p></details>"
     )
