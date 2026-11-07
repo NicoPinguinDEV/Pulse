@@ -12,6 +12,7 @@ from pulse_tasks import spawn as spawn_task
 import pulse_paths
 import pulse_sqlite
 import pulse_public_consent
+import pulse_interactions
 
 BASE_DIR = pulse_paths.DATA_DIR  # Phase 13: runtime data (databases, shifts.json) – not the code folder
 DB_NAME = str(BASE_DIR / "teamliste.db")
@@ -158,7 +159,7 @@ def get_msg_id(key: str):
     return row[0] if row else None
 
 
-class PublicTeamConsentView(discord.ui.View):
+class PublicTeamConsentView(pulse_interactions.PulseView):
     """Single-user, one-time confirmation; viewing the message does not grant consent."""
 
     def __init__(self, cog: "TeamlisteCog", user_id: int, role_ids: list[int]):
@@ -174,7 +175,7 @@ class PublicTeamConsentView(discord.ui.View):
                 ephemeral=True,
             )
             return False
-        return True
+        return await super().interaction_check(interaction)
 
     @discord.ui.button(
         label="Öffentliche Anzeige erlauben",
