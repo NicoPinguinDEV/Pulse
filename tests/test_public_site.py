@@ -370,7 +370,7 @@ class Legal(Base):
         with patch.dict(os.environ, clean_env(), clear=True):
             html = self.client.get("/nutzungsbedingungen").text
         self.assertIn("Entwurf – noch nicht freigegeben", html)
-        self.assertIn("keine abschließend geprüfte Vertragsfassung", html)
+        self.assertIn("nicht als abschließend geprüfte Vertragsfassung", html)
         self.assertIn("§ 305 Abs. 2 BGB", html)
 
     def test_complete_details_open_the_site(self):
