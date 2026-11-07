@@ -140,7 +140,7 @@ Diese Liste ist ein Startpunkt und keine vollständige oder fallabschließende R
 Branch: `legal/phase-1-privacy-accuracy` (von Commit `378a166b5d4241908289dddaf6560a50c312e35a`).
 
 - Bewerbungsportal ohne Discord-CDN-Profilbilder; signierte Bewerbungs-Sitzung auf ID und Namensfelder minimiert.
-- Browserseitige Bewerbungsentwürfe: 30 Tage seit letzter Änderung, automatische Bereinigung abgelaufener/fehlerhafter Werte und sichtbare manuelle Löschmöglichkeit.
+- Browserseitige Bewerbungsentwürfe: 30 Tage seit letzter Änderung; abgelaufene/fehlerhafte Werte werden beim nächsten Formularaufruf bereinigt; sichtbare manuelle Löschmöglichkeit.
 - `apply_session`: 3 Stunden, bei aktiver Nutzung erneuert, absolute Obergrenze 12 Stunden.
 - Datenschutz- und Sicherheitsseiten unterscheiden öffentliche Website (keine externen Bilder) und interne Dashboard-/Teamansichten (Discord-CDN-Avatarabrufe möglich).
 
