@@ -199,9 +199,9 @@ class PublicTeamConsentView(pulse_interactions.PulseView):
         pulse_public_consent.grant(interaction.user.id, current_roles)
         await interaction.response.edit_message(
             content=(
-                "✅ Deine freiwillige Freigabe wurde gespeichert. Dein Discord-Anzeigename, deine aktuell "
-                "konfigurierten Teamrollen und – falls vorhanden – dein Profilbild können nun öffentlich auf "
-                "der BOCHUM-RP-Website erscheinen. Deine Teammitgliedschaft hängt nicht von dieser Freigabe ab. "
+                "✅ Deine freiwillige Freigabe wurde gespeichert. Dein Discord-Anzeigename und deine aktuell "
+                "konfigurierten Teamrollen können nun öffentlich auf der BOCHUM-RP-Website erscheinen. "
+                "Profilbilder werden nicht angezeigt. Deine Teammitgliedschaft hängt nicht von dieser Freigabe ab. "
                 "Du kannst sie jederzeit mit /teamseite_freigabe_widerrufen zurückziehen."
             ),
             view=None,
@@ -254,10 +254,10 @@ class TeamlisteCog(commands.Cog):
         disclosure = (
             "**Freiwillige Freigabe der öffentlichen Teamvorstellung**\n\n"
             "Wenn du auf **„Öffentliche Anzeige erlauben“** klickst, stimmst du ausdrücklich zu, dass "
-            "BOCHUM RP auf seiner frei erreichbaren Website deinen aktuellen Discord-Anzeigenamen, deine "
-            "aktuell konfigurierten Teamrollen und – sofern vorhanden – dein Discord-Profilbild anzeigt. "
-            "Profilbilder werden direkt von Discord-CDN-Domains geladen; deren Bildadressen können technische "
-            "Discord-Kennungen enthalten. Die Angaben sind weltweit öffentlich abrufbar und können kopiert "
+            "BOCHUM RP auf seiner frei erreichbaren Website deinen aktuellen Discord-Anzeigenamen und deine "
+            "aktuell konfigurierten Teamrollen anzeigt. Profilbilder werden nicht eingebunden; die Teamkarte "
+            "verwendet lokal gerenderte Initialen und lädt keine Bildressourcen von Discord-CDN-Domains. "
+            "Die Angaben sind weltweit öffentlich abrufbar und können kopiert "
             "oder anderweitig gespeichert werden.\n\n"
             "**Nicht veröffentlicht werden:** Discord-ID als sichtbares Profilfeld, Online-Status, Abwesenheiten, "
             "private Kontaktdaten, Verwarnungen, interne Notizen oder Moderationsdaten.\n\n"

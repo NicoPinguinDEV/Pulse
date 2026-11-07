@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pulse_db
 
-CONSENT_VERSION = 1
+CONSENT_VERSION = 2
 
 
 def _role_ids(values) -> list[int]:
