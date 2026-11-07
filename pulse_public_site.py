@@ -35,7 +35,7 @@ CONSENT_VERSION = 1
 # {"id", "label", "purpose", "provider"} per optional service; empty means no consent banner.
 OPTIONAL_SERVICES: tuple[dict, ...] = ()
 
-# No external origin, no inline code: a public page can run nothing but our two static files.
+# Only Discord's image CDN is permitted for live team avatars; scripts and styles remain same-origin.
 CSP = (
     "default-src 'none'; img-src 'self' data: https://cdn.discordapp.com https://media.discordapp.net; style-src 'self'; script-src 'self'; font-src 'self'; "
     "connect-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
