@@ -32,7 +32,7 @@ HOOKED = ("get_head_html", "get_sidebar_html", "log_audit")
 
 ADMIN = dict({k: True for k in ws.PERM_KEYS}, is_admin=True)
 TEAMLER = dict({k: False for k in ws.PERM_KEYS}, can_view_dashboard=True, can_manage_tickets=True, is_admin=False)
-LEADER = dict(TEAMLER, can_promote=True, can_warn=True, can_view_analytics=True, can_manage_factions=True)
+LEADER = dict(TEAMLER, can_promote=True, can_warn=True, can_manage_team_warnings=True, can_view_analytics=True, can_manage_factions=True)
 USER = {"id": "123456789012345678", "global_name": "Nico <b>", "avatar": "abc123"}
 
 HEAD_CASES = {
@@ -182,7 +182,7 @@ class AuditHookTests(unittest.TestCase):
 
 
 class RegistryTests(unittest.TestCase):
-    def test_pulse_pro_registers_all_three_slots(self):
+    def test_pulse_pro_registers_all_four_slots(self):
         import pulse_pro
         self.assertEqual(set(ws.SHELL_HOOK_SLOTS), {"head_extra", "sidebar", "audit_listener", "body_extra"})
         self.assertIs(ws.shell_hook("head_extra"), pulse_pro.pro_head_extra)
