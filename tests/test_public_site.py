@@ -344,6 +344,8 @@ class Separation(Base):
                 with self.subTest(path=path):
                     response = self.client.get(path) if path != "/apply/keepalive" else self.client.post(path)
                     self.assertEqual(response.status_code, 404)
+            submit = self.client.post("/action", data={"action": "submit_application"})
+            self.assertEqual(submit.status_code, 404)
         incomplete_env = {"PULSE_PUBLIC_SITE_ENABLED": "1"}
         with patch.dict(os.environ, incomplete_env, clear=True):
             self.assertEqual(self.client.get("/regelwerk").status_code, 404)
