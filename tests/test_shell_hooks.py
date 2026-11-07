@@ -122,6 +122,8 @@ class ShellOutputTests(unittest.TestCase):
         with patch.object(pulse_db, "unread_count", return_value=0):
             html = ws.render_page("Titel", ctx, "me", "<p>body</p>")
         self.assertIn('id="pulseSidebar"', html)
+        self.assertIn('#pulseCustomCursor', html)
+        self.assertIn('window.addEventListener("pointermove",move', html)
         self.assertEqual(html.count('<link rel="manifest"'), 1)
 
 
@@ -182,10 +184,11 @@ class AuditHookTests(unittest.TestCase):
 class RegistryTests(unittest.TestCase):
     def test_pulse_pro_registers_all_three_slots(self):
         import pulse_pro
-        self.assertEqual(set(ws.SHELL_HOOK_SLOTS), {"head_extra", "sidebar", "audit_listener"})
+        self.assertEqual(set(ws.SHELL_HOOK_SLOTS), {"head_extra", "sidebar", "audit_listener", "body_extra"})
         self.assertIs(ws.shell_hook("head_extra"), pulse_pro.pro_head_extra)
         self.assertIs(ws.shell_hook("sidebar"), pulse_pro.pro_sidebar_html)
         self.assertIs(ws.shell_hook("audit_listener"), pulse_pro.pro_audit_mirror)
+        self.assertIs(ws.shell_hook("body_extra"), pulse_pro.pro_body_extra)
 
     def test_webserver_functions_are_not_replaced(self):
         for name in HOOKED:
