@@ -47,8 +47,11 @@ def ready() -> bool:
 
 
 def hoster_display() -> str:
-    """Return the known legal hoster identity, unless a verified contract names another provider."""
+    """Prefer the legal provider identity over legacy portal/brand-only configuration."""
     configured = value("PULSE_LEGAL_HOSTER")
+    normalized = "".join(character for character in configured.casefold() if character.isalnum())
+    if normalized in {"vionity", "prepaidhoster", "prepaidhosterde", "henrikkramerek"}:
+        configured = ""
     return e(configured or DEFAULT_HOSTER)
 
 
