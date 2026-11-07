@@ -370,7 +370,8 @@ class Legal(Base):
         with patch.dict(os.environ, clean_env(), clear=True):
             html = self.client.get("/nutzungsbedingungen").text
         self.assertIn("Entwurf – noch nicht freigegeben", html)
-        self.assertIn("keine abschließend geprüften Vertragsbedingungen", html)
+        self.assertIn("keine abschließend geprüfte Vertragsfassung", html)
+        self.assertIn("§ 305 Abs. 2 BGB", html)
 
     def test_complete_details_open_the_site(self):
         with patch.dict(os.environ, LEGAL_ENV):
@@ -387,14 +388,66 @@ class Legal(Base):
             self.assertIn("/team-vorstellung", self.client.get("/sitemap.xml").text)
             self.assertIn("Disallow: /", robots)
 
+    def test_impressum_distinguishes_mstv_and_ddg_scope(self):
+        html = self.client.get("/impressum").text
+        self.assertIn("§ 18 Abs. 1 MStV", html)
+        self.assertIn("§ 5 DDG", html)
+        self.assertIn("geschäftsmäßige, in der Regel gegen Entgelt", html)
+        self.assertIn("§ 18 Abs. 2 MStV", html)
+
+    def test_optional_imprint_details_are_rendered_only_when_supplied_and_escaped(self):
+        env = {
+            **LEGAL_ENV,
+            "PULSE_LEGAL_FORM": "Verein",
+            "PULSE_LEGAL_REPRESENTATIVE": "<script>evil()</script>",
+            "PULSE_LEGAL_REGISTER": "VR 123",
+        }
+        with patch.dict(os.environ, env):
+            html = legal.impressum_html()
+        self.assertIn("Verein", html)
+        self.assertIn("VR 123", html)
+        self.assertIn("&lt;script&gt;evil()&lt;/script&gt;", html)
+        self.assertNotIn("<script>evil()", html)
+
+    def test_privacy_controller_and_optional_dpo_are_separately_configurable(self):
+        with patch.dict(os.environ, {
+            **LEGAL_ENV,
+            "PULSE_PRIVACY_CONTROLLER_NAME": "Datenschutz-Verantwortlicher",
+            "PULSE_PRIVACY_CONTROLLER_ADDRESS": "Datenschutzweg 2|54321 Beispielort",
+            "PULSE_PRIVACY_CONTROLLER_EMAIL": "privacy@example.invalid",
+            "PULSE_PRIVACY_DPO_CONTACT": "DPO, dpo@example.invalid",
+            "PULSE_PRIVACY_SUPERVISORY_AUTHORITY": "Zuständige Landesdatenschutzbehörde",
+            "PULSE_PRIVACY_TRANSFER_INFO": "Verifizierte Transferinformation",
+        }):
+            html = legal.privacy_html()
+        for term in ("Datenschutz-Verantwortlicher", "Datenschutzweg 2", "privacy@example.invalid",
+                     "DPO, dpo@example.invalid", "Zuständige Landesdatenschutzbehörde",
+                     "Verifizierte Transferinformation"):
+            self.assertIn(term, html)
+
+    def test_approved_terms_cover_core_community_topics_and_no_blanket_liability_exclusion(self):
+        with patch.dict(os.environ, LEGAL_ENV):
+            html = legal.terms_html()
+        for term in ("Konten und Zugang", "Zulässige Nutzung", "Inhalte und Rechte",
+                     "Bewerbungen und Teammitgliedschaft", "Moderation und Maßnahmen",
+                     "KI-Funktionen", "Externe Plattformen", "Haftung", "Datenschutz"):
+            self.assertIn(term, html)
+        self.assertIn("Es gelten die gesetzlichen Haftungsregelungen", html)
+        self.assertNotIn("jegliche Haftung ausgeschlossen", html)
+
+    def test_cookie_notice_does_not_claim_every_storage_entry_is_exempt(self):
+        html = self.client.get("/cookies").text
+        self.assertIn("einzeln anhand ihrer objektiven Erforderlichkeit", html)
+        self.assertNotIn("Alle Einträge oben sind für die jeweilige Funktion unbedingt erforderlich", html)
+
     def test_operator_values_are_escaped(self):
         with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_LEGAL_NAME": "<script>"}):
             self.assertNotIn("<script>", legal.impressum_html())
 
     def test_privacy_names_every_processing_and_each_required_fact(self):
         html = self.client.get("/datenschutz").text
-        for term in ("Discord OAuth", "IP-Adresse", "Bewerbung", "Öffentliche Teamprofile", "Profilbild", "Einwilligung der betroffenen Person",
-                     "KI-Anbieter", "Backups", "Art. 77", "Art. 21"):
+        for term in ("Discord OAuth", "IP-Adresse", "Bewerbung", "Öffentliche Teamprofile", "Profilbild", "gesonderten Zustimmungsnachweis",
+                     "bis zu acht vorherige Gesprächsnachrichten", "/ki_vergessen", "Art. 14 DSGVO", "KI-Anbieter", "Backups", "Art. 77", "Art. 21"):
             self.assertIn(term, html)
         self.assertEqual(html.count("<dt>Rechtsgrundlage</dt>"), len(legal.SECTIONS))
         self.assertEqual(html.count("<dt>Speicherdauer</dt>"), len(legal.SECTIONS))
