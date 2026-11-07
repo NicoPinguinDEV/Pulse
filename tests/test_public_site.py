@@ -62,11 +62,7 @@ class Pages(Base):
         for path in PAGES:
             html = self.client.get(path).text
             external_assets = re.findall(r'<(?:script|link|img)[^>]+(?:src|href)="(https?://[^"]+)', html)
-            if path == "/team-vorstellung":
-                self.assertTrue(all(asset.startswith(("https://cdn.discordapp.com/", "https://media.discordapp.net/"))
-                                    for asset in external_assets))
-            else:
-                self.assertEqual(external_assets, [], path)
+            self.assertEqual(external_assets, [], path)
             self.assertNotIn("<style", html)
             self.assertIsNone(re.search(r"<script(?![^>]*\bsrc=)(?![^>]*application/json)", html), path)
             self.assertIsNone(re.search(r"\sstyle=\"", html), path)
@@ -173,7 +169,8 @@ class Pages(Base):
         self.assertIn("1 Mitglied", html)
         self.assertIn("Founder", html)
         self.assertIn("Nico", html)
-        self.assertIn("cdn.discordapp.com/avatars/42/hash.png", html)
+        self.assertNotIn("cdn.discordapp.com/avatars/42/hash.png", html)
+        self.assertIn('class="team-initials"', html)
         self.assertNotIn("offline", html)
         self.assertNotIn("Abgemeldet", html)
 
