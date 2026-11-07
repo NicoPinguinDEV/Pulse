@@ -41,7 +41,7 @@ Echte Namen, Anschriften und private Kontaktdaten gehören nicht in öffentliche
 | `PULSE_LEGAL_NAME` | Vollständiger Name oder Organisation des Anbieters | erforderlich für die Freigabe |
 | `PULSE_LEGAL_ADDRESS` | Zustellfähige Anschrift; Zeilen mit `|` trennen | erforderlich für die Freigabe |
 | `PULSE_LEGAL_EMAIL` | Erreichbare Kontakt-E-Mail | erforderlich für die Freigabe |
-| `PULSE_LEGAL_HOSTER` | Name und Sitz des Hosting-Anbieters | erforderlich für die Freigabe |
+| `PULSE_LEGAL_HOSTER` | Optionaler Override, wenn der konkrete Hostingvertrag eine andere juristische Person als Henrik Kramer e.K. nennt | optional; keine private Betreiberanschrift |
 | `PULSE_LEGAL_PHONE` | Telefonnummer | optional; bei § 5 DDG eine mögliche weitere Kontaktmöglichkeit neben E-Mail |
 | `PULSE_LEGAL_FORM` | Rechtsform | falls eine Organisation/juristische Person vorliegt |
 | `PULSE_LEGAL_REPRESENTATIVE` | Name und Anschrift der vertretungsberechtigten Person | falls rechtlich erforderlich |
@@ -83,11 +83,13 @@ Standardmäßig verwendet die Datenschutzerklärung die Anbieterangaben aus `PUL
 | `PULSE_PRIVACY_SUPERVISORY_AUTHORITY` | Konkrete zuständige Datenschutzaufsichtsbehörde |
 | `PULSE_PRIVACY_TRANSFER_INFO` | Verifizierte Angaben zu Drittland, Empfängerrolle und Übermittlungsmechanismus |
 
+Der aktuelle VPS wird über das Kundenportal Vionity von **Henrik Kramer e.K. (Prepaid-Hoster.de)** bezogen. Die offizielle Anbieterkennzeichnung nennt Kurpromenade 48, 23743 Grömitz. Im Kundenportal des konkreten VPS wird Offenbach am Main als Standort angezeigt. Diese Daten gehören in die Datenschutzerklärung als Hostingempfänger – nicht als deine Anbieteranschrift ins Impressum. Die Anbieter-FAQ erklärt, dass eine Auftragsdatenverarbeitung auf Anfrage geprüft und gegebenenfalls ein Vertrag bereitgestellt wird. Ein unterschriebener AVV für deinen VPS ist noch nicht belegt; er muss vom Anbieter angefordert und auf Unterauftragnehmer, Standorte und Zugriffsrechte geprüft werden.
+
 Die Identität des Verantwortlichen darf nicht mit dem Hosting-Anbieter, Discord oder dem Betreiber einer KI-API verwechselt werden. Ob ein Datenschutzbeauftragter bestellt werden muss, ist anhand der gesetzlichen Kriterien und der tatsächlichen Verarbeitung zu prüfen. Die zuständige Aufsichtsbehörde richtet sich nach dem Verantwortlichen und den gesetzlichen Zuständigkeitsregeln, nicht automatisch nach dem Wohnort eines Website-Besuchers.
 
 ## 3. Manuelle Freigabe bleibt gesperrt
 
-Eine Suchmaschinenfreigabe ist nur möglich, wenn alle vier Pflichtangaben vorhanden sind und die Betreiberfreigaben bewusst gesetzt wurden:
+Eine Suchmaschinenfreigabe ist nur möglich, wenn die drei Pflichtangaben des privaten Anbieters vorhanden sind und die Betreiberfreigaben bewusst gesetzt wurden:
 
 | Variable | Wert | Bedeutung |
 |---|---|---|

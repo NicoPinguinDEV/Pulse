@@ -49,18 +49,21 @@ Die folgenden Variablen werden ausschließlich auf dem VPS in der privaten `.env
 PULSE_LEGAL_NAME=
 PULSE_LEGAL_ADDRESS=
 PULSE_LEGAL_EMAIL=
-PULSE_LEGAL_HOSTER=
+# Optional nur, falls der Hostingvertrag einen anderen rechtlichen Anbieter nennt:
+# PULSE_LEGAL_HOSTER=
 PULSE_LEGAL_REVIEWED=0
 PULSE_TERMS_APPROVED=0
 PULSE_TERMS_EFFECTIVE_DATE=
 ```
 
-Indexierung und Sitemap werden erst freigeschaltet, wenn alle vier Betreiberangaben ausgefüllt und die drei Freigabewerte bewusst gesetzt sind:
+Indexierung und Sitemap werden erst freigeschaltet, wenn die drei Betreiberangaben ausgefüllt und die drei Freigabewerte bewusst gesetzt sind. Der bekannte Hostinganbieter wird standardmäßig aus der verifizierten Anbieterkennzeichnung übernommen; `PULSE_LEGAL_HOSTER` ist nur ein optionaler Override, falls der konkrete Hostingvertrag eine andere juristische Person nennt:
 - `PULSE_LEGAL_REVIEWED=1`: Betreiber hat Datenschutzerklärung, Impressum, Datenflüsse, Fristen und Rechtsgrundlagen geprüft.
 - `PULSE_TERMS_APPROVED=1`: Betreiber hat die Nutzungsbedingungen ausdrücklich freigegeben.
 - `PULSE_TERMS_EFFECTIVE_DATE=YYYY-MM-DD`: tatsächliches Inkrafttretensdatum.
 
 Diese Schalter sind keine Rechtsprüfung durch die Software und kein Rechtsgutachten. Sie dokumentieren ausschließlich die manuelle Betreiberentscheidung. Solange einer der Werte fehlt, liefern öffentliche Seiten `noindex, nofollow`, `robots.txt` sperrt die Indexierung und `sitemap.xml` ist nicht abrufbar.
+
+Die Datenschutzerklärung benennt den aktuellen VPS-Anbieter als **Henrik Kramer e.K. (Prepaid-Hoster.de; Vionity-Kundenportal)** mit der in dessen Anbieterkennzeichnung veröffentlichten Geschäftsanschrift in Grömitz. Vionity ist das Verwaltungsportal, nicht der Betreiber von BOCHUM RP. Im Kundenbereich des konkreten VPS wird Offenbach am Main als Standort angezeigt. Ein abgeschlossener AVV ist noch nicht nachgewiesen; die Anbieter-FAQ beschreibt eine Anfrage und Einzelfallprüfung. Vor einer endgültigen Datenschutzfreigabe ist der unterzeichnete Vertrag samt Unterauftragnehmern/Standorten einzuholen.
 
 Den Freigabestatus sieht ein Administrator unter `/admin/website`.
 

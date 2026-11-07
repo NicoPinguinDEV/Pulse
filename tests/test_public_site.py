@@ -565,6 +565,24 @@ class Legal(Base):
         self.assertIn("&lt;script&gt;evil()&lt;/script&gt;", html)
         self.assertNotIn("<script>evil()", html)
 
+    def test_vionity_hoster_is_disclosed_without_claiming_a_signed_avv(self):
+        html = legal.privacy_html()
+        for term in (
+            "Henrik Kramer e.K.",
+            "Prepaid-Hoster.de",
+            "Vionity-Kundenportal",
+            "Kurpromenade 48",
+            "23743 Grömitz",
+            "Offenbach am Main",
+            "Ein für diesen VPS abgeschlossener und unterzeichneter AVV ist derzeit nicht nachgewiesen",
+        ):
+            self.assertIn(term, html)
+        # The hosting provider is a privacy recipient, not BOCHUM RP's website operator.
+        self.assertNotIn("Henrik Kramer e.K.", legal.impressum_html())
+        self.assertNotIn("PULSE_LEGAL_HOSTER", legal.missing_fields())
+        with patch.dict(os.environ, {"PULSE_LEGAL_HOSTER": "Vionity"}):
+            self.assertIn("Henrik Kramer e.K.", legal.privacy_html())
+
     def test_privacy_controller_and_optional_dpo_are_separately_configurable(self):
         with patch.dict(os.environ, {
             **LEGAL_ENV,
