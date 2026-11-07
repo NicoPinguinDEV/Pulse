@@ -786,6 +786,8 @@ def respond(html: str, *, cache: bool = True, status_code: int = 200) -> HTMLRes
     response.headers["X-Frame-Options"] = "DENY"
     if cache:
         response.headers["Cache-Control"] = "public, max-age=300"
+    else:
+        response.headers["Cache-Control"] = "no-store"
     # Unfinished legal details: stay out of search engines until the operator completed them.
     response.headers["X-Robots-Tag"] = "index, follow" if legal.publication_ready() else "noindex, nofollow"
     return response
