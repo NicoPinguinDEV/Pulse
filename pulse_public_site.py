@@ -837,7 +837,9 @@ def register(app) -> None:
              public_team_html, cache=False, with_request=True)
     add_page("/nutzungsbedingungen", "Nutzungsbedingungen | Bochum RP", "Nutzungs- und Community-Bedingungen von Bochum RP.", legal.terms_html)
     add_page("/impressum", "Impressum | Bochum RP", "Anbieterkennzeichnung von Bochum RP.", legal.impressum_html)
-    add_page("/datenschutz", "Datenschutz | Bochum RP", "Wie Bochum RP und Pulse personenbezogene Daten verarbeiten.", legal.privacy_html)
+    # Legal disclosure contains environment-backed provider/controller details; never cache stale versions.
+    add_page("/datenschutz", "Datenschutz | Bochum RP", "Wie Bochum RP und Pulse personenbezogene Daten verarbeiten.",
+             legal.privacy_html, cache=False)
     add_page("/cookies", "Cookies | Bochum RP", "Welche Cookies und Browser-Speicher eingesetzt werden.",
              lambda: legal.cookies_html(OPTIONAL_SERVICES))
     add_page("/sicherheit", "Sicherheit | Bochum RP", "So schützt Pulse Konten und Daten.", legal.security_html)
