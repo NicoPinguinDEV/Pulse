@@ -97,7 +97,7 @@ class AliasGroupTests(unittest.TestCase):
         self.assertNotIn("team-kick", names)
         member = [c for rows in dict(ch.build_help(items, {"can_view_dashboard": True}, discord.Permissions.none())).values() for c, _ in rows]
         self.assertNotIn("/team befoerdern", member)                    # same rule as /promote: leadership only
-        lead = [c for rows in dict(ch.build_help(items, {"can_promote": True}, discord.Permissions.none())).values() for c, _ in rows]
+        lead = [c for rows in dict(ch.build_help(items, {"can_promote": True, "can_manage_team_warnings": True}, discord.Permissions.none())).values() for c, _ in rows]
         self.assertIn("/team befoerdern", lead)
 
     def test_alias_targets_exist(self):
@@ -127,12 +127,36 @@ class HelpTests(unittest.TestCase):
         self.assertNotIn("/warn", flat)
         self.assertNotIn("/promote", flat)
         self.assertNotIn("/setup_buero", flat)
-        lead = dict(ch.build_help(items, {"can_promote": True}, discord.Permissions(manage_guild=True)))
+        lead = dict(ch.build_help(items, {"can_promote": True, "can_manage_team_warnings": True}, discord.Permissions(manage_guild=True)))
         flat = [c for rows in lead.values() for c, _ in rows]
         self.assertIn("/promote", flat)
         self.assertIn("/warn", flat)
         self.assertIn("/setup_buero", flat)
         self.assertIn("⏱ Dienst & ich", member)
+
+    def test_team_warn_help_requires_supervisor_even_for_admins(self):
+        tree = tree_with("warn", "warns", "warn-remove")
+        items = ch.entries(tree)
+        leader_without_supervisor = {"can_promote": True}
+        visible_leader = [name for _section, rows in ch.build_help(items, leader_without_supervisor, discord.Permissions.none())
+                          for name, _description in rows]
+        self.assertNotIn("/warn", visible_leader)
+        self.assertNotIn("/warns", visible_leader)
+        self.assertNotIn("/warn-remove", visible_leader)
+
+        supervisor = {"can_manage_team_warnings": True}
+        visible_supervisor = [name for _section, rows in ch.build_help(items, supervisor, discord.Permissions.none())
+                              for name, _description in rows]
+        self.assertIn("/warn", visible_supervisor)
+        self.assertIn("/warns", visible_supervisor)
+        self.assertIn("/warn-remove", visible_supervisor)
+
+        admin = {"is_admin": True, "can_manage_team_warnings": True}
+        visible_admin = [name for _section, rows in ch.build_help(items, admin, discord.Permissions.none())
+                         for name, _description in rows]
+        self.assertIn("/warn", visible_admin)
+        self.assertIn("/warns", visible_admin)
+        self.assertIn("/warn-remove", visible_admin)
 
     def test_every_listed_command_exists(self):
         import ast

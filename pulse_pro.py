@@ -551,7 +551,7 @@ def pro_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
             ("team-status","/team-status","◉","Teamstatus",perms.get("can_view_team_status",True),False),
             ("activity-check","/activity-check","✓","Activity Check",perms.get("can_manage_checkins") or perms.get("is_admin"),False),
             ("melonly","/melonly","🛡️","Melonly",perms.get("can_warn") or perms.get("can_add_notes") or perms.get("is_admin"),False),
-            ("warns","/warns","⚠","Verwarnungszentrale",perms.get("can_warn") or perms.get("is_admin"),False),
+            ("warns","/warns","⚠","Verwarnungszentrale",perms.get("can_manage_team_warnings") or perms.get("is_admin"),False),
             ("wiki","/wiki","▤","Team-Wiki",True,False),
             ("factions","/factions","⚑","Fraktionsverwaltung",perms.get("can_manage_factions"),False),
         ]),
@@ -690,6 +690,11 @@ def pro_sidebar_html(guild_name, current_page="dashboard", current_user=None, pe
         '''
 
 
+def pro_body_extra():
+    """The cursor and interaction layer for every page using the shared webserver shell."""
+    return PULSE_INTERACTION_CSS + PULSE_INTERACTION_JS
+
+
 def make_shell_helpers(ws):
     """A-01a: register the Pro shell hooks explicitly; webserver's functions are no longer replaced.
     Idempotent (same functions again are a no-op). A-03: ws.compute_perms is not replaced either –
@@ -697,6 +702,7 @@ def make_shell_helpers(ws):
     ws.register_shell_hook("head_extra", pro_head_extra)
     ws.register_shell_hook("sidebar", pro_sidebar_html)
     ws.register_shell_hook("audit_listener", pro_audit_mirror)
+    ws.register_shell_hook("body_extra", pro_body_extra)
 
 
 def build_command_modal(ws, perms=None):
@@ -885,7 +891,7 @@ PULSE_INTERACTION_JS = r"""
 
 def render_pro_page(ws, title, ctx, page, body, extra=""):
     import pulse_flags
-    body = PULSE_INTERACTION_CSS + PULSE_INTERACTION_JS + '<div class="pulse-shell">' + pulse_flags.banner_html(ws.esc) + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung</div></div>' + build_command_modal(ws, getattr(ctx, "perms", None))
+    body = '<div class="pulse-shell">' + pulse_flags.banner_html(ws.esc) + body + '<div class="pulse-footer">Pulse TeamOS v' + VERSION + ' · interne Teamverwaltung</div></div>' + build_command_modal(ws, getattr(ctx, "perms", None))
     return ws.render_page(title, ctx, page, body, extra)
 
 
@@ -2592,7 +2598,7 @@ def register(app):
             expired=bool(w.get("expired_at")) or ws.warning_is_expired(w)
             state=pill('Aktiv','warn') if active else (pill('Abgelaufen','good') if expired else pill('Zurückgezogen','good'))
             action_html=''
-            if active and (c.perms.get('can_warn') or c.perms.get('is_admin')):
+            if active and c.perms.get('can_manage_team_warnings'):
                 action_html=f'''<form action="/action" method="post" class="mt-2 flex flex-wrap gap-2" onsubmit="return confirm('Diese Verwarnung wirklich zurückziehen?');">
                     <input type="hidden" name="action" value="remove_warn">
                     <input type="hidden" name="user_id" value="{target.id}">
@@ -2634,7 +2640,7 @@ def register(app):
         event_html=''.join(f'<div class="pulse-row"><div class="pulse-avatar">↯</div><div class="pulse-row-main"><div class="pulse-row-title">{e(x.get("event_type"))}</div><div class="pulse-row-meta">{e(x.get("actor_name") or "System")} · {e(fmt_dt(x.get("created_at")))}</div></div></div>' for x in evs)
 
         quick=''
-        if c.perms.get('can_warn') or c.perms.get('is_admin'):
+        if c.perms.get('can_manage_team_warnings'):
             quick += f'''<form action="/action" method="post" class="pulse-card p-4 space-y-2">
                 <div class="pulse-section-title">⚠ Neue Verwarnung</div>
                 <input type="hidden" name="action" value="warn_with_proof"><input type="hidden" name="user_id" value="{target.id}"><input type="hidden" name="redirect_to_member" value="1">
@@ -2769,7 +2775,7 @@ def register(app):
 
     async def warns_v5(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session,perm=None)
-        if not (c.perms.get('can_warn') or c.perms.get('is_admin')):
+        if not c.perms.get('can_manage_team_warnings'):
             raise HTTPException(403,'Dafür fehlt dir die Berechtigung für die Verwarnungszentrale.')
         import pulse_lists  # U-05
 
@@ -2792,7 +2798,7 @@ def register(app):
             action_html=f'''<form action="/action" method="post" class="mt-2 flex flex-wrap gap-2" onsubmit="return confirm('Diese Verwarnung wirklich zurückziehen?');">
                 <input type="hidden" name="action" value="remove_warn"><input type="hidden" name="user_id" value="{m.id}"><input type="hidden" name="warn_id" value="{e(w.get('id'))}"><input type="hidden" name="redirect_to_member" value="">
                 <input name="warn_revoke_reason" maxlength="300" class="pulse-input flex-1 min-w-[180px]" placeholder="Rücknahmegrund (optional)">
-                <button class="pulse-btn bad">↩ Zurückziehen</button></form>''' if is_active and (c.perms.get('can_warn') or c.perms.get('is_admin')) else ''
+                <button class="pulse-btn bad">↩ Zurückziehen</button></form>''' if is_active and c.perms.get('can_manage_team_warnings') else ''
             revoked=f'<div class="text-[10px] text-slate-400 mt-2">↩ {e(w.get("revoked_at") or "N/A")} · {e(w.get("revoked_by") or "Team")} · {e(w.get("revoked_reason") or "Kein Grund")}</div>' if not is_active else ''
             return f'''<article class="pulse-row items-start"><div class="pulse-avatar">⚠</div><div class="pulse-row-main"><div class="flex items-center gap-2 flex-wrap"><a href="/member/{m.id}" class="pulse-row-title hover:underline">{e(m.display_name)}</a>{pill("Aktiv","warn") if is_active else pill("Zurückgezogen","good")}</div><div class="pulse-row-meta">{e(w.get("date") or "—")} · von {e(w.get("by") or "Team")} · Warn-ID {e(w.get("id") or "—")}</div><div class="text-[11px] mt-2 whitespace-pre-wrap">{e(w.get("reason") or "Kein Grund")}</div>{proof_html}{revoked}{action_html}</div><span class="pulse-pill {'warn' if is_active else 'good'}">{'Warnung' if is_active else 'Archiv'}</span></article>'''
 
@@ -2809,7 +2815,7 @@ def register(app):
     async def warns_csv(request: Request, user_session: str=Cookie(None)):
         """U-05: the warning list (active or history, search applies) as CSV through csv_safe."""
         c=cctx(request,user_session,perm=None)
-        if not (c.perms.get('can_warn') or c.perms.get('is_admin')):
+        if not c.perms.get('can_manage_team_warnings'): 
             raise HTTPException(403,'Dafür fehlt dir die Berechtigung für die Verwarnungszentrale.')
         import pulse_lists
         _teamdb,rows,history=collect_warns(c)
