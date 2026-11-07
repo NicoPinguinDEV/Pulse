@@ -1,5 +1,6 @@
 """Public website: pages, separation from the dashboard, legal state, consent and exposure."""
 import base64
+import inspect
 import os
 import re
 import tempfile
@@ -462,6 +463,15 @@ class Legal(Base):
         self.assertIn("Date.now()-savedAt>TTL_MS", ws.APPLY_DRAFT_SCRIPT)
         self.assertIn("localStorage.removeItem(KEY)", ws.APPLY_DRAFT_SCRIPT)
         self.assertIn("Gespeicherten Entwurf löschen", ws.APPLY_DRAFT_SCRIPT)
+        self.assertIn("restoring=true", ws.APPLY_DRAFT_SCRIPT)
+
+    def test_application_flow_does_not_request_or_store_discord_avatars(self):
+        route_source = inspect.getsource(ws.public_apply_page)
+        cookie_source = inspect.getsource(ws.set_apply_session_cookie)
+        self.assertNotIn("cdn.discordapp.com", route_source)
+        self.assertNotIn("avatar_url", route_source)
+        self.assertNotIn("avatar", cookie_source)
+        self.assertIn('("id", "username", "global_name")', cookie_source)
 
     def test_security_page_does_not_claim_public_discord_cdn_avatars(self):
         html = self.client.get("/sicherheit").text
