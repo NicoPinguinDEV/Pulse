@@ -59,7 +59,11 @@ Vor Freigabe sind für jedes aktive Konto/Produkt/Tarif zu belegen:
 
 ### 2.4 Hosting, OAuth und Plattformen
 
-Für Hosting, Discord OAuth, Roblox-Abfragen und sonstige Integrationen sind tatsächliche Konten, Tarife, Rollen, Unterauftragnehmer, Regionen und Vertragsunterlagen zu prüfen. Der Domainname oder der allgemeine Markenname eines Providers belegt weder den physischen Serverstandort noch die vertragliche Verantwortlichkeit.
+Der Betreiber nutzt einen KVM-vServer über das Kunden-/Verwaltungsportal Vionity. Die Vionity-Oberfläche weist im Footer Henrik Kramer e.K. aus; die offizielle Anbieterkennzeichnung von Prepaid-Hoster.de nennt **Henrik Kramer e.K., Kurpromenade 48, 23743 Grömitz, Deutschland** als Anbieter. Vionity ist das Verwaltungsportal, nicht eine eigene Anbieteranschrift für BOCHUM RP. Im Kundenbereich des konkreten VPS wird als Standort **Offenbach am Main** angezeigt; dies ist vor endgültiger Freigabe mit der konkreten Vertrags-/Rechenzentrumsdokumentation abzugleichen.
+
+Die Anbieter-FAQ sagt, dass eine Auftragsdatenverarbeitung auf Anfrage im Einzelfall geprüft und bei Bedarf ein Formular bereitgestellt wird; dazu seien vollständige Kundendaten erforderlich. Ein für diesen VPS abgeschlossener und unterzeichneter AVV ist aktuell **nicht nachgewiesen**. Er muss über den Support angefordert werden. Zu prüfen und zu dokumentieren sind insbesondere Anbieterrolle, technische und organisatorische Maßnahmen, Support-/Administrationszugriffe, Unterauftragnehmer, tatsächliche Betriebs- und Backup-Standorte sowie Lösch-/Rückgaberegelungen. Bis diese Unterlagen vorliegen, darf die Datenschutzerklärung keinen abgeschlossenen AVV oder bestätigte Unterauftragnehmer behaupten.
+
+Für Discord OAuth, Roblox-Abfragen, KI-Anbieter und sonstige Integrationen sind ebenfalls tatsächliche Konten, Tarife, Rollen, Unterauftragnehmer, Regionen und Vertragsunterlagen zu prüfen. Der Domainname oder der allgemeine Markenname eines Providers belegt weder den physischen Serverstandort noch die vertragliche Verantwortlichkeit.
 
 ## 3. Betreiber- und Rechtstexte – offene Angaben
 
@@ -71,7 +75,7 @@ Da BOCHUM RP laut Betreiber als natürliche Person geführt wird:
 - Ob § 5 DDG zusätzlich gilt, ist anhand Geschäftsmäßigkeit und Entgeltlichkeit des konkreten Dienstes zu prüfen.
 - Ob § 18 Abs. 2 MStV für tatsächliche News-/Blog-Inhalte gilt, ist anhand der redaktionellen Gestaltung zu prüfen.
 - Datenschutzrechtlich Verantwortlicher und Website-Anbieter können nur dann unterschiedlich benannt werden, wenn die tatsächlichen Rollen das tragen.
-- Hostinganbieter muss mit Name/Sitz und Vertrag verifiziert werden.
+- Hostinganbieter ist zunächst als Henrik Kramer e.K. (Prepaid-Hoster.de; Verwaltung über Vionity) dokumentiert; Vertragspartner, AVV, Rechenzentrum, Unterauftragnehmer und Backup-Orte bleiben anhand der Kundenunterlagen zu verifizieren.
 - Kontaktadresse muss überwacht und tatsächlich erreichbar sein.
 - Datenschutzbeauftragtenpflicht und zuständige Aufsichtsbehörde müssen anhand der tatsächlichen Tätigkeit und Niederlassung beurteilt werden.
 
