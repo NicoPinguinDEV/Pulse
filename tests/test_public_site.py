@@ -327,12 +327,13 @@ class Separation(Base):
 
     def test_root_sends_signed_in_members_to_their_start_page_while_site_is_private(self):
         self.client.cookies.set("user_session", "valid")
-        with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_PUBLIC_SITE_ENABLED": "0"}, clear=True), \\
-                patch.object(ws, "dashboard_session", return_value={"id": "1"}), \\
-                patch.object(ws, "start_page_for", return_value="/tickets"):
-            response = self.client.get("/")
+        with patch.dict(os.environ, {**LEGAL_ENV, "PULSE_PUBLIC_SITE_ENABLED": "0"}, clear=True):
+            with patch.object(ws, "dashboard_session", return_value={"id": "1"}):
+                with patch.object(ws, "start_page_for", return_value="/tickets"):
+                    response = self.client.get("/")
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["location"], "/tickets")
+
 
     def test_public_pages_and_application_portal_require_both_release_gates(self):
         blocked_paths = ("/regelwerk", "/faq", "/fraktionen", "/news", "/team-vorstellung",
