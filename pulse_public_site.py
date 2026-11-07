@@ -18,6 +18,7 @@ import os
 import re
 import sqlite3
 import time
+import unicodedata
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
@@ -473,6 +474,116 @@ def news_detail_html(item: dict) -> str:
     )
 
 
+# Public profiles are grouped by the same recognizable rank families used by Pulse's
+# nickname hierarchy. Only profiles which have passed the existing person-consent and admin
+# publication checks are considered here; this never pulls names or IDs from the internal roster.
+TEAM_LEVELS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("01", "Inhaber- & Führungsebene", (
+        "founder", "fnd", "inhaber", "inh", "stvinhaber", "stvinh", "rechtehand", "rh", "owner", "coowner",
+    )),
+    ("02", "Entwicklungsebene", (
+        "devleitung", "devl", "ldev", "dev", "developer",
+    )),
+    ("03", "Projektleitungsebene", (
+        "leitendeprojektleitung", "lpl", "projektleitung", "pl", "stvprojektleitung", "stvpl",
+    )),
+    ("04", "Koordination, Direktion & Serverleitung", (
+        "leitendeprojektkoordination", "lpk", "projektkoordination", "pk", "stvprojektkoordination", "stvpk",
+        "leitenderdirektor", "ldk", "direktor", "dk", "stvdirektor", "stvdk",
+        "leitendeserverleitung", "lsl", "serverleitung", "sl", "stvserverleitung", "stvsl",
+    )),
+    ("05", "Management- & Teamleitungsebene", (
+        "leitendermanager", "lma", "management", "ma", "stvmanagement", "stvma",
+        "leitendeteamleitung", "ltl", "teamleitung", "tl", "stvteamleitung", "stvtl",
+    )),
+    ("06", "Teamaufsicht & Supervisoren", (
+        "leitendeteamaufsicht", "lta", "teamaufsicht", "ta", "stvteamaufsicht", "stvta",
+        "leitendersupervisor", "lsupervisor", "supervisor", "stvsupervisor",
+    )),
+    ("07", "Ausbildung & Fachbereiche", (
+        "ausbilderleitung", "ausbildl", "ausbl", "lab", "ausbilder", "ab", "highteamanwärter", "highteamanwaerter", "hta",
+        "communitymanagement", "cm", "stvcommunitymanagement", "stvm",
+        "fraktionsverwaltung", "fv", "stvfraktionsverwaltung", "stvfv", "stvf",
+        "eventleitung", "el",
+    )),
+    ("08", "Administrationsebene", (
+        "adminleitung", "adminl", "ladmin", "sradmin", "admin", "jradmin",
+    )),
+    ("09", "Moderationsebene", (
+        "modleitung", "modl", "lmod", "srmoderator", "srmod", "moderator", "mod", "jrmoderator", "jrmod",
+    )),
+    ("10", "Supportebene", (
+        "supleitung", "supl", "lsup", "srsupporter", "srsup", "supporter", "sup", "testsupporter", "tsup",
+        "aushilfe", "aush",
+    )),
+    ("11", "Bauteam-Ebene", (
+        "bauteamlerleitung", "baul", "lbau", "stvbauteamlerleitung", "stvbaul", "stvlbau", "seniorbauteamler", "srbau",
+        "bauteamler", "bau", "testbauteamler", "tbau",
+    )),
+)
+_TEAM_LEVEL_BY_RANK = {
+    rank: (number, label)
+    for number, label, ranks in TEAM_LEVELS
+    for rank in ranks
+}
+
+
+def _public_rank_key(value: object) -> str:
+    """Normalize a public rank label, including BOCHUM decoration, without exposing role IDs."""
+    label = unicodedata.normalize("NFKC", str(value or "")).casefold().strip()
+    separators = ("メ", "║", "✘", "✗", "⌯⌲", "||")
+    positions = [(label.rfind(separator), separator) for separator in separators if separator in label]
+    if positions:
+        position, separator = max(positions, key=lambda item: item[0])
+        label = label[position + len(separator):].strip()
+    return re.sub(r"[^a-z0-9äöüß]", "", label)
+
+
+def _team_level(profile: dict) -> tuple[str, str]:
+    rank = _public_rank_key(profile.get("role_label", ""))
+    # Handle current long-form role labels as well as the canonical short labels.
+    level = _TEAM_LEVEL_BY_RANK.get(rank)
+    if level:
+        return level
+    aliases = {
+        "developmentleitung": "devleitung",
+        "devleitung": "devleitung",
+        "communitymanagementleitung": "communitymanagement",
+        "supportleitung": "supporter",
+        "adminleitung": "adminleitung",
+        "moderationsleitung": "modleitung",
+        "bauteamleitung": "bauteamlerleitung",
+        "leitenderdeveloper": "dev",
+        "testsupport": "testsupporter",
+    }
+    level = _TEAM_LEVEL_BY_RANK.get(aliases.get(rank, ""))
+    return level or ("99", "Weitere Teamfunktionen")
+
+
+def _team_sections(profiles: list[dict]) -> str:
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for profile in profiles:
+        grouped.setdefault(_team_level(profile), []).append(profile)
+    sections = []
+    for number, label, _ in TEAM_LEVELS:
+        members = grouped.get((number, label), [])
+        if not members:
+            continue
+        sections.append(
+            f'<section class="team-level" aria-labelledby="team-level-{number}">'
+            f'<header class="team-level-head"><p class="tag">EBENE {number} · {len(members)} PROFILE</p>'
+            f'<h2 id="team-level-{number}">{e(label)}</h2></header>{_team_cards(members)}</section>'
+        )
+    other = grouped.get(("99", "Weitere Teamfunktionen"), [])
+    if other:
+        sections.append(
+            '<section class="team-level" aria-labelledby="team-level-other">'
+            f'<header class="team-level-head"><p class="tag">WEITERE FUNKTIONEN · {len(other)} PROFILE</p>'
+            f'<h2 id="team-level-other">Weitere Teamfunktionen</h2></header>{_team_cards(other)}</section>'
+        )
+    return "".join(sections)
+
+
 def _team_cards(profiles: list[dict]) -> str:
     cards = []
     for profile in profiles:
@@ -503,12 +614,18 @@ def public_team_html() -> str:
     profiles = _safe_public_profiles()
     if not profiles:
         return (
-            '<div class="doc"><h1>Unser Team</h1><p>Hier stellen wir die Menschen vor, die Bochum RP betreuen.</p>'
-            '<p class="empty">Die öffentlichen Teamprofile werden nach ausdrücklicher Freigabe ergänzt.</p></div>'
+            '<div class="doc"><header class="team-intro"><p class="tag">BOCHUM RP · TEAM</p>'
+            '<h1>Unser Team</h1><p>Hier stellen wir die Menschen vor, die Bochum RP betreuen.</p></header>'
+            '<p class="empty">Öffentliche Teamprofile erscheinen hier erst nach Zustimmung der jeweiligen Person '
+            'und Freigabe durch die Teamleitung.</p></div>'
         )
     return (
-        '<div class="doc"><h1>Unser Team</h1><p>Diese Profile wurden ausdrücklich für die öffentliche Website freigegeben.</p>'
-        f'{_team_cards(profiles)}</div>'
+        '<div class="doc"><header class="team-intro"><p class="tag">BOCHUM RP · TEAM</p>'
+        '<h1>Unser Team</h1>'
+        f'<p>{len(profiles)} freigegebene Teamprofile – geordnet nach Verantwortungs- und Aufgabenebenen.</p>'
+        '<p class="empty">Angezeigt werden ausschließlich Profile, deren Veröffentlichung die betreffende Person '
+        'freigegeben hat.</p></header>'
+        f'{_team_sections(profiles)}</div>'
     )
 
 

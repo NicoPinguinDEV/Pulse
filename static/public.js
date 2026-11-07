@@ -68,6 +68,53 @@
     resume();
   }
 
+  function startPointerEffects() {
+    var finePointer = window.matchMedia("(hover: hover) and (pointer: fine)");
+    var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (!finePointer.matches || reducedMotion.matches) return;
+
+    var body = document.body;
+    var targetX = -100, targetY = -100;
+    var ringX = targetX, ringY = targetY;
+    var frameId = 0;
+    body.classList.add("cursor-ready");
+
+    function renderPointer() {
+      ringX += (targetX - ringX) * 0.22;
+      ringY += (targetY - ringY) * 0.22;
+      body.style.setProperty("--cursor-ring-x", ringX + "px");
+      body.style.setProperty("--cursor-ring-y", ringY + "px");
+      if (Math.abs(targetX - ringX) > 0.5 || Math.abs(targetY - ringY) > 0.5) {
+        frameId = requestAnimationFrame(renderPointer);
+      } else {
+        frameId = 0;
+      }
+    }
+
+    window.addEventListener("pointermove", function (event) {
+      targetX = event.clientX;
+      targetY = event.clientY;
+      body.classList.add("cursor-active");
+      var target = event.target instanceof Element ? event.target : null;
+      body.classList.toggle(
+        "cursor-hover",
+        !!(target && target.closest("a, button, summary, input, select, textarea, [role='button']"))
+      );
+
+      var hero = target && target.closest(".hero");
+      if (hero) {
+        var bounds = hero.getBoundingClientRect();
+        hero.style.setProperty("--spot-x", ((event.clientX - bounds.left) / bounds.width * 100) + "%");
+        hero.style.setProperty("--spot-y", ((event.clientY - bounds.top) / bounds.height * 100) + "%");
+      }
+      if (!frameId) frameId = requestAnimationFrame(renderPointer);
+    }, { passive: true });
+
+    window.addEventListener("blur", function () {
+      body.classList.remove("cursor-active", "cursor-hover");
+    });
+  }
+
   var KEY = "pulse.consent";
 
   function readConsent(version) {
@@ -166,5 +213,6 @@
   }
 
   startSparks();
+  startPointerEffects();
   startConsent();
 })();
