@@ -176,3 +176,31 @@ Die Nutzungsbedingungen sind ausführlicher strukturiert und enthalten unter and
 - [§ 309 BGB – Klauselverbote](https://www.gesetze-im-internet.de/bgb/__309.html)
 
 Diese Quellen ersetzen keine Prüfung des konkreten Betreibers, der tatsächlichen Website-Inhalte, der Anbieter-Verträge und der betrieblichen Abläufe.
+
+## 8. Phase 1 – technische Datenschutzkorrekturen
+
+Die Umsetzung auf dem Branch `legal/phase-1-privacy-accuracy` reduziert unnötige Browserübermittlungen und korrigiert tatsächliche Angaben:
+
+- Die öffentliche Teamvorstellung zeigt lokale Initialen und lädt keine Discord-Profilbilder.
+- Das Bewerbungsportal zeigt lokale Initialen statt Discord-Profilbildern. Die Bewerbungs-Sitzung enthält nur Discord-ID und Name; das Avatarfeld wird nicht gespeichert.
+- Nicht abgesendete Bewerbungsentwürfe bleiben lokal im jeweiligen Browser. Nach 30 Tagen ohne Änderung gelten sie als abgelaufen und werden beim nächsten Öffnen des Formulars entfernt; zusätzlich gibt es eine sichtbare Schaltfläche zur manuellen Löschung. Abgelaufene oder fehlerhafte Einträge werden beim Formularaufruf bereinigt.
+- Die Cookie-Übersicht nennt für `apply_session` 3 Stunden mit Verlängerung bei aktiver Nutzung und eine absolute Höchstgrenze von 12 Stunden.
+- Die internen Dashboard-/Teamansichten können weiterhin Discord-Profilbilder direkt vom Discord-CDN laden; die Roblox-Spielervorschau kann zusätzlich Roblox-Thumbnailbilder direkt im Browser laden. Diese externen Abrufe und Empfänger werden in der Datenschutzerklärung beschrieben.
+- Die Sicherheitsseite behauptet nicht länger, dass die öffentliche Teamseite Discord-Profilbilder lädt.
+
+Die 30-Tage-Frist betrifft ausschließlich nicht abgesendete, lokale Browserentwürfe. Sie ist keine automatische Löschfrist für serverseitig eingereichte Bewerbungen.
+
+## 9. Weiterhin zwingende Freigabeblocker
+
+- Tatsächlichen Anbieter und datenschutzrechtlich Verantwortlichen identifizieren; gesetzliche Vertreter und Vertragsbefugnis bei Minderjährigkeit dokumentieren.
+- Zustellfähige Impressumsanschrift und geeigneten Kontaktweg klären. Keine privaten Betreiberangaben in GitHub speichern.
+- § 5 DDG und § 18 Abs. 2 MStV für das tatsächliche Angebot bzw. die redaktionellen Inhalte individuell beurteilen und die passenden Assessment-Variablen nur nach dieser Prüfung setzen.
+- Mit Henrik Kramer e.K. / Prepaid-Hoster den konkreten Vertragspartner, AVV nach Art. 28 DSGVO (falls Auftragsverarbeitung vorliegt), TOMs, Supportzugriffe, Unterauftragnehmer sowie Betriebs- und Backup-Standorte nachweisen.
+- Reale Discord-, Roblox- und KI-Produkt-/Tarifkonfiguration, Empfängerrollen und mögliche Drittlandübermittlungen verifizieren.
+- Serverseitige Bewerbungs-, Team-, Audit- und Ticket-Retention rechtssicher festlegen und vollständig implementieren. `RETENTION_MUTATIONS_ENABLED` bleibt aus; Ticket-Transkripte und Anhänge haben noch keine automatische Frist.
+- Betroffenenrechte durch vollständigen Export über alle Speicher, dokumentierte Identitätsprüfung, Fristen, Ausnahmen und sichere Löschung inkl. Backup-Verhalten ausführbar machen.
+- Minderjährigen- und Jugendschutz für die tatsächlichen Spielinhalte, Zielgruppe, Rollen und Veröffentlichungsfunktionen einzelfallbezogen beurteilen.
+- KI-Transparenz, menschliche Prüfung und KI-Kompetenz des Teams nach dem konkreten Einsatz dokumentieren.
+- Vertrags-/Regelwerk-Annahme, Meldungs- und Beschwerdeverfahren sowie Rechte an Bildern, Musik, Marken und sonstigen Inhalten nachweisen.
+
+**Kein Freigabeversprechen:** Diese technische Phase macht die Website nicht insgesamt rechtlich freigegeben. Sie beseitigt nur konkret umsetzbare Ungenauigkeiten und dokumentiert die verbleibenden Nachweise.

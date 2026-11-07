@@ -1,8 +1,9 @@
 """Public website of Bochum RP: homepage, rules, factions, news, FAQ and legal pages.
 
 Everything here is readable without login and shows only public-facing facts. The public team page
-uses the configured TeamBot role lists and renders only display names, role names and Discord CDN
-avatars. It never renders presence, leave data, moderation records or internal notes.
+uses the configured TeamBot role lists and renders only approved display names, role names and
+locally generated initials. It never requests Discord CDN avatars or renders presence, leave data,
+moderation records or internal notes.
 
 The dashboard stays apart: / forwards signed-in team members to their start page, and the team login
 lives at /team-login. /team remains the internal team list.

@@ -1,5 +1,6 @@
 """Public website: pages, separation from the dashboard, legal state, consent and exposure."""
 import base64
+import inspect
 import os
 import re
 import tempfile
@@ -14,6 +15,7 @@ import pulse_public_consent as public_team_consent
 import pulse_public_legal as legal
 import pulse_public_site as site
 import pulse_security
+import pulse_retention
 import webserver as ws
 
 LEGAL_ENV = {
@@ -48,6 +50,10 @@ class Base(unittest.TestCase):
 
 
 class Pages(Base):
+    def test_dashboard_head_never_uses_tailwind_play_cdn(self):
+        self.assertNotIn("cdn.tailwindcss.com", ws.HEAD_SCRIPT)
+        self.assertIn("/static/pulse.css", ws.HEAD_SCRIPT)
+
     def test_every_page_renders_with_strict_policy(self):
         for path in PAGES:
             with self.subTest(path):
@@ -448,6 +454,41 @@ class Legal(Base):
         self.assertEqual(response.headers.get("cache-control"), "no-store")
         for term in ("Henrik Kramer e.K.", "Prepaid-Hoster.de", "Vionity-Kundenportal", "Offenbach am Main"):
             self.assertIn(term, response.text)
+
+    def test_cookie_notice_matches_application_session_and_browser_draft_lifetimes(self):
+        html = self.client.get("/cookies").text
+        self.assertIn("3 Stunden", html)
+        self.assertIn("12 Stunden", html)
+        self.assertIn("30 Tagen ohne Änderung", html)
+        self.assertEqual(pulse_retention.APPLICATION_DRAFT_TTL_DAYS, 30)
+
+    def test_application_privacy_notice_explains_next_visit_cleanup_and_server_retention(self):
+        html = self.client.get("/datenschutz").text
+        self.assertIn("gilt er als abgelaufen und wird beim nächsten Öffnen des Formulars entfernt", html)
+        self.assertIn("nicht automatisch gelöscht", html)
+        self.assertIn("Roblox-Abfragen", html)
+        self.assertIn("Thumbnail", html)
+
+    def test_application_draft_has_expiry_and_explicit_delete_control(self):
+        self.assertIn("__TTL_MS__", ws.APPLY_DRAFT_SCRIPT)
+        self.assertIn("Date.now()-savedAt>TTL_MS", ws.APPLY_DRAFT_SCRIPT)
+        self.assertIn("localStorage.removeItem(KEY)", ws.APPLY_DRAFT_SCRIPT)
+        self.assertIn("Gespeicherten Entwurf löschen", ws.APPLY_DRAFT_SCRIPT)
+        self.assertIn("restoring=true", ws.APPLY_DRAFT_SCRIPT)
+
+    def test_application_flow_does_not_request_or_store_discord_avatars(self):
+        route_source = inspect.getsource(ws.public_apply_page)
+        cookie_source = inspect.getsource(ws.set_apply_session_cookie)
+        self.assertNotIn("cdn.discordapp.com", route_source)
+        self.assertNotIn("avatar_url", route_source)
+        self.assertNotIn("avatar", cookie_source)
+        self.assertIn('("id", "username", "global_name")', cookie_source)
+
+    def test_security_page_does_not_claim_public_discord_cdn_avatars(self):
+        html = self.client.get("/sicherheit").text
+        self.assertIn("keine Bilder, Skripte oder Stylesheets von Drittanbietern", html)
+        self.assertIn("Interne Dashboard- und Teamansichten", html)
+        self.assertNotIn("Die öffentliche Teamvorstellung kann Profilbilder", html)
     def test_nothing_is_invented_while_details_are_missing(self):
         html = self.client.get("/impressum").text
         self.assertIn("noch nicht zur Veröffentlichung freigegeben", html)
