@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+import pulse_public_consent as public_team_consent
 import pulse_public_legal as legal
 import pulse_public_site as site
 import pulse_security
@@ -158,6 +159,7 @@ class Pages(Base):
             display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatars/42/hash.png"),
         )
         role = SimpleNamespace(id=101, name="Founder", position=90, members=[member])
+        public_team_consent.grant(42, [101])
         guild = SimpleNamespace(get_role=lambda role_id: role if role_id == 101 else None)
         bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
         ws.app.state.bot = bot
@@ -182,11 +184,62 @@ class Pages(Base):
         self.assertIn("function startPointerEffects()", public_js)
         self.assertIn("startPointerEffects();", public_js)
 
+    def test_public_team_page_requires_explicit_consent_and_hides_after_withdrawal(self):
+        import cogs.teamliste as teamliste
+        member = SimpleNamespace(
+            id=303, display_name="Testmitglied", status="offline",
+            display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatars/303/test.png"),
+        )
+        role = SimpleNamespace(id=3030, name="Support", position=10, members=[member])
+        guild = SimpleNamespace(get_role=lambda role_id: role if role_id == 3030 else None)
+        ws.app.state.bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
+        self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
+        with patch.object(teamliste, "get_roles_by_category",
+                          side_effect=lambda category: [3030] if category == "lowteam" else []):
+            hidden = self.client.get("/team-vorstellung").text
+            self.assertNotIn("Testmitglied", hidden)
+            self.assertIn("freiwilligen, ausdrücklich gespeicherten Freigabe", hidden)
+            public_team_consent.grant(303, [3030])
+            visible = self.client.get("/team-vorstellung").text
+            self.assertIn("Testmitglied", visible)
+            self.assertIn("Support", visible)
+            self.assertNotIn("offline", visible)
+            self.assertTrue(public_team_consent.withdraw(303))
+            withdrawn = self.client.get("/team-vorstellung").text
+            self.assertNotIn("Testmitglied", withdrawn)
+
+    def test_public_team_page_requires_reconsent_when_configured_role_scope_changes(self):
+        import cogs.teamliste as teamliste
+        member = SimpleNamespace(
+            id=404, display_name="Scope-Test",
+            display_avatar=SimpleNamespace(url=""),
+        )
+        role_a = SimpleNamespace(id=4040, name="Support", position=10, members=[member])
+        role_b = SimpleNamespace(id=4041, name="Leitung", position=20, members=[member])
+        guild = SimpleNamespace(get_role=lambda role_id: {4040: role_a, 4041: role_b}.get(role_id))
+        ws.app.state.bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
+        self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
+        public_team_consent.grant(404, [4040])
+        with patch.object(teamliste, "get_roles_by_category",
+                          side_effect=lambda category: [4040, 4041] if category == "fuehrungsebene" else []):
+            html = self.client.get("/team-vorstellung").text
+        self.assertNotIn("Scope-Test", html)
+
+    def test_public_team_consent_records_version_and_withdrawal(self):
+        accepted = public_team_consent.grant(505, [5050, 5051, 5050])
+        self.assertEqual(accepted["role_ids"], [5050, 5051])
+        current = public_team_consent.active_consents()["505"]
+        self.assertEqual(current["role_ids"], [5050, 5051])
+        self.assertTrue(public_team_consent.withdraw(505))
+        self.assertNotIn("505", public_team_consent.active_consents())
+        self.assertFalse(public_team_consent.withdraw(505))
+
     def test_public_team_page_removes_members_when_they_leave_configured_role(self):
         import cogs.teamliste as teamliste
         member = SimpleNamespace(id=99, display_name="Mara", status="online",
                                  display_avatar=SimpleNamespace(url=""))
         role = SimpleNamespace(id=202, name="Supporter", position=10, members=[member])
+        public_team_consent.grant(99, [202])
         guild = SimpleNamespace(get_role=lambda role_id: role if role_id == 202 else None)
         ws.app.state.bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
         self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
