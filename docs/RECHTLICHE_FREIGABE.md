@@ -7,6 +7,20 @@ Die Veröffentlichung bleibt durch die bestehenden Freigabeschalter geschützt. 
 ## 1. Private Betreiberangaben auf dem VPS
 ## 1. Betreiber ist eine natürliche Person (Privatperson)
 
+Der Betreiber von BOCHUM RP ist nach der vom Betreiber mitgeteilten Organisationsform eine **natürliche Person**, kein eingetragener Verein und keine Gesellschaft. Deshalb gilt für die Konfiguration:
+
+- `PULSE_LEGAL_NAME`: vollständiger bürgerlicher Vor- und Nachname des tatsächlichen Anbieters. Nicht nur „BOCHUM RP“, „Pulse“, ein Discord-Name oder ein Gaming-Pseudonym.
+- `PULSE_LEGAL_ADDRESS`: vollständige zustellfähige Anschrift des Anbieters (Straße, Hausnummer, Postleitzahl und Ort), soweit nach der konkreten Anwendbarkeit erforderlich.
+- `PULSE_LEGAL_FORM`: bei einer natürlichen Person nicht mit „Firma“, „Verein“ oder einer erfundenen Rechtsform befüllen.
+- `PULSE_LEGAL_REPRESENTATIVE`: für den privaten Einzelanbieter grundsätzlich nicht als Organ-/Vertreterfeld ausfüllen.
+- Register-, Kapital- und Umsatzsteuerangaben nur angeben, wenn sie tatsächlich bestehen bzw. im konkreten Fall gesetzlich einschlägig sind.
+
+Die öffentliche BOCHUM-RP-Website richtet sich an eine Community und mögliche Bewerber und ist nicht nur für Familie oder persönliche Freunde bestimmt. Deshalb ist grundsätzlich mit der Anbieterkennzeichnung nach § 18 Abs. 1 MStV zu rechnen. Die vollständige Anbieteridentität und zustellfähige Anschrift müssen vor Veröffentlichung geprüft werden.
+
+**Privatsphäre:** Eine c/o-Anschrift oder ein Zustellungsbevollmächtigter kann unter Umständen eine Alternative zur privaten Wohnanschrift sein. Die empfangende Person muss rechtserhebliche Post tatsächlich entgegennehmen dürfen und unmittelbar weiterleiten. Eine schriftliche Empfangsvollmacht ist sinnvoll und kann verlangt werden. Ein bloßes Postfach, eine Packstation oder eine virtuelle Briefkasten-/Weiterleitungsadresse ist kein sicherer Ersatz. Die konkrete Konstruktion sollte vor Nutzung rechtlich geprüft werden. Siehe [Medienanstalt Hessen: Impressumspflicht](https://www.medienanstalt-hessen.de/aufsicht/telemedien-digitale-dienste-internetaufsicht/impressumspflicht/).
+
+## 1. Betreiber ist eine natürliche Person (Privatperson)
+
 Der Betreiber von BOCHUM RP ist nach der vom Betreiber mitgeteilten Organisationsform eine **natürliche Person**, kein eingetragener Verein und keine Gesellschaft. Deshalb gilt für die rechtliche Konfiguration:
 
 - `PULSE_LEGAL_NAME`: vollständiger bürgerlicher Vor- und Nachname des tatsächlichen Anbieters. Nicht nur „BOCHUM RP“, „Pulse“, ein Discord-Name oder ein Gaming-Pseudonym.
@@ -28,7 +42,7 @@ Echte Namen, Anschriften und private Kontaktdaten gehören nicht in öffentliche
 | `PULSE_LEGAL_ADDRESS` | Zustellfähige Anschrift; Zeilen mit `|` trennen | erforderlich für die Freigabe |
 | `PULSE_LEGAL_EMAIL` | Erreichbare Kontakt-E-Mail | erforderlich für die Freigabe |
 | `PULSE_LEGAL_HOSTER` | Name und Sitz des Hosting-Anbieters | erforderlich für die Freigabe |
-| `PULSE_LEGAL_PHONE` | Telefonnummer | optional, soweit vorhanden/erforderlich |
+| `PULSE_LEGAL_PHONE` | Telefonnummer | optional; bei § 5 DDG eine mögliche weitere Kontaktmöglichkeit neben E-Mail |
 | `PULSE_LEGAL_FORM` | Rechtsform | falls eine Organisation/juristische Person vorliegt |
 | `PULSE_LEGAL_REPRESENTATIVE` | Name und Anschrift der vertretungsberechtigten Person | falls rechtlich erforderlich |
 | `PULSE_LEGAL_REGISTER` | Registergericht und Registernummer | falls eingetragen |
@@ -36,7 +50,12 @@ Echte Namen, Anschriften und private Kontaktdaten gehören nicht in öffentliche
 | `PULSE_LEGAL_WIDNR` | Wirtschafts-Identifikationsnummer | falls vorhanden |
 | `PULSE_LEGAL_AUTHORITY` | Zuständige Aufsichtsbehörde | nur falls die Tätigkeit einer behördlichen Zulassung unterliegt |
 | `PULSE_LEGAL_PROFESSION` | Kammer, Berufsbezeichnung, Staat und Berufsrecht | nur falls eine reglementierte berufliche Tätigkeit ausgeübt wird |
-| `PULSE_LEGAL_CONTENT_RESPONSIBLE` | Vollständiger Name und Anschrift der inhaltlich verantwortlichen Person | nur falls § 18 Abs. 2 MStV einschlägig ist |
+| `PULSE_LEGAL_MSTV_18_2_ASSESSMENT` | `applicable` oder `not_applicable` nach Prüfung des News-/Blog-Bereichs | vor Freigabe erforderlich |
+| `PULSE_LEGAL_CONTENT_RESPONSIBLE_NAME` | Vor- und Nachname der redaktionell verantwortlichen Person | nur falls § 18 Abs. 2 MStV einschlägig ist |
+| `PULSE_LEGAL_CONTENT_RESPONSIBLE_ADDRESS` | Zustellfähige Anschrift der redaktionell verantwortlichen Person | nur falls § 18 Abs. 2 MStV einschlägig ist |
+| `PULSE_LEGAL_DDG_ASSESSMENT` | `applicable` oder `not_applicable` nach Prüfung des Angebots | vor Freigabe erforderlich |
+| `PULSE_LEGAL_CONTACT_METHOD_URL` | HTTPS-Adresse einer tatsächlich funktionierenden weiteren Kontaktmöglichkeit | nur falls § 5 DDG greift und keine Telefonnummer veröffentlicht wird |
+| `PULSE_LEGAL_CONTACT_METHOD_LABEL` | Beschriftung der weiteren Kontaktmöglichkeit | optional bei Verwendung einer URL |
 | `PULSE_LEGAL_EXTRA` | Zusätzliche Angaben | nur falls tatsächlich erforderlich |
 
 Da BOCHUM RP nach der vorliegenden Angabe von einer natürlichen Person betrieben wird, sind die Felder für Rechtsform und vertretungsberechtigte Person derzeit nicht als Firmen-/Vereinsangaben auszufüllen. Sollte sich die Organisationsform später ändern, müssen Impressum und Datenschutz vor der Änderung erneut geprüft werden.
@@ -119,7 +138,8 @@ Die Cookie-Seite listet Login-Cookies, OAuth-State, Bewerbungsentwürfe sowie Da
 
 - [ ] Den tatsächlichen privaten Betreiber mit vollständigem Vor- und Nachnamen und einer zustellfähigen Anschrift eindeutig bestimmen; keine Projektbezeichnung als Anbietername verwenden.
 - [ ] Prüfen, ob für die Anschrift ein rechtlich belastbarer Zustellungsbevollmächtigter mit schriftlicher Empfangs- und Weiterleitungsvollmacht genutzt werden kann.
-- [ ] Prüfen, ob § 5 DDG wegen Entgeltlichkeit/geschäftsmäßiger Ausgestaltung greift; bei Anwendbarkeit E-Mail plus weitere schnelle elektronische Kontaktmöglichkeit bereitstellen.
+- [ ] Prüfen, ob § 5 DDG wegen geschäftsmäßigem Angebot in der Regel gegen Entgelt greift; bei Anwendbarkeit E-Mail plus weitere schnelle elektronische Kontaktmöglichkeit bereitstellen und die Einstufung in `PULSE_LEGAL_DDG_ASSESSMENT` dokumentieren.
+- [ ] § 18 Abs. 2 MStV für die tatsächlichen News-/Blog-Inhalte prüfen; bei Anwendbarkeit verantwortliche Person und Anschrift hinterlegen und die Einstufung in `PULSE_LEGAL_MSTV_18_2_ASSESSMENT` dokumentieren.
 - [ ] Den News-/Blog-Bereich anhand § 18 Abs. 2 MStV prüfen und falls erforderlich eine geeignete redaktionell verantwortliche Person mit vollständigem Namen und Anschrift benennen.
 - [ ] Verantwortlichen und gegebenenfalls Datenschutzbeauftragten eindeutig bestimmen.
 - [ ] Für jeden Verarbeitungsvorgang Zweck, Rechtsgrundlage und – bei Art. 6 Abs. 1 lit. f DSGVO – dokumentiertes berechtigtes Interesse samt Abwägung festlegen.
