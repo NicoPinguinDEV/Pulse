@@ -125,6 +125,27 @@ class Pages(Base):
         self.assertIn("Wir starten bald.", detail.text)
         self.assertEqual(self.client.get("/news/999999").status_code, 404)
 
+    def test_homepage_uses_updated_visual_hierarchy(self):
+        html = self.client.get("/").text
+        for marker in (
+            'class="hero-kicker"',
+            'class="hero-lead"',
+            'class="hero-meta"',
+            'class="hero-scroll"',
+            'class="section-kicker"',
+            'BOCHUM <span>RP</span>',
+        ):
+            self.assertIn(marker, html)
+
+    def test_public_visual_refresh_has_accessible_motion_fallbacks(self):
+        css = (Path(site.ROOT) / "static" / "public.css").read_text(encoding="utf-8")
+        js = (Path(site.ROOT) / "static" / "public.js").read_text(encoding="utf-8")
+        self.assertIn(".reveal-ready.is-revealed", css)
+        self.assertIn("prefers-reduced-motion: reduce", css)
+        self.assertIn("function startScrollReveals()", js)
+        self.assertIn('window.matchMedia("(prefers-reduced-motion: reduce)")', js)
+        self.assertIn('body.style.setProperty("--cursor-x"', js)
+
     def test_public_team_profiles_are_grouped_by_rank_level(self):
         import pulse_public_content as content
         profiles = (
