@@ -9,10 +9,11 @@ from __future__ import annotations
 import os
 from datetime import date
 from html import escape
+from urllib.parse import urlsplit
 
 REQUIRED_FIELDS = {
-    "PULSE_LEGAL_NAME": "Vollständiger Name oder Organisation des Anbieters",
-    "PULSE_LEGAL_ADDRESS": "Zustellfähige Anschrift (Zeilen mit | trennen)",
+    "PULSE_LEGAL_NAME": "Vollständiger bürgerlicher Vor- und Nachname des privaten Anbieters",
+    "PULSE_LEGAL_ADDRESS": "Zustellfähige Anschrift des privaten Anbieters (Straße, Nr., PLZ, Ort; Zeilen mit | trennen)",
     "PULSE_LEGAL_EMAIL": "E-Mail-Adresse",
     "PULSE_LEGAL_HOSTER": "Name und Sitz des Hosting-Anbieters",
 }
@@ -39,8 +40,16 @@ def ready() -> bool:
     return not missing_fields()
 
 
+def _is_https_url(raw: str) -> bool:
+    try:
+        parsed = urlsplit(raw.strip())
+        return parsed.scheme == "https" and bool(parsed.netloc) and not parsed.username and not parsed.password
+    except ValueError:
+        return False
+
+
 def publication_blockers() -> dict[str, str]:
-    """Return every operator-controlled blocker before indexing or declaring the site released."""
+    """Require explicit operator review of the fact-dependent imprint regimes."""
     blockers = missing_fields()
     if value("PULSE_LEGAL_REVIEWED") != "1":
         blockers["PULSE_LEGAL_REVIEWED"] = "Rechts- und Datenschutztexte müssen vom Betreiber geprüft/freigegeben sein"
@@ -50,7 +59,28 @@ def publication_blockers() -> dict[str, str]:
     try:
         date.fromisoformat(effective)
     except ValueError:
-        blockers["PULSE_TERMS_EFFECTIVE_DATE"] = "Gültigkeitsdatum der freigegebenen Nutzungsbedingungen (JJJJ-MM-TT)"
+        blockers["PULSE_TERMS_EFFECTIVE_DATE"] = "Gültigkeitsdatum der freigegebenen Nutzungsbedingungen (JJJJ-MM-DD)"
+
+    ddg_assessment = value("PULSE_LEGAL_DDG_ASSESSMENT")
+    if ddg_assessment not in {"applicable", "not_applicable"}:
+        blockers["PULSE_LEGAL_DDG_ASSESSMENT"] = "Anwendbarkeit von § 5 DDG muss ausdrücklich geprüft werden"
+    elif ddg_assessment == "applicable":
+        contact_url = value("PULSE_LEGAL_CONTACT_METHOD_URL")
+        if not value("PULSE_LEGAL_PHONE") and not _is_https_url(contact_url):
+            blockers["PULSE_LEGAL_CONTACT_METHOD_URL"] = (
+                "Bei Anwendbarkeit des § 5 DDG ist neben der E-Mail eine weitere tatsächlich funktionierende "
+                "Möglichkeit zur schnellen elektronischen Kontaktaufnahme erforderlich"
+            )
+
+    mstv_assessment = value("PULSE_LEGAL_MSTV_18_2_ASSESSMENT")
+    if mstv_assessment not in {"applicable", "not_applicable"}:
+        blockers["PULSE_LEGAL_MSTV_18_2_ASSESSMENT"] = "Anwendbarkeit von § 18 Abs. 2 MStV (News-/Blog-Inhalte) muss geprüft werden"
+    elif mstv_assessment == "applicable":
+        if not value("PULSE_LEGAL_CONTENT_RESPONSIBLE_NAME"):
+            blockers["PULSE_LEGAL_CONTENT_RESPONSIBLE_NAME"] = "Vor- und Nachname der redaktionell verantwortlichen Person"
+        if not value("PULSE_LEGAL_CONTENT_RESPONSIBLE_ADDRESS"):
+            blockers["PULSE_LEGAL_CONTENT_RESPONSIBLE_ADDRESS"] = "Zustellfähige Anschrift der redaktionell verantwortlichen Person"
+
     return blockers
 
 
@@ -71,8 +101,15 @@ def _address() -> str:
 def _operator() -> str:
     email = value("PULSE_LEGAL_EMAIL")
     mail = f'<a href="mailto:{e(email)}">{e(email)}</a>' if email else _or_missing("PULSE_LEGAL_EMAIL")
-    phone = f"<br>Telefon: {e(value('PULSE_LEGAL_PHONE'))}" if value("PULSE_LEGAL_PHONE") else ""
-    return f"<p>{_or_missing('PULSE_LEGAL_NAME')}<br>{_address()}</p><p>E-Mail: {mail}{phone}</p>"
+    contact = ""
+    phone = value("PULSE_LEGAL_PHONE")
+    contact_url = value("PULSE_LEGAL_CONTACT_METHOD_URL")
+    contact_label = value("PULSE_LEGAL_CONTACT_METHOD_LABEL") or "Weitere Kontaktmöglichkeit"
+    if phone:
+        contact = f"<br>Telefon: {e(phone)}"
+    elif _is_https_url(contact_url):
+        contact = f'<br>{e(contact_label)}: <a href="{e(contact_url)}" rel="noopener noreferrer">{e(contact_url)}</a>'
+    return f"<p>{_or_missing('PULSE_LEGAL_NAME')}<br>{_address()}</p><p>E-Mail: {mail}{contact}</p>"
 
 
 def _optional_legal_details() -> str:
@@ -111,20 +148,29 @@ def _privacy_controller() -> str:
 
 
 def impressum_html() -> str:
-    responsible = value("PULSE_LEGAL_CONTENT_RESPONSIBLE")
-    responsible_html = (
-        f"<h2>Verantwortlich für journalistisch-redaktionelle Inhalte</h2>"
-        f"<p>{e(responsible)}</p>"
-        "<p>Diese Angabe ist nur erforderlich, wenn das Angebot die Voraussetzungen des § 18 Abs. 2 MStV erfüllt. "
-        "In diesem Fall müssen Name und Anschrift vollständig angegeben werden.</p>"
-        if responsible else
-        "<p class=\"notice\">Ob ein Verantwortlicher nach § 18 Abs. 2 MStV benannt werden muss, "
-        "ist anhand der tatsächlich veröffentlichten Inhalte zu prüfen.</p>"
-    )
+    responsible_html = ""
+    if value("PULSE_LEGAL_MSTV_18_2_ASSESSMENT") == "applicable":
+        responsible_name = value("PULSE_LEGAL_CONTENT_RESPONSIBLE_NAME")
+        responsible_address = value("PULSE_LEGAL_CONTENT_RESPONSIBLE_ADDRESS")
+        address_html = "<br>".join(e(part.strip()) for part in responsible_address.split("|") if part.strip())
+        responsible_html = (
+            "<h2>Verantwortlich für journalistisch-redaktionelle Inhalte (§ 18 Abs. 2 MStV)</h2>"
+            f"<p>{e(responsible_name)}<br>{address_html}</p>"
+        )
+    elif value("PULSE_LEGAL_MSTV_18_2_ASSESSMENT") == "not_applicable":
+        responsible_html = (
+            "<p class=\"notice\">Die Anwendbarkeit des § 18 Abs. 2 MStV für den News-/Blog-Bereich "
+            "wurde vom Betreiber gesondert geprüft und als nicht einschlägig bewertet.</p>"
+        )
+    else:
+        responsible_html = (
+            "<p class=\"notice\">Die Anwendbarkeit des § 18 Abs. 2 MStV für den News-/Blog-Bereich "
+            "muss vor Freigabe geprüft werden.</p>"
+        )
     return f"""<div class="doc"><h1>Impressum</h1>
 {"" if publication_ready() else CONFIG_NOTICE}
 <h2>Anbieterkennzeichnung</h2>
-<p>Für Telemedien, die nicht ausschließlich persönlichen oder familiären Zwecken dienen, verlangt § 18 Abs. 1 MStV leicht erkennbare, unmittelbar erreichbare und ständig verfügbare Angaben zu Name und Anschrift des Anbieters sowie bei juristischen Personen zu Name und Anschrift der vertretungsberechtigten Person. § 5 DDG enthält zusätzliche Angaben für geschäftsmäßige, in der Regel gegen Entgelt angebotene digitale Dienste. Welche Pflichten im konkreten Fall greifen, muss der Betreiber anhand der tatsächlichen Organisations- und Angebotsform prüfen.</p>
+<p>Für Telemedien, die nicht ausschließlich persönlichen oder familiären Zwecken dienen, verlangt § 18 Abs. 1 MStV leicht erkennbare, unmittelbar erreichbare und ständig verfügbare Angaben zu Name und Anschrift des Anbieters. BOCHUM RP wird nach Betreiberangabe von einer natürlichen Person betrieben; daher ist der vollständige bürgerliche Vor- und Nachname dieser Person anzugeben. Die zusätzlichen Vertreterangaben für juristische Personen sind hier nicht einschlägig. Ob § 5 DDG zusätzlich gilt, hängt davon ab, ob der digitale Dienst geschäftsmäßig und in der Regel gegen Entgelt angeboten wird. Bei Anwendbarkeit sind neben der E-Mail-Adresse weitere Angaben für eine schnelle elektronische Kontaktaufnahme und unmittelbare Kommunikation erforderlich.</p>
 {_operator()}
 {_optional_legal_details()}
 {responsible_html}
@@ -149,10 +195,10 @@ SECTIONS = (
     ("Team-Dashboard", "Für Teammitglieder verarbeitet Pulse je nach genutzter Funktion Dienstzeiten, Aufgaben, Abwesenheiten, Bewerbungs- und Beschäftigungsbezüge, Verwarnungen, Notizen und Aktionsprotokolle. Zugriffe sind rollen- und berechtigungsabhängig.",
      "Je nach Einzelfunktion kommen Art. 6 Abs. 1 lit. b DSGVO (Durchführung einer Vereinbarung) oder lit. f DSGVO (Organisation, Sicherheit und nachvollziehbare Moderation) in Betracht. Die Interessenabwägung und die konkrete Zuordnung sind vom Betreiber zu dokumentieren.", "Berechtigte Teammitglieder und Hosting-Anbieter; interne Zugriffe richten sich nach den Pulse-Berechtigungen.",
      "Es besteht derzeit keine einheitlich technisch durchgesetzte Löschfrist für alle Teamdaten. Die zentrale Retention-Bereinigung ist deaktiviert; einzelne Datenbestände werden nach den jeweiligen Abläufen manuell verwaltet. Backups können gelöschte Daten bis zum Ablauf ihrer eigenen Rotation weiter enthalten."),
-    ("Öffentliche Teamprofile", "Die öffentliche Teamseite übernimmt Daten aus dem Discord-Server und der dortigen Teamrollen-Konfiguration. Angezeigt werden der Discord-Anzeigename, die zugehörige Teamrolle und – sofern verfügbar – das Discord-Profilbild. Mitglieder verschwinden automatisch aus der Teamvorstellung, sobald sie keine der dafür konfigurierten Teamrollen mehr besitzen. Für Profilbilder lädt der Browser Bilddateien direkt von Discord-CDN-Domains. Die Daten werden damit nicht ausschließlich unmittelbar bei einem Besuch der Website bei der betroffenen Person erhoben.",
-     "Die konkrete Rechtsgrundlage (insbesondere eine dokumentierte Einwilligung oder ein nach Art. 6 Abs. 1 lit. f DSGVO tragfähiges berechtigtes Interesse) muss der Betreiber vor Freigabe anhand des tatsächlichen Aufnahme- und Veröffentlichungsvorgangs festlegen und dokumentieren. Die automatische Rollen-Synchronisierung selbst speichert keinen gesonderten Zustimmungsnachweis. Ein Rollenbesitz allein ist kein technischer Einwilligungsnachweis.",
-     "Besucher der öffentlichen Website, Hosting-Anbieter und beim Abruf von Profilbildern Discord als Betreiber der CDN-Domains. Discord-IDs werden nicht als Profilfeld oder sichtbarer Text ausgegeben; CDN-Bildadressen können technische Discord-Kennungen enthalten. Präsenz-/Online-Status, Abwesenheiten, private Kontaktdaten, Moderationsdaten und interne Notizen werden nicht angezeigt.",
-     "Anzeigename und Teamfunktion werden nur angezeigt, solange mindestens eine konfigurierte Teamrolle besteht. Profilbilder werden beim Seitenaufruf von Discord-CDN geladen; dort gelten die Datenschutzinformationen von Discord."),
+    ("Öffentliche Teamprofile", "Die öffentliche Teamseite zeigt ausschließlich Mitglieder der konfigurierten TeamBot-Rollen, die zuvor über den Discord-Befehl /teamseite_freigabe nach Anzeige eines eigenen Hinweises ausdrücklich zugestimmt und die Bestätigungsschaltfläche betätigt haben. Pulse speichert dafür die Discord-ID, den Zeitpunkt und die Textversion der Freigabe sowie die betroffenen Teamrollen-IDs in der Pulse-Datenbank. Die Website gibt nur Discord-Anzeigename, aktuelle Teamrolle und – sofern vorhanden – Profilbild aus. Präsenzstatus, Abwesenheiten, private Kontaktdaten, Verwarnungen und interne Notizen bleiben verborgen. Eine Änderung der konfigurierten Teamrollen erfordert eine erneute Freigabe. Der Widerruf erfolgt über /teamseite_freigabe_widerrufen und beendet die Anzeige bei der nächsten Seitenanfrage.",
+     "Art. 6 Abs. 1 lit. a DSGVO (ausdrückliche, freiwillige Einwilligung). Die Bestätigung ist optional und hat keine Auswirkung auf Teamrolle, Teammitgliedschaft oder interne Berechtigungen. Der Widerruf ist jederzeit möglich und berührt nicht die Rechtmäßigkeit der Verarbeitung bis zum Widerruf.",
+     "Besucher der öffentlichen Website, Hosting-Anbieter, Discord beim Abruf von Profilbildern über seine CDN-Domains sowie die Pulse-Datenbank zur Speicherung des Freigabenachweises. CDN-Bildadressen können technische Discord-Kennungen enthalten. Die Discord-ID ist kein sichtbares Profilfeld. Die Freigabe wird nur der betroffenen Person über eine ephemere Discord-Nachricht angeboten.",
+     "Die öffentliche Anzeige endet mit dem Widerruf, wenn sich der konfigurierte Teamrollen-Scope ändert oder wenn das Mitglied den Server verlässt. Der minimale Freigabenachweis (Discord-ID, Textversion, Teamrollen-Scope, Erteilungs- und ggf. Widerrufszeitpunkt) bleibt in der Datenbank erhalten; eine verbindliche Löschfrist für diesen Nachweis muss der Verantwortliche noch festlegen und technisch umsetzen. Profilbilder werden beim Seitenaufruf vom Discord-CDN angefordert; dort gelten die Datenschutzinformationen von Discord."),
     ("Discord-Server und Bot", "Der Bot verarbeitet je nach Funktion Discord-Nachrichten und Nachrichtenbezüge, Ticket-Inhalte und Transkripte, Rollen- und Mitgliedschaftsänderungen sowie Sprachkanal-Ereignisse. Inhalte können in Ticket-Transkripten oder internen Fallakten gespeichert werden.",
      "Je nach Vorgang Art. 6 Abs. 1 lit. f DSGVO (Betrieb, Sicherheit und Moderation der Community) oder eine andere vom Betreiber zu dokumentierende Rechtsgrundlage.", "Discord als Plattformanbieter, berechtigte Teammitglieder und Hosting-Anbieter.",
      "Ticket-Transkripte haben derzeit keine automatische Löschfrist und bleiben bis zur manuellen Löschung gespeichert. Entschiedene KI-Moderationsfälle werden nach dem aktuellen Code nach 30 Tagen bereinigt; offene Fälle können länger bestehen bleiben."),

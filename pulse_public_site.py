@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 
 import pulse_db
 import pulse_public_content as public_content
+import pulse_public_consent as public_team_consent
 import pulse_public_legal as legal
 
 ROOT = Path(__file__).resolve().parent
@@ -619,8 +620,8 @@ def _safe_public_profiles(limit: int | None = None) -> list[dict]:
         return []
 
 
-def _discord_team_roster(request: Request) -> tuple[list[dict], int]:
-    """Build the public roster from the same role configuration as the Discord TeamBot list."""
+def _discord_team_roster(request: Request) -> tuple[list[str], int]:
+    """Render only TeamBot members with explicit, current-version consent for this role set."""
     import pulse_ids
     from cogs.teamliste import get_roles_by_category
 
@@ -634,30 +635,69 @@ def _discord_team_roster(request: Request) -> tuple[list[dict], int]:
         ("highteam", "HighTeam"),
         ("lowteam", "LowTeam"),
     )
-    sections: list[str] = []
-    unique_members: set[int] = set()
+    configured_groups: list[tuple[str, str, list]] = []
+    member_role_ids: dict[int, set[int]] = {}
 
+    # Build the complete current TeamBot role scope before checking any individual consent.
     for category_key, category_label in categories:
         try:
-            role_ids = get_roles_by_category(category_key)
+            raw_role_ids = get_roles_by_category(category_key)
         except (sqlite3.Error, OSError, RuntimeError):
-            role_ids = []
-        roles = [guild.get_role(int(role_id)) for role_id in role_ids]
-        roles = sorted((role for role in roles if role is not None),
-                       key=lambda role: getattr(role, "position", 0), reverse=True)
+            raw_role_ids = []
+        normalized_ids = []
+        for raw_id in raw_role_ids:
+            try:
+                role_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if role_id > 0 and role_id not in normalized_ids:
+                normalized_ids.append(role_id)
+        roles = [guild.get_role(role_id) for role_id in normalized_ids]
+        roles = sorted(
+            (role for role in roles if role is not None),
+            key=lambda role: getattr(role, "position", 0),
+            reverse=True,
+        )
+        configured_groups.append((category_key, category_label, roles))
+        for role in roles:
+            try:
+                role_id = int(role.id)
+            except (TypeError, ValueError, AttributeError):
+                continue
+            for member in getattr(role, "members", ()) or ():
+                try:
+                    member_id = int(member.id)
+                except (TypeError, ValueError, AttributeError):
+                    continue
+                member_role_ids.setdefault(member_id, set()).add(role_id)
+
+    consents = public_team_consent.active_consents()
+    permitted_ids = {
+        member_id
+        for member_id, current_roles in member_role_ids.items()
+        if (
+            (record := consents.get(str(member_id))) is not None
+            and record.get("role_ids") == sorted(current_roles)
+        )
+    }
+    if not permitted_ids:
+        return [], 0
+
+    sections: list[str] = []
+    for _category_key, category_label, roles in configured_groups:
         role_groups = []
         for role in roles:
             members = sorted(
-                getattr(role, "members", ()) or (),
+                (
+                    member for member in (getattr(role, "members", ()) or ())
+                    if getattr(member, "id", None) in permitted_ids
+                ),
                 key=lambda member: str(getattr(member, "display_name", "")).casefold(),
             )
             if not members:
                 continue
             cards = []
             for member in members:
-                member_id = getattr(member, "id", None)
-                if isinstance(member_id, int):
-                    unique_members.add(member_id)
                 display_name = str(getattr(member, "display_name", "") or "Teammitglied")
                 avatar_url = ""
                 try:
@@ -686,7 +726,7 @@ def _discord_team_roster(request: Request) -> tuple[list[dict], int]:
                 f'<section class="team-level"><header class="team-level-head">'
                 f'<p class="tag">{e(category_label)}</p></header>{"".join(role_groups)}</section>'
             )
-    return sections, len(unique_members)
+    return sections, len(permitted_ids)
 
 
 def public_team_html(request: Request) -> str:
@@ -695,7 +735,7 @@ def public_team_html(request: Request) -> str:
         return (
             '<div class="doc"><header class="team-intro"><p class="tag">BOCHUM RP · TEAM</p>'
             '<h1>Die Köpfe hinter BOCHUM RP</h1><p>Engagiert, erfahren und für unsere Community im Einsatz.</p></header>'
-            '<p class="empty">Die aktuelle Teamliste ist momentan nicht verfügbar. Bitte versuche es später erneut.</p></div>'
+            '<p class="empty">Die Teamvorstellung zeigt ausschließlich Personen mit einer freiwilligen, ausdrücklich gespeicherten Freigabe. Aktuell sind keine Profile freigegeben. Die Teammitgliedschaft ist nicht von einer Veröffentlichung abhängig.</p></div>'
         )
     return (
         '<div class="doc"><header class="team-intro"><p class="tag">BOCHUM RP · TEAM</p>'
@@ -743,6 +783,8 @@ def respond(html: str, *, cache: bool = True, status_code: int = 200) -> HTMLRes
     response.headers["X-Frame-Options"] = "DENY"
     if cache:
         response.headers["Cache-Control"] = "public, max-age=300"
+    else:
+        response.headers["Cache-Control"] = "no-store"
     # Unfinished legal details: stay out of search engines until the operator completed them.
     response.headers["X-Robots-Tag"] = "index, follow" if legal.publication_ready() else "noindex, nofollow"
     return response

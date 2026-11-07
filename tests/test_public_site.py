@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+import pulse_public_consent as public_team_consent
 import pulse_public_legal as legal
 import pulse_public_site as site
 import pulse_security
@@ -19,6 +20,8 @@ LEGAL_ENV = {
     "PULSE_LEGAL_NAME": "Test Person", "PULSE_LEGAL_ADDRESS": "Teststraße 1|12345 Teststadt",
     "PULSE_LEGAL_EMAIL": "kontakt@example.invalid", "PULSE_LEGAL_HOSTER": "Test Hosting GmbH",
     "PULSE_LEGAL_REVIEWED": "1", "PULSE_TERMS_APPROVED": "1", "PULSE_TERMS_EFFECTIVE_DATE": "2026-11-06",
+    "PULSE_LEGAL_DDG_ASSESSMENT": "not_applicable",
+    "PULSE_LEGAL_MSTV_18_2_ASSESSMENT": "not_applicable",
 }
 PAGES = ("/", "/regelwerk", "/faq", "/fraktionen", "/news", "/team-vorstellung", "/nutzungsbedingungen",
          "/impressum", "/datenschutz", "/cookies", "/sicherheit")
@@ -158,6 +161,7 @@ class Pages(Base):
             display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatars/42/hash.png"),
         )
         role = SimpleNamespace(id=101, name="Founder", position=90, members=[member])
+        public_team_consent.grant(42, [101])
         guild = SimpleNamespace(get_role=lambda role_id: role if role_id == 101 else None)
         bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
         ws.app.state.bot = bot
@@ -182,11 +186,98 @@ class Pages(Base):
         self.assertIn("function startPointerEffects()", public_js)
         self.assertIn("startPointerEffects();", public_js)
 
+    def test_public_team_page_requires_explicit_consent_and_hides_after_withdrawal(self):
+        import cogs.teamliste as teamliste
+        member = SimpleNamespace(
+            id=303, display_name="Testmitglied", status="offline",
+            display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatars/303/test.png"),
+        )
+        role = SimpleNamespace(id=3030, name="Support", position=10, members=[member])
+        guild = SimpleNamespace(get_role=lambda role_id: role if role_id == 3030 else None)
+        ws.app.state.bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
+        self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
+        with patch.object(teamliste, "get_roles_by_category",
+                          side_effect=lambda category: [3030] if category == "lowteam" else []):
+            hidden = self.client.get("/team-vorstellung").text
+            self.assertNotIn("Testmitglied", hidden)
+            self.assertIn("freiwilligen, ausdrücklich gespeicherten Freigabe", hidden)
+            public_team_consent.grant(303, [3030])
+            visible = self.client.get("/team-vorstellung").text
+            self.assertIn("Testmitglied", visible)
+            self.assertEqual(self.client.get("/team-vorstellung").headers.get("cache-control"), "no-store")
+            self.assertIn("Support", visible)
+            self.assertNotIn("offline", visible)
+            self.assertTrue(public_team_consent.withdraw(303))
+            withdrawn = self.client.get("/team-vorstellung").text
+            self.assertNotIn("Testmitglied", withdrawn)
+
+    def test_public_team_page_requires_reconsent_when_configured_role_scope_changes(self):
+        import cogs.teamliste as teamliste
+        member = SimpleNamespace(
+            id=404, display_name="Scope-Test",
+            display_avatar=SimpleNamespace(url=""),
+        )
+        role_a = SimpleNamespace(id=4040, name="Support", position=10, members=[member])
+        role_b = SimpleNamespace(id=4041, name="Leitung", position=20, members=[member])
+        guild = SimpleNamespace(get_role=lambda role_id: {4040: role_a, 4041: role_b}.get(role_id))
+        ws.app.state.bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
+        self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
+        public_team_consent.grant(404, [4040])
+        with patch.object(teamliste, "get_roles_by_category",
+                          side_effect=lambda category: [4040, 4041] if category == "fuehrungsebene" else []):
+            html = self.client.get("/team-vorstellung").text
+        self.assertNotIn("Scope-Test", html)
+
+    def test_role_update_revokes_consent_and_still_schedules_teamlist_refresh(self):
+        import cogs.teamliste as teamliste
+        import asyncio
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        cog = teamliste.TeamlisteCog.__new__(teamliste.TeamlisteCog)
+        cog._update_debounce_task = None
+        cog._debounced_update_teamlist = lambda _guild: asyncio.sleep(0)
+        public_team_consent.grant(606, [6060])
+        before = SimpleNamespace(
+            id=606,
+            roles=[SimpleNamespace(id=6060)],
+            display_name="Before",
+            guild=SimpleNamespace(),
+        )
+        after = SimpleNamespace(
+            id=606,
+            roles=[SimpleNamespace(id=6060), SimpleNamespace(id=6061)],
+            display_name="After",
+            guild=before.guild,
+        )
+        cog.public_team_role_ids = lambda member: sorted(role.id for role in member.roles)
+        dummy_task = SimpleNamespace(done=lambda: True)
+
+        def consume_coroutine(coro, **_kwargs):
+            coro.close()
+            return dummy_task
+
+        with patch.object(teamliste, "spawn_task", side_effect=consume_coroutine) as spawn:
+            asyncio.run(cog.on_member_update(before, after))
+
+        self.assertNotIn("606", public_team_consent.active_consents())
+        spawn.assert_called_once()
+
+    def test_public_team_consent_records_version_and_withdrawal(self):
+        accepted = public_team_consent.grant(505, [5050, 5051, 5050])
+        self.assertEqual(accepted["role_ids"], [5050, 5051])
+        current = public_team_consent.active_consents()["505"]
+        self.assertEqual(current["role_ids"], [5050, 5051])
+        self.assertTrue(public_team_consent.withdraw(505))
+        self.assertNotIn("505", public_team_consent.active_consents())
+        self.assertFalse(public_team_consent.withdraw(505))
+
     def test_public_team_page_removes_members_when_they_leave_configured_role(self):
         import cogs.teamliste as teamliste
         member = SimpleNamespace(id=99, display_name="Mara", status="online",
                                  display_avatar=SimpleNamespace(url=""))
         role = SimpleNamespace(id=202, name="Supporter", position=10, members=[member])
+        public_team_consent.grant(99, [202])
         guild = SimpleNamespace(get_role=lambda role_id: role if role_id == 202 else None)
         ws.app.state.bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
         self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
@@ -392,8 +483,68 @@ class Legal(Base):
         html = self.client.get("/impressum").text
         self.assertIn("§ 18 Abs. 1 MStV", html)
         self.assertIn("§ 5 DDG", html)
-        self.assertIn("geschäftsmäßige, in der Regel gegen Entgelt", html)
+        self.assertIn("geschäftsmäßig und in der Regel gegen Entgelt", html)
+        self.assertIn("bürgerliche Vor- und Nachname", html)
         self.assertIn("§ 18 Abs. 2 MStV", html)
+
+    def test_publication_is_blocked_until_ddg_and_mstv_18_2_scope_is_assessed(self):
+        env = dict(LEGAL_ENV)
+        env.pop("PULSE_LEGAL_DDG_ASSESSMENT", None)
+        env.pop("PULSE_LEGAL_MSTV_18_2_ASSESSMENT", None)
+        with patch.dict(os.environ, env, clear=True):
+            blockers = legal.publication_blockers()
+        self.assertIn("PULSE_LEGAL_DDG_ASSESSMENT", blockers)
+        self.assertIn("PULSE_LEGAL_MSTV_18_2_ASSESSMENT", blockers)
+
+    def test_ddg_assessment_requires_second_contact_channel_when_applicable(self):
+        with patch.dict(os.environ, {
+            **LEGAL_ENV,
+            "PULSE_LEGAL_DDG_ASSESSMENT": "applicable",
+            "PULSE_LEGAL_PHONE": "",
+            "PULSE_LEGAL_CONTACT_METHOD_URL": "",
+        }):
+            blockers = legal.publication_blockers()
+        self.assertIn("PULSE_LEGAL_CONTACT_METHOD_URL", blockers)
+        with patch.dict(os.environ, {
+            **LEGAL_ENV,
+            "PULSE_LEGAL_DDG_ASSESSMENT": "applicable",
+            "PULSE_LEGAL_PHONE": "+49 123 456789",
+        }):
+            self.assertNotIn("PULSE_LEGAL_CONTACT_METHOD_URL", legal.publication_blockers())
+
+    def test_valid_https_contact_method_is_displayed_when_ddg_applies(self):
+        with patch.dict(os.environ, {
+            **LEGAL_ENV,
+            "PULSE_LEGAL_DDG_ASSESSMENT": "applicable",
+            "PULSE_LEGAL_CONTACT_METHOD_URL": "https://example.invalid/contact",
+            "PULSE_LEGAL_CONTACT_METHOD_LABEL": "Kontaktformular",
+        }):
+            html = legal.impressum_html()
+        self.assertIn("Kontaktformular", html)
+        self.assertIn('href="https://example.invalid/contact"', html)
+
+    def test_non_https_contact_method_does_not_satisfy_ddg_gate(self):
+        with patch.dict(os.environ, {
+            **LEGAL_ENV,
+            "PULSE_LEGAL_DDG_ASSESSMENT": "applicable",
+            "PULSE_LEGAL_PHONE": "",
+            "PULSE_LEGAL_CONTACT_METHOD_URL": "javascript:alert(1)",
+        }):
+            blockers = legal.publication_blockers()
+            html = legal.impressum_html()
+        self.assertIn("PULSE_LEGAL_CONTACT_METHOD_URL", blockers)
+        self.assertNotIn('href="javascript:alert(1)"', html)
+
+    def test_mstv_18_2_requires_responsible_name_and_address_when_applicable(self):
+        with patch.dict(os.environ, {
+            **LEGAL_ENV,
+            "PULSE_LEGAL_MSTV_18_2_ASSESSMENT": "applicable",
+            "PULSE_LEGAL_CONTENT_RESPONSIBLE_NAME": "",
+            "PULSE_LEGAL_CONTENT_RESPONSIBLE_ADDRESS": "",
+        }):
+            blockers = legal.publication_blockers()
+        self.assertIn("PULSE_LEGAL_CONTENT_RESPONSIBLE_NAME", blockers)
+        self.assertIn("PULSE_LEGAL_CONTENT_RESPONSIBLE_ADDRESS", blockers)
 
     def test_optional_imprint_details_are_rendered_only_when_supplied_and_escaped(self):
         env = {
@@ -446,7 +597,7 @@ class Legal(Base):
 
     def test_privacy_names_every_processing_and_each_required_fact(self):
         html = self.client.get("/datenschutz").text
-        for term in ("Discord OAuth", "IP-Adresse", "Bewerbung", "Öffentliche Teamprofile", "Profilbild", "gesonderten Zustimmungsnachweis",
+        for term in ("Discord OAuth", "IP-Adresse", "Bewerbung", "Öffentliche Teamprofile", "Profilbild", "ausdrücklich zugestimmt", "Einwilligung", "teamseite_freigabe_widerrufen",
                      "bis zu acht vorherige Gesprächsnachrichten", "/ki_vergessen", "Art. 14 DSGVO", "KI-Anbieter", "Backups", "Art. 77", "Art. 21"):
             self.assertIn(term, html)
         self.assertEqual(html.count("<dt>Rechtsgrundlage</dt>"), len(legal.SECTIONS))
