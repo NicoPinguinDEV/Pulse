@@ -1,10 +1,8 @@
 """Public website of Bochum RP: homepage, rules, factions, news, FAQ and legal pages.
 
-Everything here is readable without login and shows only approved facts: rules from
-support_knowledge.md, official factions (name, category, description), news an administrator
-published, and the live member count from Discord. Nothing internal is rendered, and no external
-resource is loaded, so the pages need no consent. Should an optional service ever be added, list it in
-OPTIONAL_SERVICES: only then the consent banner appears and the service loads after a choice.
+Everything here is readable without login and shows only public-facing facts. The public team page
+uses the configured TeamBot role lists and renders only display names, role names and Discord CDN
+avatars. It never renders presence, leave data, moderation records or internal notes.
 
 The dashboard stays apart: / forwards signed-in team members to their start page, and the team login
 lives at /team-login. /team remains the internal team list.
@@ -37,9 +35,9 @@ CONSENT_VERSION = 1
 # {"id", "label", "purpose", "provider"} per optional service; empty means no consent banner.
 OPTIONAL_SERVICES: tuple[dict, ...] = ()
 
-# No external origin, no inline code: a public page can run nothing but our two static files.
+# Only Discord's image CDN is permitted for live team avatars; scripts and styles remain same-origin.
 CSP = (
-    "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; "
+    "default-src 'none'; img-src 'self' data: https://cdn.discordapp.com https://media.discordapp.net; style-src 'self'; script-src 'self'; font-src 'self'; "
     "connect-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
 )
 PUBLIC_PATHS = ("/", "/regelwerk", "/faq", "/fraktionen", "/news", "/team-vorstellung",
@@ -621,27 +619,96 @@ def _safe_public_profiles(limit: int | None = None) -> list[dict]:
         return []
 
 
-def public_team_html() -> str:
-    profiles = _safe_public_profiles()
-    if not profiles:
+def _discord_team_roster(request: Request) -> tuple[list[dict], int]:
+    """Build the public roster from the same role configuration as the Discord TeamBot list."""
+    import pulse_ids
+    from cogs.teamliste import get_roles_by_category
+
+    bot = getattr(request.app.state, "bot", None)
+    guild = bot.get_guild(pulse_ids.GUILD_ID) if bot else None
+    if guild is None:
+        return [], 0
+
+    categories = (
+        ("fuehrungsebene", "Führungsebene"),
+        ("highteam", "HighTeam"),
+        ("lowteam", "LowTeam"),
+    )
+    sections: list[str] = []
+    unique_members: set[int] = set()
+
+    for category_key, category_label in categories:
+        try:
+            role_ids = get_roles_by_category(category_key)
+        except (sqlite3.Error, OSError, RuntimeError):
+            role_ids = []
+        roles = [guild.get_role(int(role_id)) for role_id in role_ids]
+        roles = sorted((role for role in roles if role is not None),
+                       key=lambda role: getattr(role, "position", 0), reverse=True)
+        role_groups = []
+        for role in roles:
+            members = sorted(
+                getattr(role, "members", ()) or (),
+                key=lambda member: str(getattr(member, "display_name", "")).casefold(),
+            )
+            if not members:
+                continue
+            cards = []
+            for member in members:
+                member_id = getattr(member, "id", None)
+                if isinstance(member_id, int):
+                    unique_members.add(member_id)
+                display_name = str(getattr(member, "display_name", "") or "Teammitglied")
+                avatar_url = ""
+                try:
+                    candidate = str(member.display_avatar.url)
+                    if candidate.startswith(("https://cdn.discordapp.com/", "https://media.discordapp.net/")):
+                        avatar_url = candidate
+                except (AttributeError, TypeError, ValueError):
+                    pass
+                initials = "".join(part[0] for part in display_name.split()[:2]).upper() or "?"
+                portrait = (
+                    f'<img class="team-avatar" src="{e(avatar_url)}" alt="Discord-Profilbild von {e(display_name)}" loading="lazy" decoding="async">'
+                    if avatar_url else f'<div class="team-initials" aria-hidden="true">{e(initials)}</div>'
+                )
+                cards.append(
+                    f'<article class="team-card">{portrait}<p class="tag">{e(role.name)}</p>'
+                    f'<h3>{e(display_name)}</h3></article>'
+                )
+            role_groups.append(
+                f'<section class="team-rank" aria-label="{e(role.name)}">'
+                f'<header class="team-rank-head"><h3>{e(role.name)}</h3>'
+                f'<span>{len(cards)} {"Mitglied" if len(cards) == 1 else "Mitglieder"}</span></header>'
+                f'<div class="team-grid">{"".join(cards)}</div></section>'
+            )
+        if role_groups:
+            sections.append(
+                f'<section class="team-level"><header class="team-level-head">'
+                f'<p class="tag">{e(category_label)}</p></header>{"".join(role_groups)}</section>'
+            )
+    return sections, len(unique_members)
+
+
+def public_team_html(request: Request) -> str:
+    sections, member_total = _discord_team_roster(request)
+    if not sections:
         return (
             '<div class="doc"><header class="team-intro"><p class="tag">BOCHUM RP · TEAM</p>'
-            '<h1>Unser Team</h1><p>Hier stellen wir die Menschen vor, die Bochum RP betreuen.</p></header>'
-            '<p class="empty">Öffentliche Teamprofile erscheinen hier erst nach Zustimmung der jeweiligen Person '
-            'und Freigabe durch die Teamleitung.</p></div>'
+            '<h1>Die Köpfe hinter BOCHUM RP</h1><p>Engagiert, erfahren und für unsere Community im Einsatz.</p></header>'
+            '<p class="empty">Die aktuelle Teamliste ist momentan nicht verfügbar. Bitte versuche es später erneut.</p></div>'
         )
     return (
         '<div class="doc"><header class="team-intro"><p class="tag">BOCHUM RP · TEAM</p>'
-        '<h1>Unser Team</h1>'
-        f'<p>{len(profiles)} freigegebene Teamprofile – geordnet nach Verantwortungs- und Aufgabenebenen.</p>'
-        '<p class="empty">Angezeigt werden ausschließlich Profile, deren Veröffentlichung die betreffende Person '
-        'freigegeben hat.</p></header>'
-        f'{_team_sections(profiles)}</div>'
+        '<h1>Die Köpfe hinter BOCHUM RP</h1>'
+        f'<p class="team-total">{member_total} {"Mitglied" if member_total == 1 else "Mitglieder"}</p>'
+        '<p>Hier findest du die Menschen hinter BOCHUM RP – sortiert nach ihrer aktuellen Teamfunktion.</p>'
+        '</header>'
+        f'{"".join(sections)}</div>'
     )
 
 
 def _read_team_avatar(upload: UploadFile | None) -> str:
-    """Store a small local PNG portrait; public pages never contact third-party image hosts."""
+    """Validate an optional locally uploaded PNG for legacy manually managed profile records."""
     if upload is None or not upload.filename:
         return ""
     payload = upload.file.read(512 * 1024 + 1)
@@ -657,16 +724,11 @@ def _read_team_avatar(upload: UploadFile | None) -> str:
 
 
 def public_team_teaser() -> str:
-    profiles = _safe_public_profiles(3)
-    if not profiles:
-        return (
-            '<section class="band band-alt" id="team"><p class="section-kicker">03 / DEINE ANSPRECHPARTNER</p><h2>Das Team hinter Bochum RP</h2>'
-            '<p>Unser Team sorgt für einen geordneten Ablauf und hilft bei Fragen weiter.</p>'
-            '<p><a class="more" href="/team-vorstellung">Teamvorstellung ansehen</a></p></section>'
-        )
     return (
-        '<section class="band band-alt" id="team"><p class="section-kicker">03 / DEINE ANSPRECHPARTNER</p><h2>Das Team hinter Bochum RP</h2>'
-        f'{_team_cards(profiles)}<p><a class="more" href="/team-vorstellung">Alle Teamprofile ansehen</a></p></section>'
+        '<section class="band band-alt" id="team"><p class="section-kicker">03 / DEINE ANSPRECHPARTNER</p>'
+        '<h2>Das Team hinter Bochum RP</h2>'
+        '<p>Die öffentliche Teamvorstellung wird automatisch aus den aktuellen Teamrollen gepflegt.</p>'
+        '<p><a class="more" href="/team-vorstellung">Teamvorstellung ansehen</a></p></section>'
     )
 
 
@@ -722,9 +784,12 @@ def register(app) -> None:
             return ws.rate_limit_response("Zu viele Seitenaufrufe. Bitte versuche es in einer Minute erneut.")
         return None
 
-    def add_page(path: str, title: str, description: str, render, *, cache: bool = True):
+    def add_page(path: str, title: str, description: str, render, *, cache: bool = True, with_request: bool = False):
         async def handler(request: Request):
-            return limited(request) or respond(page(title, description, render(), path=path), cache=cache)
+            if limited_response := limited(request):
+                return limited_response
+            body = render(request) if with_request else render()
+            return respond(page(title, description, body, path=path), cache=cache)
 
         handler.__name__ = "public_" + path.strip("/")
         app.add_api_route(path, handler, methods=["GET"], response_class=HTMLResponse, include_in_schema=False)
@@ -734,8 +799,8 @@ def register(app) -> None:
     add_page("/news", "News | Bochum RP", "Neuigkeiten von Bochum RP.", news_html)
     add_page("/faq", "Häufige Fragen | Bochum RP", "Antworten zu Server, Roleplay und Bewerbung.", faq_html)
     # Public profile withdrawals must not remain in intermediary caches.
-    add_page("/team-vorstellung", "Team | Bochum RP", "Öffentlich freigegebene Teamprofile von Bochum RP.",
-             public_team_html, cache=False)
+    add_page("/team-vorstellung", "Team | Bochum RP", "Das aktuelle Team von Bochum RP.",
+             public_team_html, cache=False, with_request=True)
     add_page("/nutzungsbedingungen", "Nutzungsbedingungen | Bochum RP", "Nutzungs- und Community-Bedingungen von Bochum RP.", legal.terms_html)
     add_page("/impressum", "Impressum | Bochum RP", "Anbieterkennzeichnung von Bochum RP.", legal.impressum_html)
     add_page("/datenschutz", "Datenschutz | Bochum RP", "Wie Bochum RP und Pulse personenbezogene Daten verarbeiten.", legal.privacy_html)
@@ -804,9 +869,8 @@ def register(app) -> None:
             for row in rows
         ) or "<p class='muted'>Noch keine News veröffentlicht.</p>"
         body = f"""<div class="pulse-card"><h2>Freigabestatus</h2>{status}</div>
-        <div class="pulse-card"><h2>Öffentliche Teamprofile</h2>
-        <p class="muted">Profile sind nach dem Anlegen unveröffentlicht. Erst ein separater Klick auf „Veröffentlichen“ macht sie öffentlich.</p>
-        <a class="btn" href="/admin/website/team">Teamprofile verwalten</a></div>
+        <div class="pulse-card"><h2>Öffentliche Teamvorstellung</h2>
+        <p class="muted">Die Teamseite wird automatisch aus den aktuellen Rollen der TeamBot-Kategorien Führungsebene, HighTeam und LowTeam erzeugt. Rollenänderungen werden direkt bei der nächsten Seitenanfrage übernommen; manuelle Profileinträge sind dafür nicht erforderlich.</p></div>
         <div class="pulse-card"><h2>News veröffentlichen</h2>
         <p class="muted">News werden nach dem Speichern sofort öffentlich angezeigt.</p>
         <form method="post" action="/admin/website/news" class="grid gap-3">

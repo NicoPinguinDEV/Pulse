@@ -58,7 +58,12 @@ class Pages(Base):
     def test_no_external_resource_and_no_inline_code(self):
         for path in PAGES:
             html = self.client.get(path).text
-            self.assertEqual(re.findall(r'<(?:script|link|img)[^>]+(?:src|href)="https?://', html), [], path)
+            external_assets = re.findall(r'<(?:script|link|img)[^>]+(?:src|href)="(https?://[^"]+)', html)
+            if path == "/team-vorstellung":
+                self.assertTrue(all(asset.startswith(("https://cdn.discordapp.com/", "https://media.discordapp.net/"))
+                                    for asset in external_assets))
+            else:
+                self.assertEqual(external_assets, [], path)
             self.assertNotIn("<style", html)
             self.assertIsNone(re.search(r"<script(?![^>]*\bsrc=)(?![^>]*application/json)", html), path)
             self.assertIsNone(re.search(r"\sstyle=\"", html), path)
@@ -146,29 +151,27 @@ class Pages(Base):
         self.assertIn('window.matchMedia("(prefers-reduced-motion: reduce)")', js)
         self.assertIn('body.style.setProperty("--cursor-x"', js)
 
-    def test_public_team_profiles_are_grouped_by_rank_level(self):
-        import pulse_public_content as content
-        profiles = (
-            ("Nico", "Founder"),
-            ("Mara", "Teamleitung"),
-            ("Lena", "Admin"),
-            ("Finn", "Moderator"),
-            ("Tom", "Support-Leitung"),
+    def test_public_team_page_uses_current_configured_discord_roles(self):
+        import cogs.teamliste as teamliste
+        member = SimpleNamespace(
+            id=42, display_name="Nico", status="offline",
+            display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatars/42/hash.png"),
         )
-        for name, rank in profiles:
-            profile_id = content.create_profile(name, rank)
-            self.assertTrue(content.set_published(profile_id, True))
-
-        html = self.client.get("/team-vorstellung").text
-        for name in ("Nico", "Mara", "Lena", "Finn", "Tom"):
-            self.assertIn(name, html)
-        self.assertIn("Inhaber- &amp; Führungsebene", html)
-        self.assertIn("Management- &amp; Teamleitungsebene", html)
-        self.assertIn("Administrationsebene", html)
-        self.assertIn("Moderationsebene", html)
-        self.assertIn("Supportebene", html)
-        self.assertLess(html.index("Inhaber- &amp; Führungsebene"), html.index("Management- &amp; Teamleitungsebene"))
-        self.assertLess(html.index("Management- &amp; Teamleitungsebene"), html.index("Administrationsebene"))
+        role = SimpleNamespace(id=101, name="Founder", position=90, members=[member])
+        guild = SimpleNamespace(get_role=lambda role_id: role if role_id == 101 else None)
+        bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
+        ws.app.state.bot = bot
+        self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
+        with patch.object(teamliste, "get_roles_by_category",
+                          side_effect=lambda category: [101] if category == "fuehrungsebene" else []):
+            html = self.client.get("/team-vorstellung").text
+        self.assertIn("Die Köpfe hinter BOCHUM RP", html)
+        self.assertIn("1 Mitglied", html)
+        self.assertIn("Founder", html)
+        self.assertIn("Nico", html)
+        self.assertIn("cdn.discordapp.com/avatars/42/hash.png", html)
+        self.assertNotIn("offline", html)
+        self.assertNotIn("Abgemeldet", html)
 
     def test_public_site_pointer_effect_is_progressive_and_respects_reduced_motion(self):
         public_css = (Path(site.ROOT) / "static" / "public.css").read_text(encoding="utf-8")
@@ -179,23 +182,19 @@ class Pages(Base):
         self.assertIn("function startPointerEffects()", public_js)
         self.assertIn("startPointerEffects();", public_js)
 
-    def test_public_team_profiles_are_hidden_until_explicitly_published(self):
-        import pulse_public_content as content
-        profile_id = content.create_profile("Mara", "Support-Leitung", "Hilft bei Fragen.")
-        draft_page = self.client.get("/team-vorstellung").text
-        self.assertNotIn("Mara", draft_page)
-        self.assertTrue(content.set_published(profile_id, True))
-        response = self.client.get("/team-vorstellung")
-        self.assertNotIn("public", response.headers.get("cache-control", "").lower())
-        public_page = response.text
-        self.assertIn("Mara", public_page)
-        self.assertIn("Support-Leitung", public_page)
-        self.assertIn("Hilft bei Fragen.", public_page)
-        for internal_field in ("discord_id", "private_note", "moderation_case", "service_hours"):
-            self.assertNotIn(internal_field, public_page.lower())
-        self.assertTrue(content.set_published(profile_id, False))
-        withdrawn_page = self.client.get("/team-vorstellung").text
-        self.assertNotIn("Mara", withdrawn_page)
+    def test_public_team_page_removes_members_when_they_leave_configured_role(self):
+        import cogs.teamliste as teamliste
+        member = SimpleNamespace(id=99, display_name="Mara", status="online",
+                                 display_avatar=SimpleNamespace(url=""))
+        role = SimpleNamespace(id=202, name="Supporter", position=10, members=[member])
+        guild = SimpleNamespace(get_role=lambda role_id: role if role_id == 202 else None)
+        ws.app.state.bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
+        self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
+        with patch.object(teamliste, "get_roles_by_category",
+                          side_effect=lambda category: [202] if category == "lowteam" else []):
+            self.assertIn("Mara", self.client.get("/team-vorstellung").text)
+            role.members = []
+            self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
 
 
 class Separation(Base):
@@ -286,22 +285,18 @@ class WebsiteAdmin(Base):
         self.assertEqual(self.client.post(f"/admin/website/news/{news_id}/delete").status_code, 303)
         self.assertNotIn("Serverneustart", self.client.get("/news").text)
 
-    def test_public_team_profile_requires_subject_consent_before_publish(self):
+    def test_legacy_manual_profiles_do_not_override_the_live_discord_roster(self):
         import pulse_public_content as content
         self.login(True)
-        profile_id = content.create_profile("Mara", "Support", "Freigegebener Text")
-        denied = self.client.post(f"/admin/website/team/{profile_id}/publish", data={"published": "1"})
-        self.assertEqual(denied.status_code, 422)
-        self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
+        profile_id = content.create_profile("Mara", "Support", "Legacy-Datensatz")
         approved = self.client.post(
             f"/admin/website/team/{profile_id}/publish",
             data={"published": "1", "consent_confirmed": "1"},
         )
         self.assertEqual(approved.status_code, 303)
-        self.assertIn("Mara", self.client.get("/team-vorstellung").text)
-        hidden = self.client.post(f"/admin/website/team/{profile_id}/publish", data={"published": "0"})
-        self.assertEqual(hidden.status_code, 303)
-        self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
+        with patch("cogs.teamliste.get_roles_by_category", return_value=[]):
+            self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
+        self.assertTrue(content.list_profiles(published_only=True))
 
     def test_admin_can_upload_a_local_png_portrait_and_withdraw_it(self):
         import pulse_public_content as content
@@ -316,21 +311,24 @@ class WebsiteAdmin(Base):
         )
         self.assertEqual(created.status_code, 303)
         profile_id = content.list_profiles(published_only=False)[0]["id"]
-        self.assertNotIn("data:image/png", self.client.get("/team-vorstellung").text)
+        with patch("cogs.teamliste.get_roles_by_category", return_value=[]):
+            self.assertNotIn("data:image/png", self.client.get("/team-vorstellung").text)
         approved = self.client.post(
             f"/admin/website/team/{profile_id}/publish",
             data={"published": "1", "consent_confirmed": "1"},
         )
         self.assertEqual(approved.status_code, 303)
-        public_html = self.client.get("/team-vorstellung").text
-        self.assertIn('class="team-avatar"', public_html)
-        self.assertIn("data:image/png;base64,", public_html)
-        self.assertIn('alt="Porträt von Nico"', public_html)
+        with patch("cogs.teamliste.get_roles_by_category", return_value=[]):
+            public_html = self.client.get("/team-vorstellung").text
+        self.assertNotIn('class="team-avatar"', public_html)
+        self.assertNotIn("data:image/png;base64,", public_html)
+        self.assertNotIn("Nico", public_html)
         withdrawn = self.client.post(
             f"/admin/website/team/{profile_id}/publish", data={"published": "0"}
         )
         self.assertEqual(withdrawn.status_code, 303)
-        self.assertNotIn("data:image/png", self.client.get("/team-vorstellung").text)
+        with patch("cogs.teamliste.get_roles_by_category", return_value=[]):
+            self.assertNotIn("data:image/png", self.client.get("/team-vorstellung").text)
 
     def test_admin_rejects_non_png_team_portraits(self):
         self.login(True)
