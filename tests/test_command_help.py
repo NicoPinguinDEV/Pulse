@@ -138,14 +138,14 @@ class HelpTests(unittest.TestCase):
         tree = tree_with("warn", "warns", "warn-remove")
         items = ch.entries(tree)
         admin_without_rank = {"can_promote": True, "is_admin": True}
-        visible_admin = [name for rows in ch.build_help(items, admin_without_rank, discord.Permissions.none()).values()
+        visible_admin = [name for _section, rows in ch.build_help(items, admin_without_rank, discord.Permissions.none())
                          for name, _description in rows]
         self.assertNotIn("/warn", visible_admin)
         self.assertNotIn("/warns", visible_admin)
         self.assertNotIn("/warn-remove", visible_admin)
 
         supervisor = admin_without_rank | {"can_manage_team_warnings": True}
-        visible_supervisor = [name for rows in ch.build_help(items, supervisor, discord.Permissions.none()).values()
+        visible_supervisor = [name for _section, rows in ch.build_help(items, supervisor, discord.Permissions.none())
                               for name, _description in rows]
         self.assertIn("/warn", visible_supervisor)
         self.assertIn("/warns", visible_supervisor)
