@@ -174,6 +174,13 @@ class Pages(Base):
         self.assertNotIn("offline", html)
         self.assertNotIn("Abgemeldet", html)
 
+    def test_team_consent_disclosure_matches_public_profile_output(self):
+        disclosure = (Path(site.ROOT) / "cogs" / "teamliste.py").read_text(encoding="utf-8")
+        self.assertIn("Profilbilder werden nicht eingebunden", disclosure)
+        self.assertIn("lädt keine Bildressourcen von Discord-CDN-Domains", disclosure)
+        self.assertNotIn("dein Discord-Profilbild anzeigt", disclosure)
+        self.assertNotIn("Profilbilder werden direkt von Discord-CDN-Domains geladen", disclosure)
+
     def test_public_site_pointer_effect_is_progressive_and_respects_reduced_motion(self):
         public_css = (Path(site.ROOT) / "static" / "public.css").read_text(encoding="utf-8")
         public_js = (Path(site.ROOT) / "static" / "public.js").read_text(encoding="utf-8")
