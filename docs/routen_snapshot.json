@@ -27,6 +27,7 @@
  "GET /admin/settings-history -> pulse_phase7.register.<locals>.history_page",
  "GET /admin/visibility -> pulse_phase7.register.<locals>.visibility_page",
  "GET /admin/website -> pulse_public_site.register.<locals>.website_admin",
+ "GET /admin/website/preview -> pulse_public_site.register.<locals>.website_preview",
  "GET /admin/website/team -> pulse_public_site.register.<locals>.website_team_admin",
  "GET /announcements -> pulse_pro.register.<locals>.announcements_page",
  "GET /api/pulse/live -> pulse_pro.register.<locals>.api_live",
