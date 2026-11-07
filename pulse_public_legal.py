@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from datetime import date
 from html import escape
+from urllib.parse import urlsplit
 
 REQUIRED_FIELDS = {
     "PULSE_LEGAL_NAME": "Vollständiger bürgerlicher Vor- und Nachname des privaten Anbieters",
@@ -39,8 +40,16 @@ def ready() -> bool:
     return not missing_fields()
 
 
+def _is_https_url(raw: str) -> bool:
+    try:
+        parsed = urlsplit(raw.strip())
+        return parsed.scheme == "https" and bool(parsed.netloc) and not parsed.username and not parsed.password
+    except ValueError:
+        return False
+
+
 def publication_blockers() -> dict[str, str]:
-    """Return every operator-controlled blocker before indexing or declaring the site released."""
+    """Require explicit operator review of the fact-dependent imprint regimes."""
     blockers = missing_fields()
     if value("PULSE_LEGAL_REVIEWED") != "1":
         blockers["PULSE_LEGAL_REVIEWED"] = "Rechts- und Datenschutztexte müssen vom Betreiber geprüft/freigegeben sein"
@@ -50,7 +59,28 @@ def publication_blockers() -> dict[str, str]:
     try:
         date.fromisoformat(effective)
     except ValueError:
-        blockers["PULSE_TERMS_EFFECTIVE_DATE"] = "Gültigkeitsdatum der freigegebenen Nutzungsbedingungen (JJJJ-MM-TT)"
+        blockers["PULSE_TERMS_EFFECTIVE_DATE"] = "Gültigkeitsdatum der freigegebenen Nutzungsbedingungen (JJJJ-MM-DD)"
+
+    ddg_assessment = value("PULSE_LEGAL_DDG_ASSESSMENT")
+    if ddg_assessment not in {"applicable", "not_applicable"}:
+        blockers["PULSE_LEGAL_DDG_ASSESSMENT"] = "Anwendbarkeit von § 5 DDG muss ausdrücklich geprüft werden"
+    elif ddg_assessment == "applicable":
+        contact_url = value("PULSE_LEGAL_CONTACT_METHOD_URL")
+        if not value("PULSE_LEGAL_PHONE") and not _is_https_url(contact_url):
+            blockers["PULSE_LEGAL_CONTACT_METHOD_URL"] = (
+                "Bei Anwendbarkeit des § 5 DDG ist neben der E-Mail eine weitere tatsächlich funktionierende "
+                "Möglichkeit zur schnellen elektronischen Kontaktaufnahme erforderlich"
+            )
+
+    mstv_assessment = value("PULSE_LEGAL_MSTV_18_2_ASSESSMENT")
+    if mstv_assessment not in {"applicable", "not_applicable"}:
+        blockers["PULSE_LEGAL_MSTV_18_2_ASSESSMENT"] = "Anwendbarkeit von § 18 Abs. 2 MStV (News-/Blog-Inhalte) muss geprüft werden"
+    elif mstv_assessment == "applicable":
+        if not value("PULSE_LEGAL_CONTENT_RESPONSIBLE_NAME"):
+            blockers["PULSE_LEGAL_CONTENT_RESPONSIBLE_NAME"] = "Vor- und Nachname der redaktionell verantwortlichen Person"
+        if not value("PULSE_LEGAL_CONTENT_RESPONSIBLE_ADDRESS"):
+            blockers["PULSE_LEGAL_CONTENT_RESPONSIBLE_ADDRESS"] = "Zustellfähige Anschrift der redaktionell verantwortlichen Person"
+
     return blockers
 
 
@@ -71,8 +101,15 @@ def _address() -> str:
 def _operator() -> str:
     email = value("PULSE_LEGAL_EMAIL")
     mail = f'<a href="mailto:{e(email)}">{e(email)}</a>' if email else _or_missing("PULSE_LEGAL_EMAIL")
-    phone = f"<br>Telefon: {e(value('PULSE_LEGAL_PHONE'))}" if value("PULSE_LEGAL_PHONE") else ""
-    return f"<p>{_or_missing('PULSE_LEGAL_NAME')}<br>{_address()}</p><p>E-Mail: {mail}{phone}</p>"
+    contact = ""
+    phone = value("PULSE_LEGAL_PHONE")
+    contact_url = value("PULSE_LEGAL_CONTACT_METHOD_URL")
+    contact_label = value("PULSE_LEGAL_CONTACT_METHOD_LABEL") or "Weitere Kontaktmöglichkeit"
+    if phone:
+        contact = f"<br>Telefon: {e(phone)}"
+    elif _is_https_url(contact_url):
+        contact = f'<br>{e(contact_label)}: <a href="{e(contact_url)}" rel="noopener noreferrer">{e(contact_url)}</a>'
+    return f"<p>{_or_missing('PULSE_LEGAL_NAME')}<br>{_address()}</p><p>E-Mail: {mail}{contact}</p>"
 
 
 def _optional_legal_details() -> str:
@@ -111,20 +148,29 @@ def _privacy_controller() -> str:
 
 
 def impressum_html() -> str:
-    responsible = value("PULSE_LEGAL_CONTENT_RESPONSIBLE")
-    responsible_html = (
-        f"<h2>Verantwortlich für journalistisch-redaktionelle Inhalte</h2>"
-        f"<p>{e(responsible)}</p>"
-        "<p>Diese Angabe ist nur erforderlich, wenn das Angebot die Voraussetzungen des § 18 Abs. 2 MStV erfüllt. "
-        "In diesem Fall müssen Name und Anschrift vollständig angegeben werden.</p>"
-        if responsible else
-        "<p class=\"notice\">Der News-/Blog-Bereich ist gesondert darauf zu prüfen, ob er die Voraussetzungen des § 18 Abs. 2 MStV erfüllt. "
-        "Falls ja, muss eine geeignete redaktionell verantwortliche Person mit vollständigem Vor- und Nachnamen und Anschrift benannt werden.</p>"
-    )
+    responsible_html = ""
+    if value("PULSE_LEGAL_MSTV_18_2_ASSESSMENT") == "applicable":
+        responsible_name = value("PULSE_LEGAL_CONTENT_RESPONSIBLE_NAME")
+        responsible_address = value("PULSE_LEGAL_CONTENT_RESPONSIBLE_ADDRESS")
+        address_html = "<br>".join(e(part.strip()) for part in responsible_address.split("|") if part.strip())
+        responsible_html = (
+            "<h2>Verantwortlich für journalistisch-redaktionelle Inhalte (§ 18 Abs. 2 MStV)</h2>"
+            f"<p>{e(responsible_name)}<br>{address_html}</p>"
+        )
+    elif value("PULSE_LEGAL_MSTV_18_2_ASSESSMENT") == "not_applicable":
+        responsible_html = (
+            "<p class=\"notice\">Die Anwendbarkeit des § 18 Abs. 2 MStV für den News-/Blog-Bereich "
+            "wurde vom Betreiber gesondert geprüft und als nicht einschlägig bewertet.</p>"
+        )
+    else:
+        responsible_html = (
+            "<p class=\"notice\">Die Anwendbarkeit des § 18 Abs. 2 MStV für den News-/Blog-Bereich "
+            "muss vor Freigabe geprüft werden.</p>"
+        )
     return f"""<div class="doc"><h1>Impressum</h1>
 {"" if publication_ready() else CONFIG_NOTICE}
 <h2>Anbieterkennzeichnung</h2>
-<p>Für Telemedien, die nicht ausschließlich persönlichen oder familiären Zwecken dienen, verlangt § 18 Abs. 1 MStV leicht erkennbare, unmittelbar erreichbare und ständig verfügbare Angaben zu Name und Anschrift des Anbieters sowie bei juristischen Personen zu Name und Anschrift der vertretungsberechtigten Person. § 5 DDG enthält zusätzliche Angaben für geschäftsmäßige, in der Regel gegen Entgelt angebotene digitale Dienste. Welche Pflichten im konkreten Fall greifen, muss der Betreiber anhand der tatsächlichen Organisations- und Angebotsform prüfen.</p>
+<p>Für Telemedien, die nicht ausschließlich persönlichen oder familiären Zwecken dienen, verlangt § 18 Abs. 1 MStV leicht erkennbare, unmittelbar erreichbare und ständig verfügbare Angaben zu Name und Anschrift des Anbieters. BOCHUM RP wird nach Betreiberangabe von einer natürlichen Person betrieben; daher ist der vollständige bürgerliche Vor- und Nachname dieser Person anzugeben. Die zusätzlichen Vertreterangaben für juristische Personen sind hier nicht einschlägig. Ob § 5 DDG zusätzlich gilt, hängt davon ab, ob der digitale Dienst geschäftsmäßig und in der Regel gegen Entgelt angeboten wird. Bei Anwendbarkeit sind neben der E-Mail-Adresse weitere Angaben für eine schnelle elektronische Kontaktaufnahme und unmittelbare Kommunikation erforderlich.</p>
 {_operator()}
 {_optional_legal_details()}
 {responsible_html}
