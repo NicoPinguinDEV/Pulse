@@ -74,9 +74,19 @@ class WarningDomainTests(unittest.TestCase):
         low = FakeMember(5, "Neu", roles=[TEAM])
         self.assertIn("Supervisor", self.issue(actor_member=low, actor_name="Neu", actor_id="5", member=self.target)["message"])
         self.assertIn("höherem Teamrang", self.issue(member=self.high)["message"])
-        admin_without_team_role = FakeMember(6, "Admin", roles=[], admin=True)
-        self.assertIn("Supervisor", self.issue(actor_member=admin_without_team_role, actor_name="Admin", actor_id="6", actor_is_admin=True)["message"])
         self.assertFalse(Path(ws.DATA_FILE).exists())
+
+    def test_administrator_is_treated_as_above_configured_team_ranks(self):
+        admin = FakeMember(6, "Admin", roles=[], admin=True)
+        result = self.issue(
+            actor_member=admin, actor_name="Admin", actor_id="6", actor_is_admin=True,
+            member=self.high,
+        )
+        self.assertTrue(result["stored"], result["message"])
+        self.assertEqual(self.stored_by_user(self.high.id)[0]["reason"], "Zu spät zum Dienst")
+
+    def stored_by_user(self, user_id):
+        return json.loads(Path(ws.DATA_FILE).read_text(encoding="utf-8"))[str(user_id)]["warns_list"]
 
     def test_self_revoke_is_blocked_even_for_discord_admins(self):
         initial = {"2": {"warns_list": [{
