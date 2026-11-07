@@ -36,9 +36,9 @@ CONSENT_VERSION = 1
 # {"id", "label", "purpose", "provider"} per optional service; empty means no consent banner.
 OPTIONAL_SERVICES: tuple[dict, ...] = ()
 
-# Only Discord's image CDN is permitted for live team avatars; scripts and styles remain same-origin.
+# Public pages do not embed remote images; scripts, styles and images remain first-party/local.
 CSP = (
-    "default-src 'none'; img-src 'self' data: https://cdn.discordapp.com https://media.discordapp.net; style-src 'self'; script-src 'self'; font-src 'self'; "
+    "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; "
     "connect-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
 )
 PUBLIC_PATHS = ("/", "/regelwerk", "/faq", "/fraktionen", "/news", "/team-vorstellung",
@@ -699,18 +699,10 @@ def _discord_team_roster(request: Request) -> tuple[list[str], int]:
             cards = []
             for member in members:
                 display_name = str(getattr(member, "display_name", "") or "Teammitglied")
-                avatar_url = ""
-                try:
-                    candidate = str(member.display_avatar.url)
-                    if candidate.startswith(("https://cdn.discordapp.com/", "https://media.discordapp.net/")):
-                        avatar_url = candidate
-                except (AttributeError, TypeError, ValueError):
-                    pass
                 initials = "".join(part[0] for part in display_name.split()[:2]).upper() or "?"
-                portrait = (
-                    f'<img class="team-avatar" src="{e(avatar_url)}" alt="Discord-Profilbild von {e(display_name)}" loading="lazy" decoding="async">'
-                    if avatar_url else f'<div class="team-initials" aria-hidden="true">{e(initials)}</div>'
-                )
+                # Do not make public visitors' browsers contact Discord's CDN for a team avatar.
+                # Initials keep the public roster useful without a third-party image request.
+                portrait = f'<div class="team-initials" aria-hidden="true">{e(initials)}</div>'
                 cards.append(
                     f'<article class="team-card">{portrait}<p class="tag">{e(role.name)}</p>'
                     f'<h3>{e(display_name)}</h3></article>'
