@@ -3773,6 +3773,7 @@ async def home(request: Request, user_session: str = Cookie(None)):
         if session:
             return RedirectResponse(url=start_page_for(session.get("id")), status_code=303)
         response = RedirectResponse(url="/team-login", status_code=303)
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
         if user_session:
             response.delete_cookie(key="user_session")
         return response
@@ -3820,6 +3821,8 @@ async def team_login_page(user_session: str = Cookie(None)):
     </html>
     """
     response = HTMLResponse(page)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    response.headers["Cache-Control"] = "no-store"
     if user_session:
         response.delete_cookie(key="user_session")  # ended or revoked session: clear it, show the login
     return response
@@ -8197,7 +8200,7 @@ APPLY_DRAFT_CLEAR_SCRIPT = "<script>try{localStorage.removeItem(__KEY__)}catch(_
 @app.get("/apply", response_class=HTMLResponse)
 async def public_apply_page(request: Request, apply_session: str = Cookie(None)):
     if not pulse_public_site.public_access_enabled():
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
     bot = getattr(request.app.state, "bot", None)
     application_guild = bot.get_guild(GUILD_ID) if bot else None
     required_role_obj = application_guild.get_role(APPLICATION_REQUIRED_ROLE_ID) if application_guild else None
@@ -8443,7 +8446,7 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
 @app.get("/apply/login")
 async def apply_login(request: Request, career: str = ""):
     if not pulse_public_site.public_access_enabled():
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
     if rate_limited(request_rate_key(request, "apply-oauth-login"), limit=15, window=600):
         return rate_limit_response("Zu viele Bewerbungs-Login-Versuche. Bitte in einer Minute erneut versuchen.")
     state = secrets.token_urlsafe(24)
@@ -8461,7 +8464,7 @@ async def apply_login(request: Request, career: str = ""):
 @app.get("/apply/callback")
 async def apply_callback(request: Request, code: str=None, state: str=None, error: str=None, apply_oauth_state: str=Cookie(None)):
     if not pulse_public_site.public_access_enabled():
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
     if rate_limited(request_rate_key(request, "apply-oauth-callback"), limit=30, window=600):
         return rate_limit_response("Zu viele Bewerbungs-Anmeldeversuche. Bitte in einer Minute erneut versuchen.")
     retry='<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zur Bewerbung</a>'
@@ -11414,7 +11417,7 @@ async def handle_action(
     action = normalize_dashboard_action(action)
     # The shared dashboard action route must not bypass the public recruitment release gate.
     if action == "submit_application" and not pulse_public_site.public_access_enabled():
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
     # ---------- Öffentliche Bewerbung inklusive serverseitig bewerteten Laufbahn-Test ----------
     if action == "submit_application":
         ip = request.client.host if request.client else "unknown"
