@@ -8121,7 +8121,7 @@ APPLY_DRAFT_SCRIPT = """
         else data[el.name]=el.value;
       });
       localStorage.setItem(KEY,JSON.stringify({at:Date.now(),data:data}));
-      showDraft('Dein Entwurf wird nur in diesem Browser gespeichert und läuft nach 30 Tagen ohne Änderung ab.',true);
+      showDraft('Dein Entwurf wird nur in diesem Browser gespeichert und ist nach 30 Tagen ohne Änderung abgelaufen und wird beim nächsten Öffnen des Formulars entfernt.',true);
     }catch(_){}
   }
   function restore(){
@@ -8161,7 +8161,7 @@ APPLY_DRAFT_SCRIPT = """
     showDraft('Der lokal gespeicherte Entwurf wurde gelöscht. Bereits abgesendete Bewerbungsdaten sind davon nicht betroffen.',false);
   });
   if(restore()){
-    showDraft('Dein gespeicherter Entwurf wurde wiederhergestellt. Er wird nach 30 Tagen ohne Änderung automatisch entfernt.',true);
+    showDraft('Dein gespeicherter Entwurf wurde wiederhergestellt. Er ist nach 30 Tagen ohne Änderung abgelaufen und wird beim nächsten Öffnen des Formulars entfernt.',true);
     restoring=true;
     form.dispatchEvent(new Event('change'));
     restoring=false;
