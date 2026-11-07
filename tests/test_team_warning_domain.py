@@ -10,7 +10,7 @@ import pulse_db
 import webserver as ws
 from tests.fakes import FakeGuild, FakeMember, FakeRole
 
-TEAM, LEAD, LOCK = FakeRole(10, "Team", 5), FakeRole(11, "Leitung", 8), FakeRole(77, "Uprank-Sperre", 2)
+TEAM, LEAD, HIGH, LOCK = FakeRole(10, "Team", 5), FakeRole(11, "Supervisor", 8), FakeRole(12, "Leitung", 10), FakeRole(77, "Uprank-Sperre", 2)
 
 
 class WarningDomainTests(unittest.TestCase):
@@ -33,10 +33,11 @@ class WarningDomainTests(unittest.TestCase):
         pulse_db.init_db()
         self.target = FakeMember(2, "Max", roles=[TEAM])
         self.lead = FakeMember(3, "Lena", roles=[LEAD])
-        self.guild = FakeGuild(members=[self.target, self.lead], roles=[TEAM, LEAD, LOCK])
-        self.guild.get_role = lambda rid: {10: TEAM, 11: LEAD, 77: LOCK}.get(rid)
+        self.high = FakeMember(4, "Leitung", roles=[HIGH])
+        self.guild = FakeGuild(members=[self.target, self.lead, self.high], roles=[TEAM, LEAD, HIGH, LOCK])
+        self.guild.get_role = lambda rid: {10: TEAM, 11: LEAD, 12: HIGH, 77: LOCK}.get(rid)
         self.guild.me.top_role = FakeRole(1, "Pulse", 20)  # bot role above the lock role
-        self.config = {"team_role_ids": [10, 11]}
+        self.config = {"team_role_ids": [10, 11, 12]}
 
     def tearDown(self):
         for p in reversed(self.patches):
@@ -70,9 +71,27 @@ class WarningDomainTests(unittest.TestCase):
     def test_refusals_store_nothing(self):
         self.assertIn("zwischen 1 und 365", self.issue(duration_days=0)["message"])
         self.assertIn("selbst", self.issue(member=self.lead, actor_member=self.lead)["message"])
-        low = FakeMember(4, "Neu", roles=[TEAM])
-        self.assertIn("höherem Teamrang", self.issue(actor_member=low, actor_name="Neu", actor_id="4", member=self.target)["message"])
+        low = FakeMember(5, "Neu", roles=[TEAM])
+        self.assertIn("Supervisor", self.issue(actor_member=low, actor_name="Neu", actor_id="5", member=self.target)["message"])
+        self.assertIn("höherem Teamrang", self.issue(member=self.high)["message"])
+        admin_without_team_role = FakeMember(6, "Admin", roles=[], admin=True)
+        self.assertIn("Supervisor", self.issue(actor_member=admin_without_team_role, actor_name="Admin", actor_id="6", actor_is_admin=True)["message"])
         self.assertFalse(Path(ws.DATA_FILE).exists())
+
+    def test_self_revoke_is_blocked_even_for_discord_admins(self):
+        initial = {"2": {"warns_list": [{
+            "id": "warn_self", "reason": "Test", "by": "Max", "date": "07.11.2026",
+            "active": True, "revoked_at": None,
+        }]}}
+        Path(ws.DATA_FILE).write_text(json.dumps(initial), encoding="utf-8")
+        result = asyncio.run(ws.revoke_team_warning(
+            self.guild, member=self.target, warn_id="warn_self", revoke_reason="Eigentest",
+            actor_name="Max", actor_id="2", config=self.config, actor_member=self.target,
+            actor_is_admin=True,
+        ))
+        self.assertFalse(result["stored"])
+        self.assertIn("eigene", result["message"].casefold())
+        self.assertTrue(self.stored()[0]["active"])
 
     def test_five_warnings_escalate_to_leadership(self):
         with patch.object(ws, "compute_perms", lambda g, uid, c: ({"can_promote": uid == 3}, None)):
