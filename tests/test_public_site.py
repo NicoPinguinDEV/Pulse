@@ -294,7 +294,8 @@ class WebsiteAdmin(Base):
             data={"published": "1", "consent_confirmed": "1"},
         )
         self.assertEqual(approved.status_code, 303)
-        self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
+        with patch("cogs.teamliste.get_roles_by_category", return_value=[]):
+            self.assertNotIn("Mara", self.client.get("/team-vorstellung").text)
         self.assertTrue(content.list_profiles(published_only=True))
 
     def test_admin_can_upload_a_local_png_portrait_and_withdraw_it(self):
@@ -310,13 +311,15 @@ class WebsiteAdmin(Base):
         )
         self.assertEqual(created.status_code, 303)
         profile_id = content.list_profiles(published_only=False)[0]["id"]
-        self.assertNotIn("data:image/png", self.client.get("/team-vorstellung").text)
+        with patch("cogs.teamliste.get_roles_by_category", return_value=[]):
+            self.assertNotIn("data:image/png", self.client.get("/team-vorstellung").text)
         approved = self.client.post(
             f"/admin/website/team/{profile_id}/publish",
             data={"published": "1", "consent_confirmed": "1"},
         )
         self.assertEqual(approved.status_code, 303)
-        public_html = self.client.get("/team-vorstellung").text
+        with patch("cogs.teamliste.get_roles_by_category", return_value=[]):
+            public_html = self.client.get("/team-vorstellung").text
         self.assertNotIn('class="team-avatar"', public_html)
         self.assertNotIn("data:image/png;base64,", public_html)
         self.assertNotIn("Nico", public_html)
@@ -324,7 +327,8 @@ class WebsiteAdmin(Base):
             f"/admin/website/team/{profile_id}/publish", data={"published": "0"}
         )
         self.assertEqual(withdrawn.status_code, 303)
-        self.assertNotIn("data:image/png", self.client.get("/team-vorstellung").text)
+        with patch("cogs.teamliste.get_roles_by_category", return_value=[]):
+            self.assertNotIn("data:image/png", self.client.get("/team-vorstellung").text)
 
     def test_admin_rejects_non_png_team_portraits(self):
         self.login(True)
