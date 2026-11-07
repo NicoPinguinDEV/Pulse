@@ -50,6 +50,10 @@ class Base(unittest.TestCase):
 
 
 class Pages(Base):
+    def test_dashboard_head_never_uses_tailwind_play_cdn(self):
+        self.assertNotIn("cdn.tailwindcss.com", ws.HEAD_SCRIPT)
+        self.assertIn("/static/pulse.css", ws.HEAD_SCRIPT)
+
     def test_every_page_renders_with_strict_policy(self):
         for path in PAGES:
             with self.subTest(path):
