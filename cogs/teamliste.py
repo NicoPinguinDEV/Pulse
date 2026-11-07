@@ -11,6 +11,7 @@ import pulse_jobs
 from pulse_tasks import spawn as spawn_task
 import pulse_paths
 import pulse_sqlite
+import pulse_public_consent
 
 BASE_DIR = pulse_paths.DATA_DIR  # Phase 13: runtime data (databases, shifts.json) – not the code folder
 DB_NAME = str(BASE_DIR / "teamliste.db")
@@ -157,6 +158,55 @@ def get_msg_id(key: str):
     return row[0] if row else None
 
 
+class PublicTeamConsentView(discord.ui.View):
+    """Single-user, one-time confirmation; viewing the message does not grant consent."""
+
+    def __init__(self, cog: "TeamlisteCog", user_id: int, role_ids: list[int]):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.user_id = int(user_id)
+        self.role_ids = list(role_ids)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if int(interaction.user.id) != self.user_id:
+            await interaction.response.send_message(
+                "Diese Freigabe ist nur für die Person bestimmt, die sie angefordert hat.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(
+        label="Öffentliche Anzeige erlauben",
+        style=discord.ButtonStyle.success,
+        emoji="✅",
+    )
+    async def confirm_public_display(self, interaction: discord.Interaction, button: discord.ui.Button):
+        current_roles = self.cog.public_team_role_ids(interaction.user)
+        if current_roles != self.role_ids:
+            await interaction.response.edit_message(
+                content="Deine Teamrollen haben sich geändert. Bitte starte /teamseite_freigabe erneut und prüfe die neue Anzeige.",
+                view=None,
+            )
+            return
+        if not current_roles:
+            await interaction.response.edit_message(
+                content="Du hast aktuell keine konfigurierte Teamrolle. Es wurde keine Freigabe gespeichert.",
+                view=None,
+            )
+            return
+        pulse_public_consent.grant(interaction.user.id, current_roles)
+        await interaction.response.edit_message(
+            content=(
+                "✅ Deine freiwillige Freigabe wurde gespeichert. Dein Discord-Anzeigename, deine aktuell "
+                "konfigurierten Teamrollen und – falls vorhanden – dein Profilbild können nun öffentlich auf "
+                "der BOCHUM-RP-Website erscheinen. Deine Teammitgliedschaft hängt nicht von dieser Freigabe ab. "
+                "Du kannst sie jederzeit mit /teamseite_freigabe_widerrufen zurückziehen."
+            ),
+            view=None,
+        )
+
+
 class TeamlisteCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
@@ -170,6 +220,84 @@ class TeamlisteCog(commands.Cog):
         self.update_list_loop.cancel()
         if self._update_debounce_task and not self._update_debounce_task.done():
             self._update_debounce_task.cancel()
+
+    def public_team_role_ids(self, member: discord.Member) -> list[int]:
+        configured = set()
+        for category in ("fuehrungsebene", "highteam", "lowteam"):
+            try:
+                configured.update(int(role_id) for role_id in get_roles_by_category(category))
+            except (TypeError, ValueError, sqlite3.Error, OSError):
+                continue
+        return sorted(
+            int(role.id) for role in getattr(member, "roles", ())
+            if int(getattr(role, "id", 0) or 0) in configured
+        )
+
+    @app_commands.command(
+        name="teamseite_freigabe",
+        description="Öffentliche Teamvorstellung freiwillig freigeben",
+    )
+    @app_commands.guild_only()
+    async def teamseite_freigabe(self, interaction: discord.Interaction):
+        member = interaction.user
+        role_ids = self.public_team_role_ids(member)
+        if not role_ids:
+            await interaction.response.send_message(
+                "Du hast aktuell keine der für die öffentliche Teamvorstellung konfigurierten Teamrollen. "
+                "Ohne solche Rolle kann keine Freigabe erteilt werden. Eine frühere Freigabe kann jederzeit "
+                "mit /teamseite_freigabe_widerrufen zurückgezogen werden.",
+                ephemeral=True,
+            )
+            return
+
+        disclosure = (
+            "**Freiwillige Freigabe der öffentlichen Teamvorstellung**\n\n"
+            "Wenn du auf **„Öffentliche Anzeige erlauben“** klickst, stimmst du ausdrücklich zu, dass "
+            "BOCHUM RP auf seiner frei erreichbaren Website deinen aktuellen Discord-Anzeigenamen, deine "
+            "aktuell konfigurierten Teamrollen und – sofern vorhanden – dein Discord-Profilbild anzeigt. "
+            "Profilbilder werden direkt von Discord-CDN-Domains geladen; deren Bildadressen können technische "
+            "Discord-Kennungen enthalten. Die Angaben sind weltweit öffentlich abrufbar und können kopiert "
+            "oder anderweitig gespeichert werden.\n\n"
+            "**Nicht veröffentlicht werden:** Discord-ID als sichtbares Profilfeld, Online-Status, Abwesenheiten, "
+            "private Kontaktdaten, Verwarnungen, interne Notizen oder Moderationsdaten.\n\n"
+            "Die Freigabe ist freiwillig. Du kannst sie jederzeit mit /teamseite_freigabe_widerrufen zurückziehen. "
+            "Das hat keine Auswirkung auf deine Teamrolle oder Teammitgliedschaft. Nach Widerruf wird dein Profil "
+            "bei der nächsten Seitenanfrage nicht mehr angezeigt; bereits erstellte Screenshots, Kopien, Browser-Caches "
+            "oder externe Protokolle können außerhalb unseres Einflusses fortbestehen.\n\n"
+            "Das bloße Öffnen dieser Nachricht oder das Nichtstun erteilt keine Freigabe."
+        )
+        await interaction.response.send_message(
+            disclosure,
+            view=PublicTeamConsentView(self, interaction.user.id, role_ids),
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="teamseite_freigabe_widerrufen",
+        description="Öffentliche Teamvorstellung nicht länger erlauben",
+    )
+    @app_commands.guild_only()
+    async def teamseite_freigabe_widerrufen(self, interaction: discord.Interaction):
+        changed = pulse_public_consent.withdraw(interaction.user.id)
+        message = (
+            "✅ Deine Freigabe wurde widerrufen. Dein Profil wird bei der nächsten Seitenanfrage nicht mehr angezeigt. "
+            "Deine Teamrolle und Teammitgliedschaft bleiben davon unberührt. Bereits gespeicherte Kopien oder "
+            "Screenshots außerhalb der Website können fortbestehen."
+            if changed else
+            "Für dich ist aktuell keine aktive öffentliche Teamfreigabe gespeichert."
+        )
+        await interaction.response.send_message(message, ephemeral=True)
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        old_scope = self.public_team_role_ids(before)
+        new_scope = self.public_team_role_ids(after)
+        if old_scope != new_scope:
+            pulse_public_consent.withdraw(after.id)
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        pulse_public_consent.withdraw(member.id)
 
     # Liest Abmeldungen einmal pro Listenaktualisierung statt pro Teammitglied.
     def get_abmeldungen_map(self) -> dict[int, str]:
