@@ -61,7 +61,8 @@ class DashboardRedesignTests(unittest.TestCase):
 
     def test_sensitive_navigation_gates_are_preserved(self):
         self.assertIn('perms.get("can_manage_checkins") or perms.get("is_admin")', self.sidebar)
-        self.assertIn('perms.get("can_warn") or perms.get("is_admin")', self.sidebar)
+        self.assertIn('perms.get("can_warn") or perms.get("can_add_notes") or perms.get("is_admin")', self.sidebar)
+        self.assertIn('perms.get("can_manage_team_warnings") or perms.get("is_admin")', self.sidebar)
         self.assertIn('perms.get("can_view_analytics",False)', self.sidebar)
         self.assertIn("from pulse_admin import ADMIN_PAGE_KEYS, admin_sections", self.sidebar)
 
