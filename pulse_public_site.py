@@ -48,6 +48,11 @@ PUBLIC_RATE_LIMIT = 240  # page views per minute and address
 NEWS_LIMIT = 30
 CACHE_SECONDS = 60.0
 INVITE = re.compile(r"^https://(?:discord\.gg|discord\.com/invite)/[A-Za-z0-9-]{2,64}$")
+
+
+def public_access_enabled() -> bool:
+    """Public pages stay closed unless explicitly enabled and every legal release gate passes."""
+    return os.getenv("PULSE_PUBLIC_SITE_ENABLED", "0").strip() == "1" and legal.publication_ready()
 _cache: dict[str, tuple[float, object]] = {}
 
 
@@ -798,8 +803,9 @@ def sitemap_xml(base_url: str) -> str:
 
 
 def robots_text(base_url: str = "") -> str:
-    if not legal.publication_ready():
-        return "User-agent: *\nDisallow: /\n"
+    if not public_access_enabled():
+        # Do not block crawling: bots must see 404/noindex so already indexed URLs can expire.
+        return "User-agent: *\nAllow: /\n"
     allowed = "".join(f"Allow: {path}$\n" for path in PUBLIC_PATHS)
     sitemap = f"Sitemap: {base_url.rstrip('/')}/sitemap.xml\n" if base_url else ""
     return f"User-agent: *\n{allowed}Allow: /news/\nAllow: /static/public\nDisallow: /\n{sitemap}"
@@ -821,6 +827,8 @@ def register(app) -> None:
 
     def add_page(path: str, title: str, description: str, render, *, cache: bool = True, with_request: bool = False):
         async def handler(request: Request):
+            if not public_access_enabled():
+                raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
             if limited_response := limited(request):
                 return limited_response
             body = render(request) if with_request else render()
@@ -846,6 +854,8 @@ def register(app) -> None:
     add_page("/sicherheit", "Sicherheit | Bochum RP", "So schützt Pulse Konten und Daten.", legal.security_html)
 
     async def public_news_detail(news_id: int, request: Request):
+        if not public_access_enabled():
+            raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
         limited_response = limited(request)
         if limited_response:
             return limited_response
@@ -863,8 +873,9 @@ def register(app) -> None:
                       response_class=HTMLResponse, include_in_schema=False)
 
     async def sitemap(request: Request):
-        if not legal.publication_ready():
-            return Response("", status_code=404, media_type="application/xml")
+        if not public_access_enabled():
+            return Response("", status_code=404, media_type="application/xml",
+                            headers={"X-Robots-Tag": "noindex, nofollow"})
         base = str(request.base_url).rstrip("/")
         return Response(sitemap_xml(base), media_type="application/xml")
 
@@ -905,11 +916,19 @@ def register(app) -> None:
             f'<button class="btn" onclick="return confirm(\'News löschen?\')">Löschen</button></form></div>'
             for row in rows
         ) or "<p class='muted'>Noch keine News veröffentlicht.</p>"
+        publication = (
+            '<p><span class="pulse-pill good">Öffentliche Veröffentlichung freigegeben</span></p>'
+            if public_access_enabled()
+            else '<p><span class="pulse-pill warn">Website und Bewerbungsportal sind privat gesperrt</span></p>'
+        )
         body = f"""<div class="pulse-card"><h2>Freigabestatus</h2>{status}</div>
+        <div class="pulse-card"><h2>Private Vorschau</h2>{publication}
+        <p class="muted">Nur Administratoren können diese Vorschau öffnen. Die öffentliche Website bleibt standardmäßig geschlossen, bis der Veröffentlichungs-Schalter aktiv ist und alle rechtlichen Freigaben vollständig sind.</p>
+        <a class="btn btn-primary" href="/admin/website/preview">Startseite privat ansehen</a></div>
         <div class="pulse-card"><h2>Öffentliche Teamvorstellung</h2>
         <p class="muted">Die Teamseite wird automatisch aus den aktuellen Rollen der TeamBot-Kategorien Führungsebene, HighTeam und LowTeam erzeugt. Rollenänderungen werden direkt bei der nächsten Seitenanfrage übernommen; manuelle Profileinträge sind dafür nicht erforderlich.</p></div>
         <div class="pulse-card"><h2>News veröffentlichen</h2>
-        <p class="muted">News werden nach dem Speichern sofort öffentlich angezeigt.</p>
+        <p class="muted">News werden gespeichert und erst nach der ausdrücklichen Freigabe der öffentlichen Website sichtbar.</p>
         <form method="post" action="/admin/website/news" class="grid gap-3">
         <label>Titel <input class="pulse-input" name="title" maxlength="120" required></label>
         <label>Kategorie <input class="pulse-input" name="category" maxlength="40" value="Community" required></label>
@@ -917,6 +936,14 @@ def register(app) -> None:
         <button class="btn btn-primary">Veröffentlichen</button></form></div>
         <div class="pulse-card"><h2>Veröffentlichte News</h2>{items}</div>"""
         return HTMLResponse(render_pro_page(ws, "Website", ctx, "website", body))
+
+    async def website_preview(request: Request, user_session: str = Cookie(None)):
+        """Render the retained public homepage only for authenticated administrators."""
+        ws.auth(request, user_session, admin=True)
+        response = home_response(request)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        return response
 
     async def website_team_admin(request: Request, user_session: str = Cookie(None)):
         from pulse_pro import render_pro_page
@@ -1009,6 +1036,7 @@ def register(app) -> None:
         return RedirectResponse("/admin/website", status_code=303)
 
     app.add_api_route("/admin/website", website_admin, methods=["GET"], response_class=HTMLResponse)
+    app.add_api_route("/admin/website/preview", website_preview, methods=["GET"], response_class=HTMLResponse)
     app.add_api_route("/admin/website/team", website_team_admin, methods=["GET"], response_class=HTMLResponse)
     app.add_api_route("/admin/website/team", website_team_add, methods=["POST"])
     app.add_api_route("/admin/website/team/{profile_id}/publish", website_team_publish, methods=["POST"])

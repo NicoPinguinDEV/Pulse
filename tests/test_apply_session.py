@@ -34,7 +34,11 @@ async def eligible(request, user_id):
 class ApplySessionTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(ws.app, headers=BROWSER)
-        self.patches = [patch.object(ws, "verify_application_member", eligible), patch("builtins.print")]
+        self.patches = [
+            patch.object(ws, "verify_application_member", eligible),
+            patch.object(ws.pulse_public_site, "public_access_enabled", return_value=True),
+            patch("builtins.print"),
+        ]
         for p in self.patches:
             p.start()
 

@@ -13,6 +13,9 @@ class OAuthRateLimitTests(unittest.TestCase):
         with ws._rate_lock:
             ws._rate_hits.clear()
             ws._rate_last_full_sweep = 0.0
+        self.public_gate = patch.object(ws.pulse_public_site, "public_access_enabled", return_value=True)
+        self.public_gate.start()
+        self.addCleanup(self.public_gate.stop)
         self.client = TestClient(ws.app, raise_server_exceptions=False)
 
     def tearDown(self):

@@ -3767,10 +3767,18 @@ async def static_pulse_css():
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, user_session: str = Cookie(None)):
-    """Always show the public BOCHUM RP homepage; TeamOS is entered via /team-login."""
+    """Show the public homepage only after explicit release; otherwise enter the private TeamOS."""
+    if not pulse_public_site.public_access_enabled():
+        session = dashboard_session(user_session)
+        if session:
+            return RedirectResponse(url=start_page_for(session.get("id")), status_code=303)
+        response = RedirectResponse(url="/team-login", status_code=303)
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        if user_session:
+            response.delete_cookie(key="user_session")
+        return response
+
     response = pulse_public_site.home_response(request)
-    # Keep the public root route public even when a team session already exists.
-    # A stale/revoked cookie is still cleared without redirecting visitors to the login.
     if user_session and not dashboard_session(user_session):
         response.delete_cookie(key="user_session")
     return response
@@ -3781,6 +3789,11 @@ async def team_login_page(user_session: str = Cookie(None)):
     session = dashboard_session(user_session)
     if session:
         return RedirectResponse(url=start_page_for(session.get("id")), status_code=303)
+    apply_cta = (
+        '<div class="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">'
+        '<a href="/apply" class="pulse-login-link text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium">Du möchtest dich ins Team bewerben? Hier klicken!</a></div>'
+        if pulse_public_site.public_access_enabled() else ""
+    )
     page = f"""
     <!DOCTYPE html>
     <html lang="de">
@@ -3802,14 +3815,14 @@ async def team_login_page(user_session: str = Cookie(None)):
             <a href="/login" class="pulse-login-btn inline-flex items-center justify-center gap-3 w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg shadow-[#5865F2]/20 text-sm">
                 Mit Discord anmelden
             </a>
-            <div class="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
-                <a href="/apply" class="pulse-login-link text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium">Du möchtest dich ins Team bewerben? Hier klicken!</a>
-            </div>
+            {apply_cta}
         </div>
     </body>
     </html>
     """
     response = HTMLResponse(page)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    response.headers["Cache-Control"] = "no-store"
     if user_session:
         response.delete_cookie(key="user_session")  # ended or revoked session: clear it, show the login
     return response
@@ -8186,6 +8199,8 @@ APPLY_DRAFT_CLEAR_SCRIPT = "<script>try{localStorage.removeItem(__KEY__)}catch(_
 
 @app.get("/apply", response_class=HTMLResponse)
 async def public_apply_page(request: Request, apply_session: str = Cookie(None)):
+    if not pulse_public_site.public_access_enabled():
+        raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
     bot = getattr(request.app.state, "bot", None)
     application_guild = bot.get_guild(GUILD_ID) if bot else None
     required_role_obj = application_guild.get_role(APPLICATION_REQUIRED_ROLE_ID) if application_guild else None
@@ -8430,6 +8445,8 @@ async def public_apply_page(request: Request, apply_session: str = Cookie(None))
 
 @app.get("/apply/login")
 async def apply_login(request: Request, career: str = ""):
+    if not pulse_public_site.public_access_enabled():
+        raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
     if rate_limited(request_rate_key(request, "apply-oauth-login"), limit=15, window=600):
         return rate_limit_response("Zu viele Bewerbungs-Login-Versuche. Bitte in einer Minute erneut versuchen.")
     state = secrets.token_urlsafe(24)
@@ -8446,6 +8463,8 @@ async def apply_login(request: Request, career: str = ""):
 
 @app.get("/apply/callback")
 async def apply_callback(request: Request, code: str=None, state: str=None, error: str=None, apply_oauth_state: str=Cookie(None)):
+    if not pulse_public_site.public_access_enabled():
+        raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
     if rate_limited(request_rate_key(request, "apply-oauth-callback"), limit=30, window=600):
         return rate_limit_response("Zu viele Bewerbungs-Anmeldeversuche. Bitte in einer Minute erneut versuchen.")
     retry='<a href="/apply" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zur Bewerbung</a>'
@@ -8461,6 +8480,8 @@ async def apply_callback(request: Request, code: str=None, state: str=None, erro
 @app.post("/apply/keepalive")
 async def apply_keepalive(request: Request, apply_session: str = Cookie(None)):
     """K-01: renews the 3-hour application session while the applicant is typing (sliding expiry)."""
+    if not pulse_public_site.public_access_enabled():
+        return JSONResponse({"ok": False, "disabled": True}, status_code=403)
     applicant = verify_session_token(apply_session, TOKEN_APPLY)
     if not applicant:
         return JSONResponse({"ok": False, "expired": True}, status_code=401)
@@ -11394,6 +11415,9 @@ async def handle_action(
 ):
     # Old forms may still submit action=kick; it is never a server-membership operation.
     action = normalize_dashboard_action(action)
+    # The shared dashboard action route must not bypass the public recruitment release gate.
+    if action == "submit_application" and not pulse_public_site.public_access_enabled():
+        raise HTTPException(status_code=404, headers={"X-Robots-Tag": "noindex, nofollow"})
     # ---------- Öffentliche Bewerbung inklusive serverseitig bewerteten Laufbahn-Test ----------
     if action == "submit_application":
         ip = request.client.host if request.client else "unknown"
