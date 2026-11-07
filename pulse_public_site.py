@@ -637,7 +637,6 @@ def _discord_team_roster(request: Request) -> tuple[list[str], int]:
     )
     configured_groups: list[tuple[str, str, list]] = []
     member_role_ids: dict[int, set[int]] = {}
-    member_objects: dict[int, object] = {}
 
     # Build the complete current TeamBot role scope before checking any individual consent.
     for category_key, category_label in categories:
@@ -670,7 +669,6 @@ def _discord_team_roster(request: Request) -> tuple[list[str], int]:
                     member_id = int(member.id)
                 except (TypeError, ValueError, AttributeError):
                     continue
-                member_objects[member_id] = member
                 member_role_ids.setdefault(member_id, set()).add(role_id)
 
     consents = public_team_consent.active_consents()
@@ -689,7 +687,6 @@ def _discord_team_roster(request: Request) -> tuple[list[str], int]:
     for _category_key, category_label, roles in configured_groups:
         role_groups = []
         for role in roles:
-            role_id = int(role.id)
             members = sorted(
                 (
                     member for member in (getattr(role, "members", ()) or ())
