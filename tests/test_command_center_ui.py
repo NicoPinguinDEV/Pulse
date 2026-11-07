@@ -9,16 +9,21 @@ import webserver as ws
 
 
 class CommandCenterInteractionTests(unittest.TestCase):
-    def test_shared_pro_renderer_injects_assets_before_every_page(self):
+    def test_shared_shell_hook_supplies_cursor_assets_and_pro_renderer_wraps_page(self):
         ctx = SimpleNamespace(perms={})
+        interaction = pulse_pro.pro_body_extra()
+        self.assertLess(interaction.index("<style>"), interaction.index("<script>"))
+        self.assertIn('id="pulseCustomCursor"', interaction)
+        self.assertIn("pointermove", interaction)
+
         with patch.object(pulse_flags, "banner_html", return_value=""):
             with patch.object(ws, "render_page", side_effect=lambda title, ctx, page, body, extra: body):
                 rendered = pulse_pro.render_pro_page(ws, "Test", ctx, "dashboard", "<section>Inhalt</section>")
 
-        self.assertLess(rendered.index("<style>"), rendered.index('<div class="pulse-shell">'))
-        self.assertLess(rendered.index("<script>"), rendered.index('<div class="pulse-shell">'))
-        self.assertIn('id="pulseCustomCursor"', rendered)
+        self.assertIn('<div class="pulse-shell">', rendered)
         self.assertIn("<section>Inhalt</section>", rendered)
+        # Asset insertion is owned by webserver.render_page's shared body_extra hook.
+        self.assertNotIn('id="pulseCustomCursor"', rendered)
 
     def test_cursor_is_restricted_to_fine_pointers_and_respects_motion_preferences(self):
         css = pulse_pro.PULSE_INTERACTION_CSS
