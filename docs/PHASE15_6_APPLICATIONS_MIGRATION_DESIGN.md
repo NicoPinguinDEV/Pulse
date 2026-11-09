@@ -1,8 +1,8 @@
 # Phase 15.6 – Bewerbungsdaten: Versionierung, Referenzen und Migration
 
-**Status (09.11.2026):** 15.6a–15.6e sind gemergt (#136, #140, #143–#148). Der isolierte Staging-Import aus #149 und die DDL-Vertrags-Härtung aus #153 sind ebenfalls auf `main`; die zugehörigen CI-Läufe waren erfolgreich. Ein unabhängiges GitHub-Review ist nicht dokumentiert. Eine zusätzliche explizite `NOT NULL`-Sicherung für `application_id` samt Regressionstest liegt auf Review-Branch und wartet auf CI. Keine Produktivmigration.  
+**Status (09.11.2026):** 15.6a–15.6e sind gemergt (#136, #140, #143–#148); Staging/DDL-Härtung aus #149/#153 und die explizite `NOT NULL`-Sicherung aus PR #174 sind ebenfalls auf `main`. Die PR-CI auf dem getesteten Code-/Test-Commit war erfolgreich: 1.699 Tests auf Python 3.14 und 3.15 (je 26 Skips), Coverage 72 %. Ein unabhängiges GitHub-Review ist weiterhin nicht dokumentiert; Phase 15.6f bleibt bis dahin offen. Keine Produktivmigration.  
 **Historische Inventur-Basis 15.6a:** `main` @ `e7311e7b9bb3fb90706629eaf0fabe2086e4782d` (nach PR #136)  
-**Aktueller Prüfstand:** `main` @ `fc246984c12bfd99b1bf38904833f6f616bbb8ca` (Merge PR #173)  
+**Aktueller Prüfstand:** `main` @ `6848ff26bb19fa5d48bb368574f2653c786ccc27` (Merge PR #174)  
 **Datum:** 09.11.2026  
 **Nachverfolgung:** [Issue #134](https://github.com/NicoPinguinDEV/Pulse/issues/134)
 
@@ -196,6 +196,6 @@ PR [#147](https://github.com/NicoPinguinDEV/Pulse/pull/147) ergänzt persistente
 
 Phase 15.6e ist mit PR [#148](https://github.com/NicoPinguinDEV/Pulse/pull/148) gemergt: Bewerber-/Interviewer-/Kalender-/Audit-Exportreferenzen, read-only Cross-Store-Audit und fail-closed Retention. Retention-Mutationen bleiben blockiert; historische Audit-Freitextdetails werden nicht als strukturierte Referenzen ausgelegt.
 
-Phase 15.6f ist nicht mehr nur ein Entwurf: PR [#149](https://github.com/NicoPinguinDEV/Pulse/pull/149) implementiert `pulse_application_staging.py` als explizites Offline-Werkzeug; PR [#153](https://github.com/NicoPinguinDEV/Pulse/pull/153) prüft den vollständigen SQLite-DDL-Vertrag. Das Staging-Schema entsteht ausschließlich in einer neu angelegten, ausdrücklich benannten `.staging.sqlite3`-Datei. Eine Suche nach den Staging-Aufrufen fand keinen Runtime-Aufrufer; `applications.json` bleibt maßgeblich. Eine zusätzliche explizite `NOT NULL`-Sicherung für `application_id` samt Regression liegt auf `phase/15-6f-finalize-staging-review` und wartet noch auf CI und unabhängiges Review.
+Phase 15.6f ist nicht mehr nur ein Entwurf: PR [#149](https://github.com/NicoPinguinDEV/Pulse/pull/149) implementiert `pulse_application_staging.py` als explizites Offline-Werkzeug; PR [#153](https://github.com/NicoPinguinDEV/Pulse/pull/153) prüft den vollständigen SQLite-DDL-Vertrag. Das Staging-Schema entsteht ausschließlich in einer neu angelegten, ausdrücklich benannten `.staging.sqlite3`-Datei. Eine Suche nach den Staging-Aufrufen fand keinen Runtime-Aufrufer; `applications.json` bleibt maßgeblich. PR [#174](https://github.com/NicoPinguinDEV/Pulse/pull/174) ergänzt eine explizite `NOT NULL`-Sicherung für `application_id` samt Regression. Die PR-CI ist grün (1.699 Tests auf Python 3.14 und 3.15, je 26 Skips; Coverage 72 %). Ein unabhängiges Review ist weiterhin nicht dokumentiert; die Vorbereitungsphase wird daher noch nicht als vollständig abgenommen eingestuft.
 
 Die Staging-Vorbereitung ist von einer produktiven Migration getrennt. Cross-Store-Referenz-/Backup-/Restore-Nachweise, fachliche Datenschutz-/Retention-Entscheidungen und ein unabhängiges Review bleiben offen. Kein SQLite-Backend ist produktiv aktiviert; Retention, Löschung und Anonymisierung bleiben gesperrt. Ein späterer Produktions-Cutover benötigt einen eigenen, ausdrücklich genehmigten PR.
