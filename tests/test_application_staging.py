@@ -88,6 +88,24 @@ class ApplicationStagingTests(unittest.TestCase):
                 '{"status":"changed"}',
             )
 
+    def test_staging_schema_rejects_null_application_ids(self):
+        create_application_staging_database(self.snapshot, self.target)
+        with sqlite3.connect(self.target) as db:
+            columns = db.execute("PRAGMA table_info(application_records)").fetchall()
+            application_id = next(column for column in columns if column[1] == "application_id")
+            self.assertEqual(application_id[3], 1, "application_id must be explicitly NOT NULL")
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute(
+                    """
+                    INSERT INTO application_records (
+                        application_id, record_schema_version, payload_json
+                    ) VALUES (NULL, ?, ?)
+                    """,
+                    (APPLICATION_STAGING_SCHEMA_VERSION, "{}"),
+                )
+        report = verify_application_staging_database(self.snapshot, self.target)
+        self.assertTrue(report["valid"], report)
+
     def test_schema_drift_is_detected_by_read_only_verification(self):
         create_application_staging_database(self.snapshot, self.target)
         with sqlite3.connect(self.target) as db:

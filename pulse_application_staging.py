@@ -77,7 +77,7 @@ def _create_schema(db: sqlite3.Connection) -> None:
     db.execute(
         """
         CREATE TABLE application_records (
-            application_id TEXT PRIMARY KEY,
+            application_id TEXT PRIMARY KEY NOT NULL,
             user_id TEXT,
             status TEXT,
             created_at TEXT,
@@ -289,7 +289,7 @@ def verify_application_staging_database(
                 ),
                 "application_records": (
                     "create table application_records ( "
-                    "application_id text primary key, user_id text, status text, "
+                    "application_id text primary key not null, user_id text, status text, "
                     "created_at text, updated_at text, "
                     "record_schema_version integer not null, payload_json text not null )"
                 ),
