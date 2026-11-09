@@ -1,8 +1,8 @@
 # Pulse TeamOS – Roadmap 2.0
 
 **Strategische Entwicklungsplanung für Discord-Bot und Web-Dashboard · © BOCHUM RP | V1**  
-**Stand:** 05.11.2026  
-**Verbindliche Ausgangsbasis bei Branch-Erstellung:** main @ `2f57f717c5a219c50685ab8a94837fb684c5249e` (Merge PR #148; Stand 05.11.2026)  
+**Stand:** 09.11.2026  
+**Aktuelle Prüf-/Branch-Basis:** `main` @ `fc246984c12bfd99b1bf38904833f6f616bbb8ca` (Merge PR #173; 07.11.2026)  
 **Produktionsumgebung:** Ubuntu 24.04 · 2 vCores · 2 GB RAM · 50 GB SSD
 
 > Diese Roadmap beschreibt die langfristige Richtung und die Reihenfolge der nächsten Entwicklungsblöcke. Sie ersetzt nicht die technischen Einzelnachweise in den Phasenberichten und nicht die verbindlichen Sicherheitsregeln aus CLAUDE.md. Der detaillierte Alt-Aufgabenbestand bleibt in VERBESSERUNGSPLAN.md; vorhandene Funktionen werden vor jeder Umsetzung im aktuellen Code geprüft.
@@ -97,7 +97,7 @@ Die Nummerierung beginnt nach Phase 14.8. Phasenstatus werden erst dann auf erle
 | 15.4a | Melonly 100K: Cache, Indizes, SQLite-Abfragen und speicherschonender Export | Code in PR #128 gemergt. JSON bleibt Produktiv-Backend; keine automatische Migration oder Umschaltung. |
 | 15.4b | Melonly 100K: Performance-Nachweis | 20K-/100K-Benchmark mit drei Wiederholungen und bestandenen Paritätsprüfungen dokumentiert: [PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md](PHASE15_4_MELOONLY_PERFORMANCE_REPORT.md). Messwerte stammen vom GitHub-Runner, nicht vom VPS. |
 | 15.5 | Datenintegrität und Wiederherstellung | **Abgeschlossen 04.11.2026.** Manueller [100K-Backup-/Restore-Rehearsal #41817023415](https://github.com/NicoPinguinDEV/Pulse/actions/runs/41817023415) auf `main`: Backup-Prüfung, isolierter und vollständiger Restore, SQLite-Integrität, Metadaten, Parität und JSON-Rückexport bestanden. Prozessabbruch-Test in CI #41437223612 (1.472 Tests, 19 Skips) bestanden. Messwerte und Aussagegrenzen: [PHASE15_5_DATA_INTEGRITY_RESTORE.md](PHASE15_5_DATA_INTEGRITY_RESTORE.md). Kein Produktions-VPS-Restore. |
-| 15.6 | Bewerbungsdaten: Referenzen, Datenschutz und Migration | 15.6a (#136), 15.6b (#140), 15.6c (#143) und 15.6d (#147) sind gemergt. PR #148 hat 15.6e mit Bewerber-/Interviewer-/Kalender-/Audit-Exportreferenzen, read-only Cross-Store-Audit und hard fail-closed Retention gemergt. 15.6f ergänzt aktuell ausschließlich einen isolierten Staging-SQLite-Import mit vollständigem Payload und read-only Paritätsprüfung; PR/CI/Review stehen aus. Keine Backend-Umschaltung, keine Produktivmigration. |
+| 15.6 | Bewerbungsdaten: Referenzen, Datenschutz und Migration | 15.6a (#136), 15.6b (#140), 15.6c (#143), 15.6d (#144–#147) und 15.6e (#148) sind gemergt. PR #149 implementiert isoliertes SQLite-Staging; PR #153 härtet den vollständigen DDL-Vertrag. Die Quality-/Security-CI beider PRs war erfolgreich. Der aktuelle Review-Branch ergänzt explizites `NOT NULL` für `application_id` samt Regression; CI steht noch aus. Für #149/#153 ist kein unabhängiges GitHub-Review dokumentiert. 15.6f bleibt bis zu aktueller grüner CI und unabhängigem Review offen. JSON bleibt autoritativ; keine Produktivmigration, Backend-Umschaltung oder Retention. |
 | 15.7 | Weitere JSON-/SQLite-Dateien bewerten | Kleine Datenbanken werden einzeln bewertet. Eine Zusammenführung erfolgt nur, wenn Eigentümerschaft, Tabellenkollisionen, Backup und Rückweg geklärt sind. |
 
 **Separater Betriebsschritt – Schichthistorie aktivieren:** Die Umschaltung von PULSE_SHIFT_HISTORY_BACKEND auf sqlite ist kein automatischer Teil dieser Codephase. Erst nach geprüftem Backup, dokumentiertem Status und ausdrücklicher Freigabe darf sie auf dem VPS erfolgen. Der Rückweg auf JSON muss genauso dokumentiert bleiben.
@@ -327,9 +327,13 @@ Eine Phase gilt erst als abgeschlossen, wenn alle zutreffenden Punkte erfüllt s
 
 ## 9. Aktueller nächster Entwicklungsschritt
 
-PR #148 ist auf `main` gemergt und hat Phase 15.6e mit erweitertem Datenschutzexport, Read-only-Referenzaudit und Fail-Closed-Retention abgeschlossen. Die aktuelle Branch-Basis ist `2f57f717c5a219c50685ab8a94837fb684c5249e`.
+PR #148 hat Phase 15.6e mit Bewerber-/Interviewer-/Kalender-/Audit-Exportreferenzen, read-only Cross-Store-Audit und fail-closed Retention gemergt. PR #149 ergänzte den isolierten SQLite-Staging-Import; PR #153 härtete die Schema-Verifikation. Beide PRs sind gemergt und ihre Quality-/Security-CI war erfolgreich. Aktueller Prüfstand ist `main` @ `fc246984c12bfd99b1bf38904833f6f616bbb8ca` (Merge PR #173).
 
-Der aktive Block ist Phase 15.6f. Der erste technische Schritt erstellt ausschließlich aus explizit übergebenen Snapshot-Bytes eine neue Datei mit der Endung `.staging.sqlite3`, speichert vollständige Bewerbungs-Payloads und verifiziert IDs, Payloads, Projektionen, Snapshot-Metadaten und SQLite-Integrität read-only. Der Feature-Branch ist `phase/15-6f-isolated-staging-parity`; CI und unabhängiges Review stehen noch aus. JSON bleibt autoritativ; Backend-Cutover, Produktivmigration und Retention bleiben gesperrt.
+Die Code-Suche zeigt, dass `create_application_staging_database()` und `verify_application_staging_database()` nur im Offline-Staging-Modul und in dessen Tests verwendet werden. Der JSON-Repository-Adapter bleibt der aktive Bewerbungs-Store; `applications.json` ist weiterhin maßgeblich. Das Staging-Werkzeug wählt kein Runtime-Backend und greift nicht auf Runtime-Pfade zu.
+
+Die Nachprüfung fand eine SQLite-Schema-Lücke: `application_id TEXT PRIMARY KEY` erzwingt in dieser Tabellenform nicht ausdrücklich `NOT NULL`. Branch `phase/15-6f-finalize-staging-review` ergänzt die explizite Einschränkung und einen Regressionstest. Der aktuelle Branch benötigt noch grüne CI und ein unabhängiges Review; bis dahin ist Phase 15.6f nicht abgeschlossen. Einzelheiten und vorhandene CI-Nachweise stehen in `PHASE15_6F_SQLITE_MIGRATION_PREPARATION.md`.
+
+Unabhängig vom Staging bleiben Cross-Store-Referenzparität, ein gemeinsamer synthetischer Backup-/Restore-Rehearsal aller Bewerbungs-Speicher und fachliche Datenschutz-/Retention-Entscheidungen offen. `RETENTION_MUTATIONS_ENABLED` bleibt `False`. Ein Produktions-Cutover benötigt später einen eigenen, ausdrücklich freigegebenen PR. Issue #134 bleibt offen; seine Restabnahme ist dort und im Phasenbericht dokumentiert.
 
 Phase 16–22 bleiben die nachfolgenden, bereits in Abschnitt 4 beschriebenen eigenständigen Entwicklungsphasen: Architektur, Security Center, Dashboard 2.0, Teamprozesse, Automatisierung, Analytics und Release-/Betriebsqualität. Sie werden nacheinander und jeweils mit eigenem Baseline-Audit, Feature-Branch, Regressionen, Review und PR umgesetzt; nicht als ungetesteter Sammelumbau.
 
