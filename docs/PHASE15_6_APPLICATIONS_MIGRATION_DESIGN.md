@@ -1,9 +1,9 @@
 # Phase 15.6 – Bewerbungsdaten: Versionierung, Referenzen und Migration
 
-**Status (05.11.2026):** 15.6a (#136), 15.6b (#140), 15.6c (#143) und 15.6d (#147) gemergt · 15.6e Datenschutzexport/Retention-Schutz auf Feature-Branch · 15.6f nur als Staging-/Paritätsvorbereitung dokumentiert · keine Produktivmigration  
-**Codebasis der Read-only-Inventur 15.6a:** `main` @ `e7311e7b9bb3fb90706629eaf0fabe2086e4782d` (nach PR #136)  
-**Aktueller main-Stand vor Phase 15.6e:** `385e235978f976df361ecc75bb1597e6995684e4` (Merge PR #147)  
-**Datum:** 05.11.2026  
+**Status (09.11.2026):** 15.6a–15.6e sind gemergt (#136, #140, #143–#148). Der isolierte Staging-Import aus #149 und die DDL-Vertrags-Härtung aus #153 sind ebenfalls auf `main`; die zugehörigen CI-Läufe waren erfolgreich. Ein unabhängiges GitHub-Review ist nicht dokumentiert. Eine zusätzliche explizite `NOT NULL`-Sicherung für `application_id` samt Regressionstest liegt auf Review-Branch und wartet auf CI. Keine Produktivmigration.  
+**Historische Inventur-Basis 15.6a:** `main` @ `e7311e7b9bb3fb90706629eaf0fabe2086e4782d` (nach PR #136)  
+**Aktueller Prüfstand:** `main` @ `fc246984c12bfd99b1bf38904833f6f616bbb8ca` (Merge PR #173)  
+**Datum:** 09.11.2026  
 **Nachverfolgung:** [Issue #134](https://github.com/NicoPinguinDEV/Pulse/issues/134)
 
 > Diese Phase ändert noch kein aktives Bewerbungs-Backend. Die vorhandenen JSON- und SQLite-Daten bleiben die maßgeblichen Quellen. Alle Inventurtests verwenden ausschließlich synthetische Fixtures oder ausdrücklich angegebene Exporte.
@@ -194,6 +194,8 @@ Der Discord-Entscheidungsablauf und die Suite-Endpunkte für Status-/Interviewä
 
 PR [#147](https://github.com/NicoPinguinDEV/Pulse/pull/147) ergänzt persistente Application-Snapshots und Journal-/Recovery-Grundlagen in `pulse.db`. Der Merge-Commit ist `385e235978f976df361ecc75bb1597e6995684e4`. Das ist weiterhin keine Produktivmigration.
 
-Phase 15.6e wird separat bearbeitet: Interview-/Kalender-/Audit-Exportreferenzen, read-only Referenzaudit, Retention-Dry-Run und fail-closed-Verhalten. Der aktuelle Zwischenstand blockiert jede Retention-Mutation. Historische Freitext-Auditdetails werden nicht als strukturierte Referenz ausgelegt.
+Phase 15.6e ist mit PR [#148](https://github.com/NicoPinguinDEV/Pulse/pull/148) gemergt: Bewerber-/Interviewer-/Kalender-/Audit-Exportreferenzen, read-only Cross-Store-Audit und fail-closed Retention. Retention-Mutationen bleiben blockiert; historische Audit-Freitextdetails werden nicht als strukturierte Referenzen ausgelegt.
 
-Phase 15.6f ist als Vorbereitungsdokument beschrieben: isolierter Staging-Import, vollständiger Payload-Erhalt, Paritätsnachweis und expliziter Cutover-/Rollback-Vertrag. Das Zielschema ist nur ein Entwurf; es wird kein SQLite-Backend aktiviert oder produktiv angelegt.
+Phase 15.6f ist nicht mehr nur ein Entwurf: PR [#149](https://github.com/NicoPinguinDEV/Pulse/pull/149) implementiert `pulse_application_staging.py` als explizites Offline-Werkzeug; PR [#153](https://github.com/NicoPinguinDEV/Pulse/pull/153) prüft den vollständigen SQLite-DDL-Vertrag. Das Staging-Schema entsteht ausschließlich in einer neu angelegten, ausdrücklich benannten `.staging.sqlite3`-Datei. Eine Suche nach den Staging-Aufrufen fand keinen Runtime-Aufrufer; `applications.json` bleibt maßgeblich. Eine zusätzliche explizite `NOT NULL`-Sicherung für `application_id` samt Regression liegt auf `phase/15-6f-finalize-staging-review` und wartet noch auf CI und unabhängiges Review.
+
+Die Staging-Vorbereitung ist von einer produktiven Migration getrennt. Cross-Store-Referenz-/Backup-/Restore-Nachweise, fachliche Datenschutz-/Retention-Entscheidungen und ein unabhängiges Review bleiben offen. Kein SQLite-Backend ist produktiv aktiviert; Retention, Löschung und Anonymisierung bleiben gesperrt. Ein späterer Produktions-Cutover benötigt einen eigenen, ausdrücklich genehmigten PR.
