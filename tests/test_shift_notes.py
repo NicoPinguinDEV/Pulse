@@ -6,9 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+
 import pulse_db
 import webserver as ws
-from fastapi.testclient import TestClient
 from tests.test_pulse_admin_area import GUILD, TEAMLER, fake_auth_for
 
 
