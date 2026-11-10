@@ -466,6 +466,17 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_ultimate_calendar_start
                 ON ultimate_calendar(start_at);
+            CREATE TABLE IF NOT EXISTS ultimate_calendar_rsvps(
+                event_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                response TEXT NOT NULL CHECK(response IN ('going','declined')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(event_id,user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ultimate_calendar_rsvps_event
+                ON ultimate_calendar_rsvps(event_id,response,display_name);
             CREATE TABLE IF NOT EXISTS ultimate_awards(
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
@@ -1474,18 +1485,122 @@ def register(app) -> None:
                 "SELECT * FROM ultimate_calendar WHERE start_at>=? ORDER BY start_at LIMIT 100",
                 (iso(),),
             ).fetchall()]
-        items = "".join(
-            card(f"<div class=row><div><b>{esc(x['title'])}</b><div class=tiny>{esc(x['kind'])} · {esc(x['start_at'])}</div></div><form method='post' action='/ultimate/calendar/{esc(x['id'])}/delete' style='margin:0'><button class='btn' type='submit'>Löschen</button></form></div><div class=tiny>{esc(x['description'])}</div>")
-            for x in rows
-        )
+            event_ids = [str(row["id"]) for row in rows]
+            rsvps = []
+            if event_ids:
+                placeholders = ",".join("?" for _ in event_ids)
+                rsvps = [dict(row) for row in c.execute(
+                    f"SELECT event_id,user_id,display_name,response FROM ultimate_calendar_rsvps "
+                    f"WHERE event_id IN ({placeholders}) ORDER BY display_name LIMIT 5000",
+                    event_ids,
+                ).fetchall()]
+        by_event = {}
+        for rsvp in rsvps:
+            by_event.setdefault(str(rsvp["event_id"]), []).append(rsvp)
+
+        items = []
+        for event in rows:
+            event_id = str(event["id"])
+            event_kind = str(event.get("kind") or "").strip().casefold()
+            attendance_enabled = event_kind in {"event", "meeting", "training", "besprechung", "schulung"}
+            attendees = by_event.get(event_id, []) if attendance_enabled else []
+            going = [entry for entry in attendees if entry["response"] == "going"]
+            declined = [entry for entry in attendees if entry["response"] == "declined"]
+            current = next((entry["response"] for entry in attendees if str(entry["user_id"]) == str(ctx.user["id"])), "")
+            attendee_rows = "".join(
+                f"<div class='row'><span>{esc(entry['display_name'])}</span>"
+                f"<span class='pill'>{'✅ Dabei' if entry['response'] == 'going' else '❌ Abgesagt'}</span></div>"
+                for entry in attendees
+            )
+            attendance = ""
+            if attendance_enabled:
+                choice = (
+                    "<span class='pill'>Du bist dabei</span>" if current == "going"
+                    else "<span class='pill'>Du hast abgesagt</span>" if current == "declined"
+                    else "<span class='pill'>Noch keine Rückmeldung</span>"
+                )
+                attendance = (
+                    f"<div class='card' style='margin-top:10px'><div class='row'>"
+                    f"<b>Teilnehmerliste</b><span class='pill'>✅ {len(going)} Zusagen · ❌ {len(declined)} Absagen</span></div>"
+                    f"{attendee_rows or '<div class=tiny>Noch keine Rückmeldungen.</div>'}"
+                    f"<div class='row' style='margin-top:8px'>{choice}</div>"
+                    f"<form method='post' action='/ultimate/calendar/{esc(event_id)}/rsvp' class='flex flex-wrap gap-2'>"
+                    f"<button class='btn primary' name='response' value='going' type='submit'>✅ Zusagen</button>"
+                    f"<button class='btn' name='response' value='declined' type='submit'>❌ Absagen</button>"
+                    f"<button class='btn' name='response' value='remove' type='submit'>Rückmeldung löschen</button></form></div>"
+                )
+            delete_form = (
+                f"<form method='post' action='/ultimate/calendar/{esc(event_id)}/delete' style='margin:0'>"
+                "<button class='btn' type='submit'>Löschen</button></form>"
+                if ctx.perms.get("can_promote") or ctx.perms.get("is_admin") else ""
+            )
+            items.append(card(
+                f"<div class=row><div><b>{esc(event['title'])}</b>"
+                f"<div class=tiny>{esc(event['kind'])} · {esc(event['start_at'])}</div></div>{delete_form}</div>"
+                f"<div class=tiny>{esc(event['description'])}</div>"
+                f"<div class=tiny>{esc(event.get('location') or '')}</div>{attendance}"
+            ))
+
         body = f"""<div class="card"><h3>🗓 Termin erstellen</h3><form class="form" method="post" action="/ultimate/calendar/create">
-          <input class="input" name="title" placeholder="Meeting / Schulung / Event" required><input class="input" name="kind" placeholder="meeting">
+          <input class="input" name="title" placeholder="Meeting / Schulung / Event" required>
+          <select class="select" name="kind" aria-label="Terminart">
+            <option value="event" selected>Event mit Teilnehmerliste</option>
+            <option value="meeting">Besprechung mit Teilnehmerliste</option>
+            <option value="training">Schulung mit Teilnehmerliste</option>
+            <option value="deadline">Frist ohne Teilnehmerliste</option>
+          </select>
           <input class="input" name="start_at" placeholder="2026-10-05T19:00:00+02:00" required><input class="input" name="end_at" placeholder="optional">
           <input class="input span2" name="location" placeholder="Ort / Discord-Kanal">
           <textarea class="ta span2" name="description" placeholder="Beschreibung"></textarea>
           <button class="btn primary span2">Termin speichern</button></form></div>
-          <div class="grid g2" style="margin-top:13px">{items or card("<div class=tiny>Keine kommenden Termine.</div>")}</div>"""
+          <div class="grid g2" style="margin-top:13px">{''.join(items) or card("<div class=tiny>Keine kommenden Termine.</div>")}</div>"""
         return page(ctx, "calendar", "Team-Kalender", "Meetings, Schulungen, Events, Fristen und Übergaben.", body)
+
+    @app.post("/ultimate/calendar/{event_id}/rsvp")
+    async def ultimate_calendar_rsvp(
+        request: Request, event_id: str, response: str = Form(...),
+        user_session: str = Cookie(None),
+    ):
+        ctx = ctx_auth(request, user_session)
+        response = str(response or "").strip().casefold()
+        if response not in {"going", "declined", "remove"}:
+            raise HTTPException(400, "Ungültige Rückmeldung.")
+        with cx() as c:
+            event = c.execute(
+                "SELECT id,title,kind FROM ultimate_calendar WHERE id=?",
+                (event_id,),
+            ).fetchone()
+            if not event:
+                raise HTTPException(404, "Termin nicht gefunden.")
+            if str(event["kind"] or "").strip().casefold() not in {
+                "event", "meeting", "training", "besprechung", "schulung"
+            }:
+                raise HTTPException(400, "Für diese Terminart ist keine Teilnehmerliste aktiviert.")
+            if response == "remove":
+                c.execute(
+                    "DELETE FROM ultimate_calendar_rsvps WHERE event_id=? AND user_id=?",
+                    (event_id, str(ctx.user["id"])),
+                )
+            else:
+                display_name = str(
+                    ctx.user.get("global_name") or ctx.user.get("username") or "Teammitglied"
+                )[:100]
+                now = iso()
+                c.execute(
+                    """
+                    INSERT INTO ultimate_calendar_rsvps
+                        (event_id,user_id,display_name,response,created_at,updated_at)
+                    VALUES(?,?,?,?,?,?)
+                    ON CONFLICT(event_id,user_id) DO UPDATE SET
+                        display_name=excluded.display_name,
+                        response=excluded.response,
+                        updated_at=excluded.updated_at
+                    """,
+                    (event_id, str(ctx.user["id"]), display_name, response, now, now),
+                )
+        label = {"going": "zugesagt", "declined": "abgesagt", "remove": "zurückgezogen"}[response]
+        audit(ctx, "Kalenderteilnahme geändert", event_id, str(event["title"]), label)
+        return RedirectResponse("/ultimate/calendar", status_code=303)
 
     @app.post("/ultimate/calendar/create")
     async def ultimate_calendar_create(
@@ -1499,10 +1614,14 @@ def register(app) -> None:
             datetime.fromisoformat(start_at.replace("Z", "+00:00"))
         except ValueError:
             raise HTTPException(400, "Ungültiges Startdatum.")
+        allowed_kinds = {"event", "meeting", "training", "deadline"}
+        kind = str(kind or "event").strip().casefold()
+        if kind not in allowed_kinds:
+            raise HTTPException(400, "Ungültige Terminart.")
         with cx() as c:
             c.execute(
                 "INSERT INTO ultimate_calendar VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                (uid("cal"), title.strip()[:160], kind[:40], start_at.strip()[:80],
+                (uid("cal"), title.strip()[:160], kind, start_at.strip()[:80],
                  end_at.strip()[:80] or None, description[:2000], location[:300],
                  None, str(ctx.user["id"]),
                  ctx.user.get("global_name") or ctx.user.get("username") or "Team", iso()),
@@ -1520,6 +1639,7 @@ def register(app) -> None:
     async def ultimate_calendar_delete(request: Request, event_id: str, user_session: str = Cookie(None)):
         ctx = ctx_auth(request, user_session, manager=True)
         with cx() as c:
+            c.execute("DELETE FROM ultimate_calendar_rsvps WHERE event_id=?", (event_id,))
             c.execute("DELETE FROM ultimate_calendar WHERE id=?", (event_id,))
         audit(ctx, "Kalendertermin gelöscht", event_id, "", "")
         return RedirectResponse("/ultimate/calendar", status_code=303)
