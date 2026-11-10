@@ -141,7 +141,6 @@ def revise_reason_template(guild_id, action: str, name: str, body: str, actor) -
     """Append a new immutable revision and atomically point the template at it."""
     name, body = _validate_template(action, name, body)
     actor_id = str(getattr(actor, "id", actor))
-    actor_name = str(getattr(actor, "display_name", getattr(actor, "name", actor_id)))[:100]
     updated_at = _now().isoformat(timespec="seconds")
     try:
         with pulse_db.connect() as db:
