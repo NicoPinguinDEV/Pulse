@@ -247,7 +247,7 @@ def resolve_reason(guild_id, action: str, value: str) -> tuple[str, str | None, 
     text = str(value or "").strip()
     if not text.startswith(TEMPLATE_TOKEN_PREFIX):
         return text, None, None
-    match = re.fullmatch(r"@modtpl:(MRT-[A-F0-9]{8}):(\\d{1,6})", text)
+    match = re.fullmatch(r"@modtpl:(MRT-[A-F0-9]{8}):(\d{1,6})", text)
     if not match:
         raise ValueError("Ungültige Moderationsvorlagen-Auswahl. Bitte erneut aus der Liste auswählen.")
     template = get_template(guild_id, match.group(1), int(match.group(2)))
