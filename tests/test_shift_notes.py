@@ -182,7 +182,16 @@ class ShiftNoteDashboardRouteTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_dashboard_form_saves_only_for_the_signed_in_active_member(self):
-        with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
+        with (
+            patch.object(ws, "auth", fake_auth_for(TEAMLER)),
+            patch(
+                "pulse_shift_history.load_member_view",
+                return_value={"active_shifts": {"123": {
+                    "started_at_iso": "2026-11-10T18:00:00+01:00",
+                    "status": "online",
+                }}},
+            ),
+        ):
             response = self.client.post(
                 "/shift/notes", data={"note": "Dashboard-Übergabe abgeschlossen"},
                 follow_redirects=False,
@@ -194,7 +203,10 @@ class ShiftNoteDashboardRouteTests(unittest.TestCase):
 
     def test_dashboard_form_rejects_a_member_without_an_active_shift(self):
         ws.save_json(ws.SHIFTS_FILE, {"active_shifts": {}, "history": []})
-        with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
+        with (
+            patch.object(ws, "auth", fake_auth_for(TEAMLER)),
+            patch("pulse_shift_history.load_member_view", return_value={"active_shifts": {}}),
+        ):
             response = self.client.post(
                 "/shift/notes", data={"note": "Ohne laufende Schicht"},
                 follow_redirects=False,
