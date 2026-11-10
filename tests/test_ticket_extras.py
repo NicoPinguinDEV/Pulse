@@ -136,6 +136,13 @@ class ExtrasTests(TempDb):
         self.assertEqual(tx.linked_tickets(self.tid), [])
         self.assertEqual(tx.linked_tickets(second_id), [])
 
+    def test_ticket_links_are_removed_when_a_ticket_is_deleted(self):
+        second_id = pulse_db.create_ticket("559", "1", "13", "Zu löschen", "support")
+        self.assertTrue(tx.link_tickets(self.tid, second_id, 3, "Max"))
+        with pulse_db.connect() as db:
+            db.execute("DELETE FROM tickets WHERE id=?", (second_id,))
+        self.assertEqual(tx.linked_tickets(self.tid), [])
+
     def test_ticket_links_reject_self_missing_cross_guild_and_oversized_note(self):
         second_id = pulse_db.create_ticket("557", "2", "11", "Fremde Person", "support")
         with self.assertRaises(ValueError):
