@@ -315,6 +315,28 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_training_attempts_user ON training_attempts(user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_training_attempts_training ON training_attempts(training_id, created_at DESC);
 
+            CREATE TABLE IF NOT EXISTS training_paths (
+                id TEXT PRIMARY KEY,
+                role_id TEXT NOT NULL UNIQUE,
+                role_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                created_by_id TEXT NOT NULL,
+                created_by_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS training_path_items (
+                id TEXT PRIMARY KEY,
+                path_id TEXT NOT NULL,
+                training_id TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                UNIQUE(path_id,training_id),
+                UNIQUE(path_id,position)
+            );
+            CREATE INDEX IF NOT EXISTS idx_training_path_items_path
+                ON training_path_items(path_id,position);
+
             CREATE TABLE IF NOT EXISTS meetings_history (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -1210,6 +1232,142 @@ def get_training(tid):
         return item
 
 
+def save_training_path(role_id, role_name, title, description, creator_id, creator_name, training_ids):
+    """Create or replace one ordered learning path for a configured Discord role."""
+    role_id = str(role_id or "").strip()
+    role_name = str(role_name or "").strip()[:100]
+    title = str(title or "").strip()[:120]
+    description = str(description or "").strip()[:500]
+    if not role_id.isdigit() or not 15 <= len(role_id) <= 22:
+        raise ValueError("Ungültige Teamrollen-ID.")
+    if not role_name or not title:
+        raise ValueError("Rollenname und Lernpfad-Titel sind erforderlich.")
+    if not isinstance(training_ids, (list, tuple)) or not 1 <= len(training_ids) <= 30:
+        raise ValueError("Ein Lernpfad muss 1 bis 30 Schulungen enthalten.")
+    normalized = []
+    for raw in training_ids:
+        training_id = str(raw or "").strip()
+        if not training_id or training_id in normalized:
+            continue
+        normalized.append(training_id)
+    if not 1 <= len(normalized) <= 30:
+        raise ValueError("Ein Lernpfad muss 1 bis 30 unterschiedliche Schulungen enthalten.")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        placeholders = ",".join("?" for _ in normalized)
+        existing = {
+            str(row["id"])
+            for row in db.execute(
+                f"SELECT id FROM trainings WHERE published=1 AND id IN ({placeholders})",
+                normalized,
+            ).fetchall()
+        }
+        missing = [training_id for training_id in normalized if training_id not in existing]
+        if missing:
+            raise ValueError("Eine oder mehrere ausgewählte Schulungen sind nicht veröffentlicht.")
+        row = db.execute("SELECT id FROM training_paths WHERE role_id=?", (role_id,)).fetchone()
+        now = _now()
+        if row:
+            path_id = str(row["id"])
+            db.execute(
+                """UPDATE training_paths SET role_name=?,title=?,description=?,
+                   created_by_id=?,created_by_name=?,updated_at=? WHERE id=?""",
+                (role_name, title, description, str(creator_id), str(creator_name or "Team")[:100], now, path_id),
+            )
+            db.execute("DELETE FROM training_path_items WHERE path_id=?", (path_id,))
+        else:
+            path_id = make_id("training_path")
+            db.execute(
+                """INSERT INTO training_paths
+                   (id,role_id,role_name,title,description,created_by_id,created_by_name,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?)""",
+                (path_id, role_id, role_name, title, description, str(creator_id),
+                 str(creator_name or "Team")[:100], now, now),
+            )
+        db.executemany(
+            "INSERT INTO training_path_items (id,path_id,training_id,position) VALUES(?,?,?,?)",
+            [(make_id("training_path_item"), path_id, training_id, position)
+             for position, training_id in enumerate(normalized)],
+        )
+        return path_id
+
+
+def training_paths():
+    """List all role learning paths with published training items in their configured order."""
+    with connect() as db:
+        paths = [dict(row) for row in db.execute(
+            "SELECT * FROM training_paths ORDER BY role_name COLLATE NOCASE,id"
+        ).fetchall()]
+        if not paths:
+            return []
+        ids = [str(path["id"]) for path in paths]
+        placeholders = ",".join("?" for _ in ids)
+        rows = db.execute(
+            f"""SELECT i.path_id,i.training_id,i.position,t.title,t.description,t.passing_score
+                FROM training_path_items i
+                JOIN trainings t ON t.id=i.training_id
+                WHERE i.path_id IN ({placeholders}) AND t.published=1
+                ORDER BY i.path_id,i.position""",
+            ids,
+        ).fetchall()
+    items_by_path = {}
+    for row in rows:
+        item = dict(row)
+        items_by_path.setdefault(str(item.pop("path_id")), []).append(item)
+    for path in paths:
+        path["items"] = items_by_path.get(str(path["id"]), [])
+    return paths
+
+
+def training_paths_for_roles(role_ids):
+    allowed = {str(role_id) for role_id in (role_ids or ()) if str(role_id).isdigit()}
+    if not allowed:
+        return []
+    return [path for path in training_paths() if str(path["role_id"]) in allowed]
+
+
+def passed_training_ids_for_user(user_id, training_ids=None):
+    """Return distinct training IDs passed by a user, optionally narrowed to a path."""
+    with connect() as db:
+        if training_ids is not None:
+            selected = list(dict.fromkeys(str(value) for value in training_ids if str(value)))
+            if not selected:
+                return set()
+            placeholders = ",".join("?" for _ in selected)
+            rows = db.execute(
+                f"SELECT DISTINCT training_id FROM training_attempts "
+                f"WHERE user_id=? AND passed=1 AND training_id IN ({placeholders})",
+                [str(user_id), *selected],
+            ).fetchall()
+        else:
+            rows = db.execute(
+                "SELECT DISTINCT training_id FROM training_attempts WHERE user_id=? AND passed=1",
+                (str(user_id),),
+            ).fetchall()
+    return {str(row["training_id"]) for row in rows}
+
+
+def training_path_progress(path_id, user_id):
+    """Count distinct path trainings passed by this user; a training only counts once."""
+    with connect() as db:
+        total = int(db.execute(
+            "SELECT COUNT(*) FROM training_path_items i "
+            "JOIN trainings t ON t.id=i.training_id AND t.published=1 WHERE i.path_id=?",
+            (str(path_id),),
+        ).fetchone()[0] or 0)
+        completed = int(db.execute(
+            """SELECT COUNT(DISTINCT i.training_id)
+               FROM training_path_items i
+               JOIN trainings t ON t.id=i.training_id AND t.published=1
+               WHERE i.path_id=? AND EXISTS(
+                   SELECT 1 FROM training_attempts a
+                   WHERE a.training_id=i.training_id AND a.user_id=? AND a.passed=1
+               )""",
+            (str(path_id), str(user_id)),
+        ).fetchone()[0] or 0)
+    return {"completed": completed, "total": total, "percent": round(completed / total * 100) if total else 0}
+
+
 def save_attempt(training_id, user_id, user_name, score, passed):
     with connect() as db:
         aid = make_id("attempt")
@@ -1673,7 +1831,7 @@ def purge_old_notifications(days=90):
 
 TABLES = [
     "notifications", "tasks", "task_history", "tickets", "ticket_events", "ticket_internal_notes", "ticket_links", "wiki_pages", "wiki_page_versions", "achievements",
-    "achievement_progress", "trainings", "training_questions", "training_attempts", "meetings_history", "calendar_events",
+    "achievement_progress", "trainings", "training_questions", "training_attempts", "training_paths", "training_path_items", "meetings_history", "calendar_events",
     "team_status", "handover_notes", "shift_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_reason_templates", "mod_reason_template_versions",

@@ -15,6 +15,8 @@
 
 ## Unveröffentlicht – Betrieb auf dem Vionity-VPS
 
+- **Rollen-Lernpfade:** Schulungen lassen sich konfigurierten Teamrollen als geordnete Lernpfade zuweisen; der Fortschritt zählt nur eindeutig bestandene Schulungen.
+
 - **Wiki-Versionierung:** Jede Bearbeitung erhält eine unveränderliche, nummerierte Revision. Eine Wiederherstellung erstellt eine neue Revision, statt ältere Versionen zu überschreiben; Legacy-Artikel erhalten beim ersten Edit einen Ausgangssnapshot.
 
 - **Sicherheit/Betrieb (Phase 13.1 – Production Readiness, Details `docs/PHASE13_1_BERICHT.md`):** Die Datenmigration ist fail-closed (nur mit erreichbarem Docker-Daemon und nachweislich gestopptem Container), kopiert atomar ohne Überschreiben und folgt keinen Symlinks; neuer Rückweg `pulse_migrate_data.py --rollback` (veraltete Kopien werden beiseitegelegt, nie gelöscht). Alle Root-Skripte nutzen dieselbe Deploy-Sperre; scheitert der erste Deploy ins Datenverzeichnis-Layout, wird Pulse gestoppt statt mit veralteten Daten gestartet. Neuer CI-Job testet die echte Docker-Compose-Konfiguration (read-only, `/data`, Healthcheck, Shutdown) ohne Discord.
