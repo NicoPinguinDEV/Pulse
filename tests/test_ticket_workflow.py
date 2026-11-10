@@ -133,7 +133,10 @@ class TicketWorkflowTests(unittest.TestCase):
         )
         self.assertTrue(pulse_db.close_ticket(ticket_id, "Erledigt", f"{ticket_id}.txt", 90, "Alter Bearbeiter"))
 
-        owner = SimpleNamespace(id=789, name="Ersteller", display_name="Ersteller")
+        owner = type("TicketOwner", (), {})()
+        owner.id = 789
+        owner.name = "Ersteller"
+        owner.display_name = "Ersteller"
         self.guild.default_role = object()
         self.guild.me = object()
         self.guild.categories = []
