@@ -183,6 +183,105 @@ def tags_for(ticket_ids) -> dict[str, list[str]]:
     return out
 
 
+# ------------------------------------------------------------------ related ticket links (staff-only)
+MAX_TICKET_LINK_NOTE_LENGTH = 500
+
+
+def _ticket_links_table(db) -> None:
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS ticket_links ("
+        "ticket_id_a TEXT NOT NULL, ticket_id_b TEXT NOT NULL, "
+        "created_by_id TEXT NOT NULL, created_by_name TEXT NOT NULL, "
+        "note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, "
+        "PRIMARY KEY (ticket_id_a,ticket_id_b), CHECK (ticket_id_a < ticket_id_b))"
+    )
+    db.execute("CREATE INDEX IF NOT EXISTS idx_ticket_links_b ON ticket_links(ticket_id_b)")
+
+
+def _ticket_pair(first_id: str, second_id: str) -> tuple[str, str]:
+    first = str(first_id or "").strip()
+    second = str(second_id or "").strip()
+    if not first or not second:
+        raise ValueError("Bitte zwei Ticket-IDs angeben.")
+    if first == second:
+        raise ValueError("Ein Ticket kann nicht mit sich selbst verknüpft werden.")
+    return tuple(sorted((first, second)))
+
+
+def link_tickets(
+    first_id: str,
+    second_id: str,
+    actor_id,
+    actor_name: str,
+    note: str = "",
+) -> bool:
+    """Create one bidirectional, same-guild relationship; True only when newly inserted."""
+    ticket_a, ticket_b = _ticket_pair(first_id, second_id)
+    actor_id = str(actor_id or "").strip()
+    actor_name = str(actor_name or "Teammitglied").strip()[:100] or "Teammitglied"
+    note = str(note or "").strip()
+    if not actor_id:
+        raise ValueError("Das ausführende Teammitglied fehlt.")
+    if len(note) > MAX_TICKET_LINK_NOTE_LENGTH:
+        raise ValueError(f"Die Verknüpfungsnotiz darf höchstens {MAX_TICKET_LINK_NOTE_LENGTH} Zeichen enthalten.")
+
+    with pulse_db.connect() as db:
+        _ticket_links_table(db)
+        rows = db.execute(
+            "SELECT id,guild_id FROM tickets WHERE id IN (?,?)",
+            (ticket_a, ticket_b),
+        ).fetchall()
+        tickets = {str(row["id"]): str(row["guild_id"]) for row in rows}
+        if ticket_a not in tickets or ticket_b not in tickets:
+            raise ValueError("Mindestens eines der Tickets wurde nicht gefunden.")
+        if tickets[ticket_a] != tickets[ticket_b]:
+            raise ValueError("Tickets aus unterschiedlichen Discord-Servern können nicht verknüpft werden.")
+        cursor = db.execute(
+            "INSERT OR IGNORE INTO ticket_links "
+            "(ticket_id_a,ticket_id_b,created_by_id,created_by_name,note,created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (ticket_a, ticket_b, actor_id, actor_name, note, pulse_db._now()),
+        )
+        return cursor.rowcount == 1
+
+
+def linked_tickets(ticket_id: str) -> list[dict]:
+    """List related tickets in either direction; caller must authorize staff access."""
+    ticket_id = str(ticket_id or "").strip()
+    if not ticket_id:
+        return []
+    with pulse_db.connect() as db:
+        _ticket_links_table(db)
+        rows = db.execute(
+            """
+            SELECT
+                CASE WHEN link.ticket_id_a=? THEN link.ticket_id_b ELSE link.ticket_id_a END AS related_ticket_id,
+                ticket.category, ticket.status, ticket.priority, ticket.user_name,
+                ticket.opened_at, ticket.channel_id,
+                link.created_by_id, link.created_by_name, link.note AS link_note, link.created_at
+            FROM ticket_links AS link
+            JOIN tickets AS ticket
+              ON ticket.id = CASE WHEN link.ticket_id_a=? THEN link.ticket_id_b ELSE link.ticket_id_a END
+            WHERE link.ticket_id_a=? OR link.ticket_id_b=?
+            ORDER BY link.created_at DESC, related_ticket_id
+            """,
+            (ticket_id, ticket_id, ticket_id, ticket_id),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def unlink_tickets(first_id: str, second_id: str) -> bool:
+    """Remove the bidirectional relationship regardless of the supplied ID order."""
+    ticket_a, ticket_b = _ticket_pair(first_id, second_id)
+    with pulse_db.connect() as db:
+        _ticket_links_table(db)
+        cursor = db.execute(
+            "DELETE FROM ticket_links WHERE ticket_id_a=? AND ticket_id_b=?",
+            (ticket_a, ticket_b),
+        )
+        return cursor.rowcount == 1
+
+
 # ------------------------------------------------------------------ internal notes (staff-only; never written to public ticket events)
 MAX_INTERNAL_NOTE_LENGTH = 1500
 MAX_INTERNAL_NOTES_PAGE_SIZE = 5
