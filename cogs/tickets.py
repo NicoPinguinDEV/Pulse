@@ -953,17 +953,15 @@ async def _create_ticket_channel(interaction: discord.Interaction, key: str, pan
     )
     tid = create_ticket(channel.id, guild.id, interaction.user.id, interaction.user.display_name, key)
     auto_assignee = choose_ticket_auto_assignee(guild, key)
-    if auto_assignee and claim_ticket(tid, auto_assignee.id, auto_assignee.display_name):
-        record_event(
-            "ticket_auto_assigned",
-            "ticket",
-            tid,
-            auto_assignee.id,
-            auto_assignee.display_name,
-            {"category": key, "channel_id": channel.id, "distribution": "least_loaded"},
-        )
-    else:
-        auto_assignee = None
+    if auto_assignee:
+        try:
+            if not claim_ticket(tid, auto_assignee.id, auto_assignee.display_name):
+                auto_assignee = None
+        except Exception as exc:
+            # Keep the already-created ticket usable if the optional auto-claim cannot be committed.
+            print(f"⚠️ Pulse-Tickets: Auto-Zuweisung für {tid} fehlgeschlagen ({type(exc).__name__}: {exc}).")
+            pulse_jobs.record_error("Ticket-Auto-Zuweisung", exc)
+            auto_assignee = None
     if panel_id:
         set_ticket_panel(tid, panel_id)
     cog = interaction.client.get_cog("Tickets")
