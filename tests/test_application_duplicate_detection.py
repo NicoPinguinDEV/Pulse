@@ -97,6 +97,18 @@ class DuplicateMatcherTests(unittest.TestCase):
         self.assertNotIn("text", matches[0])
         self.assertNotIn("user_id", matches[0])
 
+    def test_prebuilt_index_returns_same_results_without_re_scanning(self):
+        index = duplicates.build_duplicate_index(self.apps)
+        self.assertEqual(
+            duplicates.find_duplicate_applications(
+                self.apps, "APP-001", duplicate_index=index,
+            ),
+            duplicates.find_duplicate_applications(self.apps, "APP-001"),
+        )
+        self.assertEqual(set(index["12345678901234567"][0]), {
+            "application_id", "status", "created_at",
+        })
+
     def test_rendered_hint_escapes_html_and_never_displays_private_fields(self):
         apps = copy.deepcopy(self.apps)
         apps["<script>alert(1)</script>"] = {
