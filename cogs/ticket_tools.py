@@ -223,6 +223,100 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
+    @app_commands.command(name="zusammenfassung", description="Eine lokale Übergabe-Zusammenfassung des Ticketverlaufs erstellen.")
+    @app_commands.describe(speichern="Die Zusammenfassung zusätzlich als interne Ticketnotiz ablegen")
+    async def zusammenfassung(self, interaction: discord.Interaction, speichern: bool = False):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        messages = []
+        total_chars = 0
+        try:
+            async for message in interaction.channel.history(limit=100, oldest_first=True):
+                if getattr(message.author, "bot", False):
+                    continue
+                remaining = 16_000 - total_chars
+                if remaining <= 0:
+                    break
+                content = str(getattr(message, "content", "") or "").strip()[:min(1200, remaining)]
+                if not content:
+                    continue
+                messages.append({
+                    "author": getattr(message.author, "display_name", "Unbekannt"),
+                    "created_at": getattr(message, "created_at", ""),
+                    "content": content,
+                    "attachment_count": len(getattr(message, "attachments", []) or []),
+                    "is_bot": False,
+                })
+                total_chars += len(content)
+        except (discord.Forbidden, discord.HTTPException):
+            await interaction.followup.send(
+                "Der Ticketverlauf konnte nicht gelesen werden. Bitte die Kanal-Berechtigungen prüfen.",
+                ephemeral=True,
+            )
+            return
+
+        summary = tx.build_ticket_summary(messages, limit=5)
+        if not summary["message_count"]:
+            await interaction.followup.send(
+                "Es gibt noch keine auswertbaren Textnachrichten für eine Zusammenfassung.",
+                ephemeral=True,
+            )
+            return
+
+        point_lines = []
+        for point in summary["key_points"]:
+            author = discord.utils.escape_markdown(point["author"])
+            created = discord.utils.escape_markdown(point["created_at"][:19].replace("T", " "))
+            content = discord.utils.escape_mentions(discord.utils.escape_markdown(point["content"]))
+            point_lines.append(f"**{author} · {created}**\\n{content}")
+        description = "\\n\\n".join(point_lines)[:3500]
+        embed = discord.Embed(
+            title=f"🧾 Übergabe-Zusammenfassung · {ticket['id']}",
+            description=description,
+            color=0x64748B,
+        )
+        embed.add_field(
+            name="Umfang",
+            value=f"{summary['message_count']} Nachrichten · {summary['attachment_count']} Anhänge",
+            inline=True,
+        )
+        embed.add_field(
+            name="Beteiligte",
+            value=", ".join(discord.utils.escape_markdown(name) for name in summary["participants"])[:900] or "–",
+            inline=False,
+        )
+        embed.set_footer(text="Lokal/extraktiv erstellt · keine externe KI · vor Weitergabe bitte prüfen")
+        saved_text = ""
+        if speichern:
+            note_lines = [
+                "Automatische Übergabe-Zusammenfassung (bitte vor Weitergabe prüfen)",
+                f"Nachrichten: {summary['message_count']} · Anhänge: {summary['attachment_count']}",
+                "Beteiligte: " + ", ".join(summary["participants"]),
+            ]
+            note_lines.extend(
+                f"- {point['author']}: {point['content']}"
+                for point in summary["key_points"]
+            )
+            note_text = "\\n".join(note_lines)[:tx.MAX_INTERNAL_NOTE_LENGTH]
+            try:
+                tx.add_internal_note(
+                    ticket["id"],
+                    interaction.user.id,
+                    interaction.user.display_name,
+                    note_text,
+                )
+                saved_text = "\\nDie Zusammenfassung wurde zusätzlich als interne Ticketnotiz gespeichert."
+            except ValueError as exc:
+                saved_text = f"\\nDie interne Notiz konnte nicht gespeichert werden: {exc}"
+        await interaction.followup.send(
+            embed=embed,
+            content=saved_text.strip() or None,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
     @app_commands.command(name="aehnliche", description="Ähnliche, bereits archivierte Tickets anhand ihrer Verläufe finden.")
     async def aehnliche(self, interaction: discord.Interaction):
         ticket = await self._guard(interaction)
