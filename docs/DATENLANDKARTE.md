@@ -124,6 +124,7 @@ Die persönlichen Datenexporte berücksichtigen interne Ticketnotizen sowohl fü
 | `ultimate_automations` | `pulse_ultimate.py` | ❌ |
 | `ultimate_awards` | `pulse_ultimate.py` | ❌ |
 | `ultimate_calendar` | `pulse_ultimate.py` | ❌ |
+| `ultimate_calendar_rsvps` | `pulse_ultimate.py` | ❌ |
 | `ultimate_case_events` | `pulse_ultimate.py` | ❌ |
 | `ultimate_case_players` | `pulse_ultimate.py` | ❌ |
 | `ultimate_cases` | `pulse_ultimate.py` | ❌ |
