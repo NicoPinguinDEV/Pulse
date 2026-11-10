@@ -163,7 +163,9 @@ def init_db():
                 note TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (ticket_id_a, ticket_id_b),
-                CHECK (ticket_id_a < ticket_id_b)
+                CHECK (ticket_id_a < ticket_id_b),
+                FOREIGN KEY (ticket_id_a) REFERENCES tickets(id) ON DELETE CASCADE,
+                FOREIGN KEY (ticket_id_b) REFERENCES tickets(id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_ticket_links_b ON ticket_links(ticket_id_b);
 
