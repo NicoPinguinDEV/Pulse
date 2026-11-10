@@ -498,6 +498,10 @@ def export_person(ws, discord_id: str) -> dict:
                 extras = {
                     "calendar_events": {"id": event_ids},
                     "ticket_internal_notes": {"ticket_id": ticket_ids},
+                    "ticket_links": {
+                        "ticket_id_a": ticket_ids,
+                        "ticket_id_b": ticket_ids,
+                    },
                 }
             rows, truncated = _rows_for(path, uid, extra_values_by_table=extras)
         except (sqlite3.Error, OSError) as exc:
