@@ -28,7 +28,7 @@ NEEDS = {
     "activity-check": "lead",
 }
 SECTIONS = (
-    ("⏱ Dienst & ich", ("dienst", "pulse", "pulse-home", "mytasks", "taskdone", "teamstatus", "anmeldung",
+    ("⏱ Dienst & ich", ("dienst", "pulse", "profil", "pulse-home", "mytasks", "taskdone", "teamstatus", "anmeldung",
                         "abmeldung", "abmeldung_entfernen", "melden", "pulse-hilfe", "activity_status",
                         "ki_vergessen")),
     ("🧭 Team", ("memberinfo", "pulse-ticket", "pulse-suite", "ticketstats", "activity-check", "team-ping")),
