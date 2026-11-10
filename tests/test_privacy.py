@@ -339,6 +339,43 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(data["databases"]["pulse_suite.db"]["suite_members"][0]["notes"], "Notiz")
         _json.dumps(data, default=str)
 
+    def test_ticket_internal_notes_are_included_for_subject_and_author_exports(self):
+        import pulse_retention
+        import pulse_ticket_extras
+
+        subject_id = "100000000000000044"
+        author_id = "100000000000000099"
+        ticket_id = pulse_db.create_ticket(
+            "channel-privacy-note",
+            "1",
+            subject_id,
+            "Synthetic Citizen",
+            "support",
+        )
+        saved = pulse_ticket_extras.add_internal_note(
+            ticket_id,
+            author_id,
+            "Synthetic Staff",
+            "Bitte den Vorgang vor dem Abschluss mit der Leitung prüfen.",
+        )
+
+        state = pulse_db.export_state()
+        self.assertTrue(any(row["note_id"] == saved["note_id"] for row in state["ticket_internal_notes"]))
+
+        subject_export = pulse_retention.export_person(ws, subject_id)
+        subject_notes = subject_export["databases"]["pulse.db"]["ticket_internal_notes"]
+        self.assertEqual([row["note_id"] for row in subject_notes], [saved["note_id"]])
+
+        author_export = pulse_retention.export_person(ws, author_id)
+        author_notes = author_export["databases"]["pulse.db"]["ticket_internal_notes"]
+        self.assertEqual([row["note_id"] for row in author_notes], [saved["note_id"]])
+
+        unrelated_export = pulse_retention.export_person(ws, "100000000000000077")
+        self.assertNotIn(
+            "ticket_internal_notes",
+            unrelated_export.get("databases", {}).get("pulse.db", {}),
+        )
+
     def test_expired_applications_protect_in_review_and_unknown_statuses(self):
         import pulse_retention
         apps = {
