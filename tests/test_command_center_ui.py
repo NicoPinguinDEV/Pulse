@@ -1,11 +1,15 @@
 """Regression tests for the shared Phase 16.0 command-center interaction layer."""
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pulse_flags
 import pulse_pro
 import webserver as ws
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class CommandCenterInteractionTests(unittest.TestCase):
