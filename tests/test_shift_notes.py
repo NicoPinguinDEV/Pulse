@@ -230,7 +230,7 @@ class ShiftNoteDashboardRouteTests(unittest.TestCase):
     def test_dashboard_form_rejects_a_member_without_an_active_shift(self):
         ws.save_json(ws.SHIFTS_FILE, {"active_shifts": {}, "history": []})
         with (
-            patch.object(ws, "auth", fake_auth_for(TEAMLER)),
+            patch.object(ws, "auth", fake_auth_for(NOTE_WRITER)),
             patch("pulse_shift_history.load_member_view", return_value={"active_shifts": {}}),
         ):
             response = self.client.post(
