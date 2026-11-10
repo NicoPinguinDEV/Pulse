@@ -10,8 +10,8 @@ import html
 import os
 import re
 import unicodedata
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pulse_db
 import pulse_paths
