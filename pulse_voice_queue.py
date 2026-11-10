@@ -22,7 +22,12 @@ def _ts(value):
 
 def waiting_cases(cases: dict) -> list[dict]:
     """Unclaimed cases in the shared waiting room, oldest first."""
-    rows = [c for c in (cases or {}).values() if isinstance(c, dict) and c.get("waiting_in_shared_room") and not c.get("assigned_staff_id")]
+    rows = [
+        c for c in (cases or {}).values()
+        if isinstance(c, dict)
+        and c.get("waiting_in_shared_room")
+        and str(c.get("assigned_staff_id") or "").strip() in {"", "0"}
+    ]
     return sorted(rows, key=lambda c: str(c.get("created_at") or ""))
 
 

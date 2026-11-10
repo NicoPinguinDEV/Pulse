@@ -15,6 +15,7 @@ from pulse_cockpit_utils import (
     last_shift_dates,
     seconds_per_member,
     trend,
+    voice_support_overview,
     week_to_date_windows,
 )
 from pulse_home_utils import format_hm
@@ -96,6 +97,15 @@ def register(app) -> None:
         active_this = sum(1 for k, v in this_week.items() if k in member_ids and v > 0)
         active_prev = sum(1 for k, v in prev_week.items() if k in member_ids and v > 0)
         tickets = db.list_tickets(limit=3000)
+        voice_available = True
+        try:
+            from cogs.voice_support import get_cases
+            voice = voice_support_overview(get_cases())
+        except Exception:
+            voice_available = False
+            voice = {"waiting": [], "active": []}
+        voice_waiting = voice["waiting"]
+        voice_active = voice["active"]
 
         def closed_between(start, end):
             count = 0
@@ -125,6 +135,8 @@ def register(app) -> None:
             kpi("✎", "Offene Bewerbungen", str(len(apps))),
             kpi("⇧", "Beförderungsanträge", str(len(promos))),
             kpi("☾", "Abgemeldet", str(sum(1 for k, l in loas.items() if k in member_ids and l.get("active")))),
+            kpi("🎧", "Voice-Support wartet", str(len(voice_waiting)) if voice_available else "–"),
+            kpi("🎙", "Laufende Gespräche", str(len(voice_active)) if voice_available else "–"),
         ])
 
         # ---- Handlungsbedarf ----
@@ -141,6 +153,10 @@ def register(app) -> None:
         critical_warns = [m for m in members if warn_count(str(m.id)) >= 4]
         for m in critical_warns:
             signals.append((0, f'⚠ <b>{e(m.display_name)}</b> hat {warn_count(str(m.id))}/5 aktive Warnungen. <a class="text-indigo-500" href="/member/{m.id}">Akte →</a>'))
+        if voice_available and voice_waiting:
+            oldest_voice = _parse_iso(voice_waiting[0].get("created_at"))
+            waiting_text = f" · ältester Fall seit {format_hm(max(0, (now - oldest_voice).total_seconds()))}" if oldest_voice else ""
+            signals.append((1, f"🎧 <b>{len(voice_waiting)} Voice-Support-Fall/Fälle</b> warten auf Übernahme{e(waiting_text)}."))
         if unclaimed:
             oldest = min((_parse_iso(t.get("opened_at")) for t in unclaimed if _parse_iso(t.get("opened_at"))), default=None)
             wait = f" · ältestes seit {format_hm((now - oldest).total_seconds())}" if oldest else ""
@@ -164,6 +180,34 @@ def register(app) -> None:
         tone = {0: "border-rose-500/30 bg-rose-500/5", 1: "border-amber-500/30 bg-amber-500/5", 2: ""}
         signal_html = "".join(f'<div class="pulse-alert {tone[sev]}">{html}</div>' for sev, html in signals) or (
             '<div class="pulse-empty">✓ Kein Handlungsbedarf – das Team läuft rund.</div>'
+        )
+
+        # ---- Voice-Support-Warteschlange und laufende Gespräche ----
+        voice_rows = []
+        if voice_available:
+            for case in voice_waiting[:5]:
+                opened = _parse_iso(case.get("created_at"))
+                waited = f" · wartet seit {format_hm(max(0, (now - opened).total_seconds()))}" if opened else ""
+                case_id = e(str(case.get("case_id") or "–")[:24])
+                user_name = e(str(case.get("user_name") or "Spieler")[:80])
+                voice_rows.append(
+                    f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{user_name}</div>'
+                    f'<div class="pulse-row-meta">Wartet auf Übernahme · Fall {case_id}{e(waited)}</div></div>'
+                    f'<span class="pulse-pill warn">Wartet</span></div>'
+                )
+            for case in voice_active[:5]:
+                case_id = e(str(case.get("case_id") or "–")[:24])
+                user_name = e(str(case.get("user_name") or "Spieler")[:80])
+                staff_name = e(str(case.get("assigned_staff_name") or "Team")[:80])
+                voice_rows.append(
+                    f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{user_name}</div>'
+                    f'<div class="pulse-row-meta">Fall {case_id} · übernommen von {staff_name}</div></div>'
+                    f'<span class="pulse-pill good">Läuft</span></div>'
+                )
+        voice_queue_html = "".join(voice_rows) or (
+            '<div class="pulse-empty">Keine wartenden oder laufenden Voice-Support-Fälle.</div>'
+            if voice_available else
+            '<div class="pulse-empty">Voice-Support-Status derzeit nicht verfügbar.</div>'
         )
 
         # ---- Lange Schichten mit Ein-Klick-Beenden ----
@@ -227,6 +271,7 @@ def register(app) -> None:
           </div>
           <div class="space-y-5">
             {card("⏱ Lange Schichten", long_html)}
+            {card("🎧 Voice-Support-Leitstelle", voice_queue_html)}
             {card("💤 Inaktive Teamler", inactive_html)}
           </div>
         </div>'''

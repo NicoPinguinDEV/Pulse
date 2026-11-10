@@ -23,6 +23,10 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(vq.queue_position(cases, 2), 2)
         self.assertIsNone(vq.queue_position(cases, 3))
 
+    def test_string_zero_is_also_treated_as_an_unassigned_staff_id(self):
+        cases = {"waiting": case(9, "2026-10-21T10:00:00", staff="0")}
+        self.assertEqual(vq.queue_position(cases, 9), 1)
+
     def test_estimate_from_history(self):
         history = [case(n, "2026-10-21T10:00:00", staff=7, started="2026-10-21T10:04:00") for n in range(5)]
         self.assertEqual(vq.typical_wait_seconds(history), 240)
