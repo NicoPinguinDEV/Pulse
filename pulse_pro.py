@@ -1302,11 +1302,11 @@ def register(app):
         user_session: str = Cookie(None),
     ):
         """Create a note for the signed-in member's currently active shift."""
-        c = cctx(request, user_session)
+        c = cctx(request, user_session, perm=None)
         actor_id = str(c.user.get("id") or "")
         back_url = f"/member/{actor_id}" if actor_id else "/team"
-        if not (c.perms.get("can_view_dashboard") or c.perms.get("is_admin")):
-            raise HTTPException(403, "Dafür fehlt dir die Berechtigung für das Team-Dashboard.")
+        if not (c.perms.get("can_add_notes") or c.perms.get("is_admin")):
+            raise HTTPException(403, "Dafür fehlt dir die Berechtigung zum Erstellen von Schichtnotizen.")
         content = str(note or "").strip()
         if not content:
             return ws.back(back_url, "Bitte gib eine Schichtnotiz ein.", False)
@@ -2639,7 +2639,7 @@ def register(app):
             f'</div></div>'
             for item in shift_note_rows
         )
-        if is_own_profile and isinstance(active, dict) and active.get('started_at_iso'):
+        if is_own_profile and (c.perms.get('can_add_notes') or c.perms.get('is_admin')) and isinstance(active, dict) and active.get('started_at_iso'):
             shift_note_form = (
                 '<form action="/shift/notes" method="post" class="space-y-2">'
                 '<textarea name="note" required maxlength="1000" class="pulse-input pulse-textarea" '
