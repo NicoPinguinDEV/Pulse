@@ -511,6 +511,88 @@ class PulsePro(commands.Cog):
         db.record_event("task_completed","task",task["id"],interaction.user.id,interaction.user.display_name,{"title":task.get("title")})
         await interaction.response.send_message(f"✅ `{task['title']}` als erledigt markiert.",ephemeral=True)
 
+    @app_commands.command(name="profil", description="Zeigt dir dein persönliches Pulse-Teamprofil.")
+    async def profile(self, interaction: discord.Interaction):
+        """Private, self-only profile summary; never accepts another member as a target."""
+        if not interaction.guild:
+            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True)
+            return
+        try:
+            import webserver
+
+            cfg = webserver.load_config()
+            perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, cfg)
+            if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
+                await interaction.response.send_message("❌ Du hast keinen Zugriff auf Pulse.", ephemeral=True)
+                return
+
+            user_id = str(interaction.user.id)
+            shifts = webserver.load_shift_state()
+            active_shifts = shifts.get("active_shifts", {})
+            own_shift = active_shifts.get(user_id)
+            history = shifts.get("history", [])
+            weekly_seconds = (
+                webserver.calculate_weekly_seconds(user_id, history, active_shifts)
+                if "history" in shifts
+                else webserver.calculate_weekly_seconds_for_member(user_id, active_shifts)
+            )
+            try:
+                weekly_goal = max(0.0, float(cfg.get("weekly_goal_hours", 3.0) or 0))
+            except (TypeError, ValueError):
+                weekly_goal = 3.0
+            weekly_percent = min(100, int(weekly_seconds * 100 / (weekly_goal * 3600))) if weekly_goal else 100
+
+            open_tasks = [
+                task for task in db.list_tasks(assignee_id=user_id, limit=100)
+                if task.get("status") not in ("done", "archived")
+            ]
+            open_tickets = [
+                ticket for ticket in db.list_tickets(claimed_by_id=user_id, limit=100)
+                if ticket.get("status") != "closed"
+            ]
+            attempts = db.attempts(user_id=user_id, limit=100)
+            passed_training_ids = {
+                str(item.get("training_id"))
+                for item in attempts
+                if item.get("passed") and item.get("training_id")
+            }
+
+            duty_status = {
+                "online": "🟢 Im Dienst",
+                "break": "☕ In Pause",
+            }.get((own_shift or {}).get("status"), "⚪ Nicht im Dienst")
+            role_name = webserver.member_role(member, cfg.get("team_role_ids", []))
+            display_name = getattr(member, "display_name", None) or getattr(interaction.user, "display_name", "Teammitglied")
+
+            embed = discord.Embed(
+                title=f"👤 Dein Pulse-Profil · {display_name}",
+                description="Deine persönlichen Team- und Arbeitsinformationen. Nur für dich sichtbar.",
+                color=_pulse_color("info"),
+            )
+            embed.add_field(name="Teamrolle", value=str(role_name or "Keine Teamrolle"), inline=True)
+            embed.add_field(name="Dienststatus", value=duty_status, inline=True)
+            embed.add_field(
+                name="Wochenzeit",
+                value=f"{webserver.fmt_duration(weekly_seconds)} von {weekly_goal:g} h · {weekly_percent} %",
+                inline=False,
+            )
+            embed.add_field(name="Offene Aufgaben", value=str(len(open_tasks)), inline=True)
+            embed.add_field(name="Übernommene Tickets", value=str(len(open_tickets)), inline=True)
+            embed.add_field(name="Bestandene Schulungen", value=str(len(passed_training_ids)), inline=True)
+            embed.add_field(
+                name="Mein Pulse",
+                value=f"[Persönliche Übersicht öffnen]({panel_url('/me')})",
+                inline=False,
+            )
+            embed.set_footer(text="Pulse Pro · Persönliche Ansicht")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as exc:
+            print(f"Pulse profile command error: {type(exc).__name__}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Dein Pulse-Profil konnte gerade nicht geladen werden.", ephemeral=True
+                )
+
     @app_commands.command(name="memberinfo", description="Zeigt kompakte Pulse-Infos zu einem Teammitglied.")
     @app_commands.describe(member="Teammitglied")
     async def memberinfo(self, interaction: discord.Interaction, member: discord.Member):
