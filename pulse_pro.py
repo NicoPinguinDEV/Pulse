@@ -749,14 +749,13 @@ def build_command_modal(ws, perms=None):
     # Extended functions follow the same visibility policy as the shared sidebar.
     from pulse_design import SUITE_NAV, ULTIMATE_NAV, visible_nav
     leader = bool(permissions.get("can_promote") or permissions.get("is_admin"))
-    if leader:
-        for nav_items in (ULTIMATE_NAV, SUITE_NAV):
-            hidden = {"handover", "approvals", "tasks2"} if nav_items is ULTIMATE_NAV else {"tasks"}
-            for key, href, label, _leader_only in visible_nav(nav_items, leader):
-                if key in hidden:
-                    continue
-                icon, _, title = label.partition(" ")
-                items.append((icon, title or label, href, True))
+    for nav_items in (ULTIMATE_NAV, SUITE_NAV):
+        hidden = {"handover", "approvals", "tasks2"} if nav_items is ULTIMATE_NAV else {"tasks"}
+        for key, href, label, _leader_only in visible_nav(nav_items, leader):
+            if key in hidden:
+                continue
+            icon, _, title = label.partition(" ")
+            items.append((icon, title or label, href, True))
 
     # Administration shortcuts only for people who may open them (routes check again server-side).
     from pulse_admin import admin_sections
