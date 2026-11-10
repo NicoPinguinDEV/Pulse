@@ -251,7 +251,7 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
     @app_commands.command(name="vorlagen", description="Aktive, versionierte Moderations-Begründungsvorlagen anzeigen.")
     @app_commands.describe(aktion="Optional nach Verwarnung, Timeout, Kick oder Ban filtern")
     @app_commands.choices(aktion=[
-        app_commands.Choice(name="Alle Aktionen", value=""),
+        app_commands.Choice(name="Alle Aktionen", value="all"),
         app_commands.Choice(name="Verwarnung", value="warn"),
         app_commands.Choice(name="Timeout", value="timeout"),
         app_commands.Choice(name="Kick", value="kick"),
@@ -265,7 +265,7 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
         if not (perms.get("is_admin") or perms.get("can_moderate_kicks") or perms.get("can_moderate_bans")):
             await interaction.response.send_message("❌ Kein Zugriff auf Moderationsvorlagen.", ephemeral=True)
             return
-        selected_action = aktion.value if aktion else None
+        selected_action = aktion.value if aktion and aktion.value != "all" else None
         templates = mrt.list_templates(interaction.guild.id, selected_action, limit=50)
         lines = [
             f"`{item['id']}` · **{item['title']}** · {mc.ACTIONS[item['action']]} · v{item['current_version']}"
