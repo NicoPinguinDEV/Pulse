@@ -82,6 +82,88 @@ class RuleTests(TempDb):
         self.assertIn("Einspruch", text)
 
 
+class ReasonTemplateTests(TempDb):
+    def test_templates_are_versioned_and_cases_snapshot_the_applied_version(self):
+        actor = member(2, 5)
+        template = mc.create_reason_template(
+            1, "warn", "Spam im Chat", "Wiederholter Spam: {details}", actor
+        )
+        self.assertEqual(template["active_version"], 1)
+        self.assertEqual(
+            mc.render_reason_template(template, "trotz Hinweis erneut gepostet"),
+            "Wiederholter Spam: trotz Hinweis erneut gepostet",
+        )
+        case = mc.create_case(
+            1, member(3, 1), "warn",
+            mc.render_reason_template(template, "trotz Hinweis erneut gepostet"),
+            "", None, actor, template=template,
+        )
+
+        revised = mc.revise_reason_template(
+            1, "warn", "Spam im Chat", "Wiederholter Spam trotz vorheriger Ansprache: {details}", actor
+        )
+        self.assertEqual(revised["active_version"], 2)
+        self.assertEqual(mc.get_reason_template(1, "warn", "spam IM CHAT")["body"], revised["body"])
+
+        history = mc.list_reason_template_versions(1, "warn", "Spam im Chat")
+        self.assertEqual([row["version"] for row in history], [2, 1])
+        self.assertEqual(history[1]["body"], "Wiederholter Spam: {details}")
+        stored_case = mc.get_case(case["id"])
+        self.assertEqual(stored_case["reason_template_id"], template["id"])
+        self.assertEqual(stored_case["reason_template_version"], 1)
+        self.assertIn("trotz Hinweis erneut gepostet", stored_case["reason"])
+
+    def test_templates_are_scoped_by_guild_and_action_and_archive_without_deletion(self):
+        actor = member(2, 5)
+        template = mc.create_reason_template(1, "kick", "Werbung", "Unerlaubte Werbung im Server", actor)
+        self.assertIsNone(mc.get_reason_template(2, "kick", "Werbung"))
+        self.assertIsNone(mc.get_reason_template(1, "ban", "Werbung"))
+        self.assertEqual([row["id"] for row in mc.list_reason_templates(1, actions=["kick"])], [template["id"]])
+
+        self.assertTrue(mc.archive_reason_template(1, "kick", "Werbung", actor))
+        self.assertIsNone(mc.get_reason_template(1, "kick", "Werbung"))
+        archived = mc.list_reason_templates(1, actions=["kick"], include_archived=True)
+        self.assertEqual(len(archived), 1)
+        self.assertEqual(archived[0]["archived"], 1)
+        self.assertEqual(len(mc.list_reason_template_versions(1, "kick", "Werbung")), 1)
+        with self.assertRaises(ValueError):
+            mc.revise_reason_template(1, "kick", "Werbung", "Neue Version mit gültigem Grund", actor)
+
+    def test_template_validation_duplicates_and_management_rights(self):
+        actor = member(2, 5)
+        self.assertTrue(mc.may_manage_templates({"is_admin": True}))
+        self.assertFalse(mc.may_manage_templates({"can_moderate_kicks": True}))
+        self.assertFalse(mc.may_manage_templates({}))
+        with self.assertRaises(ValueError):
+            mc.create_reason_template(1, "unknown", "Ungültig", "Ein gültiger Vorlagentext", actor)
+        with self.assertRaises(ValueError):
+            mc.create_reason_template(1, "warn", "Ungültig", "Platzhalter {actor} nicht erlaubt", actor)
+        mc.create_reason_template(1, "warn", "Doppelt", "Ein nachvollziehbarer Grund", actor)
+        with self.assertRaises(ValueError):
+            mc.create_reason_template(1, "warn", "dOpPeLt", "Noch ein nachvollziehbarer Grund", actor)
+        with self.assertRaises(ValueError):
+            mc.render_reason_template({"body": "x" * 990}, "Zusatzdetails")
+
+    def test_template_and_case_tables_are_in_json_backup_restore(self):
+        actor = member(2, 5)
+        template = mc.create_reason_template(1, "ban", "Betrug", "Nachgewiesener Betrug: {details}", actor)
+        case = mc.create_case(
+            1, member(3, 1), "ban", mc.render_reason_template(template, "Belege geprüft"),
+            "", 60, actor, template=template,
+        )
+        state = pulse_db.export_state()
+        for table in ("mod_cases", "mod_reason_templates", "mod_reason_template_versions"):
+            self.assertIn(table, state)
+            self.assertTrue(state[table])
+
+        with pulse_db.connect() as db:
+            db.execute("DELETE FROM mod_cases")
+            db.execute("DELETE FROM mod_reason_templates")
+        pulse_db.import_state(state)
+        self.assertEqual(mc.get_case(case["id"])["reason_template_version"], 1)
+        self.assertEqual(mc.get_reason_template(1, "ban", "Betrug")["id"], template["id"])
+
+
 class CogTests(TempDb):
     def interaction(self, actor):
         sent = []
@@ -105,6 +187,31 @@ class CogTests(TempDb):
         self.assertIn("Fall `MOD-", replies[0])
         stored = mc.list_cases(3)[0]
         self.assertEqual((stored["action"], stored["dm_sent"], stored["status"]), ("kick", 1, "active"))
+
+    def test_selected_template_is_applied_and_version_is_stored_on_case(self):
+        from cogs.mod_cases import ModCases
+        actor, target = member(2, 20), member(3, 10)
+        target.send = AsyncMock()
+        template = mc.create_reason_template(
+            1, "warn", "Wiederholter Spam", "Wiederholter Spam im Chat: {details}", actor
+        )
+        interaction, _ = self.interaction(actor)
+        replies = []
+
+        async def respond(text):
+            replies.append(text)
+
+        asyncio.run(
+            ModCases.__new__(ModCases)._execute(
+                interaction, "warn", target, "nach vorheriger Ansprache", "", None,
+                respond, "Wiederholter Spam",
+            )
+        )
+        stored = mc.list_cases(3)[0]
+        self.assertEqual(stored["reason"], "Wiederholter Spam im Chat: nach vorheriger Ansprache")
+        self.assertEqual(stored["reason_template_id"], template["id"])
+        self.assertEqual(stored["reason_template_version"], 1)
+        self.assertIn("Vorlage Wiederholter Spam v1", replies[0])
 
     def test_discord_refusal_marks_the_case_failed(self):
         from cogs.mod_cases import ModCases
