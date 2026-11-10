@@ -73,6 +73,43 @@ class ExtrasTests(TempDb):
         self.assertTrue(tx.remove_tag(self.tid, "bug"))
         self.assertEqual(tx.tags_for([]), {})
 
+    def test_ticket_links_are_bidirectional_persistent_and_removable(self):
+        second_id = pulse_db.create_ticket("556", "1", "10", "Andere Person", "bug")
+        self.assertTrue(tx.link_tickets(self.tid, second_id, 3, "Max", "Gehört zum selben Vorfall."))
+        self.assertFalse(tx.link_tickets(second_id, self.tid, 7, "Lena", "Doppelte Verknüpfung."))
+
+        from_first = tx.linked_tickets(self.tid)
+        from_second = tx.linked_tickets(second_id)
+        self.assertEqual([row["related_ticket_id"] for row in from_first], [second_id])
+        self.assertEqual([row["related_ticket_id"] for row in from_second], [self.tid])
+        self.assertEqual(from_first[0]["link_note"], "Gehört zum selben Vorfall.")
+        self.assertEqual(from_first[0]["created_by_id"], "3")
+
+        state = pulse_db.export_state()
+        self.assertEqual(len(state["ticket_links"]), 1)
+        self.assertTrue(tx.unlink_tickets(second_id, self.tid))
+        self.assertFalse(tx.unlink_tickets(self.tid, second_id))
+        self.assertEqual(tx.linked_tickets(self.tid), [])
+        self.assertEqual(tx.linked_tickets(second_id), [])
+
+    def test_ticket_links_reject_self_missing_cross_guild_and_oversized_note(self):
+        second_id = pulse_db.create_ticket("557", "2", "11", "Fremde Person", "support")
+        with self.assertRaises(ValueError):
+            tx.link_tickets(self.tid, self.tid, 3, "Max")
+        with self.assertRaises(ValueError):
+            tx.link_tickets(self.tid, "missing-ticket", 3, "Max")
+        with self.assertRaises(ValueError):
+            tx.link_tickets(self.tid, second_id, 3, "Max")
+        with self.assertRaises(ValueError):
+            tx.link_tickets(
+                self.tid,
+                pulse_db.create_ticket("558", "1", "12", "Dritte Person", "support"),
+                3,
+                "Max",
+                "x" * (tx.MAX_TICKET_LINK_NOTE_LENGTH + 1),
+            )
+        self.assertEqual(tx.linked_tickets(self.tid), [])
+
     def test_internal_notes_are_separate_from_ticket_events_and_paginated(self):
         with patch.object(
             pulse_db,
