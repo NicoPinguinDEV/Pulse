@@ -8580,7 +8580,15 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
     items.reverse()  # neueste zuerst
 
     apps_html = ""
+    import pulse_application_duplicates as duplicate_detection
+    duplicate_index = duplicate_detection.build_duplicate_index(apps) if can_review else {}
     for app_id, item in items:
+        duplicate_notice = (
+            duplicate_detection.render_duplicate_notice(
+                apps, app_id, esc, duplicate_index=duplicate_index,
+            )
+            if can_review else ""
+        )
         up, down = item.get("upvotes", []), item.get("downvotes", [])
         voted_up, voted_down = uid in up, uid in down
         career_summary = (
@@ -8737,6 +8745,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     <span class="text-rose-600 dark:text-rose-400">👎 {len(down)}</span>
                 </div>
             </div>
+            {duplicate_notice}
             {f'<p class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800/80 whitespace-pre-wrap break-words">{esc(item.get("text"))}</p>' if can_review else '<p class="text-xs text-slate-500">Motivation, Testantworten und interne Bewertungen sind nur für Recruiting-Berechtigte sichtbar.</p>'}
             {review_summary_html}
             {test_review_html}
