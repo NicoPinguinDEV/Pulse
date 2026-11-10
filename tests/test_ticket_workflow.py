@@ -215,3 +215,71 @@ class TicketWorkflowTests(unittest.TestCase):
         self.guild.create_text_channel.assert_not_awaited()
         created_channel.delete.assert_not_awaited()
 
+    def test_category_sla_settings_are_saved_by_the_admin_route(self):
+        response = self.client.post(
+            "/tickets/automation",
+            data={
+                "unclaimed_ping_minutes": "30",
+                "staff_reply_hours": "12",
+                "user_reminder_hours": "24",
+                "auto_close_hours": "0",
+                "sla__support__staff_reply_hours": "4",
+                "sla__bug__unclaimed_ping_minutes": "0",
+                "sla__../unsafe__staff_reply_hours": "1",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        saved = pulse_db.get_setting("ticket_system_config", {})["automation"]
+        self.assertEqual(
+            saved["category_sla"],
+            {
+                "support": {"staff_reply_hours": 4},
+                "bug": {"unclaimed_ping_minutes": 0},
+            },
+        )
+        self.assertEqual(saved["staff_reply_hours"], 12)
+
+    def test_category_sla_settings_require_admin_and_blank_fields_remove_overrides(self):
+        pulse_db.set_setting("ticket_system_config", {
+            "automation": {
+                "staff_reply_hours": 12,
+                "category_sla": {"support": {"staff_reply_hours": 4}},
+            },
+        })
+        self.perms["is_admin"] = False
+        denied = self.client.post(
+            "/tickets/automation",
+            data={
+                "unclaimed_ping_minutes": "30",
+                "staff_reply_hours": "12",
+                "user_reminder_hours": "24",
+                "auto_close_hours": "0",
+                "sla__support__staff_reply_hours": "",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(
+            pulse_db.get_setting("ticket_system_config", {})["automation"]["category_sla"],
+            {"support": {"staff_reply_hours": 4}},
+        )
+
+        self.perms["is_admin"] = True
+        saved_response = self.client.post(
+            "/tickets/automation",
+            data={
+                "unclaimed_ping_minutes": "30",
+                "staff_reply_hours": "12",
+                "user_reminder_hours": "24",
+                "auto_close_hours": "0",
+                "sla__support__staff_reply_hours": "",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(saved_response.status_code, 303)
+        self.assertEqual(
+            pulse_db.get_setting("ticket_system_config", {})["automation"]["category_sla"],
+            {},
+        )
+
