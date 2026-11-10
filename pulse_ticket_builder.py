@@ -18,6 +18,7 @@ from pulse_ticket_design import (
     clean_questions,
     normalize_panel,
 )
+from pulse_ticket_distribution import distribution_settings
 
 BUILDER_CSS = """
 <style>
@@ -505,6 +506,7 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
 
     elif tab == "automation":
         auto = automation_settings(settings.get("automation"))
+        distribution = distribution_settings(settings.get("distribution"))
         rows = (
             ("unclaimed_ping_minutes", "Minuten", "Zuständige Rollen erinnern, wenn niemand das Ticket übernimmt", "Ein Ping pro Ticket."),
             ("staff_reply_hours", "Stunden", "Bearbeiter erinnern, wenn der Ersteller auf Antwort wartet", "Einmal pro neuer Nutzernachricht."),
@@ -540,7 +542,7 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
             )
         category_fields_html = "".join(category_fields) or '<p class="wide text-xs text-slate-400">Keine aktiven Ticketkategorien gefunden.</p>'
         body += f'''<div class="tb-card"><h3>⏰ Smarte Ticket-Automatik</h3><p class="hint">Läuft im vorhandenen 5-Minuten-Zyklus des Bots (kein zusätzlicher Dienst). Jede Erinnerung wird pro Situation nur einmal gesendet. Globale Werte gelten als Standard. Leere Kategorie-Felder übernehmen den globalen Wert; 0 schaltet genau diese Erinnerung für die Kategorie aus. Auto-Close bleibt eine getrennte globale Einstellung und läuft nur nach der Ersteller-Erinnerung.</p>
-<form method="post" action="/tickets/automation" class="tb-form"><h4 class="wide">Globale Standardwerte</h4>{fields}<h4 class="wide">SLA je Ticketkategorie</h4>{category_fields_html}<div class="wide"><button class="pulse-btn primary" type="submit">Automatik speichern</button></div></form></div>
+<form method="post" action="/tickets/automation" class="tb-form"><h4 class="wide">Globale Standardwerte</h4>{fields}<h4 class="wide">SLA je Ticketkategorie</h4>{category_fields_html}<h4 class="wide">Automatische Arbeitslastverteilung</h4><label class="tb-check wide"><input type="checkbox" name="auto_assign_enabled" value="true" {"checked" if distribution["enabled"] else ""}> Neue Tickets automatisch dem am wenigsten ausgelasteten berechtigten Teammitglied zuweisen</label><label>Maximal offene Tickets je Mitarbeiter<input type="number" name="max_open_per_staff" min="1" max="50" value="{distribution["max_open_per_staff"]}" style="max-width:140px"></label><p class="wide text-[11px] text-slate-400">Berücksichtigt nur Mitglieder mit der Kategorie-Rolle und Ticket- oder Admin-Recht. Die Verteilung gewichtet dringende Tickets höher. Sind alle berechtigten Mitarbeiter ausgelastet oder nicht im Mitglieder-Cache, bleibt das Ticket unübernommen und Pulse pingt wie bisher die zuständigen Rollen. Standard: deaktiviert.</p><div class="wide"><button class="pulse-btn primary" type="submit">Automatik speichern</button></div></form></div>
 <div class="tb-card"><h3>🔔 Weitere Ticket-Funktionen</h3><p class="hint" style="margin:0">Im Ticket gibt es zusätzlich den Button <b>„Erinnern“</b>: Das Team pingt den Ersteller im Ticket und per DM. Kategorien können abweichende Übernahme- und Antwortfristen erhalten.</p></div>'''
 
     else:
