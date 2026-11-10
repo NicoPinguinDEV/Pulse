@@ -19,9 +19,9 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 42 |
+| Fertig | 43 |
 | Teilweise | 110 |
-| Offen | 25 |
+| Offen | 24 |
 | **Gesamt** | **177** |
 
 ## Ergebnis nach Bereichen
@@ -29,7 +29,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Bereich | Fertig | Teilweise | Offen |
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 5 | 3 | 2 |
 | Discord-Bot – Moderation und Sicherheit | 1 | 12 | 2 |
-| Discord-Bot – Tickets und Support | 8 | 5 | 2 |
+| Discord-Bot – Tickets und Support | 9 | 5 | 1 |
 | Discord-Bot – Community und BOCHUM RP | 1 | 13 | 1 |
 | TeamOS-Dashboard – Startseite und Navigation | 2 | 9 | 4 |
 | Teamverwaltung und Mitarbeiterakten | 4 | 6 | 2 |
@@ -89,7 +89,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 29 | Ticket-Übergabe mit Pflichtnotiz | **Fertig** | `/ticket uebergeben` verlangt eine Notiz und protokolliert die Übergabe; `tests/test_ticket_extras.py`. |
 | 30 | Schnellantworten | **Fertig** | Kategoriebezogene Ticketantworten mit Autocomplete; `tests/test_ticket_extras.py`. |
 | 31 | Interne Ticketnotizen | **Fertig** | `/ticket notiz` und `/ticket notizen` speichern/zeigen Teamnotizen getrennt von öffentlichen Nachrichten und `ticket_events`; erneute Rechteprüfung beim Modal-Submit. Backup, personenbezogener Export und Regressionstests: `pulse_ticket_extras.py`, `pulse_db.py`, `pulse_retention.py`, `tests/test_ticket_extras.py`, `tests/test_privacy.py`. |
-| 32 | Ähnliche Tickets vorschlagen | **Offen** | Keine Suche/Ähnlichkeitsfunktion über bestehende Ticketinhalte gefunden. |
+| 32 | Ähnliche Tickets vorschlagen | **Fertig** | `/ticket aehnliche` vergleicht den aktuellen Kanalverlauf lokal mit maximal 80 archivierten Transkripten derselben Guild; Jaccard-Ähnlichkeit mit Kategoriegewichtung, begrenzte Dateigröße, sichere Pfadprüfung und kein externer KI-Dienst. Regressionsnachweis: `tests/test_ticket_extras.py`. |
 | 33 | Tickets miteinander verknüpfen | **Fertig** | Persistente bidirektionale Verknüpfungen gleicher Guild mit `/ticket verknuepfen`, `/ticket verknuepfungen`, `/ticket trennen`; Dubletten-/Selbst-/Cross-Guild-Schutz, interne Notiz, Backup und personenbezogener Export. Tests: `tests/test_ticket_extras.py`, `tests/test_privacy.py`. |
 | 34 | Freiwillige Ticket-Zufriedenheit | **Fertig** | Ticket-Rating-Endpunkt und Auswertung vorhanden; `tests/test_ticket_extras.py` prüft Rating-Report. Voice-Support besitzt zusätzlich eigene Bewertungen. |
 | 35 | Abgeschlossene Tickets wiedereröffnen | **Teilweise** | Wiederöffnungs-Ereignisse und Dashboard-Aktionsbezeichnungen existieren; ein vollständiger, getesteter Wiedereröffnungsprozess mit Frist und Berechtigungen ist nicht ausreichend belegt. |
