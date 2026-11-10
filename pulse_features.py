@@ -67,18 +67,94 @@ def register(app):
         c=ctx(request,user_session); p=db.get_wiki(page_id)
         if not p: raise HTTPException(404,"Wiki-Seite nicht gefunden.")
         manager=c.perms.get("can_manage_wiki") or c.perms.get("can_promote") or c.perms.get("is_admin")
-        content=esc(p['content']).replace('\n','<br>')
+        content=esc(p["content"]).replace("\\n","<br>")
         edit=f'<a href="/wiki" class="text-xs text-indigo-600">← Zurück</a>'
-        body=f'<div class="max-w-4xl"><div class="flex justify-between gap-3 mb-5"><div><span class="text-[10px] text-indigo-500 font-semibold">{esc(p["category"])}</span><h1 class="text-2xl font-bold">{esc(p["title"])}</h1></div>{edit}</div><div class="{ws.CARD} p-6 text-sm leading-7 whitespace-normal">{content}</div><p class="text-[10px] text-slate-400 mt-3">Zuletzt geändert: {esc(p["updated_at"][:16].replace('T',' '))} · {esc(p["author_name"])}</p></div>'
-        return ws.render_page(p['title'],c,'wiki',body)
+        edit_form=""
+        if manager:
+            edit_form=card(
+                f'<h2 class="text-sm font-bold mb-3">✏️ Artikel bearbeiten</h2>'
+                f'<form action="/wiki/save" method="post" class="space-y-3 text-xs">'
+                f'<input type="hidden" name="page_id" value="{esc(page_id)}">'
+                f'<input name="title" required maxlength="120" value="{esc(p["title"])}" class="{ws.INPUT}">'
+                f'<input name="category" required maxlength="60" value="{esc(p["category"])}" class="{ws.INPUT}">'
+                f'<textarea name="content" required maxlength="10000" class="{ws.INPUT} h-44">{esc(p["content"])}</textarea>'
+                f'<button class="{ws.BTN} py-2.5 px-4">Neue Version speichern</button></form>'
+            )
+        versions=db.wiki_page_versions(page_id,limit=50)
+        version_rows=[]
+        for version in versions:
+            version_content=esc(version["content"]).replace("\\n","<br>")
+            created=str(version.get("created_at") or "")[:16].replace("T"," ")
+            restored_from=version.get("restored_from_version")
+            restored_label=f' · Wiederhergestellt aus Version {int(restored_from)}' if restored_from else ""
+            restore_form=""
+            if manager and int(version["version_number"]) != max((int(v["version_number"]) for v in versions),default=0):
+                restore_form=(
+                    f'<form method="post" action="/wiki/{esc(page_id)}/restore/{int(version["version_number"])}" class="mt-3">'
+                    f'<button class="{ws.BTN} py-2 px-3" type="submit">Diese Version wiederherstellen</button></form>'
+                )
+            version_rows.append(
+                f'<details class="{ws.CARD} p-4"><summary class="cursor-pointer text-xs font-semibold">'
+                f'Version {int(version["version_number"])} · {esc(version.get("author_name") or "Team")} · {esc(created)}{esc(restored_label)}</summary>'
+                f'<div class="mt-3 text-sm leading-7">{version_content}</div>{restore_form}</details>'
+            )
+        history=(
+            '<section class="mt-6"><h2 class="text-sm font-bold mb-3">Versionsverlauf</h2>'
+            + "".join(version_rows) + "</section>"
+        )
+        body=(
+            f'<div class="max-w-4xl"><div class="flex justify-between gap-3 mb-5"><div>'
+            f'<span class="text-[10px] text-indigo-500 font-semibold">{esc(p["category"])}</span>'
+            f'<h1 class="text-2xl font-bold">{esc(p["title"])}</h1></div>{edit}</div>'
+            f'<div class="{ws.CARD} p-6 text-sm leading-7 whitespace-normal">{content}</div>'
+            f'<p class="text-[10px] text-slate-400 mt-3">Zuletzt geändert: {esc(p["updated_at"][:16].replace("T"," "))} · {esc(p["author_name"])}</p>'
+            f'{edit_form}{history}</div>'
+        )
+        return ws.render_page(p["title"],c,"wiki",body)
 
     @app.post("/wiki/save")
-    async def wiki_save(request: Request, title: str=Form(...), category: str=Form(...), content: str=Form(...), user_session: str=Cookie(None)):
-        c=ctx(request,user_session,perm=None); manager=c.perms.get("can_manage_wiki") or c.perms.get("can_promote") or c.perms.get("is_admin")
+    async def wiki_save(
+        request: Request, title: str=Form(...), category: str=Form(...),
+        content: str=Form(...), page_id: str=Form(""), user_session: str=Cookie(None),
+    ):
+        c=ctx(request,user_session,perm=None)
+        manager=c.perms.get("can_manage_wiki") or c.perms.get("can_promote") or c.perms.get("is_admin")
         if not manager: raise HTTPException(403,"Dafür fehlt dir die Berechtigung.")
-        pid=db.save_wiki(title.strip()[:120],category.strip()[:60],content.strip()[:10000],c.user['id'],c.user.get('global_name') or 'Team')
-        ws.log_audit(c.user.get('global_name'),c.user['id'],'Wiki-Seite Erstellt',f'{title.strip()[:120]} · {pid}')
-        return ws.back(f'/wiki/{pid}','Wiki-Seite gespeichert.')
+        title=title.strip()[:120]; category=category.strip()[:60]; content=content.strip()[:10000]
+        if not title or not category or not content:
+            raise HTTPException(400,"Titel, Kategorie und Inhalt dürfen nicht leer sein.")
+        page_id=str(page_id or "").strip()
+        if page_id and not db.get_wiki(page_id):
+            raise HTTPException(404,"Wiki-Seite nicht gefunden.")
+        pid=db.save_wiki(
+            title,category,content,c.user["id"],c.user.get("global_name") or "Team",
+            page_id=page_id or None,
+        )
+        action="Wiki-Seite Aktualisiert" if page_id else "Wiki-Seite Erstellt"
+        ws.log_audit(c.user.get("global_name"),c.user["id"],action,f'{title} · {pid}')
+        return ws.back(f"/wiki/{pid}","Neue Wiki-Version gespeichert." if page_id else "Wiki-Seite gespeichert.")
+
+    @app.post("/wiki/{page_id}/restore/{version_number}")
+    async def wiki_restore_version(
+        request: Request, page_id: str, version_number: int,
+        user_session: str=Cookie(None),
+    ):
+        c=ctx(request,user_session,perm=None)
+        manager=c.perms.get("can_manage_wiki") or c.perms.get("can_promote") or c.perms.get("is_admin")
+        if not manager: raise HTTPException(403,"Dafür fehlt dir die Berechtigung.")
+        if version_number < 1:
+            raise HTTPException(400,"Ungültige Wiki-Version.")
+        try:
+            new_version=db.restore_wiki_version(
+                page_id,version_number,c.user["id"],c.user.get("global_name") or "Team",
+            )
+        except ValueError as exc:
+            raise HTTPException(404,str(exc))
+        ws.log_audit(
+            c.user.get("global_name"),c.user["id"],"Wiki-Version Wiederhergestellt",
+            f"{page_id} · Zielversion {version_number} · neue Version {new_version}",
+        )
+        return ws.back(f"/wiki/{page_id}",f"Version {version_number} wurde als neue Version {new_version} wiederhergestellt.")
 
     @app.get("/training", response_class=HTMLResponse)
     async def training_page(request: Request, user_session: str=Cookie(None)):

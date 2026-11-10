@@ -9,7 +9,7 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 
 | Ablage | Module (lesen/schreiben) | Schreibstellen (Auszug) | JSON-Backup `/backups` | ZIP-Backup `/ultimate/backup` |
 |---|---|---|---|---|
-| `pulse.db` | `cogs/advanced_logs.py`, `cogs/dienst.py`, `cogs/pulse_suite.py`, `pulse_backup.py`, `pulse_command_sync.py`, `pulse_db.py`, `pulse_factions.py`, `pulse_features.py`, `pulse_flags.py`, `pulse_health_api.py`, `pulse_migrations.py`, `pulse_mod_cases.py`, `pulse_mod_reason_templates.py`, `pulse_next.py`, `pulse_panels.py`, `pulse_paths.py`, `pulse_pro.py`, `pulse_server_control.py`, `pulse_ticket_extras.py`, `pulse_ultimate.py`, `pulse_voice_queue.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | cogs/pulse_suite.py:67; pulse_next.py:667 | ✅ 28 Tabellen über `export_state` | ✅ ganze Datei |
+| `pulse.db` | `cogs/advanced_logs.py`, `cogs/dienst.py`, `cogs/pulse_suite.py`, `pulse_backup.py`, `pulse_command_sync.py`, `pulse_db.py`, `pulse_factions.py`, `pulse_features.py`, `pulse_flags.py`, `pulse_health_api.py`, `pulse_migrations.py`, `pulse_mod_cases.py`, `pulse_mod_reason_templates.py`, `pulse_next.py`, `pulse_panels.py`, `pulse_paths.py`, `pulse_pro.py`, `pulse_server_control.py`, `pulse_ticket_extras.py`, `pulse_ultimate.py`, `pulse_voice_queue.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | cogs/pulse_suite.py:67; pulse_next.py:667 | ✅ 29 Tabellen über `export_state` | ✅ ganze Datei |
 | `abmeldungen.db` | `cogs/abmeldung.py`, `cogs/activity_check.py`, `cogs/buero_system.py`, `cogs/flaggenquiz.py`, `cogs/role_nickname_prefixes.py`, `cogs/rp_verwaltung.py`, `cogs/teamliste.py`, `pulse_backup.py`, `pulse_features.py`, `pulse_panels.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | cogs/abmeldung.py:141,199,211,221,417,457; cogs/activity_check.py:33,81,89,97,112,165; cogs/buero_system.py:29,52,60,93,104,114; cogs/flaggenquiz.py:175,205,218,230,243,259; cogs/role_nickname_prefixes.py:199; cogs/rp_verwaltung.py:22,35,43; cogs/teamliste.py:45,72,83,94,106,115; pulse_features.py:387; webserver.py:322,962,8817,9858,11458,11479 | ❌ | ❌ |
 | `activity_check.db` | `cogs/activity_check.py`, `cogs/pulse_suite.py`, `pulse_backup.py`, `pulse_panels.py`, `scripts/pulse_migrate_data.py`, `webserver.py` | cogs/pulse_suite.py:364 | ❌ | ❌ |
 | `pulse_suite.db` | `cogs/pulse_suite.py`, `pulse_backup.py`, `scripts/pulse_migrate_data.py` | — | ❌ | ❌ |
@@ -36,7 +36,7 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 
 ## Tabellen (CREATE TABLE im Code) und JSON-Backup-Abdeckung von `pulse.db`
 
-`pulse_db.export_state()` exportiert 28 Tabellen (`TABLES`). Tabellen anderer Datenbanken stehen nur informativ dabei.
+`pulse_db.export_state()` exportiert 29 Tabellen (`TABLES`). Tabellen anderer Datenbanken stehen nur informativ dabei.
 
 | Tabelle | angelegt in | im JSON-Backup (`export_state`) |
 |---|---|---|
@@ -124,7 +124,6 @@ Die persönlichen Datenexporte berücksichtigen interne Ticketnotizen sowohl fü
 | `ultimate_automations` | `pulse_ultimate.py` | ❌ |
 | `ultimate_awards` | `pulse_ultimate.py` | ❌ |
 | `ultimate_calendar` | `pulse_ultimate.py` | ❌ |
-| `ultimate_calendar_rsvps` | `pulse_ultimate.py` | ❌ |
 | `ultimate_case_events` | `pulse_ultimate.py` | ❌ |
 | `ultimate_case_players` | `pulse_ultimate.py` | ❌ |
 | `ultimate_cases` | `pulse_ultimate.py` | ❌ |
@@ -140,8 +139,9 @@ Die persönlichen Datenexporte berücksichtigen interne Ticketnotizen sowohl fü
 | `ultimate_settings` | `pulse_ultimate.py` | ❌ |
 | `voice_support_case_history` | `pulse_db.py` | ❌ |
 | `wiki_pages` | `pulse_db.py` | ✅ |
+| `wiki_page_versions` | `pulse_db.py` | ✅ |
 
-**Nicht im JSON-Backup:** 70 von 92 Tabellen.
+**Nicht im JSON-Backup:** 70 von 93 Tabellen.
 
 ## Speicherort (Phase 13, `pulse_paths`)
 

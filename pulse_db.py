@@ -248,6 +248,21 @@ def init_db():
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS wiki_page_versions (
+                version_id TEXT PRIMARY KEY,
+                page_id TEXT NOT NULL,
+                version_number INTEGER NOT NULL CHECK(version_number >= 1),
+                title TEXT NOT NULL,
+                category TEXT NOT NULL,
+                content TEXT NOT NULL,
+                author_id TEXT NOT NULL,
+                author_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                restored_from_version INTEGER,
+                UNIQUE(page_id, version_number)
+            );
+            CREATE INDEX IF NOT EXISTS idx_wiki_page_versions_page
+                ON wiki_page_versions(page_id, version_number DESC);
 
             CREATE TABLE IF NOT EXISTS achievements (
                 id TEXT PRIMARY KEY,
@@ -963,13 +978,63 @@ def finish_support_case_period(actor_id, actor_name):
     }
 
 
+def _insert_wiki_version(db, page_id, version_number, title, category, content, author_id, author_name,
+                        created_at=None, restored_from_version=None):
+    db.execute(
+        """INSERT INTO wiki_page_versions
+           (version_id,page_id,version_number,title,category,content,author_id,author_name,created_at,restored_from_version)
+           VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        (
+            make_id("wikiver"), str(page_id), int(version_number), str(title), str(category),
+            str(content), str(author_id), str(author_name or "Team")[:100],
+            str(created_at or _now()), int(restored_from_version) if restored_from_version else None,
+        ),
+    )
+
+
+def _ensure_wiki_baseline(db, page):
+    """Give legacy pages a first immutable snapshot before their first versioned edit."""
+    existing = db.execute(
+        "SELECT 1 FROM wiki_page_versions WHERE page_id=? LIMIT 1",
+        (str(page["id"]),),
+    ).fetchone()
+    if existing:
+        return
+    _insert_wiki_version(
+        db, page["id"], 1, page["title"], page["category"], page["content"],
+        page["author_id"], page["author_name"], page.get("updated_at") or page.get("created_at") or _now(),
+    )
+
+
 def save_wiki(title, category, content, author_id, author_name, page_id=None):
+    """Create a page or add an immutable revision while preserving the previous text."""
     with connect() as db:
-        now = _now(); pid = page_id or make_id("wiki")
+        now = _now()
         if page_id:
-            db.execute("UPDATE wiki_pages SET title=?,category=?,content=?,author_id=?,author_name=?,updated_at=? WHERE id=?", (title, category, content, str(author_id), author_name, now, page_id))
-        else:
-            db.execute("INSERT INTO wiki_pages VALUES (?,?,?,?,?,?,?,?)", (pid, title, category, content, str(author_id), author_name, now, now))
+            row = db.execute("SELECT * FROM wiki_pages WHERE id=?", (str(page_id),)).fetchone()
+            if row is None:
+                raise ValueError("Wiki-Seite nicht gefunden.")
+            page = dict(row)
+            _ensure_wiki_baseline(db, page)
+            latest = db.execute(
+                "SELECT COALESCE(MAX(version_number),0) FROM wiki_page_versions WHERE page_id=?",
+                (str(page_id),),
+            ).fetchone()[0]
+            version_number = int(latest or 0) + 1
+            db.execute(
+                "UPDATE wiki_pages SET title=?,category=?,content=?,author_id=?,author_name=?,updated_at=? WHERE id=?",
+                (str(title), str(category), str(content), str(author_id), str(author_name), now, str(page_id)),
+            )
+            _insert_wiki_version(
+                db, page_id, version_number, title, category, content, author_id, author_name, now,
+            )
+            return str(page_id)
+        pid = make_id("wiki")
+        db.execute(
+            "INSERT INTO wiki_pages VALUES (?,?,?,?,?,?,?,?)",
+            (pid, title, category, content, str(author_id), author_name, now, now),
+        )
+        _insert_wiki_version(db, pid, 1, title, category, content, author_id, author_name, now)
         return pid
 
 
@@ -980,13 +1045,84 @@ def wiki_pages():
 
 def get_wiki(pid):
     with connect() as db:
-        row = db.execute("SELECT * FROM wiki_pages WHERE id=?", (pid,)).fetchone()
+        row = db.execute("SELECT * FROM wiki_pages WHERE id=?", (str(pid),)).fetchone()
         return dict(row) if row else None
+
+
+def wiki_page_versions(page_id, limit=50):
+    """Return immutable article snapshots newest-first; legacy pages are shown as revision 1."""
+    limit = max(1, min(100, int(limit or 50)))
+    with connect() as db:
+        page = db.execute("SELECT * FROM wiki_pages WHERE id=?", (str(page_id),)).fetchone()
+        if page is None:
+            return []
+        rows = db.execute(
+            "SELECT * FROM wiki_page_versions WHERE page_id=? ORDER BY version_number DESC LIMIT ?",
+            (str(page_id), limit),
+        ).fetchall()
+        if rows:
+            return [dict(row) for row in rows]
+        legacy = dict(page)
+        return [{
+            "version_id": "",
+            "page_id": str(page_id),
+            "version_number": 1,
+            "title": legacy["title"],
+            "category": legacy["category"],
+            "content": legacy["content"],
+            "author_id": legacy["author_id"],
+            "author_name": legacy["author_name"],
+            "created_at": legacy.get("updated_at") or legacy.get("created_at") or "",
+            "restored_from_version": None,
+        }]
+
+
+def restore_wiki_version(page_id, version_number, actor_id, actor_name):
+    """Restore an old snapshot by creating a new version; history is never overwritten."""
+    page_id = str(page_id)
+    version_number = int(version_number)
+    with connect() as db:
+        current = db.execute("SELECT * FROM wiki_pages WHERE id=?", (page_id,)).fetchone()
+        if current is None:
+            raise ValueError("Wiki-Seite nicht gefunden.")
+        target = db.execute(
+            "SELECT * FROM wiki_page_versions WHERE page_id=? AND version_number=?",
+            (page_id, version_number),
+        ).fetchone()
+        if target is None:
+            # Legacy pages have no snapshot yet; their currently visible content is revision 1.
+            _ensure_wiki_baseline(db, dict(current))
+            target = db.execute(
+                "SELECT * FROM wiki_page_versions WHERE page_id=? AND version_number=1",
+                (page_id,),
+            ).fetchone()
+        if target is None or int(target["version_number"]) != version_number:
+            raise ValueError("Diese Wiki-Version wurde nicht gefunden.")
+        _ensure_wiki_baseline(db, dict(current))
+        latest = db.execute(
+            "SELECT COALESCE(MAX(version_number),0) FROM wiki_page_versions WHERE page_id=?",
+            (page_id,),
+        ).fetchone()[0]
+        next_version = int(latest or 0) + 1
+        now = _now()
+        restored = dict(target)
+        db.execute(
+            "UPDATE wiki_pages SET title=?,category=?,content=?,author_id=?,author_name=?,updated_at=? WHERE id=?",
+            (
+                restored["title"], restored["category"], restored["content"],
+                str(actor_id), str(actor_name or "Team")[:100], now, page_id,
+            ),
+        )
+        _insert_wiki_version(
+            db, page_id, next_version, restored["title"], restored["category"], restored["content"],
+            actor_id, actor_name, now, restored["version_number"],
+        )
+        return next_version
 
 
 def delete_wiki(pid):
     with connect() as db:
-        return db.execute("DELETE FROM wiki_pages WHERE id=?", (pid,)).rowcount > 0
+        return db.execute("DELETE FROM wiki_pages WHERE id=?", (str(pid),)).rowcount > 0
 
 
 def save_meeting_history(title, date_time, description, notes, attendees):
@@ -1536,7 +1672,7 @@ def purge_old_notifications(days=90):
 
 
 TABLES = [
-    "notifications", "tasks", "task_history", "tickets", "ticket_events", "ticket_internal_notes", "ticket_links", "wiki_pages", "achievements",
+    "notifications", "tasks", "task_history", "tickets", "ticket_events", "ticket_internal_notes", "ticket_links", "wiki_pages", "wiki_page_versions", "achievements",
     "achievement_progress", "trainings", "training_questions", "training_attempts", "meetings_history", "calendar_events",
     "team_status", "handover_notes", "shift_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
