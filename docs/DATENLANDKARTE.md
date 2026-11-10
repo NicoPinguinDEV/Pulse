@@ -53,6 +53,7 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 | `dashboard_login_ip_audit` | `pulse_ip_audit.py` | ❌ |
 | `dashboard_sessions` | `pulse_sessions.py` | ❌ |
 | `events` | `pulse_db.py` | ✅ |
+| `shift_notes` | `pulse_db.py` | ✅ |
 | `faction_categories` | `pulse_factions.py` | ❌ |
 | `faction_warnings` | `pulse_factions.py` | ❌ |
 | `factions` | `pulse_factions.py` | ❌ |
@@ -139,7 +140,7 @@ Die persönlichen Datenexporte berücksichtigen interne Ticketnotizen sowohl fü
 | `voice_support_case_history` | `pulse_db.py` | ❌ |
 | `wiki_pages` | `pulse_db.py` | ✅ |
 
-**Nicht im JSON-Backup:** 70 von 92 Tabellen.
+**Nicht im JSON-Backup:** 70 von 93 Tabellen.
 
 ## Speicherort (Phase 13, `pulse_paths`)
 
