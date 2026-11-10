@@ -73,6 +73,65 @@ class ExtrasTests(TempDb):
         self.assertTrue(tx.remove_tag(self.tid, "bug"))
         self.assertEqual(tx.tags_for([]), {})
 
+    def test_internal_notes_are_separate_from_ticket_events_and_paginated(self):
+        with patch.object(
+            pulse_db,
+            "_now",
+            side_effect=["2026-11-10T10:00:00+00:00", "2026-11-10T10:01:00+00:00"],
+        ):
+            first = tx.add_internal_note(self.tid, 3, "Max", "Bitte vor der Antwort den Beleg prüfen.")
+            second = tx.add_internal_note(self.tid, 7, "Lena", "Rückfrage mit der Leitung abstimmen.")
+
+        self.assertEqual(first["ticket_id"], self.tid)
+        self.assertEqual(first["author_id"], "3")
+        self.assertEqual(
+            tx.internal_notes_for(self.tid, limit=1, offset=0)[0]["note"],
+            second["note"],
+        )
+        self.assertEqual(
+            tx.internal_notes_for(self.tid, limit=1, offset=1)[0]["note"],
+            first["note"],
+        )
+        self.assertFalse(any("Beleg prüfen" in event.get("details", "") for event in pulse_db.ticket_events(self.tid)))
+        self.assertFalse(any("Leitung abstimmen" in event.get("details", "") for event in pulse_db.ticket_events(self.tid)))
+
+    def test_internal_notes_validate_input_and_reject_closed_tickets(self):
+        with self.assertRaises(ValueError):
+            tx.add_internal_note(self.tid, 3, "Max", "kurz")
+        with self.assertRaises(ValueError):
+            tx.add_internal_note(self.tid, 3, "Max", "x" * (tx.MAX_INTERNAL_NOTE_LENGTH + 1))
+        with self.assertRaises(ValueError):
+            tx.add_internal_note("missing-ticket", 3, "Max", "Eine gültige Notiz.")
+
+        pulse_db.close_ticket(self.tid, "erledigt", "")
+        with self.assertRaises(ValueError):
+            tx.add_internal_note(self.tid, 3, "Max", "Dieses Ticket ist bereits geschlossen.")
+
+
+class InternalNoteModalTests(TempDb):
+    def test_modal_rechecks_ticket_team_permission_before_persisting(self):
+        from cogs import ticket_tools
+
+        sent = []
+
+        async def send_message(content, **kwargs):
+            sent.append((content, kwargs))
+
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(id=1),
+            user=SimpleNamespace(id=3, display_name="Max"),
+            channel=SimpleNamespace(id=555),
+            response=SimpleNamespace(send_message=send_message),
+        )
+        modal = ticket_tools.InternalTicketNoteModal(self.tid)
+        with patch.object(ticket_tools, "may_manage", lambda _interaction: False):
+            asyncio.run(modal.on_submit(interaction))
+
+        self.assertTrue(sent)
+        self.assertTrue(sent[0][1].get("ephemeral"))
+        self.assertEqual(tx.internal_notes_for(self.tid), [])
+
+
     def test_ratings_report(self):
         tickets = [{"category": "support", "claimed_by_name": "Lena", "rating": 5},
                    {"category": "support", "claimed_by_name": "Max", "rating": 3},
