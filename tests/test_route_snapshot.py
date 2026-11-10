@@ -165,6 +165,7 @@ class RouteSnapshotTests(unittest.TestCase):
             "/export/team.csv": "get",
             "/shift/admin-end": "post",
             "/shift/history/confirm-duration": "post",
+            "/shift/notes": "post",
             "/api/team/discord-status": "get",
             "/robots.txt": "get",
         }
