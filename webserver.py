@@ -8581,9 +8581,12 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
 
     apps_html = ""
     import pulse_application_duplicates as duplicate_detection
+    duplicate_index = duplicate_detection.build_duplicate_index(apps) if can_review else {}
     for app_id, item in items:
         duplicate_notice = (
-            duplicate_detection.render_duplicate_notice(apps, app_id, esc)
+            duplicate_detection.render_duplicate_notice(
+                apps, app_id, esc, duplicate_index=duplicate_index,
+            )
             if can_review else ""
         )
         up, down = item.get("upvotes", []), item.get("downvotes", [])
