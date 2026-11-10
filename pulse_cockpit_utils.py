@@ -72,6 +72,22 @@ def trend(current: float, previous: float) -> tuple[str, str]:
     return "→", "±0 %"
 
 
+def voice_support_overview(cases):
+    """Separate current shared-room cases from accepted voice-support conversations."""
+    from pulse_voice_queue import waiting_cases
+
+    source = cases if isinstance(cases, dict) else {}
+    waiting = waiting_cases(source)
+    active = [
+        case for case in source.values()
+        if isinstance(case, dict)
+        and str(case.get("assigned_staff_id") or "").strip() not in {"", "0"}
+        and not case.get("closed_at")
+    ]
+    active.sort(key=lambda case: str(case.get("support_started_at") or case.get("created_at") or ""))
+    return {"waiting": waiting, "active": active}
+
+
 def inactive_days(last: date | None, today: date) -> int | None:
     """Days since the last shift; None if the member never had one."""
     if last is None:
