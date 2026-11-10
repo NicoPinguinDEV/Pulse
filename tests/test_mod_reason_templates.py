@@ -93,6 +93,35 @@ class VersionedReasonTemplateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             templates.resolve_reason(1, "warn", "@modtpl:MRT-ABCDEF12:999")
 
+    def test_autocomplete_hides_templates_for_actions_without_both_permission_layers(self):
+        import cogs.mod_cases as cog
+        warn_template = templates.create_template(
+            1, "warn", "Verwarnung", "Wiederholte Beleidigungen im öffentlichen Chat.",
+            self.actor.id, self.actor.display_name,
+        )
+        ban_template = templates.create_template(
+            1, "ban", "Ban", "Nachgewiesener Betrugsversuch im Spielbetrieb.",
+            self.actor.id, self.actor.display_name,
+        )
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(id=1),
+            user=SimpleNamespace(
+                id=self.actor.id,
+                guild_permissions=SimpleNamespace(
+                    moderate_members=True, kick_members=True, ban_members=True, administrator=False
+                ),
+            ),
+        )
+        pulse_rights = {"can_moderate_kicks": True, "can_moderate_bans": False}
+        with patch.object(cog, "pulse_perms", return_value=pulse_rights):
+            choices = cog._reason_template_choices(interaction, "warn", "")
+            self.assertEqual([item.name.split(" · v")[0] for item in choices], [warn_template["title"]])
+            self.assertEqual(
+                cog._reason_template_choices(interaction, "ban", ""),
+                [],
+            )
+        self.assertEqual(templates.list_templates(1, "ban")[0]["id"], ban_template["id"])
+
     def test_selected_version_is_stored_in_moderation_case_and_backup(self):
         template = templates.create_template(
             1, "warn", "Beleidigung", "Wiederholte Beleidigungen im öffentlichen Chat.",
@@ -113,8 +142,20 @@ class VersionedReasonTemplateTests(unittest.TestCase):
         self.assertEqual(stored["reason_template_version"], 1)
 
         state = pulse_db.export_state()
+        self.assertIn("mod_cases", state)
+        self.assertEqual(len(state["mod_cases"]), 1)
+        self.assertEqual(state["mod_cases"][0]["id"], case["id"])
         self.assertEqual(len(state["mod_reason_templates"]), 1)
         self.assertEqual(len(state["mod_reason_template_versions"]), 1)
+
+        with pulse_db.connect() as db:
+            db.execute("DELETE FROM mod_cases")
+            db.execute("DELETE FROM mod_reason_templates")
+        pulse_db.import_state(state)
+        restored_case = pulse_mod_cases.get_case(case["id"])
+        self.assertEqual(restored_case["reason_template_id"], template["id"])
+        self.assertEqual(restored_case["reason_template_version"], 1)
+        self.assertEqual(templates.get_template(1, template["id"], 1)["body"], reason)
 
 
 if __name__ == "__main__":
