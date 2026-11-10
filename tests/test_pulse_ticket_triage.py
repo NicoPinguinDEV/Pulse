@@ -34,6 +34,40 @@ class TriageTests(unittest.TestCase):
         self.assertEqual(info["state"], "waiting_user")
         self.assertTrue(info["overdue"])
 
+    def test_category_sla_controls_dashboard_overdue_state(self):
+        from pulse_ticket_design import automation_settings
+
+        settings = automation_settings({
+            "unclaimed_ping_minutes": 30,
+            "staff_reply_hours": 12,
+            "user_reminder_hours": 24,
+            "category_sla": {
+                "support": {"unclaimed_ping_minutes": 60},
+                "bug": {"unclaimed_ping_minutes": 10},
+                "highteam": {"unclaimed_ping_minutes": 0},
+            },
+        })
+        support = triage(
+            {"category": "support", "status": "open", "opened_at": ago(minutes=45)},
+            NOW,
+            settings,
+        )
+        bug = triage(
+            {"category": "bug", "status": "open", "opened_at": ago(minutes=45)},
+            NOW,
+            settings,
+        )
+        highteam = triage(
+            {"category": "highteam", "status": "open", "opened_at": ago(hours=5)},
+            NOW,
+            settings,
+        )
+
+        self.assertFalse(support["overdue"])
+        self.assertTrue(bug["overdue"])
+        self.assertFalse(highteam["overdue"])
+        self.assertIn("Schwelle von 10 Min.", bug["reason"])
+
     def test_missing_activity_is_not_guessed(self):
         t = {"status": "in_progress", "claimed_by_id": "1", "opened_at": "kaputt"}
         info = triage(t, NOW, SETTINGS)
