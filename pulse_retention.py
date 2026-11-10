@@ -487,18 +487,18 @@ def export_person(ws, discord_id: str) -> dict:
         if not path.is_file():
             continue
         extras: dict[str, dict[str, set[str]]] = {}
-        if name == "pulse_suite.db":
-            extras = {
-                "suite_interviews": {"application_id": application_ids},
-                "suite_audit": {"target_id": application_ids},
-            }
-        elif name == "pulse.db":
-            ticket_ids = _ticket_ids_for_subject(path, uid)
-            extras = {
-                "calendar_events": {"id": event_ids},
-                "ticket_internal_notes": {"ticket_id": ticket_ids},
-            }
         try:
+            if name == "pulse_suite.db":
+                extras = {
+                    "suite_interviews": {"application_id": application_ids},
+                    "suite_audit": {"target_id": application_ids},
+                }
+            elif name == "pulse.db":
+                ticket_ids = _ticket_ids_for_subject(path, uid)
+                extras = {
+                    "calendar_events": {"id": event_ids},
+                    "ticket_internal_notes": {"ticket_id": ticket_ids},
+                }
             rows, truncated = _rows_for(path, uid, extra_values_by_table=extras)
         except (sqlite3.Error, OSError) as exc:
             rows, truncated = {"_fehler": type(exc).__name__}, []
