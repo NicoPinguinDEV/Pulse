@@ -647,13 +647,14 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/tickets/transcript/{ticket_id}/view` | `webserver.pulse_ticket_transcript_view` | webserver.py:6495 | can_manage_tickets |
 | POST | `/tickets/update` | `pulse_pro.register.<locals>.ticket_update_v5` | pulse_pro.py:1966 | can_view_dashboard (+ can_manage_tickets, can_promote, is_admin) |
 
-### `/training` (4)
+### `/training` (5)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
 | GET | `/training` | `pulse_features.register.<locals>.training_page` | pulse_features.py:83 | ctx (+ can_manage_training, can_promote, is_admin) |
 | POST | `/training/create` | `pulse_features.register.<locals>.training_create` | pulse_features.py:94 | angemeldet (+ can_manage_training, can_promote, is_admin) |
 | GET | `/training/{training_id}` | `pulse_features.register.<locals>.training_detail` | pulse_features.py:110 | ctx |
+| POST | `/training/paths/save` | `pulse_features.register.<locals>.training_path_save` | pulse_features.py | can_manage_training, can_promote, is_admin |
 | POST | `/training/{training_id}/submit` | `pulse_features.register.<locals>.training_submit` | pulse_features.py:118 | ctx |
 
 ### `/ultimate` (103)

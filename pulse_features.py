@@ -158,14 +158,188 @@ def register(app):
 
     @app.get("/training", response_class=HTMLResponse)
     async def training_page(request: Request, user_session: str=Cookie(None)):
-        c=ctx(request,user_session); trainings=db.training_list(); manager=c.perms.get("can_manage_training") or c.perms.get("can_promote") or c.perms.get("is_admin")
-        cards=''.join((lambda t: f'<a href="/training/{t["id"]}" class="{ws.CARD} p-5 hover:border-indigo-500"><div class="flex justify-between gap-3"><h2 class="font-bold text-sm">🎓 {esc(t["title"])}</h2>{badge(str(t["passing_score"])+"% Bestehen","ok")}</div><p class="text-xs text-slate-500 mt-2">{esc(t["description"])}</p></a>')(t) for t in trainings)
+        c=ctx(request,user_session)
+        trainings=[item for item in db.training_list() if item.get("published")]
+        manager=c.perms.get("can_manage_training") or c.perms.get("can_promote") or c.perms.get("is_admin")
+
+        cards=''.join(
+            f'<a href="/training/{t["id"]}" class="{ws.CARD} p-5 hover:border-indigo-500">'
+            f'<div class="flex justify-between gap-3"><h2 class="font-bold text-sm">🎓 {esc(t["title"])}</h2>'
+            f'{badge(str(t["passing_score"])+"% Bestehen","ok")}</div>'
+            f'<p class="text-xs text-slate-500 mt-2">{esc(t["description"])}</p></a>'
+            for t in trainings
+        )
+
+        guild=getattr(c,"guild",None)
+        user_id=str(c.user["id"])
+        member=None
+        if guild and user_id.isdigit():
+            try:
+                member=guild.get_member(int(user_id))
+            except Exception:
+                member=None
+        user_role_ids=[str(role.id) for role in getattr(member,"roles",[]) if getattr(role,"id",None)]
+        assigned_paths=db.training_paths_for_roles(user_role_ids)
+        path_training_ids=[
+            item["training_id"] for path in assigned_paths for item in path["items"]
+        ]
+        passed_training_ids=db.passed_training_ids_for_user(user_id,path_training_ids)
+        path_cards=[]
+        for path in assigned_paths:
+            progress=db.training_path_progress(path["id"],user_id)
+            steps=[]
+            for item in path["items"]:
+                is_complete=str(item["training_id"]) in passed_training_ids
+                steps.append(
+                    f'<li class="flex items-center justify-between gap-3 py-2 border-b border-slate-200 dark:border-slate-800 last:border-0">'
+                    f'<a class="text-xs hover:underline" href="/training/{esc(item["training_id"])}">{esc(item["title"])}</a>'
+                    f'<span class="text-[10px] font-semibold {"text-emerald-600" if is_complete else "text-slate-400"}">{"✅ Bestanden" if is_complete else "○ Offen"}</span></li>'
+                )
+            path_cards.append(
+                f'<section class="{ws.CARD} p-5"><div class="flex flex-wrap items-center justify-between gap-2">'
+                f'<div><div class="text-[10px] uppercase tracking-wide text-indigo-500">{esc(path["role_name"])}</div>'
+                f'<h2 class="text-sm font-bold">{esc(path["title"])}</h2>'
+                f'<p class="text-xs text-slate-500 mt-1">{esc(path["description"])}</p></div>'
+                f'<div class="text-right"><div class="text-lg font-bold tabular-nums">{progress["percent"]}%</div>'
+                f'<div class="text-[10px] text-slate-500">{progress["completed"]}/{progress["total"]} Schulungen</div></div></div>'
+                f'<div class="h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden mt-3">'
+                f'<div class="h-full bg-emerald-500" style="width:{progress["percent"]}%"></div></div>'
+                f'<ol class="mt-3">{"".join(steps) or "<li class=\'text-xs text-slate-400\'>Keine veröffentlichten Schulungen im Lernpfad.</li>"}</ol></section>'
+            )
+        learning_paths_html=(
+            '<section class="mb-6"><h2 class="text-lg font-bold mb-3">🧭 Deine Lernpfade</h2>'
+            + "".join(path_cards)
+            + '</section>'
+            if path_cards else
+            '<section class="mb-6"><h2 class="text-lg font-bold mb-2">🧭 Deine Lernpfade</h2>'
+            '<p class="text-xs text-slate-500">Für deine aktuellen Teamrollen ist noch kein Lernpfad hinterlegt.</p></section>'
+        )
+
         form=''
+        path_admin=''
         if manager:
             placeholder='[{"question":"Was bedeutet IC?","options":["In Character","Intern","Information Check","Keine Ahnung"],"answer_index":0}]'
-            form=card(f'''<h2 class="text-sm font-bold mb-3">➕ Schulung erstellen</h2><form action="/training/create" method="post" class="space-y-3 text-xs"><input name="title" required maxlength="120" placeholder="Titel…" class="{ws.INPUT}"><textarea name="description" maxlength="500" placeholder="Beschreibung…" class="{ws.INPUT} h-20"></textarea><div class="grid grid-cols-2 gap-3"><input type="number" name="passing_score" min="1" max="100" value="80" class="{ws.INPUT}"><input type="number" name="time_limit" min="1" max="180" value="20" class="{ws.INPUT}"></div><textarea name="questions_json" required placeholder='{esc(placeholder)}' class="{ws.INPUT} h-48 font-mono text-[10px]"></textarea><button class="{ws.BTN} py-2.5 px-4">Schulung veröffentlichen</button></form>''')
-        body=f'<h1 class="text-2xl font-bold mb-2">🎓 Schulungen</h1><p class="text-xs text-slate-500 mb-5">Prüfungen und Grundkompetenztests für das Team.</p><div class="grid md:grid-cols-2 gap-4">{cards or card("<p class=\'text-xs text-slate-400\'>Noch keine Schulungen.</p>")}</div>{f"<div class=\'mt-5 max-w-3xl\'>{form}</div>" if form else ""}'
+            form=card(
+                f'<h2 class="text-sm font-bold mb-3">➕ Schulung erstellen</h2>'
+                f'<form action="/training/create" method="post" class="space-y-3 text-xs">'
+                f'<input name="title" required maxlength="120" placeholder="Titel…" class="{ws.INPUT}">'
+                f'<textarea name="description" maxlength="500" placeholder="Beschreibung…" class="{ws.INPUT} h-20"></textarea>'
+                f'<div class="grid grid-cols-2 gap-3"><input type="number" name="passing_score" min="1" max="100" value="80" class="{ws.INPUT}">'
+                f'<input type="number" name="time_limit" min="1" max="180" value="20" class="{ws.INPUT}"></div>'
+                f'<textarea name="questions_json" required placeholder="{esc(placeholder)}" class="{ws.INPUT} h-48 font-mono text-[10px]"></textarea>'
+                f'<button class="{ws.BTN} py-2.5 px-4">Schulung veröffentlichen</button></form>'
+            )
+
+            configured_role_ids={
+                str(role_id) for role_id in (c.config.get("team_role_ids",[]) or [])
+                if str(role_id).isdigit()
+            }
+            team_roles=sorted(
+                (role for role in getattr(guild,"roles",[]) if str(getattr(role,"id","")) in configured_role_ids),
+                key=lambda role:(int(getattr(role,"position",0) or 0),str(getattr(role,"name","")).casefold()),
+                reverse=True,
+            )
+            role_by_id={str(role.id):role for role in team_roles}
+
+            def path_editor(path=None):
+                role_id=str(path["role_id"]) if path else ""
+                role=role_by_id.get(role_id)
+                selected_ids={str(item["training_id"]) for item in path["items"]} if path else set()
+                options=''.join(
+                    f'<label class="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 p-2 text-xs">'
+                    f'<input type="checkbox" name="training_ids" value="{esc(t["id"])}" {"checked" if str(t["id"]) in selected_ids else ""}>'
+                    f'<span>{esc(t["title"])}</span></label>'
+                    for t in trainings
+                )
+                if path and not role:
+                    return card(
+                        f'<div class="text-xs font-semibold">{esc(path["role_name"])} · Rolle nicht mehr als Teamrolle konfiguriert</div>'
+                        f'<p class="text-[10px] text-slate-500 mt-1">Pfad-ID: {esc(path["id"])}</p>'
+                    )
+                if path:
+                    role_control=(
+                        f'<input type="hidden" name="role_id" value="{esc(role_id)}">'
+                        f'<div class="text-xs font-semibold">{esc(role.name)} · Bestehenden Lernpfad bearbeiten</div>'
+                    )
+                    title_value=path["title"]
+                    desc_value=path["description"]
+                    button="Lernpfad aktualisieren"
+                else:
+                    role_options=''.join(
+                        f'<option value="{esc(item.id)}">{esc(item.name)}</option>'
+                        for item in team_roles
+                    )
+                    role_control=(
+                        f'<label class="block text-xs font-semibold">Teamrolle'
+                        f'<select name="role_id" required class="{ws.INPUT} mt-1">{role_options}</select></label>'
+                    )
+                    title_value=""
+                    desc_value=""
+                    button="Lernpfad erstellen"
+                return card(
+                    f'<form action="/training/paths/save" method="post" class="space-y-3 text-xs">'
+                    f'{role_control}'
+                    f'<input name="title" required maxlength="120" value="{esc(title_value)}" placeholder="Titel des Lernpfads" class="{ws.INPUT}">'
+                    f'<textarea name="description" maxlength="500" placeholder="Ziel und Beschreibung…" class="{ws.INPUT} h-16">{esc(desc_value)}</textarea>'
+                    f'<div class="font-semibold">Schulungen in Reihenfolge auswählen (1–30)</div>'
+                    f'<div class="grid sm:grid-cols-2 gap-2">{options or "<p class=\'text-slate-400\'>Erstelle zuerst veröffentlichte Schulungen.</p>"}</div>'
+                    f'<button class="{ws.BTN} py-2.5 px-4" {"disabled" if not trainings else ""}>{button}</button></form>'
+                )
+
+            existing_paths=db.training_paths()
+            editors=''.join(path_editor(path) for path in existing_paths)
+            create_form=path_editor(None) if team_roles else card(
+                '<p class="text-xs text-slate-500">Es sind keine Teamrollen konfiguriert. Konfiguriere zuerst die vorhandenen Teamrollen.</p>'
+            )
+            path_admin=(
+                '<section class="mt-6 space-y-3"><h2 class="text-lg font-bold">🛠 Rollen-Lernpfade verwalten</h2>'
+                '<p class="text-xs text-slate-500">Jeder Lernpfad gehört zu einer konfigurierten Teamrolle. '
+                'Aktualisieren ersetzt nur die Reihenfolge dieses Rollenpfads.</p>'
+                + editors + create_form + '</section>'
+            )
+
+        body=(
+            f'<h1 class="text-2xl font-bold mb-2">🎓 Schulungen</h1>'
+            f'<p class="text-xs text-slate-500 mb-5">Prüfungen, Grundkompetenzen und rollenbezogene Ausbildungswege.</p>'
+            f'{learning_paths_html}<h2 class="text-lg font-bold mb-3">Alle Schulungen</h2>'
+            f'<div class="grid md:grid-cols-2 gap-4">{cards or card("<p class=\'text-xs text-slate-400\'>Noch keine Schulungen.</p>")}</div>'
+            f'{f"<div class=\'mt-5 max-w-3xl\'>{form}</div>" if form else ""}{path_admin}'
+        )
         return ws.render_page("Schulungen",c,"training",body)
+
+    @app.post("/training/paths/save")
+    async def training_path_save(
+        request: Request, role_id: str=Form(...), title: str=Form(...),
+        description: str=Form(""), training_ids: list[str]=Form([]),
+        user_session: str=Cookie(None),
+    ):
+        c=ctx(request,user_session,perm=None)
+        manager=c.perms.get("can_manage_training") or c.perms.get("can_promote") or c.perms.get("is_admin")
+        if not manager:
+            raise HTTPException(403,"Dafür fehlt dir die Berechtigung.")
+        configured_role_ids={
+            str(value) for value in (c.config.get("team_role_ids",[]) or [])
+            if str(value).isdigit()
+        }
+        role_id=str(role_id or "").strip()
+        if role_id not in configured_role_ids:
+            raise HTTPException(400,"Nur konfigurierte BOCHUM-RP-Teamrollen dürfen Lernpfade erhalten.")
+        guild=getattr(c,"guild",None)
+        role=guild.get_role(int(role_id)) if guild and role_id.isdigit() else None
+        if not role:
+            raise HTTPException(404,"Teamrolle auf dem Server nicht gefunden.")
+        try:
+            path_id=db.save_training_path(
+                role_id,role.name,title,description,c.user["id"],
+                c.user.get("global_name") or "Team",training_ids,
+            )
+        except ValueError as exc:
+            raise HTTPException(400,str(exc))
+        ws.log_audit(
+            c.user.get("global_name"),c.user["id"],"Rollen-Lernpfad gespeichert",
+            f"{role.name} · {title.strip()[:120]} · {path_id}",
+        )
+        return ws.back("/training",f"Lernpfad für {role.name} gespeichert.")
 
     @app.post("/training/create")
     async def training_create(request: Request, title: str=Form(...), description: str=Form(""), passing_score: int=Form(80), time_limit: int=Form(20), questions_json: str=Form(...), user_session: str=Cookie(None)):
