@@ -27,6 +27,7 @@ from tests.fakes import FakeChannel, FakeGuild, FakeMember, FakeRole
 ALLOWED = {
     "/logout",
     "/me/sessions/revoke-all",
+    "/me/favorites/add", "/me/favorites/remove",
     "/pulse-inbox/read", "/pulse-inbox/read/{nid}", "/pulse-inbox/settings",
     "/team-status/set",
     "/handover/create", "/ultimate/handovers/create",
