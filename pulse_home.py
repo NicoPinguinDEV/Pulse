@@ -36,6 +36,40 @@ HOME_WIDGETS = (
 )
 DEFAULT_HOME_WIDGETS = tuple(key for key, _label in HOME_WIDGETS)
 HOME_WIDGETS_KEY = "home_widgets"
+FAVORITES_KEY = "dashboard_favorites"
+MAX_DASHBOARD_FAVORITES = 8
+
+
+def _safe_favorite_destinations(destinations):
+    """Return only known, local dashboard paths from the configured destination map."""
+    paths = destinations.keys() if isinstance(destinations, dict) else destinations or ()
+    safe = []
+    for raw in paths:
+        path = str(raw)
+        if (
+            path.startswith("/")
+            and not path.startswith("//")
+            and "\\" not in path
+            and not any(ord(char) < 32 for char in path)
+            and "://" not in path
+        ):
+            safe.append(path)
+    return safe
+
+
+def normalize_dashboard_favorites(value, destinations):
+    """Keep user favorites unique, local, allowlisted, ordered, and bounded."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    allowed = set(_safe_favorite_destinations(destinations))
+    selected = []
+    for raw in value:
+        path = str(raw)
+        if path in allowed and path not in selected:
+            selected.append(path)
+            if len(selected) >= MAX_DASHBOARD_FAVORITES:
+                break
+    return selected
 
 
 def normalize_home_widgets(value):
@@ -268,6 +302,29 @@ def register(app) -> None:
         start_options = "".join(f'<option value="{e(path)}"{" selected" if path == current_start else ""}>{e(label)}</option>'
                                 for path, label in ws.START_PAGES.items())
         selected_widgets = normalize_home_widgets(db.get_setting(f"{HOME_WIDGETS_KEY}:{uid}", None))
+        favorite_key = f"{FAVORITES_KEY}:{uid}"
+        favorites = normalize_dashboard_favorites(db.get_setting(favorite_key, []), ws.START_PAGES)
+        safe_pages = set(_safe_favorite_destinations(ws.START_PAGES))
+        favorite_rows = "".join(
+            f'<div class="pulse-row"><div class="pulse-row-main"><a class="pulse-row-title" href="{e(path)}">{e(ws.START_PAGES[path])}</a>'
+            f'<div class="pulse-row-meta">{e(path)}</div></div>'
+            f'<form method="post" action="/me/favorites/remove"><input type="hidden" name="path" value="{e(path)}">'
+            f'<button class="pulse-btn ghost" type="submit" aria-label="Favorit entfernen">Entfernen</button></form></div>'
+            for path in favorites
+        ) or '<div class="pulse-empty">Noch keine Favoriten gespeichert.</div>'
+        favorite_options = "".join(
+            f'<option value="{e(path)}">{e(label)}</option>'
+            for path, label in ws.START_PAGES.items()
+            if path not in favorites and path in safe_pages
+        )
+        favorite_add = (
+            f'<form method="post" action="/me/favorites/add" class="flex flex-wrap gap-2 mt-3">'
+            f'<label class="sr-only" for="favoritePath">Dashboard-Seite auswählen</label>'
+            f'<select id="favoritePath" name="path" class="pulse-input flex-1" required>{favorite_options}</select>'
+            f'<button class="pulse-btn ghost" type="submit" {"disabled" if len(favorites) >= MAX_DASHBOARD_FAVORITES or not favorite_options else ""}>Hinzufügen</button></form>'
+            f'<p class="text-[11px] text-slate-400 mt-2">Bis zu {MAX_DASHBOARD_FAVORITES} persönliche Schnellzugriffe.</p>'
+        )
+        favorites_card = card("⭐ Meine Favoriten", favorite_rows + favorite_add)
         widget_checks = "".join(
             f'<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="widgets" value="{key}" '
             f'class="accent-orange-600"{" checked" if key in selected_widgets else ""}> {e(label)}</label>'
@@ -296,6 +353,7 @@ def register(app) -> None:
             left_widgets.append(tickets_card)
         if "tasks" in selected_widgets:
             left_widgets.append(card("📋 Meine Aufgaben", task_html, '<a href="/tasks" class="text-[11px] text-indigo-500">Alle →</a>'))
+        right_widgets.insert(0, favorites_card)
         if "waiting" in selected_widgets and waiting_card:
             right_widgets.append(waiting_card)
         if "status" in selected_widgets:
@@ -335,6 +393,37 @@ def register(app) -> None:
             db.set_setting(f"{HOME_WIDGETS_KEY}:{ctx.user['id']}", selected)
             return ws.back("/me", f"Startseite und {len(selected)} Widget(s) gespeichert.", True)
         return ws.back("/me", f"Startseite gespeichert: {ws.START_PAGES[choice]}.", True)
+
+    @app.post("/me/favorites/add")
+    async def my_favorite_add(request: Request, user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session)
+        form = await request.form()
+        path = str(form.get("path") or "")
+        allowed = set(_safe_favorite_destinations(ws.START_PAGES))
+        if path not in allowed:
+            return ws.back("/me", "Diese Dashboard-Seite kann nicht als Favorit gespeichert werden.", False)
+        key = f"{FAVORITES_KEY}:{ctx.user['id']}"
+        favorites = normalize_dashboard_favorites(db.get_setting(key, []), ws.START_PAGES)
+        if path in favorites:
+            return ws.back("/me", "Diese Seite ist bereits in deinen Favoriten.", True)
+        if len(favorites) >= MAX_DASHBOARD_FAVORITES:
+            return ws.back("/me", f"Du kannst höchstens {MAX_DASHBOARD_FAVORITES} Favoriten speichern.", False)
+        favorites.append(path)
+        db.set_setting(key, favorites)
+        return ws.back("/me", f"{ws.START_PAGES[path]} wurde zu deinen Favoriten hinzugefügt.", True)
+
+    @app.post("/me/favorites/remove")
+    async def my_favorite_remove(request: Request, user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session)
+        form = await request.form()
+        path = str(form.get("path") or "")
+        key = f"{FAVORITES_KEY}:{ctx.user['id']}"
+        favorites = normalize_dashboard_favorites(db.get_setting(key, []), ws.START_PAGES)
+        if path not in favorites:
+            return ws.back("/me", "Dieser Favorit wurde nicht gefunden.", False)
+        favorites.remove(path)
+        db.set_setting(key, favorites)
+        return ws.back("/me", "Favorit entfernt.", True)
 
     @app.get("/me/sessions", response_class=HTMLResponse)
     async def my_sessions(request: Request, user_session: str = Cookie(None)):
