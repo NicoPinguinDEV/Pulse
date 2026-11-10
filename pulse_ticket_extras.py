@@ -309,6 +309,111 @@ def similar_tickets(
     return ranked[:page_size]
 
 
+# ------------------------------------------------------------------ deterministic ticket handover summary
+def build_ticket_summary(messages, limit: int = 5) -> dict:
+    """Build a local, extractive handover summary from bounded message metadata."""
+    clean = []
+    participants = []
+    attachments = 0
+    for item in list(messages or [])[:100]:
+        if not isinstance(item, dict) or item.get("is_bot"):
+            continue
+        text = str(item.get("content") or "").strip()[:2000]
+        if not text:
+            continue
+        author = str(item.get("author") or "Unbekannt").strip()[:80] or "Unbekannt"
+        created_at = str(item.get("created_at") or "").strip()[:40]
+        try:
+            attachments += max(0, min(int(item.get("attachment_count") or 0), 20))
+        except (TypeError, ValueError):
+            pass
+        if author not in participants:
+            participants.append(author)
+        clean.append({"author": author, "created_at": created_at, "content": text})
+
+    try:
+        point_limit = max(1, min(int(limit), 8))
+    except (TypeError, ValueError):
+        point_limit = 5
+    if not clean:
+        return {
+            "message_count": 0,
+            "participants": [],
+            "attachment_count": attachments,
+            "first_at": "",
+            "last_at": "",
+            "key_points": [],
+        }
+
+    sentences = []
+    frequencies: dict[str, int] = {}
+    for row_index, row in enumerate(clean):
+        parts = re.split(r"(?<=[.!?])\\s+|\\n+", row["content"])
+        for part_index, part in enumerate(parts):
+            text = part.strip()
+            terms = _ticket_terms(text)
+            if len(text) < 20 or len(terms) < 2:
+                continue
+            sentences.append({
+                "row_index": row_index,
+                "part_index": part_index,
+                "author": row["author"],
+                "created_at": row["created_at"],
+                "content": text[:320],
+                "terms": terms,
+            })
+            for term in terms:
+                frequencies[term] = frequencies.get(term, 0) + 1
+
+    scored = []
+    for sentence in sentences:
+        terms = sentence["terms"]
+        rarity = sum(1.0 / (1 + frequencies.get(term, 0)) for term in terms)
+        score = rarity + min(len(terms), 12) * 0.05
+        scored.append((score, sentence))
+    scored.sort(key=lambda pair: (-pair[0], pair[1]["row_index"], pair[1]["part_index"]))
+
+    selected = []
+    for _score, sentence in scored:
+        current_terms = sentence["terms"]
+        too_similar = any(
+            len(current_terms & item["terms"]) / max(1, len(current_terms | item["terms"])) > 0.65
+            for item in selected
+        )
+        if too_similar:
+            continue
+        selected.append(sentence)
+        if len(selected) >= point_limit:
+            break
+
+    if not selected:
+        last = clean[-1]
+        selected = [{
+            "author": last["author"],
+            "created_at": last["created_at"],
+            "content": last["content"][:320],
+            "row_index": len(clean) - 1,
+            "part_index": 0,
+            "terms": _ticket_terms(last["content"]),
+        }]
+    selected.sort(key=lambda item: (item["row_index"], item["part_index"]))
+    return {
+        "message_count": len(clean),
+        "participants": participants[:10],
+        "attachment_count": attachments,
+        "first_at": clean[0]["created_at"],
+        "last_at": clean[-1]["created_at"],
+        "key_points": [
+            {
+                "author": item["author"],
+                "created_at": item["created_at"],
+                "content": item["content"],
+            }
+            for item in selected
+        ],
+    }
+
+
 # ------------------------------------------------------------------ related ticket links (staff-only)
 MAX_TICKET_LINK_NOTE_LENGTH = 500
 
