@@ -1,6 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
-**Prüfstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
+**Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
+**Aktualisierter Umsetzungsnachweis:** `main` nach PR #186 plus dem aktuellen Ticket-Link-PR; der Audit wird blockweise fortgeschrieben.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -18,9 +19,9 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 40 |
+| Fertig | 42 |
 | Teilweise | 110 |
-| Offen | 27 |
+| Offen | 25 |
 | **Gesamt** | **177** |
 
 ## Ergebnis nach Bereichen
@@ -28,7 +29,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Bereich | Fertig | Teilweise | Offen |
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 5 | 3 | 2 |
 | Discord-Bot – Moderation und Sicherheit | 1 | 12 | 2 |
-| Discord-Bot – Tickets und Support | 6 | 5 | 4 |
+| Discord-Bot – Tickets und Support | 8 | 5 | 2 |
 | Discord-Bot – Community und BOCHUM RP | 1 | 13 | 1 |
 | TeamOS-Dashboard – Startseite und Navigation | 2 | 9 | 4 |
 | Teamverwaltung und Mitarbeiterakten | 4 | 6 | 2 |
@@ -87,9 +88,9 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 28 | Überfälligkeitsalarm | **Teilweise** | Unclaimed-/Antwort-Erinnerungen, Ticket-Triage und SLA-Aktionen existieren; ein vollständiger Eskalationsablauf je Ticketkategorie fehlt. |
 | 29 | Ticket-Übergabe mit Pflichtnotiz | **Fertig** | `/ticket uebergeben` verlangt eine Notiz und protokolliert die Übergabe; `tests/test_ticket_extras.py`. |
 | 30 | Schnellantworten | **Fertig** | Kategoriebezogene Ticketantworten mit Autocomplete; `tests/test_ticket_extras.py`. |
-| 31 | Interne Ticketnotizen | **Offen** | Übergaben und Fallereignisse sind vorhanden, aber keine klar abgegrenzten, für Spieler unsichtbaren Ticket-Notizen im Ticket-Thread gefunden. |
+| 31 | Interne Ticketnotizen | **Fertig** | `/ticket notiz` und `/ticket notizen` speichern/zeigen Teamnotizen getrennt von öffentlichen Nachrichten und `ticket_events`; erneute Rechteprüfung beim Modal-Submit. Backup, personenbezogener Export und Regressionstests: `pulse_ticket_extras.py`, `pulse_db.py`, `pulse_retention.py`, `tests/test_ticket_extras.py`, `tests/test_privacy.py`. |
 | 32 | Ähnliche Tickets vorschlagen | **Offen** | Keine Suche/Ähnlichkeitsfunktion über bestehende Ticketinhalte gefunden. |
-| 33 | Tickets miteinander verknüpfen | **Offen** | Keine persistente Ticket-zu-Ticket-Beziehung oder verknüpfte Fallansicht gefunden. |
+| 33 | Tickets miteinander verknüpfen | **Fertig** | Persistente bidirektionale Verknüpfungen gleicher Guild mit `/ticket verknuepfen`, `/ticket verknuepfungen`, `/ticket trennen`; Dubletten-/Selbst-/Cross-Guild-Schutz, interne Notiz, Backup und personenbezogener Export. Tests: `tests/test_ticket_extras.py`, `tests/test_privacy.py`. |
 | 34 | Freiwillige Ticket-Zufriedenheit | **Fertig** | Ticket-Rating-Endpunkt und Auswertung vorhanden; `tests/test_ticket_extras.py` prüft Rating-Report. Voice-Support besitzt zusätzlich eigene Bewertungen. |
 | 35 | Abgeschlossene Tickets wiedereröffnen | **Teilweise** | Wiederöffnungs-Ereignisse und Dashboard-Aktionsbezeichnungen existieren; ein vollständiger, getesteter Wiedereröffnungsprozess mit Frist und Berechtigungen ist nicht ausreichend belegt. |
 | 36 | Ticket-Zusammenfassung | **Offen** | Der Copilot fasst Support-Kennzahlen zusammen; eine geprüfte Zusammenfassung eines konkreten Ticketverlaufs für die Übergabe wurde nicht gefunden. |
