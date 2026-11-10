@@ -233,7 +233,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
         messages = []
         total_chars = 0
         try:
-            async for message in interaction.channel.history(limit=100, oldest_first=True):
+            async for message in interaction.channel.history(limit=100, oldest_first=False):
                 if getattr(message.author, "bot", False):
                     continue
                 remaining = 16_000 - total_chars
@@ -250,6 +250,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
                     "is_bot": False,
                 })
                 total_chars += len(content)
+            messages.reverse()  # API liefert neueste zuerst; Summary wird chronologisch aufgebaut.
         except (discord.Forbidden, discord.HTTPException):
             await interaction.followup.send(
                 "Der Ticketverlauf konnte nicht gelesen werden. Bitte die Kanal-Berechtigungen prüfen.",
