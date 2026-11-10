@@ -2629,6 +2629,16 @@ def register(app):
         )
 
         note_html=''.join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="text-[11px] whitespace-pre-wrap">{e(str(n))}</div></div></div>' for n in entry.get('notes',[])[-8:][::-1])
+        shift_note_rows=db.shift_notes_for_member(target.id,limit=20)
+        shift_notes_html=''.join(
+            f'<div class="pulse-row"><div class="pulse-row-main">'
+            f'<div class="pulse-row-meta">Schichtnotiz · {e(str(n.get("created_at") or "")[:16].replace("T"," "))} · {e(n.get("shift_event_id") or "")}</div>'
+            f'<div class="text-[11px] whitespace-pre-wrap">{e(str(n.get("note") or ""))}</div>'
+            f'</div></div>'
+            for n in shift_note_rows
+        )
+        if shift_notes_html:
+            note_html += shift_notes_html
         task_html=''.join(f'<a href="/tasks" class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(t["title"])}</div><div class="pulse-row-meta">{e(t.get("status"))} · {e(t.get("assignee_name") or "Niemand")}</div></div>{pill(t.get("priority","normal"))}</a>' for t in tasks[:10])
         priority_labels={'urgent':'Dringend','high':'Hoch','normal':'Normal','low':'Niedrig'}
         ticket_rows=[]
