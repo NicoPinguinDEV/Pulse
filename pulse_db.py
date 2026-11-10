@@ -144,6 +144,17 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_ticket_events_ticket ON ticket_events(ticket_id, created_at);
 
+            CREATE TABLE IF NOT EXISTS ticket_internal_notes (
+                note_id TEXT PRIMARY KEY,
+                ticket_id TEXT NOT NULL,
+                author_id TEXT NOT NULL,
+                author_name TEXT NOT NULL,
+                note TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_ticket_internal_notes_ticket
+                ON ticket_internal_notes(ticket_id, created_at DESC);
+
             CREATE TABLE IF NOT EXISTS voice_support_case_history (
                 case_id TEXT PRIMARY KEY,
                 guild_id TEXT NOT NULL,
@@ -1402,7 +1413,7 @@ def purge_old_notifications(days=90):
 
 
 TABLES = [
-    "notifications", "tasks", "task_history", "tickets", "ticket_events", "wiki_pages", "achievements",
+    "notifications", "tasks", "task_history", "tickets", "ticket_events", "ticket_internal_notes", "wiki_pages", "achievements",
     "achievement_progress", "trainings", "training_questions", "training_attempts", "meetings_history", "calendar_events",
     "team_status", "handover_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
