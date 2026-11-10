@@ -56,7 +56,8 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 | `faction_categories` | `pulse_factions.py` | ❌ |
 | `faction_warnings` | `pulse_factions.py` | ❌ |
 | `factions` | `pulse_factions.py` | ❌ |
-| `handover_notes` | `pulse_db.py` | ✅ |\n| `shift_notes` | `pulse_db.py`, `cogs/dienst.py` | ✅ |
+| `handover_notes` | `pulse_db.py` | ✅ |
+| `shift_notes` | `pulse_db.py`, `cogs/dienst.py` | ✅ |
 | `meetings_history` | `pulse_db.py` | ✅ |
 | `messages` | `cogs/teamliste.py` | ❌ |
 | `mod_cases` | `pulse_db.py`, `pulse_mod_cases.py` | ✅ |
