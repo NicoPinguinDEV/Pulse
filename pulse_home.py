@@ -33,6 +33,7 @@ HOME_WIDGETS = (
     ("status", "Mein Status"),
     ("meeting", "Nächste Besprechung"),
     ("inbox", "Neu für mich"),
+    ("shift_notes", "Schichtnotizen"),
 )
 DEFAULT_HOME_WIDGETS = tuple(key for key, _label in HOME_WIDGETS)
 HOME_WIDGETS_KEY = "home_widgets"
@@ -92,6 +93,11 @@ def register(app) -> None:
         history = shifts.get("history", [])
         current = active.get(uid)
         status = current.get("status") if current else "offline"
+        from pulse_shift_utils import shift_event_id
+        active_shift_event_id = (
+            shift_event_id(uid, current.get("started_at_iso"))
+            if current and current.get("started_at_iso") else ""
+        )
         elapsed = ws.shift_elapsed(current) if current else 0
         weekly = ws.calculate_weekly_seconds(uid, history, active)
         goal = float(ctx.config.get("weekly_goal_hours", 3.0) or 0)
@@ -290,6 +296,30 @@ def register(app) -> None:
         )
         left_widgets = []
         right_widgets = []
+        if "shift_notes" in selected_widgets:
+            recent_shift_notes = db.shift_notes_for_member(uid, limit=8)
+            shift_note_rows = "".join(
+                f'<div class="pulse-row"><div class="pulse-row-main">'
+                f'<div class="pulse-row-meta">{e(str(item.get("created_at") or "")[:16].replace("T", " "))} · {e(item.get("shift_event_id") or "")}</div>'
+                f'<div class="text-xs whitespace-pre-wrap">{e(item.get("note") or "")}</div>'
+                f'</div></div>'
+                for item in recent_shift_notes
+            ) or '<div class="pulse-empty">Noch keine Schichtnotizen vorhanden.</div>'
+            if active_shift_event_id:
+                shift_note_form = (
+                    '<form action="/shift/note" method="post" class="mt-3 space-y-2">'
+                    f'<input type="hidden" name="shift_event_id" value="{e(active_shift_event_id)}">'
+                    '<label class="block text-xs font-semibold" for="shiftNoteText">Notiz für deine aktuelle Schicht</label>'
+                    '<textarea id="shiftNoteText" name="note" maxlength="1000" required '
+                    'class="pulse-input w-full" rows="3" placeholder="Wichtige Ereignisse, offene Punkte oder Hinweise für die nächste Schicht…"></textarea>'
+                    '<button class="pulse-btn ghost" type="submit">Schichtnotiz speichern</button></form>'
+                )
+            else:
+                shift_note_form = '<p class="text-xs text-slate-400 mt-3">Notizen können während einer laufenden Schicht hinzugefügt werden.</p>'
+            right_widgets.append(
+                card("📝 Schichtnotizen", shift_note_rows + shift_note_form,
+                     '<a href="/team" class="text-[11px] text-indigo-500">Teamakte →</a>')
+            )
         if "week" in selected_widgets:
             left_widgets.append(card("📈 Meine Woche", progress, '<a href="/stats" class="text-[11px] text-indigo-500">Analytics →</a>'))
         if "tickets" in selected_widgets:
@@ -321,6 +351,36 @@ def register(app) -> None:
             "tick();if(running)setInterval(tick,15000);});</script>"
         )
         return render_pro_page(ws, "Mein Pulse", ctx, "me", body, head)
+
+    @app.post("/shift/note")
+    async def create_shift_note(request: Request, user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session)
+        form = await request.form()
+        note = str(form.get("note") or "").strip()
+        requested_shift_id = str(form.get("shift_event_id") or "").strip()
+        if not note or len(note) > 1000:
+            return ws.back("/me", "Die Notiz muss zwischen 1 und 1.000 Zeichen enthalten.", False)
+        uid = str(ctx.user["id"])
+        member_shifts = ws.load_member_shifts(uid)
+        current_shift = member_shifts.get("active_shifts", {}).get(uid)
+        if not current_shift or not current_shift.get("started_at_iso"):
+            return ws.back("/me", "Eine Schichtnotiz ist nur während einer laufenden Schicht möglich.", False)
+        from pulse_shift_utils import shift_event_id
+        expected_shift_id = shift_event_id(uid, current_shift["started_at_iso"])
+        if requested_shift_id != expected_shift_id:
+            return ws.back("/me", "Die Schicht hat sich inzwischen geändert. Bitte lade Mein Pulse neu.", False)
+        author_name = (
+            ctx.user.get("global_name") or ctx.user.get("username") or str(ctx.user["id"])
+        )
+        try:
+            note_id = db.save_shift_note(expected_shift_id, uid, author_name, note)
+        except ValueError as exc:
+            return ws.back("/me", str(exc), False)
+        ws.log_audit(
+            author_name, uid, "Schichtnotiz gespeichert",
+            f"{expected_shift_id} · {note_id}",
+        )
+        return ws.back("/me", "Schichtnotiz gespeichert.")
 
     @app.post("/me/start-page")
     async def my_start_page(request: Request, user_session: str = Cookie(None)):
