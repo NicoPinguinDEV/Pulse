@@ -29,6 +29,48 @@ async def deny(interaction: discord.Interaction, text: str) -> None:
     await interaction.response.send_message("❌ " + text, ephemeral=True)
 
 
+class InternalTicketNoteModal(discord.ui.Modal, title="Interne Ticketnotiz"):
+    """Collect note text in a modal so sensitive content is never exposed as a slash-command option."""
+
+    def __init__(self, ticket_id: str):
+        super().__init__(timeout=300)
+        self.ticket_id = str(ticket_id)
+        self.note_input = discord.ui.TextInput(
+            label="Notiz (nur für berechtigtes Team)",
+            style=discord.TextStyle.paragraph,
+            placeholder="Interne Information für die weitere Ticketbearbeitung …",
+            min_length=5,
+            max_length=tx.MAX_INTERNAL_NOTE_LENGTH,
+            required=True,
+        )
+        self.add_item(self.note_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Re-check permissions and ticket/channel association when the modal is submitted.
+        if not may_manage(interaction):
+            await deny(interaction, "Nur das Ticket-Team kann interne Notizen speichern.")
+            return
+        ticket = current_ticket(interaction)
+        if ticket is None or str(ticket.get("id")) != self.ticket_id:
+            await deny(interaction, "Das Ticket ist nicht mehr offen oder der Kontext stimmt nicht.")
+            return
+        try:
+            tx.add_internal_note(
+                ticket["id"],
+                interaction.user.id,
+                interaction.user.display_name,
+                self.note_input.value,
+            )
+        except ValueError as exc:
+            await deny(interaction, str(exc))
+            return
+        await interaction.response.send_message(
+            "🔒 Interne Notiz gespeichert. Sie wurde nicht im Ticket-Kanal veröffentlicht.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+
 class TicketTools(commands.GroupCog, group_name="ticket", group_description="Werkzeuge im Ticket-Kanal (Team)"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -43,6 +85,46 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             await deny(interaction, "Bitte in einem offenen Ticket-Kanal verwenden.")
             return None
         return ticket
+
+    @app_commands.command(name="notiz", description="Interne, nur für das Team sichtbare Notiz hinzufügen.")
+    async def notiz(self, interaction: discord.Interaction):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        await interaction.response.send_modal(InternalTicketNoteModal(ticket["id"]))
+
+    @app_commands.command(name="notizen", description="Interne Teamnotizen dieses Tickets privat anzeigen.")
+    @app_commands.describe(seite="Seite mit jeweils zwei Notizen (neueste zuerst)")
+    async def notizen(self, interaction: discord.Interaction, seite: app_commands.Range[int, 1, 100] = 1):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        notes = tx.internal_notes_for(ticket["id"], limit=2, offset=(seite - 1) * 2)
+        if not notes:
+            await interaction.response.send_message(
+                "Für dieses Ticket gibt es auf dieser Seite keine internen Notizen.",
+                ephemeral=True,
+            )
+            return
+        blocks = []
+        for item in notes:
+            created = str(item.get("created_at") or "")[:19].replace("T", " ")
+            author = discord.utils.escape_markdown(str(item.get("author_name") or "Teammitglied"))[:100]
+            note_text = discord.utils.escape_mentions(
+                discord.utils.escape_markdown(str(item.get("note") or ""))
+            )
+            blocks.append(f"**{author} · {created}**\n{note_text}")
+        embed = discord.Embed(
+            title=f"🔒 Interne Notizen · Ticket {ticket['id']}",
+            description="\n\n".join(blocks)[:4096],
+            color=0x64748B,
+        )
+        embed.set_footer(text=f"Seite {seite} · jeweils zwei Notizen")
+        await interaction.response.send_message(
+            embed=embed,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     @app_commands.command(name="antwort", description="Schnellantwort für diese Ticket-Kategorie senden.")
     @app_commands.describe(vorlage="Titel der Schnellantwort")

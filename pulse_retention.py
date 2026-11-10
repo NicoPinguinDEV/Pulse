@@ -34,7 +34,7 @@ KEPT_APPLICATION_STATES = OPEN_APPLICATION_STATES | {"hired", "accepted"}
 RETENTION_MUTATIONS_ENABLED = False
 MAX_BACKUP_AGE = timedelta(days=2)
 EXPORT_ROW_LIMIT = 5000
-_ID_COLUMNS = ("user_id", "member_id", "actor_id", "target_id", "mod_id", "creator_id", "assignee_id",
+_ID_COLUMNS = ("user_id", "member_id", "actor_id", "author_id", "target_id", "mod_id", "creator_id", "assignee_id",
                "claimed_by_id", "closed_by_id", "staff_id", "reporter_id", "discord_id",
                "applicant_id", "interviewer_id", "created_by_id", "approved_by_id")
 
@@ -382,6 +382,24 @@ def _rows_for(
     return out, sorted(truncated)
 
 
+def _ticket_ids_for_subject(path, uid: str) -> set[str]:
+    """Resolve ticket IDs by the ticket opener so linked staff-only notes enter that person's export."""
+    con = _read_only_connection(path)
+    try:
+        exists = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tickets'"
+        ).fetchone()
+        if not exists:
+            return set()
+        rows = con.execute(
+            "SELECT id FROM tickets WHERE CAST(user_id AS TEXT)=?",
+            (str(uid),),
+        ).fetchall()
+        return {str(row["id"]) for row in rows if row["id"]}
+    finally:
+        con.close()
+
+
 def _application_audit_references(applications: dict, team_entry: dict | None) -> set[str]:
     """Collect only explicit audit IDs; never search arbitrary details or notes text."""
     references: set[str] = set()
@@ -454,7 +472,8 @@ def export_person(ws, discord_id: str) -> dict:
         "notice": (
             f"Höchstens {EXPORT_ROW_LIMIT} Zeilen je SQLite-Tabelle; gekürzte Tabellen werden separat ausgewiesen. "
             "Interviewzeilen werden über applicant_id/interviewer_id und die eigenen application_id-Referenzen "
-            "einbezogen. Kalendertermine werden über interview_event_id einbezogen. Legacy-Audit-Freitext wird "
+            "einbezogen. Kalendertermine werden über interview_event_id einbezogen; interne Ticketnotizen werden "
+            "über die Ticket-ID dem Ticketinhaber zugeordnet. Legacy-Audit-Freitext wird "
             "nicht per Textsuche einer Person zugeordnet, da dies unzuverlässige Fehlzuordnungen erzeugen würde."
         ),
         "audit_linkage_limitations": [
@@ -468,14 +487,18 @@ def export_person(ws, discord_id: str) -> dict:
         if not path.is_file():
             continue
         extras: dict[str, dict[str, set[str]]] = {}
-        if name == "pulse_suite.db":
-            extras = {
-                "suite_interviews": {"application_id": application_ids},
-                "suite_audit": {"target_id": application_ids},
-            }
-        elif name == "pulse.db":
-            extras = {"calendar_events": {"id": event_ids}}
         try:
+            if name == "pulse_suite.db":
+                extras = {
+                    "suite_interviews": {"application_id": application_ids},
+                    "suite_audit": {"target_id": application_ids},
+                }
+            elif name == "pulse.db":
+                ticket_ids = _ticket_ids_for_subject(path, uid)
+                extras = {
+                    "calendar_events": {"id": event_ids},
+                    "ticket_internal_notes": {"ticket_id": ticket_ids},
+                }
             rows, truncated = _rows_for(path, uid, extra_values_by_table=extras)
         except (sqlite3.Error, OSError) as exc:
             rows, truncated = {"_fehler": type(exc).__name__}, []
