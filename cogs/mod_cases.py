@@ -16,10 +16,10 @@ from pulse_interactions import PulseView
 
 
 def _reason_template_choices(interaction: discord.Interaction, action: str, current: str):
-    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+    if interaction.guild is None:
         return []
     perms = pulse_perms(interaction.guild, interaction.user.id)
-    if not mc.may_moderate(action, perms, interaction.user.guild_permissions):
+    if not mc.may_moderate(action, perms, getattr(interaction.user, "guild_permissions", None)):
         return []
     needle = str(current or "").casefold().strip()
     templates = mrt.list_templates(interaction.guild.id, action, limit=100)
