@@ -81,13 +81,14 @@ def command_mention(tree, command_name: str) -> str:
     if not name:
         return ""
     parts = name.split()
-    command = tree.get_command(parts[0])
+    root_command = tree.get_command(parts[0])
+    command = root_command
     for part in parts[1:]:
         getter = getattr(command, "get_command", None)
         command = getter(part) if getter else None
         if command is None:
             return f"`/{name}`"
-    command_id = getattr(command, "id", None)
+    command_id = getattr(root_command if len(parts) > 1 else command, "id", None)
     if command_id:
         return f"</{name}:{int(command_id)}>"
     return f"`/{name}`"
