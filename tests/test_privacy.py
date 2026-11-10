@@ -376,6 +376,42 @@ class RetentionTests(unittest.TestCase):
             unrelated_export.get("databases", {}).get("pulse.db", {}),
         )
 
+    def test_ticket_links_are_exported_to_both_ticket_owners_and_creator(self):
+        import pulse_retention
+        import pulse_ticket_extras
+
+        owner_a = "100000000000000051"
+        owner_b = "100000000000000052"
+        creator = "100000000000000053"
+        ticket_a = pulse_db.create_ticket("privacy-link-a", "1", owner_a, "Synthetic A", "support")
+        ticket_b = pulse_db.create_ticket("privacy-link-b", "1", owner_b, "Synthetic B", "bug")
+        pulse_ticket_extras.link_tickets(
+            ticket_a,
+            ticket_b,
+            creator,
+            "Synthetic Staff",
+            "Gemeinsamer Testvorgang.",
+        )
+
+        exported_a = pulse_retention.export_person(ws, owner_a)
+        exported_b = pulse_retention.export_person(ws, owner_b)
+        exported_creator = pulse_retention.export_person(ws, creator)
+        expected = {
+            (ticket_a, ticket_b),
+        }
+        for exported in (exported_a, exported_b, exported_creator):
+            rows = exported["databases"]["pulse.db"]["ticket_links"]
+            self.assertEqual(
+                {(row["ticket_id_a"], row["ticket_id_b"]) for row in rows},
+                expected,
+            )
+
+        unrelated = pulse_retention.export_person(ws, "100000000000000054")
+        self.assertNotIn(
+            "ticket_links",
+            unrelated.get("databases", {}).get("pulse.db", {}),
+        )
+
     def test_expired_applications_protect_in_review_and_unknown_statuses(self):
         import pulse_retention
         apps = {
