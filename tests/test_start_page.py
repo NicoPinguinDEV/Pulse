@@ -57,5 +57,58 @@ class StartPageTests(unittest.TestCase):
         self.assertEqual(ws.start_page_for("9"), "/me")
 
 
+    def test_dashboard_favorites_are_private_allowlisted_and_removable(self):
+        from types import SimpleNamespace
+
+        user = SimpleNamespace(user={"id": "123", "global_name": "Test"}, perms={}, member=None, config={})
+        with patch.object(ws, "auth", return_value=user):
+            added = self.client.post(
+                "/me/favorites/add", data={"path": "/tickets"}, follow_redirects=False
+            )
+            self.assertIn("t=ok", added.headers["location"])
+            self.assertEqual(pulse_db.get_setting("dashboard_favorites:123"), ["/tickets"])
+
+            duplicate = self.client.post(
+                "/me/favorites/add", data={"path": "/tickets"}, follow_redirects=False
+            )
+            self.assertIn("t=ok", duplicate.headers["location"])
+            self.assertEqual(pulse_db.get_setting("dashboard_favorites:123"), ["/tickets"])
+
+            rejected = self.client.post(
+                "/me/favorites/add", data={"path": "https://evil.example"}, follow_redirects=False
+            )
+            self.assertIn("t=err", rejected.headers["location"])
+            self.assertEqual(pulse_db.get_setting("dashboard_favorites:123"), ["/tickets"])
+
+            removed = self.client.post(
+                "/me/favorites/remove", data={"path": "/tickets"}, follow_redirects=False
+            )
+            self.assertIn("t=ok", removed.headers["location"])
+            self.assertEqual(pulse_db.get_setting("dashboard_favorites:123"), [])
+
+    def test_dashboard_favorites_are_scoped_to_the_logged_in_user(self):
+        from types import SimpleNamespace
+
+        first = SimpleNamespace(user={"id": "123", "global_name": "First"}, perms={}, member=None, config={})
+        second = SimpleNamespace(user={"id": "456", "global_name": "Second"}, perms={}, member=None, config={})
+        with patch.object(ws, "auth", return_value=first):
+            self.client.post("/me/favorites/add", data={"path": "/tickets"}, follow_redirects=False)
+        with patch.object(ws, "auth", return_value=second):
+            self.client.post("/me/favorites/add", data={"path": "/tickets"}, follow_redirects=False)
+        self.assertEqual(pulse_db.get_setting("dashboard_favorites:123"), ["/tickets"])
+        self.assertEqual(pulse_db.get_setting("dashboard_favorites:456"), ["/tickets"])
+
+    def test_dashboard_favorites_reject_unknown_internal_paths(self):
+        from types import SimpleNamespace
+
+        user = SimpleNamespace(user={"id": "123", "global_name": "Test"}, perms={}, member=None, config={})
+        with patch.object(ws, "auth", return_value=user):
+            response = self.client.post(
+                "/me/favorites/add", data={"path": "/admin/console?cmd=wipe"}, follow_redirects=False
+            )
+        self.assertIn("t=err", response.headers["location"])
+        self.assertEqual(pulse_db.get_setting("dashboard_favorites:123", []), [])
+
+
 if __name__ == "__main__":
     unittest.main()
