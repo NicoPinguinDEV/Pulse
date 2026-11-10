@@ -119,6 +119,7 @@ def update_template(guild_id, template_id: str, title: str, body: str, actor_id,
     created = _now()
     with pulse_db.connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _ensure_tables(db)
         row = db.execute(
             "SELECT current_version,archived_at FROM mod_reason_templates WHERE id=? AND guild_id=?",
             (template_id, guild),
