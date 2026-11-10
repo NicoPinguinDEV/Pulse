@@ -19,10 +19,9 @@ class ProfileCommandTests(unittest.TestCase):
         shifts = {"active_shifts": {"42": {"status": "online"}}, "history": []}
         with (
             patch("webserver.load_config", return_value={"weekly_goal_hours": 4, "team_role_ids": [9]}),
-            patch("webserver.compute_perms", return_value=({"can_view_dashboard": True}, object())),
+            patch("webserver.compute_perms", return_value=({"can_view_dashboard": True}, SimpleNamespace(display_name="Musterteamler", roles=[SimpleNamespace(id=9, name="Supporter", position=5)]))),
             patch("webserver.load_shift_state", return_value=shifts),
             patch("webserver.calculate_weekly_seconds", return_value=7200),
-            patch("webserver.member_role", return_value="Supporter"),
             patch("webserver.fmt_duration", return_value="2 h"),
             patch("cogs.pulse_pro.db.list_tasks", return_value=[{"status": "open"}]),
             patch("cogs.pulse_pro.db.list_tickets", return_value=[{"status": "in_progress"}]),
