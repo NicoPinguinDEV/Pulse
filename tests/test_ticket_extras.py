@@ -73,6 +73,46 @@ class ExtrasTests(TempDb):
         self.assertTrue(tx.remove_tag(self.tid, "bug"))
         self.assertEqual(tx.tags_for([]), {})
 
+    def test_ticket_handover_summary_extracts_points_and_ignores_bot_messages(self):
+        summary = tx.build_ticket_summary([
+            {
+                "author": "Bürger",
+                "created_at": "2026-11-10T10:00:00+00:00",
+                "content": "Mein Fahrzeug wurde am Bahnhof gestohlen. Das Kennzeichen lautet BO AB 123.",
+                "attachment_count": 2,
+            },
+            {
+                "author": "Pulse Bot",
+                "created_at": "2026-11-10T10:01:00+00:00",
+                "content": "Dieses Bot-Menü soll nicht als Fallinhalt erscheinen.",
+                "is_bot": True,
+                "attachment_count": 9,
+            },
+            {
+                "author": "Support",
+                "created_at": "2026-11-10T10:02:00+00:00",
+                "content": "Wir prüfen die Kameraaufnahmen am Bahnhof und melden uns mit dem Ergebnis.",
+            },
+        ])
+
+        self.assertEqual(summary["message_count"], 2)
+        self.assertEqual(summary["participants"], ["Bürger", "Support"])
+        self.assertEqual(summary["attachment_count"], 2)
+        self.assertEqual(summary["first_at"], "2026-11-10T10:00:00+00:00")
+        self.assertEqual(summary["last_at"], "2026-11-10T10:02:00+00:00")
+        self.assertTrue(summary["key_points"])
+        self.assertTrue(any("Kennzeichen" in point["content"] for point in summary["key_points"]))
+        self.assertFalse(any("Bot-Menü" in point["content"] for point in summary["key_points"]))
+
+    def test_ticket_handover_summary_is_empty_for_no_user_messages(self):
+        self.assertEqual(
+            tx.build_ticket_summary([
+                {"author": "Pulse Bot", "content": "Bot-Nachricht", "is_bot": True},
+                {"author": "Bürger", "content": "   "},
+            ])["message_count"],
+            0,
+        )
+
     def test_similar_tickets_rank_same_guild_transcript_matches(self):
         from pathlib import Path
 
