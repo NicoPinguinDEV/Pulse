@@ -74,8 +74,8 @@ def _clean_content(title: str, body: str) -> tuple[str, str]:
         raise ValueError(f"Der Vorlagentitel muss 1 bis {MAX_TITLE_LENGTH} Zeichen enthalten.")
     if len(body) < 5 or len(body) > MAX_BODY_LENGTH:
         raise ValueError(f"Der Vorlagentext muss 5 bis {MAX_BODY_LENGTH} Zeichen enthalten.")
-    if "{grund}" in body.lower() or "{reason}" in body.lower():
-        raise ValueError("Der Vorlagentext darf keinen nicht unterstützten Platzhalter enthalten.")
+    if "{" in body or "}" in body:
+        raise ValueError("Vorlagentexte dürfen keine nicht unterstützten Platzhalter enthalten.")
     return title, body
 
 
@@ -118,7 +118,7 @@ def update_template(guild_id, template_id: str, title: str, body: str, actor_id,
     name = str(actor_name or "Teammitglied").strip()[:100] or "Teammitglied"
     created = _now()
     with pulse_db.connect() as db:
-        _ensure_tables(db)
+        db.execute("BEGIN IMMEDIATE")
         row = db.execute(
             "SELECT current_version,archived_at FROM mod_reason_templates WHERE id=? AND guild_id=?",
             (template_id, guild),
