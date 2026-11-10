@@ -25,6 +25,27 @@ DUE_PILL = {
     "later": ("", "Geplant"),
 }
 
+HOME_WIDGETS = (
+    ("week", "Meine Woche"),
+    ("tickets", "Meine Tickets"),
+    ("tasks", "Meine Aufgaben"),
+    ("waiting", "Wartet auf dich"),
+    ("status", "Mein Status"),
+    ("meeting", "Nächste Besprechung"),
+    ("inbox", "Neu für mich"),
+)
+DEFAULT_HOME_WIDGETS = tuple(key for key, _label in HOME_WIDGETS)
+HOME_WIDGETS_KEY = "home_widgets"
+
+
+def normalize_home_widgets(value):
+    """Keep only known widgets; None/invalid legacy values use the complete default layout."""
+    if value is None or not isinstance(value, (list, tuple, set)):
+        return list(DEFAULT_HOME_WIDGETS)
+    selected = {str(item) for item in value}
+    return [key for key, _label in HOME_WIDGETS if key in selected]
+
+
 
 def _top_team_role(member, team_role_ids):
     ids = {int(x) for x in team_role_ids or [] if str(x).isdigit()}
@@ -242,32 +263,53 @@ def register(app) -> None:
         )
         waiting_card = card("⏳ Wartet auf dich", waiting, cockpit_link) if waiting else ""
 
-        # U-02: personal start page after login and on "/"
+        # U-02: personal start page and widget preferences; stored per user in pulse.db settings.
         current_start = ws.start_page_for(ctx.user["id"])
         start_options = "".join(f'<option value="{e(path)}"{" selected" if path == current_start else ""}>{e(label)}</option>'
                                 for path, label in ws.START_PAGES.items())
-        start_page_form = (f'<form method="post" action="/me/start-page" class="flex flex-wrap gap-2 items-center">'
-                           f'<label class="sr-only" for="startPage">Startseite</label>'
-                           f'<select id="startPage" name="start_page" class="pulse-input flex-1">{start_options}</select>'
-                           f'<button class="pulse-btn ghost" type="submit">Speichern</button></form>'
-                           f'<p class="text-[11px] text-slate-400 mt-2">Diese Seite öffnet sich nach dem Login.</p>'
-                           f'<a href="/me/sessions" class="text-[11px] text-indigo-500 mt-2 inline-block">🔐 Meine Sitzungen verwalten →</a>'
-                           + (' <a href="/me/month" class="text-[11px] text-indigo-500 mt-2 inline-block">📅 Mein Monat →</a>'
-                              if pulse_flags.enabled("my_month") else ""))
+        selected_widgets = normalize_home_widgets(db.get_setting(f"{HOME_WIDGETS_KEY}:{uid}", None))
+        widget_checks = "".join(
+            f'<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="widgets" value="{key}" '
+            f'class="accent-orange-600"{" checked" if key in selected_widgets else ""}> {e(label)}</label>'
+            for key, label in HOME_WIDGETS
+        )
+        start_page_form = (
+            f'<form method="post" action="/me/start-page" class="space-y-3">'
+            f'<div class="flex flex-wrap gap-2 items-center">'
+            f'<label class="sr-only" for="startPage">Startseite</label>'
+            f'<select id="startPage" name="start_page" class="pulse-input flex-1">{start_options}</select>'
+            f'<button class="pulse-btn ghost" type="submit">Speichern</button></div>'
+            f'<p class="text-[11px] text-slate-400">Diese Seite öffnet sich nach dem Login.</p>'
+            f'<fieldset class="space-y-2"><legend class="text-xs font-semibold mb-2">Widgets auf „Mein Pulse“</legend>'
+            f'<input type="hidden" name="widgets_present" value="1">{widget_checks}'
+            f'<p class="text-[11px] text-slate-400">Wähle die Karten aus, die du auf deiner persönlichen Startseite sehen möchtest.</p></fieldset>'
+            f'</form>'
+            f'<a href="/me/sessions" class="text-[11px] text-indigo-500 mt-2 inline-block">🔐 Meine Sitzungen verwalten →</a>'
+            + (' <a href="/me/month" class="text-[11px] text-indigo-500 mt-2 inline-block">📅 Mein Monat →</a>'
+               if pulse_flags.enabled("my_month") else "")
+        )
+        left_widgets = []
+        right_widgets = []
+        if "week" in selected_widgets:
+            left_widgets.append(card("📈 Meine Woche", progress, '<a href="/stats" class="text-[11px] text-indigo-500">Analytics →</a>'))
+        if "tickets" in selected_widgets:
+            left_widgets.append(tickets_card)
+        if "tasks" in selected_widgets:
+            left_widgets.append(card("📋 Meine Aufgaben", task_html, '<a href="/tasks" class="text-[11px] text-indigo-500">Alle →</a>'))
+        if "waiting" in selected_widgets and waiting_card:
+            right_widgets.append(waiting_card)
+        if "status" in selected_widgets:
+            right_widgets.append(card("🛡 Mein Status", warn_rows + loa_html))
+        if "meeting" in selected_widgets:
+            right_widgets.append(card("🎙 Nächste Besprechung", meeting_html, '<a href="/meetings" class="text-[11px] text-indigo-500">Details →</a>'))
+        if "inbox" in selected_widgets:
+            right_widgets.append(card("📥 Neu für mich", inbox_html, '<a href="/pulse-inbox" class="text-[11px] text-indigo-500">Inbox →</a>'))
         body = f'''
         {hero}
         <div class="pulse-stat-grid">{stat_html}</div>
         <div class="pulse-grid">
-          <div class="space-y-5">
-            {card("📈 Meine Woche", progress, '<a href="/stats" class="text-[11px] text-indigo-500">Analytics →</a>')}
-            {tickets_card}
-            {card("📋 Meine Aufgaben", task_html, '<a href="/tasks" class="text-[11px] text-indigo-500">Alle →</a>')}
-          </div>
-          <div class="space-y-5">
-            {waiting_card}
-            {card("🛡 Mein Status", warn_rows + loa_html)}
-            {card("🎙 Nächste Besprechung", meeting_html, '<a href="/meetings" class="text-[11px] text-indigo-500">Details →</a>')}
-            {card("📥 Neu für mich", inbox_html, '<a href="/pulse-inbox" class="text-[11px] text-indigo-500">Inbox →</a>')}
+          <div class="space-y-5">{"".join(left_widgets)}</div>
+          <div class="space-y-5">{"".join(right_widgets)}
             {card("🏠 Meine Startseite", start_page_form)}
           </div>
         </div>'''
@@ -288,6 +330,10 @@ def register(app) -> None:
         if choice not in ws.START_PAGES:
             return ws.back("/me", "Diese Startseite gibt es nicht.", False)
         db.set_setting(f"start_page:{ctx.user['id']}", choice)
+        if str(form.get("widgets_present") or "") == "1":
+            selected = normalize_home_widgets(form.getlist("widgets"))
+            db.set_setting(f"{HOME_WIDGETS_KEY}:{ctx.user['id']}", selected)
+            return ws.back("/me", f"Startseite und {len(selected)} Widget(s) gespeichert.", True)
         return ws.back("/me", f"Startseite gespeichert: {ws.START_PAGES[choice]}.", True)
 
     @app.get("/me/sessions", response_class=HTMLResponse)
