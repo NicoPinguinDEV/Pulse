@@ -20,6 +20,42 @@ GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "0") or 0)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
 
+async def _pulse_favorites_autocomplete(interaction: discord.Interaction, current: str):
+    """Offer only commands the caller can currently use; removal also exposes stale own entries."""
+    if not interaction.guild:
+        return []
+    try:
+        import webserver
+        import pulse_command_favorites as favorites
+
+        cfg = webserver.load_config()
+        perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, cfg)
+        if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
+            return []
+        saved = favorites.normalize_favorites(db.get_setting(favorites.setting_key(interaction.user.id), []))
+        action = getattr(getattr(interaction, "namespace", None), "aktion", "")
+        action = getattr(action, "value", action)
+        if action == "entfernen":
+            candidates = saved
+        elif action == "hinzufügen":
+            allowed = favorites.permitted_command_names(
+                interaction.client.tree,
+                perms,
+                getattr(interaction.user, "guild_permissions", None),
+            )
+            candidates = [name for name in allowed if name not in saved]
+        else:
+            return []
+        query = str(current or "").casefold()
+        return [
+            app_commands.Choice(name=f"/{name}"[:100], value=name)
+            for name in candidates
+            if query in name.casefold()
+        ][:25]
+    except Exception:
+        return []
+
+
 def panel_url(path: str = "/dashboard") -> str:
     return f"{PUBLIC_BASE_URL}{path}" if PUBLIC_BASE_URL else path
 
@@ -301,6 +337,89 @@ class PulsePro(commands.Cog):
                 inline=False,
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="pulse-favoriten", description="Deine persönlichen Schnellzugriffe auf Pulse-Befehle verwalten.")
+    @app_commands.describe(
+        aktion="Favoriten anzeigen, hinzufügen oder entfernen",
+        befehl="Der Slash-Befehl, den du speichern oder entfernen möchtest",
+    )
+    @app_commands.choices(aktion=[
+        app_commands.Choice(name="Anzeigen", value="anzeigen"),
+        app_commands.Choice(name="Hinzufügen", value="hinzufügen"),
+        app_commands.Choice(name="Entfernen", value="entfernen"),
+    ])
+    @app_commands.autocomplete(befehl=_pulse_favorites_autocomplete)
+    async def pulse_favorites(
+        self,
+        interaction: discord.Interaction,
+        aktion: app_commands.Choice[str],
+        befehl: str = "",
+    ):
+        """Manage up to eight per-user shortcuts without granting additional command rights."""
+        if not interaction.guild:
+            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True)
+            return
+        import webserver
+        import pulse_command_favorites as favorites
+
+        cfg = webserver.load_config()
+        perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, cfg)
+        if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
+            await interaction.response.send_message("❌ Du hast keinen Zugriff auf Pulse.", ephemeral=True)
+            return
+
+        key = favorites.setting_key(interaction.user.id)
+        saved = favorites.normalize_favorites(db.get_setting(key, []))
+        allowed = favorites.permitted_command_names(
+            self.bot.tree,
+            perms,
+            getattr(interaction.user, "guild_permissions", None),
+        )
+        action = str(getattr(aktion, "value", aktion) or "")
+
+        if action == "anzeigen":
+            embed = discord.Embed(
+                title="⭐ Deine Pulse-Befehlsfavoriten",
+                description="Deine persönlichen Schnellzugriffe. Ein Klick auf einen Befehlsnamen öffnet die passende Slash-Befehl-Eingabe.",
+                color=_pulse_color("info"),
+            )
+            if not saved:
+                embed.description = "Du hast noch keine Befehlsfavoriten gespeichert. Nutze /pulse-favoriten mit Hinzufügen."
+            else:
+                rows = []
+                for name in saved:
+                    if name in allowed:
+                        rows.append(f"• {favorites.command_mention(self.bot.tree, name)}")
+                    else:
+                        rows.append("• Ein gespeicherter Befehl ist derzeit nicht verfügbar.")
+                embed.add_field(name=f"Gespeichert ({len(saved)}/{favorites.MAX_FAVORITES})", value="\n".join(rows)[:1024], inline=False)
+            embed.set_footer(text="Favoriten ändern keine Berechtigungen. Rechte werden bei jedem Befehl erneut geprüft.")
+            await interaction.response.send_message(embed=embed, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+            return
+
+        if action not in {"hinzufügen", "entfernen"}:
+            await interaction.response.send_message("❌ Unbekannte Favoritenaktion.", ephemeral=True)
+            return
+        if not str(befehl or "").strip():
+            await interaction.response.send_message("Bitte wähle einen Befehl über die Autovervollständigung aus.", ephemeral=True)
+            return
+
+        try:
+            if action == "hinzufügen":
+                updated = favorites.add_favorite(saved, befehl, allowed)
+                message = f"⭐ /{befehl} wurde zu deinen Favoriten hinzugefügt."
+            else:
+                updated = favorites.remove_favorite(saved, befehl)
+                message = f"🗑 /{befehl} wurde aus deinen Favoriten entfernt."
+            db.set_setting(key, updated)
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"{message} ({len(updated)}/{favorites.MAX_FAVORITES})",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     @app_commands.command(name="pulse", description="Öffnet Pulse und zeigt die wichtigsten Teamzahlen.")
     async def pulse(self, interaction: discord.Interaction):
