@@ -215,6 +215,62 @@ class TicketWorkflowTests(unittest.TestCase):
         self.guild.create_text_channel.assert_not_awaited()
         created_channel.delete.assert_not_awaited()
 
+    def test_auto_assignment_chooses_least_loaded_category_authorised_staff(self):
+        from cogs import tickets as ticket_cog
+
+        role = SimpleNamespace(id=40)
+        busy = SimpleNamespace(
+            id=10, display_name="Voll", name="voll", bot=False, roles=[role],
+        )
+        available = SimpleNamespace(
+            id=20, display_name="Frei", name="frei", bot=False, roles=[role],
+        )
+        no_permission = SimpleNamespace(
+            id=30, display_name="Ohne Recht", name="ohne-recht", bot=False, roles=[role],
+        )
+        bot_member = SimpleNamespace(
+            id=40, display_name="Bot", name="bot", bot=True, roles=[role],
+        )
+        members = {m.id: m for m in (busy, available, no_permission, bot_member)}
+        self.guild.members = list(members.values())
+        self.guild.get_member = lambda member_id: members.get(member_id)
+
+        open_tickets = [
+            {"guild_id": "1", "status": "open", "claimed_by_id": "10", "priority": "urgent"},
+            {"guild_id": "1", "status": "in_progress", "claimed_by_id": "10", "priority": "normal"},
+            {"guild_id": "1", "status": "open", "claimed_by_id": "20", "priority": "low"},
+        ]
+        with (
+            patch.object(ticket_cog, "ticket_config", return_value={
+                "distribution": {"enabled": True, "max_open_per_staff": 2},
+            }),
+            patch.object(ticket_cog, "category_roles", return_value=[role]),
+            patch.object(ticket_cog, "list_tickets", return_value=open_tickets),
+            patch.object(ws, "load_config", return_value={}),
+            patch.object(
+                ws,
+                "compute_perms",
+                side_effect=lambda _guild, member_id, _config: (
+                    {"can_manage_tickets": member_id in {10, 20}, "is_admin": False},
+                    {},
+                ),
+            ),
+        ):
+            selected = ticket_cog.choose_ticket_auto_assignee(self.guild, "support")
+
+        self.assertIs(selected, available)
+
+    def test_auto_assignment_is_opt_in_and_keeps_disabled_flow_unassigned(self):
+        from cogs import tickets as ticket_cog
+
+        with (
+            patch.object(ticket_cog, "ticket_config", return_value={}),
+            patch.object(ticket_cog, "category_roles") as roles,
+        ):
+            selected = ticket_cog.choose_ticket_auto_assignee(self.guild, "support")
+        self.assertIsNone(selected)
+        roles.assert_not_called()
+
     def test_category_sla_settings_are_saved_by_the_admin_route(self):
         response = self.client.post(
             "/tickets/automation",
