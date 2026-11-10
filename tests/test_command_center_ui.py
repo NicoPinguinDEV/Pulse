@@ -1,11 +1,15 @@
 """Regression tests for the shared Phase 16.0 command-center interaction layer."""
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pulse_flags
 import pulse_pro
 import webserver as ws
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class CommandCenterInteractionTests(unittest.TestCase):
@@ -48,6 +52,58 @@ class CommandCenterInteractionTests(unittest.TestCase):
         self.assertIn('"pulse-cursor-text"', js)
         self.assertIn('function pointerOver(event)', js)
         self.assertIn('document.addEventListener("pointerover",pointerOver,true)', js)
+
+    def test_command_palette_lists_visible_pages_and_hides_restricted_actions(self):
+        viewer = pulse_pro.build_command_modal(ws, {"can_view_team_status": True})
+        for path in (
+            "/me", "/dashboard", "/pulse-inbox", "/team", "/team-status",
+            "/tickets", "/applications", "/meetings", "/calendar", "/loa",
+            "/training", "/wiki", "/achievements",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(f'href="{path}"', viewer)
+        self.assertIn('href="/ultimate"', viewer)
+        self.assertIn('href="/ultimate/polls"', viewer)
+        self.assertIn('href="/suite/search"', viewer)
+        self.assertNotIn('href="/ultimate/cases"', viewer)
+        self.assertNotIn('href="/suite/audit"', viewer)
+        self.assertNotIn('href="/admin/security"', viewer)
+        self.assertIn('role="dialog"', viewer)
+        self.assertIn('aria-label="Pulse-Seiten und Funktionen suchen"', viewer)
+        self.assertIn('pulseCmdEmpty', viewer)
+        self.assertIn("ArrowDown", viewer)
+
+    def test_command_palette_includes_leadership_and_permission_gated_pages(self):
+        manager = pulse_pro.build_command_modal(
+            ws,
+            {
+                "can_promote": True,
+                "can_manage_checkins": True,
+                "can_manage_team_warnings": True,
+                "can_manage_factions": True,
+                "can_view_analytics": True,
+            },
+        )
+        for path in (
+            "/activity-check", "/warns", "/factions", "/stats",
+            "/ultimate/cases", "/ultimate/departments", "/suite/audit",
+            "/suite/search", "/admin",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(f'href="{path}"', manager)
+        # The legacy workflow links intentionally hidden from the primary sidebar stay hidden here too.
+        self.assertNotIn('href="/ultimate/handovers"', manager)
+        self.assertNotIn('href="/ultimate/approvals"', manager)
+        self.assertNotIn('href="/ultimate/tasks"', manager)
+        self.assertNotIn('href="/suite/tasks"', manager)
+
+    def test_command_palette_supports_ctrl_k_and_restores_focus_on_close(self):
+        source = (ROOT / "pulse_pro.py").read_text(encoding="utf-8")
+        script = source.split('PRO_JS = r"""', 1)[1].split('"""', 1)[0]
+        self.assertIn("(e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'", script)
+        self.assertIn("aria-hidden","".join(script.split()))
+        self.assertIn("paletteOpener", script)
+        self.assertIn("input.focus()", script)
 
     def test_navigation_menus_and_surfaces_share_the_coral_brand(self):
         css = pulse_pro.PULSE_INTERACTION_CSS

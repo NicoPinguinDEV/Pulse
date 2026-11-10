@@ -301,7 +301,21 @@ PRO_JS = r"""
 <script>
 (function(){
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
-  window.pulseTogglePalette=function(open=true){const m=$('#pulseCommandModal'); if(m)m.classList.toggle('show',open)};
+  let paletteOpener=null;
+  window.pulseTogglePalette=function(open=true){
+    const m=$('#pulseCommandModal');
+    if(!m)return;
+    if(open){
+      paletteOpener=document.activeElement;
+      m.classList.add('show');m.setAttribute('aria-hidden','false');
+      const input=$('#pulseCmdFilter',m);
+      if(input){input.value='';if(typeof window.pulseFilterCmd==='function')window.pulseFilterCmd('');input.focus();}
+    }else{
+      m.classList.remove('show');m.setAttribute('aria-hidden','true');
+      if(paletteOpener&&paletteOpener.isConnected&&typeof paletteOpener.focus==='function')paletteOpener.focus();
+      paletteOpener=null;
+    }
+  };
   window.pulseToggleTheme=function(){const d=document.documentElement; const dark=d.classList.contains('dark'); d.classList.toggle('dark',!dark); localStorage.theme=dark?'light':'dark';};
   document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();pulseTogglePalette(true)} if(e.key==='Escape')pulseTogglePalette(false)});
   document.addEventListener('click',e=>{const modal=$('#pulseCommandModal'); if(e.target===modal)pulseTogglePalette(false);});
@@ -706,19 +720,96 @@ def make_shell_helpers(ws):
 
 
 def build_command_modal(ws, perms=None):
+    permissions = perms or {}
+    # Mirror the role-filtered primary sidebar. Hidden admin actions are never exposed
+    # here; destinations still perform their own route-level checks.
     items = [
-        ("★", "Mein Pulse", "/me"), ("◆", "Leitungs-Cockpit", "/cockpit"),("⌂", "Dashboard öffnen", "/dashboard"),("◌", "Teamstatus", "/team-status"), ("✓", "Activity Check", "/activity-check"), ("🛡️", "Melonly", "/melonly"), ("▣", "Tickets", "/tickets"), ("🎧", "Sprach-Support", "/voice-support"),
-        ("▤", "Meeting-Historie", "/meetings-history"), ("◇", "Schulungen", "/training"), ("▤", "Team-Wiki", "/wiki"),
-        ("◒", "Analytics", "/stats"), ("◆", "Achievements", "/achievements"),
+        ("★", "Mein Pulse", "/me", True),
+        ("⌂", "Übersicht", "/dashboard", True),
+        ("◈", "Inbox", "/pulse-inbox", True),
+        ("◆", "Leitungs-Cockpit", "/cockpit", bool(permissions.get("can_promote") or permissions.get("is_admin"))),
+        ("◌", "Teamliste", "/team", True),
+        ("◉", "Teamstatus", "/team-status", bool(permissions.get("can_view_team_status", True))),
+        ("✓", "Activity Check", "/activity-check", bool(permissions.get("can_manage_checkins") or permissions.get("is_admin"))),
+        ("🛡️", "Melonly", "/melonly", bool(permissions.get("can_warn") or permissions.get("can_add_notes") or permissions.get("is_admin"))),
+        ("⚠", "Verwarnungszentrale", "/warns", bool(permissions.get("can_manage_team_warnings") or permissions.get("is_admin"))),
+        ("▤", "Team-Wiki", "/wiki", True),
+        ("⚑", "Fraktionsverwaltung", "/factions", bool(permissions.get("can_manage_factions"))),
+        ("▣", "Tickets", "/tickets", True),
+        ("🎧", "Sprach-Support", "/voice-support", bool(permissions.get("can_manage_tickets") or permissions.get("can_promote") or permissions.get("is_admin"))),
+        ("✎", "Bewerbungen", "/applications", True),
+        ("◫", "Meetings", "/meetings", True),
+        ("▤", "Meeting-Historie", "/meetings-history", True),
+        ("□", "Kalender", "/calendar", True),
+        ("☾", "Abmeldungen", "/loa", True),
+        ("◇", "Schulungen", "/training", True),
+        ("◒", "Analytics", "/stats", bool(permissions.get("can_view_analytics", False))),
+        ("◆", "Achievements", "/achievements", True),
     ]
+    # Extended functions follow the same visibility policy as the shared sidebar.
+    from pulse_design import SUITE_NAV, ULTIMATE_NAV, visible_nav
+    leader = bool(permissions.get("can_promote") or permissions.get("is_admin"))
+    for nav_items in (ULTIMATE_NAV, SUITE_NAV):
+        hidden = {"handover", "approvals", "tasks2"} if nav_items is ULTIMATE_NAV else {"tasks"}
+        for key, href, label, _leader_only in visible_nav(nav_items, leader):
+            if key in hidden:
+                continue
+            icon, _, title = label.partition(" ")
+            items.append((icon, title or label, href, True))
+
     # Administration shortcuts only for people who may open them (routes check again server-side).
     from pulse_admin import admin_sections
-    sections = admin_sections(perms or {})
+    sections = admin_sections(permissions)
     if sections:
-        items.append(("🛠", "Verwaltung", "/admin"))
-        items.extend((icon, label, href) for _, href, icon, label, _ in sections)
-    rows = "".join(f'<a href="{u}" class="pulse-command-item"><span class="pulse-avatar">{i}</span><span>{t}</span><span class="pulse-key">Öffnen</span></a>' for i,t,u in items)
-    return f'''<div id="pulseCommandModal" class="pulse-modal-backdrop"><div class="pulse-modal"><div class="pulse-modal-head"><div><div class="text-sm font-extrabold">Pulse Schnellzugriff</div><div class="text-[10px] text-slate-400 mt-0.5">Navigation ohne Umwege</div></div><button onclick="pulseTogglePalette(false)" class="pulse-icon-btn" aria-label="Schnellzugriff schließen">✕</button></div><div class="p-3"><div class="pulse-search" style="max-width:none"><span>⌕</span><input id="pulseCmdFilter" oninput="pulseFilterCmd(this.value)" autofocus placeholder="Bereich suchen…"></div></div><div id="pulseCmdList" class="pulse-command-list">{rows}</div></div></div><script>function pulseFilterCmd(v){{v=v.toLowerCase();document.querySelectorAll('#pulseCmdList .pulse-command-item').forEach(x=>x.style.display=x.textContent.toLowerCase().includes(v)?'':'none')}}</script>'''
+        items.append(("🛠", "Verwaltung", "/admin", True))
+        items.extend((icon, label, href, True) for _, href, icon, label, _ in sections)
+
+    unique = {}
+    for icon, label, href, allowed in items:
+        if allowed and href.startswith("/") and not href.startswith("//"):
+            unique.setdefault(href, (icon, label, href))
+    rows = "".join(
+        f'<a href="{ws.esc(href)}" class="pulse-command-item" role="option">'
+        f'<span class="pulse-avatar">{ws.esc(icon)}</span><span>{ws.esc(label)}</span>'
+        f'<span class="pulse-key">Öffnen</span></a>'
+        for icon, label, href in unique.values()
+    )
+    return f'''<div id="pulseCommandModal" class="pulse-modal-backdrop" aria-hidden="true"><div class="pulse-modal" role="dialog" aria-modal="true" aria-labelledby="pulseCommandTitle"><div class="pulse-modal-head"><div><div id="pulseCommandTitle" class="text-sm font-extrabold">Pulse Schnellzugriff</div><div class="text-[10px] text-slate-400 mt-0.5">Seiten und Funktionen durchsuchen · Strg+K</div></div><button onclick="pulseTogglePalette(false)" class="pulse-icon-btn" aria-label="Schnellzugriff schließen">✕</button></div><div class="p-3"><div class="pulse-search" style="max-width:none"><span>⌕</span><input id="pulseCmdFilter" type="search" role="combobox" aria-controls="pulseCmdList" aria-expanded="true" aria-label="Pulse-Seiten und Funktionen suchen" oninput="pulseFilterCmd(this.value)" placeholder="Bereich oder Funktion suchen…"></div><div id="pulseCmdEmpty" class="pulse-empty" hidden>Keine passenden Funktionen gefunden.</div></div><div id="pulseCmdList" class="pulse-command-list" role="listbox">{rows}</div></div></div><script>
+function pulseFilterCmd(value){{
+ const query=String(value||'').trim().toLocaleLowerCase('de');
+ const items=Array.from(document.querySelectorAll('#pulseCmdList .pulse-command-item'));
+ let visible=0;
+ items.forEach(item=>{{
+   const match=item.textContent.toLocaleLowerCase('de').includes(query);
+   item.style.display=match?'':'none';
+   item.setAttribute('aria-hidden',String(!match));
+   if(match)visible++;
+ }});
+ const empty=document.getElementById('pulseCmdEmpty');
+ if(empty)empty.hidden=visible!==0;
+}}
+(function(){{
+ const input=document.getElementById('pulseCmdFilter');
+ const modal=document.getElementById('pulseCommandModal');
+ if(!input||!modal)return;
+ input.addEventListener('keydown',event=>{{
+   if(event.key!=='ArrowDown'&&event.key!=='ArrowUp')return;
+   const visible=Array.from(modal.querySelectorAll('.pulse-command-item')).filter(item=>item.style.display!=='none');
+   if(!visible.length)return;
+   const current=visible.indexOf(document.activeElement);
+   const next=event.key==='ArrowDown'?Math.min(visible.length-1,current+1):Math.max(0,current<0?0:current-1);
+   event.preventDefault();visible[next].focus();
+ }});
+ modal.addEventListener('keydown',event=>{{
+   if(event.key!=='ArrowDown'&&event.key!=='ArrowUp')return;
+   const visible=Array.from(modal.querySelectorAll('.pulse-command-item')).filter(item=>item.style.display!=='none');
+   if(!visible.length)return;
+   const current=visible.indexOf(document.activeElement);
+   const next=event.key==='ArrowDown'?Math.min(visible.length-1,current+1):Math.max(0,current-1);
+   event.preventDefault();visible[next].focus();
+ }});
+}})();
+</script>'''
 
 
 def voice_waiting(guild) -> int:

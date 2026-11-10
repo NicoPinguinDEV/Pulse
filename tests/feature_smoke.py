@@ -1071,7 +1071,7 @@ def main() -> None:
     admin_area = read("pulse_admin.py")
     assert '("ticket-panels", "/tickets/panels", "🎛️", "Ticket-Panels"' in admin_area
     assert "from pulse_admin import ADMIN_PAGE_KEYS, admin_sections" in pro_melonly
-    assert "items.extend((icon, label, href) for _, href, icon, label, _ in sections)" in pro_melonly
+    assert "items.extend((icon, label, href, True) for _, href, icon, label, _ in sections)" in pro_melonly
     assert '@app.get("/tickets/panels", response_class=HTMLResponse)' in web
     assert 'href="/tickets/panels#panel-builder"' in web
     assert 'id="panel-builder"' in web
