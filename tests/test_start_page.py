@@ -110,5 +110,29 @@ class StartPageTests(unittest.TestCase):
         self.assertEqual(pulse_db.get_setting("dashboard_favorites:123", []), [])
 
 
+    def test_dashboard_favorites_enforce_the_eight_item_limit(self):
+        from types import SimpleNamespace
+        from pulse_home import MAX_DASHBOARD_FAVORITES
+
+        pages = {f"/favorite-{index}": f"Favorit {index}" for index in range(MAX_DASHBOARD_FAVORITES + 1)}
+        user = SimpleNamespace(user={"id": "123", "global_name": "Test"}, perms={}, member=None, config={})
+        with patch.object(ws, "auth", return_value=user), patch.object(ws, "START_PAGES", pages):
+            for path in list(pages)[:MAX_DASHBOARD_FAVORITES]:
+                response = self.client.post(
+                    "/me/favorites/add", data={"path": path}, follow_redirects=False
+                )
+                self.assertIn("t=ok", response.headers["location"])
+            rejected = self.client.post(
+                "/me/favorites/add",
+                data={"path": f"/favorite-{MAX_DASHBOARD_FAVORITES}"},
+                follow_redirects=False,
+            )
+        self.assertIn("t=err", rejected.headers["location"])
+        self.assertEqual(
+            pulse_db.get_setting("dashboard_favorites:123"),
+            list(pages)[:MAX_DASHBOARD_FAVORITES],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
