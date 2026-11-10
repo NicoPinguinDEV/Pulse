@@ -65,7 +65,6 @@ def create_reason_template(guild_id, action: str, name: str, body: str, actor) -
     template_id = "MRT-" + secrets.token_hex(5).upper()
     created_at = _now().isoformat(timespec="seconds")
     actor_id = str(getattr(actor, "id", actor))
-    actor_name = str(getattr(actor, "display_name", getattr(actor, "name", actor_id)))[:100]
     try:
         with pulse_db.connect() as db:
             _table(db)
@@ -146,7 +145,7 @@ def revise_reason_template(guild_id, action: str, name: str, body: str, actor) -
     updated_at = _now().isoformat(timespec="seconds")
     try:
         with pulse_db.connect() as db:
-            _table(db)
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT id, active_version, archived FROM mod_reason_templates "
                 "WHERE guild_id=? AND action=? AND lower(name)=lower(?)",
