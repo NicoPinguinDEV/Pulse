@@ -301,7 +301,21 @@ PRO_JS = r"""
 <script>
 (function(){
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
-  window.pulseTogglePalette=function(open=true){const m=$('#pulseCommandModal'); if(m)m.classList.toggle('show',open)};
+  let paletteOpener=null;
+  window.pulseTogglePalette=function(open=true){
+    const m=$('#pulseCommandModal');
+    if(!m)return;
+    if(open){
+      paletteOpener=document.activeElement;
+      m.classList.add('show');m.setAttribute('aria-hidden','false');
+      const input=$('#pulseCmdFilter',m);
+      if(input){input.value='';if(typeof window.pulseFilterCmd==='function')window.pulseFilterCmd('');input.focus();}
+    }else{
+      m.classList.remove('show');m.setAttribute('aria-hidden','true');
+      if(paletteOpener&&paletteOpener.isConnected&&typeof paletteOpener.focus==='function')paletteOpener.focus();
+      paletteOpener=null;
+    }
+  };
   window.pulseToggleTheme=function(){const d=document.documentElement; const dark=d.classList.contains('dark'); d.classList.toggle('dark',!dark); localStorage.theme=dark?'light':'dark';};
   document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();pulseTogglePalette(true)} if(e.key==='Escape')pulseTogglePalette(false)});
   document.addEventListener('click',e=>{const modal=$('#pulseCommandModal'); if(e.target===modal)pulseTogglePalette(false);});
@@ -736,8 +750,8 @@ def build_command_modal(ws, perms=None):
     from pulse_design import SUITE_NAV, ULTIMATE_NAV, visible_nav
     leader = bool(permissions.get("can_promote") or permissions.get("is_admin"))
     if leader:
-        hidden = {"handover", "approvals", "tasks2"}
         for nav_items in (ULTIMATE_NAV, SUITE_NAV):
+            hidden = {"handover", "approvals", "tasks2"} if nav_items is ULTIMATE_NAV else {"tasks"}
             for key, href, label, _leader_only in visible_nav(nav_items, leader):
                 if key in hidden:
                     continue
