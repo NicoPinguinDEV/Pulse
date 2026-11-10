@@ -38,7 +38,9 @@ import pulse_paths
 from pulse_ticket_design import (
     PANEL_IMAGE_DIR,
     automation_actions,
+    automation_enabled,
     automation_settings,
+    category_automation_settings,
     clean_questions,
     load_state,
     normalize_panel,
@@ -1290,12 +1292,13 @@ class Tickets(commands.Cog):
     async def run_automation(self):
         """Reminders and optional auto-close, reusing the existing 5-minute loop (no extra task)."""
         settings = automation_settings(ticket_config().get("automation"))
-        if not any(settings.values()):
+        if not automation_enabled(settings):
             return
         now = discord.utils.utcnow()
         tickets = [t for t in list_tickets(limit=2000, open_only=True) if t.get("status") != "closed"]
         self.ticket_channel_ids = {int(t["channel_id"]) for t in tickets if str(t.get("channel_id") or "").isdigit()}
         for ticket in tickets:
+            ticket_settings = category_automation_settings(ticket.get("category"), settings)
             actions = automation_actions(ticket, settings, now)
             if not actions:
                 continue
@@ -1310,7 +1313,7 @@ class Tickets(commands.Cog):
                     roles = category_ping_roles(guild, str(ticket.get("category")))[:10]
                     mentions = " ".join(r.mention for r in roles)
                     await channel.send(
-                        f"⏰ {mentions}\nDieses **{label}** wartet seit über {settings['unclaimed_ping_minutes']} Minuten auf eine Übernahme.".replace("⏰ \n", "⏰ "),
+                        f"⏰ {mentions}\nDieses **{label}** wartet seit über {ticket_settings['unclaimed_ping_minutes']} Minuten auf eine Übernahme.".replace("⏰ \n", "⏰ "),
                         allowed_mentions=discord.AllowedMentions(roles=roles, users=False, everyone=False),
                     )
                     state["unclaimed_ping"] = now.isoformat()
@@ -1318,7 +1321,7 @@ class Tickets(commands.Cog):
                     claimer = guild.get_member(int(ticket["claimed_by_id"])) if str(ticket.get("claimed_by_id") or "").isdigit() else None
                     if claimer:
                         await channel.send(
-                            f"⏳ {claimer.mention}, der Ersteller wartet seit über {settings['staff_reply_hours']} h auf eine Antwort.",
+                            f"⏳ {claimer.mention}, der Ersteller wartet seit über {ticket_settings['staff_reply_hours']} h auf eine Antwort.",
                             allowed_mentions=discord.AllowedMentions(users=[claimer], roles=False, everyone=False),
                         )
                     state["staff_reminder_for"] = datetime_marker(ticket["last_user_message_at"])
