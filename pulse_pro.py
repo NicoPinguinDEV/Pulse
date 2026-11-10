@@ -2639,15 +2639,18 @@ def register(app):
             f'</div></div>'
             for item in shift_note_rows
         )
-        if is_own_profile and (c.perms.get('can_add_notes') or c.perms.get('is_admin')) and isinstance(active, dict) and active.get('started_at_iso'):
-            shift_note_form = (
-                '<form action="/shift/notes" method="post" class="space-y-2">'
-                '<textarea name="note" required maxlength="1000" class="pulse-input pulse-textarea" '
-                'placeholder="Was ist während deiner Schicht passiert?"></textarea>'
-                '<button class="pulse-btn primary">Schichtnotiz speichern</button></form>'
-            )
+        if is_own_profile and (c.perms.get('can_add_notes') or c.perms.get('is_admin')):
+            if isinstance(active, dict) and active.get('started_at_iso'):
+                shift_note_form = (
+                    '<form action="/shift/notes" method="post" class="space-y-2">'
+                    '<textarea name="note" required maxlength="1000" class="pulse-input pulse-textarea" '
+                    'placeholder="Was ist während deiner Schicht passiert?"></textarea>'
+                    '<button class="pulse-btn primary">Schichtnotiz speichern</button></form>'
+                )
+            else:
+                shift_note_form = '<div class="pulse-empty">Starte deine Schicht, um eine Notiz hinzuzufügen.</div>'
         elif is_own_profile:
-            shift_note_form = '<div class="pulse-empty">Starte deine Schicht, um eine Notiz hinzuzufügen.</div>'
+            shift_note_form = '<div class="pulse-empty">Dir fehlt die Berechtigung zum Erstellen von Schichtnotizen.</div>'
         else:
             shift_note_form = ''
         shift_note_section = (
