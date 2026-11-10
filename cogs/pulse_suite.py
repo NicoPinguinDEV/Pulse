@@ -70,6 +70,20 @@ def cx():
     c.execute("PRAGMA busy_timeout=3000")
     return c
 
+
+def mark_training_assignment_result(training_id, user_id, passed: bool) -> int:
+    """Mark only active assignments as passed; failed retakes never revoke prior completion."""
+    if not passed:
+        return 0
+    with cx() as connection:
+        result = connection.execute(
+            "UPDATE suite_training_assignments SET status='passed' "
+            "WHERE training_id=? AND user_id=? AND status='assigned'",
+            (str(training_id), str(user_id)),
+        )
+        return max(0, int(result.rowcount))
+
+
 def init_db():
     with cx() as c:
         c.execute("PRAGMA journal_mode=WAL")
