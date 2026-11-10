@@ -397,7 +397,7 @@ class RetentionTests(unittest.TestCase):
         exported_b = pulse_retention.export_person(ws, owner_b)
         exported_creator = pulse_retention.export_person(ws, creator)
         expected = {
-            (ticket_a, ticket_b),
+            tuple(sorted((ticket_a, ticket_b))),
         }
         for exported in (exported_a, exported_b, exported_creator):
             rows = exported["databases"]["pulse.db"]["ticket_links"]
