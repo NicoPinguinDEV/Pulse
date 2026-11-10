@@ -19,6 +19,13 @@ def pulse_perms(guild, user_id):
     perms, _ = webserver.compute_perms(guild, user_id, webserver.load_config())
     return perms
 
+MODERATION_ACTION_CHOICES = [
+    app_commands.Choice(name="Verwarnung", value="warn"),
+    app_commands.Choice(name="Timeout", value="timeout"),
+    app_commands.Choice(name="Kick", value="kick"),
+    app_commands.Choice(name="Ban", value="ban"),
+]
+
 
 class ConfirmAction(PulseView):
     def __init__(self, owner_id: int, run):
@@ -66,11 +73,23 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
         return True
 
     async def _execute(self, interaction: discord.Interaction, action: str, target: discord.Member, grund: str,
-                       beweis: str, minutes: int | None, respond) -> None:
-        """Creates the case, sends the DM first (kick/ban remove the person), then acts on Discord."""
+                       beweis: str, minutes: int | None, respond, vorlage: str = "") -> None:
+        """Creates the case, snapshots a selected template revision, sends the DM and performs the action."""
         import webserver
+        template = None
+        reason = grund
+        if str(vorlage or "").strip():
+            template = mc.get_reason_template(interaction.guild.id, action, vorlage)
+            if template is None:
+                await respond("❌ Aktive Moderationsvorlage nicht gefunden. Bitte /mod vorlagen prüfen.")
+                return
+            try:
+                reason = mc.render_reason_template(template, grund)
+            except ValueError as exc:
+                await respond("❌ " + str(exc))
+                return
         try:
-            case = mc.create_case(interaction.guild.id, target, action, grund, beweis, minutes, interaction.user)
+            case = mc.create_case(interaction.guild.id, target, action, reason, beweis, minutes, interaction.user, template=template)
         except ValueError as exc:
             await respond("❌ " + str(exc))
             return
@@ -103,31 +122,33 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
             dm_ok = await send_dm()
         webserver.log_audit(interaction.user.display_name, str(interaction.user.id), f"Bürger-Moderation: {mc.ACTIONS[action]}",
                             f"{case['id']} · {target.display_name} ({target.id}) · {case['reason']}"
-                            + (f" · bis {case['expires_at']}" if case.get("expires_at") else ""))
+                            + (f" · bis {case['expires_at']}" if case.get("expires_at") else "")
+                            + (f" · Vorlage {template['name']} v{template['active_version']}" if template else ""))
         await respond(f"✅ {mc.ACTIONS[action]} für **{target.display_name}** – Fall `{case['id']}`"
                       + (f", bis {case['expires_at'][:16].replace('T', ' ')} UTC" if case.get("expires_at") else "")
+                      + (f" · Vorlage {template['name']} v{template['active_version']}" if template else "")
                       + ("" if dm_ok else " · ⚠️ DM nicht zustellbar (DMs geschlossen)"))
 
     @app_commands.command(name="warn", description="Bürger verwarnen (Fallakte, DM mit Einspruchsweg).")
-    @app_commands.describe(mitglied="Wer", grund="Pflichtgrund", beweis="Link zum Beweis (optional)")
-    async def warn(self, interaction: discord.Interaction, mitglied: discord.Member, grund: str, beweis: str = ""):
+    @app_commands.describe(mitglied="Wer", grund="Pflichtgrund oder Zusatzdetails", beweis="Link zum Beweis (optional)", vorlage="Aktive Begründungsvorlage (optional)")
+    async def warn(self, interaction: discord.Interaction, mitglied: discord.Member, grund: str, beweis: str = "", vorlage: str = ""):
         if not await self._check(interaction, "warn", mitglied):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
         await self._execute(interaction, "warn", mitglied, grund, beweis, None,
-                            lambda text: interaction.followup.send(text, ephemeral=True))
+                            lambda text: interaction.followup.send(text, ephemeral=True), vorlage)
 
     @app_commands.command(name="timeout", description="Bürger stummschalten (Timeout mit Ablauf).")
-    @app_commands.describe(mitglied="Wer", minuten="Dauer in Minuten (1 bis 40320 = 28 Tage)", grund="Pflichtgrund", beweis="Link zum Beweis (optional)")
+    @app_commands.describe(mitglied="Wer", minuten="Dauer in Minuten (1 bis 40320 = 28 Tage)", grund="Pflichtgrund oder Zusatzdetails", beweis="Link zum Beweis (optional)", vorlage="Aktive Begründungsvorlage (optional)")
     async def timeout(self, interaction: discord.Interaction, mitglied: discord.Member,
-                      minuten: app_commands.Range[int, 1, mc.MAX_TIMEOUT_MINUTES], grund: str, beweis: str = ""):
+                      minuten: app_commands.Range[int, 1, mc.MAX_TIMEOUT_MINUTES], grund: str, beweis: str = "", vorlage: str = ""):
         if not await self._check(interaction, "timeout", mitglied):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
         await self._execute(interaction, "timeout", mitglied, grund, beweis, minuten,
-                            lambda text: interaction.followup.send(text, ephemeral=True))
+                            lambda text: interaction.followup.send(text, ephemeral=True), vorlage)
 
-    async def _confirm_then(self, interaction, action, mitglied, grund, beweis, minutes):
+    async def _confirm_then(self, interaction, action, mitglied, grund, beweis, minutes, vorlage: str = ""):
         async def run(button_interaction):
             import webserver
             # review fix: up to 60 s may have passed – check rights and rank again before acting
@@ -138,26 +159,112 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
                 await button_interaction.edit_original_response(content="❌ " + problem + " Es wurde nichts ausgeführt.")
                 return
             await self._execute(interaction, action, mitglied, grund, beweis, minutes,
-                                lambda text: button_interaction.edit_original_response(content=text))
+                                lambda text: button_interaction.edit_original_response(content=text), vorlage)
         label = mc.ACTIONS[action]
         await interaction.response.send_message(
             f"⚠️ **{label}** für {mitglied.mention} wirklich ausführen?\nGrund: {grund.strip()[:500]}"
-            + (f"\nDauer: {minutes // 1440} Tage" if minutes else "") + "\nDie Person bekommt vorher eine DM mit der Fall-ID.",
+            + (f"\nDauer: {minutes // 1440} Tage" if minutes else "")
+            + (f"\nVorlage: {vorlage}" if vorlage else "") + "\nDie Person bekommt vorher eine DM mit der Fall-ID.",
             view=ConfirmAction(interaction.user.id, run), ephemeral=True)
 
     @app_commands.command(name="kick", description="Bürger vom Server kicken (mit Bestätigung und Fallakte).")
-    async def kick(self, interaction: discord.Interaction, mitglied: discord.Member, grund: str, beweis: str = ""):
+    @app_commands.describe(grund="Pflichtgrund oder Zusatzdetails", beweis="Link zum Beweis (optional)", vorlage="Aktive Begründungsvorlage (optional)")
+    async def kick(self, interaction: discord.Interaction, mitglied: discord.Member, grund: str, beweis: str = "", vorlage: str = ""):
         if not await self._check(interaction, "kick", mitglied):
             return
-        await self._confirm_then(interaction, "kick", mitglied, grund, beweis, None)
+        await self._confirm_then(interaction, "kick", mitglied, grund, beweis, None, vorlage)
 
     @app_commands.command(name="ban", description="Bürger bannen (mit Bestätigung, optional befristet).")
-    @app_commands.describe(tage="0 = unbefristet, sonst Tage bis zur automatischen Aufhebung")
+    @app_commands.describe(tage="0 = unbefristet, sonst Tage bis zur automatischen Aufhebung", grund="Pflichtgrund oder Zusatzdetails", beweis="Link zum Beweis (optional)", vorlage="Aktive Begründungsvorlage (optional)")
     async def ban(self, interaction: discord.Interaction, mitglied: discord.Member, grund: str,
-                  tage: app_commands.Range[int, 0, 365] = 0, beweis: str = ""):
+                  tage: app_commands.Range[int, 0, 365] = 0, beweis: str = "", vorlage: str = ""):
         if not await self._check(interaction, "ban", mitglied):
             return
-        await self._confirm_then(interaction, "ban", mitglied, grund, beweis, tage * 1440 if tage else None)
+        await self._confirm_then(interaction, "ban", mitglied, grund, beweis, tage * 1440 if tage else None, vorlage)
+
+
+    @app_commands.command(name="vorlagen", description="Aktive Begründungsvorlagen für deine Moderationsrechte anzeigen.")
+    async def vorlagen(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Nur auf dem Server verfügbar.", ephemeral=True)
+            return
+        perms = pulse_perms(interaction.guild, interaction.user.id)
+        available = [
+            action for action in mc.ACTIONS
+            if mc.may_moderate(action, perms, interaction.user.guild_permissions)
+        ]
+        if not available:
+            await interaction.response.send_message("❌ Du hast keine Moderationsrechte für Vorlagen.", ephemeral=True)
+            return
+        templates = mc.list_reason_templates(interaction.guild.id, actions=available)
+        if not templates:
+            await interaction.response.send_message("Für deine Moderationsrechte sind keine aktiven Vorlagen vorhanden.", ephemeral=True)
+            return
+        lines = []
+        for item in templates[:25]:
+            name = discord.utils.escape_markdown(str(item["name"]))
+            body = discord.utils.escape_markdown(str(item["body"]))
+            label = mc.ACTIONS.get(item["action"], item["action"])
+            lines.append(f"**{label} · {name}** · v{item['active_version']}\n{body[:180]}")
+        embed = discord.Embed(title="📚 Moderationsvorlagen", description="\n\n".join(lines)[:3900], color=0x64748B)
+        embed.set_footer(text="Beim Moderieren den Vorlagennamen im optionalen Feld 'vorlage' angeben.")
+        await interaction.response.send_message(embed=embed, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.choices(aktion=MODERATION_ACTION_CHOICES)
+    @app_commands.command(name="vorlage_erstellen", description="Neue versionierte Moderationsvorlage anlegen (Admin).")
+    @app_commands.describe(aktion="Moderationsaktion", name="Eindeutiger Vorlagenname", text="Vorlagentext; optionaler Platzhalter: {details}")
+    async def vorlage_erstellen(self, interaction: discord.Interaction, aktion: str, name: str, text: str):
+        if interaction.guild is None or not mc.may_manage_templates(pulse_perms(interaction.guild, interaction.user.id)):
+            await interaction.response.send_message("❌ Nur Administratoren dürfen Moderationsvorlagen verwalten.", ephemeral=True)
+            return
+        try:
+            template = mc.create_reason_template(interaction.guild.id, aktion, name, text, interaction.user)
+        except ValueError as exc:
+            await interaction.response.send_message("❌ " + str(exc), ephemeral=True)
+            return
+        await interaction.response.send_message("✅ Vorlage **" + discord.utils.escape_markdown(template["name"]) + "** v1 wurde erstellt.", ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.choices(aktion=MODERATION_ACTION_CHOICES)
+    @app_commands.command(name="vorlage_bearbeiten", description="Neue unveränderliche Version einer Moderationsvorlage speichern (Admin).")
+    @app_commands.describe(aktion="Moderationsaktion", name="Name der bestehenden Vorlage", text="Neuer Vorlagentext; optionaler Platzhalter: {details}")
+    async def vorlage_bearbeiten(self, interaction: discord.Interaction, aktion: str, name: str, text: str):
+        if interaction.guild is None or not mc.may_manage_templates(pulse_perms(interaction.guild, interaction.user.id)):
+            await interaction.response.send_message("❌ Nur Administratoren dürfen Moderationsvorlagen verwalten.", ephemeral=True)
+            return
+        try:
+            template = mc.revise_reason_template(interaction.guild.id, aktion, name, text, interaction.user)
+        except ValueError as exc:
+            await interaction.response.send_message("❌ " + str(exc), ephemeral=True)
+            return
+        await interaction.response.send_message("✅ Neue Version v" + str(template["active_version"]) + " von **" + discord.utils.escape_markdown(template["name"]) + "** gespeichert.", ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.choices(aktion=MODERATION_ACTION_CHOICES)
+    @app_commands.command(name="vorlage_archivieren", description="Moderationsvorlage archivieren, ohne Historie zu löschen (Admin).")
+    @app_commands.describe(aktion="Moderationsaktion", name="Name der Vorlage")
+    async def vorlage_archivieren(self, interaction: discord.Interaction, aktion: str, name: str):
+        if interaction.guild is None or not mc.may_manage_templates(pulse_perms(interaction.guild, interaction.user.id)):
+            await interaction.response.send_message("❌ Nur Administratoren dürfen Moderationsvorlagen verwalten.", ephemeral=True)
+            return
+        archived = mc.archive_reason_template(interaction.guild.id, aktion, name, interaction.user)
+        await interaction.response.send_message("✅ Vorlage archiviert; alle bisherigen Versionen bleiben erhalten." if archived else "❌ Aktive Vorlage nicht gefunden.", ephemeral=True)
+
+    @app_commands.choices(aktion=MODERATION_ACTION_CHOICES)
+    @app_commands.command(name="vorlage_historie", description="Frühere Versionen einer Moderationsvorlage anzeigen (Admin).")
+    @app_commands.describe(aktion="Moderationsaktion", name="Name der Vorlage")
+    async def vorlage_historie(self, interaction: discord.Interaction, aktion: str, name: str):
+        if interaction.guild is None or not mc.may_manage_templates(pulse_perms(interaction.guild, interaction.user.id)):
+            await interaction.response.send_message("❌ Nur Administratoren dürfen die Vorlagenhistorie einsehen.", ephemeral=True)
+            return
+        history = mc.list_reason_template_versions(interaction.guild.id, aktion, name, limit=10)
+        if not history:
+            await interaction.response.send_message("❌ Für diese Vorlage wurde keine Historie gefunden.", ephemeral=True)
+            return
+        lines = [
+            f"**v{row['version']}** · {row['created_at'][:16].replace('T', ' ')} · {row['created_by']}\n{discord.utils.escape_markdown(row['body'])[:350]}"
+            for row in history
+        ]
+        embed = discord.Embed(title="🕘 Vorlagenhistorie · " + discord.utils.escape_markdown(name), description="\n\n".join(lines)[:3900], color=0x64748B)
+        await interaction.response.send_message(embed=embed, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
     @app_commands.command(name="akte", description="Moderationsfälle einer Person anzeigen.")
     async def akte(self, interaction: discord.Interaction, mitglied: discord.User):
