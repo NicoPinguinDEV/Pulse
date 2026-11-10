@@ -56,6 +56,15 @@ async def run_shift_note(interaction: discord.Interaction, note: str) -> None:
             "❌ Schichtnotizen können nur Teammitglieder verwenden.", ephemeral=True
         )
         return
+    perms, _ = webserver.compute_perms(
+        interaction.guild, interaction.user.id, webserver.load_config()
+    )
+    if not (perms.get("can_add_notes") or perms.get("is_admin")):
+        await interaction.response.send_message(
+            "❌ Dir fehlt die Berechtigung zum Erstellen von Schichtnotizen.",
+            ephemeral=True,
+        )
+        return
     text = str(note or "").strip()
     if not text:
         await interaction.response.send_message("❌ Bitte gib eine Notiz ein.", ephemeral=True)
