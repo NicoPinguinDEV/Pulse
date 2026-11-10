@@ -245,11 +245,16 @@ def link_tickets(
         return cursor.rowcount == 1
 
 
-def linked_tickets(ticket_id: str) -> list[dict]:
-    """List related tickets in either direction; caller must authorize staff access."""
+def linked_tickets(ticket_id: str, limit: int = 10, offset: int = 0) -> list[dict]:
+    """List a bounded page of related tickets in either direction; caller authorizes staff access."""
     ticket_id = str(ticket_id or "").strip()
     if not ticket_id:
         return []
+    try:
+        page_size = max(1, min(int(limit), 11))
+        page_offset = max(0, int(offset))
+    except (TypeError, ValueError):
+        page_size, page_offset = 10, 0
     with pulse_db.connect() as db:
         _ticket_links_table(db)
         rows = db.execute(
@@ -264,8 +269,9 @@ def linked_tickets(ticket_id: str) -> list[dict]:
               ON ticket.id = CASE WHEN link.ticket_id_a=? THEN link.ticket_id_b ELSE link.ticket_id_a END
             WHERE link.ticket_id_a=? OR link.ticket_id_b=?
             ORDER BY link.created_at DESC, related_ticket_id
+            LIMIT ? OFFSET ?
             """,
-            (ticket_id, ticket_id, ticket_id, ticket_id),
+            (ticket_id, ticket_id, ticket_id, ticket_id, page_size, page_offset),
         ).fetchall()
     return [dict(row) for row in rows]
 
