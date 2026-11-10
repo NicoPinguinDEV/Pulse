@@ -7,6 +7,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pulse_db
+import webserver as ws
+from fastapi.testclient import TestClient
+from tests.test_pulse_admin_area import GUILD, TEAMLER, fake_auth_for
 
 
 class FakeResponse:
@@ -145,6 +148,58 @@ class ShiftNoteCommandTests(unittest.TestCase):
         message, kwargs = interaction.response.sent[0]
         self.assertIn("Interne Übergabe erledigt", message)
         self.assertTrue(kwargs["ephemeral"])
+
+
+class ShiftNoteDashboardRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        base = Path(self.tmp.name)
+        self.patches = [
+            patch.object(pulse_db, "DB_PATH", str(base / "pulse.db")),
+            patch.object(ws, "SHIFTS_FILE", str(base / "shifts.json")),
+            patch.object(ws, "DATA_FILE", str(base / "team_data.json")),
+            patch.object(ws, "AUDIT_FILE", str(base / "audit.json")),
+            patch.object(ws, "log_audit", lambda *args, **kwargs: None),
+        ]
+        for item in self.patches:
+            item.start()
+        pulse_db.init_db()
+        ws.save_json(ws.SHIFTS_FILE, {
+            "active_shifts": {
+                "123": {
+                    "started_at_iso": "2026-11-10T18:00:00+01:00",
+                    "status": "online",
+                }
+            },
+            "history": [],
+        })
+        self.client = TestClient(ws.app)
+
+    def tearDown(self):
+        for item in reversed(self.patches):
+            item.stop()
+        self.tmp.cleanup()
+
+    def test_dashboard_form_saves_only_for_the_signed_in_active_member(self):
+        with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
+            response = self.client.post(
+                "/shift/notes", data={"note": "Dashboard-Übergabe abgeschlossen"},
+                follow_redirects=False,
+            )
+        self.assertIn(response.status_code, (302, 303))
+        notes = pulse_db.list_shift_notes(GUILD.id, "123")
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0]["note"], "Dashboard-Übergabe abgeschlossen")
+
+    def test_dashboard_form_rejects_a_member_without_an_active_shift(self):
+        ws.save_json(ws.SHIFTS_FILE, {"active_shifts": {}, "history": []})
+        with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
+            response = self.client.post(
+                "/shift/notes", data={"note": "Ohne laufende Schicht"},
+                follow_redirects=False,
+            )
+        self.assertIn(response.status_code, (302, 303))
+        self.assertEqual(pulse_db.list_shift_notes(GUILD.id, "123"), [])
 
 
 if __name__ == "__main__":
