@@ -513,12 +513,35 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
         )
         fields = "".join(
             f'<label>{label}<span class="text-[11px] text-slate-400 font-normal">{hint} · 0 = aus</span>'
-            f'<span class="flex gap-2 items-center"><input type="number" name="{key}" min="0" max="20160" value="{auto[key]}" style="max-width:140px"><span class="text-xs">{unit}</span></span></label>'
+            f'<span class="flex gap-2 items-center"><input type="number" name="{key}" min="0" max="{1440 if key == "unclaimed_ping_minutes" else 336}" value="{auto[key]}" style="max-width:140px"><span class="text-xs">{unit}</span></span></label>'
             for key, unit, label, hint in rows
         )
-        body += f'''<div class="tb-card"><h3>⏰ Smarte Ticket-Automatik</h3><p class="hint">Läuft im vorhandenen 5-Minuten-Zyklus des Bots (kein zusätzlicher Dienst). Jede Erinnerung wird pro Situation nur einmal gesendet. Standard: {AUTOMATION_DEFAULTS["unclaimed_ping_minutes"]} min / {AUTOMATION_DEFAULTS["staff_reply_hours"]} h / {AUTOMATION_DEFAULTS["user_reminder_hours"]} h / Auto-Close aus.</p>
-<form method="post" action="/tickets/automation" class="tb-form">{fields}<div class="wide"><button class="pulse-btn primary" type="submit">Automatik speichern</button></div></form></div>
-<div class="tb-card"><h3>🔔 Weitere Ticket-Funktionen</h3><p class="hint" style="margin:0">Im Ticket gibt es jetzt zusätzlich den Button <b>„Erinnern“</b>: Das Team pingt den Ersteller im Ticket und per DM. Formular-Fragen pro Kategorie stellst du unter „Kategorien &amp; Begrüßungen“ ein.</p></div>'''
+        category_sla = auto.get("category_sla") or {}
+        category_rows = (
+            ("unclaimed_ping_minutes", "Übernahme", "Min.", 1440),
+            ("staff_reply_hours", "Antwort des Teams", "Std.", 336),
+            ("user_reminder_hours", "Antwort des Erstellers", "Std.", 336),
+        )
+        category_fields = []
+        for key, meta in active_categories:
+            overrides = category_sla.get(key, {}) if isinstance(category_sla, dict) else {}
+            controls = "".join(
+                f'<label>{label}<span class="flex gap-2 items-center">'
+                f'<input type="number" name="sla__{e(key)}__{field}" min="0" max="{maximum}" '
+                f'value="{e(overrides[field]) if field in overrides else ""}" placeholder="Global: {auto[field]}" style="max-width:120px">'
+                f'<span class="text-xs">{unit}</span></span></label>'
+                for field, label, unit, maximum in category_rows
+            )
+            category_fields.append(
+                f'<details class="wide" style="border:1px solid var(--border);border-radius:12px;padding:10px">'
+                f'<summary style="cursor:pointer;font-weight:750">{e(meta.get("emoji") or "🎫")} {e(meta.get("name") or key)}'
+                f'<span class="text-[10px] text-slate-400 font-normal"> · eigene Schwellen</span></summary>'
+                f'<div class="tb-form" style="margin-top:10px">{controls}</div></details>'
+            )
+        category_fields_html = "".join(category_fields) or '<p class="wide text-xs text-slate-400">Keine aktiven Ticketkategorien gefunden.</p>'
+        body += f'''<div class="tb-card"><h3>⏰ Smarte Ticket-Automatik</h3><p class="hint">Läuft im vorhandenen 5-Minuten-Zyklus des Bots (kein zusätzlicher Dienst). Jede Erinnerung wird pro Situation nur einmal gesendet. Globale Werte gelten als Standard. Leere Kategorie-Felder übernehmen den globalen Wert; 0 schaltet genau diese Erinnerung für die Kategorie aus. Auto-Close bleibt eine getrennte globale Einstellung und läuft nur nach der Ersteller-Erinnerung.</p>
+<form method="post" action="/tickets/automation" class="tb-form"><h4 class="wide">Globale Standardwerte</h4>{fields}<h4 class="wide">SLA je Ticketkategorie</h4>{category_fields_html}<div class="wide"><button class="pulse-btn primary" type="submit">Automatik speichern</button></div></form></div>
+<div class="tb-card"><h3>🔔 Weitere Ticket-Funktionen</h3><p class="hint" style="margin:0">Im Ticket gibt es zusätzlich den Button <b>„Erinnern“</b>: Das Team pingt den Ersteller im Ticket und per DM. Kategorien können abweichende Übernahme- und Antwortfristen erhalten.</p></div>'''
 
     else:
         panel_ids = ws.pulse_ticket_panel_channel_ids()
