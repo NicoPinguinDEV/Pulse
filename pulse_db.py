@@ -348,6 +348,20 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_handover_author ON handover_notes(author_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_handover_active ON handover_notes(archived_at, created_at DESC);
 
+            CREATE TABLE IF NOT EXISTS shift_notes (
+                id TEXT PRIMARY KEY,
+                shift_event_id TEXT NOT NULL,
+                guild_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                user_name TEXT NOT NULL,
+                note TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_shift_notes_user
+                ON shift_notes(guild_id, user_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_shift_notes_event
+                ON shift_notes(shift_event_id, created_at DESC);
+
             CREATE TABLE IF NOT EXISTS announcements (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -1129,6 +1143,50 @@ def archive_handover(hid):
         return db.execute("UPDATE handover_notes SET archived_at=? WHERE id=?", (_now(), hid)).rowcount > 0
 
 
+def create_shift_note(shift_event_id, guild_id, user_id, user_name, note):
+    """Store a bounded, immutable note linked to one concrete duty session."""
+    event_id = str(shift_event_id or "").strip()[:128]
+    guild = str(guild_id or "").strip()[:32]
+    uid = str(user_id or "").strip()[:32]
+    name = str(user_name or "Teammitglied").strip()[:100]
+    body = str(note or "").strip()
+    if not event_id or not guild or not uid:
+        raise ValueError("Schicht, Server und Verfasser müssen angegeben werden.")
+    if not body:
+        raise ValueError("Die Schichtnotiz darf nicht leer sein.")
+    if len(body) > 1000:
+        raise ValueError("Eine Schichtnotiz darf höchstens 1.000 Zeichen enthalten.")
+    with connect() as db:
+        count = db.execute(
+            "SELECT COUNT(*) FROM shift_notes WHERE shift_event_id=?",
+            (event_id,),
+        ).fetchone()[0]
+        if int(count or 0) >= 50:
+            raise ValueError("Für diese Schicht sind bereits 50 Notizen gespeichert.")
+        note_id = make_id("shift_note")
+        db.execute(
+            """INSERT INTO shift_notes
+               (id,shift_event_id,guild_id,user_id,user_name,note,created_at)
+               VALUES(?,?,?,?,?,?,?)""",
+            (note_id, event_id, guild, uid, name, body, _now()),
+        )
+        return note_id
+
+
+def list_shift_notes(guild_id, user_id, limit=10):
+    """Return the newest notes for exactly one member in exactly one guild."""
+    safe_limit = max(1, min(int(limit), 50))
+    with connect() as db:
+        rows = db.execute(
+            """SELECT id,shift_event_id,guild_id,user_id,user_name,note,created_at
+               FROM shift_notes
+               WHERE guild_id=? AND user_id=?
+               ORDER BY created_at DESC, rowid DESC LIMIT ?""",
+            (str(guild_id), str(user_id), safe_limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
 def create_announcement(title, content, author_id, author_name, kind="info", discord_message_id=None):
     with connect() as db:
         aid = make_id("announcement")
@@ -1480,7 +1538,7 @@ def purge_old_notifications(days=90):
 TABLES = [
     "notifications", "tasks", "task_history", "tickets", "ticket_events", "ticket_internal_notes", "ticket_links", "wiki_pages", "achievements",
     "achievement_progress", "trainings", "training_questions", "training_attempts", "meetings_history", "calendar_events",
-    "team_status", "handover_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
+    "team_status", "handover_notes", "shift_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_reason_templates", "mod_reason_template_versions",
 ]
