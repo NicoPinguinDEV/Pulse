@@ -1299,12 +1299,15 @@ def register(app):
     async def add_shift_note_dashboard(
         request: Request,
         note: str = Form(...),
+        return_to: str = Form(""),
         user_session: str = Cookie(None),
     ):
         """Create a note for the signed-in member's currently active shift."""
         c = cctx(request, user_session, perm=None)
         actor_id = str(c.user.get("id") or "")
-        back_url = f"/member/{actor_id}" if actor_id else "/team"
+        # Only the explicit same-origin personal page is accepted; all other callers
+        # return to the actor's own teamakte, never to a user-supplied URL.
+        back_url = "/me" if str(return_to or "").strip() == "/me" else (f"/member/{actor_id}" if actor_id else "/team")
         if not (c.perms.get("can_add_notes") or c.perms.get("is_admin")):
             raise HTTPException(403, "Dafür fehlt dir die Berechtigung zum Erstellen von Schichtnotizen.")
         content = str(note or "").strip()
