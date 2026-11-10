@@ -73,6 +73,50 @@ class ExtrasTests(TempDb):
         self.assertTrue(tx.remove_tag(self.tid, "bug"))
         self.assertEqual(tx.tags_for([]), {})
 
+    def test_similar_tickets_rank_same_guild_transcript_matches(self):
+        from pathlib import Path
+
+        transcripts = self.root / "transcripts"
+        transcripts.mkdir()
+        related_id = pulse_db.create_ticket("similar-channel", "1", "101", "Alter Bürger", "bug")
+        unrelated_id = pulse_db.create_ticket("unrelated-channel", "1", "102", "Andere Person", "support")
+        cross_guild_id = pulse_db.create_ticket("cross-channel", "2", "103", "Fremde Person", "bug")
+        unsafe_id = pulse_db.create_ticket("unsafe-channel", "1", "104", "Unsicher", "bug")
+        pulse_db.close_ticket(related_id, "archiviert", f"{related_id}.txt")
+        pulse_db.close_ticket(unrelated_id, "archiviert", f"{unrelated_id}.txt")
+        pulse_db.close_ticket(cross_guild_id, "archiviert", f"{cross_guild_id}.txt")
+        pulse_db.close_ticket(unsafe_id, "archiviert", f"../{unsafe_id}.txt")
+        (transcripts / f"{related_id}.txt").write_text(
+            "Fahrzeugdiebstahl am Kaufhaus Nord. Das gestohlene Fahrzeug wurde "
+            "später auf dem Parkplatz Nord gefunden. Kennzeichen prüfen.",
+            encoding="utf-8",
+        )
+        (transcripts / f"{unrelated_id}.txt").write_text(
+            "Account-Anmeldung schlägt fehl. Passwort zurücksetzen und E-Mail prüfen.",
+            encoding="utf-8",
+        )
+        (transcripts / f"{cross_guild_id}.txt").write_text(
+            "Fahrzeugdiebstahl am Kaufhaus Nord. Gestohlenes Fahrzeug und Kennzeichen prüfen.",
+            encoding="utf-8",
+        )
+        (transcripts / f"{unsafe_id}.txt").write_text(
+            "Fahrzeugdiebstahl Kaufhaus Nord gestohlenes Fahrzeug Kennzeichen prüfen.",
+            encoding="utf-8",
+        )
+        with patch.object(tx.pulse_paths, "DATA_DIR", self.root):
+            matches = tx.similar_tickets(
+                self.tid,
+                "1",
+                "Fahrzeugdiebstahl beim Kaufhaus Nord. Gestohlenes Fahrzeug auf Parkplatz "
+                "gefunden, Kennzeichen muss geprüft werden.",
+            )
+            too_short = tx.similar_tickets(self.tid, "1", "Hallo bitte danke.")
+
+        self.assertEqual([row["ticket_id"] for row in matches], [related_id])
+        self.assertGreater(matches[0]["score"], 0.1)
+        self.assertEqual(matches[0]["shared_term_count"], 4)
+        self.assertEqual(too_short, [])
+
     def test_ticket_links_are_bidirectional_persistent_and_removable(self):
         second_id = pulse_db.create_ticket("556", "1", "10", "Andere Person", "bug")
         self.assertTrue(tx.link_tickets(self.tid, second_id, 3, "Max", "Gehört zum selben Vorfall."))
