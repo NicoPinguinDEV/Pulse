@@ -784,11 +784,12 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 |---|---|---|---|---|
 | GET | `/warns.csv` | `pulse_pro.register.<locals>.warns_csv` | pulse_pro.py:2809 | angemeldet (+ can_warn, is_admin) |
 
-### `/wiki` (3)
+### `/wiki` (4)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
 | GET | `/wiki` | `pulse_features.register.<locals>.wiki_page` | pulse_features.py:53 | ctx (+ can_manage_wiki, can_promote, is_admin) |
 | POST | `/wiki/save` | `pulse_features.register.<locals>.wiki_save` | pulse_features.py:75 | angemeldet (+ can_manage_wiki, can_promote, is_admin) |
+| POST | `/wiki/{page_id}/restore/{version_number}` | `pulse_features.register.<locals>.wiki_restore_version` | pulse_features.py | can_manage_wiki, can_promote, is_admin |
 | GET | `/wiki/{page_id}` | `pulse_features.register.<locals>.wiki_detail` | pulse_features.py:65 | ctx (+ can_manage_wiki, can_promote, is_admin) |
 
