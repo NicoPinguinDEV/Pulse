@@ -209,7 +209,7 @@ SIMILAR_STOPWORDS = frozenset({
 def _ticket_terms(text: str) -> set[str]:
     normalized = unicodedata.normalize("NFKC", str(text or "")[:SIMILAR_MAX_QUERY_CHARS]).casefold()
     return {
-        token for token in re.findall(r"[^\\W_]{3,}", normalized)
+        token for token in re.findall(r"[^\W_]{3,}", normalized)
         if not token.isdigit() and token not in SIMILAR_STOPWORDS
     }
 
