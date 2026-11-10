@@ -126,6 +126,12 @@ def register(app):
             except Exception: pass
         score=round(correct/max(1,len(t['questions']))*100); passed=score>=t['passing_score']
         db.save_attempt(training_id,c.user['id'],c.user.get('global_name') or 'Team',score,passed)
+        try:
+            from cogs.pulse_suite import mark_training_assignment_result
+            mark_training_assignment_result(training_id, c.user["id"], passed)
+        except Exception as exc:
+            # The quiz result remains valid even when the optional assignment ledger is unavailable.
+            print(f"Schulungszuweisung konnte nicht aktualisiert werden: {type(exc).__name__}")
         ws.log_audit(c.user.get('global_name'),c.user['id'],'Schulung Abgelegt',f'{t["title"]}: {score}% · {"bestanden" if passed else "nicht bestanden"}')
         icon='✅' if passed else '❌'; textmsg=f'{icon} Ergebnis: {score}% – {"Bestanden" if passed else "Nicht bestanden"}.'
         return HTMLResponse(ws.simple_page(icon,'Testergebnis',textmsg,'<a href="/training" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zurück zu Schulungen</a>'))
