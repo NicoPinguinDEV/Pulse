@@ -203,7 +203,7 @@ def audit(gid,actor_id,actor_name,target_id,target_name,action,details):
         p=c.execute("SELECT hash FROM suite_audit ORDER BY rowid DESC LIMIT 1").fetchone();prev=p[0] if p else "GENESIS"
         raw="|".join(map(str,[eid,gid,at,actor_id,actor_name,target_id or "",target_name or "",action,details[:3000],rid,prev]));h=hashlib.sha256(raw.encode()).hexdigest()
         c.execute("INSERT INTO suite_audit VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",(eid,str(gid),at,str(actor_id),actor_name,str(target_id or ""),target_name or "",action,details[:3000],rid,prev,h))
-    try:db.record_event(action,"suite",target_id,actor_id,actor_name,{"request_id":rid,"details":details})
+    try:db.record_event(action,"suite",target_id,actor_id,actor_name,{"request_id":rid,"details":details},correlation_id=rid)
     except Exception:pass
     return rid
 
