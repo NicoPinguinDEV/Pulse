@@ -312,6 +312,18 @@ def init_db():
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS training_feedback (
+                training_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+                feedback TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(training_id,user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_training_feedback_training
+                ON training_feedback(training_id, rating, updated_at DESC);
+
             CREATE INDEX IF NOT EXISTS idx_training_attempts_user ON training_attempts(user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_training_attempts_training ON training_attempts(training_id, created_at DESC);
 
@@ -1368,6 +1380,86 @@ def training_path_progress(path_id, user_id):
     return {"completed": completed, "total": total, "percent": round(completed / total * 100) if total else 0}
 
 
+def has_training_attempt(training_id, user_id) -> bool:
+    """Require an actual submitted training attempt before feedback can be sent."""
+    with connect() as db:
+        return db.execute(
+            "SELECT 1 FROM training_attempts WHERE training_id=? AND user_id=? LIMIT 1",
+            (str(training_id), str(user_id)),
+        ).fetchone() is not None
+
+
+def get_training_feedback(training_id, user_id):
+    with connect() as db:
+        row = db.execute(
+            "SELECT rating,feedback,created_at,updated_at FROM training_feedback WHERE training_id=? AND user_id=?",
+            (str(training_id), str(user_id)),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def save_training_feedback(training_id, user_id, rating, feedback=""):
+    """Upsert one private-per-user feedback entry, only after the user attended the training."""
+    rating = int(rating)
+    if rating < 1 or rating > 5:
+        raise ValueError("Die Bewertung muss zwischen 1 und 5 Sternen liegen.")
+    feedback = str(feedback or "").strip()
+    if len(feedback) > 500:
+        raise ValueError("Das Feedback darf höchstens 500 Zeichen enthalten.")
+    training_id = str(training_id)
+    user_id = str(user_id)
+    with connect() as db:
+        if db.execute("SELECT 1 FROM trainings WHERE id=?", (training_id,)).fetchone() is None:
+            raise ValueError("Schulung nicht gefunden.")
+        if db.execute(
+            "SELECT 1 FROM training_attempts WHERE training_id=? AND user_id=? LIMIT 1",
+            (training_id, user_id),
+        ).fetchone() is None:
+            raise ValueError("Feedback ist erst nach einer absolvierten Schulung möglich.")
+        now = _now()
+        db.execute(
+            """
+            INSERT INTO training_feedback
+                (training_id,user_id,rating,feedback,created_at,updated_at)
+            VALUES(?,?,?,?,?,?)
+            ON CONFLICT(training_id,user_id) DO UPDATE SET
+                rating=excluded.rating,
+                feedback=excluded.feedback,
+                updated_at=excluded.updated_at
+            """,
+            (training_id, user_id, rating, feedback, now, now),
+        )
+        row = db.execute(
+            "SELECT rating,feedback,created_at,updated_at FROM training_feedback WHERE training_id=? AND user_id=?",
+            (training_id, user_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def training_feedback_summary(training_id):
+    """Return anonymized aggregate scores and comments for training owners."""
+    with connect() as db:
+        aggregate = db.execute(
+            "SELECT COUNT(*) AS count, AVG(rating) AS average FROM training_feedback WHERE training_id=?",
+            (str(training_id),),
+        ).fetchone()
+        distribution = db.execute(
+            "SELECT rating, COUNT(*) AS count FROM training_feedback WHERE training_id=? GROUP BY rating",
+            (str(training_id),),
+        ).fetchall()
+        comments = db.execute(
+            "SELECT rating,feedback,updated_at FROM training_feedback "
+            "WHERE training_id=? AND TRIM(feedback)!='' ORDER BY updated_at DESC LIMIT 50",
+            (str(training_id),),
+        ).fetchall()
+    return {
+        "count": int(aggregate["count"] or 0),
+        "average": round(float(aggregate["average"] or 0), 2),
+        "distribution": {int(row["rating"]): int(row["count"]) for row in distribution},
+        "comments": [dict(row) for row in comments],
+    }
+
+
 def save_attempt(training_id, user_id, user_name, score, passed):
     with connect() as db:
         aid = make_id("attempt")
@@ -1831,7 +1923,7 @@ def purge_old_notifications(days=90):
 
 TABLES = [
     "notifications", "tasks", "task_history", "tickets", "ticket_events", "ticket_internal_notes", "ticket_links", "wiki_pages", "wiki_page_versions", "achievements",
-    "achievement_progress", "trainings", "training_questions", "training_attempts", "training_paths", "training_path_items", "meetings_history", "calendar_events",
+    "achievement_progress", "trainings", "training_questions", "training_attempts", "training_feedback", "training_paths", "training_path_items", "meetings_history", "calendar_events",
     "team_status", "handover_notes", "shift_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_reason_templates", "mod_reason_template_versions",

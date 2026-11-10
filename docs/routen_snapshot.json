@@ -347,6 +347,7 @@
  "POST /tickets/update -> pulse_pro.register.<locals>.ticket_update_v5",
  "POST /training/{training_id}/submit -> pulse_features.register.<locals>.training_submit",
  "POST /training/create -> pulse_features.register.<locals>.training_create",
+ "POST /training/{training_id}/feedback -> pulse_features.register.<locals>.training_feedback_submit",
  "POST /training/paths/save -> pulse_features.register.<locals>.training_path_save",
  "POST /ultimate/announcements/{announcement_id}/read -> pulse_next.register.<locals>.announcement_read",
  "POST /ultimate/announcements/create -> pulse_next.register.<locals>.announcements_create",
