@@ -850,42 +850,48 @@ def choose_ticket_auto_assignee(guild, category_key: str):
     if not settings["enabled"]:
         return None
 
-    role_ids = {int(role.id) for role in category_roles(guild, category_key)}
-    if not role_ids:
+    try:
+        role_ids = {int(role.id) for role in category_roles(guild, category_key)}
+        if not role_ids:
+            return None
+
+        import webserver
+        config = webserver.load_config()
+        candidates = []
+        for member in list(getattr(guild, "members", []) or []):
+            if getattr(member, "bot", False):
+                continue
+            member_role_ids = {
+                int(role.id) for role in getattr(member, "roles", [])
+                if getattr(role, "id", None) is not None
+            }
+            if not role_ids.intersection(member_role_ids):
+                continue
+            perms, _ = webserver.compute_perms(guild, member.id, config)
+            if not (perms.get("can_manage_tickets") or perms.get("is_admin")):
+                continue
+            candidates.append({
+                "id": member.id,
+                "name": getattr(member, "display_name", None) or getattr(member, "name", None) or str(member.id),
+                "bot": False,
+            })
+
+        workload_tickets = [
+            ticket for ticket in list_tickets(limit=2000, open_only=True)
+            if str(ticket.get("guild_id") or "") == str(guild.id)
+        ]
+        selected = choose_assignee(
+            candidates,
+            workload_tickets,
+            guild.id,
+            settings["max_open_per_staff"],
+        )
+        return guild.get_member(int(selected["id"])) if selected else None
+    except Exception as exc:
+        # Assignment is optional: a stale cache/config must never prevent ticket creation.
+        print(f"⚠️ Pulse-Tickets: automatische Zuweisung übersprungen ({type(exc).__name__}: {exc}).")
+        pulse_jobs.record_error("Ticket-Auto-Zuweisung", exc)
         return None
-
-    import webserver
-    config = webserver.load_config()
-    candidates = []
-    for member in list(getattr(guild, "members", []) or []):
-        if getattr(member, "bot", False):
-            continue
-        member_role_ids = {
-            int(role.id) for role in getattr(member, "roles", [])
-            if getattr(role, "id", None) is not None
-        }
-        if not role_ids.intersection(member_role_ids):
-            continue
-        perms, _ = webserver.compute_perms(guild, member.id, config)
-        if not (perms.get("can_manage_tickets") or perms.get("is_admin")):
-            continue
-        candidates.append({
-            "id": member.id,
-            "name": getattr(member, "display_name", None) or getattr(member, "name", None) or str(member.id),
-            "bot": False,
-        })
-
-    workload_tickets = [
-        ticket for ticket in list_tickets(limit=2000, open_only=True)
-        if str(ticket.get("guild_id") or "") == str(guild.id)
-    ]
-    selected = choose_assignee(
-        candidates,
-        workload_tickets,
-        guild.id,
-        settings["max_open_per_staff"],
-    )
-    return guild.get_member(int(selected["id"])) if selected else None
 
 
 async def _create_ticket_channel(interaction: discord.Interaction, key: str, panel_id: str | None, answers: list):
