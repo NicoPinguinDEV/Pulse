@@ -7,10 +7,15 @@ existing tickets columns and the existing ticket_events log.
 from __future__ import annotations
 
 import html
+import os
 import re
+import unicodedata
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 import pulse_db
+import pulse_paths
+from pulse_safe_path import contained_file
 
 REPLIES_KEY = "ticket_quick_replies"   # {"*": [{"title","text"}], "<category>": [...]}
 BLOCKS_KEY = "ticket_blocks"           # {"<user_id>": {"until","reason","by","at"}}
@@ -181,6 +186,127 @@ def tags_for(ticket_ids) -> dict[str, list[str]]:
             for tid, tag in rows:
                 out.setdefault(tid, []).append(tag)
     return out
+
+
+# ------------------------------------------------------------------ deterministic similar-ticket suggestions
+SIMILAR_MAX_CANDIDATES = 80
+SIMILAR_MAX_TRANSCRIPT_BYTES = 128 * 1024
+SIMILAR_MAX_QUERY_CHARS = 12_000
+SIMILAR_STOPWORDS = frozenset({
+    "aber", "als", "also", "am", "an", "and", "auf", "aus", "bei", "bin", "bis",
+    "bitte", "bochum", "das", "dass", "dein", "deine", "dem", "den", "der", "des",
+    "die", "dies", "doch", "du", "durch", "ein", "eine", "einem", "einen", "einer",
+    "eines", "er", "es", "euch", "euer", "für", "gegen", "habe", "haben", "hat",
+    "hier", "ich", "ihr", "ihre", "ihren", "im", "in", "ist", "ja", "kann",
+    "können", "man", "mehr", "mit", "muss", "nach", "nicht", "noch", "oder",
+    "ohne", "richtig", "rp", "sein", "seine", "server", "sie", "sind", "support",
+    "und", "uns", "unter", "vom", "von", "vor", "war", "warum", "was", "weil",
+    "weiter", "wenn", "werden", "wie", "wir", "wird", "wo", "wurde", "zu", "zum",
+    "zur", "ticket", "tickets", "hallo", "danke", "guten", "tag",
+})
+
+
+def _ticket_terms(text: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKC", str(text or "")[:SIMILAR_MAX_QUERY_CHARS]).casefold()
+    return {
+        token for token in re.findall(r"[^\\W_]{3,}", normalized)
+        if not token.isdigit() and token not in SIMILAR_STOPWORDS
+    }
+
+
+def _read_candidate_transcript(filename: str) -> str:
+    """Read only a bounded regular .txt file inside the configured transcript directory."""
+    filename = str(filename or "").strip()
+    if (
+        not filename
+        or Path(filename).name != filename
+        or "/" in filename
+        or "\\" in filename
+        or not filename.lower().endswith(".txt")
+    ):
+        return ""
+    base = os.path.join(str(pulse_paths.DATA_DIR), "transcripts")
+    target = contained_file(base, filename)
+    if target is None:
+        return ""
+    try:
+        if not os.path.isfile(target) or os.path.getsize(target) > SIMILAR_MAX_TRANSCRIPT_BYTES:
+            return ""
+        with open(target, "r", encoding="utf-8", errors="replace") as handle:
+            return handle.read(SIMILAR_MAX_TRANSCRIPT_BYTES)
+    except OSError:
+        return ""
+
+
+def similar_tickets(
+    ticket_id: str,
+    guild_id,
+    query_text: str,
+    limit: int = 5,
+) -> list[dict]:
+    """Rank closed same-guild tickets by local transcript term overlap; never call an external AI service."""
+    ticket_id = str(ticket_id or "").strip()
+    guild_id = str(guild_id or "").strip()
+    query_terms = _ticket_terms(query_text)
+    if not ticket_id or not guild_id or len(query_terms) < 2:
+        return []
+    try:
+        page_size = max(1, min(int(limit), 10))
+    except (TypeError, ValueError):
+        page_size = 5
+
+    with pulse_db.connect() as db:
+        current = db.execute(
+            "SELECT category FROM tickets WHERE id=? AND CAST(guild_id AS TEXT)=?",
+            (ticket_id, guild_id),
+        ).fetchone()
+        if current is None:
+            return []
+        candidates = db.execute(
+            """
+            SELECT id, category, status, priority, user_name, channel_id,
+                   transcript_path, opened_at, closed_at
+            FROM tickets
+            WHERE CAST(guild_id AS TEXT)=? AND id<>? AND status='closed'
+                  AND COALESCE(transcript_path,'')<>''
+            ORDER BY COALESCE(closed_at,opened_at) DESC
+            LIMIT ?
+            """,
+            (guild_id, ticket_id, SIMILAR_MAX_CANDIDATES),
+        ).fetchall()
+
+    ranked = []
+    for row in candidates:
+        transcript = _read_candidate_transcript(row["transcript_path"])
+        candidate_terms = _ticket_terms(transcript)
+        shared = query_terms & candidate_terms
+        if len(shared) < 2:
+            continue
+        union = query_terms | candidate_terms
+        lexical_score = len(shared) / max(1, len(union))
+        same_category = str(row["category"] or "") == str(current["category"] or "")
+        score = min(1.0, lexical_score * 0.9 + (0.1 if same_category else 0.0))
+        ranked.append({
+            "ticket_id": str(row["id"]),
+            "category": str(row["category"] or ""),
+            "status": str(row["status"] or ""),
+            "priority": str(row["priority"] or "normal"),
+            "user_name": str(row["user_name"] or ""),
+            "channel_id": str(row["channel_id"] or ""),
+            "opened_at": str(row["opened_at"] or ""),
+            "closed_at": str(row["closed_at"] or ""),
+            "score": round(score, 4),
+            "shared_term_count": len(shared),
+            "same_category": same_category,
+        })
+    ranked.sort(
+        key=lambda item: (
+            -item["score"],
+            -item["shared_term_count"],
+            item["ticket_id"],
+        )
+    )
+    return ranked[:page_size]
 
 
 # ------------------------------------------------------------------ related ticket links (staff-only)
