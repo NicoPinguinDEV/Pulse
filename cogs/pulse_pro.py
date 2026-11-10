@@ -561,7 +561,20 @@ class PulsePro(commands.Cog):
                 "online": "🟢 Im Dienst",
                 "break": "☕ In Pause",
             }.get((own_shift or {}).get("status"), "⚪ Nicht im Dienst")
-            role_name = webserver.member_role(member, cfg.get("team_role_ids", []))
+            configured_team_roles = {
+                int(role_id) for role_id in cfg.get("team_role_ids", [])
+                if str(role_id).isdigit()
+            }
+            member_team_roles = [
+                role for role in getattr(member, "roles", [])
+                if int(getattr(role, "id", 0) or 0) in configured_team_roles
+            ]
+            highest_team_role = max(
+                member_team_roles,
+                key=lambda role: int(getattr(role, "position", 0) or 0),
+                default=None,
+            )
+            role_name = getattr(highest_team_role, "name", "Keine Teamrolle")
             display_name = getattr(member, "display_name", None) or getattr(interaction.user, "display_name", "Teammitglied")
 
             embed = discord.Embed(
