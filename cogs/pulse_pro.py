@@ -392,7 +392,7 @@ class PulsePro(commands.Cog):
                         rows.append(f"• {favorites.command_mention(self.bot.tree, name)}")
                     else:
                         rows.append("• Ein gespeicherter Befehl ist derzeit nicht verfügbar.")
-                embed.add_field(name=f"Gespeichert ({len(saved)}/{favorites.MAX_FAVORITES})", value="\\n".join(rows)[:1024], inline=False)
+                embed.add_field(name=f"Gespeichert ({len(saved)}/{favorites.MAX_FAVORITES})", value="\n".join(rows)[:1024], inline=False)
             embed.set_footer(text="Favoriten ändern keine Berechtigungen. Rechte werden bei jedem Befehl erneut geprüft.")
             await interaction.response.send_message(embed=embed, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
             return
