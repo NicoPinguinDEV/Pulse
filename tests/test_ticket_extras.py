@@ -108,7 +108,6 @@ class ExtrasTests(TempDb):
             tx.add_internal_note(self.tid, 3, "Max", "Dieses Ticket ist bereits geschlossen.")
 
 
-class InternalNoteModalTests(TempDb):
     def test_modal_rechecks_ticket_team_permission_before_persisting(self):
         from cogs import ticket_tools
 
