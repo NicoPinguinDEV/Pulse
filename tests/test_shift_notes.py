@@ -177,6 +177,13 @@ NOTE_WRITER = dict(TEAMLER, can_add_notes=True)
 
 
 class ShiftNoteDashboardRouteTests(unittest.TestCase):
+    def test_personal_home_exposes_the_shift_notes_widget(self):
+        from pulse_home import DEFAULT_HOME_WIDGETS, HOME_WIDGETS, normalize_home_widgets
+
+        self.assertIn(("shift_notes", "Schichtnotizen"), HOME_WIDGETS)
+        self.assertIn("shift_notes", DEFAULT_HOME_WIDGETS)
+        self.assertIn("shift_notes", normalize_home_widgets(["shift_notes"]))
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         base = Path(self.tmp.name)
@@ -218,13 +225,34 @@ class ShiftNoteDashboardRouteTests(unittest.TestCase):
             ),
         ):
             response = self.client.post(
-                "/shift/notes", data={"note": "Dashboard-Übergabe abgeschlossen"},
+                "/shift/notes",
+                data={"note": "Dashboard-Übergabe abgeschlossen", "return_to": "/me"},
                 follow_redirects=False,
             )
         self.assertIn(response.status_code, (302, 303))
+        self.assertTrue(response.headers["location"].startswith("/me"))
         notes = pulse_db.list_shift_notes(GUILD.id, "123")
         self.assertEqual(len(notes), 1)
         self.assertEqual(notes[0]["note"], "Dashboard-Übergabe abgeschlossen")
+
+    def test_dashboard_form_rejects_external_return_targets(self):
+        with (
+            patch.object(ws, "auth", fake_auth_for(NOTE_WRITER)),
+            patch(
+                "pulse_shift_history.load_member_view",
+                return_value={"active_shifts": {"123": {
+                    "started_at_iso": "2026-11-10T18:00:00+01:00",
+                    "status": "online",
+                }}},
+            ),
+        ):
+            response = self.client.post(
+                "/shift/notes",
+                data={"note": "Sichere Rückleitung", "return_to": "https://evil.invalid/"},
+                follow_redirects=False,
+            )
+        self.assertIn(response.status_code, (302, 303))
+        self.assertTrue(response.headers["location"].startswith("/member/123"))
 
     def test_dashboard_form_rejects_view_only_members(self):
         with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
