@@ -93,9 +93,42 @@ def system_health(components):
     }
 
 
+def ticket_intake_counts(connection, now=None):
+    """Count opened tickets in two non-overlapping, recent seven-day windows (read-only)."""
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    current_start = (current - timedelta(days=7)).isoformat(timespec="seconds")
+    previous_start = (current - timedelta(days=14)).isoformat(timespec="seconds")
+    current_count = int(connection.execute(
+        "SELECT COUNT(*) FROM tickets WHERE julianday(opened_at)>=julianday(?)",
+        (current_start,),
+    ).fetchone()[0] or 0)
+    previous_count = int(connection.execute(
+        "SELECT COUNT(*) FROM tickets WHERE julianday(opened_at)>=julianday(?) "
+        "AND julianday(opened_at)<julianday(?)",
+        (previous_start, current_start),
+    ).fetchone()[0] or 0)
+    return {"tickets_opened_7d": current_count, "tickets_opened_prev_7d": previous_count}
+
+
 def build_findings(metrics):
     """Create actionable, explainable recommendations from measured metrics."""
     findings = []
+    current_intake = max(0, int(metrics.get("tickets_opened_7d", 0) or 0))
+    previous_intake = max(0, int(metrics.get("tickets_opened_prev_7d", 0) or 0))
+    intake_delta = current_intake - previous_intake
+    if current_intake >= 5 and intake_delta >= 3 and (previous_intake == 0 or current_intake >= previous_intake * 1.5):
+        change = "keine erfassten neuen Tickets" if previous_intake == 0 else f"+{round(intake_delta * 100 / previous_intake)}%"
+        findings.append({
+            "priority": "medium", "topic": "tickets",
+            "title": f"Ticketzugang gestiegen: {current_intake} in 7 Tagen ({change})",
+            "why": (
+                f"Im vorherigen 7-Tage-Fenster waren es {previous_intake}. "
+                "Die Regel markiert nur einen deutlichen Anstieg; kleine Fallzahlen sind vorsichtig zu bewerten."
+            ),
+            "href": "/tickets",
+        })
     if int(metrics.get("ticket_sla_overdue", 0) or 0) > 0:
         count = int(metrics["ticket_sla_overdue"])
         findings.append({
@@ -180,6 +213,11 @@ def build_copilot_report(question, metrics):
             f"{int(metrics.get('urgent_tickets', 0) or 0)} davon dringend und "
             f"{int(metrics.get('ticket_sla_overdue', 0) or 0)} über dem SLA."
         )
+        if "tickets_opened_7d" in metrics and "tickets_opened_prev_7d" in metrics:
+            summary += (
+                f" In den letzten 7 Tagen kamen {int(metrics.get('tickets_opened_7d', 0) or 0)} Tickets dazu; "
+                f"im vorherigen 7-Tage-Fenster waren es {int(metrics.get('tickets_opened_prev_7d', 0) or 0)}."
+            )
     elif any(word in lowered for word in ("ram", "speicher", "performance", "system", "fehler", "störung")):
         focus = "system"
         rss = metrics.get("rss_mb")
@@ -374,6 +412,8 @@ def collect_snapshot(request):
         "open_tickets": 0,
         "urgent_tickets": 0,
         "ticket_sla_overdue": 0,
+        "tickets_opened_7d": 0,
+        "tickets_opened_prev_7d": 0,
         "overdue_tasks": 0,
         "open_cases": 0,
         "automations_enabled": 0,
@@ -402,6 +442,7 @@ def collect_snapshot(request):
                 "SELECT COUNT(*) FROM tickets WHERE lower(coalesce(status,'')) NOT IN ('closed','resolved','done','archived','cancelled') AND lower(priority)='urgent'"
             ).fetchone()[0])
             metrics["ticket_sla_overdue"] = sum(ticket_is_overdue(ticket, now) for ticket in tickets)
+            metrics.update(ticket_intake_counts(connection, now))
             tasks = [dict(row) for row in connection.execute(
                 "SELECT due_at,status FROM tasks WHERE due_at IS NOT NULL AND lower(coalesce(status,'')) NOT IN ('done','archived') ORDER BY due_at ASC LIMIT 1000"
             ).fetchall()]
