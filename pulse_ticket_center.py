@@ -47,6 +47,21 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
     actor_id = str(ctx.user["id"])
     now = datetime.now(timezone.utc)
     settings = automation_settings(ws.pulse_ticket_config().get("automation"))
+    category_sla_count = len(settings.get("category_sla") or {})
+
+    def global_sla_label(key: str, label: str, unit: str) -> str:
+        value = int(settings.get(key, 0) or 0)
+        return f"{label} {value} {unit}" if value else f"{label} aus"
+
+    sla_explanation = (
+        "Globale Standards: "
+        + ", ".join((
+            global_sla_label("unclaimed_ping_minutes", "Übernahme", "Min."),
+            global_sla_label("staff_reply_hours", "Team-Antwort", "Std."),
+            global_sla_label("user_reminder_hours", "Ersteller-Antwort", "Std."),
+        ))
+        + f". Kategorie-Overrides: {category_sla_count}. Leere Felder übernehmen den globalen Wert; 0 deaktiviert die jeweilige Kategorie-Regel."
+    )
     registry = ws.pulse_ticket_category_registry()
 
     tickets = [t for t in db.list_tickets(limit=2000) if str(t.get("guild_id")) in {"", "None", str(guild.id)}]
@@ -189,6 +204,6 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
  </form>
  <div class="pulse-list">{"".join(row(t, i) for t, i in visible) or f'<div class="pulse-empty">{empty_text}</div>'}</div>
  {pager}
- <p class="text-[10px] text-slate-400 mt-3">Überfällig nach den Schwellen der Ticket-Automatik: Übernahme {settings["unclaimed_ping_minutes"] or 30} Min., Team-Antwort {settings["staff_reply_hours"] or 12} Std., Ersteller-Antwort {settings["user_reminder_hours"] or 24} Std. Wartezeiten stammen aus den letzten Nachrichten im Ticket; für ältere Tickets kann die Angabe fehlen.</p>
+ <p class="text-[10px] text-slate-400 mt-3">{e(sla_explanation)} Wartezeiten stammen aus den letzten Nachrichten im Ticket; für ältere Tickets kann die Angabe fehlen.</p>
 </div></section>'''
     return render_pro_page(ws, "Tickets", ctx, "tickets", body)
