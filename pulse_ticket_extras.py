@@ -348,7 +348,7 @@ def build_ticket_summary(messages, limit: int = 5) -> dict:
     sentences = []
     frequencies: dict[str, int] = {}
     for row_index, row in enumerate(clean):
-        parts = re.split(r"(?<=[.!?])\\s+|\\n+", row["content"])
+        parts = re.split(r"(?<=[.!?])\s+|\n+", row["content"])
         for part_index, part in enumerate(parts):
             text = part.strip()
             terms = _ticket_terms(text)
