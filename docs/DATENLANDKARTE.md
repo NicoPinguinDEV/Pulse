@@ -36,7 +36,7 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 
 ## Tabellen (CREATE TABLE im Code) und JSON-Backup-Abdeckung von `pulse.db`
 
-`pulse_db.export_state()` exportiert 22 Tabellen (`TABLES`). Tabellen anderer Datenbanken stehen nur informativ dabei.
+`pulse_db.export_state()` exportiert 23 Tabellen (`TABLES`). Tabellen anderer Datenbanken stehen nur informativ dabei.
 
 | Tabelle | angelegt in | im JSON-Backup (`export_state`) |
 |---|---|---|
@@ -106,6 +106,7 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 | `team_safety_warn_events` | `pulse_db.py` | ✅ |
 | `team_status` | `pulse_db.py` | ✅ |
 | `ticket_events` | `pulse_db.py` | ✅ |
+| `ticket_internal_notes` | `pulse_db.py`, `pulse_ticket_extras.py` | ✅ |
 | `ticket_tags` | `pulse_ticket_extras.py` | ❌ |
 | `tickets` | `pulse_db.py` | ✅ |
 | `training_attempts` | `pulse_db.py` | ✅ |
