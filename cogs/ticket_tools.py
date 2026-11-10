@@ -223,6 +223,72 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
+    @app_commands.command(name="aehnliche", description="Ähnliche, bereits archivierte Tickets anhand ihrer Verläufe finden.")
+    async def aehnliche(self, interaction: discord.Interaction):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        query_parts = []
+        total_chars = 0
+        try:
+            async for message in interaction.channel.history(limit=50, oldest_first=False):
+                if getattr(message.author, "bot", False):
+                    continue
+                text = str(getattr(message, "content", "") or "").strip()
+                if not text:
+                    continue
+                remaining = tx.SIMILAR_MAX_QUERY_CHARS - total_chars
+                if remaining <= 0:
+                    break
+                text = text[:min(1200, remaining)]
+                query_parts.append(text)
+                total_chars += len(text)
+        except (discord.Forbidden, discord.HTTPException):
+            await interaction.followup.send(
+                "Der Ticketverlauf konnte nicht gelesen werden. Bitte die Kanal-Berechtigungen prüfen.",
+                ephemeral=True,
+            )
+            return
+
+        matches = tx.similar_tickets(
+            ticket["id"],
+            interaction.guild.id,
+            "\\n".join(query_parts),
+            limit=5,
+        )
+        if not matches:
+            await interaction.followup.send(
+                "Keine ausreichend ähnlichen archivierten Tickets mit lesbarem Transkript gefunden.",
+                ephemeral=True,
+            )
+            return
+
+        lines = []
+        for item in matches:
+            ticket_id = discord.utils.escape_markdown(item["ticket_id"])
+            category = discord.utils.escape_markdown(item["category"] or "–")
+            status = discord.utils.escape_markdown(item["status"] or "geschlossen")
+            customer = discord.utils.escape_markdown(item["user_name"] or "Unbekannt")[:80]
+            channel_id = str(item.get("channel_id") or "")
+            channel_ref = f"<#{channel_id}>" if channel_id.isdigit() else "Kanal nicht verfügbar"
+            percent = round(float(item["score"]) * 100)
+            lines.append(
+                f"**{ticket_id}** · {category} · {status} · {percent}% Übereinstimmung\\n"
+                f"{customer} · {channel_ref} · {item['shared_term_count']} gemeinsame Begriffe"
+            )
+        embed = discord.Embed(
+            title=f"🔎 Ähnliche Tickets · {ticket['id']}",
+            description="\\n\\n".join(lines)[:4096],
+            color=0x64748B,
+        )
+        embed.set_footer(text="Lokaler Textvergleich archivierter Transkripte · keine externe KI")
+        await interaction.followup.send(
+            embed=embed,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
     @app_commands.command(name="antwort", description="Schnellantwort für diese Ticket-Kategorie senden.")
     @app_commands.describe(vorlage="Titel der Schnellantwort")
     async def antwort(self, interaction: discord.Interaction, vorlage: str):
