@@ -44,6 +44,10 @@ PANEL_DEFAULTS = {
 
 IMAGE_KINDS = ("thumbnail", "banner", "welcome_thumbnail", "welcome_banner")
 
+AUTOMATION_SLA_KEYS = ("unclaimed_ping_minutes", "staff_reply_hours", "user_reminder_hours")
+CATEGORY_KEY_RE = re.compile(r"^[a-z0-9_-]{1,80}$")
+
+
 AUTOMATION_DEFAULTS = {
     "unclaimed_ping_minutes": 30,     # 0 = aus: zuständige Rollen erinnern, wenn niemand übernimmt
     "staff_reply_hours": 12,          # 0 = aus: Bearbeiter erinnern, wenn der Nutzer auf Antwort wartet
@@ -154,14 +158,65 @@ def detect_image_type(data: bytes) -> str | None:
 
 
 def automation_settings(raw: dict | None) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
     settings = dict(AUTOMATION_DEFAULTS)
     for key, default in AUTOMATION_DEFAULTS.items():
         try:
-            value = int((raw or {}).get(key, default))
+            value = int(raw.get(key, default))
         except (TypeError, ValueError):
             value = default
         settings[key] = max(0, min(value, 24 * 14 if key.endswith("hours") else 24 * 60))
+
+    # Category values are optional overrides. Missing keys inherit the global value;
+    # an explicit zero disables that reminder only for the selected category.
+    category_sla = {}
+    raw_category_sla = raw.get("category_sla")
+    if isinstance(raw_category_sla, dict):
+        for category, values in list(raw_category_sla.items())[:100]:
+            category = str(category or "").strip().lower()
+            if not CATEGORY_KEY_RE.fullmatch(category) or not isinstance(values, dict):
+                continue
+            overrides = {}
+            for key in AUTOMATION_SLA_KEYS:
+                if key not in values:
+                    continue
+                try:
+                    value = int(values[key])
+                except (TypeError, ValueError):
+                    continue
+                maximum = 24 * 14 if key.endswith("hours") else 24 * 60
+                overrides[key] = max(0, min(value, maximum))
+            if overrides:
+                category_sla[category] = overrides
+    settings["category_sla"] = category_sla
     return settings
+
+
+def category_automation_settings(category: str, settings: dict | None) -> dict:
+    """Resolve per-category SLA overrides while preserving all global automation values."""
+    resolved = dict(settings or AUTOMATION_DEFAULTS)
+    category_key = str(category or "").strip().lower()
+    overrides = (resolved.get("category_sla") or {}).get(category_key, {})
+    if isinstance(overrides, dict):
+        for key in AUTOMATION_SLA_KEYS:
+            if key in overrides:
+                resolved[key] = overrides[key]
+    return resolved
+
+
+def automation_enabled(settings: dict | None) -> bool:
+    """True when at least one global rule or category-specific reminder is active."""
+    settings = settings or {}
+    if any(int(settings.get(key, 0) or 0) > 0 for key in AUTOMATION_DEFAULTS):
+        return True
+    category_sla = settings.get("category_sla")
+    return bool(
+        isinstance(category_sla, dict)
+        and any(
+            isinstance(values, dict) and any(int(values.get(key, 0) or 0) > 0 for key in AUTOMATION_SLA_KEYS)
+            for values in category_sla.values()
+        )
+    )
 
 
 def _parse(value) -> datetime | None:
@@ -188,6 +243,7 @@ def automation_actions(ticket: dict, settings: dict, now: datetime) -> list[str]
     """Decide which reminders are due for one open ticket; each fires once per situation."""
     if ticket.get("status") == "closed":
         return []
+    settings = category_automation_settings(ticket.get("category"), settings)
     state = load_state(ticket.get("automation_state"))
     opened = _parse(ticket.get("opened_at"))
     last_user = _parse(ticket.get("last_user_message_at"))

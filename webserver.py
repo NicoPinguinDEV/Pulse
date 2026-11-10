@@ -6227,14 +6227,48 @@ async def pulse_ticket_automation_save(
     staff_reply_hours: int = Form(0),
     user_reminder_hours: int = Form(0),
     auto_close_hours: int = Form(0),
+    auto_assign_enabled: bool = Form(False),
+    max_open_per_staff: int = Form(5),
     user_session: str = Cookie(None),
 ):
     auth(request, user_session, admin=True)
     from pulse_ticket_design import automation_settings
+    from pulse_ticket_distribution import distribution_settings
     settings = pulse_ticket_config()
+    current_automation = automation_settings(settings.get("automation"))
+    category_sla = {
+        key: dict(value)
+        for key, value in current_automation.get("category_sla", {}).items()
+        if isinstance(value, dict)
+    }
+    form = await request.form()
+    pattern = re.compile(r"^sla__([a-z0-9_-]{1,80})__(unclaimed_ping_minutes|staff_reply_hours|user_reminder_hours)$")
+    for field, raw_value in form.multi_items():
+        match = pattern.fullmatch(str(field))
+        if not match:
+            continue
+        category, key = match.groups()
+        raw_value = str(raw_value or "").strip()
+        if not raw_value:
+            category_sla.get(category, {}).pop(key, None)
+        else:
+            try:
+                category_sla.setdefault(category, {})[key] = int(raw_value)
+            except (TypeError, ValueError):
+                return back("/tickets/panels?tab=automation", f"Ungültiger SLA-Wert für Kategorie {category}.", False)
+        if category in category_sla and not category_sla[category]:
+            category_sla.pop(category, None)
+
     settings["automation"] = automation_settings({
-        "unclaimed_ping_minutes": unclaimed_ping_minutes, "staff_reply_hours": staff_reply_hours,
-        "user_reminder_hours": user_reminder_hours, "auto_close_hours": auto_close_hours,
+        "unclaimed_ping_minutes": unclaimed_ping_minutes,
+        "staff_reply_hours": staff_reply_hours,
+        "user_reminder_hours": user_reminder_hours,
+        "auto_close_hours": auto_close_hours,
+        "category_sla": category_sla,
+    })
+    settings["distribution"] = distribution_settings({
+        "enabled": auto_assign_enabled,
+        "max_open_per_staff": max_open_per_staff,
     })
     pulse_db.set_setting("ticket_system_config", settings)
     return back("/tickets/panels?tab=automation", "Ticket-Automatik gespeichert.", True)

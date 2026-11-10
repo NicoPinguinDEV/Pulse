@@ -73,6 +73,134 @@ class ExtrasTests(TempDb):
         self.assertTrue(tx.remove_tag(self.tid, "bug"))
         self.assertEqual(tx.tags_for([]), {})
 
+    def test_ticket_handover_summary_extracts_points_and_ignores_bot_messages(self):
+        summary = tx.build_ticket_summary([
+            {
+                "author": "Bürger",
+                "created_at": "2026-11-10T10:00:00+00:00",
+                "content": "Mein Fahrzeug wurde am Bahnhof gestohlen. Das Kennzeichen lautet BO AB 123.",
+                "attachment_count": 2,
+            },
+            {
+                "author": "Pulse Bot",
+                "created_at": "2026-11-10T10:01:00+00:00",
+                "content": "Dieses Bot-Menü soll nicht als Fallinhalt erscheinen.",
+                "is_bot": True,
+                "attachment_count": 9,
+            },
+            {
+                "author": "Support",
+                "created_at": "2026-11-10T10:02:00+00:00",
+                "content": "Wir prüfen die Kameraaufnahmen am Bahnhof und melden uns mit dem Ergebnis.",
+            },
+        ])
+
+        self.assertEqual(summary["message_count"], 2)
+        self.assertEqual(summary["participants"], ["Bürger", "Support"])
+        self.assertEqual(summary["attachment_count"], 2)
+        self.assertEqual(summary["first_at"], "2026-11-10T10:00:00+00:00")
+        self.assertEqual(summary["last_at"], "2026-11-10T10:02:00+00:00")
+        self.assertTrue(summary["key_points"])
+        self.assertTrue(any("Kennzeichen" in point["content"] for point in summary["key_points"]))
+        self.assertFalse(any("Bot-Menü" in point["content"] for point in summary["key_points"]))
+
+    def test_ticket_handover_summary_is_empty_for_no_user_messages(self):
+        self.assertEqual(
+            tx.build_ticket_summary([
+                {"author": "Pulse Bot", "content": "Bot-Nachricht", "is_bot": True},
+                {"author": "Bürger", "content": "   "},
+            ])["message_count"],
+            0,
+        )
+
+    def test_similar_tickets_rank_same_guild_transcript_matches(self):
+        from pathlib import Path
+
+        transcripts = self.root / "transcripts"
+        transcripts.mkdir()
+        related_id = pulse_db.create_ticket("similar-channel", "1", "101", "Alter Bürger", "bug")
+        unrelated_id = pulse_db.create_ticket("unrelated-channel", "1", "102", "Andere Person", "support")
+        cross_guild_id = pulse_db.create_ticket("cross-channel", "2", "103", "Fremde Person", "bug")
+        unsafe_id = pulse_db.create_ticket("unsafe-channel", "1", "104", "Unsicher", "bug")
+        pulse_db.close_ticket(related_id, "archiviert", f"{related_id}.txt")
+        pulse_db.close_ticket(unrelated_id, "archiviert", f"{unrelated_id}.txt")
+        pulse_db.close_ticket(cross_guild_id, "archiviert", f"{cross_guild_id}.txt")
+        pulse_db.close_ticket(unsafe_id, "archiviert", f"../{unsafe_id}.txt")
+        (transcripts / f"{related_id}.txt").write_text(
+            "Fahrzeugdiebstahl am Kaufhaus Nord. Das gestohlene Fahrzeug wurde "
+            "später auf dem Parkplatz Nord gefunden. Kennzeichen prüfen.",
+            encoding="utf-8",
+        )
+        (transcripts / f"{unrelated_id}.txt").write_text(
+            "Account-Anmeldung schlägt fehl. Passwort zurücksetzen und E-Mail prüfen.",
+            encoding="utf-8",
+        )
+        (transcripts / f"{cross_guild_id}.txt").write_text(
+            "Fahrzeugdiebstahl am Kaufhaus Nord. Gestohlenes Fahrzeug und Kennzeichen prüfen.",
+            encoding="utf-8",
+        )
+        (transcripts / f"{unsafe_id}.txt").write_text(
+            "Fahrzeugdiebstahl Kaufhaus Nord gestohlenes Fahrzeug Kennzeichen prüfen.",
+            encoding="utf-8",
+        )
+        with patch.object(tx.pulse_paths, "DATA_DIR", self.root):
+            matches = tx.similar_tickets(
+                self.tid,
+                "1",
+                "Fahrzeugdiebstahl beim Kaufhaus Nord. Gestohlenes Fahrzeug auf Parkplatz "
+                "gefunden, Kennzeichen muss geprüft werden.",
+            )
+            too_short = tx.similar_tickets(self.tid, "1", "Hallo bitte danke.")
+
+        self.assertEqual([row["ticket_id"] for row in matches], [related_id])
+        self.assertGreater(matches[0]["score"], 0.1)
+        self.assertGreaterEqual(matches[0]["shared_term_count"], 5)
+        self.assertEqual(too_short, [])
+
+    def test_ticket_links_are_bidirectional_persistent_and_removable(self):
+        second_id = pulse_db.create_ticket("556", "1", "10", "Andere Person", "bug")
+        self.assertTrue(tx.link_tickets(self.tid, second_id, 3, "Max", "Gehört zum selben Vorfall."))
+        self.assertFalse(tx.link_tickets(second_id, self.tid, 7, "Lena", "Doppelte Verknüpfung."))
+
+        from_first = tx.linked_tickets(self.tid)
+        from_second = tx.linked_tickets(second_id)
+        self.assertEqual([row["related_ticket_id"] for row in from_first], [second_id])
+        self.assertEqual([row["related_ticket_id"] for row in from_second], [self.tid])
+        self.assertEqual(from_first[0]["link_note"], "Gehört zum selben Vorfall.")
+        self.assertEqual(from_first[0]["created_by_id"], "3")
+
+        state = pulse_db.export_state()
+        self.assertEqual(len(state["ticket_links"]), 1)
+        self.assertTrue(tx.unlink_tickets(second_id, self.tid))
+        self.assertFalse(tx.unlink_tickets(self.tid, second_id))
+        self.assertEqual(tx.linked_tickets(self.tid), [])
+        self.assertEqual(tx.linked_tickets(second_id), [])
+
+    def test_ticket_links_are_removed_when_a_ticket_is_deleted(self):
+        second_id = pulse_db.create_ticket("559", "1", "13", "Zu löschen", "support")
+        self.assertTrue(tx.link_tickets(self.tid, second_id, 3, "Max"))
+        with pulse_db.connect() as db:
+            db.execute("DELETE FROM tickets WHERE id=?", (second_id,))
+        self.assertEqual(tx.linked_tickets(self.tid), [])
+
+    def test_ticket_links_reject_self_missing_cross_guild_and_oversized_note(self):
+        second_id = pulse_db.create_ticket("557", "2", "11", "Fremde Person", "support")
+        with self.assertRaises(ValueError):
+            tx.link_tickets(self.tid, self.tid, 3, "Max")
+        with self.assertRaises(ValueError):
+            tx.link_tickets(self.tid, "missing-ticket", 3, "Max")
+        with self.assertRaises(ValueError):
+            tx.link_tickets(self.tid, second_id, 3, "Max")
+        with self.assertRaises(ValueError):
+            tx.link_tickets(
+                self.tid,
+                pulse_db.create_ticket("558", "1", "12", "Dritte Person", "support"),
+                3,
+                "Max",
+                "x" * (tx.MAX_TICKET_LINK_NOTE_LENGTH + 1),
+            )
+        self.assertEqual(tx.linked_tickets(self.tid), [])
+
     def test_internal_notes_are_separate_from_ticket_events_and_paginated(self):
         with patch.object(
             pulse_db,

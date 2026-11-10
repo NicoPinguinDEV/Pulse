@@ -126,6 +126,264 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
+    @app_commands.command(name="verknuepfen", description="Dieses Ticket mit einem anderen Ticket verbinden.")
+    @app_commands.describe(ticket_id="ID des anderen Tickets", notiz="Optionaler interner Grund für die Verknüpfung")
+    async def verknuepfen(
+        self,
+        interaction: discord.Interaction,
+        ticket_id: str,
+        notiz: str = "",
+    ):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        try:
+            created = tx.link_tickets(
+                ticket["id"],
+                ticket_id,
+                interaction.user.id,
+                interaction.user.display_name,
+                notiz,
+            )
+        except ValueError as exc:
+            await deny(interaction, str(exc))
+            return
+        if not created:
+            await interaction.response.send_message(
+                f"🔗 Ticket **{ticket_id.strip()}** ist bereits mit diesem Ticket verknüpft.",
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+        await interaction.response.send_message(
+            f"🔗 Ticket **{ticket['id']}** und **{ticket_id.strip()}** wurden intern verknüpft.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @app_commands.command(name="verknuepfungen", description="Verknüpfte Tickets dieses Vorgangs anzeigen.")
+    @app_commands.describe(seite="Seite mit jeweils zehn verknüpften Tickets")
+    async def verknuepfungen(
+        self,
+        interaction: discord.Interaction,
+        seite: app_commands.Range[int, 1, 1000] = 1,
+    ):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        links = tx.linked_tickets(ticket["id"], limit=11, offset=(seite - 1) * 10)
+        if not links:
+            await interaction.response.send_message(
+                "Für dieses Ticket gibt es keine Verknüpfungen auf dieser Seite.",
+                ephemeral=True,
+            )
+            return
+        has_more = len(links) > 10
+        blocks = []
+        for link in links[:10]:
+            related_id = discord.utils.escape_markdown(str(link.get("related_ticket_id") or ""))
+            status = discord.utils.escape_markdown(str(link.get("status") or "unbekannt"))
+            category = discord.utils.escape_markdown(str(link.get("category") or "–"))
+            priority = discord.utils.escape_markdown(str(link.get("priority") or "normal"))
+            channel_id = str(link.get("channel_id") or "")
+            destination = f"<#{channel_id}>" if channel_id.isdigit() else "Kanal nicht verfügbar"
+            note = discord.utils.escape_mentions(
+                discord.utils.escape_markdown(str(link.get("link_note") or ""))
+            )
+            line = f"**{related_id}** · {category} · {status} · {priority} · {destination}"
+            if note:
+                line += f"\\n_{note[:300]}_"
+            blocks.append(line)
+        embed = discord.Embed(
+            title=f"🔗 Verknüpfte Tickets · {ticket['id']}",
+            description="\\n\\n".join(blocks)[:4096],
+            color=0x64748B,
+        )
+        embed.set_footer(text=f"Seite {seite}" + (" · weitere Einträge vorhanden" if has_more else ""))
+        await interaction.response.send_message(
+            embed=embed,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @app_commands.command(name="trennen", description="Eine Ticket-Verknüpfung entfernen.")
+    @app_commands.describe(ticket_id="ID des zu trennenden Tickets")
+    async def trennen(self, interaction: discord.Interaction, ticket_id: str):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        try:
+            removed = tx.unlink_tickets(ticket["id"], ticket_id)
+        except ValueError as exc:
+            await deny(interaction, str(exc))
+            return
+        await interaction.response.send_message(
+            "🔓 Ticket-Verknüpfung entfernt." if removed else "Diese Ticket-Verknüpfung bestand nicht.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @app_commands.command(name="zusammenfassung", description="Eine lokale Übergabe-Zusammenfassung des Ticketverlaufs erstellen.")
+    @app_commands.describe(speichern="Die Zusammenfassung zusätzlich als interne Ticketnotiz ablegen")
+    async def zusammenfassung(self, interaction: discord.Interaction, speichern: bool = False):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        messages = []
+        total_chars = 0
+        try:
+            async for message in interaction.channel.history(limit=100, oldest_first=False):
+                if getattr(message.author, "bot", False):
+                    continue
+                remaining = 16_000 - total_chars
+                if remaining <= 0:
+                    break
+                content = str(getattr(message, "content", "") or "").strip()[:min(1200, remaining)]
+                if not content:
+                    continue
+                messages.append({
+                    "author": getattr(message.author, "display_name", "Unbekannt"),
+                    "created_at": getattr(message, "created_at", ""),
+                    "content": content,
+                    "attachment_count": len(getattr(message, "attachments", []) or []),
+                    "is_bot": False,
+                })
+                total_chars += len(content)
+            messages.reverse()  # API liefert neueste zuerst; Summary wird chronologisch aufgebaut.
+        except (discord.Forbidden, discord.HTTPException):
+            await interaction.followup.send(
+                "Der Ticketverlauf konnte nicht gelesen werden. Bitte die Kanal-Berechtigungen prüfen.",
+                ephemeral=True,
+            )
+            return
+
+        summary = tx.build_ticket_summary(messages, limit=5)
+        if not summary["message_count"]:
+            await interaction.followup.send(
+                "Es gibt noch keine auswertbaren Textnachrichten für eine Zusammenfassung.",
+                ephemeral=True,
+            )
+            return
+
+        point_lines = []
+        for point in summary["key_points"]:
+            author = discord.utils.escape_markdown(point["author"])
+            created = discord.utils.escape_markdown(point["created_at"][:19].replace("T", " "))
+            content = discord.utils.escape_mentions(discord.utils.escape_markdown(point["content"]))
+            point_lines.append(f"**{author} · {created}**\\n{content}")
+        description = "\\n\\n".join(point_lines)[:3500]
+        embed = discord.Embed(
+            title=f"🧾 Übergabe-Zusammenfassung · {ticket['id']}",
+            description=description,
+            color=0x64748B,
+        )
+        embed.add_field(
+            name="Umfang",
+            value=f"{summary['message_count']} Nachrichten · {summary['attachment_count']} Anhänge",
+            inline=True,
+        )
+        embed.add_field(
+            name="Beteiligte",
+            value=", ".join(discord.utils.escape_markdown(name) for name in summary["participants"])[:900] or "–",
+            inline=False,
+        )
+        embed.set_footer(text="Lokal/extraktiv erstellt · keine externe KI · vor Weitergabe bitte prüfen")
+        saved_text = ""
+        if speichern:
+            note_lines = [
+                "Automatische Übergabe-Zusammenfassung (bitte vor Weitergabe prüfen)",
+                f"Nachrichten: {summary['message_count']} · Anhänge: {summary['attachment_count']}",
+                "Beteiligte: " + ", ".join(summary["participants"]),
+            ]
+            note_lines.extend(
+                f"- {point['author']}: {point['content']}"
+                for point in summary["key_points"]
+            )
+            note_text = "\\n".join(note_lines)[:tx.MAX_INTERNAL_NOTE_LENGTH]
+            try:
+                tx.add_internal_note(
+                    ticket["id"],
+                    interaction.user.id,
+                    interaction.user.display_name,
+                    note_text,
+                )
+                saved_text = "\\nDie Zusammenfassung wurde zusätzlich als interne Ticketnotiz gespeichert."
+            except ValueError as exc:
+                saved_text = f"\\nDie interne Notiz konnte nicht gespeichert werden: {exc}"
+        await interaction.followup.send(
+            embed=embed,
+            content=saved_text.strip() or None,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @app_commands.command(name="aehnliche", description="Ähnliche, bereits archivierte Tickets anhand ihrer Verläufe finden.")
+    async def aehnliche(self, interaction: discord.Interaction):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        query_parts = []
+        total_chars = 0
+        try:
+            async for message in interaction.channel.history(limit=50, oldest_first=False):
+                if getattr(message.author, "bot", False):
+                    continue
+                text = str(getattr(message, "content", "") or "").strip()
+                if not text:
+                    continue
+                remaining = tx.SIMILAR_MAX_QUERY_CHARS - total_chars
+                if remaining <= 0:
+                    break
+                text = text[:min(1200, remaining)]
+                query_parts.append(text)
+                total_chars += len(text)
+        except (discord.Forbidden, discord.HTTPException):
+            await interaction.followup.send(
+                "Der Ticketverlauf konnte nicht gelesen werden. Bitte die Kanal-Berechtigungen prüfen.",
+                ephemeral=True,
+            )
+            return
+
+        matches = tx.similar_tickets(
+            ticket["id"],
+            interaction.guild.id,
+            "\\n".join(query_parts),
+            limit=5,
+        )
+        if not matches:
+            await interaction.followup.send(
+                "Keine ausreichend ähnlichen archivierten Tickets mit lesbarem Transkript gefunden.",
+                ephemeral=True,
+            )
+            return
+
+        lines = []
+        for item in matches:
+            ticket_id = discord.utils.escape_markdown(item["ticket_id"])
+            category = discord.utils.escape_markdown(item["category"] or "–")
+            status = discord.utils.escape_markdown(item["status"] or "geschlossen")
+            customer = discord.utils.escape_markdown(item["user_name"] or "Unbekannt")[:80]
+            channel_id = str(item.get("channel_id") or "")
+            channel_ref = f"<#{channel_id}>" if channel_id.isdigit() else "Kanal nicht verfügbar"
+            percent = round(float(item["score"]) * 100)
+            lines.append(
+                f"**{ticket_id}** · {category} · {status} · {percent}% Übereinstimmung\\n"
+                f"{customer} · {channel_ref} · {item['shared_term_count']} gemeinsame Begriffe"
+            )
+        embed = discord.Embed(
+            title=f"🔎 Ähnliche Tickets · {ticket['id']}",
+            description="\\n\\n".join(lines)[:4096],
+            color=0x64748B,
+        )
+        embed.set_footer(text="Lokaler Textvergleich archivierter Transkripte · keine externe KI")
+        await interaction.followup.send(
+            embed=embed,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
     @app_commands.command(name="antwort", description="Schnellantwort für diese Ticket-Kategorie senden.")
     @app_commands.describe(vorlage="Titel der Schnellantwort")
     async def antwort(self, interaction: discord.Interaction, vorlage: str):

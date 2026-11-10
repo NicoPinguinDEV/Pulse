@@ -35,10 +35,13 @@ from pulse_ticket_design import category_block, load_line, ticket_channel_name
 from pulse_transcripts import TranscriptError, archive_transcript, keep_channel_after_failure
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 import pulse_paths
+from pulse_ticket_distribution import choose_assignee, distribution_settings
 from pulse_ticket_design import (
     PANEL_IMAGE_DIR,
     automation_actions,
+    automation_enabled,
     automation_settings,
+    category_automation_settings,
     clean_questions,
     load_state,
     normalize_panel,
@@ -841,6 +844,56 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
         _OPENING_TICKETS.discard(lock_key)
 
 
+def choose_ticket_auto_assignee(guild, category_key: str):
+    """Select an eligible, category-authorised ticket manager when opt-in distribution is enabled."""
+    settings = distribution_settings(ticket_config().get("distribution"))
+    if not settings["enabled"]:
+        return None
+
+    try:
+        role_ids = {int(role.id) for role in category_roles(guild, category_key)}
+        if not role_ids:
+            return None
+
+        import webserver
+        config = webserver.load_config()
+        candidates = []
+        for member in list(getattr(guild, "members", []) or []):
+            if getattr(member, "bot", False):
+                continue
+            member_role_ids = {
+                int(role.id) for role in getattr(member, "roles", [])
+                if getattr(role, "id", None) is not None
+            }
+            if not role_ids.intersection(member_role_ids):
+                continue
+            perms, _ = webserver.compute_perms(guild, member.id, config)
+            if not (perms.get("can_manage_tickets") or perms.get("is_admin")):
+                continue
+            candidates.append({
+                "id": member.id,
+                "name": getattr(member, "display_name", None) or getattr(member, "name", None) or str(member.id),
+                "bot": False,
+            })
+
+        workload_tickets = [
+            ticket for ticket in list_tickets(limit=2000, open_only=True)
+            if str(ticket.get("guild_id") or "") == str(guild.id)
+        ]
+        selected = choose_assignee(
+            candidates,
+            workload_tickets,
+            guild.id,
+            settings["max_open_per_staff"],
+        )
+        return guild.get_member(int(selected["id"])) if selected else None
+    except Exception as exc:
+        # Assignment is optional: a stale cache/config must never prevent ticket creation.
+        print(f"⚠️ Pulse-Tickets: automatische Zuweisung übersprungen ({type(exc).__name__}: {exc}).")
+        pulse_jobs.record_error("Ticket-Auto-Zuweisung", exc)
+        return None
+
+
 async def _create_ticket_channel(interaction: discord.Interaction, key: str, panel_id: str | None, answers: list):
     guild = interaction.guild
     label, desc, emoji, maximum, group = category_meta(key)
@@ -899,6 +952,16 @@ async def _create_ticket_channel(interaction: discord.Interaction, key: str, pan
         reason=f"Pulse Ticket erstellt von {interaction.user}",
     )
     tid = create_ticket(channel.id, guild.id, interaction.user.id, interaction.user.display_name, key)
+    auto_assignee = choose_ticket_auto_assignee(guild, key)
+    if auto_assignee:
+        try:
+            if not claim_ticket(tid, auto_assignee.id, auto_assignee.display_name):
+                auto_assignee = None
+        except Exception as exc:
+            # Keep the already-created ticket usable if the optional auto-claim cannot be committed.
+            print(f"⚠️ Pulse-Tickets: Auto-Zuweisung für {tid} fehlgeschlagen ({type(exc).__name__}: {exc}).")
+            pulse_jobs.record_error("Ticket-Auto-Zuweisung", exc)
+            auto_assignee = None
     if panel_id:
         set_ticket_panel(tid, panel_id)
     cog = interaction.client.get_cog("Tickets")
@@ -924,9 +987,13 @@ async def _create_ticket_channel(interaction: discord.Interaction, key: str, pan
         color=color,
     )
     # Status fields are updated in place on claim/priority changes (see refresh_ticket_embed).
-    embed.add_field(name="Status", value="🟢 Offen", inline=True)
+    embed.add_field(name="Status", value="🟠 In Bearbeitung" if auto_assignee else "🟢 Offen", inline=True)
     embed.add_field(name="Priorität", value="🟢 Normal", inline=True)
-    embed.add_field(name="Bearbeiter", value="Noch nicht übernommen", inline=True)
+    embed.add_field(
+        name="Bearbeiter",
+        value=discord.utils.escape_markdown(auto_assignee.display_name) if auto_assignee else "Noch nicht übernommen",
+        inline=True,
+    )
     for question, answer in answers[:5]:
         embed.add_field(name=f"📝 {question}"[:256], value=(str(answer).strip() or "—")[:1024], inline=False)
     if not answers:
@@ -960,13 +1027,20 @@ async def _create_ticket_channel(interaction: discord.Interaction, key: str, pan
     if is_v2(welcome_message):
         save_ticket_card(tid, embed, [f.filename for f in welcome_files], card_meta)
 
-    ping_roles = category_ping_roles(guild, key)[:10]
-    mentions = " ".join(role.mention for role in ping_roles)
-    if mentions and panel.get("ping_roles", True):
+    if auto_assignee:
         await channel.send(
-            f"📣 {mentions}\nNeues **{label}** von {interaction.user.mention}.",
-            allowed_mentions=discord.AllowedMentions(roles=ping_roles, users=[interaction.user], everyone=False),
+            f"📥 {auto_assignee.mention}, dir wurde dieses **{label}** automatisch zugewiesen. "
+            "Die Verteilung berücksichtigt die Zahl und Priorität deiner offenen Tickets.",
+            allowed_mentions=discord.AllowedMentions(users=[auto_assignee], roles=False, everyone=False),
         )
+    else:
+        ping_roles = category_ping_roles(guild, key)[:10]
+        mentions = " ".join(role.mention for role in ping_roles)
+        if mentions and panel.get("ping_roles", True):
+            await channel.send(
+                f"📣 {mentions}\nNeues **{label}** von {interaction.user.mention}.",
+                allowed_mentions=discord.AllowedMentions(roles=ping_roles, users=[interaction.user], everyone=False),
+            )
 
     record_event(
         "ticket_created",
@@ -1290,12 +1364,13 @@ class Tickets(commands.Cog):
     async def run_automation(self):
         """Reminders and optional auto-close, reusing the existing 5-minute loop (no extra task)."""
         settings = automation_settings(ticket_config().get("automation"))
-        if not any(settings.values()):
+        if not automation_enabled(settings):
             return
         now = discord.utils.utcnow()
         tickets = [t for t in list_tickets(limit=2000, open_only=True) if t.get("status") != "closed"]
         self.ticket_channel_ids = {int(t["channel_id"]) for t in tickets if str(t.get("channel_id") or "").isdigit()}
         for ticket in tickets:
+            ticket_settings = category_automation_settings(ticket.get("category"), settings)
             actions = automation_actions(ticket, settings, now)
             if not actions:
                 continue
@@ -1310,7 +1385,7 @@ class Tickets(commands.Cog):
                     roles = category_ping_roles(guild, str(ticket.get("category")))[:10]
                     mentions = " ".join(r.mention for r in roles)
                     await channel.send(
-                        f"⏰ {mentions}\nDieses **{label}** wartet seit über {settings['unclaimed_ping_minutes']} Minuten auf eine Übernahme.".replace("⏰ \n", "⏰ "),
+                        f"⏰ {mentions}\nDieses **{label}** wartet seit über {ticket_settings['unclaimed_ping_minutes']} Minuten auf eine Übernahme.".replace("⏰ \n", "⏰ "),
                         allowed_mentions=discord.AllowedMentions(roles=roles, users=False, everyone=False),
                     )
                     state["unclaimed_ping"] = now.isoformat()
@@ -1318,7 +1393,7 @@ class Tickets(commands.Cog):
                     claimer = guild.get_member(int(ticket["claimed_by_id"])) if str(ticket.get("claimed_by_id") or "").isdigit() else None
                     if claimer:
                         await channel.send(
-                            f"⏳ {claimer.mention}, der Ersteller wartet seit über {settings['staff_reply_hours']} h auf eine Antwort.",
+                            f"⏳ {claimer.mention}, der Ersteller wartet seit über {ticket_settings['staff_reply_hours']} h auf eine Antwort.",
                             allowed_mentions=discord.AllowedMentions(users=[claimer], roles=False, everyone=False),
                         )
                     state["staff_reminder_for"] = datetime_marker(ticket["last_user_message_at"])

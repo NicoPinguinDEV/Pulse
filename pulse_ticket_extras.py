@@ -7,10 +7,15 @@ existing tickets columns and the existing ticket_events log.
 from __future__ import annotations
 
 import html
+import os
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pulse_db
+import pulse_paths
+from pulse_safe_path import contained_file
 
 REPLIES_KEY = "ticket_quick_replies"   # {"*": [{"title","text"}], "<category>": [...]}
 BLOCKS_KEY = "ticket_blocks"           # {"<user_id>": {"until","reason","by","at"}}
@@ -181,6 +186,339 @@ def tags_for(ticket_ids) -> dict[str, list[str]]:
             for tid, tag in rows:
                 out.setdefault(tid, []).append(tag)
     return out
+
+
+# ------------------------------------------------------------------ deterministic similar-ticket suggestions
+SIMILAR_MAX_CANDIDATES = 80
+SIMILAR_MAX_TRANSCRIPT_BYTES = 128 * 1024
+SIMILAR_MAX_QUERY_CHARS = 12_000
+SIMILAR_STOPWORDS = frozenset({
+    "aber", "als", "also", "am", "an", "and", "auf", "aus", "bei", "bin", "bis",
+    "bitte", "bochum", "das", "dass", "dein", "deine", "dem", "den", "der", "des",
+    "die", "dies", "doch", "du", "durch", "ein", "eine", "einem", "einen", "einer",
+    "eines", "er", "es", "euch", "euer", "für", "gegen", "habe", "haben", "hat",
+    "hier", "ich", "ihr", "ihre", "ihren", "im", "in", "ist", "ja", "kann",
+    "können", "man", "mehr", "mit", "muss", "nach", "nicht", "noch", "oder",
+    "ohne", "richtig", "rp", "sein", "seine", "server", "sie", "sind", "support",
+    "und", "uns", "unter", "vom", "von", "vor", "war", "warum", "was", "weil",
+    "weiter", "wenn", "werden", "wie", "wir", "wird", "wo", "wurde", "zu", "zum",
+    "zur", "ticket", "tickets", "hallo", "danke", "guten", "tag",
+})
+
+
+def _ticket_terms(text: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKC", str(text or "")[:SIMILAR_MAX_QUERY_CHARS]).casefold()
+    return {
+        token for token in re.findall(r"[^\W_]{3,}", normalized)
+        if not token.isdigit() and token not in SIMILAR_STOPWORDS
+    }
+
+
+def _read_candidate_transcript(filename: str) -> str:
+    """Read only a bounded regular .txt file inside the configured transcript directory."""
+    filename = str(filename or "").strip()
+    if (
+        not filename
+        or Path(filename).name != filename
+        or "/" in filename
+        or "\\" in filename
+        or not filename.lower().endswith(".txt")
+    ):
+        return ""
+    base = os.path.join(str(pulse_paths.DATA_DIR), "transcripts")
+    target = contained_file(base, filename)
+    if target is None:
+        return ""
+    try:
+        if not os.path.isfile(target) or os.path.getsize(target) > SIMILAR_MAX_TRANSCRIPT_BYTES:
+            return ""
+        with open(target, "r", encoding="utf-8", errors="replace") as handle:
+            return handle.read(SIMILAR_MAX_TRANSCRIPT_BYTES)
+    except OSError:
+        return ""
+
+
+def similar_tickets(
+    ticket_id: str,
+    guild_id,
+    query_text: str,
+    limit: int = 5,
+) -> list[dict]:
+    """Rank closed same-guild tickets by local transcript term overlap; never call an external AI service."""
+    ticket_id = str(ticket_id or "").strip()
+    guild_id = str(guild_id or "").strip()
+    query_terms = _ticket_terms(query_text)
+    if not ticket_id or not guild_id or len(query_terms) < 2:
+        return []
+    try:
+        page_size = max(1, min(int(limit), 10))
+    except (TypeError, ValueError):
+        page_size = 5
+
+    with pulse_db.connect() as db:
+        current = db.execute(
+            "SELECT category FROM tickets WHERE id=? AND CAST(guild_id AS TEXT)=?",
+            (ticket_id, guild_id),
+        ).fetchone()
+        if current is None:
+            return []
+        candidates = db.execute(
+            """
+            SELECT id, category, status, priority, user_name, channel_id,
+                   transcript_path, opened_at, closed_at
+            FROM tickets
+            WHERE CAST(guild_id AS TEXT)=? AND id<>? AND status='closed'
+                  AND COALESCE(transcript_path,'')<>''
+            ORDER BY COALESCE(closed_at,opened_at) DESC
+            LIMIT ?
+            """,
+            (guild_id, ticket_id, SIMILAR_MAX_CANDIDATES),
+        ).fetchall()
+
+    ranked = []
+    for row in candidates:
+        transcript = _read_candidate_transcript(row["transcript_path"])
+        candidate_terms = _ticket_terms(transcript)
+        shared = query_terms & candidate_terms
+        if len(shared) < 2:
+            continue
+        union = query_terms | candidate_terms
+        lexical_score = len(shared) / max(1, len(union))
+        same_category = str(row["category"] or "") == str(current["category"] or "")
+        score = min(1.0, lexical_score * 0.9 + (0.1 if same_category else 0.0))
+        ranked.append({
+            "ticket_id": str(row["id"]),
+            "category": str(row["category"] or ""),
+            "status": str(row["status"] or ""),
+            "priority": str(row["priority"] or "normal"),
+            "user_name": str(row["user_name"] or ""),
+            "channel_id": str(row["channel_id"] or ""),
+            "opened_at": str(row["opened_at"] or ""),
+            "closed_at": str(row["closed_at"] or ""),
+            "score": round(score, 4),
+            "shared_term_count": len(shared),
+            "same_category": same_category,
+        })
+    ranked.sort(
+        key=lambda item: (
+            -item["score"],
+            -item["shared_term_count"],
+            item["ticket_id"],
+        )
+    )
+    return ranked[:page_size]
+
+
+# ------------------------------------------------------------------ deterministic ticket handover summary
+def build_ticket_summary(messages, limit: int = 5) -> dict:
+    """Build a local, extractive handover summary from bounded message metadata."""
+    clean = []
+    participants = []
+    attachments = 0
+    for item in list(messages or [])[:100]:
+        if not isinstance(item, dict) or item.get("is_bot"):
+            continue
+        text = str(item.get("content") or "").strip()[:2000]
+        if not text:
+            continue
+        author = str(item.get("author") or "Unbekannt").strip()[:80] or "Unbekannt"
+        created_at = str(item.get("created_at") or "").strip()[:40]
+        try:
+            attachments += max(0, min(int(item.get("attachment_count") or 0), 20))
+        except (TypeError, ValueError):
+            pass
+        if author not in participants:
+            participants.append(author)
+        clean.append({"author": author, "created_at": created_at, "content": text})
+
+    try:
+        point_limit = max(1, min(int(limit), 8))
+    except (TypeError, ValueError):
+        point_limit = 5
+    if not clean:
+        return {
+            "message_count": 0,
+            "participants": [],
+            "attachment_count": attachments,
+            "first_at": "",
+            "last_at": "",
+            "key_points": [],
+        }
+
+    sentences = []
+    frequencies: dict[str, int] = {}
+    for row_index, row in enumerate(clean):
+        parts = re.split(r"(?<=[.!?])\s+|\n+", row["content"])
+        for part_index, part in enumerate(parts):
+            text = part.strip()
+            terms = _ticket_terms(text)
+            if len(text) < 20 or len(terms) < 2:
+                continue
+            sentences.append({
+                "row_index": row_index,
+                "part_index": part_index,
+                "author": row["author"],
+                "created_at": row["created_at"],
+                "content": text[:320],
+                "terms": terms,
+            })
+            for term in terms:
+                frequencies[term] = frequencies.get(term, 0) + 1
+
+    scored = []
+    for sentence in sentences:
+        terms = sentence["terms"]
+        rarity = sum(1.0 / (1 + frequencies.get(term, 0)) for term in terms)
+        score = rarity + min(len(terms), 12) * 0.05
+        scored.append((score, sentence))
+    scored.sort(key=lambda pair: (-pair[0], pair[1]["row_index"], pair[1]["part_index"]))
+
+    selected = []
+    for _score, sentence in scored:
+        current_terms = sentence["terms"]
+        too_similar = any(
+            len(current_terms & item["terms"]) / max(1, len(current_terms | item["terms"])) > 0.65
+            for item in selected
+        )
+        if too_similar:
+            continue
+        selected.append(sentence)
+        if len(selected) >= point_limit:
+            break
+
+    if not selected:
+        last = clean[-1]
+        selected = [{
+            "author": last["author"],
+            "created_at": last["created_at"],
+            "content": last["content"][:320],
+            "row_index": len(clean) - 1,
+            "part_index": 0,
+            "terms": _ticket_terms(last["content"]),
+        }]
+    selected.sort(key=lambda item: (item["row_index"], item["part_index"]))
+    return {
+        "message_count": len(clean),
+        "participants": participants[:10],
+        "attachment_count": attachments,
+        "first_at": clean[0]["created_at"],
+        "last_at": clean[-1]["created_at"],
+        "key_points": [
+            {
+                "author": item["author"],
+                "created_at": item["created_at"],
+                "content": item["content"],
+            }
+            for item in selected
+        ],
+    }
+
+
+# ------------------------------------------------------------------ related ticket links (staff-only)
+MAX_TICKET_LINK_NOTE_LENGTH = 500
+
+
+def _ticket_links_table(db) -> None:
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS ticket_links ("
+        "ticket_id_a TEXT NOT NULL, ticket_id_b TEXT NOT NULL, "
+        "created_by_id TEXT NOT NULL, created_by_name TEXT NOT NULL, "
+        "note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, "
+        "PRIMARY KEY (ticket_id_a,ticket_id_b), CHECK (ticket_id_a < ticket_id_b), "
+        "FOREIGN KEY (ticket_id_a) REFERENCES tickets(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (ticket_id_b) REFERENCES tickets(id) ON DELETE CASCADE)"
+    )
+    db.execute("CREATE INDEX IF NOT EXISTS idx_ticket_links_b ON ticket_links(ticket_id_b)")
+
+
+def _ticket_pair(first_id: str, second_id: str) -> tuple[str, str]:
+    first = str(first_id or "").strip()
+    second = str(second_id or "").strip()
+    if not first or not second:
+        raise ValueError("Bitte zwei Ticket-IDs angeben.")
+    if first == second:
+        raise ValueError("Ein Ticket kann nicht mit sich selbst verknüpft werden.")
+    return tuple(sorted((first, second)))
+
+
+def link_tickets(
+    first_id: str,
+    second_id: str,
+    actor_id,
+    actor_name: str,
+    note: str = "",
+) -> bool:
+    """Create one bidirectional, same-guild relationship; True only when newly inserted."""
+    ticket_a, ticket_b = _ticket_pair(first_id, second_id)
+    actor_id = str(actor_id or "").strip()
+    actor_name = str(actor_name or "Teammitglied").strip()[:100] or "Teammitglied"
+    note = str(note or "").strip()
+    if not actor_id:
+        raise ValueError("Das ausführende Teammitglied fehlt.")
+    if len(note) > MAX_TICKET_LINK_NOTE_LENGTH:
+        raise ValueError(f"Die Verknüpfungsnotiz darf höchstens {MAX_TICKET_LINK_NOTE_LENGTH} Zeichen enthalten.")
+
+    with pulse_db.connect() as db:
+        _ticket_links_table(db)
+        rows = db.execute(
+            "SELECT id,guild_id FROM tickets WHERE id IN (?,?)",
+            (ticket_a, ticket_b),
+        ).fetchall()
+        tickets = {str(row["id"]): str(row["guild_id"]) for row in rows}
+        if ticket_a not in tickets or ticket_b not in tickets:
+            raise ValueError("Mindestens eines der Tickets wurde nicht gefunden.")
+        if tickets[ticket_a] != tickets[ticket_b]:
+            raise ValueError("Tickets aus unterschiedlichen Discord-Servern können nicht verknüpft werden.")
+        cursor = db.execute(
+            "INSERT OR IGNORE INTO ticket_links "
+            "(ticket_id_a,ticket_id_b,created_by_id,created_by_name,note,created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (ticket_a, ticket_b, actor_id, actor_name, note, pulse_db._now()),
+        )
+        return cursor.rowcount == 1
+
+
+def linked_tickets(ticket_id: str, limit: int = 10, offset: int = 0) -> list[dict]:
+    """List a bounded page of related tickets in either direction; caller authorizes staff access."""
+    ticket_id = str(ticket_id or "").strip()
+    if not ticket_id:
+        return []
+    try:
+        page_size = max(1, min(int(limit), 11))
+        page_offset = max(0, int(offset))
+    except (TypeError, ValueError):
+        page_size, page_offset = 10, 0
+    with pulse_db.connect() as db:
+        _ticket_links_table(db)
+        rows = db.execute(
+            """
+            SELECT
+                CASE WHEN link.ticket_id_a=? THEN link.ticket_id_b ELSE link.ticket_id_a END AS related_ticket_id,
+                ticket.category, ticket.status, ticket.priority, ticket.user_name,
+                ticket.opened_at, ticket.channel_id,
+                link.created_by_id, link.created_by_name, link.note AS link_note, link.created_at
+            FROM ticket_links AS link
+            JOIN tickets AS ticket
+              ON ticket.id = CASE WHEN link.ticket_id_a=? THEN link.ticket_id_b ELSE link.ticket_id_a END
+            WHERE link.ticket_id_a=? OR link.ticket_id_b=?
+            ORDER BY link.created_at DESC, related_ticket_id
+            LIMIT ? OFFSET ?
+            """,
+            (ticket_id, ticket_id, ticket_id, ticket_id, page_size, page_offset),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def unlink_tickets(first_id: str, second_id: str) -> bool:
+    """Remove the bidirectional relationship regardless of the supplied ID order."""
+    ticket_a, ticket_b = _ticket_pair(first_id, second_id)
+    with pulse_db.connect() as db:
+        _ticket_links_table(db)
+        cursor = db.execute(
+            "DELETE FROM ticket_links WHERE ticket_id_a=? AND ticket_id_b=?",
+            (ticket_a, ticket_b),
+        )
+        return cursor.rowcount == 1
 
 
 # ------------------------------------------------------------------ internal notes (staff-only; never written to public ticket events)
