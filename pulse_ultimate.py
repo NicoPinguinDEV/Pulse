@@ -1543,12 +1543,7 @@ def register(app) -> None:
 
         body = f"""<div class="card"><h3>🗓 Termin erstellen</h3><form class="form" method="post" action="/ultimate/calendar/create">
           <input class="input" name="title" placeholder="Meeting / Schulung / Event" required>
-          <select class="select" name="kind" aria-label="Terminart">
-            <option value="event" selected>Event mit Teilnehmerliste</option>
-            <option value="meeting">Besprechung mit Teilnehmerliste</option>
-            <option value="training">Schulung mit Teilnehmerliste</option>
-            <option value="deadline">Frist ohne Teilnehmerliste</option>
-          </select>
+          <input class="input" name="kind" placeholder="meeting · event · training · deadline">
           <input class="input" name="start_at" placeholder="2026-10-05T19:00:00+02:00" required><input class="input" name="end_at" placeholder="optional">
           <input class="input span2" name="location" placeholder="Ort / Discord-Kanal">
           <textarea class="ta span2" name="description" placeholder="Beschreibung"></textarea>
@@ -1614,10 +1609,7 @@ def register(app) -> None:
             datetime.fromisoformat(start_at.replace("Z", "+00:00"))
         except ValueError:
             raise HTTPException(400, "Ungültiges Startdatum.")
-        allowed_kinds = {"event", "meeting", "training", "deadline"}
-        kind = str(kind or "event").strip().casefold()
-        if kind not in allowed_kinds:
-            raise HTTPException(400, "Ungültige Terminart.")
+        kind = str(kind or "event").strip()[:40]
         with cx() as c:
             c.execute(
                 "INSERT INTO ultimate_calendar VALUES(?,?,?,?,?,?,?,?,?,?,?)",
