@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from pulse_ticket_design import category_automation_settings
+
 PRIORITY_ORDER = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
 
 STATE_LABELS = {
@@ -42,7 +44,7 @@ def format_wait(seconds: float | None) -> str:
 
 def triage(ticket: dict, now: datetime, settings: dict | None = None) -> dict:
     """Classify one ticket. Missing activity data is reported as unknown, never guessed."""
-    settings = settings or {}
+    settings = category_automation_settings(ticket.get("category"), settings or {})
     status = str(ticket.get("status") or "open")
     opened = _parse(ticket.get("opened_at"))
     last_user = _parse(ticket.get("last_user_message_at"))
@@ -54,15 +56,15 @@ def triage(ticket: dict, now: datetime, settings: dict | None = None) -> dict:
         state, since, limit, next_step = "closed", _parse(ticket.get("closed_at")), 0, "Bei Bedarf wieder öffnen oder Transkript ansehen."
     elif not claimed:
         state, since = "new", opened
-        limit = int(settings.get("unclaimed_ping_minutes") or 30) * 60
+        limit = int(settings.get("unclaimed_ping_minutes", 30)) * 60
         next_step = "Ticket übernehmen."
     elif last_user and (not last_staff or last_user > last_staff):
         state, since = "waiting_team", last_user
-        limit = int(settings.get("staff_reply_hours") or 12) * 3600
+        limit = int(settings.get("staff_reply_hours", 12)) * 3600
         next_step = "Dem Ersteller antworten."
     elif last_staff and (not last_user or last_staff >= last_user):
         state, since = "waiting_user", last_staff
-        limit = int(settings.get("user_reminder_hours") or 24) * 3600
+        limit = int(settings.get("user_reminder_hours", 24)) * 3600
         next_step = "Auf Antwort warten oder mit „Erinnern“ nachhaken."
     else:
         # Claimed, but no recorded messages yet (e.g. ticket older than activity tracking).
