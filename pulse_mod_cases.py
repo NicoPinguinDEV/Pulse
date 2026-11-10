@@ -28,7 +28,14 @@ def _table(db) -> None:
         "CREATE TABLE IF NOT EXISTS mod_cases (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, target_id TEXT NOT NULL, "
         "target_name TEXT, action TEXT NOT NULL, reason TEXT NOT NULL, proof TEXT DEFAULT '', expires_at TEXT, "
         "actor_id TEXT NOT NULL, actor_name TEXT, created_at TEXT NOT NULL, status TEXT DEFAULT 'active', "
-        "dm_sent INTEGER DEFAULT 0, closed_at TEXT, closed_by TEXT, close_note TEXT DEFAULT '')")
+        "dm_sent INTEGER DEFAULT 0, closed_at TEXT, closed_by TEXT, close_note TEXT DEFAULT '', "
+        "reason_template_id TEXT, reason_template_version INTEGER)"
+    )
+    columns = {row[1] for row in db.execute("PRAGMA table_info(mod_cases)").fetchall()}
+    if "reason_template_id" not in columns:
+        db.execute("ALTER TABLE mod_cases ADD COLUMN reason_template_id TEXT")
+    if "reason_template_version" not in columns:
+        db.execute("ALTER TABLE mod_cases ADD COLUMN reason_template_version INTEGER")
     db.execute("CREATE INDEX IF NOT EXISTS idx_mod_cases_target ON mod_cases(target_id, created_at)")
 
 
@@ -60,7 +67,18 @@ def target_problem(actor, target, guild, team_role_ids) -> str:
     return ""
 
 
-def create_case(guild_id, target, action: str, reason: str, proof: str, minutes: int | None, actor) -> dict:
+def create_case(
+    guild_id,
+    target,
+    action: str,
+    reason: str,
+    proof: str,
+    minutes: int | None,
+    actor,
+    *,
+    reason_template_id: str | None = None,
+    reason_template_version: int | None = None,
+) -> dict:
     reason = (reason or "").strip()[:1000]
     if action not in ACTIONS:
         raise ValueError("Unbekannte Aktion.")
@@ -73,11 +91,17 @@ def create_case(guild_id, target, action: str, reason: str, proof: str, minutes:
             "target_name": getattr(target, "display_name", str(target)), "action": action, "reason": reason,
             "proof": (proof or "").strip()[:500], "expires_at": expires, "actor_id": str(actor.id),
             "actor_name": getattr(actor, "display_name", str(actor)), "created_at": _now().isoformat(timespec="seconds"),
-            "status": "active"}
+            "status": "active", "reason_template_id": str(reason_template_id) if reason_template_id else None,
+            "reason_template_version": int(reason_template_version) if reason_template_version is not None else None}
     with pulse_db.connect() as db:
         _table(db)
-        db.execute("INSERT INTO mod_cases(id,guild_id,target_id,target_name,action,reason,proof,expires_at,actor_id,actor_name,created_at,status) "
-                   "VALUES (:id,:guild_id,:target_id,:target_name,:action,:reason,:proof,:expires_at,:actor_id,:actor_name,:created_at,:status)", case)
+        db.execute(
+            "INSERT INTO mod_cases(id,guild_id,target_id,target_name,action,reason,proof,expires_at,"
+            "actor_id,actor_name,created_at,status,reason_template_id,reason_template_version) "
+            "VALUES (:id,:guild_id,:target_id,:target_name,:action,:reason,:proof,:expires_at,"
+            ":actor_id,:actor_name,:created_at,:status,:reason_template_id,:reason_template_version)",
+            case,
+        )
     return case
 
 
