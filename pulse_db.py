@@ -154,6 +154,32 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_ticket_internal_notes_ticket
                 ON ticket_internal_notes(ticket_id, created_at DESC);
+            
+            CREATE TABLE IF NOT EXISTS mod_reason_templates (
+                id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                current_version INTEGER NOT NULL,
+                created_by_id TEXT NOT NULL,
+                created_by_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                archived_at TEXT,
+                archived_by_id TEXT,
+                archived_by_name TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_mod_reason_templates_guild_action
+                ON mod_reason_templates(guild_id, action, archived_at);
+            CREATE TABLE IF NOT EXISTS mod_reason_template_versions (
+                template_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                created_by_id TEXT NOT NULL,
+                created_by_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (template_id, version),
+                FOREIGN KEY (template_id) REFERENCES mod_reason_templates(id) ON DELETE CASCADE
+            );
 
             CREATE TABLE IF NOT EXISTS voice_support_case_history (
                 case_id TEXT PRIMARY KEY,
@@ -1413,7 +1439,7 @@ def purge_old_notifications(days=90):
 
 
 TABLES = [
-    "notifications", "tasks", "task_history", "tickets", "ticket_events", "ticket_internal_notes", "wiki_pages", "achievements",
+    "notifications", "tasks", "task_history", "tickets", "ticket_events", "ticket_internal_notes", "mod_reason_templates", "mod_reason_template_versions", "wiki_pages", "achievements",
     "achievement_progress", "trainings", "training_questions", "training_attempts", "meetings_history", "calendar_events",
     "team_status", "handover_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
