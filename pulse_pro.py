@@ -1296,6 +1296,50 @@ def register(app):
 
         return render_pro_page(ws,"Melonly",c,"melonly",body,head)
 
+    async def add_shift_note_dashboard(
+        request: Request,
+        note: str = Form(...),
+        user_session: str = Cookie(None),
+    ):
+        """Create a note for the signed-in member's currently active shift."""
+        c = cctx(request, user_session)
+        actor_id = str(c.user.get("id") or "")
+        back_url = f"/member/{actor_id}" if actor_id else "/team"
+        if not (c.perms.get("can_view_dashboard") or c.perms.get("is_admin")):
+            raise HTTPException(403, "Dafür fehlt dir die Berechtigung für das Team-Dashboard.")
+        content = str(note or "").strip()
+        if not content:
+            return ws.back(back_url, "Bitte gib eine Schichtnotiz ein.", False)
+        if len(content) > 1000:
+            return ws.back(back_url, "Eine Schichtnotiz darf höchstens 1.000 Zeichen enthalten.", False)
+        try:
+            import pulse_shift_history
+            import pulse_shift_utils
+            state = pulse_shift_history.load_member_view(ws, actor_id)
+            active_shifts = state.get("active_shifts", {}) if isinstance(state, dict) else {}
+            active_shift = active_shifts.get(actor_id) if isinstance(active_shifts, dict) else None
+        except Exception as exc:
+            return ws.back(back_url, f"Der Dienststatus konnte nicht gelesen werden ({type(exc).__name__}).", False)
+        if not isinstance(active_shift, dict) or not active_shift.get("started_at_iso"):
+            return ws.back(back_url, "Du musst im Dienst sein, um eine Schichtnotiz zu speichern.", False)
+        event_id = str(
+            active_shift.get("shift_event_id")
+            or pulse_shift_utils.shift_event_id(actor_id, active_shift.get("started_at_iso"))
+        )
+        try:
+            note_id = db.create_shift_note(
+                event_id, c.guild.id, actor_id,
+                c.user.get("global_name") or c.user.get("username") or "Teammitglied",
+                content,
+            )
+        except ValueError as exc:
+            return ws.back(back_url, str(exc), False)
+        ws.log_audit(
+            c.user.get("global_name") or c.user.get("username") or actor_id,
+            actor_id, "Schichtnotiz erstellt", f"Notiz-ID {note_id} · Schicht {event_id}",
+        )
+        return ws.back(back_url, "Schichtnotiz wurde gespeichert.", True)
+
     async def confirm_auto_closed_shift_duration(
         request: Request,
         target_user_id: int = Form(...),
@@ -2585,6 +2629,35 @@ def register(app):
         active=shifts.get('active_shifts',{}).get(str(target.id))
         weekly=ws.calculate_weekly_seconds(str(target.id),shifts.get('history',[]),shifts.get('active_shifts',{}))
 
+        is_own_profile = str(c.user.get('id')) == str(target.id)
+        can_see_shift_notes = bool(is_own_profile or c.perms.get('can_promote') or c.perms.get('is_admin'))
+        shift_note_rows = db.list_shift_notes(c.guild.id, target.id, limit=10) if can_see_shift_notes else []
+        shift_note_items = ''.join(
+            f'<div class="pulse-row items-start"><div class="pulse-row-main">'
+            f'<div class="pulse-row-meta">{e(str(item.get("created_at") or "—"))}</div>'
+            f'<div class="text-sm whitespace-pre-wrap">{e(str(item.get("note") or ""))}</div>'
+            f'</div></div>'
+            for item in shift_note_rows
+        )
+        if is_own_profile and isinstance(active, dict) and active.get('started_at_iso'):
+            shift_note_form = (
+                '<form action="/shift/notes" method="post" class="space-y-2">'
+                '<textarea name="note" required maxlength="1000" class="pulse-input pulse-textarea" '
+                'placeholder="Was ist während deiner Schicht passiert?"></textarea>'
+                '<button class="pulse-btn primary">Schichtnotiz speichern</button></form>'
+            )
+        elif is_own_profile:
+            shift_note_form = '<div class="pulse-empty">Starte deine Schicht, um eine Notiz hinzuzufügen.</div>'
+        else:
+            shift_note_form = ''
+        shift_note_section = (
+            f'<section class="pulse-card mt-4" id="shift-notes"><div class="pulse-card-h">'
+            f'<div><div class="pulse-section-title">🗒 Schichtnotizen</div>'
+            f'<div class="pulse-section-sub">Eigene Einträge und freigegebene Leitungsansichten.</div></div></div>'
+            f'<div class="pulse-card-b space-y-3">{shift_note_form}'
+            f'{shift_note_items or "<div class=pulse-empty>Noch keine Schichtnotizen.</div>"}</div></section>'
+        ) if can_see_shift_notes else ''
+
         tickets=[t for t in db.list_tickets(limit=2000) if str(t.get('user_id'))==str(target.id) or str(t.get('claimed_by_id'))==str(target.id)]
         tasks=[t for t in db.list_tasks(limit=2000,include_archived=True) if str(t.get('assignee_id'))==str(target.id) or str(t.get('creator_id'))==str(target.id)]
         evs=[x for x in db.events(limit=2000) if str(x.get('actor_id'))==str(target.id) or (x.get('target_type')=='user' and str(x.get('target_id'))==str(target.id))][:40]
@@ -2747,6 +2820,7 @@ def register(app):
         all_events=[x for x in db.events(limit=2000) if str(x.get('actor_id'))==str(target.id) or (x.get('target_type') in ('user','team_member','suite') and str(x.get('target_id'))==str(target.id))]
         timeline=pulse_timeline.build(warns=warns,shifts=hist,tickets=tickets,tasks=tasks,events=all_events,notes=entry.get('notes',[]),
                                       show_warns=can_see_warns,show_notes=can_see_notes,user_id=target.id)
+        body+=shift_note_section
         body+=shift_confirmation_html
         body+=f'<section class="pulse-card mt-4" id="zeitleiste"><div class="pulse-card-h"><div><div class="pulse-section-title">🕓 Zeitleiste</div><div class="pulse-section-sub">Warnungen, Schichten, Tickets, Aufgaben, Ereignisse und Notizen – neueste zuerst.</div></div></div><div class="pulse-card-b">{pulse_timeline.render(timeline,f"/member/{target.id}",request.query_params.get("tl",""),ws.time_tag)}</div></section>'
         return render_pro_page(ws,f'Teamakte · {target.display_name}',c,'team',body)
@@ -3507,6 +3581,7 @@ def register(app):
     remove_and_add(app,'/melonly',{'GET'},melonly_page,response_class=HTMLResponse)
     app.post('/shift/admin-end')(admin_end_shift)
     app.post('/shift/history/confirm-duration')(confirm_auto_closed_shift_duration)
+    app.post('/shift/notes')(add_shift_note_dashboard)
     app.get('/api/team/discord-status',response_class=JSONResponse)(discord_status_api)
 
     async def robots_txt(request: Request):
