@@ -113,10 +113,10 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             note_text = discord.utils.escape_mentions(
                 discord.utils.escape_markdown(str(item.get("note") or ""))
             )
-            blocks.append(f"**{author} · {created}**\\n{note_text}")
+            blocks.append(f"**{author} · {created}**\n{note_text}")
         embed = discord.Embed(
             title=f"🔒 Interne Notizen · Ticket {ticket['id']}",
-            description="\\n\\n".join(blocks)[:4096],
+            description="\n\n".join(blocks)[:4096],
             color=0x64748B,
         )
         embed.set_footer(text=f"Seite {seite} · jeweils zwei Notizen")
