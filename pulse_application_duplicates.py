@@ -23,7 +23,26 @@ def applicant_discord_id(record) -> str:
     return ""
 
 
-def find_duplicate_applications(applications, application_id, *, limit=MAX_DUPLICATE_HINTS):
+def build_duplicate_index(applications):
+    """Build one bounded metadata-only index per page render instead of rescanning all applications per card."""
+    if not isinstance(applications, Mapping):
+        return {}
+    index = {}
+    for raw_id, record in applications.items():
+        owner_id = applicant_discord_id(record)
+        if not owner_id:
+            continue
+        index.setdefault(owner_id, []).append({
+            "application_id": str(raw_id),
+            "status": str(record.get("status") or "unbekannt")[:40],
+            "created_at": str(record.get("created_at") or "")[:40],
+        })
+    for records in index.values():
+        records.sort(key=lambda row: (row["created_at"], row["application_id"]), reverse=True)
+    return index
+
+
+def find_duplicate_applications(applications, application_id, *, limit=MAX_DUPLICATE_HINTS, duplicate_index=None):
     """Find other submissions with the exact same validated Discord ID.
 
     The returned records intentionally contain only application ID, status and date;
@@ -32,30 +51,22 @@ def find_duplicate_applications(applications, application_id, *, limit=MAX_DUPLI
     if not isinstance(applications, Mapping):
         return []
     current_key = str(application_id or "")
-    current = applications.get(current_key)
-    owner_id = applicant_discord_id(current)
+    owner_id = applicant_discord_id(applications.get(current_key))
     if not owner_id:
         return []
     limit = max(1, min(20, int(limit or MAX_DUPLICATE_HINTS)))
-    matches = []
-    for raw_id, record in applications.items():
-        other_id = str(raw_id)
-        if other_id == current_key or not isinstance(record, Mapping):
-            continue
-        if applicant_discord_id(record) != owner_id:
-            continue
-        matches.append({
-            "application_id": other_id,
-            "status": str(record.get("status") or "unbekannt")[:40],
-            "created_at": str(record.get("created_at") or "")[:40],
-        })
-    matches.sort(key=lambda row: (row["created_at"], row["application_id"]), reverse=True)
-    return matches[:limit]
+    index = duplicate_index if isinstance(duplicate_index, Mapping) else build_duplicate_index(applications)
+    return [
+        row for row in index.get(owner_id, ())
+        if row.get("application_id") != current_key
+    ][:limit]
 
 
-def render_duplicate_notice(applications, application_id, escape=html.escape) -> str:
+def render_duplicate_notice(applications, application_id, escape=html.escape, *, duplicate_index=None) -> str:
     """Render a small reviewer-only hint. An empty string means no verified match."""
-    matches = find_duplicate_applications(applications, application_id)
+    matches = find_duplicate_applications(
+        applications, application_id, duplicate_index=duplicate_index,
+    )
     if not matches:
         return ""
     rows = "".join(
