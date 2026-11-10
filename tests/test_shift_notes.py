@@ -75,7 +75,17 @@ class ShiftNoteTests(unittest.TestCase):
         self.assertEqual(rows["shift_notes"][0]["note"], "Export-Test")
 
 
-class ShiftNoteCommandTests(ShiftNoteTests):
+class ShiftNoteCommandTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.db_patch = patch.object(pulse_db, "DB_PATH", str(Path(self.tmp.name) / "pulse.db"))
+        self.db_patch.start()
+        pulse_db.init_db()
+
+    def tearDown(self):
+        self.db_patch.stop()
+        self.tmp.cleanup()
+
     def test_command_requires_a_current_shift_and_saves_privately(self):
         from cogs import dienst
         interaction = fake_interaction()
@@ -88,7 +98,7 @@ class ShiftNoteCommandTests(ShiftNoteTests):
         with (
             patch.object(dienst, "may_use_duty", return_value=True),
             patch("pulse_shift_history.load_member_view", return_value={"active_shifts": active_shift}),
-            patch("webserver.log_audit") ,
+            patch("webserver.log_audit"),
         ):
             asyncio.run(dienst.run_shift_note(interaction, "Bearbeitete Supportfälle"))
         self.assertTrue(interaction.response.sent[0][1]["ephemeral"])
