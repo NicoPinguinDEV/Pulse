@@ -453,7 +453,13 @@ def register_routes():
     async def applications_page(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session)
         if not webserver.can_review_applications(ctx):raise HTTPException(403,"Keine Recruiting-Berechtigung.")
-        apps=webserver.load_json(webserver.APPS_FILE,{});rows=''.join(f'<div class=card><div class=row><span><b>{esc(appname(aid,x))}</b><div class=tiny>{esc(aid)} · {esc(x.get("status","pending"))} · {esc(x.get("processor_name","—"))}</div></span><a class=btn href="/suite/applications/{esc(aid)}">Öffnen</a></div></div>' for aid,x in apps.items())
+        apps=webserver.load_json(webserver.APPS_FILE,{})
+        import pulse_application_duplicates as duplicate_detection
+        rows=''.join(
+            f'<div class=card><div class=row><span><b>{esc(appname(aid,x))}</b><div class=tiny>{esc(aid)} · {esc(x.get("status","pending"))} · {esc(x.get("processor_name","—"))}</div></span><a class=btn href="/suite/applications/{esc(aid)}">Öffnen</a></div>'
+            f'{duplicate_detection.render_duplicate_notice(apps,aid,esc)}</div>'
+            for aid,x in apps.items() if isinstance(x,dict)
+        )
         return page(ctx,"apps","Bewerbungszentrum 2.0","Bewerbungsnummer · Bearbeiter · Status · Gespräch · Testergebnis · Entscheidung",rows or "<div class=card>Keine Bewerbungen.</div>")
 
     @app.get("/suite/applications/{app_id}",response_class=HTMLResponse)
@@ -462,7 +468,9 @@ def register_routes():
         if not webserver.can_review_applications(ctx):raise HTTPException(403,"Keine Recruiting-Berechtigung.")
         apps=webserver.load_json(webserver.APPS_FILE,{});item=apps.get(app_id)
         if not item:raise HTTPException(404,"Bewerbung nicht gefunden")
-        hist=item.get("history",[]);body=f'<div class="grid g2"><div class=card><h3>👤 {esc(appname(app_id,item))}</h3><div class=tiny>{esc(app_id)}</div><pre style="white-space:pre-wrap">{esc(json.dumps(item,ensure_ascii=False,indent=2))}</pre></div><div class=card><form method=post action="/suite/applications/{esc(app_id)}/update"><div class=field><label>Status</label><select class=select name=status><option>pending</option><option>in_review</option><option>interview</option><option>accepted</option><option>rejected</option></select></div><div class=field><label>Testergebnis</label><input class=input name=testergebnis></div><div class=field><label>Interne Notizen</label><textarea class=ta name=note></textarea></div><button class="btn primary">Speichern</button></form><h3>🕘 Historie</h3>{''.join(f'<div class=row><span>{esc(x.get("action"))}</span><span class=tiny>{esc(x.get("at"))} · {esc(x.get("by"))}</span></div>' for x in hist) or "Keine Historie."}</div></div>'
+        import pulse_application_duplicates as duplicate_detection
+        duplicate_notice=duplicate_detection.render_duplicate_notice(apps,app_id,esc)
+        hist=item.get("history",[]);body=f'<div class="grid g2"><div class=card><h3>👤 {esc(appname(app_id,item))}</h3><div class=tiny>{esc(app_id)}</div>{duplicate_notice}<pre style="white-space:pre-wrap">{esc(json.dumps(item,ensure_ascii=False,indent=2))}</pre></div><div class=card><form method=post action="/suite/applications/{esc(app_id)}/update"><div class=field><label>Status</label><select class=select name=status><option>pending</option><option>in_review</option><option>interview</option><option>accepted</option><option>rejected</option></select></div><div class=field><label>Testergebnis</label><input class=input name=testergebnis></div><div class=field><label>Interne Notizen</label><textarea class=ta name=note></textarea></div><button class="btn primary">Speichern</button></form><h3>🕘 Historie</h3>{''.join(f'<div class=row><span>{esc(x.get("action"))}</span><span class=tiny>{esc(x.get("at"))} · {esc(x.get("by"))}</span></div>' for x in hist) or "Keine Historie."}</div></div>'
         return page(ctx,"apps",f"Bewerbung · {appname(app_id,item)}","Recruiting-Fall mit Status, Bearbeiter, Testergebnis, Gespräch und Verlauf",body)
 
     @app.post("/suite/applications/{app_id}/update")
