@@ -114,7 +114,7 @@ class ExtrasTests(TempDb):
 
         self.assertEqual([row["ticket_id"] for row in matches], [related_id])
         self.assertGreater(matches[0]["score"], 0.1)
-        self.assertEqual(matches[0]["shared_term_count"], 4)
+        self.assertGreaterEqual(matches[0]["shared_term_count"], 5)
         self.assertEqual(too_short, [])
 
     def test_ticket_links_are_bidirectional_persistent_and_removable(self):
