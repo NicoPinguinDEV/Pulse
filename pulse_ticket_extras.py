@@ -183,6 +183,78 @@ def tags_for(ticket_ids) -> dict[str, list[str]]:
     return out
 
 
+# ------------------------------------------------------------------ internal notes (staff-only; never written to public ticket events)
+MAX_INTERNAL_NOTE_LENGTH = 1500
+MAX_INTERNAL_NOTES_PAGE_SIZE = 5
+
+
+def _internal_notes_table(db) -> None:
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS ticket_internal_notes ("
+        "note_id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL, author_id TEXT NOT NULL, "
+        "author_name TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL)"
+    )
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ticket_internal_notes_ticket "
+        "ON ticket_internal_notes(ticket_id, created_at DESC)"
+    )
+
+
+def add_internal_note(ticket_id: str, author_id, author_name: str, note: str) -> dict:
+    """Store a team-only note separately from ticket_events and all public ticket messages."""
+    ticket_id = str(ticket_id or "").strip()
+    author_id = str(author_id or "").strip()
+    author_name = str(author_name or "Teammitglied").strip()[:100] or "Teammitglied"
+    note = str(note or "").strip()
+    if not ticket_id or not author_id:
+        raise ValueError("Ticket und Teammitglied müssen angegeben werden.")
+    if len(note) < 5:
+        raise ValueError("Die interne Notiz muss mindestens 5 Zeichen enthalten.")
+    if len(note) > MAX_INTERNAL_NOTE_LENGTH:
+        raise ValueError(f"Die interne Notiz darf höchstens {MAX_INTERNAL_NOTE_LENGTH} Zeichen enthalten.")
+
+    with pulse_db.connect() as db:
+        _internal_notes_table(db)
+        ticket = db.execute("SELECT status FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+        if ticket is None or str(ticket["status"] or "").lower() == "closed":
+            raise ValueError("Interne Notizen können nur in einem vorhandenen, offenen Ticket gespeichert werden.")
+        saved = {
+            "note_id": pulse_db.make_id("tn"),
+            "ticket_id": ticket_id,
+            "author_id": author_id,
+            "author_name": author_name,
+            "note": note,
+            "created_at": pulse_db._now(),
+        }
+        db.execute(
+            "INSERT INTO ticket_internal_notes (note_id,ticket_id,author_id,author_name,note,created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (saved["note_id"], ticket_id, author_id, author_name, note, saved["created_at"]),
+        )
+    return saved
+
+
+def internal_notes_for(ticket_id: str, limit: int = 2, offset: int = 0) -> list[dict]:
+    """Return newest staff-only notes for the caller to render after its permission check."""
+    ticket_id = str(ticket_id or "").strip()
+    if not ticket_id:
+        return []
+    try:
+        page_size = max(1, min(int(limit), MAX_INTERNAL_NOTES_PAGE_SIZE))
+        page_offset = max(0, int(offset))
+    except (TypeError, ValueError):
+        page_size, page_offset = 2, 0
+    with pulse_db.connect() as db:
+        _internal_notes_table(db)
+        rows = db.execute(
+            "SELECT note_id,ticket_id,author_id,author_name,note,created_at "
+            "FROM ticket_internal_notes WHERE ticket_id=? "
+            "ORDER BY created_at DESC, note_id DESC LIMIT ? OFFSET ?",
+            (ticket_id, page_size, page_offset),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 # ------------------------------------------------------------------ rating report
 def ratings_report(tickets: list[dict]) -> dict:
     """Average rating and count per category and per staff member (only rated tickets)."""
