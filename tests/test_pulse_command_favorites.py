@@ -110,7 +110,11 @@ class FavoriteCommandTests(unittest.TestCase):
         self.assertEqual([choice.value for choice in choices], ["dienst status"])
 
         self.interaction.namespace.aktion = "entfernen"
-        with patch("cogs.pulse_pro.db.get_setting", return_value=["pulse", "warn"]):
+        with (
+            patch("webserver.load_config", return_value={}),
+            patch("webserver.compute_perms", return_value=({"can_view_dashboard": True}, self.member)),
+            patch("cogs.pulse_pro.db.get_setting", return_value=["pulse", "warn"]),
+        ):
             choices = asyncio.run(_pulse_favorites_autocomplete(self.interaction, "warn"))
         self.assertEqual([choice.value for choice in choices], ["warn"])
 
