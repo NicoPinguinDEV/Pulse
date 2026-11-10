@@ -151,6 +151,9 @@ class ShiftNoteCommandTests(unittest.TestCase):
         self.assertTrue(kwargs["ephemeral"])
 
 
+NOTE_WRITER = dict(TEAMLER, can_add_notes=True)
+
+
 class ShiftNoteDashboardRouteTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
@@ -183,7 +186,7 @@ class ShiftNoteDashboardRouteTests(unittest.TestCase):
 
     def test_dashboard_form_saves_only_for_the_signed_in_active_member(self):
         with (
-            patch.object(ws, "auth", fake_auth_for(TEAMLER)),
+            patch.object(ws, "auth", fake_auth_for(NOTE_WRITER)),
             patch(
                 "pulse_shift_history.load_member_view",
                 return_value={"active_shifts": {"123": {
@@ -200,6 +203,15 @@ class ShiftNoteDashboardRouteTests(unittest.TestCase):
         notes = pulse_db.list_shift_notes(GUILD.id, "123")
         self.assertEqual(len(notes), 1)
         self.assertEqual(notes[0]["note"], "Dashboard-Übergabe abgeschlossen")
+
+    def test_dashboard_form_rejects_view_only_members(self):
+        with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
+            response = self.client.post(
+                "/shift/notes", data={"note": "Ohne Schreibrecht"},
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(pulse_db.list_shift_notes(GUILD.id, "123"), [])
 
     def test_dashboard_form_rejects_a_member_without_an_active_shift(self):
         ws.save_json(ws.SHIFTS_FILE, {"active_shifts": {}, "history": []})
