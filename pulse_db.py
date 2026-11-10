@@ -1105,10 +1105,20 @@ def checkin_stats(kind="activity", since=None):
         return int(row["n"])
 
 
-def record_event(event_type, target_type="", target_id="", actor_id="", actor_name="", payload: Any = None):
+def record_event(event_type, target_type="", target_id="", actor_id="", actor_name="", payload: Any = None, *, correlation_id=None):
+    """Append a central event; optional correlation_id links related actions across Pulse surfaces.
+
+    Existing payloads and the eight-column events schema stay unchanged when no ID is supplied.
+    With an ID, the serialized payload receives a top-level correlation_id without mutating the caller's object.
+    """
+    event_payload = payload if payload is not None else {}
+    correlation = str(correlation_id or "").strip()[:128]
+    if correlation:
+        event_payload = dict(event_payload) if isinstance(event_payload, dict) else {"value": event_payload}
+        event_payload["correlation_id"] = correlation
     with connect() as db:
         eid = make_id("event")
-        db.execute("INSERT INTO events VALUES (?,?,?,?,?,?,?,?)", (eid, event_type, target_type or "", str(target_id or ""), str(actor_id or ""), actor_name or "", json.dumps(payload if payload is not None else {}, ensure_ascii=False), _now()))
+        db.execute("INSERT INTO events VALUES (?,?,?,?,?,?,?,?)", (eid, event_type, target_type or "", str(target_id or ""), str(actor_id or ""), actor_name or "", json.dumps(event_payload, ensure_ascii=False), _now()))
         return eid
 
 
