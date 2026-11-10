@@ -15,6 +15,8 @@
 
 ## Unveröffentlicht – Betrieb auf dem Vionity-VPS
 
+- **Anonymes Schulungsfeedback:** Teammitglieder können nach einer absolvierten Schulung eine Sternebewertung und optionalen Kommentar abgeben; die Auswertung zeigt aggregierte Werte und anonyme Kommentare.
+
 - **Rollen-Lernpfade:** Schulungen lassen sich konfigurierten Teamrollen als geordnete Lernpfade zuweisen; der Fortschritt zählt nur eindeutig bestandene Schulungen.
 
 - **Wiki-Versionierung:** Jede Bearbeitung erhält eine unveränderliche, nummerierte Revision. Eine Wiederherstellung erstellt eine neue Revision, statt ältere Versionen zu überschreiben; Legacy-Artikel erhalten beim ersten Edit einen Ausgangssnapshot.

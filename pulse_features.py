@@ -360,10 +360,64 @@ def register(app):
     @app.get("/training/{training_id}", response_class=HTMLResponse)
     async def training_detail(request: Request, training_id: str, user_session: str=Cookie(None)):
         c=ctx(request,user_session); t=db.get_training(training_id)
-        if not t: raise HTTPException(404,'Schulung nicht gefunden.')
-        qs=''.join(f'''<div class="{ws.CARD} p-5"><div class="font-semibold text-xs mb-3">{i+1}. {esc(q["question"])}</div>{"".join(f'<label class="flex gap-2 items-center p-2 rounded-lg bg-slate-50 dark:bg-[#0b0e14] mb-1 text-xs"><input type="radio" name="q_{q["id"]}" value="{j}" required><span>{esc(opt)}</span></label>' for j,opt in enumerate(q['options']))}</div>''' for i,q in enumerate(t['questions']))
-        body=f'<div class="max-w-3xl"><h1 class="text-2xl font-bold">🎓 {esc(t["title"])}</h1><p class="text-xs text-slate-500 mt-1 mb-5">Bestehensgrenze: {t["passing_score"]}% · Zeitlimit: {t["time_limit_minutes"]} Minuten</p><form action="/training/{esc(t["id"])}/submit" method="post" class="space-y-3">{qs}<button class="{ws.BTN} px-5 py-3">Test abgeben</button></form></div>'
-        return ws.render_page(t['title'],c,'training',body)
+        if not t: raise HTTPException(404,"Schulung nicht gefunden.")
+        qs="".join(
+            f'<div class="{ws.CARD} p-5"><div class="font-semibold text-xs mb-3">{i+1}. {esc(q["question"])}</div>'
+            + "".join(
+                f'<label class="flex gap-2 items-center p-2 rounded-lg bg-slate-50 dark:bg-[#0b0e14] mb-1 text-xs">'
+                f'<input type="radio" name="q_{q["id"]}" value="{j}" required><span>{esc(opt)}</span></label>'
+                for j,opt in enumerate(q["options"])
+            )
+            + "</div>"
+            for i,q in enumerate(t["questions"])
+        )
+        training_id_safe=esc(t["id"])
+        body=(
+            f'<div class="max-w-3xl"><h1 class="text-2xl font-bold">🎓 {esc(t["title"])}</h1>'
+            f'<p class="text-xs text-slate-500 mt-1 mb-5">Bestehensgrenze: {t["passing_score"]}% · Zeitlimit: {t["time_limit_minutes"]} Minuten</p>'
+            f'<form action="/training/{training_id_safe}/submit" method="post" class="space-y-3">{qs}'
+            f'<button class="{ws.BTN} px-5 py-3">Test abgeben</button></form>'
+        )
+        feedback_summary=db.training_feedback_summary(training_id)
+        if feedback_summary["count"]:
+            rating_line=f'⭐ {feedback_summary["average"]:.2f}/5 · {feedback_summary["count"]} Bewertungen'
+        else:
+            rating_line="Noch keine Bewertungen."
+        body+=(
+            f'<section class="mt-8 {ws.CARD} p-5"><h2 class="text-sm font-bold">💬 Schulungsfeedback</h2>'
+            f'<p class="text-xs text-slate-500 mt-2">{rating_line}</p>'
+        )
+        my_feedback=db.get_training_feedback(training_id,c.user["id"])
+        if db.has_training_attempt(training_id,c.user["id"]):
+            selected=int(my_feedback["rating"]) if my_feedback else 0
+            options="".join(
+                f'<option value="{rating}" {"selected" if rating==selected else ""}>{rating} von 5 Sternen</option>'
+                for rating in range(5,0,-1)
+            )
+            old_comment=esc(my_feedback["feedback"]) if my_feedback else ""
+            submit_label="Feedback aktualisieren" if my_feedback else "Feedback abgeben"
+            body+=(
+                f'<form method="post" action="/training/{training_id_safe}/feedback" class="mt-3 space-y-3">'
+                f'<label class="block text-xs font-semibold" for="trainingRating">Deine Bewertung</label>'
+                f'<select id="trainingRating" name="rating" required class="{ws.INPUT}">{options}</select>'
+                f'<label class="block text-xs font-semibold" for="trainingFeedback">Was können wir verbessern? (optional)</label>'
+                f'<textarea id="trainingFeedback" name="feedback" maxlength="500" class="{ws.INPUT} h-24" placeholder="Dein Feedback bleibt ohne Namen in der Auswertung.">{old_comment}</textarea>'
+                f'<button class="{ws.BTN} px-4 py-2">{submit_label}</button></form>'
+                '<p class="text-[10px] text-slate-400 mt-2">Die Auswertung zeigt nur Durchschnitt und anonyme Kommentare.</p>'
+            )
+        else:
+            body+='<p class="text-xs text-slate-500 mt-3">Nach deiner ersten absolvierten Schulung kannst du hier eine Bewertung abgeben.</p>'
+        if c.perms.get("can_manage_training") or c.perms.get("can_promote") or c.perms.get("is_admin"):
+            comments=feedback_summary["comments"]
+            comments_html="".join(
+                f'<div class="border-t border-slate-200 dark:border-slate-700 py-3">'
+                f'<div class="text-xs font-semibold">{"⭐" * int(row["rating"])} · {int(row["rating"])}/5</div>'
+                f'<p class="text-xs mt-1 whitespace-pre-wrap">{esc(row["feedback"])}</p></div>'
+                for row in comments
+            ) or '<p class="text-xs text-slate-400 mt-3">Noch keine Kommentare.</p>'
+            body+=f'<div class="mt-4"><h3 class="text-xs font-bold">Anonyme Rückmeldungen</h3>{comments_html}</div>'
+        body+="</section></div>"
+        return ws.render_page(t["title"],c,"training",body)
 
     @app.post("/training/{training_id}/submit")
     async def training_submit(request: Request, training_id: str, user_session: str=Cookie(None)):
@@ -385,6 +439,31 @@ def register(app):
         ws.log_audit(c.user.get('global_name'),c.user['id'],'Schulung Abgelegt',f'{t["title"]}: {score}% · {"bestanden" if passed else "nicht bestanden"}')
         icon='✅' if passed else '❌'; textmsg=f'{icon} Ergebnis: {score}% – {"Bestanden" if passed else "Nicht bestanden"}.'
         return HTMLResponse(ws.simple_page(icon,'Testergebnis',textmsg,'<a href="/training" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zurück zu Schulungen</a>'))
+
+    @app.post("/training/{training_id}/feedback")
+    async def training_feedback_submit(
+        request: Request, training_id: str, user_session: str=Cookie(None),
+    ):
+        c=ctx(request,user_session)
+        training=db.get_training(training_id)
+        if not training: raise HTTPException(404,"Schulung nicht gefunden.")
+        if not db.has_training_attempt(training_id,c.user["id"]):
+            raise HTTPException(403,"Feedback ist erst nach einer absolvierten Schulung möglich.")
+        form=await request.form()
+        try:
+            rating=int(form.get("rating"))
+        except (TypeError,ValueError):
+            raise HTTPException(400,"Bitte eine Bewertung zwischen 1 und 5 auswählen.")
+        comment=str(form.get("feedback") or "")
+        try:
+            db.save_training_feedback(training_id,c.user["id"],rating,comment)
+        except ValueError as exc:
+            raise HTTPException(400,str(exc))
+        ws.log_audit(
+            c.user.get("global_name"),c.user["id"],"Schulungsfeedback gespeichert",
+            f'{training["title"]}: {rating}/5',
+        )
+        return ws.back(f"/training/{training_id}","Danke für dein Schulungsfeedback.")
 
     # Pulse Pro owns the single housekeeping loop. The legacy v4 loop is intentionally not started
     # here to prevent duplicate reminders and notification spam.
