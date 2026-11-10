@@ -105,6 +105,66 @@ class SystemCheckTests(unittest.TestCase):
     def test_disabled_moderation_does_not_add_permission_warnings(self):
         self.assertEqual(sc.moderation_permissions(None, None, {}), [])
 
+    def test_sqlite_diagnostics_are_read_only_and_skip_missing_optional_databases(self):
+        import sqlite3
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            for name in ("pulse.db", "pulse_suite.db"):
+                with sqlite3.connect(base / name) as connection:
+                    connection.execute("CREATE TABLE sample(value TEXT)")
+                    connection.execute("INSERT INTO sample(value) VALUES ('kept')")
+            before = {name: (base / name).read_bytes() for name in ("pulse.db", "pulse_suite.db")}
+
+            def local_path(_base, name):
+                return base / name
+
+            with patch("pulse_backup.sqlite_path", side_effect=local_path):
+                name, ok, detail = sc.sqlite_databases(base)
+
+            self.assertEqual(name, "SQLite-Datenbanken")
+            self.assertTrue(ok, detail)
+            self.assertIn("2 Datenbank(en) geprüft", detail)
+            self.assertIn("optionale Datenbank(en) noch nicht angelegt", detail)
+            self.assertEqual({key: (base / key).read_bytes() for key in before}, before)
+            self.assertFalse((base / "abmeldungen.db").exists())
+
+    def test_sqlite_diagnostics_report_corrupt_database_without_repairing_it(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "pulse.db").write_bytes(b"not a sqlite database")
+            (base / "pulse_suite.db").write_bytes(b"also corrupt")
+            before = {path.name: path.read_bytes() for path in base.iterdir()}
+
+            with patch("pulse_backup.sqlite_path", side_effect=lambda _base, name: base / name):
+                name, ok, detail = sc.sqlite_databases(base)
+
+            self.assertFalse(ok)
+            self.assertIn("pulse.db", detail)
+            self.assertIn("pulse_suite.db", detail)
+            self.assertEqual({path.name: path.read_bytes() for path in base.iterdir()}, before)
+
+    def test_sqlite_diagnostics_fail_when_required_primary_database_is_missing(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            with patch("pulse_backup.sqlite_path", side_effect=lambda _base, name: base / name):
+                name, ok, detail = sc.sqlite_databases(base)
+
+            self.assertFalse(ok)
+            self.assertIn("pulse.db fehlt", detail)
+            self.assertFalse((base / "pulse.db").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

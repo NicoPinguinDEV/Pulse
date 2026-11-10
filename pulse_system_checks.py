@@ -5,6 +5,7 @@ shown – only whether a variable is set.
 """
 import math
 import os
+import sqlite3
 
 import pulse_env_validation
 import pulse_ids
@@ -159,7 +160,66 @@ def run(bot, guild, config, environ=None):
     checks.append(role_hierarchy(guild, config))
     checks += moderation_permissions(bot, guild, config)
     checks.append(shift_history())
+    checks.append(sqlite_databases())
     return checks
+
+
+
+def sqlite_databases(data_dir=None):
+    """Read-only SQLite quick_check for configured runtime databases.
+
+    Missing optional databases are normal (they are created when their feature is first used).
+    The primary pulse.db is required. Connections use mode=ro so diagnostics never create or
+    mutate a database, even when a path is missing or the file is damaged.
+    """
+    from pathlib import Path
+
+    import pulse_backup
+    import pulse_paths
+
+    base = Path(data_dir if data_dir is not None else pulse_paths.DATA_DIR)
+    checked = []
+    missing = []
+    problems = []
+
+    for name in pulse_backup.SQLITE_FILES:
+        try:
+            path = pulse_backup.sqlite_path(base, name)
+        except (OSError, TypeError, ValueError) as exc:
+            problems.append(f"{name} ({type(exc).__name__})")
+            continue
+
+        if not path.is_file():
+            if name == "pulse.db":
+                problems.append("pulse.db fehlt")
+            else:
+                missing.append(name)
+            continue
+
+        connection = None
+        try:
+            uri = path.resolve().as_uri() + "?mode=ro"
+            connection = sqlite3.connect(uri, uri=True, timeout=3)
+            result = connection.execute("PRAGMA quick_check(1)").fetchone()
+            if result is None or str(result[0]).lower() != "ok":
+                detail = str(result[0])[:120] if result else "keine Prüfrückgabe"
+                problems.append(f"{name}: {detail}")
+            else:
+                checked.append(name)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            problems.append(f"{name} ({type(exc).__name__})")
+        finally:
+            if connection is not None:
+                connection.close()
+
+    detail = f"{len(checked)} Datenbank(en) geprüft"
+    if missing:
+        detail += f" · {len(missing)} optionale Datenbank(en) noch nicht angelegt"
+    if problems:
+        detail += " · Auffällig: " + "; ".join(problems[:4])
+        if len(problems) > 4:
+            detail += " …"
+    return ("SQLite-Datenbanken", not problems, detail)
 
 
 def shift_history():
