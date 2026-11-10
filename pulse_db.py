@@ -406,6 +406,19 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type, created_at DESC);
 
+            CREATE TABLE IF NOT EXISTS shift_notes (
+                id TEXT PRIMARY KEY,
+                shift_event_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                user_name TEXT NOT NULL,
+                note TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_shift_notes_event
+                ON shift_notes(shift_event_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_shift_notes_user
+                ON shift_notes(user_id, created_at DESC);
+
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value_json TEXT NOT NULL
@@ -1212,6 +1225,48 @@ def events(limit=200, event_type=None, target_type=None, actor_id=None):
         return [dict(r) for r in rows]
 
 
+def save_shift_note(shift_event_id, user_id, user_name, note):
+    """Append one note to the caller's currently active, stable shift identifier."""
+    shift_event_id = str(shift_event_id or "").strip()
+    user_id = str(user_id or "").strip()
+    user_name = str(user_name or "Team").strip()[:100]
+    note = str(note or "").strip()
+    if not shift_event_id or len(shift_event_id) > 100:
+        raise ValueError("Ungültige Schicht-ID.")
+    if not user_id:
+        raise ValueError("Ungültiges Teammitglied.")
+    if not note or len(note) > 1000:
+        raise ValueError("Die Notiz muss zwischen 1 und 1.000 Zeichen enthalten.")
+    note_id = make_id("shift_note")
+    with connect() as db:
+        db.execute(
+            """INSERT INTO shift_notes (id,shift_event_id,user_id,user_name,note,created_at)
+               VALUES(?,?,?,?,?,?)""",
+            (note_id, shift_event_id, user_id, user_name, note, _now()),
+        )
+    return note_id
+
+
+def shift_notes_for_event(shift_event_id, limit=25):
+    limit = max(1, min(100, int(limit or 25)))
+    with connect() as db:
+        rows = db.execute(
+            "SELECT * FROM shift_notes WHERE shift_event_id=? ORDER BY created_at DESC,id DESC LIMIT ?",
+            (str(shift_event_id), limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def shift_notes_for_member(user_id, limit=25):
+    limit = max(1, min(100, int(limit or 25)))
+    with connect() as db:
+        rows = db.execute(
+            "SELECT * FROM shift_notes WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?",
+            (str(user_id), limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_setting(key, default=None):
     with connect() as db:
         row = db.execute("SELECT value_json FROM settings WHERE key=?", (key,)).fetchone()
@@ -1480,7 +1535,7 @@ def purge_old_notifications(days=90):
 TABLES = [
     "notifications", "tasks", "task_history", "tickets", "ticket_events", "ticket_internal_notes", "ticket_links", "wiki_pages", "achievements",
     "achievement_progress", "trainings", "training_questions", "training_attempts", "meetings_history", "calendar_events",
-    "team_status", "handover_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
+    "team_status", "handover_notes", "announcements", "promotion_requests", "checkins", "events", "shift_notes", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_reason_templates", "mod_reason_template_versions",
 ]
