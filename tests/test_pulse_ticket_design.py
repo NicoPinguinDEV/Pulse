@@ -198,6 +198,26 @@ class AutomationTests(unittest.TestCase):
                   "last_staff_message_at": iso(timedelta(hours=20)), "last_user_message_at": iso(timedelta(hours=13))}
         self.assertEqual(automation_actions(ticket, self.SETTINGS, NOW), ["remind_staff"])
 
+    def test_worker_is_enabled_for_category_only_sla_rules(self):
+        from pulse_ticket_design import automation_enabled
+
+        category_only = automation_settings({
+            "unclaimed_ping_minutes": 0,
+            "staff_reply_hours": 0,
+            "user_reminder_hours": 0,
+            "auto_close_hours": 0,
+            "category_sla": {"support": {"staff_reply_hours": 2}},
+        })
+        disabled = automation_settings({
+            "unclaimed_ping_minutes": 0,
+            "staff_reply_hours": 0,
+            "user_reminder_hours": 0,
+            "auto_close_hours": 0,
+            "category_sla": {"support": {"staff_reply_hours": 0}},
+        })
+        self.assertTrue(automation_enabled(category_only))
+        self.assertFalse(automation_enabled(disabled))
+
     def test_closed_tickets_and_disabled_rules_do_nothing(self):
         self.assertEqual(automation_actions({"status": "closed"}, self.SETTINGS, NOW), [])
         off = automation_settings({k: 0 for k in self.SETTINGS})
