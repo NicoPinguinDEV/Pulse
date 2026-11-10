@@ -126,6 +126,103 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
+    @app_commands.command(name="verknuepfen", description="Dieses Ticket mit einem anderen Ticket verbinden.")
+    @app_commands.describe(ticket_id="ID des anderen Tickets", notiz="Optionaler interner Grund für die Verknüpfung")
+    async def verknuepfen(
+        self,
+        interaction: discord.Interaction,
+        ticket_id: str,
+        notiz: str = "",
+    ):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        try:
+            created = tx.link_tickets(
+                ticket["id"],
+                ticket_id,
+                interaction.user.id,
+                interaction.user.display_name,
+                notiz,
+            )
+        except ValueError as exc:
+            await deny(interaction, str(exc))
+            return
+        if not created:
+            await interaction.response.send_message(
+                f"🔗 Ticket **{ticket_id.strip()}** ist bereits mit diesem Ticket verknüpft.",
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+        await interaction.response.send_message(
+            f"🔗 Ticket **{ticket['id']}** und **{ticket_id.strip()}** wurden intern verknüpft.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @app_commands.command(name="verknuepfungen", description="Verknüpfte Tickets dieses Vorgangs anzeigen.")
+    @app_commands.describe(seite="Seite mit jeweils zehn verknüpften Tickets")
+    async def verknuepfungen(
+        self,
+        interaction: discord.Interaction,
+        seite: app_commands.Range[int, 1, 1000] = 1,
+    ):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        links = tx.linked_tickets(ticket["id"], limit=11, offset=(seite - 1) * 10)
+        if not links:
+            await interaction.response.send_message(
+                "Für dieses Ticket gibt es keine Verknüpfungen auf dieser Seite.",
+                ephemeral=True,
+            )
+            return
+        has_more = len(links) > 10
+        blocks = []
+        for link in links[:10]:
+            related_id = discord.utils.escape_markdown(str(link.get("related_ticket_id") or ""))
+            status = discord.utils.escape_markdown(str(link.get("status") or "unbekannt"))
+            category = discord.utils.escape_markdown(str(link.get("category") or "–"))
+            priority = discord.utils.escape_markdown(str(link.get("priority") or "normal"))
+            channel_id = str(link.get("channel_id") or "")
+            destination = f"<#{channel_id}>" if channel_id.isdigit() else "Kanal nicht verfügbar"
+            note = discord.utils.escape_mentions(
+                discord.utils.escape_markdown(str(link.get("link_note") or ""))
+            )
+            line = f"**{related_id}** · {category} · {status} · {priority} · {destination}"
+            if note:
+                line += f"\\n_{note[:300]}_"
+            blocks.append(line)
+        embed = discord.Embed(
+            title=f"🔗 Verknüpfte Tickets · {ticket['id']}",
+            description="\\n\\n".join(blocks)[:4096],
+            color=0x64748B,
+        )
+        embed.set_footer(text=f"Seite {seite}" + (" · weitere Einträge vorhanden" if has_more else ""))
+        await interaction.response.send_message(
+            embed=embed,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @app_commands.command(name="trennen", description="Eine Ticket-Verknüpfung entfernen.")
+    @app_commands.describe(ticket_id="ID des zu trennenden Tickets")
+    async def trennen(self, interaction: discord.Interaction, ticket_id: str):
+        ticket = await self._guard(interaction)
+        if ticket is None:
+            return
+        try:
+            removed = tx.unlink_tickets(ticket["id"], ticket_id)
+        except ValueError as exc:
+            await deny(interaction, str(exc))
+            return
+        await interaction.response.send_message(
+            "🔓 Ticket-Verknüpfung entfernt." if removed else "Diese Ticket-Verknüpfung bestand nicht.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
     @app_commands.command(name="antwort", description="Schnellantwort für diese Ticket-Kategorie senden.")
     @app_commands.describe(vorlage="Titel der Schnellantwort")
     async def antwort(self, interaction: discord.Interaction, vorlage: str):
