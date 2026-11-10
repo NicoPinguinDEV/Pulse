@@ -53,6 +53,14 @@ class ShiftNoteTests(unittest.TestCase):
         self.assertEqual(len(pulse_db.list_shift_notes("1", "7", limit=500)), 50)
         self.assertEqual(len(pulse_db.list_shift_notes("1", "7", limit=1)), 1)
 
+    def test_note_limit_is_scoped_to_guild(self):
+        for index in range(50):
+            pulse_db.create_shift_note("same-event", "1", "7", "Max", f"Notiz {index}")
+        # A separate guild may legitimately reuse an event identifier.
+        note_id = pulse_db.create_shift_note("same-event", "2", "7", "Max", "Andere Guild")
+        self.assertTrue(note_id)
+        self.assertEqual(len(pulse_db.list_shift_notes("2", "7")), 1)
+
     def test_notes_are_scoped_to_guild_and_member(self):
         pulse_db.create_shift_note("shift-1", "1", "7", "Max", "Nur für Max")
         pulse_db.create_shift_note("shift-2", "1", "8", "Mia", "Nur für Mia")
