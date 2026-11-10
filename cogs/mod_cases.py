@@ -16,7 +16,10 @@ from pulse_interactions import PulseView
 
 
 def _reason_template_choices(interaction: discord.Interaction, action: str, current: str):
-    if interaction.guild is None:
+    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+        return []
+    perms = pulse_perms(interaction.guild, interaction.user.id)
+    if not mc.may_moderate(action, perms, interaction.user.guild_permissions):
         return []
     needle = str(current or "").casefold().strip()
     templates = mrt.list_templates(interaction.guild.id, action, limit=100)
@@ -262,11 +265,23 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
             await interaction.response.send_message("❌ Nur auf dem Server.", ephemeral=True)
             return
         perms = pulse_perms(interaction.guild, interaction.user.id)
-        if not (perms.get("is_admin") or perms.get("can_moderate_kicks") or perms.get("can_moderate_bans")):
+        allowed_actions = [
+            action for action in mrt.ACTIONS
+            if mc.may_moderate(action, perms, interaction.user.guild_permissions)
+        ]
+        selected_action = aktion.value if aktion and aktion.value != "all" else None
+        if selected_action and selected_action not in allowed_actions:
+            await interaction.response.send_message("❌ Für diese Moderationsaktion fehlen dir die nötigen Rechte.", ephemeral=True)
+            return
+        if not allowed_actions:
             await interaction.response.send_message("❌ Kein Zugriff auf Moderationsvorlagen.", ephemeral=True)
             return
-        selected_action = aktion.value if aktion and aktion.value != "all" else None
-        templates = mrt.list_templates(interaction.guild.id, selected_action, limit=50)
+        actions_to_show = [selected_action] if selected_action else allowed_actions
+        templates = [
+            item
+            for action in actions_to_show
+            for item in mrt.list_templates(interaction.guild.id, action, limit=50)
+        ][:50]
         lines = [
             f"`{item['id']}` · **{item['title']}** · {mc.ACTIONS[item['action']]} · v{item['current_version']}"
             for item in templates
