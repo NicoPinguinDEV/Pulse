@@ -11,7 +11,25 @@ from discord import app_commands
 from discord.ext import commands
 
 import pulse_mod_cases as mc
+import pulse_mod_reason_templates as mrt
 from pulse_interactions import PulseView
+
+
+def _reason_template_choices(interaction: discord.Interaction, action: str, current: str):
+    if interaction.guild is None:
+        return []
+    needle = str(current or "").casefold().strip()
+    templates = mrt.list_templates(interaction.guild.id, action, limit=100)
+    return [
+        app_commands.Choice(
+            name=f"{item['title'][:76]} · v{item['current_version']}",
+            value=mrt.selection_token(item["id"], item["current_version"]),
+        )
+        for item in templates
+        if not needle or needle in str(item["title"]).casefold()
+    ][:25]
+
+
 
 
 def pulse_perms(guild, user_id):
@@ -65,12 +83,22 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
             return False
         return True
 
-    async def _execute(self, interaction: discord.Interaction, action: str, target: discord.Member, grund: str,
-                       beweis: str, minutes: int | None, respond) -> None:
+    async def _execute(
+        self,
+        interaction: discord.Interaction,
+        action: str,
+        target: discord.Member,
+        grund: str,
+        beweis: str,
+        minutes: int | None,
+        respond,
+        reason_template_id: str | None = None,
+        reason_template_version: int | None = None,
+    ) -> None:
         """Creates the case, sends the DM first (kick/ban remove the person), then acts on Discord."""
         import webserver
         try:
-            case = mc.create_case(interaction.guild.id, target, action, grund, beweis, minutes, interaction.user)
+            case = mc.create_case(interaction.guild.id, target, action, grund, beweis, minutes, interaction.user,\n                                 reason_template_id=reason_template_id, reason_template_version=reason_template_version)
         except ValueError as exc:
             await respond("❌ " + str(exc))
             return
@@ -113,9 +141,21 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
     async def warn(self, interaction: discord.Interaction, mitglied: discord.Member, grund: str, beweis: str = ""):
         if not await self._check(interaction, "warn", mitglied):
             return
+        try:
+            grund, template_id, template_version = mrt.resolve_reason(interaction.guild.id, "warn", grund)
+        except ValueError as exc:
+            await interaction.response.send_message("❌ " + str(exc), ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        await self._execute(interaction, "warn", mitglied, grund, beweis, None,
-                            lambda text: interaction.followup.send(text, ephemeral=True))
+        await self._execute(
+            interaction, "warn", mitglied, grund, beweis, None,
+            lambda text: interaction.followup.send(text, ephemeral=True),
+            template_id, template_version,
+        )
+
+    @warn.autocomplete("grund")
+    async def warn_reason_autocomplete(self, interaction: discord.Interaction, current: str):
+        return _reason_template_choices(interaction, "warn", current)
 
     @app_commands.command(name="timeout", description="Bürger stummschalten (Timeout mit Ablauf).")
     @app_commands.describe(mitglied="Wer", minuten="Dauer in Minuten (1 bis 40320 = 28 Tage)", grund="Pflichtgrund", beweis="Link zum Beweis (optional)")
@@ -123,11 +163,23 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
                       minuten: app_commands.Range[int, 1, mc.MAX_TIMEOUT_MINUTES], grund: str, beweis: str = ""):
         if not await self._check(interaction, "timeout", mitglied):
             return
+        try:
+            grund, template_id, template_version = mrt.resolve_reason(interaction.guild.id, "timeout", grund)
+        except ValueError as exc:
+            await interaction.response.send_message("❌ " + str(exc), ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        await self._execute(interaction, "timeout", mitglied, grund, beweis, minuten,
-                            lambda text: interaction.followup.send(text, ephemeral=True))
+        await self._execute(
+            interaction, "timeout", mitglied, grund, beweis, minuten,
+            lambda text: interaction.followup.send(text, ephemeral=True),
+            template_id, template_version,
+        )
 
-    async def _confirm_then(self, interaction, action, mitglied, grund, beweis, minutes):
+    @timeout.autocomplete("grund")
+    async def timeout_reason_autocomplete(self, interaction: discord.Interaction, current: str):
+        return _reason_template_choices(interaction, "timeout", current)
+
+    async def _confirm_then(self, interaction, action, mitglied, grund, beweis, minutes, template_id=None, template_version=None):
         async def run(button_interaction):
             import webserver
             # review fix: up to 60 s may have passed – check rights and rank again before acting
@@ -149,7 +201,16 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
     async def kick(self, interaction: discord.Interaction, mitglied: discord.Member, grund: str, beweis: str = ""):
         if not await self._check(interaction, "kick", mitglied):
             return
-        await self._confirm_then(interaction, "kick", mitglied, grund, beweis, None)
+        try:
+            grund, template_id, template_version = mrt.resolve_reason(interaction.guild.id, "kick", grund)
+        except ValueError as exc:
+            await interaction.response.send_message("❌ " + str(exc), ephemeral=True)
+            return
+        await self._confirm_then(interaction, "kick", mitglied, grund, beweis, None, template_id, template_version)
+
+    @kick.autocomplete("grund")
+    async def kick_reason_autocomplete(self, interaction: discord.Interaction, current: str):
+        return _reason_template_choices(interaction, "kick", current)
 
     @app_commands.command(name="ban", description="Bürger bannen (mit Bestätigung, optional befristet).")
     @app_commands.describe(tage="0 = unbefristet, sonst Tage bis zur automatischen Aufhebung")
@@ -157,7 +218,19 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
                   tage: app_commands.Range[int, 0, 365] = 0, beweis: str = ""):
         if not await self._check(interaction, "ban", mitglied):
             return
-        await self._confirm_then(interaction, "ban", mitglied, grund, beweis, tage * 1440 if tage else None)
+        try:
+            grund, template_id, template_version = mrt.resolve_reason(interaction.guild.id, "ban", grund)
+        except ValueError as exc:
+            await interaction.response.send_message("❌ " + str(exc), ephemeral=True)
+            return
+        await self._confirm_then(
+            interaction, "ban", mitglied, grund, beweis, tage * 1440 if tage else None,
+            template_id, template_version,
+        )
+
+    @ban.autocomplete("grund")
+    async def ban_reason_autocomplete(self, interaction: discord.Interaction, current: str):
+        return _reason_template_choices(interaction, "ban", current)
 
     @app_commands.command(name="akte", description="Moderationsfälle einer Person anzeigen.")
     async def akte(self, interaction: discord.Interaction, mitglied: discord.User):
