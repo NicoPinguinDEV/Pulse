@@ -392,5 +392,7 @@
  "POST /ultimate/team/{user_id}/update -> pulse_ultimate.register.<locals>.ultimate_member_update",
  "POST /ultimate/workflows/create -> pulse_next.register.<locals>.workflows_create",
  "POST /voice-support/save -> pulse_pro.register.<locals>.voice_support_save",
- "POST /wiki/save -> pulse_features.register.<locals>.wiki_save"
+ "POST /wiki/save -> pulse_features.register.<locals>.wiki_save",
+ "POST /me/favorites/add -> pulse_home.register.<locals>.my_favorite_add",
+ "POST /me/favorites/remove -> pulse_home.register.<locals>.my_favorite_remove"
 ]
