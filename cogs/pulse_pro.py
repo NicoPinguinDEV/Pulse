@@ -334,10 +334,42 @@ class PulsePro(commands.Cog):
             goal = float(cfg.get("weekly_goal_hours", 3.0) or 0)
             pct = min(100, int(weekly * 100 / (goal * 3600))) if goal else 100
             state = {"online": "🟢 Im Dienst", "break": "☕ Pause"}.get(own.get("status") if own else "", "⚪ Nicht im Dienst")
-            my_tasks = len([x for x in db.list_tasks(assignee_id=interaction.user.id, limit=100) if x.get("status") not in ("done", "archived")])
+            my_tasks = len([
+                task for task in db.list_tasks(assignee_id=uid, limit=100)
+                if task.get("status") not in ("done", "archived")
+            ])
+            my_tickets = len([
+                ticket for ticket in db.list_tickets(claimed_by_id=uid, limit=100)
+                if ticket.get("status") != "closed"
+            ])
+            attempts = db.attempts(user_id=uid, limit=100)
+            passed_trainings = {
+                str(item.get("training_id"))
+                for item in attempts
+                if item.get("passed") and item.get("training_id")
+            }
+            configured_role_ids = {
+                int(role_id) for role_id in cfg.get("team_role_ids", [])
+                if str(role_id).isdigit()
+            }
+            team_roles = [
+                role for role in getattr(member, "roles", [])
+                if int(getattr(role, "id", 0) or 0) in configured_role_ids
+            ]
+            highest_role = max(
+                team_roles,
+                key=lambda role: int(getattr(role, "position", 0) or 0),
+                default=None,
+            )
+            role_name = getattr(highest_role, "name", None) or "Keine Teamrolle"
             embed.add_field(
-                name="👤 Deine Woche",
-                value=f"{state}\n⏱ {webserver.fmt_duration(weekly)} von {goal:g} h ({pct} %)\n📋 {my_tasks} offene Aufgaben",
+                name="👤 Deine Übersicht",
+                value=(
+                    f"🎖 {role_name}\n{state}\n"
+                    f"⏱ {webserver.fmt_duration(weekly)} von {goal:g} h ({pct} %)\n"
+                    f"📋 {my_tasks} offene Aufgaben · 🎫 {my_tickets} übernommene Tickets\n"
+                    f"🎓 {len(passed_trainings)} bestandene Schulungen"
+                ),
                 inline=False,
             )
             embed.add_field(name="🌐 Dashboard", value=f"[Mein Pulse]({panel_url('/me')}) · [Übersicht]({panel_url()})", inline=False)
