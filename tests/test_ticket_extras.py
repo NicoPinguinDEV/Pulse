@@ -92,8 +92,9 @@ class ExtrasTests(TempDb):
             tx.internal_notes_for(self.tid, limit=1, offset=1)[0]["note"],
             first["note"],
         )
-        self.assertFalse(any("Beleg prüfen" in event.get("details", "") for event in pulse_db.ticket_events(self.tid)))
-        self.assertFalse(any("Leitung abstimmen" in event.get("details", "") for event in pulse_db.ticket_events(self.tid)))
+        events = pulse_db.ticket_events(self.tid)
+        self.assertFalse(any("Beleg prüfen" in event.get("details", "") for event in events))
+        self.assertFalse(any("Leitung abstimmen" in event.get("details", "") for event in events))
 
     def test_internal_notes_validate_input_and_reject_closed_tickets(self):
         with self.assertRaises(ValueError):
@@ -106,7 +107,6 @@ class ExtrasTests(TempDb):
         pulse_db.close_ticket(self.tid, "erledigt", "")
         with self.assertRaises(ValueError):
             tx.add_internal_note(self.tid, 3, "Max", "Dieses Ticket ist bereits geschlossen.")
-
 
     def test_modal_rechecks_ticket_team_permission_before_persisting(self):
         from cogs import ticket_tools
@@ -129,7 +129,6 @@ class ExtrasTests(TempDb):
         self.assertTrue(sent)
         self.assertTrue(sent[0][1].get("ephemeral"))
         self.assertEqual(tx.internal_notes_for(self.tid), [])
-
 
     def test_ratings_report(self):
         tickets = [{"category": "support", "claimed_by_name": "Lena", "rating": 5},
