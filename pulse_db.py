@@ -1158,8 +1158,8 @@ def create_shift_note(shift_event_id, guild_id, user_id, user_name, note):
         raise ValueError("Eine Schichtnotiz darf höchstens 1.000 Zeichen enthalten.")
     with connect() as db:
         count = db.execute(
-            "SELECT COUNT(*) FROM shift_notes WHERE shift_event_id=?",
-            (event_id,),
+            "SELECT COUNT(*) FROM shift_notes WHERE shift_event_id=? AND guild_id=?",
+            (event_id, guild),
         ).fetchone()[0]
         if int(count or 0) >= 50:
             raise ValueError("Für diese Schicht sind bereits 50 Notizen gespeichert.")
