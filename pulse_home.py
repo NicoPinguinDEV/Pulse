@@ -33,6 +33,7 @@ HOME_WIDGETS = (
     ("status", "Mein Status"),
     ("meeting", "Nächste Besprechung"),
     ("inbox", "Neu für mich"),
+    ("shift_notes", "Schichtnotizen"),
 )
 DEFAULT_HOME_WIDGETS = tuple(key for key, _label in HOME_WIDGETS)
 HOME_WIDGETS_KEY = "home_widgets"
@@ -304,6 +305,36 @@ def register(app) -> None:
             right_widgets.append(card("🎙 Nächste Besprechung", meeting_html, '<a href="/meetings" class="text-[11px] text-indigo-500">Details →</a>'))
         if "inbox" in selected_widgets:
             right_widgets.append(card("📥 Neu für mich", inbox_html, '<a href="/pulse-inbox" class="text-[11px] text-indigo-500">Inbox →</a>'))
+        if "shift_notes" in selected_widgets and ctx.guild:
+            recent_shift_notes = db.list_shift_notes(ctx.guild.id, uid, limit=8)
+            shift_note_rows = "".join(
+                f'<div class="pulse-row"><div class="pulse-row-main">'
+                f'<div class="pulse-row-meta">Schichtnotiz · {e(str(item.get("created_at") or "")[:16].replace("T", " "))}</div>'
+                f'<div class="text-xs whitespace-pre-wrap">{e(item.get("note") or "")}</div>'
+                f'</div></div>'
+                for item in recent_shift_notes
+            ) or '<div class="pulse-empty">Noch keine Schichtnotizen vorhanden.</div>'
+            if current and current.get("started_at_iso"):
+                if perms.get("can_add_notes") or perms.get("is_admin"):
+                    shift_note_form = (
+                        '<form action="/shift/notes" method="post" class="mt-3 space-y-2">'
+                        '<input type="hidden" name="return_to" value="/me">'
+                        '<label class="block text-xs font-semibold" for="shiftNoteText">Notiz für deine aktuelle Schicht</label>'
+                        '<textarea id="shiftNoteText" name="note" maxlength="1000" required '
+                        'class="pulse-input w-full" rows="3" placeholder="Wichtige Ereignisse, offene Punkte oder Hinweise für die nächste Schicht…"></textarea>'
+                        '<button class="pulse-btn ghost" type="submit">Schichtnotiz speichern</button></form>'
+                    )
+                else:
+                    shift_note_form = '<p class="text-xs text-slate-400 mt-3">Dir fehlt die Berechtigung zum Erstellen von Schichtnotizen.</p>'
+            else:
+                shift_note_form = '<p class="text-xs text-slate-400 mt-3">Notizen können während einer laufenden Schicht hinzugefügt werden.</p>'
+            right_widgets.append(
+                card(
+                    "🗒 Schichtnotizen",
+                    shift_note_rows + shift_note_form,
+                    f'<a href="/member/{e(uid)}" class="text-[11px] text-indigo-500">Teamakte →</a>',
+                )
+            )
         body = f'''
         {hero}
         <div class="pulse-stat-grid">{stat_html}</div>

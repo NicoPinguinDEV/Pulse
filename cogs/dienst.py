@@ -48,6 +48,129 @@ async def run_duty_action(interaction: discord.Interaction, action: str) -> None
             pass
 
 
+async def run_shift_note(interaction: discord.Interaction, note: str) -> None:
+    """Add a private, immutable note to the invoking member's currently active shift."""
+    import webserver
+    if interaction.guild is None or not may_use_duty(interaction.guild, interaction.user.id):
+        await interaction.response.send_message(
+            "❌ Schichtnotizen können nur Teammitglieder verwenden.", ephemeral=True
+        )
+        return
+    perms, _ = webserver.compute_perms(
+        interaction.guild, interaction.user.id, webserver.load_config()
+    )
+    if not (perms.get("can_add_notes") or perms.get("is_admin")):
+        await interaction.response.send_message(
+            "❌ Dir fehlt die Berechtigung zum Erstellen von Schichtnotizen.",
+            ephemeral=True,
+        )
+        return
+    text = str(note or "").strip()
+    if not text:
+        await interaction.response.send_message("❌ Bitte gib eine Notiz ein.", ephemeral=True)
+        return
+    if len(text) > 1000:
+        await interaction.response.send_message(
+            "❌ Eine Schichtnotiz darf höchstens 1.000 Zeichen enthalten.", ephemeral=True
+        )
+        return
+
+    uid = str(interaction.user.id)
+    try:
+        import pulse_shift_history
+        import pulse_shift_utils
+        member_state = pulse_shift_history.load_member_view(webserver, uid)
+        active = member_state.get("active_shifts", {}) if isinstance(member_state, dict) else {}
+        shift = active.get(uid) if isinstance(active, dict) else None
+    except Exception as exc:
+        await interaction.response.send_message(
+            f"❌ Der aktuelle Dienststatus konnte nicht gelesen werden ({type(exc).__name__}).",
+            ephemeral=True,
+        )
+        return
+    if not isinstance(shift, dict) or not shift.get("started_at_iso"):
+        await interaction.response.send_message(
+            "❌ Du bist aktuell nicht im Dienst. Starte zuerst mit /dienst start eine Schicht.",
+            ephemeral=True,
+        )
+        return
+
+    event_id = str(
+        shift.get("shift_event_id")
+        or pulse_shift_utils.shift_event_id(uid, shift.get("started_at_iso"))
+    )
+    try:
+        note_id = pulse_db.create_shift_note(
+            event_id, interaction.guild.id, uid,
+            getattr(interaction.user, "display_name", None) or getattr(interaction.user, "name", "Teammitglied"),
+            text,
+        )
+    except ValueError as exc:
+        await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+        return
+
+    try:
+        webserver.log_audit(
+            getattr(interaction.user, "display_name", None) or getattr(interaction.user, "name", "Teammitglied"),
+            uid, "Schichtnotiz erstellt", f"Notiz-ID {note_id} · Schicht {event_id}",
+        )
+    except Exception:
+        pass
+    await interaction.response.send_message(
+        "✅ Schichtnotiz wurde privat gespeichert und deiner laufenden Schicht zugeordnet.",
+        ephemeral=True,
+    )
+
+
+async def run_shift_notes(
+    interaction: discord.Interaction, member: discord.Member | None = None
+) -> None:
+    """Show own notes; notes about another member require leadership permissions."""
+    import webserver
+    if interaction.guild is None or not may_use_duty(interaction.guild, interaction.user.id):
+        await interaction.response.send_message(
+            "❌ Schichtnotizen können nur Teammitglieder einsehen.", ephemeral=True
+        )
+        return
+    target = member or interaction.user
+    target_id = str(target.id)
+    actor_id = str(interaction.user.id)
+    if target_id != actor_id:
+        perms, _ = webserver.compute_perms(
+            interaction.guild, interaction.user.id, webserver.load_config()
+        )
+        if not (perms.get("can_promote") or perms.get("is_admin")):
+            await interaction.response.send_message(
+                "❌ Schichtnotizen anderer Teammitglieder sind nur für die Leitung freigegeben.",
+                ephemeral=True,
+            )
+            return
+    rows = pulse_db.list_shift_notes(interaction.guild.id, target_id, limit=10)
+    target_name = (
+        getattr(target, "display_name", None)
+        or getattr(target, "global_name", None)
+        or getattr(target, "name", "Teammitglied")
+    )
+    if not rows:
+        await interaction.response.send_message(
+            f"📝 Für **{discord.utils.escape_markdown(str(target_name))}** liegen noch keine Schichtnotizen vor.",
+            ephemeral=True,
+        )
+        return
+
+    lines = [f"**Schichtnotizen für {discord.utils.escape_markdown(str(target_name))}**"]
+    for row in rows:
+        created = discord.utils.escape_markdown(str(row.get("created_at") or "Zeit unbekannt"))
+        body = discord.utils.escape_mentions(
+            discord.utils.escape_markdown(str(row.get("note") or ""))
+        )
+        lines.append(f"• {created}\n{body}")
+    output = "\n\n".join(lines)
+    if len(output) > 1900:
+        output = output[:1880].rsplit("\n", 1)[0] + "\n… weitere Einträge ausgeblendet."
+    await interaction.response.send_message(output, ephemeral=True)
+
+
 class DutyPanelView(PulseView):
     def __init__(self):
         super().__init__(timeout=None)
@@ -99,6 +222,16 @@ class Dienst(commands.GroupCog, group_name="dienst", group_description="Eigene S
     @app_commands.command(name="status", description="Zeigt, ob du im Dienst bist und deine Zeit diese Woche.")
     async def status(self, interaction: discord.Interaction):
         await run_duty_action(interaction, "status")
+
+    @app_commands.command(name="notiz", description="Speichert eine private Notiz zu deiner laufenden Schicht.")
+    @app_commands.describe(text="Kurze Dokumentation eines Ereignisses (maximal 1.000 Zeichen).")
+    async def notiz(self, interaction: discord.Interaction, text: app_commands.Range[str, 1, 1000]):
+        await run_shift_note(interaction, text)
+
+    @app_commands.command(name="notizen", description="Zeigt deine Schichtnotizen; Leitung kann andere einsehen.")
+    @app_commands.describe(member="Optionales Teammitglied (nur Leitung).")
+    async def notizen(self, interaction: discord.Interaction, member: discord.Member | None = None):
+        await run_shift_notes(interaction, member)
 
     @app_commands.command(name="panel", description="Veröffentlicht das Dienst-Panel in diesem Kanal (nur Admins).")
     @app_commands.default_permissions(manage_guild=True)

@@ -70,7 +70,8 @@ class PathModuleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(pulse_paths.verify_data_dir(tmp, allow_init=True), [])
             self.assertEqual(pulse_paths.read_marker(tmp)["state"], "initialized")
-            self.assertEqual(pulse_paths.verify_data_dir(tmp, allow_init=False), [])
+            with patch.dict(os.environ, {"PULSE_DB_PATH": ""}):
+                self.assertEqual(pulse_paths.verify_data_dir(tmp, allow_init=False), [])
 
     def test_aborted_migration_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -297,7 +298,8 @@ class MigrationTests(unittest.TestCase):
         self.assertFalse((self.target / "pulse.py").exists())
         marker = pulse_paths.read_marker(self.target)
         self.assertEqual((marker["state"], marker["files"]), ("complete", len(items)))
-        self.assertEqual(pulse_paths.verify_data_dir(self.target), [])
+        with patch.dict(os.environ, {"PULSE_DB_PATH": ""}):
+            self.assertEqual(pulse_paths.verify_data_dir(self.target), [])
         con = sqlite3.connect(self.target / "pulse.db")
         self.assertEqual(con.execute("SELECT v FROM t").fetchall(), [("a",)])  # WAL content came along
         con.close()
