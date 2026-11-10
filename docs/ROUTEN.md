@@ -469,7 +469,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 |---|---|---|---|---|
 | POST | `/shift/action` | `webserver.handle_shift_action` | webserver.py:4967 | can_view_dashboard |
 | POST | `/shift/admin-end` | `pulse_pro.register.<locals>.admin_end_shift` | pulse_pro.py:1347 | can_view_dashboard (+ can_promote, is_admin) |
-| POST | `/shift/history/confirm-duration` | `pulse_pro.register.<locals>.confirm_auto_closed_shift_duration`
+| POST | `/shift/history/confirm-duration` | `pulse_pro.register.<locals>.confirm_auto_closed_shift_duration` | pulse_pro.py:1343 | can_view_dashboard (+ can_promote, is_admin) |
 | POST | `/shift/notes` | `pulse_pro.register.<locals>.add_shift_note_dashboard` | pulse_pro.py:1299 | can_view_dashboard (eigene laufende Schicht) |
 
 ### `/sicherheit` (1)
