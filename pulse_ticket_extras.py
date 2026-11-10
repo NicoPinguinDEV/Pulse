@@ -319,7 +319,9 @@ def _ticket_links_table(db) -> None:
         "ticket_id_a TEXT NOT NULL, ticket_id_b TEXT NOT NULL, "
         "created_by_id TEXT NOT NULL, created_by_name TEXT NOT NULL, "
         "note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, "
-        "PRIMARY KEY (ticket_id_a,ticket_id_b), CHECK (ticket_id_a < ticket_id_b))"
+        "PRIMARY KEY (ticket_id_a,ticket_id_b), CHECK (ticket_id_a < ticket_id_b), "
+        "FOREIGN KEY (ticket_id_a) REFERENCES tickets(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (ticket_id_b) REFERENCES tickets(id) ON DELETE CASCADE)"
     )
     db.execute("CREATE INDEX IF NOT EXISTS idx_ticket_links_b ON ticket_links(ticket_id_b)")
 
