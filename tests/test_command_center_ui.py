@@ -58,6 +58,9 @@ class CommandCenterInteractionTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertIn(f'href="{path}"', viewer)
+        self.assertIn('href="/ultimate"', viewer)
+        self.assertIn('href="/ultimate/polls"', viewer)
+        self.assertIn('href="/suite/search"', viewer)
         self.assertNotIn('href="/ultimate/cases"', viewer)
         self.assertNotIn('href="/suite/audit"', viewer)
         self.assertNotIn('href="/admin/security"', viewer)
