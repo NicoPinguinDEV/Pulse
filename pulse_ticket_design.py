@@ -184,7 +184,7 @@ def automation_settings(raw: dict | None) -> dict:
                     value = int(values[key])
                 except (TypeError, ValueError):
                     continue
-                maximum = 24 * 60
+                maximum = 24 * 14 if key.endswith("hours") else 24 * 60
                 overrides[key] = max(0, min(value, maximum))
             if overrides:
                 category_sla[category] = overrides
