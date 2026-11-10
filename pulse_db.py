@@ -348,6 +348,57 @@ def init_db():
                 value_json TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS mod_cases (
+                id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                target_name TEXT,
+                action TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                proof TEXT DEFAULT '',
+                expires_at TEXT,
+                actor_id TEXT NOT NULL,
+                actor_name TEXT,
+                created_at TEXT NOT NULL,
+                status TEXT DEFAULT 'active',
+                dm_sent INTEGER DEFAULT 0,
+                closed_at TEXT,
+                closed_by TEXT,
+                close_note TEXT DEFAULT '',
+                reason_template_id TEXT,
+                reason_template_version INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_mod_cases_target ON mod_cases(target_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS mod_reason_templates (
+                id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                name TEXT NOT NULL COLLATE NOCASE,
+                active_version INTEGER NOT NULL DEFAULT 1,
+                archived INTEGER NOT NULL DEFAULT 0,
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_mod_reason_templates_name
+                ON mod_reason_templates(guild_id, action, name COLLATE NOCASE);
+            CREATE INDEX IF NOT EXISTS idx_mod_reason_templates_scope
+                ON mod_reason_templates(guild_id, action, archived);
+
+            CREATE TABLE IF NOT EXISTS mod_reason_template_versions (
+                template_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                body TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (template_id, version),
+                FOREIGN KEY (template_id) REFERENCES mod_reason_templates(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_mod_reason_template_versions_template
+                ON mod_reason_template_versions(template_id, version);
+
             CREATE TABLE IF NOT EXISTS team_safety_warn_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 guild_id TEXT NOT NULL,
@@ -386,6 +437,8 @@ def init_db():
         _ensure_column(db, "tickets", "last_staff_message_at", "TEXT")
         _ensure_column(db, "tickets", "automation_state", "TEXT DEFAULT '{}'")
         _ensure_column(db, "tickets", "panel_id", "TEXT")
+        _ensure_column(db, "mod_cases", "reason_template_id", "TEXT")
+        _ensure_column(db, "mod_cases", "reason_template_version", "INTEGER")
         _ensure_column(db, "promotion_requests", "requested_role_id", "TEXT")
         _ensure_column(db, "promotion_requests", "current_role_id", "TEXT")
         db.execute("CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(user_id, dedupe_key, created_at)")
@@ -1417,6 +1470,7 @@ TABLES = [
     "achievement_progress", "trainings", "training_questions", "training_attempts", "meetings_history", "calendar_events",
     "team_status", "handover_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
+    "mod_cases", "mod_reason_templates", "mod_reason_template_versions",
 ]
 
 
