@@ -282,11 +282,14 @@ class TicketWorkflowTests(unittest.TestCase):
                 "sla__support__staff_reply_hours": "4",
                 "sla__bug__unclaimed_ping_minutes": "0",
                 "sla__../unsafe__staff_reply_hours": "1",
+                "auto_assign_enabled": "true",
+                "max_open_per_staff": "3",
             },
             follow_redirects=False,
         )
         self.assertEqual(response.status_code, 303)
-        saved = pulse_db.get_setting("ticket_system_config", {})["automation"]
+        saved_config = pulse_db.get_setting("ticket_system_config", {})
+        saved = saved_config["automation"]
         self.assertEqual(
             saved["category_sla"],
             {
@@ -295,6 +298,7 @@ class TicketWorkflowTests(unittest.TestCase):
             },
         )
         self.assertEqual(saved["staff_reply_hours"], 12)
+        self.assertEqual(saved_config["distribution"], {"enabled": True, "max_open_per_staff": 3})
 
     def test_category_sla_settings_require_admin_and_blank_fields_remove_overrides(self):
         pulse_db.set_setting("ticket_system_config", {
