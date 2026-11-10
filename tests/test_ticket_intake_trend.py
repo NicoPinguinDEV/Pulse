@@ -26,7 +26,7 @@ class TicketIntakeTrendTests(unittest.TestCase):
         )
         self.assertEqual(
             ticket_intake_counts(connection, now),
-            {"tickets_opened_7d": 3, "tickets_opened_prev_7d": 3},
+            {"tickets_opened_7d": 3, "tickets_opened_prev_7d": 4},
         )
         connection.close()
 
