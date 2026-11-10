@@ -6227,10 +6227,13 @@ async def pulse_ticket_automation_save(
     staff_reply_hours: int = Form(0),
     user_reminder_hours: int = Form(0),
     auto_close_hours: int = Form(0),
+    auto_assign_enabled: bool = Form(False),
+    max_open_per_staff: int = Form(5),
     user_session: str = Cookie(None),
 ):
     auth(request, user_session, admin=True)
     from pulse_ticket_design import automation_settings
+    from pulse_ticket_distribution import distribution_settings
     settings = pulse_ticket_config()
     current_automation = automation_settings(settings.get("automation"))
     category_sla = {
@@ -6262,6 +6265,10 @@ async def pulse_ticket_automation_save(
         "user_reminder_hours": user_reminder_hours,
         "auto_close_hours": auto_close_hours,
         "category_sla": category_sla,
+    })
+    settings["distribution"] = distribution_settings({
+        "enabled": auto_assign_enabled,
+        "max_open_per_staff": max_open_per_staff,
     })
     pulse_db.set_setting("ticket_system_config", settings)
     return back("/tickets/panels?tab=automation", "Ticket-Automatik gespeichert.", True)
