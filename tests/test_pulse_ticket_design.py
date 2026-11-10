@@ -87,6 +87,95 @@ class AutomationTests(unittest.TestCase):
         self.assertEqual(settings["unclaimed_ping_minutes"], 0)
         self.assertEqual(settings["user_reminder_hours"], 24)
 
+    def test_category_sla_overrides_inherit_global_values_and_allow_disable(self):
+        from pulse_ticket_design import category_automation_settings
+
+        settings = automation_settings({
+            "unclaimed_ping_minutes": 30,
+            "staff_reply_hours": 12,
+            "user_reminder_hours": 24,
+            "auto_close_hours": 48,
+            "category_sla": {
+                "support": {"unclaimed_ping_minutes": 60, "staff_reply_hours": 3},
+                "bug": {"unclaimed_ping_minutes": 0, "user_reminder_hours": 0},
+                "../unsafe": {"staff_reply_hours": 1},
+                "leadership": {"staff_reply_hours": "invalid"},
+            },
+        })
+        support = category_automation_settings("support", settings)
+        bug = category_automation_settings("bug", settings)
+        other = category_automation_settings("highteam", settings)
+
+        self.assertEqual(support["unclaimed_ping_minutes"], 60)
+        self.assertEqual(support["staff_reply_hours"], 3)
+        self.assertEqual(support["user_reminder_hours"], 24)
+        self.assertEqual(support["auto_close_hours"], 48)
+        self.assertEqual(bug["unclaimed_ping_minutes"], 0)
+        self.assertEqual(bug["user_reminder_hours"], 0)
+        self.assertEqual(bug["staff_reply_hours"], 12)
+        self.assertEqual(other["staff_reply_hours"], 12)
+        self.assertNotIn("../unsafe", settings["category_sla"])
+        self.assertNotIn("leadership", settings["category_sla"])
+        self.assertEqual(
+            automation_settings({"category_sla": {"support": {"staff_reply_hours": 999999}}})
+            ["category_sla"]["support"]["staff_reply_hours"],
+            336,
+        )
+
+    def test_category_sla_controls_scheduler_reminders(self):
+        from pulse_ticket_design import automation_actions
+
+        settings = automation_settings({
+            "unclaimed_ping_minutes": 30,
+            "staff_reply_hours": 12,
+            "user_reminder_hours": 24,
+            "category_sla": {
+                "support": {"unclaimed_ping_minutes": 60},
+                "bug": {"unclaimed_ping_minutes": 0},
+            },
+        })
+        support_ticket = {
+            "category": "support",
+            "status": "open",
+            "opened_at": iso(timedelta(minutes=45)),
+        }
+        bug_ticket = {
+            "category": "bug",
+            "status": "open",
+            "opened_at": iso(timedelta(hours=5)),
+        }
+        default_ticket = {
+            "category": "highteam",
+            "status": "open",
+            "opened_at": iso(timedelta(minutes=45)),
+        }
+
+        self.assertNotIn("remind_unclaimed", automation_actions(support_ticket, settings, NOW))
+        self.assertNotIn("remind_unclaimed", automation_actions(bug_ticket, settings, NOW))
+        self.assertIn("remind_unclaimed", automation_actions(default_ticket, settings, NOW))
+
+    def test_category_sla_keeps_auto_close_global(self):
+        from pulse_ticket_design import automation_actions
+
+        settings = automation_settings({
+            "user_reminder_hours": 24,
+            "auto_close_hours": 24,
+            "category_sla": {"support": {"user_reminder_hours": 1}},
+        })
+        staff_at = NOW - timedelta(hours=2)
+        ticket = {
+            "category": "support",
+            "status": "in_progress",
+            "claimed_by_id": "5",
+            "last_staff_message_at": staff_at.isoformat(),
+        }
+        self.assertEqual(automation_actions(ticket, settings, NOW), ["remind_user"])
+        ticket["automation_state"] = {
+            "user_reminder_for": staff_at.isoformat(),
+            "user_reminded_at": iso(timedelta(hours=25)),
+        }
+        self.assertEqual(automation_actions(ticket, settings, NOW), ["auto_close"])
+
     def test_unclaimed_ping_once(self):
         ticket = {"status": "open", "opened_at": iso(timedelta(minutes=45))}
         self.assertIn("remind_unclaimed", automation_actions(ticket, self.SETTINGS, NOW))
