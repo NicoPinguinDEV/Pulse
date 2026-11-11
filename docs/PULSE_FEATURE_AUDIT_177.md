@@ -1,11 +1,11 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich:** `main` bei `cf7d866` (PRs #205–#210 gemergt). Dieser Auditstand berücksichtigt zusätzlich drei noch nicht gemergte Draft-Blöcke: Ticket-Auslastung (#40, PR #211), Eskalation/Wiederöffnen (#27, #28, #35, PR #212) und abwesenheitsbewusste Zuteilung (#26). Der Code auf `main` selbst entspricht bis zum Merge 69 fertig / 107 teilweise / 1 offen (inklusive der Neubewertung von #27, das dort bereits umgesetzt ist); die Auditdatei auf `main` nennt noch den älteren Stand mit 62 fertigen Funktionen. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Main-Abgleich:** `main` bei `c443528` nach PR #213: 73 fertig / 103 teilweise / 1 offen. Dieser Branch enthält zusätzlich die geprüfte Umsetzung von #25 aus PR #215; die nachfolgende Bewertung beschreibt daher den vorgeschlagenen Branch-Stand (74 fertig / 102 teilweise / 1 offen), nicht den unveränderten `main`-Stand. PR #215 ist noch Draft und nicht gemergt. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
-> Dieses Dokument ist eine Bestandsaufnahme des Repository-Codes und der vorhandenen Tests. Es ist keine Aussage, dass alle Abläufe auf dem Live-Discord-Server manuell abgenommen wurden. Die Bewertung bezieht sich auf den Code in `main`, nicht auf den derzeit auf dem VPS laufenden Stand. Der VPS wurde durch dieses Audit nicht verändert.
+> Dieses Dokument bewertet den vorgeschlagenen Feature-Branch einschließlich PR #215. Es ist keine Aussage, dass alle Abläufe auf dem Live-Discord-Server manuell abgenommen wurden. `main` bleibt bis zu einem Merge bei 73 / 103 / 1; der VPS und Produktivdaten wurden nicht verändert.
 
 ## Bewertungsmaßstab
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 73 |
-| Teilweise | 103 |
+| Fertig | 74 |
+| Teilweise | 102 |
 | Offen | 1 |
 | **Gesamt** | **177** |
 
@@ -29,7 +29,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Bereich | Fertig | Teilweise | Offen |
 |---|---:|---:|---:|
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 2 | 1 |
-| Discord-Bot – Moderation und Sicherheit | 3 | 12 | 0 |
+| Discord-Bot – Moderation und Sicherheit | 4 | 11 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 2 | 13 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
@@ -78,7 +78,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 22 | Alarm bei kritischen Rollen-/Kanaländerungen | **Fertig** | Anti-Nuke verarbeitet Role-, Channel-, Permission- und Guild-Update-Ereignisse; Tests prüfen Berechtigungsänderungen und harmlose Änderungen. |
 | 23 | Webhook-Überwachung | **Teilweise** | `cogs/antinuke.py` verarbeitet `on_webhooks_update`; ein separat abgesicherter, umfassend getesteter Webhook-Alarm-/Änderungsverlauf fehlt. |
 | 24 | Moderationsstatistiken | **Teilweise** | Falllisten, Warnzähler, Audit und Analytics liefern Teilkennzahlen; eine vollständige Moderationsauswertung nach Typ, Bearbeitungszeit und Ergebnis fehlt. |
-| 25 | Fehlalarmprüfung und Feedback für AutoMod | **Teilweise** | KI-Moderationsfälle besitzen Review-Aktionen; ein eigener Fehlalarm-/False-Positive-Rückkanal für normale AutoMod-Regeln fehlt. |
+| 25 | Fehlalarmprüfung und Feedback für AutoMod | **Fertig** | PR #215 ergänzt Ereignis-IDs, `/automod-fehlalarm` mit Begründung, `/automod-feedback`, servergebundenes Audit und Anzeige im Sicherheits-Cockpit; `tests/test_automod_feedback.py`. Beide CI-Workflows für den Code-Commit grün. |
 
 ### 3. Discord-Bot – Tickets und Support (26–40)
 
