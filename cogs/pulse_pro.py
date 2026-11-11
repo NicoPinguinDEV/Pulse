@@ -501,21 +501,23 @@ class PulsePro(commands.Cog):
 
     @app_commands.command(name="pulse-hilfe", description="Zeigt alle Pulse-Befehle, passend zu deinen Rechten.")
     async def pulse_help(self, interaction: discord.Interaction):
+        import pulse_i18n
+        locale = pulse_i18n.get_locale(getattr(interaction.user, "id", None), getattr(interaction, "locale", None))
         if not interaction.guild:
-            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True)
+            await interaction.response.send_message(pulse_i18n.translate(locale, "guild_only"), ephemeral=True)
             return
         import webserver
         cfg = webserver.load_config()
         perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, cfg)
         if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
-            await interaction.response.send_message("❌ Du hast keinen Zugriff auf Pulse.", ephemeral=True)
+            await interaction.response.send_message(pulse_i18n.translate(locale, "no_access"), ephemeral=True)
             return
         # BOT-04: generated from the registered commands (incl. groups like /dienst), filtered by rights.
         from pulse_command_help import build_help, entries
         sections = build_help(entries(self.bot.tree), perms, getattr(interaction.user, "guild_permissions", None))
         embed = discord.Embed(
-            title="📖 Pulse-Hilfe",
-            description=f"Alles Wichtige findest du auch im Dashboard: [Mein Pulse]({panel_url('/me')})",
+            title=pulse_i18n.translate(locale, "help_title"),
+            description=pulse_i18n.translate(locale, "help_dashboard", url=panel_url('/me')),
             color=_pulse_color("info"),
         )
         # Discord limits: 1024 characters per field, 25 fields and 6000 characters per embed.
@@ -527,18 +529,19 @@ class PulsePro(commands.Cog):
             return True
         complete = True
         for title, rows in sections:
+            title = pulse_i18n.translate_help_section(locale, title)
             chunk, part = [], 0
             for cmd, text in rows:
                 line = f"`{cmd}` – {(text or '')[:60]}"
                 if sum(len(x) + 1 for x in chunk) + len(line) > 1000:
-                    complete = add(title + (" (Forts.)" if part else ""), chunk) and complete
+                    complete = add(title + pulse_i18n.translate(locale, "help_continued") if part else title, chunk) and complete
                     chunk, part = [], part + 1
                 chunk.append(line)
             if chunk:
-                complete = add(title + (" (Forts.)" if part else ""), chunk) and complete
+                complete = add(title + pulse_i18n.translate(locale, "help_continued") if part else title, chunk) and complete
         if not complete:
-            embed.description += "\nNicht alle Befehle passen in diese Nachricht – Discord zeigt alle unter „/“."
-        embed.set_footer(text="Es werden nur Befehle angezeigt, die zu deinen Rechten passen.")
+            embed.description += pulse_i18n.translate(locale, "help_overflow")
+        embed.set_footer(text=pulse_i18n.translate(locale, "help_footer"))
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="teamstatus", description="Zeigt den aktuellen Teamstatus.")
@@ -662,11 +665,50 @@ class PulsePro(commands.Cog):
         db.record_event("task_completed","task",task["id"],interaction.user.id,interaction.user.display_name,{"title":task.get("title")})
         await interaction.response.send_message(f"✅ `{task['title']}` als erledigt markiert.",ephemeral=True)
 
+    @app_commands.command(name="pulse-sprache", description="Stellt deine persönliche Pulse-Anzeigesprache ein.")
+    @app_commands.describe(sprache="Automatisch der Discord-Sprache folgen oder eine Sprache festlegen")
+    @app_commands.choices(sprache=[
+        app_commands.Choice(name="Automatisch (Discord)", value="auto"),
+        app_commands.Choice(name="Deutsch", value="de"),
+        app_commands.Choice(name="English", value="en"),
+    ])
+    async def pulse_language(self, interaction: discord.Interaction, sprache: app_commands.Choice[str]):
+        """Set a self-only locale preference; auto follows the Discord client locale."""
+        import pulse_i18n
+        if not interaction.guild:
+            locale = pulse_i18n.get_locale(getattr(interaction.user, "id", None), getattr(interaction, "locale", None))
+            await interaction.response.send_message(pulse_i18n.translate(locale, "guild_only"), ephemeral=True)
+            return
+        try:
+            preference = pulse_i18n.set_locale(interaction.user.id, sprache.value)
+            locale = pulse_i18n.get_locale(interaction.user.id, getattr(interaction, "locale", None))
+            if preference == "auto":
+                message = pulse_i18n.translate(locale, "language_auto")
+            else:
+                message = pulse_i18n.translate(
+                    locale, "language_saved", language=pulse_i18n.LANGUAGES[preference]
+                )
+            embed = discord.Embed(
+                title=pulse_i18n.translate(locale, "language_title"),
+                description=message,
+                color=_pulse_color("info"),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as exc:
+            print(f"Pulse language command error: {type(exc).__name__}")
+            locale = pulse_i18n.get_locale(getattr(interaction.user, "id", None), getattr(interaction, "locale", None))
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    pulse_i18n.translate(locale, "language_error"), ephemeral=True
+                )
+
     @app_commands.command(name="profil", description="Zeigt dir dein persönliches Pulse-Teamprofil.")
     async def profile(self, interaction: discord.Interaction):
         """Private, self-only profile summary; never accepts another member as a target."""
+        import pulse_i18n
+        locale = pulse_i18n.get_locale(getattr(interaction.user, "id", None), getattr(interaction, "locale", None))
         if not interaction.guild:
-            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True)
+            await interaction.response.send_message(pulse_i18n.translate(locale, "guild_only"), ephemeral=True)
             return
         try:
             import webserver
@@ -674,7 +716,7 @@ class PulsePro(commands.Cog):
             cfg = webserver.load_config()
             perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, cfg)
             if not member or not (perms.get("can_view_dashboard") or perms.get("is_admin")):
-                await interaction.response.send_message("❌ Du hast keinen Zugriff auf Pulse.", ephemeral=True)
+                await interaction.response.send_message(pulse_i18n.translate(locale, "no_access"), ephemeral=True)
                 return
 
             user_id = str(interaction.user.id)
@@ -709,9 +751,9 @@ class PulsePro(commands.Cog):
             }
 
             duty_status = {
-                "online": "🟢 Im Dienst",
-                "break": "☕ In Pause",
-            }.get((own_shift or {}).get("status"), "⚪ Nicht im Dienst")
+                "online": pulse_i18n.translate(locale, "duty_online"),
+                "break": pulse_i18n.translate(locale, "duty_break"),
+            }.get((own_shift or {}).get("status"), pulse_i18n.translate(locale, "duty_offline"))
             configured_team_roles = {
                 int(role_id) for role_id in cfg.get("team_role_ids", [])
                 if str(role_id).isdigit()
@@ -725,36 +767,42 @@ class PulsePro(commands.Cog):
                 key=lambda role: int(getattr(role, "position", 0) or 0),
                 default=None,
             )
-            role_name = getattr(highest_team_role, "name", "Keine Teamrolle")
+            role_name = getattr(highest_team_role, "name", None) or pulse_i18n.translate(locale, "role_none")
             display_name = getattr(member, "display_name", None) or getattr(interaction.user, "display_name", "Teammitglied")
 
             embed = discord.Embed(
-                title=f"👤 Dein Pulse-Profil · {display_name}",
-                description="Deine persönlichen Team- und Arbeitsinformationen. Nur für dich sichtbar.",
+                title=pulse_i18n.translate(locale, "profile_title", display_name=display_name),
+                description=pulse_i18n.translate(locale, "profile_description"),
                 color=_pulse_color("info"),
             )
-            embed.add_field(name="Teamrolle", value=str(role_name or "Keine Teamrolle"), inline=True)
-            embed.add_field(name="Dienststatus", value=duty_status, inline=True)
+            embed.add_field(name=pulse_i18n.translate(locale, "profile_role"), value=str(role_name), inline=True)
+            embed.add_field(name=pulse_i18n.translate(locale, "profile_duty"), value=duty_status, inline=True)
             embed.add_field(
-                name="Wochenzeit",
-                value=f"{webserver.fmt_duration(weekly_seconds)} von {weekly_goal:g} h · {weekly_percent} %",
+                name=pulse_i18n.translate(locale, "profile_week"),
+                value=pulse_i18n.translate(
+                    locale,
+                    "profile_week_value",
+                    duration=webserver.fmt_duration(weekly_seconds),
+                    goal=weekly_goal,
+                    percent=weekly_percent,
+                ),
                 inline=False,
             )
-            embed.add_field(name="Offene Aufgaben", value=str(len(open_tasks)), inline=True)
-            embed.add_field(name="Übernommene Tickets", value=str(len(open_tickets)), inline=True)
-            embed.add_field(name="Bestandene Schulungen", value=str(len(passed_training_ids)), inline=True)
+            embed.add_field(name=pulse_i18n.translate(locale, "profile_tasks"), value=str(len(open_tasks)), inline=True)
+            embed.add_field(name=pulse_i18n.translate(locale, "profile_tickets"), value=str(len(open_tickets)), inline=True)
+            embed.add_field(name=pulse_i18n.translate(locale, "profile_training"), value=str(len(passed_training_ids)), inline=True)
             embed.add_field(
-                name="Mein Pulse",
-                value=f"[Persönliche Übersicht öffnen]({panel_url('/me')})",
+                name=pulse_i18n.translate(locale, "profile_dashboard"),
+                value=f"[{pulse_i18n.translate(locale, 'profile_open_dashboard')}]({panel_url('/me')})",
                 inline=False,
             )
-            embed.set_footer(text="Pulse Pro · Persönliche Ansicht")
+            embed.set_footer(text=pulse_i18n.translate(locale, "profile_footer"))
             await interaction.response.send_message(embed=embed, ephemeral=True)
         except Exception as exc:
             print(f"Pulse profile command error: {type(exc).__name__}")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "Dein Pulse-Profil konnte gerade nicht geladen werden.", ephemeral=True
+                    pulse_i18n.translate(locale, "profile_error"), ephemeral=True
                 )
 
     @app_commands.command(name="memberinfo", description="Zeigt kompakte Pulse-Infos zu einem Teammitglied.")
