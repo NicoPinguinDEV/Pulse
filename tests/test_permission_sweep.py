@@ -41,7 +41,7 @@ ALLOWED = {
 INPUT_CHECKED = {
     "/action", "/shift/action", "/log/create", "/calendar/create", "/tasks/update",
     "/me/start-page", "/me/sessions/revoke", "/me/sessions/revoke-others", "/me/views/save", "/me/views/{view_id}/delete",
-    "/training/{training_id}/submit", "/training/{training_id}/feedback", "/training/paths/save", "/ultimate/polls/{poll_id}/vote", "/ultimate/handovers/{handover_id}/close",
+    "/training/{training_id}/submit", "/training/{training_id}/feedback", "/training/paths/save", "/ultimate/polls/{poll_id}/vote", "/ultimate/handovers/{handover_id}/close", "/suite/schedule/swaps/{request_id}/cancel", "/suite/schedule/swaps/create", "/suite/schedule/swaps/{request_id}/respond",
     "/ultimate/team/status", "/ultimate/calendar/{event_id}/rsvp", "/wiki/{page_id}/restore/{version_number}", "/recovery/authorize/start", "/suite/task/{task_id}/meta", "/suite/tasks/{task_id}/move",
 }
 JSON_STORES = ("DATA_FILE", "CONFIG_FILE", "APPS_FILE", "SHIFTS_FILE", "LOGS_FILE", "AUDIT_FILE", "MEETINGS_FILE")

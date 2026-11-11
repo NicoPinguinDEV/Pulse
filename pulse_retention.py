@@ -507,6 +507,10 @@ def export_person(ws, discord_id: str) -> dict:
                 extras = {
                     "suite_interviews": {"application_id": application_ids},
                     "suite_audit": {"target_id": application_ids},
+                    "suite_schedule_swap_requests": {
+                        "requester_id": {uid},
+                        "target_id": {uid},
+                    },
                 }
             elif name == "pulse.db":
                 ticket_ids = _ticket_ids_for_subject(path, uid)
