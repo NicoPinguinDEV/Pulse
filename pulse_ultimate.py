@@ -3401,7 +3401,7 @@ def send_calendar_reminders(
                 dedupe_window_seconds=365 * 24 * 60 * 60,
             )
             created += 1
-        except (TypeError, ValueError, OSError) as exc:
+        except Exception as exc:
             print(
                 f"⚠️ Kalender-Erinnerung für Event {event_id} / Nutzer {user_id} "
                 f"konnte nicht erstellt werden ({type(exc).__name__})."
