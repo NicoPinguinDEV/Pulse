@@ -56,6 +56,7 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 | `dashboard_saved_views` | `pulse_db.py` | ✅ |
 | `dashboard_sessions` | `pulse_sessions.py` | ❌ |
 | `discord_community_feedback` | `pulse_community_feedback.py` | ❌ |
+| `discord_community_feedback_votes` | `pulse_community_feedback.py` | ❌ |
 | `events` | `pulse_db.py` | ✅ |
 | `faction_categories` | `pulse_factions.py` | ❌ |
 | `faction_warnings` | `pulse_factions.py` | ❌ |
