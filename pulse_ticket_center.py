@@ -194,6 +194,7 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
 <div class="pulse-stat-grid">{stat_html}</div>
 <div class="pulse-live-strip pulse-row-meta mb-3" data-live-view role="status" aria-live="polite"><span class="pulse-status-dot bg-emerald-500" aria-hidden="true"></span> Live: <b data-live="open_tickets">…</b> offen · <b data-live="unclaimed_tickets">…</b> ohne Bearbeiter · zuletzt aktualisiert <span data-live-time>…</span><span class="pulse-live-error"> · Verbindung gestört, neuer Versuch läuft</span></div>
 {hint}
+{__import__("pulse_views").bar("/tickets", ctx.user["id"], request.query_params.multi_items())}
 <section class="pulse-card"><div class="pulse-card-b">
  <nav class="tc-tabs">{tabs}</nav>
  <form method="get" action="/tickets" class="flex flex-col sm:flex-row gap-2 mb-3">

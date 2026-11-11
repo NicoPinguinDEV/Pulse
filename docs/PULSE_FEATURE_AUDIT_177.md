@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktualisierter Umsetzungsnachweis:** `main` bei `be60982` (PRs #190–#198, #200, #201 gemergt) plus Workflow-Block (#144, #145, #148, #149, PR #202) und Zusammenfassungs-Block (#36, #134, #135). Fortschritt, Phasen und nächste Blöcke: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktualisierter Umsetzungsnachweis:** `main` bei `be60982` (PRs #190–#198, #200, #201 gemergt) plus Workflow-Block (#144, #145, #148, #149, PR #202) , Zusammenfassungs-Block (#36, #134, #135, PR #203) und Ansichten-Block (#61). Fortschritt, Phasen und nächste Blöcke: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,9 +19,9 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 61 |
+| Fertig | 62 |
 | Teilweise | 108 |
-| Offen | 8 |
+| Offen | 7 |
 | **Gesamt** | **177** |
 
 ## Ergebnis nach Bereichen
@@ -32,7 +32,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord-Bot – Moderation und Sicherheit | 2 | 12 | 1 |
 | Discord-Bot – Tickets und Support | 10 | 5 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 2 | 13 | 0 |
-| TeamOS-Dashboard – Startseite und Navigation | 4 | 9 | 2 |
+| TeamOS-Dashboard – Startseite und Navigation | 5 | 9 | 1 |
 | Teamverwaltung und Mitarbeiterakten | 4 | 6 | 2 |
 | Dienstplanung und Aktivität | 3 | 8 | 1 |
 | Bewerbungen und Recruiting | 3 | 8 | 0 |
@@ -129,7 +129,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 58 | Live-Aktivitätsfeed | **Teilweise** | Audit, Team-Timeline, Inbox und Aktivitätsdaten existieren; ein durchgehend live aktualisierter Feed über alle Ereignisse fehlt. |
 | 59 | Command Palette mit Strg+K | **Fertig** | Globale, rechtegefilterte Command-Palette (PR #193); `tests/test_command_center_ui.py`. |
 | 60 | Dashboard-Favoriten | **Fertig** | Persönliche Seitenfavoriten unter `/me/favorites/*` (PR #191); `pulse_home.py`, `tests/test_start_page.py`, `tests/test_home_widgets.py`. |
-| 61 | Gespeicherte Filter und Ansichten | **Offen** | Filter in Ticket-/Suchansichten existieren, aber keine benutzerspezifisch gespeicherten Filtersets. |
+| 61 | Gespeicherte Filter und Ansichten | **Fertig** | Persönliche Filter je Dashboard-Nutzer für Tickets, Bewerbungen, Teamakten, Bürger-Moderation und Automationen: speichern, anwenden, ersetzen, löschen (höchstens 12 je Seite). Teamakten haben dafür eine serverseitige Namens- und Statusfilterung erhalten. Tabelle `dashboard_saved_views` im JSON-Backup und im Personenexport. `pulse_views.py`, `pulse_db.py`, `pulse_ticket_center.py`, `pulse_ultimate.py`, `webserver.py`; `tests/test_saved_views.py`. PR: Ansichten-Block. Einschränkung: Ansichten sind persönlich, noch nicht rollenweit teilbar (siehe #69). |
 | 62 | Globale Suche | **Teilweise** | `pulse_suite` stellt eine globale Suche über mehrere TeamOS-Datenbereiche bereit; Vollständigkeit über alle Tickets, Wiki-Versionen, Bewerbungen und Auditdaten ist nicht belegt. |
 | 63 | Rollenabhängige Navigation | **Fertig** | Navigation wird nach Rechten gefiltert; `tests/test_dashboard_redesign.py` prüft Berechtigungsfilter und sensitive Menüpunkte. |
 | 64 | Mobile Dashboard-Version | **Teilweise** | Responsive Layouts und mobile E2E-Tests existieren; nicht alle Dashboard-Workflows sind vollständig auf Mobilgeräten geprüft. |
@@ -298,7 +298,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 2. **Einige frühere Einschätzungen waren zu pessimistisch.** `pulse_ultimate.py` enthält echte Routen und Datenmodelle für Abteilungen, Fälle, Kalender, Umfragen, Feedback, Übergaben, Awards, Zertifikate und Automationen.
 3. **Einige dieser Ultimate-Bereiche haben wenig direkte Verhaltenstest-Abdeckung.** Sie werden deshalb in diesem Audit meist als **Teilweise** eingestuft, bis die kritischen Rechte-, Daten- und Fehlerpfade durch Tests abgesichert sind.
 4. **Die gemeinsamen Plattformfunktionen sind der größte Integrationsrückstand.** Korrelations-IDs, Inbox, Audit, Rechte und Events existieren jeweils in Teilen, sind aber noch nicht vollständig über alle Module vereinheitlicht.
-5. **Noch offen (8):** #10 Mehrsprachigkeit, #17 AutoMod-Testmodus, #61 gespeicherte Filter, #69 benutzerdefinierte Ansichten, #80 Kompetenzmatrix, #82 Arbeitslastverteilung, #84 Schichttausch, #128 Personalbedarfsprognose.
+5. **Noch offen (7):** #10 Mehrsprachigkeit, #17 AutoMod-Testmodus, #69 benutzerdefinierte Ansichten, #80 Kompetenzmatrix, #82 Arbeitslastverteilung, #84 Schichttausch, #128 Personalbedarfsprognose.
 6. **Das Audit ist kein Deployment.** Der VPS kann weiterhin einen älteren Commit ausführen, bis ein gesondert freigegebener Deployment-Schritt durchgeführt wird.
 
 ## Technische Hauptbelege

@@ -1034,9 +1034,15 @@ def register(app) -> None:
             shared = stats_context()
             return [member_stats(m, shared) for m in members]
         all_stats = await asyncio.to_thread(compute)
+        # #61: name search and status filter (server side), so a filter can be stored as a personal view.
+        statuses = ("available", "service", "break", "training", "admin", "unavailable")
+        f_q = str(request.query_params.get("q") or "").strip()[:60].casefold()
+        f_status = request.query_params.get("status") if request.query_params.get("status") in statuses else ""
         for m, s in zip(members, all_stats):
             p = s["profile"]
             status = p.get("internal_status", "available")
+            if (f_q and f_q not in m.display_name.casefold() and f_q not in m.name.casefold()) or (f_status and status != f_status):
+                continue
             warn_text = f'{s["warnings"]}/5' if __import__("webserver").can_see_warnings(ctx.perms, ctx.user.get("id"), m.id) else "—"  # E-3
             rows.append(
                 f'<div class="card"><div class="row"><div><b>{esc(m.display_name)}</b><div class="tiny">@{esc(m.name)}</div></div>'
@@ -1056,7 +1062,18 @@ def register(app) -> None:
             <button class="btn primary">Status speichern</button>
           </form>
         </div>"""
-        body = own_form + f'<div class="grid g3">{"".join(rows) or card("<div class=tiny>Keine Teammitglieder.</div>")}</div>'
+        import pulse_views
+        status_options = "<option value=''>jeder Status</option>" + "".join(
+            f"<option value='{x}'{' selected' if x == f_status else ''}>{x}</option>" for x in statuses)
+        filter_form = (
+            '<div class="card" style="margin-bottom:13px"><form class="form" method="get" action="/ultimate/team" role="search">'
+            f'<input class="input" name="q" maxlength="60" value="{esc(request.query_params.get("q") or "")}" aria-label="Teammitglied suchen" placeholder="Name suchen …">'
+            f'<select class="select" name="status" aria-label="Nach Status filtern">{status_options}</select>'
+            '<button class="btn primary">🔎 Filtern</button>'
+            + ('<a class="btn" href="/ultimate/team">Zurücksetzen</a>' if (f_q or f_status) else "") + "</form></div>")
+        saved_views = pulse_views.bar("/ultimate/team", ctx.user["id"], request.query_params.multi_items(), style="ultimate")
+        empty_text = "Kein Teammitglied passt zum Filter." if (f_q or f_status) else "Keine Teammitglieder."
+        body = own_form + saved_views + filter_form + f'<div class="grid g3">{"".join(rows) or card(f"<div class=tiny>{empty_text}</div>")}</div>'
         return page(ctx, "team", "Teamakten", "Leistung, Disziplin, Probezeit, Status, Abteilungen und Historie.", body)
 
     @app.get("/ultimate/team/{user_id}", response_class=HTMLResponse)
@@ -2104,7 +2121,10 @@ def register(app) -> None:
             ("next", "nächster Lauf"), ("name", "Name"), ("last_run", "letzte Ausführung"), ("status", "letztes Ergebnis (Fehler zuerst)")))
         edit_id = q.get("edit", "")
         record = load_automation(edit_id, ctx) if edit_id else None
+        import pulse_views
+        saved_views = pulse_views.bar("/ultimate/automations", ctx.user["id"], q.multi_items(), style="ultimate")
         body = f"""{editor(ctx, record)}
+          <div style="margin-top:13px">{saved_views}</div>
           <div class="card" style="margin-top:13px"><form class="form" method="get" action="/ultimate/automations">
            <select class="select" name="trigger" aria-label="Auslöser filtern">{trig_opts}</select>
            <select class="select" name="action" aria-label="Aktion filtern">{act_opts}</select>

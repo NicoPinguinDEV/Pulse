@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Gespeicherte Filter für Listen (November 2026)
+
+- **Meine Ansichten (#61):** Auf Tickets, Bewerbungen, Teamakten, Bürger-Moderation und Automationen lässt sich der aktuelle Filter unter einem Namen speichern, mit einem Klick wieder anwenden, ersetzen und löschen. Ansichten sind persönlich (höchstens 12 je Seite) und ändern keine Rechte.
+- Teamakten (`/ultimate/team`) lassen sich jetzt nach Name und Status filtern.
+- Neue Tabelle `dashboard_saved_views` (im JSON-Backup und im Personenexport enthalten).
+
 ## Lokale Zusammenfassungen für Tickets und Bewerbungen (November 2026)
 
 - **Ticket-Übergabe (#36/#134):** `/ticket zusammenfassung` und die neue Dashboard-Seite „Übergabe-Zusammenfassung“ am Ticket nutzen dieselbe lokale Logik: bisheriger Sachstand, offene Fragen, bereits durchgeführte Schritte, beteiligte Personen und nächster sinnvoller Schritt – jeweils mit Quelle. Offene Tickets werden aus dem Kanal gelesen, geschlossene aus dem Transkript. Keine externe KI.

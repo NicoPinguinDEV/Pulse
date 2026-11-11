@@ -284,6 +284,8 @@
  "POST /me/sessions/revoke-all -> pulse_home.register.<locals>.my_session_revoke_all",
  "POST /me/sessions/revoke-others -> pulse_home.register.<locals>.my_session_revoke_others",
  "POST /me/start-page -> pulse_home.register.<locals>.my_start_page",
+ "POST /me/views/save -> pulse_views.register.<locals>.views_save",
+ "POST /me/views/{view_id}/delete -> pulse_views.register.<locals>.views_delete",
  "POST /promotions/create -> pulse_pro.register.<locals>.create_promotion",
  "POST /promotions/decide -> pulse_pro.register.<locals>.decide_promotion",
  "POST /pulse-inbox/read -> pulse_pro.register.<locals>.inbox_read_all",

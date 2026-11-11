@@ -324,6 +324,18 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_training_feedback_training
                 ON training_feedback(training_id, rating, updated_at DESC);
 
+            CREATE TABLE IF NOT EXISTS dashboard_saved_views (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                page TEXT NOT NULL,
+                name TEXT NOT NULL,
+                query TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_saved_views_name
+                ON dashboard_saved_views(user_id, page, name COLLATE NOCASE);
+
             CREATE INDEX IF NOT EXISTS idx_training_attempts_user ON training_attempts(user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_training_attempts_training ON training_attempts(training_id, created_at DESC);
 
@@ -1927,6 +1939,7 @@ TABLES = [
     "team_status", "handover_notes", "shift_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_reason_templates", "mod_reason_template_versions",
+    "dashboard_saved_views",
 ]
 
 
