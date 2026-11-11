@@ -109,6 +109,7 @@ Die Spalten `JSON-Backup /backups` und `ZIP-Backup /ultimate/backup` beschreiben
 | `suite_members` | `cogs/pulse_suite.py` | ❌ |
 | `suite_promotions` | `cogs/pulse_suite.py` | ❌ |
 | `suite_schedule` | `cogs/pulse_suite.py` | ❌ |
+| `suite_schedule_swap_requests` | `cogs/pulse_suite.py`, `pulse_retention.py` | ✅ |
 | `suite_settings` | `cogs/pulse_suite.py` | ❌ |
 | `suite_task_meta` | `cogs/pulse_suite.py` | ❌ |
 | `suite_training_assignments` | `cogs/pulse_suite.py` | ❌ |
