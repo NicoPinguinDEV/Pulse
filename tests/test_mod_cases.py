@@ -126,7 +126,7 @@ class RuleTests(TempDb):
                 now=created + timedelta(days=15),
             )
         with self.assertRaisesRegex(ValueError, "20 bis 1500"):
-            mc.submit_appeal(1, 310, case["id"], "Zu kurz")
+            mc.submit_appeal(1, 310, case["id"], "Zu kurz", now=created + timedelta(days=1))
 
 
 class CogTests(TempDb):
