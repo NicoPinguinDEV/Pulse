@@ -7,8 +7,8 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `origin/main`, Tests, PR,
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 73 |
-| Teilweise | 103 |
+| Fertig | 74 |
+| Teilweise | 102 |
 | Offen | 1 |
 
 Aktueller Ausgangspunkt: `main` bei `cf7d866` (PR #205–#210 gemergt). Die Zahlen sind nach den sechs neu abgeschlossenen offenen Kernfunktionen aktualisiert.
@@ -104,6 +104,17 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
   Keine neue Einstellung, keine Route, keine Tabelle. Ohne Abmelde-Datenbank oder bei Lesefehler verhält sich die Zuteilung wie bisher.
 - Unlesbare Datumsangaben zählen als abwesend – ein Ticket an eine abwesende Person ist der schlimmere Fehler.
 - Damit ist der Support-Bereich (#26–#40) vollständig: 15 / 0 / 0.
+
+## Block 8 – AutoMod-Fehlalarmprüfung (#25, PR #215)
+
+- Branch: `feature/automod-false-positive-feedback`; Draft-PR #215 gegen `main`.
+- Jede echte AutoMod-Meldung zeigt ihre zentrale Ereignis-ID. `/automod-fehlalarm` speichert eine begründete, einmalige Prüfung nur für den Ursprungsserver; `/automod-feedback` listet die letzten Bewertungen.
+- Die Prüfung verlangt das Pulse-Moderationsrecht und Discord `manage_messages`. Testmodus-/Simulationsfälle, fremde Server, unbekannte IDs und doppelte Entscheidungen werden abgelehnt.
+- Der ursprüngliche Treffer wird nicht verändert; keine Sanktion wird automatisch aufgehoben und keine AutoMod-Regel automatisch geändert.
+- Datenhaltung ohne Message-Content: eine neue Tabelle speichert nur Fallmetadaten, prüfende Person, Begründung und Zeitpunkt. Eine zentrale Audit-Event-Referenz verknüpft die Entscheidung mit dem Ursprungstreffer; die Sicherheitsseite zeigt sie im Vorfallprotokoll.
+- Tests: `tests/test_automod_feedback.py` prüft Eventbindung, Guild-Trennung, Simulation, Duplikate, Limits und beide Berechtigungsebenen.
+- CI für Code-Commit `ab666a9`: `Pulse Quality and Security Checks` und `Pulse Sicherheit & Abdeckung` vollständig grün. Der optionale Benchmark „Schichthistorie – 20.000 Einträge“ wurde übersprungen und ist kein Testnachweis.
+- Audit-Vorschlag im Branch: #25 Fertig; Branch-Zähler 74 fertig / 102 teilweise / 1 offen. `main` bleibt bis zu einem freigegebenen Merge unverändert bei 73 / 103 / 1.
 
 ## Prüfstand 11.11.2026
 
