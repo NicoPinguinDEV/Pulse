@@ -6228,12 +6228,14 @@ async def pulse_ticket_automation_save(
     staff_reply_hours: int = Form(0),
     user_reminder_hours: int = Form(0),
     auto_close_hours: int = Form(0),
+    escalation_minutes: int = Form(0),
+    reopen_window_days: int = Form(0),
     auto_assign_enabled: bool = Form(False),
     max_open_per_staff: int = Form(5),
     user_session: str = Cookie(None),
 ):
     auth(request, user_session, admin=True)
-    from pulse_ticket_design import automation_settings
+    from pulse_ticket_design import automation_settings, reopen_settings
     from pulse_ticket_distribution import distribution_settings
     settings = pulse_ticket_config()
     current_automation = automation_settings(settings.get("automation"))
@@ -6243,7 +6245,7 @@ async def pulse_ticket_automation_save(
         if isinstance(value, dict)
     }
     form = await request.form()
-    pattern = re.compile(r"^sla__([a-z0-9_-]{1,80})__(unclaimed_ping_minutes|staff_reply_hours|user_reminder_hours)$")
+    pattern = re.compile(r"^sla__([a-z0-9_-]{1,80})__(unclaimed_ping_minutes|staff_reply_hours|user_reminder_hours|escalation_minutes)$")
     for field, raw_value in form.multi_items():
         match = pattern.fullmatch(str(field))
         if not match:
@@ -6265,8 +6267,10 @@ async def pulse_ticket_automation_save(
         "staff_reply_hours": staff_reply_hours,
         "user_reminder_hours": user_reminder_hours,
         "auto_close_hours": auto_close_hours,
+        "escalation_minutes": escalation_minutes,
         "category_sla": category_sla,
     })
+    settings["reopen"] = reopen_settings({"window_days": reopen_window_days})
     settings["distribution"] = distribution_settings({
         "enabled": auto_assign_enabled,
         "max_open_per_staff": max_open_per_staff,
@@ -6844,6 +6848,13 @@ async def pulse_tickets_dashboard_action(
     if action == "reopen":
         if ticket.get("status") != "closed":
             return back("/tickets", "Nur geschlossene Tickets können wieder geöffnet werden.", False)
+        from pulse_ticket_design import reopen_allowed
+        allowed, refusal = reopen_allowed(
+            ticket, pulse_ticket_config().get("reopen"), datetime.now(timezone.utc),
+            is_admin=bool(ctx.perms.get("is_admin")),
+        )
+        if not allowed:
+            return back("/tickets?status=closed", refusal, False)
         try:
             from cogs.tickets import TICKET_PARENT_NAME, TicketControlView, category_channel_name, category_meta, category_roles, safe_channel_name, ticket_category_definitions
             owner = ctx.guild.get_member(int(ticket.get("user_id") or 0))

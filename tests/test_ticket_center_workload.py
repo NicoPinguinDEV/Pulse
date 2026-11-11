@@ -74,6 +74,26 @@ class TicketCenterWorkloadTests(unittest.TestCase):
         self.assertNotIn("Fremdserver-Mitarbeiter", body)
         self.assertIn("2/2 offene Tickets", body)
 
+    def test_escalated_tickets_are_marked_in_the_list(self):
+        self.tickets[0]["claimed_by_id"] = None
+        self.tickets[0]["automation_state"] = {"unclaimed_escalated": "2026-11-11T11:00:00+00:00"}
+        self.assertEqual(self.render({"can_manage_tickets": True}).count("🚨 Eskaliert"), 1)
+
+    def test_reopen_button_follows_the_configured_window(self):
+        self.tickets = [{"id": "T-7", "guild_id": "1", "status": "closed", "priority": "normal",
+                         "user_name": "Spieler C", "category": "support",
+                         "opened_at": "2020-01-01T10:00:00+00:00", "closed_at": "2020-01-02T10:00:00+00:00"}]
+        self.request = SimpleNamespace(query_params=QueryParams("status=closed"))
+        config = self.ws.pulse_ticket_config()
+        self.ws.pulse_ticket_config = lambda: {**config, "reopen": {"window_days": 7}}
+        manager = self.render({"can_manage_tickets": True})
+        self.assertNotIn('value="reopen"', manager)
+        self.assertIn("Frist zum Wiederöffnen abgelaufen", manager)
+        self.assertIn('value="reopen"', self.render({"can_manage_tickets": True, "is_admin": True}))
+        self.assertNotIn('value="reopen"', self.render({"can_view_dashboard": True}))
+        self.ws.pulse_ticket_config = lambda: config
+        self.assertIn('value="reopen"', self.render({"can_manage_tickets": True}))
+
 
 if __name__ == "__main__":
     unittest.main()

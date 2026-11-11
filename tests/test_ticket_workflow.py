@@ -271,6 +271,123 @@ class TicketWorkflowTests(unittest.TestCase):
         self.assertIsNone(selected)
         roles.assert_not_called()
 
+    def _reopen(self, ticket_id):
+        with (
+            patch("cogs.tickets.category_roles", return_value=[]),
+            patch("cogs.tickets.ticket_category_definitions", return_value={"support": {}}),
+            patch("cogs.tickets.category_channel_name", return_value="ticket-reopened"),
+            patch("cogs.tickets.category_meta", return_value=("Support", "", "🎫", 0, "team")),
+            patch("cogs.tickets.TicketControlView", return_value=object()),
+            patch.object(ws, "send_styled", new_callable=AsyncMock),
+            patch.object(ws, "_send_pulse_ticket_log", new_callable=AsyncMock),
+        ):
+            return self.client.post(
+                "/tickets/action",
+                data={"ticket_id": ticket_id, "action": "reopen"},
+                follow_redirects=False,
+            )
+
+    def _close_long_ago(self, ticket_id, days):
+        from datetime import datetime, timedelta, timezone
+        closed_at = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+        with pulse_db.connect() as db:
+            db.execute("UPDATE tickets SET closed_at=? WHERE id=?", (closed_at, ticket_id))
+
+    def test_reopen_window_is_enforced_on_the_server_for_ticket_managers(self):
+        ticket_id, _owner, created_channel = self._prepare_closed_ticket_reopen()
+        pulse_db.set_setting("ticket_system_config", {"reopen": {"window_days": 7}})
+        self._close_long_ago(ticket_id, 8)
+        self.perms["is_admin"] = False
+
+        response = self._reopen(ticket_id)
+
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("Frist von 7 Tagen", unquote(response.headers["location"]))
+        self.assertEqual(pulse_db.get_ticket(ticket_id=ticket_id)["status"], "closed")
+        self.guild.create_text_channel.assert_not_awaited()
+        created_channel.delete.assert_not_awaited()
+
+    def test_reopen_inside_the_window_and_admin_override_still_work(self):
+        ticket_id, _owner, _channel = self._prepare_closed_ticket_reopen()
+        pulse_db.set_setting("ticket_system_config", {"reopen": {"window_days": 7}})
+        self._close_long_ago(ticket_id, 6)
+        self.perms["is_admin"] = False
+        self.assertIn("wurde wieder geöffnet", unquote(self._reopen(ticket_id).headers["location"]))
+        self.assertEqual(pulse_db.get_ticket(ticket_id=ticket_id)["status"], "open")
+
+        self.assertTrue(pulse_db.close_ticket(ticket_id, "Erledigt", f"{ticket_id}.txt", 90, "Bearbeiter"))
+        self._close_long_ago(ticket_id, 400)
+        self.perms["is_admin"] = True
+        self.assertIn("wurde wieder geöffnet", unquote(self._reopen(ticket_id).headers["location"]))
+        self.assertEqual(pulse_db.get_ticket(ticket_id=ticket_id)["status"], "open")
+
+    def test_reopened_ticket_gets_a_fresh_waiting_period(self):
+        import json
+        ticket_id, _owner, _channel = self._prepare_closed_ticket_reopen()
+        with pulse_db.connect() as db:
+            db.execute(
+                "UPDATE tickets SET opened_at='2026-01-01T00:00:00+00:00', automation_state=? WHERE id=?",
+                (json.dumps({"unclaimed_ping": "2026-01-01T01:00:00+00:00"}), ticket_id),
+            )
+
+        self._reopen(ticket_id)
+
+        ticket = pulse_db.get_ticket(ticket_id=ticket_id)
+        state = json.loads(ticket["automation_state"])
+        self.assertEqual(state["reopen_count"], 1)
+        self.assertNotIn("unclaimed_ping", state)
+        from datetime import datetime, timezone
+        from pulse_ticket_design import automation_settings
+        from pulse_ticket_triage import triage
+        info = triage(ticket, datetime.now(timezone.utc), automation_settings({"unclaimed_ping_minutes": 30}))
+        self.assertEqual(info["state"], "new")
+        self.assertFalse(info["overdue"])
+
+    def test_escalation_and_reopen_window_are_saved_and_clamped_by_the_admin_route(self):
+        response = self.client.post(
+            "/tickets/automation",
+            data={
+                "unclaimed_ping_minutes": "30",
+                "staff_reply_hours": "12",
+                "user_reminder_hours": "24",
+                "auto_close_hours": "0",
+                "escalation_minutes": "99999",
+                "reopen_window_days": "9999",
+                "sla__support__escalation_minutes": "15",
+                "sla__bug__escalation_minutes": "0",
+                "sla__support__auto_close_hours": "1",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        saved = pulse_db.get_setting("ticket_system_config", {})
+        self.assertEqual(saved["automation"]["escalation_minutes"], 1440)
+        self.assertEqual(saved["automation"]["category_sla"],
+                         {"support": {"escalation_minutes": 15}, "bug": {"escalation_minutes": 0}})
+        self.assertEqual(saved["reopen"], {"window_days": 365})
+
+    def test_older_forms_without_the_new_fields_keep_both_features_off(self):
+        response = self.client.post(
+            "/tickets/automation",
+            data={"unclaimed_ping_minutes": "30", "staff_reply_hours": "12",
+                  "user_reminder_hours": "24", "auto_close_hours": "0"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        saved = pulse_db.get_setting("ticket_system_config", {})
+        self.assertEqual(saved["automation"]["escalation_minutes"], 0)
+        self.assertEqual(saved["reopen"], {"window_days": 0})
+
+    def test_escalation_settings_require_admin(self):
+        self.perms["is_admin"] = False
+        response = self.client.post(
+            "/tickets/automation",
+            data={"escalation_minutes": "5", "reopen_window_days": "3"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(pulse_db.get_setting("ticket_system_config", {}), {})
+
     def test_category_sla_settings_are_saved_by_the_admin_route(self):
         response = self.client.post(
             "/tickets/automation",

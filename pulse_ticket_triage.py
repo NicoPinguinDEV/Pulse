@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from pulse_ticket_design import category_automation_settings
+from pulse_ticket_design import category_automation_settings, escalation_state, ticket_activity
 
 PRIORITY_ORDER = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
 
@@ -46,9 +46,7 @@ def triage(ticket: dict, now: datetime, settings: dict | None = None) -> dict:
     """Classify one ticket. Missing activity data is reported as unknown, never guessed."""
     settings = category_automation_settings(ticket.get("category"), settings or {})
     status = str(ticket.get("status") or "open")
-    opened = _parse(ticket.get("opened_at"))
-    last_user = _parse(ticket.get("last_user_message_at"))
-    last_staff = _parse(ticket.get("last_staff_message_at"))
+    opened, last_user, last_staff = ticket_activity(ticket)
     claimed = bool(ticket.get("claimed_by_id"))
     priority = str(ticket.get("priority") or "normal")
 
@@ -86,6 +84,7 @@ def triage(ticket: dict, now: datetime, settings: dict | None = None) -> dict:
         "label": STATE_LABELS[state],
         "waited_seconds": waited,
         "overdue": overdue,
+        "escalated": bool(escalation_state(ticket)),
         "reason": reason,
         "next_step": next_step,
         # Overdue first, then priority, then the longest wait; closed tickets last.

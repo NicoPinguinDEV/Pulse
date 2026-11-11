@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from urllib.parse import quote, urlencode
 
-from pulse_ticket_design import automation_settings
+from pulse_ticket_design import automation_settings, reopen_allowed
 from pulse_ticket_distribution import distribution_settings, workload_snapshot
 from pulse_ticket_triage import format_wait, matches_filter, triage
 
@@ -50,6 +50,7 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
     ticket_config = ws.pulse_ticket_config()
     settings = automation_settings(ticket_config.get("automation"))
     distribution = distribution_settings(ticket_config.get("distribution"))
+    reopen_config = ticket_config.get("reopen")
     category_sla_count = len(settings.get("category_sla") or {})
 
     def global_sla_label(key: str, label: str, unit: str) -> str:
@@ -135,7 +136,12 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
                 actions.append(f'<a class="pulse-btn ghost" href="/ticket/transcript/{quote(os.path.basename(str(t.get("transcript_path"))))}">📄 Transkript</a>')
                 actions.append(f'<a class="pulse-btn ghost" href="/tickets/transcript/{quote(str(t.get("id")))}/view">👁 Lesen</a>')
             if manager:
-                actions.append(f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{tid}"><input type="hidden" name="action" value="reopen"><button class="pulse-btn ghost">🔓 Wieder öffnen</button></form>')
+                # Display only – /tickets/action checks the window again on the server.
+                may_reopen, _refusal = reopen_allowed(t, reopen_config, now, is_admin=bool(ctx.perms.get("is_admin")))
+                if may_reopen:
+                    actions.append(f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{tid}"><input type="hidden" name="action" value="reopen"><button class="pulse-btn ghost">🔓 Wieder öffnen</button></form>')
+                else:
+                    actions.append('<span class="text-[11px] text-slate-400">Frist zum Wiederöffnen abgelaufen</span>')
         detail = (
             f'<div class="text-[11px] mt-1 {"text-rose-500" if info["overdue"] else "text-slate-400"}">{e(info["reason"])}</div>'
             + (f'<div class="text-[11px] text-indigo-500 mt-0.5">Nächster Schritt: {e(info["next_step"])}</div>' if info["state"] != "closed" else "")
@@ -144,7 +150,7 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
         return (
             f'<article class="pulse-row tc-row {"tc-overdue" if info["overdue"] else ""}">'
             f'<div class="pulse-row-main" style="flex:1;min-width:220px"><div class="flex flex-wrap items-center gap-2">'
-            f'<span class="pulse-row-title">{e(t.get("user_name") or "Unbekannt")}</span>{pill(pr[0], pr[1])}{pill(state_text, state_kind)}'
+            f'<span class="pulse-row-title">{e(t.get("user_name") or "Unbekannt")}</span>{pill(pr[0], pr[1])}{pill(state_text, state_kind)}{pill("🚨 Eskaliert", "bad") if info.get("escalated") else ""}'
             f'{"".join(pill("#" + tag) for tag in tag_map.get(str(t.get("id")), []))}</div>'
             f'<div class="pulse-row-meta">{e(cat)} · <code>{tid}</code> · eröffnet {e(str(t.get("opened_at") or "")[:16].replace("T", " "))} UTC · Bearbeiter: {e(t.get("claimed_by_name") or "niemand")}</div>'
             f'{detail}</div><div class="flex flex-wrap gap-2 items-start justify-end">{"".join(actions)}</div></article>'

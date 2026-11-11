@@ -7,8 +7,8 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `origin/main`, Tests, PR,
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 69 |
-| Teilweise | 107 |
+| Fertig | 72 |
+| Teilweise | 104 |
 | Offen | 1 |
 
 Aktueller Ausgangspunkt: `main` bei `cf7d866` (PR #205–#210 gemergt). Die Zahlen sind nach den sechs neu abgeschlossenen offenen Kernfunktionen aktualisiert.
@@ -77,9 +77,36 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 - Bekannte Abweichung: Alt-Tickets ohne `guild_id` erscheinen in der Liste, zählen aber – wie bei der automatischen Zuweisung –
   nicht in der Auslastung.
 
+## Block 6 – Überfälligkeits-Eskalation und Wiederöffnen (#27, #28, #35)
+
+- Branch: `feature/ticket-escalation-reopen-window` (baut auf Block 5 auf, weil beide dieselben Dateien ändern; Draft-PR gegen `main`)
+- Dateien: `pulse_ticket_design.py`, `pulse_ticket_triage.py`, `cogs/tickets.py`, `pulse_db.py`, `webserver.py`,
+  `pulse_ticket_builder.py`, `pulse_ticket_center.py`, `tests/test_ticket_escalation.py` (neu), `tests/test_ticket_workflow.py`,
+  `tests/test_ticket_center_workload.py`
+- Keine neue Route, keine neue Tabelle, keine Migration. Neue Einstellungen in `ticket_system_config`:
+  `automation.escalation_minutes` (auch je Kategorie) und `reopen.window_days`; beide Standard 0 = aus, bestehende Server
+  verhalten sich unverändert. Neue Schlüssel im vorhandenen Feld `tickets.automation_state`.
+- **#28:** Bleibt eine Team-Erinnerung folgenlos, informiert Pulse einmal die Ticket-Führungsebene (Protokollkanal, Inbox,
+  Historie, Audit). Die Markierung wird vor dem Discord-Aufruf gespeichert – ein Discord-Fehler führt nie zu Wiederholungen.
+- **#35:** Frist für das Wiederöffnen, serverseitig geprüft. Behobener Fehler: Ein wiedergeöffnetes Ticket galt sofort als
+  überfällig (Wartezeit ab der ursprünglichen Eröffnung) und bekam nie wieder eine Übernahme-Erinnerung (alter Merker blieb stehen).
+- **#27:** war auf `main` bereits umgesetzt und getestet, im Audit aber noch als teilweise geführt; jetzt mit Nachweisen fertig.
+- **#26** bleibt teilweise: Die Zuteilung existiert und ist getestet, berücksichtigt aber keine Abmeldungen.
+- Einschränkungen: Eskalation setzt eine aktive Erinnerung voraus (ohne Erinnerung keine zweite Stufe); Erinnerungen von vor
+  diesem Stand haben keinen Zeitstempel und werden nicht nachträglich eskaliert; die Inbox erreicht höchstens 25 Personen.
+
+## Prüfstand 11.11.2026
+
+- `main` = `cf7d866`, **nicht geschützt** (GitHub-API: `protected: false`, Issue #121 gilt weiter). Das ist eine
+  Repository-Einstellung und lässt sich nicht durch Code beheben.
+- PR #211: nach der Testkorrektur alle 13 Prüfungen grün; der Job „Schichthistorie – 20.000 Einträge“ wird übersprungen und
+  ist kein Testnachweis.
+- `docs/ROUTEN.md` ist auf `main` veraltet (Datei: 411 effektive Routen, `tools/route_map.py` erzeugt 422). Nicht in diesem
+  Block aktualisiert, weil er keine Route ändert.
+
 ## Nächste Arbeit
 
-1. **Support (#26–#28):** automatische Ticketzuteilung, Kategorie-SLA und Überfälligkeits-Eskalation an einem durchgängigen Ablauf vervollständigen.
+1. **Support (#26):** Zuteilung um Abmeldungen und Dienststatus ergänzen.
 2. **Locale-System (#10):** Spracheinstellung und Übersetzungsinfrastruktur; anschließend Kernbefehle und weitere Bot-Antworten systematisch migrieren.
 3. **Moderation (#11–#25):** gemeinsame Fallakten, Einsprüche, Beweismittel, Ausnahmen, Raid-Stufen und False-Positive-Rückkanal.
 4. Danach die übrigen teilweise bewerteten Punkte bereichsweise, jeweils mit Verhaltenstests und Rechte-/Datenschutzprüfung.

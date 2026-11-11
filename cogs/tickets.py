@@ -844,6 +844,102 @@ async def create_ticket_channel(interaction: discord.Interaction, key: str, pane
         _OPENING_TICKETS.discard(lock_key)
 
 
+ESCALATION_KINDS = {
+    "unclaimed": ("niemand hat das Ticket übernommen", "Übernahme"),
+    "staff": ("der Ersteller wartet weiter auf eine Antwort", "Antwort des Teams"),
+}
+ESCALATION_INBOX_LIMIT = 25
+
+
+def ticket_leadership_roles(guild) -> list:
+    """Roles configured as ticket leadership; managed and default roles are never pinged."""
+    raw_ids = ticket_config().get("leadership_role_ids", [])
+    roles = []
+    for raw in raw_ids if isinstance(raw_ids, list) else []:
+        try:
+            role = guild.get_role(int(raw))
+        except (TypeError, ValueError):
+            role = None
+        if role and not role.managed and not role.is_default() and role not in roles:
+            roles.append(role)
+    return roles[:5]
+
+
+async def escalate_overdue_ticket(bot, guild, ticket: dict, kind: str, minutes: int) -> dict:
+    """Second stage of an overdue ticket: tell the ticket leadership, once per situation.
+
+    Never changes the assignee, the priority or the ticket itself. The history entry and the
+    dashboard notifications are written first, so a missing log channel cannot hide the escalation.
+    """
+    reason, step = ESCALATION_KINDS[kind]
+    ticket_id = str(ticket.get("id") or "")
+    label = category_meta(ticket.get("category"))[0]
+    detail = f"{step} überfällig: {reason} ({minutes} Min. nach der Erinnerung)."
+    _pulse_db.add_ticket_event(ticket_id, "escalated", detail, 0, "Pulse Automatik")
+    record_event("ticket_escalated", "ticket", ticket_id, "0", "Pulse Automatik",
+                 {"kind": kind, "minutes": int(minutes), "guild_id": str(guild.id), "category": str(ticket.get("category") or "")})
+
+    roles = ticket_leadership_roles(guild)
+    notified = 0
+    try:
+        import webserver
+        config = webserver.load_config()
+        recipients = []
+        for role in roles:
+            for member in list(getattr(role, "members", []) or []):
+                if getattr(member, "bot", False) or member.id in recipients:
+                    continue
+                recipients.append(member.id)
+        for member_id in recipients:
+            if notified >= ESCALATION_INBOX_LIMIT:
+                break
+            perms, _ = webserver.compute_perms(guild, member_id, config)
+            if not (perms.get("can_manage_tickets") or perms.get("is_admin")):
+                continue
+            _pulse_db.notify(
+                member_id, f"Ticket überfällig: {label}",
+                f"Ticket {ticket_id}: {reason}. Bitte Zuständigkeit klären.",
+                "warning", "/tickets?status=overdue",
+                dedupe_key=f"ticket-escalation:{ticket_id}:{kind}",
+            )
+            notified += 1
+    except Exception as exc:
+        print(f"⚠️ Pulse-Tickets: Eskalations-Hinweis für {ticket_id} nicht zugestellt ({type(exc).__name__}: {exc}).")
+        pulse_jobs.record_error("Ticket-Eskalation", exc)
+
+    logged = False
+    destination = await _resolve_text_channel(bot, guild, configured_ticket_log_channel_id("claimed"))
+    if destination is None:
+        print(f"⚠️ Pulse-Tickets: Eskalation für {ticket_id} ohne Protokollkanal – nur Dashboard-Hinweis.")
+    else:
+        embed = discord.Embed(
+            title="🚨 Ticket überfällig – Eskalation",
+            description=f"Bei diesem **{label}** blieb die Erinnerung ohne Wirkung: {reason}.",
+            color=_pulse_color("danger"),
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="Ticket-ID", value=f"`{ticket_id or 'unbekannt'}`", inline=True)
+        embed.add_field(name="Überfällig", value=step, inline=True)
+        embed.add_field(name="Priorität", value=PRIORITY_LABELS.get(str(ticket.get("priority") or "normal"), "🟢 Normal"), inline=True)
+        if ticket.get("claimed_by_name"):
+            embed.add_field(name="Bearbeiter", value=str(ticket.get("claimed_by_name"))[:200], inline=True)
+        channel_id = str(ticket.get("channel_id") or "")
+        if channel_id.isdigit():
+            embed.add_field(name="Ticket-Kanal", value=f"<#{channel_id}>", inline=True)
+            embed.url = f"https://discord.com/channels/{guild.id}/{channel_id}"
+        embed.set_footer(text="Pulse Ticket-System • Pulse ändert weder Zuständigkeit noch Priorität")
+        try:
+            await destination.send(
+                content=" ".join(role.mention for role in roles) or None,
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions(roles=roles, users=False, everyone=False),
+            )
+            logged = True
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"⚠️ Pulse-Tickets: Eskalation für {ticket_id} im Protokollkanal fehlgeschlagen ({type(exc).__name__}).")
+    return {"notified": notified, "logged": logged}
+
+
 def choose_ticket_auto_assignee(guild, category_key: str):
     """Select an eligible, category-authorised ticket manager when opt-in distribution is enabled."""
     settings = distribution_settings(ticket_config().get("distribution"))
@@ -1380,6 +1476,20 @@ class Tickets(commands.Cog):
                 continue
             state = load_state(ticket.get("automation_state"))
             label = category_meta(ticket.get("category"))[0]
+            for kind in ("unclaimed", "staff"):
+                if f"escalate_{kind}" not in actions:
+                    continue
+                # Mark first: an escalation must never repeat, even if Discord rejects the log post.
+                if kind == "unclaimed":
+                    state["unclaimed_escalated"] = now.isoformat()
+                else:
+                    state["staff_escalated_for"] = datetime_marker(ticket["last_user_message_at"])
+                set_ticket_automation_state(ticket["id"], state)
+                try:
+                    await escalate_overdue_ticket(self.bot, guild, ticket, kind, ticket_settings["escalation_minutes"])
+                except Exception as exc:
+                    print(f"⚠️ Pulse-Tickets: Eskalation für {ticket.get('id')} fehlgeschlagen ({type(exc).__name__}: {exc}).")
+                    pulse_jobs.record_error("Ticket-Eskalation", exc)
             try:
                 if "remind_unclaimed" in actions:
                     roles = category_ping_roles(guild, str(ticket.get("category")))[:10]
@@ -1397,6 +1507,7 @@ class Tickets(commands.Cog):
                             allowed_mentions=discord.AllowedMentions(users=[claimer], roles=False, everyone=False),
                         )
                     state["staff_reminder_for"] = datetime_marker(ticket["last_user_message_at"])
+                    state["staff_reminded_at"] = now.isoformat()
                 if "remind_user" in actions:
                     member = guild.get_member(int(ticket["user_id"])) if str(ticket.get("user_id") or "").isdigit() else None
                     if member:

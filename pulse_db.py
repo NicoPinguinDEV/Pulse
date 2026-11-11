@@ -900,13 +900,26 @@ def reopen_ticket(tid, channel_id, actor_id=None, actor_name=None):
     """Reopen a previously closed ticket in a newly created Discord channel."""
     with connect() as db:
         now = _now()
+        # A reopened ticket starts a new waiting period: reminders, escalations and the triage
+        # measure from the reopening, not from the original opening. Message timestamps stay
+        # stored; pulse_ticket_design.ticket_activity ignores the ones from before `reopened_at`.
+        row = db.execute("SELECT automation_state FROM tickets WHERE id=?", (tid,)).fetchone()
+        try:
+            previous = json.loads((row[0] if row else None) or "{}")
+        except (TypeError, ValueError):
+            previous = {}
+        try:
+            reopen_count = int(previous.get("reopen_count", 0)) if isinstance(previous, dict) else 0
+        except (TypeError, ValueError):
+            reopen_count = 0
+        state = json.dumps({"reopened_at": now, "reopen_count": reopen_count + 1}, ensure_ascii=False)
         cur = db.execute(
             """UPDATE tickets
                SET status='open', channel_id=?, claimed_by_id=NULL, claimed_by_name=NULL,
                    claimed_at=NULL, closed_at=NULL, close_reason='', closed_by_id=NULL,
-                   closed_by_name=NULL
+                   closed_by_name=NULL, automation_state=?
                WHERE id=? AND status='closed'""",
-            (str(channel_id), tid),
+            (str(channel_id), state, tid),
         )
         if cur.rowcount:
             db.execute(
@@ -915,6 +928,18 @@ def reopen_ticket(tid, channel_id, actor_id=None, actor_name=None):
             )
             return True
         return False
+
+
+def add_ticket_event(tid, event_type, detail="", actor_id=None, actor_name=None):
+    """Append one entry to a ticket's history; returns False for an unknown ticket."""
+    with connect() as db:
+        if not db.execute("SELECT 1 FROM tickets WHERE id=?", (tid,)).fetchone():
+            return False
+        db.execute(
+            "INSERT INTO ticket_events VALUES (?,?,?,?,?,?,?)",
+            (make_id("te"), tid, str(actor_id or "0"), actor_name or "System", str(event_type)[:40], str(detail or "")[:500], _now()),
+        )
+        return True
 
 
 def rate_ticket(tid, rating, comment=""):
