@@ -82,6 +82,15 @@ class CommunityFeedbackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.submit(content="x" * 3001)
 
+    def test_general_feedback_is_distinguished_and_cannot_open_a_poll(self):
+        row = self.submit(kind="feedback")
+        self.assertEqual(row["kind"], "feedback")
+        stored = feedback.list_feedback("100")
+        self.assertEqual(stored[0]["kind"], "feedback")
+        with self.assertRaisesRegex(ValueError, "Nur Community-Vorschläge"):
+            feedback.update_feedback("100", row["id"], "voting", "", 9, "Leitung")
+        self.assertEqual(feedback.list_voting_feedback("100"), [])
+
     def test_community_votes_are_unique_per_member_and_can_be_changed(self):
         row = self.submit()
         with self.assertRaises(KeyError):
