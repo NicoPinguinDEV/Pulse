@@ -35,7 +35,7 @@ from pulse_ticket_design import category_block, load_line, ticket_channel_name
 from pulse_transcripts import TranscriptError, archive_transcript, keep_channel_after_failure
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
 import pulse_paths
-from pulse_ticket_distribution import choose_assignee, distribution_settings
+from pulse_ticket_distribution import active_absence_ids, choose_assignee, distribution_settings
 from pulse_ticket_design import (
     PANEL_IMAGE_DIR,
     automation_actions,
@@ -940,6 +940,25 @@ async def escalate_overdue_ticket(bot, guild, ticket: dict, kind: str, minutes: 
     return {"notified": notified, "logged": logged}
 
 
+def absent_ticket_staff_ids(guild) -> set[str]:
+    """Team members with an active Abmeldung today (Europe/Berlin); read-only, empty on any error."""
+    import sqlite3
+    from zoneinfo import ZoneInfo
+
+    import pulse_sqlite
+    try:
+        today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+        with pulse_sqlite.connect_readonly(pulse_paths.data_file("abmeldungen.db"), timeout=3) as conn:
+            rows = [tuple(row) for row in conn.execute(
+                "SELECT user_id, von, bis, guild_id FROM abmeldungen LIMIT 5000").fetchall()]
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        # No absence database (fresh install, tests) simply means nobody is recorded as away.
+        if not isinstance(exc, sqlite3.OperationalError):
+            print(f"⚠️ Pulse-Tickets: Abmeldungen nicht lesbar ({type(exc).__name__}); Zuweisung ohne Abwesenheitsprüfung.")
+        return set()
+    return active_absence_ids(rows, guild.id, today)
+
+
 def choose_ticket_auto_assignee(guild, category_key: str):
     """Select an eligible, category-authorised ticket manager when opt-in distribution is enabled."""
     settings = distribution_settings(ticket_config().get("distribution"))
@@ -953,10 +972,13 @@ def choose_ticket_auto_assignee(guild, category_key: str):
 
         import webserver
         config = webserver.load_config()
+        absent_ids = absent_ticket_staff_ids(guild)
         candidates = []
         for member in list(getattr(guild, "members", []) or []):
             if getattr(member, "bot", False):
                 continue
+            if str(member.id) in absent_ids:
+                continue  # abgemeldet: bekommt keine neuen Tickets zugewiesen
             member_role_ids = {
                 int(role.id) for role in getattr(member, "roles", [])
                 if getattr(role, "id", None) is not None

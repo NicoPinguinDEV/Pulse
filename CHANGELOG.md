@@ -5,6 +5,7 @@
 - **Eskalation (#28):** Bleibt eine Erinnerung ohne Wirkung – niemand übernimmt das Ticket oder der Bearbeiter antwortet weiter nicht –, informiert Pulse nach der eingestellten Zeit einmal die Ticket-Führungsebene: im Protokollkanal und in der Pulse-Inbox. Das Ticket trägt in der Ticket-Zentrale die Markierung „Eskaliert“. Pulse ändert dabei weder Bearbeiter noch Priorität. Einstellbar unter „Ticket-Automatik“, auch je Kategorie; Standard ist aus.
 - **Wiederöffnen (#35):** Administratoren können eine Frist in Tagen festlegen, nach der Ticket-Manager geschlossene Tickets nicht mehr wieder öffnen können (0 = unbegrenzt wie bisher; Administratoren dürfen immer).
 - **Fehlerbehebung:** Ein wiedergeöffnetes Ticket galt sofort als überfällig und bekam keine Übernahme-Erinnerung mehr. Wartezeit und Erinnerungen beginnen jetzt mit dem Wiederöffnen neu.
+- **Automatische Zuteilung (#26):** Abgemeldete Teammitglieder bekommen keine neuen Tickets mehr automatisch zugewiesen.
 - **Auslastung (#40):** Die Ticket-Zentrale zeigt Führungskräften offene Tickets je Bearbeiter und warnt an der Kapazitätsgrenze.
 
 ## Gespeicherte Filter für Listen (November 2026)

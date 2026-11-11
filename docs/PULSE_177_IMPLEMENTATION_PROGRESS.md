@@ -7,8 +7,8 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `origin/main`, Tests, PR,
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 72 |
-| Teilweise | 104 |
+| Fertig | 73 |
+| Teilweise | 103 |
 | Offen | 1 |
 
 Aktueller Ausgangspunkt: `main` bei `cf7d866` (PR #205–#210 gemergt). Die Zahlen sind nach den sechs neu abgeschlossenen offenen Kernfunktionen aktualisiert.
@@ -79,7 +79,7 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 
 ## Block 6 – Überfälligkeits-Eskalation und Wiederöffnen (#27, #28, #35)
 
-- Branch: `feature/ticket-escalation-reopen-window` (baut auf Block 5 auf, weil beide dieselben Dateien ändern; Draft-PR gegen `main`)
+- Branch: `feature/ticket-escalation-reopen-window` (baut auf Block 5 auf, weil beide dieselben Dateien ändern; Draft-PR #212 gegen `main`)
 - Dateien: `pulse_ticket_design.py`, `pulse_ticket_triage.py`, `cogs/tickets.py`, `pulse_db.py`, `webserver.py`,
   `pulse_ticket_builder.py`, `pulse_ticket_center.py`, `tests/test_ticket_escalation.py` (neu), `tests/test_ticket_workflow.py`,
   `tests/test_ticket_center_workload.py`
@@ -95,6 +95,16 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 - Einschränkungen: Eskalation setzt eine aktive Erinnerung voraus (ohne Erinnerung keine zweite Stufe); Erinnerungen von vor
   diesem Stand haben keinen Zeitstempel und werden nicht nachträglich eskaliert; die Inbox erreicht höchstens 25 Personen.
 
+## Block 7 – Zuteilung ohne Abgemeldete (#26)
+
+- Branch: `feature/ticket-assignment-absences` (baut auf Block 6 auf; Draft-PR gegen `main`)
+- Dateien: `pulse_ticket_distribution.py`, `cogs/tickets.py`, `pulse_ticket_builder.py` (Hinweistext),
+  `tests/test_ticket_assignment_absences.py` (neu)
+- Die automatische Zuteilung liest `abmeldungen.db` nur lesend und überspringt Teammitglieder, deren Abmeldung heute gilt.
+  Keine neue Einstellung, keine Route, keine Tabelle. Ohne Abmelde-Datenbank oder bei Lesefehler verhält sich die Zuteilung wie bisher.
+- Unlesbare Datumsangaben zählen als abwesend – ein Ticket an eine abwesende Person ist der schlimmere Fehler.
+- Damit ist der Support-Bereich (#26–#40) vollständig: 15 / 0 / 0.
+
 ## Prüfstand 11.11.2026
 
 - `main` = `cf7d866`, **nicht geschützt** (GitHub-API: `protected: false`, Issue #121 gilt weiter). Das ist eine
@@ -106,10 +116,9 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 
 ## Nächste Arbeit
 
-1. **Support (#26):** Zuteilung um Abmeldungen und Dienststatus ergänzen.
-2. **Locale-System (#10):** Spracheinstellung und Übersetzungsinfrastruktur; anschließend Kernbefehle und weitere Bot-Antworten systematisch migrieren.
-3. **Moderation (#11–#25):** gemeinsame Fallakten, Einsprüche, Beweismittel, Ausnahmen, Raid-Stufen und False-Positive-Rückkanal.
-4. Danach die übrigen teilweise bewerteten Punkte bereichsweise, jeweils mit Verhaltenstests und Rechte-/Datenschutzprüfung.
+1. **Locale-System (#10):** Spracheinstellung und Übersetzungsinfrastruktur; anschließend Kernbefehle und weitere Bot-Antworten systematisch migrieren.
+2. **Moderation (#11–#25):** gemeinsame Fallakten, Einsprüche, Beweismittel, Ausnahmen, Raid-Stufen und False-Positive-Rückkanal.
+3. Danach die übrigen teilweise bewerteten Punkte bereichsweise, jeweils mit Verhaltenstests und Rechte-/Datenschutzprüfung.
 ## Hinweise für die Weiterarbeit
 
 - Arbeitsverzeichnis ist ein eigener Git-Worktree; der Haupt-Checkout enthält nicht eingecheckte Nutzeränderungen und bleibt unberührt.

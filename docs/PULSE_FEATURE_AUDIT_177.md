@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich:** `main` bei `cf7d866` (PRs #205–#210 gemergt). Dieser Auditstand berücksichtigt zusätzlich zwei noch nicht gemergte Draft-Blöcke: Ticket-Auslastung (#40, PR #211) und Eskalation/Wiederöffnen (#27, #28, #35). Der Code auf `main` selbst entspricht bis zum Merge 69 fertig / 107 teilweise / 1 offen (inklusive der Neubewertung von #27, das dort bereits umgesetzt ist); die Auditdatei auf `main` nennt noch den älteren Stand mit 62 fertigen Funktionen. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich:** `main` bei `cf7d866` (PRs #205–#210 gemergt). Dieser Auditstand berücksichtigt zusätzlich drei noch nicht gemergte Draft-Blöcke: Ticket-Auslastung (#40, PR #211), Eskalation/Wiederöffnen (#27, #28, #35, PR #212) und abwesenheitsbewusste Zuteilung (#26). Der Code auf `main` selbst entspricht bis zum Merge 69 fertig / 107 teilweise / 1 offen (inklusive der Neubewertung von #27, das dort bereits umgesetzt ist); die Auditdatei auf `main` nennt noch den älteren Stand mit 62 fertigen Funktionen. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 72 |
-| Teilweise | 104 |
+| Fertig | 73 |
+| Teilweise | 103 |
 | Offen | 1 |
 | **Gesamt** | **177** |
 
@@ -30,7 +30,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 |---|---:|---:|---:|
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 2 | 1 |
 | Discord-Bot – Moderation und Sicherheit | 3 | 12 | 0 |
-| Discord-Bot – Tickets und Support | 14 | 1 | 0 |
+| Discord-Bot – Tickets und Support | 15 | 0 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 2 | 13 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 6 | 6 | 0 |
@@ -84,7 +84,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 26 | Intelligente Ticketverteilung | **Teilweise** | Neue Tickets können optional automatisch dem am wenigsten belasteten, für die Kategorie zuständigen Teammitglied mit Ticket-Recht zugewiesen werden (prioritätsgewichtete Last, Kapazitätsgrenze, deterministisch, Standard aus): `pulse_ticket_distribution.choose_assignee`, `cogs/tickets.choose_ticket_auto_assignee`; `tests/test_ticket_distribution.py`, `tests/test_ticket_workflow.py`. Es fehlt: Abmeldungen und Dienststatus werden nicht berücksichtigt – ein abgemeldetes Teammitglied kann ein Ticket zugewiesen bekommen. |
+| 26 | Intelligente Ticketverteilung | **Fertig** | Neue Tickets können optional automatisch dem am wenigsten belasteten, für die Kategorie zuständigen Teammitglied mit Ticket-Recht zugewiesen werden: prioritätsgewichtete Last, Kapazitätsgrenze, deterministisch, Standard aus. Teammitglieder mit aktiver Abmeldung werden übersprungen (Datum in Europe/Berlin, erster und letzter Tag zählen); sind alle abwesend oder ausgelastet, bleibt das Ticket unzugewiesen. `pulse_ticket_distribution.choose_assignee`/`active_absence_ids`, `cogs/tickets.choose_ticket_auto_assignee`; `tests/test_ticket_distribution.py`, `tests/test_ticket_workflow.py`, `tests/test_ticket_assignment_absences.py`. PR: Abwesenheits-Block (Draft). Einschränkung: der Dienststatus (im Dienst / nicht im Dienst) fließt bewusst nicht ein, damit Tickets auch außerhalb von Schichten verteilt werden. |
 | 27 | Ticket-SLA je Kategorie | **Fertig** | Je Kategorie eigene Schwellen für Übernahme, Team-Antwort, Ersteller-Antwort und Eskalation; leere Felder erben den globalen Wert, 0 schaltet die Regel für die Kategorie aus. Dieselbe Auflösung (`category_automation_settings`) steuert Erinnerungen, Triage und den Reiter „Überfällig“. Speichern nur für Administratoren (`POST /tickets/automation`). `pulse_ticket_design.py`, `pulse_ticket_triage.py`, `pulse_ticket_builder.py`; `tests/test_pulse_ticket_design.py`, `tests/test_ticket_workflow.py`, `tests/test_pulse_ticket_triage.py`. |
 | 28 | Überfälligkeitsalarm | **Fertig** | Zweistufig: 1. Erinnerung an die zuständigen Rollen bzw. den Bearbeiter, 2. Eskalation an die Ticket-Führungsebene, wenn die Erinnerung nach der eingestellten Zeit folgenlos blieb (Protokollkanal mit Rollen-Ping, Pulse-Inbox nur für Berechtigte, Eintrag in Ticket-Historie und Audit, Markierung „Eskaliert“ in der Ticket-Zentrale). Einmal je Situation, je Kategorie einstellbar, Standard aus; Pulse ändert dabei weder Bearbeiter noch Priorität. `pulse_ticket_design.automation_actions`, `cogs/tickets.escalate_overdue_ticket`; `tests/test_ticket_escalation.py`, `tests/test_ticket_workflow.py`. PR: Eskalations-Block (Draft, baut auf PR #211 auf). |
 | 29 | Ticket-Übergabe mit Pflichtnotiz | **Fertig** | `/ticket uebergeben` verlangt eine Notiz und protokolliert die Übergabe; `tests/test_ticket_extras.py`. |
@@ -298,7 +298,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 2. **Einige frühere Einschätzungen waren zu pessimistisch.** `pulse_ultimate.py` enthält echte Routen und Datenmodelle für Abteilungen, Fälle, Kalender, Umfragen, Feedback, Übergaben, Awards, Zertifikate und Automationen.
 3. **Einige dieser Ultimate-Bereiche haben wenig direkte Verhaltenstest-Abdeckung.** Sie werden deshalb in diesem Audit meist als **Teilweise** eingestuft, bis die kritischen Rechte-, Daten- und Fehlerpfade durch Tests abgesichert sind.
 4. **Die gemeinsamen Plattformfunktionen sind der größte Integrationsrückstand.** Korrelations-IDs, Inbox, Audit, Rechte und Events existieren jeweils in Teilen, sind aber noch nicht vollständig über alle Module vereinheitlicht.
-5. **Noch offen (1):** #10 Mehrsprachige Bot-Antworten. Die übrigen 104 teilweise bewerteten Punkte enthalten weiterhin wesentliche Funktionslücken oder fehlende Integrations-/Verhaltenstests.
+5. **Noch offen (1):** #10 Mehrsprachige Bot-Antworten. Die übrigen 103 teilweise bewerteten Punkte enthalten weiterhin wesentliche Funktionslücken oder fehlende Integrations-/Verhaltenstests.
 6. **Das Audit ist kein Deployment.** Der VPS kann weiterhin einen älteren Commit ausführen, bis ein gesondert freigegebener Deployment-Schritt durchgeführt wird.
 
 ## Technische Hauptbelege
@@ -317,11 +317,10 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 Die offenen Punkte sollten nicht in einem 177-Funktionen-Monolithen umgesetzt werden. Empfohlene Reihenfolge:
 
-1. **Support (#26):** automatische Zuteilung um Abmeldungen und Dienststatus ergänzen – danach ist der Support-Bereich vollständig.
-2. **Locale-System (#10):** Spracheinstellung und Übersetzungsinfrastruktur; anschließend Kernbefehle und weitere Bot-Antworten systematisch migrieren.
-3. **Moderation (#11–#25):** gemeinsame Fallakten, Einsprüche, Beweismittel, Ausnahmen, Raid-Stufen und Fehlalarm-Rückkanal.
-4. **Community und BOCHUM RP (#41–#55):** native Discord-Events, Meeting-Workflow, Regelwerkquellen und Spieler-Selbstservice.
-5. **TeamOS/Personal/Academy (#56–#115):** Live-Feed, Suche, 360°-Akte, Recruiting, Lernpfade und Wissensmanagement vervollständigen.
-6. **Integration/Intelligence/Operations (#116–#177):** gemeinsame Ereignis-/Auditverträge und die noch fehlenden Leitstellen-, Admin- und Datenschutzabläufe.
+1. **Locale-System (#10):** Spracheinstellung und Übersetzungsinfrastruktur; anschließend Kernbefehle und weitere Bot-Antworten systematisch migrieren.
+2. **Moderation (#11–#25):** gemeinsame Fallakten, Einsprüche, Beweismittel, Ausnahmen, Raid-Stufen und Fehlalarm-Rückkanal.
+3. **Community und BOCHUM RP (#41–#55):** native Discord-Events, Meeting-Workflow, Regelwerkquellen und Spieler-Selbstservice.
+4. **TeamOS/Personal/Academy (#56–#115):** Live-Feed, Suche, 360°-Akte, Recruiting, Lernpfade und Wissensmanagement vervollständigen.
+5. **Integration/Intelligence/Operations (#116–#177):** gemeinsame Ereignis-/Auditverträge und die noch fehlenden Leitstellen-, Admin- und Datenschutzabläufe.
 
 Jede weitere Umsetzung sollte eine klar abgegrenzte PR mit eigenen Regressionstests, Berechtigungsprüfung und Daten-/Rollback-Betrachtung erhalten.
