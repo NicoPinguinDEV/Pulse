@@ -337,6 +337,35 @@ class RetentionTests(unittest.TestCase):
         con.close()
         data = pulse_retention.export_person(ws, "100000000000000001")
         self.assertEqual(data["databases"]["pulse_suite.db"]["suite_members"][0]["notes"], "Notiz")
+        con = sqlite3.connect(Path(ws.DATA_DIR) / "pulse_suite.db")
+        con.execute(
+            """CREATE TABLE suite_schedule_swap_requests(
+               id TEXT,requester_id TEXT,target_id TEXT,requester_name TEXT,target_name TEXT,status TEXT)"""
+        )
+        con.executemany(
+            "INSERT INTO suite_schedule_swap_requests VALUES (?,?,?,?,?,?)",
+            [
+                ("swap-subject", "100000000000000001", "100000000000000002", "Alice", "Bob", "approved"),
+                ("swap-other", "100000000000000003", "100000000000000004", "Cara", "Dan", "approved"),
+            ],
+        )
+        con.commit()
+        con.close()
+        requester_export = pulse_retention.export_person(ws, "100000000000000001")
+        target_export = pulse_retention.export_person(ws, "100000000000000002")
+        unrelated_export = pulse_retention.export_person(ws, "100000000000000099")
+        self.assertEqual(
+            [row["id"] for row in requester_export["databases"]["pulse_suite.db"]["suite_schedule_swap_requests"]],
+            ["swap-subject"],
+        )
+        self.assertEqual(
+            [row["id"] for row in target_export["databases"]["pulse_suite.db"]["suite_schedule_swap_requests"]],
+            ["swap-subject"],
+        )
+        self.assertNotIn(
+            "suite_schedule_swap_requests",
+            unrelated_export.get("databases", {}).get("pulse_suite.db", {}),
+        )
         _json.dumps(data, default=str)
 
     def test_ticket_internal_notes_are_included_for_subject_and_author_exports(self):
