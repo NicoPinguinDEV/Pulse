@@ -6717,7 +6717,7 @@ async def mod_cases_page(request: Request, user_session: str = Cookie(None)):
         + (f'<div class="text-xs mt-1">Beweis: <a class="text-indigo-500" rel="noopener noreferrer" target="_blank" href="{esc(safe_url(c["proof"]))}">{esc(c["proof"][:80])}</a></div>'
            if c.get("proof") and safe_url(c["proof"]) else "")
         + '</div></div>' for c in page_rows) or empty_state("Noch keine Moderationsfälle.", "⚖")
-    appeal_rows = mc.list_appeals(getattr(ctx.guild, "id", None), status="pending", limit=25)
+    appeal_rows = mc.list_appeals(getattr(getattr(ctx, "guild", None), "id", None), status="pending", limit=25)
     appeal_items = "".join(
         f'<div class="pulse-row"><div class="pulse-row-main">'
         f'<div class="pulse-row-title"><code>{esc(row["case_id"])}</code> · '
