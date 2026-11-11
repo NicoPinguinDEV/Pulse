@@ -461,10 +461,10 @@ def register(app) -> None:
             checked = " checked" if key in selected else ""
             position = positions.get(key, index)
             fields.append(
-                f'<label class="pulse-row" style="align-items:center"><span style="flex:1">{e(label)}</span>'
-                f'<input type="checkbox" name="widgets" value="{key}"{checked}>'
-                f'<span class="text-xs">Position <input class="pulse-input" style="width:64px" type="number" '
-                f'min="1" max="{len(HOME_WIDGETS)}" name="position_{key}" value="{position}"></span></label>'
+                f'<div class="pulse-row" style="align-items:center"><label style="display:flex;gap:8px;align-items:center;flex:1">'
+                f'<input type="checkbox" name="widgets" value="{key}"{checked}>{e(label)}</label>'
+                f'<label class="text-xs">Position <input class="pulse-input" style="width:64px" type="number" '
+                f'min="1" max="{len(HOME_WIDGETS)}" name="position_{key}" value="{position}"></label></div>'
             )
         rows = []
         for item in layouts:
