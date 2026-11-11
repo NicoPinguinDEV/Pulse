@@ -108,7 +108,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 42 | Teilnehmerlisten für Events | **Fertig** | Zu-/Absagen je Kalendertermin in `ultimate_calendar_rsvps` (PR #195); `tests/test_ultimate_event_rsvps.py`. |
 | 43 | Event-Erinnerungen | **Teilweise** | Interview-/Recruiting-Erinnerungen und allgemeine Automationen existieren; ein durchgängiger Event-Erinnerungsdienst fehlt. |
 | 44 | Umfragen | **Teilweise** | `/ultimate/polls` bietet Single-/Multiple-Choice-Abstimmungen im Dashboard; native Discord-Umfragen und Bot-Commands sind nicht vollständig integriert. |
-| 45 | Community-Vorschlagsbox | **Teilweise** | `/ultimate/feedback` nimmt anonyme/namentliche Vorschläge mit Status auf; ein eigener Discord-Einreichungs- und Community-Abstimmungsflow fehlt. |
+| 45 | Community-Vorschlagsbox | **Teilweise** | PR #217 ergänzt `/vorschlag` mit Modal, Kategorien und optionaler Anonymität, servergetrennte Speicherung, Führungsbenachrichtigung und Statusprüfung im Dashboard. Noch offen: Community-Abstimmung bzw. strukturierte Auswertung der Stimmen. |
 | 46 | Feedbacksystem | **Teilweise** | Ultimate-Feedback und Ticket-/Voice-Ratings existieren; ein gemeinsamer Community-Feedbackprozess über Discord und Dashboard ist noch nicht vorhanden. |
 | 47 | Regelwerk-Assistent mit Quellen | **Teilweise** | Support Assistant und `support_knowledge.md` liefern Wissensantworten; zitierte, versionierte Regelwerkspassagen mit direkten Quellenlinks fehlen. |
 | 48 | Freigegebene Fraktionsübersicht | **Fertig** | Fraktionsverwaltung mit offiziellen Fraktionen und öffentlicher, freigabegesteuerter Darstellung; `tests/test_factions.py`, `tests/test_public_site.py`. |
