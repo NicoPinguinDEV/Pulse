@@ -21,11 +21,11 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-JOIN_WAVE = _env_int("PULSE_RAID_JOINS_PER_MINUTE", 10)  # legacy/elevated threshold
-NEW_ACCOUNTS = _env_int("PULSE_RAID_NEW_ACCOUNTS_5MIN", 5)  # legacy/elevated threshold
+JOIN_WAVE = max(2, _env_int("PULSE_RAID_JOINS_PER_MINUTE", 10))  # legacy/elevated threshold
+NEW_ACCOUNTS = max(2, _env_int("PULSE_RAID_NEW_ACCOUNTS_5MIN", 5))  # legacy/elevated threshold
 NEW_ACCOUNT_DAYS = _env_int("PULSE_RAID_NEW_ACCOUNT_DAYS", 7)
-MASS_MENTIONS = _env_int("PULSE_RAID_MASS_MENTIONS", 8)  # legacy/elevated threshold
-COPY_CHANNELS = _env_int("PULSE_RAID_COPY_CHANNELS", 3)  # legacy/elevated threshold
+MASS_MENTIONS = max(2, _env_int("PULSE_RAID_MASS_MENTIONS", 8))  # legacy/elevated threshold
+COPY_CHANNELS = max(2, _env_int("PULSE_RAID_COPY_CHANNELS", 3))  # legacy/elevated threshold
 
 LEVEL_ORDER = ("warning", "elevated", "critical")
 LEVEL_LABELS = {
