@@ -10,6 +10,7 @@ import sqlite3
 from contextlib import closing
 import uuid
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from urllib.parse import quote
 
 import discord
@@ -92,6 +93,18 @@ def init_db():
         CREATE TABLE IF NOT EXISTS suite_members(user_id TEXT PRIMARY KEY,joined_at TEXT,archived_at TEXT,last_seen TEXT,internal_rating INTEGER DEFAULT 80,notes TEXT DEFAULT '',probation_end TEXT);
         CREATE TABLE IF NOT EXISTS suite_promotions(id TEXT PRIMARY KEY,target_id TEXT,target_name TEXT,current_role TEXT,current_role_id TEXT,target_role TEXT,target_role_id TEXT,reason TEXT,performance TEXT,activity TEXT,warnings TEXT,score INTEGER DEFAULT 0,status TEXT DEFAULT 'pending',required_approvals INTEGER DEFAULT 1,approvals_json TEXT DEFAULT '[]',created_by_id TEXT,created_by_name TEXT,decision_note TEXT DEFAULT '',created_at TEXT,updated_at TEXT);
         CREATE TABLE IF NOT EXISTS suite_schedule(id TEXT PRIMARY KEY,guild_id TEXT,date TEXT,shift_name TEXT,start_time TEXT,end_time TEXT,assignee_id TEXT,assignee_name TEXT,created_by_id TEXT,created_by_name TEXT,created_at TEXT);
+        CREATE TABLE IF NOT EXISTS suite_schedule_swap_requests(
+            id TEXT PRIMARY KEY,guild_id TEXT NOT NULL,request_shift_id TEXT NOT NULL,target_shift_id TEXT NOT NULL,
+            requester_id TEXT NOT NULL,requester_name TEXT NOT NULL,target_id TEXT NOT NULL,target_name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending_peer',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+            decided_by_id TEXT,decided_by_name TEXT,decision_note TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_suite_schedule_swap_status
+            ON suite_schedule_swap_requests(guild_id,status,created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_suite_schedule_swap_requester
+            ON suite_schedule_swap_requests(guild_id,requester_id,created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_suite_schedule_swap_target
+            ON suite_schedule_swap_requests(guild_id,target_id,status,created_at DESC);
         CREATE TABLE IF NOT EXISTS suite_events(id TEXT PRIMARY KEY,guild_id TEXT,title TEXT,kind TEXT,start_at TEXT,end_at TEXT,description TEXT,member_id TEXT,created_by_id TEXT,created_by_name TEXT,created_at TEXT);
         CREATE TABLE IF NOT EXISTS suite_interviews(id TEXT PRIMARY KEY,application_id TEXT,applicant_id TEXT,applicant_name TEXT,scores_json TEXT,overall INTEGER,recommendation TEXT,notes TEXT,interviewer_id TEXT,interviewer_name TEXT,created_at TEXT);
         CREATE TABLE IF NOT EXISTS suite_training_assignments(id TEXT PRIMARY KEY,training_id TEXT,user_id TEXT,user_name TEXT,status TEXT,assigned_by_id TEXT,assigned_by_name TEXT,assigned_at TEXT);
@@ -121,6 +134,232 @@ def seed():
 
 def now():return datetime.now(timezone.utc)
 def iso():return now().isoformat(timespec="seconds")
+def _schedule_interval(row):
+    """Parse a stored local BOCHUM-RP shift interval, including overnight shifts."""
+    day = datetime.strptime(str(row["date"]), "%Y-%m-%d").date()
+    start_time = datetime.strptime(str(row["start_time"]), "%H:%M").time()
+    end_time = datetime.strptime(str(row["end_time"]), "%H:%M").time()
+    zone = ZoneInfo("Europe/Berlin")
+    start = datetime.combine(day, start_time, tzinfo=zone)
+    end = datetime.combine(day, end_time, tzinfo=zone)
+    if end <= start:
+        end += timedelta(days=1)
+    return start, end
+
+
+def _intervals_overlap(left, right):
+    return left[0] < right[1] and right[0] < left[1]
+
+
+def create_schedule_swap_request(guild_id, request_shift_id, target_shift_id, requester_id, requester_name):
+    """Create a peer-confirmed swap request for two future shifts in the same guild."""
+    request_shift_id = str(request_shift_id or "").strip()
+    target_shift_id = str(target_shift_id or "").strip()
+    requester_id = str(requester_id or "")
+    if not request_shift_id or not target_shift_id or request_shift_id == target_shift_id:
+        raise ValueError("Bitte zwei unterschiedliche Schichten auswählen.")
+    with cx() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        own = connection.execute(
+            "SELECT * FROM suite_schedule WHERE id=? AND guild_id=?",
+            (request_shift_id, str(guild_id)),
+        ).fetchone()
+        target = connection.execute(
+            "SELECT * FROM suite_schedule WHERE id=? AND guild_id=?",
+            (target_shift_id, str(guild_id)),
+        ).fetchone()
+        if not own or not target:
+            raise ValueError("Eine der ausgewählten Schichten wurde nicht gefunden.")
+        if str(own["assignee_id"] or "") != requester_id:
+            raise PermissionError("Du kannst nur deine eigenen Schichten zum Tausch anbieten.")
+        target_id = str(target["assignee_id"] or "")
+        if not target_id or target_id == requester_id:
+            raise ValueError("Die Gegenschicht muss einem anderen Teammitglied zugewiesen sein.")
+        own_interval = _schedule_interval(dict(own))
+        target_interval = _schedule_interval(dict(target))
+        current = now()
+        if own_interval[0] <= current or target_interval[0] <= current:
+            raise ValueError("Nur zukünftige Schichten können getauscht werden.")
+        duplicate = connection.execute(
+            """SELECT 1 FROM suite_schedule_swap_requests
+               WHERE guild_id=? AND status IN ('pending_peer','pending_manager')
+                 AND ((request_shift_id=? AND target_shift_id=?) OR
+                      (request_shift_id=? AND target_shift_id=?))
+               LIMIT 1""",
+            (str(guild_id), request_shift_id, target_shift_id, target_shift_id, request_shift_id),
+        ).fetchone()
+        if duplicate:
+            raise ValueError("Für diese Schichten besteht bereits eine offene Tauschanfrage.")
+        request_id = "swap_" + uuid.uuid4().hex[:12]
+        timestamp = iso()
+        connection.execute(
+            """INSERT INTO suite_schedule_swap_requests
+               (id,guild_id,request_shift_id,target_shift_id,requester_id,requester_name,
+                target_id,target_name,status,created_at,updated_at)
+               VALUES(?,?,?,?,?,?,?,?,'pending_peer',?,?)""",
+            (
+                request_id, str(guild_id), request_shift_id, target_shift_id,
+                requester_id, str(requester_name or "Teammitglied")[:100],
+                target_id, str(target["assignee_name"] or "Teammitglied")[:100],
+                timestamp, timestamp,
+            ),
+        )
+        return request_id
+
+
+def schedule_swap_requests(guild_id, user_id=None, status=None, limit=50):
+    query = """SELECT r.*,a.date AS request_date,a.shift_name AS request_shift_name,
+                      a.start_time AS request_start,a.end_time AS request_end,
+                      b.date AS target_date,b.shift_name AS target_shift_name,
+                      b.start_time AS target_start,b.end_time AS target_end
+               FROM suite_schedule_swap_requests r
+               LEFT JOIN suite_schedule a ON a.id=r.request_shift_id AND a.guild_id=r.guild_id
+               LEFT JOIN suite_schedule b ON b.id=r.target_shift_id AND b.guild_id=r.guild_id
+               WHERE r.guild_id=?"""
+    params = [str(guild_id)]
+    if user_id is not None:
+        query += " AND (r.requester_id=? OR r.target_id=?)"
+        params.extend([str(user_id), str(user_id)])
+    if status:
+        statuses = [status] if isinstance(status, str) else list(status)
+        statuses = [str(value) for value in statuses if str(value) in {
+            "pending_peer", "pending_manager", "approved", "rejected", "cancelled"
+        }]
+        if not statuses:
+            return []
+        marks = ",".join("?" for _ in statuses)
+        query += f" AND r.status IN ({marks})"
+        params.extend(statuses)
+    query += " ORDER BY r.created_at DESC LIMIT ?"
+    params.append(max(1, min(int(limit), 100)))
+    with cx() as connection:
+        return [dict(row) for row in connection.execute(query, params).fetchall()]
+
+
+def respond_schedule_swap_request(request_id, guild_id, target_user_id, accepted):
+    """Only the person receiving the proposed shift can accept or reject it."""
+    with cx() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT * FROM suite_schedule_swap_requests WHERE id=? AND guild_id=?",
+            (str(request_id), str(guild_id)),
+        ).fetchone()
+        if not row or str(row["target_id"]) != str(target_user_id):
+            raise PermissionError("Diese Tauschanfrage gehört nicht zu deinem Konto.")
+        if row["status"] != "pending_peer":
+            raise ValueError("Diese Tauschanfrage wurde bereits beantwortet.")
+        status = "pending_manager" if accepted else "rejected"
+        connection.execute(
+            "UPDATE suite_schedule_swap_requests SET status=?,updated_at=?,decision_note=? WHERE id=? AND status='pending_peer'",
+            (status, iso(), "Gegenseite hat zugestimmt." if accepted else "Gegenseite hat abgelehnt.", str(request_id)),
+        )
+        return status
+
+
+def _member_has_schedule_conflict(connection, guild_id, member_id, proposed_interval, excluded_ids):
+    marks = ",".join("?" for _ in excluded_ids)
+    rows = connection.execute(
+        f"""SELECT * FROM suite_schedule WHERE guild_id=? AND assignee_id=?
+            AND id NOT IN ({marks})""",
+        [str(guild_id), str(member_id), *[str(value) for value in excluded_ids]],
+    ).fetchall()
+    for row in rows:
+        try:
+            if _intervals_overlap(proposed_interval, _schedule_interval(dict(row))):
+                return True
+        except (KeyError, TypeError, ValueError):
+            # Unknown existing schedule times cannot be safely declared non-conflicting.
+            raise ValueError("Ein bestehender Dienst konnte zeitlich nicht geprüft werden.")
+    return False
+
+
+def decide_schedule_swap_request(request_id, guild_id, actor_id, actor_name, approve, note=""):
+    """Manager decision; approval atomically swaps both owners after schedule/conflict checks."""
+    with cx() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        request = connection.execute(
+            "SELECT * FROM suite_schedule_swap_requests WHERE id=? AND guild_id=?",
+            (str(request_id), str(guild_id)),
+        ).fetchone()
+        if not request:
+            raise ValueError("Tauschanfrage nicht gefunden.")
+        if request["status"] != "pending_manager":
+            raise ValueError("Die Gegenseite muss erst zustimmen; die Anfrage ist nicht entscheidungsreif.")
+        if not approve:
+            connection.execute(
+                """UPDATE suite_schedule_swap_requests
+                   SET status='rejected',updated_at=?,decided_by_id=?,decided_by_name=?,decision_note=?
+                   WHERE id=? AND status='pending_manager'""",
+                (iso(), str(actor_id), str(actor_name or "Leitung")[:100], str(note or "Abgelehnt")[:500], str(request_id)),
+            )
+            return {"status": "rejected", "request": dict(request)}
+
+        own = connection.execute(
+            "SELECT * FROM suite_schedule WHERE id=? AND guild_id=?",
+            (str(request["request_shift_id"]), str(guild_id)),
+        ).fetchone()
+        target = connection.execute(
+            "SELECT * FROM suite_schedule WHERE id=? AND guild_id=?",
+            (str(request["target_shift_id"]), str(guild_id)),
+        ).fetchone()
+        if not own or not target:
+            raise ValueError("Eine der Schichten existiert nicht mehr.")
+        if (str(own["assignee_id"] or "") != str(request["requester_id"])
+                or str(target["assignee_id"] or "") != str(request["target_id"])):
+            raise ValueError("Die Schichtzuweisung hat sich seit der Anfrage geändert.")
+        own_interval = _schedule_interval(dict(own))
+        target_interval = _schedule_interval(dict(target))
+        current = now()
+        if own_interval[0] <= current or target_interval[0] <= current:
+            raise ValueError("Eine Schicht liegt inzwischen in der Vergangenheit.")
+        excluded = [str(own["id"]), str(target["id"])]
+        if _member_has_schedule_conflict(connection, guild_id, request["target_id"], own_interval, excluded):
+            raise ValueError("Das neue Zeitfenster überschneidet sich mit einem anderen Dienst der Gegenseite.")
+        if _member_has_schedule_conflict(connection, guild_id, request["requester_id"], target_interval, excluded):
+            raise ValueError("Das neue Zeitfenster überschneidet sich mit einem deiner anderen Dienste.")
+
+        first = connection.execute(
+            """UPDATE suite_schedule SET assignee_id=?,assignee_name=?
+               WHERE id=? AND guild_id=? AND assignee_id=?""",
+            (str(request["target_id"]), str(target["assignee_name"]), str(own["id"]),
+             str(guild_id), str(request["requester_id"])),
+        )
+        second = connection.execute(
+            """UPDATE suite_schedule SET assignee_id=?,assignee_name=?
+               WHERE id=? AND guild_id=? AND assignee_id=?""",
+            (str(request["requester_id"]), str(own["assignee_name"]), str(target["id"]),
+             str(guild_id), str(request["target_id"])),
+        )
+        if first.rowcount != 1 or second.rowcount != 1:
+            raise ValueError("Die Schichtzuweisung wurde parallel geändert; bitte erneut prüfen.")
+        connection.execute(
+            """UPDATE suite_schedule_swap_requests
+               SET status='approved',updated_at=?,decided_by_id=?,decided_by_name=?,decision_note=?
+               WHERE id=? AND status='pending_manager'""",
+            (iso(), str(actor_id), str(actor_name or "Leitung")[:100],
+             str(note or "Schichttausch genehmigt")[:500], str(request_id)),
+        )
+        connection.execute(
+            """UPDATE suite_schedule_swap_requests
+               SET status='cancelled',updated_at=?,decision_note='Schicht wurde durch einen anderen Tausch geändert.'
+               WHERE guild_id=? AND id!=? AND status IN ('pending_peer','pending_manager')
+                 AND (request_shift_id IN (?,?) OR target_shift_id IN (?,?))""",
+            (iso(), str(guild_id), str(request_id), *excluded, *excluded),
+        )
+        return {"status": "approved", "request": dict(request)}
+
+
+def cancel_schedule_swap_request(request_id, guild_id, requester_id):
+    with cx() as connection:
+        result = connection.execute(
+            """UPDATE suite_schedule_swap_requests SET status='cancelled',updated_at=?,
+               decision_note='Vom Antragsteller zurückgezogen.'
+               WHERE id=? AND guild_id=? AND requester_id=? AND status IN ('pending_peer','pending_manager')""",
+            (iso(), str(request_id), str(guild_id), str(requester_id)),
+        )
+        return result.rowcount == 1
+
+
 def local(v):
     if not v:return None
     try:
