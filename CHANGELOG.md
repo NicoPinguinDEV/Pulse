@@ -1,5 +1,24 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Gespeicherte Filter für Listen (November 2026)
+
+- **Meine Ansichten (#61):** Auf Tickets, Bewerbungen, Teamakten, Bürger-Moderation und Automationen lässt sich der aktuelle Filter unter einem Namen speichern, mit einem Klick wieder anwenden, ersetzen und löschen. Ansichten sind persönlich (höchstens 12 je Seite) und ändern keine Rechte.
+- Teamakten (`/ultimate/team`) lassen sich jetzt nach Name und Status filtern.
+- Neue Tabelle `dashboard_saved_views` (im JSON-Backup und im Personenexport enthalten).
+
+## Lokale Zusammenfassungen für Tickets und Bewerbungen (November 2026)
+
+- **Ticket-Übergabe (#36/#134):** `/ticket zusammenfassung` und die neue Dashboard-Seite „Übergabe-Zusammenfassung“ am Ticket nutzen dieselbe lokale Logik: bisheriger Sachstand, offene Fragen, bereits durchgeführte Schritte, beteiligte Personen und nächster sinnvoller Schritt – jeweils mit Quelle. Offene Tickets werden aus dem Kanal gelesen, geschlossene aus dem Transkript. Keine externe KI.
+- **Bewerbungen (#135):** Recruiting-Berechtigte sehen je Bewerbung eine strukturierte Übersicht (Umfang, Kernsätze als Zitat, Praxisaufgaben, vorhandenes Testergebnis, Hinweise zur Vollständigkeit). Sie bewertet nicht und empfiehlt nichts.
+- **Fehlerbehebung:** In mehreren `/ticket`-Antworten (Verknüpfungen, ähnliche Tickets, Zusammenfassung) erschienen Zeilenumbrüche als Text `\n`.
+
+## Workflow-System: Versionen, Wiederholungen, mehrstufige Freigaben (November 2026)
+
+- **Versionierung (#149):** Jede geänderte Automation wird als unveränderliche Version gespeichert (Datenbank-Trigger verhindern Ändern und Löschen). Unter „Versionen“ gibt es Verlauf, Feldvergleich und Wiederherstellen. Wiederherstellen legt eine neue Version an, prüft die alte Definition mit den heutigen Regeln und Rechten und pausiert die Automation.
+- **Wiederholungen (#148):** Pro Automation einstellbar (0–5 Versuche, Wartezeit verdoppelt sich je Versuch, höchstens 6 Stunden). Wiederholt werden nur fehlgeschlagene Aktionen, nie erfolgreiche. Nicht behebbare Fehler, ein unterbrochener Versuch und der Notfall-Lockdown landen in der Dead-Letter-Liste und laufen erst nach manueller Bestätigung erneut. Standard bleibt „aus“.
+- **Freigaben (#144/#145):** Bis zu drei Stufen in fester Reihenfolge (Führungskraft oder Administrator, 1–5 Freigaben je Stufe, Frist). Jede Person entscheidet höchstens einmal, niemand gibt den eigenen Lauf frei. Ablehnung (mit Begründung), Fristablauf, geänderte, pausierte oder gelöschte Automation beenden den Antrag. Sicherheits-Automationen geben nur Administratoren frei. Testläufe brauchen keine Freigabe.
+- Neue Tabellen `ultimate_automation_versions`, `ultimate_automation_retries`, `ultimate_automation_approvals` in `pulse.db` (im Komplett-Backup enthalten); Warteschlangen und Verlauf sind begrenzt. Verarbeitung im bestehenden 60-Sekunden-Lauf, kein neuer Hintergrundprozess.
+
 ## Öffentliche Website (November 2026)
 
 - Neue öffentliche Startseite unter `/` sowie `/regelwerk`, `/faq`, `/fraktionen`, `/news`, `/impressum`, `/datenschutz`, `/cookies` und `/sicherheit`. Die Login-Karte liegt jetzt unter `/team-login`, angemeldete Teammitglieder landen weiter auf ihrer Startseite.

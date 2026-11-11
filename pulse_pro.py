@@ -3004,8 +3004,33 @@ def register(app):
         evs=db.ticket_events(ticket_id,150)
         history=''.join(f'<div class="pulse-row"><div class="pulse-avatar">↯</div><div class="pulse-row-main"><div class="pulse-row-title">{e(x["event_type"])}</div><div class="pulse-row-meta">{e(x["actor_name"])} · {e(fmt_dt(x["created_at"]))}</div><div class="text-[11px] text-slate-500 mt-1">{e(x.get("details"))}</div></div></div>' for x in evs)
         transcript=f'<a href="/ticket/transcript/{quote(os.path.basename(t.get("transcript_path") or ""))}" class="pulse-btn ghost">Transcript öffnen</a>' if t.get('transcript_path') else '<span class="pulse-pill">Kein Transcript</span>'
-        body=f'<div class="pulse-topbar"><div><a href="/tickets" class="pulse-btn ghost">← Tickets</a></div>{pill("Geschlossen","good") if t.get("status")=="closed" else pill("Offen","warn")}</div><section class="pulse-card"><div class="pulse-card-b"><div class="flex flex-wrap items-start justify-between gap-4"><div><div class="pulse-kicker">Ticket</div><div class="text-2xl font-extrabold mt-1">{e(t["id"])}</div><div class="text-xs text-slate-500 mt-1">{e(t["user_name"])} · {e(t["category"])}</div></div><div class="flex gap-2">{transcript}</div></div><div class="grid md:grid-cols-4 gap-3 mt-5"><div class="pulse-stat"><div class="label">Priorität</div><div class="value text-base">{e(t.get("priority"))}</div></div><div class="pulse-stat"><div class="label">Bearbeiter</div><div class="value text-base">{e(t.get("claimed_by_name") or "Niemand")}</div></div><div class="pulse-stat"><div class="label">Bewertung</div><div class="value text-base">{e(str(t.get("rating") or "—"))} ⭐</div></div><div class="pulse-stat"><div class="label">Schließgrund</div><div class="value text-base">{e(t.get("close_reason") or "—")}</div></div></div></div></section>{card("Ticket-Verlauf",history or '<div class="pulse-empty">Noch keine Events.</div>','↯')}'
+        body=f'<div class="pulse-topbar"><div><a href="/tickets" class="pulse-btn ghost">← Tickets</a></div>{pill("Geschlossen","good") if t.get("status")=="closed" else pill("Offen","warn")}</div><section class="pulse-card"><div class="pulse-card-b"><div class="flex flex-wrap items-start justify-between gap-4"><div><div class="pulse-kicker">Ticket</div><div class="text-2xl font-extrabold mt-1">{e(t["id"])}</div><div class="text-xs text-slate-500 mt-1">{e(t["user_name"])} · {e(t["category"])}</div></div><div class="flex gap-2"><a href="/ticket/{quote(str(t["id"]))}/summary" class="pulse-btn ghost">🧾 Übergabe-Zusammenfassung</a>{transcript}</div></div><div class="grid md:grid-cols-4 gap-3 mt-5"><div class="pulse-stat"><div class="label">Priorität</div><div class="value text-base">{e(t.get("priority"))}</div></div><div class="pulse-stat"><div class="label">Bearbeiter</div><div class="value text-base">{e(t.get("claimed_by_name") or "Niemand")}</div></div><div class="pulse-stat"><div class="label">Bewertung</div><div class="value text-base">{e(str(t.get("rating") or "—"))} ⭐</div></div><div class="pulse-stat"><div class="label">Schließgrund</div><div class="value text-base">{e(t.get("close_reason") or "—")}</div></div></div></div></section>{card("Ticket-Verlauf",history or '<div class="pulse-empty">Noch keine Events.</div>','↯')}'
         return render_pro_page(ws,f'Ticket · {ticket_id}',c,'tickets',body)
+
+    async def ticket_summary_v5(request: Request, ticket_id: str, user_session: str=Cookie(None)):
+        # #134: the same local summary as /ticket zusammenfassung – live channel for open tickets, transcript for closed ones.
+        import pulse_summaries
+        import pulse_ticket_extras
+        c=cctx(request,user_session,perm='can_manage_tickets'); t=db.get_ticket(ticket_id=ticket_id)
+        if not t: raise HTTPException(404,'Ticket nicht gefunden.')
+        messages, source, problem = [], 'Discord-Verlauf', ''
+        bot=getattr(request.app.state,'bot',None); guild=bot.get_guild(ws.GUILD_ID) if bot else None
+        channel=guild.get_channel(int(t['channel_id'])) if guild and str(t.get('channel_id') or '').isdigit() else None
+        if t.get('status')!='closed' and channel is not None:
+            try:
+                messages=await pulse_summaries.channel_messages(channel)
+            except Exception as exc:
+                problem=f'Der Kanalverlauf konnte nicht gelesen werden ({type(exc).__name__}).'
+        elif t.get('transcript_path'):
+            source='Archiviertes Transkript'
+            messages=pulse_summaries.parse_transcript(pulse_ticket_extras._read_candidate_transcript(os.path.basename(str(t.get('transcript_path')))))
+            if not messages: problem='Das Transkript ist nicht lesbar, zu groß oder leer.'
+        else:
+            problem='Für dieses Ticket ist weder ein erreichbarer Kanal noch ein Transkript vorhanden.'
+        summary=pulse_summaries.summarize_ticket(messages,ticket=t,events=db.ticket_events(ticket_id,50),source=source)
+        inner=(f'<div class="pulse-empty">{e(problem)}</div>' if problem else '')+pulse_summaries.ticket_summary_html(summary)
+        body=f'<div class="pulse-topbar"><div><a href="/ticket/{quote(str(t["id"]))}" class="pulse-btn ghost">← Ticket {e(t["id"])}</a></div>{pill("Geschlossen","good") if t.get("status")=="closed" else pill("Offen","warn")}</div>{card("Übergabe-Zusammenfassung",inner,"🧾")}'
+        return render_pro_page(ws,f'Ticket · {ticket_id} · Zusammenfassung',c,'tickets',body)
 
     async def meetings_history_v5(request: Request, user_session: str=Cookie(None)):
         c=cctx(request,user_session); items=db.meeting_history(150)
@@ -3670,6 +3695,7 @@ def register(app):
     app.get('/warns',response_class=HTMLResponse)(warns_v5)
     app.get('/warns.csv')(warns_csv)  # U-05
     app.get('/ticket/{ticket_id}',response_class=HTMLResponse)(ticket_detail_v5)
+    app.get('/ticket/{ticket_id}/summary',response_class=HTMLResponse)(ticket_summary_v5)
     app.get('/export/team.csv')(team_export)
     app.get('/api/pulse/live')(api_live)
     remove_and_add(app,'/achievements',{'GET'},achievements_v5,response_class=HTMLResponse)

@@ -36,7 +36,7 @@ MAX_BACKUP_AGE = timedelta(days=2)
 EXPORT_ROW_LIMIT = 5000
 _ID_COLUMNS = ("user_id", "member_id", "actor_id", "author_id", "target_id", "mod_id", "creator_id", "assignee_id",
                "claimed_by_id", "closed_by_id", "staff_id", "reporter_id", "discord_id",
-               "applicant_id", "interviewer_id", "created_by_id", "approved_by_id")
+               "applicant_id", "interviewer_id", "created_by_id", "approved_by_id", "requested_by_id")
 
 
 def load_settings() -> dict:
@@ -382,6 +382,21 @@ def _rows_for(
     return out, sorted(truncated)
 
 
+def _approval_ids_for_decider(path, uid: str) -> set[str]:
+    """Workflow approval requests this person decided (the decisions live in a JSON column, not an id column)."""
+    con = _read_only_connection(path)
+    try:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ultimate_automation_approvals'").fetchone():
+            return set()
+        if not str(uid).isdigit():
+            return set()
+        needle = f'"user_id": "{uid}"'  # exactly how json.dumps stores one decision
+        rows = con.execute("SELECT id FROM ultimate_automation_approvals WHERE instr(decisions_json, ?) > 0", (needle,)).fetchall()
+        return {str(row["id"]) for row in rows if row["id"]}
+    finally:
+        con.close()
+
+
 def _ticket_ids_for_subject(path, uid: str) -> set[str]:
     """Resolve ticket IDs by the ticket opener so linked staff-only notes enter that person's export."""
     con = _read_only_connection(path)
@@ -502,6 +517,7 @@ def export_person(ws, discord_id: str) -> dict:
                         "ticket_id_a": ticket_ids,
                         "ticket_id_b": ticket_ids,
                     },
+                    "ultimate_automation_approvals": {"id": _approval_ids_for_decider(path, uid)},
                 }
             rows, truncated = _rows_for(path, uid, extra_values_by_table=extras)
         except (sqlite3.Error, OSError) as exc:

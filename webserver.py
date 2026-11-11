@@ -35,6 +35,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import pulse_public_site
+import pulse_summaries
 import discord
 from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
@@ -6716,6 +6717,7 @@ async def mod_cases_page(request: Request, user_session: str = Cookie(None)):
     body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">⚖ Bürger-Moderation</div>'
             f'<div class="pulse-section-sub">Fallakte aller /mod-Aktionen. Neue Fälle entstehen nur in Discord über /mod warn|timeout|kick|ban.</div></div>'
             f'<a class="pulse-btn ghost" href="/mod-cases.csv{("?q=" + quote(q)) if q else ""}">⬇ CSV</a></div>'
+            + __import__("pulse_views").bar("/mod-cases", ctx.user["id"], request.query_params.multi_items()) +
             f'<section class="pulse-card"><div class="pulse-card-b"><form method="get" class="pulse-search mb-4" role="search" style="max-width:none">'
             f'<span>⌕</span><input name="q" value="{esc(q)}" aria-label="Fälle durchsuchen" placeholder="Fall-ID, Name, Grund, Moderator…"><button class="pulse-btn primary">Suchen</button></form>'
             f'<div class="space-y-2">{items}</div>{pulse_lists.pager("/mod-cases", meta, {"q": q})}</div></section>')
@@ -8625,6 +8627,8 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     f'<details class="mt-3"><summary class="cursor-pointer text-xs font-semibold text-indigo-600 dark:text-indigo-300">'
                     f'Online-Testantworten anzeigen</summary><div class="grid gap-2 mt-3">{"".join(detail_parts)}</div></details>'
                 )
+        # #135: structured overview for reviewers only – facts and quotes, never a rating or recommendation.
+        application_summary_html = pulse_summaries.application_summary_html(item) if can_review else ""
         practical_answers = item.get("practical_answers", []) if can_review else []
         practical_review_html = ""
         if practical_answers:
@@ -8747,6 +8751,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
             </div>
             {duplicate_notice}
             {f'<p class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800/80 whitespace-pre-wrap break-words">{esc(item.get("text"))}</p>' if can_review else '<p class="text-xs text-slate-500">Motivation, Testantworten und interne Bewertungen sind nur für Recruiting-Berechtigte sichtbar.</p>'}
+            {application_summary_html}
             {review_summary_html}
             {test_review_html}
             {practical_review_html}
@@ -8768,6 +8773,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
         <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{'Bewerbungs-Verlauf' if show_history else 'Offene Bewerbungen'}</h1>
         <div class="flex flex-wrap gap-2">{module_settings_link}{tab('Offen', '/applications', not show_history)}{tab('Verlauf', '/applications?view=history', show_history)}</div>
     </div>
+    <div class="max-w-3xl">{__import__("pulse_views").bar("/applications", ctx.user["id"], request.query_params.multi_items())}</div>
     <div class="space-y-4 max-w-3xl">{apps_html or f"<p class='text-xs text-slate-400 italic {CARD} p-6'>{empty}</p>"}</div>"""
     return render_page("Bewerbungen", ctx, "apps", body)
 
@@ -12444,6 +12450,12 @@ try:
     register_pulse_home(app)
 except Exception as _home_error:
     print(f"❌ Mein Pulse konnte nicht registriert werden: {_home_error}")
+
+try:
+    import pulse_views
+    pulse_views.register(app)
+except Exception as _views_error:
+    print(f"❌ Gespeicherte Ansichten konnten nicht registriert werden: {_views_error}")
 
 try:
     from pulse_cockpit import register as register_pulse_cockpit

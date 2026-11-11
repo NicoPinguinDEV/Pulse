@@ -40,7 +40,7 @@ ALLOWED = {
 # permission check sits after the lookup or they are personal actions. They still must never *succeed* here.
 INPUT_CHECKED = {
     "/action", "/shift/action", "/log/create", "/calendar/create", "/tasks/update",
-    "/me/start-page", "/me/sessions/revoke", "/me/sessions/revoke-others",
+    "/me/start-page", "/me/sessions/revoke", "/me/sessions/revoke-others", "/me/views/save", "/me/views/{view_id}/delete",
     "/training/{training_id}/submit", "/training/{training_id}/feedback", "/training/paths/save", "/ultimate/polls/{poll_id}/vote", "/ultimate/handovers/{handover_id}/close",
     "/ultimate/team/status", "/ultimate/calendar/{event_id}/rsvp", "/wiki/{page_id}/restore/{version_number}", "/recovery/authorize/start", "/suite/task/{task_id}/meta", "/suite/tasks/{task_id}/move",
 }
