@@ -116,6 +116,24 @@ class ScheduleSwapTests(unittest.TestCase):
         self.assertEqual(end - start, timedelta(hours=8))
         self.assertEqual(end.date(), start.date() + timedelta(days=1))
 
+    def test_nonexistent_spring_dst_time_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "nicht existiert"):
+            suite._schedule_interval({
+                "date": "2027-03-28", "start_time": "02:30", "end_time": "04:00",
+            })
+
+    def test_ambiguous_autumn_dst_time_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "doppelte Uhrzeit"):
+            suite._schedule_interval({
+                "date": "2027-10-31", "start_time": "02:30", "end_time": "03:30",
+            })
+
+    def test_valid_spring_forward_interval_uses_elapsed_utc_duration(self):
+        start, end = suite._schedule_interval({
+            "date": "2027-03-28", "start_time": "01:30", "end_time": "03:30",
+        })
+        self.assertEqual(end - start, timedelta(hours=1))
+
 
 if __name__ == "__main__":
     unittest.main()
