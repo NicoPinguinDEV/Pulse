@@ -45,8 +45,9 @@ class TrainingLearningPathTests(unittest.TestCase):
         )
         self.role = SimpleNamespace(id=int(ROLE_ID), name="Supporter", position=5)
         self.other_role = SimpleNamespace(id=int(OTHER_ROLE_ID), name="Moderation", position=4)
-        self.member = SimpleNamespace(id=123, roles=[self.role])
+        self.member = SimpleNamespace(id=123, roles=[self.role], display_name="Teammitglied", bot=False)
         self.guild = FakeGuild([self.role, self.other_role], self.member)
+        self.guild.members = [self.member]
         self.manager = SimpleNamespace(
             user={"id": "900", "global_name": "Leitung", "username": "leitung"},
             perms={"can_view_dashboard": True, "can_manage_training": True},
@@ -120,6 +121,19 @@ class TrainingLearningPathTests(unittest.TestCase):
             pulse_db.training_path_progress(path_id, "456"),
             {"completed": 1, "total": 2, "percent": 50},
         )
+
+    def test_training_evidence_prefers_passed_result_and_returns_score_and_date(self):
+        pulse_db.save_attempt(self.training_one, "123", "Teammitglied", 82, True)
+        pulse_db.save_attempt(self.training_one, "123", "Teammitglied", 100, False)
+        pulse_db.save_attempt(self.training_two, "123", "Teammitglied", 95, True)
+        evidence = pulse_db.training_evidence_for_user("123", [self.training_one, self.training_two, "unknown"])
+        self.assertEqual(set(evidence), {self.training_one, self.training_two})
+        self.assertEqual(evidence[self.training_one]["score"], 82)
+        self.assertTrue(evidence[self.training_one]["passed"])
+        self.assertTrue(evidence[self.training_one]["created_at"])
+        self.assertEqual(evidence[self.training_two]["score"], 95)
+        self.assertTrue(evidence[self.training_two]["passed"])
+        self.assertEqual(pulse_db.training_evidence_for_user("456", [self.training_one]), {})
 
     def test_passed_training_id_lookup_is_complete_and_can_be_scoped(self):
         pulse_db.save_attempt(self.training_one, "123", "Teammitglied", 100, True)
@@ -214,6 +228,36 @@ class TrainingLearningPathTests(unittest.TestCase):
         self.assertIn("○ Offen", response.text)
         self.assertNotIn("/training/paths/save", response.text)
 
+    def test_competency_matrix_shows_role_scoped_passed_and_open_courses(self):
+        pulse_db.save_training_path(
+            ROLE_ID, "Supporter", "Support-Ausbildung", "", "900", "Leitung",
+            [self.training_one, self.training_two],
+        )
+        pulse_db.save_attempt(self.training_one, "123", "Teammitglied", 100, True)
+        with (
+            patch.object(ws, "auth", return_value=self.manager),
+            patch.object(ws, "render_page", side_effect=lambda _title, _ctx, _nav, body: body),
+        ):
+            response = self.client.get("/training/matrix")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Kompetenzmatrix", response.text)
+        self.assertIn("Teammitglied", response.text)
+        self.assertIn("Supporter", response.text)
+        self.assertIn("Support Grundlagen", response.text)
+        self.assertIn("Ticketbearbeitung", response.text)
+        self.assertIn("Fortgeschritten", response.text)
+        self.assertIn("Prüfung 100%", response.text)
+        self.assertIn("Noch kein Prüfungsnachweis", response.text)
+        self.assertIn("50%", response.text)
+
+    def test_competency_matrix_is_manager_only(self):
+        with (
+            patch.object(ws, "auth", return_value=self.member_ctx),
+            patch.object(ws, "render_page", side_effect=lambda _title, _ctx, _nav, body: body),
+        ):
+            response = self.client.get("/training/matrix")
+        self.assertEqual(response.status_code, 403)
+
     def test_manager_can_see_and_edit_only_configured_role_paths(self):
         pulse_db.save_training_path(
             ROLE_ID, "Supporter", "Support-Ausbildung", "", "900", "Leitung",
@@ -226,6 +270,7 @@ class TrainingLearningPathTests(unittest.TestCase):
             response = self.client.get("/training")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Rollen-Lernpfade verwalten", response.text)
+        self.assertIn("/training/matrix", response.text)
         self.assertIn("Supporter · Bestehenden Lernpfad bearbeiten", response.text)
         self.assertIn('action="/training/paths/save"', response.text)
         self.assertIn('name="training_ids"', response.text)

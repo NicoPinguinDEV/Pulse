@@ -143,6 +143,7 @@
  "GET /tickets/transcript/{ticket_id}/view -> webserver.pulse_ticket_transcript_view",
  "GET /training -> pulse_features.register.<locals>.training_page",
  "GET /training/{training_id} -> pulse_features.register.<locals>.training_detail",
+ "GET /training/matrix -> pulse_features.register.<locals>.training_competency_matrix",
  "GET /ultimate -> pulse_ultimate.register.<locals>.ultimate_home",
  "GET /ultimate -> webserver.ultimate_dashboard",
  "GET /ultimate/achievements -> pulse_next.register.<locals>.achievements",

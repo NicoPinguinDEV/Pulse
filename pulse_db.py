@@ -1371,6 +1371,28 @@ def passed_training_ids_for_user(user_id, training_ids=None):
     return {str(row["training_id"]) for row in rows}
 
 
+def training_evidence_for_user(user_id, training_ids):
+    """Return the strongest recorded attempt per requested course, preferring a passed attempt."""
+    selected = list(dict.fromkeys(str(value) for value in (training_ids or ()) if str(value)))
+    if not selected:
+        return {}
+    placeholders = ",".join("?" for _ in selected)
+    with connect() as db:
+        rows = db.execute(
+            f"""SELECT training_id,score,passed,created_at FROM (
+                    SELECT training_id,score,passed,created_at,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY training_id
+                               ORDER BY passed DESC,score DESC,created_at DESC,id DESC
+                           ) AS rank
+                    FROM training_attempts
+                    WHERE user_id=? AND training_id IN ({placeholders})
+                ) WHERE rank=1""",
+            [str(user_id), *selected],
+        ).fetchall()
+    return {str(row["training_id"]): dict(row) for row in rows}
+
+
 def training_path_progress(path_id, user_id):
     """Count distinct path trainings passed by this user; a training only counts once."""
     with connect() as db:
