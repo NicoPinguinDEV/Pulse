@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 import pulse_db
 import pulse_ticket_extras as tx
+from cogs.ticket_tools import TicketTools
 import webserver as ws
 from tests.test_pulse_admin_area import ADMIN, TEAMLER, fake_auth_for
 
@@ -156,6 +157,49 @@ class ExtrasTests(TempDb):
         self.assertGreater(matches[0]["score"], 0.1)
         self.assertGreaterEqual(matches[0]["shared_term_count"], 5)
         self.assertEqual(too_short, [])
+
+    def test_link_autocomplete_suggests_only_matching_tickets_from_same_guild(self):
+        match_id = pulse_db.create_ticket("link-match", "1", "10", "Nico Bürger", "support")
+        other_id = pulse_db.create_ticket("link-other", "1", "11", "Andere Person", "bug")
+        foreign_id = pulse_db.create_ticket("link-foreign", "2", "12", "Nico Fremd", "support")
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(id=1),
+            channel=SimpleNamespace(id=555),
+            user=SimpleNamespace(id=44),
+        )
+        cog = TicketTools.__new__(TicketTools)
+        with patch("cogs.ticket_tools.may_manage", return_value=True):
+            choices = asyncio.run(
+                TicketTools.verknuepfen_autocomplete(cog, interaction, "nico")
+            )
+        values = [choice.value for choice in choices]
+        self.assertEqual(values, [match_id])
+        self.assertNotIn(self.tid, values)
+        self.assertNotIn(other_id, values)
+        self.assertNotIn(foreign_id, values)
+
+    def test_unlink_autocomplete_only_suggests_existing_links_and_checks_permissions(self):
+        linked_id = pulse_db.create_ticket("link-existing", "1", "20", "Verknüpfter Bürger", "bug")
+        unlinked_id = pulse_db.create_ticket("link-not-existing", "1", "21", "Andere Person", "support")
+        self.assertTrue(tx.link_tickets(self.tid, linked_id, 44, "Moderator"))
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(id=1),
+            channel=SimpleNamespace(id=555),
+            user=SimpleNamespace(id=44),
+        )
+        cog = TicketTools.__new__(TicketTools)
+        with patch("cogs.ticket_tools.may_manage", return_value=True):
+            choices = asyncio.run(
+                TicketTools.trennen_autocomplete(cog, interaction, "")
+            )
+        self.assertEqual([choice.value for choice in choices], [linked_id])
+        self.assertNotIn(unlinked_id, [choice.value for choice in choices])
+
+        with patch("cogs.ticket_tools.may_manage", return_value=False):
+            denied = asyncio.run(
+                TicketTools.trennen_autocomplete(cog, interaction, "")
+            )
+        self.assertEqual(denied, [])
 
     def test_ticket_links_are_bidirectional_persistent_and_removable(self):
         second_id = pulse_db.create_ticket("556", "1", "10", "Andere Person", "bug")
