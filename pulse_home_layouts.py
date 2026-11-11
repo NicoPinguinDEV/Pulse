@@ -9,14 +9,13 @@ from __future__ import annotations
 import re
 
 import pulse_db as db
-from pulse_home import HOME_WIDGETS
 
 LAYOUTS_KEY = "home_custom_layouts"
 ACTIVE_KEY = "home_active_layout"
 MAX_LAYOUTS = 8
 MAX_NAME = 40
 MAX_WIDGETS = len(HOME_WIDGETS)
-_WIDGET_KEYS = tuple(key for key, _label in HOME_WIDGETS)
+_WIDGET_KEYS = ("week", "tickets", "tasks", "waiting", "status", "meeting", "inbox", "shift_notes")
 _WIDGET_SET = frozenset(_WIDGET_KEYS)
 _LAYOUT_ID = re.compile(r"[a-f0-9]{12}")
 
