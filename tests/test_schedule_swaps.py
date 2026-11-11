@@ -102,7 +102,7 @@ class ScheduleSwapTests(unittest.TestCase):
     def test_stale_assignment_and_duplicate_pending_requests_are_rejected(self):
         request_id = self.make_request()
         with self.assertRaises(ValueError):
-            self.make_request()
+            suite.create_schedule_swap_request(GUILD, "own", "target", REQUESTER, "Alice")
         suite.respond_schedule_swap_request(request_id, GUILD, TARGET, True)
         with suite.cx() as connection:
             connection.execute("UPDATE suite_schedule SET assignee_id=?,assignee_name=? WHERE id='target'", ("100000000000000004", "Cara"))
