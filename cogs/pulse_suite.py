@@ -1396,6 +1396,59 @@ def legacy_suite_ticket_action(message,custom_id):
                 return SUITE_TICKET_LABEL_ACTIONS[child.label],title[len(SUITE_TICKET_TITLE):].strip()
     return None
 
+def _suite_category_choices(interaction, current: str, permission_key: str | None = None):
+    """Return active, configured ticket categories without changing accepted free-text values."""
+    if interaction.guild is None:
+        return []
+    if permission_key:
+        web = __import__("webserver")
+        if not allowed(interaction, permission_key, web):
+            return []
+    try:
+        from cogs.tickets import ticket_category_definitions
+        definitions = ticket_category_definitions()
+    except (sqlite3.Error, OSError):
+        return []
+    needle = str(current or "").strip().casefold()
+    choices = []
+    for key, definition in sorted(
+        definitions.items(),
+        key=lambda item: (
+            str(item[1].get("name") or item[0]).casefold(),
+            str(item[0]),
+        ),
+    ):
+        if not isinstance(definition, dict) or not definition.get("active", True):
+            continue
+        category_key = str(key or "").strip()
+        if not category_key:
+            continue
+        display_name = " ".join(str(definition.get("name") or category_key).split())
+        description = " ".join(str(definition.get("description") or "").split())
+        if needle and needle not in " ".join((category_key, display_name, description)).casefold():
+            continue
+        label = display_name if display_name.casefold() == category_key.casefold() else f"{display_name} · {category_key}"
+        choices.append(app_commands.Choice(name=label[:100], value=category_key[:100]))
+        if len(choices) >= 25:
+            break
+    return choices
+
+
+def _suite_priority_choices(current: str):
+    options = (
+        ("Niedrig", "low"),
+        ("Normal", "normal"),
+        ("Hoch", "high"),
+        ("Dringend", "urgent"),
+    )
+    needle = str(current or "").strip().casefold()
+    return [
+        app_commands.Choice(name=label, value=value)
+        for label, value in options
+        if not needle or needle in label.casefold() or needle in value
+    ]
+
+
 class PulseSuite(commands.Cog):
     def __init__(self,bot):self.bot=bot;init_db();seed();register_routes();self.auto.start()
 
@@ -2032,6 +2085,17 @@ class PulseSuite(commands.Cog):
         if ms:db.notify(ms[0].id,"🎫 Ticket zugewiesen",f"{tid} · {kategorie}","warning","/tickets",f"auto:{tid}",21600)
         e=discord.Embed(title=f"🎫 Fall {tid}",description=beschreibung[:3500],color=_pulse_color("info"));e.add_field(name="Kategorie",value=kategorie[:80]);e.add_field(name="Priorität",value=prioritaet);await i.response.send_message(embed=e,view=TicketView(tid));audit(i.guild.id,i.user.id,i.user.display_name,tid,"","ticket_created",kategorie)
 
+    @pulse_ticket.autocomplete("kategorie")
+    async def pulse_ticket_category_autocomplete(self, i, current: str):
+        return _suite_category_choices(i, current, permission_key="pulse-ticket")
+
+    @pulse_ticket.autocomplete("prioritaet")
+    async def pulse_ticket_priority_autocomplete(self, i, current: str):
+        web = __import__("webserver")
+        if not allowed(i, "pulse-ticket", web):
+            return []
+        return _suite_priority_choices(current)
+
     @app_commands.command(name="melden",description="Erstellt einen internen Modmail-/Meldungsfall.")
     async def melden(self,i,kategorie:str,beschreibung:str,prioritaet:str="normal"):
         aid="CASE-"+uuid.uuid4().hex[:4].upper()
@@ -2039,6 +2103,16 @@ class PulseSuite(commands.Cog):
         web=__import__("webserver")
         for m in managers(i.guild,web):db.notify(m.id,"🚨 Neuer Meldefall",f"{aid} · {kategorie}","warning","/suite/cases",f"case:{aid}",86400)
         audit(i.guild.id,i.user.id,i.user.display_name,aid,aid,"case_created",f"{kategorie} · {prioritaet}");await i.response.send_message("✅ Meldung wurde intern an die Führung übergeben.",ephemeral=True)
+
+    @melden.autocomplete("kategorie")
+    async def melden_category_autocomplete(self, i, current: str):
+        return _suite_category_choices(i, current)
+
+    @melden.autocomplete("prioritaet")
+    async def melden_priority_autocomplete(self, i, current: str):
+        if i.guild is None:
+            return []
+        return _suite_priority_choices(current)
 
     @app_commands.command(name="pulse-home",description="Öffnet das Pulse TeamOS Command Center.")
     async def pulse_home(self,i):

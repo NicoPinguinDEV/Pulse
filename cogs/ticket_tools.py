@@ -4,6 +4,8 @@ Rights are checked on every use (can_manage_tickets or admin); the data logic is
 """
 from __future__ import annotations
 
+import sqlite3
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -162,6 +164,40 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
+    @verknuepfen.autocomplete("ticket_id")
+    async def verknuepfen_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Suggest tickets from this guild only; never offer the currently open ticket itself."""
+        ticket = current_ticket(interaction)
+        if ticket is None or interaction.guild is None or not may_manage(interaction):
+            return []
+        needle = str(current or "").strip().casefold()
+        try:
+            candidates = pulse_db.list_tickets(limit=2000)
+        except (sqlite3.Error, OSError):
+            return []
+        choices = []
+        for candidate in candidates:
+            ticket_id = str(candidate.get("id") or "")
+            if not ticket_id or ticket_id == str(ticket.get("id")):
+                continue
+            if str(candidate.get("guild_id") or "") != str(interaction.guild.id):
+                continue
+            parts = [
+                ticket_id,
+                str(candidate.get("category") or ""),
+                str(candidate.get("status") or ""),
+                str(candidate.get("user_name") or ""),
+            ]
+            if needle and needle not in " ".join(parts).casefold():
+                continue
+            label = " · ".join(part for part in parts if part)[:100]
+            choices.append(app_commands.Choice(name=label, value=ticket_id[:100]))
+            if len(choices) >= 25:
+                break
+        return choices
+
     @app_commands.command(name="verknuepfungen", description="Verknüpfte Tickets dieses Vorgangs anzeigen.")
     @app_commands.describe(seite="Seite mit jeweils zehn verknüpften Tickets")
     async def verknuepfungen(
@@ -223,6 +259,37 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
+
+    @trennen.autocomplete("ticket_id")
+    async def trennen_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Suggest only tickets already linked to this ticket."""
+        ticket = current_ticket(interaction)
+        if ticket is None or interaction.guild is None or not may_manage(interaction):
+            return []
+        needle = str(current or "").strip().casefold()
+        try:
+            linked = tx.linked_tickets(ticket["id"], limit=11)
+        except Exception:
+            return []
+        choices = []
+        for candidate in linked:
+            ticket_id = str(candidate.get("related_ticket_id") or "")
+            parts = [
+                ticket_id,
+                str(candidate.get("category") or ""),
+                str(candidate.get("status") or ""),
+                str(candidate.get("user_name") or ""),
+            ]
+            if needle and needle not in " ".join(parts).casefold():
+                continue
+            label = " · ".join(part for part in parts if part)[:100]
+            if ticket_id:
+                choices.append(app_commands.Choice(name=label, value=ticket_id[:100]))
+            if len(choices) >= 25:
+                break
+        return choices
 
     @app_commands.command(name="zusammenfassung", description="Eine lokale Übergabe-Zusammenfassung des Ticketverlaufs erstellen.")
     @app_commands.describe(speichern="Die Zusammenfassung zusätzlich als interne Ticketnotiz ablegen")
