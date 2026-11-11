@@ -31,7 +31,7 @@ SECTIONS = (
     ("⏱ Dienst & ich", ("dienst", "pulse", "profil", "pulse-home", "mytasks", "taskdone", "teamstatus", "anmeldung",
                         "abmeldung", "abmeldung_entfernen", "melden", "pulse-hilfe", "activity_status",
                         "ki_vergessen", "pulse-favoriten")),
-    ("🧭 Team", ("memberinfo", "pulse-ticket", "pulse-suite", "ticketstats", "activity-check", "team-ping")),
+    ("🧭 Team", ("memberinfo", "pulse-ticket", "pulse-suite", "ticketstats", "activity-check", "team-ping", "spieler-meldung", "meine-meldungen")),
     ("⚠ Moderation", ("warn", "warns", "warn-remove", "messagedelete")),
     ("🛡 Führung", ("teamtask", "teamannounce", "promote", "demote", "team-kick", "team-exit", "kick", "server-exit",
                    "pulse-approve")),
