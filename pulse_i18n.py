@@ -196,7 +196,6 @@ MESSAGES = {
     },
 }
 
-_SECTION_KEYS = {
 
 _DUTY_FIXED_MESSAGES = {
     "Du hast bereits eine laufende Schicht.": "duty_start_already_running",
@@ -241,13 +240,13 @@ def translate_duty_message(locale, message: str) -> str:
         return translate(locale, "duty_status_break", duration=duration, week=week[:-1])
     return text
 
-
+_SECTION_KEYS = {
     "⏱ Dienst & ich": "section_duty",
     "🧭 Team": "section_team",
     "⚠ Moderation": "section_moderation",
     "🛡 Führung": "section_leadership",
     "⚙ Einrichtung & Wartung": "section_setup",
-}
+
 
 
 def translate(locale, key: str, **values) -> str:
