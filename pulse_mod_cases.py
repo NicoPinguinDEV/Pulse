@@ -346,10 +346,9 @@ def dm_text(case: dict, server_name: str, appeal: str) -> str:
 
 
 def appeal_text(guild_id: int, case_id: str) -> str:
-    try:
-        import pulse_panels
-        panel = next((p for p in pulse_panels.collect(guild_id) if p["key"] == "tickets" and p["channel_id"]), None)
-    except Exception:
-        panel = None
-    where = f"Öffne ein Ticket in <#{panel['channel_id']}>" if panel else "Melde dich beim Serverteam"
-    return f"{where} und nenne die Fall-ID {case_id}."
+    """Instruction displayed with the persistent DM button; works after kick and ban."""
+    return (
+        f"Du kannst innerhalb von {APPEAL_WINDOW_DAYS} Tagen über den Button "
+        f"„Einspruch einreichen“ unter dieser Nachricht eine Prüfung beantragen. "
+        f"Nenne dabei keine weiteren vertraulichen Daten; die Fall-ID lautet {case_id}."
+    )
