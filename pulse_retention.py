@@ -511,6 +511,11 @@ def export_person(ws, discord_id: str) -> dict:
                         "requester_id": {uid},
                         "target_id": {uid},
                     },
+                    "discord_player_reports": {
+                        "reporter_id": {uid},
+                        "assignee_id": {uid},
+                        "reviewed_by_id": {uid},
+                    },
                 }
             elif name == "pulse.db":
                 ticket_ids = _ticket_ids_for_subject(path, uid)
