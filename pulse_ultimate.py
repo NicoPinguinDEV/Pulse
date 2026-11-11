@@ -68,7 +68,7 @@ TEAM_UPDATE_CHANNEL_ID = _pulse_ids.TEAM_UPDATE_CHANNEL_ID
 
 _PRIORITY = {"low": 0, "normal": 1, "high": 2, "urgent": 3}
 _CASE_STATUSES = ("open", "investigating", "waiting", "resolved", "closed")
-_FEEDBACK_STATUS = ("new", "reviewing", "planned", "done", "rejected")
+_FEEDBACK_STATUS = ("new", "reviewing", "voting", "planned", "done", "rejected")
 _POLL_TYPES = ("single", "multiple")
 
 _INIT = False
@@ -1757,6 +1757,7 @@ def register(app) -> None:
         discord_list_html = "".join(
             card(f"""<div class=row><div><b>{esc(x['title'])}</b><div class='tiny'>Discord · {esc(x['category'])} · {esc(x['author_name'] or 'Anonym')}</div></div><span class='pill'>{esc(x['status'])}</span>
             <p class='tiny'>{esc(x['content'][:500])}</p>
+            <p class='tiny'>Abstimmung: 👍 {x['votes_for']} · 👎 {x['votes_against']}</p>
             <form method='post' action='/ultimate/api/feedback/{x['id']}' class='form'>
               <select class='select' name='status'>{''.join(f"<option {'selected' if status==x['status'] else ''}>{status}</option>" for status in _FEEDBACK_STATUS)}</select>
               <input class='input' name='manager_note' value='{esc(x['manager_note'])}' placeholder='Interne Antwort / Notiz'>
