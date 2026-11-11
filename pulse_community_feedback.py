@@ -19,6 +19,7 @@ def _ensure_table(connection) -> None:
             id TEXT PRIMARY KEY,
             guild_id TEXT NOT NULL,
             category TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'suggestion',
             title TEXT NOT NULL,
             content TEXT NOT NULL,
             anonymous INTEGER NOT NULL DEFAULT 0,
@@ -37,6 +38,16 @@ def _ensure_table(connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_discord_community_feedback_guild "
         "ON discord_community_feedback(guild_id, status, created_at DESC)"
     )
+    columns = {
+        str(row[1]) for row in connection.execute(
+            "PRAGMA table_info(discord_community_feedback)"
+        ).fetchall()
+    }
+    if "kind" not in columns:
+        connection.execute(
+            "ALTER TABLE discord_community_feedback "
+            "ADD COLUMN kind TEXT NOT NULL DEFAULT 'suggestion'"
+        )
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS discord_community_feedback_votes (
@@ -60,7 +71,7 @@ def _ensure_table(connection) -> None:
 
 def submit_feedback(
     guild_id, author_id, author_name: str, category: str,
-    title: str, content: str, anonymous: bool = False,
+    title: str, content: str, anonymous: bool = False, kind: str = "suggestion",
 ) -> dict:
     """Create a suggestion scoped to exactly one Discord guild."""
     if guild_id is None or author_id is None:
@@ -68,6 +79,9 @@ def submit_feedback(
     guild = str(guild_id).strip()
     author = str(author_id).strip()
     category = str(category or "").strip().lower()
+    kind = str(kind or "suggestion").strip().lower()
+    if kind not in {"suggestion", "feedback"}:
+        raise ValueError("Ungültige Art der Community-Rückmeldung.")
     title = str(title or "").strip()
     content = str(content or "").strip()
     if not guild.isdigit() or not author.isdigit():
@@ -84,6 +98,7 @@ def submit_feedback(
         "id": pulse_db.make_id("dcf"),
         "guild_id": guild,
         "category": category,
+        "kind": kind,
         "title": title,
         "content": content,
         "anonymous": int(is_anonymous),
@@ -101,10 +116,10 @@ def submit_feedback(
         connection.execute(
             """
             INSERT INTO discord_community_feedback(
-                id, guild_id, category, title, content, anonymous, author_id, author_name,
+                id, guild_id, category, kind, title, content, anonymous, author_id, author_name,
                 status, manager_note, reviewed_by_id, reviewed_by_name, created_at, updated_at
             ) VALUES (
-                :id, :guild_id, :category, :title, :content, :anonymous, :author_id, :author_name,
+                :id, :guild_id, :category, :kind, :title, :content, :anonymous, :author_id, :author_name,
                 :status, :manager_note, :reviewed_by_id, :reviewed_by_name, :created_at, :updated_at
             )
             """,
@@ -210,7 +225,7 @@ def list_voting_feedback(guild_id, limit: int = 25) -> list[dict]:
         rows = connection.execute(
             """
             SELECT * FROM discord_community_feedback
-            WHERE guild_id=? AND status='voting'
+            WHERE guild_id=? AND status='voting' AND kind='suggestion'
             ORDER BY created_at DESC, id DESC
             LIMIT ?
             """,
