@@ -1449,6 +1449,85 @@ def _suite_priority_choices(current: str):
     ]
 
 
+class CommunitySuggestionModal(discord.ui.Modal, title="BOCHUM RP · Community-Vorschlag"):
+    """Collect a Discord suggestion and store it for the originating guild only."""
+
+    def __init__(self, category: str, anonymous: bool, kind: str = "suggestion"):
+        heading = "Community-Vorschlag" if kind == "suggestion" else "Community-Feedback"
+        super().__init__(title=f"BOCHUM RP · {heading}", timeout=300)
+        self.category = str(category or "general")
+        self.anonymous = bool(anonymous)
+        self.kind = kind
+        self.suggestion_title = discord.ui.TextInput(
+            label="Titel", placeholder="Worum geht es?", min_length=3, max_length=120
+        )
+        self.suggestion_content = discord.ui.TextInput(
+            label="Beschreibung",
+            placeholder="Was sollte verbessert oder ergänzt werden?",
+            style=discord.TextStyle.paragraph,
+            min_length=20,
+            max_length=3000,
+        )
+        self.add_item(self.suggestion_title)
+        self.add_item(self.suggestion_content)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "❌ Vorschläge können nur auf einem Discord-Server eingereicht werden.",
+                ephemeral=True,
+            )
+            return
+        try:
+            import pulse_community_feedback
+            row = pulse_community_feedback.submit_feedback(
+                interaction.guild.id,
+                interaction.user.id,
+                getattr(interaction.user, "display_name", None) or str(interaction.user.id),
+                self.category,
+                str(self.suggestion_title.value),
+                str(self.suggestion_content.value),
+                anonymous=self.anonymous,
+                kind=self.kind,
+            )
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        except Exception as exc:
+            print(f"Community suggestion could not be stored: {type(exc).__name__}")
+            await interaction.response.send_message(
+                "❌ Dein Vorschlag konnte gerade nicht gespeichert werden. Bitte versuche es später erneut.",
+                ephemeral=True,
+            )
+            return
+        try:
+            web = __import__("webserver")
+            for manager in managers(interaction.guild, web):
+                db.notify(
+                    manager.id,
+                    "💡 Neuer Community-Vorschlag",
+                    f"{row['category']} · {row['title']}",
+                    "info",
+                    "/ultimate/feedback",
+                    f"community-feedback:{row['id']}:{manager.id}",
+                    86400,
+                )
+        except Exception as exc:
+            print(f"Community suggestion notification failed: {type(exc).__name__}")
+        visibility = "anonym eingereicht" if self.anonymous else "eingereicht"
+        noun = "Vorschlag" if self.kind == "suggestion" else "Feedback"
+        embed = discord.Embed(
+            title=f"✅ {noun} gespeichert",
+            description=(
+                f"Dein {noun.lower()} **{discord.utils.escape_markdown(row['title'])}** wurde {visibility}.\n"
+                "Die Führung kann es im Pulse-Dashboard unter Feedback prüfen."
+            ),
+            color=_pulse_color("success"),
+        )
+        embed.set_footer(text=f"Vorschlags-ID: {row['id']}")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 class PulseSuite(commands.Cog):
     def __init__(self,bot):self.bot=bot;init_db();seed();register_routes();self.auto.start()
 
@@ -2103,6 +2182,177 @@ class PulseSuite(commands.Cog):
         web=__import__("webserver")
         for m in managers(i.guild,web):db.notify(m.id,"🚨 Neuer Meldefall",f"{aid} · {kategorie}","warning","/suite/cases",f"case:{aid}",86400)
         audit(i.guild.id,i.user.id,i.user.display_name,aid,aid,"case_created",f"{kategorie} · {prioritaet}");await i.response.send_message("✅ Meldung wurde intern an die Führung übergeben.",ephemeral=True)
+
+    @app_commands.command(
+        name="vorschlag",
+        description="Reiche anonym oder mit Namen einen Community-Vorschlag ein.",
+    )
+    @app_commands.describe(
+        kategorie="Thema deines Vorschlags",
+        anonym="Dein Name wird nicht in der Vorschlagsübersicht angezeigt",
+    )
+    @app_commands.choices(kategorie=[
+        app_commands.Choice(name="Allgemein", value="general"),
+        app_commands.Choice(name="Gameplay / Roleplay", value="gameplay"),
+        app_commands.Choice(name="Support", value="support"),
+        app_commands.Choice(name="Regelwerk", value="rules"),
+        app_commands.Choice(name="Technik / Bug", value="technical"),
+        app_commands.Choice(name="Neue Funktion", value="feature"),
+    ])
+    async def vorschlag(
+        self,
+        interaction: discord.Interaction,
+        kategorie: app_commands.Choice[str],
+        anonym: bool = False,
+    ):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "❌ Dieser Befehl ist nur auf einem Discord-Server verfügbar.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(CommunitySuggestionModal(kategorie.value, anonym))
+
+    @app_commands.command(
+        name="feedback",
+        description="Reiche anonym oder mit Namen Feedback zu BOCHUM RP ein.",
+    )
+    @app_commands.describe(
+        kategorie="Thema deines Feedbacks",
+        anonym="Dein Name wird nicht in der Feedbackübersicht angezeigt",
+    )
+    @app_commands.choices(kategorie=[
+        app_commands.Choice(name="Allgemein", value="general"),
+        app_commands.Choice(name="Gameplay / Roleplay", value="gameplay"),
+        app_commands.Choice(name="Support", value="support"),
+        app_commands.Choice(name="Regelwerk", value="rules"),
+        app_commands.Choice(name="Technik / Bug", value="technical"),
+        app_commands.Choice(name="Neue Funktion", value="feature"),
+    ])
+    async def community_feedback(
+        self,
+        interaction: discord.Interaction,
+        kategorie: app_commands.Choice[str],
+        anonym: bool = False,
+    ):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "❌ Feedback kann nur auf einem Discord-Server eingereicht werden.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(
+            CommunitySuggestionModal(kategorie.value, anonym, kind="feedback")
+        )
+
+    @app_commands.command(
+        name="vorschlaege",
+        description="Zeigt alle von der Führung freigegebenen Community-Abstimmungen.",
+    )
+    async def vorschlaege(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "❌ Abstimmungen sind nur auf einem Discord-Server verfügbar.",
+                ephemeral=True,
+            )
+            return
+        import pulse_community_feedback
+        rows = pulse_community_feedback.list_voting_feedback(interaction.guild.id, limit=10)
+        embed = discord.Embed(
+            title="🗳️ Community-Abstimmungen",
+            description="Stimme mit `/vorschlag-abstimmen` für oder gegen einen freigegebenen Vorschlag."
+            if rows else "Aktuell gibt es keine offenen Community-Abstimmungen.",
+            color=_pulse_color("info"),
+        )
+        for row in rows:
+            embed.add_field(
+                name=f"{row['title']} · {row['id']}"[:256],
+                value=(
+                    f"**Kategorie:** {row['category']}\n"
+                    f"{row['content'][:260]}\n"
+                    f"**Dafür:** 👍 {row['votes_for']} · **Dagegen:** 👎 {row['votes_against']}"
+                )[:1024],
+                inline=False,
+            )
+        await interaction.response.send_message(embed=embed, ephemeral=False)
+
+    @app_commands.command(
+        name="vorschlag-abstimmen",
+        description="Stimme für oder gegen einen freigegebenen Community-Vorschlag.",
+    )
+    @app_commands.describe(
+        vorschlag="Der Vorschlag, über den du abstimmen möchtest",
+        stimme="Deine Stimme",
+    )
+    @app_commands.choices(stimme=[
+        app_commands.Choice(name="👍 Dafür", value="for"),
+        app_commands.Choice(name="👎 Dagegen", value="against"),
+    ])
+    async def vorschlag_abstimmen(
+        self,
+        interaction: discord.Interaction,
+        vorschlag: str,
+        stimme: app_commands.Choice[str],
+    ):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "❌ Abstimmungen sind nur auf einem Discord-Server verfügbar.",
+                ephemeral=True,
+            )
+            return
+        import pulse_community_feedback
+        try:
+            result = pulse_community_feedback.cast_vote(
+                interaction.guild.id,
+                vorschlag,
+                interaction.user.id,
+                stimme.value,
+            )
+        except KeyError:
+            await interaction.response.send_message(
+                "❌ Dieser Vorschlag ist nicht (mehr) zur Abstimmung freigegeben.",
+                ephemeral=True,
+            )
+            return
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        embed = discord.Embed(
+            title="✅ Stimme gespeichert",
+            description=(
+                f"Deine Stimme: **{'Dafür' if result['vote'] == 'for' else 'Dagegen'}**\n"
+                f"**Dafür:** 👍 {result['for']} · **Dagegen:** 👎 {result['against']}\n"
+                "Du kannst deine Stimme ändern, indem du erneut abstimmst."
+            ),
+            color=_pulse_color("success"),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @vorschlag_abstimmen.autocomplete("vorschlag")
+    async def vorschlag_vote_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if interaction.guild is None:
+            return []
+        import pulse_community_feedback
+        try:
+            rows = pulse_community_feedback.list_voting_feedback(interaction.guild.id, limit=25)
+        except (sqlite3.Error, OSError):
+            return []
+        needle = str(current or "").strip().casefold()
+        choices = []
+        for row in rows:
+            haystack = f"{row['id']} {row['title']} {row['category']}".casefold()
+            if needle and needle not in haystack:
+                continue
+            label = (
+                f"{row['title'][:55]} · 👍{row['votes_for']} 👎{row['votes_against']} · {row['id'][-6:]}"
+            )[:100]
+            choices.append(app_commands.Choice(name=label, value=row["id"][:100]))
+            if len(choices) >= 25:
+                break
+        return choices
+
 
     @melden.autocomplete("kategorie")
     async def melden_category_autocomplete(self, i, current: str):
