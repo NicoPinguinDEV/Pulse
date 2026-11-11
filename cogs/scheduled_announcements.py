@@ -146,6 +146,16 @@ class ScheduledAnnouncements(commands.Cog):
         except ValueError as exc:
             await interaction.response.send_message("❌ " + str(exc), ephemeral=True)
             return
+        import webserver
+        try:
+            webserver.log_audit(
+                interaction.user.display_name,
+                str(interaction.user.id),
+                "Team-Ankündigung geplant",
+                f"{row['id']} · {title} · {row['scheduled_at']}",
+            )
+        except Exception:
+            pass
         local_time = scheduled.astimezone(LOCAL_ZONE).strftime("%d.%m.%Y um %H:%M Uhr")
         await interaction.response.send_message(
             f"📝 Entwurf **{row['id']}** gespeichert.\n"
@@ -242,6 +252,16 @@ class ScheduledAnnouncements(commands.Cog):
                 ephemeral=True,
             )
             return
+        try:
+            import webserver
+            webserver.log_audit(
+                interaction.user.display_name,
+                str(interaction.user.id),
+                "Team-Ankündigung abgebrochen",
+                str(entwurf_id),
+            )
+        except Exception:
+            pass
         await interaction.response.send_message(
             f"✅ Ankündigung **{entwurf_id}** wurde abgebrochen.", ephemeral=True
         )
@@ -291,15 +311,14 @@ class ScheduledAnnouncements(commands.Cog):
                     print(f"⚠️ Geplante Ankündigung {row['id']} wurde gesendet, aber nicht finalisiert. Bitte manuell prüfen.")
                     continue
                 config = webserver.load_config()
-                team_role_ids = set()
-                for raw_role_id in config.get("team_role_ids", []):
-                    try:
-                        team_role_ids.add(int(raw_role_id))
-                    except (TypeError, ValueError):
-                        continue
                 notify_kind = "warning" if row["kind"] in {"warning", "urgent"} else "info"
                 for member in list(getattr(guild, "members", []) or [])[:5000]:
-                    if member.bot or not any(role.id in team_role_ids for role in member.roles):
+                    if member.bot:
+                        continue
+                    permissions, team_member = webserver.compute_perms(guild, member.id, config)
+                    if not team_member or not (
+                        permissions.get("can_view_dashboard") or permissions.get("is_admin")
+                    ):
                         continue
                     try:
                         await asyncio.to_thread(
