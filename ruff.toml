@@ -11,7 +11,8 @@ include = [
     "pulse_server_control.py", "pulse_live_console.py", "deploy/pulse_host_agent.py", "pulse_health_api.py",
     "pulse_ticket_center.py", "pulse_ticket_distribution.py", "tests/test_ticket_distribution.py", "tests/test_ticket_center_workload.py", "tests/test_ticket_escalation.py", "tests/test_ticket_assignment_absences.py",
     "pulse_workflows.py", "pulse_automation_rules.py", "tests/test_workflow_engine.py", "pulse_summaries.py", "tests/test_summaries.py", "pulse_views.py", "tests/test_saved_views.py",
-    "tools/application_data_audit.py", "tests/test_application_data_audit.py", "tests/test_application_staging.py",
+    "tools/application_data_audit.py",
+    "pulse_player_reports.py", "tests/test_player_reports.py", "tests/test_player_report_commands.py", "tests/test_application_data_audit.py", "tests/test_application_staging.py",
 ]
 
 [lint]
