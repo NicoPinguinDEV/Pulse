@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 import pulse_db as db
 import pulse_flags
+import pulse_home_layouts as home_layouts
 from pulse_home_utils import (
     WEEKDAY_SHORT,
     daily_seconds,
@@ -302,7 +303,9 @@ def register(app) -> None:
         current_start = ws.start_page_for(ctx.user["id"])
         start_options = "".join(f'<option value="{e(path)}"{" selected" if path == current_start else ""}>{e(label)}</option>'
                                 for path, label in ws.START_PAGES.items())
-        selected_widgets = normalize_home_widgets(db.get_setting(f"{HOME_WIDGETS_KEY}:{uid}", None))
+        active_layout = home_layouts.active_layout(uid)
+        selected_widgets = (active_layout["widgets"] if active_layout
+                            else normalize_home_widgets(db.get_setting(f"{HOME_WIDGETS_KEY}:{uid}", None)))
         favorite_key = f"{FAVORITES_KEY}:{uid}"
         favorites = normalize_dashboard_favorites(db.get_setting(favorite_key, []), ws.START_PAGES)
         safe_pages = set(_safe_favorite_destinations(ws.START_PAGES))
@@ -342,27 +345,22 @@ def register(app) -> None:
             f'<input type="hidden" name="widgets_present" value="1">{widget_checks}'
             f'<p class="text-[11px] text-slate-400">Wähle die Karten aus, die du auf deiner persönlichen Startseite sehen möchtest.</p></fieldset>'
             f'</form>'
+            f'<a href="/me/layouts" class="text-[11px] text-indigo-500 mt-2 inline-block">🎛 Eigene Dashboard-Layouts verwalten'
+            f'{" · aktiv: " + e(active_layout["name"]) if active_layout else ""} →</a>'
             f'<a href="/me/sessions" class="text-[11px] text-indigo-500 mt-2 inline-block">🔐 Meine Sitzungen verwalten →</a>'
             + (' <a href="/me/month" class="text-[11px] text-indigo-500 mt-2 inline-block">📅 Mein Monat →</a>'
                if pulse_flags.enabled("my_month") else "")
         )
-        left_widgets = []
-        right_widgets = []
-        if "week" in selected_widgets:
-            left_widgets.append(card("📈 Meine Woche", progress, '<a href="/stats" class="text-[11px] text-indigo-500">Analytics →</a>'))
-        if "tickets" in selected_widgets:
-            left_widgets.append(tickets_card)
-        if "tasks" in selected_widgets:
-            left_widgets.append(card("📋 Meine Aufgaben", task_html, '<a href="/tasks" class="text-[11px] text-indigo-500">Alle →</a>'))
-        right_widgets.insert(0, favorites_card)
-        if "waiting" in selected_widgets and waiting_card:
-            right_widgets.append(waiting_card)
-        if "status" in selected_widgets:
-            right_widgets.append(card("🛡 Mein Status", warn_rows + loa_html))
-        if "meeting" in selected_widgets:
-            right_widgets.append(card("🎙 Nächste Besprechung", meeting_html, '<a href="/meetings" class="text-[11px] text-indigo-500">Details →</a>'))
-        if "inbox" in selected_widgets:
-            right_widgets.append(card("📥 Neu für mich", inbox_html, '<a href="/pulse-inbox" class="text-[11px] text-indigo-500">Inbox →</a>'))
+        widget_cards = {
+            "week": card("📈 Meine Woche", progress, '<a href="/stats" class="text-[11px] text-indigo-500">Analytics →</a>'),
+            "tickets": tickets_card,
+            "tasks": card("📋 Meine Aufgaben", task_html, '<a href="/tasks" class="text-[11px] text-indigo-500">Alle →</a>'),
+            "status": card("🛡 Mein Status", warn_rows + loa_html),
+            "meeting": card("🎙 Nächste Besprechung", meeting_html, '<a href="/meetings" class="text-[11px] text-indigo-500">Details →</a>'),
+            "inbox": card("📥 Neu für mich", inbox_html, '<a href="/pulse-inbox" class="text-[11px] text-indigo-500">Inbox →</a>'),
+        }
+        if waiting_card:
+            widget_cards["waiting"] = waiting_card
         if "shift_notes" in selected_widgets and ctx.guild:
             recent_shift_notes = db.list_shift_notes(ctx.guild.id, uid, limit=8)
             shift_note_rows = "".join(
@@ -386,13 +384,35 @@ def register(app) -> None:
                     shift_note_form = '<p class="text-xs text-slate-400 mt-3">Dir fehlt die Berechtigung zum Erstellen von Schichtnotizen.</p>'
             else:
                 shift_note_form = '<p class="text-xs text-slate-400 mt-3">Notizen können während einer laufenden Schicht hinzugefügt werden.</p>'
-            right_widgets.append(
-                card(
-                    "🗒 Schichtnotizen",
-                    shift_note_rows + shift_note_form,
-                    f'<a href="/member/{e(uid)}" class="text-[11px] text-indigo-500">Teamakte →</a>',
-                )
+            widget_cards["shift_notes"] = card(
+                "🗒 Schichtnotizen",
+                shift_note_rows + shift_note_form,
+                f'<a href="/member/{e(uid)}" class="text-[11px] text-indigo-500">Teamakte →</a>',
             )
+
+        left_widgets = []
+        right_widgets = [favorites_card]
+        if active_layout:
+            ordered = [key for key in active_layout["widgets"] if key in widget_cards]
+            if active_layout["columns"] == 1:
+                left_widgets = [widget_cards[key] for key in ordered]
+            else:
+                midpoint = (len(ordered) + 1) // 2
+                left_widgets = [widget_cards[key] for key in ordered[:midpoint]]
+                right_widgets.extend(widget_cards[key] for key in ordered[midpoint:])
+        else:
+            if "week" in selected_widgets:
+                left_widgets.append(widget_cards["week"])
+            if "tickets" in selected_widgets:
+                left_widgets.append(widget_cards["tickets"])
+            if "tasks" in selected_widgets:
+                left_widgets.append(widget_cards["tasks"])
+            if waiting_card and "waiting" in selected_widgets:
+                right_widgets.append(widget_cards["waiting"])
+            for key in ("status", "meeting", "inbox", "shift_notes"):
+                if key in selected_widgets and key in widget_cards:
+                    right_widgets.append(widget_cards[key])
+
         body = f'''
         {hero}
         <div class="pulse-stat-grid">{stat_html}</div>
