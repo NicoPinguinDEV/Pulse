@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse
 import pulse_moderation as pm
 
 INCIDENT_TYPES = (
-    "AutoMod-Maßnahme", "Anti-Nuke-Aktion erkannt", "Anti-Nuke ausgelöst", "Anti-Nuke: Akteur gesperrt",
+    "AutoMod-Maßnahme", "AutoMod-Testtreffer", "Anti-Nuke-Aktion erkannt", "Anti-Nuke ausgelöst", "Anti-Nuke: Akteur gesperrt",
     "Anti-Nuke: Akteur gekickt", "Anti-Nuke: Quarantäne", "Anti-Nuke: Bot entfernt",
     "Anti-Nuke: Quarantäne aufgehoben", "Anti-Nuke: Quarantäne verworfen",
     "Anti-Nuke: Lockdown gestartet", "Anti-Nuke: Lockdown aufgehoben",
@@ -320,7 +320,7 @@ def register(app) -> None:
 <div class="pulse-section-sub">Live geprüft gegen den Discord-Server. Nichts auf dieser Seite ändert Discord, bevor du speicherst.</div></div>
 <span class="pulse-pill {tone}">Schutzwert {total}/100</span></div>
 <div class="pulse-card-b guard-grid">
- <div><div class="guard-kv"><span>AutoMod</span><span class="pulse-pill {"good" if automod["enabled"] else ""}">{("aktiv · " + ("durchsetzen" if automod["mode"] == "enforce" else "nur beobachten")) if automod["enabled"] else "aus"}</span></div>
+ <div><div class="guard-kv"><span>AutoMod</span><span class="pulse-pill {"good" if automod["enabled"] else ""}">{("aktiv · " + ("durchsetzen" if automod["mode"] == "enforce" else "Testmodus (ohne Sanktionen)" if automod["mode"] == "test" else "nur beobachten")) if automod["enabled"] else "aus"}</span></div>
   <div class="guard-kv"><span>Anti-Nuke</span><span class="pulse-pill {("good" if antinuke["mode"] == "protect" else "warn") if antinuke["enabled"] else ""}">{("aktiv · " + ("Aktiver Schutz" if antinuke["mode"] == "protect" else "Alarmmodus")) if antinuke["enabled"] else "aus"}</span></div>
   <div class="guard-kv"><span>Raid-Frühwarnung</span><span class="pulse-pill {"good" if raid_on else ""}">{"aktiv (nur Alarm)" if raid_on else "aus"}</span></div>
   {channel_rows}
@@ -352,7 +352,8 @@ def register(app) -> None:
             f'<label class="guard-check"><input type="radio" name="mode" value="{key}"{" checked" if automod["mode"] == key else ""}>'
             f'<span><strong>{label}</strong><small>{hint}</small></span></label>'
             for key, label, hint in (("enforce", "Durchsetzen", "Nachricht löschen, warnen, bei Wiederholung Timeout."),
-                                     ("observe", "Nur beobachten", "Nichts löschen oder bestrafen – nur protokollieren. Ideal zum Einstellen neuer Regeln.")))
+                                     ("observe", "Nur beobachten", "Nichts löschen oder bestrafen – nur protokollieren. Ideal zum Einstellen neuer Regeln."),
+                                     ("test", "Testmodus", "Echte Nachrichten prüfen und Treffer als Simulation protokollieren – niemals löschen, DMs senden oder Timeouts auslösen.")))
 
         def num(name, label, lo, hi, value, hint=""):
             return (f'<label class="guard-field">{label}<input class="pulse-input" type="number" name="{name}" min="{lo}" max="{hi}" value="{value}" required>'
@@ -468,8 +469,9 @@ def register(app) -> None:
         for row in rows:
             p = row["payload"]
             kind = row.get("event_type", "")
-            if kind == "AutoMod-Maßnahme":
-                title = f'💬 {e(pm.AUTOMOD_RULE_LABELS.get(p.get("rule"), p.get("rule", "?")))}'
+            if kind in ("AutoMod-Maßnahme", "AutoMod-Testtreffer"):
+                rule_title = e(pm.AUTOMOD_RULE_LABELS.get(p.get("rule"), p.get("rule", "?")))
+                title = f'🧪 TEST · {rule_title}' if kind == "AutoMod-Testtreffer" else f'💬 {rule_title}'
                 meta = f'{who(guild, row.get("target_id"))} · {where(guild, p.get("channel_id"))} · {e(p.get("action", ""))}' + (f' · Fall {e(p.get("strike"))}' if p.get("strike") else "")
             else:
                 title = f'🛡️ {e(kind)}' + (f' · {e(pm.ANTINUKE_EVENT_LABELS.get(p.get("action") or p.get("last_action"), ""))}' if (p.get("action") or p.get("last_action")) else "")
