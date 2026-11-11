@@ -107,8 +107,9 @@ def build_forecast(
         if not isinstance(shift, dict):
             continue
         interval = _shift_interval(shift)
-        if interval is not None:
-            intervals.append(interval)
+        assignee_id = str(shift.get("assignee_id") or "").strip()
+        if interval is not None and assignee_id:
+            intervals.append((assignee_id, interval[0], interval[1]))
 
     rows = []
     for offset in range(days_ahead):
@@ -121,10 +122,11 @@ def build_forecast(
             )
             slot_start = datetime.combine(target_day, time(hour), tzinfo=BERLIN)
             slot_end = slot_start + timedelta(hours=1)
-            coverage = sum(
-                1 for start, end in intervals
+            covered_members = {
+                assignee_id for assignee_id, start, end in intervals
                 if start < slot_end and slot_start < end
-            )
+            }
+            coverage = len(covered_members)
             required = ceil(expected / capacity) if expected > 0 else 0
             if expected <= 0 and coverage <= 0:
                 continue
@@ -149,6 +151,6 @@ def build_forecast(
         "days_ahead": days_ahead,
         "tickets_per_person_hour": capacity,
         "sample_occurrences_per_weekday": history_days // 7,
-        "planned_shifts_count": len(intervals),
+        "planned_shifts_count": len({(assignee_id, start, end) for assignee_id, start, end in intervals}),
         "truncated": len(rows) > limit,
     }
