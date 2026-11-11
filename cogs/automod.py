@@ -4,6 +4,7 @@ Configuration lives in config.json → "pulse_automod" and is managed at /admin/
 normalised by pulse_moderation.normalize_automod, so the dashboard and the bot use identical values.
 
 * mode "observe": nothing is deleted or punished – matches are only logged and reported (safe rollout).
+* mode "test": live messages are evaluated in an isolated detector state and recorded as simulations; no message is deleted, no DM is sent and no timeout is applied.
 * mode "enforce": the message is deleted; the n-th violation inside the strike window escalates
   (warning → timeout, doubling up to a maximum, see pulse_moderation.automod_step).
 * Message contents are never stored: the flood detector keeps only a hash per recent message,
@@ -36,8 +37,8 @@ def _ids(values) -> set[int]:
 class PulseAutoMod(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # (guild, user) -> recent (monotonic time, hash of the folded content); bounded per user and in total.
-        self._messages: dict[tuple[int, int], deque[tuple[float, int]]] = defaultdict(lambda: deque(maxlen=20))
+        # (guild, user, mode) -> recent (monotonic time, content hash); test traffic cannot prime enforce counters.
+        self._messages: dict[tuple[int, int, str], deque[tuple[float, int]]] = defaultdict(lambda: deque(maxlen=20))
         self._strikes: dict[tuple[int, int], deque[float]] = defaultdict(lambda: deque(maxlen=10))
         self._message_events = 0
 
@@ -69,7 +70,7 @@ class PulseAutoMod(commands.Cog):
     def _hits(self, message: discord.Message, config: dict) -> list[tuple[str, str]]:
         if not config.get("enabled") or not config.get("rules"):
             return []
-        key = (message.guild.id, message.author.id)
+        key = (message.guild.id, message.author.id, str(config.get("mode") or "enforce"))
         now = time.monotonic()
         recent = self._messages[key]
         cutoff = now - config["flood_seconds"]
@@ -124,10 +125,13 @@ class PulseAutoMod(commands.Cog):
             return
         rule, reason = hits[0]
         label = RULE_LABELS[rule]
+        test_mode = config["mode"] == "test"
         observe = config["mode"] == "observe"
+        dry_run = observe or test_mode
 
-        if observe:
-            action = "Nur beobachtet (keine Maßnahme)"
+        if dry_run:
+            action = ("TEST: Regel würde auslösen (keine Maßnahme)" if test_mode
+                      else "Nur beobachtet (keine Maßnahme)")
             strike_count = 0
         else:
             try:
@@ -184,7 +188,7 @@ class PulseAutoMod(commands.Cog):
             import pulse_db
             bot_user = getattr(self.bot, "user", None)
             pulse_db.record_event(
-                "AutoMod-Maßnahme",
+                "AutoMod-Testtreffer" if test_mode else "AutoMod-Maßnahme",
                 "user",
                 message.author.id,
                 str(getattr(bot_user, "id", 0) or 0),
@@ -197,6 +201,7 @@ class PulseAutoMod(commands.Cog):
                     "action": action,
                     "strike": strike_count,
                     "mode": config["mode"],
+                    "simulation": test_mode,
                 },
             )
         except (sqlite3.Error, OSError) as exc:
@@ -205,7 +210,8 @@ class PulseAutoMod(commands.Cog):
         alert_id = config["alert_channel_id"]
         alert_channel = guild.get_channel(alert_id) if alert_id else None
         if alert_channel is not None:
-            prefix = "👁️ AutoMod (Beobachtung)" if observe else "🛡️ AutoMod"
+            prefix = ("🧪 AutoMod (Testmodus)" if test_mode else
+                      "👁️ AutoMod (Beobachtung)" if observe else "🛡️ AutoMod")
             try:
                 await alert_channel.send(
                     f"{prefix}: {label} · <@{message.author.id}> (`{message.author.id}`) · "
@@ -223,7 +229,8 @@ class PulseAutoMod(commands.Cog):
         # pins) is ignored; the edit is not counted for flood/duplicate detection a second time.
         if (before.content or "") == (after.content or ""):
             return
-        key = (getattr(after.guild, "id", 0), getattr(after.author, "id", 0))
+        mode = normalize_automod(self._config())["mode"]
+        key = (getattr(after.guild, "id", 0), getattr(after.author, "id", 0), mode)
         recent = self._messages.get(key)
         snapshot = list(recent) if recent is not None else None
         await self.on_message(after)

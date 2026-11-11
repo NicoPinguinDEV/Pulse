@@ -104,6 +104,15 @@ class GuardAdminRouteTests(unittest.TestCase):
         self.assertEqual(cfg["alert_channel_id"], GUILD.text_channels[0].id)
         self.assertEqual(cfg, pm.normalize_automod(cfg))
 
+    def test_automod_test_mode_is_saved_and_explained(self):
+        r = self.client.post("/admin/security/automod", data={**AUTOMOD_FORM, "mode": "test"}, follow_redirects=False)
+        self.assertEqual(r.status_code, 303)
+        self.assertIn("t=ok", r.headers["location"])
+        self.assertEqual(self.saved()["pulse_automod"]["mode"], "test")
+        page = self.client.get("/admin/security")
+        self.assertIn("Testmodus", page.text)
+        self.assertIn("niemals löschen", page.text)
+
     def test_automod_validation_changes_nothing(self):
         cases = [
             {"blocked_domains": "https://bad.example/x"},
@@ -220,6 +229,29 @@ class CogBehaviourTests(unittest.TestCase):
         asyncio.run(scenario())
         event = pulse_db.events(event_type="AutoMod-Maßnahme")[0]
         self.assertEqual(json.loads(event["payload_json"])["mode"], "observe")
+
+    def test_live_test_mode_never_deletes_warns_or_times_out(self):
+        async def scenario():
+            member = FakeMember(124, "Simulation")
+            member.guild_permissions.manage_messages = False
+            member.timeout, member.send = AsyncMock(), AsyncMock()
+            cog = PulseAutoMod(SimpleNamespace())
+            cog._config = lambda: {"enabled": True, "mode": "test", "rules": ["keywords"], "blocked_terms": ["xyz"]}
+            msg = self.automod_message(member, "xyz")
+            with patch("cogs.automod.discord.Member", FakeMember), patch("builtins.print"):
+                await cog.on_message(msg)
+            msg.delete.assert_not_awaited()
+            member.send.assert_not_awaited()
+            member.timeout.assert_not_awaited()
+            self.assertEqual(cog._strikes, {})
+            self.assertIn((1, member.id, "test"), cog._messages)
+        asyncio.run(scenario())
+        event = pulse_db.events(event_type="AutoMod-Testtreffer")[0]
+        payload = json.loads(event["payload_json"])
+        self.assertEqual(payload["mode"], "test")
+        self.assertTrue(payload["simulation"])
+        self.assertEqual(payload["strike"], 0)
+        self.assertIn("keine Maßnahme", payload["action"])
 
     def test_third_violation_gets_a_doubled_timeout_and_edits_are_checked(self):
         async def scenario():
