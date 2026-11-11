@@ -404,6 +404,47 @@ class RetentionTests(unittest.TestCase):
             unrelated_export.get("databases", {}).get("pulse.db", {}),
         )
 
+    def test_player_report_personal_export_includes_reporter_assignee_and_reviewer(self):
+        import pulse_player_reports
+        import pulse_retention
+        from pathlib import Path
+
+        reporter_id = "100000000000000241"
+        assignee_id = "100000000000000242"
+        reviewer_id = "100000000000000243"
+        suite_db = str(Path(ws.DATA_DIR) / "pulse_suite.db")
+        with patch.object(pulse_player_reports, "DB_PATH", suite_db):
+            report = pulse_player_reports.create_report(
+                "1", reporter_id, "Synthetic Reporter", "RP-Testspieler",
+                "rule_violation",
+                "Ein synthetischer Bericht zur Überprüfung des personenbezogenen Exports.",
+            )
+            pulse_player_reports.update_report(
+                "1", report["id"], "in_progress", assignee_id, "Synthetic Assignee",
+                reviewer_id, "Synthetic Reviewer",
+            )
+
+        reporter_export = pulse_retention.export_person(ws, reporter_id)
+        assignee_export = pulse_retention.export_person(ws, assignee_id)
+        reviewer_export = pulse_retention.export_person(ws, reviewer_id)
+        unrelated_export = pulse_retention.export_person(ws, "100000000000000299")
+        self.assertEqual(
+            [row["id"] for row in reporter_export["databases"]["pulse_suite.db"]["discord_player_reports"]],
+            [report["id"]],
+        )
+        self.assertEqual(
+            [row["id"] for row in assignee_export["databases"]["pulse_suite.db"]["discord_player_reports"]],
+            [report["id"]],
+        )
+        self.assertEqual(
+            [row["id"] for row in reviewer_export["databases"]["pulse_suite.db"]["discord_player_reports"]],
+            [report["id"]],
+        )
+        self.assertNotIn(
+            "discord_player_reports",
+            unrelated_export.get("databases", {}).get("pulse_suite.db", {}),
+        )
+
     def test_ticket_internal_notes_are_included_for_subject_and_author_exports(self):
         import pulse_retention
         import pulse_ticket_extras

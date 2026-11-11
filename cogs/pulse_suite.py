@@ -1223,13 +1223,65 @@ def register_routes():
     async def cases_page(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session,manager=True)
         with cx() as c:rows=[dict(x) for x in c.execute("SELECT * FROM suite_cases ORDER BY created_at DESC LIMIT 300").fetchall()]
-        opts=''.join(f'<option value="{m.id}">{esc(m.display_name)}</option>' for m in managers(ctx.guild,webserver));cards=''.join(f'<div class=card><div class=row><b>{esc(x["id"])}</b><span class=badge>{esc(x["status"])}</span></div><div class=tiny>{esc(x["category"])} · {esc(x["created_at"])} · {esc(x["reporter_name"])}</div><p>{esc(x["description"])}</p><form method=post action="/suite/cases/{x["id"]}/action"><select class=select name=status><option>open</option><option>in_progress</option><option>closed</option></select><select class=select name=assignee_id><option value="">Auto</option>{opts}</select><button class=btn>Speichern</button></form></div>' for x in rows) or "Keine Fälle."
-        return page(ctx,"cases","Meldungen / Modmail","Interne Fälle mit Bearbeiter, Priorität und Status",cards)
+        import pulse_player_reports
+        player_rows = pulse_player_reports.list_reports(ctx.guild.id, limit=200)
+        opts=''.join(f'<option value="{m.id}">{esc(m.display_name)}</option>' for m in managers(ctx.guild,webserver))
+        cards=''.join(
+            f'<div class=card><div class=row><b>{esc(x["id"])}</b><span class=badge>{esc(x["status"])}</span></div><div class=tiny>{esc(x["category"])} · {esc(x["created_at"])} · {esc(x["reporter_name"])}</div><p>{esc(x["description"])}</p><form method=post action="/suite/cases/{x["id"]}/action"><select class=select name=status><option>open</option><option>in_progress</option><option>closed</option></select><select class=select name=assignee_id><option value="">Auto</option>{opts}</select><button class=btn>Speichern</button></form></div>'
+            for x in rows
+        )
+        report_cards=[]
+        for report in player_rows:
+            status_options=''.join(
+                f'<option {"selected" if value == report["status"] else ""}>{value}</option>'
+                for value in ("open", "in_progress", "closed")
+            )
+            evidence_html=' · '.join(
+                f'<a href="{esc(item["url"])}" target="_blank" rel="noopener noreferrer">{esc(item["filename"])}</a>'
+                for item in report["evidence"]
+            )
+            report_cards.append(
+                f'<div class=card><div class=row><b>{esc(report["id"])}</b><span class=badge>{esc(report["status"])}</span></div>'
+                f'<div class=tiny>{esc(report["category"])} · {esc(report["priority"])} · {esc(report["created_at"])}</div>'
+                f'<p><b>Gemeldetes Spielerprofil:</b> {esc(report["target_name"])}<br>'
+                f'<b>Von:</b> {esc(report["reporter_name"])} · <b>Grund:</b> {esc(report["description"])}</p>'
+                f'<div class=tiny>{evidence_html or "Kein Beleg angehängt."}</div>'
+                f'<form method=post action="/suite/cases/{esc(report["id"])}/action">'
+                f'<select class=select name=status>{status_options}</select>'
+                f'<select class=select name=assignee_id><option value="">Auto</option>{opts}</select>'
+                f'<button class=btn>Spielermeldung aktualisieren</button></form></div>'
+            )
+        combined = cards + ''.join(report_cards)
+        if not combined:
+            combined = "Keine Fälle oder Spielermeldungen."
+        return page(
+            ctx, "cases", "Meldungen / Modmail",
+            "Interne Fälle und servergebundene Spielermeldungen mit Belegen, Bearbeiter und Status",
+            combined,
+        )
 
     @app.post("/suite/cases/{case_id}/action")
     async def case_action(request:Request,case_id:str,status:str=Form(...),assignee_id:str=Form(""),user_session:str=Cookie(None)):
         ctx=auth(request,user_session,manager=True);m=ctx.guild.get_member(int(assignee_id)) if assignee_id.isdigit() else None
         if status not in {"open","in_progress","closed"}:raise HTTPException(400,"Ungültig")
+        if case_id.startswith("RPT-"):
+            import pulse_player_reports
+            try:
+                row = pulse_player_reports.update_report(
+                    ctx.guild.id, case_id, status, str(m.id) if m else "",
+                    m.display_name if m else "", ctx.user["id"],
+                    ctx.user.get("global_name") or ctx.user.get("username") or "Leitung",
+                )
+            except KeyError:
+                raise HTTPException(404, "Spielermeldung nicht gefunden.")
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
+            audit(
+                ctx.guild.id, ctx.user["id"], ctx.user.get("global_name", ""),
+                case_id, row["target_name"], "player_report_updated",
+                f"{status} · {m.display_name if m else 'Auto'}",
+            )
+            return RedirectResponse("/suite/cases",303)
         with cx() as c:c.execute("UPDATE suite_cases SET status=?,assignee_id=?,assignee_name=?,updated_at=? WHERE id=?",(status,str(m.id) if m else "",m.display_name if m else "",iso(),case_id))
         audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),case_id,case_id,"case_updated",f"{status} · {m.display_name if m else 'Auto'}");return RedirectResponse("/suite/cases",303)
 
@@ -2363,6 +2415,114 @@ class PulseSuite(commands.Cog):
         if i.guild is None:
             return []
         return _suite_priority_choices(current)
+
+    @app_commands.command(
+        name="spieler-meldung",
+        description="Melde einen Spieler strukturiert und optional mit Beleg an das Team.",
+    )
+    @app_commands.describe(
+        ziel="Name oder eindeutige Kennung des gemeldeten Spielerprofils",
+        kategorie="Art des möglichen Regelverstoßes",
+        beschreibung="Was ist passiert? Bitte sachlich und nachvollziehbar beschreiben.",
+        prioritaet="Wie dringend ist eine Prüfung?",
+        beleg="Optionaler Screenshot, PDF oder MP4-Beleg (maximal 10 MB)",
+    )
+    @app_commands.choices(kategorie=[
+        app_commands.Choice(name="Regelverstoß", value="rule_violation"),
+        app_commands.Choice(name="Cheating / Exploit", value="cheating"),
+        app_commands.Choice(name="Belästigung", value="harassment"),
+        app_commands.Choice(name="Sonstiges", value="other"),
+    ])
+    @app_commands.choices(prioritaet=[
+        app_commands.Choice(name="Niedrig", value="low"),
+        app_commands.Choice(name="Normal", value="normal"),
+        app_commands.Choice(name="Hoch", value="high"),
+        app_commands.Choice(name="Dringend", value="urgent"),
+    ])
+    async def spieler_meldung(
+        self,
+        i: discord.Interaction,
+        ziel: str,
+        kategorie: app_commands.Choice[str],
+        beschreibung: str,
+        prioritaet: app_commands.Choice[str],
+        beleg: discord.Attachment | None = None,
+    ):
+        if i.guild is None:
+            await i.response.send_message(
+                "❌ Spielermeldungen können nur auf einem Discord-Server eingereicht werden.",
+                ephemeral=True,
+            )
+            return
+        evidence = None
+        if beleg is not None:
+            evidence = {
+                "filename": beleg.filename,
+                "content_type": beleg.content_type,
+                "size": beleg.size,
+                "url": str(beleg.url),
+            }
+        try:
+            import pulse_player_reports
+            row = pulse_player_reports.create_report(
+                i.guild.id, i.user.id, i.user.display_name, ziel,
+                kategorie.value, beschreibung, prioritaet.value, evidence,
+            )
+        except ValueError as exc:
+            await i.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        except sqlite3.Error as exc:
+            print(f"Spielermeldung konnte nicht gespeichert werden: {type(exc).__name__}")
+            await i.response.send_message(
+                "❌ Deine Meldung konnte wegen eines Datenbankfehlers nicht gespeichert werden.",
+                ephemeral=True,
+            )
+            return
+        web = __import__("webserver")
+        try:
+            for manager in managers(i.guild, web):
+                db.notify(
+                    manager.id, "🚨 Neue Spielermeldung",
+                    f"{row['id']} · {row['target_name']}", "warning",
+                    "/suite/cases", f"player-report:{row['id']}:{manager.id}", 86400,
+                )
+        except Exception as exc:
+            print(f"Spielermeldung-Hinweis konnte nicht versendet werden: {type(exc).__name__}")
+        audit(
+            i.guild.id, i.user.id, i.user.display_name, row["id"],
+            row["target_name"], "player_report_created",
+            f"{row['category']} · {row['priority']}",
+        )
+        await i.response.send_message(
+            f"✅ Deine Spielermeldung **{row['id']}** wurde vertraulich an das Team übergeben. "
+            "Den Bearbeitungsstand findest du mit /meine-meldungen.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @app_commands.command(
+        name="meine-meldungen",
+        description="Zeigt dir den Bearbeitungsstand deiner eigenen Spielermeldungen.",
+    )
+    async def meine_meldungen(self, i: discord.Interaction):
+        if i.guild is None:
+            await i.response.send_message("❌ Nur auf einem Discord-Server verfügbar.", ephemeral=True)
+            return
+        import pulse_player_reports
+        rows = pulse_player_reports.list_user_reports(i.guild.id, i.user.id, limit=10)
+        embed = discord.Embed(
+            title="📋 Meine Spielermeldungen",
+            description="Hier siehst nur du den Bearbeitungsstand deiner letzten Meldungen."
+            if rows else "Du hast in diesem Server noch keine Spielermeldungen eingereicht.",
+            color=_pulse_color("info"),
+        )
+        for row in rows:
+            embed.add_field(
+                name=f"{row['id']} · {row['target_name']}"[:256],
+                value=f"**Status:** {row['status']} · **Priorität:** {row['priority']}\n{row['description'][:650]}"[:1024],
+                inline=False,
+            )
+        await i.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="pulse-home",description="Öffnet das Pulse TeamOS Command Center.")
     async def pulse_home(self,i):
