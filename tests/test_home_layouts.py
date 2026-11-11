@@ -108,6 +108,11 @@ class HomeLayoutRouteTests(unittest.TestCase):
         page = self.client.get("/me/layouts")
         self.assertEqual(page.status_code, 200)
         self.assertIn("Eigene Dashboard-Layouts", page.text)
+        self.assertIn('data-home-widget-order', page.text)
+        self.assertIn('draggable="true"', page.text)
+        self.assertIn('data-widget-move="up"', page.text)
+        self.assertIn('data-widget-move="down"', page.text)
+        self.assertIn("setData(\"text/plain\"", page.text)
         saved = self.client.post("/me/layouts/save", data={
             "name": "Support", "columns": "1", "widgets": ["tasks", "inbox"],
             "position_tasks": "1", "position_inbox": "2",
