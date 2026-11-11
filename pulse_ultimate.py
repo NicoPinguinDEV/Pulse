@@ -1752,11 +1752,23 @@ def register(app) -> None:
             {f"<form method='post' action='/ultimate/api/feedback/{x['id']}' class='form'><select class='select' name='status'>{''.join(f"<option {'selected' if s==x['status'] else ''}>{s}</option>" for s in _FEEDBACK_STATUS)}</select><input class='input' name='manager_note' value='{esc(x['manager_note'])}' placeholder='Interne Antwort / Notiz'><button class='btn primary span2'>Status speichern</button></form>" if can_manage else ""}""")
             for x in rows
         )
+        import pulse_community_feedback
+        discord_rows = pulse_community_feedback.list_feedback(ctx.guild.id, limit=200) if can_manage else []
+        discord_list_html = "".join(
+            card(f"""<div class=row><div><b>{esc(x['title'])}</b><div class='tiny'>Discord · {esc(x['category'])} · {esc(x['author_name'] or 'Anonym')}</div></div><span class='pill'>{esc(x['status'])}</span>
+            <p class='tiny'>{esc(x['content'][:500])}</p>
+            <form method='post' action='/ultimate/api/feedback/{x['id']}' class='form'>
+              <select class='select' name='status'>{''.join(f"<option {'selected' if status==x['status'] else ''}>{status}</option>" for status in _FEEDBACK_STATUS)}</select>
+              <input class='input' name='manager_note' value='{esc(x['manager_note'])}' placeholder='Interne Antwort / Notiz'>
+              <button class='btn primary span2'>Status speichern</button>
+            </form>""")
+            for x in discord_rows
+        )
         body = f"""<div class="card"><h3>💬 Feedback senden</h3><form class="form" method="post" action="/ultimate/feedback/create">
           <input class="input" name="title" placeholder="Titel" required><input class="input" name="category" value="general">
           <textarea class="ta span2" name="content" placeholder="Was möchtest du verbessern?" required></textarea>
           <label class='span2'><input type='checkbox' name='anonymous'> anonym senden</label><button class='btn primary span2'>Absenden</button></form></div>
-          {f"<div class='grid g2' style='margin-top:13px'>{list_html or card('<div class=tiny>Kein Feedback.</div>')}</div>" if can_manage else ""}"""
+          {f"<div class='grid g2' style='margin-top:13px'>{list_html + discord_list_html or card('<div class=tiny>Kein Feedback.</div>')}</div>" if can_manage else ""}"""
         return page(ctx, "feedback", "Feedback", "Anonyme oder normale Verbesserungsvorschläge und Führungsauswertung.", body)
 
     @app.post("/ultimate/feedback/create")
@@ -2475,6 +2487,26 @@ window.setInterval(loadPulseMonitor, 15000);
         ctx = ctx_auth(request, user_session, manager=True)
         if status not in _FEEDBACK_STATUS:
             raise HTTPException(400, "Ungültiger Feedbackstatus.")
+        if feedback_id.startswith("dcf_"):
+            import pulse_community_feedback
+            try:
+                row = pulse_community_feedback.update_feedback(
+                    ctx.guild.id,
+                    feedback_id,
+                    status,
+                    manager_note,
+                    ctx.user["id"],
+                    ctx.user.get("global_name") or ctx.user.get("username") or "Leitung",
+                )
+            except KeyError:
+                raise HTTPException(404, "Discord-Vorschlag nicht gefunden.")
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
+            audit(
+                ctx, "Discord-Community-Vorschlag bearbeitet", feedback_id, row["title"],
+                f"guild={ctx.guild.id}; {status}: {manager_note[:300]}",
+            )
+            return RedirectResponse("/ultimate/feedback", status_code=303)
         with cx() as c:
             c.execute(
                 "UPDATE ultimate_feedback SET status=?,manager_note=?,updated_at=? WHERE id=?",
