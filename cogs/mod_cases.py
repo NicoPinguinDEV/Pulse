@@ -10,6 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import pulse_db
 import pulse_mod_cases as mc
 import pulse_mod_reason_templates as mrt
 from pulse_interactions import PulseView
@@ -39,6 +40,114 @@ def pulse_perms(guild, user_id):
     import webserver
     perms, _ = webserver.compute_perms(guild, user_id, webserver.load_config())
     return perms
+
+
+class AppealModal(discord.ui.Modal):
+    """Private DM form for the affected member; usable even after a kick or ban."""
+
+    def __init__(self, case_id: str, guild_id: int, target_id: int, bot):
+        super().__init__(title="Moderationsentscheidung anfechten", timeout=300)
+        self.case_id = case_id
+        self.guild_id = int(guild_id)
+        self.target_id = int(target_id)
+        self.bot = bot
+        self.reason = discord.ui.TextInput(
+            label="Warum möchtest du Einspruch einlegen?",
+            placeholder="Beschreibe sachlich, warum die Entscheidung geprüft werden sollte …",
+            style=discord.TextStyle.paragraph,
+            min_length=mc.APPEAL_REASON_MIN_LENGTH,
+            max_length=mc.APPEAL_REASON_MAX_LENGTH,
+            required=True,
+        )
+        self.add_item(self.reason)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if int(interaction.user.id) != self.target_id:
+            await interaction.response.send_message(
+                "❌ Dieser Einspruch gehört zu einem anderen Discord-Konto.", ephemeral=True
+            )
+            return
+        try:
+            appeal = mc.submit_appeal(
+                self.guild_id, interaction.user.id, self.case_id, self.reason.value
+            )
+        except ValueError as exc:
+            await interaction.response.send_message("❌ " + str(exc), ephemeral=True)
+            return
+
+        safe_reason = discord.utils.escape_mentions(self.reason.value[:1000])
+        try:
+            import webserver
+            webserver.log_audit(
+                interaction.user.display_name,
+                str(interaction.user.id),
+                "Moderationseinspruch eingereicht",
+                f"{self.case_id} · {safe_reason}",
+            )
+            guild = self.bot.get_guild(self.guild_id)
+            if guild is not None:
+                config = webserver.load_config()
+                for member in list(getattr(guild, "members", []) or [])[:5000]:
+                    if getattr(member, "bot", False):
+                        continue
+                    perms, _ = webserver.compute_perms(guild, member.id, config)
+                    if perms.get("is_admin") or perms.get("can_moderate_kicks") or perms.get("can_moderate_bans"):
+                        pulse_db.notify(
+                            member.id,
+                            "⚖ Neuer Moderationseinspruch",
+                            f"Fall {self.case_id}: {safe_reason}",
+                            "warning",
+                            "/mod-cases",
+                            f"mod-appeal:{self.case_id}",
+                            7 * 86400,
+                        )
+        except Exception as exc:
+            print(f"⚠️ Moderationseinspruch {self.case_id}: Benachrichtigung fehlgeschlagen ({type(exc).__name__}).")
+
+        deadline = appeal["deadline_at"][:16].replace("T", " ")
+        await interaction.response.send_message(
+            f"✅ Dein Einspruch für Fall **{self.case_id}** wurde eingereicht. "
+            f"Die Leitung prüft ihn. Einreichungsfrist: {deadline} UTC. "
+            "Die ursprüngliche Maßnahme bleibt bis zu einer gesonderten Entscheidung unverändert.",
+            ephemeral=True,
+        )
+
+
+class AppealButton(discord.ui.Button):
+    def __init__(self, case_id: str, guild_id: int, target_id: int, bot):
+        super().__init__(
+            label="Einspruch einreichen",
+            style=discord.ButtonStyle.primary,
+            emoji="📝",
+            custom_id=f"pulse_mod:appeal:{case_id}",
+        )
+        self.case_id = case_id
+        self.guild_id = int(guild_id)
+        self.target_id = int(target_id)
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction):
+        if int(interaction.user.id) != self.target_id:
+            await interaction.response.send_message(
+                "❌ Nur die betroffene Person kann zu diesem Fall Einspruch einlegen.", ephemeral=True
+            )
+            return
+        try:
+            mc.can_submit_appeal(self.guild_id, interaction.user.id, self.case_id)
+        except ValueError as exc:
+            await interaction.response.send_message("❌ " + str(exc), ephemeral=True)
+            return
+        await interaction.response.send_modal(
+            AppealModal(self.case_id, self.guild_id, self.target_id, self.bot)
+        )
+
+
+class AppealView(discord.ui.View):
+    """Persistent view so the appeal button in older DMs survives bot restarts."""
+
+    def __init__(self, case_id: str, guild_id: int, target_id: int, bot):
+        super().__init__(timeout=None)
+        self.add_item(AppealButton(case_id, guild_id, target_id, bot))
 
 
 class ConfirmAction(PulseView):
@@ -106,13 +215,16 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
         except ValueError as exc:
             await respond("❌ " + str(exc))
             return
-        appeal = (mc.appeal_text(interaction.guild.id, case["id"]) if action != "ban"
-                  else f"Schreibe dem Serverteam per Direktnachricht und nenne die Fall-ID {case['id']}.")
+        appeal = mc.appeal_text(interaction.guild.id, case["id"])
         dm_ok = False
 
         async def send_dm() -> bool:
             try:
-                await target.send(mc.dm_text(case, interaction.guild.name, appeal))
+                await target.send(
+                    mc.dm_text(case, interaction.guild.name, appeal),
+                    view=AppealView(case["id"], interaction.guild.id, target.id, self.bot),
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
                 mc.mark(case["id"], dm_sent=1)
                 return True
             except (discord.Forbidden, discord.HTTPException):
@@ -409,6 +521,86 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
+    def _appeal_reviewer_allowed(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild is None:
+            return False
+        perms = pulse_perms(interaction.guild, interaction.user.id)
+        return bool(
+            perms.get("is_admin")
+            or perms.get("can_moderate_kicks")
+            or perms.get("can_moderate_bans")
+        )
+
+    @app_commands.command(name="einsprueche", description="Offene Moderationseinsprüche des Servers anzeigen.")
+    async def einsprueche(self, interaction: discord.Interaction):
+        if not self._appeal_reviewer_allowed(interaction):
+            await interaction.response.send_message("❌ Dafür fehlt dir ein Moderationsrecht.", ephemeral=True)
+            return
+        rows = mc.list_appeals(interaction.guild.id, status="pending", limit=10)
+        if not rows:
+            await interaction.response.send_message("✅ Es liegen aktuell keine offenen Einsprüche vor.", ephemeral=True)
+            return
+        lines = [
+            f"**{row['case_id']}** · <@{row['target_id']}> · "
+            f"{row['submitted_at'][:16].replace('T', ' ')} UTC\n"
+            f"{discord.utils.escape_markdown(row['reason'][:350])}"
+            for row in rows
+        ]
+        await interaction.response.send_message(
+            "⚖ **Offene Moderationseinsprüche**\n" + "\n\n".join(lines)
+            + "\n\nEntscheide mit /mod einspruch-entscheiden.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @app_commands.command(name="einspruch-entscheiden", description="Einen offenen Einspruch als Leitung entscheiden.")
+    @app_commands.describe(
+        fall_id="MOD-Fall-ID aus der Moderationsakte",
+        entscheidung="Einspruch annehmen oder ablehnen",
+        notiz="Interne Begründung für die Entscheidung (5 bis 500 Zeichen)",
+    )
+    @app_commands.choices(entscheidung=[
+        app_commands.Choice(name="Annehmen", value="accepted"),
+        app_commands.Choice(name="Ablehnen", value="rejected"),
+    ])
+    async def einspruch_entscheiden(
+        self,
+        interaction: discord.Interaction,
+        fall_id: str,
+        entscheidung: app_commands.Choice[str],
+        notiz: str,
+    ):
+        if not self._appeal_reviewer_allowed(interaction):
+            await interaction.response.send_message("❌ Dafür fehlt dir ein Moderationsrecht.", ephemeral=True)
+            return
+        try:
+            appeal = mc.decide_appeal(
+                interaction.guild.id,
+                fall_id,
+                entscheidung.value,
+                notiz,
+                interaction.user.id,
+                interaction.user.display_name,
+            )
+        except ValueError as exc:
+            await interaction.response.send_message("❌ " + str(exc), ephemeral=True)
+            return
+        import webserver
+        label = "angenommen" if appeal["status"] == "accepted" else "abgelehnt"
+        webserver.log_audit(
+            interaction.user.display_name,
+            str(interaction.user.id),
+            "Moderationseinspruch entschieden",
+            f"{appeal['case_id']} · {label} · {appeal['decision_note']}",
+        )
+        await interaction.response.send_message(
+            f"✅ Einspruch **{appeal['case_id']}** wurde {label}. "
+            "Die ursprüngliche Sanktion wurde nicht automatisch verändert. "
+            "Eine nötige Moderationsänderung muss separat und mit den üblichen Rechten erfolgen.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
     @app_commands.command(name="akte", description="Moderationsfälle einer Person anzeigen.")
     async def akte(self, interaction: discord.Interaction, mitglied: discord.User):
         perms = pulse_perms(interaction.guild, interaction.user.id) if interaction.guild else {}
@@ -453,3 +645,9 @@ async def lift_expired_bans(bot) -> int:
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ModCases(bot))
+    # Re-register the buttons in already-delivered moderation DMs after a restart.
+    for case in mc.list_appealable_cases(limit=1000):
+        try:
+            bot.add_view(AppealView(case["id"], int(case["guild_id"]), int(case["target_id"]), bot))
+        except (TypeError, ValueError):
+            continue
