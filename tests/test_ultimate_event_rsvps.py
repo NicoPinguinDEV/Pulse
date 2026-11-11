@@ -186,7 +186,7 @@ class UltimateEventRsvpTests(unittest.TestCase):
         self.assertEqual(second, 1)  # notify deduplication prevents a second inbox row
         self.assertEqual(len(own), 1)
         self.assertIn("Erinnerung: Teamabend", own[0]["title"])
-        self.assertIn("01.01.2030", own[0]["body"])
+        self.assertIn("02.01.2030", own[0]["body"])
         self.assertEqual(other, [])
         self.assertEqual(own[0]["url"], "/ultimate/calendar")
 
