@@ -7,11 +7,11 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `origin/main`, Tests, PR,
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 62 |
-| Teilweise | 108 |
-| Offen | 7 |
+| Fertig | 73 |
+| Teilweise | 103 |
+| Offen | 1 |
 
-Ausgangspunkt: `main` bei `be60982` (54 / 109 / 14 nach den PRs #190–#198, #200, #201).
+Aktueller Ausgangspunkt: `main` bei `cf7d866` (PR #205–#210 gemergt). Die Zahlen sind nach den sechs neu abgeschlossenen offenen Kernfunktionen aktualisiert.
 Korrektur beim Abgleich: #36 und #134 sind nicht offen, sondern teilweise umgesetzt – `/ticket zusammenfassung` existiert bereits.
 
 ## Block 1 – Workflow-System (#144, #145, #148, #149)
@@ -52,20 +52,73 @@ Korrektur beim Abgleich: #36 und #134 sind nicht offen, sondern teilweise umgese
 - Eine Ansicht ist nur ein Link auf eine Seite aus einer festen Liste; die Rechteprüfung der Seite bleibt maßgeblich.
 - `/ultimate/team` filtert jetzt serverseitig nach Name und Status.
 
-## Reihenfolge der nächsten Blöcke
+## Block 4 – Kernfunktionen 17, 69, 80, 82, 84 und 128 (PR #205–#210)
 
-Abhängigkeiten: #69 baut auf #61 auf; #82 braucht #80.
+Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit Verhaltenstests ergänzt und in main gemergt:
 
-1. **Block 3b – Benutzerdefinierte Ansichten (#69):** auf `pulse_views.py` aufbauen: Layouts für „Mein Pulse“ (Widgets,
-   Reihenfolge, Sichtbarkeit) als benannte persönliche Ansichten, dazu rollenbezogene Standardansichten, die
-   Administratoren je Teamrolle festlegen. Vorhanden: Widget-Sichtbarkeit (`pulse_home.normalize_home_widgets`).
-2. **Block 4 – AutoMod-Testmodus (#17)** mit Fehlalarm-Rückkanal (#25).
-3. **Block 5 – Kompetenzmatrix und Arbeitslast (#80, #82)**, danach #26/#40/#81.
-4. **Block 6 – Schichttausch (#84)** mit Dienstabdeckung (#85).
-5. **Block 7 – Personalbedarfsprognose (#128)**, danach #127.
-6. **Block 8 – Locale-System (#10).**
-7. Danach die 108 teilweise fertigen Punkte bereichsweise in der Reihenfolge des Auftrags.
+- **PR #205 / #17 – AutoMod-Testmodus:** Live-Nachrichten werden nur simuliert; keine Sanktion, kein Löschen und keine DM. Getrennte Testtreffer und Regressionstests.
+- **PR #206 / #69 – benutzerdefinierte Ansichten:** Bis zu acht persönliche „Mein Pulse“-Layouts mit Widget-Sichtbarkeit, Reihenfolge und 1-/2-Spalten-Anordnung.
+- **PR #207 / #80 – Kompetenzmatrix:** Rollenbezogene Schulungsnachweise und Qualifikationsstufen; nur Führungskräfte, keine Selbsteinstufung.
+- **PR #208 / #82 – Arbeitslastverteilung:** Unzugewiesene Aufgaben werden anhand gewichteter Aufgaben- und Ticketlast verteilt; bestehende Zuweisungen bleiben erhalten.
+- **PR #209 / #84 – Schichttausch:** Antrag, Peer-Bestätigung und Leitungsfreigabe; atomare Konfliktprüfung und Datenschutzexport.
+- **PR #210 / #128 – Personalbedarfsprognose:** Sieben-Tage-Planungsansicht auf Basis historischer Ticket-Eingänge und bestehender Schichten.
 
+## Block 5 – Support-Kapazität (#40)
+
+- Branch: feature/ticket-capacity-alerts
+- Ergänzt workload_snapshot als reine, begrenzte Auswertung offener Tickets je Bearbeiter und Guild.
+- Die Ticket-Zentrale zeigt Führungskräften die acht am stärksten belasteten Bearbeiter, prioritätsgewichtete Last und eine Warnung beim gleichen Kapazitätsgrenzwert, den die optionale automatische Zuweisung verwendet.
+- Die Übersicht ist nur für Ticket-Manager/Führungskräfte sichtbar. Keine Änderung der Zuständigkeiten, kein Datenbankschema und keine Discord-Aktion.
+- Tests prüfen Guild-Trennung, geschlossene/unzugewiesene Tickets, Prioritätsgewichtung, Limits und Sichtbarkeit.
+- PR #211 (Draft). Erster CI-Lauf rot: `test_viewers_do_not_receive_staff_workload_panel` verlangte, dass der Bearbeitername
+  nirgends auf der Seite steht – er steht aber regulär in der Ticketliste. Der Test prüft jetzt die Auslastungszahlen selbst,
+  zusätzlich: Auslastung wird für Nicht-Berechtigte gar nicht erst berechnet, Tickets fremder Guilds zählen nicht mit.
+- Korrektur der Bereichstabelle im Audit: Support hat 11 fertig / 4 teilweise (Summe war bereits richtig, die Zeile nicht).
+- Bekannte Abweichung: Alt-Tickets ohne `guild_id` erscheinen in der Liste, zählen aber – wie bei der automatischen Zuweisung –
+  nicht in der Auslastung.
+
+## Block 6 – Überfälligkeits-Eskalation und Wiederöffnen (#27, #28, #35)
+
+- Branch: `feature/ticket-escalation-reopen-window` (baut auf Block 5 auf, weil beide dieselben Dateien ändern; Draft-PR #212 gegen `main`)
+- Dateien: `pulse_ticket_design.py`, `pulse_ticket_triage.py`, `cogs/tickets.py`, `pulse_db.py`, `webserver.py`,
+  `pulse_ticket_builder.py`, `pulse_ticket_center.py`, `tests/test_ticket_escalation.py` (neu), `tests/test_ticket_workflow.py`,
+  `tests/test_ticket_center_workload.py`
+- Keine neue Route, keine neue Tabelle, keine Migration. Neue Einstellungen in `ticket_system_config`:
+  `automation.escalation_minutes` (auch je Kategorie) und `reopen.window_days`; beide Standard 0 = aus, bestehende Server
+  verhalten sich unverändert. Neue Schlüssel im vorhandenen Feld `tickets.automation_state`.
+- **#28:** Bleibt eine Team-Erinnerung folgenlos, informiert Pulse einmal die Ticket-Führungsebene (Protokollkanal, Inbox,
+  Historie, Audit). Die Markierung wird vor dem Discord-Aufruf gespeichert – ein Discord-Fehler führt nie zu Wiederholungen.
+- **#35:** Frist für das Wiederöffnen, serverseitig geprüft. Behobener Fehler: Ein wiedergeöffnetes Ticket galt sofort als
+  überfällig (Wartezeit ab der ursprünglichen Eröffnung) und bekam nie wieder eine Übernahme-Erinnerung (alter Merker blieb stehen).
+- **#27:** war auf `main` bereits umgesetzt und getestet, im Audit aber noch als teilweise geführt; jetzt mit Nachweisen fertig.
+- **#26** bleibt teilweise: Die Zuteilung existiert und ist getestet, berücksichtigt aber keine Abmeldungen.
+- Einschränkungen: Eskalation setzt eine aktive Erinnerung voraus (ohne Erinnerung keine zweite Stufe); Erinnerungen von vor
+  diesem Stand haben keinen Zeitstempel und werden nicht nachträglich eskaliert; die Inbox erreicht höchstens 25 Personen.
+
+## Block 7 – Zuteilung ohne Abgemeldete (#26)
+
+- Branch: `feature/ticket-assignment-absences` (baut auf Block 6 auf; Draft-PR gegen `main`)
+- Dateien: `pulse_ticket_distribution.py`, `cogs/tickets.py`, `pulse_ticket_builder.py` (Hinweistext),
+  `tests/test_ticket_assignment_absences.py` (neu)
+- Die automatische Zuteilung liest `abmeldungen.db` nur lesend und überspringt Teammitglieder, deren Abmeldung heute gilt.
+  Keine neue Einstellung, keine Route, keine Tabelle. Ohne Abmelde-Datenbank oder bei Lesefehler verhält sich die Zuteilung wie bisher.
+- Unlesbare Datumsangaben zählen als abwesend – ein Ticket an eine abwesende Person ist der schlimmere Fehler.
+- Damit ist der Support-Bereich (#26–#40) vollständig: 15 / 0 / 0.
+
+## Prüfstand 11.11.2026
+
+- `main` = `cf7d866`, **nicht geschützt** (GitHub-API: `protected: false`, Issue #121 gilt weiter). Das ist eine
+  Repository-Einstellung und lässt sich nicht durch Code beheben.
+- PR #211: nach der Testkorrektur alle 13 Prüfungen grün; der Job „Schichthistorie – 20.000 Einträge“ wird übersprungen und
+  ist kein Testnachweis.
+- `docs/ROUTEN.md` ist auf `main` veraltet (Datei: 411 effektive Routen, `tools/route_map.py` erzeugt 422). Nicht in diesem
+  Block aktualisiert, weil er keine Route ändert.
+
+## Nächste Arbeit
+
+1. **Locale-System (#10):** Spracheinstellung und Übersetzungsinfrastruktur; anschließend Kernbefehle und weitere Bot-Antworten systematisch migrieren.
+2. **Moderation (#11–#25):** gemeinsame Fallakten, Einsprüche, Beweismittel, Ausnahmen, Raid-Stufen und False-Positive-Rückkanal.
+3. Danach die übrigen teilweise bewerteten Punkte bereichsweise, jeweils mit Verhaltenstests und Rechte-/Datenschutzprüfung.
 ## Hinweise für die Weiterarbeit
 
 - Arbeitsverzeichnis ist ein eigener Git-Worktree; der Haupt-Checkout enthält nicht eingecheckte Nutzeränderungen und bleibt unberührt.

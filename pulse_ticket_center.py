@@ -9,7 +9,8 @@ from __future__ import annotations
 import os
 from urllib.parse import quote, urlencode
 
-from pulse_ticket_design import automation_settings
+from pulse_ticket_design import automation_settings, reopen_allowed
+from pulse_ticket_distribution import distribution_settings, workload_snapshot
 from pulse_ticket_triage import format_wait, matches_filter, triage
 
 PAGE_SIZE = 25
@@ -46,7 +47,10 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
     manager = bool(ctx.perms.get("can_manage_tickets") or ctx.perms.get("can_promote") or ctx.perms.get("is_admin"))
     actor_id = str(ctx.user["id"])
     now = datetime.now(timezone.utc)
-    settings = automation_settings(ws.pulse_ticket_config().get("automation"))
+    ticket_config = ws.pulse_ticket_config()
+    settings = automation_settings(ticket_config.get("automation"))
+    distribution = distribution_settings(ticket_config.get("distribution"))
+    reopen_config = ticket_config.get("reopen")
     category_sla_count = len(settings.get("category_sla") or {})
 
     def global_sla_label(key: str, label: str, unit: str) -> str:
@@ -132,7 +136,12 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
                 actions.append(f'<a class="pulse-btn ghost" href="/ticket/transcript/{quote(os.path.basename(str(t.get("transcript_path"))))}">📄 Transkript</a>')
                 actions.append(f'<a class="pulse-btn ghost" href="/tickets/transcript/{quote(str(t.get("id")))}/view">👁 Lesen</a>')
             if manager:
-                actions.append(f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{tid}"><input type="hidden" name="action" value="reopen"><button class="pulse-btn ghost">🔓 Wieder öffnen</button></form>')
+                # Display only – /tickets/action checks the window again on the server.
+                may_reopen, _refusal = reopen_allowed(t, reopen_config, now, is_admin=bool(ctx.perms.get("is_admin")))
+                if may_reopen:
+                    actions.append(f'<form method="post" action="/tickets/action"><input type="hidden" name="ticket_id" value="{tid}"><input type="hidden" name="action" value="reopen"><button class="pulse-btn ghost">🔓 Wieder öffnen</button></form>')
+                else:
+                    actions.append('<span class="text-[11px] text-slate-400">Frist zum Wiederöffnen abgelaufen</span>')
         detail = (
             f'<div class="text-[11px] mt-1 {"text-rose-500" if info["overdue"] else "text-slate-400"}">{e(info["reason"])}</div>'
             + (f'<div class="text-[11px] text-indigo-500 mt-0.5">Nächster Schritt: {e(info["next_step"])}</div>' if info["state"] != "closed" else "")
@@ -141,7 +150,7 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
         return (
             f'<article class="pulse-row tc-row {"tc-overdue" if info["overdue"] else ""}">'
             f'<div class="pulse-row-main" style="flex:1;min-width:220px"><div class="flex flex-wrap items-center gap-2">'
-            f'<span class="pulse-row-title">{e(t.get("user_name") or "Unbekannt")}</span>{pill(pr[0], pr[1])}{pill(state_text, state_kind)}'
+            f'<span class="pulse-row-title">{e(t.get("user_name") or "Unbekannt")}</span>{pill(pr[0], pr[1])}{pill(state_text, state_kind)}{pill("🚨 Eskaliert", "bad") if info.get("escalated") else ""}'
             f'{"".join(pill("#" + tag) for tag in tag_map.get(str(t.get("id")), []))}</div>'
             f'<div class="pulse-row-meta">{e(cat)} · <code>{tid}</code> · eröffnet {e(str(t.get("opened_at") or "")[:16].replace("T", " "))} UTC · Bearbeiter: {e(t.get("claimed_by_name") or "niemand")}</div>'
             f'{detail}</div><div class="flex flex-wrap gap-2 items-start justify-end">{"".join(actions)}</div></article>'
@@ -175,6 +184,48 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
         ("👤", "Meine", counts["mine"]),
     ]
     stat_html = "".join(f'<div class="pulse-stat"><div class="icon">{i}</div><div class="label">{l}</div><div class="value">{v}</div></div>' for i, l, v in stats)
+    workload_html = ""
+    if manager:
+        # Auslastung je Person nur für Berechtigte berechnen (nicht bloß ausblenden).
+        workload = workload_snapshot(tickets, guild.id, distribution["max_open_per_staff"])
+        workload_rows = []
+        for member_load in workload["staff"]:
+            name = e(member_load["name"])
+            count = member_load["open_ticket_count"]
+            maximum = member_load["capacity"]
+            percent = min(100, count * 100 // maximum)
+            warning = pill("Kapazitätsgrenze", "bad") if member_load["at_capacity"] else pill("Im Rahmen", "good")
+            workload_rows.append(
+                f'<div class="pulse-row"><div class="pulse-row-main">'
+                f'<div class="pulse-row-title">{name}</div>'
+                f'<div class="pulse-row-meta">{count}/{maximum} offene Tickets · '
+                f'{member_load["workload_points"]} Lastpunkte · {member_load["urgent_count"]} dringend · '
+                f'{member_load["high_count"]} hoch</div></div>'
+                f'<div class="flex items-center gap-2">{warning}'
+                f'<span class="text-xs text-slate-400">{percent}%</span></div></div>'
+            )
+        workload_list = "".join(workload_rows) or '<div class="pulse-empty">Noch keine übernommenen offenen Tickets.</div>'
+        overload_notice = (
+            f'<div class="pulse-alert mb-2">{workload["overloaded_count"]} Teammitglied(er) '
+            f'haben die Kapazitätsgrenze von {workload["max_open_per_staff"]} offenen Tickets erreicht. '
+            'Prüfe die Verteilung, bevor weitere Fälle manuell übernommen werden.</div>'
+            if workload["overloaded_count"] else
+            '<div class="pulse-alert mb-2">Aktuell liegt niemand an der konfigurierten Ticket-Kapazitätsgrenze.</div>'
+        )
+        assignment_mode = (
+            "Automatische Zuweisung ist aktiviert."
+            if distribution["enabled"] else
+            "Automatische Zuweisung ist deaktiviert; die Anzeige verändert keine Zuständigkeiten."
+        )
+        workload_html = (
+            '<section class="pulse-card mb-4"><div class="pulse-card-h"><div>'
+            '<div class="pulse-section-title">⚖ Team-Auslastung</div>'
+            f'<div class="pulse-section-sub">{e(assignment_mode)} Grenzwert: '
+            f'{workload["max_open_per_staff"]} offene Tickets pro Person.</div>'
+            '</div></div><div class="pulse-card-b">'
+            f'{overload_notice}<div class="pulse-list">{workload_list}</div>'
+            '</div></section>'
+        )
     hint = "" if manager else '<div class="pulse-alert mb-3">Du kannst Tickets ansehen. Übernehmen, Schließen und Priorität ändern erfordert die Berechtigung „Tickets verwalten“.</div>'
     admin_link = '<a href="/tickets/panels" class="pulse-btn ghost">🎛️ Panel-Builder</a>' if ctx.perms.get("is_admin") else ""
     if ctx.perms.get("can_manage_tickets") or ctx.perms.get("is_admin"):  # BOT-06
@@ -194,6 +245,7 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
 <div class="pulse-stat-grid">{stat_html}</div>
 <div class="pulse-live-strip pulse-row-meta mb-3" data-live-view role="status" aria-live="polite"><span class="pulse-status-dot bg-emerald-500" aria-hidden="true"></span> Live: <b data-live="open_tickets">…</b> offen · <b data-live="unclaimed_tickets">…</b> ohne Bearbeiter · zuletzt aktualisiert <span data-live-time>…</span><span class="pulse-live-error"> · Verbindung gestört, neuer Versuch läuft</span></div>
 {hint}
+{workload_html}
 {__import__("pulse_views").bar("/tickets", ctx.user["id"], request.query_params.multi_items())}
 <section class="pulse-card"><div class="pulse-card-b">
  <nav class="tc-tabs">{tabs}</nav>

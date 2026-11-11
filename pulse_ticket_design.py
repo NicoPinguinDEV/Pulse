@@ -44,7 +44,7 @@ PANEL_DEFAULTS = {
 
 IMAGE_KINDS = ("thumbnail", "banner", "welcome_thumbnail", "welcome_banner")
 
-AUTOMATION_SLA_KEYS = ("unclaimed_ping_minutes", "staff_reply_hours", "user_reminder_hours")
+AUTOMATION_SLA_KEYS = ("unclaimed_ping_minutes", "staff_reply_hours", "user_reminder_hours", "escalation_minutes")
 CATEGORY_KEY_RE = re.compile(r"^[a-z0-9_-]{1,80}$")
 
 
@@ -53,6 +53,11 @@ AUTOMATION_DEFAULTS = {
     "staff_reply_hours": 12,          # 0 = aus: Bearbeiter erinnern, wenn der Nutzer auf Antwort wartet
     "user_reminder_hours": 24,        # 0 = aus: Nutzer erinnern, wenn das Team auf ihn wartet
     "auto_close_hours": 0,            # 0 = aus: nach der Nutzer-Erinnerung automatisch schließen
+    "escalation_minutes": 0,          # 0 = aus: Führungsebene informieren, wenn eine Team-Erinnerung folgenlos bleibt
+}
+
+REOPEN_DEFAULTS = {
+    "window_days": 0,                 # 0 = unbegrenzt (bisheriges Verhalten)
 }
 
 PLACEHOLDER_HELP = (
@@ -239,21 +244,84 @@ def load_state(raw) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def ticket_activity(ticket: dict) -> tuple[datetime | None, datetime | None, datetime | None]:
+    """(wait start, last creator message, last team message) for the current opening of a ticket.
+
+    A reopened ticket starts a new waiting period: its original opening time and messages from
+    before the reopening must not make it look overdue the moment it is opened again.
+    """
+    opened = _parse(ticket.get("opened_at"))
+    last_user = _parse(ticket.get("last_user_message_at"))
+    last_staff = _parse(ticket.get("last_staff_message_at"))
+    reopened = _parse(load_state(ticket.get("automation_state")).get("reopened_at"))
+    if reopened:
+        if not opened or reopened > opened:
+            opened = reopened
+        if last_user and last_user < reopened:
+            last_user = None
+        if last_staff and last_staff < reopened:
+            last_staff = None
+    return opened, last_user, last_staff
+
+
+def escalation_state(ticket: dict) -> str:
+    """'unclaimed' / 'staff' while an escalation for the current situation is on record, else ''."""
+    if ticket.get("status") == "closed":
+        return ""
+    state = load_state(ticket.get("automation_state"))
+    _opened, last_user, last_staff = ticket_activity(ticket)
+    if not ticket.get("claimed_by_id"):
+        return "unclaimed" if state.get("unclaimed_escalated") else ""
+    if last_user and (not last_staff or last_user > last_staff):
+        if state.get("staff_escalated_for") == last_user.isoformat():
+            return "staff"
+    return ""
+
+
+def reopen_settings(raw: dict | None) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    try:
+        days = int(raw.get("window_days", REOPEN_DEFAULTS["window_days"]))
+    except (TypeError, ValueError):
+        days = REOPEN_DEFAULTS["window_days"]
+    return {"window_days": max(0, min(days, 365))}
+
+
+def reopen_allowed(ticket: dict, settings: dict | None, now: datetime, *, is_admin: bool = False) -> tuple[bool, str]:
+    """Whether a closed ticket may be reopened now. Administrators may override an expired window."""
+    if ticket.get("status") != "closed":
+        return False, "Nur geschlossene Tickets können wieder geöffnet werden."
+    days = reopen_settings(settings)["window_days"]
+    if not days or is_admin:
+        return True, ""
+    closed = _parse(ticket.get("closed_at"))
+    if closed is None:
+        # Without a closing time the window cannot be proven to be open: deny by default.
+        return False, "Für dieses Ticket ist kein Schließzeitpunkt gespeichert. Nur Administratoren können es wieder öffnen."
+    if now - closed > timedelta(days=days):
+        return False, f"Die Frist von {days} Tagen für das Wiederöffnen ist abgelaufen. Nur Administratoren können es noch öffnen."
+    return True, ""
+
+
 def automation_actions(ticket: dict, settings: dict, now: datetime) -> list[str]:
     """Decide which reminders are due for one open ticket; each fires once per situation."""
     if ticket.get("status") == "closed":
         return []
     settings = category_automation_settings(ticket.get("category"), settings)
     state = load_state(ticket.get("automation_state"))
-    opened = _parse(ticket.get("opened_at"))
-    last_user = _parse(ticket.get("last_user_message_at"))
-    last_staff = _parse(ticket.get("last_staff_message_at"))
+    opened, last_user, last_staff = ticket_activity(ticket)
+    escalation = settings.get("escalation_minutes", 0)
     actions = []
 
     minutes = settings.get("unclaimed_ping_minutes", 0)
     if minutes and not ticket.get("claimed_by_id") and opened and not state.get("unclaimed_ping"):
         if now - opened >= timedelta(minutes=minutes):
             actions.append("remind_unclaimed")
+    # Second stage: the responsible roles were pinged, yet nobody took the ticket.
+    pinged_at = _parse(state.get("unclaimed_ping"))
+    if (escalation and not ticket.get("claimed_by_id") and pinged_at and not state.get("unclaimed_escalated")
+            and now - pinged_at >= timedelta(minutes=escalation)):
+        actions.append("escalate_unclaimed")
 
     # Team is waiting for the creator (team spoke last).
     if last_staff and (not last_user or last_staff > last_user):
@@ -273,6 +341,13 @@ def automation_actions(ticket: dict, settings: dict, now: datetime) -> list[str]
         hours = settings.get("staff_reply_hours", 0)
         if hours and state.get("staff_reminder_for") != marker and now - last_user >= timedelta(hours=hours):
             actions.append("remind_staff")
+        # Second stage: the assignee was reminded for exactly this message and still did not answer.
+        # States written before escalations existed carry no reminder time and are never escalated.
+        reminded_at = _parse(state.get("staff_reminded_at"))
+        if (escalation and state.get("staff_reminder_for") == marker and reminded_at
+                and state.get("staff_escalated_for") != marker
+                and now - reminded_at >= timedelta(minutes=escalation)):
+            actions.append("escalate_staff")
     return actions
 
 
