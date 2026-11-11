@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse
 import pulse_moderation as pm
 
 INCIDENT_TYPES = (
-    "AutoMod-Maßnahme", "AutoMod-Testtreffer", "Anti-Nuke-Aktion erkannt", "Anti-Nuke ausgelöst", "Anti-Nuke: Akteur gesperrt",
+    "AutoMod-Maßnahme", "AutoMod-Testtreffer", "AutoMod-Fehlalarm bestätigt", "Anti-Nuke-Aktion erkannt", "Anti-Nuke ausgelöst", "Anti-Nuke: Akteur gesperrt",
     "Anti-Nuke: Akteur gekickt", "Anti-Nuke: Quarantäne", "Anti-Nuke: Bot entfernt",
     "Anti-Nuke: Quarantäne aufgehoben", "Anti-Nuke: Quarantäne verworfen",
     "Anti-Nuke: Lockdown gestartet", "Anti-Nuke: Lockdown aufgehoben",
@@ -473,6 +473,11 @@ def register(app) -> None:
                 rule_title = e(pm.AUTOMOD_RULE_LABELS.get(p.get("rule"), p.get("rule", "?")))
                 title = f'🧪 TEST · {rule_title}' if kind == "AutoMod-Testtreffer" else f'💬 {rule_title}'
                 meta = f'{who(guild, row.get("target_id"))} · {where(guild, p.get("channel_id"))} · {e(p.get("action", ""))}' + (f' · Fall {e(p.get("strike"))}' if p.get("strike") else "")
+                if kind == "AutoMod-Maßnahme":
+                    meta += f' · Ereignis-ID {e(row.get("id", ""))}'
+            elif kind == "AutoMod-Fehlalarm bestätigt":
+                title = f'🟨 AutoMod-Fehlalarm bestätigt · {e(pm.AUTOMOD_RULE_LABELS.get(p.get("rule"), p.get("rule", "?")))}'
+                meta = f'Fall {e(p.get("original_event_id", row.get("target_id", "")))} · {e(p.get("reason", ""))}'
             else:
                 title = f'🛡️ {e(kind)}' + (f' · {e(pm.ANTINUKE_EVENT_LABELS.get(p.get("action") or p.get("last_action"), ""))}' if (p.get("action") or p.get("last_action")) else "")
                 meta = f'{who(guild, row.get("target_id"))}' + (" · freigegeben" if p.get("trusted") else "") + (f' · {e(p.get("result"))}' if p.get("result") else "")

@@ -18,11 +18,12 @@ MANAGE_GUILD = {
     "pulse-permission", "pulse-diagnose", "pulsehealth",
 }
 MANAGE_ROLES = {"teamrollen_hinzufuegen", "teamrolle_entfernen", "teamliste_leeren", "update_teamliste", "buero_rolle_setzen"}
-MANAGE_MESSAGES = {"messagedelete"}
+MANAGE_MESSAGES = {"messagedelete", "automod-fehlalarm", "automod-feedback"}
 
 # Pulse right needed to *see* a command in the help (the command checks it again when used).
 NEEDS = {
     "warn": "can_manage_team_warnings", "warns": "can_manage_team_warnings", "warn-remove": "can_manage_team_warnings",
+    "automod-fehlalarm": "can_moderate_kicks", "automod-feedback": "can_moderate_kicks",
     "promote": "lead", "demote": "lead", "team-kick": "lead", "team-exit": "lead", "kick": "lead",
     "server-exit": "lead", "pulse-approve": "lead", "teamtask": "lead", "teamannounce": "lead", "team-ping": "lead",
     "activity-check": "lead",
@@ -32,7 +33,7 @@ SECTIONS = (
                         "abmeldung", "abmeldung_entfernen", "melden", "pulse-hilfe", "activity_status",
                         "ki_vergessen", "pulse-favoriten", "pulse-sprache")),
     ("🧭 Team", ("memberinfo", "pulse-ticket", "pulse-suite", "ticketstats", "activity-check", "team-ping")),
-    ("⚠ Moderation", ("warn", "warns", "warn-remove", "messagedelete")),
+    ("⚠ Moderation", ("warn", "warns", "warn-remove", "messagedelete", "automod-fehlalarm", "automod-feedback")),
     ("🛡 Führung", ("teamtask", "teamannounce", "promote", "demote", "team-kick", "team-exit", "kick", "server-exit",
                    "pulse-approve")),
 )

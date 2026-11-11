@@ -18,6 +18,7 @@ from collections import defaultdict, deque
 from datetime import timedelta
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from pulse_moderation import AUTOMOD_RULE_LABELS, automod_step, match_rules, normalize_automod
@@ -187,7 +188,7 @@ class PulseAutoMod(commands.Cog):
         try:
             import pulse_db
             bot_user = getattr(self.bot, "user", None)
-            pulse_db.record_event(
+            event_id = pulse_db.record_event(
                 "AutoMod-Testtreffer" if test_mode else "AutoMod-Maßnahme",
                 "user",
                 message.author.id,
@@ -205,6 +206,7 @@ class PulseAutoMod(commands.Cog):
                 },
             )
         except (sqlite3.Error, OSError) as exc:
+            event_id = None
             print(f"⚠️ AutoMod-Maßnahme für {message.author.id} konnte nicht dauerhaft protokolliert werden: {type(exc).__name__}.")
 
         alert_id = config["alert_channel_id"]
@@ -215,13 +217,107 @@ class PulseAutoMod(commands.Cog):
             try:
                 await alert_channel.send(
                     f"{prefix}: {label} · <@{message.author.id}> (`{message.author.id}`) · "
-                    f"<#{message.channel.id}> · {action}" + (f" · Fall {strike_count}" if strike_count else ""),
+                    f"<#{message.channel.id}> · {action}"
+                    + (f" · Fall {strike_count}" if strike_count else "")
+                    + (f" · Ereignis-ID `{event_id}`" if event_id else ""),
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
             except discord.Forbidden:
                 print(f"⚠️ AutoMod konnte den Protokolleintrag in Kanal {alert_id} nicht senden.")
             except discord.HTTPException as exc:
                 print(f"⚠️ AutoMod-Protokollierung fehlgeschlagen: HTTP {exc.status}.")
+
+    async def _feedback_access(self, interaction: discord.Interaction) -> bool:
+        """Require both the Pulse moderation right and Discord's message-management permission."""
+        if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("❌ Nur auf einem Discord-Server verfügbar.", ephemeral=True)
+            return False
+        try:
+            import webserver
+            perms, _member = webserver.compute_perms(
+                interaction.guild, interaction.user.id, webserver.load_config()
+            )
+        except Exception:
+            perms = {}
+        discord_perms = interaction.user.guild_permissions
+        allowed = bool(
+            (perms.get("is_admin") or perms.get("can_moderate_kicks"))
+            and (discord_perms.manage_messages or discord_perms.administrator)
+        )
+        if not allowed:
+            await interaction.response.send_message(
+                "❌ Für AutoMod-Feedback brauchst du das Pulse-Moderationsrecht und das Discord-Recht „Nachrichten verwalten“.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @app_commands.command(
+        name="automod-fehlalarm",
+        description="Einen echten AutoMod-Treffer mit Begründung als Fehlalarm markieren.",
+    )
+    @app_commands.default_permissions(manage_messages=True)
+    @app_commands.describe(
+        fall_id="Ereignis-ID aus der AutoMod-Meldung",
+        begruendung="Warum war das hier kein Regelverstoß? (8–500 Zeichen)",
+    )
+    async def automod_false_positive(
+        self, interaction: discord.Interaction, fall_id: str, begruendung: str
+    ):
+        if not await self._feedback_access(interaction):
+            return
+        import pulse_automod_feedback
+        try:
+            row = pulse_automod_feedback.record_false_positive(
+                fall_id,
+                interaction.guild.id,
+                interaction.user.id,
+                interaction.user.display_name,
+                begruendung,
+            )
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        except sqlite3.Error as exc:
+            print(f"AutoMod-Feedback konnte nicht gespeichert werden: {type(exc).__name__}")
+            await interaction.response.send_message(
+                "❌ Das Feedback konnte wegen eines Datenbankfehlers nicht gespeichert werden.",
+                ephemeral=True,
+            )
+            return
+        embed = discord.Embed(
+            title="🟨 AutoMod-Fehlalarm dokumentiert",
+            description=(
+                f"Fall-ID: `{row['event_id']}`\n"
+                f"Regel: **{RULE_LABELS.get(row['rule'], row['rule'])}**\n"
+                f"Begründung: {row['reason']}\n\n"
+                "Der Treffer bleibt in der Fallhistorie. Es wird keine Sanktion zurückgenommen oder automatisch eine Regel geändert."
+            ),
+            color=discord.Color.gold(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="automod-feedback",
+        description="Die letzten dokumentierten AutoMod-Fehlalarme ansehen.",
+    )
+    @app_commands.default_permissions(manage_messages=True)
+    async def automod_feedback_list(self, interaction: discord.Interaction):
+        if not await self._feedback_access(interaction):
+            return
+        import pulse_automod_feedback
+        rows = pulse_automod_feedback.list_false_positives(interaction.guild.id, limit=15)
+        lines = [
+            f"`{row['event_id']}` · **{RULE_LABELS.get(row['rule'], row['rule'])}** · "
+            f"{row['reviewer_name']} · {row['reason'][:180]}"
+            for row in rows
+        ]
+        embed = discord.Embed(
+            title="📋 AutoMod-Fehlalarmprüfungen",
+            description="\n".join(lines) if lines else "Noch keine Fehlalarme dokumentiert.",
+            color=discord.Color.blurple(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @commands.Cog.listener()
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
