@@ -511,6 +511,11 @@ def export_person(ws, discord_id: str) -> dict:
                         "requester_id": {uid},
                         "target_id": {uid},
                     },
+                    "discord_player_reports": {
+                        "reporter_id": {uid},
+                        "assignee_id": {uid},
+                        "reviewed_by_id": {uid},
+                    },
                 }
             elif name == "pulse.db":
                 ticket_ids = _ticket_ids_for_subject(path, uid)
@@ -522,11 +527,6 @@ def export_person(ws, discord_id: str) -> dict:
                         "ticket_id_b": ticket_ids,
                     },
                     "ultimate_automation_approvals": {"id": _approval_ids_for_decider(path, uid)},
-                    "discord_player_reports": {
-                        "reporter_id": {uid},
-                        "assignee_id": {uid},
-                        "reviewed_by_id": {uid},
-                    },
                 }
             rows, truncated = _rows_for(path, uid, extra_values_by_table=extras)
         except (sqlite3.Error, OSError) as exc:
