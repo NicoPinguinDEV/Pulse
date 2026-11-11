@@ -1396,6 +1396,81 @@ def legacy_suite_ticket_action(message,custom_id):
                 return SUITE_TICKET_LABEL_ACTIONS[child.label],title[len(SUITE_TICKET_TITLE):].strip()
     return None
 
+class CommunitySuggestionModal(discord.ui.Modal, title="BOCHUM RP · Community-Vorschlag"):
+    """Collect a Discord suggestion and store it for the originating guild only."""
+
+    def __init__(self, category: str, anonymous: bool):
+        super().__init__(timeout=300)
+        self.category = str(category or "general")
+        self.anonymous = bool(anonymous)
+        self.suggestion_title = discord.ui.TextInput(
+            label="Titel", placeholder="Worum geht es?", min_length=3, max_length=120
+        )
+        self.suggestion_content = discord.ui.TextInput(
+            label="Beschreibung",
+            placeholder="Was sollte verbessert oder ergänzt werden?",
+            style=discord.TextStyle.paragraph,
+            min_length=20,
+            max_length=3000,
+        )
+        self.add_item(self.suggestion_title)
+        self.add_item(self.suggestion_content)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "❌ Vorschläge können nur auf einem Discord-Server eingereicht werden.",
+                ephemeral=True,
+            )
+            return
+        try:
+            import pulse_community_feedback
+            row = pulse_community_feedback.submit_feedback(
+                interaction.guild.id,
+                interaction.user.id,
+                getattr(interaction.user, "display_name", None) or str(interaction.user.id),
+                self.category,
+                str(self.suggestion_title.value),
+                str(self.suggestion_content.value),
+                anonymous=self.anonymous,
+            )
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        except Exception as exc:
+            print(f"Community suggestion could not be stored: {type(exc).__name__}")
+            await interaction.response.send_message(
+                "❌ Dein Vorschlag konnte gerade nicht gespeichert werden. Bitte versuche es später erneut.",
+                ephemeral=True,
+            )
+            return
+        try:
+            web = __import__("webserver")
+            for manager in managers(interaction.guild, web):
+                db.notify(
+                    manager.id,
+                    "💡 Neuer Community-Vorschlag",
+                    f"{row['category']} · {row['title']}",
+                    "info",
+                    "/ultimate/feedback",
+                    f"community-feedback:{row['id']}:{manager.id}",
+                    86400,
+                )
+        except Exception as exc:
+            print(f"Community suggestion notification failed: {type(exc).__name__}")
+        visibility = "anonym eingereicht" if self.anonymous else "eingereicht"
+        embed = discord.Embed(
+            title="✅ Vorschlag gespeichert",
+            description=(
+                f"Dein Vorschlag **{discord.utils.escape_markdown(row['title'])}** wurde {visibility}.\n"
+                "Die Führung kann ihn im Pulse-Dashboard unter Feedback prüfen."
+            ),
+            color=_pulse_color("success"),
+        )
+        embed.set_footer(text=f"Vorschlags-ID: {row['id']}")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 class PulseSuite(commands.Cog):
     def __init__(self,bot):self.bot=bot;init_db();seed();register_routes();self.auto.start()
 
@@ -2039,6 +2114,36 @@ class PulseSuite(commands.Cog):
         web=__import__("webserver")
         for m in managers(i.guild,web):db.notify(m.id,"🚨 Neuer Meldefall",f"{aid} · {kategorie}","warning","/suite/cases",f"case:{aid}",86400)
         audit(i.guild.id,i.user.id,i.user.display_name,aid,aid,"case_created",f"{kategorie} · {prioritaet}");await i.response.send_message("✅ Meldung wurde intern an die Führung übergeben.",ephemeral=True)
+
+    @app_commands.command(
+        name="vorschlag",
+        description="Reiche anonym oder mit Namen einen Community-Vorschlag ein.",
+    )
+    @app_commands.describe(
+        kategorie="Thema deines Vorschlags",
+        anonym="Dein Name wird nicht in der Vorschlagsübersicht angezeigt",
+    )
+    @app_commands.choices(kategorie=[
+        app_commands.Choice(name="Allgemein", value="general"),
+        app_commands.Choice(name="Gameplay / Roleplay", value="gameplay"),
+        app_commands.Choice(name="Support", value="support"),
+        app_commands.Choice(name="Regelwerk", value="rules"),
+        app_commands.Choice(name="Technik / Bug", value="technical"),
+        app_commands.Choice(name="Neue Funktion", value="feature"),
+    ])
+    async def vorschlag(
+        self,
+        interaction: discord.Interaction,
+        kategorie: app_commands.Choice[str],
+        anonym: bool = False,
+    ):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "❌ Dieser Befehl ist nur auf einem Discord-Server verfügbar.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(CommunitySuggestionModal(kategorie.value, anonym))
 
     @app_commands.command(name="pulse-home",description="Öffnet das Pulse TeamOS Command Center.")
     async def pulse_home(self,i):
