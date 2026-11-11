@@ -14,8 +14,8 @@ LAYOUTS_KEY = "home_custom_layouts"
 ACTIVE_KEY = "home_active_layout"
 MAX_LAYOUTS = 8
 MAX_NAME = 40
-MAX_WIDGETS = len(HOME_WIDGETS)
 _WIDGET_KEYS = ("week", "tickets", "tasks", "waiting", "status", "meeting", "inbox", "shift_notes")
+MAX_WIDGETS = len(_WIDGET_KEYS)
 _WIDGET_SET = frozenset(_WIDGET_KEYS)
 _LAYOUT_ID = re.compile(r"[a-f0-9]{12}")
 
@@ -27,6 +27,7 @@ def _key(base: str, user_id) -> str:
 def ordered_widgets(values, positions=None) -> list[str]:
     """Validate and order selected widgets using bounded, user-supplied position numbers."""
     positions = positions if isinstance(positions, dict) else {}
+    values = values if isinstance(values, (list, tuple, set, frozenset)) else ()
     selected = []
     for key in _WIDGET_KEYS:
         if key in values and key not in selected:
