@@ -1755,7 +1755,7 @@ def register(app) -> None:
         import pulse_community_feedback
         discord_rows = pulse_community_feedback.list_feedback(ctx.guild.id, limit=200) if can_manage else []
         discord_list_html = "".join(
-            card(f"""<div class=row><div><b>{esc(x['title'])}</b><div class='tiny'>Discord · {esc(x['category'])} · {esc(x['author_name'] or 'Anonym')}</div></div><span class='pill'>{esc(x['status'])}</span>
+            card(f"""<div class=row><div><b>{esc(x['title'])}</b><div class='tiny'>Discord · {esc('Vorschlag' if x.get('kind') == 'suggestion' else 'Feedback')} · {esc(x['category'])} · {esc(x['author_name'] or 'Anonym')}</div></div><span class='pill'>{esc(x['status'])}</span>
             <p class='tiny'>{esc(x['content'][:500])}</p>
             <p class='tiny'>Abstimmung: 👍 {x['votes_for']} · 👎 {x['votes_against']}</p>
             <form method='post' action='/ultimate/api/feedback/{x['id']}' class='form'>
