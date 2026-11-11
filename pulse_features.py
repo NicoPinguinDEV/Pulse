@@ -347,6 +347,7 @@ def register(app):
                         "id":training_id,
                         "title":str(item.get("title") or training_id)[:120],
                         "role":str(getattr(role,"name","Team"))[:100],
+                        "passing_score":max(1,min(100,int(item.get("passing_score",80) or 80))),
                     }
         courses=list(course_by_id.values())[:60]
         course_ids={item["id"] for item in courses}
@@ -380,17 +381,36 @@ def register(app):
 
         rows=[]
         for member,matched,applicable in members:
-            passed=db.passed_training_ids_for_user(str(member.id),sorted(applicable))
+            evidence=db.training_evidence_for_user(str(member.id),sorted(applicable))
+            passed={
+                training_id for training_id,attempt in evidence.items()
+                if bool(attempt.get("passed"))
+            }
             completed=len(passed & applicable)
             percent=round(completed/len(applicable)*100) if applicable else 0
             cells=[]
             for course in courses:
                 if course["id"] not in applicable:
                     cells.append('<td class="px-3 py-2 text-center text-slate-300" aria-label="Nicht Teil des Lernpfads">—</td>')
-                elif course["id"] in passed:
-                    cells.append('<td class="px-3 py-2 text-center text-emerald-600 font-semibold" aria-label="Bestanden">✅</td>')
+                    continue
+                attempt=evidence.get(course["id"])
+                if attempt and bool(attempt.get("passed")):
+                    score=max(0,min(100,int(attempt.get("score",0) or 0)))
+                    level="Fortgeschritten" if score >= max(90,course["passing_score"]) else "Grundqualifikation"
+                    date=str(attempt.get("created_at") or "")[:10]
+                    cells.append(
+                        f'<td class="px-3 py-2 text-center" aria-label="{level} nachgewiesen">'
+                        f'<div class="text-emerald-600 font-semibold">✅ {level}</div>'
+                        f'<div class="text-[10px] text-slate-500">Prüfung {score}% · {esc(date)}</div></td>'
+                    )
+                elif attempt:
+                    score=max(0,min(100,int(attempt.get("score",0) or 0)))
+                    cells.append(
+                        f'<td class="px-3 py-2 text-center text-amber-600" aria-label="Prüfung noch nicht bestanden">'
+                        f'○ Offen<div class="text-[10px] text-slate-500">Letzter Nachweis: {score}%</div></td>'
+                    )
                 else:
-                    cells.append('<td class="px-3 py-2 text-center text-amber-600" aria-label="Noch offen">○</td>')
+                    cells.append('<td class="px-3 py-2 text-center text-amber-600" aria-label="Noch kein Prüfungsnachweis">○ Offen</td>')
             roles=", ".join(sorted({
                 str(getattr(live_roles.get(role_id),"name","Team"))
                 for role_id in {
@@ -426,8 +446,9 @@ def register(app):
             '<p class="text-sm text-slate-500">Noch keine passenden Lernpfade, veröffentlichten Schulungen oder Teammitglieder gefunden.</p>'
         )
         legend=(
-            '<p class="text-[11px] text-slate-500 mt-3">✅ bestanden · ○ im zugeordneten Lernpfad noch offen · — nicht zugeordnet. '
-            'Die Matrix bewertet ausschließlich dokumentierte bestandene Quizversuche und zeigt keine manuellen Kompetenzurteile.</p>'
+            '<p class="text-[11px] text-slate-500 mt-3">✅ Grundqualifikation nachgewiesen; Fortgeschritten ab 90 % oder der höheren Kurs-Mindestpunktzahl · '
+            '○ Prüfungsnachweis fehlt oder ist nicht bestanden · — nicht zugeordnet. '
+            'Jeder bestandene Eintrag enthält Ergebnis und Datum; die Stufe basiert ausschließlich auf dokumentierten Quizversuchen.</p>'
         )
         body=(
             '<div class="flex flex-wrap justify-between items-center gap-3 mb-5"><div>'
