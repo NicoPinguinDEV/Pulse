@@ -8,7 +8,6 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 import pulse_db
-import pulse_home
 import pulse_home_layouts as layouts
 import webserver as ws
 
