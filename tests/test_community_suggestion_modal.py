@@ -35,7 +35,7 @@ class CommunitySuggestionModalTests(unittest.TestCase):
             user=SimpleNamespace(id=42),
             response=SimpleNamespace(send_message=AsyncMock()),
         )
-        proposal = discord.app_commands.Choice(name="Besseres Menü", value="dcf_abc12345")
+        proposal = "dcf_abc12345"
         vote = discord.app_commands.Choice(name="👍 Dafür", value="for")
         with patch("pulse_community_feedback.cast_vote", return_value={
             "vote": "for", "for": 4, "against": 2,
