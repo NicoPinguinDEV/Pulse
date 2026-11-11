@@ -105,6 +105,16 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 - Unlesbare Datumsangaben zählen als abwesend – ein Ticket an eine abwesende Person ist der schlimmere Fehler.
 - Damit ist der Support-Bereich (#26–#40) vollständig: 15 / 0 / 0.
 
+## Block 9 – Discord-Community-Vorschlagsbox (#45, PR #217)
+
+- Branch: `feature/community-suggestion-discord-intake`; Draft-PR gegen `main`.
+- Neuer Slash-Befehl `/vorschlag` öffnet ein Discord-Modal mit Kategorie, Titel, Beschreibung und optionaler Anonymität.
+- Neue Tabelle `discord_community_feedback` mit zwingender `guild_id`; alle Lese- und Schreibabfragen sind servergebunden. Anonyme Vorschläge speichern weder Nutzer-ID noch Nutzernamen.
+- Führungskräfte desselben Servers erhalten eine Dashboard-Inbox-Benachrichtigung. Im vorhandenen `/ultimate/feedback`-Dashboard erscheinen Discord-Vorschläge separat; Status und interne Notiz werden über den bestehenden Review-Endpunkt aktualisiert, aber mit Guild-Prüfung auf die neue Tabelle geschrieben.
+- Audit: Die Statusbearbeitung wird mit Akteur, Server, Vorschlags-ID und Begründungsnotiz protokolliert. Eingaben und Ausgabelänge sind begrenzt; HTML-Ausgabe nutzt die vorhandene `esc`-Funktion.
+- Tests: `tests/test_community_feedback.py` prüft Guild-Isolation, Anonymisierung, Eingabegrenzen, Statuswechsel und Review-Zugriff; `tests/test_community_suggestion_modal.py` prüft den Slash-Command und das Modal.
+- #45 bleibt **Teilweise**, bis eine Community-Abstimmung und deren strukturierte Auswertung umgesetzt sind. Der Main-Auditstand bleibt 73 fertig / 103 teilweise / 1 offen; dieser Branch ist noch nicht gemergt.
+
 ## Prüfstand 11.11.2026
 
 - `main` = `cf7d866`, **nicht geschützt** (GitHub-API: `protected: false`, Issue #121 gilt weiter). Das ist eine
