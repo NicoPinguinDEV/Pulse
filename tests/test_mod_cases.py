@@ -84,10 +84,12 @@ class RuleTests(TempDb):
 
     def test_appeal_is_owner_scoped_unique_and_human_decided_without_changing_sanction(self):
         case = mc.create_case(1, member(300, 1), "ban", "Wiederholter Spam", "", None, member(200, 5))
+        self.assertIn(case["id"], [row["id"] for row in mc.list_appealable_cases()])
         appeal = mc.submit_appeal(
             1, 300, case["id"],
             "Ich möchte die Entscheidung prüfen lassen, weil wichtige Informationen fehlen.",
         )
+        self.assertNotIn(case["id"], [row["id"] for row in mc.list_appealable_cases()])
         self.assertEqual(appeal["status"], "pending")
         self.assertEqual(mc.list_appeals(1), [appeal])
         self.assertEqual(mc.list_appeals(2), [])
@@ -168,6 +170,28 @@ class CogTests(TempDb):
         asyncio.run(ModCases.__new__(ModCases)._execute(interaction, "timeout", target, "Spam im Chat", "", 30, respond))
         self.assertIn("verweigert", replies[0])
         self.assertEqual(mc.list_cases(3)[0]["status"], "failed")
+
+    def test_appeal_button_only_opens_for_the_affected_user(self):
+        from cogs.mod_cases import AppealView
+
+        bot = SimpleNamespace()
+        view = AppealView("MOD-123ABC", 1, 300, bot)
+        button = view.children[0]
+        self.assertEqual(button.custom_id, "pulse_mod:appeal:MOD-123ABC")
+
+        other_response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())
+        other = SimpleNamespace(user=SimpleNamespace(id=301), response=other_response)
+        asyncio.run(button.callback(other))
+        other_response.send_message.assert_awaited_once()
+        self.assertTrue(other_response.send_message.await_args.kwargs["ephemeral"])
+        other_response.send_modal.assert_not_awaited()
+
+        own_response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())
+        own = SimpleNamespace(user=SimpleNamespace(id=300), response=own_response)
+        with patch.object(mc, "can_submit_appeal", return_value={"case": {}, "deadline": datetime.now(timezone.utc)}):
+            asyncio.run(button.callback(own))
+        own_response.send_modal.assert_awaited_once()
+        self.assertTrue(own_response.send_modal.await_args.args[0].title.startswith("Moderationsentscheidung"))
 
     def test_expired_ban_is_lifted_once(self):
         from cogs.mod_cases import lift_expired_bans
