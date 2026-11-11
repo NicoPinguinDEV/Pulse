@@ -4,6 +4,8 @@ Rights are checked on every use (can_manage_tickets or admin); the data logic is
 """
 from __future__ import annotations
 
+import sqlite3
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -173,7 +175,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
         needle = str(current or "").strip().casefold()
         try:
             candidates = pulse_db.list_tickets(limit=2000)
-        except Exception:
+        except (sqlite3.Error, OSError):
             return []
         choices = []
         for candidate in candidates:
