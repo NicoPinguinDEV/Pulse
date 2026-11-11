@@ -1,12 +1,70 @@
 """Tests for evidence-linked, guild-scoped AutoMod false-positive feedback."""
+import asyncio
 import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pulse_db
 import pulse_automod_feedback as feedback
+
+
+class FeedbackCommandPermissionTests(unittest.TestCase):
+    def test_both_pulse_and_discord_moderation_permissions_are_required(self):
+        from cogs.automod import PulseAutoMod
+
+        class FakeMember:
+            def __init__(self, *, manage_messages=True, administrator=False):
+                self.id = 77
+                self.guild_permissions = SimpleNamespace(
+                    manage_messages=manage_messages,
+                    administrator=administrator,
+                )
+
+        async def allowed(pulse_perms, member):
+            interaction = SimpleNamespace(
+                guild=SimpleNamespace(id=1),
+                user=member,
+                response=SimpleNamespace(send_message=AsyncMock()),
+            )
+            cog = PulseAutoMod.__new__(PulseAutoMod)
+            with (
+                patch("cogs.automod.discord.Member", FakeMember),
+                patch("webserver.load_config", return_value={}),
+                patch("webserver.compute_perms", return_value=(pulse_perms, object())),
+            ):
+                result = await PulseAutoMod._feedback_access(cog, interaction)
+            return result, interaction
+
+        async def scenario():
+            ok, ok_interaction = await allowed(
+                {"can_moderate_kicks": True}, FakeMember()
+            )
+            self.assertTrue(ok)
+            ok_interaction.response.send_message.assert_not_awaited()
+
+            denied_pulse, pulse_interaction = await allowed(
+                {}, FakeMember()
+            )
+            self.assertFalse(denied_pulse)
+            pulse_interaction.response.send_message.assert_awaited_once()
+            self.assertTrue(pulse_interaction.response.send_message.await_args.kwargs["ephemeral"])
+
+            denied_discord, discord_interaction = await allowed(
+                {"can_moderate_kicks": True}, FakeMember(manage_messages=False)
+            )
+            self.assertFalse(denied_discord)
+            discord_interaction.response.send_message.assert_awaited_once()
+
+            admin, admin_interaction = await allowed(
+                {"is_admin": True}, FakeMember(administrator=True, manage_messages=False)
+            )
+            self.assertTrue(admin)
+            admin_interaction.response.send_message.assert_not_awaited()
+
+        asyncio.run(scenario())
 
 
 class FeedbackDbTests(unittest.TestCase):
