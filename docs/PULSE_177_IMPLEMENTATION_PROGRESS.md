@@ -70,6 +70,12 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 - Die Ticket-Zentrale zeigt Führungskräften die acht am stärksten belasteten Bearbeiter, prioritätsgewichtete Last und eine Warnung beim gleichen Kapazitätsgrenzwert, den die optionale automatische Zuweisung verwendet.
 - Die Übersicht ist nur für Ticket-Manager/Führungskräfte sichtbar. Keine Änderung der Zuständigkeiten, kein Datenbankschema und keine Discord-Aktion.
 - Tests prüfen Guild-Trennung, geschlossene/unzugewiesene Tickets, Prioritätsgewichtung, Limits und Sichtbarkeit.
+- PR #211 (Draft). Erster CI-Lauf rot: `test_viewers_do_not_receive_staff_workload_panel` verlangte, dass der Bearbeitername
+  nirgends auf der Seite steht – er steht aber regulär in der Ticketliste. Der Test prüft jetzt die Auslastungszahlen selbst,
+  zusätzlich: Auslastung wird für Nicht-Berechtigte gar nicht erst berechnet, Tickets fremder Guilds zählen nicht mit.
+- Korrektur der Bereichstabelle im Audit: Support hat 11 fertig / 4 teilweise (Summe war bereits richtig, die Zeile nicht).
+- Bekannte Abweichung: Alt-Tickets ohne `guild_id` erscheinen in der Liste, zählen aber – wie bei der automatischen Zuweisung –
+  nicht in der Auslastung.
 
 ## Nächste Arbeit
 

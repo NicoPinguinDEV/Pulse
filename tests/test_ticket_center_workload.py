@@ -53,7 +53,26 @@ class TicketCenterWorkloadTests(unittest.TestCase):
     def test_viewers_do_not_receive_staff_workload_panel(self):
         body = self.render({"can_view_dashboard": True})
         self.assertNotIn("Team-Auslastung", body)
-        self.assertNotIn("Alice", body)
+        # Der Bearbeitername steht weiterhin in der normalen Ticketliste; gesperrt sind
+        # nur die Auslastungszahlen und Kapazitätswarnungen je Person.
+        self.assertNotIn("Lastpunkte", body)
+        self.assertNotIn("2/2 offene Tickets", body)
+        self.assertNotIn("Kapazitätsgrenze", body)
+
+    def test_viewers_never_trigger_the_workload_calculation(self):
+        with patch("pulse_ticket_center.workload_snapshot") as snapshot:
+            self.render({"can_view_dashboard": True})
+        snapshot.assert_not_called()
+
+    def test_foreign_guild_tickets_do_not_count_towards_the_panel(self):
+        self.tickets.append(
+            {"id": "T-9", "guild_id": "2", "status": "open", "priority": "urgent",
+             "claimed_by_id": "77", "claimed_by_name": "Fremdserver-Mitarbeiter",
+             "user_name": "Spieler X", "category": "support",
+             "opened_at": "2026-11-11T10:02:00+00:00"})
+        body = self.render({"can_manage_tickets": True})
+        self.assertNotIn("Fremdserver-Mitarbeiter", body)
+        self.assertIn("2/2 offene Tickets", body)
 
 
 if __name__ == "__main__":

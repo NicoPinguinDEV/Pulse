@@ -30,7 +30,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 |---|---:|---:|---:|
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 2 | 1 |
 | Discord-Bot – Moderation und Sicherheit | 3 | 12 | 0 |
-| Discord-Bot – Tickets und Support | 10 | 5 | 0 |
+| Discord-Bot – Tickets und Support | 11 | 4 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 2 | 13 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 6 | 6 | 0 |

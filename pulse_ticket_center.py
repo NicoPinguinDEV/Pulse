@@ -70,7 +70,6 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
     tickets = [t for t in db.list_tickets(limit=2000) if str(t.get("guild_id")) in {"", "None", str(guild.id)}]
     rows = [(t, triage(t, now, settings)) for t in tickets]
     open_rows = [(t, i) for t, i in rows if i["state"] != "closed"]
-    workload = workload_snapshot(tickets, guild.id, distribution["max_open_per_staff"])
     counts = {key: sum(1 for t, i in rows if matches_filter(t, i, key, actor_id)) for key, _ in VIEWS}
 
     selected = [(t, i) for t, i in rows if matches_filter(t, i, view, actor_id)]
@@ -181,6 +180,8 @@ def render_ticket_center(ws, ctx, request, render_pro_page) -> str:
     stat_html = "".join(f'<div class="pulse-stat"><div class="icon">{i}</div><div class="label">{l}</div><div class="value">{v}</div></div>' for i, l, v in stats)
     workload_html = ""
     if manager:
+        # Auslastung je Person nur für Berechtigte berechnen (nicht bloß ausblenden).
+        workload = workload_snapshot(tickets, guild.id, distribution["max_open_per_staff"])
         workload_rows = []
         for member_load in workload["staff"]:
             name = e(member_load["name"])
