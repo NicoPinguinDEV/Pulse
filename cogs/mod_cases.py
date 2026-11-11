@@ -600,6 +600,22 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
+        try:
+            target_user = self.bot.get_user(int(appeal["target_id"])) or await self.bot.fetch_user(
+                int(appeal["target_id"])
+            )
+            outcome = (
+                "Dein Einspruch wurde angenommen. Die Leitung prüft eine gegebenenfalls notwendige "
+                "separate Moderationsänderung."
+                if appeal["status"] == "accepted"
+                else "Dein Einspruch wurde abgelehnt. Die ursprüngliche Moderationsentscheidung bleibt bestehen."
+            )
+            await target_user.send(
+                f"📬 **Update zu deinem Einspruch {appeal['case_id']}**\n{outcome}",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except (discord.Forbidden, discord.HTTPException, ValueError):
+            print(f"ℹ️ Entscheidung zu Einspruch {appeal['case_id']} gespeichert; Betroffener konnte nicht per DM erreicht werden.")
 
     @app_commands.command(name="akte", description="Moderationsfälle einer Person anzeigen.")
     async def akte(self, interaction: discord.Interaction, mitglied: discord.User):
@@ -646,7 +662,12 @@ async def lift_expired_bans(bot) -> int:
 async def setup(bot: commands.Bot):
     await bot.add_cog(ModCases(bot))
     # Re-register the buttons in already-delivered moderation DMs after a restart.
-    for case in mc.list_appealable_cases(limit=1000):
+    try:
+        appeal_cases = mc.list_appealable_cases(limit=1000)
+    except Exception as exc:
+        print(f"⚠️ Persistente Einspruchsbuttons konnten nicht geladen werden ({type(exc).__name__}).")
+        appeal_cases = []
+    for case in appeal_cases:
         try:
             bot.add_view(AppealView(case["id"], int(case["guild_id"]), int(case["target_id"]), bot))
         except (TypeError, ValueError):
