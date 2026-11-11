@@ -171,6 +171,14 @@ def update_feedback(guild_id, feedback_id, status: str, manager_note: str, revie
     now = pulse_db._now()
     with pulse_db.connect() as connection:
         _ensure_table(connection)
+        existing = connection.execute(
+            "SELECT kind FROM discord_community_feedback WHERE id=? AND guild_id=?",
+            (feedback_id, str(guild_id)),
+        ).fetchone()
+        if existing is None:
+            raise KeyError("Der Vorschlag wurde in diesem Server nicht gefunden.")
+        if status == "voting" and existing["kind"] != "suggestion":
+            raise ValueError("Nur Community-Vorschläge können zur Abstimmung freigegeben werden.")
         cursor = connection.execute(
             """
             UPDATE discord_community_feedback
