@@ -246,7 +246,7 @@ _SECTION_KEYS = {
     "⚠ Moderation": "section_moderation",
     "🛡 Führung": "section_leadership",
     "⚙ Einrichtung & Wartung": "section_setup",
-
+}
 
 
 def translate(locale, key: str, **values) -> str:
