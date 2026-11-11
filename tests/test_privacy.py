@@ -387,11 +387,15 @@ class RetentionTests(unittest.TestCase):
         author_export = pulse_retention.export_person(ws, author_id)
         reviewer_export = pulse_retention.export_person(ws, reviewer_id)
         unrelated_export = pulse_retention.export_person(ws, "100000000000000199")
+        pulse_community_feedback.cast_vote("1", saved["id"], "100000000000000143", "for")
+        voter_export = pulse_retention.export_person(ws, "100000000000000143")
 
         author_rows = author_export["databases"]["pulse.db"]["discord_community_feedback"]
         reviewer_rows = reviewer_export["databases"]["pulse.db"]["discord_community_feedback"]
         self.assertEqual([row["id"] for row in author_rows], [saved["id"]])
         self.assertEqual([row["id"] for row in reviewer_rows], [saved["id"]])
+        voter_rows = voter_export["databases"]["pulse.db"]["discord_community_feedback_votes"]
+        self.assertEqual([row["feedback_id"] for row in voter_rows], [saved["id"]])
         self.assertNotIn(
             "discord_community_feedback",
             unrelated_export.get("databases", {}).get("pulse.db", {}),
