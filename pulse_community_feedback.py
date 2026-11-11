@@ -5,7 +5,7 @@ import re
 
 import pulse_db
 
-_FEEDBACK_STATUSES = {"new", "reviewing", "planned", "done", "rejected"}
+_FEEDBACK_STATUSES = {"new", "reviewing", "voting", "planned", "done", "rejected"}
 _CATEGORY_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
 MAX_TITLE_LENGTH = 120
 MAX_CONTENT_LENGTH = 3000
@@ -36,6 +36,25 @@ def _ensure_table(connection) -> None:
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_discord_community_feedback_guild "
         "ON discord_community_feedback(guild_id, status, created_at DESC)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS discord_community_feedback_votes (
+            id TEXT PRIMARY KEY,
+            guild_id TEXT NOT NULL,
+            feedback_id TEXT NOT NULL,
+            voter_id TEXT NOT NULL,
+            vote TEXT NOT NULL CHECK(vote IN ('for', 'against')),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(guild_id, feedback_id, voter_id),
+            FOREIGN KEY(feedback_id) REFERENCES discord_community_feedback(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_discord_community_feedback_votes "
+        "ON discord_community_feedback_votes(guild_id, feedback_id, vote)"
     )
 
 
@@ -148,3 +167,109 @@ def update_feedback(guild_id, feedback_id, status: str, manager_note: str, revie
             (feedback_id, str(guild_id)),
         ).fetchone()
     return dict(row)
+
+
+
+def vote_counts(guild_id, feedback_id) -> dict:
+    """Return aggregated votes for a suggestion from its originating guild only."""
+    if guild_id is None or feedback_id is None:
+        return {"for": 0, "against": 0}
+    with pulse_db.connect() as connection:
+        _ensure_table(connection)
+        rows = connection.execute(
+            """
+            SELECT vote, COUNT(*) AS total
+            FROM discord_community_feedback_votes
+            WHERE guild_id=? AND feedback_id=?
+            GROUP BY vote
+            """,
+            (str(guild_id), str(feedback_id)),
+        ).fetchall()
+    counts = {"for": 0, "against": 0}
+    for row in rows:
+        if row["vote"] in counts:
+            counts[row["vote"]] = int(row["total"])
+    return counts
+
+
+def list_voting_feedback(guild_id, limit: int = 25) -> list[dict]:
+    """List only leadership-approved polls currently open for voting in this guild."""
+    if guild_id is None:
+        return []
+    try:
+        bounded = max(1, min(int(limit), 25))
+    except (TypeError, ValueError):
+        bounded = 25
+    with pulse_db.connect() as connection:
+        _ensure_table(connection)
+        rows = connection.execute(
+            """
+            SELECT * FROM discord_community_feedback
+            WHERE guild_id=? AND status='voting'
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (str(guild_id), bounded),
+        ).fetchall()
+        result = []
+        for raw in rows:
+            row = dict(raw)
+            counts = connection.execute(
+                """
+                SELECT vote, COUNT(*) AS total FROM discord_community_feedback_votes
+                WHERE guild_id=? AND feedback_id=? GROUP BY vote
+                """,
+                (str(guild_id), row["id"]),
+            ).fetchall()
+            row["votes_for"] = 0
+            row["votes_against"] = 0
+            for item in counts:
+                if item["vote"] == "for":
+                    row["votes_for"] = int(item["total"])
+                elif item["vote"] == "against":
+                    row["votes_against"] = int(item["total"])
+            result.append(row)
+    return result
+
+
+def cast_vote(guild_id, feedback_id, voter_id, vote: str) -> dict:
+    """Cast or change one member's vote on a suggestion opened for voting in this guild."""
+    if guild_id is None or voter_id is None:
+        raise ValueError("Server und abstimmende Person müssen eindeutig sein.")
+    guild = str(guild_id).strip()
+    voter = str(voter_id).strip()
+    choice = str(vote or "").strip().lower()
+    if not guild.isdigit() or not voter.isdigit():
+        raise ValueError("Ungültige Server- oder Nutzer-ID.")
+    if choice not in {"for", "against"}:
+        raise ValueError("Bitte Dafür oder Dagegen auswählen.")
+    now = pulse_db._now()
+    with pulse_db.connect() as connection:
+        _ensure_table(connection)
+        suggestion = connection.execute(
+            "SELECT id FROM discord_community_feedback WHERE id=? AND guild_id=? AND status='voting'",
+            (str(feedback_id), guild),
+        ).fetchone()
+        if suggestion is None:
+            raise KeyError("Der Vorschlag ist nicht (mehr) zur Abstimmung freigegeben.")
+        connection.execute(
+            """
+            INSERT INTO discord_community_feedback_votes(
+                id, guild_id, feedback_id, voter_id, vote, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(guild_id, feedback_id, voter_id)
+            DO UPDATE SET vote=excluded.vote, updated_at=excluded.updated_at
+            """,
+            (pulse_db.make_id("dcv"), guild, str(feedback_id), voter, choice, now, now),
+        )
+        rows = connection.execute(
+            """
+            SELECT vote, COUNT(*) AS total FROM discord_community_feedback_votes
+            WHERE guild_id=? AND feedback_id=? GROUP BY vote
+            """,
+            (guild, str(feedback_id)),
+        ).fetchall()
+    counts = {"for": 0, "against": 0}
+    for row in rows:
+        counts[row["vote"]] = int(row["total"])
+    return {"vote": choice, **counts}
