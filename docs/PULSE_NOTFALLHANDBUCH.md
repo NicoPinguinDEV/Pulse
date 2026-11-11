@@ -128,7 +128,7 @@ Pulse-Systemdiagnosen führen für vorhandene SQLite-Datenbanken einen lesenden 
 2. Aktuelle Dateien und Backups nicht löschen. Vor Restore einen vollständigen Sicherungsstand des aktuellen Zustands erstellen.
 3. Backup-Integrität und Manifest prüfen; Restore-Vorschau nutzen. Die Vorschau muss vor dem Restore zeigen, welche Dateien/Tabellen geändert würden.
 4. Restore zuerst in einer isolierten Testumgebung mit synthetischen Daten üben. Bei laufendem Produktivbetrieb niemals Test-Restore in das Live-Datenverzeichnis schreiben.
-5. Produktiv-Restore nur mit ausdrücklicher Freigabe, dokumentiertem Quellbackup, Zielverzeichnis und Rückfallplan.
+5. Produktiv-Restore nur nach ausdrücklicher Freigabe (eine Freigabe durch Incident Lead/Betreiber ist Pflicht), mit dokumentiertem Quellbackup, Zielverzeichnis und Rückfallplan.
 6. Nach Restore Datenintegritätsprüfungen, Healthcheck und fachliche Stichproben durch berechtigte Personen durchführen. Keine personenbezogenen Inhalte in das Incident-Protokoll kopieren.
 
 ### 6.4 Sicherheits- oder Credential-Vorfall
