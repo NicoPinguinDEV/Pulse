@@ -253,6 +253,23 @@ def classify_message(content: str, *, rules: Iterable[str], **kwargs) -> str | N
     return hits[0][0] if hits else None
 
 
+def _normalize_automod_rule_exemptions(raw) -> dict:
+    """Keep only known AutoMod rules and bounded, positive role/channel IDs."""
+    values = raw.get("rule_exemptions")
+    if not isinstance(values, dict):
+        return {}
+    normalized = {}
+    for rule in AUTOMOD_RULE_ORDER:
+        entry = values.get(rule)
+        if not isinstance(entry, dict):
+            continue
+        role_ids = _ids(entry.get("role_ids"))
+        channel_ids = _ids(entry.get("channel_ids"))
+        if role_ids or channel_ids:
+            normalized[rule] = {"role_ids": role_ids, "channel_ids": channel_ids}
+    return normalized
+
+
 def normalize_automod(raw) -> dict:
     """Complete, bounded AutoMod configuration. Missing keys get the documented defaults."""
     raw = raw if isinstance(raw, dict) else {}
@@ -275,15 +292,7 @@ def normalize_automod(raw) -> dict:
         "allowed_domains": _strings(raw.get("allowed_domains")),
         "exempt_role_ids": _ids(raw.get("exempt_role_ids")),
         "exempt_channel_ids": _ids(raw.get("exempt_channel_ids")),
-        "rule_exemptions": {
-            rule: {
-                "role_ids": _ids(entry.get("role_ids")),
-                "channel_ids": _ids(entry.get("channel_ids")),
-            }
-            for rule in AUTOMOD_RULE_ORDER
-            if isinstance((entry := (raw.get("rule_exemptions") or {}).get(rule) if isinstance(raw.get("rule_exemptions"), dict) else None), dict)
-            and (_ids(entry.get("role_ids")) or _ids(entry.get("channel_ids")))
-        },
+        "rule_exemptions": _normalize_automod_rule_exemptions(raw),
         "warn_dm": bool(raw.get("warn_dm", True)),
         "timeout_after_strikes": _bounded_int(raw.get("timeout_after_strikes"), 2, 1, 10),
         "timeout_minutes": timeout_minutes,
