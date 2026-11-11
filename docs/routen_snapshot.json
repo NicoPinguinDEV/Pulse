@@ -133,6 +133,7 @@
  "GET /team/{user_id}/roles -> webserver.team_role_manager",
  "GET /ticket/transcript/{filename} -> pulse_features.register.<locals>.ticket_transcript",
  "GET /ticket/{ticket_id} -> pulse_pro.register.<locals>.ticket_detail_v5",
+ "GET /ticket/{ticket_id}/summary -> pulse_pro.register.<locals>.ticket_summary_v5",
  "GET /tickets -> pulse_pro.register.<locals>.tickets_v5",
  "GET /tickets/panels -> webserver.pulse_tickets_dashboard",
  "GET /tickets/panels/media/{filename} -> webserver.pulse_ticket_panel_media",

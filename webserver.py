@@ -35,6 +35,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 import pulse_public_site
+import pulse_summaries
 import discord
 from pulse_discord_style import send_styled
 from pulse_embed_design import color as _pulse_color
@@ -8625,6 +8626,8 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     f'<details class="mt-3"><summary class="cursor-pointer text-xs font-semibold text-indigo-600 dark:text-indigo-300">'
                     f'Online-Testantworten anzeigen</summary><div class="grid gap-2 mt-3">{"".join(detail_parts)}</div></details>'
                 )
+        # #135: structured overview for reviewers only – facts and quotes, never a rating or recommendation.
+        application_summary_html = pulse_summaries.application_summary_html(item) if can_review else ""
         practical_answers = item.get("practical_answers", []) if can_review else []
         practical_review_html = ""
         if practical_answers:
@@ -8747,6 +8750,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
             </div>
             {duplicate_notice}
             {f'<p class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#0b0e14] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800/80 whitespace-pre-wrap break-words">{esc(item.get("text"))}</p>' if can_review else '<p class="text-xs text-slate-500">Motivation, Testantworten und interne Bewertungen sind nur für Recruiting-Berechtigte sichtbar.</p>'}
+            {application_summary_html}
             {review_summary_html}
             {test_review_html}
             {practical_review_html}

@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktualisierter Umsetzungsnachweis:** `main` bei `be60982` (PRs #190–#198, #200, #201 gemergt) plus Workflow-Block (#144, #145, #148, #149). Fortschritt, Phasen und nächste Blöcke: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktualisierter Umsetzungsnachweis:** `main` bei `be60982` (PRs #190–#198, #200, #201 gemergt) plus Workflow-Block (#144, #145, #148, #149, PR #202) und Zusammenfassungs-Block (#36, #134, #135). Fortschritt, Phasen und nächste Blöcke: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,9 +19,9 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 58 |
-| Teilweise | 110 |
-| Offen | 9 |
+| Fertig | 61 |
+| Teilweise | 108 |
+| Offen | 8 |
 | **Gesamt** | **177** |
 
 ## Ergebnis nach Bereichen
@@ -30,7 +30,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 |---|---:|---:|---:|
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 2 | 1 |
 | Discord-Bot – Moderation und Sicherheit | 2 | 12 | 1 |
-| Discord-Bot – Tickets und Support | 9 | 6 | 0 |
+| Discord-Bot – Tickets und Support | 10 | 5 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 2 | 13 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 4 | 9 | 2 |
 | Teamverwaltung und Mitarbeiterakten | 4 | 6 | 2 |
@@ -38,7 +38,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Bewerbungen und Recruiting | 3 | 8 | 0 |
 | Academy und Wissensmanagement | 4 | 6 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
-| Pulse Intelligence | 3 | 10 | 2 |
+| Pulse Intelligence | 5 | 9 | 1 |
 | Automatisierungen und Workflow-System | 9 | 3 | 0 |
 | Admin Center, Sicherheit und Betrieb | 8 | 12 | 0 |
 | BOCHUM-RP-spezifische Funktionen | 0 | 5 | 0 |
@@ -94,7 +94,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 33 | Tickets miteinander verknüpfen | **Fertig** | Persistente bidirektionale Verknüpfungen gleicher Guild mit `/ticket verknuepfen`, `/ticket verknuepfungen`, `/ticket trennen`; Dubletten-/Selbst-/Cross-Guild-Schutz, interne Notiz, Backup und personenbezogener Export. Tests: `tests/test_ticket_extras.py`, `tests/test_privacy.py`. |
 | 34 | Freiwillige Ticket-Zufriedenheit | **Fertig** | Ticket-Rating-Endpunkt und Auswertung vorhanden; `tests/test_ticket_extras.py` prüft Rating-Report. Voice-Support besitzt zusätzlich eigene Bewertungen. |
 | 35 | Abgeschlossene Tickets wiedereröffnen | **Teilweise** | Wiederöffnungs-Ereignisse und Dashboard-Aktionsbezeichnungen existieren; ein vollständiger, getesteter Wiedereröffnungsprozess mit Frist und Berechtigungen ist nicht ausreichend belegt. |
-| 36 | Ticket-Zusammenfassung | **Teilweise** | `/ticket zusammenfassung` erstellt lokal eine extraktive Übergabe (Kernaussagen, Beteiligte, Umfang) und kann sie als interne Notiz speichern; `pulse_ticket_extras.build_ticket_summary`, `tests/test_ticket_extras.py`. Es fehlen: offene Fragen, erledigte Schritte, nächster Schritt, Dashboard-Ansicht. Befund: Zeilenumbrüche in `cogs/ticket_tools.py` sind doppelt maskiert (`\\n`) und erscheinen in Discord als Text. |
+| 36 | Ticket-Zusammenfassung | **Fertig** | `/ticket zusammenfassung` liefert privat eine Übergabe mit Sachstand, offenen Fragen, erledigten Schritten, Beteiligten und nächstem Schritt, optional als interne Notiz. `pulse_summaries.py`, `cogs/ticket_tools.py`; `tests/test_summaries.py`. PR: Zusammenfassungs-Block. Einschränkung: ausgewertet werden die letzten 100 Textnachrichten. |
 | 37 | Automatische Ticket-Triage | **Fertig** | `pulse_ticket_triage.py` bewertet Wartezeit, Priorität und Zuständigkeit; `tests/test_pulse_ticket_triage.py`. |
 | 38 | Ticket-Statistiken | **Fertig** | `/ticketstats`, Ticketcenter, Rating-Report und Analytics stellen Ticketkennzahlen bereit. |
 | 39 | Support-Warteschlange | **Fertig** | Voice-Warteschlange mit Position, Status und Übernahme sowie Ticket-Wartestatus sind vorhanden; `tests/test_voice_queue.py`. |
@@ -232,8 +232,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 131 | Automatische Wochenberichte | **Teilweise** | Wochenkennzahlen und Reports existieren; automatischer Wochenbericht mit Trendvergleich und Datenquellen fehlt. |
 | 132 | Führungskräfte-Assistent | **Teilweise** | `/ultimate/copilot` beantwortet begrenzte Fragen auf Basis lokaler Kennzahlen; keine vollständige Abfrage über alle autorisierten Pulse-Daten. |
 | 133 | Wissensassistent mit Quellenangaben | **Teilweise** | Support Assistant nutzt freigegebene Wissensdateien; Quellzitate/Versionen je Antwort fehlen. |
-| 134 | Ticket-Zusammenfassungen | **Teilweise** | Lokale Zusammenfassung existiert nur als Discord-Befehl (siehe #36); eine einheitliche Funktion für Discord und Dashboard mit Sachstand, offenen Fragen, Schritten, Beteiligten und nächstem Schritt fehlt. |
-| 135 | Bewerbungs-Zusammenfassungen | **Offen** | Keine eigene, überprüfbare Zusammenfassung von Bewerbungsantworten gefunden. |
+| 134 | Ticket-Zusammenfassungen | **Fertig** | Eine gemeinsame lokale Funktion (`pulse_summaries.summarize_ticket`) für Discord und Dashboard (`GET /ticket/{id}/summary`, offene Tickets aus dem Kanal, geschlossene aus dem Transkript); rein extraktiv, jede Aussage mit Quelle. `pulse_summaries.py`, `pulse_pro.py`; `tests/test_summaries.py`. PR: Zusammenfassungs-Block. |
+| 135 | Bewerbungs-Zusammenfassungen | **Fertig** | Strukturierte Übersicht je Bewerbung nur für Recruiting-Berechtigte (Umfang, Kernsätze als Zitat, Praxisaufgaben, vorhandenes Testergebnis, Hinweise zur Vollständigkeit) – ohne Bewertung, Rangfolge oder Empfehlung. `pulse_summaries.py`, `webserver.py`; `tests/test_summaries.py`. PR: Zusammenfassungs-Block. Einschränkung: nur im Dashboard. |
 | 136 | Automatischer Schichtübergabe-Entwurf | **Teilweise** | Manuelle Übergaben sind vorhanden; automatische Entwürfe aus offenen Tickets, Aufgaben und Ereignissen fehlen. |
 | 137 | Datenbasierte Warnhinweise | **Teilweise** | Pulse Intelligence erzeugt erklärbare Findings; Abdeckung und Schwellwerte sind noch begrenzt. |
 | 138 | Was-wäre-wenn-Simulation | **Fertig** | Read-only Simulatoren und Workflow-Sandbox ohne Ausführung; `tests/test_pulse_intelligence.py`. |
@@ -298,7 +298,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 2. **Einige frühere Einschätzungen waren zu pessimistisch.** `pulse_ultimate.py` enthält echte Routen und Datenmodelle für Abteilungen, Fälle, Kalender, Umfragen, Feedback, Übergaben, Awards, Zertifikate und Automationen.
 3. **Einige dieser Ultimate-Bereiche haben wenig direkte Verhaltenstest-Abdeckung.** Sie werden deshalb in diesem Audit meist als **Teilweise** eingestuft, bis die kritischen Rechte-, Daten- und Fehlerpfade durch Tests abgesichert sind.
 4. **Die gemeinsamen Plattformfunktionen sind der größte Integrationsrückstand.** Korrelations-IDs, Inbox, Audit, Rechte und Events existieren jeweils in Teilen, sind aber noch nicht vollständig über alle Module vereinheitlicht.
-5. **Noch offen (9):** #10 Mehrsprachigkeit, #17 AutoMod-Testmodus, #61 gespeicherte Filter, #69 benutzerdefinierte Ansichten, #80 Kompetenzmatrix, #82 Arbeitslastverteilung, #84 Schichttausch, #128 Personalbedarfsprognose, #135 Bewerbungs-Zusammenfassungen.
+5. **Noch offen (8):** #10 Mehrsprachigkeit, #17 AutoMod-Testmodus, #61 gespeicherte Filter, #69 benutzerdefinierte Ansichten, #80 Kompetenzmatrix, #82 Arbeitslastverteilung, #84 Schichttausch, #128 Personalbedarfsprognose.
 6. **Das Audit ist kein Deployment.** Der VPS kann weiterhin einen älteren Commit ausführen, bis ein gesondert freigegebener Deployment-Schritt durchgeführt wird.
 
 ## Technische Hauptbelege

@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Lokale Zusammenfassungen für Tickets und Bewerbungen (November 2026)
+
+- **Ticket-Übergabe (#36/#134):** `/ticket zusammenfassung` und die neue Dashboard-Seite „Übergabe-Zusammenfassung“ am Ticket nutzen dieselbe lokale Logik: bisheriger Sachstand, offene Fragen, bereits durchgeführte Schritte, beteiligte Personen und nächster sinnvoller Schritt – jeweils mit Quelle. Offene Tickets werden aus dem Kanal gelesen, geschlossene aus dem Transkript. Keine externe KI.
+- **Bewerbungen (#135):** Recruiting-Berechtigte sehen je Bewerbung eine strukturierte Übersicht (Umfang, Kernsätze als Zitat, Praxisaufgaben, vorhandenes Testergebnis, Hinweise zur Vollständigkeit). Sie bewertet nicht und empfiehlt nichts.
+- **Fehlerbehebung:** In mehreren `/ticket`-Antworten (Verknüpfungen, ähnliche Tickets, Zusammenfassung) erschienen Zeilenumbrüche als Text `\n`.
+
 ## Workflow-System: Versionen, Wiederholungen, mehrstufige Freigaben (November 2026)
 
 - **Versionierung (#149):** Jede geänderte Automation wird als unveränderliche Version gespeichert (Datenbank-Trigger verhindern Ändern und Löschen). Unter „Versionen“ gibt es Verlauf, Feldvergleich und Wiederherstellen. Wiederherstellen legt eine neue Version an, prüft die alte Definition mit den heutigen Regeln und Rechten und pausiert die Automation.
