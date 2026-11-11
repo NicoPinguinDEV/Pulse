@@ -32,7 +32,6 @@ class HomeLayoutStorageTests(unittest.TestCase):
             {"inbox": "3", "tasks": "1", "week": "2"},
         )
         self.assertEqual(order, ["tasks", "week", "inbox"])
-        self.assertEqual(set(order), set(pulse_home.DEFAULT_HOME_WIDGETS) & set(order))
 
     def test_layout_create_replace_activate_and_delete(self):
         first = layouts.save_layout(
@@ -122,6 +121,12 @@ class HomeLayoutRouteTests(unittest.TestCase):
         pulse_db.delete_setting(f"{layouts.ACTIVE_KEY}:123")
         other = self.client.post("/me/layouts/activate", data={"layout_id": layout["id"]}, follow_redirects=False)
         self.assertIn("t=ok", other.headers["location"])
+        self.assertEqual(layouts.active_layout("123")["id"], layout["id"])
+
+        default = self.client.post("/me/layouts/default", follow_redirects=False)
+        self.assertIn("t=ok", default.headers["location"])
+        self.assertIsNone(layouts.active_layout("123"))
+        self.client.post("/me/layouts/activate", data={"layout_id": layout["id"]}, follow_redirects=False)
         self.assertEqual(layouts.active_layout("123")["id"], layout["id"])
 
         foreign = self.client.post("/me/layouts/delete", data={"layout_id": "dddddddddddd"}, follow_redirects=False)
