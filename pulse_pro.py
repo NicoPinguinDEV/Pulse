@@ -2084,7 +2084,13 @@ def register(app):
             col_parts.append(f'<div class="space-y-2"><div class="flex items-center justify-between mb-2"><div class="pulse-section-title">{title}</div>{pill(str(len(cols[k])))}</div>{content}</div>')
         cols_html=''.join(col_parts)
         form_html=f'<form action="/tasks/create" method="post" class="space-y-3"><input name="title" required maxlength="120" class="pulse-input" placeholder="Aufgabe"><select name="assignee_id" class="pulse-input"><option value="">Niemand</option>{opts}</select><select name="priority" class="pulse-input"><option value="normal">🟢 Normal</option><option value="high">🟠 Hoch</option><option value="urgent">🚨 Dringend</option><option value="low">⚪ Niedrig</option></select><input type="datetime-local" name="due_at" class="pulse-input"><textarea name="description" maxlength="600" class="pulse-input pulse-textarea" placeholder="Beschreibung"></textarea><button class="pulse-btn primary w-full">□ Aufgabe erstellen</button></form>' if manager else ''; form=card('Neue Aufgabe',form_html,'□') if manager else ''
-        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">□ Aufgaben</div><div class="pulse-section-sub">Klarer Verantwortlicher, klare Frist, klare Übergabe.</div></div><a href="/handover" class="pulse-btn ghost">↪ Übergabe</a></div>{form}<div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-5">{cols_html}</div>'''
+        distribute_form=(
+            '<form action="/tasks/distribute" method="post">'
+            '<button class="pulse-btn ghost" type="submit">⚖ Unzugewiesene Aufgaben fair verteilen</button>'
+            '<p class="text-[10px] text-slate-500 mt-1">Nur unzugewiesene Aufgaben · offene Tickets fließen in die Belastung ein · bestehende Zuständigkeiten bleiben erhalten</p></form>'
+            if manager else ""
+        )
+        body=f'''<div class="pulse-topbar"><div><div class="pulse-section-title">□ Aufgaben</div><div class="pulse-section-sub">Klarer Verantwortlicher, klare Frist, klare Übergabe.</div></div><div class="flex flex-wrap items-center gap-2"><a href="/handover" class="pulse-btn ghost">↪ Übergabe</a>{distribute_form}</div></div>{form}<div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-5">{cols_html}</div>'''
         return render_pro_page(ws,'Aufgaben',c,'tasks',body)
 
     async def update_task_v5(request: Request, task_id: str=Form(...), status: str=Form(...), priority: str=Form(None), due_at: str=Form(None), assignee_id: str=Form(None), user_session: str=Cookie(None)):

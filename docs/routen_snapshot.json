@@ -340,6 +340,7 @@
  "POST /suite/tasks/{task_id}/move -> cogs.pulse_suite.register_routes.<locals>.task_move",
  "POST /suite/training/assign -> cogs.pulse_suite.register_routes.<locals>.training_assign",
  "POST /tasks/create -> pulse_features.register.<locals>.task_create",
+ "POST /tasks/distribute -> pulse_features.register.<locals>.tasks_distribute",
  "POST /tasks/update -> pulse_pro.register.<locals>.update_task_v5",
  "POST /team-status/set -> pulse_pro.register.<locals>.set_team_status",
  "POST /team/{user_id}/roles -> webserver.team_role_manager_save",
