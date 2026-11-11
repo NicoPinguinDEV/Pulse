@@ -2,7 +2,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import discord
 
@@ -28,6 +28,62 @@ class CommunitySuggestionModalTests(unittest.TestCase):
         self.assertTrue(modal.anonymous)
         self.assertEqual(modal.suggestion_title.max_length, 120)
         self.assertEqual(modal.suggestion_content.max_length, 3000)
+
+    def test_member_can_vote_and_receives_private_tally(self):
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(id=100),
+            user=SimpleNamespace(id=42),
+            response=SimpleNamespace(send_message=AsyncMock()),
+        )
+        proposal = discord.app_commands.Choice(name="Besseres Menü", value="dcf_abc12345")
+        vote = discord.app_commands.Choice(name="👍 Dafür", value="for")
+        with patch("pulse_community_feedback.cast_vote", return_value={
+            "vote": "for", "for": 4, "against": 2,
+        }):
+            asyncio.run(PulseSuite.vorschlag_abstimmen.callback(
+                None, interaction, proposal, vote
+            ))
+        interaction.response.send_message.assert_awaited_once()
+        kwargs = interaction.response.send_message.await_args.kwargs
+        self.assertTrue(kwargs["ephemeral"])
+        self.assertIn("4", kwargs["embed"].description)
+        self.assertIn("2", kwargs["embed"].description)
+
+    def test_open_poll_list_is_visible_to_the_server(self):
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(id=100),
+            response=SimpleNamespace(send_message=AsyncMock()),
+        )
+        rows = [{
+            "id": "dcf_abc12345",
+            "title": "Besseres Menü",
+            "category": "gameplay",
+            "content": "Ein Vorschlag mit ausreichend langer Beschreibung.",
+            "votes_for": 4,
+            "votes_against": 2,
+        }]
+        with patch("pulse_community_feedback.list_voting_feedback", return_value=rows):
+            asyncio.run(PulseSuite.vorschlaege.callback(None, interaction))
+        kwargs = interaction.response.send_message.await_args.kwargs
+        self.assertFalse(kwargs["ephemeral"])
+        self.assertIn("Besseres Menü", kwargs["embed"].fields[0].name)
+        self.assertIn("Dafür", kwargs["embed"].fields[0].value)
+
+    def test_vote_autocomplete_is_guild_scoped(self):
+        interaction = SimpleNamespace(guild=SimpleNamespace(id=100))
+        rows = [{
+            "id": "dcf_abc12345",
+            "title": "Besseres Menü",
+            "category": "gameplay",
+            "votes_for": 4,
+            "votes_against": 2,
+        }]
+        with patch("pulse_community_feedback.list_voting_feedback", return_value=rows) as listing:
+            choices = asyncio.run(
+                PulseSuite.vorschlag_vote_autocomplete(None, interaction, "menü")
+            )
+        listing.assert_called_once_with(100, limit=25)
+        self.assertEqual([item.value for item in choices], ["dcf_abc12345"])
 
     def test_command_rejects_direct_messages(self):
         interaction = SimpleNamespace(
