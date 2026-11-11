@@ -1399,10 +1399,12 @@ def legacy_suite_ticket_action(message,custom_id):
 class CommunitySuggestionModal(discord.ui.Modal, title="BOCHUM RP · Community-Vorschlag"):
     """Collect a Discord suggestion and store it for the originating guild only."""
 
-    def __init__(self, category: str, anonymous: bool):
-        super().__init__(timeout=300)
+    def __init__(self, category: str, anonymous: bool, kind: str = "suggestion"):
+        heading = "Community-Vorschlag" if kind == "suggestion" else "Community-Feedback"
+        super().__init__(title=f"BOCHUM RP · {heading}", timeout=300)
         self.category = str(category or "general")
         self.anonymous = bool(anonymous)
+        self.kind = kind
         self.suggestion_title = discord.ui.TextInput(
             label="Titel", placeholder="Worum geht es?", min_length=3, max_length=120
         )
@@ -1433,6 +1435,7 @@ class CommunitySuggestionModal(discord.ui.Modal, title="BOCHUM RP · Community-V
                 str(self.suggestion_title.value),
                 str(self.suggestion_content.value),
                 anonymous=self.anonymous,
+                kind=self.kind,
             )
         except ValueError as exc:
             await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
@@ -1459,11 +1462,12 @@ class CommunitySuggestionModal(discord.ui.Modal, title="BOCHUM RP · Community-V
         except Exception as exc:
             print(f"Community suggestion notification failed: {type(exc).__name__}")
         visibility = "anonym eingereicht" if self.anonymous else "eingereicht"
+        noun = "Vorschlag" if self.kind == "suggestion" else "Feedback"
         embed = discord.Embed(
-            title="✅ Vorschlag gespeichert",
+            title=f"✅ {noun} gespeichert",
             description=(
-                f"Dein Vorschlag **{discord.utils.escape_markdown(row['title'])}** wurde {visibility}.\n"
-                "Die Führung kann ihn im Pulse-Dashboard unter Feedback prüfen."
+                f"Dein {noun.lower()} **{discord.utils.escape_markdown(row['title'])}** wurde {visibility}.\n"
+                "Die Führung kann es im Pulse-Dashboard unter Feedback prüfen."
             ),
             color=_pulse_color("success"),
         )
@@ -2144,6 +2148,38 @@ class PulseSuite(commands.Cog):
             )
             return
         await interaction.response.send_modal(CommunitySuggestionModal(kategorie.value, anonym))
+
+    @app_commands.command(
+        name="feedback",
+        description="Reiche anonym oder mit Namen Feedback zu BOCHUM RP ein.",
+    )
+    @app_commands.describe(
+        kategorie="Thema deines Feedbacks",
+        anonym="Dein Name wird nicht in der Feedbackübersicht angezeigt",
+    )
+    @app_commands.choices(kategorie=[
+        app_commands.Choice(name="Allgemein", value="general"),
+        app_commands.Choice(name="Gameplay / Roleplay", value="gameplay"),
+        app_commands.Choice(name="Support", value="support"),
+        app_commands.Choice(name="Regelwerk", value="rules"),
+        app_commands.Choice(name="Technik / Bug", value="technical"),
+        app_commands.Choice(name="Neue Funktion", value="feature"),
+    ])
+    async def community_feedback(
+        self,
+        interaction: discord.Interaction,
+        kategorie: app_commands.Choice[str],
+        anonym: bool = False,
+    ):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "❌ Feedback kann nur auf einem Discord-Server eingereicht werden.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(
+            CommunitySuggestionModal(kategorie.value, anonym, kind="feedback")
+        )
 
     @app_commands.command(
         name="vorschlaege",
