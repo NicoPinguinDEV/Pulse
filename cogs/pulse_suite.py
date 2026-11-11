@@ -2227,7 +2227,7 @@ class PulseSuite(commands.Cog):
     async def vorschlag_abstimmen(
         self,
         interaction: discord.Interaction,
-        vorschlag: app_commands.Choice[str],
+        vorschlag: str,
         stimme: app_commands.Choice[str],
     ):
         if interaction.guild is None:
@@ -2240,7 +2240,7 @@ class PulseSuite(commands.Cog):
         try:
             result = pulse_community_feedback.cast_vote(
                 interaction.guild.id,
-                vorschlag.value,
+                vorschlag,
                 interaction.user.id,
                 stimme.value,
             )
