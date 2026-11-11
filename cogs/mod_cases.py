@@ -142,7 +142,7 @@ class AppealButton(discord.ui.Button):
         )
 
 
-class AppealView(discord.ui.View):
+class AppealView(PulseView):
     """Persistent view so the appeal button in older DMs survives bot restarts."""
 
     def __init__(self, case_id: str, guild_id: int, target_id: int, bot):
@@ -220,9 +220,10 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
 
         async def send_dm() -> bool:
             try:
+                bot = getattr(self, "bot", None) or getattr(interaction, "client", None)
                 await target.send(
                     mc.dm_text(case, interaction.guild.name, appeal),
-                    view=AppealView(case["id"], interaction.guild.id, target.id, self.bot),
+                    view=AppealView(case["id"], interaction.guild.id, target.id, bot),
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
                 mc.mark(case["id"], dm_sent=1)
