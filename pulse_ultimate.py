@@ -1759,7 +1759,7 @@ def register(app) -> None:
             <p class='tiny'>{esc(x['content'][:500])}</p>
             <p class='tiny'>Abstimmung: 👍 {x['votes_for']} · 👎 {x['votes_against']}</p>
             <form method='post' action='/ultimate/api/feedback/{x['id']}' class='form'>
-              <select class='select' name='status'>{''.join(f"<option {'selected' if status==x['status'] else ''}>{status}</option>" for status in _FEEDBACK_STATUS)}</select>
+              <select class='select' name='status'>{''.join(f"<option {'selected' if status==x['status'] else ''}>{status}</option>" for status in _FEEDBACK_STATUS if status != 'voting' or x.get('kind') == 'suggestion')}</select>
               <input class='input' name='manager_note' value='{esc(x['manager_note'])}' placeholder='Interne Antwort / Notiz'>
               <button class='btn primary span2'>Status speichern</button>
             </form>""")
