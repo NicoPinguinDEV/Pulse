@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from urllib.parse import urlsplit
 
 import pulse_paths
-import pulse_sqlite
 
 DB_PATH = os.path.join(str(pulse_paths.DATA_DIR), "pulse_suite.db")
 REPORT_STATUSES = {"open", "in_progress", "closed"}
@@ -28,7 +28,8 @@ _ALLOWED_MEDIA = {
 
 
 def _connect():
-    connection = pulse_sqlite.connect(DB_PATH, timeout=3)
+    connection = sqlite3.connect(DB_PATH, timeout=3)
+    connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA busy_timeout=3000")
     return connection
 
