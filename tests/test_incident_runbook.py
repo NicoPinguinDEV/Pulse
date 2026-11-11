@@ -50,7 +50,7 @@ class IncidentRunbookTests(unittest.TestCase):
 
     def test_restore_process_requires_preview_backup_and_isolation(self):
         for required in (
-            "aktuellen Zustand erstellen",
+            "Sicherungsstand des aktuellen Zustands erstellen",
             "Restore-Vorschau",
             "isolierten Testumgebung",
             "ausdrückliche Freigabe",
