@@ -11,7 +11,7 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `origin/main`, Tests, PR,
 | Teilweise | 103 |
 | Offen | 1 |
 
-Aktueller Ausgangspunkt: `main` bei `cf7d866` (PR #205–#210 gemergt). Die Zahlen sind nach den sechs neu abgeschlossenen offenen Kernfunktionen aktualisiert.
+Aktueller Ausgangspunkt: `main` bei `c443528` (nach PR #213). Der Main-Auditstand beträgt 73 fertig / 103 teilweise / 1 offen; die in diesem Fortschrittsdokument beschriebenen Draft-PRs sind davon getrennt.
 Korrektur beim Abgleich: #36 und #134 sind nicht offen, sondern teilweise umgesetzt – `/ticket zusammenfassung` existiert bereits.
 
 ## Block 1 – Workflow-System (#144, #145, #148, #149)
@@ -109,7 +109,7 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 
 - Branch: `feature/community-suggestion-discord-intake`; Draft-PR gegen `main`.
 - Neuer Slash-Befehl `/vorschlag` öffnet ein Discord-Modal mit Kategorie, Titel, Beschreibung und optionaler Anonymität.
-- Neue Tabelle `discord_community_feedback` mit zwingender `guild_id`; alle Lese- und Schreibabfragen sind servergebunden. Anonyme Vorschläge speichern weder Nutzer-ID noch Nutzernamen.
+- Neue Tabelle `discord_community_feedback` mit zwingender `guild_id`; alle Lese- und Schreibabfragen sind servergebunden. Anonyme Vorschläge speichern weder Nutzer-ID noch Nutzernamen. `pulse_retention.export_person()` nimmt auch Einreicher und prüfende Leitung in den personenbezogenen Export auf.
 - Führungskräfte desselben Servers erhalten eine Dashboard-Inbox-Benachrichtigung. Im vorhandenen `/ultimate/feedback`-Dashboard erscheinen Discord-Vorschläge separat; Status und interne Notiz werden über den bestehenden Review-Endpunkt aktualisiert, aber mit Guild-Prüfung auf die neue Tabelle geschrieben.
 - Audit: Die Statusbearbeitung wird mit Akteur, Server, Vorschlags-ID und Begründungsnotiz protokolliert. Eingaben und Ausgabelänge sind begrenzt; HTML-Ausgabe nutzt die vorhandene `esc`-Funktion.
 - Tests: `tests/test_community_feedback.py` prüft Guild-Isolation, Anonymisierung, Eingabegrenzen, Statuswechsel und Review-Zugriff; `tests/test_community_suggestion_modal.py` prüft den Slash-Command und das Modal.
