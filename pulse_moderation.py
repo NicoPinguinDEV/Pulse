@@ -275,6 +275,15 @@ def normalize_automod(raw) -> dict:
         "allowed_domains": _strings(raw.get("allowed_domains")),
         "exempt_role_ids": _ids(raw.get("exempt_role_ids")),
         "exempt_channel_ids": _ids(raw.get("exempt_channel_ids")),
+        "rule_exemptions": {
+            rule: {
+                "role_ids": _ids(entry.get("role_ids")),
+                "channel_ids": _ids(entry.get("channel_ids")),
+            }
+            for rule in AUTOMOD_RULE_ORDER
+            if isinstance((entry := (raw.get("rule_exemptions") or {}).get(rule) if isinstance(raw.get("rule_exemptions"), dict) else None), dict)
+            and (_ids(entry.get("role_ids")) or _ids(entry.get("channel_ids")))
+        },
         "warn_dm": bool(raw.get("warn_dm", True)),
         "timeout_after_strikes": _bounded_int(raw.get("timeout_after_strikes"), 2, 1, 10),
         "timeout_minutes": timeout_minutes,
@@ -282,6 +291,18 @@ def normalize_automod(raw) -> dict:
         "strike_window_minutes": _bounded_int(raw.get("strike_window_minutes"), 60, 5, 1440),
         "alert_channel_id": _ids([raw.get("alert_channel_id")], 1)[0] if _ids([raw.get("alert_channel_id")], 1) else 0,
     }
+
+
+def automod_rule_is_exempt(rule: str, *, role_ids=(), channel_ids=(), rule_exemptions=None) -> bool:
+    """Whether one specific AutoMod rule is exempt for any matching role/channel/category."""
+    if rule not in AUTOMOD_RULES or not isinstance(rule_exemptions, dict):
+        return False
+    entry = rule_exemptions.get(rule)
+    if not isinstance(entry, dict):
+        return False
+    configured_roles = set(_ids(entry.get("role_ids")))
+    configured_channels = set(_ids(entry.get("channel_ids")))
+    return bool(set(_ids(role_ids)) & configured_roles or set(_ids(channel_ids)) & configured_channels)
 
 
 def automod_step(strike_count: int, config: dict) -> dict:
