@@ -50,13 +50,16 @@ class DetectionTests(unittest.TestCase):
     def test_copy_spam_across_channels(self):
         text = "Gratis Nitro hier: https://example.invalid/claim"
         self.assertIsNone(self.w.message(10, 7, 1, text, 0, False))
-        self.assertIsNone(self.w.message(11, 7, 2, text.upper(), 0, False))
+        warning = self.w.message(11, 7, 2, text.upper(), 0, False)
+        self.assertEqual(warning["level"], "warning")
         alert = self.w.message(12, 7, 3, text, 0, False)
         self.assertEqual(alert["kind"], "copy_spam")
+        self.assertEqual(alert["level"], "elevated")
         self.assertEqual(alert["details"]["channels"], [1, 2, 3])
         w = pr.RaidWatch()
-        for ch in range(1, 4):  # spread over more than a minute → no alert
-            self.assertIsNone(w.message(ch * 40, 7, ch, text, 0, False))
+        self.assertIsNone(w.message(40, 7, 1, text, 0, False))
+        self.assertEqual(w.message(80, 7, 2, text, 0, False)["level"], "warning")
+        self.assertIsNone(w.message(120, 7, 3, text, 0, False))  # warning cooldown; no elevated threshold
         self.assertIsNone(pr.RaidWatch().message(1, 7, 1, "hi", 0, False))
 
     def test_memory_is_bounded(self):
