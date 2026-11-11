@@ -80,6 +80,53 @@ class RuleTests(TempDb):
         text = mc.dm_text(case, "Bochum RP", mc.appeal_text(1, case["id"]))
         self.assertIn(case["id"], text)
         self.assertIn("Einspruch", text)
+        self.assertIn("Button", text)
+
+    def test_appeal_is_owner_scoped_unique_and_human_decided_without_changing_sanction(self):
+        case = mc.create_case(1, member(300, 1), "ban", "Wiederholter Spam", "", None, member(200, 5))
+        appeal = mc.submit_appeal(
+            1, 300, case["id"],
+            "Ich möchte die Entscheidung prüfen lassen, weil wichtige Informationen fehlen.",
+        )
+        self.assertEqual(appeal["status"], "pending")
+        self.assertEqual(mc.list_appeals(1), [appeal])
+        self.assertEqual(mc.list_appeals(2), [])
+        self.assertEqual(mc.list_appeals(1, status="accepted"), [])
+        with self.assertRaisesRegex(ValueError, "gehört nicht"):
+            mc.submit_appeal(
+                1, 301, case["id"],
+                "Ich möchte die Entscheidung prüfen lassen, weil wichtige Informationen fehlen.",
+            )
+        with self.assertRaisesRegex(ValueError, "bereits ein Einspruch"):
+            mc.submit_appeal(
+                1, 300, case["id"],
+                "Ich möchte die Entscheidung prüfen lassen, weil wichtige Informationen fehlen.",
+            )
+
+        decided = mc.decide_appeal(
+            1, case["id"], "accepted", "Zusätzliche Belege wurden geprüft.",
+            201, "Leitung",
+        )
+        self.assertEqual((decided["status"], decided["reviewed_by_id"]), ("accepted", "201"))
+        # An appeal decision is a separate record; the original ban is not lifted or rewritten.
+        self.assertEqual(mc.get_case(case["id"])["status"], "active")
+        self.assertEqual(mc.get_case(case["id"])["action"], "ban")
+        self.assertEqual(mc.list_appeals(1, status=None)[0]["decision_note"], "Zusätzliche Belege wurden geprüft.")
+        with self.assertRaisesRegex(ValueError, "bereits entschieden"):
+            mc.decide_appeal(1, case["id"], "rejected", "Weitere Prüfung ohne neue Fakten.", 202, "Admin")
+
+    def test_appeal_deadline_and_reason_length_are_enforced(self):
+        created = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+        with patch.object(mc, "_now", lambda: created):
+            case = mc.create_case(1, member(310, 1), "warn", "Spam im Chat", "", None, member(210, 5))
+        with self.assertRaisesRegex(ValueError, "14 Tagen"):
+            mc.submit_appeal(
+                1, 310, case["id"],
+                "Ich möchte die Entscheidung prüfen lassen, weil wichtige Informationen fehlen.",
+                now=created + timedelta(days=15),
+            )
+        with self.assertRaisesRegex(ValueError, "20 bis 1500"):
+            mc.submit_appeal(1, 310, case["id"], "Zu kurz")
 
 
 class CogTests(TempDb):
@@ -103,6 +150,9 @@ class CogTests(TempDb):
         asyncio.run(cog._execute(interaction, "kick", target, "Werbung für anderen Server", "", None, respond))
         self.assertEqual(order, ["dm", "kick"])
         self.assertIn("Fall `MOD-", replies[0])
+        sent_kwargs = target.send.await_args.kwargs
+        self.assertIsNotNone(sent_kwargs.get("view"))
+        self.assertEqual(sent_kwargs["view"].children[0].custom_id, f"pulse_mod:appeal:{mc.list_cases(3)[0]['id']}")
         stored = mc.list_cases(3)[0]
         self.assertEqual((stored["action"], stored["dm_sent"], stored["status"]), ("kick", 1, "active"))
 
@@ -176,11 +226,18 @@ class PageTests(TempDb):
         client = TestClient(ws.app, raise_server_exceptions=False)
         with patch.object(ws, "auth", fake_auth_for(TEAMLER)):
             self.assertEqual(client.get("/mod-cases").status_code, 403)
+        case = mc.create_case(1, member(3, 1), "warn", "Beleidigung im Voice", "", None, member(2, 5))
+        mc.submit_appeal(
+            1, 3, case["id"],
+            "Ich möchte diese Entscheidung prüfen lassen, weil Kontext im Gespräch fehlt.",
+        )
         with patch.object(ws, "auth", fake_auth_for(ADMIN)):
             page = client.get("/mod-cases", params={"q": "voice"})
             self.assertEqual(page.status_code, 200)
             self.assertIn("Beleidigung im Voice", page.text)
             self.assertNotIn("Spam im Chat", page.text)
+            self.assertIn("Offene Einsprüche", page.text)
+            self.assertIn(case["id"], page.text)
             csv = client.get("/mod-cases.csv")
             self.assertIn("Spam im Chat", csv.content.decode("utf-8"))
 
