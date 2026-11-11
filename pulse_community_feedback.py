@@ -1,4 +1,4 @@
-"""Guild-scoped Discord community suggestions for the Pulse TeamOS feedback area."""
+"""Guild-scoped Discord community suggestions stored in pulse.db for the Pulse TeamOS feedback area."""
 from __future__ import annotations
 
 import re
