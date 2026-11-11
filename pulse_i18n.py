@@ -130,6 +130,8 @@ MESSAGES = {
         "duty_notes_more_hidden": "… weitere Einträge ausgeblendet.",
         "duty_panel_admin_only": "❌ Nur Admins können das Dienst-Panel veröffentlichen.",
         "duty_panel_send_error": "❌ Pulse kann hier nicht senden ({error_type}). Kanalrechte prüfen.",
+        "ticket_notes_title": "🔒 Interne Notizen · Ticket {ticket_id}",
+        "ticket_notes_footer": "Seite {page} · jeweils zwei Notizen",
         "duty_panel_published": "✅ Dienst-Panel veröffentlicht.",
     },
     "en": {
@@ -192,6 +194,8 @@ MESSAGES = {
         "duty_notes_more_hidden": "… additional entries hidden.",
         "duty_panel_admin_only": "❌ Only admins can publish the duty panel.",
         "duty_panel_send_error": "❌ Pulse cannot send messages here ({error_type}). Check channel permissions.",
+        "ticket_notes_title": "🔒 Internal notes · Ticket {ticket_id}",
+        "ticket_notes_footer": "Page {page} · two notes per page",
         "duty_panel_published": "✅ Duty panel published.",
     },
 }
@@ -239,6 +243,41 @@ def translate_duty_message(locale, message: str) -> str:
         duration, week = text[len(status_break):].rsplit(". Diese Woche: ", 1)
         return translate(locale, "duty_status_break", duration=duration, week=week[:-1])
     return text
+
+
+_TICKET_FIXED_MESSAGES = {
+    "Nur das Ticket-Team kann das nutzen.": "ticket_team_only",
+    "Bitte in einem offenen Ticket-Kanal verwenden.": "ticket_open_only",
+    "Nur das Ticket-Team kann interne Notizen speichern.": "ticket_note_team_only",
+    "Das Ticket ist nicht mehr offen oder der Kontext stimmt nicht.": "ticket_note_context",
+    "🔒 Interne Notiz gespeichert. Sie wurde nicht im Ticket-Kanal veröffentlicht.": "ticket_note_saved",
+    "Für dieses Ticket gibt es auf dieser Seite keine internen Notizen.": "ticket_notes_empty",
+    "Für dieses Ticket gibt es keine Verknüpfungen auf dieser Seite.": "ticket_links_empty",
+    "Kanal nicht verfügbar": "ticket_channel_unavailable",
+    "🔓 Ticket-Verknüpfung entfernt.": "ticket_unlink_success",
+    "Diese Ticket-Verknüpfung bestand nicht.": "ticket_unlink_missing",
+    "Der Ticketverlauf konnte nicht gelesen werden. Bitte die Kanal-Berechtigungen prüfen.": "ticket_summary_read_error",
+    "Es gibt noch keine auswertbaren Textnachrichten für eine Zusammenfassung.": "ticket_summary_empty",
+    "Die Zusammenfassung wurde zusätzlich als interne Ticketnotiz gespeichert.": "ticket_summary_saved",
+    "Keine ausreichend ähnlichen archivierten Tickets mit lesbarem Transkript gefunden.": "ticket_similar_empty",
+    "Diese Schnellantwort gibt es für die Kategorie nicht (Dashboard → Ticket-Werkzeuge).": "ticket_quick_reply_missing",
+    "Übergeben geht nur an Teammitglieder mit Ticket-Recht.": "ticket_handover_permission",
+    "Nur das Ticket-Team kann Ticket-Sperren setzen.": "ticket_ban_team_only",
+    "Ticket-Sperren gelten nur für Bürger – nicht für Teammitglieder, Bots oder dich selbst.": "ticket_ban_citizen_only",
+    "Nur das Ticket-Team kann Ticket-Sperren aufheben.": "ticket_unban_team_only",
+    "✅ Sperre aufgehoben.": "ticket_unban_success",
+    "Für diese Person gab es keine Sperre.": "ticket_unban_missing",
+}
+
+
+def translate_ticket_message(locale, message: str) -> str:
+    """Translate stable ticket-tool responses; keep German fallback for unknown backend errors."""
+    text = str(message or "")
+    if _locale_language(locale) != "en":
+        return text
+    key = _TICKET_FIXED_MESSAGES.get(text)
+    return translate(locale, key) if key else text
+
 
 _SECTION_KEYS = {
     "⏱ Dienst & ich": "section_duty",

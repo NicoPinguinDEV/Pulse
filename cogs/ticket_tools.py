@@ -28,8 +28,27 @@ def current_ticket(interaction: discord.Interaction):
     return ticket if ticket and ticket.get("status") != "closed" else None
 
 
+
+def _locale(interaction: discord.Interaction) -> str:
+    import pulse_i18n
+    return pulse_i18n.get_locale(
+        getattr(getattr(interaction, "user", None), "id", None),
+        getattr(interaction, "locale", None),
+    )
+
+
+def _t(interaction: discord.Interaction, key: str, **values) -> str:
+    import pulse_i18n
+    return pulse_i18n.translate(_locale(interaction), key, **values)
+
+
+def _ticket_text(interaction: discord.Interaction, message: str) -> str:
+    import pulse_i18n
+    return pulse_i18n.translate_ticket_message(_locale(interaction), message)
+
+
 async def deny(interaction: discord.Interaction, text: str) -> None:
-    await interaction.response.send_message("❌ " + text, ephemeral=True)
+    await interaction.response.send_message("❌ " + _ticket_text(interaction, text), ephemeral=True)
 
 
 class InternalTicketNoteModal(discord.ui.Modal, title="Interne Ticketnotiz"):
@@ -68,7 +87,7 @@ class InternalTicketNoteModal(discord.ui.Modal, title="Interne Ticketnotiz"):
             await deny(interaction, str(exc))
             return
         await interaction.response.send_message(
-            "🔒 Interne Notiz gespeichert. Sie wurde nicht im Ticket-Kanal veröffentlicht.",
+            _t(interaction, "ticket_note_saved"),
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -105,7 +124,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
         notes = tx.internal_notes_for(ticket["id"], limit=2, offset=(seite - 1) * 2)
         if not notes:
             await interaction.response.send_message(
-                "Für dieses Ticket gibt es auf dieser Seite keine internen Notizen.",
+                _t(interaction, "ticket_notes_empty"),
                 ephemeral=True,
             )
             return
@@ -118,11 +137,11 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             )
             blocks.append(f"**{author} · {created}**\n{note_text}")
         embed = discord.Embed(
-            title=f"🔒 Interne Notizen · Ticket {ticket['id']}",
+            title=_t(interaction, "ticket_notes_title", ticket_id=ticket["id"]),
             description="\n\n".join(blocks)[:4096],
             color=0x64748B,
         )
-        embed.set_footer(text=f"Seite {seite} · jeweils zwei Notizen")
+        embed.set_footer(text=_t(interaction, "ticket_notes_footer", page=seite))
         await interaction.response.send_message(
             embed=embed,
             ephemeral=True,
@@ -153,13 +172,13 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             return
         if not created:
             await interaction.response.send_message(
-                f"🔗 Ticket **{ticket_id.strip()}** ist bereits mit diesem Ticket verknüpft.",
+                _t(interaction, "ticket_link_already", ticket_id=ticket_id.strip()),
                 ephemeral=True,
                 allowed_mentions=discord.AllowedMentions.none(),
             )
             return
         await interaction.response.send_message(
-            f"🔗 Ticket **{ticket['id']}** und **{ticket_id.strip()}** wurden intern verknüpft.",
+            _t(interaction, "ticket_link_success", ticket_id=ticket["id"], related_id=ticket_id.strip()),
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -211,7 +230,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
         links = tx.linked_tickets(ticket["id"], limit=11, offset=(seite - 1) * 10)
         if not links:
             await interaction.response.send_message(
-                "Für dieses Ticket gibt es keine Verknüpfungen auf dieser Seite.",
+                _t(interaction, "ticket_links_empty"),
                 ephemeral=True,
             )
             return
@@ -223,7 +242,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             category = discord.utils.escape_markdown(str(link.get("category") or "–"))
             priority = discord.utils.escape_markdown(str(link.get("priority") or "normal"))
             channel_id = str(link.get("channel_id") or "")
-            destination = f"<#{channel_id}>" if channel_id.isdigit() else "Kanal nicht verfügbar"
+            destination = f"<#{channel_id}>" if channel_id.isdigit() else _t(interaction, "ticket_channel_unavailable")
             note = discord.utils.escape_mentions(
                 discord.utils.escape_markdown(str(link.get("link_note") or ""))
             )
@@ -232,11 +251,11 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
                 line += f"\n_{note[:300]}_"
             blocks.append(line)
         embed = discord.Embed(
-            title=f"🔗 Verknüpfte Tickets · {ticket['id']}",
+            title=_t(interaction, "ticket_links_title", ticket_id=ticket["id"]),
             description="\n\n".join(blocks)[:4096],
             color=0x64748B,
         )
-        embed.set_footer(text=f"Seite {seite}" + (" · weitere Einträge vorhanden" if has_more else ""))
+        embed.set_footer(text=_t(interaction, "ticket_links_footer", page=seite, more=_t(interaction, "ticket_links_more") if has_more else ""))
         await interaction.response.send_message(
             embed=embed,
             ephemeral=True,
@@ -255,7 +274,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             await deny(interaction, str(exc))
             return
         await interaction.response.send_message(
-            "🔓 Ticket-Verknüpfung entfernt." if removed else "Diese Ticket-Verknüpfung bestand nicht.",
+            _t(interaction, "ticket_unlink_success") if removed else _t(interaction, "ticket_unlink_missing"),
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -302,7 +321,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             messages = await ps.channel_messages(interaction.channel)
         except (discord.Forbidden, discord.HTTPException):
             await interaction.followup.send(
-                "Der Ticketverlauf konnte nicht gelesen werden. Bitte die Kanal-Berechtigungen prüfen.",
+                _t(interaction, "ticket_summary_read_error"),
                 ephemeral=True,
             )
             return
@@ -311,7 +330,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
         summary = ps.summarize_ticket(messages, ticket=ticket, events=pulse_db.ticket_events(ticket["id"], 50))
         if not summary["message_count"]:
             await interaction.followup.send(
-                "Es gibt noch keine auswertbaren Textnachrichten für eine Zusammenfassung.",
+                _t(interaction, "ticket_summary_empty"),
                 ephemeral=True,
             )
             return
@@ -321,7 +340,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
 
         sections = ps.ticket_sections(summary)
         embed = discord.Embed(
-            title=f"🧾 Übergabe-Zusammenfassung · {ticket['id']}",
+            title=_t(interaction, "ticket_summary_title", ticket_id=ticket["id"]),
             description=("**" + sections[0][0] + "**\n" + "\n".join("• " + clean(line) for line in sections[0][1]))[:3500],
             color=0x64748B,
         )
@@ -344,9 +363,9 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
                     interaction.user.display_name,
                     note_text,
                 )
-                saved_text = "Die Zusammenfassung wurde zusätzlich als interne Ticketnotiz gespeichert."
+                saved_text = _t(interaction, "ticket_summary_saved")
             except ValueError as exc:
-                saved_text = f"Die interne Notiz konnte nicht gespeichert werden: {exc}"
+                saved_text = _t(interaction, "ticket_summary_save_error", error=str(exc))
         await interaction.followup.send(
             embed=embed,
             content=saved_text or None,
@@ -390,7 +409,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
         )
         if not matches:
             await interaction.followup.send(
-                "Keine ausreichend ähnlichen archivierten Tickets mit lesbarem Transkript gefunden.",
+                _t(interaction, "ticket_similar_empty"),
                 ephemeral=True,
             )
             return
@@ -409,11 +428,11 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
                 f"{customer} · {channel_ref} · {item['shared_term_count']} gemeinsame Begriffe"
             )
         embed = discord.Embed(
-            title=f"🔎 Ähnliche Tickets · {ticket['id']}",
+            title=_t(interaction, "ticket_similar_title", ticket_id=ticket["id"]),
             description="\n\n".join(lines)[:4096],
             color=0x64748B,
         )
-        embed.set_footer(text="Lokaler Textvergleich archivierter Transkripte · keine externe KI")
+        embed.set_footer(text=_t(interaction, "ticket_similar_footer"))
         await interaction.followup.send(
             embed=embed,
             ephemeral=True,
@@ -428,7 +447,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             return
         reply = next((r for r in tx.replies_for(ticket.get("category", "")) if r["title"] == vorlage), None)
         if reply is None:
-            await deny(interaction, "Diese Schnellantwort gibt es für die Kategorie nicht (Dashboard → Ticket-Werkzeuge).")
+            await deny(interaction, _t(interaction, "ticket_quick_reply_missing"))
             return
         await interaction.response.send_message(reply["text"], allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
         pulse_db.touch_ticket_activity(str(interaction.channel.id), "staff")
@@ -451,14 +470,16 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
         import webserver
         perms, _ = webserver.compute_perms(interaction.guild, mitglied.id, webserver.load_config())
         if mitglied.bot or not (perms.get("can_manage_tickets") or perms.get("is_admin")):
-            await deny(interaction, "Übergeben geht nur an Teammitglieder mit Ticket-Recht.")
+            await deny(interaction, _t(interaction, "ticket_handover_permission"))
             return
         ok, message = tx.handover(ticket["id"], mitglied.id, mitglied.display_name, interaction.user.id, interaction.user.display_name, notiz)
         if not ok:
             await deny(interaction, message)
             return
         await interaction.response.send_message(
-            f"🔁 **Übergabe** an {mitglied.mention} durch {interaction.user.mention}\n📝 {notiz.strip()[:1500]}",
+            _t(interaction, "ticket_handover_title", assignee=mitglied.mention, actor=interaction.user.mention)
+            + "\n"
+            + _t(interaction, "ticket_handover_note", note=notiz.strip()[:1500]),
             allowed_mentions=discord.AllowedMentions(users=[mitglied], roles=False, everyone=False))
 
     @app_commands.command(name="tag", description="Tag an diesem Ticket setzen oder entfernen.")
@@ -484,13 +505,13 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
     async def sperre(self, interaction: discord.Interaction, mitglied: discord.Member,
                      tage: app_commands.Range[int, 1, 365], grund: str):
         if not may_manage(interaction):
-            await deny(interaction, "Nur das Ticket-Team kann Ticket-Sperren setzen.")
+            await deny(interaction, _t(interaction, "ticket_ban_team_only"))
             return
         import webserver
         team_ids = {int(x) for x in webserver.load_config().get("team_role_ids", []) if str(x).isdigit()}
         if mitglied.bot or mitglied.id == interaction.user.id or any(r.id in team_ids for r in getattr(mitglied, "roles", [])):
             # review fix: ticket bans are for citizens – not for the team, bots or oneself
-            await deny(interaction, "Ticket-Sperren gelten nur für Bürger – nicht für Teammitglieder, Bots oder dich selbst.")
+            await deny(interaction, _t(interaction, "ticket_ban_citizen_only"))
             return
         try:
             entry = tx.block(mitglied.id, tage, grund, interaction.user.display_name)
@@ -499,19 +520,19 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             return
         webserver.log_audit(interaction.user.display_name, str(interaction.user.id), "Ticket-Sperre",
                             f"{mitglied.display_name} ({mitglied.id}) bis {entry['until'][:10]}: {entry['reason']}")
-        await interaction.response.send_message(f"🚫 {mitglied.display_name} kann bis {entry['until'][:10]} keine neuen Tickets öffnen.",
+        await interaction.response.send_message(_t(interaction, "ticket_ban_until", member=mitglied.display_name, date=entry["until"][:10]),
                                                 ephemeral=True)
 
     @app_commands.command(name="entsperren", description="Ticket-Sperre einer Person aufheben.")
     async def entsperren(self, interaction: discord.Interaction, mitglied: discord.Member):
         if not may_manage(interaction):
-            await deny(interaction, "Nur das Ticket-Team kann Ticket-Sperren aufheben.")
+            await deny(interaction, _t(interaction, "ticket_unban_team_only"))
             return
         done = tx.unblock(mitglied.id)
         if done:
             import webserver
             webserver.log_audit(interaction.user.display_name, str(interaction.user.id), "Ticket-Sperre aufgehoben", str(mitglied.id))
-        await interaction.response.send_message("✅ Sperre aufgehoben." if done else "Für diese Person gab es keine Sperre.", ephemeral=True)
+        await interaction.response.send_message(_t(interaction, "ticket_unban_success") if done else _t(interaction, "ticket_unban_missing"), ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
