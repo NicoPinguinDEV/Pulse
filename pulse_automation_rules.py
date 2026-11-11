@@ -8,6 +8,8 @@ only support the placeholders in PLACEHOLDERS (plain replacement, no format spec
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections import OrderedDict, deque
 
@@ -50,6 +52,26 @@ PLACEHOLDERS = ("name", "actor_id", "actor_name", "rule_label", "events", "resul
 MAX_STEPS = 6
 MAX_NAME = 160
 MAX_TEXT = 1000
+# Retries (#148): opt-in per automation, bounded attempts, exponential backoff with a hard ceiling.
+RETRY_MAX_ATTEMPTS = 5
+RETRY_BACKOFF_MIN, RETRY_BACKOFF_MAX, RETRY_BACKOFF_DEFAULT = 30, 3600, 120
+RETRY_DELAY_CEILING = 6 * 3600
+# A late emergency lockdown is worse than none: this step is never repeated automatically, only by a person.
+NO_AUTO_RETRY_STEP_TYPES = frozenset({"antinuke_lockdown"})
+# Failures that another attempt cannot fix (missing configuration, missing rights, unsupported action).
+PERMANENT_FAILURE_MARKERS = ("nicht unterstützte Aktion", "kein Anti-Nuke-Alarmkanal", "keine Verwaltungsrolle",
+                             "Discord hat das Senden abgelehnt", "unsupported action", "target unavailable",
+                             "assignee unavailable")
+# Approvals (#144/#145): ordered stages, each with a responsible group and a quorum.
+APPROVER_ROLES = {"manager": "Führungskraft", "admin": "Administrator"}
+MAX_APPROVAL_STAGES = 3
+MAX_STAGE_APPROVALS = 5
+APPROVAL_TIMEOUT_MIN, APPROVAL_TIMEOUT_MAX, APPROVAL_TIMEOUT_DEFAULT = 5, 10080, 1440
+DEFINITION_FIELDS = ("name", "trigger_type", "interval_minutes", "trigger_config", "condition", "steps", "test_mode",
+                     "retry", "approval")
+DEFINITION_LABELS = {"name": "Name", "trigger_type": "Auslöser", "interval_minutes": "Intervall (Minuten)",
+                     "trigger_config": "Auslöser-Optionen", "condition": "Bedingung", "steps": "Aktionen",
+                     "test_mode": "Testmodus", "retry": "Wiederholungen", "approval": "Freigaben"}
 _PLACEHOLDER = re.compile(r"\{(" + "|".join(PLACEHOLDERS) + r")\}")
 _DISCORD_ID = re.compile(r"[0-9]{15,22}")
 _RULE_ID = re.compile(r"(?:global|[a-z0-9_-]{1,32})")
@@ -147,6 +169,100 @@ def normalize_trigger_config(trigger: str, raw: dict) -> dict:
     return {}
 
 
+def normalize_retry(raw) -> dict:
+    """Retry policy of one automation. max_attempts 0 = no automatic repetition (the default, as before)."""
+    raw = raw if isinstance(raw, dict) else {}
+    attempts = _int(raw.get("max_attempts"), "Wiederholungen", 0, RETRY_MAX_ATTEMPTS, 0)
+    backoff = _int(raw.get("backoff_seconds"), "Wartezeit vor der ersten Wiederholung (Sekunden)",
+                   RETRY_BACKOFF_MIN, RETRY_BACKOFF_MAX, RETRY_BACKOFF_DEFAULT)
+    return {"max_attempts": attempts, "backoff_seconds": backoff}
+
+
+def backoff_delay(base_seconds: int, attempt: int) -> int:
+    """Seconds to wait before retry number `attempt` (1-based): base, 2×base, 4×base … capped."""
+    base = min(max(int(base_seconds or RETRY_BACKOFF_DEFAULT), RETRY_BACKOFF_MIN), RETRY_BACKOFF_MAX)
+    return min(base * (2 ** max(0, min(int(attempt), 20) - 1)), RETRY_DELAY_CEILING)
+
+
+def is_permanent_failure(detail: str) -> bool:
+    text = str(detail or "")
+    return any(marker in text for marker in PERMANENT_FAILURE_MARKERS)
+
+
+def normalize_approval(raw, *, security: bool = False) -> dict:
+    """Approval stages in their fixed order. Security automations may only be approved by administrators."""
+    raw = raw if isinstance(raw, dict) else {}
+    stages = []
+    for item in (raw.get("stages") or []):
+        if not isinstance(item, dict):
+            raise ValueError("Ungültige Freigabestufe.")
+        role = str(item.get("role") or "").strip()
+        if not role:
+            continue
+        if role not in APPROVER_ROLES:
+            raise ValueError("Freigabestufe: Unbekannte Zuständigkeit.")
+        if security and role != "admin":
+            raise ValueError("Sicherheits-Automationen dürfen nur von Administratoren freigegeben werden.")
+        stages.append({"label": _text(item.get("label"), "Name der Freigabestufe", 80) or APPROVER_ROLES[role],
+                       "role": role,
+                       "min_approvals": _int(item.get("min_approvals"), "Nötige Freigaben", 1, MAX_STAGE_APPROVALS, 1)})
+    if len(stages) > MAX_APPROVAL_STAGES:
+        raise ValueError(f"Höchstens {MAX_APPROVAL_STAGES} Freigabestufen pro Automation.")
+    if not stages:
+        return {"stages": [], "timeout_minutes": APPROVAL_TIMEOUT_DEFAULT}
+    return {"stages": stages,
+            "timeout_minutes": _int(raw.get("timeout_minutes"), "Frist für Freigaben (Minuten)", APPROVAL_TIMEOUT_MIN,
+                                    APPROVAL_TIMEOUT_MAX, APPROVAL_TIMEOUT_DEFAULT)}
+
+
+def definition_snapshot(value: dict) -> dict:
+    """The versioned part of an automation (everything except its on/off switch and run times)."""
+    return {
+        "name": str(value.get("name") or ""),
+        "trigger_type": str(value.get("trigger_type") or ""),
+        "interval_minutes": int(value.get("interval_minutes") or 1440),
+        "trigger_config": value.get("trigger_config") or {},
+        "condition": value.get("condition") or {"type": "always"},
+        "steps": list(value.get("steps") or []),
+        "test_mode": bool(value.get("test_mode")),
+        "retry": value.get("retry") or {"max_attempts": 0, "backoff_seconds": RETRY_BACKOFF_DEFAULT},
+        "approval": value.get("approval") or {"stages": [], "timeout_minutes": APPROVAL_TIMEOUT_DEFAULT},
+    }
+
+
+def definition_hash(snapshot: dict) -> str:
+    return hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _show(value) -> str:
+    if isinstance(value, bool):
+        return "ja" if value else "nein"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value)
+
+
+def diff_definitions(before: dict, after: dict) -> list[dict]:
+    """Field-by-field comparison of two definition snapshots; steps are compared position by position."""
+    changes = []
+    for field in DEFINITION_FIELDS:
+        old, new = before.get(field), after.get(field)
+        if old == new:
+            continue
+        if field == "steps":
+            old_steps, new_steps = list(old or []), list(new or [])
+            for index in range(max(len(old_steps), len(new_steps))):
+                a = old_steps[index] if index < len(old_steps) else None
+                b = new_steps[index] if index < len(new_steps) else None
+                if a != b:
+                    changes.append({"field": f"steps[{index + 1}]", "label": f"Aktion {index + 1}",
+                                    "before": "—" if a is None else _show(a), "after": "—" if b is None else _show(b)})
+            continue
+        changes.append({"field": field, "label": DEFINITION_LABELS[field],
+                        "before": "—" if old is None else _show(old), "after": "—" if new is None else _show(new)})
+    return changes
+
+
 def normalize_automation(raw: dict, *, is_admin: bool) -> dict:
     """Validated automation from the editor. Raises ValueError (refuses unknown or manipulated values)."""
     name = _text(raw.get("name"), "Name", MAX_NAME, required=True)
@@ -177,6 +293,8 @@ def normalize_automation(raw: dict, *, is_admin: bool) -> dict:
     }
     if needs_admin(value) and not is_admin:
         raise PermissionError("Sicherheits-Automationen dürfen nur Administratoren anlegen oder ändern.")
+    value["retry"] = normalize_retry(raw.get("retry"))
+    value["approval"] = normalize_approval(raw.get("approval"), security=needs_admin(value))
     return value
 
 
@@ -245,6 +363,12 @@ def describe(automation: dict, rule_labels: dict | None = None) -> str:
     steps = ", ".join(STEP_TYPES.get(s.get("type"), s.get("type", "?")) for s in automation.get("steps") or []) \
         or STEP_TYPES.get(automation.get("action_type"), automation.get("action_type") or "–")
     text = f"{when}{cond}, dann: {steps}."
+    stages = (automation.get("approval") or {}).get("stages") or []
+    if stages:
+        text += " Vorher Freigabe: " + " → ".join(
+            f"{s.get('label') or APPROVER_ROLES.get(s.get('role'), '?')} ({int(s.get('min_approvals', 1))}×)" for s in stages) + "."
+    if int((automation.get("retry") or {}).get("max_attempts") or 0) > 0:
+        text += f" Fehlgeschlagene Aktionen werden bis zu {int(automation['retry']['max_attempts'])}× wiederholt."
     if automation.get("test_mode"):
         text += " Testmodus: Aktionen werden nur protokolliert, nicht ausgeführt."
     return text

@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Workflow-System: Versionen, Wiederholungen, mehrstufige Freigaben (November 2026)
+
+- **Versionierung (#149):** Jede geänderte Automation wird als unveränderliche Version gespeichert (Datenbank-Trigger verhindern Ändern und Löschen). Unter „Versionen“ gibt es Verlauf, Feldvergleich und Wiederherstellen. Wiederherstellen legt eine neue Version an, prüft die alte Definition mit den heutigen Regeln und Rechten und pausiert die Automation.
+- **Wiederholungen (#148):** Pro Automation einstellbar (0–5 Versuche, Wartezeit verdoppelt sich je Versuch, höchstens 6 Stunden). Wiederholt werden nur fehlgeschlagene Aktionen, nie erfolgreiche. Nicht behebbare Fehler, ein unterbrochener Versuch und der Notfall-Lockdown landen in der Dead-Letter-Liste und laufen erst nach manueller Bestätigung erneut. Standard bleibt „aus“.
+- **Freigaben (#144/#145):** Bis zu drei Stufen in fester Reihenfolge (Führungskraft oder Administrator, 1–5 Freigaben je Stufe, Frist). Jede Person entscheidet höchstens einmal, niemand gibt den eigenen Lauf frei. Ablehnung (mit Begründung), Fristablauf, geänderte, pausierte oder gelöschte Automation beenden den Antrag. Sicherheits-Automationen geben nur Administratoren frei. Testläufe brauchen keine Freigabe.
+- Neue Tabellen `ultimate_automation_versions`, `ultimate_automation_retries`, `ultimate_automation_approvals` in `pulse.db` (im Komplett-Backup enthalten); Warteschlangen und Verlauf sind begrenzt. Verarbeitung im bestehenden 60-Sekunden-Lauf, kein neuer Hintergrundprozess.
+
 ## Öffentliche Website (November 2026)
 
 - Neue öffentliche Startseite unter `/` sowie `/regelwerk`, `/faq`, `/fraktionen`, `/news`, `/impressum`, `/datenschutz`, `/cookies` und `/sicherheit`. Die Login-Karte liegt jetzt unter `/team-login`, angemeldete Teammitglieder landen weiter auf ihrer Startseite.

@@ -551,6 +551,9 @@ def init_db() -> None:
             for column, kind in additions:
                 if column not in columns:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+        # Workflow versions, retry queue and approval requests (additive, idempotent).
+        import pulse_workflows
+        pulse_workflows.ensure_schema(c)
     _INIT = True
 
 
@@ -1855,7 +1858,12 @@ def register(app) -> None:
         return {"trigger_type": row.get("trigger_type"), "steps": automation_steps(row), "action_type": row.get("action_type"),
                 "trigger_config": automation_trigger_config(row), "interval_minutes": row.get("interval_minutes"),
                 "test_mode": bool(row.get("test_mode")),
+                "retry": _workflows().retry_config(row), "approval": _workflows().approval_config(row),
                 "condition": (json.loads(row.get("action_payload") or "{}") or {}).get("condition") if str(row.get("action_payload") or "").startswith("{") else None}
+
+    def _workflows():
+        import pulse_workflows
+        return pulse_workflows
 
     def is_admin(ctx) -> bool:
         return bool(ctx.perms.get("is_admin"))
@@ -1945,6 +1953,7 @@ def register(app) -> None:
  <input class="input" type="number" name="condition_value" min="0" max="100000" value="{esc(cond.get('value', 0))}" aria-label="Bedingungswert">
  <label class="tiny span2"><b>DANN</b> – Aktionen (werden nacheinander genau einmal ausgeführt; ein Fehler stoppt die übrigen nicht)</label>
  <div class="span2">{"".join(step_rows)}</div>
+ {_workflows().editor_fields(record)}
  <label class="tiny"><input type="checkbox" name="enabled" value="1"{" checked" if enabled else ""}> aktiv</label>
  <label class="tiny"><input type="checkbox" name="test_mode" value="1"{" checked" if view.get('test_mode') else ""}> Testmodus (nur protokollieren)</label>
  <button class="btn primary span2">💾 Automation speichern</button></form>
@@ -1991,7 +2000,8 @@ def register(app) -> None:
         elif sort == "status":
             visible.sort(key=lambda x: order.get(x.get("last_status") or "", 4))
         labels = antinuke_rule_labels() if admin else {}
-        status_pill = {"success": "✅ erfolgreich", "error": "❌ Fehler", "test": "🧪 Testlauf", "skipped": "⏭️ übersprungen"}
+        status_pill = {"success": "✅ erfolgreich", "error": "❌ Fehler", "test": "🧪 Testlauf", "skipped": "⏭️ übersprungen",
+                       "approval": "⏳ wartet auf Freigabe"}
         cards = "".join(
             card(
                 f"<div class=row><b>{esc(x['name'])}</b><span class='pill'>{'⏸ Deaktiviert' if not x['enabled'] else ('🧪 Testmodus' if x.get('test_mode') else '✅ Aktiv')}</span></div>"
@@ -2004,6 +2014,7 @@ def register(app) -> None:
                 f"<div class='tiny'>{esc(str(x.get('last_result') or '')[:220])}</div>"
                 f"<div style='display:flex;flex-wrap:wrap;gap:6px;margin-top:10px'>"
                 f"<a class='btn' href='/ultimate/automations?edit={esc(x['id'])}#editor'>✏️ Bearbeiten</a>"
+                f"<a class='btn' href='/ultimate/automations/{esc(x['id'])}/versions'>🕘 Versionen ({int(x.get('current_version') or 0)})</a>"
                 f"<form method='post' action='/ultimate/automations/{esc(x['id'])}/toggle'>"
                 f"<button class='btn {'danger' if x['enabled'] else 'primary'}'>{'⏸ Automation pausieren' if x['enabled'] else '▶ Automation fortsetzen'}</button></form>"
                 f"<form method='post' action='/ultimate/automations/{esc(x['id'])}/test'><button class='btn'>🧪 Testlauf</button></form>"
@@ -2033,7 +2044,11 @@ def register(app) -> None:
                 info = {}
             if not isinstance(info, dict) or not info:
                 return ""
-            bits = [rules.TRIGGERS.get(info.get("trigger"), {"manual": "manuell", "manual_test": "Testlauf"}.get(info.get("trigger"), info.get("trigger") or ""))]
+            bits = [rules.TRIGGERS.get(info.get("trigger"), {"manual": "manuell", "manual_test": "Testlauf", "retry": "Wiederholung"}.get(info.get("trigger"), info.get("trigger") or ""))]
+            if info.get("attempt"):
+                bits.append(f"Versuch {info['attempt']}")
+            if info.get("approval_id"):
+                bits.append("nach Freigabe")
             if info.get("rule_label"):
                 bits.append(f"Regel „{info['rule_label']}“")
             if info.get("events"):
@@ -2098,6 +2113,7 @@ def register(app) -> None:
            <button class="btn span2">🔎 Filtern &amp; sortieren</button></form>
            {('<div style="margin-top:8px"><b class="tiny">Fehlerprüfung</b>' + problems + '</div>') if problems else '<div class="tiny" style="margin-top:8px">✅ Keine fehlerhaften Automationen gefunden.</div>'}</div>
           <div class="grid g2" style="margin-top:13px">{cards or card("<div class=tiny>Keine Automationen.</div>")}</div>
+          {_workflows().panels(admin=admin, manager=bool(ctx.perms.get("can_promote")), user_id=str(ctx.user["id"]), visible_ids=visible_ids)}
           <div class="card" style="margin-top:13px"><h3>🧾 Letzte 30 Ausführungen</h3>
           <div class="tiny">Gespeichert werden höchstens {MAX_RUNS_PER_AUTOMATION} Ausführungen pro Automation.</div>
           <div class="timeline">{run_history or "<div class=tiny>Noch keine Ausführungen protokolliert.</div>"}</div></div>"""
@@ -2125,6 +2141,7 @@ def register(app) -> None:
                                "cooldown_seconds": form.get("cooldown_seconds")},
             "condition": {"type": form.get("condition_type") or "always", "value": form.get("condition_value")},
             "steps": steps, "enabled": form.get("enabled") == "1", "test_mode": form.get("test_mode") == "1",
+            **_workflows().editor_payload(form),
         }
 
     @app.post("/ultimate/automations/save")
@@ -2141,27 +2158,10 @@ def register(app) -> None:
             import webserver
             return webserver.back("/ultimate/automations" + (f"?edit={automation_id}" if automation_id else "") + "#editor", str(exc), False)
         name = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
-        first = value["steps"][0]["type"]
-        payload = json.dumps({"condition": value["condition"]} if value["condition"]["type"] != "always" else {}, ensure_ascii=False)
-        next_run = iso(utcnow() + timedelta(minutes=value["interval_minutes"]))
-        fields = (value["name"], value["trigger_type"], value["interval_minutes"], first, payload, 1 if value["enabled"] else 0,
-                  json.dumps(value["trigger_config"], ensure_ascii=False), json.dumps(value["steps"], ensure_ascii=False),
-                  1 if value["test_mode"] else 0, iso(), name)
-        with cx() as c:
-            if existing:
-                c.execute("""UPDATE ultimate_automations SET name=?,trigger_type=?,interval_minutes=?,action_type=?,action_payload=?,
-                             enabled=?,trigger_config=?,steps_json=?,test_mode=?,updated_at=?,updated_by_name=?,next_run_at=? WHERE id=?""",
-                          (*fields, next_run if existing["trigger_type"] != value["trigger_type"] or existing["interval_minutes"] != value["interval_minutes"]
-                           else existing["next_run_at"], automation_id))
-            else:
-                automation_id = uid("auto")
-                c.execute("""INSERT INTO ultimate_automations(name,trigger_type,interval_minutes,action_type,action_payload,enabled,
-                             trigger_config,steps_json,test_mode,updated_at,updated_by_name,next_run_at,id,last_run_at,created_by_id,
-                             created_by_name,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                          (*fields, next_run, automation_id, None, str(ctx.user["id"]), name, iso()))
+        automation_id, version, _changed = save_automation_definition(value, existing=existing, user_id=str(ctx.user["id"]), user_name=name)
         refresh_triggers()
         audit(ctx, "Automation geändert" if existing else "Automation erstellt", automation_id, value["name"],
-              _rules().describe(value, antinuke_rule_labels() if is_admin(ctx) else {}))
+              f"Version {version} · " + _rules().describe(value, antinuke_rule_labels() if is_admin(ctx) else {}))
         import webserver
         return webserver.back("/ultimate/automations", f"Automation „{value['name']}“ gespeichert" + (" (Testmodus)" if value["test_mode"] else "") + ".", True)
 
@@ -2229,6 +2229,7 @@ def register(app) -> None:
             return webserver.back("/ultimate/automations", "Löschen bitte bestätigen.", False)
         with cx() as c:
             c.execute("DELETE FROM ultimate_automations WHERE id=?", (automation_id,))
+            _workflows().on_definition_changed(c, automation_id, "Automation wurde gelöscht.", deleted=True)
         refresh_triggers()
         audit(ctx, "Automation gelöscht", automation_id, record["name"], "Ausführungsverlauf bleibt erhalten")
         return webserver.back("/ultimate/automations", f"Automation „{record['name']}“ gelöscht.", True)
@@ -2244,6 +2245,7 @@ def register(app) -> None:
         bot = getattr(request.app.state, "bot", None)
         context = {"actor_id": "", "actor_name": name, "rule_label": "manueller Test", "events": [], "result": ""}
         result = await execute_automation(bot, record, trigger_info={"trigger": "manual_test" if dry_run else "manual"},
+                                          actor_id=str(ctx.user["id"]),
                                           context=context, actor_name=name, dry_run=dry_run)
         audit(ctx, "Automation getestet" if dry_run else "Automation manuell ausgeführt", automation_id, record["name"],
               f"{result['status']}: {result['summary'][:500]}")
@@ -2258,6 +2260,10 @@ def register(app) -> None:
     @app.post("/ultimate/automations/{automation_id}/run")
     async def ultimate_automation_run(request: Request, automation_id: str, user_session: str = Cookie(None)):
         return await manual_run(request, automation_id, user_session, False)
+
+    # Versions, approvals and retries share load_automation (403 for security automations) and the save path.
+    _workflows().register(app, load_automation=load_automation, is_admin=is_admin, automation_view=automation_view,
+                          save_definition=save_automation_definition)
 
     @app.get("/ultimate/system", response_class=HTMLResponse)
     async def ultimate_system(request: Request, user_session: str = Cookie(None)):
@@ -2947,6 +2953,48 @@ def _rules():
     return pulse_automation_rules
 
 
+def save_automation_definition(value: dict, *, existing: dict | None, user_id: str, user_name: str, note: str = "",
+                               force_disabled: bool = False) -> tuple[str, int, bool]:
+    """Store a validated automation (editor save and version restore) and append its immutable version.
+
+    Returns (automation_id, version, definition_changed). A changed definition ends open approvals and queued
+    retries of the old one; an automation edited for the first time keeps its previous state as version 1.
+    """
+    import pulse_workflows
+    rules = _rules()
+    enabled = 0 if force_disabled else (1 if value["enabled"] else 0)
+    payload = json.dumps({"condition": value["condition"]} if value["condition"]["type"] != "always" else {}, ensure_ascii=False)
+    next_run = iso(utcnow() + timedelta(minutes=value["interval_minutes"]))
+    fields = (value["name"], value["trigger_type"], value["interval_minutes"], value["steps"][0]["type"], payload, enabled,
+              json.dumps(value["trigger_config"], ensure_ascii=False), json.dumps(value["steps"], ensure_ascii=False),
+              1 if value["test_mode"] else 0, iso(), user_name,
+              json.dumps(value.get("retry") or {}, ensure_ascii=False), json.dumps(value.get("approval") or {}, ensure_ascii=False))
+    snapshot = rules.definition_snapshot(value)
+    with cx() as c:
+        if existing:
+            automation_id = existing["id"]
+            if not c.execute("SELECT 1 FROM ultimate_automation_versions WHERE automation_id=? LIMIT 1", (automation_id,)).fetchone():
+                pulse_workflows.record_version(c, automation_id, pulse_workflows.row_definition(existing),
+                                               author_id=str(existing.get("created_by_id") or "0"),
+                                               author_name=str(existing.get("updated_by_name") or existing.get("created_by_name") or "Bestand"),
+                                               note="Stand vor Einführung der Versionierung")
+            c.execute("""UPDATE ultimate_automations SET name=?,trigger_type=?,interval_minutes=?,action_type=?,action_payload=?,
+                         enabled=?,trigger_config=?,steps_json=?,test_mode=?,updated_at=?,updated_by_name=?,retry_json=?,approval_json=?,
+                         next_run_at=? WHERE id=?""",
+                      (*fields, next_run if existing["trigger_type"] != value["trigger_type"] or existing["interval_minutes"] != value["interval_minutes"]
+                       else existing["next_run_at"], automation_id))
+        else:
+            automation_id = uid("auto")
+            c.execute("""INSERT INTO ultimate_automations(name,trigger_type,interval_minutes,action_type,action_payload,enabled,
+                         trigger_config,steps_json,test_mode,updated_at,updated_by_name,retry_json,approval_json,next_run_at,id,last_run_at,
+                         created_by_id,created_by_name,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      (*fields, next_run, automation_id, None, str(user_id), user_name, iso()))
+        version, changed = pulse_workflows.record_version(c, automation_id, snapshot, author_id=str(user_id), author_name=user_name, note=note)
+        if existing and changed:
+            pulse_workflows.on_definition_changed(c, automation_id, f"Automation wurde geändert (Version {version}).")
+    return automation_id, version, changed
+
+
 async def _run_step(bot, guild, automation: dict, step: dict, context: dict) -> tuple[str, str]:
     """One step → (ok|failed|skipped, detail). Never raises for Discord errors."""
     rules = _rules()
@@ -3003,11 +3051,11 @@ def _store_run(automation: dict, status: str, summary: str, *, started: str, dur
     run_id = uid("run")
     with cx() as c:
         c.execute(
-            "INSERT INTO ultimate_automation_runs(id,automation_id,status,result,started_at,finished_at,trigger_info,steps_json,duration_ms,actor_name)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO ultimate_automation_runs(id,automation_id,status,result,started_at,finished_at,trigger_info,steps_json,duration_ms,"
+            "actor_name,automation_version) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, automation["id"], status, summary[:3000], started, iso(),
              json.dumps({**trigger_info, "automation_name": automation.get("name", "")}, ensure_ascii=False)[:3000],
-             json.dumps(steps, ensure_ascii=False)[:6000], int(duration_ms), actor_name[:80]),
+             json.dumps(steps, ensure_ascii=False)[:6000], int(duration_ms), actor_name[:80], int(automation.get("current_version") or 0)),
         )
         c.execute(
             """DELETE FROM ultimate_automation_runs WHERE automation_id=? AND id NOT IN
@@ -3018,8 +3066,13 @@ def _store_run(automation: dict, status: str, summary: str, *, started: str, dur
 
 
 async def execute_automation(bot, automation: dict, *, trigger_info: dict, context: dict | None = None,
-                             actor_name: str = "", dry_run: bool = False) -> dict:
-    """Run one automation once and store the result. dry_run (or test mode) only records what would run."""
+                             actor_name: str = "", dry_run: bool = False, approved: bool = False, actor_id: str = "") -> dict:
+    """Run one automation once and store the result. dry_run (or test mode) only records what would run.
+
+    An automation with approval stages does not run here: it creates one approval request and stores a run with the
+    status "approval". Only pulse_workflows.execute_approved passes approved=True after every stage was decided.
+    Failed steps of a real run are queued for the configured retries (only those steps, never the successful ones).
+    """
     context = context or {}
     started, t0 = iso(), time.monotonic()
     key = automation["id"]
@@ -3032,6 +3085,7 @@ async def execute_automation(bot, automation: dict, *, trigger_info: dict, conte
         steps = automation_steps(automation)
         dry = dry_run or bool(automation.get("test_mode"))
         import webserver
+        import pulse_workflows
         guild = bot.get_guild(webserver.GUILD_ID) if bot else None
         if not steps:  # automation from before 7.18: one action with a JSON payload
             if dry:
@@ -3059,6 +3113,17 @@ async def execute_automation(bot, automation: dict, *, trigger_info: dict, conte
                                             duration_ms=int((time.monotonic() - t0) * 1000), trigger_info=trigger_info,
                                             steps=[], actor_name=actor_name)
                     return {"status": "skipped", "summary": summary, "steps": []}
+            if not dry and not approved:
+                gate = await asyncio.to_thread(pulse_workflows.request_approval, automation, trigger_info, context, actor_id, actor_name)
+                if gate is not None:
+                    status = "approval" if gate["created"] else "skipped"
+                    run_id = await asyncio.to_thread(_store_run, automation, status, gate["summary"], started=started,
+                                                     duration_ms=int((time.monotonic() - t0) * 1000), trigger_info=trigger_info,
+                                                     steps=[], actor_name=actor_name)
+                    if gate["created"]:
+                        await pulse_workflows.notify_stage(bot, gate["request"])
+                    return {"status": status, "summary": gate["summary"], "steps": [], "run_id": run_id,
+                            "approval_id": (gate.get("request") or {}).get("id")}
             for step in steps[:_rules().MAX_STEPS]:
                 if dry:
                     steps_done.append({"type": step.get("type"), "status": "test", "detail": "Testmodus – nicht ausgeführt"})
@@ -3072,9 +3137,14 @@ async def execute_automation(bot, automation: dict, *, trigger_info: dict, conte
             status = "test" if dry else ("error" if failed else "success")
             summary = " · ".join(f"{_rules().STEP_TYPES.get(s['type'], s['type'])}: {s['detail']}" for s in steps_done)
         duration = int((time.monotonic() - t0) * 1000)
-        await asyncio.to_thread(_store_run, automation, status, summary, started=started, duration_ms=duration,
-                                trigger_info=trigger_info, steps=steps_done, actor_name=actor_name)
-        return {"status": status, "summary": summary, "steps": steps_done, "duration_ms": duration}
+        run_id = await asyncio.to_thread(_store_run, automation, status, summary, started=started, duration_ms=duration,
+                                         trigger_info=trigger_info, steps=steps_done, actor_name=actor_name)
+        retry_id = None
+        if steps and status == "error":
+            retry_id = await asyncio.to_thread(pulse_workflows.schedule_retry, automation, run_id, steps[:_rules().MAX_STEPS],
+                                               steps_done, context, trigger_info)
+        return {"status": status, "summary": summary, "steps": steps_done, "duration_ms": duration, "run_id": run_id,
+                "retry_id": retry_id}
     finally:
         _DISPATCH_DEPTH.reset(token)
         _RUNNING.discard(key)
@@ -3185,6 +3255,13 @@ async def _automation_cycle(bot):
                 )
         except sqlite3.Error as exc:
             print(f"⚠️ Nächster Lauf für Automation {automation.get('id')} nicht gespeichert: {type(exc).__name__}")
+    # Workflow approvals (deadlines, approved leftovers) and due retries – bounded per cycle, same loop, no new worker.
+    try:
+        import pulse_workflows
+        await pulse_workflows.process_approvals(bot)
+        await pulse_workflows.process_retries(bot)
+    except Exception as exc:
+        print(f"⚠️ Workflow-Freigaben/Wiederholungen konnten nicht verarbeitet werden: {type(exc).__name__}")
 
 
 async def automation_loop(bot):

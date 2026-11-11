@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktualisierter Umsetzungsnachweis:** `main` nach PR #186 plus dem aktuellen Ticket-Link-PR; der Audit wird blockweise fortgeschrieben.  
+**Aktualisierter Umsetzungsnachweis:** `main` bei `be60982` (PRs #190–#198, #200, #201 gemergt) plus Workflow-Block (#144, #145, #148, #149). Fortschritt, Phasen und nächste Blöcke: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,26 +19,27 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 43 |
+| Fertig | 58 |
 | Teilweise | 110 |
-| Offen | 24 |
+| Offen | 9 |
 | **Gesamt** | **177** |
 
 ## Ergebnis nach Bereichen
 
 | Bereich | Fertig | Teilweise | Offen |
-| Discord-Bot – Bedienung und Benutzerfreundlichkeit | 5 | 3 | 2 |
-| Discord-Bot – Moderation und Sicherheit | 1 | 12 | 2 |
-| Discord-Bot – Tickets und Support | 9 | 5 | 1 |
-| Discord-Bot – Community und BOCHUM RP | 1 | 13 | 1 |
-| TeamOS-Dashboard – Startseite und Navigation | 2 | 9 | 4 |
+|---|---:|---:|---:|
+| Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 2 | 1 |
+| Discord-Bot – Moderation und Sicherheit | 2 | 12 | 1 |
+| Discord-Bot – Tickets und Support | 9 | 6 | 0 |
+| Discord-Bot – Community und BOCHUM RP | 2 | 13 | 0 |
+| TeamOS-Dashboard – Startseite und Navigation | 4 | 9 | 2 |
 | Teamverwaltung und Mitarbeiterakten | 4 | 6 | 2 |
-| Dienstplanung und Aktivität | 2 | 8 | 2 |
-| Bewerbungen und Recruiting | 2 | 8 | 1 |
-| Academy und Wissensmanagement | 1 | 6 | 3 |
+| Dienstplanung und Aktivität | 3 | 8 | 1 |
+| Bewerbungen und Recruiting | 3 | 8 | 0 |
+| Academy und Wissensmanagement | 4 | 6 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
-| Pulse Intelligence | 3 | 9 | 3 |
-| Automatisierungen und Workflow-System | 5 | 4 | 3 |
+| Pulse Intelligence | 3 | 10 | 2 |
+| Automatisierungen und Workflow-System | 9 | 3 | 0 |
 | Admin Center, Sicherheit und Betrieb | 8 | 12 | 0 |
 | BOCHUM-RP-spezifische Funktionen | 0 | 5 | 0 |
 
@@ -50,11 +51,11 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 |---:|---|---|---|
 | 1 | Interaktive, rechteabhängige Hilfe | **Fertig** | `/pulse-hilfe` wird aus dem Command-Tree erzeugt und nach Berechtigungen gefiltert; `tests/test_command_help.py`. |
 | 2 | Persönliches Pulse-Profil | **Fertig** | `/profil` zeigt eigene Rolle, Dienst, Wochenzeit, Aufgaben, Tickets und Schulungen privat; `tests/test_profile_command.py`. |
-| 3 | Persönliche Übersicht `/pulse` | **Teilweise** | `/pulse` und `/teamstatus` liefern Einstiegs-/Teamübersichten; das neue persönliche Profil deckt erst einen Teil der gewünschten Gesamtübersicht ab. |
+| 3 | Persönliche Übersicht `/pulse` | **Fertig** | `/pulse` zeigt die vollständige persönliche Übersicht (PR #192); `tests/test_pulse_overview_command.py`. |
 | 4 | Intelligente Autovervollständigung | **Teilweise** | Discord-Member-Optionen und Ticket-Schnellantwort-Autocomplete existieren; eine durchgängige Vorschlagslogik für Fälle, Kategorien und alle Befehle fehlt. |
 | 5 | Kontextbezogene Fehler- und Rechtehilfe | **Fertig** | `pulse_command_errors.py` erklärt fehlende Rechte, Cooldowns, Transformer- und unerwartete Fehler; `tests/test_command_errors.py`. |
 | 6 | Interaktive Menüs für häufige Aktionen | **Teilweise** | Buttons, Selects und Modals sind in Ticket-, Moderations-, Dienst- und Voice-Flows vorhanden; es gibt aber kein einheitliches persönliches Aktionsmenü für alle Bereiche. |
-| 7 | Persönliche Befehlsfavoriten | **Offen** | Kein persistentes Favoritenmodell oder persönlicher Command-Shortcut-Bereich gefunden. |
+| 7 | Persönliche Befehlsfavoriten | **Fertig** | Persistente Slash-Command-Favoriten je Nutzer (PR #194); `pulse_command_favorites.py`, `tests/test_pulse_command_favorites.py`. |
 | 8 | Persönliche Benachrichtigungseinstellungen | **Fertig** | Kategorien, Opt-in-DMs, Inbox-Gruppierung und Einstellungen sind in `pulse_notify_prefs.py`; `tests/test_notify_prefs.py`. |
 | 9 | Persönliche und serverweite Ruhezeiten | **Fertig** | Persönliche und globale Quiet Hours inklusive Mitternachtswechsel, Zurückhalten und Bündeln; `tests/test_notify_prefs.py`. |
 | 10 | Mehrsprachige Bot-Antworten | **Offen** | Deutsche Texte sind fest im Bot und Dashboard hinterlegt; kein vollständiges Übersetzungs-/Locale-System gefunden. |
@@ -65,7 +66,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 |---:|---|---|---|
 | 11 | Gemeinsame Moderations-Fallnummern | **Teilweise** | `pulse_mod_cases.py` und `pulse_ultimate.py` vergeben IDs/Fallnummern; Teamwarnungen, KI-Moderation und Bürger-Moderation sind aber noch getrennte Fachakten. |
 | 12 | Durchgängiger Moderationsverlauf | **Teilweise** | `/mod akte`, Falllisten, Warnhistorie und Ultimate-Fallereignisse existieren; ein einheitlicher Verlauf über alle Moderationsarten fehlt. |
-| 13 | Versionierte Begründungsvorlagen | **Offen** | Freitext-Gründe und Ticket-Schnellantworten existieren; kein verwaltbarer, versionierter Vorlagenkatalog für Warn, Timeout, Kick und Ban gefunden. |
+| 13 | Versionierte Begründungsvorlagen | **Fertig** | Verwaltbarer, versionierter Vorlagenkatalog (PR #190); `pulse_mod_reason_templates.py`, `tests/test_mod_reason_templates.py`. |
 | 14 | Beweismittelverwaltung | **Teilweise** | Bürger-Moderationsfälle speichern Beweisangaben; Ultimate-Fälle unterstützen Uploads und Dateimetadaten. Die Beweisverwaltung ist nicht über alle Falltypen vereinheitlicht. |
 | 15 | Formelles Einspruchssystem | **Teilweise** | Moderations-DMs enthalten einen Einspruchsweg/-hinweis (`appeal_text`); ein vollständiger Einreichungs-, Fristen-, Prüfer- und Entscheidungsprozess wurde nicht gefunden. |
 | 16 | Eskalationshinweise bei Wiederholungen | **Teilweise** | Warnstufen, Eskalationsvorschau und KI-Moderationsprüfung existieren; ein einheitlicher, erklärbarer Wiederholungs-Hinweis über alle Fallarten fehlt. |
@@ -93,7 +94,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 33 | Tickets miteinander verknüpfen | **Fertig** | Persistente bidirektionale Verknüpfungen gleicher Guild mit `/ticket verknuepfen`, `/ticket verknuepfungen`, `/ticket trennen`; Dubletten-/Selbst-/Cross-Guild-Schutz, interne Notiz, Backup und personenbezogener Export. Tests: `tests/test_ticket_extras.py`, `tests/test_privacy.py`. |
 | 34 | Freiwillige Ticket-Zufriedenheit | **Fertig** | Ticket-Rating-Endpunkt und Auswertung vorhanden; `tests/test_ticket_extras.py` prüft Rating-Report. Voice-Support besitzt zusätzlich eigene Bewertungen. |
 | 35 | Abgeschlossene Tickets wiedereröffnen | **Teilweise** | Wiederöffnungs-Ereignisse und Dashboard-Aktionsbezeichnungen existieren; ein vollständiger, getesteter Wiedereröffnungsprozess mit Frist und Berechtigungen ist nicht ausreichend belegt. |
-| 36 | Ticket-Zusammenfassung | **Offen** | Der Copilot fasst Support-Kennzahlen zusammen; eine geprüfte Zusammenfassung eines konkreten Ticketverlaufs für die Übergabe wurde nicht gefunden. |
+| 36 | Ticket-Zusammenfassung | **Teilweise** | `/ticket zusammenfassung` erstellt lokal eine extraktive Übergabe (Kernaussagen, Beteiligte, Umfang) und kann sie als interne Notiz speichern; `pulse_ticket_extras.build_ticket_summary`, `tests/test_ticket_extras.py`. Es fehlen: offene Fragen, erledigte Schritte, nächster Schritt, Dashboard-Ansicht. Befund: Zeilenumbrüche in `cogs/ticket_tools.py` sind doppelt maskiert (`\\n`) und erscheinen in Discord als Text. |
 | 37 | Automatische Ticket-Triage | **Fertig** | `pulse_ticket_triage.py` bewertet Wartezeit, Priorität und Zuständigkeit; `tests/test_pulse_ticket_triage.py`. |
 | 38 | Ticket-Statistiken | **Fertig** | `/ticketstats`, Ticketcenter, Rating-Report und Analytics stellen Ticketkennzahlen bereit. |
 | 39 | Support-Warteschlange | **Fertig** | Voice-Warteschlange mit Position, Status und Übernahme sowie Ticket-Wartestatus sind vorhanden; `tests/test_voice_queue.py`. |
@@ -104,7 +105,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
 | 41 | Discord-Eventverwaltung mit Anmeldung | **Teilweise** | Der Team-Kalender in `pulse_ultimate.py` kann Termine/Events verwalten; ein nativer Discord-Event- und RSVP-Button-Flow ist nicht vollständig nachgewiesen. |
-| 42 | Teilnehmerlisten für Events | **Offen** | Für Kalendertermine ist keine Teilnehmer-/Anmeldetabelle mit Zu- und Absagen erkennbar. |
+| 42 | Teilnehmerlisten für Events | **Fertig** | Zu-/Absagen je Kalendertermin in `ultimate_calendar_rsvps` (PR #195); `tests/test_ultimate_event_rsvps.py`. |
 | 43 | Event-Erinnerungen | **Teilweise** | Interview-/Recruiting-Erinnerungen und allgemeine Automationen existieren; ein durchgängiger Event-Erinnerungsdienst fehlt. |
 | 44 | Umfragen | **Teilweise** | `/ultimate/polls` bietet Single-/Multiple-Choice-Abstimmungen im Dashboard; native Discord-Umfragen und Bot-Commands sind nicht vollständig integriert. |
 | 45 | Community-Vorschlagsbox | **Teilweise** | `/ultimate/feedback` nimmt anonyme/namentliche Vorschläge mit Status auf; ein eigener Discord-Einreichungs- und Community-Abstimmungsflow fehlt. |
@@ -126,8 +127,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 56 | Personalisierte Startseite | **Fertig** | `/me` und persönliche Login-Startseite; `tests/test_start_page.py`. |
 | 57 | Konfigurierbares Widget-System | **Teilweise** | Sichtbarkeit der vorhandenen `/me`-Widgets kann gespeichert werden; Drag-and-drop, Reihenfolge, Größen und frei definierbare Widgets fehlen; `tests/test_home_widgets.py`. |
 | 58 | Live-Aktivitätsfeed | **Teilweise** | Audit, Team-Timeline, Inbox und Aktivitätsdaten existieren; ein durchgehend live aktualisierter Feed über alle Ereignisse fehlt. |
-| 59 | Command Palette mit Strg+K | **Offen** | Keine globale Command-Palette oder entsprechende Tastenkombination gefunden. |
-| 60 | Dashboard-Favoriten | **Offen** | Keine persistente Favoritenverwaltung für Seiten/Aktionen gefunden. |
+| 59 | Command Palette mit Strg+K | **Fertig** | Globale, rechtegefilterte Command-Palette (PR #193); `tests/test_command_center_ui.py`. |
+| 60 | Dashboard-Favoriten | **Fertig** | Persönliche Seitenfavoriten unter `/me/favorites/*` (PR #191); `pulse_home.py`, `tests/test_start_page.py`, `tests/test_home_widgets.py`. |
 | 61 | Gespeicherte Filter und Ansichten | **Offen** | Filter in Ticket-/Suchansichten existieren, aber keine benutzerspezifisch gespeicherten Filtersets. |
 | 62 | Globale Suche | **Teilweise** | `pulse_suite` stellt eine globale Suche über mehrere TeamOS-Datenbereiche bereit; Vollständigkeit über alle Tickets, Wiki-Versionen, Bewerbungen und Auditdaten ist nicht belegt. |
 | 63 | Rollenabhängige Navigation | **Fertig** | Navigation wird nach Rechten gefiltert; `tests/test_dashboard_redesign.py` prüft Berechtigungsfilter und sensitive Menüpunkte. |
@@ -167,7 +168,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 87 | Abwesenheitskalender | **Teilweise** | Abmeldungen und Team-Kalender existieren; eine vollständig zusammengeführte persönliche Abwesenheits-/Schichtansicht ist nicht nachgewiesen. |
 | 88 | Wochen- und Monatsberichte | **Teilweise** | Analytics, Wochen-/Monatskennzahlen und Exporte existieren; automatische, einheitliche Teamberichte mit nachvollziehbarer Definition aller KPIs fehlen. |
 | 89 | Dienstzeit-Anomalien | **Teilweise** | Lange Schichten und Datenintegritätsprobleme werden erkannt; statistische Anomalieerkennung mit erklärbaren Schwellen fehlt. |
-| 90 | Schichtnotizen | **Offen** | Team-/Mitarbeiternotizen existieren, aber keine klar schichtbezogenen Notizen mit Zeitfenster und Übergabe. |
+| 90 | Schichtnotizen | **Fertig** | Schichtbezogene Notizen samt Widget auf „Mein Pulse“ (PR #198); `tests/test_shift_notes.py`. |
 | 91 | Übergabeprotokolle | **Fertig** | `/ultimate/handovers` unterstützt Titel, Inhalt, Priorität, Empfänger, Status, Benachrichtigung und Archivierung. |
 | 92 | Team-Verfügbarkeitsmatrix | **Teilweise** | Schichtplan, Dienststatus und Abmeldungen liefern Grunddaten; keine Matrix mit wiederkehrender Verfügbarkeit und Abdeckungsprognose. |
 | 93 | Aktivitätsentwicklung | **Fertig** | Historische Schichtdaten, Wochenvergleiche und Trendfunktionen im Cockpit/Analytics; `tests/test_pulse_cockpit_utils.py`. |
@@ -186,7 +187,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 101 | Automatische Recruiting-Erinnerungen | **Teilweise** | `pulse_app_comms.due_reminders()` berechnet fällige Erinnerungen; die vollständige Zustellung/Fehlerabdeckung für alle Recruitingfälle ist nicht gesondert belegt. |
 | 102 | Recruiting-Statistik | **Teilweise** | Bewerbungsstufen und Analytics existieren; vollständige Conversion-, Wartezeit- und Prüferstatistik fehlt. |
 | 103 | Zusage-/Absagevorlagen | **Teilweise** | `pulse_app_comms` enthält Vorlagen/Rendering; eine zentral verwaltete, versionierte Vorlagenbibliothek mit allen Entscheidungsschritten fehlt. |
-| 104 | Bewerbungs-Dublettenprüfung | **Offen** | Keine robuste Dublettenprüfung mit prüfbaren Indizien gefunden. |
+| 104 | Bewerbungs-Dublettenprüfung | **Fertig** | Sichere Dublettenhinweise mit prüfbaren Indizien, keine automatische Entscheidung (PR #200); `pulse_application_duplicates.py`, `tests/test_application_duplicate_detection.py`. |
 | 105 | Einstellungs-Checkliste | **Fertig** | Onboarding-Checkliste wird in den Join-/Hire-Pfaden erzeugt; `tests/test_checklists.py`. |
 
 ### 9. Academy und Wissensmanagement (106–115)
@@ -194,15 +195,15 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
 | 106 | Interne Lernplattform | **Teilweise** | `/training` und Wiki existieren; die vollständige Academy mit Lernpfaden, Zertifikaten, Feedback und Versionskontrolle fehlt. |
-| 107 | Lernpfade je Rolle | **Offen** | Keine strukturierte Reihenfolge aus Kursen/Modulen mit Rollenpfaden gefunden. |
+| 107 | Lernpfade je Rolle | **Fertig** | Rollenbezogene Lernpfade mit Fortschritt (PR #201); `tests/test_training_learning_paths.py`. |
 | 108 | Quizsystem | **Teilweise** | Trainingserstellung, Fragen, Zeitlimit und Bestehensgrenze existieren; vollständige Quizverwaltung und direkte End-to-End-Abdeckung sind begrenzt. |
 | 109 | Zertifikate | **Teilweise** | `/ultimate/certificates/create` kann Zertifikate manuell vergeben; automatische Ausstellung nach Kursabschluss und Nachweisverifikation fehlen. |
 | 110 | Auffrischungsschulungen | **Teilweise** | Zertifikate besitzen `valid_until`; automatische Ablaufwarnung und Auffrischungszuweisung sind nicht nachgewiesen. |
 | 111 | Wissensdatenbank/Wiki | **Teilweise** | `/wiki` unterstützt Listen-, Detail- und Speicherfunktionen; Suche, redaktionelle Freigaben und vollständige Versionskontrolle fehlen. |
-| 112 | Artikel-Versionierung | **Offen** | Keine Versionstabelle oder Wiederherstellung früherer Wiki-Artikelversionen gefunden. |
+| 112 | Artikel-Versionierung | **Fertig** | Unveränderliche Wiki-Versionen und Wiederherstellung (PR #196); `tests/test_wiki_versioning.py`. |
 | 113 | Lesebestätigung für Dienstanweisungen | **Teilweise** | Team-News haben Lesestatus; versionierte Dienstanweisungen mit gesonderter Kenntnisnahme fehlen. |
 | 114 | Schulungsfortschritt | **Fertig** | Trainingsversuche und Zuweisungen werden gespeichert; bestandene Prüfungen setzen passende Zuweisungen auf `passed`; `tests/test_training_assignments.py`. |
-| 115 | Schulungsfeedback | **Offen** | Allgemeines Ultimate-Feedback existiert, aber kein trainingsbezogener Bewertungs-/Feedbackprozess. |
+| 115 | Schulungsfeedback | **Fertig** | Anonymes Feedback je Schulung (PR #197); `tests/test_training_feedback.py`. |
 
 ### 10. Discord und Dashboard verbinden (116–125)
 
@@ -231,7 +232,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 131 | Automatische Wochenberichte | **Teilweise** | Wochenkennzahlen und Reports existieren; automatischer Wochenbericht mit Trendvergleich und Datenquellen fehlt. |
 | 132 | Führungskräfte-Assistent | **Teilweise** | `/ultimate/copilot` beantwortet begrenzte Fragen auf Basis lokaler Kennzahlen; keine vollständige Abfrage über alle autorisierten Pulse-Daten. |
 | 133 | Wissensassistent mit Quellenangaben | **Teilweise** | Support Assistant nutzt freigegebene Wissensdateien; Quellzitate/Versionen je Antwort fehlen. |
-| 134 | Ticket-Zusammenfassungen | **Offen** | Keine geprüfte Zusammenfassung einzelner Ticketnachrichten/Transkripte für Übergaben gefunden. |
+| 134 | Ticket-Zusammenfassungen | **Teilweise** | Lokale Zusammenfassung existiert nur als Discord-Befehl (siehe #36); eine einheitliche Funktion für Discord und Dashboard mit Sachstand, offenen Fragen, Schritten, Beteiligten und nächstem Schritt fehlt. |
 | 135 | Bewerbungs-Zusammenfassungen | **Offen** | Keine eigene, überprüfbare Zusammenfassung von Bewerbungsantworten gefunden. |
 | 136 | Automatischer Schichtübergabe-Entwurf | **Teilweise** | Manuelle Übergaben sind vorhanden; automatische Entwürfe aus offenen Tickets, Aufgaben und Ereignissen fehlen. |
 | 137 | Datenbasierte Warnhinweise | **Teilweise** | Pulse Intelligence erzeugt erklärbare Findings; Abdeckung und Schwellwerte sind noch begrenzt. |
@@ -246,12 +247,12 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 141 | Visueller Workflow-Editor | **Teilweise** | `/ultimate/automations` bietet einen Formular-/Schritt-Editor mit Triggern und Aktionen; kein grafischer Drag-and-drop-Node-Editor. |
 | 142 | Zeitgesteuerte Workflows | **Fertig** | Intervalltrigger und Scheduler sind vorhanden; `tests/test_automation_center.py`. |
 | 143 | Ereignisbasierte Workflows | **Fertig** | Event-Trigger, Schwellenwerte, Deduplizierung und Anti-Nuke-Events; `tests/test_automation_center.py`. |
-| 144 | Genehmigungsschritte in Workflows | **Teilweise** | Freigaben existieren separat (z. B. Beförderungen); kein generischer Workflow-Schritt mit Freigabe- und Ablehnungspfad. |
-| 145 | Mehrstufige Workflow-Freigaben | **Offen** | Kein generischer mehrstufiger Approval-Graph mit Reihenfolge/Quorum gefunden. |
+| 144 | Genehmigungsschritte in Workflows | **Fertig** | Jede Automation kann Freigabestufen verlangen; der Lauf startet erst nach der Freigabe, Ablehnung beendet ihn. `pulse_workflows.py`, `pulse_automation_rules.py`, `pulse_ultimate.py`; `tests/test_workflow_engine.py` (ApprovalTests). PR: Workflow-Block. Einschränkung: Freigabe gilt für den ganzen Lauf, nicht für einzelne Schritte mitten in der Kette. |
+| 145 | Mehrstufige Workflow-Freigaben | **Fertig** | Bis zu drei Stufen in fester Reihenfolge, Zuständigkeit Führungskraft/Administrator, Quorum 1–5, Frist, Vier-Augen-Prinzip, jede Person einmal; Abbruch bei Ablehnung, Fristablauf, geänderter/pausierter/gelöschter Automation; Inbox-Hinweise. Dateien wie #144; `tests/test_workflow_engine.py` (ApprovalTests). PR: Workflow-Block. Einschränkung: Entscheidung nur im Dashboard, noch nicht per Discord-Button. |
 | 146 | Workflow-Testmodus | **Fertig** | Manueller Testlauf, Testmodus und Dry-Run ohne Seiteneffekte; `tests/test_automation_center.py`. |
 | 147 | Workflow-Fehlerbehandlung | **Fertig** | Fehlgeschlagene Schritte werden protokolliert, weitere Schritte kontrolliert behandelt; `tests/test_automation_center.py`. |
-| 148 | Automatische Workflow-Wiederholungen | **Offen** | Kein konfigurierbarer Retry-/Backoff-/Dead-letter-Mechanismus für fehlgeschlagene Workflow-Aktionen gefunden. |
-| 149 | Workflow-Versionierung | **Offen** | Ausführungsverlauf bleibt erhalten, aber keine versionierten Workflowdefinitionen mit Rollback. |
+| 148 | Automatische Workflow-Wiederholungen | **Fertig** | Begrenzte Versuche (0–5), Exponential Backoff mit Obergrenze, nur fehlgeschlagene Schritte, ein Eintrag je Lauf, Fehlerprotokoll, Dead-Letter-Liste und manuelle Wiederaufnahme; unterbrochene Versuche werden nie automatisch wiederholt. `pulse_workflows.py`; `tests/test_workflow_engine.py` (RetryTests). PR: Workflow-Block. Einschränkung: Automationen im alten Legacy-JSON-Format werden nicht wiederholt. |
+| 149 | Workflow-Versionierung | **Fertig** | Unveränderliche Versionen (DB-Trigger), Verlauf, Feldvergleich, kontrolliertes Wiederherstellen (neue Version, Automation pausiert, heutige Rechteprüfung); Läufe nennen ihre Version. `pulse_workflows.py`, `pulse_ultimate.py`; `tests/test_workflow_engine.py` (VersioningTests). PR: Workflow-Block. |
 | 150 | Workflow-Ausführungsprotokoll | **Fertig** | Ausführungen und Schrittstatus werden in `ultimate_automation_runs` gespeichert; Tests prüfen begrenzte Historie. |
 | 151 | Abhängigkeiten zwischen Workflows | **Teilweise** | Schritte laufen sequenziell; Abhängigkeiten zwischen Workflows/Jobs mit Wait-/Join-Bedingungen fehlen. |
 | 152 | Workflow-Vorlagen | **Teilweise** | Standardaktionen, Trigger und bestehende Automationsregeln existieren; eine umfangreiche, versionierte Vorlagenbibliothek fehlt. |
@@ -297,7 +298,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 2. **Einige frühere Einschätzungen waren zu pessimistisch.** `pulse_ultimate.py` enthält echte Routen und Datenmodelle für Abteilungen, Fälle, Kalender, Umfragen, Feedback, Übergaben, Awards, Zertifikate und Automationen.
 3. **Einige dieser Ultimate-Bereiche haben wenig direkte Verhaltenstest-Abdeckung.** Sie werden deshalb in diesem Audit meist als **Teilweise** eingestuft, bis die kritischen Rechte-, Daten- und Fehlerpfade durch Tests abgesichert sind.
 4. **Die gemeinsamen Plattformfunktionen sind der größte Integrationsrückstand.** Korrelations-IDs, Inbox, Audit, Rechte und Events existieren jeweils in Teilen, sind aber noch nicht vollständig über alle Module vereinheitlicht.
-5. **Die größten klar offenen Punkte** sind u. a. Favoriten, Command Palette, gespeicherte Filter, interne Ticketnotizen, ähnliche/verknüpfte Tickets, echte Lernpfade, Wissensversionierung, Schichttausch, Skill-Matrix, Bewerbungs-Dublettenprüfung und Workflow-Versionierung/Retry.
+5. **Noch offen (9):** #10 Mehrsprachigkeit, #17 AutoMod-Testmodus, #61 gespeicherte Filter, #69 benutzerdefinierte Ansichten, #80 Kompetenzmatrix, #82 Arbeitslastverteilung, #84 Schichttausch, #128 Personalbedarfsprognose, #135 Bewerbungs-Zusammenfassungen.
 6. **Das Audit ist kein Deployment.** Der VPS kann weiterhin einen älteren Commit ausführen, bis ein gesondert freigegebener Deployment-Schritt durchgeführt wird.
 
 ## Technische Hauptbelege
