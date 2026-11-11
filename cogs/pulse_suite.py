@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
 import pulse_paths
+import pulse_staffing_forecast as staffing_forecast
 import pulse_sqlite
 import pulse_jobs
 from pulse_jobs import tracked
@@ -550,9 +551,11 @@ def action_record(kind,payload,actor):
 
 def nav(active, manager=False):
     items=[("suite","/suite","⌂ Command Center"),("team","/suite/team","👥 Teamakten"),("time","/suite/time","⏱ Dienstzeit"),("schedule","/suite/schedule","🗓 Dienstplan"),("myschedule","/suite/my-schedule","👤 Mein Dienstplan"),("calendar","/suite/calendar","📅 Kalender"),("apps","/suite/applications","📝 Recruiting"),("interviews","/suite/interviews","🎤 Gespräche"),("training","/suite/training","🎓 Schulungen"),("tasks","/suite/tasks","📋 Aufgaben"),("news","/suite/news","📢 Team-News"),("audit","/suite/audit","🛡 Audit"),("search","/suite/search","⌕ Suche"),("cases","/suite/cases","🚨 Meldungen"),("ach","/suite/achievements","🏆 Erfolge")]
+    if manager:
+        items.insert(4,("forecast","/suite/forecast","📈 Personalbedarf"))
     if not manager:
         # Hide restricted personnel files and leadership controls from ordinary dashboard users.
-        items=[item for item in items if item[0] not in {"suite","team","apps","interviews","training","audit","cases","ach"}]
+        items=[item for item in items if item[0] not in {"suite","team","apps","interviews","training","audit","cases","ach","forecast"}]
     return "".join('<a class="{}" href="{}">{}</a>'.format("active" if k==active else "",p,label) for k,p,label in items)
 
 def page(ctx,active,title,subtitle,body,js=""):
@@ -765,6 +768,99 @@ def register_routes():
         sid="sch_"+uuid.uuid4().hex[:10]
         with cx() as c:c.execute("INSERT INTO suite_schedule VALUES(?,?,?,?,?,?,?,?,?,?,?)",(sid,str(ctx.guild.id),date,shift_name[:80],start_time,end_time,str(m.id),m.display_name,str(ctx.user["id"]),ctx.user.get("global_name",""),iso()))
         db.notify(m.id,"🗓 Dienst geplant",f"{date} · {shift_name} · {start_time}-{end_time}","info","/suite/schedule",f"schedule:{sid}",86400);audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),m.id,m.display_name,"schedule_created",f"{date} · {shift_name}");return RedirectResponse("/suite/schedule",303)
+
+    @app.get("/suite/forecast",response_class=HTMLResponse)
+    async def staffing_forecast_page(request:Request,user_session:str=Cookie(None)):
+        ctx=auth(request,user_session,manager=True)
+        capacity=staffing_forecast.normalize_capacity(
+            setting("staffing_forecast_tickets_per_person_hour",staffing_forecast.DEFAULT_CAPACITY)
+        )
+        current=datetime.now(ZoneInfo("Europe/Berlin"))
+        history_start=(current.astimezone(timezone.utc)-timedelta(days=staffing_forecast.MAX_HISTORY_DAYS+2)).isoformat(timespec="seconds")
+        with db.connect() as connection:
+            ticket_rows=[dict(row) for row in connection.execute(
+                "SELECT opened_at FROM tickets WHERE guild_id=? AND opened_at>=? ORDER BY opened_at DESC LIMIT ?",
+                (str(ctx.guild.id),history_start,staffing_forecast.MAX_TICKETS),
+            ).fetchall()]
+        schedule_start=(current.date()-timedelta(days=1)).isoformat()
+        schedule_end=(current.date()+timedelta(days=staffing_forecast.MAX_DAYS_AHEAD)).isoformat()
+        with cx() as connection:
+            shifts=[dict(row) for row in connection.execute(
+                "SELECT date,start_time,end_time,assignee_id,assignee_name FROM suite_schedule "
+                "WHERE guild_id=? AND date BETWEEN ? AND ? ORDER BY date,start_time LIMIT ?",
+                (str(ctx.guild.id),schedule_start,schedule_end,staffing_forecast.MAX_SHIFTS),
+            ).fetchall()]
+        forecast=staffing_forecast.build_forecast(
+            ticket_rows,shifts,now=current,history_days=56,days_ahead=7,
+            tickets_per_person_hour=capacity,
+        )
+        weekday_names=("Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag")
+        table_rows=[]
+        for item in forecast["rows"]:
+            weekday=weekday_names[datetime.fromisoformat(item["date"]).weekday()]
+            next_hour=(item["hour"]+1)%24
+            gap=(f'<span class="badge bad">−{item["gap"]} Bedarf</span>'
+                 if item["gap"] else '<span class="badge ok">abgedeckt</span>')
+            table_rows.append(
+                f'<tr><td>{esc(weekday)} · {esc(item["date"])} {item["hour"]:02d}:00–{next_hour:02d}:00</td>'
+                f'<td>{item["expected_tickets"]:.2f}</td><td>{item["required_staff"]}</td>'
+                f'<td>{item["planned_staff"]}</td><td>{gap}</td></tr>'
+            )
+        table=(
+            '<div class="scroll"><table class="table"><thead><tr><th>Zeitfenster</th>'
+            '<th>Erwartete Tickets / h</th><th>Rechnerischer Bedarf</th>'
+            '<th>Geplante Mitarbeitende</th><th>Abdeckung</th></tr></thead><tbody>'
+            + "".join(table_rows) + "</tbody></table></div>"
+            if table_rows else
+            '<div class="notice">Keine verwertbaren historischen Ticket-Eingänge oder geplanten Schichten im Zeitraum. '
+            'Die Prognose bleibt leer, statt Bedarf zu erfinden.</div>'
+        )
+        gap_count=forecast["gap_slots_count"]
+        truncation_note=(
+            '<p class="tiny">Anzeige auf 56 Zeitfenster begrenzt; die größten Bedarfslücken werden zuerst gezeigt.</p>'
+            if forecast["truncated"] else ""
+        )
+        settings_form=(
+            '<div class="card"><h3>⚙️ Planungsannahme</h3>'
+            '<p class="tiny">Wie viele neu eingehende Tickets kann eine Person durchschnittlich in einer Stunde bearbeiten?</p>'
+            '<form method="post" action="/suite/forecast/settings" class="form">'
+            f'<div class="field"><label>Tickets je Person / Stunde</label><input class="input" type="number" '
+            f'name="tickets_per_person_hour" min="0.5" max="10" step="0.5" value="{capacity:.1f}" required></div>'
+            '<div class="span2"><button class="btn primary" type="submit">Annahme speichern</button></div></form></div>'
+        )
+        body=(
+            '<div class="hero"><div class="kicker">Personalplanung · 7 Tage</div>'
+            '<h2 style="font-size:24px;font-weight:950;margin:0 0 7px">📈 Personalbedarfsprognose</h2>'
+            '<p class="muted">Historische Ticket-Eingänge nach Wochentag und Stunde im Vergleich mit dem eingetragenen Dienstplan.</p></div>'
+            f'<div class="grid g4"><div class="card"><div class="tiny">Historische Tickets</div><div class="metric">{forecast["history_tickets"]}</div>'
+            f'<div class="tiny">letzte {forecast["history_days"]} abgeschlossene Tage</div></div>'
+            f'<div class="card"><div class="tiny">Berücksichtigte Schichten</div><div class="metric">{forecast["planned_shifts_count"]}</div></div>'
+            f'<div class="card"><div class="tiny">Prognose-Zeitraum</div><div class="metric">{forecast["days_ahead"]} Tage</div></div>'
+            f'<div class="card"><div class="tiny">Zeitslots mit Bedarfslücke</div><div class="metric">{gap_count}</div></div></div>'
+            f'<div class="card" style="margin-top:13px"><h3>🔎 Erwarteter Bedarf und Abdeckung</h3>{table}{truncation_note}'
+            '<p class="tiny" style="margin-top:10px">Die Prognose mittelt Ticket-Eingänge der letzten acht abgeschlossenen Wochen je Wochentag und Stunde. '
+            'Der rechnerische Bedarf basiert auf der einstellbaren Kapazität und ist ein Planungsrichtwert, keine automatische Personalentscheidung. '
+            'Nur vorhandene Schichtplaneinträge zählen als Abdeckung. Maximal 2.000 Tickets und 1.000 Schichten werden ausgewertet; bis zu 56 Zeitfenster werden nach größter Bedarfslücke priorisiert angezeigt.</p></div>'
+            + settings_form
+        )
+        return page(ctx,"forecast","Personalbedarfsprognose","Ticketvolumen · Dienstplanabdeckung · Planungsrichtwert",body)
+
+    @app.post("/suite/forecast/settings")
+    async def staffing_forecast_settings(
+        request:Request,tickets_per_person_hour:str=Form(...),user_session:str=Cookie(None),
+    ):
+        ctx=auth(request,user_session,manager=True)
+        try:
+            capacity=float(tickets_per_person_hour)
+        except (TypeError,ValueError):
+            raise HTTPException(400,"Bitte eine gültige Ticketkapazität angeben.")
+        if not (staffing_forecast.MIN_CAPACITY<=capacity<=staffing_forecast.MAX_CAPACITY):
+            raise HTTPException(400,"Die Kapazität muss zwischen 0,5 und 10 Tickets pro Person/Stunde liegen.")
+        capacity=round(capacity*2)/2
+        set_setting("staffing_forecast_tickets_per_person_hour",capacity)
+        audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),"staffing-forecast",
+              "Personalbedarfsprognose","staffing_forecast_capacity_changed",f"{capacity:.1f} Tickets je Person/Stunde")
+        return RedirectResponse("/suite/forecast",303)
 
     @app.post("/suite/schedule/swaps/create")
     async def schedule_swap_create(
