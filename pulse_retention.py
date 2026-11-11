@@ -523,6 +523,7 @@ def export_person(ws, discord_id: str) -> dict:
                     },
                     "ultimate_automation_approvals": {"id": _approval_ids_for_decider(path, uid)},
                     "discord_community_feedback": {"reviewed_by_id": {uid}},
+                    "discord_community_feedback_votes": {"voter_id": {uid}},
                 }
             rows, truncated = _rows_for(path, uid, extra_values_by_table=extras)
         except (sqlite3.Error, OSError) as exc:
