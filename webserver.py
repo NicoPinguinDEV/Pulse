@@ -6717,11 +6717,30 @@ async def mod_cases_page(request: Request, user_session: str = Cookie(None)):
         + (f'<div class="text-xs mt-1">Beweis: <a class="text-indigo-500" rel="noopener noreferrer" target="_blank" href="{esc(safe_url(c["proof"]))}">{esc(c["proof"][:80])}</a></div>'
            if c.get("proof") and safe_url(c["proof"]) else "")
         + '</div></div>' for c in page_rows) or empty_state("Noch keine Moderationsfälle.", "⚖")
+    appeal_rows = mc.list_appeals(getattr(ctx.guild, "id", None), status="pending", limit=25)
+    appeal_items = "".join(
+        f'<div class="pulse-row"><div class="pulse-row-main">'
+        f'<div class="pulse-row-title"><code>{esc(row["case_id"])}</code> · '
+        f'<span class="pulse-pill warn">offen</span></div>'
+        f'<div class="pulse-row-meta">Betroffene Person: {esc(row["target_id"])} · '
+        f'{esc(row["submitted_at"][:16].replace("T", " "))} UTC · '
+        f'Frist: {esc(row["deadline_at"][:10])}</div>'
+        f'<div class="text-xs mt-1">{esc(row["reason"])}</div>'
+        f'</div></div>'
+        for row in appeal_rows
+    ) or empty_state("Keine offenen Einsprüche.", "⚖")
+    appeal_section = (
+        '<section class="pulse-card mb-4"><div class="pulse-card-h"><div>'
+        '<div class="pulse-section-title">⚖ Offene Einsprüche</div>'
+        '<div class="pulse-section-sub">Einsprüche werden von berechtigten Moderatoren geprüft. '
+        'Entscheidungen lösen keine Sanktionen automatisch auf.</div></div></div>'
+        f'<div class="pulse-card-b space-y-2">{appeal_items}</div></section>'
+    )
     q = params["q"]
     body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">⚖ Bürger-Moderation</div>'
             f'<div class="pulse-section-sub">Fallakte aller /mod-Aktionen. Neue Fälle entstehen nur in Discord über /mod warn|timeout|kick|ban.</div></div>'
             f'<a class="pulse-btn ghost" href="/mod-cases.csv{("?q=" + quote(q)) if q else ""}">⬇ CSV</a></div>'
-            + __import__("pulse_views").bar("/mod-cases", ctx.user["id"], request.query_params.multi_items()) +
+            + appeal_section + __import__("pulse_views").bar("/mod-cases", ctx.user["id"], request.query_params.multi_items()) +
             f'<section class="pulse-card"><div class="pulse-card-b"><form method="get" class="pulse-search mb-4" role="search" style="max-width:none">'
             f'<span>⌕</span><input name="q" value="{esc(q)}" aria-label="Fälle durchsuchen" placeholder="Fall-ID, Name, Grund, Moderator…"><button class="pulse-btn primary">Suchen</button></form>'
             f'<div class="space-y-2">{items}</div>{pulse_lists.pager("/mod-cases", meta, {"q": q})}</div></section>')
