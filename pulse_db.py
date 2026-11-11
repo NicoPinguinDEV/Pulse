@@ -644,6 +644,103 @@ def task_totals_by_assignee(limit_per_assignee=1000) -> dict:
     return {str(r[0]): (int(r[1]), int(r[2] or 0)) for r in rows}
 
 
+def auto_distribute_unassigned_tasks(candidates, actor_id, actor_name, limit=100):
+    """Assign only unassigned active tasks to the least-loaded eligible team members.
+
+    Existing task ownership is never changed. Current open task and claimed-ticket loads are
+    counted with bounded, priority-weighted work units. The whole plan is committed atomically.
+    """
+    if not isinstance(candidates, (list, tuple)):
+        return []
+    normalized = {}
+    for candidate in candidates[:100]:
+        if not isinstance(candidate, dict):
+            continue
+        user_id = str(candidate.get("id") or "").strip()
+        name = str(candidate.get("name") or "Teammitglied").strip()[:100]
+        if not (user_id.isdigit() and 15 <= len(user_id) <= 22) or user_id in normalized:
+            continue
+        normalized[user_id] = name or "Teammitglied"
+    if not normalized:
+        return []
+    try:
+        limit = max(1, min(int(limit), 100))
+    except (TypeError, ValueError):
+        limit = 100
+
+    weights = {"urgent": 3, "high": 2, "normal": 1, "low": 1}
+
+    with connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        ids = sorted(normalized)
+        placeholders = ",".join("?" for _ in ids)
+        load_score = {user_id: 0 for user_id in ids}
+        open_work = {user_id: 0 for user_id in ids}
+        current_tasks = connection.execute(
+            f"""SELECT assignee_id,priority FROM tasks
+                WHERE assignee_id IN ({placeholders})
+                  AND status NOT IN ('done','archived')
+                  AND (archived_at IS NULL OR archived_at='')""",
+            ids,
+        ).fetchall()
+        for row in current_tasks:
+            user_id = str(row["assignee_id"])
+            load_score[user_id] += weights.get(str(row["priority"] or "normal"), 1)
+            open_work[user_id] += 1
+        current_tickets = connection.execute(
+            f"""SELECT claimed_by_id,priority FROM tickets
+                WHERE claimed_by_id IN ({placeholders}) AND status!='closed'""",
+            ids,
+        ).fetchall()
+        for row in current_tickets:
+            user_id = str(row["claimed_by_id"])
+            load_score[user_id] += weights.get(str(row["priority"] or "normal"), 1)
+            open_work[user_id] += 1
+
+        tasks = connection.execute(
+            f"""SELECT id,title,priority,status FROM tasks
+                WHERE (assignee_id IS NULL OR TRIM(assignee_id)='')
+                  AND status NOT IN ('done','archived')
+                  AND (archived_at IS NULL OR archived_at='')
+                ORDER BY {_TASK_ORDER} LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        now = _now()
+        assignments = []
+        for task in tasks:
+            user_id = min(ids, key=lambda item: (load_score[item], open_work[item], item))
+            name = normalized[user_id]
+            weight = weights.get(str(task["priority"] or "normal"), 1)
+            updated = connection.execute(
+                """UPDATE tasks SET assignee_id=?,assignee_name=?,updated_at=?
+                   WHERE id=? AND (assignee_id IS NULL OR TRIM(assignee_id)='')
+                     AND status NOT IN ('done','archived')""",
+                (user_id, name, now, str(task["id"])),
+            )
+            if updated.rowcount != 1:
+                continue
+            connection.execute(
+                "INSERT INTO task_history VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    make_id("th"), str(task["id"]), str(actor_id), str(actor_name or "System")[:100],
+                    str(task["status"] or "open"), str(task["status"] or "open"),
+                    str(task["priority"] or "normal"), str(task["priority"] or "normal"),
+                    "Automatische Arbeitslastverteilung: unzugewiesene Aufgabe fair zugeteilt.",
+                    now,
+                ),
+            )
+            load_score[user_id] += weight
+            open_work[user_id] += 1
+            assignments.append({
+                "task_id": str(task["id"]),
+                "title": str(task["title"] or ""),
+                "assignee_id": user_id,
+                "assignee_name": name,
+                "priority": str(task["priority"] or "normal"),
+            })
+        return assignments
+
+
 def get_task(tid):
     with connect() as db:
         row = db.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone()
