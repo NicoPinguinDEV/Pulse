@@ -648,18 +648,100 @@ def register_routes():
     @app.get("/suite/my-schedule",response_class=HTMLResponse)
     async def my_schedule(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session)
+        today=datetime.now(ZoneInfo("Europe/Berlin")).date().isoformat()
         with cx() as c:
-            rows=[dict(x) for x in c.execute("SELECT * FROM suite_schedule WHERE guild_id=? AND assignee_id=? ORDER BY date,start_time",(ctx.guild.id,str(ctx.user["id"]))).fetchall()]
-        cards="".join(f'<div class=card><div class=row><span><b>{esc(x["date"])}</b> · {esc(x["shift_name"])}<div class=tiny>{esc(x["start_time"])}–{esc(x["end_time"])}</div></span></div></div>' for x in rows)
-        return page(ctx,"myschedule","Mein Dienstplan","Deine persönlichen Schichten und automatische 30-Minuten-Erinnerungen",cards or "<div class=card>Keine Schichten eingetragen.</div>")
+            rows=[dict(x) for x in c.execute(
+                "SELECT * FROM suite_schedule WHERE guild_id=? AND assignee_id=? ORDER BY date,start_time",
+                (ctx.guild.id,str(ctx.user["id"])),
+            ).fetchall()]
+            other_rows=[dict(x) for x in c.execute(
+                """SELECT * FROM suite_schedule WHERE guild_id=? AND assignee_id!=?
+                   AND date>=? ORDER BY date,start_time LIMIT 200""",
+                (ctx.guild.id,str(ctx.user["id"]),today),
+            ).fetchall()]
+        own_future=[x for x in rows if str(x.get("date") or "")>=today]
+        own_options="".join(
+            f'<option value="{esc(x["id"])}">{esc(x["date"])} · {esc(x["shift_name"])} · {esc(x["start_time"])}–{esc(x["end_time"])}</option>'
+            for x in own_future
+        )
+        target_options="".join(
+            f'<option value="{esc(x["id"])}">{esc(x["date"])} · {esc(x["shift_name"])} · {esc(x["assignee_name"])} · {esc(x["start_time"])}–{esc(x["end_time"])}</option>'
+            for x in other_rows
+        )
+        shift_cards="".join(
+            f'<div class=card><div class=row><span><b>{esc(x["date"])}</b> · {esc(x["shift_name"])}'
+            f'<div class=tiny>{esc(x["start_time"])}–{esc(x["end_time"])}</div></span></div></div>'
+            for x in rows
+        ) or "<div class=card>Keine Schichten eingetragen.</div>"
+        request_form=(
+            '<div class=card style="margin-top:13px"><h3>🔄 Schichttausch beantragen</h3>'
+            '<p class=tiny>Wähle eine deiner zukünftigen Schichten und die Gegenschicht eines anderen Teammitglieds. '
+            'Die Gegenseite muss zustimmen; anschließend entscheidet die Leitung.</p>'
+            '<form method=post action=/suite/schedule/swaps/create class=form>'
+            f'<div class=field><label>Deine Schicht</label><select class=select name=request_shift_id required>{own_options}</select></div>'
+            f'<div class=field><label>Gegenschicht</label><select class=select name=target_shift_id required>{target_options}</select></div>'
+            '<div class=span2><button class="btn primary" type=submit>Schichttausch anfragen</button></div></form></div>'
+            if own_options and target_options else
+            '<div class=card style="margin-top:13px"><h3>🔄 Schichttausch</h3><p class=tiny>Für einen Tausch werden zwei zukünftige, unterschiedlichen Teammitgliedern zugewiesene Schichten benötigt.</p></div>'
+        )
+        request_rows=schedule_swap_requests(ctx.guild.id,ctx.user["id"],limit=50)
+        rendered=[]
+        for item in request_rows:
+            mine=str(item["requester_id"])==str(ctx.user["id"])
+            direction="Dein Antrag" if mine else f'Anfrage von {esc(item["requester_name"])}'
+            details=(
+                f'{esc(item.get("request_date") or "Schicht")} · {esc(item.get("request_shift_name") or "—")} '
+                f'({esc(item.get("request_start") or "")}–{esc(item.get("request_end") or "")})'
+                f' ↔ {esc(item.get("target_date") or "Schicht")} · {esc(item.get("target_shift_name") or "—")} '
+                f'({esc(item.get("target_start") or "")}–{esc(item.get("target_end") or "")})'
+            )
+            actions=""
+            if item["status"]=="pending_peer" and not mine:
+                actions=(
+                    f'<form method=post action="/suite/schedule/swaps/{esc(item["id"])}/respond" class="flex gap-2">'
+                    '<button class="btn primary" name=decision value=accept>✓ Zustimmen</button>'
+                    '<button class="btn danger" name=decision value=reject>Ablehnen</button></form>'
+                )
+            elif item["status"] in {"pending_peer","pending_manager"} and mine:
+                actions=(
+                    f'<form method=post action="/suite/schedule/swaps/{esc(item["id"])}/cancel">'
+                    '<button class="btn danger">Antrag zurückziehen</button></form>'
+                )
+            status_label={
+                "pending_peer":"Wartet auf Gegenseite","pending_manager":"Wartet auf Leitung",
+                "approved":"Genehmigt","rejected":"Abgelehnt","cancelled":"Zurückgezogen / erledigt",
+            }.get(item["status"],"Unbekannt")
+            rendered.append(
+                f'<div class=row><div><b>{direction}</b><div class=tiny>{details}</div>'
+                f'<div class="tiny" style="margin-top:4px">{status_label}</div></div>{actions}</div>'
+            )
+        swaps=(
+            '<div class=card style="margin-top:13px"><h3>📨 Tauschanfragen</h3>'
+            + "".join(rendered) + '</div>'
+            if rendered else ""
+        )
+        body=shift_cards+request_form+swaps
+        return page(ctx,"myschedule","Mein Dienstplan","Deine persönlichen Schichten, Tauschanfragen und 30-Minuten-Erinnerungen",body)
 
     @app.get("/suite/schedule",response_class=HTMLResponse)
     async def schedule_page(request:Request,user_session:str=Cookie(None)):
         ctx=auth(request,user_session,manager=True);ms=members(ctx.guild,webserver)
         with cx() as c:rows=[dict(x) for x in c.execute("SELECT * FROM suite_schedule WHERE guild_id=? ORDER BY date,start_time",(ctx.guild.id,)).fetchall()]
         opts="".join(f'<option value="{m.id}">{esc(m.display_name)}</option>' for m in ms)
-        body=f'<div class="grid g2"><div class=card><h3>➕ Dienst planen</h3><form class=form method=post action=/suite/schedule/create><div class=field><label>Datum</label><input class=input type=date name=date required></div><div class=field><label>Dienst</label><input class=input name=shift_name required></div><div class=field><label>Start</label><input class=input type=time name=start_time required></div><div class=field><label>Ende</label><input class=input type=time name=end_time required></div><div class="field span2"><label>Teamler</label><select class=select name=assignee_id required>{opts}</select></div><div class=span2><button class="btn primary">Planen</button></div></form></div><div class=card><h3>⏰ Nächste Schichten</h3>{''.join(f'<div class=row><span>{esc(x["date"])} · {esc(x["shift_name"])}<div class=tiny>{esc(x["start_time"])}–{esc(x["end_time"])}</div></span><b>{esc(x["assignee_name"])}</b></div>' for x in rows[:15])}</div></div><div class=card style="margin-top:13px"><h3>📅 Wochenplan</h3>{''.join(f'<div class=row>{esc(x["date"])} · {esc(x["shift_name"])} · {esc(x["assignee_name"])} <span>{esc(x["start_time"])}–{esc(x["end_time"])}</span></div>' for x in rows)}</div>'
-        return page(ctx,"schedule","Dienstplan","Früh-, Spät- und Sonderdienste · 30-Minuten-Erinnerung",body)
+        pending_swaps=schedule_swap_requests(ctx.guild.id,status="pending_manager",limit=50)
+        swap_rows="".join(
+            f'<div class=row><div><b>{esc(x["requester_name"])} ↔ {esc(x["target_name"])}</b>'
+            f'<div class=tiny>{esc(x.get("request_date") or "")} · {esc(x.get("request_shift_name") or "")} '
+            f'({esc(x.get("request_start") or "")}–{esc(x.get("request_end") or "")})'
+            f' ↔ {esc(x.get("target_date") or "")} · {esc(x.get("target_shift_name") or "")} '
+            f'({esc(x.get("target_start") or "")}–{esc(x.get("target_end") or "")})</div></div>'
+            f'<form method=post action="/suite/schedule/swaps/{esc(x["id"])}/decision" class="flex gap-2">'
+            '<button class="btn primary" name=decision value=approve>Genehmigen</button>'
+            '<button class="btn danger" name=decision value=reject>Ablehnen</button></form></div>'
+            for x in pending_swaps
+        ) or '<div class=tiny>Keine von der Gegenseite bestätigten Anfragen offen.</div>'
+        body=f'<div class="grid g2"><div class=card><h3>➕ Dienst planen</h3><form class=form method=post action=/suite/schedule/create><div class=field><label>Datum</label><input class=input type=date name=date required></div><div class=field><label>Dienst</label><input class=input name=shift_name required></div><div class=field><label>Start</label><input class=input type=time name=start_time required></div><div class=field><label>Ende</label><input class=input type=time name=end_time required></div><div class="field span2"><label>Teamler</label><select class=select name=assignee_id required>{opts}</select></div><div class=span2><button class="btn primary">Planen</button></div></form></div><div class=card><h3>⏰ Nächste Schichten</h3>{''.join(f'<div class=row><span>{esc(x["date"])} · {esc(x["shift_name"])}<div class=tiny>{esc(x["start_time"])}–{esc(x["end_time"])}</div></span><b>{esc(x["assignee_name"])}</b></div>' for x in rows[:15])}</div></div><div class=card style="margin-top:13px"><h3>✅ Schichttausch-Freigaben</h3>{swap_rows}</div><div class=card style="margin-top:13px"><h3>📅 Wochenplan</h3>{''.join(f'<div class=row>{esc(x["date"])} · {esc(x["shift_name"])} · {esc(x["assignee_name"])} <span>{esc(x["start_time"])}–{esc(x["end_time"])}</span></div>' for x in rows)}</div>'
+        return page(ctx,"schedule","Dienstplan","Früh-, Spät- und Sonderdienste · Schichttausch mit Gegenseiten- und Leitungsfreigabe",body)
 
     @app.post("/suite/schedule/create")
     async def schedule_create(request:Request,date:str=Form(...),shift_name:str=Form(...),start_time:str=Form(...),end_time:str=Form(...),assignee_id:int=Form(...),user_session:str=Cookie(None)):
@@ -668,6 +750,103 @@ def register_routes():
         sid="sch_"+uuid.uuid4().hex[:10]
         with cx() as c:c.execute("INSERT INTO suite_schedule VALUES(?,?,?,?,?,?,?,?,?,?,?)",(sid,str(ctx.guild.id),date,shift_name[:80],start_time,end_time,str(m.id),m.display_name,str(ctx.user["id"]),ctx.user.get("global_name",""),iso()))
         db.notify(m.id,"🗓 Dienst geplant",f"{date} · {shift_name} · {start_time}-{end_time}","info","/suite/schedule",f"schedule:{sid}",86400);audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),m.id,m.display_name,"schedule_created",f"{date} · {shift_name}");return RedirectResponse("/suite/schedule",303)
+
+    @app.post("/suite/schedule/swaps/create")
+    async def schedule_swap_create(
+        request:Request,request_shift_id:str=Form(...),target_shift_id:str=Form(...),
+        user_session:str=Cookie(None),
+    ):
+        ctx=auth(request,user_session)
+        try:
+            request_id=create_schedule_swap_request(
+                ctx.guild.id,request_shift_id,target_shift_id,ctx.user["id"],
+                ctx.user.get("global_name") or "Teammitglied",
+            )
+        except PermissionError as exc:
+            raise HTTPException(403,str(exc))
+        except ValueError as exc:
+            raise HTTPException(400,str(exc))
+        request_row=next((x for x in schedule_swap_requests(ctx.guild.id,ctx.user["id"],limit=50)
+                          if x["id"]==request_id),None)
+        if request_row:
+            db.notify(
+                request_row["target_id"],"🔄 Schichttausch-Anfrage",
+                f'{request_row["requester_name"]} möchte {request_row.get("request_date")} · '
+                f'{request_row.get("request_shift_name")} gegen deine Schicht tauschen.',
+                "info","/suite/my-schedule",f"schedule-swap:{request_id}",86400,
+            )
+            audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),request_row["target_id"],
+                  request_row["target_name"],"schedule_swap_requested",request_id)
+        return RedirectResponse("/suite/my-schedule",303)
+
+    @app.post("/suite/schedule/swaps/{request_id}/respond")
+    async def schedule_swap_respond(
+        request:Request,request_id:str,decision:str=Form(...),user_session:str=Cookie(None),
+    ):
+        ctx=auth(request,user_session)
+        if decision not in {"accept","reject"}:
+            raise HTTPException(400,"Ungültige Antwort.")
+        try:
+            status=respond_schedule_swap_request(
+                request_id,ctx.guild.id,ctx.user["id"],decision=="accept",
+            )
+        except PermissionError as exc:
+            raise HTTPException(403,str(exc))
+        except ValueError as exc:
+            raise HTTPException(409,str(exc))
+        request_row=next((x for x in schedule_swap_requests(ctx.guild.id,ctx.user["id"],limit=50)
+                          if x["id"]==request_id),None)
+        if request_row:
+            message=("Die Gegenseite hat dem Schichttausch zugestimmt. Die Leitung muss noch freigeben."
+                     if status=="pending_manager" else "Die Gegenseite hat den Schichttausch abgelehnt.")
+            db.notify(
+                request_row["requester_id"],"🔄 Schichttausch beantwortet",message,
+                "success" if status=="pending_manager" else "warning","/suite/my-schedule",
+                f"schedule-swap-response:{request_id}",86400,
+            )
+            audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),request_row["requester_id"],
+                  request_row["requester_name"],"schedule_swap_peer_response",status)
+        return RedirectResponse("/suite/my-schedule",303)
+
+    @app.post("/suite/schedule/swaps/{request_id}/cancel")
+    async def schedule_swap_cancel(request:Request,request_id:str,user_session:str=Cookie(None)):
+        ctx=auth(request,user_session)
+        if not cancel_schedule_swap_request(request_id,ctx.guild.id,ctx.user["id"]):
+            raise HTTPException(409,"Der Antrag kann nicht mehr zurückgezogen werden.")
+        audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),request_id,"Schichttausch","schedule_swap_cancelled","Vom Antragsteller zurückgezogen.")
+        return RedirectResponse("/suite/my-schedule",303)
+
+    @app.post("/suite/schedule/swaps/{request_id}/decision")
+    async def schedule_swap_decision(
+        request:Request,request_id:str,decision:str=Form(...),note:str=Form(""),
+        user_session:str=Cookie(None),
+    ):
+        ctx=auth(request,user_session,manager=True)
+        if decision not in {"approve","reject"}:
+            raise HTTPException(400,"Ungültige Entscheidung.")
+        try:
+            result=decide_schedule_swap_request(
+                request_id,ctx.guild.id,ctx.user["id"],
+                ctx.user.get("global_name") or "Leitung",decision=="approve",note[:500],
+            )
+        except ValueError as exc:
+            raise HTTPException(409,str(exc))
+        request_row=next((x for x in schedule_swap_requests(ctx.guild.id,limit=100)
+                          if x["id"]==request_id),None)
+        if request_row:
+            approved=result["status"]=="approved"
+            message=("Der Schichttausch wurde genehmigt; der Dienstplan ist aktualisiert."
+                     if approved else f'Der Schichttausch wurde abgelehnt. {note[:300]}')
+            for user_id in {request_row["requester_id"],request_row["target_id"]}:
+                db.notify(
+                    user_id,"🔄 Schichttausch entschieden",message,
+                    "success" if approved else "warning","/suite/my-schedule",
+                    f"schedule-swap-decision:{request_id}:{result['status']}",86400,
+                )
+            audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),
+                  request_row["requester_id"],request_row["requester_name"],
+                  "schedule_swap_decided",result["status"]+" · "+note[:300])
+        return RedirectResponse("/suite/schedule",303)
 
     @app.get("/suite/calendar",response_class=HTMLResponse)
     async def calendar_page(request:Request,user_session:str=Cookie(None)):
