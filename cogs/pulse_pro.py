@@ -779,7 +779,13 @@ class PulsePro(commands.Cog):
             embed.add_field(name=pulse_i18n.translate(locale, "profile_duty"), value=duty_status, inline=True)
             embed.add_field(
                 name=pulse_i18n.translate(locale, "profile_week"),
-                value=f"{webserver.fmt_duration(weekly_seconds)} von {weekly_goal:g} h · {weekly_percent} %",
+                value=pulse_i18n.translate(
+                    locale,
+                    "profile_week_value",
+                    duration=webserver.fmt_duration(weekly_seconds),
+                    goal=weekly_goal,
+                    percent=weekly_percent,
+                ),
                 inline=False,
             )
             embed.add_field(name=pulse_i18n.translate(locale, "profile_tasks"), value=str(len(open_tasks)), inline=True)
