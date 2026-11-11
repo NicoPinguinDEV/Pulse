@@ -69,6 +69,18 @@ class CommunitySuggestionModalTests(unittest.TestCase):
         self.assertIn("Besseres Menü", kwargs["embed"].fields[0].name)
         self.assertIn("Dafür", kwargs["embed"].fields[0].value)
 
+    def test_feedback_command_opens_modal_with_feedback_type(self):
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(id=100),
+            response=SimpleNamespace(send_modal=AsyncMock()),
+        )
+        choice = discord.app_commands.Choice(name="Support", value="support")
+        asyncio.run(PulseSuite.community_feedback.callback(None, interaction, choice, False))
+        modal = interaction.response.send_modal.await_args.args[0]
+        self.assertEqual(modal.kind, "feedback")
+        self.assertFalse(modal.anonymous)
+        self.assertEqual(modal.title, "BOCHUM RP · Community-Feedback")
+
     def test_vote_autocomplete_is_guild_scoped(self):
         interaction = SimpleNamespace(guild=SimpleNamespace(id=100))
         rows = [{
