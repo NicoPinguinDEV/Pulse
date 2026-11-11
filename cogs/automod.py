@@ -37,7 +37,7 @@ def _ids(values) -> set[int]:
 class PulseAutoMod(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # (guild, user) -> recent (monotonic time, hash of the folded content); bounded per user and in total.
+        # (guild, user, mode) -> recent (monotonic time, content hash); test traffic cannot prime enforce counters.
         self._messages: dict[tuple[int, int, str], deque[tuple[float, int]]] = defaultdict(lambda: deque(maxlen=20))
         self._strikes: dict[tuple[int, int], deque[float]] = defaultdict(lambda: deque(maxlen=10))
         self._message_events = 0
