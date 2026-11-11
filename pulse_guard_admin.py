@@ -653,6 +653,8 @@ def register(app) -> None:
             notes.append("AutoMod ist gerade ausgeschaltet – im Betrieb würde nichts passieren.")
         elif automod["mode"] == "observe":
             notes.append("Modus „Nur beobachten“: im Betrieb würde nur protokolliert.")
+        elif automod["mode"] == "test":
+            notes.append("Testmodus: Live-Nachrichten würden ausschließlich als Simulation protokolliert; es erfolgen keine Sanktionen.")
         if "spam" in rules:
             notes.append("Spam/Nachrichtenflut hängt von mehreren Nachrichten ab und lässt sich mit einer einzelnen Nachricht nicht testen.")
         if hits:
