@@ -383,6 +383,9 @@ class RetentionTests(unittest.TestCase):
         pulse_community_feedback.update_feedback(
             "1", saved["id"], "reviewing", "Wird geprüft.", reviewer_id, "Synthetic Reviewer"
         )
+        pulse_community_feedback.update_feedback(
+            "1", saved["id"], "voting", "Zur Community-Abstimmung freigegeben.", reviewer_id, "Synthetic Reviewer"
+        )
 
         author_export = pulse_retention.export_person(ws, author_id)
         reviewer_export = pulse_retention.export_person(ws, reviewer_id)
