@@ -20,6 +20,44 @@ def register(app):
         c = ws.BADGE_OK if kind == "ok" else ws.BADGE_BAD if kind == "bad" else ws.BADGE_WARN
         return f'<span class="text-[10px] border rounded-full px-2.5 py-1 font-semibold {c}">{esc(text)}</span>'
 
+    @app.post("/tasks/distribute")
+    async def tasks_distribute(request: Request, user_session: str=Cookie(None)):
+        c=ctx(request,user_session,perm=None)
+        manager=c.perms.get("can_manage_tasks") or c.perms.get("can_promote") or c.perms.get("is_admin")
+        if not manager:
+            raise HTTPException(403,"Dafür fehlt dir die Berechtigung.")
+        configured_role_ids={
+            str(value) for value in (c.config.get("team_role_ids",[]) or [])
+            if str(value).isdigit()
+        }
+        guild=getattr(c,"guild",None)
+        candidates=[]
+        for member in getattr(guild,"members",[])[:500]:
+            if getattr(member,"bot",False):
+                continue
+            member_roles={
+                str(getattr(role,"id","")) for role in getattr(member,"roles",[])
+            }
+            if member_roles & configured_role_ids:
+                candidates.append({
+                    "id":str(getattr(member,"id","")),
+                    "name":str(getattr(member,"display_name",getattr(member,"name","Teammitglied"))),
+                })
+        assignments=db.auto_distribute_unassigned_tasks(
+            candidates,c.user["id"],c.user.get("global_name") or "Team",limit=100,
+        )
+        if not assignments:
+            return ws.back("/tasks","Keine unzugewiesenen aktiven Aufgaben oder keine geeigneten Teammitglieder gefunden.",False)
+        by_member={}
+        for item in assignments:
+            by_member[item["assignee_name"]]=by_member.get(item["assignee_name"],0)+1
+        summary=", ".join(f"{name}: {count}" for name,count in sorted(by_member.items()))
+        ws.log_audit(
+            c.user.get("global_name"),c.user["id"],"Automatische Arbeitslastverteilung",
+            f'{len(assignments)} neue Aufgaben verteilt · {summary}',
+        )
+        return ws.back("/tasks",f'{len(assignments)} unzugewiesene Aufgabe(n) verteilt: {summary}.',True)
+
     @app.post("/tasks/create")
     async def task_create(request: Request, title: str=Form(...), description: str=Form(""), assignee_id: str=Form(""), priority: str=Form("normal"), due_at: str=Form(""), user_session: str=Cookie(None)):
         c=ctx(request,user_session,perm=None); manager=c.perms.get("can_manage_tasks") or c.perms.get("can_promote") or c.perms.get("is_admin")
