@@ -476,7 +476,7 @@ def register(app) -> None:
                 f'<div class="flex flex-wrap gap-2"><form method="post" action="/me/layouts/activate">'
                 f'<input type="hidden" name="layout_id" value="{e(item["id"])}">'
                 f'<button class="pulse-btn ghost" type="submit">Aktivieren</button></form>'
-                f'<form method="post" action="/me/layouts/delete" onsubmit="return confirm(\\'Layout wirklich löschen?\\')">'
+                f'<form method="post" action="/me/layouts/delete">'
                 f'<input type="hidden" name="layout_id" value="{e(item["id"])}">'
                 f'<button class="pulse-btn bad" type="submit">Löschen</button></form></div></div>'
             )
