@@ -104,6 +104,33 @@ MESSAGES = {
         "section_moderation": "⚠ Moderation",
         "section_leadership": "🛡 Führung",
         "section_setup": "⚙ Einrichtung & Wartung",
+        "duty_team_only": "❌ Den Dienst können nur Teammitglieder starten und beenden.",
+        "duty_action_unavailable": "Diese Aktion ist gerade nicht möglich.",
+        "duty_start_already_running": "Du hast bereits eine laufende Schicht.",
+        "duty_start_warning_lock": "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!",
+        "duty_start_success": "Schicht gestartet – viel Erfolg!",
+        "duty_start_leave_active": "Schicht gestartet. Deine Abmeldung bleibt bis {date} hinterlegt und wird nicht automatisch beendet.",
+        "duty_break_success": "Pause gestartet.",
+        "duty_resume_success": "Schicht fortgesetzt.",
+        "duty_end_success": "Schicht beendet – {duration} gutgeschrieben.",
+        "duty_status_offline": "Du bist nicht im Dienst. Diese Woche: {week}.",
+        "duty_status_online": "Du bist im Dienst seit {duration}. Diese Woche: {week}.",
+        "duty_status_break": "Du bist in der Pause seit {duration}. Diese Woche: {week}.",
+        "duty_note_team_only": "❌ Schichtnotizen können nur Teammitglieder verwenden.",
+        "duty_note_permission": "❌ Dir fehlt die Berechtigung zum Erstellen von Schichtnotizen.",
+        "duty_note_required": "❌ Bitte gib eine Notiz ein.",
+        "duty_note_too_long": "❌ Eine Schichtnotiz darf höchstens 1.000 Zeichen enthalten.",
+        "duty_note_read_error": "❌ Der aktuelle Dienststatus konnte nicht gelesen werden ({error_type}).",
+        "duty_note_inactive": "❌ Du bist aktuell nicht im Dienst. Starte zuerst mit /dienst start eine Schicht.",
+        "duty_note_saved": "✅ Schichtnotiz wurde privat gespeichert und deiner laufenden Schicht zugeordnet.",
+        "duty_notes_team_only": "❌ Schichtnotizen können nur Teammitglieder einsehen.",
+        "duty_notes_lead_only": "❌ Schichtnotizen anderer Teammitglieder sind nur für die Leitung freigegeben.",
+        "duty_notes_none": "📝 Für **{name}** liegen noch keine Schichtnotizen vor.",
+        "duty_notes_title": "**Schichtnotizen für {name}**",
+        "duty_notes_more_hidden": "… weitere Einträge ausgeblendet.",
+        "duty_panel_admin_only": "❌ Nur Admins können das Dienst-Panel veröffentlichen.",
+        "duty_panel_send_error": "❌ Pulse kann hier nicht senden ({error_type}). Kanalrechte prüfen.",
+        "duty_panel_published": "✅ Dienst-Panel veröffentlicht.",
     },
     "en": {
         "guild_only": "This command is only available in a server.",
@@ -139,10 +166,82 @@ MESSAGES = {
         "section_moderation": "⚠ Moderation",
         "section_leadership": "🛡 Leadership",
         "section_setup": "⚙ Setup & maintenance",
+        "duty_team_only": "❌ Only team members can start or end a shift.",
+        "duty_action_unavailable": "This action is not available right now.",
+        "duty_start_already_running": "You already have an active shift.",
+        "duty_start_warning_lock": "Shift start blocked: you have 5 active warnings.",
+        "duty_start_success": "Shift started – good luck!",
+        "duty_start_leave_active": "Shift started. Your leave remains recorded until {date} and will not be ended automatically.",
+        "duty_break_success": "Break started.",
+        "duty_resume_success": "Shift resumed.",
+        "duty_end_success": "Shift ended – {duration} credited.",
+        "duty_status_offline": "You are off duty. This week: {week}.",
+        "duty_status_online": "You have been on duty for {duration}. This week: {week}.",
+        "duty_status_break": "You have been on break for {duration}. This week: {week}.",
+        "duty_note_team_only": "❌ Only team members can use shift notes.",
+        "duty_note_permission": "❌ You do not have permission to create shift notes.",
+        "duty_note_required": "❌ Please enter a note.",
+        "duty_note_too_long": "❌ A shift note may contain no more than 1,000 characters.",
+        "duty_note_read_error": "❌ The current shift status could not be read ({error_type}).",
+        "duty_note_inactive": "❌ You are currently off duty. Start a shift with /dienst start first.",
+        "duty_note_saved": "✅ Shift note saved privately and linked to your active shift.",
+        "duty_notes_team_only": "❌ Only team members can view shift notes.",
+        "duty_notes_lead_only": "❌ Shift notes for other team members are only available to leadership.",
+        "duty_notes_none": "📝 There are no shift notes for **{name}** yet.",
+        "duty_notes_title": "**Shift notes for {name}**",
+        "duty_notes_more_hidden": "… additional entries hidden.",
+        "duty_panel_admin_only": "❌ Only admins can publish the duty panel.",
+        "duty_panel_send_error": "❌ Pulse cannot send messages here ({error_type}). Check channel permissions.",
+        "duty_panel_published": "✅ Duty panel published.",
     },
 }
 
 _SECTION_KEYS = {
+
+_DUTY_FIXED_MESSAGES = {
+    "Du hast bereits eine laufende Schicht.": "duty_start_already_running",
+    "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!": "duty_start_warning_lock",
+    "Schicht gestartet – viel Erfolg!": "duty_start_success",
+    "Pause gestartet.": "duty_break_success",
+    "Schicht fortgesetzt.": "duty_resume_success",
+    "Diese Aktion ist gerade nicht möglich.": "duty_action_unavailable",
+}
+
+
+def translate_duty_message(locale, message: str) -> str:
+    """Translate the shared /dienst result returned by webserver without changing shift logic."""
+    text = str(message or "")
+    if _locale_language(locale) != "en":
+        return text
+    key = _DUTY_FIXED_MESSAGES.get(text)
+    if key:
+        return translate(locale, key)
+    leave_prefix = "Schicht gestartet. Deine Abmeldung bleibt bis "
+    leave_suffix = " hinterlegt und wird nicht automatisch beendet."
+    if text.startswith(leave_prefix) and text.endswith(leave_suffix):
+        date = text[len(leave_prefix):-len(leave_suffix)]
+        return translate(locale, "duty_start_leave_active", date=date)
+    end_prefix = "Schicht beendet – "
+    end_marker = " gutgeschrieben."
+    if text.startswith(end_prefix) and end_marker in text:
+        duration, tail = text[len(end_prefix):].split(end_marker, 1)
+        # Keep any optional handover details intact; only translate the stable result sentence.
+        return translate(locale, "duty_end_success", duration=duration) + tail
+    status_offline = "Du bist nicht im Dienst. Diese Woche: "
+    if text.startswith(status_offline) and text.endswith("."):
+        week = text[len(status_offline):-1]
+        return translate(locale, "duty_status_offline", week=week)
+    status_online = "Du bist im Dienst seit "
+    if text.startswith(status_online) and ". Diese Woche: " in text and text.endswith("."):
+        duration, week = text[len(status_online):].rsplit(". Diese Woche: ", 1)
+        return translate(locale, "duty_status_online", duration=duration, week=week[:-1])
+    status_break = "Du bist in der Pause seit "
+    if text.startswith(status_break) and ". Diese Woche: " in text and text.endswith("."):
+        duration, week = text[len(status_break):].rsplit(". Diese Woche: ", 1)
+        return translate(locale, "duty_status_break", duration=duration, week=week[:-1])
+    return text
+
+
     "⏱ Dienst & ich": "section_duty",
     "🧭 Team": "section_team",
     "⚠ Moderation": "section_moderation",

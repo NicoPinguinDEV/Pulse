@@ -84,6 +84,29 @@ class DutyTests(unittest.TestCase):
             self.assertIn("im Dienst seit", status.response.sent[0])
 
     def test_panel_buttons_are_persistent(self):
+    def test_english_locale_translates_shift_actions_and_status(self):
+        from cogs import dienst
+        member = interaction()
+        with (
+            patch("pulse_i18n.get_locale", return_value="en"),
+            patch.object(dienst, "may_use_duty", return_value=True),
+            patch("webserver.apply_shift_action", return_value=(True, "Schicht gestartet – viel Erfolg!")),
+            patch("webserver.sync_duty_after_shift", AsyncMock()),
+            patch("pulse_presence.update", AsyncMock()),
+        ):
+            asyncio.run(dienst.run_duty_action(member, "start"))
+        self.assertEqual(member.response.sent[0], "✅ Shift started – good luck!")
+
+        status = interaction()
+        with (
+            patch("pulse_i18n.get_locale", return_value="en"),
+            patch.object(dienst, "may_use_duty", return_value=True),
+            patch("webserver.shift_status_text", return_value="Du bist im Dienst seit 2 h. Diese Woche: 4 h."),
+        ):
+            asyncio.run(dienst.run_duty_action(status, "status"))
+        self.assertEqual(status.response.sent[0], "⏱ You have been on duty for 2 h. This week: 4 h.")
+
+
         from cogs import dienst
         view = dienst.DutyPanelView()
         self.assertIsNone(view.timeout)

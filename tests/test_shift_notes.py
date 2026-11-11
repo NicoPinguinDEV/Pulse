@@ -121,6 +121,34 @@ class ShiftNoteCommandTests(unittest.TestCase):
         self.assertEqual(rows[0]["note"], "Bearbeitete Supportfälle")
 
     def test_command_rejects_without_note_permission(self):
+    def test_english_locale_translates_shift_note_permission_and_saved_message(self):
+        from cogs import dienst
+        denied = fake_interaction()
+        with (
+            patch("pulse_i18n.get_locale", return_value="en"),
+            patch.object(dienst, "may_use_duty", return_value=True),
+            patch("webserver.load_config", return_value={}),
+            patch("webserver.compute_perms", return_value=({"can_add_notes": False, "is_admin": False}, None)),
+        ):
+            asyncio.run(dienst.run_shift_note(denied, "No permission"))
+        self.assertEqual(denied.response.sent[0][0], "❌ You do not have permission to create shift notes.")
+
+        saved = fake_interaction()
+        active_shift = {"7": {"started_at_iso": "2026-11-10T18:00:00+01:00", "shift_event_id": "shift-active-en"}}
+        with (
+            patch("pulse_i18n.get_locale", return_value="en"),
+            patch.object(dienst, "may_use_duty", return_value=True),
+            patch("pulse_shift_history.load_member_view", return_value={"active_shifts": active_shift}),
+            patch("webserver.compute_perms", return_value=({"can_add_notes": True, "is_admin": False}, None)),
+            patch("webserver.log_audit"),
+        ):
+            asyncio.run(dienst.run_shift_note(saved, "Support handover completed"))
+        self.assertEqual(
+            saved.response.sent[0][0],
+            "✅ Shift note saved privately and linked to your active shift.",
+        )
+
+
         from cogs import dienst
         interaction = fake_interaction()
         with (
