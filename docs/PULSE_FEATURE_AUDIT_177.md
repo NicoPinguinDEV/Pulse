@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich:** `main` bei `cf7d866` (PRs #205–#210 gemergt). Dieser Auditstand berücksichtigt zusätzlich drei noch nicht gemergte Draft-Blöcke: Ticket-Auslastung (#40, PR #211), Eskalation/Wiederöffnen (#27, #28, #35, PR #212) und abwesenheitsbewusste Zuteilung (#26). Der Code auf `main` selbst entspricht bis zum Merge 69 fertig / 107 teilweise / 1 offen (inklusive der Neubewertung von #27, das dort bereits umgesetzt ist); die Auditdatei auf `main` nennt noch den älteren Stand mit 62 fertigen Funktionen. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich:** `main` @ `c44352852373de9b702664c6f35379d9b2c3d229` (PRs #211–#213 gemergt). Der geprüfte Main-Stand vor diesem Runbook-Branch beträgt 73 fertig / 103 teilweise / 1 offen. Dieser Branch ergänzt #164 einschließlich Regressionstest; Branch-Stand nach dieser Ergänzung: 74 fertig / 102 teilweise / 1 offen. Die offenen Draft-PRs #214–#217 zählen bis zu einem Merge nicht zum Main-Stand. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 73 |
-| Teilweise | 103 |
+| Fertig | 74 |
+| Teilweise | 102 |
 | Offen | 1 |
 | **Gesamt** | **177** |
 
@@ -40,7 +40,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
 | Pulse Intelligence | 6 | 9 | 0 |
 | Automatisierungen und Workflow-System | 9 | 3 | 0 |
-| Admin Center, Sicherheit und Betrieb | 8 | 12 | 0 |
+| Admin Center, Sicherheit und Betrieb | 9 | 11 | 0 |
 | BOCHUM-RP-spezifische Funktionen | 0 | 5 | 0 |
 
 ## Einzelbewertung
@@ -84,16 +84,16 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 26 | Intelligente Ticketverteilung | **Fertig** | Neue Tickets können optional automatisch dem am wenigsten belasteten, für die Kategorie zuständigen Teammitglied mit Ticket-Recht zugewiesen werden: prioritätsgewichtete Last, Kapazitätsgrenze, deterministisch, Standard aus. Teammitglieder mit aktiver Abmeldung werden übersprungen (Datum in Europe/Berlin, erster und letzter Tag zählen); sind alle abwesend oder ausgelastet, bleibt das Ticket unzugewiesen. `pulse_ticket_distribution.choose_assignee`/`active_absence_ids`, `cogs/tickets.choose_ticket_auto_assignee`; `tests/test_ticket_distribution.py`, `tests/test_ticket_workflow.py`, `tests/test_ticket_assignment_absences.py`. PR: Abwesenheits-Block (Draft). Einschränkung: der Dienststatus (im Dienst / nicht im Dienst) fließt bewusst nicht ein, damit Tickets auch außerhalb von Schichten verteilt werden. |
+| 26 | Intelligente Ticketverteilung | **Fertig** | Neue Tickets können optional automatisch dem am wenigsten belasteten, für die Kategorie zuständigen Teammitglied mit Ticket-Recht zugewiesen werden: prioritätsgewichtete Last, Kapazitätsgrenze, deterministisch, Standard aus. Teammitglieder mit aktiver Abmeldung werden übersprungen (Datum in Europe/Berlin, erster und letzter Tag zählen); sind alle abwesend oder ausgelastet, bleibt das Ticket unzugewiesen. `pulse_ticket_distribution.choose_assignee`/`active_absence_ids`, `cogs/tickets.choose_ticket_auto_assignee`; `tests/test_ticket_distribution.py`, `tests/test_ticket_workflow.py`, `tests/test_ticket_assignment_absences.py`. PR #213 gemergt in main. Einschränkung: der Dienststatus (im Dienst / nicht im Dienst) fließt bewusst nicht ein, damit Tickets auch außerhalb von Schichten verteilt werden. |
 | 27 | Ticket-SLA je Kategorie | **Fertig** | Je Kategorie eigene Schwellen für Übernahme, Team-Antwort, Ersteller-Antwort und Eskalation; leere Felder erben den globalen Wert, 0 schaltet die Regel für die Kategorie aus. Dieselbe Auflösung (`category_automation_settings`) steuert Erinnerungen, Triage und den Reiter „Überfällig“. Speichern nur für Administratoren (`POST /tickets/automation`). `pulse_ticket_design.py`, `pulse_ticket_triage.py`, `pulse_ticket_builder.py`; `tests/test_pulse_ticket_design.py`, `tests/test_ticket_workflow.py`, `tests/test_pulse_ticket_triage.py`. |
-| 28 | Überfälligkeitsalarm | **Fertig** | Zweistufig: 1. Erinnerung an die zuständigen Rollen bzw. den Bearbeiter, 2. Eskalation an die Ticket-Führungsebene, wenn die Erinnerung nach der eingestellten Zeit folgenlos blieb (Protokollkanal mit Rollen-Ping, Pulse-Inbox nur für Berechtigte, Eintrag in Ticket-Historie und Audit, Markierung „Eskaliert“ in der Ticket-Zentrale). Einmal je Situation, je Kategorie einstellbar, Standard aus; Pulse ändert dabei weder Bearbeiter noch Priorität. `pulse_ticket_design.automation_actions`, `cogs/tickets.escalate_overdue_ticket`; `tests/test_ticket_escalation.py`, `tests/test_ticket_workflow.py`. PR: Eskalations-Block (Draft, baut auf PR #211 auf). |
+| 28 | Überfälligkeitsalarm | **Fertig** | Zweistufig: 1. Erinnerung an die zuständigen Rollen bzw. den Bearbeiter, 2. Eskalation an die Ticket-Führungsebene, wenn die Erinnerung nach der eingestellten Zeit folgenlos blieb (Protokollkanal mit Rollen-Ping, Pulse-Inbox nur für Berechtigte, Eintrag in Ticket-Historie und Audit, Markierung „Eskaliert“ in der Ticket-Zentrale). Einmal je Situation, je Kategorie einstellbar, Standard aus; Pulse ändert dabei weder Bearbeiter noch Priorität. `pulse_ticket_design.automation_actions`, `cogs/tickets.escalate_overdue_ticket`; `tests/test_ticket_escalation.py`, `tests/test_ticket_workflow.py`. PR #212 gemergt in main. |
 | 29 | Ticket-Übergabe mit Pflichtnotiz | **Fertig** | `/ticket uebergeben` verlangt eine Notiz und protokolliert die Übergabe; `tests/test_ticket_extras.py`. |
 | 30 | Schnellantworten | **Fertig** | Kategoriebezogene Ticketantworten mit Autocomplete; `tests/test_ticket_extras.py`. |
 | 31 | Interne Ticketnotizen | **Fertig** | `/ticket notiz` und `/ticket notizen` speichern/zeigen Teamnotizen getrennt von öffentlichen Nachrichten und `ticket_events`; erneute Rechteprüfung beim Modal-Submit. Backup, personenbezogener Export und Regressionstests: `pulse_ticket_extras.py`, `pulse_db.py`, `pulse_retention.py`, `tests/test_ticket_extras.py`, `tests/test_privacy.py`. |
 | 32 | Ähnliche Tickets vorschlagen | **Fertig** | `/ticket aehnliche` vergleicht den aktuellen Kanalverlauf lokal mit maximal 80 archivierten Transkripten derselben Guild; Jaccard-Ähnlichkeit mit Kategoriegewichtung, begrenzte Dateigröße, sichere Pfadprüfung und kein externer KI-Dienst. Regressionsnachweis: `tests/test_ticket_extras.py`. |
 | 33 | Tickets miteinander verknüpfen | **Fertig** | Persistente bidirektionale Verknüpfungen gleicher Guild mit `/ticket verknuepfen`, `/ticket verknuepfungen`, `/ticket trennen`; Dubletten-/Selbst-/Cross-Guild-Schutz, interne Notiz, Backup und personenbezogener Export. Tests: `tests/test_ticket_extras.py`, `tests/test_privacy.py`. |
 | 34 | Freiwillige Ticket-Zufriedenheit | **Fertig** | Ticket-Rating-Endpunkt und Auswertung vorhanden; `tests/test_ticket_extras.py` prüft Rating-Report. Voice-Support besitzt zusätzlich eigene Bewertungen. |
-| 35 | Abgeschlossene Tickets wiedereröffnen | **Fertig** | Wiederöffnen in einem neuen privaten Kanal nur mit „Tickets verwalten“; einstellbare Frist in Tagen (0 = unbegrenzt, Administratoren dürfen immer), serverseitig geprüft. Ein wiedergeöffnetes Ticket beginnt eine neue Wartezeit: Erinnerungen, Eskalation und Triage rechnen ab dem Wiederöffnen, alte Nachrichten zählen nicht mehr; die Zahl der Wiederöffnungen wird mitgeführt. Abgelehnte Datenbankänderung löscht den neuen Kanal wieder. `webserver.py` (`POST /tickets/action`), `pulse_db.reopen_ticket`, `pulse_ticket_design.reopen_allowed`/`ticket_activity`; `tests/test_ticket_workflow.py`, `tests/test_ticket_escalation.py`, `tests/test_ticket_center_workload.py`. PR: Eskalations-Block. Einschränkung: nur im Dashboard – der Discord-Kanal existiert nach dem Schließen nicht mehr. |
+| 35 | Abgeschlossene Tickets wiedereröffnen | **Fertig** | Wiederöffnen in einem neuen privaten Kanal nur mit „Tickets verwalten“; einstellbare Frist in Tagen (0 = unbegrenzt, Administratoren dürfen immer), serverseitig geprüft. Ein wiedergeöffnetes Ticket beginnt eine neue Wartezeit: Erinnerungen, Eskalation und Triage rechnen ab dem Wiederöffnen, alte Nachrichten zählen nicht mehr; die Zahl der Wiederöffnungen wird mitgeführt. Abgelehnte Datenbankänderung löscht den neuen Kanal wieder. `webserver.py` (`POST /tickets/action`), `pulse_db.reopen_ticket`, `pulse_ticket_design.reopen_allowed`/`ticket_activity`; `tests/test_ticket_workflow.py`, `tests/test_ticket_escalation.py`, `tests/test_ticket_center_workload.py`. PR #212 gemergt in main. Einschränkung: nur im Dashboard – der Discord-Kanal existiert nach dem Schließen nicht mehr. |
 | 36 | Ticket-Zusammenfassung | **Fertig** | `/ticket zusammenfassung` liefert privat eine Übergabe mit Sachstand, offenen Fragen, erledigten Schritten, Beteiligten und nächstem Schritt, optional als interne Notiz. `pulse_summaries.py`, `cogs/ticket_tools.py`; `tests/test_summaries.py`. PR: Zusammenfassungs-Block. Einschränkung: ausgewertet werden die letzten 100 Textnachrichten. |
 | 37 | Automatische Ticket-Triage | **Fertig** | `pulse_ticket_triage.py` bewertet Wartezeit, Priorität und Zuständigkeit; `tests/test_pulse_ticket_triage.py`. |
 | 38 | Ticket-Statistiken | **Fertig** | `/ticketstats`, Ticketcenter, Rating-Report und Analytics stellen Ticketkennzahlen bereit. |
@@ -272,7 +272,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 161 | Backup-Übersicht | **Fertig** | Backup-Liste, Status, vollständige ZIP-Backups und Admin-Panel vorhanden; `tests/test_full_backup.py`. |
 | 162 | Restore-Vorschau | **Fertig** | `preview_restore()` prüft Manifest, Dateien und Tabellen vor Restore; `tests/test_full_backup.py`. |
 | 163 | Isolierte Restore-Übungen | **Fertig** | Isolierter Restore-Test und wöchentlicher Testlauf sind implementiert; `tests/test_full_backup.py`. |
-| 164 | Notfallhandbuch | **Teilweise** | Betriebs-, Backup- und Deployment-Dokumentation existiert; ein durchgängiges Incident-Handbuch mit Rollen, Eskalation und Wiederanlauf-Checklisten fehlt. |
+| 164 | Notfallhandbuch | **Fertig** | Durchgängiges Incident-Runbook mit Rollen, P1–P4-Eskalation, Erstreaktions- und Wiederanlauf-Checklisten, sicheren Diagnose-/Restore-/Rollback-Pfaden sowie Datenschutz-/Credential-Vorgehen; docs/PULSE_NOTFALLHANDBUCH.md, durch sieben Inhaltsregressionstests abgesichert in tests/test_incident_runbook.py. |
 | 165 | Admin-Aktionshistorie | **Teilweise** | Suite-Audit und Settings-History protokollieren viele Adminänderungen; vollständige Abdeckung sämtlicher Admin-Aktionen und ein einheitlicher Viewer fehlen. |
 | 166 | Sicherer Wartungsmodus | **Fertig** | Globaler Wartungsmodus und Schreibsperren sind vorhanden; E2E prüft abgelehnte Schreibaktionen während Maintenance. |
 | 167 | Feature-Schalter | **Fertig** | `pulse_flags`/Admin-Feature-Schalter mit persistenter Aktivierung; `tests/test_dashboard_redesign.py` und Admin-Tests. |

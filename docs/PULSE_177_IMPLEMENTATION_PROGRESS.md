@@ -11,8 +11,9 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `origin/main`, Tests, PR,
 | Teilweise | 103 |
 | Offen | 1 |
 
-Aktueller Ausgangspunkt: `main` bei `cf7d866` (PR #205–#210 gemergt). Die Zahlen sind nach den sechs neu abgeschlossenen offenen Kernfunktionen aktualisiert.
-Korrektur beim Abgleich: #36 und #134 sind nicht offen, sondern teilweise umgesetzt – `/ticket zusammenfassung` existiert bereits.
+**Aktueller Stand dieses Feature-Branches:** Nach Ergänzung von #164 ergibt sich 74 fertig / 102 teilweise / 1 offen. Dieser Branch-Zähler gilt erst nach erfolgreicher CI und Merge; main bleibt unverändert bei 73 / 103 / 1.
+
+Aktueller Ausgangspunkt: main bei c44352852373de9b702664c6f35379d9b2c3d229 (PR #211, #212 und #213 gemergt). Der Support-Bereich #26–#40 ist damit auf main vollständig (15 fertig / 0 teilweise / 0 offen). #36 und #134 sind umgesetzt; /ticket zusammenfassung existiert bereits.
 
 ## Block 1 – Workflow-System (#144, #145, #148, #149)
 
@@ -65,60 +66,55 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 
 ## Block 5 – Support-Kapazität (#40)
 
-- Branch: feature/ticket-capacity-alerts
-- Ergänzt workload_snapshot als reine, begrenzte Auswertung offener Tickets je Bearbeiter und Guild.
-- Die Ticket-Zentrale zeigt Führungskräften die acht am stärksten belasteten Bearbeiter, prioritätsgewichtete Last und eine Warnung beim gleichen Kapazitätsgrenzwert, den die optionale automatische Zuweisung verwendet.
-- Die Übersicht ist nur für Ticket-Manager/Führungskräfte sichtbar. Keine Änderung der Zuständigkeiten, kein Datenbankschema und keine Discord-Aktion.
-- Tests prüfen Guild-Trennung, geschlossene/unzugewiesene Tickets, Prioritätsgewichtung, Limits und Sichtbarkeit.
-- PR #211 (Draft). Erster CI-Lauf rot: `test_viewers_do_not_receive_staff_workload_panel` verlangte, dass der Bearbeitername
-  nirgends auf der Seite steht – er steht aber regulär in der Ticketliste. Der Test prüft jetzt die Auslastungszahlen selbst,
-  zusätzlich: Auslastung wird für Nicht-Berechtigte gar nicht erst berechnet, Tickets fremder Guilds zählen nicht mit.
-- Korrektur der Bereichstabelle im Audit: Support hat 11 fertig / 4 teilweise (Summe war bereits richtig, die Zeile nicht).
-- Bekannte Abweichung: Alt-Tickets ohne `guild_id` erscheinen in der Liste, zählen aber – wie bei der automatischen Zuweisung –
-  nicht in der Auslastung.
+- Branch: feature/ticket-capacity-alerts · PR #211 · am 11.11.2026 gemergt.
+- Die Ticket-Zentrale zeigt Führungskräften offene Tickets je Bearbeiter, prioritätsgewichtete Last und Warnungen am konfigurierten Kapazitätslimit.
+- Verhaltenstests sichern Guild-Trennung, Prioritätsgewichtung, Manager-Sichtbarkeit und Ausschluss geschlossener/unzugewiesener Tickets.
+- Keine neue Tabelle, keine Migration, keine automatische Zuständigkeitsänderung.
 
 ## Block 6 – Überfälligkeits-Eskalation und Wiederöffnen (#27, #28, #35)
 
-- Branch: `feature/ticket-escalation-reopen-window` (baut auf Block 5 auf, weil beide dieselben Dateien ändern; Draft-PR #212 gegen `main`)
-- Dateien: `pulse_ticket_design.py`, `pulse_ticket_triage.py`, `cogs/tickets.py`, `pulse_db.py`, `webserver.py`,
-  `pulse_ticket_builder.py`, `pulse_ticket_center.py`, `tests/test_ticket_escalation.py` (neu), `tests/test_ticket_workflow.py`,
-  `tests/test_ticket_center_workload.py`
-- Keine neue Route, keine neue Tabelle, keine Migration. Neue Einstellungen in `ticket_system_config`:
-  `automation.escalation_minutes` (auch je Kategorie) und `reopen.window_days`; beide Standard 0 = aus, bestehende Server
-  verhalten sich unverändert. Neue Schlüssel im vorhandenen Feld `tickets.automation_state`.
-- **#28:** Bleibt eine Team-Erinnerung folgenlos, informiert Pulse einmal die Ticket-Führungsebene (Protokollkanal, Inbox,
-  Historie, Audit). Die Markierung wird vor dem Discord-Aufruf gespeichert – ein Discord-Fehler führt nie zu Wiederholungen.
-- **#35:** Frist für das Wiederöffnen, serverseitig geprüft. Behobener Fehler: Ein wiedergeöffnetes Ticket galt sofort als
-  überfällig (Wartezeit ab der ursprünglichen Eröffnung) und bekam nie wieder eine Übernahme-Erinnerung (alter Merker blieb stehen).
-- **#27:** war auf `main` bereits umgesetzt und getestet, im Audit aber noch als teilweise geführt; jetzt mit Nachweisen fertig.
-- **#26** bleibt teilweise: Die Zuteilung existiert und ist getestet, berücksichtigt aber keine Abmeldungen.
-- Einschränkungen: Eskalation setzt eine aktive Erinnerung voraus (ohne Erinnerung keine zweite Stufe); Erinnerungen von vor
-  diesem Stand haben keinen Zeitstempel und werden nicht nachträglich eskaliert; die Inbox erreicht höchstens 25 Personen.
+- Branch: feature/ticket-escalation-reopen-window · PR #212 · am 11.11.2026 gemergt.
+- #28: Zweite Eskalationsstufe an die Ticket-Führung, wenn eine Erinnerung folgenlos bleibt; standardmäßig aus, einmalig, mit Inbox, Historie und Audit.
+- #35: Konfigurierbares Wiederöffnungsfenster, serverseitig geprüft; nach Wiederöffnung beginnt die Wartezeit für Erinnerungen und Triage neu.
+- #27 war bereits auf main umgesetzt und durch die vorhandenen Kategorie-SLA-Tests belegt.
+- Änderungen bleiben standardmäßig deaktiviert und benötigen Admin-Konfiguration; es gibt keine automatische Sanktion.
 
 ## Block 7 – Zuteilung ohne Abgemeldete (#26)
 
-- Branch: `feature/ticket-assignment-absences` (baut auf Block 6 auf; Draft-PR gegen `main`)
-- Dateien: `pulse_ticket_distribution.py`, `cogs/tickets.py`, `pulse_ticket_builder.py` (Hinweistext),
-  `tests/test_ticket_assignment_absences.py` (neu)
-- Die automatische Zuteilung liest `abmeldungen.db` nur lesend und überspringt Teammitglieder, deren Abmeldung heute gilt.
-  Keine neue Einstellung, keine Route, keine Tabelle. Ohne Abmelde-Datenbank oder bei Lesefehler verhält sich die Zuteilung wie bisher.
-- Unlesbare Datumsangaben zählen als abwesend – ein Ticket an eine abwesende Person ist der schlimmere Fehler.
-- Damit ist der Support-Bereich (#26–#40) vollständig: 15 / 0 / 0.
+- Branch: feature/ticket-assignment-absences · PR #213 · am 11.11.2026 in main gemergt (Merge-Commit c443528).
+- Die optionale automatische Zuteilung liest abmeldungen.db nur lesend und überspringt Personen, deren Abmeldung heute gilt (Europe/Berlin).
+- Keine neue Einstellung, Route, Tabelle oder Migration. Fehlt die Abmeldungsdatenbank oder ist sie nicht lesbar, bleibt das bisherige sichere Verhalten erhalten.
+- 12 Verhaltenstests decken Tagesgrenzen, Altformate, Guild-Trennung, ungültige Daten, fehlende/beschädigte DB und fehlenden Schreibzugriff ab.
+- Damit ist der Support-Bereich #26–#40 auf main vollständig: 15 / 0 / 0.
+
+## Block 8 – Notfallhandbuch (#164)
+
+- Branch: feature/pulse-incident-runbook-164 (dieser Branch).
+- Neues Handbuch: docs/PULSE_NOTFALLHANDBUCH.md.
+- Enthält Rollen/Verantwortlichkeiten, Schweregrade P1–P4, Eskalationsregeln, 15-Minuten-Erstreaktion, Incident-Protokollvorlage, lesende Diagnosebefehle, Healthcheck-Anforderungen, sichere Restore-/Rollback-Abfolge, Credential-/Datenschutzvorfälle, Wiederanlauf- und Abschlusschecklisten.
+- Neue Regressionstests: tests/test_incident_runbook.py (sieben Tests für Rollen/Eskalation, Erstreaktion, korrekte VPS-Kommandos, Healthcheck-Flags, Restore-Freigaben, Secret-Schutz und Abschluss).
+- ruff.toml nimmt die Testdatei in die konservative Lint-Liste auf.
+- Audit #164 wird in diesem Branch auf Fertig gesetzt. Der Branch-Zähler ist 74 fertig / 102 teilweise / 1 offen; main bleibt bis zum Merge bei 73 / 103 / 1.
+- Keine Änderung an Laufzeitdaten, Discord-Produktivserver, VPS, Secrets oder Deployment-Konfiguration.
 
 ## Prüfstand 11.11.2026
 
-- `main` = `cf7d866`, **nicht geschützt** (GitHub-API: `protected: false`, Issue #121 gilt weiter). Das ist eine
-  Repository-Einstellung und lässt sich nicht durch Code beheben.
-- PR #211: nach der Testkorrektur alle 13 Prüfungen grün; der Job „Schichthistorie – 20.000 Einträge“ wird übersprungen und
-  ist kein Testnachweis.
-- `docs/ROUTEN.md` ist auf `main` veraltet (Datei: 411 effektive Routen, `tools/route_map.py` erzeugt 422). Nicht in diesem
-  Block aktualisiert, weil er keine Route ändert.
+- main = c44352852373de9b702664c6f35379d9b2c3d229 nach PR #213. Der zuletzt gespeicherte Repository-Auditvermerk nennt main als nicht geschützt und Issue #121 als offen; Branch-Schutz vor jedem Deployment erneut in GitHub prüfen.
+- PR #211, #212 und #213 sind gemergt. Der Support-Bereich #26–#40 steht damit auf 15 / 0 / 0.
+- PR #214: Locale-Grundlage für #10, beide erforderlichen CI-Workflows erfolgreich; Draft, #10 bleibt auf main offen.
+- PR #215: AutoMod-Fehlalarm-Feedback für #25, beide erforderlichen CI-Workflows erfolgreich; Draft, zählt nicht zu main.
+- PR #216: Ticket-Autocomplete-Teilumfang für #4, beide erforderlichen CI-Workflows erfolgreich; Draft, #4 bleibt teilweise.
+- PR #217: Discord-Community-Vorschläge und Feedback für #45/#46; beim letzten Abruf war ein Workflow noch in Arbeit und der zweite in der Warteschlange. Nicht als fertig zählen, bis beide grün sind.
+- docs/ROUTEN.md wurde in diesen Blöcken nicht aktualisiert; bei einer späteren Routenänderung Generator und Snapshot zusammen ausführen.
 
 ## Nächste Arbeit
 
-1. **Locale-System (#10):** Spracheinstellung und Übersetzungsinfrastruktur; anschließend Kernbefehle und weitere Bot-Antworten systematisch migrieren.
-2. **Moderation (#11–#25):** gemeinsame Fallakten, Einsprüche, Beweismittel, Ausnahmen, Raid-Stufen und False-Positive-Rückkanal.
-3. Danach die übrigen teilweise bewerteten Punkte bereichsweise, jeweils mit Verhaltenstests und Rechte-/Datenschutzprüfung.
+1. **Locale-System (#10):** PR #214 ist eine getestete Grundlage, aber erst ein Teilumfang. Danach weitere Bot-Befehle, Modals/Buttons und Dashboard-Texte migrieren.
+2. **Moderation (#11–#25):** PR #215 ergänzt den False-Positive-Rückkanal, ist noch Draft; gemeinsame Fallakten, Einsprüche, Beweismittel, Ausnahmen und Raid-Stufen bleiben offen/teilweise.
+3. **Autocomplete (#4):** PR #216 deckt bestimmte Ticket- und Kategorieparameter ab; übrige passende Commands noch migrieren.
+4. **Community (#45/#46):** PR #217 ergänzt Discord-Einreichung und Abstimmung; erst nach beiden erfolgreichen CI-Workflows bewerten.
+5. Danach die übrigen teilweise bewerteten Punkte bereichsweise mit Verhaltenstests, Rechte- und Datenschutzprüfung.
+
 ## Hinweise für die Weiterarbeit
 
 - Arbeitsverzeichnis ist ein eigener Git-Worktree; der Haupt-Checkout enthält nicht eingecheckte Nutzeränderungen und bleibt unberührt.
