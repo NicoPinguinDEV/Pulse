@@ -135,15 +135,30 @@ def seed():
 def now():return datetime.now(timezone.utc)
 def iso():return now().isoformat(timespec="seconds")
 def _schedule_interval(row):
-    """Parse a stored local BOCHUM-RP shift interval, including overnight shifts."""
+    """Parse local BOCHUM-RP shift times into UTC, rejecting ambiguous/nonexistent DST hours."""
     day = datetime.strptime(str(row["date"]), "%Y-%m-%d").date()
     start_time = datetime.strptime(str(row["start_time"]), "%H:%M").time()
     end_time = datetime.strptime(str(row["end_time"]), "%H:%M").time()
     zone = ZoneInfo("Europe/Berlin")
-    start = datetime.combine(day, start_time, tzinfo=zone)
-    end = datetime.combine(day, end_time, tzinfo=zone)
+
+    def as_utc(local_day, local_time):
+        wall_time = datetime.combine(local_day, local_time)
+        first = wall_time.replace(tzinfo=zone, fold=0)
+        first_roundtrip = first.astimezone(timezone.utc).astimezone(zone).replace(tzinfo=None)
+        if first_roundtrip != wall_time:
+            raise ValueError("Die Schicht enthält eine Uhrzeit, die durch die Zeitumstellung nicht existiert.")
+        second = wall_time.replace(tzinfo=zone, fold=1)
+        if second.utcoffset() != first.utcoffset():
+            second_roundtrip = second.astimezone(timezone.utc).astimezone(zone).replace(tzinfo=None)
+            if second_roundtrip == wall_time:
+                raise ValueError("Die Schicht enthält eine doppelte Uhrzeit während der Zeitumstellung.")
+        return first.astimezone(timezone.utc)
+
+    end_day = day + timedelta(days=1) if end_time <= start_time else day
+    start = as_utc(day, start_time)
+    end = as_utc(end_day, end_time)
     if end <= start:
-        end += timedelta(days=1)
+        raise ValueError("Die Schicht hat keine gültige zeitliche Dauer.")
     return start, end
 
 
