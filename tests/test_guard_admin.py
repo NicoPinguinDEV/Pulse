@@ -104,6 +104,31 @@ class GuardAdminRouteTests(unittest.TestCase):
         self.assertEqual(cfg["alert_channel_id"], GUILD.text_channels[0].id)
         self.assertEqual(cfg, pm.normalize_automod(cfg))
 
+    def test_automod_rule_scoped_exemptions_are_saved_rendered_and_kept_by_legacy_form(self):
+        form = {
+            **AUTOMOD_FORM,
+            "automod_rule_exempt_roles_keywords": [str(ROLE.id)],
+            "automod_rule_exempt_channels_keywords": [str(GUILD.text_channels[0].id)],
+        }
+        response = self.client.post("/admin/security/automod", data=form, follow_redirects=False)
+        self.assertIn("t=ok", response.headers["location"])
+        saved = self.saved()["pulse_automod"]
+        self.assertEqual(saved["rule_exemptions"]["keywords"], {
+            "role_ids": [ROLE.id],
+            "channel_ids": [GUILD.text_channels[0].id],
+        })
+        page = self.client.get("/admin/security")
+        self.assertIn('name="automod_rule_exempt_roles_keywords"', page.text)
+        self.assertIn('name="automod_rule_exempt_channels_keywords"', page.text)
+
+        legacy = {
+            "automod_enabled": "on", "automod_rules": ["spam"], "mention_limit": "5",
+            "antinuke_enabled": "on", "antinuke_events": ["ban"], "action_limit": "3", "window_seconds": "10",
+        }
+        with patch.object(ws, "auth", auth_with(ADMIN, config=saved)):
+            self.client.post("/security", data=legacy, follow_redirects=False)
+        self.assertEqual(self.saved()["pulse_automod"]["rule_exemptions"], saved["rule_exemptions"])
+
     def test_automod_test_mode_is_saved_and_explained(self):
         r = self.client.post("/admin/security/automod", data={**AUTOMOD_FORM, "mode": "test"}, follow_redirects=False)
         self.assertEqual(r.status_code, 303)
@@ -118,6 +143,7 @@ class GuardAdminRouteTests(unittest.TestCase):
             {"blocked_domains": "https://bad.example/x"},
             {"automod_rules": ["links"], "allowed_domains": ""},
             {"automod_exempt_role_ids": ["999"]},
+            {"automod_rule_exempt_roles_keywords": ["999"]},
             {"mention_limit": "abc"},
             {"timeout_minutes": "30", "timeout_max_minutes": "10"},
             {"alert_channel_id": "12345"},
@@ -189,6 +215,29 @@ class PolicyTests(unittest.TestCase):
         cfg = pm.normalize_antinuke({"enabled": True, "action_limit": 999, "trusted_user_ids": ["1", "x", 1]})
         self.assertEqual((cfg["response"], cfg["action_limit"], cfg["trusted_user_ids"]), ("ban", 10, [1]))
 
+    def test_automod_rule_exemptions_are_allowlisted_deduplicated_and_bounded(self):
+        cfg = pm.normalize_automod({
+            "rule_exemptions": {
+                "keywords": {"role_ids": [1, "1", -2, "bad"], "channel_ids": [10, 10]},
+                "unknown_rule": {"role_ids": [99], "channel_ids": [100]},
+                "caps": "invalid",
+            }
+        })
+        self.assertEqual(cfg["rule_exemptions"], {
+            "keywords": {"role_ids": [1], "channel_ids": [10]},
+        })
+
+    def test_automod_rule_exemptions_match_roles_and_channels_independently(self):
+        exemptions = {
+            "keywords": {"role_ids": [11], "channel_ids": [22]},
+            "caps": {"role_ids": [], "channel_ids": [33]},
+        }
+        self.assertTrue(pm.automod_rule_is_exempt("keywords", role_ids={11}, rule_exemptions=exemptions))
+        self.assertTrue(pm.automod_rule_is_exempt("keywords", channel_ids={22}, rule_exemptions=exemptions))
+        self.assertTrue(pm.automod_rule_is_exempt("caps", channel_ids={33}, rule_exemptions=exemptions))
+        self.assertFalse(pm.automod_rule_is_exempt("caps", channel_ids={22}, rule_exemptions=exemptions))
+        self.assertFalse(pm.automod_rule_is_exempt("unknown", role_ids={11}, rule_exemptions=exemptions))
+
     def test_roles_to_strip_respects_hierarchy(self):
         low = SimpleNamespace(id=1, position=2, managed=False, permissions=SimpleNamespace(manage_roles=True), is_default=lambda: False)
         high = SimpleNamespace(id=2, position=9, managed=False, permissions=SimpleNamespace(administrator=True), is_default=lambda: False)
@@ -229,6 +278,49 @@ class CogBehaviourTests(unittest.TestCase):
         asyncio.run(scenario())
         event = pulse_db.events(event_type="AutoMod-Maßnahme")[0]
         self.assertEqual(json.loads(event["payload_json"])["mode"], "observe")
+
+    def test_rule_role_exemption_skips_only_that_rule(self):
+        async def scenario():
+            role_id = 222222222222222222
+            member = FakeMember(125, "Test", roles=[SimpleNamespace(id=role_id)])
+            member.guild_permissions.manage_messages = False
+            member.timeout, member.send = AsyncMock(), AsyncMock()
+            cog = PulseAutoMod(SimpleNamespace())
+            cog._config = lambda: {
+                "enabled": True, "mode": "observe", "rules": ["keywords", "caps"],
+                "blocked_terms": ["xyz"], "caps_percent": 70, "caps_min_letters": 12,
+                "rule_exemptions": {"keywords": {"role_ids": [role_id]}},
+            }
+            msg = self.automod_message(member, "XYZ THIS IS VERY LOUD")
+            with patch("cogs.automod.discord.Member", FakeMember), patch("builtins.print"):
+                await cog.on_message(msg)
+            msg.delete.assert_not_awaited()
+            member.send.assert_not_awaited()
+        asyncio.run(scenario())
+        event = pulse_db.events(event_type="AutoMod-Maßnahme")[0]
+        payload = json.loads(event["payload_json"])
+        self.assertEqual(payload["rule"], "caps")
+
+    def test_rule_category_exemption_skips_only_that_rule(self):
+        async def scenario():
+            member = FakeMember(126, "Test")
+            member.guild_permissions.manage_messages = False
+            member.timeout, member.send = AsyncMock(), AsyncMock()
+            cog = PulseAutoMod(SimpleNamespace())
+            cog._config = lambda: {
+                "enabled": True, "mode": "observe", "rules": ["keywords", "caps"],
+                "blocked_terms": ["xyz"], "caps_percent": 70, "caps_min_letters": 12,
+                "rule_exemptions": {"keywords": {"channel_ids": [777]}},
+            }
+            msg = self.automod_message(member, "XYZ THIS IS VERY LOUD")
+            msg.channel.category = SimpleNamespace(id=777)
+            with patch("cogs.automod.discord.Member", FakeMember), patch("builtins.print"):
+                await cog.on_message(msg)
+            msg.delete.assert_not_awaited()
+        asyncio.run(scenario())
+        event = pulse_db.events(event_type="AutoMod-Maßnahme")[0]
+        payload = json.loads(event["payload_json"])
+        self.assertEqual(payload["rule"], "caps")
 
     def test_live_test_mode_never_deletes_warns_or_times_out(self):
         async def scenario():
