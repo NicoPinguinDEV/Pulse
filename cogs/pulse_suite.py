@@ -10,6 +10,7 @@ import sqlite3
 from contextlib import closing
 import uuid
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from urllib.parse import quote
 
 import discord
@@ -23,6 +24,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import pulse_db as db
 import pulse_paths
+import pulse_staffing_forecast as staffing_forecast
 import pulse_sqlite
 import pulse_jobs
 from pulse_jobs import tracked
@@ -296,9 +298,11 @@ def action_record(kind,payload,actor):
 
 def nav(active, manager=False):
     items=[("suite","/suite","⌂ Command Center"),("team","/suite/team","👥 Teamakten"),("time","/suite/time","⏱ Dienstzeit"),("schedule","/suite/schedule","🗓 Dienstplan"),("myschedule","/suite/my-schedule","👤 Mein Dienstplan"),("calendar","/suite/calendar","📅 Kalender"),("apps","/suite/applications","📝 Recruiting"),("interviews","/suite/interviews","🎤 Gespräche"),("training","/suite/training","🎓 Schulungen"),("tasks","/suite/tasks","📋 Aufgaben"),("news","/suite/news","📢 Team-News"),("audit","/suite/audit","🛡 Audit"),("search","/suite/search","⌕ Suche"),("cases","/suite/cases","🚨 Meldungen"),("ach","/suite/achievements","🏆 Erfolge")]
+    if manager:
+        items.insert(4,("forecast","/suite/forecast","📈 Personalbedarf"))
     if not manager:
         # Hide restricted personnel files and leadership controls from ordinary dashboard users.
-        items=[item for item in items if item[0] not in {"suite","team","apps","interviews","training","audit","cases","ach"}]
+        items=[item for item in items if item[0] not in {"suite","team","apps","interviews","training","audit","cases","ach","forecast"}]
     return "".join('<a class="{}" href="{}">{}</a>'.format("active" if k==active else "",p,label) for k,p,label in items)
 
 def page(ctx,active,title,subtitle,body,js=""):
