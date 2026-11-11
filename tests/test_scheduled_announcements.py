@@ -38,6 +38,12 @@ class ScheduledAnnouncementStorageTests(unittest.TestCase):
         self.assertEqual(pulse_db.list_scheduled_announcements("123")[0]["id"], row["id"])
         self.assertEqual(pulse_db.list_scheduled_announcements("999"), [])
         self.assertEqual(pulse_db.claim_due_scheduled_announcements(), [])
+        exported = pulse_db.export_state()
+        self.assertIn("scheduled_announcements", exported)
+        self.assertEqual(exported["scheduled_announcements"][0]["author_id"], "456")
+        from pulse_retention import _ID_COLUMNS
+        self.assertIn("author_id", _ID_COLUMNS)
+        self.assertIn("approved_by_id", _ID_COLUMNS)
 
     def test_creator_cannot_approve_and_second_person_can_approve_once(self):
         row = self.create()
@@ -95,9 +101,14 @@ class ScheduledAnnouncementStorageTests(unittest.TestCase):
 
         approved = self.create(author="457")
         pulse_db.approve_scheduled_announcement(approved["id"], "123", "789", "Leitung")
-        due_at = datetime.fromisoformat(approved["scheduled_at"]) + timedelta(minutes=1)
-        pulse_db.claim_due_scheduled_announcements(now=due_at)
-        self.assertFalse(pulse_db.cancel_scheduled_announcement(approved["id"], "123"))
+        self.assertTrue(pulse_db.cancel_scheduled_announcement(approved["id"], "123"))
+
+        publishing = self.create(author="458")
+        pulse_db.approve_scheduled_announcement(publishing["id"], "123", "789", "Leitung")
+        due_at = datetime.fromisoformat(publishing["scheduled_at"]) + timedelta(minutes=1)
+        claimed = pulse_db.claim_due_scheduled_announcements(now=due_at)
+        self.assertEqual([row["id"] for row in claimed], [publishing["id"]])
+        self.assertFalse(pulse_db.cancel_scheduled_announcement(publishing["id"], "123"))
 
     def test_invalid_identity_payload_and_kind_are_rejected(self):
         scheduled = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
