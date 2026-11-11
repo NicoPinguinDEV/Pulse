@@ -522,9 +522,9 @@ def register(app) -> None:
             'list.addEventListener("drop",function(event){event.preventDefault();sync();});'
             'list.addEventListener("dragend",function(){dragged=null;sync();});'
             'list.addEventListener("click",function(event){const button=event.target.closest("[data-widget-move]");if(!button)return;'
-            'const row=button.closest("[data-widget-row]");if(!row)return;'
-            'if(button.dataset.widgetMove==="up"&&row.previousElementSibling)list.insertBefore(row,row.previousElementSibling);'
-            'if(button.dataset.widgetMove==="down"&&row.nextElementSibling)list.insertBefore(row.nextElementSibling,row);sync();});'
+            'const row=button.closest("[data-widget-row]");if(!row)return;const siblings=rows();const index=siblings.indexOf(row);'
+            'if(button.dataset.widgetMove==="up"&&index>0)list.insertBefore(row,siblings[index-1]);'
+            'if(button.dataset.widgetMove==="down"&&index>=0&&index<siblings.length-1)list.insertBefore(siblings[index+1],row);sync();});'
             '});</script>'
         )
         return HTMLResponse(render_pro_page(ws, "Eigene Layouts", ctx, "me", body))
