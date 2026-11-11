@@ -436,6 +436,30 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_announcements_created ON announcements(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_announcements_kind ON announcements(kind, created_at DESC);
 
+            CREATE TABLE IF NOT EXISTS scheduled_announcements (
+                id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'info',
+                author_id TEXT NOT NULL,
+                author_name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'draft',
+                scheduled_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                approved_by_id TEXT,
+                approved_by_name TEXT,
+                approved_at TEXT,
+                publishing_at TEXT,
+                published_at TEXT,
+                discord_message_id TEXT,
+                last_error TEXT DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_scheduled_announcements_due
+                ON scheduled_announcements(status, scheduled_at);
+            CREATE INDEX IF NOT EXISTS idx_scheduled_announcements_guild
+                ON scheduled_announcements(guild_id, status, scheduled_at);
+
             CREATE TABLE IF NOT EXISTS promotion_requests (
                 id TEXT PRIMARY KEY,
                 target_user_id TEXT NOT NULL,
@@ -1741,6 +1765,192 @@ def announcements(limit=100):
         return [dict(r) for r in db.execute("SELECT * FROM announcements ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()]
 
 
+def create_scheduled_announcement(
+    guild_id, title, content, author_id, author_name, kind, scheduled_at,
+):
+    guild = str(guild_id or "").strip()
+    author = str(author_id or "").strip()
+    title = str(title or "").strip()[:160]
+    content = str(content or "").strip()[:4000]
+    kind = str(kind or "info").strip().lower()
+    scheduled = str(scheduled_at or "").strip()
+    if not guild.isdigit() or not author.isdigit() or not title or not content:
+        raise ValueError("Server, Verfasser, Titel und Inhalt müssen gültig sein.")
+    if kind not in {"info", "warning", "urgent"}:
+        raise ValueError("Unbekannte Ankündigungspriorität.")
+    try:
+        parsed = datetime.fromisoformat(scheduled.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("Der Veröffentlichungszeitpunkt ist ungültig.") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("Der Veröffentlichungszeitpunkt muss eine Zeitzone enthalten.")
+    scheduled = parsed.astimezone(timezone.utc).isoformat(timespec="seconds")
+    announcement_id = make_id("scheduled_announcement")
+    with connect() as db:
+        db.execute(
+            """INSERT INTO scheduled_announcements(
+                id,guild_id,title,content,kind,author_id,author_name,status,
+                scheduled_at,created_at,approved_by_id,approved_by_name,approved_at,
+                publishing_at,published_at,discord_message_id,last_error
+            ) VALUES (?,?,?,?,?,?,?,'draft',?,?,NULL,NULL,NULL,NULL,NULL,NULL,'')""",
+            (
+                announcement_id, guild, title, content, kind, author,
+                str(author_name or author)[:100], scheduled, _now(),
+            ),
+        )
+        row = db.execute(
+            "SELECT * FROM scheduled_announcements WHERE id=?",
+            (announcement_id,),
+        ).fetchone()
+    return dict(row)
+
+
+def approve_scheduled_announcement(announcement_id, guild_id, reviewer_id, reviewer_name):
+    announcement_id = str(announcement_id or "").strip()
+    guild = str(guild_id or "").strip()
+    reviewer = str(reviewer_id or "").strip()
+    if not announcement_id or not guild.isdigit() or not reviewer.isdigit():
+        raise ValueError("Ankündigungs-ID, Server und Freigebender müssen gültig sein.")
+    with connect() as db:
+        row = db.execute(
+            "SELECT * FROM scheduled_announcements WHERE id=? AND guild_id=?",
+            (announcement_id, guild),
+        ).fetchone()
+        if row is None:
+            raise ValueError("Geplante Ankündigung wurde nicht gefunden.")
+        if row["status"] != "draft":
+            raise ValueError("Diese Ankündigung ist kein offener Entwurf mehr.")
+        if str(row["author_id"]) == reviewer:
+            raise ValueError("Der Verfasser darf seinen eigenen Entwurf nicht freigeben.")
+        now = datetime.now(timezone.utc)
+        scheduled = datetime.fromisoformat(str(row["scheduled_at"]).replace("Z", "+00:00"))
+        if scheduled <= now:
+            raise ValueError("Der geplante Zeitpunkt liegt bereits in der Vergangenheit. Bitte neuen Entwurf erstellen.")
+        cursor = db.execute(
+            """UPDATE scheduled_announcements
+               SET status='approved', approved_by_id=?, approved_by_name=?, approved_at=?, last_error=''
+               WHERE id=? AND guild_id=? AND status='draft'""",
+            (
+                reviewer, str(reviewer_name or reviewer)[:100],
+                now.isoformat(timespec="seconds"), announcement_id, guild,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("Der Entwurf wurde zwischenzeitlich geändert.")
+        updated = db.execute(
+            "SELECT * FROM scheduled_announcements WHERE id=?",
+            (announcement_id,),
+        ).fetchone()
+    return dict(updated)
+
+
+def list_scheduled_announcements(guild_id, limit=25):
+    guild = str(guild_id or "").strip()
+    if not guild.isdigit():
+        return []
+    try:
+        safe_limit = max(1, min(int(limit), 100))
+    except (TypeError, ValueError):
+        safe_limit = 25
+    with connect() as db:
+        rows = db.execute(
+            """SELECT * FROM scheduled_announcements
+               WHERE guild_id=?
+               ORDER BY CASE status
+                   WHEN 'draft' THEN 0 WHEN 'approved' THEN 1 WHEN 'publishing' THEN 2
+                   WHEN 'failed' THEN 3 WHEN 'published' THEN 4 ELSE 5 END,
+                   scheduled_at ASC
+               LIMIT ?""",
+            (guild, safe_limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def cancel_scheduled_announcement(announcement_id, guild_id):
+    with connect() as db:
+        cursor = db.execute(
+            """UPDATE scheduled_announcements
+               SET status='cancelled'
+               WHERE id=? AND guild_id=? AND status IN ('draft','approved')""",
+            (str(announcement_id or "").strip(), str(guild_id or "").strip()),
+        )
+        return cursor.rowcount == 1
+
+
+def claim_due_scheduled_announcements(now=None, limit=25):
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current_iso = current.astimezone(timezone.utc).isoformat(timespec="seconds")
+    try:
+        safe_limit = max(1, min(int(limit), 100))
+    except (TypeError, ValueError):
+        safe_limit = 25
+    claimed = []
+    with connect() as db:
+        rows = db.execute(
+            """SELECT id FROM scheduled_announcements
+               WHERE status='approved' AND scheduled_at<=?
+               ORDER BY scheduled_at ASC LIMIT ?""",
+            (current_iso, safe_limit),
+        ).fetchall()
+        for row in rows:
+            cursor = db.execute(
+                """UPDATE scheduled_announcements
+                   SET status='publishing', publishing_at=?, last_error=''
+                   WHERE id=? AND status='approved'""",
+                (current_iso, row["id"]),
+            )
+            if cursor.rowcount == 1:
+                claimed_row = db.execute(
+                    "SELECT * FROM scheduled_announcements WHERE id=?",
+                    (row["id"],),
+                ).fetchone()
+                claimed.append(dict(claimed_row))
+    return claimed
+
+
+def fail_scheduled_announcement(announcement_id, error):
+    """Move an undelivered item to a visible failed state; never retry an ambiguous Discord send."""
+    with connect() as db:
+        cursor = db.execute(
+            """UPDATE scheduled_announcements
+               SET status='failed', last_error=?
+               WHERE id=? AND status='publishing'""",
+            (str(error or "Veröffentlichung fehlgeschlagen")[:500], str(announcement_id)),
+        )
+        return cursor.rowcount == 1
+
+
+def complete_scheduled_announcement(announcement_id, discord_message_id):
+    """Atomically mark published and add the item to the regular announcement history."""
+    with connect() as db:
+        row = db.execute(
+            "SELECT * FROM scheduled_announcements WHERE id=? AND status='publishing'",
+            (str(announcement_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        history_id = make_id("announcement")
+        published_at = _now()
+        db.execute(
+            "INSERT INTO announcements VALUES (?,?,?,?,?,?,?,?)",
+            (
+                history_id, row["title"], row["content"], row["author_id"],
+                row["author_name"], row["kind"], str(discord_message_id), published_at,
+            ),
+        )
+        cursor = db.execute(
+            """UPDATE scheduled_announcements
+               SET status='published', published_at=?, discord_message_id=?, last_error=''
+               WHERE id=? AND status='publishing'""",
+            (published_at, str(discord_message_id), str(announcement_id)),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("Geplante Ankündigung konnte nicht finalisiert werden.")
+    return history_id
+
+
 def create_promotion_request(target_user_id, target_user_name, current_role, requested_role, reason, created_by_id, created_by_name, requested_role_id=None, current_role_id=None):
     with connect() as db:
         pid = make_id("promotion")
@@ -2080,7 +2290,7 @@ def purge_old_notifications(days=90):
 TABLES = [
     "notifications", "tasks", "task_history", "tickets", "ticket_events", "ticket_internal_notes", "ticket_links", "wiki_pages", "wiki_page_versions", "achievements",
     "achievement_progress", "trainings", "training_questions", "training_attempts", "training_feedback", "training_paths", "training_path_items", "meetings_history", "calendar_events",
-    "team_status", "handover_notes", "shift_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
+    "team_status", "handover_notes", "shift_notes", "announcements", "scheduled_announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_reason_templates", "mod_reason_template_versions",
     "dashboard_saved_views",
