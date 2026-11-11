@@ -82,6 +82,37 @@ class CommunityFeedbackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.submit(content="x" * 3001)
 
+    def test_community_votes_are_unique_per_member_and_can_be_changed(self):
+        row = self.submit()
+        with self.assertRaises(KeyError):
+            feedback.cast_vote("100", row["id"], 42, "for")
+        feedback.update_feedback("100", row["id"], "voting", "", 9, "Leitung")
+
+        first = feedback.cast_vote("100", row["id"], 42, "for")
+        repeated = feedback.cast_vote("100", row["id"], 42, "for")
+        changed = feedback.cast_vote("100", row["id"], 42, "against")
+        second_member = feedback.cast_vote("100", row["id"], 43, "for")
+
+        self.assertEqual(first, {"vote": "for", "for": 1, "against": 0})
+        self.assertEqual(repeated, {"vote": "for", "for": 1, "against": 0})
+        self.assertEqual(changed, {"vote": "against", "for": 0, "against": 1})
+        self.assertEqual(second_member, {"vote": "for", "for": 1, "against": 1})
+        listing = feedback.list_voting_feedback("100")
+        self.assertEqual(len(listing), 1)
+        self.assertEqual(listing[0]["votes_for"], 1)
+        self.assertEqual(listing[0]["votes_against"], 1)
+
+    def test_community_votes_are_isolated_by_guild_and_invalid_choices_rejected(self):
+        row = self.submit("100")
+        feedback.update_feedback("100", row["id"], "voting", "", 9, "Leitung")
+        with self.assertRaises(KeyError):
+            feedback.cast_vote("200", row["id"], 42, "for")
+        with self.assertRaises(ValueError):
+            feedback.cast_vote("100", row["id"], 42, "maybe")
+        self.assertEqual(feedback.vote_counts("200", row["id"]), {"for": 0, "against": 0})
+        self.assertEqual(feedback.list_voting_feedback("200"), [])
+
+
     def test_result_limit_is_bounded_and_none_guild_is_empty(self):
         self.submit(title="Erster sinnvoller Vorschlag")
         self.submit(title="Zweiter sinnvoller Vorschlag")
