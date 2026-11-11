@@ -298,14 +298,146 @@ def register(app):
                 + editors + create_form + '</section>'
             )
 
+        matrix_link=(
+            '<div class="mb-5"><a class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline" '
+            'href="/training/matrix">▦ Kompetenzmatrix der Teammitglieder →</a></div>'
+            if manager else ""
+        )
         body=(
             f'<h1 class="text-2xl font-bold mb-2">🎓 Schulungen</h1>'
             f'<p class="text-xs text-slate-500 mb-5">Prüfungen, Grundkompetenzen und rollenbezogene Ausbildungswege.</p>'
-            f'{learning_paths_html}<h2 class="text-lg font-bold mb-3">Alle Schulungen</h2>'
+            f'{learning_paths_html}{matrix_link}<h2 class="text-lg font-bold mb-3">Alle Schulungen</h2>'
             f'<div class="grid md:grid-cols-2 gap-4">{cards or card("<p class=\'text-xs text-slate-400\'>Noch keine Schulungen.</p>")}</div>'
             f'{f"<div class=\'mt-5 max-w-3xl\'>{form}</div>" if form else ""}{path_admin}'
         )
         return ws.render_page("Schulungen",c,"training",body)
+
+    @app.get("/training/matrix", response_class=HTMLResponse)
+    async def training_competency_matrix(request: Request, user_session: str=Cookie(None)):
+        c=ctx(request,user_session,perm=None)
+        manager=c.perms.get("can_manage_training") or c.perms.get("can_promote") or c.perms.get("is_admin")
+        if not manager:
+            raise HTTPException(403,"Dafür fehlt dir die Berechtigung.")
+
+        configured_role_ids={
+            str(value) for value in (c.config.get("team_role_ids",[]) or [])
+            if str(value).isdigit()
+        }
+        guild=getattr(c,"guild",None)
+        live_roles={
+            str(role.id):role for role in getattr(guild,"roles",[])
+            if str(getattr(role,"id","")) in configured_role_ids
+        }
+        paths=[
+            path for path in db.training_paths()
+            if str(path.get("role_id") or "") in live_roles
+        ]
+        paths.sort(key=lambda path:(
+            -int(getattr(live_roles.get(str(path["role_id"])),"position",0) or 0),
+            str(path.get("title") or "").casefold(),
+        ))
+
+        course_by_id={}
+        for path in paths:
+            role=live_roles[str(path["role_id"])]
+            for item in path.get("items",[])[:30]:
+                training_id=str(item.get("training_id") or "")
+                if training_id and training_id not in course_by_id:
+                    course_by_id[training_id]={
+                        "id":training_id,
+                        "title":str(item.get("title") or training_id)[:120],
+                        "role":str(getattr(role,"name","Team"))[:100],
+                    }
+        courses=list(course_by_id.values())[:60]
+        course_ids={item["id"] for item in courses}
+        role_paths={}
+        for path in paths:
+            role_paths.setdefault(str(path["role_id"]),[]).append({
+                "title":str(path.get("title") or ""),
+                "training_ids":{
+                    str(item.get("training_id") or "")
+                    for item in path.get("items",[])
+                    if str(item.get("training_id") or "") in course_ids
+                },
+            })
+
+        members=[]
+        for member in getattr(guild,"members",[])[:250]:
+            if getattr(member,"bot",False):
+                continue
+            member_roles={
+                str(getattr(role,"id","")) for role in getattr(member,"roles",[])
+            }
+            matched=[
+                path for role_id in member_roles
+                for path in role_paths.get(role_id,[])
+            ]
+            applicable=set().union(*(path["training_ids"] for path in matched)) if matched else set()
+            if not applicable:
+                continue
+            members.append((member,matched,applicable))
+        members.sort(key=lambda row:str(getattr(row[0],"display_name",getattr(row[0],"name",""))).casefold())
+
+        rows=[]
+        for member,matched,applicable in members:
+            passed=db.passed_training_ids_for_user(str(member.id),sorted(applicable))
+            completed=len(passed & applicable)
+            percent=round(completed/len(applicable)*100) if applicable else 0
+            cells=[]
+            for course in courses:
+                if course["id"] not in applicable:
+                    cells.append('<td class="px-3 py-2 text-center text-slate-300" aria-label="Nicht Teil des Lernpfads">—</td>')
+                elif course["id"] in passed:
+                    cells.append('<td class="px-3 py-2 text-center text-emerald-600 font-semibold" aria-label="Bestanden">✅</td>')
+                else:
+                    cells.append('<td class="px-3 py-2 text-center text-amber-600" aria-label="Noch offen">○</td>')
+            roles=", ".join(sorted({
+                str(getattr(live_roles.get(role_id),"name","Team"))
+                for role_id in {
+                    str(getattr(role,"id","")) for role in getattr(member,"roles",[])
+                }
+                if role_id in role_paths
+            }))
+            member_name=esc(getattr(member,"display_name",getattr(member,"name","Teammitglied")))
+            rows.append(
+                f'<tr class="border-b border-slate-200 dark:border-slate-800">'
+                f'<th scope="row" class="px-3 py-2 text-left font-semibold whitespace-nowrap">{member_name}'
+                f'<div class="text-[10px] font-normal text-slate-500">{esc(roles)}</div></th>'
+                f'{"".join(cells)}'
+                f'<td class="px-3 py-2 text-right text-xs tabular-nums whitespace-nowrap">{completed}/{len(applicable)} · {percent}%</td>'
+                f'</tr>'
+            )
+
+        headers="".join(
+            f'<th scope="col" class="px-3 py-2 text-left text-[10px] font-semibold min-w-32">'
+            f'<span title="{esc(course["title"])}">{esc(course["title"])}</span>'
+            f'<div class="font-normal text-slate-500">{esc(course["role"])}</div></th>'
+            for course in courses
+        )
+        table=(
+            '<div class="overflow-x-auto"><table class="w-full min-w-max text-xs">'
+            '<thead><tr class="border-b border-slate-300 dark:border-slate-700">'
+            '<th class="px-3 py-2 text-left">Teammitglied / Rolle</th>'
+            + headers
+            + '<th class="px-3 py-2 text-right">Fortschritt</th></tr></thead><tbody>'
+            + "".join(rows)
+            + '</tbody></table></div>'
+        ) if rows and courses else (
+            '<p class="text-sm text-slate-500">Noch keine passenden Lernpfade, veröffentlichten Schulungen oder Teammitglieder gefunden.</p>'
+        )
+        legend=(
+            '<p class="text-[11px] text-slate-500 mt-3">✅ bestanden · ○ im zugeordneten Lernpfad noch offen · — nicht zugeordnet. '
+            'Die Matrix bewertet ausschließlich dokumentierte bestandene Quizversuche und zeigt keine manuellen Kompetenzurteile.</p>'
+        )
+        body=(
+            '<div class="flex flex-wrap justify-between items-center gap-3 mb-5"><div>'
+            '<h1 class="text-2xl font-bold">▦ Kompetenzmatrix</h1>'
+            '<p class="text-xs text-slate-500 mt-1">Rollenbezogener Schulungsstand aus veröffentlichten Lernpfaden.</p></div>'
+            '<a href="/training" class="text-xs text-indigo-600 hover:underline">← Schulungen</a></div>'
+            + card(table+legend)
+            + f'<p class="text-[10px] text-slate-400 mt-3">Angezeigt: {len(members)} Teammitglieder · {len(courses)} Schulungen · maximal 250 Mitglieder und 60 Schulungen.</p>'
+        )
+        return ws.render_page("Kompetenzmatrix",c,"training",body)
 
     @app.post("/training/paths/save")
     async def training_path_save(
