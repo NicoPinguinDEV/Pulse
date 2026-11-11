@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 import pulse_db as db
 import pulse_flags
+import pulse_home_layouts as home_layouts
 from pulse_home_utils import (
     WEEKDAY_SHORT,
     daily_seconds,
@@ -302,7 +303,9 @@ def register(app) -> None:
         current_start = ws.start_page_for(ctx.user["id"])
         start_options = "".join(f'<option value="{e(path)}"{" selected" if path == current_start else ""}>{e(label)}</option>'
                                 for path, label in ws.START_PAGES.items())
-        selected_widgets = normalize_home_widgets(db.get_setting(f"{HOME_WIDGETS_KEY}:{uid}", None))
+        active_layout = home_layouts.active_layout(uid)
+        selected_widgets = (active_layout["widgets"] if active_layout
+                            else normalize_home_widgets(db.get_setting(f"{HOME_WIDGETS_KEY}:{uid}", None)))
         favorite_key = f"{FAVORITES_KEY}:{uid}"
         favorites = normalize_dashboard_favorites(db.get_setting(favorite_key, []), ws.START_PAGES)
         safe_pages = set(_safe_favorite_destinations(ws.START_PAGES))
@@ -342,27 +345,22 @@ def register(app) -> None:
             f'<input type="hidden" name="widgets_present" value="1">{widget_checks}'
             f'<p class="text-[11px] text-slate-400">Wähle die Karten aus, die du auf deiner persönlichen Startseite sehen möchtest.</p></fieldset>'
             f'</form>'
+            f'<a href="/me/layouts" class="text-[11px] text-indigo-500 mt-2 inline-block">🎛 Eigene Dashboard-Layouts verwalten'
+            f'{" · aktiv: " + e(active_layout["name"]) if active_layout else ""} →</a>'
             f'<a href="/me/sessions" class="text-[11px] text-indigo-500 mt-2 inline-block">🔐 Meine Sitzungen verwalten →</a>'
             + (' <a href="/me/month" class="text-[11px] text-indigo-500 mt-2 inline-block">📅 Mein Monat →</a>'
                if pulse_flags.enabled("my_month") else "")
         )
-        left_widgets = []
-        right_widgets = []
-        if "week" in selected_widgets:
-            left_widgets.append(card("📈 Meine Woche", progress, '<a href="/stats" class="text-[11px] text-indigo-500">Analytics →</a>'))
-        if "tickets" in selected_widgets:
-            left_widgets.append(tickets_card)
-        if "tasks" in selected_widgets:
-            left_widgets.append(card("📋 Meine Aufgaben", task_html, '<a href="/tasks" class="text-[11px] text-indigo-500">Alle →</a>'))
-        right_widgets.insert(0, favorites_card)
-        if "waiting" in selected_widgets and waiting_card:
-            right_widgets.append(waiting_card)
-        if "status" in selected_widgets:
-            right_widgets.append(card("🛡 Mein Status", warn_rows + loa_html))
-        if "meeting" in selected_widgets:
-            right_widgets.append(card("🎙 Nächste Besprechung", meeting_html, '<a href="/meetings" class="text-[11px] text-indigo-500">Details →</a>'))
-        if "inbox" in selected_widgets:
-            right_widgets.append(card("📥 Neu für mich", inbox_html, '<a href="/pulse-inbox" class="text-[11px] text-indigo-500">Inbox →</a>'))
+        widget_cards = {
+            "week": card("📈 Meine Woche", progress, '<a href="/stats" class="text-[11px] text-indigo-500">Analytics →</a>'),
+            "tickets": tickets_card,
+            "tasks": card("📋 Meine Aufgaben", task_html, '<a href="/tasks" class="text-[11px] text-indigo-500">Alle →</a>'),
+            "status": card("🛡 Mein Status", warn_rows + loa_html),
+            "meeting": card("🎙 Nächste Besprechung", meeting_html, '<a href="/meetings" class="text-[11px] text-indigo-500">Details →</a>'),
+            "inbox": card("📥 Neu für mich", inbox_html, '<a href="/pulse-inbox" class="text-[11px] text-indigo-500">Inbox →</a>'),
+        }
+        if waiting_card:
+            widget_cards["waiting"] = waiting_card
         if "shift_notes" in selected_widgets and ctx.guild:
             recent_shift_notes = db.list_shift_notes(ctx.guild.id, uid, limit=8)
             shift_note_rows = "".join(
@@ -386,13 +384,35 @@ def register(app) -> None:
                     shift_note_form = '<p class="text-xs text-slate-400 mt-3">Dir fehlt die Berechtigung zum Erstellen von Schichtnotizen.</p>'
             else:
                 shift_note_form = '<p class="text-xs text-slate-400 mt-3">Notizen können während einer laufenden Schicht hinzugefügt werden.</p>'
-            right_widgets.append(
-                card(
-                    "🗒 Schichtnotizen",
-                    shift_note_rows + shift_note_form,
-                    f'<a href="/member/{e(uid)}" class="text-[11px] text-indigo-500">Teamakte →</a>',
-                )
+            widget_cards["shift_notes"] = card(
+                "🗒 Schichtnotizen",
+                shift_note_rows + shift_note_form,
+                f'<a href="/member/{e(uid)}" class="text-[11px] text-indigo-500">Teamakte →</a>',
             )
+
+        left_widgets = []
+        right_widgets = [favorites_card]
+        if active_layout:
+            ordered = [key for key in active_layout["widgets"] if key in widget_cards]
+            if active_layout["columns"] == 1:
+                left_widgets = [widget_cards[key] for key in ordered]
+            else:
+                midpoint = (len(ordered) + 1) // 2
+                left_widgets = [widget_cards[key] for key in ordered[:midpoint]]
+                right_widgets.extend(widget_cards[key] for key in ordered[midpoint:])
+        else:
+            if "week" in selected_widgets:
+                left_widgets.append(widget_cards["week"])
+            if "tickets" in selected_widgets:
+                left_widgets.append(widget_cards["tickets"])
+            if "tasks" in selected_widgets:
+                left_widgets.append(widget_cards["tasks"])
+            if waiting_card and "waiting" in selected_widgets:
+                right_widgets.append(widget_cards["waiting"])
+            for key in ("status", "meeting", "inbox", "shift_notes"):
+                if key in selected_widgets and key in widget_cards:
+                    right_widgets.append(widget_cards[key])
+
         body = f'''
         {hero}
         <div class="pulse-stat-grid">{stat_html}</div>
@@ -422,8 +442,106 @@ def register(app) -> None:
         if str(form.get("widgets_present") or "") == "1":
             selected = normalize_home_widgets(form.getlist("widgets"))
             db.set_setting(f"{HOME_WIDGETS_KEY}:{ctx.user['id']}", selected)
-            return ws.back("/me", f"Startseite und {len(selected)} Widget(s) gespeichert.", True)
+            db.delete_setting(f"{home_layouts.ACTIVE_KEY}:{ctx.user['id']}")
+            return ws.back("/me", f"Startseite und {len(selected)} Widget(s) gespeichert. Das Standard-Layout ist aktiv.", True)
         return ws.back("/me", f"Startseite gespeichert: {ws.START_PAGES[choice]}.", True)
+
+    @app.get("/me/layouts", response_class=HTMLResponse)
+    async def my_home_layouts(request: Request, user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session)
+        uid = str(ctx.user["id"])
+        layouts = home_layouts.list_layouts(uid)
+        active = home_layouts.active_layout(uid)
+        selected = active["widgets"] if active else normalize_home_widgets(
+            db.get_setting(f"{HOME_WIDGETS_KEY}:{uid}", None)
+        )
+        positions = {key: index + 1 for index, key in enumerate(selected)}
+        fields = []
+        for index, (key, label) in enumerate(HOME_WIDGETS, 1):
+            checked = " checked" if key in selected else ""
+            position = positions.get(key, index)
+            fields.append(
+                f'<div class="pulse-row" style="align-items:center"><label style="display:flex;gap:8px;align-items:center;flex:1">'
+                f'<input type="checkbox" name="widgets" value="{key}"{checked}>{e(label)}</label>'
+                f'<label class="text-xs">Position <input class="pulse-input" style="width:64px" type="number" '
+                f'min="1" max="{len(HOME_WIDGETS)}" name="position_{key}" value="{position}"></label></div>'
+            )
+        rows = []
+        for item in layouts:
+            is_active = bool(active and active["id"] == item["id"])
+            status = '<span class="pulse-pill good">Aktiv</span>' if is_active else ""
+            rows.append(
+                f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(item["name"])} {status}</div>'
+                f'<div class="pulse-row-meta">{len(item["widgets"])} Widgets · {item["columns"]} Spalte(n)</div></div>'
+                f'<div class="flex flex-wrap gap-2"><form method="post" action="/me/layouts/activate">'
+                f'<input type="hidden" name="layout_id" value="{e(item["id"])}">'
+                f'<button class="pulse-btn ghost" type="submit">Aktivieren</button></form>'
+                f'<form method="post" action="/me/layouts/delete">'
+                f'<input type="hidden" name="layout_id" value="{e(item["id"])}">'
+                f'<button class="pulse-btn bad" type="submit">Löschen</button></form></div></div>'
+            )
+        rows_html = "".join(rows) or '<div class="pulse-empty">Noch keine eigenen Layouts gespeichert.</div>'
+        fields_html = "".join(fields)
+        active_name = e(active["name"]) if active else "Standard"
+        body = (
+            '<div class="pulse-topbar"><div><div class="pulse-section-title">🎛 Eigene Dashboard-Layouts</div>'
+            '<div class="pulse-section-sub">Speichere mehrere persönliche Anordnungen deiner „Mein Pulse“-Widgets. '
+            'Du kannst sie jederzeit wechseln; Berechtigungen und Teamdaten bleiben unverändert.</div></div>'
+            '<a href="/me" class="pulse-btn ghost">← Mein Pulse</a></div>'
+            f'<section class="pulse-card"><div class="pulse-card-b space-y-3">{rows_html}'
+            '<form method="post" action="/me/layouts/default">'
+            '<button class="pulse-btn ghost" type="submit">Standard-Layout verwenden</button></form>'
+            '</div></section>'
+            '<section class="pulse-card mt-4"><div class="pulse-card-h"><div class="pulse-section-title">Neues Layout speichern</div></div>'
+            '<div class="pulse-card-b"><form method="post" action="/me/layouts/save" class="space-y-3">'
+            '<label class="guard-field">Name<input class="pulse-input" name="name" maxlength="40" required placeholder="z. B. Support-Schicht"></label>'
+            '<label class="guard-field">Spalten<select class="pulse-input" name="columns">'
+            '<option value="2">Zwei Spalten</option><option value="1">Eine Spalte</option></select></label>'
+            f'<fieldset class="space-y-2"><legend class="text-xs font-semibold">Widgets und Reihenfolge</legend>{fields_html}</fieldset>'
+            '<p class="text-xs text-slate-400">Kleinere Positionsnummern erscheinen weiter oben. Bei zwei Spalten wird die Reihenfolge in zwei gleich große Bereiche geteilt.</p>'
+            '<button class="pulse-btn primary" type="submit">💾 Layout speichern und aktivieren</button></form></div></section>'
+            f'<p class="text-xs text-slate-400 mt-3">Bis zu {home_layouts.MAX_LAYOUTS} eigene Layouts. Aktives Layout: {active_name}.</p>'
+        )
+        return HTMLResponse(render_pro_page(ws, "Eigene Layouts", ctx, "me", body))
+
+    @app.post("/me/layouts/save")
+    async def my_home_layout_save(request: Request, user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session)
+        form = await request.form()
+        positions = {key: form.get(f"position_{key}") for key, _label in HOME_WIDGETS}
+        try:
+            saved = home_layouts.save_layout(
+                ctx.user["id"], form.get("name"), form.getlist("widgets"),
+                columns=form.get("columns", 2), positions=positions,
+            )
+        except ValueError as exc:
+            return ws.back("/me/layouts", str(exc), False)
+        action = "ersetzt" if saved["replaced"] else "gespeichert"
+        return ws.back("/me/layouts", f"Layout „{saved['name']}“ {action} und aktiviert.", True)
+
+    @app.post("/me/layouts/activate")
+    async def my_home_layout_activate(request: Request, user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session)
+        form = await request.form()
+        selected = home_layouts.activate_layout(ctx.user["id"], form.get("layout_id"))
+        if selected is None:
+            return ws.back("/me/layouts", "Dieses Layout wurde nicht gefunden.", False)
+        return ws.back("/me/layouts", f"Layout „{selected['name']}“ aktiviert.", True)
+
+    @app.post("/me/layouts/delete")
+    async def my_home_layout_delete(request: Request, user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session)
+        form = await request.form()
+        removed = home_layouts.delete_layout(ctx.user["id"], form.get("layout_id"))
+        if removed is None:
+            return ws.back("/me/layouts", "Dieses Layout wurde nicht gefunden.", False)
+        return ws.back("/me/layouts", f"Layout „{removed['name']}“ gelöscht.", True)
+
+    @app.post("/me/layouts/default")
+    async def my_home_layout_default(request: Request, user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session)
+        db.delete_setting(f"{home_layouts.ACTIVE_KEY}:{ctx.user['id']}")
+        return ws.back("/me", "Dein Standard-Layout ist wieder aktiv.", True)
 
     @app.post("/me/favorites/add")
     async def my_favorite_add(request: Request, user_session: str = Cookie(None)):

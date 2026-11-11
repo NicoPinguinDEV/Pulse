@@ -23,10 +23,11 @@ import webserver as ws
 from tests.fakes import FakeChannel, FakeGuild, FakeMember, FakeRole
 
 # Personal or team-wide actions every team member may do on purpose (own inbox, own status, own sessions,
-# shift handovers, ideas/votes, reading announcements, the read-only copilot).
+# own dashboard preferences/layouts, shift handovers, ideas/votes, reading announcements, the read-only copilot).
 ALLOWED = {
     "/logout",
     "/me/sessions/revoke-all",
+    "/me/layouts/save", "/me/layouts/activate", "/me/layouts/delete", "/me/layouts/default",
     "/me/favorites/add", "/me/favorites/remove",
     "/pulse-inbox/read", "/pulse-inbox/read/{nid}", "/pulse-inbox/settings",
     "/team-status/set",
