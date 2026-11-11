@@ -2145,6 +2145,114 @@ class PulseSuite(commands.Cog):
             return
         await interaction.response.send_modal(CommunitySuggestionModal(kategorie.value, anonym))
 
+    @app_commands.command(
+        name="vorschlaege",
+        description="Zeigt alle von der Führung freigegebenen Community-Abstimmungen.",
+    )
+    async def vorschlaege(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "❌ Abstimmungen sind nur auf einem Discord-Server verfügbar.",
+                ephemeral=True,
+            )
+            return
+        import pulse_community_feedback
+        rows = pulse_community_feedback.list_voting_feedback(interaction.guild.id, limit=10)
+        embed = discord.Embed(
+            title="🗳️ Community-Abstimmungen",
+            description="Stimme mit `/vorschlag-abstimmen` für oder gegen einen freigegebenen Vorschlag."
+            if rows else "Aktuell gibt es keine offenen Community-Abstimmungen.",
+            color=_pulse_color("info"),
+        )
+        for row in rows:
+            embed.add_field(
+                name=f"{row['title']} · {row['id']}"[:256],
+                value=(
+                    f"**Kategorie:** {row['category']}\n"
+                    f"{row['content'][:260]}\n"
+                    f"**Dafür:** 👍 {row['votes_for']} · **Dagegen:** 👎 {row['votes_against']}"
+                )[:1024],
+                inline=False,
+            )
+        await interaction.response.send_message(embed=embed, ephemeral=False)
+
+    @app_commands.command(
+        name="vorschlag-abstimmen",
+        description="Stimme für oder gegen einen freigegebenen Community-Vorschlag.",
+    )
+    @app_commands.describe(
+        vorschlag="Der Vorschlag, über den du abstimmen möchtest",
+        stimme="Deine Stimme",
+    )
+    @app_commands.choices(stimme=[
+        app_commands.Choice(name="👍 Dafür", value="for"),
+        app_commands.Choice(name="👎 Dagegen", value="against"),
+    ])
+    async def vorschlag_abstimmen(
+        self,
+        interaction: discord.Interaction,
+        vorschlag: app_commands.Choice[str],
+        stimme: app_commands.Choice[str],
+    ):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "❌ Abstimmungen sind nur auf einem Discord-Server verfügbar.",
+                ephemeral=True,
+            )
+            return
+        import pulse_community_feedback
+        try:
+            result = pulse_community_feedback.cast_vote(
+                interaction.guild.id,
+                vorschlag.value,
+                interaction.user.id,
+                stimme.value,
+            )
+        except KeyError:
+            await interaction.response.send_message(
+                "❌ Dieser Vorschlag ist nicht (mehr) zur Abstimmung freigegeben.",
+                ephemeral=True,
+            )
+            return
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        embed = discord.Embed(
+            title="✅ Stimme gespeichert",
+            description=(
+                f"Deine Stimme: **{'Dafür' if result['vote'] == 'for' else 'Dagegen'}**\n"
+                f"**Dafür:** 👍 {result['for']} · **Dagegen:** 👎 {result['against']}\n"
+                "Du kannst deine Stimme ändern, indem du erneut abstimmst."
+            ),
+            color=_pulse_color("success"),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @vorschlag_abstimmen.autocomplete("vorschlag")
+    async def vorschlag_vote_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if interaction.guild is None:
+            return []
+        import pulse_community_feedback
+        try:
+            rows = pulse_community_feedback.list_voting_feedback(interaction.guild.id, limit=25)
+        except (sqlite3.Error, OSError):
+            return []
+        needle = str(current or "").strip().casefold()
+        choices = []
+        for row in rows:
+            haystack = f"{row['id']} {row['title']} {row['category']}".casefold()
+            if needle and needle not in haystack:
+                continue
+            label = (
+                f"{row['title'][:55]} · 👍{row['votes_for']} 👎{row['votes_against']} · {row['id'][-6:]}"
+            )[:100]
+            choices.append(app_commands.Choice(name=label, value=row["id"][:100]))
+            if len(choices) >= 25:
+                break
+        return choices
+
     @app_commands.command(name="pulse-home",description="Öffnet das Pulse TeamOS Command Center.")
     async def pulse_home(self,i):
         web=__import__("webserver")
