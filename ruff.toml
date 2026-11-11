@@ -9,6 +9,7 @@ include = [
     "pulse_transcripts.py", "pulse_voice_queue.py", "pulse_env_validation.py",
     "pulse_access.py", "pulse_board.py", "pulse_flags.py", "pulse_insights.py", "pulse_phase7.py", "pulse_public_status.py", "pulse_settings_history.py", "pulse_application_staging.py",
     "pulse_server_control.py", "pulse_live_console.py", "deploy/pulse_host_agent.py", "pulse_health_api.py",
+    "pulse_ticket_center.py", "pulse_ticket_distribution.py", "tests/test_ticket_distribution.py", "tests/test_ticket_center_workload.py",
     "pulse_workflows.py", "pulse_automation_rules.py", "tests/test_workflow_engine.py", "pulse_summaries.py", "tests/test_summaries.py", "pulse_views.py", "tests/test_saved_views.py",
     "tools/application_data_audit.py", "tests/test_application_data_audit.py", "tests/test_application_staging.py",
 ]

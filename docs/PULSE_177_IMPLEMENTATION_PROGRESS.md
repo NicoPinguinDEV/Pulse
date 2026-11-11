@@ -7,11 +7,11 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `origin/main`, Tests, PR,
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 62 |
-| Teilweise | 108 |
-| Offen | 7 |
+| Fertig | 69 |
+| Teilweise | 107 |
+| Offen | 1 |
 
-Ausgangspunkt: `main` bei `be60982` (54 / 109 / 14 nach den PRs #190–#198, #200, #201).
+Aktueller Ausgangspunkt: `main` bei `cf7d866` (PR #205–#210 gemergt). Die Zahlen sind nach den sechs neu abgeschlossenen offenen Kernfunktionen aktualisiert.
 Korrektur beim Abgleich: #36 und #134 sind nicht offen, sondern teilweise umgesetzt – `/ticket zusammenfassung` existiert bereits.
 
 ## Block 1 – Workflow-System (#144, #145, #148, #149)
@@ -52,20 +52,31 @@ Korrektur beim Abgleich: #36 und #134 sind nicht offen, sondern teilweise umgese
 - Eine Ansicht ist nur ein Link auf eine Seite aus einer festen Liste; die Rechteprüfung der Seite bleibt maßgeblich.
 - `/ultimate/team` filtert jetzt serverseitig nach Name und Status.
 
-## Reihenfolge der nächsten Blöcke
+## Block 4 – Kernfunktionen 17, 69, 80, 82, 84 und 128 (PR #205–#210)
 
-Abhängigkeiten: #69 baut auf #61 auf; #82 braucht #80.
+Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit Verhaltenstests ergänzt und in main gemergt:
 
-1. **Block 3b – Benutzerdefinierte Ansichten (#69):** auf `pulse_views.py` aufbauen: Layouts für „Mein Pulse“ (Widgets,
-   Reihenfolge, Sichtbarkeit) als benannte persönliche Ansichten, dazu rollenbezogene Standardansichten, die
-   Administratoren je Teamrolle festlegen. Vorhanden: Widget-Sichtbarkeit (`pulse_home.normalize_home_widgets`).
-2. **Block 4 – AutoMod-Testmodus (#17)** mit Fehlalarm-Rückkanal (#25).
-3. **Block 5 – Kompetenzmatrix und Arbeitslast (#80, #82)**, danach #26/#40/#81.
-4. **Block 6 – Schichttausch (#84)** mit Dienstabdeckung (#85).
-5. **Block 7 – Personalbedarfsprognose (#128)**, danach #127.
-6. **Block 8 – Locale-System (#10).**
-7. Danach die 108 teilweise fertigen Punkte bereichsweise in der Reihenfolge des Auftrags.
+- **PR #205 / #17 – AutoMod-Testmodus:** Live-Nachrichten werden nur simuliert; keine Sanktion, kein Löschen und keine DM. Getrennte Testtreffer und Regressionstests.
+- **PR #206 / #69 – benutzerdefinierte Ansichten:** Bis zu acht persönliche „Mein Pulse“-Layouts mit Widget-Sichtbarkeit, Reihenfolge und 1-/2-Spalten-Anordnung.
+- **PR #207 / #80 – Kompetenzmatrix:** Rollenbezogene Schulungsnachweise und Qualifikationsstufen; nur Führungskräfte, keine Selbsteinstufung.
+- **PR #208 / #82 – Arbeitslastverteilung:** Unzugewiesene Aufgaben werden anhand gewichteter Aufgaben- und Ticketlast verteilt; bestehende Zuweisungen bleiben erhalten.
+- **PR #209 / #84 – Schichttausch:** Antrag, Peer-Bestätigung und Leitungsfreigabe; atomare Konfliktprüfung und Datenschutzexport.
+- **PR #210 / #128 – Personalbedarfsprognose:** Sieben-Tage-Planungsansicht auf Basis historischer Ticket-Eingänge und bestehender Schichten.
 
+## Block 5 – Support-Kapazität (#40)
+
+- Branch: feature/ticket-capacity-alerts
+- Ergänzt workload_snapshot als reine, begrenzte Auswertung offener Tickets je Bearbeiter und Guild.
+- Die Ticket-Zentrale zeigt Führungskräften die acht am stärksten belasteten Bearbeiter, prioritätsgewichtete Last und eine Warnung beim gleichen Kapazitätsgrenzwert, den die optionale automatische Zuweisung verwendet.
+- Die Übersicht ist nur für Ticket-Manager/Führungskräfte sichtbar. Keine Änderung der Zuständigkeiten, kein Datenbankschema und keine Discord-Aktion.
+- Tests prüfen Guild-Trennung, geschlossene/unzugewiesene Tickets, Prioritätsgewichtung, Limits und Sichtbarkeit.
+
+## Nächste Arbeit
+
+1. **Support (#26–#28):** automatische Ticketzuteilung, Kategorie-SLA und Überfälligkeits-Eskalation an einem durchgängigen Ablauf vervollständigen.
+2. **Locale-System (#10):** Spracheinstellung und Übersetzungsinfrastruktur; anschließend Kernbefehle und weitere Bot-Antworten systematisch migrieren.
+3. **Moderation (#11–#25):** gemeinsame Fallakten, Einsprüche, Beweismittel, Ausnahmen, Raid-Stufen und False-Positive-Rückkanal.
+4. Danach die übrigen teilweise bewerteten Punkte bereichsweise, jeweils mit Verhaltenstests und Rechte-/Datenschutzprüfung.
 ## Hinweise für die Weiterarbeit
 
 - Arbeitsverzeichnis ist ein eigener Git-Worktree; der Haupt-Checkout enthält nicht eingecheckte Nutzeränderungen und bleibt unberührt.

@@ -1,6 +1,6 @@
 import unittest
 
-from pulse_ticket_distribution import choose_assignee, distribution_settings
+from pulse_ticket_distribution import choose_assignee, distribution_settings, workload_snapshot
 
 
 class DistributionSettingsTests(unittest.TestCase):
@@ -69,6 +69,69 @@ class ChooseAssigneeTests(unittest.TestCase):
             choose_assignee([{"id": 1, "bot": True}, {"id": "invalid"}], [], "1")
         )
         self.assertIsNone(choose_assignee([{"id": 1}], [], ""))
+
+
+
+class WorkloadSnapshotTests(unittest.TestCase):
+    def test_counts_only_open_assigned_tickets_from_requested_guild(self):
+        result = workload_snapshot(
+            [
+                {"guild_id": "1", "status": "open", "claimed_by_id": "10", "claimed_by_name": "Alice", "priority": "urgent"},
+                {"guild_id": "1", "status": "in_progress", "claimed_by_id": "10", "claimed_by_name": "Alice", "priority": "normal"},
+                {"guild_id": "1", "status": "closed", "claimed_by_id": "10", "claimed_by_name": "Alice", "priority": "urgent"},
+                {"guild_id": "2", "status": "open", "claimed_by_id": "10", "claimed_by_name": "Alice", "priority": "urgent"},
+                {"guild_id": "1", "status": "open", "claimed_by_id": None, "priority": "high"},
+            ],
+            guild_id="1",
+            max_open_per_staff=2,
+        )
+        self.assertEqual(result["assigned_open_tickets"], 2)
+        self.assertEqual(result["staff_count"], 1)
+        self.assertEqual(result["overloaded_count"], 1)
+        self.assertEqual(result["staff"][0]["name"], "Alice")
+        self.assertEqual(result["staff"][0]["workload_points"], 6)
+        self.assertTrue(result["staff"][0]["at_capacity"])
+
+    def test_priority_weighting_and_sorting_make_heavier_loads_visible_first(self):
+        result = workload_snapshot(
+            [
+                {"guild_id": "1", "status": "open", "claimed_by_id": "10", "claimed_by_name": "Normal", "priority": "low"},
+                {"guild_id": "1", "status": "open", "claimed_by_id": "20", "claimed_by_name": "Urgent", "priority": "urgent"},
+            ],
+            guild_id="1",
+            max_open_per_staff=3,
+        )
+        self.assertEqual([row["member_id"] for row in result["staff"]], ["20", "10"])
+        self.assertEqual(result["staff"][0]["workload_points"], 4)
+        self.assertEqual(result["staff"][1]["workload_points"], 1)
+        self.assertEqual(result["overloaded_count"], 0)
+
+    def test_capacity_and_output_limits_are_bounded(self):
+        result = workload_snapshot(
+            [
+                {"guild_id": "1", "status": "open", "claimed_by_id": str(index), "claimed_by_name": f"Member {index}"}
+                for index in range(1, 12)
+            ],
+            guild_id="1",
+            max_open_per_staff=999,
+            limit=3,
+        )
+        self.assertEqual(result["max_open_per_staff"], 50)
+        self.assertEqual(result["staff_count"], 11)
+        self.assertEqual(len(result["staff"]), 3)
+        self.assertEqual(result["overloaded_count"], 0)
+
+    def test_blank_guild_is_safe_and_returns_empty_summary(self):
+        self.assertEqual(
+            workload_snapshot([{"guild_id": "1", "status": "open", "claimed_by_id": "10"}], ""),
+            {
+                "max_open_per_staff": 5,
+                "staff_count": 0,
+                "assigned_open_tickets": 0,
+                "overloaded_count": 0,
+                "staff": [],
+            },
+        )
 
 
 if __name__ == "__main__":
