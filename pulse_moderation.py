@@ -23,7 +23,7 @@ AUTOMOD_RULE_LABELS = {
     "links": "Link außerhalb der Freigabeliste",
     "caps": "Übermäßige Großschreibung",
 }
-AUTOMOD_MODES = ("enforce", "observe")
+AUTOMOD_MODES = ("enforce", "observe", "test")
 
 ANTINUKE_EVENTS = frozenset({
     "ban", "kick", "role_delete", "role_update", "channel_delete", "channel_update",
