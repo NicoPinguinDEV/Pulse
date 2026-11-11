@@ -125,7 +125,7 @@ class GuardAdminRouteTests(unittest.TestCase):
             "automod_enabled": "on", "automod_rules": ["spam"], "mention_limit": "5",
             "antinuke_enabled": "on", "antinuke_events": ["ban"], "action_limit": "3", "window_seconds": "10",
         }
-        with patch.object(ws, "auth", auth_with(ADMIN, config=saved)):
+        with patch.object(ws, "auth", auth_with(ADMIN, config={"pulse_automod": saved})):
             self.client.post("/security", data=legacy, follow_redirects=False)
         self.assertEqual(self.saved()["pulse_automod"]["rule_exemptions"], saved["rule_exemptions"])
 
