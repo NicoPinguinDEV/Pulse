@@ -51,16 +51,18 @@ async def deny(interaction: discord.Interaction, text: str) -> None:
     await interaction.response.send_message("❌ " + _ticket_text(interaction, text), ephemeral=True)
 
 
-class InternalTicketNoteModal(discord.ui.Modal, title="Interne Ticketnotiz"):
+class InternalTicketNoteModal(discord.ui.Modal):
     """Collect note text in a modal so sensitive content is never exposed as a slash-command option."""
 
-    def __init__(self, ticket_id: str):
-        super().__init__(timeout=300)
+    def __init__(self, ticket_id: str, locale: str = "de"):
+        import pulse_i18n
+
+        super().__init__(title=pulse_i18n.translate(locale, "ticket_note_modal_title"), timeout=300)
         self.ticket_id = str(ticket_id)
         self.note_input = discord.ui.TextInput(
-            label="Notiz (nur für berechtigtes Team)",
+            label=pulse_i18n.translate(locale, "ticket_note_modal_label"),
             style=discord.TextStyle.paragraph,
-            placeholder="Interne Information für die weitere Ticketbearbeitung …",
+            placeholder=pulse_i18n.translate(locale, "ticket_note_modal_placeholder"),
             min_length=5,
             max_length=tx.MAX_INTERNAL_NOTE_LENGTH,
             required=True,
@@ -113,7 +115,7 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
         ticket = await self._guard(interaction)
         if ticket is None:
             return
-        await interaction.response.send_modal(InternalTicketNoteModal(ticket["id"]))
+        await interaction.response.send_modal(InternalTicketNoteModal(ticket["id"], _locale(interaction)))
 
     @app_commands.command(name="notizen", description="Interne Teamnotizen dieses Tickets privat anzeigen.")
     @app_commands.describe(seite="Seite mit jeweils zwei Notizen (neueste zuerst)")

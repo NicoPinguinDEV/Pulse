@@ -18,6 +18,14 @@ class TicketToolLocaleTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertEqual(pulse_i18n.translate_ticket_message("en", source), expected)
 
+    def test_internal_note_modal_uses_the_selected_locale(self):
+        from cogs.ticket_tools import InternalTicketNoteModal
+
+        modal = InternalTicketNoteModal("ticket-123", "en")
+        self.assertEqual(modal.title, "Internal ticket note")
+        self.assertEqual(modal.note_input.label, "Note (authorized team only)")
+        self.assertEqual(modal.note_input.placeholder, "Internal information for continued ticket handling …")
+
     def test_german_locale_preserves_existing_copy_and_unknown_backend_errors(self):
         message = "Das Ticket ist nicht mehr offen oder der Kontext stimmt nicht."
         self.assertEqual(pulse_i18n.translate_ticket_message("de", message), message)
