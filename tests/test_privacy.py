@@ -368,6 +368,35 @@ class RetentionTests(unittest.TestCase):
         )
         _json.dumps(data, default=str)
 
+    def test_discord_community_suggestions_are_included_for_author_and_reviewer_exports(self):
+        import pulse_community_feedback
+        import pulse_retention
+
+        author_id = "100000000000000141"
+        reviewer_id = "100000000000000142"
+        saved = pulse_community_feedback.submit_feedback(
+            "1", author_id, "Synthetic Community Member", "gameplay",
+            "Ein Export-Testvorschlag",
+            "Dieser Eintrag prüft den personenbezogenen Export für den Einreicher.",
+            anonymous=False,
+        )
+        pulse_community_feedback.update_feedback(
+            "1", saved["id"], "reviewing", "Wird geprüft.", reviewer_id, "Synthetic Reviewer"
+        )
+
+        author_export = pulse_retention.export_person(ws, author_id)
+        reviewer_export = pulse_retention.export_person(ws, reviewer_id)
+        unrelated_export = pulse_retention.export_person(ws, "100000000000000199")
+
+        author_rows = author_export["databases"]["pulse.db"]["discord_community_feedback"]
+        reviewer_rows = reviewer_export["databases"]["pulse.db"]["discord_community_feedback"]
+        self.assertEqual([row["id"] for row in author_rows], [saved["id"]])
+        self.assertEqual([row["id"] for row in reviewer_rows], [saved["id"]])
+        self.assertNotIn(
+            "discord_community_feedback",
+            unrelated_export.get("databases", {}).get("pulse.db", {}),
+        )
+
     def test_ticket_internal_notes_are_included_for_subject_and_author_exports(self):
         import pulse_retention
         import pulse_ticket_extras
