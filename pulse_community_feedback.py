@@ -125,9 +125,14 @@ def list_feedback(guild_id, limit: int = 200) -> list[dict]:
         _ensure_table(connection)
         rows = connection.execute(
             """
-            SELECT * FROM discord_community_feedback
-            WHERE guild_id=?
-            ORDER BY created_at DESC, id DESC
+            SELECT f.*,
+                (SELECT COUNT(*) FROM discord_community_feedback_votes v
+                 WHERE v.guild_id=f.guild_id AND v.feedback_id=f.id AND v.vote='for') AS votes_for,
+                (SELECT COUNT(*) FROM discord_community_feedback_votes v
+                 WHERE v.guild_id=f.guild_id AND v.feedback_id=f.id AND v.vote='against') AS votes_against
+            FROM discord_community_feedback f
+            WHERE f.guild_id=?
+            ORDER BY f.created_at DESC, f.id DESC
             LIMIT ?
             """,
             (str(guild_id), bounded),
