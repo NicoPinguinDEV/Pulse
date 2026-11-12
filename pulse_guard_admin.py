@@ -350,6 +350,24 @@ def register(app) -> None:
             f'<span><strong>{e(pm.AUTOMOD_RULE_LABELS[key])}</strong><small>{e(rule_desc[key])}</small></span></label>'
             for key in pm.AUTOMOD_RULE_ORDER)
         steps = "".join(f'<span class="pulse-pill">{i}. {e(s)}</span>' for i, s in enumerate(pm.escalation_preview(automod), 1))
+        rule_exemption_rows = []
+        for rule in pm.AUTOMOD_RULE_ORDER:
+            entry = automod["rule_exemptions"].get(rule, {})
+            role_ids_for_rule = entry.get("role_ids", []) if isinstance(entry, dict) else []
+            channel_ids_for_rule = entry.get("channel_ids", []) if isinstance(entry, dict) else []
+            rule_exemption_rows.append(
+                f'<details class="pulse-card" style="padding:10px;margin:8px 0">'
+                f'<summary style="cursor:pointer;font-weight:700">{e(pm.AUTOMOD_RULE_LABELS[rule])} · Ausnahmen</summary>'
+                f'<div class="guard-grid" style="margin-top:10px">'
+                f'<label class="guard-field">Ausgenommene Rollen'
+                f'<select class="pulse-input guard-select" name="automod_rule_exempt_roles_{rule}" multiple>'
+                f'{role_options(guild, role_ids_for_rule)}</select></label>'
+                f'<label class="guard-field">Ausgenommene Kanäle/Kategorien'
+                f'<select class="pulse-input guard-select" name="automod_rule_exempt_channels_{rule}" multiple>'
+                f'{channel_options(guild, channel_ids_for_rule, categories=True)}</select></label>'
+                f'</div></details>'
+            )
+        rule_exemptions_ui = "".join(rule_exemption_rows)
         mode_radio = "".join(
             f'<label class="guard-check"><input type="radio" name="mode" value="{key}"{" checked" if automod["mode"] == key else ""}>'
             f'<span><strong>{label}</strong><small>{hint}</small></span></label>'
@@ -387,6 +405,11 @@ def register(app) -> None:
   <label class="guard-field">Ausgenommene Rollen<select class="pulse-input guard-select" name="automod_exempt_role_ids" multiple>{role_options(guild, automod["exempt_role_ids"])}</select><span class="guard-hint">Strg/⌘ gedrückt halten für Mehrfachauswahl.</span></label>
   <label class="guard-field">Ausgenommene Kanäle/Kategorien<select class="pulse-input guard-select" name="automod_exempt_channel_ids" multiple>{channel_options(guild, automod["exempt_channel_ids"], categories=True)}</select></label>
  </div>
+ <details class="pulse-card" style="padding:12px">
+  <summary style="cursor:pointer;font-weight:750">Ausnahmen je Regel konfigurieren</summary>
+  <div class="guard-hint" style="margin:8px 0">Diese Ausnahmen gelten nur für die ausgewählte Regel. Alle anderen aktivierten AutoMod-Regeln werden für diese Rollen und Kanäle weiterhin geprüft.</div>
+  {rule_exemptions_ui}
+ </details>
  <div class="pulse-section-title" style="margin-top:6px">Eskalation</div>
  <div class="guard-grid">
   {num("timeout_after_strikes", "Timeout ab Verstoß Nr.", 1, 10, automod["timeout_after_strikes"])}
@@ -527,6 +550,12 @@ def register(app) -> None:
         role_ids = {r.id for r in getattr(guild, "roles", []) or []} | set(old["exempt_role_ids"])
         channel_ids = ({c.id for c in getattr(guild, "text_channels", []) or []}
                        | {c.id for c in getattr(guild, "categories", []) or []} | set(old["exempt_channel_ids"]))
+        old_rule_exemptions = old.get("rule_exemptions", {})
+        if isinstance(old_rule_exemptions, dict):
+            for entry in old_rule_exemptions.values():
+                if isinstance(entry, dict):
+                    role_ids.update(entry.get("role_ids", []))
+                    channel_ids.update(entry.get("channel_ids", []))
         try:
             rules = sorted(set(form.getlist("automod_rules")) & pm.AUTOMOD_RULES)
             enabled = form.get("automod_enabled") == "1" or form.get("automod_enabled") == "on"
@@ -547,6 +576,19 @@ def register(app) -> None:
                 "allowed_domains": _parse_lines(form, "allowed_domains", "Freigegebene Domains", domains=True),
                 "exempt_role_ids": _parse_select(form, "automod_exempt_role_ids", "Ausgenommene Rollen", role_ids),
                 "exempt_channel_ids": _parse_select(form, "automod_exempt_channel_ids", "Ausgenommene Kanäle", channel_ids),
+                "rule_exemptions": {
+                    rule: {
+                        "role_ids": _parse_select(
+                            form, f"automod_rule_exempt_roles_{rule}",
+                            f"Ausnahmen für {pm.AUTOMOD_RULE_LABELS[rule]} (Rollen)", role_ids,
+                        ),
+                        "channel_ids": _parse_select(
+                            form, f"automod_rule_exempt_channels_{rule}",
+                            f"Ausnahmen für {pm.AUTOMOD_RULE_LABELS[rule]} (Kanäle)", channel_ids,
+                        ),
+                    }
+                    for rule in pm.AUTOMOD_RULE_ORDER
+                },
                 "warn_dm": form.get("warn_dm") == "1",
                 "timeout_after_strikes": _parse_int(form, "timeout_after_strikes", "Timeout ab Verstoß", 1, 10),
                 "timeout_minutes": _parse_int(form, "timeout_minutes", "Erster Timeout", 1, 1440),
