@@ -417,6 +417,28 @@ class PulseAntiNuke(commands.Cog):
             "guild_id": guild.id, "action": action, "events": keys, "target_id": target,
             "audit_entry_id": entry.id, "trusted": trusted,
         })
+        webhook_kinds = [key for key in keys if key in {"webhook_create", "webhook_update", "webhook_delete"}]
+        if webhook_kinds:
+            try:
+                import pulse_webhook_audit
+
+                webhook_payload = pulse_webhook_audit.audit_entry_metadata(
+                    entry,
+                    guild_id=guild.id,
+                    actor_id=actor_id,
+                    action=webhook_kinds[0],
+                )
+                self._record("Webhook-Änderung erkannt", actor_id, str(actor), webhook_payload)
+                if not trusted:
+                    alert_now = time.monotonic()
+                    alert_key = ("webhook-alert", guild.id, actor_id)
+                    if not self._cooldown_active(alert_key, alert_now):
+                        self._set_cooldown(alert_key, alert_now, 60)
+                        await self._alert(guild, config, pulse_webhook_audit.alert_text(webhook_payload))
+            except Exception as exc:
+                # Webhook audit enrichment must never interrupt the existing Anti-Nuke rule chain.
+                print(f"⚠️ Webhook-Überwachung konnte Auditdetails nicht aufbereiten: {type(exc).__name__}.")
+
         if trusted:
             return
         await self._dispatch("antinuke_event", {"events": keys, "actor_id": actor_id, "actor_name": str(actor)[:80],

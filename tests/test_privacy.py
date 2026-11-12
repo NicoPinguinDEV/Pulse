@@ -368,6 +368,42 @@ class RetentionTests(unittest.TestCase):
         )
         _json.dumps(data, default=str)
 
+    def test_moderation_appeals_are_included_for_affected_member_and_reviewer_exports(self):
+        import pulse_mod_cases
+        import pulse_retention
+
+        target_id = "100000000000000201"
+        reviewer_id = "100000000000000202"
+        target = SimpleNamespace(id=int(target_id), display_name="Synthetic Appellant")
+        actor = SimpleNamespace(id=100000000000000203, display_name="Synthetic Moderator")
+        case = pulse_mod_cases.create_case(
+            "1", target, "warn", "Wiederholter Spam im Chat", "", None, actor,
+        )
+        pulse_mod_cases.submit_appeal(
+            "1", target_id, case["id"],
+            "Ich möchte die Entscheidung prüfen lassen, weil wichtige Informationen fehlen.",
+        )
+        pulse_mod_cases.decide_appeal(
+            "1", case["id"], "rejected", "Die Belege bestätigen den dokumentierten Verstoß.",
+            reviewer_id, "Synthetic Reviewer",
+        )
+
+        target_export = pulse_retention.export_person(ws, target_id)
+        reviewer_export = pulse_retention.export_person(ws, reviewer_id)
+        unrelated_export = pulse_retention.export_person(ws, "100000000000000299")
+        self.assertEqual(
+            [row["case_id"] for row in target_export["databases"]["pulse.db"]["mod_case_appeals"]],
+            [case["id"]],
+        )
+        self.assertEqual(
+            [row["case_id"] for row in reviewer_export["databases"]["pulse.db"]["mod_case_appeals"]],
+            [case["id"]],
+        )
+        self.assertNotIn(
+            "mod_case_appeals",
+            unrelated_export.get("databases", {}).get("pulse.db", {}),
+        )
+
     def test_discord_community_suggestions_are_included_for_author_and_reviewer_exports(self):
         import pulse_community_feedback
         import pulse_retention

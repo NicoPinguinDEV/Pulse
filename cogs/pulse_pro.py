@@ -60,6 +60,34 @@ def panel_url(path: str = "/dashboard") -> str:
     return f"{PUBLIC_BASE_URL}{path}" if PUBLIC_BASE_URL else path
 
 
+def _private_label(value, fallback: str = "–", limit: int = 100) -> str:
+    raw = " ".join(str(value or fallback).split())[:limit]
+    return discord.utils.escape_mentions(discord.utils.escape_markdown(raw))
+
+
+def _private_timestamp(value) -> str:
+    raw = str(value or "").strip()
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+    except (TypeError, ValueError, OverflowError):
+        return _private_label(raw, "Zeit nicht verfügbar", 50)
+
+
+def _quiet_hours_label(start, end) -> str:
+    if start is None or end is None:
+        return "Nicht eingestellt"
+    try:
+        first, last = int(start), int(end)
+    except (TypeError, ValueError):
+        return "Nicht eingestellt"
+    if not (0 <= first <= 23 and 0 <= last <= 23) or first == last:
+        return "Nicht eingestellt"
+    return f"{first:02d}:00–{last:02d}:00"
+
+
 class PulsePro(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -596,6 +624,107 @@ class PulsePro(commands.Cog):
             embed.add_field(name=f"{pr} {task['title']}", value=f"{task.get('description') or 'Keine Beschreibung'}\n`{task['id']}`", inline=False)
         embed.set_footer(text=f"Weitere Aufgaben: {panel_url('/tasks')}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="meine-tickets", description="Zeigt dir deine letzten Tickets auf diesem Discord-Server.")
+    async def my_tickets(self, interaction: discord.Interaction):
+        """Private self-service view; SQL scopes the result to the caller and current guild."""
+        if interaction.guild is None:
+            await interaction.response.send_message("Dieser Befehl ist nur auf einem Discord-Server verfügbar.", ephemeral=True)
+            return
+        try:
+            rows = db.list_user_tickets(interaction.guild.id, interaction.user.id, limit=10)
+        except Exception as exc:
+            record_error("Meine Tickets", exc)
+            await interaction.response.send_message("Deine Tickets konnten gerade nicht geladen werden.", ephemeral=True)
+            return
+        if not rows:
+            await interaction.response.send_message("🎫 Du hast auf diesem Server noch keine Tickets erstellt.", ephemeral=True)
+            return
+        status_labels = {
+            "open": "Offen",
+            "in_progress": "In Bearbeitung",
+            "waiting": "Wartet",
+            "closed": "Geschlossen",
+        }
+        priority_labels = {"urgent": "Dringend", "high": "Hoch", "normal": "Normal", "low": "Niedrig"}
+        embed = discord.Embed(title="🎫 Deine Tickets", color=_pulse_color("info"))
+        for ticket in rows[:10]:
+            ticket_id = _private_label(ticket.get("id"), "Unbekannte ID", 50)
+            category = _private_label(ticket.get("category"), "Ohne Kategorie", 70)
+            status = status_labels.get(str(ticket.get("status") or ""), _private_label(ticket.get("status"), "Unbekannt", 40))
+            priority = priority_labels.get(str(ticket.get("priority") or ""), "Normal")
+            channel_id = str(ticket.get("channel_id") or "")
+            channel = f"<#{channel_id}>" if channel_id.isdigit() else "Kanal nicht verfügbar"
+            value = (
+                f"**Status:** {status} · **Priorität:** {priority}\n"
+                f"**Erstellt:** {_private_timestamp(ticket.get('opened_at'))}\n"
+                f"**Kanal:** {channel}"
+            )
+            embed.add_field(name=f"{category} · {ticket_id}", value=value[:1024], inline=False)
+        embed.set_footer(text="Private Ansicht · Es werden nur deine Tickets dieses Servers angezeigt.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="meine-events", description="Zeigt deine kommenden Event- und Meeting-Anmeldungen.")
+    async def my_events(self, interaction: discord.Interaction):
+        """Private RSVP view; the query returns only the invoking user's own responses."""
+        if interaction.guild is None:
+            await interaction.response.send_message("Dieser Befehl ist nur auf einem Discord-Server verfügbar.", ephemeral=True)
+            return
+        try:
+            import pulse_ultimate
+            rows = pulse_ultimate.list_user_calendar_rsvps(interaction.user.id, limit=10)
+        except Exception as exc:
+            record_error("Meine Events", exc)
+            await interaction.response.send_message("Deine Event-Anmeldungen konnten gerade nicht geladen werden.", ephemeral=True)
+            return
+        if not rows:
+            await interaction.response.send_message("📅 Du hast aktuell keine kommenden Event- oder Meeting-Anmeldungen.", ephemeral=True)
+            return
+        embed = discord.Embed(title="📅 Deine kommenden Events", color=_pulse_color("info"))
+        for event in rows[:10]:
+            title = _private_label(event.get("title"), "Termin ohne Titel", 180)
+            response = "✅ Zugesagt" if event.get("response") == "going" else "❌ Abgesagt"
+            kind = _private_label(event.get("kind"), "Event", 35)
+            location = _private_label(event.get("location"), "Kein Ort angegeben", 100)
+            value = (
+                f"**Beginn:** {_private_timestamp(event.get('start_at'))}\n"
+                f"**Rückmeldung:** {response} · **Art:** {kind}\n"
+                f"**Ort:** {location}"
+            )
+            embed.add_field(name=title, value=value[:1024], inline=False)
+        embed.set_footer(text="Private Ansicht · Es werden nur deine eigenen Anmeldungen angezeigt.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="meine-benachrichtigungen", description="Zeigt deine persönlichen Pulse-Benachrichtigungseinstellungen.")
+    async def my_notifications(self, interaction: discord.Interaction):
+        """Read-only view of the caller's notification preferences; no other member is queried."""
+        try:
+            import pulse_notify_prefs
+            prefs = pulse_notify_prefs.load(interaction.user.id)
+            muted = set(prefs.get("muted") or [])
+            muted_labels = [
+                label for key, (label, _keywords) in pulse_notify_prefs.CATEGORIES.items()
+                if key in muted
+            ]
+            muted_text = ", ".join(muted_labels) if muted_labels else "Keine Bereiche stummgeschaltet"
+            quiet = _quiet_hours_label(prefs.get("quiet_from"), prefs.get("quiet_to"))
+            embed = discord.Embed(title="🔔 Deine Benachrichtigungen", color=_pulse_color("info"))
+            embed.add_field(name="Discord-Direktnachrichten", value="Aktiviert" if prefs.get("dm") else "Deaktiviert", inline=True)
+            embed.add_field(name="Deine Ruhezeit", value=quiet, inline=True)
+            embed.add_field(name="Stummgeschaltete Bereiche", value=muted_text, inline=False)
+            embed.add_field(
+                name="Wichtiger Hinweis",
+                value="System- und Sicherheitsmeldungen können nicht stummgeschaltet werden.",
+                inline=False,
+            )
+            embed.set_footer(text="Private Ansicht · Es werden nur deine persönlichen Einstellungen angezeigt.")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as exc:
+            record_error("Meine Benachrichtigungen", exc)
+            await interaction.response.send_message(
+                "Deine Benachrichtigungseinstellungen konnten gerade nicht geladen werden.",
+                ephemeral=True,
+            )
 
     @app_commands.command(name="teamannounce", description="Sendet eine Team-Ankündigung und speichert sie in Pulse.")
     @app_commands.describe(title="Kurzer Titel", message="Inhalt der Ankündigung", importance="Priorität")

@@ -15,6 +15,7 @@ include = [
     "pulse_community_feedback.py", "tests/test_community_feedback.py", "tests/test_community_suggestion_modal.py",
     "pulse_player_reports.py", "tests/test_player_reports.py", "tests/test_player_report_commands.py",
     "tests/test_mod_stats.py",
+    "cogs/scheduled_announcements.py", "tests/test_scheduled_announcements.py", "tests/test_home_layouts.py", "tests/test_player_self_service.py", "pulse_webhook_audit.py", "tests/test_webhook_monitor.py", "tests/test_notify_prefs.py", "tests/test_ultimate_event_rsvps.py",
 ]
 
 [lint]
