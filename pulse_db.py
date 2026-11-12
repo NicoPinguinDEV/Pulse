@@ -865,6 +865,29 @@ def list_tickets(status=None, limit=200, claimed_by_id=None, open_only=False):
         args.append(max(1, min(int(limit), 2000)))
         return [dict(r) for r in db.execute(sql, args).fetchall()]
 
+def list_user_tickets(guild_id, user_id, limit=10):
+    """Return a bounded, metadata-only list of tickets created by this user in this guild."""
+    guild = str(guild_id or "").strip()
+    user = str(user_id or "").strip()
+    if not guild or not user:
+        return []
+    try:
+        bounded_limit = max(1, min(int(limit), 25))
+    except (TypeError, ValueError):
+        bounded_limit = 10
+    with connect() as db:
+        rows = db.execute(
+            """
+            SELECT id, channel_id, category, status, priority, opened_at, closed_at
+            FROM tickets
+            WHERE guild_id=? AND user_id=?
+            ORDER BY opened_at DESC
+            LIMIT ?
+            """,
+            (guild, user, bounded_limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
 
 def claim_ticket(tid, user_id, user_name):
     with connect() as db:

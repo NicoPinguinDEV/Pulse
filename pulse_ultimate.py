@@ -307,6 +307,32 @@ def cx():
     return c
 
 
+def list_user_calendar_rsvps(user_id, limit=10):
+    """Return only this user's upcoming calendar responses, never other attendees."""
+    user = str(user_id or "").strip()
+    if not user:
+        return []
+    try:
+        bounded_limit = max(1, min(int(limit), 20))
+    except (TypeError, ValueError):
+        bounded_limit = 10
+    init_db()
+    with cx() as connection:
+        rows = connection.execute(
+            """
+            SELECT event.id AS event_id, event.title, event.kind, event.start_at,
+                   event.location, rsvp.response
+            FROM ultimate_calendar_rsvps AS rsvp
+            INNER JOIN ultimate_calendar AS event ON event.id = rsvp.event_id
+            WHERE rsvp.user_id=? AND event.start_at>=?
+            ORDER BY event.start_at ASC
+            LIMIT ?
+            """,
+            (user, iso(), bounded_limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
 def init_db() -> None:
     global _INIT
     if _INIT:
