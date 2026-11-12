@@ -12581,6 +12581,12 @@ except Exception as _views_error:
     print(f"❌ Gespeicherte Ansichten konnten nicht registriert werden: {_views_error}")
 
 try:
+    import pulse_privacy_requests_web
+    pulse_privacy_requests_web.register(app)
+except Exception as _privacy_requests_error:
+    print(f"❌ Datenschutzanfragen konnten nicht registriert werden: {_privacy_requests_error}")
+
+try:
     from pulse_cockpit import register as register_pulse_cockpit
     register_pulse_cockpit(app)
 except Exception as _cockpit_error:

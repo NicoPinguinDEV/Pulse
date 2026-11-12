@@ -398,6 +398,21 @@ def _approval_ids_for_decider(path, uid: str) -> set[str]:
         con.close()
 
 
+def _privacy_request_ids_for_subject(path, uid: str) -> set[str]:
+    """Audit #171: the history of a person's own data-subject requests belongs to that person's export."""
+    con = _read_only_connection(path)
+    try:
+        exists = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='privacy_requests'"
+        ).fetchone()
+        if not exists:
+            return set()
+        rows = con.execute("SELECT id FROM privacy_requests WHERE user_id=?", (str(uid),)).fetchall()
+        return {str(row["id"]) for row in rows if row["id"]}
+    finally:
+        con.close()
+
+
 def _ticket_ids_for_subject(path, uid: str) -> set[str]:
     """Resolve ticket IDs by the ticket opener so linked staff-only notes enter that person's export."""
     con = _read_only_connection(path)
@@ -530,6 +545,7 @@ def export_person(ws, discord_id: str) -> dict:
                     "ultimate_automation_approvals": {"id": _approval_ids_for_decider(path, uid)},
                     "discord_community_feedback": {"reviewed_by_id": {uid}},
                     "discord_community_feedback_votes": {"voter_id": {uid}},
+                    "privacy_request_events": {"request_id": _privacy_request_ids_for_subject(path, uid)},
                 }
             rows, truncated = _rows_for(path, uid, extra_values_by_table=extras)
         except (sqlite3.Error, OSError) as exc:

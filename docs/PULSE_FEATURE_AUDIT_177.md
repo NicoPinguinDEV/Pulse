@@ -40,7 +40,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
 | Pulse Intelligence | 6 | 9 | 0 |
 | Automatisierungen und Workflow-System | 9 | 3 | 0 |
-| Admin Center, Sicherheit und Betrieb | 9 | 11 | 0 |
+| Admin Center, Sicherheit und Betrieb | 10 | 10 | 0 |
 | BOCHUM-RP-spezifische Funktionen | 0 | 5 | 0 |
 
 ## Einzelbewertung
@@ -279,7 +279,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 168 | Testserver-/Testdatenmodus | **Teilweise** | CI-Fakes, Preview-Server und Workflow-Testmodus existieren; ein konfigurierbarer isolierter Test-Guild-Modus für Admins fehlt. |
 | 169 | Release-Übersicht | **Teilweise** | Version und Status werden angezeigt; laufender Commit, Deploymentvergleich, letzter Release und Rollback-Stand sind nicht vollständig zusammengeführt. |
 | 170 | Datenintegritätsprüfung | **Fertig** | Read-only Konsistenzdiagnose, Bewerbungsdatenprüfung, Schichthistorie und SQLite-Quick-Check; `tests/test_consistency.py`, `tests/test_application_data_audit.py`, `tests/test_system_checks.py`. |
-| 171 | Datenschutz-Anfragen | **Teilweise** | Personenexport, IP-Audit, Retention und KI-Vergessen-Funktion existieren; ein zentraler Auskunft-/Berichtigungs-/Löschantragsworkflow mit Status fehlt. |
+| 171 | Datenschutz-Anfragen | **Fertig** | Branch `feature/privacy-requests-171`: `pulse_privacy_requests.py` + `/admin/privacy/requests` (nur Admins) mit Auskunft/Berichtigung/Löschung/Einschränkung/Widerspruch, Frist 1 Monat (einmal um ≤ 60 Tage verlängerbar), Status, Zuständigkeit, Notizen, revisionsfestem Verlauf, lesender Datenbestandsprüfung und JSON-Auskunft; Discord `/datenschutz-anfrage` und `/datenschutz-status` (privat, nur eigene Anfragen), Admin-Inbox bei Eingang und tägliche Überfälligkeitserinnerung. Tabellen im JSON-Backup und Personenexport. `tests/test_privacy_requests.py`. Pulse löscht nichts automatisch. |
 | 172 | Aufbewahrungsübersicht | **Teilweise** | `pulse_retention.py` und Phase-15.6-Retention-Dokumente enthalten Regeln/Pläne; eine vollständige UI-Matrix über jede Datenart und Frist fehlt. |
 
 ### 14. BOCHUM-RP-spezifische Funktionen (173–177)

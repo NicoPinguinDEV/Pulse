@@ -2,7 +2,7 @@
 
 Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 
-## `@tasks.loop` (13)
+## `@tasks.loop` (14)
 
 | Datei:Zeile | Funktion | Intervall | Fehlerbehandlung |
 |---|---|---|---|
@@ -10,6 +10,7 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | cogs/activity_check.py:373 | `daily_activity_check` | `time=datetime_time(hour=6, minute=0, tzinfo=BERLIN_TZ)` | keine eigene; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/activity_check.py:380 | `activity_check_recovery` | `minutes=5` | keine eigene; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/activity_check.py:418 | `activity_warning_check` | `minutes=1` | 1 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
+| cogs/privacy_requests.py:170 | `overdue_loop` | `hours=6` | 1 except; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/pulse_next.py:42 | `housekeeping` | `minutes=5` | keine eigene; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/pulse_pro.py:129 | `housekeeping_loop` | `minutes=5` | 13 except, davon 13 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/pulse_suite.py:1606 | `auto` | `minutes=5` | 1 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
