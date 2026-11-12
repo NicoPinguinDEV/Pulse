@@ -3,7 +3,7 @@
 Automatisch erzeugt von `python tools/route_map.py` aus dem laufenden FastAPI-Objekt (nicht von Hand bearbeiten).
 Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, `admin_ctx`, `perm=`) – Hinweis, kein Beweis.
 
-- **Effektive Routen (Methode × Pfad):** 411
+- **Effektive Routen (Methode × Pfad):** 422
 - **Doppelt registriert:** 1 → `GET /ultimate`
 - **Im Quelltext registriert, zur Laufzeit verdrängt:** 5
 - **Ohne erkennbare Prüfung:** 45 (Login/OAuth/Health/Bewerbungsportal/öffentliche Seiten – einzeln prüfen)
@@ -14,7 +14,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | aktive Handler (Reihenfolge) |
 |---|---|---|
-| GET | `/ultimate` | `webserver.ultimate_dashboard` (webserver.py:4571) → `pulse_ultimate.register.<locals>.ultimate_home` (pulse_ultimate.py:928) (FastAPI nimmt den **ersten** Treffer) |
+| GET | `/ultimate` | `webserver.ultimate_dashboard` (webserver.py:4571) → `pulse_ultimate.register.<locals>.ultimate_home` (pulse_ultimate.py:954) (FastAPI nimmt den **ersten** Treffer) |
 
 ## Verdrängte Handler (toter Code)
 
@@ -22,8 +22,8 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 |---|---|---|---|---|
 | GET | `/dashboard` | `dashboard_main` | webserver.py:4292 | `pulse_pro.register.<locals>.dashboard_v5` |
 | GET | `/melonly` | `melonly_alias` | webserver.py:4777 | `pulse_pro.register.<locals>.melonly_page` |
-| GET | `/member/{user_id}` | `member_detail` | webserver.py:7672 | `pulse_pro.register.<locals>.member_v5` |
-| GET | `/settings` | `settings_page` | webserver.py:10786 | `pulse_pro.register.<locals>.settings_v5` |
+| GET | `/member/{user_id}` | `member_detail` | webserver.py:7702 | `pulse_pro.register.<locals>.member_v5` |
+| GET | `/settings` | `settings_page` | webserver.py:10816 | `pulse_pro.register.<locals>.settings_v5` |
 | GET | `/tickets` | `pulse_tickets_dashboard` | webserver.py:5559 | `pulse_pro.register.<locals>.tickets_v5` |
 
 ## Effektive Routen nach Bereich
@@ -38,13 +38,13 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/achievements` | `pulse_pro.register.<locals>.achievements_v5` | pulse_pro.py:3041 | can_view_dashboard |
+| GET | `/achievements` | `pulse_pro.register.<locals>.achievements_v5` | pulse_pro.py:3047 | can_view_dashboard |
 
 ### `/action` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| POST | `/action` | `webserver.handle_action` | webserver.py:11463 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
+| POST | `/action` | `webserver.handle_action` | webserver.py:11493 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
 
 ### `/activity-check` (2)
 
@@ -82,8 +82,8 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/admin/privacy/export` | `pulse_admin.register.<locals>.admin_privacy_export` | pulse_admin.py:650 | Admin |
 | POST | `/admin/recovery/save` | `pulse_admin.register.<locals>.admin_recovery_save` | pulse_admin.py:572 | Admin |
 | GET | `/admin/rights` | `pulse_phase7.register.<locals>.rights_page` | pulse_phase7.py:169 | Admin |
-| GET | `/admin/security` | `pulse_guard_admin.register.<locals>.admin_security` | pulse_guard_admin.py:507 | Admin |
-| POST | `/admin/security/antinuke` | `pulse_guard_admin.register.<locals>.admin_security_antinuke` | pulse_guard_admin.py:565 | Admin |
+| GET | `/admin/security` | `pulse_guard_admin.register.<locals>.admin_security` | pulse_guard_admin.py:539 | Admin |
+| POST | `/admin/security/antinuke` | `pulse_guard_admin.register.<locals>.admin_security_antinuke` | pulse_guard_admin.py:616 | Admin |
 | POST | `/admin/security/antinuke/rules/delete` | `pulse_antinuke_admin.register.<locals>.antinuke_rule_delete` | pulse_antinuke_admin.py:732 | — (öffentlich/keine erkennbare Prüfung) |
 | POST | `/admin/security/antinuke/rules/preset` | `pulse_antinuke_admin.register.<locals>.antinuke_rule_preset` | pulse_antinuke_admin.py:736 | Admin |
 | POST | `/admin/security/antinuke/rules/save` | `pulse_antinuke_admin.register.<locals>.antinuke_rule_save` | pulse_antinuke_admin.py:658 | Admin |
@@ -91,12 +91,12 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | POST | `/admin/security/antinuke/rules/toggle` | `pulse_antinuke_admin.register.<locals>.antinuke_rule_toggle` | pulse_antinuke_admin.py:728 | — (öffentlich/keine erkennbare Prüfung) |
 | POST | `/admin/security/antinuke/trusted` | `pulse_antinuke_admin.register.<locals>.antinuke_trusted_save` | pulse_antinuke_admin.py:783 | Admin |
 | POST | `/admin/security/antinuke/trusted/check` | `pulse_antinuke_admin.register.<locals>.antinuke_trusted_check` | pulse_antinuke_admin.py:811 | Admin |
-| POST | `/admin/security/automod` | `pulse_guard_admin.register.<locals>.admin_security_automod` | pulse_guard_admin.py:512 | Admin |
+| POST | `/admin/security/automod` | `pulse_guard_admin.register.<locals>.admin_security_automod` | pulse_guard_admin.py:544 | Admin |
 | POST | `/admin/security/lockdown/lift` | `pulse_antinuke_admin.register.<locals>.antinuke_lockdown_lift` | pulse_antinuke_admin.py:853 | — (öffentlich/keine erkennbare Prüfung) |
 | POST | `/admin/security/lockdown/start` | `pulse_antinuke_admin.register.<locals>.antinuke_lockdown_start` | pulse_antinuke_admin.py:849 | — (öffentlich/keine erkennbare Prüfung) |
-| POST | `/admin/security/quarantine/dismiss` | `pulse_guard_admin.register.<locals>.admin_security_quarantine_dismiss` | pulse_guard_admin.py:702 | — (öffentlich/keine erkennbare Prüfung) |
-| POST | `/admin/security/quarantine/restore` | `pulse_guard_admin.register.<locals>.admin_security_quarantine_restore` | pulse_guard_admin.py:698 | — (öffentlich/keine erkennbare Prüfung) |
-| POST | `/admin/security/test` | `pulse_guard_admin.register.<locals>.admin_security_test` | pulse_guard_admin.py:631 | Admin |
+| POST | `/admin/security/quarantine/dismiss` | `pulse_guard_admin.register.<locals>.admin_security_quarantine_dismiss` | pulse_guard_admin.py:755 | — (öffentlich/keine erkennbare Prüfung) |
+| POST | `/admin/security/quarantine/restore` | `pulse_guard_admin.register.<locals>.admin_security_quarantine_restore` | pulse_guard_admin.py:751 | — (öffentlich/keine erkennbare Prüfung) |
+| POST | `/admin/security/test` | `pulse_guard_admin.register.<locals>.admin_security_test` | pulse_guard_admin.py:682 | Admin |
 | GET | `/admin/server` | `pulse_server_control.register.<locals>.server_control_page` | pulse_server_control.py:636 | angemeldet + eigene Prüfung (+ is_admin) |
 | POST | `/admin/server/api/actions` | `pulse_server_control.register.<locals>.scc_action` | pulse_server_control.py:914 | angemeldet + eigene Prüfung |
 | GET | `/admin/server/api/backups` | `pulse_server_control.register.<locals>.scc_backups` | pulse_server_control.py:675 | angemeldet + eigene Prüfung (+ is_admin) |
@@ -135,7 +135,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/api/pulse/live` | `pulse_pro.register.<locals>.api_live` | pulse_pro.py:3651 | can_view_dashboard |
+| GET | `/api/pulse/live` | `pulse_pro.register.<locals>.api_live` | pulse_pro.py:3657 | can_view_dashboard |
 | GET | `/api/roblox-search` | `webserver.roblox_search` | webserver.py:3490 | can_view_dashboard |
 | GET | `/api/roblox-user` | `webserver.roblox_user_lookup` | webserver.py:3426 | can_view_dashboard |
 | GET | `/api/team/activity` | `webserver.team_activity_api` | webserver.py:5318 | can_view_dashboard |
@@ -146,23 +146,23 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/applications` | `webserver.applications_page` | webserver.py:8564 | angemeldet (+ can_manage_applications, can_promote, can_view_dashboard, is_admin) |
+| GET | `/applications` | `webserver.applications_page` | webserver.py:8594 | angemeldet (+ can_manage_applications, can_promote, can_view_dashboard, is_admin) |
 | GET | `/applications/board` | `pulse_phase7.register.<locals>.board_page` | pulse_phase7.py:383 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
 | POST | `/applications/board/deadlines` | `pulse_phase7.register.<locals>.board_deadlines` | pulse_phase7.py:416 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
-| GET | `/applications/config` | `webserver.application_modules_config_page` | webserver.py:8947 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
-| POST | `/applications/config` | `webserver.save_application_modules_config` | webserver.py:8994 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
-| POST | `/applications/interview-slot` | `webserver.application_interview_slot` | webserver.py:8822 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
-| POST | `/applications/review` | `webserver.save_application_review` | webserver.py:8889 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
-| POST | `/applications/templates` | `webserver.application_templates_save` | webserver.py:8855 | Admin |
+| GET | `/applications/config` | `webserver.application_modules_config_page` | webserver.py:8977 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
+| POST | `/applications/config` | `webserver.save_application_modules_config` | webserver.py:9024 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
+| POST | `/applications/interview-slot` | `webserver.application_interview_slot` | webserver.py:8852 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
+| POST | `/applications/review` | `webserver.save_application_review` | webserver.py:8919 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
+| POST | `/applications/templates` | `webserver.application_templates_save` | webserver.py:8885 | Admin |
 
 ### `/apply` (4)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/apply` | `webserver.public_apply_page` | webserver.py:8268 | Session (eigene Prüfung) |
-| GET | `/apply/callback` | `webserver.apply_callback` | webserver.py:8532 | Session (eigene Prüfung) |
-| POST | `/apply/keepalive` | `webserver.apply_keepalive` | webserver.py:8548 | Session (eigene Prüfung) |
-| GET | `/apply/login` | `webserver.apply_login` | webserver.py:8514 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/apply` | `webserver.public_apply_page` | webserver.py:8298 | Session (eigene Prüfung) |
+| GET | `/apply/callback` | `webserver.apply_callback` | webserver.py:8562 | Session (eigene Prüfung) |
+| POST | `/apply/keepalive` | `webserver.apply_keepalive` | webserver.py:8578 | Session (eigene Prüfung) |
+| GET | `/apply/login` | `webserver.apply_login` | webserver.py:8544 | — (öffentlich/keine erkennbare Prüfung) |
 
 ### `/approvals` (1)
 
@@ -174,29 +174,29 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| POST | `/backup/create` | `webserver.create_backup` | webserver.py:10159 | Admin |
-| POST | `/backup/delete` | `webserver.delete_backup` | webserver.py:10363 | Admin |
-| GET | `/backup/download/{filename}` | `webserver.download_backup` | webserver.py:10222 | Admin |
-| POST | `/backup/full/create` | `webserver.full_backup_create` | webserver.py:10489 | Admin |
-| POST | `/backup/full/delete` | `webserver.full_backup_delete` | webserver.py:10584 | Admin |
-| GET | `/backup/full/download/{filename}` | `webserver.full_backup_download` | webserver.py:10502 | Admin |
-| GET | `/backup/full/preview/{filename}` | `webserver.full_backup_preview` | webserver.py:10511 | Admin |
-| POST | `/backup/full/restore` | `webserver.full_backup_restore` | webserver.py:10557 | Admin |
-| POST | `/backup/restore` | `webserver.restore_backup` | webserver.py:10244 | Admin |
-| POST | `/backup/upload` | `webserver.upload_backup` | webserver.py:10171 | Admin |
+| POST | `/backup/create` | `webserver.create_backup` | webserver.py:10189 | Admin |
+| POST | `/backup/delete` | `webserver.delete_backup` | webserver.py:10393 | Admin |
+| GET | `/backup/download/{filename}` | `webserver.download_backup` | webserver.py:10252 | Admin |
+| POST | `/backup/full/create` | `webserver.full_backup_create` | webserver.py:10519 | Admin |
+| POST | `/backup/full/delete` | `webserver.full_backup_delete` | webserver.py:10614 | Admin |
+| GET | `/backup/full/download/{filename}` | `webserver.full_backup_download` | webserver.py:10532 | Admin |
+| GET | `/backup/full/preview/{filename}` | `webserver.full_backup_preview` | webserver.py:10541 | Admin |
+| POST | `/backup/full/restore` | `webserver.full_backup_restore` | webserver.py:10587 | Admin |
+| POST | `/backup/restore` | `webserver.restore_backup` | webserver.py:10274 | Admin |
+| POST | `/backup/upload` | `webserver.upload_backup` | webserver.py:10201 | Admin |
 
 ### `/backups` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/backups` | `webserver.backups_page` | webserver.py:10084 | Admin |
+| GET | `/backups` | `webserver.backups_page` | webserver.py:10114 | Admin |
 
 ### `/calendar` (2)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/calendar` | `pulse_pro.register.<locals>.calendar_v5` | pulse_pro.py:2456 | can_view_dashboard |
-| POST | `/calendar/create` | `pulse_pro.register.<locals>.create_calendar_event_v5` | pulse_pro.py:2623 | can_view_dashboard |
+| GET | `/calendar` | `pulse_pro.register.<locals>.calendar_v5` | pulse_pro.py:2462 | can_view_dashboard |
+| POST | `/calendar/create` | `pulse_pro.register.<locals>.create_calendar_event_v5` | pulse_pro.py:2629 | can_view_dashboard |
 
 ### `/callback` (1)
 
@@ -233,7 +233,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
 | GET | `/export/logs` | `webserver.export_logs` | webserver.py:5247 | can_view_analytics |
-| GET | `/export/team.csv` | `pulse_pro.register.<locals>.team_export` | pulse_pro.py:3634 | can_view_analytics |
+| GET | `/export/team.csv` | `pulse_pro.register.<locals>.team_export` | pulse_pro.py:3640 | can_view_analytics |
 
 ### `/factions` (11)
 
@@ -280,7 +280,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/health` | `pulse_pro.register.<locals>.api_health` | pulse_pro.py:3658 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/health` | `pulse_pro.register.<locals>.api_health` | pulse_pro.py:3664 | — (öffentlich/keine erkennbare Prüfung) |
 
 ### `/healthz` (1)
 
@@ -298,7 +298,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/loa` | `webserver.loa_page` | webserver.py:7970 | can_view_dashboard |
+| GET | `/loa` | `webserver.loa_page` | webserver.py:8000 | can_view_dashboard |
 
 ### `/log` (3)
 
@@ -325,22 +325,27 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/manifest.webmanifest` | `pulse_pro.register.<locals>.manifest` | pulse_pro.py:3666 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/manifest.webmanifest` | `pulse_pro.register.<locals>.manifest` | pulse_pro.py:3672 | — (öffentlich/keine erkennbare Prüfung) |
 
-### `/me` (12)
+### `/me` (17)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/me` | `pulse_home.register.<locals>.my_pulse` | pulse_home.py:116 | can_view_dashboard (+ can_add_notes, can_manage_applications, can_manage_tickets, can_promote) |
-| POST | `/me/favorites/add` | `pulse_home.register.<locals>.my_favorite_add` | pulse_home.py:428 | can_view_dashboard |
-| POST | `/me/favorites/remove` | `pulse_home.register.<locals>.my_favorite_remove` | pulse_home.py:446 | can_view_dashboard |
+| GET | `/me` | `pulse_home.register.<locals>.my_pulse` | pulse_home.py:117 | can_view_dashboard (+ can_add_notes, can_manage_applications, can_manage_tickets, can_promote) |
+| POST | `/me/favorites/add` | `pulse_home.register.<locals>.my_favorite_add` | pulse_home.py:571 | can_view_dashboard |
+| POST | `/me/favorites/remove` | `pulse_home.register.<locals>.my_favorite_remove` | pulse_home.py:589 | can_view_dashboard |
+| GET | `/me/layouts` | `pulse_home.register.<locals>.my_home_layouts` | pulse_home.py:449 | can_view_dashboard |
+| POST | `/me/layouts/activate` | `pulse_home.register.<locals>.my_home_layout_activate` | pulse_home.py:547 | can_view_dashboard |
+| POST | `/me/layouts/default` | `pulse_home.register.<locals>.my_home_layout_default` | pulse_home.py:565 | can_view_dashboard |
+| POST | `/me/layouts/delete` | `pulse_home.register.<locals>.my_home_layout_delete` | pulse_home.py:556 | can_view_dashboard |
+| POST | `/me/layouts/save` | `pulse_home.register.<locals>.my_home_layout_save` | pulse_home.py:532 | can_view_dashboard |
 | GET | `/me/month` | `pulse_phase7.register.<locals>.my_month_page` | pulse_phase7.py:483 | can_view_dashboard |
 | POST | `/me/month/optin` | `pulse_phase7.register.<locals>.my_month_optin` | pulse_phase7.py:512 | can_view_dashboard |
-| GET | `/me/sessions` | `pulse_home.register.<locals>.my_sessions` | pulse_home.py:459 | can_view_dashboard |
-| POST | `/me/sessions/revoke` | `pulse_home.register.<locals>.my_session_revoke` | pulse_home.py:488 | can_view_dashboard |
-| POST | `/me/sessions/revoke-all` | `pulse_home.register.<locals>.my_session_revoke_all` | pulse_home.py:507 | can_view_dashboard |
-| POST | `/me/sessions/revoke-others` | `pulse_home.register.<locals>.my_session_revoke_others` | pulse_home.py:497 | can_view_dashboard |
-| POST | `/me/start-page` | `pulse_home.register.<locals>.my_start_page` | pulse_home.py:414 | can_view_dashboard |
+| GET | `/me/sessions` | `pulse_home.register.<locals>.my_sessions` | pulse_home.py:602 | can_view_dashboard |
+| POST | `/me/sessions/revoke` | `pulse_home.register.<locals>.my_session_revoke` | pulse_home.py:631 | can_view_dashboard |
+| POST | `/me/sessions/revoke-all` | `pulse_home.register.<locals>.my_session_revoke_all` | pulse_home.py:650 | can_view_dashboard |
+| POST | `/me/sessions/revoke-others` | `pulse_home.register.<locals>.my_session_revoke_others` | pulse_home.py:640 | can_view_dashboard |
+| POST | `/me/start-page` | `pulse_home.register.<locals>.my_start_page` | pulse_home.py:434 | can_view_dashboard |
 | POST | `/me/views/save` | `pulse_views.register.<locals>.views_save` | pulse_views.py:144 | can_view_dashboard |
 | POST | `/me/views/{view_id}/delete` | `pulse_views.register.<locals>.views_delete` | pulse_views.py:158 | can_view_dashboard |
 
@@ -348,13 +353,13 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/meetings` | `webserver.meetings_page` | webserver.py:7834 | can_view_dashboard |
+| GET | `/meetings` | `webserver.meetings_page` | webserver.py:7864 | can_view_dashboard |
 
 ### `/meetings-history` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/meetings-history` | `pulse_pro.register.<locals>.meetings_history_v5` | pulse_pro.py:3035 | can_view_dashboard |
+| GET | `/meetings-history` | `pulse_pro.register.<locals>.meetings_history_v5` | pulse_pro.py:3041 | can_view_dashboard |
 
 ### `/melonly` (1)
 
@@ -366,19 +371,19 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/member/{user_id}` | `pulse_pro.register.<locals>.member_v5` | pulse_pro.py:2701 | can_view_dashboard (+ can_add_notes, can_manage_team_warnings, can_promote, is_admin) |
+| GET | `/member/{user_id}` | `pulse_pro.register.<locals>.member_v5` | pulse_pro.py:2707 | can_view_dashboard (+ can_add_notes, can_manage_team_warnings, can_promote, is_admin) |
 
 ### `/mod-cases` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/mod-cases` | `webserver.mod_cases_page` | webserver.py:6693 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/mod-cases` | `webserver.mod_cases_page` | webserver.py:6697 | — (öffentlich/keine erkennbare Prüfung) |
 
 ### `/mod-cases.csv` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/mod-cases.csv` | `webserver.mod_cases_csv` | webserver.py:6728 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/mod-cases.csv` | `webserver.mod_cases_csv` | webserver.py:6751 | — (öffentlich/keine erkennbare Prüfung) |
 
 ### `/news` (2)
 
@@ -428,45 +433,45 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/robots.txt` | `pulse_pro.register.<locals>.robots_txt` | pulse_pro.py:3710 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/robots.txt` | `pulse_pro.register.<locals>.robots_txt` | pulse_pro.py:3716 | — (öffentlich/keine erkennbare Prüfung) |
 
 ### `/search` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/search` | `pulse_pro.register.<locals>.search_v5` | pulse_pro.py:2679 | can_view_dashboard |
+| GET | `/search` | `pulse_pro.register.<locals>.search_v5` | pulse_pro.py:2685 | can_view_dashboard |
 
 ### `/security` (2)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/security` | `webserver.security_page` | webserver.py:10685 | Admin |
-| POST | `/security` | `webserver.save_security_settings` | webserver.py:10692 | Admin |
+| GET | `/security` | `webserver.security_page` | webserver.py:10715 | Admin |
+| POST | `/security` | `webserver.save_security_settings` | webserver.py:10722 | Admin |
 
 ### `/settings` (14)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/settings` | `pulse_pro.register.<locals>.settings_v5` | pulse_pro.py:3066 | Admin |
-| POST | `/settings/dashboard-profile/delete` | `pulse_pro.register.<locals>.settings_dashboard_profile_delete` | pulse_pro.py:3363 | Admin |
-| POST | `/settings/dashboard-profile/save` | `pulse_pro.register.<locals>.settings_dashboard_profile_save` | pulse_pro.py:3308 | Admin |
-| POST | `/settings/nickname-prefix/default` | `pulse_pro.register.<locals>.settings_nickname_prefix_default` | pulse_pro.py:3413 | Admin |
-| POST | `/settings/nickname-prefix/delete` | `pulse_pro.register.<locals>.settings_nickname_prefix_delete` | pulse_pro.py:3437 | Admin |
-| POST | `/settings/nickname-prefix/save` | `pulse_pro.register.<locals>.settings_nickname_prefix_save` | pulse_pro.py:3380 | Admin |
-| POST | `/settings/nickname-prefix/sync` | `pulse_pro.register.<locals>.settings_nickname_prefix_sync` | pulse_pro.py:3461 | Admin |
-| POST | `/settings/pro-clear-all` | `pulse_pro.register.<locals>.settings_clear_all_permissions` | pulse_pro.py:3517 | Admin |
-| POST | `/settings/pro-goal` | `pulse_pro.register.<locals>.settings_goal` | pulse_pro.py:3548 | Admin |
-| POST | `/settings/pro-presets` | `pulse_pro.register.<locals>.settings_profiles` | pulse_pro.py:3510 | Admin |
-| POST | `/settings/pro-roles` | `pulse_pro.register.<locals>.settings_roles` | pulse_pro.py:3484 | Admin |
-| POST | `/settings/pro-save` | `pulse_pro.register.<locals>.settings_save` | pulse_pro.py:3476 | Admin |
-| POST | `/settings/pro-warn-roles` | `pulse_pro.register.<locals>.settings_warn_roles` | pulse_pro.py:3522 | Admin |
-| POST | `/settings/pro-warn-sync` | `pulse_pro.register.<locals>.settings_warn_sync` | pulse_pro.py:3541 | Admin |
+| GET | `/settings` | `pulse_pro.register.<locals>.settings_v5` | pulse_pro.py:3072 | Admin |
+| POST | `/settings/dashboard-profile/delete` | `pulse_pro.register.<locals>.settings_dashboard_profile_delete` | pulse_pro.py:3369 | Admin |
+| POST | `/settings/dashboard-profile/save` | `pulse_pro.register.<locals>.settings_dashboard_profile_save` | pulse_pro.py:3314 | Admin |
+| POST | `/settings/nickname-prefix/default` | `pulse_pro.register.<locals>.settings_nickname_prefix_default` | pulse_pro.py:3419 | Admin |
+| POST | `/settings/nickname-prefix/delete` | `pulse_pro.register.<locals>.settings_nickname_prefix_delete` | pulse_pro.py:3443 | Admin |
+| POST | `/settings/nickname-prefix/save` | `pulse_pro.register.<locals>.settings_nickname_prefix_save` | pulse_pro.py:3386 | Admin |
+| POST | `/settings/nickname-prefix/sync` | `pulse_pro.register.<locals>.settings_nickname_prefix_sync` | pulse_pro.py:3467 | Admin |
+| POST | `/settings/pro-clear-all` | `pulse_pro.register.<locals>.settings_clear_all_permissions` | pulse_pro.py:3523 | Admin |
+| POST | `/settings/pro-goal` | `pulse_pro.register.<locals>.settings_goal` | pulse_pro.py:3554 | Admin |
+| POST | `/settings/pro-presets` | `pulse_pro.register.<locals>.settings_profiles` | pulse_pro.py:3516 | Admin |
+| POST | `/settings/pro-roles` | `pulse_pro.register.<locals>.settings_roles` | pulse_pro.py:3490 | Admin |
+| POST | `/settings/pro-save` | `pulse_pro.register.<locals>.settings_save` | pulse_pro.py:3482 | Admin |
+| POST | `/settings/pro-warn-roles` | `pulse_pro.register.<locals>.settings_warn_roles` | pulse_pro.py:3528 | Admin |
+| POST | `/settings/pro-warn-sync` | `pulse_pro.register.<locals>.settings_warn_sync` | pulse_pro.py:3547 | Admin |
 
 ### `/setup` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/setup` | `webserver.setup_wizard` | webserver.py:10601 | Admin |
+| GET | `/setup` | `webserver.setup_wizard` | webserver.py:10631 | Admin |
 
 ### `/shift` (4)
 
@@ -513,7 +518,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/stats` | `pulse_pro.register.<locals>.stats_v5` | pulse_pro.py:2439 | can_view_analytics |
+| GET | `/stats` | `pulse_pro.register.<locals>.stats_v5` | pulse_pro.py:2445 | can_view_analytics |
 
 ### `/status` (1)
 
@@ -527,85 +532,86 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 |---|---|---|---|---|
 | GET | `/status.json` | `pulse_phase7.register.<locals>.public_status_json` | pulse_phase7.py:444 | — (öffentlich/keine erkennbare Prüfung) |
 
-### `/suite` (34)
+### `/suite` (40)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/suite` | `cogs.pulse_suite.register_routes.<locals>.leadership` | cogs/pulse_suite.py:594 | can_view_dashboard |
-| GET | `/suite/achievements` | `cogs.pulse_suite.register_routes.<locals>.achievements_page` | cogs/pulse_suite.py:1237 | can_view_dashboard |
-| GET | `/suite/api/search` | `cogs.pulse_suite.register_routes.<locals>.search_api` | cogs/pulse_suite.py:1219 | can_view_dashboard |
-| GET | `/suite/applications` | `cogs.pulse_suite.register_routes.<locals>.applications_page` | cogs/pulse_suite.py:982 | can_view_dashboard |
-| GET | `/suite/applications/{app_id}` | `cogs.pulse_suite.register_routes.<locals>.application_page` | cogs/pulse_suite.py:996 | can_view_dashboard |
-| POST | `/suite/applications/{app_id}/update` | `cogs.pulse_suite.register_routes.<locals>.application_update` | cogs/pulse_suite.py:1008 | can_view_dashboard |
-| GET | `/suite/audit` | `cogs.pulse_suite.register_routes.<locals>.audit_page` | cogs/pulse_suite.py:1162 | can_view_dashboard |
-| GET | `/suite/audit.csv` | `cogs.pulse_suite.register_routes.<locals>.audit_csv` | cogs/pulse_suite.py:1202 | can_view_dashboard |
-| GET | `/suite/calendar` | `cogs.pulse_suite.register_routes.<locals>.calendar_page` | cogs/pulse_suite.py:963 | can_view_dashboard |
-| POST | `/suite/calendar/create` | `cogs.pulse_suite.register_routes.<locals>.calendar_create` | cogs/pulse_suite.py:976 | can_view_dashboard |
-| GET | `/suite/cases` | `cogs.pulse_suite.register_routes.<locals>.cases_page` | cogs/pulse_suite.py:1223 | can_view_dashboard |
-| POST | `/suite/cases/{case_id}/action` | `cogs.pulse_suite.register_routes.<locals>.case_action` | cogs/pulse_suite.py:1230 | can_view_dashboard |
-| GET | `/suite/forecast` | `cogs.pulse_suite.register_routes.<locals>.staffing_forecast_page` | cogs/pulse_suite.py:773 | can_promote / Admin |
-| POST | `/suite/forecast/settings` | `cogs.pulse_suite.register_routes.<locals>.staffing_forecast_settings` | cogs/pulse_suite.py:849 | can_promote / Admin |
-| GET | `/suite/interview/create` | `cogs.pulse_suite.register_routes.<locals>.interview_form` | cogs/pulse_suite.py:1030 | can_view_dashboard |
-| POST | `/suite/interview/create` | `cogs.pulse_suite.register_routes.<locals>.interview_create` | cogs/pulse_suite.py:1036 | can_view_dashboard |
-| GET | `/suite/interviews` | `cogs.pulse_suite.register_routes.<locals>.interviews_page` | cogs/pulse_suite.py:1022 | can_view_dashboard |
-| GET | `/suite/member/{member_id}` | `cogs.pulse_suite.register_routes.<locals>.member_page` | cogs/pulse_suite.py:636 | can_view_dashboard |
-| POST | `/suite/member/{member_id}/note` | `cogs.pulse_suite.register_routes.<locals>.member_note` | cogs/pulse_suite.py:650 | can_view_dashboard |
-| GET | `/suite/my-schedule` | `cogs.pulse_suite.register_routes.<locals>.my_schedule` | cogs/pulse_suite.py:667 | can_view_dashboard |
-| GET | `/suite/news` | `cogs.pulse_suite.register_routes.<locals>.news_page` | cogs/pulse_suite.py:1154 | can_view_dashboard |
-| POST | `/suite/news/create` | `cogs.pulse_suite.register_routes.<locals>.news_create` | cogs/pulse_suite.py:1158 | can_view_dashboard |
-| GET | `/suite/promotions` | `cogs.pulse_suite.register_routes.<locals>.promotions_page` | cogs/pulse_suite.py:1051 | can_view_dashboard |
-| POST | `/suite/promotions/create` | `cogs.pulse_suite.register_routes.<locals>.promotions_create` | cogs/pulse_suite.py:1058 | can_view_dashboard |
-| POST | `/suite/promotions/{pid}/action` | `cogs.pulse_suite.register_routes.<locals>.promotions_action` | cogs/pulse_suite.py:1068 | can_view_dashboard |
-| GET | `/suite/schedule` | `cogs.pulse_suite.register_routes.<locals>.schedule_page` | cogs/pulse_suite.py:745 | can_view_dashboard |
-| POST | `/suite/schedule/create` | `cogs.pulse_suite.register_routes.<locals>.schedule_create` | cogs/pulse_suite.py:765 | can_view_dashboard |
-| POST | `/suite/schedule/swaps/create` | `cogs.pulse_suite.register_routes.<locals>.schedule_swap_create` | cogs/pulse_suite.py:866 | eingeloggtes Teammitglied + eigene Schicht |
-| POST | `/suite/schedule/swaps/{request_id}/cancel` | `cogs.pulse_suite.register_routes.<locals>.schedule_swap_cancel` | cogs/pulse_suite.py:923 | Antragsteller der offenen Anfrage |
-| POST | `/suite/schedule/swaps/{request_id}/decision` | `cogs.pulse_suite.register_routes.<locals>.schedule_swap_decision` | cogs/pulse_suite.py:931 | Leitung / Admin |
-| POST | `/suite/schedule/swaps/{request_id}/respond` | `cogs.pulse_suite.register_routes.<locals>.schedule_swap_respond` | cogs/pulse_suite.py:894 | adressierte Gegenseite |
-| GET | `/suite/search` | `cogs.pulse_suite.register_routes.<locals>.search_page` | cogs/pulse_suite.py:1214 | can_view_dashboard |
-| GET | `/suite/task/{task_id}` | `cogs.pulse_suite.register_routes.<locals>.task_detail` | cogs/pulse_suite.py:1120 | can_view_dashboard |
-| POST | `/suite/task/{task_id}/meta` | `cogs.pulse_suite.register_routes.<locals>.task_meta` | cogs/pulse_suite.py:1129 | can_view_dashboard |
-| GET | `/suite/tasks` | `cogs.pulse_suite.register_routes.<locals>.tasks_page` | cogs/pulse_suite.py:1109 | can_view_dashboard |
-| POST | `/suite/tasks/{task_id}/move` | `cogs.pulse_suite.register_routes.<locals>.task_move` | cogs/pulse_suite.py:1145 | can_view_dashboard |
-| GET | `/suite/team` | `cogs.pulse_suite.register_routes.<locals>.team_page` | cogs/pulse_suite.py:622 | can_view_dashboard |
-| GET | `/suite/time` | `cogs.pulse_suite.register_routes.<locals>.time_page` | cogs/pulse_suite.py:659 | can_view_dashboard |
-| GET | `/suite/training` | `cogs.pulse_suite.register_routes.<locals>.training_page` | cogs/pulse_suite.py:1093 | can_view_dashboard |
-| POST | `/suite/training/assign` | `cogs.pulse_suite.register_routes.<locals>.training_assign` | cogs/pulse_suite.py:1101 | can_view_dashboard |
+| GET | `/suite` | `cogs.pulse_suite.register_routes.<locals>.leadership` | cogs/pulse_suite.py:593 | can_view_dashboard |
+| GET | `/suite/achievements` | `cogs.pulse_suite.register_routes.<locals>.achievements_page` | cogs/pulse_suite.py:1288 | can_view_dashboard |
+| GET | `/suite/api/search` | `cogs.pulse_suite.register_routes.<locals>.search_api` | cogs/pulse_suite.py:1218 | can_view_dashboard |
+| GET | `/suite/applications` | `cogs.pulse_suite.register_routes.<locals>.applications_page` | cogs/pulse_suite.py:981 | can_view_dashboard |
+| GET | `/suite/applications/{app_id}` | `cogs.pulse_suite.register_routes.<locals>.application_page` | cogs/pulse_suite.py:995 | can_view_dashboard |
+| POST | `/suite/applications/{app_id}/update` | `cogs.pulse_suite.register_routes.<locals>.application_update` | cogs/pulse_suite.py:1007 | can_view_dashboard |
+| GET | `/suite/audit` | `cogs.pulse_suite.register_routes.<locals>.audit_page` | cogs/pulse_suite.py:1161 | can_view_dashboard |
+| GET | `/suite/audit.csv` | `cogs.pulse_suite.register_routes.<locals>.audit_csv` | cogs/pulse_suite.py:1201 | can_view_dashboard |
+| GET | `/suite/calendar` | `cogs.pulse_suite.register_routes.<locals>.calendar_page` | cogs/pulse_suite.py:962 | can_view_dashboard |
+| POST | `/suite/calendar/create` | `cogs.pulse_suite.register_routes.<locals>.calendar_create` | cogs/pulse_suite.py:975 | can_view_dashboard |
+| GET | `/suite/cases` | `cogs.pulse_suite.register_routes.<locals>.cases_page` | cogs/pulse_suite.py:1222 | can_view_dashboard |
+| POST | `/suite/cases/{case_id}/action` | `cogs.pulse_suite.register_routes.<locals>.case_action` | cogs/pulse_suite.py:1263 | can_view_dashboard |
+| GET | `/suite/forecast` | `cogs.pulse_suite.register_routes.<locals>.staffing_forecast_page` | cogs/pulse_suite.py:772 | can_view_dashboard |
+| POST | `/suite/forecast/settings` | `cogs.pulse_suite.register_routes.<locals>.staffing_forecast_settings` | cogs/pulse_suite.py:848 | can_view_dashboard |
+| GET | `/suite/interview/create` | `cogs.pulse_suite.register_routes.<locals>.interview_form` | cogs/pulse_suite.py:1029 | can_view_dashboard |
+| POST | `/suite/interview/create` | `cogs.pulse_suite.register_routes.<locals>.interview_create` | cogs/pulse_suite.py:1035 | can_view_dashboard |
+| GET | `/suite/interviews` | `cogs.pulse_suite.register_routes.<locals>.interviews_page` | cogs/pulse_suite.py:1021 | can_view_dashboard |
+| GET | `/suite/member/{member_id}` | `cogs.pulse_suite.register_routes.<locals>.member_page` | cogs/pulse_suite.py:635 | can_view_dashboard |
+| POST | `/suite/member/{member_id}/note` | `cogs.pulse_suite.register_routes.<locals>.member_note` | cogs/pulse_suite.py:649 | can_view_dashboard |
+| GET | `/suite/my-schedule` | `cogs.pulse_suite.register_routes.<locals>.my_schedule` | cogs/pulse_suite.py:666 | can_view_dashboard |
+| GET | `/suite/news` | `cogs.pulse_suite.register_routes.<locals>.news_page` | cogs/pulse_suite.py:1153 | can_view_dashboard |
+| POST | `/suite/news/create` | `cogs.pulse_suite.register_routes.<locals>.news_create` | cogs/pulse_suite.py:1157 | can_view_dashboard |
+| GET | `/suite/promotions` | `cogs.pulse_suite.register_routes.<locals>.promotions_page` | cogs/pulse_suite.py:1050 | can_view_dashboard |
+| POST | `/suite/promotions/create` | `cogs.pulse_suite.register_routes.<locals>.promotions_create` | cogs/pulse_suite.py:1057 | can_view_dashboard |
+| POST | `/suite/promotions/{pid}/action` | `cogs.pulse_suite.register_routes.<locals>.promotions_action` | cogs/pulse_suite.py:1067 | can_view_dashboard |
+| GET | `/suite/schedule` | `cogs.pulse_suite.register_routes.<locals>.schedule_page` | cogs/pulse_suite.py:744 | can_view_dashboard |
+| POST | `/suite/schedule/create` | `cogs.pulse_suite.register_routes.<locals>.schedule_create` | cogs/pulse_suite.py:764 | can_view_dashboard |
+| POST | `/suite/schedule/swaps/create` | `cogs.pulse_suite.register_routes.<locals>.schedule_swap_create` | cogs/pulse_suite.py:865 | can_view_dashboard |
+| POST | `/suite/schedule/swaps/{request_id}/cancel` | `cogs.pulse_suite.register_routes.<locals>.schedule_swap_cancel` | cogs/pulse_suite.py:922 | can_view_dashboard |
+| POST | `/suite/schedule/swaps/{request_id}/decision` | `cogs.pulse_suite.register_routes.<locals>.schedule_swap_decision` | cogs/pulse_suite.py:930 | can_view_dashboard |
+| POST | `/suite/schedule/swaps/{request_id}/respond` | `cogs.pulse_suite.register_routes.<locals>.schedule_swap_respond` | cogs/pulse_suite.py:893 | can_view_dashboard |
+| GET | `/suite/search` | `cogs.pulse_suite.register_routes.<locals>.search_page` | cogs/pulse_suite.py:1213 | can_view_dashboard |
+| GET | `/suite/task/{task_id}` | `cogs.pulse_suite.register_routes.<locals>.task_detail` | cogs/pulse_suite.py:1119 | can_view_dashboard |
+| POST | `/suite/task/{task_id}/meta` | `cogs.pulse_suite.register_routes.<locals>.task_meta` | cogs/pulse_suite.py:1128 | can_view_dashboard |
+| GET | `/suite/tasks` | `cogs.pulse_suite.register_routes.<locals>.tasks_page` | cogs/pulse_suite.py:1108 | can_view_dashboard |
+| POST | `/suite/tasks/{task_id}/move` | `cogs.pulse_suite.register_routes.<locals>.task_move` | cogs/pulse_suite.py:1144 | can_view_dashboard |
+| GET | `/suite/team` | `cogs.pulse_suite.register_routes.<locals>.team_page` | cogs/pulse_suite.py:621 | can_view_dashboard |
+| GET | `/suite/time` | `cogs.pulse_suite.register_routes.<locals>.time_page` | cogs/pulse_suite.py:658 | can_view_dashboard |
+| GET | `/suite/training` | `cogs.pulse_suite.register_routes.<locals>.training_page` | cogs/pulse_suite.py:1092 | can_view_dashboard |
+| POST | `/suite/training/assign` | `cogs.pulse_suite.register_routes.<locals>.training_assign` | cogs/pulse_suite.py:1100 | can_view_dashboard |
 
 ### `/sw.js` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/sw.js` | `pulse_pro.register.<locals>.service_worker` | pulse_pro.py:3669 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/sw.js` | `pulse_pro.register.<locals>.service_worker` | pulse_pro.py:3675 | — (öffentlich/keine erkennbare Prüfung) |
 
 ### `/system` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/system` | `pulse_pro.register.<locals>.system_v5` | pulse_pro.py:3551 | Admin |
+| GET | `/system` | `pulse_pro.register.<locals>.system_v5` | pulse_pro.py:3557 | Admin |
 
-### `/tasks` (3)
+### `/tasks` (4)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
 | GET | `/tasks` | `pulse_pro.register.<locals>.tasks_v5` | pulse_pro.py:2073 | can_view_dashboard (+ can_manage_tasks, can_promote, is_admin) |
-| POST | `/tasks/create` | `pulse_features.register.<locals>.task_create` | pulse_features.py:23 | angemeldet (+ can_manage_tasks, can_promote, is_admin) |
-| POST | `/tasks/update` | `pulse_pro.register.<locals>.update_task_v5` | pulse_pro.py:2090 | can_view_dashboard (+ can_manage_tasks, can_promote, is_admin) |
+| POST | `/tasks/create` | `pulse_features.register.<locals>.task_create` | pulse_features.py:61 | angemeldet (+ can_manage_tasks, can_promote, is_admin) |
+| POST | `/tasks/distribute` | `pulse_features.register.<locals>.tasks_distribute` | pulse_features.py:23 | angemeldet (+ can_manage_tasks, can_promote, is_admin) |
+| POST | `/tasks/update` | `pulse_pro.register.<locals>.update_task_v5` | pulse_pro.py:2096 | can_view_dashboard (+ can_manage_tasks, can_promote, is_admin) |
 
 ### `/team` (10)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/team` | `webserver.team_list_page` | webserver.py:7017 | can_view_dashboard (+ can_promote, is_admin) |
+| GET | `/team` | `webserver.team_list_page` | webserver.py:7047 | can_view_dashboard (+ can_promote, is_admin) |
 | GET | `/team/capacity` | `pulse_phase7.register.<locals>.capacity_page` | pulse_phase7.py:283 | angemeldet (+ can_promote, can_view_analytics, is_admin) |
-| GET | `/team/checklists` | `webserver.team_checklists_page` | webserver.py:6603 | — (öffentlich/keine erkennbare Prüfung) |
-| POST | `/team/checklists/mentor` | `webserver.team_checklists_mentor` | webserver.py:6664 | — (öffentlich/keine erkennbare Prüfung) |
-| POST | `/team/checklists/toggle` | `webserver.team_checklists_toggle` | webserver.py:6648 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/team/checklists` | `webserver.team_checklists_page` | webserver.py:6607 | — (öffentlich/keine erkennbare Prüfung) |
+| POST | `/team/checklists/mentor` | `webserver.team_checklists_mentor` | webserver.py:6668 | — (öffentlich/keine erkennbare Prüfung) |
+| POST | `/team/checklists/toggle` | `webserver.team_checklists_toggle` | webserver.py:6652 | — (öffentlich/keine erkennbare Prüfung) |
 | GET | `/team/readiness` | `pulse_phase7.register.<locals>.readiness_page` | pulse_phase7.py:318 | angemeldet (+ can_promote, can_warn, is_admin) |
 | POST | `/team/readiness/criteria` | `pulse_phase7.register.<locals>.readiness_criteria` | pulse_phase7.py:365 | angemeldet (+ can_promote, is_admin) |
-| POST | `/team/voice-support/audio` | `webserver.manage_voice_support_audio` | webserver.py:7407 | can_promote |
-| GET | `/team/{user_id}/roles` | `webserver.team_role_manager` | webserver.py:7524 | can_promote (+ is_admin) |
-| POST | `/team/{user_id}/roles` | `webserver.team_role_manager_save` | webserver.py:7555 | can_promote (+ is_admin) |
+| POST | `/team/voice-support/audio` | `webserver.manage_voice_support_audio` | webserver.py:7437 | can_promote |
+| GET | `/team/{user_id}/roles` | `webserver.team_role_manager` | webserver.py:7554 | can_promote (+ is_admin) |
+| POST | `/team/{user_id}/roles` | `webserver.team_role_manager_save` | webserver.py:7585 | can_promote (+ is_admin) |
 
 ### `/team-login` (1)
 
@@ -630,136 +636,137 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/ticket/transcript/{filename}` | `pulse_features.register.<locals>.ticket_transcript` | pulse_features.py:33 | ctx (+ can_manage_tickets, is_admin) |
-| GET | `/ticket/{ticket_id}` | `pulse_pro.register.<locals>.ticket_detail_v5` | pulse_pro.py:3001 | can_manage_tickets |
-| GET | `/ticket/{ticket_id}/summary` | `pulse_pro.register.<locals>.ticket_summary_v5` | pulse_pro.py:3010 | can_manage_tickets |
+| GET | `/ticket/transcript/{filename}` | `pulse_features.register.<locals>.ticket_transcript` | pulse_features.py:71 | ctx (+ can_manage_tickets, is_admin) |
+| GET | `/ticket/{ticket_id}` | `pulse_pro.register.<locals>.ticket_detail_v5` | pulse_pro.py:3007 | can_manage_tickets |
+| GET | `/ticket/{ticket_id}/summary` | `pulse_pro.register.<locals>.ticket_summary_v5` | pulse_pro.py:3016 | can_manage_tickets |
 
 ### `/tickets` (20)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/tickets` | `pulse_pro.register.<locals>.tickets_v5` | pulse_pro.py:2104 | can_view_dashboard |
-| POST | `/tickets/action` | `webserver.pulse_tickets_dashboard_action` | webserver.py:6817 | can_manage_tickets (+ can_manage_tickets, is_admin) |
+| GET | `/tickets` | `pulse_pro.register.<locals>.tickets_v5` | pulse_pro.py:2110 | can_view_dashboard |
+| POST | `/tickets/action` | `webserver.pulse_tickets_dashboard_action` | webserver.py:6840 | can_manage_tickets (+ can_manage_tickets, is_admin) |
 | POST | `/tickets/automation` | `webserver.pulse_ticket_automation_save` | webserver.py:6224 | Admin |
-| POST | `/tickets/categories/delete` | `webserver.pulse_ticket_category_delete` | webserver.py:6511 | Admin |
-| POST | `/tickets/categories/save` | `webserver.pulse_ticket_category_save` | webserver.py:6333 | Admin |
+| POST | `/tickets/categories/delete` | `webserver.pulse_ticket_category_delete` | webserver.py:6515 | Admin |
+| POST | `/tickets/categories/save` | `webserver.pulse_ticket_category_save` | webserver.py:6337 | Admin |
 | GET | `/tickets/panels` | `webserver.pulse_tickets_dashboard` | webserver.py:5557 | can_manage_tickets (+ is_admin) |
-| POST | `/tickets/panels/delete` | `webserver.pulse_ticket_panel_delete` | webserver.py:6301 | Admin |
+| POST | `/tickets/panels/delete` | `webserver.pulse_ticket_panel_delete` | webserver.py:6305 | Admin |
 | POST | `/tickets/panels/duplicate` | `webserver.pulse_ticket_panel_duplicate` | webserver.py:6206 | Admin |
 | GET | `/tickets/panels/media/{filename}` | `webserver.pulse_ticket_panel_media` | webserver.py:6194 | Admin |
-| POST | `/tickets/panels/publish` | `webserver.pulse_ticket_panel_publish` | webserver.py:6278 | Admin |
+| POST | `/tickets/panels/publish` | `webserver.pulse_ticket_panel_publish` | webserver.py:6282 | Admin |
 | POST | `/tickets/panels/save` | `webserver.pulse_ticket_panel_save` | webserver.py:6025 | Admin |
-| POST | `/tickets/rate` | `pulse_features.register.<locals>.ticket_rate` | pulse_features.py:43 | ctx |
+| POST | `/tickets/rate` | `pulse_features.register.<locals>.ticket_rate` | pulse_features.py:81 | ctx |
 | POST | `/tickets/settings` | `webserver.pulse_tickets_dashboard_settings` | webserver.py:5931 | Admin |
 | POST | `/tickets/setup-panels` | `webserver.pulse_ticket_panels_setup` | webserver.py:6002 | Admin |
-| GET | `/tickets/tools` | `webserver.pulse_ticket_tools` | webserver.py:6742 | can_manage_tickets (+ is_admin) |
-| POST | `/tickets/tools/replies` | `webserver.pulse_ticket_tools_replies` | webserver.py:6790 | Admin |
-| POST | `/tickets/tools/unblock` | `webserver.pulse_ticket_tools_unblock` | webserver.py:6806 | can_manage_tickets |
-| GET | `/tickets/transcript/{ticket_id}` | `webserver.pulse_ticket_transcript` | webserver.py:6547 | can_manage_tickets |
-| GET | `/tickets/transcript/{ticket_id}/view` | `webserver.pulse_ticket_transcript_view` | webserver.py:6572 | can_manage_tickets |
-| POST | `/tickets/update` | `pulse_pro.register.<locals>.ticket_update_v5` | pulse_pro.py:2110 | can_view_dashboard (+ can_manage_tickets, can_promote, is_admin) |
+| GET | `/tickets/tools` | `webserver.pulse_ticket_tools` | webserver.py:6765 | can_manage_tickets (+ is_admin) |
+| POST | `/tickets/tools/replies` | `webserver.pulse_ticket_tools_replies` | webserver.py:6813 | Admin |
+| POST | `/tickets/tools/unblock` | `webserver.pulse_ticket_tools_unblock` | webserver.py:6829 | can_manage_tickets |
+| GET | `/tickets/transcript/{ticket_id}` | `webserver.pulse_ticket_transcript` | webserver.py:6551 | can_manage_tickets |
+| GET | `/tickets/transcript/{ticket_id}/view` | `webserver.pulse_ticket_transcript_view` | webserver.py:6576 | can_manage_tickets |
+| POST | `/tickets/update` | `pulse_pro.register.<locals>.ticket_update_v5` | pulse_pro.py:2116 | can_view_dashboard (+ can_manage_tickets, can_promote, is_admin) |
 
-### `/training` (6)
+### `/training` (7)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/training` | `pulse_features.register.<locals>.training_page` | pulse_features.py:159 | ctx (+ can_manage_training, can_promote, is_admin) |
-| POST | `/training/create` | `pulse_features.register.<locals>.training_create` | pulse_features.py:344 | angemeldet (+ can_manage_training, can_promote, is_admin) |
-| POST | `/training/paths/save` | `pulse_features.register.<locals>.training_path_save` | pulse_features.py:310 | angemeldet (+ can_manage_training, can_promote, is_admin) |
-| GET | `/training/{training_id}` | `pulse_features.register.<locals>.training_detail` | pulse_features.py:360 | ctx (+ can_manage_training, can_promote, is_admin) |
-| POST | `/training/{training_id}/feedback` | `pulse_features.register.<locals>.training_feedback_submit` | pulse_features.py:443 | ctx |
-| POST | `/training/{training_id}/submit` | `pulse_features.register.<locals>.training_submit` | pulse_features.py:422 | ctx |
+| GET | `/training` | `pulse_features.register.<locals>.training_page` | pulse_features.py:197 | ctx (+ can_manage_training, can_promote, is_admin) |
+| POST | `/training/create` | `pulse_features.register.<locals>.training_create` | pulse_features.py:535 | angemeldet (+ can_manage_training, can_promote, is_admin) |
+| GET | `/training/matrix` | `pulse_features.register.<locals>.training_competency_matrix` | pulse_features.py:353 | angemeldet (+ can_manage_training, can_promote, is_admin) |
+| POST | `/training/paths/save` | `pulse_features.register.<locals>.training_path_save` | pulse_features.py:501 | angemeldet (+ can_manage_training, can_promote, is_admin) |
+| GET | `/training/{training_id}` | `pulse_features.register.<locals>.training_detail` | pulse_features.py:551 | ctx (+ can_manage_training, can_promote, is_admin) |
+| POST | `/training/{training_id}/feedback` | `pulse_features.register.<locals>.training_feedback_submit` | pulse_features.py:634 | ctx |
+| POST | `/training/{training_id}/submit` | `pulse_features.register.<locals>.training_submit` | pulse_features.py:613 | ctx |
 
 ### `/ultimate` (110)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
 | GET | `/ultimate` | `webserver.ultimate_dashboard` | webserver.py:4571 | can_view_dashboard (+ can_promote, can_warn, is_admin) |
-| GET | `/ultimate` | `pulse_ultimate.register.<locals>.ultimate_home` | pulse_ultimate.py:928 | can_view_dashboard |
+| GET | `/ultimate` | `pulse_ultimate.register.<locals>.ultimate_home` | pulse_ultimate.py:954 | can_view_dashboard |
 | GET | `/ultimate/achievements` | `pulse_next.register.<locals>.achievements` | pulse_next.py:1035 | can_view_dashboard |
-| GET | `/ultimate/analytics` | `pulse_ultimate.register.<locals>.ultimate_analytics` | pulse_ultimate.py:2486 | can_view_analytics |
+| GET | `/ultimate/analytics` | `pulse_ultimate.register.<locals>.ultimate_analytics` | pulse_ultimate.py:2546 | can_view_analytics |
 | GET | `/ultimate/announcements` | `pulse_next.register.<locals>.announcements` | pulse_next.py:926 | can_view_dashboard |
 | POST | `/ultimate/announcements/create` | `pulse_next.register.<locals>.announcements_create` | pulse_next.py:949 | can_view_dashboard |
 | POST | `/ultimate/announcements/{announcement_id}/read` | `pulse_next.register.<locals>.announcement_read` | pulse_next.py:960 | can_view_dashboard |
-| GET | `/ultimate/api/case/{case_id}` | `pulse_ultimate.register.<locals>.ultimate_api_case` | pulse_ultimate.py:2458 | can_view_dashboard |
+| GET | `/ultimate/api/case/{case_id}` | `pulse_ultimate.register.<locals>.ultimate_api_case` | pulse_ultimate.py:2498 | can_view_dashboard |
 | GET | `/ultimate/api/copilot` | `pulse_intelligence.register.<locals>.pulse_copilot_api` | pulse_intelligence.py:636 | can_view_dashboard |
-| POST | `/ultimate/api/feedback/{feedback_id}` | `pulse_ultimate.register.<locals>.ultimate_api_feedback` | pulse_ultimate.py:2469 | can_view_dashboard |
-| GET | `/ultimate/api/monitor` | `pulse_ultimate.register.<locals>.ultimate_api_monitor` | pulse_ultimate.py:2668 | can_view_dashboard |
-| GET | `/ultimate/api/overview` | `pulse_ultimate.register.<locals>.ultimate_api_overview` | pulse_ultimate.py:2421 | can_view_dashboard |
+| POST | `/ultimate/api/feedback/{feedback_id}` | `pulse_ultimate.register.<locals>.ultimate_api_feedback` | pulse_ultimate.py:2509 | can_view_dashboard |
+| GET | `/ultimate/api/monitor` | `pulse_ultimate.register.<locals>.ultimate_api_monitor` | pulse_ultimate.py:2728 | can_view_dashboard |
+| GET | `/ultimate/api/overview` | `pulse_ultimate.register.<locals>.ultimate_api_overview` | pulse_ultimate.py:2461 | can_view_dashboard |
 | GET | `/ultimate/api/system-twin` | `pulse_intelligence.register.<locals>.pulse_system_twin_api` | pulse_intelligence.py:693 | can_view_dashboard |
-| GET | `/ultimate/api/team` | `pulse_ultimate.register.<locals>.ultimate_api_team` | pulse_ultimate.py:2441 | can_view_dashboard |
-| GET | `/ultimate/api/v2/overview` | `pulse_ultimate.register.<locals>.ultimate_api_v2_overview` | pulse_ultimate.py:2616 | API-Schlüssel (X-Pulse-API-Key) |
-| GET | `/ultimate/api/v2/team` | `pulse_ultimate.register.<locals>.ultimate_api_v2_team` | pulse_ultimate.py:2638 | API-Schlüssel (X-Pulse-API-Key) |
+| GET | `/ultimate/api/team` | `pulse_ultimate.register.<locals>.ultimate_api_team` | pulse_ultimate.py:2481 | can_view_dashboard |
+| GET | `/ultimate/api/v2/overview` | `pulse_ultimate.register.<locals>.ultimate_api_v2_overview` | pulse_ultimate.py:2676 | API-Schlüssel (X-Pulse-API-Key) |
+| GET | `/ultimate/api/v2/team` | `pulse_ultimate.register.<locals>.ultimate_api_v2_team` | pulse_ultimate.py:2698 | API-Schlüssel (X-Pulse-API-Key) |
 | GET | `/ultimate/approvals` | `pulse_next.register.<locals>.approvals` | pulse_next.py:845 | can_view_dashboard, require_perm |
 | POST | `/ultimate/approvals/{approval_id}/decide` | `pulse_next.register.<locals>.approval_decide` | pulse_next.py:876 | can_view_dashboard |
-| GET | `/ultimate/automations` | `pulse_ultimate.register.<locals>.ultimate_automations` | pulse_ultimate.py:1979 | can_view_dashboard (+ can_promote) |
+| GET | `/ultimate/automations` | `pulse_ultimate.register.<locals>.ultimate_automations` | pulse_ultimate.py:2019 | can_view_dashboard (+ can_promote) |
 | POST | `/ultimate/automations/approvals/{request_id}/cancel` | `pulse_workflows.register.<locals>.ultimate_automation_approval_cancel` | pulse_workflows.py:895 | can_view_dashboard |
 | POST | `/ultimate/automations/approvals/{request_id}/decide` | `pulse_workflows.register.<locals>.ultimate_automation_approval_decide` | pulse_workflows.py:862 | can_view_dashboard (+ can_promote) |
-| POST | `/ultimate/automations/create` | `pulse_ultimate.register.<locals>.ultimate_automation_create` | pulse_ultimate.py:2188 | can_view_dashboard |
+| POST | `/ultimate/automations/create` | `pulse_ultimate.register.<locals>.ultimate_automation_create` | pulse_ultimate.py:2228 | can_view_dashboard |
 | POST | `/ultimate/automations/retries/{retry_id}/cancel` | `pulse_workflows.register.<locals>.ultimate_automation_retry_cancel` | pulse_workflows.py:933 | can_view_dashboard |
 | POST | `/ultimate/automations/retries/{retry_id}/resume` | `pulse_workflows.register.<locals>.ultimate_automation_retry_resume` | pulse_workflows.py:919 | can_view_dashboard |
-| POST | `/ultimate/automations/save` | `pulse_ultimate.register.<locals>.ultimate_automation_save` | pulse_ultimate.py:2167 | can_view_dashboard |
-| POST | `/ultimate/automations/{automation_id}/delete` | `pulse_ultimate.register.<locals>.ultimate_automation_delete` | pulse_ultimate.py:2242 | can_view_dashboard |
-| POST | `/ultimate/automations/{automation_id}/run` | `pulse_ultimate.register.<locals>.ultimate_automation_run` | pulse_ultimate.py:2280 | — (öffentlich/keine erkennbare Prüfung) |
-| POST | `/ultimate/automations/{automation_id}/test` | `pulse_ultimate.register.<locals>.ultimate_automation_test` | pulse_ultimate.py:2276 | — (öffentlich/keine erkennbare Prüfung) |
-| POST | `/ultimate/automations/{automation_id}/toggle` | `pulse_ultimate.register.<locals>.ultimate_automation_toggle` | pulse_ultimate.py:2219 | can_view_dashboard |
+| POST | `/ultimate/automations/save` | `pulse_ultimate.register.<locals>.ultimate_automation_save` | pulse_ultimate.py:2207 | can_view_dashboard |
+| POST | `/ultimate/automations/{automation_id}/delete` | `pulse_ultimate.register.<locals>.ultimate_automation_delete` | pulse_ultimate.py:2282 | can_view_dashboard |
+| POST | `/ultimate/automations/{automation_id}/run` | `pulse_ultimate.register.<locals>.ultimate_automation_run` | pulse_ultimate.py:2320 | — (öffentlich/keine erkennbare Prüfung) |
+| POST | `/ultimate/automations/{automation_id}/test` | `pulse_ultimate.register.<locals>.ultimate_automation_test` | pulse_ultimate.py:2316 | — (öffentlich/keine erkennbare Prüfung) |
+| POST | `/ultimate/automations/{automation_id}/toggle` | `pulse_ultimate.register.<locals>.ultimate_automation_toggle` | pulse_ultimate.py:2259 | can_view_dashboard |
 | GET | `/ultimate/automations/{automation_id}/versions` | `pulse_workflows.register.<locals>.ultimate_automation_versions` | pulse_workflows.py:792 | can_view_dashboard |
 | POST | `/ultimate/automations/{automation_id}/versions/{version}/restore` | `pulse_workflows.register.<locals>.ultimate_automation_version_restore` | pulse_workflows.py:834 | can_view_dashboard |
-| GET | `/ultimate/awards` | `pulse_ultimate.register.<locals>.ultimate_awards` | pulse_ultimate.py:1838 | can_view_dashboard |
-| POST | `/ultimate/awards/create` | `pulse_ultimate.register.<locals>.ultimate_award_create` | pulse_ultimate.py:1852 | can_view_dashboard |
+| GET | `/ultimate/awards` | `pulse_ultimate.register.<locals>.ultimate_awards` | pulse_ultimate.py:1878 | can_view_dashboard |
+| POST | `/ultimate/awards/create` | `pulse_ultimate.register.<locals>.ultimate_award_create` | pulse_ultimate.py:1892 | can_view_dashboard |
 | GET | `/ultimate/backup` | `pulse_next.register.<locals>.backup` | pulse_next.py:1169 | can_view_dashboard |
 | POST | `/ultimate/backup/create` | `pulse_next.register.<locals>.backup_create` | pulse_next.py:1177 | can_view_dashboard |
 | GET | `/ultimate/backup/{name}` | `pulse_next.register.<locals>.backup_download` | pulse_next.py:1183 | can_view_dashboard (+ is_admin) |
 | POST | `/ultimate/backup/{name}/restore` | `pulse_next.register.<locals>.backup_restore` | pulse_next.py:1192 | can_view_dashboard (+ is_admin) |
-| GET | `/ultimate/calendar` | `pulse_ultimate.register.<locals>.ultimate_calendar` | pulse_ultimate.py:1500 | can_view_dashboard (+ can_promote, is_admin) |
-| POST | `/ultimate/calendar/create` | `pulse_ultimate.register.<locals>.ultimate_calendar_create` | pulse_ultimate.py:1620 | can_view_dashboard |
-| GET | `/ultimate/calendar/{event_id}/delete` | `pulse_ultimate.register.<locals>.ultimate_calendar_delete_link` | pulse_ultimate.py:1644 | can_view_dashboard |
-| POST | `/ultimate/calendar/{event_id}/delete` | `pulse_ultimate.register.<locals>.ultimate_calendar_delete` | pulse_ultimate.py:1650 | can_view_dashboard |
-| POST | `/ultimate/calendar/{event_id}/rsvp` | `pulse_ultimate.register.<locals>.ultimate_calendar_rsvp` | pulse_ultimate.py:1574 | can_view_dashboard |
-| GET | `/ultimate/cases` | `pulse_ultimate.register.<locals>.ultimate_cases` | pulse_ultimate.py:1159 | can_view_dashboard |
-| POST | `/ultimate/cases/create` | `pulse_ultimate.register.<locals>.ultimate_case_create` | pulse_ultimate.py:1182 | can_view_dashboard |
-| GET | `/ultimate/cases/{case_id}` | `pulse_ultimate.register.<locals>.ultimate_case_detail` | pulse_ultimate.py:1211 | can_view_dashboard |
-| GET | `/ultimate/cases/{case_id}/attachments/{attachment_id}` | `pulse_ultimate.register.<locals>.ultimate_attachment_download` | pulse_ultimate.py:2386 | can_view_dashboard |
-| POST | `/ultimate/cases/{case_id}/players/add` | `pulse_ultimate.register.<locals>.ultimate_case_player_add` | pulse_ultimate.py:1376 | can_view_dashboard |
-| POST | `/ultimate/cases/{case_id}/update` | `pulse_ultimate.register.<locals>.ultimate_case_update` | pulse_ultimate.py:1256 | can_view_dashboard |
-| GET | `/ultimate/cases/{case_id}/upload` | `pulse_ultimate.register.<locals>.ultimate_upload_page` | pulse_ultimate.py:1278 | can_view_dashboard |
-| POST | `/ultimate/cases/{case_id}/upload` | `pulse_ultimate.register.<locals>.ultimate_upload` | pulse_ultimate.py:1285 | can_view_dashboard |
-| POST | `/ultimate/certificates/create` | `pulse_ultimate.register.<locals>.ultimate_certificate_create` | pulse_ultimate.py:2536 | can_view_dashboard |
+| GET | `/ultimate/calendar` | `pulse_ultimate.register.<locals>.ultimate_calendar` | pulse_ultimate.py:1526 | can_view_dashboard (+ can_promote, is_admin) |
+| POST | `/ultimate/calendar/create` | `pulse_ultimate.register.<locals>.ultimate_calendar_create` | pulse_ultimate.py:1647 | can_view_dashboard |
+| GET | `/ultimate/calendar/{event_id}/delete` | `pulse_ultimate.register.<locals>.ultimate_calendar_delete_link` | pulse_ultimate.py:1671 | can_view_dashboard |
+| POST | `/ultimate/calendar/{event_id}/delete` | `pulse_ultimate.register.<locals>.ultimate_calendar_delete` | pulse_ultimate.py:1677 | can_view_dashboard |
+| POST | `/ultimate/calendar/{event_id}/rsvp` | `pulse_ultimate.register.<locals>.ultimate_calendar_rsvp` | pulse_ultimate.py:1601 | can_view_dashboard |
+| GET | `/ultimate/cases` | `pulse_ultimate.register.<locals>.ultimate_cases` | pulse_ultimate.py:1185 | can_view_dashboard |
+| POST | `/ultimate/cases/create` | `pulse_ultimate.register.<locals>.ultimate_case_create` | pulse_ultimate.py:1208 | can_view_dashboard |
+| GET | `/ultimate/cases/{case_id}` | `pulse_ultimate.register.<locals>.ultimate_case_detail` | pulse_ultimate.py:1237 | can_view_dashboard |
+| GET | `/ultimate/cases/{case_id}/attachments/{attachment_id}` | `pulse_ultimate.register.<locals>.ultimate_attachment_download` | pulse_ultimate.py:2426 | can_view_dashboard |
+| POST | `/ultimate/cases/{case_id}/players/add` | `pulse_ultimate.register.<locals>.ultimate_case_player_add` | pulse_ultimate.py:1402 | can_view_dashboard |
+| POST | `/ultimate/cases/{case_id}/update` | `pulse_ultimate.register.<locals>.ultimate_case_update` | pulse_ultimate.py:1282 | can_view_dashboard |
+| GET | `/ultimate/cases/{case_id}/upload` | `pulse_ultimate.register.<locals>.ultimate_upload_page` | pulse_ultimate.py:1304 | can_view_dashboard |
+| POST | `/ultimate/cases/{case_id}/upload` | `pulse_ultimate.register.<locals>.ultimate_upload` | pulse_ultimate.py:1311 | can_view_dashboard |
+| POST | `/ultimate/certificates/create` | `pulse_ultimate.register.<locals>.ultimate_certificate_create` | pulse_ultimate.py:2596 | can_view_dashboard |
 | GET | `/ultimate/copilot` | `pulse_intelligence.register.<locals>.pulse_copilot_page` | pulse_intelligence.py:625 | can_view_dashboard |
 | POST | `/ultimate/copilot` | `pulse_intelligence.register.<locals>.pulse_copilot_ask` | pulse_intelligence.py:630 | can_view_dashboard |
-| GET | `/ultimate/departments` | `pulse_ultimate.register.<locals>.ultimate_departments` | pulse_ultimate.py:1403 | can_view_dashboard |
-| POST | `/ultimate/departments/create` | `pulse_ultimate.register.<locals>.ultimate_department_create` | pulse_ultimate.py:1423 | can_view_dashboard |
-| GET | `/ultimate/departments/{department_id}` | `pulse_ultimate.register.<locals>.ultimate_department_detail` | pulse_ultimate.py:1444 | can_view_dashboard |
-| POST | `/ultimate/departments/{department_id}/add` | `pulse_ultimate.register.<locals>.ultimate_department_add` | pulse_ultimate.py:1466 | can_view_dashboard |
-| POST | `/ultimate/departments/{department_id}/remove` | `pulse_ultimate.register.<locals>.ultimate_department_remove` | pulse_ultimate.py:1485 | can_view_dashboard |
+| GET | `/ultimate/departments` | `pulse_ultimate.register.<locals>.ultimate_departments` | pulse_ultimate.py:1429 | can_view_dashboard |
+| POST | `/ultimate/departments/create` | `pulse_ultimate.register.<locals>.ultimate_department_create` | pulse_ultimate.py:1449 | can_view_dashboard |
+| GET | `/ultimate/departments/{department_id}` | `pulse_ultimate.register.<locals>.ultimate_department_detail` | pulse_ultimate.py:1470 | can_view_dashboard |
+| POST | `/ultimate/departments/{department_id}/add` | `pulse_ultimate.register.<locals>.ultimate_department_add` | pulse_ultimate.py:1492 | can_view_dashboard |
+| POST | `/ultimate/departments/{department_id}/remove` | `pulse_ultimate.register.<locals>.ultimate_department_remove` | pulse_ultimate.py:1511 | can_view_dashboard |
 | GET | `/ultimate/export.json` | `pulse_next.register.<locals>.export_json` | pulse_next.py:1353 | can_view_analytics |
-| GET | `/ultimate/feedback` | `pulse_ultimate.register.<locals>.ultimate_feedback` | pulse_ultimate.py:1741 | can_view_dashboard (+ can_promote, is_admin) |
-| POST | `/ultimate/feedback/create` | `pulse_ultimate.register.<locals>.ultimate_feedback_create` | pulse_ultimate.py:1762 | can_view_dashboard |
+| GET | `/ultimate/feedback` | `pulse_ultimate.register.<locals>.ultimate_feedback` | pulse_ultimate.py:1768 | can_view_dashboard (+ can_promote, is_admin) |
+| POST | `/ultimate/feedback/create` | `pulse_ultimate.register.<locals>.ultimate_feedback_create` | pulse_ultimate.py:1802 | can_view_dashboard |
 | GET | `/ultimate/goals` | `pulse_next.register.<locals>.goals` | pulse_next.py:999 | can_view_dashboard |
 | POST | `/ultimate/goals/create` | `pulse_next.register.<locals>.goals_create` | pulse_next.py:1016 | can_view_dashboard |
 | POST | `/ultimate/goals/{goal_id}/update` | `pulse_next.register.<locals>.goals_update` | pulse_next.py:1024 | can_view_dashboard |
-| GET | `/ultimate/handovers` | `pulse_ultimate.register.<locals>.ultimate_handovers` | pulse_ultimate.py:1780 | can_view_dashboard |
-| POST | `/ultimate/handovers/create` | `pulse_ultimate.register.<locals>.ultimate_handover_create` | pulse_ultimate.py:1801 | can_view_dashboard |
-| POST | `/ultimate/handovers/{handover_id}/close` | `pulse_ultimate.register.<locals>.ultimate_handover_close` | pulse_ultimate.py:1822 | can_view_dashboard (+ can_promote, is_admin) |
+| GET | `/ultimate/handovers` | `pulse_ultimate.register.<locals>.ultimate_handovers` | pulse_ultimate.py:1820 | can_view_dashboard |
+| POST | `/ultimate/handovers/create` | `pulse_ultimate.register.<locals>.ultimate_handover_create` | pulse_ultimate.py:1841 | can_view_dashboard |
+| POST | `/ultimate/handovers/{handover_id}/close` | `pulse_ultimate.register.<locals>.ultimate_handover_close` | pulse_ultimate.py:1862 | can_view_dashboard (+ can_promote, is_admin) |
 | GET | `/ultimate/health-detail` | `pulse_next.register.<locals>.health_detail` | pulse_next.py:1242 | can_view_dashboard |
 | GET | `/ultimate/ideas` | `pulse_next.register.<locals>.ideas` | pulse_next.py:968 | can_view_dashboard |
 | POST | `/ultimate/ideas/create` | `pulse_next.register.<locals>.ideas_create` | pulse_next.py:983 | can_view_dashboard |
 | POST | `/ultimate/ideas/{idea_id}/vote` | `pulse_next.register.<locals>.idea_vote` | pulse_next.py:991 | can_view_dashboard |
-| GET | `/ultimate/metrics` | `pulse_ultimate.register.<locals>.ultimate_metrics` | pulse_ultimate.py:2657 | can_view_analytics |
+| GET | `/ultimate/metrics` | `pulse_ultimate.register.<locals>.ultimate_metrics` | pulse_ultimate.py:2717 | can_view_analytics |
 | GET | `/ultimate/onboarding` | `pulse_next.register.<locals>.onboarding` | pulse_next.py:1109 | can_view_dashboard |
 | GET | `/ultimate/orgchart` | `pulse_next.register.<locals>.orgchart` | pulse_next.py:1124 | can_view_dashboard |
 | GET | `/ultimate/permissions` | `pulse_next.register.<locals>.permissions` | pulse_next.py:1068 | can_view_dashboard |
 | POST | `/ultimate/permissions/save` | `pulse_next.register.<locals>.permissions_save` | pulse_next.py:1080 | can_view_dashboard (+ is_admin) |
 | GET | `/ultimate/person/{user_id}` | `pulse_next.register.<locals>.person` | pulse_next.py:779 | can_view_dashboard (+ can_promote) |
 | GET | `/ultimate/person/{user_id}/export` | `pulse_next.register.<locals>.person_export` | pulse_next.py:833 | can_view_dashboard (+ can_promote, is_admin) |
-| GET | `/ultimate/polls` | `pulse_ultimate.register.<locals>.ultimate_polls` | pulse_ultimate.py:1659 | can_view_dashboard (+ can_promote, is_admin) |
-| POST | `/ultimate/polls/create` | `pulse_ultimate.register.<locals>.ultimate_poll_create` | pulse_ultimate.py:1688 | can_view_dashboard |
-| POST | `/ultimate/polls/{poll_id}/vote` | `pulse_ultimate.register.<locals>.ultimate_poll_vote` | pulse_ultimate.py:1708 | can_view_dashboard |
+| GET | `/ultimate/polls` | `pulse_ultimate.register.<locals>.ultimate_polls` | pulse_ultimate.py:1686 | can_view_dashboard (+ can_promote, is_admin) |
+| POST | `/ultimate/polls/create` | `pulse_ultimate.register.<locals>.ultimate_poll_create` | pulse_ultimate.py:1715 | can_view_dashboard |
+| POST | `/ultimate/polls/{poll_id}/vote` | `pulse_ultimate.register.<locals>.ultimate_poll_vote` | pulse_ultimate.py:1735 | can_view_dashboard |
 | POST | `/ultimate/promotions/create` | `pulse_next.register.<locals>.promotions_create` | pulse_next.py:859 | can_view_dashboard |
 | GET | `/ultimate/reports` | `pulse_next.register.<locals>.reports` | pulse_next.py:1146 | can_view_analytics |
 | GET | `/ultimate/reports.csv` | `pulse_next.register.<locals>.reports_csv` | pulse_next.py:1161 | can_view_analytics |
-| GET | `/ultimate/roblox` | `pulse_ultimate.register.<locals>.ultimate_roblox` | pulse_ultimate.py:1329 | can_view_dashboard |
-| POST | `/ultimate/roblox/save` | `pulse_ultimate.register.<locals>.ultimate_roblox_save` | pulse_ultimate.py:1352 | can_view_dashboard |
+| GET | `/ultimate/roblox` | `pulse_ultimate.register.<locals>.ultimate_roblox` | pulse_ultimate.py:1355 | can_view_dashboard |
+| POST | `/ultimate/roblox/save` | `pulse_ultimate.register.<locals>.ultimate_roblox_save` | pulse_ultimate.py:1378 | can_view_dashboard |
 | GET | `/ultimate/sandbox` | `pulse_intelligence.register.<locals>.pulse_sandbox_page` | pulse_intelligence.py:785 | can_view_dashboard |
 | POST | `/ultimate/sandbox` | `pulse_intelligence.register.<locals>.pulse_sandbox_validate` | pulse_intelligence.py:790 | can_view_dashboard |
 | GET | `/ultimate/scoreboard` | `pulse_next.register.<locals>.scoreboard` | pulse_next.py:1266 | can_view_analytics |
@@ -768,20 +775,20 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/ultimate/shifts` | `pulse_next.register.<locals>.shifts` | pulse_next.py:1230 | can_view_dashboard |
 | GET | `/ultimate/simulator` | `pulse_intelligence.register.<locals>.pulse_simulator_page` | pulse_intelligence.py:733 | can_view_dashboard |
 | POST | `/ultimate/simulator/run` | `pulse_intelligence.register.<locals>.pulse_simulator_run` | pulse_intelligence.py:738 | can_view_dashboard |
-| GET | `/ultimate/status` | `pulse_ultimate.register.<locals>.ultimate_public_status` | pulse_ultimate.py:2559 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/ultimate/status` | `pulse_ultimate.register.<locals>.ultimate_public_status` | pulse_ultimate.py:2619 | — (öffentlich/keine erkennbare Prüfung) |
 | GET | `/ultimate/support` | `pulse_next.register.<locals>.support` | pulse_next.py:1278 | can_view_analytics |
-| GET | `/ultimate/system` | `pulse_ultimate.register.<locals>.ultimate_system` | pulse_ultimate.py:2288 | can_view_dashboard |
+| GET | `/ultimate/system` | `pulse_ultimate.register.<locals>.ultimate_system` | pulse_ultimate.py:2328 | can_view_dashboard |
 | GET | `/ultimate/system-twin` | `pulse_intelligence.register.<locals>.pulse_system_twin` | pulse_intelligence.py:642 | can_view_dashboard |
-| POST | `/ultimate/system/api-key` | `pulse_ultimate.register.<locals>.ultimate_api_key_create` | pulse_ultimate.py:2583 | can_view_dashboard (+ is_admin) |
-| POST | `/ultimate/system/api-key/{key_id}/revoke` | `pulse_ultimate.register.<locals>.ultimate_api_key_revoke` | pulse_ultimate.py:2378 | can_view_dashboard |
-| GET | `/ultimate/system/api-keys` | `pulse_ultimate.register.<locals>.ultimate_api_keys` | pulse_ultimate.py:2364 | can_view_dashboard |
-| POST | `/ultimate/system/branding` | `pulse_ultimate.register.<locals>.ultimate_branding` | pulse_ultimate.py:2409 | can_view_dashboard |
+| POST | `/ultimate/system/api-key` | `pulse_ultimate.register.<locals>.ultimate_api_key_create` | pulse_ultimate.py:2643 | can_view_dashboard (+ is_admin) |
+| POST | `/ultimate/system/api-key/{key_id}/revoke` | `pulse_ultimate.register.<locals>.ultimate_api_key_revoke` | pulse_ultimate.py:2418 | can_view_dashboard |
+| GET | `/ultimate/system/api-keys` | `pulse_ultimate.register.<locals>.ultimate_api_keys` | pulse_ultimate.py:2404 | can_view_dashboard |
+| POST | `/ultimate/system/branding` | `pulse_ultimate.register.<locals>.ultimate_branding` | pulse_ultimate.py:2449 | can_view_dashboard |
 | GET | `/ultimate/tasks` | `pulse_next.register.<locals>.taskboard` | pulse_next.py:1308 | can_view_dashboard |
-| GET | `/ultimate/team` | `pulse_ultimate.register.<locals>.ultimate_team` | pulse_ultimate.py:1026 | can_view_dashboard |
+| GET | `/ultimate/team` | `pulse_ultimate.register.<locals>.ultimate_team` | pulse_ultimate.py:1052 | can_view_dashboard |
 | GET | `/ultimate/team-trends` | `pulse_next.register.<locals>.team_trends` | pulse_next.py:1337 | can_view_analytics |
-| POST | `/ultimate/team/status` | `pulse_ultimate.register.<locals>.ultimate_team_status` | pulse_ultimate.py:2516 | can_view_dashboard |
-| GET | `/ultimate/team/{user_id}` | `pulse_ultimate.register.<locals>.ultimate_member` | pulse_ultimate.py:1079 | can_view_dashboard (+ can_promote, is_admin) |
-| POST | `/ultimate/team/{user_id}/update` | `pulse_ultimate.register.<locals>.ultimate_member_update` | pulse_ultimate.py:1135 | can_view_dashboard |
+| POST | `/ultimate/team/status` | `pulse_ultimate.register.<locals>.ultimate_team_status` | pulse_ultimate.py:2576 | can_view_dashboard |
+| GET | `/ultimate/team/{user_id}` | `pulse_ultimate.register.<locals>.ultimate_member` | pulse_ultimate.py:1105 | can_view_dashboard (+ can_promote, is_admin) |
+| POST | `/ultimate/team/{user_id}/update` | `pulse_ultimate.register.<locals>.ultimate_member_update` | pulse_ultimate.py:1161 | can_view_dashboard |
 | GET | `/ultimate/workflows` | `pulse_next.register.<locals>.workflows` | pulse_next.py:1202 | can_view_dashboard |
 | POST | `/ultimate/workflows/create` | `pulse_next.register.<locals>.workflows_create` | pulse_next.py:1215 | can_view_dashboard |
 
@@ -789,26 +796,26 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/voice-support` | `pulse_pro.register.<locals>.voice_support_v5` | pulse_pro.py:2119 | can_view_dashboard (+ can_manage_tickets, can_promote, is_admin) |
-| POST | `/voice-support/save` | `pulse_pro.register.<locals>.voice_support_save` | pulse_pro.py:2264 | Admin |
+| GET | `/voice-support` | `pulse_pro.register.<locals>.voice_support_v5` | pulse_pro.py:2125 | can_view_dashboard (+ can_manage_tickets, can_promote, is_admin) |
+| POST | `/voice-support/save` | `pulse_pro.register.<locals>.voice_support_save` | pulse_pro.py:2270 | Admin |
 
 ### `/warns` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/warns` | `pulse_pro.register.<locals>.warns_v5` | pulse_pro.py:2947 | angemeldet (+ can_manage_team_warnings) |
+| GET | `/warns` | `pulse_pro.register.<locals>.warns_v5` | pulse_pro.py:2953 | angemeldet (+ can_manage_team_warnings) |
 
 ### `/warns.csv` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/warns.csv` | `pulse_pro.register.<locals>.warns_csv` | pulse_pro.py:2986 | angemeldet (+ can_manage_team_warnings) |
+| GET | `/warns.csv` | `pulse_pro.register.<locals>.warns_csv` | pulse_pro.py:2992 | angemeldet (+ can_manage_team_warnings) |
 
 ### `/wiki` (4)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/wiki` | `pulse_features.register.<locals>.wiki_page` | pulse_features.py:53 | ctx (+ can_manage_wiki, can_promote, is_admin) |
-| POST | `/wiki/save` | `pulse_features.register.<locals>.wiki_save` | pulse_features.py:115 | angemeldet (+ can_manage_wiki, can_promote, is_admin) |
-| GET | `/wiki/{page_id}` | `pulse_features.register.<locals>.wiki_detail` | pulse_features.py:65 | ctx (+ can_manage_wiki, can_promote, is_admin) |
-| POST | `/wiki/{page_id}/restore/{version_number}` | `pulse_features.register.<locals>.wiki_restore_version` | pulse_features.py:137 | angemeldet (+ can_manage_wiki, can_promote, is_admin) |
+| GET | `/wiki` | `pulse_features.register.<locals>.wiki_page` | pulse_features.py:91 | ctx (+ can_manage_wiki, can_promote, is_admin) |
+| POST | `/wiki/save` | `pulse_features.register.<locals>.wiki_save` | pulse_features.py:153 | angemeldet (+ can_manage_wiki, can_promote, is_admin) |
+| GET | `/wiki/{page_id}` | `pulse_features.register.<locals>.wiki_detail` | pulse_features.py:103 | ctx (+ can_manage_wiki, can_promote, is_admin) |
+| POST | `/wiki/{page_id}/restore/{version_number}` | `pulse_features.register.<locals>.wiki_restore_version` | pulse_features.py:175 | angemeldet (+ can_manage_wiki, can_promote, is_admin) |
