@@ -1567,7 +1567,8 @@ def register(app) -> None:
           <input class="input" name="start_at" placeholder="2026-10-05T19:00:00+02:00" required><input class="input" name="end_at" placeholder="optional">
           <input class="input span2" name="location" placeholder="Ort / Discord-Kanal">
           <textarea class="ta span2" name="description" placeholder="Beschreibung"></textarea>
-          <button class="btn primary span2">Termin speichern</button></form></div>
+          <button class="btn primary span2">Termin speichern</button></form>
+          <div class="tiny">Wer zusagt, erhält innerhalb der letzten 24 Stunden vor dem Termin eine persönliche Pulse-Erinnerung. Optionale Direktnachrichten folgen den persönlichen Benachrichtigungs- und Ruhezeiteinstellungen.</div></div>
           <div class="grid g2" style="margin-top:13px">{''.join(items) or card("<div class=tiny>Keine kommenden Termine.</div>")}</div>"""
         return page(ctx, "calendar", "Team-Kalender", "Meetings, Schulungen, Events, Fristen und Übergaben.", body)
 
@@ -3317,6 +3318,97 @@ async def _automation_cycle(bot):
         print(f"⚠️ Workflow-Freigaben/Wiederholungen konnten nicht verarbeitet werden: {type(exc).__name__}")
 
 
+def calendar_reminder_candidates(
+    now: datetime | None = None,
+    lead_hours: int = 24,
+    limit: int = 100,
+) -> list[dict]:
+    """Return only going RSVPs for eligible calendar events in the bounded reminder window."""
+    current = now or utcnow()
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    try:
+        hours = max(1, min(int(lead_hours), 168))
+    except (TypeError, ValueError):
+        hours = 24
+    try:
+        bounded = max(1, min(int(limit), 500))
+    except (TypeError, ValueError):
+        bounded = 100
+    end = current + timedelta(hours=hours)
+    with cx() as connection:
+        rows = connection.execute(
+            """
+            SELECT event.id AS event_id, event.title, event.kind, event.start_at,
+                   event.location, rsvp.user_id, rsvp.updated_at AS rsvp_updated_at
+            FROM ultimate_calendar AS event
+            INNER JOIN ultimate_calendar_rsvps AS rsvp ON rsvp.event_id=event.id
+            WHERE rsvp.response='going'
+              AND lower(trim(coalesce(event.kind, 'event'))) IN
+                  ('event','meeting','training','besprechung','schulung')
+              AND datetime(event.start_at) >= datetime(?)
+              AND datetime(event.start_at) <= datetime(?)
+            ORDER BY datetime(event.start_at) ASC, rsvp.user_id ASC
+            LIMIT ?
+            """,
+            (current.isoformat(timespec="seconds"), end.isoformat(timespec="seconds"), bounded),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def send_calendar_reminders(
+    now: datetime | None = None,
+    lead_hours: int = 24,
+    limit: int = 100,
+) -> int:
+    """Queue one deduplicated inbox reminder per accepted RSVP; DMs follow existing preferences."""
+    from zoneinfo import ZoneInfo
+
+    try:
+        local_zone = ZoneInfo("Europe/Berlin")
+    except Exception:
+        local_zone = timezone.utc
+    rows = calendar_reminder_candidates(now=now, lead_hours=lead_hours, limit=limit)
+    created = 0
+    for row in rows:
+        user_id = str(row.get("user_id") or "").strip()
+        event_id = str(row.get("event_id") or "").strip()
+        if not user_id.isdigit() or not event_id:
+            continue
+        try:
+            start = datetime.fromisoformat(str(row.get("start_at") or "").replace("Z", "+00:00"))
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            local_start = start.astimezone(local_zone)
+            title = discord.utils.escape_mentions(str(row.get("title") or "Termin").strip())[:120]
+            location = discord.utils.escape_mentions(str(row.get("location") or "").strip())[:180]
+            body = (
+                f"Du hast für **{title}** zugesagt. Der Termin beginnt am "
+                f"**{local_start:%d.%m.%Y um %H:%M %Z}**."
+            )
+            if location:
+                body += f" Ort: {location}."
+            # A changed RSVP timestamp represents an explicit new confirmation.
+            dedupe_key = f"ultimate-calendar-reminder:{event_id}:{row.get('rsvp_updated_at') or ''}"
+            db.notify(
+                user_id,
+                f"📅 Erinnerung: {title}",
+                body,
+                kind="info",
+                url="/ultimate/calendar",
+                dedupe_key=dedupe_key,
+                dedupe_window_seconds=365 * 24 * 60 * 60,
+            )
+            created += 1
+        except Exception as exc:
+            print(
+                f"⚠️ Kalender-Erinnerung für Event {event_id} / Nutzer {user_id} "
+                f"konnte nicht erstellt werden ({type(exc).__name__})."
+            )
+    return created
+
+
 async def automation_loop(bot):
     import pulse_jobs  # P-06/P-01: registry and loop-lag measurement piggyback on this existing loop
     setup()
@@ -3339,6 +3431,10 @@ async def automation_loop(bot):
             # F-04: maintenance mode pauses the bot automations; the memory guard above keeps running.
             import pulse_flags
             if not pulse_flags.automations_paused():
+                try:
+                    await asyncio.to_thread(send_calendar_reminders)
+                except Exception as exc:
+                    pulse_jobs.record_error("Kalender-Erinnerungen", exc)
                 await _automation_cycle(bot)
           started = asyncio.get_running_loop().time()
           await asyncio.sleep(60)

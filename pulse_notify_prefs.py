@@ -17,6 +17,7 @@ CATEGORIES = {
     "tickets": ("🎫 Tickets", ("ticket",)),
     "applications": ("📝 Bewerbungen", ("application", "bewerb")),
     "absence": ("🌴 Abmeldungen", ("/loa", "abmeld")),
+    "events": ("📅 Kalender & Events", ("calendar", "event", "meeting", "termin")),
     "work": ("✅ Aufgaben, Schichtplan & Schulungen", ("task", "schedule", "handover", "training")),
     "team": ("👥 Team, Beförderungen & Fälle", ("promotion", "approval", "case", "member", "person", "/team", "feedback")),
     "announcements": ("📣 Ankündigungen", ("announcement",)),
