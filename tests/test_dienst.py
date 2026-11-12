@@ -84,6 +84,12 @@ class DutyTests(unittest.TestCase):
             self.assertIn("im Dienst seit", status.response.sent[0])
 
     def test_panel_buttons_are_persistent(self):
+        from cogs import dienst
+        view = dienst.DutyPanelView()
+        self.assertIsNone(view.timeout)
+        self.assertEqual(sorted(c.custom_id for c in view.children),
+                         ["pulse_dienst:break", "pulse_dienst:end", "pulse_dienst:resume", "pulse_dienst:start"])
+
     def test_english_locale_translates_shift_actions_and_status(self):
         from cogs import dienst
         member = interaction()
@@ -105,13 +111,6 @@ class DutyTests(unittest.TestCase):
         ):
             asyncio.run(dienst.run_duty_action(status, "status"))
         self.assertEqual(status.response.sent[0], "⏱ You have been on duty for 2 h. This week: 4 h.")
-
-
-        from cogs import dienst
-        view = dienst.DutyPanelView()
-        self.assertIsNone(view.timeout)
-        self.assertEqual(sorted(c.custom_id for c in view.children),
-                         ["pulse_dienst:break", "pulse_dienst:end", "pulse_dienst:resume", "pulse_dienst:start"])
 
     def test_dashboard_route_uses_the_shared_function(self):
         source = Path(ws.__file__).read_text(encoding="utf-8")

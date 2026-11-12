@@ -121,6 +121,17 @@ class ShiftNoteCommandTests(unittest.TestCase):
         self.assertEqual(rows[0]["note"], "Bearbeitete Supportfälle")
 
     def test_command_rejects_without_note_permission(self):
+        from cogs import dienst
+        interaction = fake_interaction()
+        with (
+            patch.object(dienst, "may_use_duty", return_value=True),
+            patch("webserver.load_config", return_value={}),
+            patch("webserver.compute_perms", return_value=({"can_add_notes": False, "is_admin": False}, None)),
+        ):
+            asyncio.run(dienst.run_shift_note(interaction, "Ohne Schreibrecht"))
+        self.assertIn("Berechtigung", interaction.response.sent[0][0])
+        self.assertEqual(pulse_db.list_shift_notes("1", "7"), [])
+
     def test_english_locale_translates_shift_note_permission_and_saved_message(self):
         from cogs import dienst
         denied = fake_interaction()
@@ -147,18 +158,6 @@ class ShiftNoteCommandTests(unittest.TestCase):
             saved.response.sent[0][0],
             "✅ Shift note saved privately and linked to your active shift.",
         )
-
-
-        from cogs import dienst
-        interaction = fake_interaction()
-        with (
-            patch.object(dienst, "may_use_duty", return_value=True),
-            patch("webserver.load_config", return_value={}),
-            patch("webserver.compute_perms", return_value=({"can_add_notes": False, "is_admin": False}, None)),
-        ):
-            asyncio.run(dienst.run_shift_note(interaction, "Ohne Schreibrecht"))
-        self.assertIn("Berechtigung", interaction.response.sent[0][0])
-        self.assertEqual(pulse_db.list_shift_notes("1", "7"), [])
 
     def test_command_rejects_notes_without_an_active_shift(self):
         from cogs import dienst
