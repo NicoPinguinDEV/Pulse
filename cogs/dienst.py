@@ -16,6 +16,25 @@ import pulse_db
 from pulse_interactions import PulseView
 
 PANEL_SETTING = "duty_panel"  # {"channel_id": …, "message_id": …} – also shown in the panel overview (BOT-14)
+
+def _locale(interaction: discord.Interaction) -> str:
+    import pulse_i18n
+    return pulse_i18n.get_locale(
+        getattr(getattr(interaction, "user", None), "id", None),
+        getattr(interaction, "locale", None),
+    )
+
+
+def _t(interaction: discord.Interaction, key: str, **values) -> str:
+    import pulse_i18n
+    return pulse_i18n.translate(_locale(interaction), key, **values)
+
+
+def _translate_result(interaction: discord.Interaction, message: str) -> str:
+    import pulse_i18n
+    return pulse_i18n.translate_duty_message(_locale(interaction), message)
+
+
 BUTTONS = (("start", "Dienst starten", "🟢", discord.ButtonStyle.success),
            ("break", "Pause", "⏸️", discord.ButtonStyle.secondary),
            ("resume", "Weiter", "▶️", discord.ButtonStyle.primary),
@@ -32,13 +51,13 @@ async def run_duty_action(interaction: discord.Interaction, action: str) -> None
     """Shared by the slash commands and the panel buttons."""
     import webserver
     if interaction.guild is None or not may_use_duty(interaction.guild, interaction.user.id):
-        await interaction.response.send_message("❌ Den Dienst können nur Teammitglieder starten und beenden.", ephemeral=True)
+        await interaction.response.send_message(_t(interaction, "duty_team_only"), ephemeral=True)
         return
     if action == "status":
-        await interaction.response.send_message("⏱ " + webserver.shift_status_text(interaction.user.id), ephemeral=True)
+        await interaction.response.send_message("⏱ " + _translate_result(interaction, webserver.shift_status_text(interaction.user.id)), ephemeral=True)
         return
     ok, message = webserver.apply_shift_action(interaction.user.id, action)
-    await interaction.response.send_message(("✅ " if ok else "❌ ") + message, ephemeral=True)
+    await interaction.response.send_message(("✅ " if ok else "❌ ") + _translate_result(interaction, message), ephemeral=True)
     if ok:
         await webserver.sync_duty_after_shift(interaction.client, interaction.guild, interaction.user.id)
         try:
@@ -53,7 +72,7 @@ async def run_shift_note(interaction: discord.Interaction, note: str) -> None:
     import webserver
     if interaction.guild is None or not may_use_duty(interaction.guild, interaction.user.id):
         await interaction.response.send_message(
-            "❌ Schichtnotizen können nur Teammitglieder verwenden.", ephemeral=True
+            _t(interaction, "duty_note_team_only"), ephemeral=True
         )
         return
     perms, _ = webserver.compute_perms(
@@ -61,17 +80,17 @@ async def run_shift_note(interaction: discord.Interaction, note: str) -> None:
     )
     if not (perms.get("can_add_notes") or perms.get("is_admin")):
         await interaction.response.send_message(
-            "❌ Dir fehlt die Berechtigung zum Erstellen von Schichtnotizen.",
+            _t(interaction, "duty_note_permission"),
             ephemeral=True,
         )
         return
     text = str(note or "").strip()
     if not text:
-        await interaction.response.send_message("❌ Bitte gib eine Notiz ein.", ephemeral=True)
+        await interaction.response.send_message(_t(interaction, "duty_note_required"), ephemeral=True)
         return
     if len(text) > 1000:
         await interaction.response.send_message(
-            "❌ Eine Schichtnotiz darf höchstens 1.000 Zeichen enthalten.", ephemeral=True
+            _t(interaction, "duty_note_too_long"), ephemeral=True
         )
         return
 
@@ -84,13 +103,13 @@ async def run_shift_note(interaction: discord.Interaction, note: str) -> None:
         shift = active.get(uid) if isinstance(active, dict) else None
     except Exception as exc:
         await interaction.response.send_message(
-            f"❌ Der aktuelle Dienststatus konnte nicht gelesen werden ({type(exc).__name__}).",
+            _t(interaction, "duty_note_read_error", error_type=type(exc).__name__),
             ephemeral=True,
         )
         return
     if not isinstance(shift, dict) or not shift.get("started_at_iso"):
         await interaction.response.send_message(
-            "❌ Du bist aktuell nicht im Dienst. Starte zuerst mit /dienst start eine Schicht.",
+            _t(interaction, "duty_note_inactive"),
             ephemeral=True,
         )
         return
@@ -117,7 +136,7 @@ async def run_shift_note(interaction: discord.Interaction, note: str) -> None:
     except Exception:
         pass
     await interaction.response.send_message(
-        "✅ Schichtnotiz wurde privat gespeichert und deiner laufenden Schicht zugeordnet.",
+        _t(interaction, "duty_note_saved"),
         ephemeral=True,
     )
 
@@ -129,7 +148,7 @@ async def run_shift_notes(
     import webserver
     if interaction.guild is None or not may_use_duty(interaction.guild, interaction.user.id):
         await interaction.response.send_message(
-            "❌ Schichtnotizen können nur Teammitglieder einsehen.", ephemeral=True
+            _t(interaction, "duty_notes_team_only"), ephemeral=True
         )
         return
     target = member or interaction.user
@@ -141,7 +160,7 @@ async def run_shift_notes(
         )
         if not (perms.get("can_promote") or perms.get("is_admin")):
             await interaction.response.send_message(
-                "❌ Schichtnotizen anderer Teammitglieder sind nur für die Leitung freigegeben.",
+                _t(interaction, "duty_notes_lead_only"),
                 ephemeral=True,
             )
             return
@@ -153,12 +172,12 @@ async def run_shift_notes(
     )
     if not rows:
         await interaction.response.send_message(
-            f"📝 Für **{discord.utils.escape_markdown(str(target_name))}** liegen noch keine Schichtnotizen vor.",
+            _t(interaction, "duty_notes_none", name=discord.utils.escape_markdown(str(target_name))),
             ephemeral=True,
         )
         return
 
-    lines = [f"**Schichtnotizen für {discord.utils.escape_markdown(str(target_name))}**"]
+    lines = [_t(interaction, "duty_notes_title", name=discord.utils.escape_markdown(str(target_name)))]
     for row in rows:
         created = discord.utils.escape_markdown(str(row.get("created_at") or "Zeit unbekannt"))
         body = discord.utils.escape_mentions(
@@ -167,7 +186,7 @@ async def run_shift_notes(
         lines.append(f"• {created}\n{body}")
     output = "\n\n".join(lines)
     if len(output) > 1900:
-        output = output[:1880].rsplit("\n", 1)[0] + "\n… weitere Einträge ausgeblendet."
+        output = output[:1880].rsplit("\n", 1)[0] + "\n" + _t(interaction, "duty_notes_more_hidden")
     await interaction.response.send_message(output, ephemeral=True)
 
 
@@ -239,17 +258,17 @@ class Dienst(commands.GroupCog, group_name="dienst", group_description="Eigene S
         import webserver
         perms, _ = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config()) if interaction.guild else ({}, None)
         if not perms.get("is_admin"):
-            await interaction.response.send_message("❌ Nur Admins können das Dienst-Panel veröffentlichen.", ephemeral=True)
+            await interaction.response.send_message(_t(interaction, "duty_panel_admin_only"), ephemeral=True)
             return
         try:
             message = await interaction.channel.send(embed=panel_embed(interaction.guild.name), view=DutyPanelView())
         except discord.HTTPException as exc:
-            await interaction.response.send_message(f"❌ Pulse kann hier nicht senden ({type(exc).__name__}). Kanalrechte prüfen.", ephemeral=True)
+            await interaction.response.send_message(_t(interaction, "duty_panel_send_error", error_type=type(exc).__name__), ephemeral=True)
             return
         pulse_db.set_setting(PANEL_SETTING, {"channel_id": interaction.channel.id, "message_id": message.id})
         webserver.log_audit(interaction.user.display_name, str(interaction.user.id), "Dienst-Panel veröffentlicht",
                             f"Kanal {interaction.channel.id}")
-        await interaction.response.send_message("✅ Dienst-Panel veröffentlicht.", ephemeral=True)
+        await interaction.response.send_message(_t(interaction, "duty_panel_published"), ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

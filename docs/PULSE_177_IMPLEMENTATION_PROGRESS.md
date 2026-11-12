@@ -1,19 +1,28 @@
 # Pulse 177 – Umsetzungsfortschritt
 
 Arbeitsstand der Mission „177 von 177“. Einzelstatus je Funktion: `docs/PULSE_FEATURE_AUDIT_177.md`.
-Regeln: kleine Blöcke, je Block ein Feature-Branch ab `origin/main`, Tests, PR, kein Merge und kein Deployment ohne Freigabe.
+Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, Rechte-/Datenschutzprüfung, PR und CI. Keine Produktivdaten, Discord-Server oder VPS-Aktionen im Rahmen dieser Arbeit.
 
-## Stand
+## Stand auf main
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 73 |
-| Teilweise | 103 |
-| Offen | 1 |
+| Fertig | 78 |
+| Teilweise | 99 |
+| Offen | 0 |
 
-**Aktueller Stand dieses Feature-Branches:** Nach Ergänzung von #164 ergibt sich 74 fertig / 102 teilweise / 1 offen. Dieser Branch-Zähler gilt erst nach erfolgreicher CI und Merge; main bleibt unverändert bei 73 / 103 / 1.
+**Aktueller Ausgangspunkt:** `main` @ `75555c79f942de700ad4a48c53d43fa8fce591b5`. Die PRs #214–#219 sind gemergt. Die Kernfunktionen #25, #45, #46 und #49 sind jetzt als fertig bewertet; #10 ist durch die Locale-Grundlage von „Offen“ auf „Teilweise“ gestiegen. Der Ticket-/Support-Bereich #26–#40 bleibt vollständig.
 
-Aktueller Ausgangspunkt: main bei c44352852373de9b702664c6f35379d9b2c3d229 (PR #211, #212 und #213 gemergt). Der Support-Bereich #26–#40 ist damit auf main vollständig (15 fertig / 0 teilweise / 0 offen). #36 und #134 sind umgesetzt; /ticket zusammenfassung existiert bereits.
+## Zuletzt abgeschlossene Implementierungsblöcke
+
+- **PR #214 – Locale-Grundlage (#10):** per Nutzer gespeicherte Sprache Deutsch/Englisch/Auto, Locale-Auflösung und Übersetzungsbausteine; `/profil` und `/pulse-hilfe` verwenden die Übersetzungen. Weitere Commands, Modals und Dashboard-Texte bleiben Arbeit.
+- **PR #215 – AutoMod-Fehlalarmfeedback (#25):** echte AutoMod-Ereignisse können mit Begründung geprüft und als Fehlalarm markiert werden; persistente Guild-Isolation, Audit und private Moderationsbefehle. Keine automatische Sanktionsrücknahme oder Regeländerung.
+- **PR #216 – Ticketreferenz-Autocomplete (#4):** verknüpfte Ticketreferenzen werden bei der passenden Eingabe vorgeschlagen; gleiche Guild und Rechte werden geprüft. Die allgemeine Autocomplete-Abdeckung bleibt teilweise.
+- **PR #217 – Community-Vorschläge und Feedback (#45/#46):** Discord-Modal, anonyme/namentliche Einreichung, Dashboard-Prüfung, Freigabe, Abstimmung und Ergebnisübersicht; Vorschläge und allgemeines Feedback werden getrennt gehalten.
+- **PR #218 – Notfallhandbuch (Issue #164):** Incident-Rollen, Schweregrade, Erstreaktion, sichere Restore-/Rollback-Abfolge und Regressionstests.
+- **PR #219 – Spielermeldungen (#49):** strukturierte Discord-Meldung, optionale Belege, private Statusabfrage, Dashboard-Bearbeitung und personenbezogener Export für die relevanten Rollen.
+
+Alle sechs PRs wurden gemergt. Für die Feature-PRs #215, #217 und #219 liefen beide erforderlichen Qualitäts-/Sicherheitsworkflows erfolgreich; #217 und #219 erreichten jeweils zusätzlich die vollständige Regression- und Coverage-Prüfung. Diese CI-Ergebnisse ersetzen keine manuelle Abnahme auf dem Live-Discord-Server.
 
 ## Block 1 – Workflow-System (#144, #145, #148, #149)
 
@@ -97,24 +106,25 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 - Audit #164 wird in diesem Branch auf Fertig gesetzt. Der Branch-Zähler ist 74 fertig / 102 teilweise / 1 offen; main bleibt bis zum Merge bei 73 / 103 / 1.
 - Keine Änderung an Laufzeitdaten, Discord-Produktivserver, VPS, Secrets oder Deployment-Konfiguration.
 
-## Prüfstand 11.11.2026
+## Prüfstand 11.11.2026 – nach PR #214 bis #219
 
-- main = c44352852373de9b702664c6f35379d9b2c3d229 nach PR #213. Der zuletzt gespeicherte Repository-Auditvermerk nennt main als nicht geschützt und Issue #121 als offen; Branch-Schutz vor jedem Deployment erneut in GitHub prüfen.
-- PR #211, #212 und #213 sind gemergt. Der Support-Bereich #26–#40 steht damit auf 15 / 0 / 0.
-- PR #214: Locale-Grundlage für #10, beide erforderlichen CI-Workflows erfolgreich; Draft, #10 bleibt auf main offen.
-- PR #215: AutoMod-Fehlalarm-Feedback für #25, beide erforderlichen CI-Workflows erfolgreich; Draft, zählt nicht zu main.
-- PR #216: Ticket-Autocomplete-Teilumfang für #4, beide erforderlichen CI-Workflows erfolgreich; Draft, #4 bleibt teilweise.
-- PR #217: Discord-Community-Vorschläge und Feedback für #45/#46; beim letzten Abruf war ein Workflow noch in Arbeit und der zweite in der Warteschlange. Nicht als fertig zählen, bis beide grün sind.
-- docs/ROUTEN.md wurde in diesen Blöcken nicht aktualisiert; bei einer späteren Routenänderung Generator und Snapshot zusammen ausführen.
+- `main` = `75555c79f942de700ad4a48c53d43fa8fce591b5`.
+- PR #214, #215, #216, #217, #218 und #219 sind geschlossen und gemergt.
+- Die Auditdatei wurde gegen diesen Main-Stand aktualisiert: 78 fertig / 99 teilweise / 0 offen.
+- #10 bleibt teilweise: Locale-Grundlage vorhanden, noch nicht alle Antworttexte lokalisiert.
+- #4 bleibt teilweise: Ticketreferenz-, Kategorie- und Prioritäts-Autocomplete ergänzt; weitere passende Befehle müssen folgen.
+- #25, #45, #46 und #49 sind durch die gemergten Implementierungen und Tests fertig.
+- Keine Änderungen an VPS, Live-Discord oder Produktivdaten.
 
-## Nächste Arbeit
+## Nächste Arbeitspakete
 
-1. **Locale-System (#10):** PR #214 ist eine getestete Grundlage, aber erst ein Teilumfang. Danach weitere Bot-Befehle, Modals/Buttons und Dashboard-Texte migrieren.
-2. **Moderation (#11–#25):** PR #215 ergänzt den False-Positive-Rückkanal, ist noch Draft; gemeinsame Fallakten, Einsprüche, Beweismittel, Ausnahmen und Raid-Stufen bleiben offen/teilweise.
-3. **Autocomplete (#4):** PR #216 deckt bestimmte Ticket- und Kategorieparameter ab; übrige passende Commands noch migrieren.
-4. **Community (#45/#46):** PR #217 ergänzt Discord-Einreichung und Abstimmung; erst nach beiden erfolgreichen CI-Workflows bewerten.
-5. Danach die übrigen teilweise bewerteten Punkte bereichsweise mit Verhaltenstests, Rechte- und Datenschutzprüfung.
+1. **#10 und #4 vervollständigen:** weitere häufig verwendete Bot-Antworten und Modals lokalisieren; Autocomplete für die restlichen passenden Team-, Ticket-, Fall- und Kategorieparameter ergänzen.
+2. **Moderation #11–#24:** gemeinsame Fall-IDs/-Timeline, Beweismittel, formelles Einspruchsverfahren, Wiederholungshinweise, Kanal-/Rollen-Ausnahmen, Raid-Stufen, Lockdown-Freigaben, Simulationen, Webhook-Verlauf und Moderationsstatistik.
+3. **Community #41–#55:** native Discord-Events/Erinnerungen, Discord-Umfragen, zitierter Regelwerk-Assistent, IC/OOC-Datentrennung, Meetings, Ankündigungsplanung, Lesebestätigungen, Social-Filter und Spieler-Selbstservice.
+4. **Dashboard/Team/Recruiting/Academy #56–#115:** Live-Feed und Suche, volle Widgetanordnung, 360°-Akte, Kompetenz-/Entwicklungsprozesse, Schichtabdeckung, Recruiting-Prüferpipeline, Lernpfade und versioniertes Wiki.
+5. **Integration/Intelligence/Workflow/Betrieb #116–#177:** gemeinsame Event-/Policy-/Auditverträge, sichere Prognosen, Workflow-Abhängigkeiten, zentrale Betriebskonsole, vollständige Restore-/Release-/Datenschutzübersicht und BOCHUM-RP-Leitstelle.
 
+Jedes Paket erhält eine eigene Feature-Branch/PR, gezielte Regressionstests, Rechte-/Guild-Isolation, Datenschutz-/Backupprüfung und CI. Eine Funktion wird erst nach Nachweis als „Fertig“ markiert.
 ## Hinweise für die Weiterarbeit
 
 - Arbeitsverzeichnis ist ein eigener Git-Worktree; der Haupt-Checkout enthält nicht eingecheckte Nutzeränderungen und bleibt unberührt.
