@@ -51,6 +51,8 @@ def admin_sections(perms: dict) -> list[tuple]:
          is_admin or bool(perms.get("can_promote"))),
         ("mod-cases", "/mod-cases", "⚖", "Bürger-Moderation", "Fallakte: Verwarnungen, Timeouts, Kicks, Bans",
          is_admin or bool(perms.get("can_moderate_kicks") or perms.get("can_moderate_bans"))),
+        ("mod-stats", "/mod-cases/stats", "📊", "Moderationsstatistik", "Fälle nach Typ, Ergebnis, Dauer; AutoMod-Fehlalarmquote",
+         is_admin or bool(perms.get("can_moderate_kicks") or perms.get("can_moderate_bans"))),
         ("announcements", "/announcements", "📢", "Ankündigungen", "Globale Team- und Servernachrichten", announcements),
         ("social", "/social", "📣", "Social Media", "Creator-Kanäle und Video-Ankündigungen", announcements),
         ("settings", "/settings", "⚙", "Einstellungen & Rechte", "Rollen, Dashboard-Rechte, Module, Kanäle", is_admin),

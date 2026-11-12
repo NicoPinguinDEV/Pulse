@@ -45,6 +45,7 @@ class PreferenceTests(TempDb):
         self.assertEqual(np.category_for("/tickets"), "tickets")
         self.assertEqual(np.category_for("/suite/applications"), "applications")
         self.assertEqual(np.category_for("/loa"), "absence")
+        self.assertEqual(np.category_for("/ultimate/calendar", "📅 Erinnerung: Teamabend"), "events")
         self.assertEqual(np.category_for("/suite/audit"), np.SYSTEM)
 
     def test_quiet_hours_wrap_midnight(self):

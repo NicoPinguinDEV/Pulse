@@ -36,7 +36,8 @@ MAX_BACKUP_AGE = timedelta(days=2)
 EXPORT_ROW_LIMIT = 5000
 _ID_COLUMNS = ("user_id", "member_id", "actor_id", "author_id", "target_id", "mod_id", "creator_id", "assignee_id",
                "claimed_by_id", "closed_by_id", "staff_id", "reporter_id", "discord_id",
-               "applicant_id", "interviewer_id", "created_by_id", "approved_by_id", "requested_by_id")
+               "applicant_id", "interviewer_id", "created_by_id", "approved_by_id", "requested_by_id",
+               "reviewed_by_id")
 
 
 def load_settings() -> dict:

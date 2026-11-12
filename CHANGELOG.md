@@ -5,6 +5,10 @@
 - **Anfragen-Workflow (#171):** Administratoren verwalten unter Verwaltung → Datenschutz → Anfragen Auskunft, Berichtigung, Löschung, Einschränkung und Widerspruch mit Frist (1 Monat, einmal verlängerbar), Status, Zuständigkeit, internen Notizen und vollständigem Verlauf. Eine lesende Datenbestandsprüfung zeigt, wo Daten zu einer Discord-ID liegen; der JSON-Export bleibt die Auskunft.
 - **Discord:** Spieler stellen mit `/datenschutz-anfrage` privat eine Anfrage für sich selbst und sehen mit `/datenschutz-status` den Stand. Administratoren werden in der Pulse-Inbox informiert, überfällige Anfragen erinnern täglich.
 - Pulse ändert oder löscht dabei keine Daten automatisch. Neue Tabellen sind im Backup und im Personenexport enthalten.
+## Moderationsstatistik (November 2026)
+
+- **Auswertung (#24):** Neue Seite „Moderationsstatistik“ (`/mod-cases/stats`) für Personen mit Moderationsrecht: /mod-Fälle der letzten 7, 30 oder 90 Tage nach Maßnahme und Ergebnis, mittlere Dauer bis zum Abschluss, Anteil zugestellter DMs, Fälle mit Beweis oder Begründungsvorlage, Wiederholungen und Vergleich zum Vorzeitraum. AutoMod-Maßnahmen je Regel mit Fehlalarmquote und Prüfdauer; Testtreffer werden getrennt gezählt. CSV-Export.
+- Nur lesend, je Discord-Server getrennt; keine neue Tabelle.
 
 ## Tickets: Eskalation überfälliger Tickets und Frist für das Wiederöffnen (November 2026)
 

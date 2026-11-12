@@ -115,6 +115,15 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 - Neue Discord-Befehle: `/datenschutz-anfrage` (nur für sich selbst, ephemer) und `/datenschutz-status` (nur eigene Anfragen); Deutsch/Englisch über `pulse_i18n.get_locale`.
 - Entscheidungen: Frist 30 Tage ab Eingang, einmal bis 60 Tage mit Begründung verlängerbar; Überfälligkeit wird berechnet, nicht gespeichert; Abschluss/Ablehnung nur mit dokumentiertem Ergebnis; je Person und Art eine offene Anfrage, höchstens drei offene; Zuständig nur Serverinhaber/Discord-Administratoren; keine automatische Änderung oder Löschung von Daten.
 - Einschränkungen: Texte des neuen Cogs liegen lokal im Cog (keine Änderung an `pulse_i18n.py`, um Konflikte mit PR #222 zu vermeiden); keine Identitätsprüfung über Discord hinaus – die Leitung dokumentiert sie bei Bedarf als Notiz.
+## Block 9 – Moderationsstatistik (#24)
+
+- Branch: `feature/moderation-statistics-24` ab `main` @ `f0b9e7c`.
+- Bestandsaufnahme 12.11.2026: PR #221–#228 (Features #15, #18, #19, #23, #43, #52, #55, #57) und #229/#230 (Dependabot) offen; diese Funktionen werden hier nicht parallel bearbeitet.
+- Dateien: `pulse_mod_stats.py` (neu), `webserver.py` (zwei neue Routen hinter der Fallakte), `pulse_admin.py` (Navigation), `tests/test_mod_stats.py` (neu), `ruff.toml`, generierte Landkarten.
+- Neue Routen: `GET /mod-cases/stats`, `GET /mod-cases/stats.csv` – gleiche Rechteprüfung wie `/mod-cases` (Admin oder Kick-/Ban-Moderationsrecht), CSV-Export wird auditiert.
+- Keine neue Tabelle, keine Migration, keine Schreibzugriffe. Quellen: `mod_cases`, `events` (AutoMod-Maßnahme/-Testtreffer), `automod_false_positive_feedback`.
+- Entscheidungen: Quoten ohne Datenbasis werden als „–“ angezeigt statt 0 %; Testtreffer und `simulation`-Ereignisse zählen nie als Maßnahme; Zeilen fremder Guilds oder mit unlesbaren Zeitstempeln werden ignoriert; je Quelle höchstens 20 000 Zeilen (RAM-Budget).
+- Einschränkungen: Einspruchskennzahlen erst nach Merge von PR #225; Teamwarnungen und `/ultimate/cases` sind getrennte Fachakten (#11/#12) und nicht Teil dieser Bürger-Moderationsauswertung; kein Discord-Command (vermeidet Konflikt mit PR #225 in `cogs/mod_cases.py`).
 
 ## Prüfstand 11.11.2026 – nach PR #214 bis #219
 

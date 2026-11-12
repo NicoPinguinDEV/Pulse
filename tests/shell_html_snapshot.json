@@ -19,16 +19,16 @@
   },
   "sidebar": {
     "admin_area": {
-      "length": 10410,
-      "sha256": "8c0596b58a42dcfcd665e053940ddea51a4905d02b41a29e2017813a5dce6007"
+      "length": 10673,
+      "sha256": "4a487d8f2b36d483e0c799fc939a28cf135abae4f75f11a320e7e9ee01cbf968"
     },
     "admin_dashboard": {
       "length": 21721,
       "sha256": "7a06ef2bd60a372cfe3bd2828548aaf011409982e7c0f1b916bcef7306b854c5"
     },
     "admin_server_area": {
-      "length": 10410,
-      "sha256": "406904afee05912c053914c914cd09594051e312d614e30848aa538131c5b242"
+      "length": 10673,
+      "sha256": "71a1fbf2691abe00aef975dc135a583afac6b309a0c656cce01355fc5d407d3d"
     },
     "guest": {
       "length": 13914,

@@ -461,10 +461,17 @@ def register(app) -> None:
             checked = " checked" if key in selected else ""
             position = positions.get(key, index)
             fields.append(
-                f'<div class="pulse-row" style="align-items:center"><label style="display:flex;gap:8px;align-items:center;flex:1">'
+                f'<div class="pulse-row" data-widget-row="{key}" draggable="true" '
+                f'style="align-items:center;cursor:grab">'
+                f'<span aria-hidden="true" class="text-slate-400">⠿</span>'
+                f'<label style="display:flex;gap:8px;align-items:center;flex:1">'
                 f'<input type="checkbox" name="widgets" value="{key}"{checked}>{e(label)}</label>'
                 f'<label class="text-xs">Position <input class="pulse-input" style="width:64px" type="number" '
-                f'min="1" max="{len(HOME_WIDGETS)}" name="position_{key}" value="{position}"></label></div>'
+                f'min="1" max="{len(HOME_WIDGETS)}" name="position_{key}" value="{position}"></label>'
+                f'<div class="flex gap-1"><button class="pulse-btn ghost" type="button" data-widget-move="up" '
+                f'aria-label="{e(label)} nach oben" title="Nach oben">↑</button>'
+                f'<button class="pulse-btn ghost" type="button" data-widget-move="down" '
+                f'aria-label="{e(label)} nach unten" title="Nach unten">↓</button></div></div>'
             )
         rows = []
         for item in layouts:
@@ -497,10 +504,28 @@ def register(app) -> None:
             '<label class="guard-field">Name<input class="pulse-input" name="name" maxlength="40" required placeholder="z. B. Support-Schicht"></label>'
             '<label class="guard-field">Spalten<select class="pulse-input" name="columns">'
             '<option value="2">Zwei Spalten</option><option value="1">Eine Spalte</option></select></label>'
-            f'<fieldset class="space-y-2"><legend class="text-xs font-semibold">Widgets und Reihenfolge</legend>{fields_html}</fieldset>'
-            '<p class="text-xs text-slate-400">Kleinere Positionsnummern erscheinen weiter oben. Bei zwei Spalten wird die Reihenfolge in zwei gleich große Bereiche geteilt.</p>'
+            f'<fieldset id="homeWidgetOrder" data-home-widget-order class="space-y-2"><legend class="text-xs font-semibold">Widgets und Reihenfolge</legend>{fields_html}</fieldset>'
+            '<p class="text-xs text-slate-400">Ziehe die Zeilen an die gewünschte Position oder nutze ↑ und ↓. Die Zahlen aktualisieren sich automatisch. Bei zwei Spalten wird die Reihenfolge in zwei gleich große Bereiche geteilt.</p>'
             '<button class="pulse-btn primary" type="submit">💾 Layout speichern und aktivieren</button></form></div></section>'
             f'<p class="text-xs text-slate-400 mt-3">Bis zu {home_layouts.MAX_LAYOUTS} eigene Layouts. Aktives Layout: {active_name}.</p>'
+            '<script>'
+            'document.addEventListener("DOMContentLoaded",function(){'
+            'const list=document.querySelector("[data-home-widget-order]");if(!list)return;'
+            'const rows=()=>Array.from(list.querySelectorAll("[data-widget-row]"));'
+            'const sync=()=>rows().forEach((row,index)=>{const input=row.querySelector("input[name^=position_]");if(input)input.value=String(index+1);});'
+            'let dragged=null;'
+            'list.addEventListener("dragstart",function(event){const row=event.target.closest("[data-widget-row]");'
+            'if(!row)return;dragged=row;event.dataTransfer.effectAllowed="move";event.dataTransfer.setData("text/plain",row.dataset.widgetRow);});'
+            'list.addEventListener("dragover",function(event){if(!dragged)return;event.preventDefault();'
+            'const target=event.target.closest("[data-widget-row]");if(!target||target===dragged)return;'
+            'const rect=target.getBoundingClientRect();list.insertBefore(dragged,event.clientY<rect.top+rect.height/2?target:target.nextSibling);});'
+            'list.addEventListener("drop",function(event){event.preventDefault();sync();});'
+            'list.addEventListener("dragend",function(){dragged=null;sync();});'
+            'list.addEventListener("click",function(event){const button=event.target.closest("[data-widget-move]");if(!button)return;'
+            'const row=button.closest("[data-widget-row]");if(!row)return;const siblings=rows();const index=siblings.indexOf(row);'
+            'if(button.dataset.widgetMove==="up"&&index>0)list.insertBefore(row,siblings[index-1]);'
+            'if(button.dataset.widgetMove==="down"&&index>=0&&index<siblings.length-1)list.insertBefore(siblings[index+1],row);sync();});'
+            '});</script>'
         )
         return HTMLResponse(render_pro_page(ws, "Eigene Layouts", ctx, "me", body))
 

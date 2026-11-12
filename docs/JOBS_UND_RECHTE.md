@@ -2,7 +2,7 @@
 
 Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 
-## `@tasks.loop` (13)
+## `@tasks.loop` (14)
 
 | Datei:Zeile | Funktion | Intervall | Fehlerbehandlung |
 |---|---|---|---|
@@ -12,8 +12,9 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | cogs/activity_check.py:418 | `activity_warning_check` | `minutes=1` | 1 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/privacy_requests.py:170 | `overdue_loop` | `hours=6` | 1 except; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/pulse_next.py:42 | `housekeeping` | `minutes=5` | keine eigene; `@tracked`: Fehler erfasst, Schleife läuft weiter |
-| cogs/pulse_pro.py:101 | `housekeeping_loop` | `minutes=5` | 13 except, davon 13 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
+| cogs/pulse_pro.py:129 | `housekeeping_loop` | `minutes=5` | 13 except, davon 13 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/pulse_suite.py:1606 | `auto` | `minutes=5` | 1 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
+| cogs/scheduled_announcements.py:270 | `delivery_loop` | `seconds=30` | 4 except, davon 4 breit, **1 still (`pass`)** |
 | cogs/social_promo.py:712 | `poll_sources` | `minutes=POLL_INTERVAL_MINUTES` | 2 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/teamliste.py:489 | `update_list_loop` | `minutes=5` | 1 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/tickets.py:1469 | `panel_refresh` | `minutes=5` | 2 except, davon 2 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
@@ -26,8 +27,8 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 |---|---|---|---|
 | cogs/ai_moderation.py:399 | `_wait_and_publish_outage_notice` | `min(max(remaining + 0.25, 1.0` | keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt) |
 | cogs/recovery.py:219 | `_run_all_sync` | `1.0, 0.2` | keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt) |
-| pulse_ultimate.py:3328 | `automation_loop` | `60, 60` | 3 except, davon 2 breit |
-| webserver.py:10000 | `auto_backup_loop` | `300` | 3 except, davon 1 breit |
+| pulse_ultimate.py:3446 | `automation_loop` | `60, 60` | 4 except, davon 3 breit |
+| webserver.py:10112 | `auto_backup_loop` | `300` | 3 except, davon 1 breit |
 
 ## `create_task` / `ensure_future` / `pulse_tasks.spawn` (15)
 
@@ -48,8 +49,8 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | main.py:171 | `spawn_task(server.serve(), name="pulse-webserver", critical=True)` |
 | main.py:99 | `spawn_task(self.close(), name="pulse-sigterm-close", loop=loop, critical=True)` |
 | pulse_tasks.py:44 | `target.create_task(coro, name=name)` |
-| pulse_ultimate.py:3357 | `spawn_task(automation_loop(bot), name="pulse-automation", critical=True)` |
-| webserver.py:10077 | `spawn_task(auto_backup_loop(), name="pulse-auto-backup", critical=True)` |
+| pulse_ultimate.py:3479 | `spawn_task(automation_loop(bot), name="pulse-automation", critical=True)` |
+| webserver.py:10189 | `spawn_task(auto_backup_loop(), name="pulse-auto-backup", critical=True)` |
 
 ## Rechte-Schlüssel
 
@@ -73,12 +74,12 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | `can_manage_tickets` | PERM_KEYS | cogs/ticket_tools.py (2), cogs/tickets.py (2), pulse_features.py (1), pulse_home.py (1), pulse_pro.py (3), pulse_ticket_center.py (2), webserver.py (1) | — |
 | `can_manage_training` | PERM_KEYS | pulse_features.py (5) | — |
 | `can_manage_wiki` | PERM_KEYS | pulse_features.py (4) | — |
-| `can_moderate_bans` | EXTRA_PERMS | cogs/mod_cases.py (1), pulse_admin.py (1), webserver.py (3) | — |
+| `can_moderate_bans` | EXTRA_PERMS | cogs/mod_cases.py (3), pulse_admin.py (2), webserver.py (3) | — |
 | `can_moderate_bolo` | EXTRA_PERMS | webserver.py (2) | — |
-| `can_moderate_kicks` | EXTRA_PERMS | cogs/automod.py (1), cogs/mod_cases.py (1), pulse_admin.py (1), webserver.py (3) | — |
+| `can_moderate_kicks` | EXTRA_PERMS | cogs/automod.py (1), cogs/mod_cases.py (3), pulse_admin.py (2), webserver.py (3) | — |
 | `can_promote` | PERM_KEYS | cogs/ai_moderation.py (1), cogs/dienst.py (1), cogs/pulse_pro.py (3), cogs/pulse_suite.py (2), cogs/raid_watch.py (1), cogs/rp_verwaltung.py (1), pulse_admin.py (1), pulse_cockpit.py (1), pulse_command_help.py (1), pulse_features.py (11), pulse_home.py (4), pulse_next.py (4), pulse_phase7.py (6), pulse_pro.py (22), pulse_ticket_center.py (1), pulse_ultimate.py (11), pulse_workflows.py (2), webserver.py (17) | — |
 | `can_view_analytics` | PERM_KEYS | pulse_phase7.py (2), pulse_pro.py (1) | — |
 | `can_view_dashboard` | PERM_KEYS | cogs/dienst.py (1), cogs/pulse_pro.py (8), pulse_pro.py (2), webserver.py (2) | — |
 | `can_view_team_status` | EXTRA_PERMS | pulse_pro.py (3) | — |
 | `can_warn` | PERM_KEYS | cogs/ai_moderation.py (1), pulse_phase7.py (1), pulse_pro.py (1), webserver.py (5) | — |
-| `is_admin` | nur im Code | cogs/ai_moderation.py (3), cogs/automod.py (1), cogs/dienst.py (4), cogs/mod_cases.py (2), cogs/pulse_pro.py (14), cogs/pulse_suite.py (4), cogs/raid_watch.py (1), cogs/rp_verwaltung.py (1), cogs/ticket_tools.py (2), cogs/tickets.py (2), pulse_admin.py (1), pulse_cockpit.py (1), pulse_command_help.py (2), pulse_features.py (12), pulse_home.py (5), pulse_mod_cases.py (1), pulse_next.py (7), pulse_phase7.py (7), pulse_pro.py (36), pulse_role_manager.py (1), pulse_server_control.py (2), pulse_social_dashboard.py (1), pulse_ticket_center.py (5), pulse_ultimate.py (12), pulse_workflows.py (1), webserver.py (46) | cogs/ai_moderation.py |
+| `is_admin` | nur im Code | cogs/ai_moderation.py (3), cogs/automod.py (1), cogs/dienst.py (4), cogs/mod_cases.py (4), cogs/pulse_pro.py (14), cogs/pulse_suite.py (4), cogs/raid_watch.py (1), cogs/rp_verwaltung.py (1), cogs/ticket_tools.py (2), cogs/tickets.py (2), pulse_admin.py (1), pulse_cockpit.py (1), pulse_command_help.py (2), pulse_features.py (12), pulse_home.py (5), pulse_mod_cases.py (1), pulse_next.py (7), pulse_phase7.py (7), pulse_pro.py (36), pulse_role_manager.py (1), pulse_server_control.py (2), pulse_social_dashboard.py (1), pulse_ticket_center.py (5), pulse_ultimate.py (12), pulse_workflows.py (1), webserver.py (46) | cogs/ai_moderation.py |
