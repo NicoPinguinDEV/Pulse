@@ -13,8 +13,9 @@ include = [
     "pulse_workflows.py", "pulse_automation_rules.py", "tests/test_workflow_engine.py", "pulse_summaries.py", "tests/test_summaries.py", "pulse_views.py", "tests/test_saved_views.py",
     "tools/application_data_audit.py", "tests/test_application_data_audit.py", "tests/test_application_staging.py", "tests/test_incident_runbook.py",
     "pulse_community_feedback.py", "tests/test_community_feedback.py", "tests/test_community_suggestion_modal.py",
-    "pulse_player_reports.py", "tests/test_player_reports.py", "tests/test_player_report_commands.py", "tests/test_player_self_service.py",
-    "pulse_webhook_audit.py", "tests/test_webhook_monitor.py", "tests/test_notify_prefs.py", "tests/test_ultimate_event_rsvps.py",
+    "pulse_player_reports.py", "tests/test_player_reports.py", "tests/test_player_report_commands.py",
+    "tests/test_home_layouts.py",
+    "tests/test_player_self_service.py", "pulse_webhook_audit.py", "tests/test_webhook_monitor.py", "tests/test_notify_prefs.py", "tests/test_ultimate_event_rsvps.py",
 ]
 
 [lint]

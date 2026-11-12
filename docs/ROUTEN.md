@@ -332,19 +332,19 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
 | GET | `/me` | `pulse_home.register.<locals>.my_pulse` | pulse_home.py:117 | can_view_dashboard (+ can_add_notes, can_manage_applications, can_manage_tickets, can_promote) |
-| POST | `/me/favorites/add` | `pulse_home.register.<locals>.my_favorite_add` | pulse_home.py:546 | can_view_dashboard |
-| POST | `/me/favorites/remove` | `pulse_home.register.<locals>.my_favorite_remove` | pulse_home.py:564 | can_view_dashboard |
+| POST | `/me/favorites/add` | `pulse_home.register.<locals>.my_favorite_add` | pulse_home.py:571 | can_view_dashboard |
+| POST | `/me/favorites/remove` | `pulse_home.register.<locals>.my_favorite_remove` | pulse_home.py:589 | can_view_dashboard |
 | GET | `/me/layouts` | `pulse_home.register.<locals>.my_home_layouts` | pulse_home.py:449 | can_view_dashboard |
-| POST | `/me/layouts/activate` | `pulse_home.register.<locals>.my_home_layout_activate` | pulse_home.py:522 | can_view_dashboard |
-| POST | `/me/layouts/default` | `pulse_home.register.<locals>.my_home_layout_default` | pulse_home.py:540 | can_view_dashboard |
-| POST | `/me/layouts/delete` | `pulse_home.register.<locals>.my_home_layout_delete` | pulse_home.py:531 | can_view_dashboard |
-| POST | `/me/layouts/save` | `pulse_home.register.<locals>.my_home_layout_save` | pulse_home.py:507 | can_view_dashboard |
+| POST | `/me/layouts/activate` | `pulse_home.register.<locals>.my_home_layout_activate` | pulse_home.py:547 | can_view_dashboard |
+| POST | `/me/layouts/default` | `pulse_home.register.<locals>.my_home_layout_default` | pulse_home.py:565 | can_view_dashboard |
+| POST | `/me/layouts/delete` | `pulse_home.register.<locals>.my_home_layout_delete` | pulse_home.py:556 | can_view_dashboard |
+| POST | `/me/layouts/save` | `pulse_home.register.<locals>.my_home_layout_save` | pulse_home.py:532 | can_view_dashboard |
 | GET | `/me/month` | `pulse_phase7.register.<locals>.my_month_page` | pulse_phase7.py:483 | can_view_dashboard |
 | POST | `/me/month/optin` | `pulse_phase7.register.<locals>.my_month_optin` | pulse_phase7.py:512 | can_view_dashboard |
-| GET | `/me/sessions` | `pulse_home.register.<locals>.my_sessions` | pulse_home.py:577 | can_view_dashboard |
-| POST | `/me/sessions/revoke` | `pulse_home.register.<locals>.my_session_revoke` | pulse_home.py:606 | can_view_dashboard |
-| POST | `/me/sessions/revoke-all` | `pulse_home.register.<locals>.my_session_revoke_all` | pulse_home.py:625 | can_view_dashboard |
-| POST | `/me/sessions/revoke-others` | `pulse_home.register.<locals>.my_session_revoke_others` | pulse_home.py:615 | can_view_dashboard |
+| GET | `/me/sessions` | `pulse_home.register.<locals>.my_sessions` | pulse_home.py:602 | can_view_dashboard |
+| POST | `/me/sessions/revoke` | `pulse_home.register.<locals>.my_session_revoke` | pulse_home.py:631 | can_view_dashboard |
+| POST | `/me/sessions/revoke-all` | `pulse_home.register.<locals>.my_session_revoke_all` | pulse_home.py:650 | can_view_dashboard |
+| POST | `/me/sessions/revoke-others` | `pulse_home.register.<locals>.my_session_revoke_others` | pulse_home.py:640 | can_view_dashboard |
 | POST | `/me/start-page` | `pulse_home.register.<locals>.my_start_page` | pulse_home.py:434 | can_view_dashboard |
 | POST | `/me/views/save` | `pulse_views.register.<locals>.views_save` | pulse_views.py:144 | can_view_dashboard |
 | POST | `/me/views/{view_id}/delete` | `pulse_views.register.<locals>.views_delete` | pulse_views.py:158 | can_view_dashboard |
