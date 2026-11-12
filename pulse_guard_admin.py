@@ -26,7 +26,7 @@ INCIDENT_TYPES = (
     "AutoMod-Maßnahme", "AutoMod-Testtreffer", "AutoMod-Fehlalarm bestätigt", "Anti-Nuke-Aktion erkannt", "Anti-Nuke ausgelöst", "Anti-Nuke: Akteur gesperrt",
     "Anti-Nuke: Akteur gekickt", "Anti-Nuke: Quarantäne", "Anti-Nuke: Bot entfernt",
     "Anti-Nuke: Quarantäne aufgehoben", "Anti-Nuke: Quarantäne verworfen",
-    "Anti-Nuke: Lockdown gestartet", "Anti-Nuke: Lockdown aufgehoben",
+    "Anti-Nuke: Lockdown gestartet", "Anti-Nuke: Lockdown aufgehoben", "Webhook-Änderung erkannt",
 )
 INCIDENT_LIMIT = 60
 REQUIRED_PERMISSIONS = (
@@ -215,6 +215,7 @@ def stats(rows: list[dict]) -> dict:
         "by_rule": by_rule,
         "antinuke_7d": sum(1 for r in week if r.get("event_type", "").startswith("Anti-Nuke") and r.get("event_type") != "Anti-Nuke-Aktion erkannt"),
         "detected_7d": sum(1 for r in week if r.get("event_type") == "Anti-Nuke-Aktion erkannt" and not r["payload"].get("trusted")),
+        "webhooks_7d": sum(1 for r in week if r.get("event_type") == "Webhook-Änderung erkannt"),
     }
 
 
@@ -329,6 +330,7 @@ def register(app) -> None:
   <div class="guard-steps">{by_rule}</div>
   <div class="guard-kv" style="margin-top:8px"><span>Anti-Nuke-Reaktionen (7 Tage)</span><span class="guard-big">{st["antinuke_7d"]}</span></div>
   <div class="guard-kv"><span>Erkannte Aktionen nicht freigegebener Personen</span><strong>{st["detected_7d"]}</strong></div>
+  <div class="guard-kv"><span>Webhook-Änderungen (7 Tage)</span><strong>{st["webhooks_7d"]}</strong></div>
   <div class="guard-kv"><span>Aktuell in Quarantäne</span><strong>{len(quarantine)}</strong></div></div>
  <div class="space-y-2">{"".join(checks)}</div>
 </div></section>'''
@@ -485,7 +487,7 @@ def register(app) -> None:
                             f'<div class="pulse-row-meta">{meta}</div></div><span class="pulse-time pulse-row-meta">{e(str(row.get("created_at", ""))[:16].replace("T", " "))}</span></div>')
         incidents_html = f'''
 <section id="incidents" class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">📜 Vorfallprotokoll</div>
-<div class="pulse-section-sub">Die letzten {INCIDENT_LIMIT} AutoMod- und Anti-Nuke-Ereignisse (UTC).</div></div></div>
+<div class="pulse-section-sub">Die letzten {INCIDENT_LIMIT} AutoMod-, Anti-Nuke- und Webhook-Ereignisse (UTC).</div></div></div>
 <div class="pulse-card-b space-y-2">{"".join(inc_rows) or '<div class="pulse-empty">Noch keine Vorfälle.</div>'}</div></section>'''
 
         nav = "".join(f'<a class="pulse-btn ghost" href="#{a}">{l}</a>' for a, l in (
