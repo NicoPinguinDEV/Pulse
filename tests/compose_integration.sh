@@ -122,8 +122,11 @@ for f in pulse.db .session_secret config.json logs/pulse.log transcripts/T-1.txt
   [ "$(sudo stat -c %u "$data/$f")" = 1000 ] || fail "$f gehört nicht UID 1000"
 done
 sudo sh -c "ls '$data'/backups/pulse_full_predeploy_*.zip" >/dev/null || fail "Komplett-Backup fehlt"
-docker logs "$CONTAINER" 2>&1 | grep -q "container smoke ok" || fail "Smoke-Test im Container nicht bestanden"
-docker logs "$CONTAINER" 2>&1 | grep -q "Cog-Module importiert" || fail "Cog-Import im Container nicht bestanden"
+# Read the log once: with pipefail, `docker logs | grep -q` fails at random when grep exits on the first match
+# and docker logs is killed by SIGPIPE while it is still writing.
+container_log="$(docker logs "$CONTAINER" 2>&1)"
+grep -q "container smoke ok" <<<"$container_log" || fail "Smoke-Test im Container nicht bestanden"
+grep -q "Cog-Module importiert" <<<"$container_log" || fail "Cog-Import im Container nicht bestanden"
 
 step "4) Shutdown (SIGTERM, stop_grace_period) und Neustart auf vorhandenen Daten"
 start="$(date +%s)"
