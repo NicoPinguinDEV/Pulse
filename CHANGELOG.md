@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Datenschutzanfragen (November 2026)
+
+- **Anfragen-Workflow (#171):** Administratoren verwalten unter Verwaltung → Datenschutz → Anfragen Auskunft, Berichtigung, Löschung, Einschränkung und Widerspruch mit Frist (1 Monat, einmal verlängerbar), Status, Zuständigkeit, internen Notizen und vollständigem Verlauf. Eine lesende Datenbestandsprüfung zeigt, wo Daten zu einer Discord-ID liegen; der JSON-Export bleibt die Auskunft.
+- **Discord:** Spieler stellen mit `/datenschutz-anfrage` privat eine Anfrage für sich selbst und sehen mit `/datenschutz-status` den Stand. Administratoren werden in der Pulse-Inbox informiert, überfällige Anfragen erinnern täglich.
+- Pulse ändert oder löscht dabei keine Daten automatisch. Neue Tabellen sind im Backup und im Personenexport enthalten.
+
 ## Tickets: Eskalation überfälliger Tickets und Frist für das Wiederöffnen (November 2026)
 
 - **Eskalation (#28):** Bleibt eine Erinnerung ohne Wirkung – niemand übernimmt das Ticket oder der Bearbeiter antwortet weiter nicht –, informiert Pulse nach der eingestellten Zeit einmal die Ticket-Führungsebene: im Protokollkanal und in der Pulse-Inbox. Das Ticket trägt in der Ticket-Zentrale die Markierung „Eskaliert“. Pulse ändert dabei weder Bearbeiter noch Priorität. Einstellbar unter „Ticket-Automatik“, auch je Kategorie; Standard ist aus.

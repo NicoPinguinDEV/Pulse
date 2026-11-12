@@ -14,6 +14,7 @@ include = [
     "tools/application_data_audit.py", "tests/test_application_data_audit.py", "tests/test_application_staging.py", "tests/test_incident_runbook.py",
     "pulse_community_feedback.py", "tests/test_community_feedback.py", "tests/test_community_suggestion_modal.py",
     "pulse_player_reports.py", "tests/test_player_reports.py", "tests/test_player_report_commands.py",
+    "pulse_privacy_requests.py", "pulse_privacy_requests_web.py", "cogs/privacy_requests.py", "tests/test_privacy_requests.py",
 ]
 
 [lint]

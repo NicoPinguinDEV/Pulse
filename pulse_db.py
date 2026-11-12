@@ -336,6 +336,41 @@ def init_db():
             CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_saved_views_name
                 ON dashboard_saved_views(user_id, page, name COLLATE NOCASE);
 
+            CREATE TABLE IF NOT EXISTS privacy_requests (
+                id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                user_name TEXT DEFAULT '',
+                kind TEXT NOT NULL,
+                details TEXT DEFAULT '',
+                channel TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'received',
+                received_at TEXT NOT NULL,
+                due_at TEXT NOT NULL,
+                extended_reason TEXT DEFAULT '',
+                assignee_id TEXT,
+                assignee_name TEXT DEFAULT '',
+                resolution TEXT DEFAULT '',
+                closed_at TEXT,
+                closed_by_id TEXT,
+                created_by_id TEXT,
+                created_by_name TEXT DEFAULT '',
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_privacy_requests_guild_status ON privacy_requests(guild_id, status, due_at);
+            CREATE INDEX IF NOT EXISTS idx_privacy_requests_user ON privacy_requests(guild_id, user_id);
+            CREATE TABLE IF NOT EXISTS privacy_request_events (
+                id TEXT PRIMARY KEY,
+                request_id TEXT NOT NULL,
+                guild_id TEXT NOT NULL,
+                actor_id TEXT DEFAULT '',
+                actor_name TEXT DEFAULT '',
+                action TEXT NOT NULL,
+                note TEXT DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_privacy_request_events_request ON privacy_request_events(request_id, created_at);
+
             CREATE INDEX IF NOT EXISTS idx_training_attempts_user ON training_attempts(user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_training_attempts_training ON training_attempts(training_id, created_at DESC);
 
@@ -2084,6 +2119,7 @@ TABLES = [
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_reason_templates", "mod_reason_template_versions",
     "dashboard_saved_views",
+    "privacy_requests", "privacy_request_events",
 ]
 
 

@@ -7,8 +7,8 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, 
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 78 |
-| Teilweise | 99 |
+| Fertig | 79 |
+| Teilweise | 98 |
 | Offen | 0 |
 
 **Aktueller Ausgangspunkt:** `main` @ `75555c79f942de700ad4a48c53d43fa8fce591b5`. Die PRs #214–#219 sind gemergt. Die Kernfunktionen #25, #45, #46 und #49 sind jetzt als fertig bewertet; #10 ist durch die Locale-Grundlage von „Offen“ auf „Teilweise“ gestiegen. Der Ticket-/Support-Bereich #26–#40 bleibt vollständig.
@@ -105,6 +105,16 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 - ruff.toml nimmt die Testdatei in die konservative Lint-Liste auf.
 - Audit #164 wird in diesem Branch auf Fertig gesetzt. Der Branch-Zähler ist 74 fertig / 102 teilweise / 1 offen; main bleibt bis zum Merge bei 73 / 103 / 1.
 - Keine Änderung an Laufzeitdaten, Discord-Produktivserver, VPS, Secrets oder Deployment-Konfiguration.
+
+## Block 10 – Datenschutzanfragen (#171)
+
+- Branch: `feature/privacy-requests-171` ab `main` @ `f0b9e7c` (unabhängig von Block 9 / PR #232; beide ändern nur die Zählerzeilen dieser Dokumente – beim zweiten Merge Zähler addieren).
+- Dateien: `pulse_privacy_requests.py` (neu, Fachlogik), `pulse_privacy_requests_web.py` (neu, Dashboard), `cogs/privacy_requests.py` (neu, Discord), `pulse_db.py` (zwei Tabellen + `TABLES`), `pulse_retention.py` (Verlauf im Personenexport), `pulse_admin.py` (Übersichtskarte auf `/admin/privacy`), `pulse_command_help.py`, `webserver.py` (Registrierung), `tests/test_privacy_requests.py` (neu, 18 Tests), `ruff.toml`, generierte Landkarten.
+- Neue Tabellen in `pulse.db`: `privacy_requests`, `privacy_request_events` – im JSON-Backup (`pulse_db.TABLES`, Roundtrip getestet), im Komplett-Backup (ganze Datei) und im Personenexport (Anfragen über `user_id`, Verlauf über die eigenen Anfrage-IDs).
+- Neue Routen (alle nur Administratoren, jede Änderung im Audit-Log): `GET /admin/privacy/requests`, `POST …/create`, `GET …/{id}` (optional `?scan=1` für die lesende Datenbestandsprüfung), `POST …/{id}/status|assign|extend|note`.
+- Neue Discord-Befehle: `/datenschutz-anfrage` (nur für sich selbst, ephemer) und `/datenschutz-status` (nur eigene Anfragen); Deutsch/Englisch über `pulse_i18n.get_locale`.
+- Entscheidungen: Frist 30 Tage ab Eingang, einmal bis 60 Tage mit Begründung verlängerbar; Überfälligkeit wird berechnet, nicht gespeichert; Abschluss/Ablehnung nur mit dokumentiertem Ergebnis; je Person und Art eine offene Anfrage, höchstens drei offene; Zuständig nur Serverinhaber/Discord-Administratoren; keine automatische Änderung oder Löschung von Daten.
+- Einschränkungen: Texte des neuen Cogs liegen lokal im Cog (keine Änderung an `pulse_i18n.py`, um Konflikte mit PR #222 zu vermeiden); keine Identitätsprüfung über Discord hinaus – die Leitung dokumentiert sie bei Bedarf als Notiz.
 
 ## Prüfstand 11.11.2026 – nach PR #214 bis #219
 

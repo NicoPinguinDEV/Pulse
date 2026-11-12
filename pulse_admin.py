@@ -523,6 +523,19 @@ def register(app) -> None:
             f'<p class="text-xs text-slate-400 mt-3">Gespeicherte, verschlüsselte Recovery-Freigaben: <strong>{recovery_count}</strong>. '
             'Nutzer können die Freigabe jederzeit mit dem Discord-Befehl <code>/recovery-abmelden</code> löschen.</p></div></section>'
         )
+        try:
+            import pulse_privacy_requests
+            counts = await asyncio.to_thread(pulse_privacy_requests.summary, ws.GUILD_ID)
+            counts_line = (f'<strong>{counts["open"]}</strong> offen · <strong class="{"text-red-500" if counts["overdue"] else ""}">'
+                           f'{counts["overdue"]}</strong> überfällig · {counts["due_soon"]} mit Frist in den nächsten 7 Tagen')
+        except Exception as exc:
+            counts_line = f'Übersicht nicht verfügbar ({e(type(exc).__name__)}).'
+        requests_section = (
+            '<section class="pulse-card mt-5"><div class="pulse-card-h"><div class="pulse-section-title">📨 Datenschutzanfragen</div>'
+            '<a class="pulse-btn ghost" href="/admin/privacy/requests">Öffnen</a></div><div class="pulse-card-b">'
+            f'<p class="text-xs">{counts_line}</p><p class="text-[11px] text-slate-400 mt-2">Auskunft, Berichtigung, Löschung, Einschränkung '
+            'und Widerspruch mit Frist, Zuständigkeit und Verlauf. Spieler können Anfragen mit /datenschutz-anfrage selbst stellen.</p></div></section>'
+        )
         preview = pulse_retention.plan(ws, settings)
         backup = pulse_retention.recent_full_backup(ws)
         last = settings.get("last_report") or {}
@@ -551,7 +564,7 @@ def register(app) -> None:
   <input class="pulse-input" name="discord_id" pattern="[0-9]{{15,22}}" required placeholder="Discord-ID">
   <button class="pulse-btn ghost" type="submit">⬇️ JSON herunterladen</button></form>
   <p class="text-[11px] text-slate-400 mt-2">Enthält Teamakte, Bewerbungen, Schichten, Abmeldungen, Tickets, Ereignisse und eigene Audit-Einträge. Der Export wird im Audit-Log vermerkt. Löschen einzelner Personen erfolgt weiterhin bewusst von Hand.</p>
- </div></section>{recovery_section}{ip_section}'''
+ </div></section>{requests_section}{recovery_section}{ip_section}'''
         return HTMLResponse(render_pro_page(ws, "Datenschutz", ctx, "admin-privacy", body))
 
     @app.post("/admin/privacy")
