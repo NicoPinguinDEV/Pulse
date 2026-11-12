@@ -2,7 +2,7 @@
 
 Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 
-## `@tasks.loop` (12)
+## `@tasks.loop` (13)
 
 | Datei:Zeile | Funktion | Intervall | Fehlerbehandlung |
 |---|---|---|---|
@@ -13,6 +13,7 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | cogs/pulse_next.py:42 | `housekeeping` | `minutes=5` | keine eigene; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/pulse_pro.py:129 | `housekeeping_loop` | `minutes=5` | 13 except, davon 13 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/pulse_suite.py:1606 | `auto` | `minutes=5` | 1 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
+| cogs/scheduled_announcements.py:270 | `delivery_loop` | `seconds=30` | 4 except, davon 4 breit, **1 still (`pass`)** |
 | cogs/social_promo.py:712 | `poll_sources` | `minutes=POLL_INTERVAL_MINUTES` | 2 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/teamliste.py:489 | `update_list_loop` | `minutes=5` | 1 except, davon 1 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
 | cogs/tickets.py:1469 | `panel_refresh` | `minutes=5` | 2 except, davon 2 breit; `@tracked`: Fehler erfasst, Schleife läuft weiter |
