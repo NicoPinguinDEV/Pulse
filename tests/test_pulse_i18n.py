@@ -65,6 +65,24 @@ class TranslationTests(unittest.TestCase):
         )
         self.assertEqual(pulse_i18n.translate("en", "unknown_key"), "unknown_key")
 
+    def test_duty_messages_translate_action_results_and_status(self):
+        self.assertEqual(
+            pulse_i18n.translate_duty_message("en", "Schicht gestartet – viel Erfolg!"),
+            "Shift started – good luck!",
+        )
+        self.assertEqual(
+            pulse_i18n.translate_duty_message("en", "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!"),
+            "Shift start blocked: you have 5 active warnings.",
+        )
+        self.assertEqual(
+            pulse_i18n.translate_duty_message("en", "Du bist im Dienst seit 2 h. Diese Woche: 4 h."),
+            "You have been on duty for 2 h. This week: 4 h.",
+        )
+        self.assertEqual(
+            pulse_i18n.translate_duty_message("de", "Schicht gestartet – viel Erfolg!"),
+            "Schicht gestartet – viel Erfolg!",
+        )
+
     def test_help_sections_are_localized_without_changing_command_names(self):
         self.assertEqual(pulse_i18n.translate_help_section("en", "⏱ Dienst & ich"), "⏱ Duty & me")
         self.assertEqual(pulse_i18n.translate_help_section("de", "⏱ Dienst & ich"), "⏱ Dienst & ich")

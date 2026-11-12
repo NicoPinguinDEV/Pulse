@@ -104,6 +104,70 @@ MESSAGES = {
         "section_moderation": "⚠ Moderation",
         "section_leadership": "🛡 Führung",
         "section_setup": "⚙ Einrichtung & Wartung",
+        "duty_team_only": "❌ Den Dienst können nur Teammitglieder starten und beenden.",
+        "duty_action_unavailable": "Diese Aktion ist gerade nicht möglich.",
+        "duty_start_already_running": "Du hast bereits eine laufende Schicht.",
+        "duty_start_warning_lock": "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!",
+        "duty_start_success": "Schicht gestartet – viel Erfolg!",
+        "duty_start_leave_active": "Schicht gestartet. Deine Abmeldung bleibt bis {date} hinterlegt und wird nicht automatisch beendet.",
+        "duty_break_success": "Pause gestartet.",
+        "duty_resume_success": "Schicht fortgesetzt.",
+        "duty_end_success": "Schicht beendet – {duration} gutgeschrieben.",
+        "duty_status_offline": "Du bist nicht im Dienst. Diese Woche: {week}.",
+        "duty_status_online": "Du bist im Dienst seit {duration}. Diese Woche: {week}.",
+        "duty_status_break": "Du bist in der Pause seit {duration}. Diese Woche: {week}.",
+        "duty_note_team_only": "❌ Schichtnotizen können nur Teammitglieder verwenden.",
+        "duty_note_permission": "❌ Dir fehlt die Berechtigung zum Erstellen von Schichtnotizen.",
+        "duty_note_required": "❌ Bitte gib eine Notiz ein.",
+        "duty_note_too_long": "❌ Eine Schichtnotiz darf höchstens 1.000 Zeichen enthalten.",
+        "duty_note_read_error": "❌ Der aktuelle Dienststatus konnte nicht gelesen werden ({error_type}).",
+        "duty_note_inactive": "❌ Du bist aktuell nicht im Dienst. Starte zuerst mit /dienst start eine Schicht.",
+        "duty_note_saved": "✅ Schichtnotiz wurde privat gespeichert und deiner laufenden Schicht zugeordnet.",
+        "duty_notes_team_only": "❌ Schichtnotizen können nur Teammitglieder einsehen.",
+        "duty_notes_lead_only": "❌ Schichtnotizen anderer Teammitglieder sind nur für die Leitung freigegeben.",
+        "duty_notes_none": "📝 Für **{name}** liegen noch keine Schichtnotizen vor.",
+        "duty_notes_title": "**Schichtnotizen für {name}**",
+        "duty_notes_more_hidden": "… weitere Einträge ausgeblendet.",
+        "duty_panel_admin_only": "❌ Nur Admins können das Dienst-Panel veröffentlichen.",
+        "duty_panel_send_error": "❌ Pulse kann hier nicht senden ({error_type}). Kanalrechte prüfen.",
+        "ticket_team_only": "Nur das Ticket-Team kann das nutzen.",
+        "ticket_open_only": "Bitte in einem offenen Ticket-Kanal verwenden.",
+        "ticket_note_team_only": "Nur das Ticket-Team kann interne Notizen speichern.",
+        "ticket_note_context": "Das Ticket ist nicht mehr offen oder der Kontext stimmt nicht.",
+        "ticket_note_saved": "🔒 Interne Notiz gespeichert. Sie wurde nicht im Ticket-Kanal veröffentlicht.",
+        "ticket_notes_empty": "Für dieses Ticket gibt es auf dieser Seite keine internen Notizen.",
+        "ticket_links_empty": "Für dieses Ticket gibt es keine Verknüpfungen auf dieser Seite.",
+        "ticket_channel_unavailable": "Kanal nicht verfügbar",
+        "ticket_unlink_success": "🔓 Ticket-Verknüpfung entfernt.",
+        "ticket_unlink_missing": "Diese Ticket-Verknüpfung bestand nicht.",
+        "ticket_summary_read_error": "Der Ticketverlauf konnte nicht gelesen werden. Bitte die Kanal-Berechtigungen prüfen.",
+        "ticket_summary_empty": "Es gibt noch keine auswertbaren Textnachrichten für eine Zusammenfassung.",
+        "ticket_summary_saved": "Die Zusammenfassung wurde zusätzlich als interne Ticketnotiz gespeichert.",
+        "ticket_quick_reply_missing": "Diese Schnellantwort gibt es für die Kategorie nicht (Dashboard → Ticket-Werkzeuge).",
+        "ticket_handover_permission": "Übergeben geht nur an Teammitglieder mit Ticket-Recht.",
+        "ticket_ban_team_only": "Nur das Ticket-Team kann Ticket-Sperren setzen.",
+        "ticket_ban_citizen_only": "Ticket-Sperren gelten nur für Bürger – nicht für Teammitglieder, Bots oder dich selbst.",
+        "ticket_unban_team_only": "Nur das Ticket-Team kann Ticket-Sperren aufheben.",
+        "ticket_unban_success": "✅ Sperre aufgehoben.",
+        "ticket_unban_missing": "Für diese Person gab es keine Sperre.",
+        "ticket_note_modal_title": "Interne Ticketnotiz",
+        "ticket_note_modal_label": "Notiz (nur für berechtigtes Team)",
+        "ticket_note_modal_placeholder": "Interne Information für die weitere Ticketbearbeitung …",
+        "ticket_notes_title": "🔒 Interne Notizen · Ticket {ticket_id}",
+        "ticket_notes_footer": "Seite {page} · jeweils zwei Notizen",
+        "ticket_link_already": "🔗 Ticket **{ticket_id}** ist bereits mit diesem Ticket verknüpft.",
+        "ticket_link_success": "🔗 Ticket **{ticket_id}** und **{related_id}** wurden intern verknüpft.",
+        "ticket_links_title": "🔗 Verknüpfte Tickets · {ticket_id}",
+        "ticket_links_footer": "Seite {page}{more}",
+        "ticket_links_more": " · weitere Einträge vorhanden",
+        "ticket_summary_title": "🧾 Übergabe-Zusammenfassung · {ticket_id}",
+        "ticket_summary_save_error": "Die interne Notiz konnte nicht gespeichert werden: {error}",
+        "ticket_similar_title": "🔎 Ähnliche Tickets · {ticket_id}",
+        "ticket_similar_footer": "Lokaler Textvergleich archivierter Transkripte · keine externe KI",
+        "ticket_handover_title": "🔁 **Übergabe** an {assignee} durch {actor}",
+        "ticket_handover_note": "📝 {note}",
+        "ticket_ban_until": "🚫 {member} kann bis {date} keine neuen Tickets öffnen.",
+        "duty_panel_published": "✅ Dienst-Panel veröffentlicht.",
     },
     "en": {
         "guild_only": "This command is only available in a server.",
@@ -139,8 +203,151 @@ MESSAGES = {
         "section_moderation": "⚠ Moderation",
         "section_leadership": "🛡 Leadership",
         "section_setup": "⚙ Setup & maintenance",
+        "duty_team_only": "❌ Only team members can start or end a shift.",
+        "duty_action_unavailable": "This action is not available right now.",
+        "duty_start_already_running": "You already have an active shift.",
+        "duty_start_warning_lock": "Shift start blocked: you have 5 active warnings.",
+        "duty_start_success": "Shift started – good luck!",
+        "duty_start_leave_active": "Shift started. Your leave remains recorded until {date} and will not be ended automatically.",
+        "duty_break_success": "Break started.",
+        "duty_resume_success": "Shift resumed.",
+        "duty_end_success": "Shift ended – {duration} credited.",
+        "duty_status_offline": "You are off duty. This week: {week}.",
+        "duty_status_online": "You have been on duty for {duration}. This week: {week}.",
+        "duty_status_break": "You have been on break for {duration}. This week: {week}.",
+        "duty_note_team_only": "❌ Only team members can use shift notes.",
+        "duty_note_permission": "❌ You do not have permission to create shift notes.",
+        "duty_note_required": "❌ Please enter a note.",
+        "duty_note_too_long": "❌ A shift note may contain no more than 1,000 characters.",
+        "duty_note_read_error": "❌ The current shift status could not be read ({error_type}).",
+        "duty_note_inactive": "❌ You are currently off duty. Start a shift with /dienst start first.",
+        "duty_note_saved": "✅ Shift note saved privately and linked to your active shift.",
+        "duty_notes_team_only": "❌ Only team members can view shift notes.",
+        "duty_notes_lead_only": "❌ Shift notes for other team members are only available to leadership.",
+        "duty_notes_none": "📝 There are no shift notes for **{name}** yet.",
+        "duty_notes_title": "**Shift notes for {name}**",
+        "duty_notes_more_hidden": "… additional entries hidden.",
+        "duty_panel_admin_only": "❌ Only admins can publish the duty panel.",
+        "duty_panel_send_error": "❌ Pulse cannot send messages here ({error_type}). Check channel permissions.",
+        "ticket_team_only": "Only the ticket team can use this.",
+        "ticket_open_only": "Please use this command in an open ticket channel.",
+        "ticket_note_team_only": "Only the ticket team can save internal notes.",
+        "ticket_note_context": "The ticket is no longer open or the context does not match.",
+        "ticket_note_saved": "🔒 Internal note saved. It was not posted in the ticket channel.",
+        "ticket_notes_empty": "There are no internal notes for this ticket on this page.",
+        "ticket_links_empty": "There are no linked tickets for this ticket on this page.",
+        "ticket_channel_unavailable": "Channel unavailable",
+        "ticket_unlink_success": "🔓 Ticket link removed.",
+        "ticket_unlink_missing": "This ticket link did not exist.",
+        "ticket_summary_read_error": "The ticket history could not be read. Please check channel permissions.",
+        "ticket_summary_empty": "There are no readable text messages to summarize yet.",
+        "ticket_summary_saved": "The summary was also saved as an internal ticket note.",
+        "ticket_quick_reply_missing": "This quick reply is not available for this category (Dashboard → Ticket tools).",
+        "ticket_handover_permission": "Tickets can only be handed over to team members with ticket permissions.",
+        "ticket_ban_team_only": "Only the ticket team can issue ticket blocks.",
+        "ticket_ban_citizen_only": "Ticket blocks apply to citizens only – not team members, bots or yourself.",
+        "ticket_unban_team_only": "Only the ticket team can lift ticket blocks.",
+        "ticket_unban_success": "✅ Ticket block lifted.",
+        "ticket_unban_missing": "This person did not have a ticket block.",
+        "ticket_note_modal_title": "Internal ticket note",
+        "ticket_note_modal_label": "Note (authorized team only)",
+        "ticket_note_modal_placeholder": "Internal information for continued ticket handling …",
+        "ticket_notes_title": "🔒 Internal notes · Ticket {ticket_id}",
+        "ticket_notes_footer": "Page {page} · two notes per page",
+        "ticket_link_already": "🔗 Ticket **{ticket_id}** is already linked to this ticket.",
+        "ticket_link_success": "🔗 Ticket **{ticket_id}** and **{related_id}** were linked internally.",
+        "ticket_links_title": "🔗 Linked tickets · {ticket_id}",
+        "ticket_links_footer": "Page {page}{more}",
+        "ticket_links_more": " · more entries available",
+        "ticket_summary_title": "🧾 Handover summary · {ticket_id}",
+        "ticket_summary_save_error": "The internal note could not be saved: {error}",
+        "ticket_similar_title": "🔎 Similar tickets · {ticket_id}",
+        "ticket_similar_footer": "Local comparison of archived transcripts · no external AI",
+        "ticket_handover_title": "🔁 **Handover** to {assignee} by {actor}",
+        "ticket_handover_note": "📝 {note}",
+        "ticket_ban_until": "🚫 {member} cannot open new tickets until {date}.",
+        "duty_panel_published": "✅ Duty panel published.",
     },
 }
+
+
+_DUTY_FIXED_MESSAGES = {
+    "Du hast bereits eine laufende Schicht.": "duty_start_already_running",
+    "Schicht-Start gesperrt: Du hast bereits 5 aktive Verwarnungen!": "duty_start_warning_lock",
+    "Schicht gestartet – viel Erfolg!": "duty_start_success",
+    "Pause gestartet.": "duty_break_success",
+    "Schicht fortgesetzt.": "duty_resume_success",
+    "Diese Aktion ist gerade nicht möglich.": "duty_action_unavailable",
+}
+
+
+def translate_duty_message(locale, message: str) -> str:
+    """Translate the shared /dienst result returned by webserver without changing shift logic."""
+    text = str(message or "")
+    if _locale_language(locale) != "en":
+        return text
+    key = _DUTY_FIXED_MESSAGES.get(text)
+    if key:
+        return translate(locale, key)
+    leave_prefix = "Schicht gestartet. Deine Abmeldung bleibt bis "
+    leave_suffix = " hinterlegt und wird nicht automatisch beendet."
+    if text.startswith(leave_prefix) and text.endswith(leave_suffix):
+        date = text[len(leave_prefix):-len(leave_suffix)]
+        return translate(locale, "duty_start_leave_active", date=date)
+    end_prefix = "Schicht beendet – "
+    end_marker = " gutgeschrieben."
+    if text.startswith(end_prefix) and end_marker in text:
+        duration, tail = text[len(end_prefix):].split(end_marker, 1)
+        # Keep any optional handover details intact; only translate the stable result sentence.
+        return translate(locale, "duty_end_success", duration=duration) + tail
+    status_offline = "Du bist nicht im Dienst. Diese Woche: "
+    if text.startswith(status_offline) and text.endswith("."):
+        week = text[len(status_offline):-1]
+        return translate(locale, "duty_status_offline", week=week)
+    status_online = "Du bist im Dienst seit "
+    if text.startswith(status_online) and ". Diese Woche: " in text and text.endswith("."):
+        duration, week = text[len(status_online):].rsplit(". Diese Woche: ", 1)
+        return translate(locale, "duty_status_online", duration=duration, week=week[:-1])
+    status_break = "Du bist in der Pause seit "
+    if text.startswith(status_break) and ". Diese Woche: " in text and text.endswith("."):
+        duration, week = text[len(status_break):].rsplit(". Diese Woche: ", 1)
+        return translate(locale, "duty_status_break", duration=duration, week=week[:-1])
+    return text
+
+
+_TICKET_FIXED_MESSAGES = {
+    "Nur das Ticket-Team kann das nutzen.": "ticket_team_only",
+    "Bitte in einem offenen Ticket-Kanal verwenden.": "ticket_open_only",
+    "Nur das Ticket-Team kann interne Notizen speichern.": "ticket_note_team_only",
+    "Das Ticket ist nicht mehr offen oder der Kontext stimmt nicht.": "ticket_note_context",
+    "🔒 Interne Notiz gespeichert. Sie wurde nicht im Ticket-Kanal veröffentlicht.": "ticket_note_saved",
+    "Für dieses Ticket gibt es auf dieser Seite keine internen Notizen.": "ticket_notes_empty",
+    "Für dieses Ticket gibt es keine Verknüpfungen auf dieser Seite.": "ticket_links_empty",
+    "Kanal nicht verfügbar": "ticket_channel_unavailable",
+    "🔓 Ticket-Verknüpfung entfernt.": "ticket_unlink_success",
+    "Diese Ticket-Verknüpfung bestand nicht.": "ticket_unlink_missing",
+    "Der Ticketverlauf konnte nicht gelesen werden. Bitte die Kanal-Berechtigungen prüfen.": "ticket_summary_read_error",
+    "Es gibt noch keine auswertbaren Textnachrichten für eine Zusammenfassung.": "ticket_summary_empty",
+    "Die Zusammenfassung wurde zusätzlich als interne Ticketnotiz gespeichert.": "ticket_summary_saved",
+    "Keine ausreichend ähnlichen archivierten Tickets mit lesbarem Transkript gefunden.": "ticket_similar_empty",
+    "Diese Schnellantwort gibt es für die Kategorie nicht (Dashboard → Ticket-Werkzeuge).": "ticket_quick_reply_missing",
+    "Übergeben geht nur an Teammitglieder mit Ticket-Recht.": "ticket_handover_permission",
+    "Nur das Ticket-Team kann Ticket-Sperren setzen.": "ticket_ban_team_only",
+    "Ticket-Sperren gelten nur für Bürger – nicht für Teammitglieder, Bots oder dich selbst.": "ticket_ban_citizen_only",
+    "Nur das Ticket-Team kann Ticket-Sperren aufheben.": "ticket_unban_team_only",
+    "✅ Sperre aufgehoben.": "ticket_unban_success",
+    "Für diese Person gab es keine Sperre.": "ticket_unban_missing",
+}
+
+
+def translate_ticket_message(locale, message: str) -> str:
+    """Translate stable ticket-tool responses; keep German fallback for unknown backend errors."""
+    text = str(message or "")
+    if _locale_language(locale) != "en":
+        return text
+    key = _TICKET_FIXED_MESSAGES.get(text)
+    return translate(locale, key) if key else text
+
 
 _SECTION_KEYS = {
     "⏱ Dienst & ich": "section_duty",

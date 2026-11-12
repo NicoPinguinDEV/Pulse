@@ -7,3 +7,5 @@
 # Funktionsaufruf provider_request_slot(self.api_base, self.api_key, min_interval=2.0) – Attributzugriff, kein Schlüssel:
 1094de3876b76679f9e5bcd36df110441d02ef74:cogs/support_assistant.py:generic-api-key:252
 f392d6a0838a0437e7d2f4eb7b7485d043b0b4d1:cogs/support_assistant.py:generic-api-key:252
+# Testaufruf self.make("access", received_at=NOW - timedelta(days=40)) – Anfrageart "access" (Auskunft), kein Schlüssel:
+9dc6be9271e25b9d84e23b8425acad825ccad8a8:tests/test_privacy_requests.py:generic-api-key:155

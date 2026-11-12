@@ -26,7 +26,7 @@ INCIDENT_TYPES = (
     "AutoMod-Maßnahme", "AutoMod-Testtreffer", "AutoMod-Fehlalarm bestätigt", "Anti-Nuke-Aktion erkannt", "Anti-Nuke ausgelöst", "Anti-Nuke: Akteur gesperrt",
     "Anti-Nuke: Akteur gekickt", "Anti-Nuke: Quarantäne", "Anti-Nuke: Bot entfernt",
     "Anti-Nuke: Quarantäne aufgehoben", "Anti-Nuke: Quarantäne verworfen",
-    "Anti-Nuke: Lockdown gestartet", "Anti-Nuke: Lockdown aufgehoben",
+    "Anti-Nuke: Lockdown gestartet", "Anti-Nuke: Lockdown aufgehoben", "Webhook-Änderung erkannt",
 )
 INCIDENT_LIMIT = 60
 REQUIRED_PERMISSIONS = (
@@ -215,6 +215,7 @@ def stats(rows: list[dict]) -> dict:
         "by_rule": by_rule,
         "antinuke_7d": sum(1 for r in week if r.get("event_type", "").startswith("Anti-Nuke") and r.get("event_type") != "Anti-Nuke-Aktion erkannt"),
         "detected_7d": sum(1 for r in week if r.get("event_type") == "Anti-Nuke-Aktion erkannt" and not r["payload"].get("trusted")),
+        "webhooks_7d": sum(1 for r in week if r.get("event_type") == "Webhook-Änderung erkannt"),
     }
 
 
@@ -329,6 +330,7 @@ def register(app) -> None:
   <div class="guard-steps">{by_rule}</div>
   <div class="guard-kv" style="margin-top:8px"><span>Anti-Nuke-Reaktionen (7 Tage)</span><span class="guard-big">{st["antinuke_7d"]}</span></div>
   <div class="guard-kv"><span>Erkannte Aktionen nicht freigegebener Personen</span><strong>{st["detected_7d"]}</strong></div>
+  <div class="guard-kv"><span>Webhook-Änderungen (7 Tage)</span><strong>{st["webhooks_7d"]}</strong></div>
   <div class="guard-kv"><span>Aktuell in Quarantäne</span><strong>{len(quarantine)}</strong></div></div>
  <div class="space-y-2">{"".join(checks)}</div>
 </div></section>'''
@@ -348,6 +350,24 @@ def register(app) -> None:
             f'<span><strong>{e(pm.AUTOMOD_RULE_LABELS[key])}</strong><small>{e(rule_desc[key])}</small></span></label>'
             for key in pm.AUTOMOD_RULE_ORDER)
         steps = "".join(f'<span class="pulse-pill">{i}. {e(s)}</span>' for i, s in enumerate(pm.escalation_preview(automod), 1))
+        rule_exemption_rows = []
+        for rule in pm.AUTOMOD_RULE_ORDER:
+            entry = automod["rule_exemptions"].get(rule, {})
+            role_ids_for_rule = entry.get("role_ids", []) if isinstance(entry, dict) else []
+            channel_ids_for_rule = entry.get("channel_ids", []) if isinstance(entry, dict) else []
+            rule_exemption_rows.append(
+                f'<details class="pulse-card" style="padding:10px;margin:8px 0">'
+                f'<summary style="cursor:pointer;font-weight:700">{e(pm.AUTOMOD_RULE_LABELS[rule])} · Ausnahmen</summary>'
+                f'<div class="guard-grid" style="margin-top:10px">'
+                f'<label class="guard-field">Ausgenommene Rollen'
+                f'<select class="pulse-input guard-select" name="automod_rule_exempt_roles_{rule}" multiple>'
+                f'{role_options(guild, role_ids_for_rule)}</select></label>'
+                f'<label class="guard-field">Ausgenommene Kanäle/Kategorien'
+                f'<select class="pulse-input guard-select" name="automod_rule_exempt_channels_{rule}" multiple>'
+                f'{channel_options(guild, channel_ids_for_rule, categories=True)}</select></label>'
+                f'</div></details>'
+            )
+        rule_exemptions_ui = "".join(rule_exemption_rows)
         mode_radio = "".join(
             f'<label class="guard-check"><input type="radio" name="mode" value="{key}"{" checked" if automod["mode"] == key else ""}>'
             f'<span><strong>{label}</strong><small>{hint}</small></span></label>'
@@ -385,6 +405,11 @@ def register(app) -> None:
   <label class="guard-field">Ausgenommene Rollen<select class="pulse-input guard-select" name="automod_exempt_role_ids" multiple>{role_options(guild, automod["exempt_role_ids"])}</select><span class="guard-hint">Strg/⌘ gedrückt halten für Mehrfachauswahl.</span></label>
   <label class="guard-field">Ausgenommene Kanäle/Kategorien<select class="pulse-input guard-select" name="automod_exempt_channel_ids" multiple>{channel_options(guild, automod["exempt_channel_ids"], categories=True)}</select></label>
  </div>
+ <details class="pulse-card" style="padding:12px">
+  <summary style="cursor:pointer;font-weight:750">Ausnahmen je Regel konfigurieren</summary>
+  <div class="guard-hint" style="margin:8px 0">Diese Ausnahmen gelten nur für die ausgewählte Regel. Alle anderen aktivierten AutoMod-Regeln werden für diese Rollen und Kanäle weiterhin geprüft.</div>
+  {rule_exemptions_ui}
+ </details>
  <div class="pulse-section-title" style="margin-top:6px">Eskalation</div>
  <div class="guard-grid">
   {num("timeout_after_strikes", "Timeout ab Verstoß Nr.", 1, 10, automod["timeout_after_strikes"])}
@@ -485,7 +510,7 @@ def register(app) -> None:
                             f'<div class="pulse-row-meta">{meta}</div></div><span class="pulse-time pulse-row-meta">{e(str(row.get("created_at", ""))[:16].replace("T", " "))}</span></div>')
         incidents_html = f'''
 <section id="incidents" class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">📜 Vorfallprotokoll</div>
-<div class="pulse-section-sub">Die letzten {INCIDENT_LIMIT} AutoMod- und Anti-Nuke-Ereignisse (UTC).</div></div></div>
+<div class="pulse-section-sub">Die letzten {INCIDENT_LIMIT} AutoMod-, Anti-Nuke- und Webhook-Ereignisse (UTC).</div></div></div>
 <div class="pulse-card-b space-y-2">{"".join(inc_rows) or '<div class="pulse-empty">Noch keine Vorfälle.</div>'}</div></section>'''
 
         nav = "".join(f'<a class="pulse-btn ghost" href="#{a}">{l}</a>' for a, l in (
@@ -525,6 +550,12 @@ def register(app) -> None:
         role_ids = {r.id for r in getattr(guild, "roles", []) or []} | set(old["exempt_role_ids"])
         channel_ids = ({c.id for c in getattr(guild, "text_channels", []) or []}
                        | {c.id for c in getattr(guild, "categories", []) or []} | set(old["exempt_channel_ids"]))
+        old_rule_exemptions = old.get("rule_exemptions", {})
+        if isinstance(old_rule_exemptions, dict):
+            for entry in old_rule_exemptions.values():
+                if isinstance(entry, dict):
+                    role_ids.update(entry.get("role_ids", []))
+                    channel_ids.update(entry.get("channel_ids", []))
         try:
             rules = sorted(set(form.getlist("automod_rules")) & pm.AUTOMOD_RULES)
             enabled = form.get("automod_enabled") == "1" or form.get("automod_enabled") == "on"
@@ -545,6 +576,19 @@ def register(app) -> None:
                 "allowed_domains": _parse_lines(form, "allowed_domains", "Freigegebene Domains", domains=True),
                 "exempt_role_ids": _parse_select(form, "automod_exempt_role_ids", "Ausgenommene Rollen", role_ids),
                 "exempt_channel_ids": _parse_select(form, "automod_exempt_channel_ids", "Ausgenommene Kanäle", channel_ids),
+                "rule_exemptions": {
+                    rule: {
+                        "role_ids": _parse_select(
+                            form, f"automod_rule_exempt_roles_{rule}",
+                            f"Ausnahmen für {pm.AUTOMOD_RULE_LABELS[rule]} (Rollen)", role_ids,
+                        ),
+                        "channel_ids": _parse_select(
+                            form, f"automod_rule_exempt_channels_{rule}",
+                            f"Ausnahmen für {pm.AUTOMOD_RULE_LABELS[rule]} (Kanäle)", channel_ids,
+                        ),
+                    }
+                    for rule in pm.AUTOMOD_RULE_ORDER
+                },
                 "warn_dm": form.get("warn_dm") == "1",
                 "timeout_after_strikes": _parse_int(form, "timeout_after_strikes", "Timeout ab Verstoß", 1, 10),
                 "timeout_minutes": _parse_int(form, "timeout_minutes", "Erster Timeout", 1, 1440),

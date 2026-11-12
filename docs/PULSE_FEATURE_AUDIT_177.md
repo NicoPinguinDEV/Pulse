@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich:** `main` @ `c44352852373de9b702664c6f35379d9b2c3d229` (PRs #211–#213 gemergt). Der geprüfte Main-Stand vor diesem Runbook-Branch beträgt 73 fertig / 103 teilweise / 1 offen. Dieser Branch ergänzt #164 einschließlich Regressionstest; Branch-Stand nach dieser Ergänzung: 74 fertig / 102 teilweise / 1 offen. Die offenen Draft-PRs #214–#217 zählen bis zu einem Merge nicht zum Main-Stand. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich:** `main` @ `75555c79f942de700ad4a48c53d43fa8fce591b5` (PRs #214–#219 sowie das Notfallhandbuch #164 sind gemergt). Der Auditstand wurde nach den jüngsten Merges anhand der geänderten Module und ihrer Verhaltenstests aktualisiert: **78 fertig / 99 teilweise / 0 offen**. #10 besitzt inzwischen eine getestete Deutsch-/Englisch-Locale-Grundlage, ist aber wegen der noch nicht durchgängigen Übersetzung teilweise. #25, #45, #46 und #49 sind nach den gemergten, getesteten Discord-/Dashboard-Flows fertig. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,19 +19,19 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 74 |
-| Teilweise | 102 |
-| Offen | 1 |
+| Fertig | 79 |
+| Teilweise | 98 |
+| Offen | 0 |
 | **Gesamt** | **177** |
 
 ## Ergebnis nach Bereichen
 
 | Bereich | Fertig | Teilweise | Offen |
 |---|---:|---:|---:|
-| Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 2 | 1 |
-| Discord-Bot – Moderation und Sicherheit | 3 | 12 | 0 |
+| Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 3 | 0 |
+| Discord-Bot – Moderation und Sicherheit | 5 | 10 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
-| Discord-Bot – Community und BOCHUM RP | 2 | 13 | 0 |
+| Discord-Bot – Community und BOCHUM RP | 5 | 10 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 6 | 6 | 0 |
 | Dienstplanung und Aktivität | 4 | 8 | 0 |
@@ -40,7 +40,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
 | Pulse Intelligence | 6 | 9 | 0 |
 | Automatisierungen und Workflow-System | 9 | 3 | 0 |
-| Admin Center, Sicherheit und Betrieb | 9 | 11 | 0 |
+| Admin Center, Sicherheit und Betrieb | 10 | 10 | 0 |
 | BOCHUM-RP-spezifische Funktionen | 0 | 5 | 0 |
 
 ## Einzelbewertung
@@ -52,13 +52,13 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 1 | Interaktive, rechteabhängige Hilfe | **Fertig** | `/pulse-hilfe` wird aus dem Command-Tree erzeugt und nach Berechtigungen gefiltert; `tests/test_command_help.py`. |
 | 2 | Persönliches Pulse-Profil | **Fertig** | `/profil` zeigt eigene Rolle, Dienst, Wochenzeit, Aufgaben, Tickets und Schulungen privat; `tests/test_profile_command.py`. |
 | 3 | Persönliche Übersicht `/pulse` | **Fertig** | `/pulse` zeigt die vollständige persönliche Übersicht (PR #192); `tests/test_pulse_overview_command.py`. |
-| 4 | Intelligente Autovervollständigung | **Teilweise** | Discord-Member-Optionen und Ticket-Schnellantwort-Autocomplete existieren; eine durchgängige Vorschlagslogik für Fälle, Kategorien und alle Befehle fehlt. |
+| 4 | Intelligente Autovervollständigung | **Teilweise** | Zusätzliche Autocomplete-Flows für verknüpfte Ticketreferenzen (PR #216) sowie Kategorien/Prioritäten bei Spieler-Meldungen (PR #219) sind getestet. Noch nicht alle passenden Befehle und Team-/Fallreferenzen bieten durchgängige Vorschläge. |
 | 5 | Kontextbezogene Fehler- und Rechtehilfe | **Fertig** | `pulse_command_errors.py` erklärt fehlende Rechte, Cooldowns, Transformer- und unerwartete Fehler; `tests/test_command_errors.py`. |
 | 6 | Interaktive Menüs für häufige Aktionen | **Teilweise** | Buttons, Selects und Modals sind in Ticket-, Moderations-, Dienst- und Voice-Flows vorhanden; es gibt aber kein einheitliches persönliches Aktionsmenü für alle Bereiche. |
 | 7 | Persönliche Befehlsfavoriten | **Fertig** | Persistente Slash-Command-Favoriten je Nutzer (PR #194); `pulse_command_favorites.py`, `tests/test_pulse_command_favorites.py`. |
 | 8 | Persönliche Benachrichtigungseinstellungen | **Fertig** | Kategorien, Opt-in-DMs, Inbox-Gruppierung und Einstellungen sind in `pulse_notify_prefs.py`; `tests/test_notify_prefs.py`. |
 | 9 | Persönliche und serverweite Ruhezeiten | **Fertig** | Persönliche und globale Quiet Hours inklusive Mitternachtswechsel, Zurückhalten und Bündeln; `tests/test_notify_prefs.py`. |
-| 10 | Mehrsprachige Bot-Antworten | **Offen** | Deutsche Texte sind fest im Bot und Dashboard hinterlegt; kein vollständiges Übersetzungs-/Locale-System gefunden. |
+| 10 | Mehrsprachige Bot-Antworten | **Teilweise** | PR #214 ergänzt eine getestete, nutzerbezogene Locale-Präferenz (Deutsch/Englisch/Auto) und übersetzt bereits /profil und /pulse-hilfe; weitere Bot-Antworten, Modals/Buttons und Dashboard-Texte sind noch nicht durchgängig migriert. |
 
 ### 2. Discord-Bot – Moderation und Sicherheit (11–25)
 
@@ -77,8 +77,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 21 | Sicherheitsübungen und Simulationen | **Teilweise** | Anti-Nuke-Regelsimulation und Replay-Tests existieren (`tests/test_antinuke_control_center.py`, `tests/test_antinuke_replay.py`); ein durchgängiger Übungsmodus für AutoMod, Raid und Lockdown fehlt. |
 | 22 | Alarm bei kritischen Rollen-/Kanaländerungen | **Fertig** | Anti-Nuke verarbeitet Role-, Channel-, Permission- und Guild-Update-Ereignisse; Tests prüfen Berechtigungsänderungen und harmlose Änderungen. |
 | 23 | Webhook-Überwachung | **Teilweise** | `cogs/antinuke.py` verarbeitet `on_webhooks_update`; ein separat abgesicherter, umfassend getesteter Webhook-Alarm-/Änderungsverlauf fehlt. |
-| 24 | Moderationsstatistiken | **Teilweise** | Falllisten, Warnzähler, Audit und Analytics liefern Teilkennzahlen; eine vollständige Moderationsauswertung nach Typ, Bearbeitungszeit und Ergebnis fehlt. |
-| 25 | Fehlalarmprüfung und Feedback für AutoMod | **Teilweise** | KI-Moderationsfälle besitzen Review-Aktionen; ein eigener Fehlalarm-/False-Positive-Rückkanal für normale AutoMod-Regeln fehlt. |
+| 24 | Moderationsstatistiken | **Fertig** | `/mod-cases/stats` (PR folgt, Branch `feature/moderation-statistics-24`): /mod-Fälle je Server nach Maßnahme, Ergebnis, Median-Dauer bis Abschluss, DM-/Beweis-/Vorlagenquote, Wiederholungen, Moderatorverteilung und Vorzeitraumvergleich; AutoMod-Maßnahmen je Regel mit Fehlalarmquote und Prüfdauer, Testtreffer getrennt; CSV-Export. Nur lesend, Guild-isoliert, Rechte wie Fallakte. `tests/test_mod_stats.py`. Einspruchsquoten folgen erst mit PR #225. |
+| 25 | Fehlalarmprüfung und Feedback für AutoMod | **Fertig** | PR #215 ergänzt eine persistente, servergebundene Fehlalarmprüfung für echte AutoMod-Ereignisse, /automod-fehlalarm und /automod-feedback, Berechtigungsprüfungen und Audit-Einträge. Begründungen werden gespeichert, aber keine Sanktion automatisch zurückgenommen und keine Regel automatisch geändert; Regressionstests und Pflicht-CI sind grün. |
 
 ### 3. Discord-Bot – Tickets und Support (26–40)
 
@@ -108,11 +108,11 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 42 | Teilnehmerlisten für Events | **Fertig** | Zu-/Absagen je Kalendertermin in `ultimate_calendar_rsvps` (PR #195); `tests/test_ultimate_event_rsvps.py`. |
 | 43 | Event-Erinnerungen | **Teilweise** | Interview-/Recruiting-Erinnerungen und allgemeine Automationen existieren; ein durchgängiger Event-Erinnerungsdienst fehlt. |
 | 44 | Umfragen | **Teilweise** | `/ultimate/polls` bietet Single-/Multiple-Choice-Abstimmungen im Dashboard; native Discord-Umfragen und Bot-Commands sind nicht vollständig integriert. |
-| 45 | Community-Vorschlagsbox | **Teilweise** | `/ultimate/feedback` nimmt anonyme/namentliche Vorschläge mit Status auf; ein eigener Discord-Einreichungs- und Community-Abstimmungsflow fehlt. |
-| 46 | Feedbacksystem | **Teilweise** | Ultimate-Feedback und Ticket-/Voice-Ratings existieren; ein gemeinsamer Community-Feedbackprozess über Discord und Dashboard ist noch nicht vorhanden. |
+| 45 | Community-Vorschlagsbox | **Fertig** | PR #217 ergänzt Discord-Modal-Einreichung, servergebundene Speicherung, Dashboard-Prüfung/Freigabe und Community-Abstimmung mit Ein-Stimme-pro-Mitglied-Regel sowie Ergebnisübersicht. Verhaltenstests, Datenschutzexport und Pflicht-CI sind grün. |
+| 46 | Feedbacksystem | **Fertig** | PR #217 ergänzt /feedback für anonyme oder namentliche Einreichungen, trennt allgemeines Feedback sauber von abstimmbaren Vorschlägen und zeigt beide Typen im Dashboard. Verhaltenstests, Datenschutzexport und Pflicht-CI sind grün. |
 | 47 | Regelwerk-Assistent mit Quellen | **Teilweise** | Support Assistant und `support_knowledge.md` liefern Wissensantworten; zitierte, versionierte Regelwerkspassagen mit direkten Quellenlinks fehlen. |
 | 48 | Freigegebene Fraktionsübersicht | **Fertig** | Fraktionsverwaltung mit offiziellen Fraktionen und öffentlicher, freigabegesteuerter Darstellung; `tests/test_factions.py`, `tests/test_public_site.py`. |
-| 49 | Spieler-Meldesystem | **Teilweise** | Ultimate-Fallverwaltung mit Fallnummer, Betreff, Anhängen und Spielerreferenzen existiert; ein klarer, öffentlicher Spieler-Meldeablauf in Discord fehlt. |
+| 49 | Spieler-Meldesystem | **Fertig** | PR #219 ergänzt /spieler-meldung und /meine-meldungen, strukturierte Kategorien/Prioritäten, optionale Belege, servergebundene Fall-IDs, Team-Benachrichtigungen, Dashboard-Bearbeitung und personenbezogenen Export für Melder, Bearbeiter und Prüfer. Regression, Datenschutztests und Pflicht-CI sind grün. |
 | 50 | Strikte IC-/OOC-Falltrennung | **Teilweise** | Fallkategorien und IC-/OOC-Angaben existieren in Bewerbungs-/Moderationsabläufen; ein einheitliches, validiertes IC-/OOC-Vorgangsmodell fehlt. |
 | 51 | Team-Besprechungsmodus | **Teilweise** | Kalender und Besprechungseinträge existieren; Agenda, Teilnehmer, Beschlüsse und daraus erzeugte Aufgaben sind nicht als vollständiger Meeting-Workflow verbunden. |
 | 52 | Ankündigungsplaner | **Teilweise** | Team-News, Ankündigungsarchiv, Social-Promotion und zeitgesteuerte Automationen existieren; ein eigener Entwurf-/Freigabe-/Sendeplaner für Ankündigungen fehlt. |
@@ -279,7 +279,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 168 | Testserver-/Testdatenmodus | **Teilweise** | CI-Fakes, Preview-Server und Workflow-Testmodus existieren; ein konfigurierbarer isolierter Test-Guild-Modus für Admins fehlt. |
 | 169 | Release-Übersicht | **Teilweise** | Version und Status werden angezeigt; laufender Commit, Deploymentvergleich, letzter Release und Rollback-Stand sind nicht vollständig zusammengeführt. |
 | 170 | Datenintegritätsprüfung | **Fertig** | Read-only Konsistenzdiagnose, Bewerbungsdatenprüfung, Schichthistorie und SQLite-Quick-Check; `tests/test_consistency.py`, `tests/test_application_data_audit.py`, `tests/test_system_checks.py`. |
-| 171 | Datenschutz-Anfragen | **Teilweise** | Personenexport, IP-Audit, Retention und KI-Vergessen-Funktion existieren; ein zentraler Auskunft-/Berichtigungs-/Löschantragsworkflow mit Status fehlt. |
+| 171 | Datenschutz-Anfragen | **Fertig** | Branch `feature/privacy-requests-171`: `pulse_privacy_requests.py` + `/admin/privacy/requests` (nur Admins) mit Auskunft/Berichtigung/Löschung/Einschränkung/Widerspruch, Frist 1 Monat (einmal um ≤ 60 Tage verlängerbar), Status, Zuständigkeit, Notizen, revisionsfestem Verlauf, lesender Datenbestandsprüfung und JSON-Auskunft; Discord `/datenschutz-anfrage` und `/datenschutz-status` (privat, nur eigene Anfragen), Admin-Inbox bei Eingang und tägliche Überfälligkeitserinnerung. Tabellen im JSON-Backup und Personenexport. `tests/test_privacy_requests.py`. Pulse löscht nichts automatisch. |
 | 172 | Aufbewahrungsübersicht | **Teilweise** | `pulse_retention.py` und Phase-15.6-Retention-Dokumente enthalten Regeln/Pläne; eine vollständige UI-Matrix über jede Datenart und Frist fehlt. |
 
 ### 14. BOCHUM-RP-spezifische Funktionen (173–177)
