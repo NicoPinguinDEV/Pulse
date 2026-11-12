@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 79 |
-| Teilweise | 98 |
+| Fertig | 80 |
+| Teilweise | 97 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 

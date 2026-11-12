@@ -7,8 +7,8 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, 
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 79 |
-| Teilweise | 98 |
+| Fertig | 80 |
+| Teilweise | 97 |
 | Offen | 0 |
 
 **Aktueller Ausgangspunkt:** `main` @ `75555c79f942de700ad4a48c53d43fa8fce591b5`. Die PRs #214–#219 sind gemergt. Die Kernfunktionen #25, #45, #46 und #49 sind jetzt als fertig bewertet; #10 ist durch die Locale-Grundlage von „Offen“ auf „Teilweise“ gestiegen. Der Ticket-/Support-Bereich #26–#40 bleibt vollständig.
@@ -124,6 +124,13 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 - Keine neue Tabelle, keine Migration, keine Schreibzugriffe. Quellen: `mod_cases`, `events` (AutoMod-Maßnahme/-Testtreffer), `automod_false_positive_feedback`.
 - Entscheidungen: Quoten ohne Datenbasis werden als „–“ angezeigt statt 0 %; Testtreffer und `simulation`-Ereignisse zählen nie als Maßnahme; Zeilen fremder Guilds oder mit unlesbaren Zeitstempeln werden ignoriert; je Quelle höchstens 20 000 Zeilen (RAM-Budget).
 - Einschränkungen: Einspruchskennzahlen erst nach Merge von PR #225; Teamwarnungen und `/ultimate/cases` sind getrennte Fachakten (#11/#12) und nicht Teil dieser Bürger-Moderationsauswertung; kein Discord-Command (vermeidet Konflikt mit PR #225 in `cogs/mod_cases.py`).
+
+## Prüfstand 12.11.2026 – Merge-Welle #221–#233
+
+- Gemergt: #221 (Webhook-Überwachung, #23), #222 (Spieler-Selbstservice, #55), #223 (AutoMod-Ausnahmen, #18), #224 (Raid-Alarmstufen, #19), #225 (Einsprüche, #15), #226 (Event-Erinnerungen, #43), #227 (Widget-Anordnung, #57), #228 (Ankündigungsplanung, #52), #229 (fastapi 0.162.2 inkl. Lock-Hashes), #231 (kaputte Tests auf main, Compose-Log-Race), #232 (#24), #233 (#171).
+- Nicht gemergt: #230 (davey 0.2.0) – inkompatibel mit discord.py 2.7.1 (DAVE-Transitions), Begründung im PR.
+- Nach der Merge-Welle: `delivery_loop` aus #228 mit `@tracked` versehen, Routenkarte/Jobs-Liste neu erzeugt, Zähler auf 80 / 97 korrigiert.
+- **Offen:** Die Auditzeilen #15, #18, #19, #23, #43, #52, #55 und #57 sind noch als „Teilweise“ geführt. Sie werden erst nach einer Prüfung des gemergten Codes gegen die Anforderung auf „Fertig“ gesetzt.
 
 ## Prüfstand 11.11.2026 – nach PR #214 bis #219
 

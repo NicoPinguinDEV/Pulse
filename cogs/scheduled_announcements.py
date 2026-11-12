@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import pulse_db
+from pulse_jobs import tracked
 
 
 LOCAL_ZONE = ZoneInfo("Europe/Berlin")
@@ -267,6 +268,7 @@ class ScheduledAnnouncements(commands.Cog):
         )
 
     @tasks.loop(seconds=30)
+    @tracked("Ankündigungsplaner Versand (30 s)", 30)
     async def delivery_loop(self):
         try:
             due = await asyncio.to_thread(pulse_db.claim_due_scheduled_announcements, None, 20)
