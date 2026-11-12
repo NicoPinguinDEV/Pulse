@@ -27,7 +27,7 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | cogs/ai_moderation.py:399 | `_wait_and_publish_outage_notice` | `min(max(remaining + 0.25, 1.0` | keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt) |
 | cogs/recovery.py:219 | `_run_all_sync` | `1.0, 0.2` | keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt) |
 | pulse_ultimate.py:3446 | `automation_loop` | `60, 60` | 4 except, davon 3 breit |
-| webserver.py:10019 | `auto_backup_loop` | `300` | 3 except, davon 1 breit |
+| webserver.py:10112 | `auto_backup_loop` | `300` | 3 except, davon 1 breit |
 
 ## `create_task` / `ensure_future` / `pulse_tasks.spawn` (15)
 
@@ -49,7 +49,7 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | main.py:99 | `spawn_task(self.close(), name="pulse-sigterm-close", loop=loop, critical=True)` |
 | pulse_tasks.py:44 | `target.create_task(coro, name=name)` |
 | pulse_ultimate.py:3479 | `spawn_task(automation_loop(bot), name="pulse-automation", critical=True)` |
-| webserver.py:10096 | `spawn_task(auto_backup_loop(), name="pulse-auto-backup", critical=True)` |
+| webserver.py:10189 | `spawn_task(auto_backup_loop(), name="pulse-auto-backup", critical=True)` |
 
 ## Rechte-Schlüssel
 
@@ -73,9 +73,9 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | `can_manage_tickets` | PERM_KEYS | cogs/ticket_tools.py (2), cogs/tickets.py (2), pulse_features.py (1), pulse_home.py (1), pulse_pro.py (3), pulse_ticket_center.py (2), webserver.py (1) | — |
 | `can_manage_training` | PERM_KEYS | pulse_features.py (5) | — |
 | `can_manage_wiki` | PERM_KEYS | pulse_features.py (4) | — |
-| `can_moderate_bans` | EXTRA_PERMS | cogs/mod_cases.py (3), pulse_admin.py (1), webserver.py (3) | — |
+| `can_moderate_bans` | EXTRA_PERMS | cogs/mod_cases.py (3), pulse_admin.py (2), webserver.py (3) | — |
 | `can_moderate_bolo` | EXTRA_PERMS | webserver.py (2) | — |
-| `can_moderate_kicks` | EXTRA_PERMS | cogs/automod.py (1), cogs/mod_cases.py (3), pulse_admin.py (1), webserver.py (3) | — |
+| `can_moderate_kicks` | EXTRA_PERMS | cogs/automod.py (1), cogs/mod_cases.py (3), pulse_admin.py (2), webserver.py (3) | — |
 | `can_promote` | PERM_KEYS | cogs/ai_moderation.py (1), cogs/dienst.py (1), cogs/pulse_pro.py (3), cogs/pulse_suite.py (2), cogs/raid_watch.py (1), cogs/rp_verwaltung.py (1), pulse_admin.py (1), pulse_cockpit.py (1), pulse_command_help.py (1), pulse_features.py (11), pulse_home.py (4), pulse_next.py (4), pulse_phase7.py (6), pulse_pro.py (22), pulse_ticket_center.py (1), pulse_ultimate.py (11), pulse_workflows.py (2), webserver.py (17) | — |
 | `can_view_analytics` | PERM_KEYS | pulse_phase7.py (2), pulse_pro.py (1) | — |
 | `can_view_dashboard` | PERM_KEYS | cogs/dienst.py (1), cogs/pulse_pro.py (8), pulse_pro.py (2), webserver.py (2) | — |

@@ -1,5 +1,10 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Moderationsstatistik (November 2026)
+
+- **Auswertung (#24):** Neue Seite „Moderationsstatistik“ (`/mod-cases/stats`) für Personen mit Moderationsrecht: /mod-Fälle der letzten 7, 30 oder 90 Tage nach Maßnahme und Ergebnis, mittlere Dauer bis zum Abschluss, Anteil zugestellter DMs, Fälle mit Beweis oder Begründungsvorlage, Wiederholungen und Vergleich zum Vorzeitraum. AutoMod-Maßnahmen je Regel mit Fehlalarmquote und Prüfdauer; Testtreffer werden getrennt gezählt. CSV-Export.
+- Nur lesend, je Discord-Server getrennt; keine neue Tabelle.
+
 ## Tickets: Eskalation überfälliger Tickets und Frist für das Wiederöffnen (November 2026)
 
 - **Eskalation (#28):** Bleibt eine Erinnerung ohne Wirkung – niemand übernimmt das Ticket oder der Bearbeiter antwortet weiter nicht –, informiert Pulse nach der eingestellten Zeit einmal die Ticket-Führungsebene: im Protokollkanal und in der Pulse-Inbox. Das Ticket trägt in der Ticket-Zentrale die Markierung „Eskaliert“. Pulse ändert dabei weder Bearbeiter noch Priorität. Einstellbar unter „Ticket-Automatik“, auch je Kategorie; Standard ist aus.

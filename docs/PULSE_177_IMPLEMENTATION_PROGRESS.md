@@ -7,8 +7,8 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, 
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 78 |
-| Teilweise | 99 |
+| Fertig | 79 |
+| Teilweise | 98 |
 | Offen | 0 |
 
 **Aktueller Ausgangspunkt:** `main` @ `75555c79f942de700ad4a48c53d43fa8fce591b5`. Die PRs #214–#219 sind gemergt. Die Kernfunktionen #25, #45, #46 und #49 sind jetzt als fertig bewertet; #10 ist durch die Locale-Grundlage von „Offen“ auf „Teilweise“ gestiegen. Der Ticket-/Support-Bereich #26–#40 bleibt vollständig.
@@ -105,6 +105,16 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 - ruff.toml nimmt die Testdatei in die konservative Lint-Liste auf.
 - Audit #164 wird in diesem Branch auf Fertig gesetzt. Der Branch-Zähler ist 74 fertig / 102 teilweise / 1 offen; main bleibt bis zum Merge bei 73 / 103 / 1.
 - Keine Änderung an Laufzeitdaten, Discord-Produktivserver, VPS, Secrets oder Deployment-Konfiguration.
+
+## Block 9 – Moderationsstatistik (#24)
+
+- Branch: `feature/moderation-statistics-24` ab `main` @ `f0b9e7c`.
+- Bestandsaufnahme 12.11.2026: PR #221–#228 (Features #15, #18, #19, #23, #43, #52, #55, #57) und #229/#230 (Dependabot) offen; diese Funktionen werden hier nicht parallel bearbeitet.
+- Dateien: `pulse_mod_stats.py` (neu), `webserver.py` (zwei neue Routen hinter der Fallakte), `pulse_admin.py` (Navigation), `tests/test_mod_stats.py` (neu), `ruff.toml`, generierte Landkarten.
+- Neue Routen: `GET /mod-cases/stats`, `GET /mod-cases/stats.csv` – gleiche Rechteprüfung wie `/mod-cases` (Admin oder Kick-/Ban-Moderationsrecht), CSV-Export wird auditiert.
+- Keine neue Tabelle, keine Migration, keine Schreibzugriffe. Quellen: `mod_cases`, `events` (AutoMod-Maßnahme/-Testtreffer), `automod_false_positive_feedback`.
+- Entscheidungen: Quoten ohne Datenbasis werden als „–“ angezeigt statt 0 %; Testtreffer und `simulation`-Ereignisse zählen nie als Maßnahme; Zeilen fremder Guilds oder mit unlesbaren Zeitstempeln werden ignoriert; je Quelle höchstens 20 000 Zeilen (RAM-Budget).
+- Einschränkungen: Einspruchskennzahlen erst nach Merge von PR #225; Teamwarnungen und `/ultimate/cases` sind getrennte Fachakten (#11/#12) und nicht Teil dieser Bürger-Moderationsauswertung; kein Discord-Command (vermeidet Konflikt mit PR #225 in `cogs/mod_cases.py`).
 
 ## Prüfstand 11.11.2026 – nach PR #214 bis #219
 

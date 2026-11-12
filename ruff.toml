@@ -4,7 +4,7 @@ target-version = "py312"
 line-length = 140
 include = [
     "pulse_app_comms.py", "pulse_audio_check.py", "pulse_backup.py", "pulse_checklists.py", "pulse_command_errors.py", "pulse_command_groups.py", "pulse_command_help.py", "pulse_command_sync.py",
-    "pulse_consistency.py", "pulse_ids.py", "pulse_interactions.py", "pulse_jobs.py", "pulse_lists.py", "pulse_logcfg.py", "pulse_migrations.py", "pulse_logging.py", "pulse_mod_cases.py", "pulse_panels.py", "pulse_notify_prefs.py", "pulse_permissions.py", "pulse_presence.py", "pulse_raid.py",
+    "pulse_consistency.py", "pulse_ids.py", "pulse_interactions.py", "pulse_jobs.py", "pulse_lists.py", "pulse_logcfg.py", "pulse_migrations.py", "pulse_logging.py", "pulse_mod_cases.py", "pulse_mod_stats.py", "pulse_panels.py", "pulse_notify_prefs.py", "pulse_permissions.py", "pulse_presence.py", "pulse_raid.py",
     "pulse_ready.py", "pulse_retention.py", "pulse_security.py", "pulse_sessions.py", "pulse_store.py", "pulse_system_checks.py", "pulse_tasks.py", "pulse_ticket_extras.py", "pulse_time.py", "pulse_timeline.py",
     "pulse_transcripts.py", "pulse_voice_queue.py", "pulse_env_validation.py",
     "pulse_access.py", "pulse_board.py", "pulse_flags.py", "pulse_insights.py", "pulse_phase7.py", "pulse_public_status.py", "pulse_settings_history.py", "pulse_application_staging.py",
@@ -14,8 +14,8 @@ include = [
     "tools/application_data_audit.py", "tests/test_application_data_audit.py", "tests/test_application_staging.py", "tests/test_incident_runbook.py",
     "pulse_community_feedback.py", "tests/test_community_feedback.py", "tests/test_community_suggestion_modal.py",
     "pulse_player_reports.py", "tests/test_player_reports.py", "tests/test_player_report_commands.py",
-    "cogs/scheduled_announcements.py", "tests/test_scheduled_announcements.py",
-    "tests/test_home_layouts.py", "tests/test_player_self_service.py", "pulse_webhook_audit.py", "tests/test_webhook_monitor.py", "tests/test_notify_prefs.py", "tests/test_ultimate_event_rsvps.py",
+    "tests/test_mod_stats.py",
+    "cogs/scheduled_announcements.py", "tests/test_scheduled_announcements.py", "tests/test_home_layouts.py", "tests/test_player_self_service.py", "pulse_webhook_audit.py", "tests/test_webhook_monitor.py", "tests/test_notify_prefs.py", "tests/test_ultimate_event_rsvps.py",
 ]
 
 [lint]
