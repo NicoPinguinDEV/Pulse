@@ -29,16 +29,37 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("@everyone", other.message(1, 7, 55, "@everyone kommt alle", 0, True)["text"])
         self.assertIsNone(pr.RaidWatch().message(1, 7, 55, "normale Nachricht", 2, False))
 
+    def test_join_wave_escalates_warning_elevated_and_critical(self):
+        watch = pr.RaidWatch()
+        alerts = []
+        for index in range(pr.JOIN_LEVELS["critical"]):
+            alert = watch.member_joined(100 + index, 500)
+            if alert:
+                alerts.append(alert)
+        self.assertEqual([alert["level"] for alert in alerts], ["warning", "elevated", "critical"])
+        self.assertEqual(alerts[-1]["level_label"], "KRITISCH")
+        rendered = pr.alert_text(alerts[0])
+        self.assertIn("WARNUNG", rendered)
+        self.assertIn("nichts automatisch geändert", rendered)
+
+    def test_threshold_configuration_is_strictly_ordered(self):
+        for thresholds in (pr.JOIN_LEVELS, pr.NEW_ACCOUNT_LEVELS, pr.MENTION_LEVELS, pr.COPY_CHANNEL_LEVELS):
+            self.assertLess(thresholds["warning"], thresholds["elevated"])
+            self.assertLess(thresholds["elevated"], thresholds["critical"])
+
     def test_copy_spam_across_channels(self):
         text = "Gratis Nitro hier: https://example.invalid/claim"
         self.assertIsNone(self.w.message(10, 7, 1, text, 0, False))
-        self.assertIsNone(self.w.message(11, 7, 2, text.upper(), 0, False))
+        warning = self.w.message(11, 7, 2, text.upper(), 0, False)
+        self.assertEqual(warning["level"], "warning")
         alert = self.w.message(12, 7, 3, text, 0, False)
         self.assertEqual(alert["kind"], "copy_spam")
+        self.assertEqual(alert["level"], "elevated")
         self.assertEqual(alert["details"]["channels"], [1, 2, 3])
         w = pr.RaidWatch()
-        for ch in range(1, 4):  # spread over more than a minute → no alert
-            self.assertIsNone(w.message(ch * 40, 7, ch, text, 0, False))
+        self.assertIsNone(w.message(40, 7, 1, text, 0, False))
+        self.assertEqual(w.message(80, 7, 2, text, 0, False)["level"], "warning")
+        self.assertIsNone(w.message(120, 7, 3, text, 0, False))  # warning cooldown; no elevated threshold
         self.assertIsNone(pr.RaidWatch().message(1, 7, 1, "hi", 0, False))
 
     def test_memory_is_bounded(self):

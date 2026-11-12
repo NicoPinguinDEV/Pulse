@@ -21,7 +21,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from pulse_moderation import AUTOMOD_RULE_LABELS, automod_step, match_rules, normalize_automod
+from pulse_moderation import AUTOMOD_RULE_LABELS, automod_rule_is_exempt, automod_step, match_rules, normalize_automod
 
 RULE_LABELS = AUTOMOD_RULE_LABELS
 STRIKE_WINDOW_SECONDS = 60 * 60  # default; the configured window (strike_window_minutes) wins
@@ -122,6 +122,24 @@ class PulseAutoMod(commands.Cog):
             return  # a category ID in the channel list exempts all its channels
 
         hits = self._hits(message, config)
+        if not hits:
+            return
+        channel_ids = {
+            getattr(message.channel, "id", None),
+            getattr(message.channel, "parent_id", None),
+            getattr(getattr(message.channel, "category", None), "id", None),
+            getattr(getattr(getattr(message.channel, "parent", None), "category", None), "id", None),
+        }
+        role_ids = {getattr(role, "id", None) for role in (message.author.roles or [])}
+        hits = [
+            (rule, reason) for rule, reason in hits
+            if not automod_rule_is_exempt(
+                rule,
+                role_ids=role_ids,
+                channel_ids=channel_ids,
+                rule_exemptions=config["rule_exemptions"],
+            )
+        ]
         if not hits:
             return
         rule, reason = hits[0]
