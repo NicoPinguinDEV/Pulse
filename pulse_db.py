@@ -177,6 +177,23 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_mod_cases_target ON mod_cases(target_id, created_at);
 
+            CREATE TABLE IF NOT EXISTS mod_case_appeals (
+                case_id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                submitted_at TEXT NOT NULL,
+                deadline_at TEXT NOT NULL,
+                reviewed_by_id TEXT,
+                reviewed_by_name TEXT,
+                reviewed_at TEXT,
+                decision_note TEXT DEFAULT '',
+                FOREIGN KEY(case_id) REFERENCES mod_cases(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_mod_case_appeals_guild_status
+                ON mod_case_appeals(guild_id, status, submitted_at DESC);
+
             CREATE TABLE IF NOT EXISTS mod_reason_templates (
                 id TEXT PRIMARY KEY,
                 guild_id TEXT NOT NULL,
@@ -2082,7 +2099,7 @@ TABLES = [
     "achievement_progress", "trainings", "training_questions", "training_attempts", "training_feedback", "training_paths", "training_path_items", "meetings_history", "calendar_events",
     "team_status", "handover_notes", "shift_notes", "announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
-    "mod_cases", "mod_reason_templates", "mod_reason_template_versions",
+    "mod_cases", "mod_case_appeals", "mod_reason_templates", "mod_reason_template_versions",
     "dashboard_saved_views",
 ]
 
