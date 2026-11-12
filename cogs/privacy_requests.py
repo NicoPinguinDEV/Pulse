@@ -16,6 +16,7 @@ from discord.ext import commands, tasks
 
 import pulse_db
 import pulse_privacy_requests as dsr
+from pulse_jobs import tracked
 
 TEXT = {
     "de": {
@@ -165,6 +166,7 @@ class PrivacyRequests(commands.Cog):
         await show_status(interaction)
 
     @tasks.loop(hours=6)
+    @tracked("Datenschutzanfragen Fristprüfung (6 h)", 21600)
     async def overdue_loop(self):
         for guild in list(self.bot.guilds):
             try:
