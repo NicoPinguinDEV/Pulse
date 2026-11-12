@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 78 |
-| Teilweise | 99 |
+| Fertig | 79 |
+| Teilweise | 98 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -29,7 +29,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Bereich | Fertig | Teilweise | Offen |
 |---|---:|---:|---:|
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 3 | 0 |
-| Discord-Bot – Moderation und Sicherheit | 4 | 11 | 0 |
+| Discord-Bot – Moderation und Sicherheit | 5 | 10 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 5 | 10 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
@@ -77,7 +77,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 21 | Sicherheitsübungen und Simulationen | **Teilweise** | Anti-Nuke-Regelsimulation und Replay-Tests existieren (`tests/test_antinuke_control_center.py`, `tests/test_antinuke_replay.py`); ein durchgängiger Übungsmodus für AutoMod, Raid und Lockdown fehlt. |
 | 22 | Alarm bei kritischen Rollen-/Kanaländerungen | **Fertig** | Anti-Nuke verarbeitet Role-, Channel-, Permission- und Guild-Update-Ereignisse; Tests prüfen Berechtigungsänderungen und harmlose Änderungen. |
 | 23 | Webhook-Überwachung | **Teilweise** | `cogs/antinuke.py` verarbeitet `on_webhooks_update`; ein separat abgesicherter, umfassend getesteter Webhook-Alarm-/Änderungsverlauf fehlt. |
-| 24 | Moderationsstatistiken | **Teilweise** | Falllisten, Warnzähler, Audit und Analytics liefern Teilkennzahlen; eine vollständige Moderationsauswertung nach Typ, Bearbeitungszeit und Ergebnis fehlt. |
+| 24 | Moderationsstatistiken | **Fertig** | `/mod-cases/stats` (PR folgt, Branch `feature/moderation-statistics-24`): /mod-Fälle je Server nach Maßnahme, Ergebnis, Median-Dauer bis Abschluss, DM-/Beweis-/Vorlagenquote, Wiederholungen, Moderatorverteilung und Vorzeitraumvergleich; AutoMod-Maßnahmen je Regel mit Fehlalarmquote und Prüfdauer, Testtreffer getrennt; CSV-Export. Nur lesend, Guild-isoliert, Rechte wie Fallakte. `tests/test_mod_stats.py`. Einspruchsquoten folgen erst mit PR #225. |
 | 25 | Fehlalarmprüfung und Feedback für AutoMod | **Fertig** | PR #215 ergänzt eine persistente, servergebundene Fehlalarmprüfung für echte AutoMod-Ereignisse, /automod-fehlalarm und /automod-feedback, Berechtigungsprüfungen und Audit-Einträge. Begründungen werden gespeichert, aber keine Sanktion automatisch zurückgenommen und keine Regel automatisch geändert; Regressionstests und Pflicht-CI sind grün. |
 
 ### 3. Discord-Bot – Tickets und Support (26–40)

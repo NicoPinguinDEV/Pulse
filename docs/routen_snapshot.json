@@ -78,6 +78,8 @@
  "GET /member/{user_id} -> pulse_pro.register.<locals>.member_v5",
  "GET /mod-cases -> webserver.mod_cases_page",
  "GET /mod-cases.csv -> webserver.mod_cases_csv",
+ "GET /mod-cases/stats -> webserver.mod_cases_stats_page",
+ "GET /mod-cases/stats.csv -> webserver.mod_cases_stats_csv",
  "GET /news -> pulse_public_site.register.<locals>.add_page.<locals>.handler",
  "GET /news/{news_id} -> pulse_public_site.register.<locals>.public_news_detail",
  "GET /nutzungsbedingungen -> pulse_public_site.register.<locals>.add_page.<locals>.handler",

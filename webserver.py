@@ -6743,6 +6743,99 @@ async def mod_cases_csv(request: Request, user_session: str = Cookie(None)):
                                       c.get("proof"), c.get("expires_at"), c["actor_name"], c["created_at"], c["status"]) for c in rows])
 
 
+def _mod_stats_bars(items, total: int) -> str:
+    """Labelled horizontal bars; widths come only from the given counts."""
+    rows = []
+    for label, count, extra in items:
+        width = round(count * 100 / total) if total else 0
+        rows.append(f'<div class="mb-3"><div class="flex justify-between text-xs mb-1"><span>{esc(label)}</span>'
+                    f'<span class="font-semibold">{count}{esc(extra)}</span></div>'
+                    f'<div class="pulse-progress" role="img" aria-label="{esc(label)}: {count}"><span style="width:{width}%"></span></div></div>')
+    return "".join(rows)
+
+
+def _mod_stats_value(value, suffix: str = "") -> str:
+    return "–" if value is None else f"{value}{suffix}"
+
+
+@app.get("/mod-cases/stats", response_class=HTMLResponse)
+async def mod_cases_stats_page(request: Request, user_session: str = Cookie(None)):
+    """Audit #24: moderation statistics by type, result, duration and AutoMod quality (read-only, one guild)."""
+    import pulse_mod_stats as ms
+    from pulse_pro import render_pro_page
+    ctx = _mod_case_ctx(request, user_session)
+    days = ms.normalize_period(request.query_params.get("days"))
+    stats = ms.collect(GUILD_ID, days)
+    aria_current = ' aria-current="page"'
+    periods = "".join(
+        f'<a class="pulse-btn {"primary" if p == days else "ghost"}" href="/mod-cases/stats?days={p}"'
+        f'{aria_current if p == days else ""}>{p} Tage</a>' for p in ms.PERIODS)
+    head = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">📊 Moderationsstatistik</div>'
+            f'<div class="pulse-section-sub">Auswertung der /mod-Fälle und AutoMod-Maßnahmen dieses Servers. '
+            f'Nur gespeicherte Daten; Testtreffer zählen nicht als Maßnahme.</div></div>'
+            f'<div class="flex flex-wrap gap-2" role="group" aria-label="Zeitraum">{periods}'
+            f'<a class="pulse-btn ghost" href="/mod-cases">⚖ Fallakte</a>'
+            f'<a class="pulse-btn ghost" href="/mod-cases/stats.csv?days={days}">⬇ CSV</a></div></div>')
+    if not stats.get("available"):
+        body = head + f'<section class="pulse-card"><div class="pulse-card-b">{empty_state(stats.get("reason", "Keine Daten."), "⚠")}</div></section>'
+    elif not stats["has_data"]:
+        body = head + f'<section class="pulse-card"><div class="pulse-card-b">{empty_state(f"In den letzten {days} Tagen gab es keine Moderationsfälle und keine AutoMod-Treffer.", "📊")}</div></section>'
+    else:
+        c, a = stats["cases"], stats["automod"]
+
+        def delta(value):
+            return "±0" if value == 0 else f"{value:+d}"
+        tiles = [("⚖", "Fälle", c["total"], f"{delta(stats['cases_delta'])} zum Vorzeitraum"),
+                 ("⏱", "Median bis Abschluss", _mod_stats_value(c["median_hours_to_close"], " h"), f"{c['closed_count']} abgeschlossen"),
+                 ("✉", "DM zugestellt", _mod_stats_value(c["dm_rate"], " %"), "der Fälle"),
+                 ("📎", "Mit Beweis", _mod_stats_value(c["proof_rate"], " %"), f"Vorlage: {_mod_stats_value(c['template_rate'], ' %')}"),
+                 ("🔁", "Wiederholungen", c["repeat_people"], f"von {c['affected_people']} Personen"),
+                 ("🤖", "AutoMod-Maßnahmen", a["total"], f"{delta(stats['automod_delta'])} · {a['tests']} Testtreffer"),
+                 ("⚠", "Fehlalarmquote", _mod_stats_value(a["false_positive_rate"], " %"), f"{a['false_positives']} geprüft")]
+        grid = "".join(f'<div class="pulse-stat"><div class="icon" aria-hidden="true">{i}</div><div class="label">{esc(lbl)}</div>'
+                       f'<div class="value">{esc(v)}</div><div class="pulse-row-meta">{esc(sub)}</div></div>' for i, lbl, v, sub in tiles)
+        peak = max((max(n, m) for _d, n, m in stats["daily"]), default=0) or 1
+        trend = "".join(
+            f'<div title="{esc(d)}: {n} Fälle, {m} AutoMod" style="flex:1;display:flex;gap:1px;align-items:flex-end;height:100%">'
+            f'<span style="flex:1;height:{round(n * 100 / peak)}%;background:var(--p);border-radius:2px 2px 0 0;min-height:{1 if n else 0}px"></span>'
+            f'<span style="flex:1;height:{round(m * 100 / peak)}%;background:var(--muted);opacity:.55;border-radius:2px 2px 0 0;min-height:{1 if m else 0}px"></span></div>'
+            for d, n, m in stats["daily"])
+        trend_card = (f'<section class="pulse-card mb-4"><div class="pulse-card-h"><div><div class="pulse-section-title">Verlauf je Tag</div>'
+                      f'<div class="pulse-section-sub">Orange: /mod-Fälle · Grau: AutoMod-Maßnahmen</div></div></div>'
+                      f'<div class="pulse-card-b"><div role="img" aria-label="Tagesverlauf der letzten {days} Tage" '
+                      f'style="display:flex;gap:2px;align-items:flex-end;height:110px">{trend}</div></div></section>')
+        by_type = _mod_stats_bars([(lbl, n, "") for _k, lbl, n in c["by_action"]], c["total"])
+        by_result = _mod_stats_bars([(lbl, n, "") for _k, lbl, n in c["by_status"]]
+                                    + ([("sonstiger Status", c["other_status"], "")] if c["other_status"] else []), c["total"])
+        rules = _mod_stats_bars([(rule, n, f" · {fp} Fehlalarm{'e' if fp != 1 else ''}") for rule, n, fp in a["by_rule"]], a["total"]) \
+            or empty_state("Keine AutoMod-Maßnahmen im Zeitraum.", "🤖")
+        mods = "".join(f'<div class="pulse-row"><div class="pulse-row-title">{esc(name)}</div><span class="pulse-pill">{n}</span></div>'
+                       for name, n in c["moderators"]) or empty_state("Keine Fälle im Zeitraum.", "⚖")
+
+        def card(title, sub, inner):
+            return (f'<section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">{esc(title)}</div>'
+                    f'<div class="pulse-section-sub">{esc(sub)}</div></div></div><div class="pulse-card-b">{inner}</div></section>')
+        body = (head + f'<div class="pulse-stat-grid">{grid}</div>' + trend_card
+                + '<div class="pulse-two mb-4">' + card("Nach Maßnahme", "Anteil an allen /mod-Fällen", by_type)
+                + card("Nach Ergebnis", f"Fehlgeschlagen: {_mod_stats_value(c['failure_rate'], ' %')}", by_result) + '</div>'
+                + '<div class="pulse-two">' + card("AutoMod nach Regel", f"Median bis Fehlalarmprüfung: {_mod_stats_value(a['median_hours_to_review'], ' h')}", rules)
+                + card("Fälle je Moderator", "Top 10 im Zeitraum – Menge, keine Leistungsbewertung", f'<div class="pulse-list">{mods}</div>') + '</div>')
+    import sys
+    return HTMLResponse(render_pro_page(sys.modules[__name__], "Moderationsstatistik", ctx, "mod-stats", body))
+
+
+@app.get("/mod-cases/stats.csv")
+async def mod_cases_stats_csv(request: Request, user_session: str = Cookie(None)):
+    import pulse_lists
+    import pulse_mod_stats as ms
+    ctx = _mod_case_ctx(request, user_session)
+    days = ms.normalize_period(request.query_params.get("days"))
+    stats = ms.collect(GUILD_ID, days)
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Moderationsstatistik exportiert", f"{days} Tage")
+    return pulse_lists.csv_response(f"pulse_moderationsstatistik_{now_de().strftime('%Y-%m-%d')}.csv",
+                                    ["Kennzahl", "Wert", "Vergleich/Hinweis"], ms.csv_rows(stats))
+
+
 @app.get("/tickets/tools", response_class=HTMLResponse)
 async def pulse_ticket_tools(request: Request, user_session: str = Cookie(None)):
     """BOT-06: quick replies (admins edit), ticket bans (ticket team), rating report."""
