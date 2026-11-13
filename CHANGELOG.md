@@ -1,5 +1,8 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Schicht-Erinnerungen (November 2026)
+
+- **#86:** Eingeplante Personen werden einstellbar lange vor Schichtbeginn erinnert (Standard 30 Min., `/suite/schedule`). Je Schicht und Startzeit genau eine Benachrichtigung; verschobene Schichten erinnern erneut. Nur Abfrage der heutigen und der folgenden Tage, keine neue Tabelle.
 ## Dienstplan und Dienstabdeckung (November 2026)
 
 - **Dienstplanung (#83):** Eingaben werden geprüft, überlappende Dienste derselben Person abgelehnt, Dienste lassen sich absagen (mit Benachrichtigung und Audit).

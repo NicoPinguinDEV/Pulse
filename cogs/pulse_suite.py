@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import pulse_db as db
 import pulse_paths
 import pulse_staffing_forecast as staffing_forecast
+import pulse_shift_reminders as shift_reminders_logic
 import pulse_schedule_rules as schedule_rules
 import pulse_sqlite
 import pulse_jobs
@@ -132,7 +133,7 @@ def set_setting(key,value):
     with cx() as c:c.execute("INSERT OR REPLACE INTO suite_settings(key,value) VALUES(?,?)",(key,json.dumps(value,ensure_ascii=False)))
 
 def seed():
-    vals={"emergency_lock":False,"command_roles":{},"weekly_goal_hours":3.0,"report_channel_id":int(os.getenv("PULSE_REPORT_CHANNEL_ID","0") or 0),"last_daily":"","last_weekly":""}
+    vals={"emergency_lock":False,"command_roles":{},"weekly_goal_hours":3.0,"shift_reminder_minutes":shift_reminders_logic.DEFAULT_LEAD_MINUTES,"report_channel_id":int(os.getenv("PULSE_REPORT_CHANNEL_ID","0") or 0),"last_daily":"","last_weekly":""}
     for k,v in vals.items():
         if setting(k,None) is None:set_setting(k,v)
 
@@ -776,7 +777,22 @@ def register_routes():
             '<div class=field><label>Mindestens</label><input class=input type=number name=min_staff min=1 max=50 value=1 required></div><div class=span2><button class="btn primary">Regel speichern</button></div></form></div>'
         )
         body=f'<div class="grid g2"><div class=card><h3>➕ Dienst planen</h3><form class=form method=post action=/suite/schedule/create><div class=field><label>Datum</label><input class=input type=date name=date required></div><div class=field><label>Dienst</label><input class=input name=shift_name required></div><div class=field><label>Start</label><input class=input type=time name=start_time required></div><div class=field><label>Ende</label><input class=input type=time name=end_time required></div><div class="field span2"><label>Teamler</label><select class=select name=assignee_id required>{opts}</select></div><div class=span2><button class="btn primary">Planen</button></div></form></div><div class=card><h3>⏰ Nächste Schichten</h3>{''.join(f'<div class=row><span>{esc(x["date"])} · {esc(x["shift_name"])}<div class=tiny>{esc(x["start_time"])}–{esc(x["end_time"])}</div></span><b>{esc(x["assignee_name"])}</b></div>' for x in rows[:15])}</div></div><div class=card style="margin-top:13px"><h3>✅ Schichttausch-Freigaben</h3>{swap_rows}</div><div class=card style="margin-top:13px"><h3>📅 Wochenplan</h3>{''.join(f'<div class=row>{esc(x["date"])} · {esc(x["shift_name"])} · {esc(x["assignee_name"])} <span>{esc(x["start_time"])}–{esc(x["end_time"])}</span> <form method=post action="/suite/schedule/{esc(x["id"])}/delete" style="display:inline"><button class="btn danger" aria-label="Dienst absagen">✕</button></form></div>' for x in rows)}</div>{coverage_html}'
+        lead=shift_reminders_logic.normalize_lead(setting("shift_reminder_minutes",shift_reminders_logic.DEFAULT_LEAD_MINUTES))
+        body+=(f'<div class=card style="margin-top:13px"><h3>⏰ Schicht-Erinnerung</h3><div class=tiny>Alle Eingeplanten erhalten eine Benachrichtigung kurz vor Schichtbeginn.</div>'
+               f'<form class=form method=post action=/suite/schedule/reminder-lead><div class=field><label>Vorlauf in Minuten</label><input class=input type=number name=minutes min={shift_reminders_logic.MIN_LEAD_MINUTES} max={shift_reminders_logic.MAX_LEAD_MINUTES} value={lead} required></div>'
+               '<div class=span2><button class="btn primary">Speichern</button></div></form></div>')
         return page(ctx,"schedule","Dienstplan","Früh-, Spät- und Sonderdienste · Schichttausch mit Gegenseiten- und Leitungsfreigabe",body)
+
+    @app.post("/suite/schedule/reminder-lead")
+    async def schedule_reminder_lead(request:Request,minutes:str=Form(...),user_session:str=Cookie(None)):
+        ctx=auth(request,user_session,manager=True)
+        try:lead=int(str(minutes).strip())
+        except ValueError:raise HTTPException(400,"Bitte die Vorlaufzeit als ganze Zahl in Minuten angeben.")
+        if not shift_reminders_logic.MIN_LEAD_MINUTES<=lead<=shift_reminders_logic.MAX_LEAD_MINUTES:
+            raise HTTPException(400,f"Die Vorlaufzeit muss zwischen {shift_reminders_logic.MIN_LEAD_MINUTES} und {shift_reminders_logic.MAX_LEAD_MINUTES} Minuten liegen.")
+        set_setting("shift_reminder_minutes",lead)
+        audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),"schedule-reminder","Schicht-Erinnerung","shift_reminder_lead_changed",f"{lead} Minuten")
+        return RedirectResponse("/suite/schedule",303)
 
     @app.post("/suite/schedule/create")
     async def schedule_create(request:Request,date:str=Form(...),shift_name:str=Form(...),start_time:str=Form(...),end_time:str=Form(...),assignee_id:int=Form(...),user_session:str=Cookie(None)):
@@ -1781,12 +1797,15 @@ class PulseSuite(commands.Cog):
         if n.weekday()==0 and n.hour>=9 and str(setting("last_weekly",""))!=str(week):await self.weekly_report(g);set_setting("last_weekly",str(week))
 
     async def shift_reminders(self,g):
+        """Audit #86: remind people shortly before their planned shift (selection logic: pulse_shift_reminders)."""
         web=__import__("webserver");tz=getattr(web,"TZ",None) or timezone.utc;n=datetime.now(tz)
-        with cx() as c:rows=[dict(x) for x in c.execute("SELECT * FROM suite_schedule WHERE guild_id=?",(str(g.id),)).fetchall()]
-        for x in rows:
-            try:s=datetime.strptime(x["date"]+" "+x["start_time"],"%Y-%m-%d %H:%M").replace(tzinfo=tz)
-            except Exception:continue
-            if n<=s<=n+timedelta(minutes=30):db.notify(x["assignee_id"],"⏰ Schicht beginnt bald",f'{x["shift_name"]} beginnt um {x["start_time"]}.',"info","/suite/schedule",f"shift30:{x['id']}",86400)
+        lead=shift_reminders_logic.normalize_lead(setting("shift_reminder_minutes",shift_reminders_logic.DEFAULT_LEAD_MINUTES))
+        dates=shift_reminders_logic.candidate_dates(n,lead)
+        marks=",".join("?"*len(dates))
+        with cx() as c:
+            rows=[dict(x) for x in c.execute(f"SELECT * FROM suite_schedule WHERE guild_id=? AND date IN ({marks})",(str(g.id),*dates)).fetchall()]
+        for item in shift_reminders_logic.due_reminders(rows,n,lead):
+            db.notify(item["assignee_id"],item["title"],item["text"],"info","/suite/schedule",item["dedupe_key"],shift_reminders_logic.DEDUPE_SECONDS)
 
     async def daily(self,g):
         web=__import__("webserver");ms=members(g,web);sh=web.load_shifts();d=now().date().isoformat();sec=sum(web.credited_shift_seconds(x) for x in sh.get("history",[]) if x.get("date")==d)+sum(web.shift_elapsed(x) for x in sh.get("active_shifts",{}).values() if x.get("date")==d)

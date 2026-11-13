@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-13):** `main` @ `58fb538` nach den Merges von #238, #235, #236 und #237 (jeweils mit grüner Pflicht-CI). Stand: **94 fertig / 83 teilweise / 0 offen**. #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-13):** `main` @ `58fb538` nach den Merges von #238, #235, #236 und #237 (jeweils mit grüner Pflicht-CI). Stand: **95 fertig / 82 teilweise / 0 offen**. #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 94 |
-| Teilweise | 83 |
+| Fertig | 95 |
+| Teilweise | 82 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -34,7 +34,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord-Bot – Community und BOCHUM RP | 8 | 7 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 6 | 6 | 0 |
-| Dienstplanung und Aktivität | 6 | 6 | 0 |
+| Dienstplanung und Aktivität | 7 | 5 | 0 |
 | Bewerbungen und Recruiting | 3 | 8 | 0 |
 | Academy und Wissensmanagement | 4 | 6 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
@@ -164,7 +164,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 83 | Schichtplanung | **Fertig** | Dienstplanung in `/suite/schedule`: Eingaben werden validiert (Datum, HH:MM, Namen, max. 16 h, Nachtdienste), überlappende Dienste derselben Person abgelehnt (409), Dienste können abgesagt werden (Benachrichtigung, Audit; gesperrt bei offener Tauschanfrage); Tausch (#84) bleibt. `pulse_schedule_rules.py`, `tests/test_schedule_rules.py`, `tests/test_schedule_swaps.py`. |
 | 84 | Schichttausch | **Fertig** | Persönlicher Antrag, Zustimmung der Gegenseite und Leitungsfreigabe; atomare Konfliktprüfung und Datenschutzexport (PR #209). |
 | 85 | Dienstabdeckung | **Fertig** | Mindestbesetzungsregeln je Wochentag/Zeitfenster (`suite_schedule_minimums`, guild-isoliert, Audit); `/suite/schedule` zeigt Besetzungslücken der nächsten 7 Tage in 15-Minuten-Auflösung, Nachtdienste zählen über Mitternacht. Reiner Hinweis, keine automatische Zuweisung. `tests/test_schedule_rules.py`. |
-| 86 | Dienst-Erinnerungen | **Teilweise** | Activity Checks, Abwesenheiten und allgemeine Jobs erinnern; gezielte Erinnerungen vor persönlichen Schichten sind nicht vollständig belegt. |
+| 86 | Dienst-Erinnerungen | **Fertig** | `pulse_shift_reminders.py`: Die Suite-Automatik benachrichtigt eingeplante Personen einmal je Schicht und Startzeit (verschobene Schichten erneut) vor Schichtbeginn; Vorlaufzeit 5–720 Min. einstellbar (`/suite/schedule`, Standard 30), nur Schichten des eigenen Servers, begrenzte Abfrage (heute/Folgetage). `tests/test_shift_reminders.py`. |
 | 87 | Abwesenheitskalender | **Teilweise** | Abmeldungen und Team-Kalender existieren; eine vollständig zusammengeführte persönliche Abwesenheits-/Schichtansicht ist nicht nachgewiesen. |
 | 88 | Wochen- und Monatsberichte | **Teilweise** | Analytics, Wochen-/Monatskennzahlen und Exporte existieren; automatische, einheitliche Teamberichte mit nachvollziehbarer Definition aller KPIs fehlen. |
 | 89 | Dienstzeit-Anomalien | **Teilweise** | Lange Schichten und Datenintegritätsprobleme werden erkannt; statistische Anomalieerkennung mit erklärbaren Schwellen fehlt. |
