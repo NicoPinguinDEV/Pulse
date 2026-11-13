@@ -379,7 +379,7 @@ class DiscordCommandTests(unittest.TestCase):
                                                                "unavailable": ["KI"], "total": 1}) as history, \
              patch("webserver.log_audit") as audit:
             sent = self.run_cmd("verlauf", SimpleNamespace(id=42))
-        history.assert_called_once_with(42, MOD, guild_id=1, limit=12)
+        history.assert_any_call(42, MOD, guild_id=1, limit=12)  # the repeat hint (#16) reads the same source once more
         self.assertTrue(sent.kwargs["ephemeral"])
         self.assertIn("Fall angelegt", sent.args[0])
         self.assertIn("BM:MOD-1A2B3C", sent.args[0])
