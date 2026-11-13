@@ -1,5 +1,10 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Fall-Beweise und Wiederholungshinweis (November 2026)
+
+- **Beweisverwaltung (#14):** Zu jeder Fallreferenz gibt es eine Beweisliste (`/mod-cases/beweise`, `/mod beweise`, `/mod beweis-hinzufuegen`). Links und Notizen mit Quelle, Altbestände werden mitgezeigt, Entfernen nur mit Grund und nachvollziehbar. Neue Tabelle `case_evidence` (im Backup).
+- **Wiederholungshinweis (#16):** `/mod fall`, `/mod verlauf`, die Bestätigung nach einer Maßnahme und der Gesamtverlauf zeigen, wie viele Fälle einer Person in 90 Tagen über alle sichtbaren Fallarten zählen – mit Begründung der Stufe. Nur ein Hinweis, keine automatische Maßnahme.
+
 ## Fall-Gesamtverlauf (November 2026)
 
 - **Gesamtverlauf (#12):** Unter Bürger-Moderation → „Gesamtverlauf“ (`/mod-cases/verlauf`) und mit `/mod verlauf` sehen berechtigte Personen alle Fallereignisse einer Person über Bürger-Moderation, Team-/Spielerfälle, Teamwarnungen und KI-Moderation chronologisch. Jede Akte erscheint nur mit dem Recht, das ihre eigene Ansicht schon verlangt. Eine nicht lesbare Akte wird angezeigt, statt den Verlauf zu verfälschen.
