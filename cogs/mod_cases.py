@@ -249,9 +249,12 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
         webserver.log_audit(interaction.user.display_name, str(interaction.user.id), f"Bürger-Moderation: {mc.ACTIONS[action]}",
                             f"{case['id']} · {target.display_name} ({target.id}) · {case['reason']}"
                             + (f" · bis {case['expires_at']}" if case.get("expires_at") else ""))
+        repeat = self._repeat_line(
+            target.id, pulse_perms(interaction.guild, interaction.user.id), interaction.guild.id)
+        repeat = repeat.split("\n-#")[0] if repeat and "\n✅" not in repeat else ""
         await respond(f"✅ {mc.ACTIONS[action]} für **{target.display_name}** – Fall `{case['id']}`"
                       + (f", bis {case['expires_at'][:16].replace('T', ' ')} UTC" if case.get("expires_at") else "")
-                      + ("" if dm_ok else " · ⚠️ DM nicht zustellbar (DMs geschlossen)"))
+                      + ("" if dm_ok else " · ⚠️ DM nicht zustellbar (DMs geschlossen)") + repeat)
 
     @app_commands.command(name="warn", description="Bürger verwarnen (Fallakte, DM mit Einspruchsweg).")
     @app_commands.describe(mitglied="Wer", grund="Pflichtgrund", beweis="Link zum Beweis (optional)")
@@ -653,7 +656,8 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
         lines = [self._history_line(e) for e in history["entries"]] or ["Keine Fälle in den für dich sichtbaren Akten."]
         lines += [f"⚠️ {reg.KINDS[k]} konnte gerade nicht gelesen werden." for k in history["unavailable"]]
         visible = ", ".join(reg.KINDS[k] for k in history["kinds"])
-        text = f"🗂 **Gesamtverlauf {mitglied}**\n-# Sichtbar: {visible}\n" + "\n".join(lines)
+        text = (f"🗂 **Gesamtverlauf {mitglied}**\n-# Sichtbar: {visible}"
+                + self._repeat_line(mitglied.id, perms, interaction.guild.id) + "\n" + "\n".join(lines))
         await interaction.response.send_message(text[:1990], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
         import webserver
         webserver.log_audit(interaction.user.display_name, str(interaction.user.id), "Fall-Gesamtverlauf eingesehen",
@@ -673,8 +677,65 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
                 "Keine sichtbare Akte zu dieser Referenz (unbekannt oder ohne Recht für diese Fallart).", ephemeral=True)
             return
         person = f"\nPerson: <@{entry['person_id']}>" if entry.get("person_id", "").isdigit() else ""
-        await interaction.response.send_message(f"🔎 {self._history_line(entry)}{person}\n-# Verlauf der Person: /mod verlauf",
+        hint = self._repeat_line(entry.get("person_id"), perms, interaction.guild.id)
+        await interaction.response.send_message(f"🔎 {self._history_line(entry)}{person}{hint}\n-# Verlauf: /mod verlauf · Beweise: /mod beweise",
                                                 ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @staticmethod
+    def _repeat_line(person_id, perms, guild_id) -> str:
+        """Audit #16: one explainable repeat-offence line; never blocks the surrounding answer."""
+        if not str(person_id or "").isdigit():
+            return ""
+        try:
+            import pulse_case_repeat
+            hint = pulse_case_repeat.repeat_hint(person_id, perms, guild_id=guild_id)
+        except Exception:
+            return ""
+        icon = {"none": "✅", "repeat": "⚠️", "multiple": "🚨"}[hint["level"]]
+        refs = (" · " + ", ".join(hint["refs"][:5])) if hint["refs"] else ""
+        limits = ("\n-# " + "; ".join(hint["limits"])) if hint["limits"] else ""
+        return f"\n{icon} {hint['text']}{refs}{limits}\n-# {hint['rule']}"
+
+    @app_commands.command(name="beweise", description="Beweise zu einem Fall anzeigen (alle Fallarten).")
+    @app_commands.describe(referenz="Fallreferenz BM:…, TF:…, TW:… oder KI:…")
+    async def beweise(self, interaction: discord.Interaction, referenz: str):
+        import pulse_case_evidence as ev
+        perms = pulse_perms(interaction.guild, interaction.user.id) if interaction.guild else {}
+        data = ev.evidence_for(referenz, perms, guild_id=interaction.guild.id) if interaction.guild else None
+        if not data:
+            await interaction.response.send_message(
+                "Keine sichtbare Akte zu dieser Referenz (unbekannt oder ohne Recht für diese Fallart).", ephemeral=True)
+            return
+        lines = []
+        for item in data["legacy"] + data["managed"]:
+            if item.get("removed"):
+                continue
+            label = discord.utils.escape_markdown(str(item["value"])[:90])
+            lines.append(f"• {label} — {'Altbestand' if item['source'] == 'legacy' else item['id']}")
+        text = f"📎 **Beweise {data['ref']}** ({data['active_count']})\n" + ("\n".join(lines) or "Noch keine Beweise.")
+        await interaction.response.send_message(text[:1990], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.command(name="beweis-hinzufuegen", description="Einen Link oder eine Notiz als Beweis an einen Fall hängen.")
+    @app_commands.describe(referenz="Fallreferenz", art="Link oder Notiz", inhalt="http(s)-Link oder kurze Notiz", anmerkung="Optional")
+    @app_commands.choices(art=[app_commands.Choice(name="Link", value="link"), app_commands.Choice(name="Notiz", value="text")])
+    async def beweis_hinzufuegen(self, interaction: discord.Interaction, referenz: str, art: app_commands.Choice[str],
+                                 inhalt: str, anmerkung: str = ""):
+        import pulse_case_evidence as ev
+        perms = pulse_perms(interaction.guild, interaction.user.id) if interaction.guild else {}
+        try:
+            item = ev.add_evidence(referenz, perms, guild_id=interaction.guild.id, kind=art.value, value=inhalt, note=anmerkung,
+                                   actor_id=interaction.user.id, actor_name=interaction.user.display_name)
+        except PermissionError:
+            await interaction.response.send_message(
+                "Keine sichtbare Akte zu dieser Referenz (unbekannt oder ohne Recht für diese Fallart).", ephemeral=True)
+            return
+        except ValueError as exc:
+            await interaction.response.send_message("❌ " + str(exc), ephemeral=True)
+            return
+        import webserver
+        webserver.log_audit(interaction.user.display_name, str(interaction.user.id), "Fall-Beweis hinzugefügt",
+                            f"{item['case_ref']} · {item['id']} · {item['kind']} (Discord)")
+        await interaction.response.send_message(f"✅ Beweis `{item['id']}` zu `{item['case_ref']}` gespeichert.", ephemeral=True)
 
 
 async def lift_expired_bans(bot) -> int:

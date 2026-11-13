@@ -388,6 +388,23 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_privacy_request_events_request ON privacy_request_events(request_id, created_at);
 
+            CREATE TABLE IF NOT EXISTS case_evidence (
+                id TEXT PRIMARY KEY,
+                case_ref TEXT NOT NULL,
+                guild_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                value TEXT NOT NULL,
+                note TEXT DEFAULT '',
+                added_by_id TEXT NOT NULL,
+                added_by_name TEXT,
+                added_at TEXT NOT NULL,
+                removed_at TEXT,
+                removed_by_id TEXT,
+                removed_by_name TEXT,
+                remove_reason TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_case_evidence_ref ON case_evidence(guild_id, case_ref, added_at);
+
             CREATE INDEX IF NOT EXISTS idx_training_attempts_user ON training_attempts(user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_training_attempts_training ON training_attempts(training_id, created_at DESC);
 
@@ -2370,6 +2387,7 @@ TABLES = [
     "mod_cases", "mod_case_appeals", "mod_reason_templates", "mod_reason_template_versions",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
+    "case_evidence",
 ]
 
 

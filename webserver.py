@@ -6811,6 +6811,12 @@ async def mod_cases_history_page(request: Request, user_session: str = Cookie(No
         parts.append(f'<section class="pulse-card mb-4"><div class="pulse-card-h"><div class="pulse-section-title">🔎 Gefundene Akte</div></div>'
                      f'<div class="pulse-card-b">{row(found)}</div></section>')
     if history is not None:
+        import pulse_case_repeat
+        hint = pulse_case_repeat.repeat_hint(user_q, ctx.perms, guild_id=guild_id)
+        limits = (" · " + esc("; ".join(hint["limits"]))) if hint["limits"] else ""
+        parts.append(f'<section class="pulse-card mb-4"><div class="pulse-card-b"><b>{esc(hint["text"])}</b>'
+                     + (f'<div class="text-xs mt-1">{esc(", ".join(hint["refs"]))}</div>' if hint["refs"] else "")
+                     + f'<div class="text-xs mt-1">{esc(hint["rule"])}{limits}</div></div></section>')
         missing = "".join(f'<div class="text-xs text-amber-600">⚠ {esc(reg.KINDS[k])} konnte gerade nicht gelesen werden.</div>'
                           for k in history["unavailable"])
         items = "".join(row(e) for e in history["entries"]) or empty_state("Keine Fälle zu dieser Person in den für dich sichtbaren Akten.", "⚖")
@@ -6845,6 +6851,102 @@ def _mod_stats_bars(items, total: int) -> str:
 
 def _mod_stats_value(value, suffix: str = "") -> str:
     return "–" if value is None else f"{value}{suffix}"
+
+
+@app.get("/mod-cases/beweise", response_class=HTMLResponse)
+async def mod_case_evidence_page(request: Request, user_session: str = Cookie(None)):
+    """Audit #14: one evidence list per case reference (managed records plus legacy evidence, read-only)."""
+    import pulse_case_evidence as ev
+    from pulse_pro import render_pro_page
+    ctx = auth(request, user_session, perm=None)
+    ref = str(request.query_params.get("ref") or "").strip()[:60]
+    notice = str(request.query_params.get("msg") or "")[:200]
+    guild_id = getattr(getattr(ctx, "guild", None), "id", None)
+    data = ev.evidence_for(ref, ctx.perms, guild_id=guild_id) if ref else None
+    body_parts = []
+    if notice:
+        body_parts.append(f'<div class="pulse-card mb-4"><div class="pulse-card-b text-sm">{esc(notice)}</div></div>')
+    if ref and not data:
+        body_parts.append('<div class="pulse-card mb-4"><div class="pulse-card-b text-sm">Keine sichtbare Akte zu dieser Referenz (unbekannt oder ohne Recht für diese Fallart).</div></div>')
+    if data:
+        def line(item):
+            label = esc(item["value"][:120]) if item["kind"] != "file" else esc(item["value"])
+            shown = (f'<a class="text-indigo-500" rel="noopener noreferrer" target="_blank" href="{esc(item["url"])}">{label}</a>'
+                     if item.get("url") else label)
+            removed = (f' · <b>entfernt</b> von {esc(item.get("removed_by_name") or "")}: {esc(item.get("remove_reason") or "")}'
+                       if item.get("removed") else "")
+            form = ""
+            if item["source"] == "managed" and not item.get("removed"):
+                form = (f'<form method="post" action="/mod-cases/beweise/remove" class="flex gap-2 mt-1">'
+                        f'<input type="hidden" name="ref" value="{esc(data["ref"])}"><input type="hidden" name="evidence_id" value="{esc(item["id"])}">'
+                        f'<input class="pulse-input" name="reason" required minlength="5" maxlength="300" aria-label="Grund der Entfernung" placeholder="Grund der Entfernung">'
+                        f'<button class="pulse-btn ghost">Entfernen</button></form>')
+            origin = "Altbestand" if item["source"] == "legacy" else f'hinzugefügt von {esc(item.get("added_by") or "")} · {esc(str(item.get("added_at") or "")[:16])}'
+            return (f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{shown}</div>'
+                    f'<div class="pulse-row-meta">{esc(ev.KINDS.get(item["kind"], "Datei"))} · {origin}{removed}'
+                    f'{(" · " + esc(item["note"])) if item.get("note") else ""}</div>{form}</div></div>')
+        rows = "".join(line(i) for i in data["legacy"] + data["managed"]) or empty_state("Noch keine Beweise zu diesem Fall.", "📎")
+        add = (f'<form method="post" action="/mod-cases/beweise/add" class="flex flex-wrap gap-2 mt-3">'
+               f'<input type="hidden" name="ref" value="{esc(data["ref"])}">'
+               f'<select class="pulse-input" name="kind" aria-label="Art"><option value="link">Link</option><option value="text">Notiz</option></select>'
+               f'<input class="pulse-input" name="value" required maxlength="{ev.MAX_LINK}" aria-label="Inhalt" placeholder="https://… oder Notiz">'
+               f'<input class="pulse-input" name="note" maxlength="{ev.MAX_NOTE}" aria-label="Anmerkung" placeholder="Anmerkung (optional)">'
+               f'<button class="pulse-btn primary">Beweis hinzufügen</button></form>')
+        body_parts.append(f'<section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">📎 Beweise zu <code>{esc(data["ref"])}</code></div>'
+                          f'<div class="pulse-section-sub">{esc(data["case"]["title"])} · {data["active_count"]} aktive Einträge · Entfernen bleibt nachvollziehbar</div></div></div>'
+                          f'<div class="pulse-card-b space-y-2">{rows}{add}</div></section>')
+    body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">📎 Fall-Beweise</div>'
+            f'<div class="pulse-section-sub">Einheitliche Beweisverwaltung für alle Fallakten, für die du berechtigt bist.</div></div>'
+            f'<a class="pulse-btn ghost" href="/mod-cases/verlauf">🗂 Gesamtverlauf</a></div>'
+            f'<section class="pulse-card mb-4"><div class="pulse-card-b"><form method="get" class="flex flex-wrap gap-2" role="search">'
+            f'<input class="pulse-input" name="ref" value="{esc(ref)}" aria-label="Fallreferenz" placeholder="Referenz, z. B. BM:MOD-1A2B3C">'
+            f'<button class="pulse-btn primary">Öffnen</button></form></div></section>' + "".join(body_parts))
+    import sys
+    return HTMLResponse(render_pro_page(sys.modules[__name__], "Fall-Beweise", ctx, "mod-cases", body))
+
+
+def _evidence_redirect(ref: str, message: str):
+    return RedirectResponse(f"/mod-cases/beweise?ref={quote(str(ref)[:60])}&msg={quote(message)}", status_code=303)
+
+
+@app.post("/mod-cases/beweise/add")
+async def mod_case_evidence_add(request: Request, ref: str = Form(...), kind: str = Form(...), value: str = Form(...),
+                                note: str = Form(""), user_session: str = Cookie(None)):
+    import pulse_case_evidence as ev
+    ctx = auth(request, user_session, perm=None)
+    import pulse_case_registry
+    if not pulse_case_registry.allowed_kinds(ctx.perms):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir ein Moderations-, Warn- oder Leitungsrecht.")
+    actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+    try:
+        item = ev.add_evidence(ref, ctx.perms, guild_id=getattr(ctx.guild, "id", None), kind=kind, value=value, note=note,
+                               actor_id=ctx.user["id"], actor_name=actor)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir das Recht für diese Fallart.")
+    except ValueError as exc:
+        return _evidence_redirect(ref, str(exc))
+    log_audit(actor, ctx.user["id"], "Fall-Beweis hinzugefügt", f"{item['case_ref']} · {item['id']} · {item['kind']}")
+    return _evidence_redirect(item["case_ref"], "Beweis hinzugefügt.")
+
+
+@app.post("/mod-cases/beweise/remove")
+async def mod_case_evidence_remove(request: Request, ref: str = Form(...), evidence_id: str = Form(...),
+                                   reason: str = Form(...), user_session: str = Cookie(None)):
+    import pulse_case_evidence as ev
+    ctx = auth(request, user_session, perm=None)
+    import pulse_case_registry
+    if not pulse_case_registry.allowed_kinds(ctx.perms):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir ein Moderations-, Warn- oder Leitungsrecht.")
+    actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+    try:
+        row = ev.remove_evidence(evidence_id, ctx.perms, guild_id=getattr(ctx.guild, "id", None), reason=reason,
+                                 actor_id=ctx.user["id"], actor_name=actor)
+    except PermissionError:
+        raise HTTPException(status_code=404, detail="Beweis nicht gefunden.")
+    except ValueError as exc:
+        return _evidence_redirect(ref, str(exc))
+    log_audit(actor, ctx.user["id"], "Fall-Beweis entfernt", f"{row['case_ref']} · {row['id']} · {reason[:100]}")
+    return _evidence_redirect(row["case_ref"], "Beweis entfernt (bleibt im Verlauf sichtbar).")
 
 
 @app.get("/mod-cases/stats", response_class=HTMLResponse)
