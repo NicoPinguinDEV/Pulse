@@ -117,6 +117,10 @@ class CertificateRouteTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.db_patch = patch.object(pulse_db, "DB_PATH", str(Path(self.tmp.name) / "pulse.db"))
         self.db_patch.start()
+        from cogs import pulse_suite  # the submit route also updates the assignment ledger in the suite database
+        self.suite_patch = patch.object(pulse_suite, "DB_PATH", str(Path(self.tmp.name) / "suite.db"))
+        self.suite_patch.start()
+        pulse_suite.init_db()
         pulse_db.init_db()
         self.qs = [{"question": "A?", "options": ["A", "B"], "answer_index": 0}]
         self.training = pulse_db.create_training("Grundlagen", "", 80, 20, "900", "Leitung", self.qs)
@@ -131,6 +135,7 @@ class CertificateRouteTests(unittest.TestCase):
         self.client = TestClient(app, raise_server_exceptions=False)
 
     def tearDown(self):
+        self.suite_patch.stop()
         self.db_patch.stop()
         self.tmp.cleanup()
 
