@@ -5,13 +5,27 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, 
 
 ## Stand auf main
 
+Bewertet ist der Code-Stand `main` @ `6c9ff85` (nach PR #234). PRs #214–#234 sind gemergt bzw. geschlossen (#230). Die 177 Einzelzeilen wurden am 13.11.2026 gegen den Code abgeglichen (PR #235).
+
 | Status | Anzahl |
 |---|---:|
 | Fertig | 86 |
 | Teilweise | 91 |
 | Offen | 0 |
 
-**Aktueller Ausgangspunkt:** `main` @ `6c9ff85` (PR #234). PRs #214–#234 sind gemergt bzw. geschlossen (#230). Die Einzelzeilen wurden am 13.11.2026 gegen den Code abgeglichen; Kopfzeile, Gesamt- und Bereichsübersicht stimmen jetzt mit den 177 Zeilen überein (86 + 91 + 0 = 177).
+Diese Zahlen sind die **korrigierte Bewertung von `main`**. In `main` selbst steht sie erst nach dem Merge von PR #235; bis dahin nennt `main` noch die veraltete Angabe 80 / 97 (Kopfzeile der Auditdatei fälschlich 78 / 99). Funktionen aus noch nicht gemergten Branches sind hier **nicht** mitgezählt.
+
+## Noch nicht gemergte Feature-Branches (Stand 13.11.2026)
+
+Die PRs bauen aufeinander auf und werden in dieser Reihenfolge gemergt: #238 (Abhängigkeit, ohne Auditwirkung) → #235 → #236 → #237. Jede Zeile enthält die Zeilen darüber.
+
+| Stand | Fertig | Teilweise | Offen | Auditänderung | In `main`? |
+|---|---:|---:|---:|---|---|
+| `main` nach PR #234, korrigiert (PR #235) | 86 | 91 | 0 | #15, #18, #19, #23, #43, #52 → Fertig | nein, PR #235 offen |
+| zusätzlich PR #236 (`feature/self-service-rsvp-55`) | 87 | 90 | 0 | #55 → Fertig | nein, PR #236 offen |
+| zusätzlich PR #237 (`feature/unified-case-history-11-12`) | 88 | 89 | 0 | #12 → Fertig; #11 bleibt Teilweise | nein, PR #237 offen |
+
+Die Kopf- und Übersichtszahlen in `docs/PULSE_FEATURE_AUDIT_177.md` geben immer den Stand **des Branches** wieder, in dem die Datei liegt. Nach jedem Merge sind die Spalte „In `main`?“ und der Abschnitt „Stand auf main“ nachzuführen.
 
 ## Zuletzt abgeschlossene Implementierungsblöcke
 
