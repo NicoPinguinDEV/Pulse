@@ -5156,6 +5156,14 @@ async def delete_log(
 
 
 
+def get_setting_safe(key, default=None):
+    """pulse_db settings read that never breaks a page (missing table, locked database)."""
+    try:
+        return pulse_db.get_setting(key, default)
+    except Exception:
+        return default
+
+
 def can_review_applications(ctx) -> bool:
     """Full applicant answers, evaluations and internal notes are restricted to recruiting staff."""
     perms = getattr(ctx, "perms", {}) or {}
@@ -8883,6 +8891,22 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
     apps_html = ""
     import pulse_application_duplicates as duplicate_detection
     duplicate_index = duplicate_detection.build_duplicate_index(apps) if can_review else {}
+    import pulse_application_review as app_review
+    review_leadership = bool(ctx.perms.get("can_promote") or ctx.perms.get("is_admin"))
+    reviewer_candidates: list[tuple[str, str]] = []
+    reviewer_load: dict = {}
+    if can_review and review_leadership and not show_history:
+        for member in list(getattr(ctx.guild, "members", []) or [])[:500]:
+            if getattr(member, "bot", False):
+                continue
+            try:
+                member_perms, _ = compute_perms(ctx.guild, member.id, load_config())
+            except Exception:
+                continue
+            if member_perms.get("can_manage_applications") or member_perms.get("can_promote") or member_perms.get("is_admin"):
+                reviewer_candidates.append((str(member.id), str(getattr(member, "display_name", member.id))[:80]))
+        reviewer_load = app_review.workload(apps, [rid for rid, _ in reviewer_candidates])
+    review_policy = app_review.normalize_policy(get_setting_safe(app_review.POLICY_KEY))
     for app_id, item in items:
         duplicate_notice = (
             duplicate_detection.render_duplicate_notice(
@@ -8947,9 +8971,8 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                 + "".join(practical_parts) + '</div></details>'
             )
 
-        reviews = item.get("reviews", {}) if can_review else {}
-        if not isinstance(reviews, dict):
-            reviews = {}
+        reviews = app_review.visible_reviews(item, uid, review_leadership) if can_review else {}
+        own_review_done = str(uid) in app_review.completed_reviews(item)
         all_scores = [
             int(value)
             for review in reviews.values() if isinstance(review, dict)
@@ -8963,10 +8986,36 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                 f'★ Team-Score: {review_average:.1f}/5 · {len(reviews)} Review(s)</span>'
             )
         else:
+            blind_note = ("Bewertungen anderer werden nach deiner eigenen Bewertung sichtbar"
+                          if can_review and not own_review_done and app_review.completed_reviews(item) else "Noch keine strukturierte Team-Bewertung")
             review_summary_html = (
                 '<span class="rounded-full border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-slate-500">'
-                'Noch keine strukturierte Team-Bewertung</span>'
+                + esc(blind_note) + '</span>'
             )
+        assignment_html = ""
+        if can_review and not show_history:
+            progress = app_review.progress(item)
+            names = ", ".join(esc(a["reviewer_name"] or a["reviewer_id"]) for a in app_review.assignments(item)) or "niemand zugewiesen"
+            tally = ""
+            if review_leadership and progress["tally"]:
+                tally = " · Empfehlungen: " + ", ".join(f"{esc(app_review.RECOMMENDATIONS[k])} {v}" for k, v in sorted(progress["tally"].items()))
+            gate = f' · Entscheidung ab {review_policy["min_reviews"]} Bewertungen' if review_policy["min_reviews"] else ""
+            assignment_html = (f'<span class="rounded-full border border-sky-500/25 bg-sky-500/10 px-2.5 py-1 text-sky-700 dark:text-sky-300">'
+                               f'👥 Prüfer: {names} · {progress["completed"]} Bewertung(en){tally}{gate}</span>')
+            if review_leadership and reviewer_candidates:
+                current = {a["reviewer_id"] for a in app_review.assignments(item)}
+                suggestion = set(app_review.suggest(apps, [rid for rid, _ in reviewer_candidates], 2, exclude=[str(item.get("user_id"))]))
+                options = "".join(
+                    f'<option value="{esc(rid)}" {"selected" if rid in current else ""}>{esc(name)} · Last {int(reviewer_load.get(rid, 0))}'
+                    f'{" · empfohlen" if rid in suggestion and not current else ""}</option>'
+                    for rid, name in reviewer_candidates if rid != str(item.get("user_id")))
+                assignment_html += (
+                    '<details class="mt-2"><summary class="cursor-pointer text-[11px] font-semibold text-sky-600">Prüfer zuweisen</summary>'
+                    '<form action="/applications/assign" method="post" class="mt-2 flex flex-wrap gap-2 items-end">'
+                    f'<input type="hidden" name="app_id" value="{esc(app_id)}">'
+                    f'<select name="reviewer_ids" multiple size="5" required aria-label="Prüfer" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs">{options}</select>'
+                    f'<button class="rounded-xl bg-sky-600 px-3 py-2 text-xs font-semibold text-white">Zuweisen (max. {app_review.MAX_ASSIGNED})</button></form></details>')
+        review_summary_html += assignment_html
 
         review_form_html = ""
         if can_decide and not show_history and item.get("status") in {"pending", "interview"}:
@@ -8999,6 +9048,11 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                 + '</p><form action="/applications/review" method="post" class="space-y-3">'
                 f'<input type="hidden" name="app_id" value="{esc(app_id)}">'
                 f'<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">{"".join(rating_controls)}</div>'
+                '<label class="block text-[11px] font-semibold">Deine Empfehlung (optional)'
+                '<select name="recommendation" class="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs">'
+                '<option value="">Keine Angabe</option>'
+                + "".join(f'<option value="{k}" {"selected" if my_review.get("recommendation") == k else ""}>{esc(v)}</option>' for k, v in app_review.RECOMMENDATIONS.items())
+                + '</select></label>'
                 '<label class="block text-[11px] font-semibold">Interne Beobachtungen (optional)'
                 f'<textarea name="review_notes" maxlength="1000" class="mt-1 w-full min-h-24 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs" placeholder="Stärken, offene Punkte, konkrete Beispiele …">{review_notes}</textarea></label>'
                 '<button class="rounded-xl bg-violet-600 hover:bg-violet-500 px-4 py-2.5 text-xs font-semibold text-white">Bewertung für mich speichern</button>'
@@ -9231,6 +9285,10 @@ async def save_application_review(request: Request, user_session: str = Cookie(N
         "notes": notes,
         "updated_at": now_de().strftime("%d.%m.%Y %H:%M"),
     }
+    import pulse_application_review as app_review
+    recommendation = app_review.normalize_recommendation(form.get("recommendation"))
+    if recommendation:
+        reviews[reviewer_id]["recommendation"] = recommendation
     save_json(APPS_FILE, apps)
     average = sum(ratings.values()) / len(ratings)
     log_audit(
@@ -9241,6 +9299,64 @@ async def save_application_review(request: Request, user_session: str = Cookie(N
     )
     return back("/applications", f"Bewertung gespeichert: {average:.1f}/5. Deine Bewertung bleibt separat von der anderer Reviewer.")
 
+
+
+@app.post("/applications/assign")
+async def assign_application_reviewers(request: Request, user_session: str = Cookie(None)):
+    """Audit #96: leadership assigns up to MAX_ASSIGNED reviewers; existing reviews stay untouched."""
+    import pulse_application_review as app_review
+    ctx = auth(request, user_session, perm=None)
+    if not (ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
+        raise HTTPException(status_code=403, detail="Prüfer zuweisen darf nur die Leitung.")
+    form = await request.form()
+    app_id = str(form.get("app_id") or "").strip()
+    apps = load_json(APPS_FILE, {})
+    item = apps.get(app_id) if isinstance(apps, dict) else None
+    if not isinstance(item, dict):
+        return back("/applications", "Bewerbung wurde nicht gefunden.", False)
+    if item.get("status") not in app_review.OPEN_STATUSES:
+        return back("/applications", "Abgeschlossenen Bewerbungen können keine Prüfer mehr zugewiesen werden.", False)
+    chosen = []
+    for raw_id in form.getlist("reviewer_ids")[: app_review.MAX_ASSIGNED + 1]:
+        member = ctx.guild.get_member(int(raw_id)) if str(raw_id).isdigit() else None
+        if member is None or getattr(member, "bot", False):
+            return back("/applications", "Eine ausgewählte Person ist nicht auf dem Server.", False)
+        member_perms, _ = compute_perms(ctx.guild, member.id, load_config())
+        if not (member_perms.get("can_manage_applications") or member_perms.get("can_promote") or member_perms.get("is_admin")):
+            return back("/applications", f"{member.display_name} darf keine Bewerbungen prüfen.", False)
+        if str(member.id) == str(item.get("user_id")):
+            return back("/applications", "Bewerber dürfen ihre eigene Bewerbung nicht prüfen.", False)
+        chosen.append((str(member.id), member.display_name))
+    actor_name = str(ctx.user.get("global_name") or ctx.user.get("username") or "Leitung")[:80]
+    try:
+        assigned = app_review.assign(item, chosen, actor_name, now_de().strftime("%d.%m.%Y %H:%M"))
+    except ValueError as exc:
+        return back("/applications", str(exc), False)
+    save_json(APPS_FILE, apps)
+    for entry in assigned:
+        try:
+            pulse_db.notify(entry["reviewer_id"], "📝 Bewerbung zugewiesen", f"{item.get('name', 'Bewerbung')} wartet auf deine Bewertung.",
+                            "info", "/applications", f"app-assign:{app_id}:{entry['reviewer_id']}", 86400)
+        except Exception as exc:
+            print(f"⚠️ Zuweisungs-Benachrichtigung fehlgeschlagen: {type(exc).__name__}")
+    log_audit(actor_name, ctx.user["id"], "Bewerbung zugewiesen", f"{item.get('name', 'Unbekannt')} → {', '.join(n for _, n in chosen)}")
+    return back("/applications", f"{len(assigned)} Prüfer zugewiesen.")
+
+
+@app.post("/applications/review-policy")
+async def save_application_review_policy(request: Request, user_session: str = Cookie(None)):
+    import pulse_application_review as app_review
+    ctx = auth(request, user_session, perm=None, admin=True)
+    form = await request.form()
+    try:
+        minimum = int(str(form.get("min_reviews") or "0").strip())
+    except ValueError:
+        return back("/applications", "Bitte eine ganze Zahl angeben.", False)
+    if not 0 <= minimum <= app_review.MAX_MIN_REVIEWS:
+        return back("/applications", f"Die Mindestzahl muss zwischen 0 und {app_review.MAX_MIN_REVIEWS} liegen (0 = keine Vorgabe).", False)
+    pulse_db.set_setting(app_review.POLICY_KEY, {"min_reviews": minimum})
+    log_audit(str(ctx.user.get("global_name") or ctx.user.get("username")), ctx.user["id"], "Bewerbungs-Prüfpolicy geändert", f"Mindestbewertungen: {minimum}")
+    return back("/applications", "Policy gespeichert.")
 
 
 @app.get("/applications/config", response_class=HTMLResponse)
@@ -12300,6 +12416,10 @@ async def handle_action(
             }
             if decision not in allowed_decisions.get(current_status, set()):
                 return back("/applications", "Diese Entscheidung passt nicht zum aktuellen Bewerbungsstatus.", False)
+            import pulse_application_review as app_review
+            gate_message = app_review.decision_gate(item, app_review.normalize_policy(get_setting_safe(app_review.POLICY_KEY)))
+            if gate_message:
+                return back("/applications", gate_message, False)
 
             def store_item() -> None:
                 # Merge only fields changed by this decision. Concurrent reviews, votes,

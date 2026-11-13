@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-13):** `main` @ `d538f20` nach den Merges von #238, #235–#237 sowie #240–#245 (jeweils mit grüner Pflicht-CI). Stand: **98 fertig / 79 teilweise / 0 offen**. #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-13):** `main` @ `d538f20` nach den Merges von #238, #235–#237 sowie #240–#245 (jeweils mit grüner Pflicht-CI). Stand: **100 fertig / 77 teilweise / 0 offen**. #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 98 |
-| Teilweise | 79 |
+| Fertig | 100 |
+| Teilweise | 77 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -35,7 +35,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 6 | 6 | 0 |
 | Dienstplanung und Aktivität | 7 | 5 | 0 |
-| Bewerbungen und Recruiting | 3 | 8 | 0 |
+| Bewerbungen und Recruiting | 5 | 6 | 0 |
 | Academy und Wissensmanagement | 6 | 4 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
 | Pulse Intelligence | 7 | 8 | 0 |
@@ -179,8 +179,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
 | 95 | Kanban-Bewerbungspipeline | **Teilweise** | `pulse_board.py` bildet Bewerbungsstufen ab; eine vollständig interaktive Kanban-Pipeline ist nicht belegt. |
-| 96 | Bewerbungszuweisung | **Teilweise** | Bewerbungsprüfer und Zuständigkeiten sind im Recruitingablauf vorhanden; eine durchgängige, explizite Zuweisung mit Lastverteilung ist nicht vollständig. |
-| 97 | Mehrere unabhängige Prüfer | **Teilweise** | Interview- und Bewertungsdatensätze existieren; ein vollständiger paralleler Multi-Reviewer-Prozess mit getrennten Freigaben fehlt. |
+| 96 | Bewerbungszuweisung | **Fertig** | `pulse_application_review.py`: Leitung weist Bewerbungen 1–5 Prüfern zu (`POST /applications/assign`, nur berechtigte Nicht-Bewerber, Benachrichtigung, Audit); die Bewerbungsseite zeigt je Prüfer die Last (offene, noch nicht bewertete Zuweisungen) und schlägt die am wenigsten belasteten vor. `tests/test_application_review.py`. |
+| 97 | Mehrere unabhängige Prüfer | **Fertig** | Unabhängige Bewertungen: Prüfer sehen Bewertungen anderer erst nach der eigenen (Leitung sieht alle), optionale Empfehlung je Prüfer (Einstellen/Ablehnen/Unsicher), Fortschritt und Empfehlungsverteilung für die Leitung, optionale Policy „Mindestzahl unabhängiger Bewertungen“ (Administratoren, `POST /applications/review-policy`) sperrt Entscheidungen serverseitig bis genug Bewertungen vorliegen. `tests/test_application_review.py`. |
 | 98 | Interview-Bewertungsbogen | **Fertig** | Interviewformular mit mehreren Kriterien, Noten und Notizen; `tests/test_application_eligibility.py` prüft den zweistufigen Interviewablauf. |
 | 99 | Interview-Kalender | **Teilweise** | Interviews und Team-Kalender existieren; Interviewtermine sind nicht vollständig als Kalenderobjekte mit Teilnehmern/Erinnerungen verbunden. |
 | 100 | Bewerber-Kommunikationshistorie | **Teilweise** | Bewerbungsstatus, Interviewinformationen und Kommunikationsvorlagen sind vorhanden; ein vollständiges, revisionsfestes Kommunikationsjournal fehlt. |
