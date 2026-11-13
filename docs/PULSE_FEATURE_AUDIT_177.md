@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 88 |
-| Teilweise | 89 |
+| Fertig | 90 |
+| Teilweise | 87 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -73,8 +73,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 17 | AutoMod-Testmodus ohne Sanktionen | **Fertig** | Der explizite `test`-Modus wertet echte Nachrichten aus, protokolliert Treffer getrennt und führt keine Löschungen, DMs oder Timeouts aus; `cogs/automod.py`, `pulse_moderation.py`, `tests/test_guard_admin.py` (PR #205). |
 | 18 | Ausnahmen je Kanal und Rolle | **Fertig** | PR #223: Ausnahmematrix je AutoMod-Regel für Rollen und Kanäle/Kategorien im Admin-Center; ID-Allowlist und Admin-Prüfung serverseitig, globale Ausnahmen unverändert. `cogs/automod.py`, `pulse_moderation.py`, `pulse_guard_admin.py`; `tests/test_guard_admin.py`. |
 | 19 | Konfigurierbare Raid-Alarmstufen | **Fertig** | PR #224: drei Stufen WARNUNG/ERHÖHT/KRITISCH getrennt je Signal (Beitrittswelle, neue Konten, Massen-Erwähnungen, Copy-Spam), über `*_WARNING`/`*_CRITICAL`-Variablen konfigurierbar, Drosselung je Signal und Stufe, Eskalation auf höhere Stufe wird gemeldet; nur Teamwarnungen, keine Sanktionen. `pulse_raid.py`; `tests/test_raid_watch.py`. |
-| 20 | Notfall-Lockdown | **Teilweise** | Anti-Nuke kann einen bestätigten, begründeten und reversiblen Lockdown starten/beenden; zeitliche Ablaufsteuerung und mehrstufige Freigabe fehlen. |
-| 21 | Sicherheitsübungen und Simulationen | **Teilweise** | Anti-Nuke-Regelsimulation und Replay-Tests existieren (`tests/test_antinuke_control_center.py`, `tests/test_antinuke_replay.py`); ein durchgängiger Übungsmodus für AutoMod, Raid und Lockdown fehlt. |
+| 20 | Notfall-Lockdown | **Fertig** | Manueller Lockdown mit optionaler Dauer (5–1440 Min.) und Standarddauer; `Anti-Nuke Lockdown-Ablauf (1 min)` hebt abgelaufene Lockdowns selbst auf (begrenzte Wiederholungen, danach bleibt er für eine Person aktiv, Admin-Benachrichtigung); optionale Zweitfreigabe durch eine andere Administratorin/einen anderen Administrator (Anfrage 15 Min. gültig, einmalig). Der automatische Anti-Nuke-Lockdown wird nie verzögert. `pulse_lockdown_policy.py`, `tests/test_lockdown_drills.py`. |
+| 21 | Sicherheitsübungen und Simulationen | **Fertig** | Unter `/admin/security#drills` Übungen für Raid (Wellen aller Stufen in einer Wegwerf-Überwachung), AutoMod (Beispielnachrichten gegen die echten Regeln) und Lockdown (reine Bereitschaftsprüfung: Kanäle, Bot-Recht, Dauer, Freigabe); keine Nachricht, keine Sperre, kein Strike; Berichte in `security_drills` (Backup). `pulse_security_drills.py`, `tests/test_lockdown_drills.py`. |
 | 22 | Alarm bei kritischen Rollen-/Kanaländerungen | **Fertig** | Anti-Nuke verarbeitet Role-, Channel-, Permission- und Guild-Update-Ereignisse; Tests prüfen Berechtigungsänderungen und harmlose Änderungen. |
 | 23 | Webhook-Überwachung | **Fertig** | PR #221: eigener Eventtyp für Webhook-Erstellung/-Änderung/-Löschung mit Allowlist-Metadaten (keine Tokens/URLs), Alarm bei nicht vertrauenswürdigen Akteuren mit 60-s-Cooldown; Anti-Nuke-Regelkette bleibt unberührt. `pulse_webhook_audit.py`, `cogs/antinuke.py`; `tests/test_webhook_monitor.py`. |
 | 24 | Moderationsstatistiken | **Fertig** | `/mod-cases/stats` (PR #232): /mod-Fälle je Server nach Maßnahme, Ergebnis, Median-Dauer bis Abschluss, DM-/Beweis-/Vorlagenquote, Wiederholungen, Moderatorverteilung und Vorzeitraumvergleich; AutoMod-Maßnahmen je Regel mit Fehlalarmquote und Prüfdauer, Testtreffer getrennt; CSV-Export. Nur lesend, Guild-isoliert, Rechte wie Fallakte. `tests/test_mod_stats.py`. Einspruchsquoten folgen erst mit PR #225. |

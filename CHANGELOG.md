@@ -1,5 +1,10 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Lockdown-Ablauf, Zweitfreigabe und Sicherheitsübungen (November 2026)
+
+- **Lockdown (#20):** Dauer (optional, auch als Standard) mit automatischem Aufheben; optionale Freigabe des manuellen Starts durch eine zweite Administratorin/einen zweiten Administrator. Ohne Einstellung bleibt alles wie bisher; der automatische Anti-Nuke-Lockdown wird nie verzögert. Neuer Job `Anti-Nuke Lockdown-Ablauf (1 min)`.
+- **Sicherheitsübungen (#21):** `/admin/security#drills` – Probeläufe für Raid, AutoMod und Lockdown ohne Wirkung; Berichte in der neuen Tabelle `security_drills` (im Backup).
+
 ## Fall-Gesamtverlauf (November 2026)
 
 - **Gesamtverlauf (#12):** Unter Bürger-Moderation → „Gesamtverlauf“ (`/mod-cases/verlauf`) und mit `/mod verlauf` sehen berechtigte Personen alle Fallereignisse einer Person über Bürger-Moderation, Team-/Spielerfälle, Teamwarnungen und KI-Moderation chronologisch. Jede Akte erscheint nur mit dem Recht, das ihre eigene Ansicht schon verlangt. Eine nicht lesbare Akte wird angezeigt, statt den Verlauf zu verfälschen.
