@@ -21,6 +21,13 @@ Bewertet ist der Code-Stand `main` @ `58fb538` (nach PR #237). Am 13.11.2026 wur
 
 Es gibt derzeit keine offenen Feature-Branches mit Auditwirkung. Die Kopf- und Übersichtszahlen in `docs/PULSE_FEATURE_AUDIT_177.md` geben immer den Stand **des Branches** wieder, in dem die Datei liegt; nach jedem Merge ist dieser Abschnitt nachzuführen.
 
+## Branch `audit/next-block` – Zertifikate und Auffrischung (#109, #110)
+
+- Neu: `pulse_certificates.py`, `tests/test_training_certificates.py`; Tabellen `training_certificates`, `training_refresher_rules`, `training_certificate_notices` (in `pulse_db.TABLES`, also Backup/Restore).
+- Zertifikat entsteht aus dem gespeicherten, bestandenen Versuch (`/training/{id}/submit`); Ablaufprüfung läuft im bestehenden Housekeeping-Job (kein neuer Job).
+- Getestet: 10 neue Tests, Route-Snapshot, Rechte-Sweep, Job-Coverage, Datenschutz, Smoke. Zwei `test_privacy.RetentionTests`-Fehler sind ein bereits auf `main` vorhandenes Windows-Dateisperrproblem (Temp-Cleanup), kein Linux-CI-Befund.
+- Stand dieses Branches: 90 / 87 / 0. Nächster Schritt: Block 2 (#36, #134, #135 Zusammenfassungen) laut Reihenfolge unten; #176 braucht noch Wissensversionierung.
+
 ## Zuletzt abgeschlossene Implementierungsblöcke
 
 - **PR #214 – Locale-Grundlage (#10):** per Nutzer gespeicherte Sprache Deutsch/Englisch/Auto, Locale-Auflösung und Übersetzungsbausteine; `/profil` und `/pulse-hilfe` verwenden die Übersetzungen. Weitere Commands, Modals und Dashboard-Texte bleiben Arbeit.

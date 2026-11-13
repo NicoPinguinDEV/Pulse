@@ -57,6 +57,13 @@ class PulseNextEvents(commands.Cog):
             print(f"Pulse Workflow-Housekeeping fehlgeschlagen: {exc}")
             pulse_jobs.record_error("TeamOS-Housekeeping (5 min)", exc)
 
+        try:
+            import pulse_certificates
+            pulse_certificates.process_notices()
+        except Exception as exc:
+            print(f"Zertifikat-Erinnerungen fehlgeschlagen: {type(exc).__name__}")
+            pulse_jobs.record_error("TeamOS-Housekeeping (5 min)", exc)
+
         if not guild:
             return
 

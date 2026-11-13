@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Zertifikate und Auffrischung (November 2026)
+
+- **Automatische Zertifikate (#109):** Wer eine Schulung besteht, erhält ein Zertifikat mit Prüfcode (`/training`, `/training/certificate/{code}`; nur Inhaber und Schulungsleitung).
+- **Auffrischungsschulungen (#110):** Pro Schulung lassen sich Gültigkeit und Vorwarnzeit festlegen; Inhaber werden einmal vor und einmal nach Ablauf benachrichtigt, Leitung sieht fällige Zertifikate. Standard ohne Regel: unbegrenzt gültig.
+- Neue Tabellen sind im JSON-Backup enthalten; manuell vergebene Zertifikate (`ultimate_certificates`) bleiben unverändert.
+
 ## Fall-Gesamtverlauf (November 2026)
 
 - **Gesamtverlauf (#12):** Unter Bürger-Moderation → „Gesamtverlauf“ (`/mod-cases/verlauf`) und mit `/mod verlauf` sehen berechtigte Personen alle Fallereignisse einer Person über Bürger-Moderation, Team-/Spielerfälle, Teamwarnungen und KI-Moderation chronologisch. Jede Akte erscheint nur mit dem Recht, das ihre eigene Ansicht schon verlangt. Eine nicht lesbare Akte wird angezeigt, statt den Verlauf zu verfälschen.
