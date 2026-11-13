@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-13):** `main` @ `6c9ff85` (PRs #214–#234 gemergt; Pflicht-CI „Pulse Quality and Security Checks“ und „Pulse Sicherheit & Abdeckung“ auf diesem Commit grün). Alle 177 Einzelzeilen wurden mit den gemergten PRs abgeglichen: **86 fertig / 91 teilweise / 0 offen**. Gegenüber dem vorherigen Stand (80/97, Kopfzeile fälschlich 78/99) sind #15, #18, #19, #23, #43 und #52 nach PR #221–#228 mit Code- und Testnachweis fertig; #55 und #57 bleiben trotz PR #222/#227 teilweise (konkrete Lücken in der Zeile). Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-13):** `main` @ `6c9ff85` (PRs #214–#234 gemergt; Pflicht-CI „Pulse Quality and Security Checks“ und „Pulse Sicherheit & Abdeckung“ auf diesem Commit grün). Alle 177 Einzelzeilen wurden mit den gemergten PRs abgeglichen: **87 fertig / 90 teilweise / 0 offen** (inkl. #55 aus Branch `feature/self-service-rsvp-55`; ohne diesen Branch 86/91). Gegenüber dem vorherigen Stand (80/97, Kopfzeile fälschlich 78/99) sind #15, #18, #19, #23, #43 und #52 nach PR #221–#228 mit Code- und Testnachweis fertig; #55 und #57 bleiben trotz PR #222/#227 teilweise (konkrete Lücken in der Zeile). Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 86 |
-| Teilweise | 91 |
+| Fertig | 87 |
+| Teilweise | 90 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -31,7 +31,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 3 | 0 |
 | Discord-Bot – Moderation und Sicherheit | 9 | 6 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
-| Discord-Bot – Community und BOCHUM RP | 7 | 8 | 0 |
+| Discord-Bot – Community und BOCHUM RP | 8 | 7 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 6 | 6 | 0 |
 | Dienstplanung und Aktivität | 4 | 8 | 0 |
@@ -118,7 +118,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 52 | Ankündigungsplaner | **Fertig** | PR #228: `/teamankuendigung planen|freigeben|liste|abbrechen` mit Entwurf, Vier-Augen-Freigabe (Ersteller darf nicht freigeben), Planung in Europe/Berlin (10 min–90 Tage, DST-Lücken abgelehnt), 30-s-Job, Veröffentlichung im Team-Updates-Kanal plus Inbox, `failed`-Status ohne Doppelversand. Tabelle `scheduled_announcements` im DB-Backup und Personenexport. `cogs/scheduled_announcements.py`; `tests/test_scheduled_announcements.py`. Planung nur über Discord, nicht im Dashboard. |
 | 53 | Lesebestätigungen für Ankündigungen | **Teilweise** | Team-News besitzen Lesestatus/Bestätigungen; eine einheitliche Bestätigung für alle Arten von Dienstanweisungen und Discord-Ankündigungen ist nicht vorhanden. |
 | 54 | Social-Media-Monitor | **Teilweise** | YouTube-/TikTok-Quellen, RSS-/Feedabruf, automatische Ankündigungen und SSRF-Schutz existieren; Filter- und Reportingumfang ist noch nicht vollständig. |
-| 55 | Spieler-Selbstservice | **Teilweise** | PR #222: private Discord-Befehle `/meine-tickets`, `/meine-events`, `/meine-benachrichtigungen` (Guild-/Nutzer-isoliert, begrenzt) neben `/pulse`, `/profil`, `/me`; `tests/test_player_self_service.py`. Es fehlen Selbstservice-Aktionen (z. B. Event-Rückmeldung ändern, eigenes Ticket schließen/ergänzen) und eine gebündelte Spieler-Übersicht in einer Ansicht. |
+| 55 | Spieler-Selbstservice | **Fertig** | Private Discord-Ansichten `/meine-tickets`, `/meine-events`, `/meine-benachrichtigungen` (PR #222). Neu: gebündelte Übersicht `/selbstservice` und Selbstservice-Aktion `/event-rueckmeldung` (Zusage/Absage/Zurückziehen mit Autovervollständigung). Sie nutzt dieselbe Funktion `pulse_ultimate.set_calendar_rsvp` wie der Dashboard-Kalender, erfordert Dashboard-Zugang und gilt nur für kommende Termine; mit Audit-Eintrag. Ticket-Ersteller schließen ihr eigenes Ticket über den bestehenden Schließen-Button (Prüfung von `user_id`). `cogs/pulse_pro.py`, `pulse_ultimate.py`; `tests/test_player_self_service.py`, `tests/test_ultimate_event_rsvps.py`. |
 
 ### 5. TeamOS-Dashboard – Startseite und Navigation (56–70)
 

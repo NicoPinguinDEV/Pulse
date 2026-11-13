@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Spieler-Selbstservice (November 2026)
+
+- **Event-Rückmeldung über Discord (#55):** Mit `/event-rueckmeldung` sagen Teammitglieder privat zu einem kommenden Team-Termin zu oder ab oder ziehen ihre Rückmeldung zurück. Termine werden per Autovervollständigung vorgeschlagen. Es gelten dieselben Regeln wie im Dashboard-Kalender, weil beide jetzt dieselbe Funktion verwenden. Zusätzlich ist der Zugang zum Dashboard nötig, und es sind nur Termine wählbar, die noch nicht begonnen haben. Jede Änderung landet im Audit-Log.
+- **`/selbstservice`:** zeigt eigene offene Tickets, kommende Rückmeldungen und Benachrichtigungseinstellungen privat in einer Ansicht. Fällt ein Teil aus, werden die anderen trotzdem angezeigt.
+- Keine neue Tabelle, keine Migration, keine Rechteänderung.
+
 ## Datenschutzanfragen (November 2026)
 
 - **Anfragen-Workflow (#171):** Administratoren verwalten unter Verwaltung → Datenschutz → Anfragen Auskunft, Berichtigung, Löschung, Einschränkung und Widerspruch mit Frist (1 Monat, einmal verlängerbar), Status, Zuständigkeit, internen Notizen und vollständigem Verlauf. Eine lesende Datenbestandsprüfung zeigt, wo Daten zu einer Discord-ID liegen; der JSON-Export bleibt die Auskunft.
