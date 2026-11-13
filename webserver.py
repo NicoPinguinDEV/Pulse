@@ -28,7 +28,7 @@ from collections import OrderedDict
 from types import SimpleNamespace
 from typing import List
 from pathlib import Path
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 from fastapi import FastAPI, Form, Request, Cookie, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse, Response
@@ -6906,7 +6906,11 @@ async def mod_case_evidence_page(request: Request, user_session: str = Cookie(No
 
 
 def _evidence_redirect(ref: str, message: str):
-    return RedirectResponse(f"/mod-cases/beweise?ref={quote(str(ref)[:60])}&msg={quote(message)}", status_code=303)
+    """Fixed local target; the reference is re-built from a validated (kind, id) pair, never echoed as given."""
+    import pulse_case_registry as reg
+    parsed = reg.parse_ref(ref)
+    safe_ref = reg.make_ref(*parsed) if parsed else ""
+    return RedirectResponse("/mod-cases/beweise?" + urlencode({"ref": safe_ref, "msg": message[:200]}), status_code=303)
 
 
 @app.post("/mod-cases/beweise/add")
