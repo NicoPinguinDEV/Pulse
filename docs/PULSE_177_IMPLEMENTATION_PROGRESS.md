@@ -139,6 +139,28 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 - Entscheidungen: Quoten ohne Datenbasis werden als „–“ angezeigt statt 0 %; Testtreffer und `simulation`-Ereignisse zählen nie als Maßnahme; Zeilen fremder Guilds oder mit unlesbaren Zeitstempeln werden ignoriert; je Quelle höchstens 20 000 Zeilen (RAM-Budget).
 - Einschränkungen: Einspruchskennzahlen erst nach Merge von PR #225; Teamwarnungen und `/ultimate/cases` sind getrennte Fachakten (#11/#12) und nicht Teil dieser Bürger-Moderationsauswertung; kein Discord-Command (vermeidet Konflikt mit PR #225 in `cogs/mod_cases.py`).
 
+## Block 12 – Fallreferenzen und Gesamtverlauf (#11, #12)
+
+- Branch `feature/unified-case-history-11-12`. Baut auf #236 → #235 auf, weil alle drei dieselben Zählerzeilen ändern. Die Zähler oben enthalten diese noch nicht gemergten PRs.
+- Neu: `pulse_case_registry.py` (rein lesend), `GET /mod-cases/verlauf` (Dashboard, Link auf `/mod-cases`), `/mod verlauf` und `/mod fall` (Discord, privat). `/mod akte` bleibt unverändert und erhält nur einen Hinweis.
+- Quellen: `mod_cases` + `mod_case_appeals`, `ultimate_cases` + `ultimate_case_events`, `warns_list` in `team_data.json`, `ai_moderation_cases.json`. Keine neue Tabelle, keine Migration, keine zweite Datenhaltung, kein neuer Job, Backup unverändert.
+- Rechte wie die bestehenden Ansichten (fail-closed, nur echte Booleans):
+  - BM/KI: `is_admin`, `can_moderate_kicks` oder `can_moderate_bans`
+  - TW: `can_warn`
+  - TF: `can_promote`
+  - Ohne eines dieser Rechte gibt es 403 bzw. eine private Absage, und keine Quelle wird gelesen.
+  - Unbekannte und nicht erlaubte Referenzen geben dieselbe Antwort, es gibt also keine ID-Aufzählung.
+  - Kein Autocomplete.
+- Einsichten werden im Audit-Log festgehalten („Fall-Gesamtverlauf eingesehen“).
+- Entscheidungen:
+  - Verknüpfung nur über die gespeicherte Discord-ID.
+  - Teamwarn-Zeiten (`dd.mm.YYYY HH:MM`) werden als Europe/Berlin gelesen (inkl. Sommerzeit), naive ISO-Zeiten als UTC.
+  - Ereignisse ohne lesbare Zeit stehen am Ende.
+  - Doppelte Alt-Warn-IDs werden nicht aufgelöst.
+  - Nachrichteninhalte (KI), Fallbeschreibungen und Ereignisdetails (TF) bleiben in der jeweiligen Akte.
+  - Alt-Warnungen ohne ID werden übersprungen und nicht gespeichert.
+- #12 → Fertig. #11 bleibt Teilweise: Typisierte Referenzen sind kein gemeinsamer Nummernkreis. Echte Vereinheitlichung braucht eine freigegebene Schema-/Datenänderung.
+
 ## Block 11 – Spieler-Selbstservice (#55)
 
 - Branch: `feature/self-service-rsvp-55`. Baut auf `audit/177-reconciliation` (PR #235) auf, weil beide dieselben Zählerzeilen ändern.

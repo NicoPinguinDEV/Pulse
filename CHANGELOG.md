@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Fall-Gesamtverlauf (November 2026)
+
+- **Gesamtverlauf (#12):** Unter Bürger-Moderation → „Gesamtverlauf“ (`/mod-cases/verlauf`) und mit `/mod verlauf` sehen berechtigte Personen alle Fallereignisse einer Person über Bürger-Moderation, Team-/Spielerfälle, Teamwarnungen und KI-Moderation chronologisch. Jede Akte erscheint nur mit dem Recht, das ihre eigene Ansicht schon verlangt. Eine nicht lesbare Akte wird angezeigt, statt den Verlauf zu verfälschen.
+- **Fallreferenzen (#11, teilweise):** Jeder Fall ist über eine eindeutige Referenz wie `BM:MOD-1A2B3C`, `TF:PX-2026-0001`, `TW:warn_…` oder `KI:…` auffindbar (`/mod fall`). Bestehende Fallnummern bleiben unverändert; einen gemeinsamen Nummernkreis gibt es noch nicht.
+- Rein lesend, keine neue Tabelle, keine Datenmigration. Einsichten werden protokolliert.
+
 ## Spieler-Selbstservice (November 2026)
 
 - **Event-Rückmeldung über Discord (#55):** Mit `/event-rueckmeldung` sagen Teammitglieder privat zu einem kommenden Team-Termin zu oder ab oder ziehen ihre Rückmeldung zurück. Termine werden per Autovervollständigung vorgeschlagen. Es gelten dieselben Regeln wie im Dashboard-Kalender, weil beide jetzt dieselbe Funktion verwenden. Zusätzlich ist der Zugang zum Dashboard nötig, und es sind nur Termine wählbar, die noch nicht begonnen haben. Jede Änderung landet im Audit-Log.

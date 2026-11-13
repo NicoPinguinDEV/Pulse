@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-13):** `main` @ `6c9ff85` (PRs #214–#234 gemergt; Pflicht-CI „Pulse Quality and Security Checks“ und „Pulse Sicherheit & Abdeckung“ auf diesem Commit grün). Alle 177 Einzelzeilen wurden mit den gemergten PRs abgeglichen. Dieser Branch zählt **87 fertig / 90 teilweise / 0 offen**; er enthält die noch **nicht gemergten** PRs #235 (Abgleich, Stand 86/91) und #236 (#55 → Fertig). Ohne diese PRs entspricht `main` nach Abgleich 86/91. Gegenüber dem vorherigen Stand (80/97, Kopfzeile fälschlich 78/99) sind #15, #18, #19, #23, #43 und #52 nach PR #221–#228 mit Code- und Testnachweis fertig; #55 und #57 bleiben trotz PR #222/#227 teilweise (konkrete Lücken in der Zeile). Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-13):** Referenz `main` @ `6c9ff85` (PRs #214–#234 gemergt, Pflicht-CI grün). Dieser Branch zählt **88 fertig / 89 teilweise / 0 offen** und enthält drei noch **nicht gemergte** PRs, die aufeinander aufbauen: #235 gleicht die Zeilen an PR #221–#228 an (#15, #18, #19, #23, #43, #52 fertig; Stand 86/91), #236 stellt #55 fertig (87/90), und #237 (`feature/unified-case-history-11-12`) stellt #12 fertig (88/89; #11 bleibt teilweise). Ohne diese PRs entspricht `main` 86/91 nach Abgleich; die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 87 |
-| Teilweise | 90 |
+| Fertig | 88 |
+| Teilweise | 89 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -29,7 +29,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Bereich | Fertig | Teilweise | Offen |
 |---|---:|---:|---:|
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 3 | 0 |
-| Discord-Bot – Moderation und Sicherheit | 9 | 6 | 0 |
+| Discord-Bot – Moderation und Sicherheit | 10 | 5 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 8 | 7 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
@@ -64,8 +64,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 11 | Gemeinsame Moderations-Fallnummern | **Teilweise** | `pulse_mod_cases.py` und `pulse_ultimate.py` vergeben IDs/Fallnummern; Teamwarnungen, KI-Moderation und Bürger-Moderation sind aber noch getrennte Fachakten. |
-| 12 | Durchgängiger Moderationsverlauf | **Teilweise** | `/mod akte`, Falllisten, Warnhistorie und Ultimate-Fallereignisse existieren; ein einheitlicher Verlauf über alle Moderationsarten fehlt. |
+| 11 | Gemeinsame Moderations-Fallnummern | **Teilweise** | `pulse_case_registry.py` (Branch `feature/unified-case-history-11-12`): Jeder bestehende Fall der vier Fallakten (Bürger-Moderation `mod_cases`, Team-/Spielerfälle `ultimate_cases`, Teamwarnungen in `team_data.json`, KI-Moderation) hat eine typisierte, kollisionsfreie Referenz `BM:` / `TF:` / `TW:` / `KI:` + bestehende ID. Sie ist über `/mod fall` und `/mod-cases/verlauf?ref=` mit den Rechten der jeweiligen Akte auflösbar. Bisherige IDs funktionieren weiter, auch ohne Präfix, sofern ihr Format eindeutig ist. `tests/test_case_registry.py`. **Fehlt:** ein echter gemeinsamer Nummernkreis. Neue Fälle erhalten weiterhin quellspezifische IDs aus vier getrennten Ablagen. Eine Vereinheitlichung braucht eine Schema-/Datenänderung (z. B. eine zentrale Fallnummernvergabe beim Anlegen) und ist ohne Freigabe zur Datenmigration nicht umgesetzt. |
+| 12 | Durchgängiger Moderationsverlauf | **Fertig** | `pulse_case_registry.person_history` führt die Ereignisse aller vier Fallakten einer Person chronologisch (UTC) zusammen: Fall angelegt/abgeschlossen/fehlgeschlagen, Einspruch eingereicht/entschieden (BM), Fallereignisse aus `ultimate_case_events` (TF), Verwarnung widerrufen/abgelaufen (TW), KI-Vorprüfung und Entscheidung (KI). Jedes Ereignis nennt Herkunft und Referenz. Verknüpfung nur über die gespeicherte Discord-ID, keine Zuordnung über Namen oder Zeitstempel. Rein lesend, jede Quelle nur mit ihrem bestehenden Recht. Eine defekte Quelle wird als „nicht lesbar“ gemeldet, ohne die anderen auszublenden. Nachrichteninhalte und interne Notizen bleiben in der Akte. Dashboard `GET /mod-cases/verlauf`, Discord `/mod verlauf` (privat, auditiert); `/mod akte` unverändert. `tests/test_case_registry.py` (29 Tests). |
 | 13 | Versionierte Begründungsvorlagen | **Fertig** | Verwaltbarer, versionierter Vorlagenkatalog (PR #190); `pulse_mod_reason_templates.py`, `tests/test_mod_reason_templates.py`. |
 | 14 | Beweismittelverwaltung | **Teilweise** | Bürger-Moderationsfälle speichern Beweisangaben; Ultimate-Fälle unterstützen Uploads und Dateimetadaten. Die Beweisverwaltung ist nicht über alle Falltypen vereinheitlicht. |
 | 15 | Formelles Einspruchssystem | **Fertig** | PR #225: persistenter DM-Button „Einspruch einreichen“ (auch nach Kick/Ban), privates Modal, 14-Tage-Frist, genau ein Einspruch je Fall, Eigentümer-/Guild-Bindung serverseitig; `/mod einsprueche` und `/mod einspruch-entscheiden` mit einmaliger, revisionsfähiger Entscheidung und DM-Rückmeldung; keine automatische Sanktionsänderung. Tabelle `mod_case_appeals` in DB-Export/-Import und Personenexport. `tests/test_mod_cases.py`, `tests/test_privacy.py`. |

@@ -28,7 +28,7 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | cogs/ai_moderation.py:399 | `_wait_and_publish_outage_notice` | `min(max(remaining + 0.25, 1.0` | keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt) |
 | cogs/recovery.py:219 | `_run_all_sync` | `1.0, 0.2` | keine (Fehler beenden die Schleife bzw. werden von discord.ext.tasks geloggt) |
 | pulse_ultimate.py:3499 | `automation_loop` | `60, 60` | 4 except, davon 3 breit |
-| webserver.py:10112 | `auto_backup_loop` | `300` | 3 except, davon 1 breit |
+| webserver.py:10182 | `auto_backup_loop` | `300` | 3 except, davon 1 breit |
 
 ## `create_task` / `ensure_future` / `pulse_tasks.spawn` (15)
 
@@ -50,7 +50,7 @@ Automatisch erzeugt von `python tools/jobs_perms.py` (statische Analyse).
 | main.py:99 | `spawn_task(self.close(), name="pulse-sigterm-close", loop=loop, critical=True)` |
 | pulse_tasks.py:44 | `target.create_task(coro, name=name)` |
 | pulse_ultimate.py:3532 | `spawn_task(automation_loop(bot), name="pulse-automation", critical=True)` |
-| webserver.py:10189 | `spawn_task(auto_backup_loop(), name="pulse-auto-backup", critical=True)` |
+| webserver.py:10259 | `spawn_task(auto_backup_loop(), name="pulse-auto-backup", critical=True)` |
 
 ## Rechte-Schlüssel
 

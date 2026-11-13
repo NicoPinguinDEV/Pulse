@@ -6739,7 +6739,8 @@ async def mod_cases_page(request: Request, user_session: str = Cookie(None)):
     q = params["q"]
     body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">⚖ Bürger-Moderation</div>'
             f'<div class="pulse-section-sub">Fallakte aller /mod-Aktionen. Neue Fälle entstehen nur in Discord über /mod warn|timeout|kick|ban.</div></div>'
-            f'<a class="pulse-btn ghost" href="/mod-cases.csv{("?q=" + quote(q)) if q else ""}">⬇ CSV</a></div>'
+            f'<div class="flex gap-2"><a class="pulse-btn ghost" href="/mod-cases/verlauf">🗂 Gesamtverlauf</a>'
+            f'<a class="pulse-btn ghost" href="/mod-cases.csv{("?q=" + quote(q)) if q else ""}">⬇ CSV</a></div></div>'
             + appeal_section + __import__("pulse_views").bar("/mod-cases", ctx.user["id"], request.query_params.multi_items()) +
             f'<section class="pulse-card"><div class="pulse-card-b"><form method="get" class="pulse-search mb-4" role="search" style="max-width:none">'
             f'<span>⌕</span><input name="q" value="{esc(q)}" aria-label="Fälle durchsuchen" placeholder="Fall-ID, Name, Grund, Moderator…"><button class="pulse-btn primary">Suchen</button></form>'
@@ -6760,6 +6761,75 @@ async def mod_cases_csv(request: Request, user_session: str = Cookie(None)):
                                     ["Fall", "Aktion", "Person", "Discord-ID", "Grund", "Beweis", "Bis", "Moderator", "Erstellt", "Status"],
                                     [(c["id"], mc.ACTIONS.get(c["action"], c["action"]), c["target_name"], c["target_id"], c["reason"],
                                       c.get("proof"), c.get("expires_at"), c["actor_name"], c["created_at"], c["status"]) for c in rows])
+
+
+@app.get("/mod-cases/verlauf", response_class=HTMLResponse)
+async def mod_cases_history_page(request: Request, user_session: str = Cookie(None)):
+    """Audit #11/#12: shared case references and one history across all case files (read-only)."""
+    import pulse_case_registry as reg
+    from pulse_pro import render_pro_page
+    ctx = auth(request, user_session, perm=None)
+    kinds = reg.allowed_kinds(ctx.perms)
+    if not kinds:
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir ein Moderations-, Warn- oder Leitungsrecht.")
+    guild_id = getattr(getattr(ctx, "guild", None), "id", None)
+    ref_q = str(request.query_params.get("ref") or "").strip()[:60]
+    user_q = re.sub(r"\D", "", str(request.query_params.get("user") or ""))[:20]
+    found = None
+    notice = ""
+    if ref_q:
+        found = reg.resolve(ref_q, ctx.perms, guild_id=guild_id)
+        if found:
+            user_q = user_q or found.get("person_id", "")
+        else:
+            notice = "Keine sichtbare Akte zu dieser Referenz gefunden (unbekannt oder ohne Recht für diese Fallart)."
+    history = reg.person_history(user_q, ctx.perms, guild_id=guild_id) if user_q else None
+    if ref_q or user_q:
+        log_audit(ctx.user.get("global_name") or ctx.user.get("username"), ctx.user["id"], "Fall-Gesamtverlauf eingesehen",
+                  f"Referenz {ref_q or '–'} · Person {user_q or '–'}")
+
+    def row(e: dict) -> str:
+        """A history event (``event`` set) or a single case from a reference lookup."""
+        link = (f' · <a class="text-indigo-500" href="{esc(e["url"])}">Akte öffnen</a>' if e.get("url") else "")
+        appeal = f' · Einspruch: {esc(e["appeal_status"])}' if e.get("appeal_status") else ""
+        when = e.get("at") if "event" in e else e.get("created_at")
+        actor = e.get("event_actor") if "event" in e else e.get("actor")
+        detail = e.get("event_detail") if "event" in e else e.get("detail")
+        step = f'<b>{esc(e["event_label"])}</b> · ' if "event" in e else ""
+        detail_html = f'<div class="text-xs mt-1">{esc(detail)}</div>' if detail else ""
+        return (f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{step}<code>{esc(e["ref"])}</code> · '
+                f'{esc(e["kind_label"])} · {esc(e["title"])} <span class="pulse-pill">{esc(e["status_label"])}</span></div>'
+                f'<div class="pulse-row-meta">{time_tag(when) if when else "Zeit unbekannt"}'
+                f'{" · von " + esc(actor) if actor else ""}{appeal}{link}</div>'
+                f'{detail_html}</div></div>')
+
+    labels = ", ".join(reg.KINDS[k] for k in reg.KIND_ORDER if k in kinds)
+    parts = []
+    if notice:
+        parts.append(f'<div class="pulse-card mb-4"><div class="pulse-card-b text-sm">{esc(notice)}</div></div>')
+    if found:
+        parts.append(f'<section class="pulse-card mb-4"><div class="pulse-card-h"><div class="pulse-section-title">🔎 Gefundene Akte</div></div>'
+                     f'<div class="pulse-card-b">{row(found)}</div></section>')
+    if history is not None:
+        missing = "".join(f'<div class="text-xs text-amber-600">⚠ {esc(reg.KINDS[k])} konnte gerade nicht gelesen werden.</div>'
+                          for k in history["unavailable"])
+        items = "".join(row(e) for e in history["entries"]) or empty_state("Keine Fälle zu dieser Person in den für dich sichtbaren Akten.", "⚖")
+        parts.append(f'<section class="pulse-card"><div class="pulse-card-h"><div><div class="pulse-section-title">🗂 Gesamtverlauf · {esc(user_q)}</div>'
+                     f'<div class="pulse-section-sub">Neueste zuerst · {len(history["entries"])} von {history["total"]} Ereignissen · '
+                     f'verknüpft nur über die gespeicherte Discord-ID</div></div></div>'
+                     f'<div class="pulse-card-b space-y-2">{missing}{items}</div></section>')
+    body = (f'<div class="pulse-topbar"><div><div class="pulse-section-title">🗂 Fall-Gesamtverlauf</div>'
+            f'<div class="pulse-section-sub">Eine Referenz und ein Verlauf für alle Fallakten. Sichtbar für dich: {esc(labels)}. '
+            f'Nur lesend; jede Akte bleibt in ihrem eigenen Bereich.</div></div>'
+            f'<a class="pulse-btn ghost" href="/mod-cases">⚖ Bürger-Moderation</a></div>'
+            f'<section class="pulse-card mb-4"><div class="pulse-card-b"><form method="get" class="flex flex-wrap gap-2" role="search">'
+            f'<input class="pulse-input" name="ref" value="{esc(ref_q)}" aria-label="Fallreferenz" placeholder="Referenz, z. B. BM:MOD-1A2B3C oder PX-2026-0001">'
+            f'<input class="pulse-input" name="user" value="{esc(user_q)}" inputmode="numeric" aria-label="Discord-ID" placeholder="Discord-ID der Person">'
+            f'<button class="pulse-btn primary">Anzeigen</button></form>'
+            f'<div class="text-xs mt-2">Fallarten: BM = Bürger-Moderation, TF = Team-/Spielerfall, TW = Teamwarnung, KI = KI-Moderation.</div>'
+            f'</div></section>' + "".join(parts))
+    import sys
+    return HTMLResponse(render_pro_page(sys.modules[__name__], "Fall-Gesamtverlauf", ctx, "mod-cases", body))
 
 
 def _mod_stats_bars(items, total: int) -> str:

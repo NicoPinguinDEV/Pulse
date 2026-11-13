@@ -627,8 +627,54 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
         cases = mc.list_cases(mitglied.id, limit=15)
         lines = [f"`{c['id']}` · {mc.ACTIONS.get(c['action'], c['action'])} · {c['created_at'][:10]} · {c['status']} · {c['reason'][:80]}"
                  for c in cases] or ["Keine Fälle."]
-        await interaction.response.send_message(f"📁 **Fallakte {mitglied}**\n" + "\n".join(lines), ephemeral=True,
+        await interaction.response.send_message(f"📁 **Fallakte {mitglied}**\n" + "\n".join(lines)
+                                                + "\n-# Alle Fallakten zusammen: /mod verlauf", ephemeral=True,
                                                 allowed_mentions=discord.AllowedMentions.none())
+
+    @staticmethod
+    def _history_line(entry: dict) -> str:
+        """One history event (``event`` set) or one case from a reference lookup."""
+        is_event = "event" in entry
+        when = ((entry.get("at") if is_event else entry.get("created_at")) or "")[:16].replace("T", " ") or "–"
+        step = f"**{entry['event_label']}** · " if is_event else ""
+        appeal = f" · Einspruch: {entry['appeal_status']}" if entry.get("appeal_status") else ""
+        detail = discord.utils.escape_markdown((entry.get("event_detail") if is_event else entry.get("detail")) or "")[:90]
+        return (f"{step}`{entry['ref']}` · {entry['kind_label']} · {discord.utils.escape_markdown(entry['title'][:60])} · "
+                f"{when} UTC · {entry['status_label']}{appeal}" + (f"\n{detail}" if detail else ""))
+
+    @app_commands.command(name="verlauf", description="Gesamtverlauf einer Person über alle Fallakten, die du sehen darfst.")
+    async def verlauf(self, interaction: discord.Interaction, mitglied: discord.User):
+        import pulse_case_registry as reg
+        perms = pulse_perms(interaction.guild, interaction.user.id) if interaction.guild else {}
+        if not reg.allowed_kinds(perms):
+            await interaction.response.send_message("❌ Kein Zugriff auf Fallakten.", ephemeral=True)
+            return
+        history = reg.person_history(mitglied.id, perms, guild_id=interaction.guild.id, limit=12)
+        lines = [self._history_line(e) for e in history["entries"]] or ["Keine Fälle in den für dich sichtbaren Akten."]
+        lines += [f"⚠️ {reg.KINDS[k]} konnte gerade nicht gelesen werden." for k in history["unavailable"]]
+        visible = ", ".join(reg.KINDS[k] for k in history["kinds"])
+        text = f"🗂 **Gesamtverlauf {mitglied}**\n-# Sichtbar: {visible}\n" + "\n".join(lines)
+        await interaction.response.send_message(text[:1990], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+        import webserver
+        webserver.log_audit(interaction.user.display_name, str(interaction.user.id), "Fall-Gesamtverlauf eingesehen",
+                            f"Person {mitglied.id} (Discord)")
+
+    @app_commands.command(name="fall", description="Einen Fall über seine Referenz (z. B. BM:MOD-1A2B3C, PX-2026-0001) öffnen.")
+    @app_commands.describe(referenz="Fallreferenz BM:…, TF:…, TW:… oder KI:…")
+    async def fall(self, interaction: discord.Interaction, referenz: str):
+        import pulse_case_registry as reg
+        perms = pulse_perms(interaction.guild, interaction.user.id) if interaction.guild else {}
+        if not reg.allowed_kinds(perms):
+            await interaction.response.send_message("❌ Kein Zugriff auf Fallakten.", ephemeral=True)
+            return
+        entry = reg.resolve(referenz, perms, guild_id=interaction.guild.id)
+        if not entry:
+            await interaction.response.send_message(
+                "Keine sichtbare Akte zu dieser Referenz (unbekannt oder ohne Recht für diese Fallart).", ephemeral=True)
+            return
+        person = f"\nPerson: <@{entry['person_id']}>" if entry.get("person_id", "").isdigit() else ""
+        await interaction.response.send_message(f"🔎 {self._history_line(entry)}{person}\n-# Verlauf der Person: /mod verlauf",
+                                                ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 async def lift_expired_bans(bot) -> int:
