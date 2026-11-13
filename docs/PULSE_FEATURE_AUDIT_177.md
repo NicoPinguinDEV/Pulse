@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-13):** `main` @ `58fb538` nach den Merges von #238, #235, #236 und #237 (jeweils mit grüner Pflicht-CI). Stand: **88 fertig / 89 teilweise / 0 offen**. #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-13):** `main` @ `58fb538` nach den Merges von #238, #235, #236 und #237 (jeweils mit grüner Pflicht-CI). Stand: **98 fertig / 79 teilweise / 0 offen**. #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 89 |
-| Teilweise | 88 |
+| Fertig | 98 |
+| Teilweise | 79 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -29,16 +29,16 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Bereich | Fertig | Teilweise | Offen |
 |---|---:|---:|---:|
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 3 | 0 |
-| Discord-Bot – Moderation und Sicherheit | 10 | 5 | 0 |
+| Discord-Bot – Moderation und Sicherheit | 14 | 1 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 8 | 7 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 6 | 6 | 0 |
-| Dienstplanung und Aktivität | 4 | 8 | 0 |
+| Dienstplanung und Aktivität | 7 | 5 | 0 |
 | Bewerbungen und Recruiting | 3 | 8 | 0 |
-| Academy und Wissensmanagement | 4 | 6 | 0 |
+| Academy und Wissensmanagement | 6 | 4 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
-| Pulse Intelligence | 6 | 9 | 0 |
+| Pulse Intelligence | 7 | 8 | 0 |
 | Automatisierungen und Workflow-System | 9 | 3 | 0 |
 | Admin Center, Sicherheit und Betrieb | 10 | 10 | 0 |
 | BOCHUM-RP-spezifische Funktionen | 0 | 5 | 0 |
@@ -67,14 +67,14 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 11 | Gemeinsame Moderations-Fallnummern | **Teilweise** | `pulse_case_registry.py` (Branch `feature/unified-case-history-11-12`): Jeder bestehende Fall der vier Fallakten (Bürger-Moderation `mod_cases`, Team-/Spielerfälle `ultimate_cases`, Teamwarnungen in `team_data.json`, KI-Moderation) hat eine typisierte, kollisionsfreie Referenz `BM:` / `TF:` / `TW:` / `KI:` + bestehende ID. Sie ist über `/mod fall` und `/mod-cases/verlauf?ref=` mit den Rechten der jeweiligen Akte auflösbar. Bisherige IDs funktionieren weiter, auch ohne Präfix, sofern ihr Format eindeutig ist. `tests/test_case_registry.py`. **Fehlt:** ein echter gemeinsamer Nummernkreis. Neue Fälle erhalten weiterhin quellspezifische IDs aus vier getrennten Ablagen. Eine Vereinheitlichung braucht eine Schema-/Datenänderung (z. B. eine zentrale Fallnummernvergabe beim Anlegen) und ist ohne Freigabe zur Datenmigration nicht umgesetzt. |
 | 12 | Durchgängiger Moderationsverlauf | **Fertig** | `pulse_case_registry.person_history` führt die Ereignisse aller vier Fallakten einer Person chronologisch (UTC) zusammen: Fall angelegt/abgeschlossen/fehlgeschlagen, Einspruch eingereicht/entschieden (BM), Fallereignisse aus `ultimate_case_events` (TF), Verwarnung widerrufen/abgelaufen (TW), KI-Vorprüfung und Entscheidung (KI). Jedes Ereignis nennt Herkunft und Referenz. Verknüpfung nur über die gespeicherte Discord-ID, keine Zuordnung über Namen oder Zeitstempel. Rein lesend, jede Quelle nur mit ihrem bestehenden Recht. Eine defekte Quelle wird als „nicht lesbar“ gemeldet, ohne die anderen auszublenden. Nachrichteninhalte und interne Notizen bleiben in der Akte. Dashboard `GET /mod-cases/verlauf`, Discord `/mod verlauf` (privat, auditiert); `/mod akte` unverändert. `tests/test_case_registry.py` (29 Tests). |
 | 13 | Versionierte Begründungsvorlagen | **Fertig** | Verwaltbarer, versionierter Vorlagenkatalog (PR #190); `pulse_mod_reason_templates.py`, `tests/test_mod_reason_templates.py`. |
-| 14 | Beweismittelverwaltung | **Teilweise** | Bürger-Moderationsfälle speichern Beweisangaben; Ultimate-Fälle unterstützen Uploads und Dateimetadaten. Die Beweisverwaltung ist nicht über alle Falltypen vereinheitlicht. |
+| 14 | Beweismittelverwaltung | **Fertig** | `pulse_case_evidence.py`: eine Beweisliste je Fallreferenz (BM/TF/TW/KI) mit Links und Notizen, Altbestände (Beweisangabe, Verwarnungs-Beweis, Team-Fall-Uploads) werden lesend mitgezeigt; Rechte wie die jeweilige Akte, Guild-Isolation, Limit 20, Entfernen nur mit Grund und nachvollziehbar (Soft-Delete), Tabelle `case_evidence` im Backup. Dashboard `/mod-cases/beweise`, Discord `/mod beweise` und `/mod beweis-hinzufuegen`. `tests/test_case_evidence_repeat.py`. |
 | 15 | Formelles Einspruchssystem | **Fertig** | PR #225: persistenter DM-Button „Einspruch einreichen“ (auch nach Kick/Ban), privates Modal, 14-Tage-Frist, genau ein Einspruch je Fall, Eigentümer-/Guild-Bindung serverseitig; `/mod einsprueche` und `/mod einspruch-entscheiden` mit einmaliger, revisionsfähiger Entscheidung und DM-Rückmeldung; keine automatische Sanktionsänderung. Tabelle `mod_case_appeals` in DB-Export/-Import und Personenexport. `tests/test_mod_cases.py`, `tests/test_privacy.py`. |
-| 16 | Eskalationshinweise bei Wiederholungen | **Teilweise** | Warnstufen, Eskalationsvorschau und KI-Moderationsprüfung existieren; ein einheitlicher, erklärbarer Wiederholungs-Hinweis über alle Fallarten fehlt. |
+| 16 | Eskalationshinweise bei Wiederholungen | **Fertig** | `pulse_case_repeat.py`: erklärbarer Wiederholungshinweis über alle sichtbaren Fallarten (90 Tage, ab 2 Wiederholung, ab 3 mehrfach; widerrufene, fehlgeschlagene und erfolgreich widersprochene Fälle zählen nicht), mit Fallliste, Regeltext und Hinweis auf nicht sichtbare/unlesbare Akten; angezeigt in `/mod fall`, `/mod verlauf`, nach jeder Maßnahme und im Dashboard-Gesamtverlauf. Nur Hinweis, keine automatische Sanktion. `tests/test_case_evidence_repeat.py`. |
 | 17 | AutoMod-Testmodus ohne Sanktionen | **Fertig** | Der explizite `test`-Modus wertet echte Nachrichten aus, protokolliert Treffer getrennt und führt keine Löschungen, DMs oder Timeouts aus; `cogs/automod.py`, `pulse_moderation.py`, `tests/test_guard_admin.py` (PR #205). |
 | 18 | Ausnahmen je Kanal und Rolle | **Fertig** | PR #223: Ausnahmematrix je AutoMod-Regel für Rollen und Kanäle/Kategorien im Admin-Center; ID-Allowlist und Admin-Prüfung serverseitig, globale Ausnahmen unverändert. `cogs/automod.py`, `pulse_moderation.py`, `pulse_guard_admin.py`; `tests/test_guard_admin.py`. |
 | 19 | Konfigurierbare Raid-Alarmstufen | **Fertig** | PR #224: drei Stufen WARNUNG/ERHÖHT/KRITISCH getrennt je Signal (Beitrittswelle, neue Konten, Massen-Erwähnungen, Copy-Spam), über `*_WARNING`/`*_CRITICAL`-Variablen konfigurierbar, Drosselung je Signal und Stufe, Eskalation auf höhere Stufe wird gemeldet; nur Teamwarnungen, keine Sanktionen. `pulse_raid.py`; `tests/test_raid_watch.py`. |
-| 20 | Notfall-Lockdown | **Teilweise** | Anti-Nuke kann einen bestätigten, begründeten und reversiblen Lockdown starten/beenden; zeitliche Ablaufsteuerung und mehrstufige Freigabe fehlen. |
-| 21 | Sicherheitsübungen und Simulationen | **Teilweise** | Anti-Nuke-Regelsimulation und Replay-Tests existieren (`tests/test_antinuke_control_center.py`, `tests/test_antinuke_replay.py`); ein durchgängiger Übungsmodus für AutoMod, Raid und Lockdown fehlt. |
+| 20 | Notfall-Lockdown | **Fertig** | Manueller Lockdown mit optionaler Dauer (5–1440 Min.) und Standarddauer; `Anti-Nuke Lockdown-Ablauf (1 min)` hebt abgelaufene Lockdowns selbst auf (begrenzte Wiederholungen, danach bleibt er für eine Person aktiv, Admin-Benachrichtigung); optionale Zweitfreigabe durch eine andere Administratorin/einen anderen Administrator (Anfrage 15 Min. gültig, einmalig). Der automatische Anti-Nuke-Lockdown wird nie verzögert. `pulse_lockdown_policy.py`, `tests/test_lockdown_drills.py`. |
+| 21 | Sicherheitsübungen und Simulationen | **Fertig** | Unter `/admin/security#drills` Übungen für Raid (Wellen aller Stufen in einer Wegwerf-Überwachung), AutoMod (Beispielnachrichten gegen die echten Regeln) und Lockdown (reine Bereitschaftsprüfung: Kanäle, Bot-Recht, Dauer, Freigabe); keine Nachricht, keine Sperre, kein Strike; Berichte in `security_drills` (Backup). `pulse_security_drills.py`, `tests/test_lockdown_drills.py`. |
 | 22 | Alarm bei kritischen Rollen-/Kanaländerungen | **Fertig** | Anti-Nuke verarbeitet Role-, Channel-, Permission- und Guild-Update-Ereignisse; Tests prüfen Berechtigungsänderungen und harmlose Änderungen. |
 | 23 | Webhook-Überwachung | **Fertig** | PR #221: eigener Eventtyp für Webhook-Erstellung/-Änderung/-Löschung mit Allowlist-Metadaten (keine Tokens/URLs), Alarm bei nicht vertrauenswürdigen Akteuren mit 60-s-Cooldown; Anti-Nuke-Regelkette bleibt unberührt. `pulse_webhook_audit.py`, `cogs/antinuke.py`; `tests/test_webhook_monitor.py`. |
 | 24 | Moderationsstatistiken | **Fertig** | `/mod-cases/stats` (PR #232): /mod-Fälle je Server nach Maßnahme, Ergebnis, Median-Dauer bis Abschluss, DM-/Beweis-/Vorlagenquote, Wiederholungen, Moderatorverteilung und Vorzeitraumvergleich; AutoMod-Maßnahmen je Regel mit Fehlalarmquote und Prüfdauer, Testtreffer getrennt; CSV-Export. Nur lesend, Guild-isoliert, Rechte wie Fallakte. `tests/test_mod_stats.py`. Einspruchsquoten folgen erst mit PR #225. |
@@ -161,10 +161,10 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 83 | Schichtplanung | **Teilweise** | Schichtstart/-pause/-ende und geplante Team-Schichten existieren; Planungs-/Änderungsablauf ist noch nicht durchgängig mit Tests abgesichert. |
+| 83 | Schichtplanung | **Fertig** | Dienstplanung in `/suite/schedule`: Eingaben werden validiert (Datum, HH:MM, Namen, max. 16 h, Nachtdienste), überlappende Dienste derselben Person abgelehnt (409), Dienste können abgesagt werden (Benachrichtigung, Audit; gesperrt bei offener Tauschanfrage); Tausch (#84) bleibt. `pulse_schedule_rules.py`, `tests/test_schedule_rules.py`, `tests/test_schedule_swaps.py`. |
 | 84 | Schichttausch | **Fertig** | Persönlicher Antrag, Zustimmung der Gegenseite und Leitungsfreigabe; atomare Konfliktprüfung und Datenschutzexport (PR #209). |
-| 85 | Dienstabdeckung | **Teilweise** | Dienstplan und Teamstatus sind vorhanden; automatische Lücken-/Mindestbesetzungsprüfung fehlt. |
-| 86 | Dienst-Erinnerungen | **Teilweise** | Activity Checks, Abwesenheiten und allgemeine Jobs erinnern; gezielte Erinnerungen vor persönlichen Schichten sind nicht vollständig belegt. |
+| 85 | Dienstabdeckung | **Fertig** | Mindestbesetzungsregeln je Wochentag/Zeitfenster (`suite_schedule_minimums`, guild-isoliert, Audit); `/suite/schedule` zeigt Besetzungslücken der nächsten 7 Tage in 15-Minuten-Auflösung, Nachtdienste zählen über Mitternacht. Reiner Hinweis, keine automatische Zuweisung. `tests/test_schedule_rules.py`. |
+| 86 | Dienst-Erinnerungen | **Fertig** | `pulse_shift_reminders.py`: Die Suite-Automatik benachrichtigt eingeplante Personen einmal je Schicht und Startzeit (verschobene Schichten erneut) vor Schichtbeginn; Vorlaufzeit 5–720 Min. einstellbar (`/suite/schedule`, Standard 30), nur Schichten des eigenen Servers, begrenzte Abfrage (heute/Folgetage). `tests/test_shift_reminders.py`. |
 | 87 | Abwesenheitskalender | **Teilweise** | Abmeldungen und Team-Kalender existieren; eine vollständig zusammengeführte persönliche Abwesenheits-/Schichtansicht ist nicht nachgewiesen. |
 | 88 | Wochen- und Monatsberichte | **Teilweise** | Analytics, Wochen-/Monatskennzahlen und Exporte existieren; automatische, einheitliche Teamberichte mit nachvollziehbarer Definition aller KPIs fehlen. |
 | 89 | Dienstzeit-Anomalien | **Teilweise** | Lange Schichten und Datenintegritätsprobleme werden erkannt; statistische Anomalieerkennung mit erklärbaren Schwellen fehlt. |
@@ -197,8 +197,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 106 | Interne Lernplattform | **Teilweise** | `/training` und Wiki existieren; die vollständige Academy mit Lernpfaden, Zertifikaten, Feedback und Versionskontrolle fehlt. |
 | 107 | Lernpfade je Rolle | **Fertig** | Rollenbezogene Lernpfade mit Fortschritt (PR #201); `tests/test_training_learning_paths.py`. |
 | 108 | Quizsystem | **Teilweise** | Trainingserstellung, Fragen, Zeitlimit und Bestehensgrenze existieren; vollständige Quizverwaltung und direkte End-to-End-Abdeckung sind begrenzt. |
-| 109 | Zertifikate | **Teilweise** | `/ultimate/certificates/create` kann Zertifikate manuell vergeben; automatische Ausstellung nach Kursabschluss und Nachweisverifikation fehlen. |
-| 110 | Auffrischungsschulungen | **Teilweise** | Zertifikate besitzen `valid_until`; automatische Ablaufwarnung und Auffrischungszuweisung sind nicht nachgewiesen. |
+| 109 | Zertifikate | **Fertig** | Nach jedem bestandenen Test wird automatisch ein Zertifikat mit Prüfcode ausgestellt (`pulse_certificates.py`, aus dem gespeicherten Versuch, idempotent je Versuch); Anzeige unter `/training`, Prüfseite `/training/certificate/{code}` nur für Inhaber und Leitung. `tests/test_training_certificates.py`. |
+| 110 | Auffrischungsschulungen | **Fertig** | Je Schulung konfigurierbare Gültigkeit und Vorwarnzeit (`POST /training/{id}/refresher`, nur Schulungsverwaltung); Housekeeping benachrichtigt Inhaber genau einmal vor Ablauf und bei Ablauf, ein neues Zertifikat ersetzt das alte, Leitung sieht fällige Auffrischungen. `tests/test_training_certificates.py`. |
 | 111 | Wissensdatenbank/Wiki | **Teilweise** | `/wiki` unterstützt Listen-, Detail- und Speicherfunktionen; Suche, redaktionelle Freigaben und vollständige Versionskontrolle fehlen. |
 | 112 | Artikel-Versionierung | **Fertig** | Unveränderliche Wiki-Versionen und Wiederherstellung (PR #196); `tests/test_wiki_versioning.py`. |
 | 113 | Lesebestätigung für Dienstanweisungen | **Teilweise** | Team-News haben Lesestatus; versionierte Dienstanweisungen mit gesonderter Kenntnisnahme fehlen. |

@@ -10,7 +10,7 @@ include = [
     "pulse_access.py", "pulse_board.py", "pulse_flags.py", "pulse_insights.py", "pulse_phase7.py", "pulse_public_status.py", "pulse_settings_history.py", "pulse_application_staging.py",
     "pulse_server_control.py", "pulse_live_console.py", "deploy/pulse_host_agent.py", "pulse_health_api.py",
     "pulse_ticket_center.py", "pulse_ticket_distribution.py", "tests/test_ticket_distribution.py", "tests/test_ticket_center_workload.py", "tests/test_ticket_escalation.py", "tests/test_ticket_assignment_absences.py",
-    "pulse_workflows.py", "pulse_automation_rules.py", "tests/test_workflow_engine.py", "pulse_summaries.py", "tests/test_summaries.py", "pulse_views.py", "tests/test_saved_views.py",
+    "pulse_workflows.py", "pulse_certificates.py", "tests/test_training_certificates.py", "pulse_shift_reminders.py", "tests/test_shift_reminders.py", "pulse_schedule_rules.py", "tests/test_schedule_rules.py", "pulse_lockdown_policy.py", "pulse_security_drills.py", "tests/test_lockdown_drills.py", "pulse_case_evidence.py", "pulse_case_repeat.py", "tests/test_case_evidence_repeat.py", "pulse_automation_rules.py", "tests/test_workflow_engine.py", "pulse_summaries.py", "tests/test_summaries.py", "pulse_views.py", "tests/test_saved_views.py",
     "tools/application_data_audit.py", "tests/test_application_data_audit.py", "tests/test_application_staging.py", "tests/test_incident_runbook.py",
     "pulse_community_feedback.py", "tests/test_community_feedback.py", "tests/test_community_suggestion_modal.py",
     "pulse_player_reports.py", "tests/test_player_reports.py", "tests/test_player_report_commands.py",

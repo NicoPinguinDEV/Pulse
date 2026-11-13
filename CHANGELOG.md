@@ -3,6 +3,26 @@
 ## Ticketlast-Prognose (November 2026)
 
 - **#127:** `/suite/forecast` zeigt je Tag die erwartete Ticketzahl mit 80 %-Bereich, Verlässlichkeit, Datenbasis und Trend. Ohne ausreichende Daten werden keine Zahlen erfunden. Keine neue Tabelle.
+## Zertifikate und Auffrischung (November 2026)
+
+- **Automatische Zertifikate (#109):** Wer eine Schulung besteht, erhält ein Zertifikat mit Prüfcode (`/training`, `/training/certificate/{code}`; nur Inhaber und Schulungsleitung).
+- **Auffrischungsschulungen (#110):** Pro Schulung lassen sich Gültigkeit und Vorwarnzeit festlegen; Inhaber werden einmal vor und einmal nach Ablauf benachrichtigt, Leitung sieht fällige Zertifikate. Standard ohne Regel: unbegrenzt gültig.
+- Neue Tabellen sind im JSON-Backup enthalten; manuell vergebene Zertifikate (`ultimate_certificates`) bleiben unverändert.
+## Schicht-Erinnerungen (November 2026)
+
+- **#86:** Eingeplante Personen werden einstellbar lange vor Schichtbeginn erinnert (Standard 30 Min., `/suite/schedule`). Je Schicht und Startzeit genau eine Benachrichtigung; verschobene Schichten erinnern erneut. Nur Abfrage der heutigen und der folgenden Tage, keine neue Tabelle.
+## Dienstplan und Dienstabdeckung (November 2026)
+
+- **Dienstplanung (#83):** Eingaben werden geprüft, überlappende Dienste derselben Person abgelehnt, Dienste lassen sich absagen (mit Benachrichtigung und Audit).
+- **Dienstabdeckung (#85):** Mindestbesetzungsregeln je Wochentag und Zeitfenster; `/suite/schedule` zeigt Lücken der nächsten 7 Tage. Neue Tabelle `suite_schedule_minimums` (nur Hinweis, keine automatische Zuweisung).
+## Lockdown-Ablauf, Zweitfreigabe und Sicherheitsübungen (November 2026)
+
+- **Lockdown (#20):** Dauer (optional, auch als Standard) mit automatischem Aufheben; optionale Freigabe des manuellen Starts durch eine zweite Administratorin/einen zweiten Administrator. Ohne Einstellung bleibt alles wie bisher; der automatische Anti-Nuke-Lockdown wird nie verzögert. Neuer Job `Anti-Nuke Lockdown-Ablauf (1 min)`.
+- **Sicherheitsübungen (#21):** `/admin/security#drills` – Probeläufe für Raid, AutoMod und Lockdown ohne Wirkung; Berichte in der neuen Tabelle `security_drills` (im Backup).
+## Fall-Beweise und Wiederholungshinweis (November 2026)
+
+- **Beweisverwaltung (#14):** Zu jeder Fallreferenz gibt es eine Beweisliste (`/mod-cases/beweise`, `/mod beweise`, `/mod beweis-hinzufuegen`). Links und Notizen mit Quelle, Altbestände werden mitgezeigt, Entfernen nur mit Grund und nachvollziehbar. Neue Tabelle `case_evidence` (im Backup).
+- **Wiederholungshinweis (#16):** `/mod fall`, `/mod verlauf`, die Bestätigung nach einer Maßnahme und der Gesamtverlauf zeigen, wie viele Fälle einer Person in 90 Tagen über alle sichtbaren Fallarten zählen – mit Begründung der Stufe. Nur ein Hinweis, keine automatische Maßnahme.
 
 ## Fall-Gesamtverlauf (November 2026)
 

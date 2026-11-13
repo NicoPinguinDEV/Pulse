@@ -388,8 +388,65 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_privacy_request_events_request ON privacy_request_events(request_id, created_at);
 
+            CREATE TABLE IF NOT EXISTS security_drills (
+                id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                actor_id TEXT NOT NULL,
+                actor_name TEXT,
+                at TEXT NOT NULL,
+                passed INTEGER NOT NULL,
+                summary TEXT NOT NULL,
+                checks_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_security_drills_guild ON security_drills(guild_id, at DESC);
+            CREATE TABLE IF NOT EXISTS case_evidence (
+                id TEXT PRIMARY KEY,
+                case_ref TEXT NOT NULL,
+                guild_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                value TEXT NOT NULL,
+                note TEXT DEFAULT '',
+                added_by_id TEXT NOT NULL,
+                added_by_name TEXT,
+                added_at TEXT NOT NULL,
+                removed_at TEXT,
+                removed_by_id TEXT,
+                removed_by_name TEXT,
+                remove_reason TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_case_evidence_ref ON case_evidence(guild_id, case_ref, added_at);
+
             CREATE INDEX IF NOT EXISTS idx_training_attempts_user ON training_attempts(user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_training_attempts_training ON training_attempts(training_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS training_refresher_rules (
+                training_id TEXT PRIMARY KEY,
+                valid_days INTEGER NOT NULL,
+                warn_days INTEGER NOT NULL,
+                updated_by_id TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS training_certificates (
+                id TEXT PRIMARY KEY,
+                attempt_id TEXT NOT NULL UNIQUE,
+                training_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                user_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                score INTEGER NOT NULL,
+                issued_at TEXT NOT NULL,
+                valid_until TEXT,
+                verify_code TEXT NOT NULL UNIQUE,
+                superseded_by TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_training_certificates_user ON training_certificates(user_id, issued_at DESC);
+            CREATE TABLE IF NOT EXISTS training_certificate_notices (
+                certificate_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                sent_at TEXT NOT NULL,
+                PRIMARY KEY (certificate_id, kind)
+            );
 
             CREATE TABLE IF NOT EXISTS training_paths (
                 id TEXT PRIMARY KEY,
@@ -2364,12 +2421,15 @@ def purge_old_notifications(days=90):
 
 TABLES = [
     "notifications", "tasks", "task_history", "tickets", "ticket_events", "ticket_internal_notes", "ticket_links", "wiki_pages", "wiki_page_versions", "achievements",
-    "achievement_progress", "trainings", "training_questions", "training_attempts", "training_feedback", "training_paths", "training_path_items", "meetings_history", "calendar_events",
+    "achievement_progress", "trainings", "training_questions", "training_attempts", "training_feedback", "training_paths", "training_path_items",
+    "training_refresher_rules", "training_certificates", "training_certificate_notices", "meetings_history", "calendar_events",
     "team_status", "handover_notes", "shift_notes", "announcements", "scheduled_announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_case_appeals", "mod_reason_templates", "mod_reason_template_versions",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
+    "security_drills",
+    "case_evidence",
 ]
 
 
