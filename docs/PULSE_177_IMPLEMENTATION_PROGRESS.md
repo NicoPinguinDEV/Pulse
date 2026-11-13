@@ -5,28 +5,43 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, 
 
 ## Stand auf main
 
-Bewertet ist der Code-Stand `main` @ `58fb538` (nach PR #237). Am 13.11.2026 wurden in dieser Reihenfolge gemergt: #238 (opentelemetry-api 1.45.2, ohne Auditwirkung) → #235 (Abgleich nach der Merge-Welle) → #236 (#55) → #237 (#11 teilweise, #12). Jeder PR wurde vor dem Merge auf den jeweils aktuellen `main` gebracht und war in der CI grün.
+Bewertet ist der Code-Stand `main` @ `d538f20`. Einzelstatus und Belege je Funktion stehen in `docs/PULSE_FEATURE_AUDIT_177.md`; die Zählung dort wird nach jedem Merge mit dem Hilfsskript-Prinzip „Zeilen zählen“ (nicht von Hand) nachgeführt.
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 88 |
-| Teilweise | 89 |
+| Fertig | 98 |
+| Teilweise | 79 |
 | Offen | 0 |
 
-| Schritt | Fertig | Teilweise | Offen | Auditänderung | Merge-Commit |
-|---|---:|---:|---:|---|---|
-| `main` nach PR #234, korrigiert (PR #235) | 86 | 91 | 0 | #15, #18, #19, #23, #43, #52 → Fertig | `5555d49` |
-| zusätzlich PR #236 | 87 | 90 | 0 | #55 → Fertig | `a82cbab` |
-| zusätzlich PR #237 | 88 | 89 | 0 | #12 → Fertig; #11 bleibt Teilweise | `58fb538` |
+| Schritt | Fertig | Teilweise | Auditänderung | PR |
+|---|---:|---:|---|---|
+| Ausgangspunkt (`main` nach #239) | 88 | 89 | – | – |
+| Fall-Beweise und Wiederholungshinweis | 90 | 87 | #14, #16 | #243 |
+| Lockdown-Ablauf, Zweitfreigabe, Sicherheitsübungen | 92 | 85 | #20, #21 | #244 |
+| Dienstplanung und Dienstabdeckung | 94 | 83 | #83, #85 | #242 |
+| Schicht-Erinnerungen | 95 | 82 | #86 | #245 |
+| Zertifikate und Auffrischung | 97 | 80 | #109, #110 | #240 |
+| Ticketlast-Prognose | 98 | 79 | #127 | #241 |
 
-Es gibt derzeit keine offenen Feature-Branches mit Auditwirkung. Die Kopf- und Übersichtszahlen in `docs/PULSE_FEATURE_AUDIT_177.md` geben immer den Stand **des Branches** wieder, in dem die Datei liegt; nach jedem Merge ist dieser Abschnitt nachzuführen.
+Gemergt am 13.11.2026 (Reihenfolge wie oben, jeweils auf aktuellen `main` gebracht, CI grün). Jeder Merge nach `main` startet den automatischen VPS-Deploy (`deploy-vps.yml`).
 
-## Branch `audit/next-block` – Zertifikate und Auffrischung (#109, #110)
+## Nächste Blöcke (Vorschlag, Abhängigkeiten beachten)
 
-- Neu: `pulse_certificates.py`, `tests/test_training_certificates.py`; Tabellen `training_certificates`, `training_refresher_rules`, `training_certificate_notices` (in `pulse_db.TABLES`, also Backup/Restore).
-- Zertifikat entsteht aus dem gespeicherten, bestandenen Versuch (`/training/{id}/submit`); Ablaufprüfung läuft im bestehenden Housekeeping-Job (kein neuer Job).
-- Getestet: 10 neue Tests, Route-Snapshot, Rechte-Sweep, Job-Coverage, Datenschutz, Smoke. Zwei `test_privacy.RetentionTests`-Fehler sind ein bereits auf `main` vorhandenes Windows-Dateisperrproblem (Temp-Cleanup), kein Linux-CI-Befund.
-- Stand dieses Branches: 90 / 87 / 0. Nächster Schritt: Block 2 (#36, #134, #135 Zusammenfassungen) laut Reihenfolge unten; #176 braucht noch Wissensversionierung.
+Noch 79 teilweise Punkte. Bereichsweise, jeweils ein Feature-Branch ab `main`:
+
+1. **Recruiting (#95–#103):** Kanban-Pipeline, Zuweisung mit Lastverteilung (#96), mehrere unabhängige Prüfer (#97), Interview-Kalender (#99), Kommunikationsjournal (#100), Erinnerungen (#101), Statistik (#102), Vorlagenbibliothek (#103; teilt sich Bausteine mit #123).
+2. **Teamakte und Entwicklung (#71, #73–#76, #81, #87–#89, #92, #94):** 360°-Akte konsolidieren, Kompetenzmatrix, Entwicklungspläne, Auslastungsansicht, Abwesenheitskalender, Anomalien mit erklärbaren Schwellen.
+3. **Integration (#116–#125):** zentrale Fallnummer/Direktlinks (#116, #119 bauen auf `pulse_case_registry` auf), Ereignisvertrag (#125), Aktionskarten (#121), zentrale Rechteprüfung (#120).
+4. **Intelligence (#129–#139):** Anomalien, Tages-/Wochenbericht (bauen auf `pulse_staffing_forecast.build_load_forecast` und `pulse_summaries` auf), Assistent mit Quellen (#132, #133, zusammen mit #47).
+5. **Dashboard (#57, #58, #62, #64–#68, #70):** Widgets, Live-Feed, globale Suche, Mobil/Dark/Tastatur/Hilfe.
+6. **Betrieb und Leitstelle (#153–#172, #173–#177).** Offene Reste bei #11 (gemeinsamer Nummernkreis) und #176 (Wissensversionierung).
+
+## Hinweise für die Weiterarbeit (Technik)
+
+- Konflikte beim Mergen treten fast immer in `CHANGELOG.md`, `ruff.toml`, `docs/ROUTEN.md`, `docs/routen_snapshot.json`, `docs/DATENLANDKARTE.md` und den Zahlen des Audits auf: Dokumente aus `main` nehmen, mit `python tools/route_map.py` und `python tools/data_map.py` neu erzeugen und die Audit-Zählung aus den Zeilen neu berechnen.
+- Tests, die `cogs.pulse_suite` berühren, müssen `pulse_suite.DB_PATH` auf ein Temp-Verzeichnis setzen **und** `pulse_suite.init_db()` aufrufen (`register_routes()` kehrt zurück, wenn ein früherer Test die Routen schon registriert hat); sonst legt die CI-Prüfung „keine Laufzeitdateien im Checkout“ Alarm.
+- Lokal unter Windows scheitern 2 Tests in `tests/test_privacy.py` (`RetentionTests`) an Temp-Dateisperren; Linux-CI ist maßgeblich.
+- `pulse_ultimate.py` und `webserver.py` stehen nicht in der Ruff-Liste (`ruff.toml`); neue Module dort eintragen.
 
 ## Zuletzt abgeschlossene Implementierungsblöcke
 
