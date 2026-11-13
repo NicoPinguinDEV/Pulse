@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-13):** `main` @ `58fb538` nach den Merges von #238, #235, #236 und #237 (jeweils mit grüner Pflicht-CI). Stand: **97 fertig / 80 teilweise / 0 offen**. #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-13):** `main` @ `58fb538` nach den Merges von #238, #235, #236 und #237 (jeweils mit grüner Pflicht-CI). Stand: **98 fertig / 79 teilweise / 0 offen**. #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 97 |
-| Teilweise | 80 |
+| Fertig | 98 |
+| Teilweise | 79 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -38,7 +38,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Bewerbungen und Recruiting | 3 | 8 | 0 |
 | Academy und Wissensmanagement | 6 | 4 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
-| Pulse Intelligence | 6 | 9 | 0 |
+| Pulse Intelligence | 7 | 8 | 0 |
 | Automatisierungen und Workflow-System | 9 | 3 | 0 |
 | Admin Center, Sicherheit und Betrieb | 10 | 10 | 0 |
 | BOCHUM-RP-spezifische Funktionen | 0 | 5 | 0 |
@@ -225,7 +225,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
 | 126 | Team-Ausfall-Simulation | **Fertig** | Pulse Intelligence bietet eine begrenzte, lesende Team-Ausfall-Simulation; `tests/test_pulse_intelligence.py`. |
-| 127 | Ticketlast-Prognose | **Teilweise** | Ticket-Surge-Simulation und Tickettrendvergleich existieren; echte statistische Prognose mit Unsicherheit und Datenbasis fehlt. |
+| 127 | Ticketlast-Prognose | **Fertig** | `pulse_staffing_forecast.build_load_forecast`: erwartete Tickets je Tag aus gleichen Wochentagen der letzten 8 Wochen mit 80 %-Bereich, Verlässlichkeitsstufe, Datenbasis und 4-Wochen-Trend; ohne Daten keine Zahlen. Anzeige in `/suite/forecast`. `tests/test_staffing_forecast.py`. |
 | 128 | Personalbedarfsprognose | **Fertig** | `/suite/forecast` vergleicht stündliche Ticket-Eingänge der letzten acht abgeschlossenen Wochen mit geplanter Personalabdeckung; begrenzt, transparent und managergeschützt (PR #210). |
 | 129 | Anomalieerkennung | **Teilweise** | Rule-based Findings zu SLA, Systemzustand und Volumen existieren; keine umfassende Anomalieerkennung über alle Datenbereiche. |
 | 130 | Automatische Tagesberichte | **Teilweise** | Team-Report-Automationsschritte und Copilot-Zusammenfassungen existieren; kein fertig vorkonfigurierter, täglicher geprüfter Berichtslauf. |

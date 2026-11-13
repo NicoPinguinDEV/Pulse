@@ -1,5 +1,8 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Ticketlast-Prognose (November 2026)
+
+- **#127:** `/suite/forecast` zeigt je Tag die erwartete Ticketzahl mit 80 %-Bereich, Verlässlichkeit, Datenbasis und Trend. Ohne ausreichende Daten werden keine Zahlen erfunden. Keine neue Tabelle.
 ## Zertifikate und Auffrischung (November 2026)
 
 - **Automatische Zertifikate (#109):** Wer eine Schulung besteht, erhält ein Zertifikat mit Prüfcode (`/training`, `/training/certificate/{code}`; nur Inhaber und Schulungsleitung).

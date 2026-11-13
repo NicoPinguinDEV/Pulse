@@ -159,3 +159,76 @@ def build_forecast(
         "planned_shifts_count": len({(assignee_id, start, end) for assignee_id, start, end in intervals}),
         "truncated": len(rows) > limit,
     }
+
+
+MIN_SAMPLES_FOR_INTERVAL = 4
+Z_80 = 1.2816  # z for a central 80 % interval under a normal approximation
+
+
+def build_load_forecast(tickets, *, now: datetime | None = None, history_days: int = 56, days_ahead: int = 7) -> dict:
+    """Audit #127: expected tickets per day with an uncertainty range and a stated data basis.
+
+    For every future day the same weekdays of the last completed weeks are the sample. The forecast is their mean;
+    the 80 % range uses the sample standard deviation (normal approximation, lower bound 0). With fewer than
+    MIN_SAMPLES_FOR_INTERVAL samples no range is claimed. Nothing is invented: no data means expected = None.
+    """
+    current = now or datetime.now(BERLIN)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=BERLIN)
+    current = current.astimezone(BERLIN)
+    try:
+        history_days = max(28, min(int(history_days), MAX_HISTORY_DAYS))
+    except (TypeError, ValueError):
+        history_days = 56
+    try:
+        days_ahead = max(1, min(int(days_ahead), MAX_DAYS_AHEAD))
+    except (TypeError, ValueError):
+        days_ahead = 7
+    first_day = current.date() - timedelta(days=history_days)
+    last_day = current.date() - timedelta(days=1)
+    per_day = Counter()
+    used = 0
+    for ticket in (tickets if isinstance(tickets, (list, tuple)) else ())[:MAX_TICKETS]:
+        opened = _local_datetime(ticket.get("opened_at")) if isinstance(ticket, dict) else None
+        if opened is not None and first_day <= opened.date() <= last_day:
+            per_day[opened.date()] += 1
+            used += 1
+    samples_by_weekday: dict[int, list[int]] = {weekday: [] for weekday in range(7)}
+    day = first_day
+    while day <= last_day:
+        samples_by_weekday[day.weekday()].append(per_day[day])
+        day += timedelta(days=1)
+
+    days = []
+    for offset in range(days_ahead):
+        target = current.date() + timedelta(days=offset)
+        samples = samples_by_weekday[target.weekday()]
+        n = len(samples)
+        if used == 0 or n == 0:
+            days.append({"date": target.isoformat(), "weekday": target.weekday(), "expected": None,
+                         "low": None, "high": None, "samples": n, "confidence": "keine Datenbasis"})
+            continue
+        mean = sum(samples) / n
+        if n >= MIN_SAMPLES_FOR_INTERVAL:
+            variance = sum((value - mean) ** 2 for value in samples) / (n - 1)
+            spread = Z_80 * variance ** 0.5
+            low, high = round(max(0.0, mean - spread), 1), round(mean + spread, 1)
+            confidence = "hoch" if n >= 8 else "mittel"
+        else:
+            low = high = None
+            confidence = "niedrig (zu wenige Wochen)"
+        days.append({"date": target.isoformat(), "weekday": target.weekday(), "expected": round(mean, 1),
+                     "low": low, "high": high, "samples": n, "confidence": confidence})
+
+    def window_total(start_offset: int, length: int) -> int:
+        return sum(per_day[last_day - timedelta(days=start_offset + index)] for index in range(length))
+    recent, previous = window_total(0, 28), window_total(28, 28)
+    trend_percent = round((recent - previous) / previous * 100) if previous and history_days >= 56 else None
+    return {
+        "days": days,
+        "history_days": history_days,
+        "history_tickets": used,
+        "expected_total": round(sum(d["expected"] for d in days if d["expected"] is not None), 1),
+        "trend_percent": trend_percent,
+        "interval": "80 % (Normalverteilungsnäherung über gleiche Wochentage)",
+    }
