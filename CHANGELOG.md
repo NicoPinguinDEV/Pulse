@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Bewerbungen: Prüferzuweisung und unabhängige Bewertung (November 2026)
+
+- **Zuweisung (#96):** Die Leitung weist Bewerbungen bis zu 5 Prüfern zu; die Seite zeigt die Last je Prüfer und schlägt die am wenigsten belasteten vor.
+- **Unabhängige Prüfer (#97):** Bewertungen anderer sind erst nach der eigenen sichtbar (Leitung sieht alle). Optionale Empfehlung je Prüfer. Administratoren können eine Mindestzahl unabhängiger Bewertungen vor einer Entscheidung vorgeben (Standard 0 = aus).
+- Bewerbungsdaten bleiben in `applications.json`; neue Felder (`assignments`, `recommendation`) sind optional, alte Datensätze funktionieren unverändert.
+
 ## Ticketlast-Prognose (November 2026)
 
 - **#127:** `/suite/forecast` zeigt je Tag die erwartete Ticketzahl mit 80 %-Bereich, Verlässlichkeit, Datenbasis und Trend. Ohne ausreichende Daten werden keine Zahlen erfunden. Keine neue Tabelle.
