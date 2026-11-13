@@ -34,9 +34,11 @@ from collections import OrderedDict, deque
 from datetime import datetime, timedelta, timezone
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
+import pulse_lockdown_policy as lockdown_policy
 import pulse_moderation as pm
+from pulse_jobs import tracked
 from pulse_moderation import (
     ANTINUKE_EVENT_LABELS,
     dangerous_names,
@@ -159,7 +161,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-async def start_lockdown(guild, channel_ids, *, reason: str, by: str) -> dict:
+async def start_lockdown(guild, channel_ids, *, reason: str, by: str, minutes: int | None = None) -> dict:
     """Deny @everyone writing/connecting in the given channels. {"status": ok|partial|failed|skipped, "detail": str}.
 
     Reversible: the previous @everyone overwrite values are stored per channel; lift_lockdown restores them.
@@ -198,10 +200,14 @@ async def start_lockdown(guild, channel_ids, *, reason: str, by: str) -> dict:
         await asyncio.sleep(LOCK_EDIT_PAUSE)  # stay well below Discord's channel-edit rate limit
     if not locked:
         return {"status": "failed", "detail": "Lockdown fehlgeschlagen: " + ", ".join(failed)[:500]}
-    save_lockdown({"active": True, "at": _now_iso(), "by": by[:80], "reason": reason[:300],
-                   "channels": locked, "failed": failed[:pm.MAX_LOCKDOWN_CHANNELS]})
+    state_now = {"active": True, "at": _now_iso(), "by": by[:80], "reason": reason[:300],
+                 "channels": locked, "failed": failed[:pm.MAX_LOCKDOWN_CHANNELS]}
+    if minutes:
+        state_now["expires_at"] = lockdown_policy.expires_at(datetime.now(timezone.utc), minutes)
+    save_lockdown(state_now)
     detail = f"{len(locked)} Kanal/Kanäle gesperrt" + (f", fehlgeschlagen: {', '.join(failed)}"[:500] if failed else "")
-    return {"status": "partial" if failed else "ok", "detail": detail + ". Aufheben: Dashboard → Verwaltung → Sicherheit."}
+    end = f" Endet automatisch nach {minutes} Minuten." if minutes else ""
+    return {"status": "partial" if failed else "ok", "detail": detail + "." + end + " Aufheben: Dashboard → Verwaltung → Sicherheit."}
 
 
 async def lift_lockdown(guild, *, by: str) -> dict:
@@ -237,6 +243,24 @@ async def lift_lockdown(guild, *, by: str) -> dict:
     return {"restored": restored, "failed": failed, "error": ""}
 
 
+async def lift_expired_lockdown(guild, now: datetime | None = None) -> dict | None:
+    """Audit #20: lift an active lockdown whose stored expiry has passed. None when nothing is due.
+
+    Channels that cannot be restored stay in the state and are retried on the next run, at most
+    MAX_EXPIRY_ATTEMPTS times; after that the lockdown stays active for a person (no endless retries).
+    """
+    state = load_lockdown()
+    if not lockdown_policy.is_expired(state, now):
+        return None
+    if not lockdown_policy.retry_allowed(state):
+        return {"restored": [], "failed": ["Wiederholungslimit erreicht – bitte manuell aufheben"], "error": "", "gave_up": True}
+    result = await lift_lockdown(guild, by="Pulse (automatischer Ablauf)")
+    after = load_lockdown()
+    if after.get("active"):
+        save_lockdown({**after, "expiry_attempts": int(after.get("expiry_attempts") or 0) + 1})
+    return result
+
+
 class PulseAntiNuke(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -246,6 +270,33 @@ class PulseAntiNuke(commands.Cog):
         # ("rule"|"action", guild, rule|action, actor) -> monotonic expiry; prevents repeated chains and double bans.
         self._cooldowns: OrderedDict[tuple, float] = OrderedDict()
         self._event_count = 0
+
+    async def cog_load(self):
+        self.lockdown_expiry.start()  # needs the running event loop, so not in __init__
+
+    def cog_unload(self):
+        self.lockdown_expiry.cancel()
+
+    @tasks.loop(minutes=1)
+    @tracked("Anti-Nuke Lockdown-Ablauf (1 min)", 60, pausable=False)
+    async def lockdown_expiry(self):
+        if not lockdown_policy.is_expired(load_lockdown()):
+            return
+        for guild in list(self.bot.guilds):
+            result = await lift_expired_lockdown(guild)
+            if result is None:
+                continue
+            ok = not result["failed"]
+            self._record("Anti-Nuke: Lockdown automatisch beendet" if ok else "Anti-Nuke: Lockdown-Ablauf unvollständig",
+                         0, "Pulse", {"restored": result["restored"], "failed": result["failed"], "automatic": True})
+            self._notify_admins(guild, self._config(), "🔓 Lockdown beendet" if ok else "⚠️ Lockdown-Ablauf unvollständig",
+                                ("Der Lockdown ist abgelaufen und die Kanalrechte wurden wiederhergestellt."
+                                 if ok else "Nicht alle Kanäle konnten wiederhergestellt werden: " + ", ".join(result["failed"])[:300]
+                                 + " – bitte im Dashboard prüfen."), force=True)
+
+    @lockdown_expiry.before_loop
+    async def _lockdown_expiry_ready(self):
+        await self.bot.wait_until_ready()
 
     def _config(self) -> dict:
         import webserver
@@ -589,6 +640,7 @@ class PulseAntiNuke(commands.Cog):
     async def _sanction(self, kind: str, guild, config: dict, rule: dict, actor, member, payload: dict) -> dict:
         if kind == "lockdown":
             return await start_lockdown(guild, config["lockdown_channel_ids"], by="Pulse Anti-Nuke",
+                                        minutes=lockdown_policy.load_policy()["default_minutes"],
                                         reason=f"Pulse Anti-Nuke: Notfall-Lockdown (Regel „{rule['label']}“, Akteur {actor.id})")
         if kind == "quarantine":
             return await self._quarantine(guild, config, actor, member, payload)
