@@ -139,6 +139,17 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 - Entscheidungen: Quoten ohne Datenbasis werden als „–“ angezeigt statt 0 %; Testtreffer und `simulation`-Ereignisse zählen nie als Maßnahme; Zeilen fremder Guilds oder mit unlesbaren Zeitstempeln werden ignoriert; je Quelle höchstens 20 000 Zeilen (RAM-Budget).
 - Einschränkungen: Einspruchskennzahlen erst nach Merge von PR #225; Teamwarnungen und `/ultimate/cases` sind getrennte Fachakten (#11/#12) und nicht Teil dieser Bürger-Moderationsauswertung; kein Discord-Command (vermeidet Konflikt mit PR #225 in `cogs/mod_cases.py`).
 
+## Block 11 – Spieler-Selbstservice (#55)
+
+- Branch: `feature/self-service-rsvp-55`. Baut auf `audit/177-reconciliation` (PR #235) auf, weil beide dieselben Zählerzeilen ändern.
+- Dateien: `pulse_ultimate.py`, `cogs/pulse_pro.py`, `tests/test_player_self_service.py`, generierte Karten (`docs/ROUTEN.md`, `docs/JOBS_UND_RECHTE.md`, nur Zeilennummern), `CHANGELOG.md`.
+- `pulse_ultimate.set_calendar_rsvp()` übernimmt die Prüf- und Schreiblogik der Dashboard-Route `POST /ultimate/calendar/{id}/rsvp`. Die Route ruft sie auf; HTTP-Codes (400/404) und Verhalten bleiben gleich. `RSVP_EVENT_KINDS` ersetzt zwei doppelte Literale.
+- Neue Discord-Befehle (alle privat):
+  - `/event-rueckmeldung`: Autovervollständigung nur für kommende RSVP-Termine. Rechte wie im Dashboard (`can_view_dashboard` oder Admin), sonst kein Schreibzugriff und keine Vorschläge. Nur für Termine, die noch nicht begonnen haben. Audit über `pulse_ultimate.audit` mit dem Zusatz „(Discord)“.
+  - `/selbstservice`: Tickets, Termine und Benachrichtigungen; jeder Teil fällt einzeln aus.
+- Keine neue Tabelle, keine Migration, keine neue Route, kein neuer Hintergrundjob. Backup und Export sind unverändert, weil nur vorhandene Tabellen beschrieben werden.
+- Ergebnis: #55 → Fertig (87 / 90 / 0).
+
 ## Prüfstand 13.11.2026 – Abgleich nach Merge-Welle (Branch `audit/177-reconciliation`)
 
 - Referenz: `main` @ `6c9ff85`; beide Pflicht-Workflows auf diesem Commit erfolgreich.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import discord
 from pulse_discord_style import send_styled
@@ -54,6 +55,39 @@ async def _pulse_favorites_autocomplete(interaction: discord.Interaction, curren
         ][:25]
     except Exception:
         return []
+
+
+def _calendar_rsvp_allowed(interaction) -> bool:
+    """Team calendar RSVPs need the same access as the dashboard calendar (can_view_dashboard)."""
+    if not getattr(interaction, "guild", None):
+        return False
+    try:
+        import webserver
+
+        perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config())
+    except Exception as exc:
+        record_error("Event-Rückmeldung (Rechte)", exc)
+        return False
+    return bool(member) and bool(perms.get("can_view_dashboard") or perms.get("is_admin"))
+
+
+async def _calendar_rsvp_autocomplete(interaction: discord.Interaction, current: str):
+    """Upcoming RSVP-capable events only; never attendee data, nothing without access."""
+    if not _calendar_rsvp_allowed(interaction):
+        return []
+    try:
+        import pulse_ultimate
+
+        rows = pulse_ultimate.list_upcoming_rsvp_events(current, limit=25)
+    except Exception:
+        return []
+    return [
+        app_commands.Choice(
+            name=f"{' '.join(str(row.get('title') or 'Termin').split())[:70]} · {_private_timestamp(row.get('start_at'))}"[:100],
+            value=str(row["id"])[:100],
+        )
+        for row in rows
+    ]
 
 
 def panel_url(path: str = "/dashboard") -> str:
@@ -692,8 +726,52 @@ class PulsePro(commands.Cog):
                 f"**Ort:** {location}"
             )
             embed.add_field(name=title, value=value[:1024], inline=False)
-        embed.set_footer(text="Private Ansicht · Es werden nur deine eigenen Anmeldungen angezeigt.")
+        embed.set_footer(text="Private Ansicht · Rückmeldung ändern: /event-rueckmeldung")
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="event-rueckmeldung",
+        description="Sagt zu einem kommenden Team-Termin zu oder ab oder zieht deine Rückmeldung zurück.",
+    )
+    @app_commands.describe(termin="Kommender Termin", rueckmeldung="Deine Rückmeldung")
+    @app_commands.choices(rueckmeldung=[
+        app_commands.Choice(name="Zusagen", value="going"),
+        app_commands.Choice(name="Absagen", value="declined"),
+        app_commands.Choice(name="Rückmeldung zurückziehen", value="remove"),
+    ])
+    @app_commands.autocomplete(termin=_calendar_rsvp_autocomplete)
+    async def event_rsvp(self, interaction: discord.Interaction, termin: str, rueckmeldung: app_commands.Choice[str]):
+        """Same rules as the dashboard RSVP; writes only the caller's own row."""
+        if not _calendar_rsvp_allowed(interaction):
+            await interaction.response.send_message(
+                "❌ Rückmeldungen zu Team-Terminen sind nur mit Pulse-Zugang möglich.", ephemeral=True
+            )
+            return
+        import pulse_ultimate
+        response = getattr(rueckmeldung, "value", rueckmeldung)
+        display_name = getattr(interaction.user, "display_name", None) or "Teammitglied"
+        try:
+            event = pulse_ultimate.set_calendar_rsvp(
+                termin, interaction.user.id, display_name, response, require_upcoming=True
+            )
+        except pulse_ultimate.CalendarRsvpError as exc:
+            await interaction.response.send_message(f"❌ {exc.message}", ephemeral=True)
+            return
+        except Exception as exc:
+            record_error("Event-Rückmeldung", exc)
+            await interaction.response.send_message("Deine Rückmeldung konnte gerade nicht gespeichert werden.", ephemeral=True)
+            return
+        label = {"going": "zugesagt", "declined": "abgesagt", "remove": "zurückgezogen"}[response]
+        try:
+            actor = SimpleNamespace(user={"id": str(interaction.user.id), "global_name": display_name})
+            pulse_ultimate.audit(actor, "Kalenderteilnahme geändert", event["id"], str(event["title"]), f"{label} (Discord)")
+        except Exception as exc:
+            record_error("Event-Rückmeldung (Audit)", exc)
+        title = _private_label(event.get("title"), "Termin ohne Titel", 180)
+        await interaction.response.send_message(
+            f"✅ Rückmeldung {label}: **{title}** · {_private_timestamp(event.get('start_at'))}",
+            ephemeral=True,
+        )
 
     @app_commands.command(name="meine-benachrichtigungen", description="Zeigt deine persönlichen Pulse-Benachrichtigungseinstellungen.")
     async def my_notifications(self, interaction: discord.Interaction):
@@ -725,6 +803,52 @@ class PulsePro(commands.Cog):
                 "Deine Benachrichtigungseinstellungen konnten gerade nicht geladen werden.",
                 ephemeral=True,
             )
+
+    @app_commands.command(name="selbstservice", description="Deine Tickets, Termine und Einstellungen auf einen Blick.")
+    async def self_service(self, interaction: discord.Interaction):
+        """Bundled private overview; each part reads only the caller's own data and fails on its own."""
+        if interaction.guild is None:
+            await interaction.response.send_message("Dieser Befehl ist nur auf einem Discord-Server verfügbar.", ephemeral=True)
+            return
+        embed = discord.Embed(title="🧭 Dein Selbstservice", color=_pulse_color("info"))
+        try:
+            tickets = db.list_user_tickets(interaction.guild.id, interaction.user.id, limit=10)
+            open_tickets = [t for t in tickets if str(t.get("status") or "") != "closed"]
+            lines = [
+                f"<#{t['channel_id']}>" if str(t.get("channel_id") or "").isdigit() else _private_label(t.get("id"), "Ticket", 50)
+                for t in open_tickets[:3]
+            ]
+            value = f"{len(open_tickets)} offen" + (": " + ", ".join(lines) if lines else "")
+        except Exception as exc:
+            record_error("Selbstservice (Tickets)", exc)
+            value = "Gerade nicht verfügbar."
+        embed.add_field(name="🎫 Tickets · /meine-tickets", value=value[:1024], inline=False)
+        try:
+            import pulse_ultimate
+            events = pulse_ultimate.list_user_calendar_rsvps(interaction.user.id, limit=3)
+            value = "\n".join(
+                f"{'✅' if e.get('response') == 'going' else '❌'} {_private_label(e.get('title'), 'Termin', 80)} · "
+                f"{_private_timestamp(e.get('start_at'))}"
+                for e in events
+            ) or "Keine kommenden Rückmeldungen."
+        except Exception as exc:
+            record_error("Selbstservice (Termine)", exc)
+            value = "Gerade nicht verfügbar."
+        embed.add_field(name="📅 Termine · /meine-events · /event-rueckmeldung", value=value[:1024], inline=False)
+        try:
+            import pulse_notify_prefs
+            prefs = pulse_notify_prefs.load(interaction.user.id)
+            value = (
+                f"DMs: {'aktiviert' if prefs.get('dm') else 'deaktiviert'} · "
+                f"Ruhezeit: {_quiet_hours_label(prefs.get('quiet_from'), prefs.get('quiet_to'))} · "
+                f"{len(prefs.get('muted') or [])} Bereiche stumm"
+            )
+        except Exception as exc:
+            record_error("Selbstservice (Benachrichtigungen)", exc)
+            value = "Gerade nicht verfügbar."
+        embed.add_field(name="🔔 Benachrichtigungen · /meine-benachrichtigungen", value=value[:1024], inline=False)
+        embed.set_footer(text="Private Ansicht · Es werden nur deine eigenen Daten dieses Servers angezeigt.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="teamannounce", description="Sendet eine Team-Ankündigung und speichert sie in Pulse.")
     @app_commands.describe(title="Kurzer Titel", message="Inhalt der Ankündigung", importance="Priorität")

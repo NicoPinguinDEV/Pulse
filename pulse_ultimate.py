@@ -307,6 +307,89 @@ def cx():
     return c
 
 
+RSVP_EVENT_KINDS = frozenset({"event", "meeting", "training", "besprechung", "schulung"})
+RSVP_RESPONSES = frozenset({"going", "declined", "remove"})
+
+
+class CalendarRsvpError(Exception):
+    """Validation error for a calendar RSVP; ``status`` mirrors the dashboard's HTTP code."""
+
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+def set_calendar_rsvp(event_id, user_id, display_name, response, *, require_upcoming=False):
+    """Save, change or withdraw one person's RSVP. Shared by dashboard and Discord.
+
+    Only the caller's own row is written. Returns the event as a dict.
+    """
+    response = str(response or "").strip().casefold()
+    if response not in RSVP_RESPONSES:
+        raise CalendarRsvpError(400, "Ungültige Rückmeldung.")
+    user = str(user_id or "").strip()
+    if not user:
+        raise CalendarRsvpError(400, "Unbekannte Person.")
+    init_db()
+    with cx() as c:
+        event = c.execute(
+            "SELECT id,title,kind,start_at FROM ultimate_calendar WHERE id=?",
+            (str(event_id or ""),),
+        ).fetchone()
+        if not event:
+            raise CalendarRsvpError(404, "Termin nicht gefunden.")
+        if str(event["kind"] or "").strip().casefold() not in RSVP_EVENT_KINDS:
+            raise CalendarRsvpError(400, "Für diese Terminart ist keine Teilnehmerliste aktiviert.")
+        if require_upcoming and str(event["start_at"] or "") < iso():
+            raise CalendarRsvpError(400, "Der Termin hat bereits begonnen.")
+        if response == "remove":
+            c.execute(
+                "DELETE FROM ultimate_calendar_rsvps WHERE event_id=? AND user_id=?",
+                (event["id"], user),
+            )
+        else:
+            now = iso()
+            c.execute(
+                """
+                INSERT INTO ultimate_calendar_rsvps
+                    (event_id,user_id,display_name,response,created_at,updated_at)
+                VALUES(?,?,?,?,?,?)
+                ON CONFLICT(event_id,user_id) DO UPDATE SET
+                    display_name=excluded.display_name,
+                    response=excluded.response,
+                    updated_at=excluded.updated_at
+                """,
+                (event["id"], user, str(display_name or "Teammitglied")[:100], response, now, now),
+            )
+        return dict(event)
+
+
+def list_upcoming_rsvp_events(query="", limit=25):
+    """Upcoming events that accept RSVPs, for Discord autocomplete. No attendee data."""
+    try:
+        bounded_limit = max(1, min(int(limit), 25))
+    except (TypeError, ValueError):
+        bounded_limit = 25
+    needle = str(query or "").strip().casefold()[:100]
+    init_db()
+    with cx() as c:
+        rows = c.execute(
+            "SELECT id,title,kind,start_at FROM ultimate_calendar WHERE start_at>=? ORDER BY start_at ASC LIMIT 200",
+            (iso(),),
+        ).fetchall()
+    result = []
+    for row in rows:
+        if str(row["kind"] or "").strip().casefold() not in RSVP_EVENT_KINDS:
+            continue
+        if needle and needle not in str(row["title"] or "").casefold():
+            continue
+        result.append(dict(row))
+        if len(result) >= bounded_limit:
+            break
+    return result
+
+
 def list_user_calendar_rsvps(user_id, limit=10):
     """Return only this user's upcoming calendar responses, never other attendees."""
     user = str(user_id or "").strip()
@@ -1548,7 +1631,7 @@ def register(app) -> None:
         for event in rows:
             event_id = str(event["id"])
             event_kind = str(event.get("kind") or "").strip().casefold()
-            attendance_enabled = event_kind in {"event", "meeting", "training", "besprechung", "schulung"}
+            attendance_enabled = event_kind in RSVP_EVENT_KINDS
             attendees = by_event.get(event_id, []) if attendance_enabled else []
             going = [entry for entry in attendees if entry["response"] == "going"]
             declined = [entry for entry in attendees if entry["response"] == "declined"]
@@ -1605,41 +1688,11 @@ def register(app) -> None:
     ):
         ctx = ctx_auth(request, user_session)
         response = str(response or "").strip().casefold()
-        if response not in {"going", "declined", "remove"}:
-            raise HTTPException(400, "Ungültige Rückmeldung.")
-        with cx() as c:
-            event = c.execute(
-                "SELECT id,title,kind FROM ultimate_calendar WHERE id=?",
-                (event_id,),
-            ).fetchone()
-            if not event:
-                raise HTTPException(404, "Termin nicht gefunden.")
-            if str(event["kind"] or "").strip().casefold() not in {
-                "event", "meeting", "training", "besprechung", "schulung"
-            }:
-                raise HTTPException(400, "Für diese Terminart ist keine Teilnehmerliste aktiviert.")
-            if response == "remove":
-                c.execute(
-                    "DELETE FROM ultimate_calendar_rsvps WHERE event_id=? AND user_id=?",
-                    (event_id, str(ctx.user["id"])),
-                )
-            else:
-                display_name = str(
-                    ctx.user.get("global_name") or ctx.user.get("username") or "Teammitglied"
-                )[:100]
-                now = iso()
-                c.execute(
-                    """
-                    INSERT INTO ultimate_calendar_rsvps
-                        (event_id,user_id,display_name,response,created_at,updated_at)
-                    VALUES(?,?,?,?,?,?)
-                    ON CONFLICT(event_id,user_id) DO UPDATE SET
-                        display_name=excluded.display_name,
-                        response=excluded.response,
-                        updated_at=excluded.updated_at
-                    """,
-                    (event_id, str(ctx.user["id"]), display_name, response, now, now),
-                )
+        display_name = str(ctx.user.get("global_name") or ctx.user.get("username") or "Teammitglied")
+        try:
+            event = set_calendar_rsvp(event_id, ctx.user["id"], display_name, response)
+        except CalendarRsvpError as exc:
+            raise HTTPException(exc.status, exc.message)
         label = {"going": "zugesagt", "declined": "abgesagt", "remove": "zurückgezogen"}[response]
         audit(ctx, "Kalenderteilnahme geändert", event_id, str(event["title"]), label)
         return RedirectResponse("/ultimate/calendar", status_code=303)
