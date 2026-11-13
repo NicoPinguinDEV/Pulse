@@ -482,10 +482,16 @@ def render_sections(ws, ctx, rows: list[dict], *, notice: str = "", rules_notice
 </div></section>'''
 
     # ---- lockdown
+    import pulse_lockdown_policy as ldp
+    import pulse_security_drills as drills
+    ld_policy = ldp.load_policy()
+    ld_request = ldp.load_request()
+    expiry_note = (f'<div class="guard-hint">Endet automatisch: {e(str(lockdown.get("expires_at", ""))[:16].replace("T", " "))} UTC</div>'
+                   if lockdown.get("active") and lockdown.get("expires_at") else "")
     if lockdown.get("active"):
         names = ", ".join(f"#{e(v.get('name', k))}" for k, v in (lockdown.get("channels") or {}).items() if isinstance(v, dict))
         lock_body = (f'<div class="pulse-alert" style="border-color:rgba(240,68,56,.45)"><strong>🔒 Lockdown aktiv</strong> seit {e(lockdown.get("at", "")[:16].replace("T", " "))} UTC · '
-                     f'durch {e(lockdown.get("by"))}<div class="guard-hint">Gesperrt: {names or "–"}</div><div class="guard-hint">Grund: {e(lockdown.get("reason"))}</div></div>'
+                     f'durch {e(lockdown.get("by"))}<div class="guard-hint">Gesperrt: {names or "–"}</div><div class="guard-hint">Grund: {e(lockdown.get("reason"))}</div>{expiry_note}</div>'
                      '<form method="post" action="/admin/security/lockdown/lift" class="an-actions mt-3" '
                      "onsubmit=\"return window.confirm('Lockdown aufheben und die gespeicherten Kanalrechte wiederherstellen?')\">"
                      '<input class="pulse-input" name="reason" required minlength="5" maxlength="300" placeholder="Grund (Pflicht)" style="max-width:320px">'
@@ -498,11 +504,43 @@ def render_sections(ws, ctx, rows: list[dict], *, notice: str = "", rules_notice
                      + ('<form method="post" action="/admin/security/lockdown/start" class="an-actions mt-3" '
                         "onsubmit=\"if(!window.confirm('Notfall-Lockdown jetzt starten? @everyone kann in den ausgewählten Kanälen nicht mehr schreiben.'))return false;this.confirm.value='1';\">"
                         '<input type="hidden" name="confirm" value="0"><input class="pulse-input" name="reason" required minlength="5" maxlength="300" placeholder="Grund (Pflicht)" style="max-width:320px">'
-                        '<button class="pulse-btn ghost" type="submit">🔒 Lockdown manuell starten</button></form>' if config["lockdown_channel_ids"] else ""))
+                        f'<input class="pulse-input" name="minutes" type="number" min="{ldp.MIN_MINUTES}" max="{ldp.MAX_MINUTES}" value="{ld_policy["default_minutes"] or ""}" aria-label="Dauer in Minuten (leer = bis zur Aufhebung)" placeholder="Dauer in Min. (optional)" style="max-width:200px">'
+                        '<button class="pulse-btn ghost" type="submit">🔒 ' + ("Lockdown beantragen (Zweitfreigabe)" if ld_policy["require_approval"] else "Lockdown manuell starten") + '</button></form>' if config["lockdown_channel_ids"] else ""))
+        if ld_request:
+            lock_body += (f'<div class="pulse-alert mt-3"><strong>⏳ Offene Lockdown-Anfrage {e(ld_request["id"])}</strong> von {e(ld_request["by"])} · '
+                          f'gültig bis {e(ld_request["valid_until"][11:16])} UTC<div class="guard-hint">Grund: {e(ld_request["reason"])}'
+                          + (f' · Dauer: {int(ld_request["minutes"])} Min.' if ld_request.get("minutes") else "") + '</div>'
+                          '<form method="post" action="/admin/security/lockdown/approve" class="an-actions mt-2" '
+                          "onsubmit=\"return window.confirm('Lockdown jetzt freigeben und starten?')\">"
+                          f'<input type="hidden" name="request_id" value="{e(ld_request["id"])}">'
+                          '<button class="pulse-btn ghost" type="submit">✅ Freigeben und starten</button></form>'
+                          '<form method="post" action="/admin/security/lockdown/cancel" class="an-actions mt-2">'
+                          f'<input type="hidden" name="request_id" value="{e(ld_request["id"])}">'
+                          '<button class="pulse-btn ghost" type="submit">✖ Anfrage verwerfen</button></form></div>')
     lockdown_html = f'''
 <section id="lockdown" class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">🔒 Notfall-Lockdown</div>
 <div class="pulse-section-sub">Entzieht @everyone in den ausgewählten Kanälen Schreiben, Reaktionen, Threads bzw. Verbinden/Sprechen. Die vorherigen Rechte werden gespeichert und beim Aufheben genau so wiederhergestellt.</div></div></div>
-<div class="pulse-card-b">{lock_body}</div></section>'''
+<div class="pulse-card-b">{lock_body}
+<form method="post" action="/admin/security/lockdown/policy" class="an-actions mt-3" aria-label="Lockdown-Richtlinie">
+<label class="guard-field"><input type="checkbox" name="require_approval" value="1" {"checked" if ld_policy["require_approval"] else ""}> Manueller Start nur mit Freigabe einer zweiten Person</label>
+<input class="pulse-input" name="default_minutes" type="number" min="{ldp.MIN_MINUTES}" max="{ldp.MAX_MINUTES}" value="{ld_policy["default_minutes"] or ""}" aria-label="Standarddauer in Minuten" placeholder="Standarddauer in Min. (leer = unbegrenzt)" style="max-width:260px">
+<button class="pulse-btn ghost" type="submit">Richtlinie speichern</button></form>
+<div class="guard-hint">Der automatische Anti-Nuke-Lockdown wird nie verzögert; er nutzt nur die Standarddauer.</div></div></section>'''
+    last_drills = drills.last_by_kind(getattr(guild, "id", ""))
+
+    def drill_row(kind_key, kind_label):
+        last = last_drills.get(kind_key)
+        state = ("–" if not last else ("✅ bestanden" if last["passed"] else "❌ fehlgeschlagen"))
+        when = ("noch nie geübt" if not last else f'{e(last["at"][:16].replace("T", " "))} UTC · {e(last["actor_name"])}')
+        details = "".join(f'<li>{"✅" if c["ok"] else ("❌" if c["required"] else "ℹ️")} {e(c["name"])}: {e(c["detail"])}</li>' for c in (last or {}).get("checks", []))
+        return (f'<div class="guard-kv"><span>{e(kind_label)}</span><span>{state} · {when}</span></div>'
+                + (f'<ul class="guard-hint" style="padding-left:18px">{details}</ul>' if details else "")
+                + f'<form method="post" action="/admin/security/drills/run" class="an-actions mb-3"><input type="hidden" name="kind" value="{kind_key}">'
+                  f'<button class="pulse-btn ghost" type="submit">▶ {e(kind_label)}-Übung starten</button></form>')
+    lockdown_html += f'''
+<section id="drills" class="pulse-card mt-5"><div class="pulse-card-h"><div><div class="pulse-section-title">🧪 Sicherheitsübungen</div>
+<div class="pulse-section-sub">Probelauf ohne Wirkung: es werden keine Nachrichten gesendet, keine Kanäle gesperrt und keine Strikes vergeben. Das Ergebnis wird gespeichert.</div></div></div>
+<div class="pulse-card-b">{"".join(drill_row(k, v) for k, v in drills.KINDS.items())}</div></section>'''
     return CSS + overview + rules_html + trusted_html + lockdown_html + PREVIEW_JS
 
 
@@ -814,35 +852,70 @@ def register(app, render_page) -> None:
         form = await request.form()
         return render_page(ctx, trusted_notice=check_trusted(ctx.guild, form))
 
+    def notify_other_admins(ctx, title: str, text: str) -> None:
+        try:
+            import pulse_db
+            for member in getattr(ctx.guild, "members", []) or []:
+                if getattr(member, "bot", False) or str(member.id) == str(ctx.user["id"]):
+                    continue
+                if member.id == ctx.guild.owner_id or getattr(member.guild_permissions, "administrator", False):
+                    pulse_db.notify(member.id, title, text[:300], "warning", "/admin/security#lockdown", f"lockdown-request:{title}", 300)
+        except Exception as exc:
+            print(f"⚠️ Lockdown-Benachrichtigung fehlgeschlagen: {type(exc).__name__}")
+
+    async def run_lockdown(ctx, reason: str, minutes, approved_by: str = ""):
+        from cogs.antinuke import start_lockdown
+        import pulse_db
+        config = pm.normalize_antinuke(raw_section(ws.load_config()))
+        result = await start_lockdown(ctx.guild, config["lockdown_channel_ids"], by=_name(ctx.user), minutes=minutes,
+                                      reason=f"Pulse: Notfall-Lockdown durch {_name(ctx.user)} – {reason}"[:400])
+        ok = result["status"] in ("ok", "partial")
+        title, message = "Anti-Nuke: Lockdown gestartet", result["detail"]
+        if ok:
+            try:
+                pulse_db.record_event(title, "guild", getattr(ctx.guild, "id", ""), ctx.user["id"], _name(ctx.user),
+                                      {"reason": reason, "result": message[:500], "manual": True, "minutes": minutes,
+                                       "approved_by": approved_by})
+            except Exception as exc:
+                print(f"⚠️ Lockdown-Ereignis nicht protokolliert: {type(exc).__name__}")
+        audit(ctx, title if ok else title + " (fehlgeschlagen)",
+              f"{message} · Grund: {reason}" + (f" · freigegeben von {approved_by}" if approved_by else ""))
+        return ws.back("/admin/security#lockdown", message[:400], ok)
+
     async def lockdown_action(request, user_session, start: bool):
+        import pulse_lockdown_policy as ldp
         ctx = admin_ctx(request, user_session)
         form = await request.form()
         reason = str(form.get("reason") or "").strip()[:300]
         if len(reason) < 5:
             return ws.back("/admin/security#lockdown", "Bitte einen Grund (mindestens 5 Zeichen) angeben.", False)
-        from cogs.antinuke import lift_lockdown, start_lockdown
+        from cogs.antinuke import lift_lockdown
         import pulse_db
         if start:
             if form.get("confirm") != "1":
                 return ws.back("/admin/security#lockdown", "Lockdown bitte ausdrücklich bestätigen.", False)
-            config = pm.normalize_antinuke(raw_section(ws.load_config()))
-            result = await start_lockdown(ctx.guild, config["lockdown_channel_ids"], by=_name(ctx.user),
-                                          reason=f"Pulse: Notfall-Lockdown durch {_name(ctx.user)} – {reason}")
-            ok = result["status"] in ("ok", "partial")
-            title, message = "Anti-Nuke: Lockdown gestartet", result["detail"]
-        else:
-            result = await lift_lockdown(ctx.guild, by=_name(ctx.user))
-            if result["error"]:
-                return ws.back("/admin/security#lockdown", result["error"], False)
-            ok = not result["failed"]
-            title = "Anti-Nuke: Lockdown aufgehoben"
-            message = f"Wiederhergestellt: {', '.join(result['restored']) or 'keine'}" + (f" · fehlgeschlagen: {', '.join(result['failed'])}" if result["failed"] else "")
-        if ok or not start:
             try:
-                pulse_db.record_event(title, "guild", getattr(ctx.guild, "id", ""), ctx.user["id"], _name(ctx.user),
-                                      {"reason": reason, "result": message[:500], "manual": True})
-            except Exception as exc:
-                print(f"⚠️ Lockdown-Ereignis nicht protokolliert: {type(exc).__name__}")
+                minutes = ldp.parse_minutes(form.get("minutes")) if str(form.get("minutes") or "").strip() else ldp.load_policy()["default_minutes"]
+            except ValueError as exc:
+                return ws.back("/admin/security#lockdown", str(exc), False)
+            if ldp.load_policy()["require_approval"]:
+                request_row = ldp.new_request(ctx.user["id"], _name(ctx.user), reason, minutes)
+                ldp.save_request(request_row)
+                audit(ctx, "Anti-Nuke: Lockdown beantragt", f"{request_row['id']} · Grund: {reason}")
+                notify_other_admins(ctx, "🔒 Lockdown-Freigabe nötig", f"{_name(ctx.user)} beantragt einen Lockdown: {reason}")
+                return ws.back("/admin/security#lockdown", f"Anfrage {request_row['id']} gespeichert – eine andere Administratorin oder ein anderer Administrator muss freigeben (15 Minuten gültig).", True)
+            return await run_lockdown(ctx, reason, minutes)
+        result = await lift_lockdown(ctx.guild, by=_name(ctx.user))
+        if result["error"]:
+            return ws.back("/admin/security#lockdown", result["error"], False)
+        ok = not result["failed"]
+        title = "Anti-Nuke: Lockdown aufgehoben"
+        message = f"Wiederhergestellt: {', '.join(result['restored']) or 'keine'}" + (f" · fehlgeschlagen: {', '.join(result['failed'])}" if result["failed"] else "")
+        try:
+            pulse_db.record_event(title, "guild", getattr(ctx.guild, "id", ""), ctx.user["id"], _name(ctx.user),
+                                  {"reason": reason, "result": message[:500], "manual": True})
+        except Exception as exc:
+            print(f"⚠️ Lockdown-Ereignis nicht protokolliert: {type(exc).__name__}")
         audit(ctx, title if ok else title + " (fehlgeschlagen)", f"{message} · Grund: {reason}")
         return ws.back("/admin/security#lockdown", message[:400], ok)
 
@@ -853,3 +926,64 @@ def register(app, render_page) -> None:
     @app.post("/admin/security/lockdown/lift")
     async def antinuke_lockdown_lift(request: Request, user_session: str = Cookie(None)):
         return await lockdown_action(request, user_session, False)
+
+    @app.post("/admin/security/lockdown/approve")
+    async def antinuke_lockdown_approve(request: Request, user_session: str = Cookie(None)):
+        import pulse_lockdown_policy as ldp
+        ctx = admin_ctx(request, user_session)
+        form = await request.form()
+        pending = ldp.load_request()
+        if not pending or str(form.get("request_id") or "") != pending["id"]:
+            return ws.back("/admin/security#lockdown", "Keine passende offene Lockdown-Anfrage.", False)
+        try:
+            ldp.check_approval(pending, ctx.user["id"])
+        except ValueError as exc:
+            return ws.back("/admin/security#lockdown", str(exc), False)
+        ldp.clear_request()  # consumed before acting: a double click can never start two lockdowns
+        return await run_lockdown(ctx, pending["reason"], pending.get("minutes"), approved_by=_name(ctx.user))
+
+    @app.post("/admin/security/lockdown/cancel")
+    async def antinuke_lockdown_cancel(request: Request, user_session: str = Cookie(None)):
+        import pulse_lockdown_policy as ldp
+        ctx = admin_ctx(request, user_session)
+        form = await request.form()
+        pending = ldp.load_request()
+        if not pending or str(form.get("request_id") or "") != pending["id"]:
+            return ws.back("/admin/security#lockdown", "Keine passende offene Lockdown-Anfrage.", False)
+        ldp.clear_request()
+        audit(ctx, "Anti-Nuke: Lockdown-Anfrage verworfen", f"{pending['id']} (von {pending['by']})")
+        return ws.back("/admin/security#lockdown", "Anfrage verworfen.", True)
+
+    @app.post("/admin/security/lockdown/policy")
+    async def antinuke_lockdown_policy(request: Request, user_session: str = Cookie(None)):
+        import pulse_lockdown_policy as ldp
+        ctx = admin_ctx(request, user_session)
+        form = await request.form()
+        try:
+            minutes = ldp.parse_minutes(form.get("default_minutes"))
+        except ValueError as exc:
+            return ws.back("/admin/security#lockdown", str(exc), False)
+        saved = ldp.save_policy({"require_approval": form.get("require_approval") == "1", "default_minutes": minutes})
+        audit(ctx, "Anti-Nuke: Lockdown-Richtlinie geändert", f"Zweitfreigabe: {saved['require_approval']} · Standarddauer: {saved['default_minutes']}")
+        return ws.back("/admin/security#lockdown", "Lockdown-Richtlinie gespeichert.", True)
+
+    @app.post("/admin/security/drills/run")
+    async def security_drill_run(request: Request, user_session: str = Cookie(None)):
+        import pulse_lockdown_policy as ldp
+        import pulse_security_drills as drills
+        ctx = admin_ctx(request, user_session)
+        form = await request.form()
+        kind = str(form.get("kind") or "")
+        if kind not in drills.KINDS:
+            return ws.back("/admin/security#drills", "Unbekannte Übung.", False)
+        gid, who, name = getattr(ctx.guild, "id", ""), ctx.user["id"], _name(ctx.user)
+        if kind == "raid":
+            report = drills.raid_drill(gid, who, name)
+        elif kind == "automod":
+            report = drills.automod_drill(gid, who, name, pm.normalize_automod(ws.load_config().get("pulse_automod", {})))
+        else:
+            from cogs.antinuke import load_lockdown
+            config = pm.normalize_antinuke(raw_section(ws.load_config()))
+            report = drills.lockdown_drill(ctx.guild, who, name, config["lockdown_channel_ids"], load_lockdown(), ldp.load_policy())
+        audit(ctx, f"Sicherheitsübung: {drills.KINDS[kind]}", f"{report['id']} · {report['summary']}")
+        return ws.back("/admin/security#drills", f"{drills.KINDS[kind]}-Übung: {report['summary']}", bool(report["passed"]))
