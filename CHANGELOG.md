@@ -1,5 +1,9 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Dienstplan und Dienstabdeckung (November 2026)
+
+- **Dienstplanung (#83):** Eingaben werden geprüft, überlappende Dienste derselben Person abgelehnt, Dienste lassen sich absagen (mit Benachrichtigung und Audit).
+- **Dienstabdeckung (#85):** Mindestbesetzungsregeln je Wochentag und Zeitfenster; `/suite/schedule` zeigt Lücken der nächsten 7 Tage. Neue Tabelle `suite_schedule_minimums` (nur Hinweis, keine automatische Zuweisung).
 ## Lockdown-Ablauf, Zweitfreigabe und Sicherheitsübungen (November 2026)
 
 - **Lockdown (#20):** Dauer (optional, auch als Standard) mit automatischem Aufheben; optionale Freigabe des manuellen Starts durch eine zweite Administratorin/einen zweiten Administrator. Ohne Einstellung bleibt alles wie bisher; der automatische Anti-Nuke-Lockdown wird nie verzögert. Neuer Job `Anti-Nuke Lockdown-Ablauf (1 min)`.
