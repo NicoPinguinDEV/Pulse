@@ -1,5 +1,9 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Lockdown-Ablauf, Zweitfreigabe und Sicherheitsübungen (November 2026)
+
+- **Lockdown (#20):** Dauer (optional, auch als Standard) mit automatischem Aufheben; optionale Freigabe des manuellen Starts durch eine zweite Administratorin/einen zweiten Administrator. Ohne Einstellung bleibt alles wie bisher; der automatische Anti-Nuke-Lockdown wird nie verzögert. Neuer Job `Anti-Nuke Lockdown-Ablauf (1 min)`.
+- **Sicherheitsübungen (#21):** `/admin/security#drills` – Probeläufe für Raid, AutoMod und Lockdown ohne Wirkung; Berichte in der neuen Tabelle `security_drills` (im Backup).
 ## Fall-Beweise und Wiederholungshinweis (November 2026)
 
 - **Beweisverwaltung (#14):** Zu jeder Fallreferenz gibt es eine Beweisliste (`/mod-cases/beweise`, `/mod beweise`, `/mod beweis-hinzufuegen`). Links und Notizen mit Quelle, Altbestände werden mitgezeigt, Entfernen nur mit Grund und nachvollziehbar. Neue Tabelle `case_evidence` (im Backup).

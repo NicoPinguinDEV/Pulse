@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-13):** `main` @ `58fb538` nach den Merges von #238, #235, #236 und #237 (jeweils mit grüner Pflicht-CI). Stand: **88 fertig / 89 teilweise / 0 offen**. #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-13):** `main` @ `58fb538` nach den Merges von #238, #235, #236 und #237 (jeweils mit grüner Pflicht-CI). Stand: **92 fertig / 85 teilweise / 0 offen**. #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 90 |
-| Teilweise | 87 |
+| Fertig | 92 |
+| Teilweise | 85 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -29,7 +29,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Bereich | Fertig | Teilweise | Offen |
 |---|---:|---:|---:|
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 3 | 0 |
-| Discord-Bot – Moderation und Sicherheit | 10 | 5 | 0 |
+| Discord-Bot – Moderation und Sicherheit | 14 | 1 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 8 | 7 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
@@ -73,8 +73,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 17 | AutoMod-Testmodus ohne Sanktionen | **Fertig** | Der explizite `test`-Modus wertet echte Nachrichten aus, protokolliert Treffer getrennt und führt keine Löschungen, DMs oder Timeouts aus; `cogs/automod.py`, `pulse_moderation.py`, `tests/test_guard_admin.py` (PR #205). |
 | 18 | Ausnahmen je Kanal und Rolle | **Fertig** | PR #223: Ausnahmematrix je AutoMod-Regel für Rollen und Kanäle/Kategorien im Admin-Center; ID-Allowlist und Admin-Prüfung serverseitig, globale Ausnahmen unverändert. `cogs/automod.py`, `pulse_moderation.py`, `pulse_guard_admin.py`; `tests/test_guard_admin.py`. |
 | 19 | Konfigurierbare Raid-Alarmstufen | **Fertig** | PR #224: drei Stufen WARNUNG/ERHÖHT/KRITISCH getrennt je Signal (Beitrittswelle, neue Konten, Massen-Erwähnungen, Copy-Spam), über `*_WARNING`/`*_CRITICAL`-Variablen konfigurierbar, Drosselung je Signal und Stufe, Eskalation auf höhere Stufe wird gemeldet; nur Teamwarnungen, keine Sanktionen. `pulse_raid.py`; `tests/test_raid_watch.py`. |
-| 20 | Notfall-Lockdown | **Teilweise** | Anti-Nuke kann einen bestätigten, begründeten und reversiblen Lockdown starten/beenden; zeitliche Ablaufsteuerung und mehrstufige Freigabe fehlen. |
-| 21 | Sicherheitsübungen und Simulationen | **Teilweise** | Anti-Nuke-Regelsimulation und Replay-Tests existieren (`tests/test_antinuke_control_center.py`, `tests/test_antinuke_replay.py`); ein durchgängiger Übungsmodus für AutoMod, Raid und Lockdown fehlt. |
+| 20 | Notfall-Lockdown | **Fertig** | Manueller Lockdown mit optionaler Dauer (5–1440 Min.) und Standarddauer; `Anti-Nuke Lockdown-Ablauf (1 min)` hebt abgelaufene Lockdowns selbst auf (begrenzte Wiederholungen, danach bleibt er für eine Person aktiv, Admin-Benachrichtigung); optionale Zweitfreigabe durch eine andere Administratorin/einen anderen Administrator (Anfrage 15 Min. gültig, einmalig). Der automatische Anti-Nuke-Lockdown wird nie verzögert. `pulse_lockdown_policy.py`, `tests/test_lockdown_drills.py`. |
+| 21 | Sicherheitsübungen und Simulationen | **Fertig** | Unter `/admin/security#drills` Übungen für Raid (Wellen aller Stufen in einer Wegwerf-Überwachung), AutoMod (Beispielnachrichten gegen die echten Regeln) und Lockdown (reine Bereitschaftsprüfung: Kanäle, Bot-Recht, Dauer, Freigabe); keine Nachricht, keine Sperre, kein Strike; Berichte in `security_drills` (Backup). `pulse_security_drills.py`, `tests/test_lockdown_drills.py`. |
 | 22 | Alarm bei kritischen Rollen-/Kanaländerungen | **Fertig** | Anti-Nuke verarbeitet Role-, Channel-, Permission- und Guild-Update-Ereignisse; Tests prüfen Berechtigungsänderungen und harmlose Änderungen. |
 | 23 | Webhook-Überwachung | **Fertig** | PR #221: eigener Eventtyp für Webhook-Erstellung/-Änderung/-Löschung mit Allowlist-Metadaten (keine Tokens/URLs), Alarm bei nicht vertrauenswürdigen Akteuren mit 60-s-Cooldown; Anti-Nuke-Regelkette bleibt unberührt. `pulse_webhook_audit.py`, `cogs/antinuke.py`; `tests/test_webhook_monitor.py`. |
 | 24 | Moderationsstatistiken | **Fertig** | `/mod-cases/stats` (PR #232): /mod-Fälle je Server nach Maßnahme, Ergebnis, Median-Dauer bis Abschluss, DM-/Beweis-/Vorlagenquote, Wiederholungen, Moderatorverteilung und Vorzeitraumvergleich; AutoMod-Maßnahmen je Regel mit Fehlalarmquote und Prüfdauer, Testtreffer getrennt; CSV-Export. Nur lesend, Guild-isoliert, Rechte wie Fallakte. `tests/test_mod_stats.py`. Einspruchsquoten folgen erst mit PR #225. |
