@@ -103,7 +103,7 @@ class LoopAndRouteTests(unittest.TestCase):
         with patch.object(ws, "auth", lambda *a, **k: ctx):
             for bad in ("2", "99999", "abc"):
                 self.assertEqual(client.post("/suite/schedule/reminder-lead", data={"minutes": bad}, follow_redirects=False).status_code, 400)
-            self.assertEqual(suite.setting("shift_reminder_minutes"), 30)
+            self.assertEqual(suite.setting("shift_reminder_minutes", 30), 30)  # not seeded when routes were registered by another test
             self.assertEqual(client.post("/suite/schedule/reminder-lead", data={"minutes": "90"}, follow_redirects=False).status_code, 303)
         self.assertEqual(suite.setting("shift_reminder_minutes"), 90)
         if (datetime.now(ws.TZ) + timedelta(minutes=80)).date() == self.today:
