@@ -203,6 +203,7 @@ class ForecastPageTests(unittest.TestCase):
                 patch.object(pulse_suite, "DB_PATH", str(Path(tmp) / "suite.db")):
             pulse_db.init_db()
             pulse_suite.register_routes()
+            pulse_suite.init_db()  # register_routes() returns early when another test already registered the routes
             guild = SimpleNamespace(id=1, members=[], roles=[], get_role=lambda _: None, get_member=lambda _: None)
             ctx = SimpleNamespace(user={"id": "1", "global_name": "L"}, guild=guild, guild_name="G", member=None,
                                   perms={"is_admin": True, "can_view_dashboard": True}, config={}, msg="", msg_ok=True)
