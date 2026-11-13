@@ -21,6 +21,11 @@ Bewertet ist der Code-Stand `main` @ `58fb538` (nach PR #237). Am 13.11.2026 wur
 
 Es gibt derzeit keine offenen Feature-Branches mit Auditwirkung. Die Kopf- und Übersichtszahlen in `docs/PULSE_FEATURE_AUDIT_177.md` geben immer den Stand **des Branches** wieder, in dem die Datei liegt; nach jedem Merge ist dieser Abschnitt nachzuführen.
 
+## Branch `feature/ticket-load-forecast-127` – #127
+
+- Block 2 (#36/#134/#135) und der `\n`-Fehler sind bereits auf `main` erledigt; Reihenfolgeliste unten ist veraltet. Als Nächstes aus den Teilweise-Zeilen des Audits wählen.
+- `build_load_forecast` + Karte in `/suite/forecast`, 6 neue Tests. Stand dieses Branches relativ zu `main`: +1 Fertig.
+
 ## Zuletzt abgeschlossene Implementierungsblöcke
 
 - **PR #214 – Locale-Grundlage (#10):** per Nutzer gespeicherte Sprache Deutsch/Englisch/Auto, Locale-Auflösung und Übersetzungsbausteine; `/profil` und `/pulse-hilfe` verwenden die Übersetzungen. Weitere Commands, Modals und Dashboard-Texte bleiben Arbeit.

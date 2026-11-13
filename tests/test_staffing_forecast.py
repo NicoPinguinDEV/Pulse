@@ -132,5 +132,82 @@ class StaffingForecastTests(unittest.TestCase):
         self.assertEqual(forecast.normalize_capacity(1.25), 1.2)
 
 
+class LoadForecastTests(unittest.TestCase):
+    now = datetime(2026, 11, 11, 12, 0, tzinfo=BERLIN)
+
+    def tickets_on(self, weekday, counts):
+        days = [d for d in (self.now.date() - timedelta(days=n) for n in range(56, 0, -1)) if d.weekday() == weekday]
+        out = []
+        for day, count in zip(days, counts):
+            at = datetime.combine(day, datetime.min.time(), tzinfo=BERLIN).replace(hour=10)
+            out.extend({"opened_at": at.astimezone(timezone.utc).isoformat()} for _ in range(count))
+        return out
+
+    def day(self, result, weekday):
+        return next(d for d in result["days"] if d["weekday"] == weekday)
+
+    def test_mean_and_interval_come_from_same_weekday_samples(self):
+        result = forecast.build_load_forecast(self.tickets_on(0, [10] * 8), now=self.now)
+        monday = self.day(result, 0)
+        self.assertEqual((monday["expected"], monday["low"], monday["high"], monday["samples"]), (10.0, 10.0, 10.0, 8))
+        self.assertEqual(monday["confidence"], "hoch")
+        noisy = forecast.build_load_forecast(self.tickets_on(0, [0, 20, 0, 20, 0, 20, 0, 20]), now=self.now)
+        monday = self.day(noisy, 0)
+        self.assertEqual(monday["expected"], 10.0)
+        self.assertEqual(monday["low"], 0.0)
+        self.assertGreater(monday["high"], 20.0)
+
+    def test_no_data_means_no_numbers(self):
+        result = forecast.build_load_forecast([], now=self.now)
+        self.assertTrue(all(d["expected"] is None and d["low"] is None for d in result["days"]))
+        self.assertEqual(result["expected_total"], 0)
+        self.assertIsNone(result["trend_percent"])
+
+    def test_other_weekdays_forecast_zero_and_bad_rows_are_ignored(self):
+        tickets = self.tickets_on(0, [4] * 8) + [{"opened_at": "kaputt"}, {}, "x", {"opened_at": None}]
+        result = forecast.build_load_forecast(tickets, now=self.now)
+        self.assertEqual(self.day(result, 1)["expected"], 0.0)
+        self.assertEqual(result["history_tickets"], 32)
+
+    def test_trend_compares_recent_four_weeks_with_previous_four(self):
+        result = forecast.build_load_forecast(self.tickets_on(0, [2, 2, 2, 2, 4, 4, 4, 4]), now=self.now)
+        self.assertEqual(result["trend_percent"], 100)
+
+    def test_bounds_and_future_tickets_are_ignored(self):
+        future = [{"opened_at": (self.now + timedelta(days=1)).isoformat()}]
+        result = forecast.build_load_forecast(future, now=self.now, days_ahead=999, history_days=1)
+        self.assertEqual(len(result["days"]), forecast.MAX_DAYS_AHEAD)
+        self.assertEqual(result["history_days"], 28)
+        self.assertEqual(result["history_tickets"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class ForecastPageTests(unittest.TestCase):
+    def test_page_renders_load_table_without_data_and_requires_manager_auth(self):
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        import pulse_db
+        import webserver as ws
+        from cogs import pulse_suite
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp, \
+                patch.object(pulse_db, "DB_PATH", str(Path(tmp) / "pulse.db")), \
+                patch.object(pulse_suite, "DB_PATH", str(Path(tmp) / "suite.db")):
+            pulse_db.init_db()
+            pulse_suite.register_routes()
+            guild = SimpleNamespace(id=1, members=[], roles=[], get_role=lambda _: None, get_member=lambda _: None)
+            ctx = SimpleNamespace(user={"id": "1", "global_name": "L"}, guild=guild, guild_name="G", member=None,
+                                  perms={"is_admin": True, "can_view_dashboard": True}, config={}, msg="", msg_ok=True)
+            with patch.object(ws, "auth", lambda *a, **k: ctx):
+                response = TestClient(ws.app, raise_server_exceptions=False).get("/suite/forecast")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Ticketlast pro Tag", response.text)
+        self.assertIn("Ohne ausreichende Daten wird keine Zahl erfunden", response.text)

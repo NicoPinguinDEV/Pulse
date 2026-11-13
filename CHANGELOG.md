@@ -1,5 +1,9 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Ticketlast-Prognose (November 2026)
+
+- **#127:** `/suite/forecast` zeigt je Tag die erwartete Ticketzahl mit 80 %-Bereich, Verlässlichkeit, Datenbasis und Trend. Ohne ausreichende Daten werden keine Zahlen erfunden. Keine neue Tabelle.
+
 ## Fall-Gesamtverlauf (November 2026)
 
 - **Gesamtverlauf (#12):** Unter Bürger-Moderation → „Gesamtverlauf“ (`/mod-cases/verlauf`) und mit `/mod verlauf` sehen berechtigte Personen alle Fallereignisse einer Person über Bürger-Moderation, Team-/Spielerfälle, Teamwarnungen und KI-Moderation chronologisch. Jede Akte erscheint nur mit dem Recht, das ihre eigene Ansicht schon verlangt. Eine nicht lesbare Akte wird angezeigt, statt den Verlauf zu verfälschen.

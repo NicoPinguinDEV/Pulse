@@ -795,6 +795,23 @@ def register_routes():
             tickets_per_person_hour=capacity,
         )
         weekday_names=("Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag")
+        load=staffing_forecast.build_load_forecast(ticket_rows,now=current,history_days=56,days_ahead=7)
+        load_rows="".join(
+            f'<tr><td>{esc(weekday_names[d["weekday"]])} · {esc(d["date"])}</td>'
+            + (f'<td>{d["expected"]:.1f}</td><td>'
+               + (f'{d["low"]:.1f}–{d["high"]:.1f}' if d["low"] is not None else "–")
+               + '</td>' if d["expected"] is not None else '<td>–</td><td>–</td>')
+            + f'<td>{d["samples"]}</td><td>{esc(d["confidence"])}</td></tr>'
+            for d in load["days"]
+        )
+        trend="" if load["trend_percent"] is None else f' · Trend letzte 4 vs. vorherige 4 Wochen: {load["trend_percent"]:+d} %'
+        load_card=(
+            '<div class="card" style="margin-top:13px"><h3>🎫 Ticketlast pro Tag</h3>'
+            '<div class="scroll"><table class="table"><thead><tr><th>Tag</th><th>Erwartet</th><th>80 %-Bereich</th>'
+            f'<th>Vergleichstage</th><th>Verlässlichkeit</th></tr></thead><tbody>{load_rows}</tbody></table></div>'
+            f'<p class="tiny" style="margin-top:10px">Basis: {load["history_tickets"]} Tickets aus {load["history_days"]} Tagen{esc(trend)}. '
+            f'Bereich: {esc(load["interval"])}. Ohne ausreichende Daten wird keine Zahl erfunden.</p></div>'
+        )
         table_rows=[]
         for item in forecast["rows"]:
             weekday=weekday_names[datetime.fromisoformat(item["date"]).weekday()]
@@ -837,6 +854,7 @@ def register_routes():
             f'<div class="card"><div class="tiny">Berücksichtigte Schichten</div><div class="metric">{forecast["planned_shifts_count"]}</div></div>'
             f'<div class="card"><div class="tiny">Prognose-Zeitraum</div><div class="metric">{forecast["days_ahead"]} Tage</div></div>'
             f'<div class="card"><div class="tiny">Zeitslots mit Bedarfslücke</div><div class="metric">{gap_count}</div></div></div>'
+            f'{load_card}'
             f'<div class="card" style="margin-top:13px"><h3>🔎 Erwarteter Bedarf und Abdeckung</h3>{table}{truncation_note}'
             '<p class="tiny" style="margin-top:10px">Die Prognose mittelt Ticket-Eingänge der letzten acht abgeschlossenen Wochen je Wochentag und Stunde. '
             'Der rechnerische Bedarf basiert auf der einstellbaren Kapazität und ist ein Planungsrichtwert, keine automatische Personalentscheidung. '

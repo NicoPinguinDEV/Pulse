@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 88 |
-| Teilweise | 89 |
+| Fertig | 89 |
+| Teilweise | 88 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -225,7 +225,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
 | 126 | Team-Ausfall-Simulation | **Fertig** | Pulse Intelligence bietet eine begrenzte, lesende Team-Ausfall-Simulation; `tests/test_pulse_intelligence.py`. |
-| 127 | Ticketlast-Prognose | **Teilweise** | Ticket-Surge-Simulation und Tickettrendvergleich existieren; echte statistische Prognose mit Unsicherheit und Datenbasis fehlt. |
+| 127 | Ticketlast-Prognose | **Fertig** | `pulse_staffing_forecast.build_load_forecast`: erwartete Tickets je Tag aus gleichen Wochentagen der letzten 8 Wochen mit 80 %-Bereich, Verlässlichkeitsstufe, Datenbasis und 4-Wochen-Trend; ohne Daten keine Zahlen. Anzeige in `/suite/forecast`. `tests/test_staffing_forecast.py`. |
 | 128 | Personalbedarfsprognose | **Fertig** | `/suite/forecast` vergleicht stündliche Ticket-Eingänge der letzten acht abgeschlossenen Wochen mit geplanter Personalabdeckung; begrenzt, transparent und managergeschützt (PR #210). |
 | 129 | Anomalieerkennung | **Teilweise** | Rule-based Findings zu SLA, Systemzustand und Volumen existieren; keine umfassende Anomalieerkennung über alle Datenbereiche. |
 | 130 | Automatische Tagesberichte | **Teilweise** | Team-Report-Automationsschritte und Copilot-Zusammenfassungen existieren; kein fertig vorkonfigurierter, täglicher geprüfter Berichtslauf. |
