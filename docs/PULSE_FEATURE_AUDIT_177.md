@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-13):** Referenz `main` @ `6c9ff85` (PRs #214–#234 gemergt, Pflicht-CI grün). Dieser Branch zählt **88 fertig / 89 teilweise / 0 offen** und enthält drei noch **nicht gemergte** PRs, die aufeinander aufbauen: #235 gleicht die Zeilen an PR #221–#228 an (#15, #18, #19, #23, #43, #52 fertig; Stand 86/91), #236 stellt #55 fertig (87/90), und `feature/unified-case-history-11-12` stellt #12 fertig (88/89; #11 bleibt teilweise). Ohne diese PRs entspricht `main` 86/91 nach Abgleich; die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-13):** Referenz `main` @ `6c9ff85` (PRs #214–#234 gemergt, Pflicht-CI grün). Dieser Branch zählt **88 fertig / 89 teilweise / 0 offen** und enthält drei noch **nicht gemergte** PRs, die aufeinander aufbauen: #235 gleicht die Zeilen an PR #221–#228 an (#15, #18, #19, #23, #43, #52 fertig; Stand 86/91), #236 stellt #55 fertig (87/90), und #237 (`feature/unified-case-history-11-12`) stellt #12 fertig (88/89; #11 bleibt teilweise). Ohne diese PRs entspricht `main` 86/91 nach Abgleich; die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
