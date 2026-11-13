@@ -1,5 +1,9 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Schicht-Erinnerungen (November 2026)
+
+- **#86:** Eingeplante Personen werden einstellbar lange vor Schichtbeginn erinnert (Standard 30 Min., `/suite/schedule`). Je Schicht und Startzeit genau eine Benachrichtigung; verschobene Schichten erinnern erneut. Nur Abfrage der heutigen und der folgenden Tage, keine neue Tabelle.
+
 ## Fall-Gesamtverlauf (November 2026)
 
 - **Gesamtverlauf (#12):** Unter Bürger-Moderation → „Gesamtverlauf“ (`/mod-cases/verlauf`) und mit `/mod verlauf` sehen berechtigte Personen alle Fallereignisse einer Person über Bürger-Moderation, Team-/Spielerfälle, Teamwarnungen und KI-Moderation chronologisch. Jede Akte erscheint nur mit dem Recht, das ihre eigene Ansicht schon verlangt. Eine nicht lesbare Akte wird angezeigt, statt den Verlauf zu verfälschen.

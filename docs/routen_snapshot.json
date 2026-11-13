@@ -344,6 +344,7 @@
  "POST /suite/promotions/create -> cogs.pulse_suite.register_routes.<locals>.promotions_create",
  "POST /suite/promotions/{pid}/action -> cogs.pulse_suite.register_routes.<locals>.promotions_action",
  "POST /suite/schedule/create -> cogs.pulse_suite.register_routes.<locals>.schedule_create",
+ "POST /suite/schedule/reminder-lead -> cogs.pulse_suite.register_routes.<locals>.schedule_reminder_lead",
  "POST /suite/schedule/swaps/create -> cogs.pulse_suite.register_routes.<locals>.schedule_swap_create",
  "POST /suite/schedule/swaps/{request_id}/cancel -> cogs.pulse_suite.register_routes.<locals>.schedule_swap_cancel",
  "POST /suite/schedule/swaps/{request_id}/decision -> cogs.pulse_suite.register_routes.<locals>.schedule_swap_decision",
