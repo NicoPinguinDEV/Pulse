@@ -9,8 +9,8 @@ Bewertet ist der Code-Stand `main` @ `6c9ff85` (nach PR #234). PRs #214–#234 s
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 87 |
-| Teilweise | 90 |
+| Fertig | 86 |
+| Teilweise | 91 |
 | Offen | 0 |
 
 Diese Zahlen sind die **korrigierte Bewertung von `main`**. In `main` selbst steht sie erst nach dem Merge von PR #235; bis dahin nennt `main` noch die veraltete Angabe 80 / 97 (Kopfzeile der Auditdatei fälschlich 78 / 99). Funktionen aus noch nicht gemergten Branches sind hier **nicht** mitgezählt.
