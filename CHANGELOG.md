@@ -1,5 +1,10 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Zertifikate und Auffrischung (November 2026)
+
+- **Automatische Zertifikate (#109):** Wer eine Schulung besteht, erhält ein Zertifikat mit Prüfcode (`/training`, `/training/certificate/{code}`; nur Inhaber und Schulungsleitung).
+- **Auffrischungsschulungen (#110):** Pro Schulung lassen sich Gültigkeit und Vorwarnzeit festlegen; Inhaber werden einmal vor und einmal nach Ablauf benachrichtigt, Leitung sieht fällige Zertifikate. Standard ohne Regel: unbegrenzt gültig.
+- Neue Tabellen sind im JSON-Backup enthalten; manuell vergebene Zertifikate (`ultimate_certificates`) bleiben unverändert.
 ## Schicht-Erinnerungen (November 2026)
 
 - **#86:** Eingeplante Personen werden einstellbar lange vor Schichtbeginn erinnert (Standard 30 Min., `/suite/schedule`). Je Schicht und Startzeit genau eine Benachrichtigung; verschobene Schichten erinnern erneut. Nur Abfrage der heutigen und der folgenden Tage, keine neue Tabelle.

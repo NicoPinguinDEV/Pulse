@@ -244,6 +244,31 @@ def register(app):
                 f'<div class="h-full bg-emerald-500" style="width:{progress["percent"]}%"></div></div>'
                 f'<ol class="mt-3">{"".join(steps) or "<li class=\'text-xs text-slate-400\'>Keine veröffentlichten Schulungen im Lernpfad.</li>"}</ol></section>'
             )
+        import pulse_certificates
+        cert_rows=[
+            f'<li class="flex justify-between gap-3 py-2 border-t border-slate-200 dark:border-slate-700 text-xs">'
+            f'<span><a class="font-semibold" href="/training/certificate/{esc(cert["verify_code"])}">{esc(cert["title"])}</a>'
+            f'<span class="block text-[10px] text-slate-500">Ausgestellt {esc(str(cert["issued_at"])[:10])}'
+            f'{" · gültig bis "+esc(str(cert["valid_until"])[:10]) if cert["valid_until"] else ""}</span></span>'
+            f'<span>{badge(cert["status_label"],"ok" if cert["status"]=="valid" else "warn")}</span></li>'
+            for cert in pulse_certificates.certificates_for_user(c.user["id"]) if cert["status"]!="superseded"
+        ]
+        certificates_html=(
+            '<section class="mb-6"><h2 class="text-lg font-bold mb-3">🏅 Deine Zertifikate</h2>'
+            f'<ul class="{ws.CARD} p-4">{"".join(cert_rows)}</ul></section>'
+            if cert_rows else ""
+        )
+        if c.perms.get("can_manage_training") or c.perms.get("can_promote") or c.perms.get("is_admin"):
+            due_rows="".join(
+                f'<li class="py-2 border-t border-slate-200 dark:border-slate-700 text-xs">{esc(cert["user_name"])} · '
+                f'{esc(cert["title"])} · {esc(cert["status_label"])} ({esc(str(cert["valid_until"])[:10])})</li>'
+                for cert in pulse_certificates.attention_list()
+            )
+            if due_rows:
+                certificates_html+=(
+                    '<section class="mb-6"><h2 class="text-lg font-bold mb-3">⏳ Auffrischung fällig</h2>'
+                    f'<ul class="{ws.CARD} p-4">{due_rows}</ul></section>'
+                )
         learning_paths_html=(
             '<section class="mb-6"><h2 class="text-lg font-bold mb-3">🧭 Deine Lernpfade</h2>'
             + "".join(path_cards)
@@ -344,7 +369,7 @@ def register(app):
         body=(
             f'<h1 class="text-2xl font-bold mb-2">🎓 Schulungen</h1>'
             f'<p class="text-xs text-slate-500 mb-5">Prüfungen, Grundkompetenzen und rollenbezogene Ausbildungswege.</p>'
-            f'{learning_paths_html}{matrix_link}<h2 class="text-lg font-bold mb-3">Alle Schulungen</h2>'
+            f'{certificates_html}{learning_paths_html}{matrix_link}<h2 class="text-lg font-bold mb-3">Alle Schulungen</h2>'
             f'<div class="grid md:grid-cols-2 gap-4">{cards or card("<p class=\'text-xs text-slate-400\'>Noch keine Schulungen.</p>")}</div>'
             f'{f"<div class=\'mt-5 max-w-3xl\'>{form}</div>" if form else ""}{path_admin}'
         )
@@ -607,8 +632,55 @@ def register(app):
                 for row in comments
             ) or '<p class="text-xs text-slate-400 mt-3">Noch keine Kommentare.</p>'
             body+=f'<div class="mt-4"><h3 class="text-xs font-bold">Anonyme Rückmeldungen</h3>{comments_html}</div>'
-        body+="</section></div>"
+        body+="</section>"
+        if c.perms.get("can_manage_training") or c.perms.get("can_promote") or c.perms.get("is_admin"):
+            import pulse_certificates
+            rule=pulse_certificates.get_rule(training_id) or {"valid_days":0,"warn_days":pulse_certificates.DEFAULT_WARN_DAYS}
+            body+=(
+                f'<section class="mt-6 {ws.CARD} p-5"><h2 class="text-sm font-bold">🔁 Zertifikat und Auffrischung</h2>'
+                f'<form method="post" action="/training/{training_id_safe}/refresher" class="mt-3 grid grid-cols-2 gap-3">'
+                f'<label class="text-xs font-semibold" for="validDays">Gültigkeit in Tagen (0 = unbegrenzt)</label>'
+                f'<input id="validDays" name="valid_days" type="number" min="0" max="{pulse_certificates.MAX_VALID_DAYS}" value="{int(rule["valid_days"])}" class="{ws.INPUT}">'
+                f'<label class="text-xs font-semibold" for="warnDays">Vorwarnung in Tagen</label>'
+                f'<input id="warnDays" name="warn_days" type="number" min="1" max="{pulse_certificates.MAX_WARN_DAYS}" value="{int(rule["warn_days"])}" class="{ws.INPUT}">'
+                f'<button class="{ws.BTN} px-4 py-2 col-span-2">Regel speichern</button></form></section>'
+            )
+        body+="</div>"
         return ws.render_page(t["title"],c,"training",body)
+
+    @app.post("/training/{training_id}/refresher")
+    async def training_refresher_save(request: Request, training_id: str, user_session: str=Cookie(None)):
+        c=ctx(request,user_session)
+        if not (c.perms.get("can_manage_training") or c.perms.get("can_promote") or c.perms.get("is_admin")):
+            raise HTTPException(403,"Dafür fehlt dir die Berechtigung.")
+        form=await request.form()
+        try:
+            import pulse_certificates
+            pulse_certificates.set_rule(training_id,int(form.get("valid_days") or 0),int(form.get("warn_days") or 0),c.user["id"])
+        except ValueError as exc:
+            raise HTTPException(400,str(exc))
+        ws.log_audit(c.user.get("global_name"),c.user["id"],"Schulung Auffrischungsregel",f"{training_id}: {form.get('valid_days')} Tage")
+        return ws.back(f"/training/{training_id}","Auffrischungsregel gespeichert.")
+
+    @app.get("/training/certificate/{code}", response_class=HTMLResponse)
+    async def training_certificate_verify(request: Request, code: str, user_session: str=Cookie(None)):
+        c=ctx(request,user_session)
+        import pulse_certificates
+        cert=pulse_certificates.verify(code)
+        if not cert:
+            raise HTTPException(404,"Zertifikat nicht gefunden.")
+        manager=c.perms.get("can_manage_training") or c.perms.get("can_promote") or c.perms.get("is_admin")
+        if str(cert["user_id"])!=str(c.user["id"]) and not manager:
+            raise HTTPException(403,"Dieses Zertifikat darfst du nicht einsehen.")
+        body=(
+            f'<div class="max-w-xl {ws.CARD} p-6"><h1 class="text-xl font-bold">🏅 {esc(cert["title"])}</h1>'
+            f'<p class="text-sm mt-2">{esc(cert["user_name"])}</p>'
+            f'<p class="text-xs text-slate-500 mt-1">Ausgestellt {esc(str(cert["issued_at"])[:10])}'
+            f'{" · gültig bis "+esc(str(cert["valid_until"])[:10]) if cert["valid_until"] else " · unbegrenzt gültig"}</p>'
+            f'<p class="mt-3">{badge(cert["status_label"],"ok" if cert["status"]=="valid" else "warn")}</p>'
+            f'<p class="text-[10px] text-slate-400 mt-3">Prüfcode {esc(cert["verify_code"])}</p></div>'
+        )
+        return ws.render_page("Zertifikat",c,"training",body)
 
     @app.post("/training/{training_id}/submit")
     async def training_submit(request: Request, training_id: str, user_session: str=Cookie(None)):
@@ -620,7 +692,15 @@ def register(app):
                 if int(form.get(f'q_{q["id"]}'))==int(q['answer_index']): correct += 1
             except Exception: pass
         score=round(correct/max(1,len(t['questions']))*100); passed=score>=t['passing_score']
-        db.save_attempt(training_id,c.user['id'],c.user.get('global_name') or 'Team',score,passed)
+        attempt_id=db.save_attempt(training_id,c.user['id'],c.user.get('global_name') or 'Team',score,passed)
+        certificate=None
+        if passed:
+            try:
+                import pulse_certificates
+                certificate=pulse_certificates.issue_for_attempt(attempt_id)
+            except Exception as exc:
+                # The quiz result stays valid; a missing certificate can be issued later from the stored attempt.
+                print(f"Zertifikat konnte nicht ausgestellt werden: {type(exc).__name__}")
         try:
             from cogs.pulse_suite import mark_training_assignment_result
             mark_training_assignment_result(training_id, c.user["id"], passed)
@@ -629,6 +709,9 @@ def register(app):
             print(f"Schulungszuweisung konnte nicht aktualisiert werden: {type(exc).__name__}")
         ws.log_audit(c.user.get('global_name'),c.user['id'],'Schulung Abgelegt',f'{t["title"]}: {score}% · {"bestanden" if passed else "nicht bestanden"}')
         icon='✅' if passed else '❌'; textmsg=f'{icon} Ergebnis: {score}% – {"Bestanden" if passed else "Nicht bestanden"}.'
+        if certificate:
+            until=str(certificate.get("valid_until") or "")[:10]
+            textmsg+=f' Zertifikat {certificate["verify_code"]} ausgestellt'+(f' (gültig bis {until}).' if until else '.')
         return HTMLResponse(ws.simple_page(icon,'Testergebnis',textmsg,'<a href="/training" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">Zurück zu Schulungen</a>'))
 
     @app.post("/training/{training_id}/feedback")

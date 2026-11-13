@@ -3,7 +3,7 @@
 Automatisch erzeugt von `python tools/route_map.py` aus dem laufenden FastAPI-Objekt (nicht von Hand bearbeiten).
 Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, `admin_ctx`, `perm=`) – Hinweis, kein Beweis.
 
-- **Effektive Routen (Methode × Pfad):** 443
+- **Effektive Routen (Methode × Pfad):** 445
 - **Doppelt registriert:** 1 → `GET /ultimate`
 - **Im Quelltext registriert, zur Laufzeit verdrängt:** 5
 - **Ohne erkennbare Prüfung:** 51 (Login/OAuth/Health/Bewerbungsportal/öffentliche Seiten – einzeln prüfen)
@@ -686,17 +686,19 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/tickets/transcript/{ticket_id}/view` | `webserver.pulse_ticket_transcript_view` | webserver.py:6576 | can_manage_tickets |
 | POST | `/tickets/update` | `pulse_pro.register.<locals>.ticket_update_v5` | pulse_pro.py:2116 | can_view_dashboard (+ can_manage_tickets, can_promote, is_admin) |
 
-### `/training` (7)
+### `/training` (9)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
 | GET | `/training` | `pulse_features.register.<locals>.training_page` | pulse_features.py:197 | ctx (+ can_manage_training, can_promote, is_admin) |
-| POST | `/training/create` | `pulse_features.register.<locals>.training_create` | pulse_features.py:535 | angemeldet (+ can_manage_training, can_promote, is_admin) |
-| GET | `/training/matrix` | `pulse_features.register.<locals>.training_competency_matrix` | pulse_features.py:353 | angemeldet (+ can_manage_training, can_promote, is_admin) |
-| POST | `/training/paths/save` | `pulse_features.register.<locals>.training_path_save` | pulse_features.py:501 | angemeldet (+ can_manage_training, can_promote, is_admin) |
-| GET | `/training/{training_id}` | `pulse_features.register.<locals>.training_detail` | pulse_features.py:551 | ctx (+ can_manage_training, can_promote, is_admin) |
-| POST | `/training/{training_id}/feedback` | `pulse_features.register.<locals>.training_feedback_submit` | pulse_features.py:634 | ctx |
-| POST | `/training/{training_id}/submit` | `pulse_features.register.<locals>.training_submit` | pulse_features.py:613 | ctx |
+| GET | `/training/certificate/{code}` | `pulse_features.register.<locals>.training_certificate_verify` | pulse_features.py:665 | ctx (+ can_manage_training, can_promote, is_admin) |
+| POST | `/training/create` | `pulse_features.register.<locals>.training_create` | pulse_features.py:560 | angemeldet (+ can_manage_training, can_promote, is_admin) |
+| GET | `/training/matrix` | `pulse_features.register.<locals>.training_competency_matrix` | pulse_features.py:378 | angemeldet (+ can_manage_training, can_promote, is_admin) |
+| POST | `/training/paths/save` | `pulse_features.register.<locals>.training_path_save` | pulse_features.py:526 | angemeldet (+ can_manage_training, can_promote, is_admin) |
+| GET | `/training/{training_id}` | `pulse_features.register.<locals>.training_detail` | pulse_features.py:576 | ctx (+ can_manage_training, can_promote, is_admin) |
+| POST | `/training/{training_id}/feedback` | `pulse_features.register.<locals>.training_feedback_submit` | pulse_features.py:717 | ctx |
+| POST | `/training/{training_id}/refresher` | `pulse_features.register.<locals>.training_refresher_save` | pulse_features.py:651 | ctx (+ can_manage_training, can_promote, is_admin) |
+| POST | `/training/{training_id}/submit` | `pulse_features.register.<locals>.training_submit` | pulse_features.py:685 | ctx |
 
 ### `/ultimate` (110)
 
