@@ -9310,28 +9310,33 @@ async def assign_application_reviewers(request: Request, user_session: str = Coo
         raise HTTPException(status_code=403, detail="Prüfer zuweisen darf nur die Leitung.")
     form = await request.form()
     app_id = str(form.get("app_id") or "").strip()
+    import pulse_board
+    app_return = pulse_board.safe_return(form.get("return_to"))
     apps = load_json(APPS_FILE, {})
     item = apps.get(app_id) if isinstance(apps, dict) else None
-    if not isinstance(item, dict):
-        return back("/applications", "Bewerbung wurde nicht gefunden.", False)
+    if not isinstance(item, dict) or (item.get("guild_id") not in (None, "") and str(item.get("guild_id")) != str(ctx.guild.id)):
+        return back(app_return, "Bewerbung wurde nicht gefunden.", False)
+    stale_message = pulse_board.stale_reason(item, form.get("expected_status"))
+    if stale_message:
+        return back(app_return, stale_message, False)
     if item.get("status") not in app_review.OPEN_STATUSES:
-        return back("/applications", "Abgeschlossenen Bewerbungen können keine Prüfer mehr zugewiesen werden.", False)
+        return back(app_return, "Abgeschlossenen Bewerbungen können keine Prüfer mehr zugewiesen werden.", False)
     chosen = []
     for raw_id in form.getlist("reviewer_ids")[: app_review.MAX_ASSIGNED + 1]:
         member = ctx.guild.get_member(int(raw_id)) if str(raw_id).isdigit() else None
         if member is None or getattr(member, "bot", False):
-            return back("/applications", "Eine ausgewählte Person ist nicht auf dem Server.", False)
+            return back(app_return, "Eine ausgewählte Person ist nicht auf dem Server.", False)
         member_perms, _ = compute_perms(ctx.guild, member.id, load_config())
         if not (member_perms.get("can_manage_applications") or member_perms.get("can_promote") or member_perms.get("is_admin")):
-            return back("/applications", f"{member.display_name} darf keine Bewerbungen prüfen.", False)
+            return back(app_return, f"{member.display_name} darf keine Bewerbungen prüfen.", False)
         if str(member.id) == str(item.get("user_id")):
-            return back("/applications", "Bewerber dürfen ihre eigene Bewerbung nicht prüfen.", False)
+            return back(app_return, "Bewerber dürfen ihre eigene Bewerbung nicht prüfen.", False)
         chosen.append((str(member.id), member.display_name))
     actor_name = str(ctx.user.get("global_name") or ctx.user.get("username") or "Leitung")[:80]
     try:
         assigned = app_review.assign(item, chosen, actor_name, now_de().strftime("%d.%m.%Y %H:%M"))
     except ValueError as exc:
-        return back("/applications", str(exc), False)
+        return back(app_return, str(exc), False)
     save_json(APPS_FILE, apps)
     for entry in assigned:
         try:
@@ -9340,7 +9345,7 @@ async def assign_application_reviewers(request: Request, user_session: str = Coo
         except Exception as exc:
             print(f"⚠️ Zuweisungs-Benachrichtigung fehlgeschlagen: {type(exc).__name__}")
     log_audit(actor_name, ctx.user["id"], "Bewerbung zugewiesen", f"{item.get('name', 'Unbekannt')} → {', '.join(n for _, n in chosen)}")
-    return back("/applications", f"{len(assigned)} Prüfer zugewiesen.")
+    return back(app_return, f"{len(assigned)} Prüfer zugewiesen.")
 
 
 @app.post("/applications/review-policy")
@@ -11901,6 +11906,8 @@ async def handle_action(
     app_id: str = Form(None),
     vote: str = Form(None),
     decision: str = Form(None),
+    return_to: str = Form(None),
+    expected_status: str = Form(None),
     hire_role_id: int = Form(None),
     rsvp_status: str = Form(None),
     topic_title: str = Form(None),
@@ -12402,24 +12409,25 @@ async def handle_action(
         return back("/applications")
 
     if action == "decide_app":
+        import pulse_board
+        app_return = pulse_board.safe_return(return_to)  # the recruiting board may be the return target, nothing else
         async with APPLICATION_DECISION_LOCK:
             apps = load_json(APPS_FILE, {})
             item = apps.get(app_id or "")
-            if not item:
-                return back("/applications", "Bewerbung nicht gefunden.", False)
+            if not item or (item.get("guild_id") not in (None, "") and str(item.get("guild_id")) != str(guild.id)):
+                return back(app_return, "Bewerbung nicht gefunden.", False)
 
             original_item = copy.deepcopy(item)
             current_status = str(item.get("status") or "")
-            allowed_decisions = {
-                "pending": {"accept", "reject"},
-                "interview": {"hire_after_interview", "reject_after_interview"},
-            }
-            if decision not in allowed_decisions.get(current_status, set()):
-                return back("/applications", "Diese Entscheidung passt nicht zum aktuellen Bewerbungsstatus.", False)
+            stale_message = pulse_board.stale_reason(item, expected_status)
+            if stale_message:
+                return back(app_return, stale_message, False)
+            if decision not in pulse_board.allowed_decisions(current_status):
+                return back(app_return, "Diese Entscheidung passt nicht zum aktuellen Bewerbungsstatus.", False)
             import pulse_application_review as app_review
             gate_message = app_review.decision_gate(item, app_review.normalize_policy(get_setting_safe(app_review.POLICY_KEY)))
             if gate_message:
-                return back("/applications", gate_message, False)
+                return back(app_return, gate_message, False)
 
             def store_item() -> None:
                 # Merge only fields changed by this decision. Concurrent reviews, votes,
@@ -12447,13 +12455,13 @@ async def handle_action(
 
             action_reason = (action_reason or "").strip()[:500]
             if not action_reason:
-                return back("/applications", "Bitte einen Grund bzw. eine Gesprächsnotiz angeben.", False)
+                return back(app_return, "Bitte einen Grund bzw. eine Gesprächsnotiz angeben.", False)
 
             if decision == "accept":
                 # Erste Annahme = Einladung zum Bewerbungsgespräch. Das ist ausdrücklich
                 # KEINE Einstellung; die Team-Einstiegsrolle wird erst nach dem Gespräch vergeben.
                 if not applicant:
-                    return back("/applications", "Der Bewerber ist nicht mehr auf dem Discord-Server.", False)
+                    return back(app_return, "Der Bewerber ist nicht mehr auf dem Discord-Server.", False)
                 application_role = guild.get_role(APPLICATION_ROLE_ID)
                 if application_role is None:
                     return back(
@@ -12462,7 +12470,7 @@ async def handle_action(
                         False,
                     )
                 if application_role.is_default() or application_role.managed:
-                    return back("/applications", "Die Bewerberolle ist nicht verwaltbar.", False)
+                    return back(app_return, "Die Bewerberolle ist nicht verwaltbar.", False)
                 if guild.me and (
                     not guild.me.guild_permissions.manage_roles
                     or application_role.position >= guild.me.top_role.position
@@ -12479,10 +12487,10 @@ async def handle_action(
                             reason=f"Zum Bewerbungsgespräch eingeladen durch {actor}: {action_reason}",
                         )
                 except discord.Forbidden:
-                    return back("/applications", "Discord hat die Bewerberolle verweigert. Bitte Bot-Rechte und Rollen-Hierarchie prüfen.", False)
+                    return back(app_return, "Discord hat die Bewerberolle verweigert. Bitte Bot-Rechte und Rollen-Hierarchie prüfen.", False)
                 except discord.HTTPException as exc:
                     print(f"Bewerberolle für {applicant.id} konnte nicht vergeben werden: {exc}")
-                    return back("/applications", "Die Bewerberolle konnte wegen eines Discord-Fehlers nicht vergeben werden.", False)
+                    return back(app_return, "Die Bewerberolle konnte wegen eines Discord-Fehlers nicht vergeben werden.", False)
 
                 invited_at = now_de().strftime("%d.%m.%Y %H:%M")
                 item["status"] = "interview"
@@ -12520,13 +12528,13 @@ async def handle_action(
                     "Bewerbungsgespräch eingeladen",
                     f"{applicant.display_name} ({applicant.id}) erhielt Bewerberolle {application_role.id}; noch keine Einstellung. Grund: {action_reason}",
                 )
-                return back("/applications", f"{applicant.display_name} wurde zum Bewerbungsgespräch eingeladen. Noch keine Teamrolle vergeben.")
+                return back(app_return, f"{applicant.display_name} wurde zum Bewerbungsgespräch eingeladen. Noch keine Teamrolle vergeben.")
 
             if decision == "hire_after_interview":
                 if current_status != "interview" or not item.get("interview_invited_at"):
-                    return back("/applications", "Vor der Einstellung muss die Einladung zum Bewerbungsgespräch dokumentiert sein.", False)
+                    return back(app_return, "Vor der Einstellung muss die Einladung zum Bewerbungsgespräch dokumentiert sein.", False)
                 if not applicant:
-                    return back("/applications", "Der Bewerber ist nicht mehr auf dem Discord-Server.", False)
+                    return back(app_return, "Der Bewerber ist nicht mehr auf dem Discord-Server.", False)
                 configured_roles = [
                     guild.get_role(rid) for rid in team_role_ids
                     if str(rid) != str(APPLICATION_ROLE_ID)
@@ -12536,16 +12544,16 @@ async def handle_action(
                     min(configured_roles, key=lambda r: r.position) if configured_roles else None
                 )
                 if role is None or role.id not in team_role_ids or role.id == APPLICATION_ROLE_ID:
-                    return back("/applications", "Bitte nach dem Bewerbungsgespräch eine gültige Team-Einstiegsrolle auswählen.", False)
+                    return back(app_return, "Bitte nach dem Bewerbungsgespräch eine gültige Team-Einstiegsrolle auswählen.", False)
                 # SEC-07: hire_role_id comes from the form – same rank rule as action=hire: nobody (but admins)
                 # hires onto the own rank or higher, and nobody hires themselves.
                 if str(applicant.id) == str(actor_id):
-                    return back("/applications", "Du kannst dich nicht selbst einstellen.", False)
+                    return back(app_return, "Du kannst dich nicht selbst einstellen.", False)
                 ordered_ids = ordered_team_role_ids(guild, team_role_ids)
                 selected_rank = ordered_ids.index(role.id) if role.id in ordered_ids else len(ordered_ids)
                 actor_rank = team_rank(ctx.member, team_role_ids, guild) if ctx.member else -1
                 if not ctx.perms.get("is_admin") and actor_rank <= selected_rank:
-                    return back("/applications", "Du darfst niemanden auf deinen eigenen Rang oder einen höheren Rang einstellen.", False)
+                    return back(app_return, "Du darfst niemanden auf deinen eigenen Rang oder einen höheren Rang einstellen.", False)
                 application_role = guild.get_role(APPLICATION_ROLE_ID)
                 if guild.me and (
                     not guild.me.guild_permissions.manage_roles
@@ -12568,10 +12576,10 @@ async def handle_action(
                         reason=f"Einstellung nach Bewerbungsgespräch durch {actor}: {action_reason}",
                     )
                 except discord.Forbidden:
-                    return back("/applications", "Discord hat die Einstellung verweigert. Bitte Bot-Rechte und Rollen-Hierarchie prüfen.", False)
+                    return back(app_return, "Discord hat die Einstellung verweigert. Bitte Bot-Rechte und Rollen-Hierarchie prüfen.", False)
                 except discord.HTTPException as exc:
                     print(f"Einstellung nach Bewerbungsgespräch für {applicant.id} fehlgeschlagen: {exc}")
-                    return back("/applications", "Die Einstellung konnte wegen eines Discord-Fehlers nicht durchgeführt werden.", False)
+                    return back(app_return, "Die Einstellung konnte wegen eines Discord-Fehlers nicht durchgeführt werden.", False)
 
                 hired_time = now_de()
                 hired_at = hired_time.isoformat(timespec="seconds")
@@ -12629,7 +12637,7 @@ async def handle_action(
                     ],
                     thumbnail=applicant.display_avatar.url,
                 )
-                return back("/applications", f"{applicant.display_name} wurde nach dem Bewerbungsgespräch als {role.name} eingestellt.")
+                return back(app_return, f"{applicant.display_name} wurde nach dem Bewerbungsgespräch als {role.name} eingestellt.")
 
             if decision == "reject_after_interview" and applicant:
                 application_role = guild.get_role(APPLICATION_ROLE_ID)
@@ -12637,10 +12645,10 @@ async def handle_action(
                     try:
                         await applicant.remove_roles(application_role, reason=f"Bewerbung nach Gespräch abgelehnt durch {actor}: {action_reason}")
                     except discord.Forbidden:
-                        return back("/applications", "Die Ablehnung kann nicht abgeschlossen werden, weil Discord das Entfernen der Bewerberolle verweigert.", False)
+                        return back(app_return, "Die Ablehnung kann nicht abgeschlossen werden, weil Discord das Entfernen der Bewerberolle verweigert.", False)
                     except discord.HTTPException as exc:
                         print(f"Bewerberolle nach Ablehnung für {applicant.id} konnte nicht entfernt werden: {exc}")
-                        return back("/applications", "Die Bewerberolle konnte nicht entfernt werden. Bitte Discord-Rechte prüfen.", False)
+                        return back(app_return, "Die Bewerberolle konnte nicht entfernt werden. Bitte Discord-Rechte prüfen.", False)
 
             item["status"] = "rejected"
             item["decided_by"] = actor
@@ -12663,7 +12671,7 @@ async def handle_action(
                 fields=[("Bewerbung", app_id or "—", True), ("Grund", action_reason, False), ("Zeitpunkt", now_de().strftime("%d.%m.%Y %H:%M"), True)],
             )
             log_audit(actor, actor_id, "Bewerbung Entschieden", f"{item.get('name')}: abgelehnt · Grund: {action_reason}")
-            return back("/applications", f"Bewerbung von {item.get('name')} abgelehnt.")
+            return back(app_return, f"Bewerbung von {item.get('name')} abgelehnt.")
     # ---------- Meetings ----------
     if action == "meeting_rsvp":
         if rsvp_status not in ("accepted", "declined"):

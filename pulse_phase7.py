@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from fastapi import Cookie, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+import pulse_board
 import pulse_db
 import pulse_flags
 
@@ -31,6 +32,12 @@ MONTH_SENT_KEY = "my_month_dm_sent"
 
 def _e(value) -> str:
     return html.escape(str(value if value is not None else ""), quote=True)
+
+
+try:
+    from pulse_summaries import STATUS_LABELS
+except Exception:  # pragma: no cover - labels are cosmetic
+    STATUS_LABELS = {}
 
 
 def _actor(ctx) -> str:
@@ -380,31 +387,121 @@ def register(app) -> None:
         return ws.back("/team/readiness", "Kriterien gespeichert.", True)
 
     # ------------------------------------------------------------------ F-07
+    def board_permitted(ctx) -> bool:
+        return bool(ctx.perms.get("is_admin") or ctx.perms.get("can_promote") or ctx.perms.get("can_manage_applications"))
+
+    def board_card_html(c, role_options, reviewer_options, leadership):
+        """One card: facts, link to the full record and – only what the server would accept – the real workflow forms."""
+        app_id = _e(c["id"])
+        history = c["stage"] in ("team", "abgelehnt", "probezeit")
+        meta = ["seit " + str(c["days"]) + " Tagen" if c["days"] is not None else "Datum unbekannt"]
+        if c["overdue"]:
+            meta.append("Frist " + str(c["deadline"]) + " Tage überschritten")
+        if c["interview_at"]:
+            meta.append("Termin " + _e(c["interview_at"].replace("T", " ")))
+        if c["decided_by"] and history:
+            meta.append("entschieden von " + _e(c["decided_by"]))
+        review = ""
+        if c["status"] in ("pending", "interview"):
+            who = ", ".join(_e(n) for n in c["reviewers"]) if c["reviewers"] else "niemand zugewiesen"
+            review = ('<div class="text-xs pulse-row-meta">👥 ' + who + " · Bewertungen " + str(c["completed"]) + "/" + str(c["assigned"] or "–")
+                      + " · 👍 " + str(c["votes_up"]) + " 👎 " + str(c["votes_down"]) + "</div>")
+        status_pill = '<span class="pulse-pill">' + _e(STATUS_LABELS.get(c["status"], c["status"])) + "</span>"
+        hidden = ('<input type="hidden" name="app_id" value="' + app_id + '"><input type="hidden" name="return_to" value="' + pulse_board.RETURN_PATH
+                  + '"><input type="hidden" name="expected_status" value="' + _e(c["status"]) + '">')
+        actions = ""
+        act = c["actions"]
+        if act["decisions"]:
+            if act["blocked"]:
+                actions += '<div class="text-xs" role="status" style="color:#b45309">⚠ ' + _e(act["blocked"]) + "</div>"
+            else:
+                role = ""
+                if act.get("needs_role"):
+                    role = ('<select name="hire_role_id" class="pulse-input" aria-label="Team-Einstiegsrolle (nur für Einstellung)">'
+                            '<option value="">Einstiegsrolle wählen …</option>' + role_options + "</select>")
+                confirm = "Wurde das verpflichtende Bewerbungsgespräch durchgeführt?" if act.get("needs_role") else "Diese Entscheidung jetzt ausführen?"
+                buttons = "".join('<button class="pulse-btn" type="submit" name="decision" value="' + _e(d["decision"]) + '">' + _e(d["label"]) + "</button>"
+                                  for d in act["decisions"])
+                actions += ('<details class="mt-2"><summary class="text-xs font-semibold" style="cursor:pointer">Entscheiden</summary>'
+                            '<form method="post" action="/action" class="grid gap-2 mt-2" onsubmit="return confirm(&quot;' + confirm + '&quot;)">'
+                            '<input type="hidden" name="action" value="decide_app">' + hidden + role
+                            + '<input class="pulse-input" name="action_reason" maxlength="500" required placeholder="Grund / Gesprächsnotiz" aria-label="Grund">'
+                            '<div class="flex flex-wrap gap-2">' + buttons + "</div></form></details>")
+        if leadership and c["status"] in ("pending", "interview") and reviewer_options:
+            options = "".join('<option value="' + _e(rid) + '"' + (" selected" if rid in c["reviewer_ids"] else "") + ">" + _e(name) + "</option>"
+                              for rid, name in reviewer_options if rid != c["user_id"])
+            actions += ('<details class="mt-2"><summary class="text-xs font-semibold" style="cursor:pointer">Prüfer zuweisen</summary>'
+                        '<form method="post" action="/applications/assign" class="grid gap-2 mt-2">' + hidden
+                        + '<select name="reviewer_ids" multiple size="4" required class="pulse-input" aria-label="Prüfer">' + options + "</select>"
+                        '<button class="pulse-btn" type="submit">Zuweisen (max. ' + str(pulse_board.app_review.MAX_ASSIGNED) + ")</button></form></details>")
+        links = ('<a class="text-xs" href="/applications' + ("?view=history" if history else "") + "#app-" + app_id + '">Öffnen &amp; bewerten</a>'
+                 + (' · <a class="text-xs" href="/team/checklists">Einstellungs-Checkliste</a>' if c["stage"] in ("probezeit", "team") else ""))
+        border = ";border-left:4px solid #ef4444" if c["overdue"] else ""
+        return ('<li class="pulse-card" id="card-' + app_id + '" style="padding:10px;margin-bottom:8px;list-style:none' + border + '">'
+                '<div class="text-sm font-bold">' + _e(c["name"]) + " " + status_pill + '</div><div class="text-xs">' + _e(c["career"]) + "</div>"
+                '<div class="text-xs pulse-row-meta">' + " · ".join(meta) + "</div>" + review + actions + '<div class="mt-2">' + links + "</div></li>")
+
     @app.get("/applications/board", response_class=HTMLResponse)
     async def board_page(request: Request, user_session: str = Cookie(None)):
-        import pulse_board
+        import pulse_application_review as app_review
         ctx = ws.auth(request, user_session, perm=None)
         pulse_flags.require("application_board")
-        if not (ctx.perms.get("is_admin") or ctx.perms.get("can_promote") or ctx.perms.get("can_manage_applications")):
+        if not board_permitted(ctx):
             raise HTTPException(status_code=403, detail="Das Bewerbungs-Board ist für Bewerbungsverantwortliche.")
+        leadership = bool(ctx.perms.get("can_promote") or ctx.perms.get("is_admin"))
         deadlines = pulse_board.normalize_deadlines(pulse_db.get_setting(pulse_board.DEADLINES_KEY, {}))
-        columns = pulse_board.board(ws.load_json(ws.APPS_FILE, {}), ws.load_json(ws.DATA_FILE, {}), deadlines, datetime.now(timezone.utc))
-        cols = []
+        policy = app_review.normalize_policy(ws.get_setting_safe(app_review.POLICY_KEY))
+        try:
+            apps = ws.load_json(ws.APPS_FILE, {})
+            team_db = ws.load_json(ws.DATA_FILE, {})
+        except Exception:
+            return page("Bewerbungs-Board", ctx, "applications-board", "Bewerbungs-Board",
+                        card("▤ Bewerbungs-Board", "Daten konnten nicht geladen werden.",
+                             '<div role="alert" class="pulse-row-meta">Die Bewerbungsdaten sind gerade nicht lesbar. Bitte die Seite gleich neu laden.</div>'))
+        columns = pulse_board.board(apps, team_db, deadlines, datetime.now(timezone.utc), guild_id=getattr(ctx.guild, "id", None),
+                                    policy=policy, can_decide=True, leadership=leadership)
+        query = str(request.query_params.get("q") or "")[:80]
+        mode = str(request.query_params.get("filter") or "")
+        mode = mode if mode in ("overdue", "mine", "unassigned") else ""
+        columns = pulse_board.filter_columns(columns, query, mode, ctx.user["id"])
+        app_role_id = getattr(ws, "APPLICATION_ROLE_ID", None)
+        role_objs = [ctx.guild.get_role(x) for x in (ctx.config or {}).get("team_role_ids", []) if str(x) != str(app_role_id)]
+        role_options = "".join('<option value="' + str(r.id) + '">' + _e(r.name) + "</option>"
+                               for r in sorted((r for r in role_objs if r), key=lambda r: getattr(r, "position", 0)))
+        reviewer_options = []
+        if leadership:
+            for member in list(getattr(ctx.guild, "members", []))[:500]:
+                if getattr(member, "bot", False):
+                    continue
+                member_perms, _ = ws.compute_perms(ctx.guild, member.id, ws.load_config())
+                if member_perms.get("can_manage_applications") or member_perms.get("can_promote") or member_perms.get("is_admin"):
+                    reviewer_options.append((str(member.id), member.display_name))
+        cols, total = [], 0
         for key, label in pulse_board.STAGES:
-            cards = "".join(
-                f'<a href="/applications{"?view=history" if key in ("team", "abgelehnt", "probezeit") else ""}#app-{_e(c["id"])}" class="pulse-card" style="display:block;padding:10px;margin-bottom:8px;text-decoration:none'
-                f'{";border-left:4px solid #ef4444" if c["overdue"] else ""}"><div class="text-sm font-bold">{_e(c["name"])}</div>'
-                f'<div class="text-xs">{_e(c["career"])}</div><div class="text-xs pulse-row-meta">'
-                f'{"seit " + str(c["days"]) + " Tagen" if c["days"] is not None else "Datum unbekannt"}'
-                f'{" · Frist " + str(c["deadline"]) + " Tage überschritten" if c["overdue"] else ""}'
-                f'{" · Termin " + _e(c["interview_at"].replace("T", " ")) if c["interview_at"] else ""}</div></a>'
-                for c in columns[key])
-            cols.append(f'<div style="min-width:220px;flex:1"><div class="pulse-section-title mb-2">{label} <span class="pulse-pill">{len(columns[key])}</span></div>'
-                        f'{cards or "<div class=\"pulse-row-meta\">–</div>"}</div>')
+            cards = columns[key]
+            total += len(cards)
+            items = "".join(board_card_html(c, role_options, reviewer_options, leadership) for c in cards)
+            if not items:
+                items = '<li class="pulse-row-meta" style="list-style:none">Keine Bewerbungen in dieser Spalte.</li>'
+            cols.append('<section style="min-width:240px;flex:1" aria-labelledby="col-' + key + '"><div id="col-' + key + '" class="pulse-section-title mb-2">'
+                        + label + ' <span class="pulse-pill">' + str(len(cards)) + '</span></div><ul style="padding:0;margin:0">' + items + "</ul></section>")
+
+        def selected(value):
+            return " selected" if mode == value else ""
+        reset = ' <a class="text-xs" href="' + pulse_board.RETURN_PATH + '">Zurücksetzen</a>' if (query or mode) else ""
+        filters = ('<form method="get" action="' + pulse_board.RETURN_PATH + '" class="flex flex-wrap gap-2 items-end mb-3" role="search">'
+                   '<label class="text-xs">Suche<input class="pulse-input" type="search" name="q" value="' + _e(query) + '" maxlength="80" placeholder="Name, Laufbahn, ID, Prüfer"></label>'
+                   '<label class="text-xs">Filter<select class="pulse-input" name="filter"><option value="">Alle</option>'
+                   '<option value="overdue"' + selected("overdue") + '>Nur überfällige</option><option value="mine"' + selected("mine") + '>Mir zugewiesen</option>'
+                   '<option value="unassigned"' + selected("unassigned") + '>Ohne Prüfer</option></select></label>'
+                   '<button class="pulse-btn" type="submit">Anwenden</button>' + reset + "</form>")
+        empty = '<div class="pulse-row-meta" role="status">Keine Bewerbung entspricht den Filtern.</div>' if (query or mode) and not total else ""
+        gate = ('<div class="text-xs" role="status">Entscheidungen sind erst ab ' + str(policy["min_reviews"]) + " unabhängigen Bewertungen möglich.</div>"
+                if policy["min_reviews"] else "")
         body = card("▤ Bewerbungs-Board",
-                    "Spalten aus dem echten Bewerbungsstatus. Entscheiden, einladen und Termine planen geht wie bisher unter "
-                    "<a href=\"/applications\">Bewerbungen</a> (dort auch die DM-Vorlagen). Rot = Frist überschritten.",
-                    f'<div style="display:flex;gap:12px;overflow-x:auto">{"".join(cols)}</div>')
+                    "Spalten aus dem echten Bewerbungsstatus. Entscheidungen laufen über denselben geprüften Ablauf wie unter "
+                    '<a href="/applications">Bewerbungen</a> (Rollen, DM, Protokoll); eine Spalte lässt sich nie ohne Entscheidung wechseln. Rot = Frist überschritten.',
+                    filters + gate + empty + '<div style="display:flex;gap:12px;overflow-x:auto;align-items:flex-start">' + "".join(cols) + "</div>")
         fields = "".join(
             f'<label class="text-xs">{label} (Tage)<input class="pulse-input" name="{key}" value="{deadlines[key]}" inputmode="numeric"></label>'
             for key, label in (("eingang", "Eingang"), ("pruefung", "Prüfung"), ("gespraech", "Gespräch")))

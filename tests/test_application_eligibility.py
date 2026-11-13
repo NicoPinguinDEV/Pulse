@@ -109,8 +109,11 @@ class ApplicationEligibilityTests(unittest.TestCase):
         self.assertIn("APPLICATION_ROLE_ID = 1496070682126188604", IDS)  # A-09: value in pulse_ids.py
         self.assertIn("APPLICATION_ROLE_ID = _pulse_ids.APPLICATION_ROLE_ID", source)
         handler = function_source(source, "handle_action")
-        self.assertIn('"pending": {"accept", "reject"}', handler)
-        self.assertIn('"interview": {"hire_after_interview", "reject_after_interview"}', handler)
+        # Audit #95: the transition table moved into pulse_board (shared by board and handler); same values, same enforcement.
+        import pulse_board
+        self.assertEqual(pulse_board.allowed_decisions("pending"), {"accept", "reject"})
+        self.assertEqual(pulse_board.allowed_decisions("interview"), {"hire_after_interview", "reject_after_interview"})
+        self.assertIn("decision not in pulse_board.allowed_decisions(current_status)", handler)
         invite_start = handler.index('if decision == "accept":')
         hire_start = handler.index('if decision == "hire_after_interview":', invite_start)
         invite = handler[invite_start:hire_start]

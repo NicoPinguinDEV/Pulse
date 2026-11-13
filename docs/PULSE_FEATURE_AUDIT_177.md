@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-13):** `main` @ `d538f20` nach den Merges von #238, #235–#237 sowie #240–#245 (jeweils mit grüner Pflicht-CI). Stand: **100 fertig / 77 teilweise / 0 offen**. #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-14):** `main` @ `f0243bc` (nach #238, #235–#237, #240–#245 und #247 – #96/#97) plus Feature-Branch `feature/recruiting-kanban-95` (#95, PR offen, noch nicht gemergt). Stand inkl. #95: **101 fertig / 76 teilweise / 0 offen** (auf `main` allein: 100 / 77 / 0). #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 100 |
-| Teilweise | 77 |
+| Fertig | 101 |
+| Teilweise | 76 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -35,7 +35,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 6 | 6 | 0 |
 | Dienstplanung und Aktivität | 7 | 5 | 0 |
-| Bewerbungen und Recruiting | 5 | 6 | 0 |
+| Bewerbungen und Recruiting | 6 | 5 | 0 |
 | Academy und Wissensmanagement | 6 | 4 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
 | Pulse Intelligence | 7 | 8 | 0 |
@@ -178,7 +178,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 95 | Kanban-Bewerbungspipeline | **Teilweise** | `pulse_board.py` bildet Bewerbungsstufen ab; eine vollständig interaktive Kanban-Pipeline ist nicht belegt. |
+| 95 | Kanban-Bewerbungspipeline | **Fertig** | `/applications/board` (nur Bewerbungsverantwortliche): sechs Spalten Eingang · Prüfung · Gespräch · Probezeit · Team · Abgelehnt aus dem echten Status (keine neuen Statuswerte); Karten zeigen Status, Bearbeitungsdauer/Frist, Termin, zugewiesene Prüfer, Anzahl abgegebener Bewertungen (nie Inhalte anderer) und Stimmen. Entscheiden (Einladung zum Gespräch, Ablehnen, Einstellen nach Gespräch mit Rollenwahl, Ablehnen nach Gespräch) und Prüfer zuweisen laufen direkt an der Karte über dieselben Endpunkte wie die Bewerbungsseite (`POST /action` `decide_app`, `POST /applications/assign`) mit Sperre, Repository-Konfliktprüfung, DM, Rollen und Audit; die Übergangstabelle (`pulse_board.DECISIONS`) ist die gemeinsame Quelle, die Mindestbewertungs-Policy (#97) sperrt auch am Board, eine Spalte lässt sich nie ohne Entscheidung wechseln. Neu: `expected_status` verhindert Doppel-/Veraltet-Übermittlungen („inzwischen bearbeitet“), `return_to` ist auf das Board beschränkt, Datensätze mit fremder `guild_id` werden weder gezeigt noch bearbeitet. Suche, Filter (überfällig/mir zugewiesen/ohne Prüfer), Leer- und Fehlerzustand, Tastaturbedienung über echte Formulare/`details`; Link zur Einstellungs-Checkliste (#105). `pulse_board.py`, `pulse_phase7.py`, `webserver.py`; `tests/test_recruiting_board.py`, `tests/test_application_eligibility.py`. Einschränkung: Drag-and-drop bewusst nicht umgesetzt (jede Entscheidung braucht Grund/Rolle); Interview-Termin und Bewertungsbogen öffnen weiterhin auf der Bewerbungsseite. Noch nicht in `main` gemergt. |
 | 96 | Bewerbungszuweisung | **Fertig** | `pulse_application_review.py`: Leitung weist Bewerbungen 1–5 Prüfern zu (`POST /applications/assign`, nur berechtigte Nicht-Bewerber, Benachrichtigung, Audit); die Bewerbungsseite zeigt je Prüfer die Last (offene, noch nicht bewertete Zuweisungen) und schlägt die am wenigsten belasteten vor. `tests/test_application_review.py`. |
 | 97 | Mehrere unabhängige Prüfer | **Fertig** | Unabhängige Bewertungen: Prüfer sehen Bewertungen anderer erst nach der eigenen (Leitung sieht alle), optionale Empfehlung je Prüfer (Einstellen/Ablehnen/Unsicher), Fortschritt und Empfehlungsverteilung für die Leitung, optionale Policy „Mindestzahl unabhängiger Bewertungen“ (Administratoren, `POST /applications/review-policy`) sperrt Entscheidungen serverseitig bis genug Bewertungen vorliegen. `tests/test_application_review.py`. |
 | 98 | Interview-Bewertungsbogen | **Fertig** | Interviewformular mit mehreren Kriterien, Noten und Notizen; `tests/test_application_eligibility.py` prüft den zweistufigen Interviewablauf. |
