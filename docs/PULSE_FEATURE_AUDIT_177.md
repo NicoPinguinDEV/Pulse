@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 88 |
-| Teilweise | 89 |
+| Fertig | 90 |
+| Teilweise | 87 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -161,9 +161,9 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 83 | Schichtplanung | **Teilweise** | Schichtstart/-pause/-ende und geplante Team-Schichten existieren; Planungs-/Änderungsablauf ist noch nicht durchgängig mit Tests abgesichert. |
+| 83 | Schichtplanung | **Fertig** | Dienstplanung in `/suite/schedule`: Eingaben werden validiert (Datum, HH:MM, Namen, max. 16 h, Nachtdienste), überlappende Dienste derselben Person abgelehnt (409), Dienste können abgesagt werden (Benachrichtigung, Audit; gesperrt bei offener Tauschanfrage); Tausch (#84) bleibt. `pulse_schedule_rules.py`, `tests/test_schedule_rules.py`, `tests/test_schedule_swaps.py`. |
 | 84 | Schichttausch | **Fertig** | Persönlicher Antrag, Zustimmung der Gegenseite und Leitungsfreigabe; atomare Konfliktprüfung und Datenschutzexport (PR #209). |
-| 85 | Dienstabdeckung | **Teilweise** | Dienstplan und Teamstatus sind vorhanden; automatische Lücken-/Mindestbesetzungsprüfung fehlt. |
+| 85 | Dienstabdeckung | **Fertig** | Mindestbesetzungsregeln je Wochentag/Zeitfenster (`suite_schedule_minimums`, guild-isoliert, Audit); `/suite/schedule` zeigt Besetzungslücken der nächsten 7 Tage in 15-Minuten-Auflösung, Nachtdienste zählen über Mitternacht. Reiner Hinweis, keine automatische Zuweisung. `tests/test_schedule_rules.py`. |
 | 86 | Dienst-Erinnerungen | **Teilweise** | Activity Checks, Abwesenheiten und allgemeine Jobs erinnern; gezielte Erinnerungen vor persönlichen Schichten sind nicht vollständig belegt. |
 | 87 | Abwesenheitskalender | **Teilweise** | Abmeldungen und Team-Kalender existieren; eine vollständig zusammengeführte persönliche Abwesenheits-/Schichtansicht ist nicht nachgewiesen. |
 | 88 | Wochen- und Monatsberichte | **Teilweise** | Analytics, Wochen-/Monatskennzahlen und Exporte existieren; automatische, einheitliche Teamberichte mit nachvollziehbarer Definition aller KPIs fehlen. |

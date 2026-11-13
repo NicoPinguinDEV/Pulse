@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import pulse_db as db
 import pulse_paths
 import pulse_staffing_forecast as staffing_forecast
+import pulse_schedule_rules as schedule_rules
 import pulse_sqlite
 import pulse_jobs
 from pulse_jobs import tracked
@@ -117,6 +118,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS suite_settings(key TEXT PRIMARY KEY,value TEXT);
         CREATE INDEX IF NOT EXISTS idx_suite_audit_time ON suite_audit(occurred_at DESC);
         CREATE INDEX IF NOT EXISTS idx_suite_schedule_date ON suite_schedule(date);
+        CREATE TABLE IF NOT EXISTS suite_schedule_minimums(id TEXT PRIMARY KEY,guild_id TEXT NOT NULL,weekday INTEGER,start_time TEXT NOT NULL,end_time TEXT NOT NULL,min_staff INTEGER NOT NULL,created_by_id TEXT,created_by_name TEXT,created_at TEXT);
+        CREATE INDEX IF NOT EXISTS idx_suite_schedule_minimums_guild ON suite_schedule_minimums(guild_id);
         """)
 
 def setting(key,default=None):
@@ -758,16 +761,79 @@ def register_routes():
             '<button class="btn danger" name=decision value=reject>Ablehnen</button></form></div>'
             for x in pending_swaps
         ) or '<div class=tiny>Keine von der Gegenseite bestätigten Anfragen offen.</div>'
-        body=f'<div class="grid g2"><div class=card><h3>➕ Dienst planen</h3><form class=form method=post action=/suite/schedule/create><div class=field><label>Datum</label><input class=input type=date name=date required></div><div class=field><label>Dienst</label><input class=input name=shift_name required></div><div class=field><label>Start</label><input class=input type=time name=start_time required></div><div class=field><label>Ende</label><input class=input type=time name=end_time required></div><div class="field span2"><label>Teamler</label><select class=select name=assignee_id required>{opts}</select></div><div class=span2><button class="btn primary">Planen</button></div></form></div><div class=card><h3>⏰ Nächste Schichten</h3>{''.join(f'<div class=row><span>{esc(x["date"])} · {esc(x["shift_name"])}<div class=tiny>{esc(x["start_time"])}–{esc(x["end_time"])}</div></span><b>{esc(x["assignee_name"])}</b></div>' for x in rows[:15])}</div></div><div class=card style="margin-top:13px"><h3>✅ Schichttausch-Freigaben</h3>{swap_rows}</div><div class=card style="margin-top:13px"><h3>📅 Wochenplan</h3>{''.join(f'<div class=row>{esc(x["date"])} · {esc(x["shift_name"])} · {esc(x["assignee_name"])} <span>{esc(x["start_time"])}–{esc(x["end_time"])}</span></div>' for x in rows)}</div>'
+        with cx() as c:minimums=[dict(x) for x in c.execute("SELECT * FROM suite_schedule_minimums WHERE guild_id=? ORDER BY weekday,start_time",(str(ctx.guild.id),)).fetchall()]
+        today_local=now().date()
+        gaps=schedule_rules.coverage_gaps([x for x in rows if x["date"]>=(today_local-timedelta(days=1)).isoformat()],minimums,today_local,7)
+        day_names=("Mo","Di","Mi","Do","Fr","Sa","So")
+        gap_html="".join(f'<div class=row><span>{esc(g["date"])} · {esc(g["start_time"])}–{esc(g["end_time"])}</span><b>{g["planned_min"]} von {g["required"]} geplant</b></div>' for g in gaps[:40]) or ('<div class=tiny>Keine Besetzungslücken in den nächsten 7 Tagen.</div>' if minimums else '<div class=tiny>Noch keine Mindestbesetzung festgelegt.</div>')
+        rule_html="".join(f'<div class=row><span>{"täglich" if r["weekday"] is None else day_names[int(r["weekday"])]} · {esc(r["start_time"])}–{esc(r["end_time"])}</span><span>mind. {int(r["min_staff"])} <form method=post action="/suite/schedule/minimums/{esc(r["id"])}/delete" style="display:inline"><button class="btn danger" aria-label="Regel entfernen">✕</button></form></span></div>' for r in minimums)
+        coverage_html=(
+            '<div class=card style="margin-top:13px"><h3>🛡 Dienstabdeckung (7 Tage)</h3>'+gap_html+'</div>'
+            '<div class=card style="margin-top:13px"><h3>👥 Mindestbesetzung</h3>'+rule_html+
+            '<form class=form method=post action=/suite/schedule/minimums/add><div class=field><label>Wochentag</label><select class=select name=weekday><option value="">täglich</option>'
+            +"".join(f'<option value="{i}">{n}</option>' for i,n in enumerate(day_names))+
+            '</select></div><div class=field><label>Von</label><input class=input type=time name=start_time required></div><div class=field><label>Bis</label><input class=input type=time name=end_time required></div>'
+            '<div class=field><label>Mindestens</label><input class=input type=number name=min_staff min=1 max=50 value=1 required></div><div class=span2><button class="btn primary">Regel speichern</button></div></form></div>'
+        )
+        body=f'<div class="grid g2"><div class=card><h3>➕ Dienst planen</h3><form class=form method=post action=/suite/schedule/create><div class=field><label>Datum</label><input class=input type=date name=date required></div><div class=field><label>Dienst</label><input class=input name=shift_name required></div><div class=field><label>Start</label><input class=input type=time name=start_time required></div><div class=field><label>Ende</label><input class=input type=time name=end_time required></div><div class="field span2"><label>Teamler</label><select class=select name=assignee_id required>{opts}</select></div><div class=span2><button class="btn primary">Planen</button></div></form></div><div class=card><h3>⏰ Nächste Schichten</h3>{''.join(f'<div class=row><span>{esc(x["date"])} · {esc(x["shift_name"])}<div class=tiny>{esc(x["start_time"])}–{esc(x["end_time"])}</div></span><b>{esc(x["assignee_name"])}</b></div>' for x in rows[:15])}</div></div><div class=card style="margin-top:13px"><h3>✅ Schichttausch-Freigaben</h3>{swap_rows}</div><div class=card style="margin-top:13px"><h3>📅 Wochenplan</h3>{''.join(f'<div class=row>{esc(x["date"])} · {esc(x["shift_name"])} · {esc(x["assignee_name"])} <span>{esc(x["start_time"])}–{esc(x["end_time"])}</span> <form method=post action="/suite/schedule/{esc(x["id"])}/delete" style="display:inline"><button class="btn danger" aria-label="Dienst absagen">✕</button></form></div>' for x in rows)}</div>{coverage_html}'
         return page(ctx,"schedule","Dienstplan","Früh-, Spät- und Sonderdienste · Schichttausch mit Gegenseiten- und Leitungsfreigabe",body)
 
     @app.post("/suite/schedule/create")
     async def schedule_create(request:Request,date:str=Form(...),shift_name:str=Form(...),start_time:str=Form(...),end_time:str=Form(...),assignee_id:int=Form(...),user_session:str=Cookie(None)):
         ctx=auth(request,user_session,manager=True);m=ctx.guild.get_member(assignee_id)
         if not m:raise HTTPException(404,"Teamler nicht gefunden")
+        try:
+            shift=schedule_rules.validate_shift(date,shift_name,start_time,end_time)
+        except ValueError as exc:
+            raise HTTPException(400,str(exc))
+        shift["assignee_id"]=str(m.id)
+        lo=(datetime.fromisoformat(shift["date"])-timedelta(days=1)).date().isoformat()
+        hi=(datetime.fromisoformat(shift["date"])+timedelta(days=1)).date().isoformat()
+        with cx() as c:
+            nearby=[dict(x) for x in c.execute("SELECT * FROM suite_schedule WHERE guild_id=? AND assignee_id=? AND date BETWEEN ? AND ?",(str(ctx.guild.id),str(m.id),lo,hi)).fetchall()]
+        clash=schedule_rules.find_conflicts(shift,nearby)
+        if clash:
+            raise HTTPException(409,f"{m.display_name} hat bereits einen überlappenden Dienst ({clash[0]['date']} {clash[0]['start_time']}–{clash[0]['end_time']}).")
         sid="sch_"+uuid.uuid4().hex[:10]
-        with cx() as c:c.execute("INSERT INTO suite_schedule VALUES(?,?,?,?,?,?,?,?,?,?,?)",(sid,str(ctx.guild.id),date,shift_name[:80],start_time,end_time,str(m.id),m.display_name,str(ctx.user["id"]),ctx.user.get("global_name",""),iso()))
-        db.notify(m.id,"🗓 Dienst geplant",f"{date} · {shift_name} · {start_time}-{end_time}","info","/suite/schedule",f"schedule:{sid}",86400);audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),m.id,m.display_name,"schedule_created",f"{date} · {shift_name}");return RedirectResponse("/suite/schedule",303)
+        with cx() as c:c.execute("INSERT INTO suite_schedule VALUES(?,?,?,?,?,?,?,?,?,?,?)",(sid,str(ctx.guild.id),shift["date"],shift["shift_name"],shift["start_time"],shift["end_time"],str(m.id),m.display_name,str(ctx.user["id"]),ctx.user.get("global_name",""),iso()))
+        db.notify(m.id,"🗓 Dienst geplant",f"{shift['date']} · {shift['shift_name']} · {shift['start_time']}-{shift['end_time']}","info","/suite/schedule",f"schedule:{sid}",86400);audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),m.id,m.display_name,"schedule_created",f"{shift['date']} · {shift['shift_name']}");return RedirectResponse("/suite/schedule",303)
+
+    @app.post("/suite/schedule/{shift_id}/delete")
+    async def schedule_delete(request:Request,shift_id:str,user_session:str=Cookie(None)):
+        ctx=auth(request,user_session,manager=True)
+        with cx() as c:
+            row=c.execute("SELECT * FROM suite_schedule WHERE id=? AND guild_id=?",(shift_id,str(ctx.guild.id))).fetchone()
+            if not row:raise HTTPException(404,"Dienst nicht gefunden")
+            pending=c.execute("SELECT 1 FROM suite_schedule_swap_requests WHERE guild_id=? AND status IN ('pending_peer','pending_manager') AND (request_shift_id=? OR target_shift_id=?) LIMIT 1",(str(ctx.guild.id),shift_id,shift_id)).fetchone()
+            if pending:raise HTTPException(409,"Für diesen Dienst läuft eine Tauschanfrage. Bitte zuerst entscheiden.")
+            c.execute("DELETE FROM suite_schedule WHERE id=? AND guild_id=?",(shift_id,str(ctx.guild.id)))
+        item=dict(row)
+        db.notify(item["assignee_id"],"🗓 Dienst abgesagt",f"{item['date']} · {item['shift_name']} · {item['start_time']}-{item['end_time']}","warning","/suite/schedule",f"schedule-del:{shift_id}",86400)
+        audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),item["assignee_id"],item["assignee_name"],"schedule_deleted",f"{item['date']} · {item['shift_name']}")
+        return RedirectResponse("/suite/schedule",303)
+
+    @app.post("/suite/schedule/minimums/add")
+    async def schedule_minimum_add(request:Request,weekday:str=Form(""),start_time:str=Form(...),end_time:str=Form(...),min_staff:str=Form(...),user_session:str=Cookie(None)):
+        ctx=auth(request,user_session,manager=True)
+        try:
+            rule=schedule_rules.validate_minimum(weekday,start_time,end_time,min_staff)
+        except ValueError as exc:
+            raise HTTPException(400,str(exc))
+        with cx() as c:
+            if c.execute("SELECT COUNT(*) FROM suite_schedule_minimums WHERE guild_id=?",(str(ctx.guild.id),)).fetchone()[0]>=50:
+                raise HTTPException(400,"Höchstens 50 Besetzungsregeln.")
+            c.execute("INSERT INTO suite_schedule_minimums VALUES(?,?,?,?,?,?,?,?,?)",("min_"+uuid.uuid4().hex[:10],str(ctx.guild.id),rule["weekday"],rule["start_time"],rule["end_time"],rule["min_staff"],str(ctx.user["id"]),ctx.user.get("global_name",""),iso()))
+        audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),"schedule-minimum","Mindestbesetzung","schedule_minimum_added",f"{rule['weekday']} {rule['start_time']}-{rule['end_time']} min {rule['min_staff']}")
+        return RedirectResponse("/suite/schedule",303)
+
+    @app.post("/suite/schedule/minimums/{rule_id}/delete")
+    async def schedule_minimum_delete(request:Request,rule_id:str,user_session:str=Cookie(None)):
+        ctx=auth(request,user_session,manager=True)
+        with cx() as c:
+            removed=c.execute("DELETE FROM suite_schedule_minimums WHERE id=? AND guild_id=?",(rule_id,str(ctx.guild.id))).rowcount
+        if not removed:raise HTTPException(404,"Regel nicht gefunden")
+        audit(ctx.guild.id,ctx.user["id"],ctx.user.get("global_name",""),"schedule-minimum","Mindestbesetzung","schedule_minimum_deleted",rule_id)
+        return RedirectResponse("/suite/schedule",303)
 
     @app.get("/suite/forecast",response_class=HTMLResponse)
     async def staffing_forecast_page(request:Request,user_session:str=Cookie(None)):

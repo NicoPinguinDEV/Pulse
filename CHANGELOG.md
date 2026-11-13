@@ -1,5 +1,10 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Dienstplan und Dienstabdeckung (November 2026)
+
+- **Dienstplanung (#83):** Eingaben werden geprüft, überlappende Dienste derselben Person abgelehnt, Dienste lassen sich absagen (mit Benachrichtigung und Audit).
+- **Dienstabdeckung (#85):** Mindestbesetzungsregeln je Wochentag und Zeitfenster; `/suite/schedule` zeigt Lücken der nächsten 7 Tage. Neue Tabelle `suite_schedule_minimums` (nur Hinweis, keine automatische Zuweisung).
+
 ## Fall-Gesamtverlauf (November 2026)
 
 - **Gesamtverlauf (#12):** Unter Bürger-Moderation → „Gesamtverlauf“ (`/mod-cases/verlauf`) und mit `/mod verlauf` sehen berechtigte Personen alle Fallereignisse einer Person über Bürger-Moderation, Team-/Spielerfälle, Teamwarnungen und KI-Moderation chronologisch. Jede Akte erscheint nur mit dem Recht, das ihre eigene Ansicht schon verlangt. Eine nicht lesbare Akte wird angezeigt, statt den Verlauf zu verfälschen.
