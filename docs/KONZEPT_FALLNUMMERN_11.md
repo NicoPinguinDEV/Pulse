@@ -11,7 +11,7 @@
 |---|---|
 | Brauchen wir einen gemeinsamen Nummernkreis? | **Ja, aber schmal.** Für das Nachschlagen genügen die Referenzen aus PR #237. Es fehlt aber eine Nummer, die beim Anlegen feststeht, in DMs/Einsprüchen/Logs zitiert wird und sich nie ändert. Ohne zentrale Vergabe lässt sich außerdem nicht nachweisen, dass kein Fall fehlt (Lückenlosigkeit). |
 | Empfohlene Variante | **Variante B – zentrales Fallregister** (`case_registry`, additive Tabelle in `pulse.db`) mit fortlaufender Nummer `PF-JJJJ-NNNNN`. Die vier Quellen bleiben unverändert; das Register ordnet jeder neuen Nummer genau eine bestehende Quell-ID zu. |
-| Was vorher repariert werden muss | **Phase 0** (unabhängig von der Entscheidung, siehe §3): KI-bestätigte Bürgermaßnahmen erzeugen keinen `mod_cases`-Fall, `ai_moderation_cases.json` ist in keinem Backup, und `case_number()` vergibt TF-Nummern ohne Sperre. |
+| Was vorher repariert werden muss | **Phase 0** (unabhängig von der Entscheidung, siehe §3): KI-bestätigte Bürgermaßnahmen erzeugen keinen `mod_cases`-Fall, und `case_number()` vergibt TF-Nummern ohne Sperre. |
 | Aufwand | Phase 0: klein bis mittel · Phase 1–3: mittel, verteilt auf 3 PRs |
 | Risiko | Gering, solange die Vergabe additiv bleibt und die Quell-IDs unverändert führend bleiben. |
 
@@ -26,7 +26,7 @@
 | **BM** Bürger-Moderation | `pulse.db` `mod_cases` | `MOD-` + 6 Hex (Zufall) | `secrets.token_hex(3)`, PK-Konflikt theoretisch möglich (1 : 16,7 Mio.) | `pulse_mod_cases.create_case` ← `cogs/mod_cases.py` | JSON-Export (`TABLES`) und ZIP | unbegrenzt |
 | **TF** Team-/Spielerfall | `pulse.db` `ultimate_cases` (+ `ultimate_case_events`) | `PX-JJJJ-NNNN` (fortlaufend) | `pulse_ultimate.case_number()`: `MAX()+1` **außerhalb einer Transaktion**, `UNIQUE` fängt Doppelte erst beim INSERT ab | `pulse_ultimate.py:1304`, `:2963` (Automation), `pulse_next.py:752` (Workflow) | nur ZIP | unbegrenzt |
 | **TW** Teamwarnung | `team_data.json` `warns_list` | `warn_` + 6 Hex (Zufall) | `uuid4().hex[:6]`; Altdaten ohne ID werden beim Lesen nachgezogen | `webserver.issue_team_warning` ← Dashboard, `/warn`, `cogs/pulse_suite.py`, KI-Prüfung | nur ZIP | aktiv/abgelaufen/widerrufen bleiben erhalten |
-| **KI** KI-Moderation | `ai_moderation_cases.json` | 10 Hex (Zufall) | `uuid4().hex[:10]` | `cogs/ai_moderation.py:539`, `:1006` | **keins** | **30 Tage**, außer offen |
+| **KI** KI-Moderation | `ai_moderation_cases.json` | 10 Hex (Zufall) | `uuid4().hex[:10]` | `cogs/ai_moderation.py:539`, `:1006` | nur ZIP (`pulse_backup.JSON_FILES`) | **30 Tage**, außer offen |
 
 Zusätzlich vorhanden:
 - `pulse_case_registry.py` (PR #237): lesende typisierte Referenzen `BM:/TF:/TW:/KI:` und der Gesamtverlauf (#12).
@@ -42,13 +42,13 @@ Zusätzlich vorhanden:
    - Folgen: kein `MOD-`-Fall, kein Einspruchsbutton (#15), keine Statistik (#24).
    - Nach 30 Tagen löscht die Aufbewahrungsregel den KI-Fall. Ein Ban ist dann **nirgends mehr belegt**.
    - Schwere: hoch (Nachvollziehbarkeit und Einspruchsrecht).
-2. **`ai_moderation_cases.json` ist in keinem Backup.** Offene KI-Entscheidungen gehen bei einem Restore verloren.
+2. ~~`ai_moderation_cases.json` ist in keinem Backup.~~ **Widerlegt (Nachprüfung 13.11.2026):** Die Datei steht in `pulse_backup.JSON_FILES` und wird über `PULSE_AI_MODERATION_CASES_FILE` am tatsächlichen Ablageort ins Voll-ZIP gesichert (`pulse_backup.py:44`, `:78`). Nur der JSON-Export von `pulse_db.TABLES` enthält sie nicht, weil sie keine Tabelle ist. Kein Handlungsbedarf.
 3. **`case_number()` ist nicht nebenläufigkeitssicher.**
    - Zwei gleichzeitige Anlagen, etwa Dashboard und Automation im selben Moment, lesen denselben `MAX()`-Wert.
    - Die zweite Anlage scheitert an `UNIQUE` mit einem 500er bzw. einem fehlgeschlagenen Automationsschritt.
    - Schwere: mittel. Es entstehen keine Datenfehler, aber die Anlage geht verloren.
 
-Diese drei Punkte müssen vor jeder zentralen Vergabe stehen. Sonst gäbe es Fälle, die keine Nummer bekommen können (1), Nummern, deren Fall nach einem Restore fehlt (2), und eine Vorlage für unsichere Vergabe (3).
+Die Punkte 1 und 3 müssen vor jeder zentralen Vergabe stehen. Sonst gäbe es Fälle, die keine Nummer bekommen können (1), und eine Vorlage für unsichere Vergabe (3).
 
 ---
 
@@ -200,7 +200,7 @@ void(case_no, reason) -> state='void'               -- Anlage endgültig geschei
 
 - **Backup:**
   - `case_registry` und `case_registry_counter` kommen in `pulse_db.TABLES`, also in den JSON-Export und in den ZIP-Backup über die ganze `pulse.db`.
-  - Phase 0 nimmt `ai_moderation_cases.json` in die ZIP-Sicherung auf.
+  - `ai_moderation_cases.json` ist bereits Teil der ZIP-Sicherung.
 - **Restore-Risiko:** `pulse.db` und `team_data.json` können auf unterschiedliche Zeitpunkte zurückgesetzt werden. Danach gibt es entweder Nummern ohne Warnung oder Warnungen ohne Nummer.
   - Ein lesender **Integritätsbericht** im Admin-Center zeigt beides an.
   - Reparaturen sind nur ausdrücklich bestätigte Aktionen: fehlende nachtragen, verwaiste Nummern auf `void` setzen.
@@ -232,7 +232,7 @@ void(case_no, reason) -> state='void'               -- Anlage endgültig geschei
 
 | Nr. | Frage | Empfehlung |
 |---|---|---|
-| **E0** | Phase 0 (die drei Befunde aus §3) umsetzen? | **Ja, sofort.** Unabhängig von #11. |
+| **E0** | Phase 0 (Befunde 1 und 3 aus §3) umsetzen? | **Ja, sofort.** Unabhängig von #11. |
 | **E1** | Variante A (Referenzen genügen, #11 bewusst abweichend schließen) oder B (zentrales Register)? | **B** |
 | **E2** | Bekommen KI-Verdachtsfälle ohne Maßnahme eine Nummer? | **Nein**, nur der daraus entstehende BM- oder TW-Fall |
 | **E3** | Prüfziffer an der Nummer? | Nein (optional später) |
@@ -282,7 +282,7 @@ void(case_no, reason) -> state='void'               -- Anlage endgültig geschei
 | Phase | Inhalt | Daten | Abhängigkeit |
 |---|---|---|---|
 | **0a** | KI-bestätigte Bürgermaßnahmen legen über `pulse_mod_cases.create_case` einen BM-Fall an (mit DM-Einspruchsweg wie `/mod`) | additive Zeilen in `mod_cases` | – |
-| **0b** | `ai_moderation_cases.json` in die ZIP-Sicherung und die Datenlandkarte | – | – |
+| ~~0b~~ | entfällt: `ai_moderation_cases.json` ist bereits im Voll-ZIP (Befund 2 widerlegt) | – | – |
 | **0c** | `case_number()` mit `BEGIN IMMEDIATE` und Wiederholung bei `UNIQUE`; Parallelitätstest | – | – |
 | **1** | `pulse_case_numbers.py` und Migration `case_registry_v1`; noch **ohne** Aufrufer (unschädlich); Tests aus §13 | 2 neue Tabellen | E1, E6 |
 | **2** | Vergabe in den BM- und TF-Anlegestellen in derselben Transaktion; Anzeige in DM und Antworten; `parse_ref`/`resolve` verstehen `PF-` | neue Registerzeilen | 1 |

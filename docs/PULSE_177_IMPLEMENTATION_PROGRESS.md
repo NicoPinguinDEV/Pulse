@@ -5,27 +5,21 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, 
 
 ## Stand auf main
 
-Bewertet ist der Code-Stand `main` @ `6c9ff85` (nach PR #234). PRs #214–#234 sind gemergt bzw. geschlossen (#230). Die 177 Einzelzeilen wurden am 13.11.2026 gegen den Code abgeglichen (PR #235).
+Bewertet ist der Code-Stand `main` @ `58fb538` (nach PR #237). Am 13.11.2026 wurden in dieser Reihenfolge gemergt: #238 (opentelemetry-api 1.45.2, ohne Auditwirkung) → #235 (Abgleich nach der Merge-Welle) → #236 (#55) → #237 (#11 teilweise, #12). Jeder PR wurde vor dem Merge auf den jeweils aktuellen `main` gebracht und war in der CI grün.
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 86 |
-| Teilweise | 91 |
+| Fertig | 88 |
+| Teilweise | 89 |
 | Offen | 0 |
 
-Diese Zahlen sind die **korrigierte Bewertung von `main`**. In `main` selbst steht sie erst nach dem Merge von PR #235; bis dahin nennt `main` noch die veraltete Angabe 80 / 97 (Kopfzeile der Auditdatei fälschlich 78 / 99). Funktionen aus noch nicht gemergten Branches sind hier **nicht** mitgezählt.
-
-## Noch nicht gemergte Feature-Branches (Stand 13.11.2026)
-
-Die PRs bauen aufeinander auf und werden in dieser Reihenfolge gemergt: #238 (Abhängigkeit, ohne Auditwirkung) → #235 → #236 → #237. Jede Zeile enthält die Zeilen darüber.
-
-| Stand | Fertig | Teilweise | Offen | Auditänderung | In `main`? |
+| Schritt | Fertig | Teilweise | Offen | Auditänderung | Merge-Commit |
 |---|---:|---:|---:|---|---|
-| `main` nach PR #234, korrigiert (PR #235) | 86 | 91 | 0 | #15, #18, #19, #23, #43, #52 → Fertig | nein, PR #235 offen |
-| zusätzlich PR #236 (`feature/self-service-rsvp-55`) | 87 | 90 | 0 | #55 → Fertig | nein, PR #236 offen |
-| zusätzlich PR #237 (`feature/unified-case-history-11-12`) | 88 | 89 | 0 | #12 → Fertig; #11 bleibt Teilweise | nein, PR #237 offen |
+| `main` nach PR #234, korrigiert (PR #235) | 86 | 91 | 0 | #15, #18, #19, #23, #43, #52 → Fertig | `5555d49` |
+| zusätzlich PR #236 | 87 | 90 | 0 | #55 → Fertig | `a82cbab` |
+| zusätzlich PR #237 | 88 | 89 | 0 | #12 → Fertig; #11 bleibt Teilweise | `58fb538` |
 
-Die Kopf- und Übersichtszahlen in `docs/PULSE_FEATURE_AUDIT_177.md` geben immer den Stand **des Branches** wieder, in dem die Datei liegt. Nach jedem Merge sind die Spalte „In `main`?“ und der Abschnitt „Stand auf main“ nachzuführen.
+Es gibt derzeit keine offenen Feature-Branches mit Auditwirkung. Die Kopf- und Übersichtszahlen in `docs/PULSE_FEATURE_AUDIT_177.md` geben immer den Stand **des Branches** wieder, in dem die Datei liegt; nach jedem Merge ist dieser Abschnitt nachzuführen.
 
 ## Zuletzt abgeschlossene Implementierungsblöcke
 
