@@ -23,7 +23,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/dashboard` | `dashboard_main` | webserver.py:4292 | `pulse_pro.register.<locals>.dashboard_v5` |
 | GET | `/melonly` | `melonly_alias` | webserver.py:4777 | `pulse_pro.register.<locals>.melonly_page` |
 | GET | `/member/{user_id}` | `member_detail` | webserver.py:7979 | `pulse_pro.register.<locals>.member_v5` |
-| GET | `/settings` | `settings_page` | webserver.py:11201 | `pulse_pro.register.<locals>.settings_v5` |
+| GET | `/settings` | `settings_page` | webserver.py:11206 | `pulse_pro.register.<locals>.settings_v5` |
 | GET | `/tickets` | `pulse_tickets_dashboard` | webserver.py:5567 | `pulse_pro.register.<locals>.tickets_v5` |
 
 ## Effektive Routen nach Bereich
@@ -44,7 +44,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| POST | `/action` | `webserver.handle_action` | webserver.py:11878 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
+| POST | `/action` | `webserver.handle_action` | webserver.py:11883 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
 
 ### `/activity-check` (2)
 
@@ -69,9 +69,9 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | POST | `/admin/discord/logs` | `pulse_admin.register.<locals>.admin_discord_logs` | pulse_admin.py:742 | Admin |
 | POST | `/admin/discord/test` | `pulse_admin.register.<locals>.admin_discord_test` | pulse_admin.py:793 | Admin |
 | POST | `/admin/discord/welcome` | `pulse_admin.register.<locals>.admin_discord_welcome` | pulse_admin.py:406 | Admin |
-| GET | `/admin/features` | `pulse_phase7.register.<locals>.features_page` | pulse_phase7.py:116 | Admin |
-| POST | `/admin/features/maintenance` | `pulse_phase7.register.<locals>.features_maintenance` | pulse_phase7.py:158 | Admin |
-| POST | `/admin/features/toggle` | `pulse_phase7.register.<locals>.features_toggle` | pulse_phase7.py:145 | Admin |
+| GET | `/admin/features` | `pulse_phase7.register.<locals>.features_page` | pulse_phase7.py:123 | Admin |
+| POST | `/admin/features/maintenance` | `pulse_phase7.register.<locals>.features_maintenance` | pulse_phase7.py:165 | Admin |
+| POST | `/admin/features/toggle` | `pulse_phase7.register.<locals>.features_toggle` | pulse_phase7.py:152 | Admin |
 | GET | `/admin/live-console` | `webserver.admin_live_console` | webserver.py:3623 | Admin |
 | POST | `/admin/live-console/command` | `webserver.admin_live_console_command` | webserver.py:3701 | Admin |
 | GET | `/admin/live-console/logs` | `webserver.admin_live_console_logs` | webserver.py:3695 | Admin |
@@ -88,7 +88,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | POST | `/admin/privacy/requests/{request_id}/note` | `pulse_privacy_requests_web.register.<locals>.privacy_request_note` | pulse_privacy_requests_web.py:240 | — (öffentlich/keine erkennbare Prüfung) |
 | POST | `/admin/privacy/requests/{request_id}/status` | `pulse_privacy_requests_web.register.<locals>.privacy_request_status` | pulse_privacy_requests_web.py:214 | — (öffentlich/keine erkennbare Prüfung) |
 | POST | `/admin/recovery/save` | `pulse_admin.register.<locals>.admin_recovery_save` | pulse_admin.py:587 | Admin |
-| GET | `/admin/rights` | `pulse_phase7.register.<locals>.rights_page` | pulse_phase7.py:169 | Admin |
+| GET | `/admin/rights` | `pulse_phase7.register.<locals>.rights_page` | pulse_phase7.py:176 | Admin |
 | GET | `/admin/security` | `pulse_guard_admin.register.<locals>.admin_security` | pulse_guard_admin.py:539 | Admin |
 | POST | `/admin/security/antinuke` | `pulse_guard_admin.register.<locals>.admin_security_antinuke` | pulse_guard_admin.py:616 | Admin |
 | POST | `/admin/security/antinuke/rules/delete` | `pulse_antinuke_admin.register.<locals>.antinuke_rule_delete` | pulse_antinuke_admin.py:770 | — (öffentlich/keine erkennbare Prüfung) |
@@ -122,10 +122,10 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | POST | `/admin/server/api/jobs/{job_id}/cancel` | `pulse_server_control.register.<locals>.scc_cancel` | pulse_server_control.py:971 | angemeldet + eigene Prüfung |
 | GET | `/admin/server/api/logs/stream` | `pulse_server_control.register.<locals>.scc_log_stream` | pulse_server_control.py:746 | angemeldet + eigene Prüfung |
 | GET | `/admin/server/api/overview` | `pulse_server_control.register.<locals>.scc_overview` | pulse_server_control.py:644 | angemeldet + eigene Prüfung |
-| GET | `/admin/settings-history` | `pulse_phase7.register.<locals>.history_page` | pulse_phase7.py:246 | Admin |
-| POST | `/admin/settings-history/revert` | `pulse_phase7.register.<locals>.history_revert` | pulse_phase7.py:267 | Admin |
-| GET | `/admin/visibility` | `pulse_phase7.register.<locals>.visibility_page` | pulse_phase7.py:206 | Admin |
-| POST | `/admin/visibility/expected` | `pulse_phase7.register.<locals>.visibility_expected` | pulse_phase7.py:230 | Admin |
+| GET | `/admin/settings-history` | `pulse_phase7.register.<locals>.history_page` | pulse_phase7.py:253 | Admin |
+| POST | `/admin/settings-history/revert` | `pulse_phase7.register.<locals>.history_revert` | pulse_phase7.py:274 | Admin |
+| GET | `/admin/visibility` | `pulse_phase7.register.<locals>.visibility_page` | pulse_phase7.py:213 | Admin |
+| POST | `/admin/visibility/expected` | `pulse_phase7.register.<locals>.visibility_expected` | pulse_phase7.py:237 | Admin |
 | GET | `/admin/website` | `pulse_public_site.register.<locals>.website_admin` | pulse_public_site.py:898 | Admin |
 | POST | `/admin/website/news` | `pulse_public_site.register.<locals>.website_news_add` | pulse_public_site.py:1020 | Admin |
 | POST | `/admin/website/news/{news_id}/delete` | `pulse_public_site.register.<locals>.website_news_delete` | pulse_public_site.py:1031 | Admin |
@@ -159,13 +159,13 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 |---|---|---|---|---|
 | GET | `/applications` | `webserver.applications_page` | webserver.py:8871 | angemeldet (+ can_manage_applications, can_promote, can_view_dashboard, is_admin) |
 | POST | `/applications/assign` | `webserver.assign_application_reviewers` | webserver.py:9304 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
-| GET | `/applications/board` | `pulse_phase7.register.<locals>.board_page` | pulse_phase7.py:383 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
-| POST | `/applications/board/deadlines` | `pulse_phase7.register.<locals>.board_deadlines` | pulse_phase7.py:416 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
-| GET | `/applications/config` | `webserver.application_modules_config_page` | webserver.py:9362 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
-| POST | `/applications/config` | `webserver.save_application_modules_config` | webserver.py:9409 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
+| GET | `/applications/board` | `pulse_phase7.register.<locals>.board_page` | pulse_phase7.py:444 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
+| POST | `/applications/board/deadlines` | `pulse_phase7.register.<locals>.board_deadlines` | pulse_phase7.py:513 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
+| GET | `/applications/config` | `webserver.application_modules_config_page` | webserver.py:9367 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
+| POST | `/applications/config` | `webserver.save_application_modules_config` | webserver.py:9414 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
 | POST | `/applications/interview-slot` | `webserver.application_interview_slot` | webserver.py:9175 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
 | POST | `/applications/review` | `webserver.save_application_review` | webserver.py:9242 | angemeldet (+ can_manage_applications, can_promote, is_admin) |
-| POST | `/applications/review-policy` | `webserver.save_application_review_policy` | webserver.py:9346 | Admin |
+| POST | `/applications/review-policy` | `webserver.save_application_review_policy` | webserver.py:9351 | Admin |
 | POST | `/applications/templates` | `webserver.application_templates_save` | webserver.py:9208 | Admin |
 
 ### `/apply` (4)
@@ -187,22 +187,22 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| POST | `/backup/create` | `webserver.create_backup` | webserver.py:10574 | Admin |
-| POST | `/backup/delete` | `webserver.delete_backup` | webserver.py:10778 | Admin |
-| GET | `/backup/download/{filename}` | `webserver.download_backup` | webserver.py:10637 | Admin |
-| POST | `/backup/full/create` | `webserver.full_backup_create` | webserver.py:10904 | Admin |
-| POST | `/backup/full/delete` | `webserver.full_backup_delete` | webserver.py:10999 | Admin |
-| GET | `/backup/full/download/{filename}` | `webserver.full_backup_download` | webserver.py:10917 | Admin |
-| GET | `/backup/full/preview/{filename}` | `webserver.full_backup_preview` | webserver.py:10926 | Admin |
-| POST | `/backup/full/restore` | `webserver.full_backup_restore` | webserver.py:10972 | Admin |
-| POST | `/backup/restore` | `webserver.restore_backup` | webserver.py:10659 | Admin |
-| POST | `/backup/upload` | `webserver.upload_backup` | webserver.py:10586 | Admin |
+| POST | `/backup/create` | `webserver.create_backup` | webserver.py:10579 | Admin |
+| POST | `/backup/delete` | `webserver.delete_backup` | webserver.py:10783 | Admin |
+| GET | `/backup/download/{filename}` | `webserver.download_backup` | webserver.py:10642 | Admin |
+| POST | `/backup/full/create` | `webserver.full_backup_create` | webserver.py:10909 | Admin |
+| POST | `/backup/full/delete` | `webserver.full_backup_delete` | webserver.py:11004 | Admin |
+| GET | `/backup/full/download/{filename}` | `webserver.full_backup_download` | webserver.py:10922 | Admin |
+| GET | `/backup/full/preview/{filename}` | `webserver.full_backup_preview` | webserver.py:10931 | Admin |
+| POST | `/backup/full/restore` | `webserver.full_backup_restore` | webserver.py:10977 | Admin |
+| POST | `/backup/restore` | `webserver.restore_backup` | webserver.py:10664 | Admin |
+| POST | `/backup/upload` | `webserver.upload_backup` | webserver.py:10591 | Admin |
 
 ### `/backups` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/backups` | `webserver.backups_page` | webserver.py:10499 | Admin |
+| GET | `/backups` | `webserver.backups_page` | webserver.py:10504 | Admin |
 
 ### `/calendar` (2)
 
@@ -352,8 +352,8 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | POST | `/me/layouts/default` | `pulse_home.register.<locals>.my_home_layout_default` | pulse_home.py:565 | can_view_dashboard |
 | POST | `/me/layouts/delete` | `pulse_home.register.<locals>.my_home_layout_delete` | pulse_home.py:556 | can_view_dashboard |
 | POST | `/me/layouts/save` | `pulse_home.register.<locals>.my_home_layout_save` | pulse_home.py:532 | can_view_dashboard |
-| GET | `/me/month` | `pulse_phase7.register.<locals>.my_month_page` | pulse_phase7.py:483 | can_view_dashboard |
-| POST | `/me/month/optin` | `pulse_phase7.register.<locals>.my_month_optin` | pulse_phase7.py:512 | can_view_dashboard |
+| GET | `/me/month` | `pulse_phase7.register.<locals>.my_month_page` | pulse_phase7.py:580 | can_view_dashboard |
+| POST | `/me/month/optin` | `pulse_phase7.register.<locals>.my_month_optin` | pulse_phase7.py:609 | can_view_dashboard |
 | GET | `/me/sessions` | `pulse_home.register.<locals>.my_sessions` | pulse_home.py:602 | can_view_dashboard |
 | POST | `/me/sessions/revoke` | `pulse_home.register.<locals>.my_session_revoke` | pulse_home.py:631 | can_view_dashboard |
 | POST | `/me/sessions/revoke-all` | `pulse_home.register.<locals>.my_session_revoke_all` | pulse_home.py:650 | can_view_dashboard |
@@ -464,8 +464,8 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/security` | `webserver.security_page` | webserver.py:11100 | Admin |
-| POST | `/security` | `webserver.save_security_settings` | webserver.py:11107 | Admin |
+| GET | `/security` | `webserver.security_page` | webserver.py:11105 | Admin |
+| POST | `/security` | `webserver.save_security_settings` | webserver.py:11112 | Admin |
 
 ### `/settings` (14)
 
@@ -490,7 +490,7 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/setup` | `webserver.setup_wizard` | webserver.py:11016 | Admin |
+| GET | `/setup` | `webserver.setup_wizard` | webserver.py:11021 | Admin |
 
 ### `/shift` (4)
 
@@ -543,13 +543,13 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/status` | `pulse_phase7.register.<locals>.public_status_page` | pulse_phase7.py:452 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/status` | `pulse_phase7.register.<locals>.public_status_page` | pulse_phase7.py:549 | — (öffentlich/keine erkennbare Prüfung) |
 
 ### `/status.json` (1)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/status.json` | `pulse_phase7.register.<locals>.public_status_json` | pulse_phase7.py:444 | — (öffentlich/keine erkennbare Prüfung) |
+| GET | `/status.json` | `pulse_phase7.register.<locals>.public_status_json` | pulse_phase7.py:541 | — (öffentlich/keine erkennbare Prüfung) |
 
 ### `/suite` (44)
 
@@ -626,12 +626,12 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
 | GET | `/team` | `webserver.team_list_page` | webserver.py:7324 | can_view_dashboard (+ can_promote, is_admin) |
-| GET | `/team/capacity` | `pulse_phase7.register.<locals>.capacity_page` | pulse_phase7.py:283 | angemeldet (+ can_promote, can_view_analytics, is_admin) |
+| GET | `/team/capacity` | `pulse_phase7.register.<locals>.capacity_page` | pulse_phase7.py:290 | angemeldet (+ can_promote, can_view_analytics, is_admin) |
 | GET | `/team/checklists` | `webserver.team_checklists_page` | webserver.py:6615 | — (öffentlich/keine erkennbare Prüfung) |
 | POST | `/team/checklists/mentor` | `webserver.team_checklists_mentor` | webserver.py:6676 | — (öffentlich/keine erkennbare Prüfung) |
 | POST | `/team/checklists/toggle` | `webserver.team_checklists_toggle` | webserver.py:6660 | — (öffentlich/keine erkennbare Prüfung) |
-| GET | `/team/readiness` | `pulse_phase7.register.<locals>.readiness_page` | pulse_phase7.py:318 | angemeldet (+ can_promote, can_warn, is_admin) |
-| POST | `/team/readiness/criteria` | `pulse_phase7.register.<locals>.readiness_criteria` | pulse_phase7.py:365 | angemeldet (+ can_promote, is_admin) |
+| GET | `/team/readiness` | `pulse_phase7.register.<locals>.readiness_page` | pulse_phase7.py:325 | angemeldet (+ can_promote, can_warn, is_admin) |
+| POST | `/team/readiness/criteria` | `pulse_phase7.register.<locals>.readiness_criteria` | pulse_phase7.py:372 | angemeldet (+ can_promote, is_admin) |
 | POST | `/team/voice-support/audio` | `webserver.manage_voice_support_audio` | webserver.py:7714 | can_promote |
 | GET | `/team/{user_id}/roles` | `webserver.team_role_manager` | webserver.py:7831 | can_promote (+ is_admin) |
 | POST | `/team/{user_id}/roles` | `webserver.team_role_manager_save` | webserver.py:7862 | can_promote (+ is_admin) |

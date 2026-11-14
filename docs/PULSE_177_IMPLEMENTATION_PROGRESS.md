@@ -5,12 +5,12 @@ Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, 
 
 ## Stand auf main
 
-Bewertet ist der Code-Stand `main` @ `d538f20`. Einzelstatus und Belege je Funktion stehen in `docs/PULSE_FEATURE_AUDIT_177.md`; die Zählung dort wird nach jedem Merge mit dem Hilfsskript-Prinzip „Zeilen zählen“ (nicht von Hand) nachgeführt.
+Bewertet ist der Code-Stand `main` @ `f0243bc` (die Datei nannte zuvor fälschlich `d538f20` mit 98/79; #96/#97 aus PR #247 waren noch nicht nachgetragen). Der Block #95 (`feature/recruiting-kanban-95`) ist zusätzlich ausgewiesen und noch nicht gemergt. Einzelstatus und Belege je Funktion stehen in `docs/PULSE_FEATURE_AUDIT_177.md`; die Zählung dort wird nach jedem Merge mit dem Hilfsskript-Prinzip „Zeilen zählen“ (nicht von Hand) nachgeführt.
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 98 |
-| Teilweise | 79 |
+| Fertig | 100 (101 mit #95-PR) |
+| Teilweise | 77 (76 mit #95-PR) |
 | Offen | 0 |
 
 | Schritt | Fertig | Teilweise | Auditänderung | PR |
@@ -22,14 +22,16 @@ Bewertet ist der Code-Stand `main` @ `d538f20`. Einzelstatus und Belege je Funkt
 | Schicht-Erinnerungen | 95 | 82 | #86 | #245 |
 | Zertifikate und Auffrischung | 97 | 80 | #109, #110 | #240 |
 | Ticketlast-Prognose | 98 | 79 | #127 | #241 |
+| Prüferzuweisung und unabhängige Bewertung | 100 | 77 | #96, #97 | #247 |
+| Kanban-Bewerbungspipeline (Branch `feature/recruiting-kanban-95`, offen) | 101 | 76 | #95 | PR offen |
 
 Gemergt am 13.11.2026 (Reihenfolge wie oben, jeweils auf aktuellen `main` gebracht, CI grün). Jeder Merge nach `main` startet den automatischen VPS-Deploy (`deploy-vps.yml`).
 
 ## Nächste Blöcke (Vorschlag, Abhängigkeiten beachten)
 
-Noch 79 teilweise Punkte. Bereichsweise, jeweils ein Feature-Branch ab `main`:
+Noch 77 teilweise Punkte auf `main` (76 nach Merge des #95-PR). Bereichsweise, jeweils ein Feature-Branch ab `main`:
 
-1. **Recruiting (#95–#103):** Kanban-Pipeline, Zuweisung mit Lastverteilung (#96), mehrere unabhängige Prüfer (#97), Interview-Kalender (#99), Kommunikationsjournal (#100), Erinnerungen (#101), Statistik (#102), Vorlagenbibliothek (#103; teilt sich Bausteine mit #123).
+1. **Recruiting (#99–#103):** Interview-Kalender (#99), Kommunikationsjournal (#100), Erinnerungen (#101), Statistik (#102), Vorlagenbibliothek (#103; teilt sich Bausteine mit #123).
 2. **Teamakte und Entwicklung (#71, #73–#76, #81, #87–#89, #92, #94):** 360°-Akte konsolidieren, Kompetenzmatrix, Entwicklungspläne, Auslastungsansicht, Abwesenheitskalender, Anomalien mit erklärbaren Schwellen.
 3. **Integration (#116–#125):** zentrale Fallnummer/Direktlinks (#116, #119 bauen auf `pulse_case_registry` auf), Ereignisvertrag (#125), Aktionskarten (#121), zentrale Rechteprüfung (#120).
 4. **Intelligence (#129–#139):** Anomalien, Tages-/Wochenbericht (bauen auf `pulse_staffing_forecast.build_load_forecast` und `pulse_summaries` auf), Assistent mit Quellen (#132, #133, zusammen mit #47).

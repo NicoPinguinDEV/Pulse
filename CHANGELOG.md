@@ -1,5 +1,10 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Bewerbungen: Kanban-Pipeline (November 2026)
+
+- **Bewerbungs-Board (#95):** `/applications/board` bearbeitet Bewerbungen direkt an der Karte: Entscheiden (Einladung, Ablehnen, Einstellen/Ablehnen nach Gespräch) und Prüfer zuweisen über dieselben geprüften Abläufe wie die Bewerbungsseite (Rollen, DM, Audit, Mindestbewertungs-Policy). Karten zeigen Status, Wartezeit/Frist, Prüfer und Bewertungsfortschritt; Suche und Filter (überfällig, mir zugewiesen, ohne Prüfer); Leer-/Fehlerzustände.
+- Sicherheit: Statuswerte unverändert, keine Spaltenänderung ohne Entscheidung; veraltete oder doppelte Übermittlungen werden abgewiesen („inzwischen bearbeitet“); Rücksprung nur zum Board; Datensätze fremder Guilds werden nicht angezeigt oder bearbeitet. Keine Datenmigration.
+
 ## Bewerbungen: Prüferzuweisung und unabhängige Bewertung (November 2026)
 
 - **Zuweisung (#96):** Die Leitung weist Bewerbungen bis zu 5 Prüfern zu; die Seite zeigt die Last je Prüfer und schlägt die am wenigsten belasteten vor.
