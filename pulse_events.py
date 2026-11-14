@@ -123,7 +123,13 @@ def emit(domain, action, *, target_type="", target_id="", actor_id="", actor_nam
     if recorder is None:
         import pulse_db
         recorder = pulse_db.record_event
-    return recorder(event_type, target_type, target_id, actor_id, actor_name, envelope)
+    event_id = recorder(event_type, target_type, target_id, actor_id, actor_name, envelope)
+    try:  # wake live streams (pulse_eventbus); readers also poll, so a failure here only delays delivery
+        import pulse_eventbus
+        pulse_eventbus.bump()
+    except Exception:  # noqa: BLE001
+        log.debug("Eventbus nicht erreichbar", exc_info=True)
+    return event_id
 
 
 def emit_safe(*args, **kwargs):

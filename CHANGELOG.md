@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Zentrale Integration: Eventbus (November 2026, Block F4)
+
+- **`pulse_eventbus.py` (#117):** Echtzeit-Abgleich beider Oberflächen auf der dauerhaften `events`-Tabelle (SQLite-`rowid` als Cursor, nichts geht bei Neustart verloren). `poll()` ist der garantierte Fallback, `stream()` ein SSE-Generator, der nach `pulse_events.emit` in etwa 0,25 s weckt und sonst alle 3 s nachsieht, sodass auch die bisherigen `record_event`-Aufrufer ankommen. Reconnect über `Last-Event-ID`/Cursor ohne Doppel und Lücken; ein Cursor hinter dem Tabellenende wird als `reset` gemeldet.
+- Sicherheit: je Betrachter gefiltert und fail-closed (Domänenrecht aus `pulse_policy`, bei Fallbezug zusätzlich das Recht der Fallart, alles Unbekannte nur für Administratoren). Nach außen geht nur eine Kurzfassung (IDs, Zeit, Domäne, Link), nie Payload oder Akteurname. Verbindungen sind begrenzt (50 gesamt, 3 je Person, 5 Minuten je Stream).
+- Noch an keine Route und keinen Client angebunden (braucht ROUTEN.md-/Snapshot-Anpassung), #117 bleibt „Teilweise“.
+
 ## Zentrale Integration: Rechte-Policy (November 2026, Block F3)
 
 - **`pulse_policy.py` (#120):** Benannte Aktionen (z. B. `case.view.BM`, `ticket.manage`) mit den Rechten, die sie freischalten. `can()`/`require()` sind fail-closed (unbekannte Aktion, ungültiges Rechte-Objekt oder ein Wert ungleich `True` verweigern), Administratoren dürfen alles, ihre Rechte werden weiterhin nur in `pulse_permissions` berechnet.
