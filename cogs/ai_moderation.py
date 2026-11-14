@@ -1141,14 +1141,14 @@ class AIModeration(commands.Cog):
         """SEC-06: the review buttons may only do what the reviewer could also do through /mod or /warn.
 
         Opening/dismissing a case needs can_warn/can_promote (unchanged); a Team-Warn additionally needs
-        the derived Supervisor+ permission and is checked again by the shared warning domain function.
+        the derived Teamleitung+ permission and is checked again by the shared warning domain function.
         Citizen measures still require the exact Pulse moderation right, Discord permission and role hierarchy.
         Empty string = allowed."""
         reviewer = interaction.user
         perms = self._reviewer_perms(interaction)
         is_admin = bool(perms.get("is_admin") or reviewer.guild_permissions.administrator)
         if action == "team_warn":
-            return "" if perms.get("can_manage_team_warnings") else "Team-Verwarnungen dürfen erst ab Rang Supervisor vergeben werden."
+            return "" if perms.get("can_manage_team_warnings") else "Team-Verwarnungen dürfen erst ab Rang Teamleitung vergeben werden."
         import pulse_mod_cases
         mod_action = "timeout" if action.startswith("timeout_") else action
         if is_admin:
