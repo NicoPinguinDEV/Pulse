@@ -641,8 +641,9 @@ def main() -> None:
     assert 'dict(no_rights) if keep_roles_disabled else recommended_role_profile(role)' in pro_melonly
     assert "legacy_recommended_role_profile(role)" in pro_melonly
     assert "permissions_profile_version" in pro_melonly
-    assert "pk_role" in pro_melonly
-    assert "team_lead_role" in pro_melonly
+    assert "canonical_team_role_name" in pro_melonly
+    assert "team_role_group" in pro_melonly
+    assert 'canonical in {"Teamleitung", "Stv.Teamleitung"}' in pro_melonly
     assert '"can_moderate_bans"' in pro_melonly
     assert '"can_moderate_bolo"' in pro_melonly
     assert "robloxSuggestionPanel" in web
