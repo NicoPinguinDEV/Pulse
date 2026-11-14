@@ -18,20 +18,23 @@ import pulse_db
 import pulse_factions as pf
 import pulse_permissions
 import webserver as ws
-from pulse_ids import FACTION_MANAGER_ROLE_ID
 from tests.test_pulse_admin_area import ADMIN, TEAMLER
 
 TEAM_ROLE = 100
+FACTION_ROLE = 555
 from tests.runtime_isolation import setUpModule, tearDownModule  # noqa: F401  (Phase 9: no ./pulse.db)
 
 
 def person(uid, name, *role_ids, bot=False):
     return SimpleNamespace(id=uid, display_name=name, name=name.lower(), global_name=name, bot=bot,
-                           roles=[SimpleNamespace(id=r, name=f"Rolle {r}") for r in role_ids],
+                           roles=[SimpleNamespace(
+                               id=r,
+                               name="》BORP メ Fraktionsverwaltung" if r == FACTION_ROLE else f"Rolle {r}",
+                           ) for r in role_ids],
                            guild_permissions=SimpleNamespace(administrator=False))
 
 
-MANAGER = person(111111111111111111, "Fraktionschef", TEAM_ROLE, FACTION_MANAGER_ROLE_ID)
+MANAGER = person(111111111111111111, "Fraktionschef", TEAM_ROLE, FACTION_ROLE)
 PLAIN = person(222222222222222222, "Teamler", TEAM_ROLE)
 LEADER = person(333333333333333333, "Don Bochum")
 TWIN_A, TWIN_B = person(444444444444444444, "Max"), person(555555555555555555, "Max")
