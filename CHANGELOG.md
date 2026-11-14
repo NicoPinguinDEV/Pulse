@@ -1,5 +1,10 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Zentrale Integration: Vorlagenbibliothek (November 2026, Block F6)
+
+- **`pulse_templates.py` (#123):** Eine verwaltete Bibliothek für Ticket-Schnellantworten, Bewerber-Nachrichten, Ankündigungen und Moderationsgründe. Versioniert (Bearbeiten legt eine neue Version an, alte bleiben lesbar, gleichzeitiges Bearbeiten wird erkannt), archivieren statt löschen, Titel je Art und Bereich eindeutig, Platzhalter je Art beim Speichern geprüft (`{name}`, klein geschrieben, kein Attributzugriff, keine Formatangaben), beim Rendern werden fehlende Werte zu „–“, `@everyone`/`@here`/Rollen-Pings neutralisiert und die Länge begrenzt. Rechte je Art über `pulse_policy` (fail-closed), jede Änderung ist ein Contract-Ereignis.
+- Neue Tabellen `message_templates` und `message_template_versions` (Teil des Backups, in der Datenlandkarte). `import_legacy()` kopiert bestehende Bewerber-Texte und Schnellantworten wiederholbar in die Bibliothek, ohne die alten Speicher zu ändern; die bisherigen Module nutzen weiter ihre eigenen Speicher, #123 bleibt „Teilweise“. Moderationsgründe behalten vorerst ihren eigenen versionierten Speicher.
+
 ## Zentrale Integration: Aktionskarten und Aufgaben (November 2026, Block F5)
 
 - **`pulse_action_cards.py` (#121):** Eine Bestätigungskarte für sensible Discord-Aktionen statt dreier Varianten. Nur die startende Person kann bestätigen oder abbrechen (andere erhalten eine private Meldung, die Karte bleibt nutzbar), einmalig verwendbar (auch bei Doppelklick), läuft ab, **prüft das Recht beim Bestätigen erneut** (entzogene Rolle stoppt die Aktion), meldet Fehler nur mit Fehler-ID und schreibt jedes Ergebnis als Contract-Ereignis. Entscheidungslogik ohne Discord-Abhängigkeit (`ActionCard`), dünner Button-Adapter (`ActionCardView`).

@@ -209,6 +209,34 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_mod_reason_templates_guild_action
                 ON mod_reason_templates(guild_id, action, archived_at);
 
+            CREATE TABLE IF NOT EXISTS message_templates (
+                id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT '*',
+                current_version INTEGER NOT NULL,
+                created_by_id TEXT NOT NULL,
+                created_by_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                archived_at TEXT,
+                archived_by_id TEXT,
+                archived_by_name TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_message_templates_lookup
+                ON message_templates(guild_id, kind, scope, archived_at);
+
+            CREATE TABLE IF NOT EXISTS message_template_versions (
+                template_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                created_by_id TEXT NOT NULL,
+                created_by_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (template_id, version),
+                FOREIGN KEY (template_id) REFERENCES message_templates(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS mod_reason_template_versions (
                 template_id TEXT NOT NULL,
                 version INTEGER NOT NULL,
@@ -2426,6 +2454,7 @@ TABLES = [
     "team_status", "handover_notes", "shift_notes", "announcements", "scheduled_announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_case_appeals", "mod_reason_templates", "mod_reason_template_versions",
+    "message_templates", "message_template_versions",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
     "security_drills",
