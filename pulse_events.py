@@ -23,6 +23,7 @@ import logging
 import re
 
 import pulse_case_registry as registry
+import pulse_policy as policy
 
 log = logging.getLogger("pulse.events")
 
@@ -60,6 +61,18 @@ _LEGACY_TARGET = {
     "promotion": "promotion", "team_member": "team", "privacy_request": "privacy", "automation": "automation",
     "panel": "panel", "suite": "panel", "ultimate": "panel",
 }
+
+
+# Correlation IDs of the form "<domain>:<native id>" link every surface that touches the same object. Readers
+# with the matching policy action may follow such an ID without being administrators.
+CORRELATION_ACTION = {"ticket": "ticket.manage", "task": "task.manage"}
+
+
+def correlation_for(domain, native_id) -> str:
+    """``correlation_for("ticket", "ticket_ab12")`` -> ``"ticket:ticket_ab12"`` (bounded like all correlation IDs)."""
+    if domain not in CORRELATION_ACTION:
+        raise ValueError(f"Keine Korrelation für Domäne {domain!r}")
+    return f"{domain}:{str(native_id or '').strip()}"[:128]
 
 
 def slug(text) -> str:
@@ -171,6 +184,16 @@ def describe(row) -> dict:
     }
 
 
+def _may_follow(correlation, perms) -> bool:
+    if not isinstance(perms, dict):
+        return False
+    if perms.get("is_admin") is True:
+        return True
+    prefix, _, rest = str(correlation).partition(":")
+    action = CORRELATION_ACTION.get(prefix)
+    return bool(rest) and action is not None and policy.can(perms, action)
+
+
 def history(*, case_ref=None, correlation_id=None, domain=None, perms=None, limit=100) -> list[dict]:
     """Newest-first events for a case reference and/or correlation ID.
 
@@ -190,16 +213,19 @@ def history(*, case_ref=None, correlation_id=None, domain=None, perms=None, limi
     correlation = str(correlation_id or "").strip()[:128] or ref
     if not correlation:
         raise ValueError("Fallreferenz oder Korrelations-ID erforderlich.")
-    if not ref and not (isinstance(perms, dict) and perms.get("is_admin") is True):
-        # A bare correlation ID can span every domain; only administrators may read across them (fail-closed).
+    if not ref and not _may_follow(correlation, perms):
+        # A bare correlation ID can span every domain; only administrators - or holders of the right of an
+        # object-bound ID like "ticket:<id>" - may follow it (fail-closed).
         raise PermissionError("Eine Korrelations-ID ohne Fallreferenz ist nur für Administratoren lesbar.")
     limit = max(1, min(int(limit), MAX_HISTORY))
     import pulse_db
     with pulse_db.connect() as db:
         rows = db.execute(
             "SELECT * FROM events WHERE json_valid(payload_json) AND json_extract(payload_json,'$.correlation_id')=? "
-            "ORDER BY created_at DESC LIMIT ?", (correlation, limit * 4 if domain else limit)).fetchall()
+            "ORDER BY created_at DESC LIMIT ?", (correlation, limit * 4)).fetchall()
     out = [describe(r) for r in rows]
+    if not ref and not (isinstance(perms, dict) and perms.get("is_admin") is True):
+        out = [e for e in out if e["domain"] == str(correlation).partition(":")[0]]  # never beyond the right's own domain
     if domain:
-        out = [e for e in out if e["domain"] == domain][:limit]
-    return out
+        out = [e for e in out if e["domain"] == domain]
+    return out[:limit]

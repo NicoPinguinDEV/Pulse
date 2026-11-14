@@ -1,5 +1,10 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Zentrale Integration: Ticket-Ereignisse angebunden (November 2026, Block F7)
+
+- Alle zehn Ticket-Ereignisse von Bot (`cogs/tickets.py`: erstellt, geschlossen, eskaliert, Archiv-/Löschfehler) und Dashboard (`webserver.py`: übernommen, wieder geöffnet, Priorität, geschlossen, Archivfehler) tragen jetzt die Korrelations-ID `ticket:<id>`. Der Ereignistyp bleibt unverändert, damit die Startseite, Anti-Nuke- und Testabfragen weiter funktionieren.
+- `pulse_events.history(correlation_id="ticket:<id>")` zeigt den ganzen Ticketverlauf aus Bot und Dashboard zusammen und ist mit dem Ticket-Recht lesbar (nicht nur für Administratoren), begrenzt auf Ticket-Ereignisse; andere Rechte und andere Präfixe bleiben verweigert. Neuer Wächtertest stellt sicher, dass kein Ticket-Ereignis ohne diese ID geschrieben wird.
+
 ## Zentrale Integration: Vorlagenbibliothek (November 2026, Block F6)
 
 - **`pulse_templates.py` (#123):** Eine verwaltete Bibliothek für Ticket-Schnellantworten, Bewerber-Nachrichten, Ankündigungen und Moderationsgründe. Versioniert (Bearbeiten legt eine neue Version an, alte bleiben lesbar, gleichzeitiges Bearbeiten wird erkannt), archivieren statt löschen, Titel je Art und Bereich eindeutig, Platzhalter je Art beim Speichern geprüft (`{name}`, klein geschrieben, kein Attributzugriff, keine Formatangaben), beim Rendern werden fehlende Werte zu „–“, `@everyone`/`@here`/Rollen-Pings neutralisiert und die Länge begrenzt. Rechte je Art über `pulse_policy` (fail-closed), jede Änderung ist ein Contract-Ereignis.

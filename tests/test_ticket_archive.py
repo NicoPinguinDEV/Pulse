@@ -64,10 +64,10 @@ class ArchiveTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.cwd = os.getcwd()
         os.chdir(self.tmp.name)
-        self.closed, self.events = [], []
+        self.closed, self.events, self.event_kwargs = [], [], []
         self.patches = [
             patch.object(tickets, "close_ticket", lambda *a: self.closed.append(a) or True),
-            patch.object(tickets, "record_event", lambda *a, **k: self.events.append(a[0])),
+            patch.object(tickets, "record_event", lambda *a, **k: (self.events.append(a[0]), self.event_kwargs.append(k))),
             patch.object(tickets, "drop_ticket_card", lambda *_: None),
             patch.object(tickets.asyncio, "sleep", self._no_sleep),
             patch("builtins.print"),
@@ -91,6 +91,7 @@ class ArchiveTests(unittest.TestCase):
         self.assertFalse(channel.deleted)
         self.assertEqual(self.closed, [])
         self.assertIn("ticket_archive_failed", self.events)
+        self.assertEqual(self.event_kwargs[0]["correlation_id"], f"ticket:{TICKET['id']}")  # F7: one ID across bot and dashboard
         self.assertTrue(channel.edits and channel.edits[0]["name"].startswith("geschlossen-"))
         self.assertFalse(channel.perms[0][1]["send_messages"])
         self.assertIn("nicht gelöscht", channel.sent[-1][0])
