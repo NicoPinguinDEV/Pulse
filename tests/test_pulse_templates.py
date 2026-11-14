@@ -239,5 +239,51 @@ class LegacyImportAndBackupTests(LibraryCase):
         self.assertEqual(len(tpl.versions(TICKET, G, t["id"])), 2)
 
 
+class LookupAndSyncTests(LibraryCase):
+    """F8: consumer lookup (scopes, archived, no cap) and the sync used by the ticket tools page."""
+
+    def test_lookup_filters_scopes_includes_archived_and_is_not_capped(self):
+        for i in range(210):
+            tpl.create(TICKET, G, "ticket_reply", "*", f"T{i:03d}", "x", A1, "Anna")
+        self.assertEqual(len(tpl.lookup(TICKET, G, "ticket_reply")), 210)  # list_templates would cap at 200
+        self.assertEqual(len(tpl.list_templates(TICKET, G, kind="ticket_reply", limit=1000)), 200)
+        gone = tpl.lookup(TICKET, G, "ticket_reply", ["*"])[0]
+        tpl.archive(TICKET, G, gone["id"], A1, "Anna")
+        self.assertEqual(len(tpl.lookup(TICKET, G, "ticket_reply", ["*"])), 209)
+        self.assertEqual(len(tpl.lookup(TICKET, G, "ticket_reply", ["*"], include_archived=True)), 210)
+        self.assertEqual(tpl.lookup(TICKET, G, "ticket_reply", []), [])
+        self.assertEqual(tpl.lookup(TICKET, G2, "ticket_reply"), [])
+        with self.assertRaises(policy.PermissionDenied):
+            tpl.lookup(APPS, G, "ticket_reply")
+
+    def test_sync_kind_is_idempotent_and_marks_takeover_archives(self):
+        entries = [("*", "A", "eins {user}"), ("support", "B", "zwei")]
+        first = tpl.sync_kind(TICKET, G, "ticket_reply", entries, A1, "Anna")
+        self.assertEqual((first["created"], first["updated"], first["archived"]), (2, 0, 0))
+        self.assertEqual(tpl.sync_kind(TICKET, G, "ticket_reply", entries, A1, "Anna")["unchanged"], 2)
+        broken = tpl.sync_kind(TICKET, G, "ticket_reply", [("*", "A", "kaputt {x.y}"), ("support", "B", "zwei")], A2, "Ben")
+        self.assertEqual((broken["archived"], len(broken["skipped"])), (1, 1))
+        archived = [r for r in tpl.lookup(TICKET, G, "ticket_reply", include_archived=True) if r["archived_at"]]
+        self.assertEqual([r["archived_by_id"] for r in archived], [tpl.TAKEOVER_ID])
+        removed = tpl.sync_kind(TICKET, G, "ticket_reply", [("support", "B", "zwei")], A2, "Ben")
+        self.assertEqual(removed["archived"], 0)  # "A" is already archived; nothing left to remove
+        self.assertEqual(tpl.sync_kind(TICKET, G, "ticket_reply", [], A2, "Ben")["archived"], 1)
+        plain = [r for r in tpl.lookup(TICKET, G, "ticket_reply", ["support"], include_archived=True)][0]
+        self.assertEqual(plain["archived_by_id"], A2)  # a normal removal keeps the person as archiver
+
+    def test_sync_kind_needs_the_right_and_reports_conflicts(self):
+        with self.assertRaises(policy.PermissionDenied):
+            tpl.sync_kind(APPS, G, "ticket_reply", [("*", "A", "x")], A1, "Anna")
+        tpl.sync_kind(TICKET, G, "ticket_reply", [("*", "A", "eins")], A1, "Anna")
+        row = tpl.lookup(TICKET, G, "ticket_reply")[0]
+        tpl.update(TICKET, G, row["id"], "A", "dazwischen", A2, "Ben")
+        stale = {**row}  # the sync read the old version before Ben saved
+        with patch.object(tpl, "lookup", return_value=[stale]):
+            result = tpl.sync_kind(TICKET, G, "ticket_reply", [("*", "A", "zwei")], A1, "Anna")
+        self.assertEqual(result["updated"], 0)
+        self.assertEqual(len(result["skipped"]), 1)
+        self.assertEqual(tpl.lookup(TICKET, G, "ticket_reply")[0]["body"], "dazwischen")
+
+
 if __name__ == "__main__":
     unittest.main()

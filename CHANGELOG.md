@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Zentrale Integration: Vorlagenbibliothek im Aufrufpfad (November 2026, Block F8)
+
+- **Ticket-Schnellantworten (#123):** `/antwort` und sein Autocomplete lesen aus der Vorlagenbibliothek (`pulse_ticket_replies.py`), mit dem alten Speicher als Übergangs-Fallback. Gleiche Rechte wie zuvor, je Server getrennt, archivierte Vorlagen werden weder angeboten noch aus dem alten Speicher wiederbelebt, eingesetzte Werte und Texte werden gegen Massen-Erwähnungen geschützt, die verwendete Version wird als Ereignis `ticket.quick_reply_sent` im Ticketverlauf festgehalten. Alte Antworten werden weiter wörtlich gesendet.
+- Keine zweite Verwaltung: Die Seite „Ticket-Werkzeuge“ bleibt die Oberfläche; jedes Speichern wird als neue Version in die Bibliothek gespiegelt (ein Bibliotheksfehler blockiert das Speichern nicht). Keine automatische Datenmigration.
+- Bewerber-Nachrichten, Ankündigungen, Moderationsgründe und Willkommenstexte sind nicht angebunden; Begründung und Vorgehen in `docs/PULSE_F8_PHASENBERICHT.md`. #123 bleibt „Teilweise“.
+
 ## Zentrale Integration: Ticket-Ereignisse angebunden (November 2026, Block F7)
 
 - Alle zehn Ticket-Ereignisse von Bot (`cogs/tickets.py`: erstellt, geschlossen, eskaliert, Archiv-/Löschfehler) und Dashboard (`webserver.py`: übernommen, wieder geöffnet, Priorität, geschlossen, Archivfehler) tragen jetzt die Korrelations-ID `ticket:<id>`. Der Ereignistyp bleibt unverändert, damit die Startseite, Anti-Nuke- und Testabfragen weiter funktionieren.

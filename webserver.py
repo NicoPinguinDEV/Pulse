@@ -7098,6 +7098,9 @@ async def pulse_ticket_tools_replies(request: Request, user_session: str = Cooki
     except Exception:
         keys = ["*"]
     saved = tx.save_replies({key: form.get(f"replies_{key}", "") for key in keys})
+    import pulse_ticket_replies  # F8: every save also becomes a version in the template library (never blocks saving)
+    pulse_ticket_replies.sync_from_legacy(ctx.perms, ctx.guild.id, ctx.user["id"],
+                                          ctx.user.get("global_name") or ctx.user.get("username") or "Admin", saved)
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Ticket-Schnellantworten geändert",
               f"{sum(len(v) for v in saved.values())} Antworten")
     return back("/tickets/tools", "Schnellantworten gespeichert.")

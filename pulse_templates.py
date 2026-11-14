@@ -36,6 +36,7 @@ import pulse_policy as policy
 MAX_TITLE = 80
 MAX_SCOPE = 60
 MAX_LIST = 200
+TAKEOVER_ID = "legacy-sync"  # archived_by_id of a template archived because the legacy text took over (see sync_kind)
 
 # kind -> label, allowed placeholders, body limit, policy action that manages and uses it.
 KINDS: dict[str, dict] = {
@@ -244,8 +245,9 @@ def update(perms, guild_id, template_id, title, body, actor_id, actor_name, *, e
     return updated
 
 
-def _set_archived(perms, guild_id, template_id, actor_id, actor_name, archive: bool) -> bool:
+def _set_archived(perms, guild_id, template_id, actor_id, actor_name, archive: bool, *, takeover: bool = False) -> bool:
     uid, name = _actor(actor_id, actor_name)
+    stored_id = TAKEOVER_ID if takeover and archive else uid
     guild = str(guild_id or "").strip()
     with pulse_db.connect() as db:
         _ensure_tables(db)
@@ -259,11 +261,11 @@ def _set_archived(perms, guild_id, template_id, actor_id, actor_name, archive: b
             raise TemplateConflict("Es gibt schon eine aktive Vorlage mit diesem Titel.")
         if archive:
             db.execute("UPDATE message_templates SET archived_at=?, archived_by_id=?, archived_by_name=? WHERE id=?",
-                       (_now(), uid, name, current["id"]))
+                       (_now(), stored_id, name, current["id"]))
         else:
             db.execute("UPDATE message_templates SET archived_at=NULL, archived_by_id=NULL, archived_by_name=NULL WHERE id=?",
                        (current["id"],))
-    _audit("archived" if archive else "restored", current, uid, name)
+    _audit("archived" if archive else "restored", current, uid, name, **({"legacy_takeover": True} if takeover and archive else {}))
     return True
 
 
@@ -273,6 +275,72 @@ def archive(perms, guild_id, template_id, actor_id, actor_name) -> bool:
 
 def restore(perms, guild_id, template_id, actor_id, actor_name) -> bool:
     return _set_archived(perms, guild_id, template_id, actor_id, actor_name, False)
+
+
+# --------------------------------------------------------------------------- consumer lookup and sync
+
+def lookup(perms, guild_id, kind, scopes=None, *, include_archived=False) -> list[dict]:
+    """Current versions of one kind, optionally limited to ``scopes`` (no row-count cap, unlike the list view).
+
+    For consumers that must know about *archived* templates too (so an archived text is not resurrected from a
+    legacy store). Rights are those of the kind; a person without them gets ``PermissionDenied``.
+    """
+    _require(perms, kind)
+    sql = ("SELECT t.*, v.title, v.body FROM message_templates t JOIN message_template_versions v "
+           "ON v.template_id=t.id AND v.version=t.current_version WHERE t.guild_id=? AND t.kind=?")
+    args: list = [str(guild_id or "").strip(), kind]
+    if scopes is not None:
+        scopes = [str(x) for x in scopes]
+        sql += f" AND t.scope IN ({','.join('?' * len(scopes))})" if scopes else " AND 0"
+        args += scopes
+    if not include_archived:
+        sql += " AND t.archived_at IS NULL"
+    sql += " ORDER BY t.scope, v.title COLLATE NOCASE"
+    with pulse_db.connect() as db:
+        _ensure_tables(db)
+        return [dict(r) for r in db.execute(sql, args).fetchall()]
+
+
+def sync_kind(perms, guild_id, kind, entries, actor_id, actor_name) -> dict:
+    """Make the active templates of ``kind`` equal to ``entries`` = ``[(scope, title, body), ...]``.
+
+    For stores that remain the editing surface (e.g. the ticket tools page): changed text becomes a new
+    *version*, new titles are created, titles that disappeared are *archived* (history stays), unchanged ones are
+    left alone. An entry that breaks the placeholder rules is not stored; an older library template with that
+    title is archived so the legacy text takes over instead of being shadowed by an outdated version.
+    Returns ``{"created", "updated", "archived", "unchanged", "skipped": [...]}``.
+    """
+    spec = _require(perms, kind)
+    result = {"created": 0, "updated": 0, "archived": 0, "unchanged": 0, "skipped": []}
+    wanted: dict[tuple[str, str], tuple[str, str]] = {}
+    invalid: set[tuple[str, str]] = set()
+    for scope, title, body in entries:
+        try:
+            clean_scope, clean_title, clean_body = _clean(spec, scope, title, body)
+        except ValueError as exc:
+            invalid.add((str(scope or "*").strip()[:MAX_SCOPE] or "*", " ".join(str(title or "").split()).casefold()))
+            result["skipped"].append(f"{scope}/{title}: {exc}")
+            continue
+        wanted[(clean_scope, clean_title.casefold())] = (clean_title, clean_body)
+    existing = {(r["scope"], r["title"].casefold()): r for r in lookup(perms, guild_id, kind)}
+    for key, (title, body) in wanted.items():
+        found = existing.get(key)
+        try:
+            if found is None:
+                create(perms, guild_id, kind, key[0], title, body, actor_id, actor_name)
+                result["created"] += 1
+            elif found["body"] != body or found["title"] != title:
+                update(perms, guild_id, found["id"], title, body, actor_id, actor_name, expected_version=found["current_version"])
+                result["updated"] += 1
+            else:
+                result["unchanged"] += 1
+        except TemplateConflict as exc:
+            result["skipped"].append(f"{key[0]}/{title}: {exc}")
+    for key, found in existing.items():
+        if key not in wanted:
+            if _set_archived(perms, guild_id, found["id"], actor_id, actor_name, True, takeover=key in invalid):
+                result["archived"] += 1
+    return result
 
 
 # --------------------------------------------------------------------------- rendering
