@@ -1,5 +1,10 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Zentrale Integration: Ereignisvertrag (November 2026, Block F1)
+
+- **`pulse_events.py` (#116/#122/#125, Fundament):** Einheitlicher Vertrag für Ereignisse auf der bestehenden `events`-Tabelle. `emit()` schreibt `<domain>.<aktion>` mit festem Payload (`schema`, `domain`, `action`, optional `case_ref`/`correlation_id`) und prüft die Eingabe; `describe()` liest neue und alte Zeilen einheitlich; `history()` liefert die Ereignisse eines Falls und prüft dieselben Rechte wie die jeweilige Fallart (fail-closed, Korrelations-ID ohne Fallreferenz nur für Administratoren).
+- Keine Schema-, Daten- oder Aufruferänderung: `pulse_db.record_event` und die 33 bestehenden Aufrufer bleiben unverändert, alte Zeilen werden nur beim Lesen klassifiziert. Die Aufrufer werden in späteren Schritten migriert; #116/#122/#125 bleiben bis dahin „Teilweise“.
+
 ## Bewerbungen: Kanban-Pipeline (November 2026)
 
 - **Bewerbungs-Board (#95):** `/applications/board` bearbeitet Bewerbungen direkt an der Karte: Entscheiden (Einladung, Ablehnen, Einstellen/Ablehnen nach Gespräch) und Prüfer zuweisen über dieselben geprüften Abläufe wie die Bewerbungsseite (Rollen, DM, Audit, Mindestbewertungs-Policy). Karten zeigen Status, Wartezeit/Frist, Prüfer und Bewertungsfortschritt; Suche und Filter (überfällig, mir zugewiesen, ohne Prüfer); Leer-/Fehlerzustände.

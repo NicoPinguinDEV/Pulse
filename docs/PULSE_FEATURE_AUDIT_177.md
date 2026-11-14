@@ -209,16 +209,16 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 116 | Gemeinsame Fallnummern | **Teilweise** | `pulse_db.record_event()` unterstützt Korrelations-IDs; eine gemeinsame ID über Ticket-, Moderations-, Spieler- und Beschwerdefälle ist noch nicht durchgängig. |
+| 116 | Gemeinsame Fallnummern | **Teilweise** | `pulse_db.record_event()` unterstützt Korrelations-IDs; eine gemeinsame ID über Ticket-, Moderations-, Spieler- und Beschwerdefälle ist noch nicht durchgängig. Stand F1: `pulse_events.emit()` verknüpft Ereignisse über `case_ref`/`correlation_id`; Aufrufer noch nicht migriert. |
 | 117 | Echtzeit-Synchronisierung beider Oberflächen | **Teilweise** | Gemeinsame DB-/Auditdaten existieren; ein zentraler Push-/Eventbus mit konsistentem Echtzeit-Fallback ist nicht vorhanden. |
 | 118 | Gemeinsame Benachrichtigungs-Inbox | **Teilweise** | Pulse Inbox und Benachrichtigungspräferenzen existieren; nicht alle Bot-/Dashboard-Events werden über einen einheitlichen Contract zugestellt. |
 | 119 | Direktlinks zwischen Discord und Dashboard | **Teilweise** | Bot-Embeds und Befehle verlinken `/me`, Tickets und Pulse-Seiten; universelle Fall-/Vorgangslinks fehlen. |
 | 120 | Gemeinsame Berechtigungsprüfung | **Teilweise** | Gemeinsame Rollen-/Rechtehelfer existieren; Bot-Checks und Web-Rechteberechnung sind noch nicht vollständig ein einziger zentraler Policy-Service. |
 | 121 | Discord-Aktionskarten | **Teilweise** | Buttons, Selects, Modals und Bestätigungsdialoge werden genutzt; keine einheitliche Aktionskarten-API für alle TeamOS-Vorgänge. |
-| 122 | Gemeinsame Audit-Historie | **Teilweise** | `pulse_db`-Events, Suite-Audit und Modul-Audits existieren; nicht jeder relevante Schreibvorgang folgt einem gemeinsamen Ereignisschema. |
+| 122 | Gemeinsame Audit-Historie | **Teilweise** | `pulse_db`-Events, Suite-Audit und Modul-Audits existieren; nicht jeder relevante Schreibvorgang folgt einem gemeinsamen Ereignisschema. Stand F1: Ereignisvertrag `pulse_events.py` (Schema, Validierung, einheitliche Leseansicht) vorhanden; die 33 bestehenden `record_event`-Aufrufer sind noch nicht migriert. |
 | 123 | Zentrale Vorlagenbibliothek | **Teilweise** | Ticketantworten, Recruiting-Kommunikation, RP-Ankündigungen und KI-Vorlagen existieren separat; eine gemeinsame verwaltete Bibliothek fehlt. |
 | 124 | Gemeinsame Aufgaben in Bot und Dashboard | **Teilweise** | Discord-Befehle und Dashboard lesen/schreiben Pulse-Aufgaben; vollständige Synchronisierung, gemeinsame Aktionsrechte und Übergaben sind noch nicht überall getestet. |
-| 125 | Zentrale Ereignisverarbeitung | **Teilweise** | Automation-Engine verarbeitet ausgewählte Anti-Nuke-/Systemereignisse; ein Domain-Event-Vertrag für alle Pulse-Module fehlt. |
+| 125 | Zentrale Ereignisverarbeitung | **Teilweise** | Automation-Engine verarbeitet ausgewählte Anti-Nuke-/Systemereignisse; ein Domain-Event-Vertrag für alle Pulse-Module fehlt. Stand F1: Domain-Event-Vertrag (`pulse_events`) vorhanden; Automation-Engine und Module sind noch nicht angebunden. |
 
 ### 11. Pulse Intelligence (126–140)
 
