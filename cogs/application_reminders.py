@@ -11,6 +11,9 @@ import pulse_ids as _pulse_ids
 from pulse_jobs import tracked
 
 
+GUILD_ID = _pulse_ids.GUILD_ID
+APPLICATION_ROLE_ID = _pulse_ids.APPLICATION_ROLE_ID
+APPLICATION_REMINDER_CHANNEL_ID = _pulse_ids.APPLICATION_REMINDER_CHANNEL_ID
 REMINDER_INTERVAL_MINUTES = 30
 REMINDER_INTERVAL_SECONDS = REMINDER_INTERVAL_MINUTES * 60
 REMINDER_TEXT = (
@@ -27,28 +30,28 @@ async def send_applicant_reminder(bot: commands.Bot) -> None:
     The role is the source of truth: once it is removed after the interview
     workflow, the member is no longer included in subsequent role mentions.
     """
-    guild = bot.get_guild(_pulse_ids.GUILD_ID)
+    guild = bot.get_guild(GUILD_ID)
     if guild is None:
-        raise RuntimeError(f"BOCHUM-RP-Server {_pulse_ids.GUILD_ID} ist nicht im Cache.")
+        raise RuntimeError(f"BOCHUM-RP-Server {GUILD_ID} ist nicht im Cache.")
 
-    role = guild.get_role(_pulse_ids.APPLICATION_ROLE_ID)
+    role = guild.get_role(APPLICATION_ROLE_ID)
     if role is None:
-        raise RuntimeError(f"Bewerberrolle {_pulse_ids.APPLICATION_ROLE_ID} wurde nicht gefunden.")
+        raise RuntimeError(f"Bewerberrolle {APPLICATION_ROLE_ID} wurde nicht gefunden.")
 
-    channel = guild.get_channel(_pulse_ids.APPLICATION_REMINDER_CHANNEL_ID)
+    channel = guild.get_channel(APPLICATION_REMINDER_CHANNEL_ID)
     if channel is None:
-        channel = await bot.fetch_channel(_pulse_ids.APPLICATION_REMINDER_CHANNEL_ID)
+        channel = await bot.fetch_channel(APPLICATION_REMINDER_CHANNEL_ID)
 
     channel_guild_id = getattr(getattr(channel, "guild", None), "id", None)
     if channel_guild_id != guild.id:
         raise RuntimeError(
-            f"Erinnerungskanal {_pulse_ids.APPLICATION_REMINDER_CHANNEL_ID} gehört nicht zum BOCHUM-RP-Server."
+            f"Erinnerungskanal {APPLICATION_REMINDER_CHANNEL_ID} gehört nicht zum BOCHUM-RP-Server."
         )
 
     send = getattr(channel, "send", None)
     if not callable(send):
         raise RuntimeError(
-            f"Erinnerungskanal {_pulse_ids.APPLICATION_REMINDER_CHANNEL_ID} kann keine Nachrichten empfangen."
+            f"Erinnerungskanal {APPLICATION_REMINDER_CHANNEL_ID} kann keine Nachrichten empfangen."
         )
 
     await send(
