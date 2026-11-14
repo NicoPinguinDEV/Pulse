@@ -10,7 +10,12 @@ import pulse_db
 import webserver as ws
 from tests.fakes import FakeGuild, FakeMember, FakeRole
 
-TEAM, LEAD, HIGH, LOCK = FakeRole(10, "Team", 5), FakeRole(11, "Supervisor", 8), FakeRole(12, "Leitung", 10), FakeRole(77, "Uprank-Sperre", 2)
+TEAM, LEAD, HIGH, LOCK = (
+    FakeRole(10, "》BORP メ Supporter", 5),
+    FakeRole(11, "》BORP メ Teamleitung", 10),
+    FakeRole(12, "》BORP メ Management", 15),
+    FakeRole(77, "Uprank-Sperre", 2),
+)
 
 
 class WarningDomainTests(unittest.TestCase):
@@ -72,7 +77,7 @@ class WarningDomainTests(unittest.TestCase):
         self.assertIn("zwischen 1 und 365", self.issue(duration_days=0)["message"])
         self.assertIn("selbst", self.issue(member=self.lead, actor_member=self.lead)["message"])
         low = FakeMember(5, "Neu", roles=[TEAM])
-        self.assertIn("Supervisor", self.issue(actor_member=low, actor_name="Neu", actor_id="5", member=self.target)["message"])
+        self.assertIn("Teamleitung", self.issue(actor_member=low, actor_name="Neu", actor_id="5", member=self.target)["message"])
         self.assertIn("höherem Teamrang", self.issue(member=self.high)["message"])
         self.assertFalse(Path(ws.DATA_FILE).exists())
 
