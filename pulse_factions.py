@@ -5,7 +5,7 @@ Three additive tables (created on first use, nothing existing is touched):
 * factions           – name, status (official / unassigned / probation), category, optional leader,
 * faction_warnings   – reason, date, who issued it; revoked warnings stay in the history.
 
-Access: only the Discord role FACTION_MANAGER_ROLE_ID or administrators (can_manage). Nothing here
+Access: only the current Fraktionsverwaltung team role or administrators (can_manage). Nothing here
 touches Discord – no roles, no messages. Reaching the warning maximum is only shown, never acted on.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ import re
 from datetime import date, datetime, timezone
 
 import pulse_db
-from pulse_ids import FACTION_MANAGER_ROLE_ID
+from pulse_team_roles import canonical_team_role_name
 
 STATUSES = {"official": "Offiziell", "unassigned": "Nicht vergeben", "probation": "Probezeit"}
 DEFAULT_CATEGORIES = (("Staatlich", "#2563eb"), ("Neutral", "#64748b"), ("Illegal", "#dc2626"))
@@ -29,10 +29,13 @@ def _now() -> str:
 
 
 def can_manage(perms: dict | None, member) -> bool:
-    """Deny by default: administrators or members holding the Fraktionsverwaltung role."""
+    """Deny by default: administrators or members holding the current Fraktionsverwaltung role."""
     if (perms or {}).get("is_admin"):
         return True
-    return any(getattr(role, "id", None) == FACTION_MANAGER_ROLE_ID for role in getattr(member, "roles", None) or [])
+    return any(
+        canonical_team_role_name(getattr(role, "name", "")) == "Fraktionsverwaltung"
+        for role in getattr(member, "roles", None) or []
+    )
 
 
 def _tables(db) -> None:
