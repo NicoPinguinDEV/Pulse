@@ -115,8 +115,8 @@ def register(app) -> None:
         crumb_html = f'<div class="pulse-crumb"><a href="/admin">Verwaltung</a> › {_e(crumb)}</div>'
         return HTMLResponse(render_pro_page(ws, title, ctx, key, crumb_html + body))
 
-    def card(title, sub, inner):
-        return (f'<section class="pulse-card mb-4"><div class="pulse-card-h"><div><div class="pulse-section-title">{title}</div>'
+    def card(title, sub, inner, tag="div"):
+        return (f'<section class="pulse-card mb-4"><div class="pulse-card-h"><div><{tag} class="pulse-section-title">{title}</{tag}>'
                 f'<div class="pulse-section-sub">{sub}</div></div></div><div class="pulse-card-b">{inner}</div></section>')
 
     # ------------------------------------------------------------------ switches + F-04
@@ -483,8 +483,8 @@ def register(app) -> None:
             items = "".join(board_card_html(c, role_options, reviewer_options, leadership) for c in cards)
             if not items:
                 items = '<li class="pulse-row-meta" style="list-style:none">Keine Bewerbungen in dieser Spalte.</li>'
-            cols.append('<section style="min-width:240px;flex:1" aria-labelledby="col-' + key + '"><div id="col-' + key + '" class="pulse-section-title mb-2">'
-                        + label + ' <span class="pulse-pill">' + str(len(cards)) + '</span></div><ul style="padding:0;margin:0">' + items + "</ul></section>")
+            cols.append('<section style="min-width:240px;flex:1" aria-labelledby="col-' + key + '"><h2 id="col-' + key + '" class="pulse-section-title mb-2">'
+                        + label + ' <span class="pulse-pill">' + str(len(cards)) + '</span></h2><ul style="padding:0;margin:0">' + items + "</ul></section>")
 
         def selected(value):
             return " selected" if mode == value else ""
@@ -501,13 +501,13 @@ def register(app) -> None:
         body = card("▤ Bewerbungs-Board",
                     "Spalten aus dem echten Bewerbungsstatus. Entscheidungen laufen über denselben geprüften Ablauf wie unter "
                     '<a href="/applications">Bewerbungen</a> (Rollen, DM, Protokoll); eine Spalte lässt sich nie ohne Entscheidung wechseln. Rot = Frist überschritten.',
-                    filters + gate + empty + '<div style="display:flex;gap:12px;overflow-x:auto;align-items:flex-start">' + "".join(cols) + "</div>")
+                    filters + gate + empty + '<div style="display:flex;gap:12px;overflow-x:auto;align-items:flex-start">' + "".join(cols) + "</div>", tag="h1")
         fields = "".join(
             f'<label class="text-xs">{label} (Tage)<input class="pulse-input" name="{key}" value="{deadlines[key]}" inputmode="numeric"></label>'
             for key, label in (("eingang", "Eingang"), ("pruefung", "Prüfung"), ("gespraech", "Gespräch")))
         body += card("Fristen", "Nach wie vielen Tagen eine Bewerbung in der Spalte als überfällig gilt (0 = keine Frist).",
                      f'<form method="post" action="/applications/board/deadlines" class="flex flex-wrap gap-2 items-end">{fields}'
-                     '<button class="pulse-btn" type="submit">Speichern</button></form>')
+                     '<button class="pulse-btn" type="submit">Speichern</button></form>', tag="h2")
         return page("Bewerbungs-Board", ctx, "applications-board", "Bewerbungs-Board", body)
 
     @app.post("/applications/board/deadlines")

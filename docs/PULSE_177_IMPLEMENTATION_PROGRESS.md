@@ -24,6 +24,7 @@ Bewertet ist der Code-Stand `main` @ `f0243bc` (die Datei nannte zuvor fälschli
 | Ticketlast-Prognose | 98 | 79 | #127 | #241 |
 | Prüferzuweisung und unabhängige Bewertung | 100 | 77 | #96, #97 | #247 |
 | Kanban-Bewerbungspipeline (Branch `feature/recruiting-kanban-95`, offen) | 101 | 76 | #95 | PR offen |
+| Abschließende Browser-/Regressionsprüfung #95 (gleicher Branch, PR #248) | 101 | 76 | #95 bleibt Fertig | PR #248 offen |
 
 Gemergt am 13.11.2026 (Reihenfolge wie oben, jeweils auf aktuellen `main` gebracht, CI grün). Jeder Merge nach `main` startet den automatischen VPS-Deploy (`deploy-vps.yml`).
 
@@ -234,3 +235,8 @@ Jedes Paket erhält eine eigene Feature-Branch/PR, gezielte Regressionstests, Re
 - Lokale Tests unter Windows: Backup-/Restore-Tests scheitern an Dateisperren (WinError 32) und die Browser-E2E-Tests am
   lokalen Setup – auch auf unverändertem `main`. Maßgeblich ist die CI (Linux).
 - `pulse_ultimate.py` und `webserver.py` stehen nicht in der Ruff-Liste (`ruff.toml`); neue Module dort eintragen.
+
+## Abschlussprüfung #95 – Browser-Tests (2026-11-14, PR #248)
+
+Neue Playwright-Browsertests für `/applications/board` in `tests/test_e2e_dashboard.py` (27 Tests, vier Klassen `RecruitingBoard*E2ETests`): Desktop/Tablet/Mobil ohne Seitenüberlauf und mit internem Scrollbereich, Suche und Filter, echte Formularaktionen mit Rückkehr zum Board, Rechte (Teammitglied und Recruiting-Rolle, direkte POSTs ohne Schreibzugriff), Tastaturbedienung, Leer-/Fehlerzustand, Datenschutz (keine Antworten/fremden Bewertungen). Datenbasis: `tools/preview_server.py --seed-applications` (synthetisch, Fake-Login, Rolle `recruiter` neu) plus `/__preview/`-Hooks nur mit `--e2e-hooks`.
+Gefunden und behoben: fehlende Überschriftenstruktur des Boards (`pulse_phase7.py`). Keine Änderung an den Entscheidungsabläufen. #95 bleibt **Fertig** (alle Kriterien bestanden).
