@@ -108,32 +108,14 @@ def _extract_role_label(role_name: object) -> str:
     return re.sub(r"\s+", " ", label).strip()
 
 
+# Match complete active role names and punctuation/spacing variants only.
+# Nickname abbreviations (PL, MA, TL, Mod, Sup, etc.) are display prefixes,
+# not role aliases and must never grant a team rank or permission.
 _ROLE_ALIASES: dict[str, tuple[str, ...]] = {
-    "Founder": ("Founder", "FND"),
-    "Rechte Hand": ("Rechte Hand", "RH"),
-    "Owner": ("Owner",),
-    "Co.Owner": ("Co.Owner", "Co Owner"),
-    "Projektleitung": ("Projektleitung", "PL"),
-    "Stv.Projektleitung": ("Stv.Projektleitung", "Stv.-Projektleitung", "Stv.PL", "Stv PL", "Stellv. Projektleitung"),
-    "Serverleitung": ("Serverleitung", "SL"),
-    "Stv.Serverleitung": ("Stv.Serverleitung", "Stv.-Serverleitung", "Stv.SL", "Stv SL", "Stellv. Serverleitung"),
-    "Management": ("Management", "MA"),
-    "Stv.Management": ("Stv.Management", "Stv.-Management", "Stv.MA", "Stv MA", "Stellv. Management"),
-    "Teamleitung": ("Teamleitung", "TL"),
-    "Stv.Teamleitung": ("Stv.Teamleitung", "Stv.-Teamleitung", "Stv.TL", "Stv TL", "Stellv. Teamleitung"),
-    "Ausbilder": ("Ausbilder", "AB"),
-    "Fraktionsverwaltung": ("Fraktionsverwaltung", "FV"),
-    "Eventleitung": ("Eventleitung", "EL"),
-    "Sr.Admin": ("Sr.Admin", "Sr Admin", "SrAdmin"),
-    "Admin": ("Admin",),
-    "Jr.Admin": ("Jr.Admin", "Jr Admin", "JrAdmin"),
-    "Sr.Moderator": ("Sr.Moderator", "Sr Moderator", "Sr.Mod", "Sr Mod", "SrMod"),
-    "Moderator": ("Moderator", "Mod"),
-    "Jr.Moderator": ("Jr.Moderator", "Jr Moderator", "Jr.Mod", "Jr Mod", "JrMod"),
-    "Sr.Supporter": ("Sr.Supporter", "Sr Supporter", "Sr.Sup", "Sr Sup", "SrSup"),
-    "Supporter": ("Supporter", "Sup"),
-    "Test Supporter": ("Test Supporter", "Test.Supporter", "T.Sup", "T Sup", "TestSup"),
+    role_name: (role_name,)
+    for role_name in TEAM_ROLE_ORDER
 }
+
 
 TEAM_ROLE_ALIASES: dict[str, str] = {
     _normalize_key(alias): canonical
