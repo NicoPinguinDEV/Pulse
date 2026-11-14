@@ -13,6 +13,7 @@ import pulse_paths
 import pulse_sqlite
 import pulse_public_consent
 import pulse_interactions
+from pulse_team_roles import team_role_group, team_role_priority
 
 BASE_DIR = pulse_paths.DATA_DIR  # Phase 13: runtime data (databases, shifts.json) – not the code folder
 DB_NAME = str(BASE_DIR / "teamliste.db")
@@ -354,10 +355,22 @@ class TeamlisteCog(commands.Cog):
         else:
             # 1. Rollen-Objekte laden
             roles = [guild.get_role(rid) for rid in role_ids]
-            # 2. Ungültige/gelöschte Rollen herausfiltern
-            valid_roles = [r for r in roles if r is not None]
-            # 3. Nach der Server-Hierarchie (Position) absteigend sortieren
-            sorted_roles = sorted(valid_roles, key=lambda r: r.position, reverse=True)
+            # Nur aktuelle Teamrollen der gewählten Ebene anzeigen; gelöschte und
+            # historische Rollenbezeichnungen bleiben aus den Teamlisten heraus.
+            valid_roles = [
+                role for role in roles
+                if role is not None and team_role_group(role.name) == category
+            ]
+            # Die festgelegte BOCHUM-Rangfolge ist maßgeblich, Discord-Position
+            # dient nur als stabiler Tie-Breaker.
+            sorted_roles = sorted(
+                valid_roles,
+                key=lambda role: (
+                    team_role_priority(role.name) if team_role_priority(role.name) is not None else 10_000,
+                    -role.position,
+                    role.id,
+                ),
+            )
 
             # Eine DB-Abfrage statt einer SQLite-Verbindung je Mitglied.
             abmeldungen = self.get_abmeldungen_map()
