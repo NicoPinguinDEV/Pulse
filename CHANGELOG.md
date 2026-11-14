@@ -1,5 +1,10 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Zentrale Integration: Rechte-Policy (November 2026, Block F3)
+
+- **`pulse_policy.py` (#120):** Benannte Aktionen (z. B. `case.view.BM`, `ticket.manage`) mit den Rechten, die sie freischalten. `can()`/`require()` sind fail-closed (unbekannte Aktion, ungültiges Rechte-Objekt oder ein Wert ungleich `True` verweigern), Administratoren dürfen alles, ihre Rechte werden weiterhin nur in `pulse_permissions` berechnet.
+- Parität belegt: für jede Kombination der betroffenen Rechte entscheidet die Policy gleich wie `pulse_case_registry.allowed_kinds` und die bisherigen Inline-Prüfungen (Moderationsfälle, AutoMod). Keine bestehende Prüfung wurde geändert oder erweitert; Routen und Bot-Befehle nutzen die Policy noch nicht, #120 bleibt „Teilweise“.
+
 ## Zentrale Integration: Inbox-Contract und Direktlinks (November 2026, Block F2)
 
 - **`pulse_inbox_contract.py` (#118/#119):** `deliver()` sendet ein Ereignis (Domäne/Aktion aus `pulse_events`) an mehrere Personen: Kategorie je Domäne statt Stichwort-Raten, Link über `link_for()`, Dedupe je Fall und Aktion (derselbe Schritt benachrichtigt niemanden doppelt). Ein fehlerhafter Empfänger stoppt die übrigen nicht, ungültige Eingaben senden nichts.
