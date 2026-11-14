@@ -16,6 +16,7 @@ include = [
     "pulse_player_reports.py", "tests/test_player_reports.py", "tests/test_player_report_commands.py",
     "pulse_privacy_requests.py", "pulse_privacy_requests_web.py", "cogs/privacy_requests.py", "tests/test_privacy_requests.py",
     "tests/test_mod_stats.py", "cogs/scheduled_announcements.py", "tests/test_scheduled_announcements.py", "tests/test_home_layouts.py", "tests/test_player_self_service.py", "pulse_case_registry.py", "tests/test_case_registry.py", "pulse_webhook_audit.py", "tests/test_webhook_monitor.py", "tests/test_notify_prefs.py", "tests/test_ultimate_event_rsvps.py",
+    "cogs/application_reminders.py", "tests/test_application_reminders.py",
 ]
 
 [lint]
