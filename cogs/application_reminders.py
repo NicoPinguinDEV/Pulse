@@ -7,6 +7,7 @@ import asyncio
 import discord
 from discord.ext import commands, tasks
 
+import pulse_db
 import pulse_ids as _pulse_ids
 from pulse_jobs import tracked
 
@@ -16,6 +17,7 @@ APPLICATION_ROLE_ID = _pulse_ids.APPLICATION_ROLE_ID
 APPLICATION_REMINDER_CHANNEL_ID = _pulse_ids.APPLICATION_REMINDER_CHANNEL_ID
 REMINDER_INTERVAL_MINUTES = 30
 REMINDER_INTERVAL_SECONDS = REMINDER_INTERVAL_MINUTES * 60
+REMINDER_MESSAGE_SETTING_KEY = "application_reminder_message_id"
 REMINDER_TEXT = (
     "⏰ **Erinnerung an alle Bewerber:** Bitte vereinbart zeitnah euren Termin "
     "für das verpflichtende Bewerbungsgespräch mit der BOCHUM-RP-Leitung. "
@@ -24,11 +26,55 @@ REMINDER_TEXT = (
 )
 
 
-async def send_applicant_reminder(bot: commands.Bot) -> None:
-    """Ping only the applicant role in its reminder channel.
+async def _delete_previous_applicant_reminder(
+    channel,
+    *,
+    bot_user_id: int,
+    reminder_content: str,
+) -> None:
+    """Delete the last reminder, recovering from a missing/stale stored message ID."""
+    stored_message_id = pulse_db.get_setting(REMINDER_MESSAGE_SETTING_KEY)
+    try:
+        stored_message_id = int(stored_message_id) if stored_message_id is not None else None
+    except (TypeError, ValueError):
+        stored_message_id = None
 
-    The role is the source of truth: once it is removed after the interview
-    workflow, the member is no longer included in subsequent role mentions.
+    if stored_message_id:
+        try:
+            previous = await channel.fetch_message(stored_message_id)
+        except discord.NotFound:
+            previous = None
+
+        if (
+            previous is not None
+            and previous.author.id == bot_user_id
+            and previous.content == reminder_content
+        ):
+            try:
+                await previous.delete()
+            except discord.NotFound:
+                pass
+            return
+
+    # First run, stale ID, or manually removed/changed message: recover older
+    # reminders left by previous versions without touching unrelated messages.
+    async for candidate in channel.history(limit=100):
+        if (
+            candidate.author.id != bot_user_id
+            or candidate.content != reminder_content
+        ):
+            continue
+        try:
+            await candidate.delete()
+        except discord.NotFound:
+            pass
+
+
+async def send_applicant_reminder(bot: commands.Bot) -> None:
+    """Ping only the applicant role in its reminder channel and replace the old post.
+
+    The applicant role is the source of truth: once it is removed after the
+    interview workflow, the member is no longer included in subsequent mentions.
     """
     guild = bot.get_guild(GUILD_ID)
     if guild is None:
@@ -54,14 +100,28 @@ async def send_applicant_reminder(bot: commands.Bot) -> None:
             f"Erinnerungskanal {APPLICATION_REMINDER_CHANNEL_ID} kann keine Nachrichten empfangen."
         )
 
-    await send(
-        content=f"{role.mention}\n{REMINDER_TEXT}",
+    bot_user_id = getattr(getattr(bot, "user", None), "id", None)
+    if bot_user_id is None:
+        raise RuntimeError("Pulse-Bot-Identität ist für die Erinnerungsbereinigung nicht verfügbar.")
+
+    reminder_content = f"{role.mention}\n{REMINDER_TEXT}"
+    await _delete_previous_applicant_reminder(
+        channel,
+        bot_user_id=bot_user_id,
+        reminder_content=reminder_content,
+    )
+
+    message = await send(
+        content=reminder_content,
         allowed_mentions=discord.AllowedMentions(
             roles=[role],
             users=False,
             everyone=False,
         ),
     )
+    message_id = getattr(message, "id", None)
+    if message_id is not None:
+        pulse_db.set_setting(REMINDER_MESSAGE_SETTING_KEY, int(message_id))
 
 
 class ApplicationReminderCog(commands.Cog):
