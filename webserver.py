@@ -3086,19 +3086,20 @@ def team_rank(member, team_role_ids, guild=None) -> int:
 
 
 def team_supervisor_rank(guild, team_role_ids) -> int:
-    """Lowest configured role that is Supervisor or Leitender Supervisor; deputy ranks are excluded."""
+    """Lowest configured Teamleitung rank; Stv.Teamleitung and lower ranks are excluded."""
+    from pulse_team_roles import canonical_team_role_name
+
     candidates = []
     get_role = getattr(guild, "get_role", None) if guild is not None else None
     for index, role_id in enumerate(ordered_team_role_ids(guild, team_role_ids)):
         role = get_role(role_id) if callable(get_role) else None
-        words = re.findall(r"[a-z0-9]+", str(getattr(role, "name", "") or "").casefold())
-        if words and words[-1] == "supervisor" and "stv" not in words[:-1]:
+        if role is not None and canonical_team_role_name(getattr(role, "name", "")) == "Teamleitung":
             candidates.append(index)
     return min(candidates) if candidates else -1
 
 
 def can_manage_team_warnings(guild, member, team_role_ids) -> bool:
-    """Supervisor+ authority; the server owner and Discord administrators are the highest rank."""
+    """Teamleitung+ authority; the server owner and Discord administrators are the highest rank."""
     if member is None:
         return False
     if getattr(member, "id", None) == getattr(guild, "owner_id", None):
@@ -11664,7 +11665,7 @@ async def issue_team_warning(guild, *, actor_member, actor_name: str, actor_id: 
     if target_rank < 0:
         return refused("Der Teamrang des Zielmitglieds konnte nicht sicher ermittelt werden. Die Verwarnung wurde nicht vergeben.")
     if not can_manage_team_warnings(guild, actor_member, team_role_ids):
-        return refused("Team-Verwarnungen dürfen erst ab Rang Supervisor vergeben werden.")
+        return refused("Team-Verwarnungen dürfen erst ab Rang Teamleitung vergeben werden.")
     if target_rank >= actor_rank:
         return refused("Du darfst keine Team-Warnung an ein Mitglied mit gleichem oder höherem Teamrang vergeben.")
 
@@ -11788,7 +11789,7 @@ async def revoke_team_warning(guild, *, member, warn_id: str, revoke_reason: str
                 "message": "Für dieses Mitglied wurde keine konfigurierte Teamrolle gefunden. Die Verwarnung wurde nicht verändert."}
     if not can_manage_team_warnings(guild, actor_member, team_role_ids):
         return {"ok": False, "stored": False,
-                "message": "Team-Verwarnungen dürfen erst ab Rang Supervisor verwaltet werden."}
+                "message": "Team-Verwarnungen dürfen erst ab Rang Teamleitung verwaltet werden."}
     if target_rank >= actor_rank:
         return {"ok": False, "stored": False,
                 "message": "Du darfst keine Verwarnung eines Mitglieds mit gleichem oder höherem Teamrang zurückziehen."}
