@@ -30,7 +30,7 @@ ACTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "moderation.warn": ("Teamwarnung ausstellen", ("can_warn",)),
     "ticket.manage": ("Tickets verwalten", ("can_manage_tickets",)),
     "application.manage": ("Bewerbungen verwalten", ("can_manage_applications",)),
-    "task.manage": ("Aufgaben verwalten", ("can_manage_tasks",)),
+    "task.manage": ("Aufgaben verwalten", ("can_manage_tasks", "can_promote")),  # web rule; /taskdone (bot) lacked can_promote
     "announcement.manage": ("Ankündigungen verwalten", ("can_manage_announcements",)),
     "handover.manage": ("Übergaben verwalten", ("can_manage_handover",)),
     "promotion.manage": ("Beförderungen verwalten", ("can_manage_promotions",)),

@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Zentrale Integration: Aktionskarten und Aufgaben (November 2026, Block F5)
+
+- **`pulse_action_cards.py` (#121):** Eine Bestätigungskarte für sensible Discord-Aktionen statt dreier Varianten. Nur die startende Person kann bestätigen oder abbrechen (andere erhalten eine private Meldung, die Karte bleibt nutzbar), einmalig verwendbar (auch bei Doppelklick), läuft ab, **prüft das Recht beim Bestätigen erneut** (entzogene Rolle stoppt die Aktion), meldet Fehler nur mit Fehler-ID und schreibt jedes Ergebnis als Contract-Ereignis. Entscheidungslogik ohne Discord-Abhängigkeit (`ActionCard`), dünner Button-Adapter (`ActionCardView`).
+- **`pulse_task_actions.py` (#124):** Eine Regel für Aufgabenänderungen in Bot und Dashboard. Bisher: Dashboard erlaubte `can_promote`, `/taskdone` nicht; das Dashboard schrieb weder Ereignis noch Benachrichtigung. Jetzt gilt die Dashboard-Regel (Policy `task.manage` = `can_manage_tasks` oder `can_promote`), Zuständige dürfen nur den Status ändern, jede Änderung schreibt dasselbe Ereignis (Korrelation `task:<id>`, erscheint im Live-Strom) und benachrichtigt neue Zuständige bzw. die erstellende Person, nie den Handelnden.
+- Bestehende Bestätigungsansichten, die Route `/tasks/update` und `/taskdone` sind noch nicht umgestellt; #121/#124 bleiben „Teilweise“.
+
 ## Zentrale Integration: Eventbus (November 2026, Block F4)
 
 - **`pulse_eventbus.py` (#117):** Echtzeit-Abgleich beider Oberflächen auf der dauerhaften `events`-Tabelle (SQLite-`rowid` als Cursor, nichts geht bei Neustart verloren). `poll()` ist der garantierte Fallback, `stream()` ein SSE-Generator, der nach `pulse_events.emit` in etwa 0,25 s weckt und sonst alle 3 s nachsieht, sodass auch die bisherigen `record_event`-Aufrufer ankommen. Reconnect über `Last-Event-ID`/Cursor ohne Doppel und Lücken; ein Cursor hinter dem Tabellenende wird als `reset` gemeldet.
