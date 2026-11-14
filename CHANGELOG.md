@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Zentrale Integration: Inbox-Contract und Direktlinks (November 2026, Block F2)
+
+- **`pulse_inbox_contract.py` (#118/#119):** `deliver()` sendet ein Ereignis (Domäne/Aktion aus `pulse_events`) an mehrere Personen: Kategorie je Domäne statt Stichwort-Raten, Link über `link_for()`, Dedupe je Fall und Aktion (derselbe Schritt benachrichtigt niemanden doppelt). Ein fehlerhafter Empfänger stoppt die übrigen nicht, ungültige Eingaben senden nichts.
+- `link_for()` liefert nur interne Pfade bestehender Seiten (Fallverlauf, Ticket-Transkript), `absolute_link()` baut daraus die Discord-URL und lehnt externe oder protokollrelative Ziele ab. Ein Link vergibt keine Rechte; die Zielseite prüft weiter.
+- `pulse_db.notify` und `pulse_notify_prefs.decide` haben ein optionales `category`; alle bisherigen Aufrufe verhalten sich unverändert. Bestehende `notify`-Aufrufer sind noch nicht migriert, #118/#119 bleiben „Teilweise“.
+
 ## Zentrale Integration: Ereignisvertrag (November 2026, Block F1)
 
 - **`pulse_events.py` (#116/#122/#125, Fundament):** Einheitlicher Vertrag für Ereignisse auf der bestehenden `events`-Tabelle. `emit()` schreibt `<domain>.<aktion>` mit festem Payload (`schema`, `domain`, `action`, optional `case_ref`/`correlation_id`) und prüft die Eingabe; `describe()` liest neue und alte Zeilen einheitlich; `history()` liefert die Ereignisse eines Falls und prüft dieselben Rechte wie die jeweilige Fallart (fail-closed, Korrelations-ID ohne Fallreferenz nur für Administratoren).

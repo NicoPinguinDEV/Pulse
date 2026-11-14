@@ -684,11 +684,11 @@ def make_id(prefix):
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
 
-def notify(user_id, title, body, kind="info", url="/pulse-inbox", dedupe_key=None, dedupe_window_seconds=21600):
+def notify(user_id, title, body, kind="info", url="/pulse-inbox", dedupe_key=None, dedupe_window_seconds=21600, category=None):
     # U-11: personal preferences – a muted category is stored as already read, DMs are optional.
     try:
         import pulse_notify_prefs
-        decision = pulse_notify_prefs.decide(user_id, url, title)
+        decision = pulse_notify_prefs.decide(user_id, url, title, category=category)
     except Exception:
         decision = {"unread": True, "dm": False}
     with connect() as db:
