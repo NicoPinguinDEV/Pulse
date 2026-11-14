@@ -1,5 +1,15 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Bewerbungen: Interview-Kalender (November 2026)
+
+- **Interview-Kalender (#99):** Gesprächstermine sind echte Einträge im Team-Kalender `/calendar` (Kategorie „Bewerbungsgespräch“, eigene Kennzeichnung, Zeit, Dauer, Status, Teilnehmer, Link zur Bewerbung für Recruiting-Berechtigte) und im Kalender als Monats-Agenda mit Leerzustand. Termine lassen sich mit Dauer und verantwortlicher Führungskraft anlegen, verschieben und absagen (`/applications`); der alte Kalendereintrag wird ersetzt, keine verwaisten oder doppelten Einträge.
+- Konflikte: serverseitige Prüfung auf gleichen Bewerber, Prüfer (#96) und Führungskraft; unlesbare Termine blockieren statt zu passieren; veraltete Formulare werden abgewiesen.
+- Zeit: Europe/Berlin mit Sommer-/Winterzeit; Zeiten in der Zeitumstellung (fehlende oder doppelte Stunde) werden abgelehnt; Speicherung in UTC.
+- Erinnerungen: Bewerber-DM bei Termin, Verschiebung und Absage (neue bearbeitbare Vorlagen), Team-Hinweis 24 h und Erinnerung 1 h vorher, je einmal, ohne Wiederholversuche; Zustellfehler sind sichtbar. Persönliche Benachrichtigungseinstellungen gelten.
+- Datenschutz: Normale Teammitglieder sehen im Kalender keine Bewerberdaten (auch alte Einträge mit Namen im Titel werden bereinigt). Alle Änderungen werden auditiert.
+- Daten: nur optionale Felder in `applications.json` (`interview_end`, `interview_lead_id`, `interview_state`, `interview_revision`, `interview_delivery` …); keine neue Tabelle, keine Migration.
+- Tests: `tests/test_interview_calendar.py` und Browser-Tests (Desktop/Mobil/Rechte) in `tests/test_e2e_dashboard.py`; `tools/audit_counts.py` zählt die Audit-Zeilen automatisch.
+
 ## Bewerbungen: Kanban-Pipeline (November 2026)
 
 - **Bewerbungs-Board (#95):** `/applications/board` bearbeitet Bewerbungen direkt an der Karte: Entscheiden (Einladung, Ablehnen, Einstellen/Ablehnen nach Gespräch) und Prüfer zuweisen über dieselben geprüften Abläufe wie die Bewerbungsseite (Rollen, DM, Audit, Mindestbewertungs-Policy). Karten zeigen Status, Wartezeit/Frist, Prüfer und Bewertungsfortschritt; Suche und Filter (überfällig, mir zugewiesen, ohne Prüfer); Leer-/Fehlerzustände.

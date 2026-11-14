@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-14):** `main` @ `f0243bc` (nach #238, #235–#237, #240–#245 und #247 – #96/#97) plus Feature-Branch `feature/recruiting-kanban-95` (#95, PR offen, noch nicht gemergt). Stand inkl. #95: **101 fertig / 76 teilweise / 0 offen** (auf `main` allein: 100 / 77 / 0). #235 hat die Zeilen an PR #221–#228 angeglichen (#15, #18, #19, #23, #43, #52 fertig; 86/91), #236 hat #55 fertiggestellt (87/90), #237 hat #12 fertiggestellt (88/89; #11 bleibt teilweise). Die frühere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **102 fertig / 75 teilweise / 0 offen**; auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 101 |
-| Teilweise | 76 |
+| Fertig | 102 |
+| Teilweise | 75 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -35,7 +35,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 6 | 6 | 0 |
 | Dienstplanung und Aktivität | 7 | 5 | 0 |
-| Bewerbungen und Recruiting | 6 | 5 | 0 |
+| Bewerbungen und Recruiting | 7 | 4 | 0 |
 | Academy und Wissensmanagement | 6 | 4 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
 | Pulse Intelligence | 7 | 8 | 0 |
@@ -182,7 +182,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 96 | Bewerbungszuweisung | **Fertig** | `pulse_application_review.py`: Leitung weist Bewerbungen 1–5 Prüfern zu (`POST /applications/assign`, nur berechtigte Nicht-Bewerber, Benachrichtigung, Audit); die Bewerbungsseite zeigt je Prüfer die Last (offene, noch nicht bewertete Zuweisungen) und schlägt die am wenigsten belasteten vor. `tests/test_application_review.py`. |
 | 97 | Mehrere unabhängige Prüfer | **Fertig** | Unabhängige Bewertungen: Prüfer sehen Bewertungen anderer erst nach der eigenen (Leitung sieht alle), optionale Empfehlung je Prüfer (Einstellen/Ablehnen/Unsicher), Fortschritt und Empfehlungsverteilung für die Leitung, optionale Policy „Mindestzahl unabhängiger Bewertungen“ (Administratoren, `POST /applications/review-policy`) sperrt Entscheidungen serverseitig bis genug Bewertungen vorliegen. `tests/test_application_review.py`. |
 | 98 | Interview-Bewertungsbogen | **Fertig** | Interviewformular mit mehreren Kriterien, Noten und Notizen; `tests/test_application_eligibility.py` prüft den zweistufigen Interviewablauf. |
-| 99 | Interview-Kalender | **Teilweise** | Interviews und Team-Kalender existieren; Interviewtermine sind nicht vollständig als Kalenderobjekte mit Teilnehmern/Erinnerungen verbunden. |
+| 99 | Interview-Kalender | **Fertig** | Interviews sind echte Kalenderobjekte im bestehenden Team-Kalender `/calendar` (`pulse_db.calendar_events`, Kategorie `interview`, neutraler Titel ohne Bewerberdaten); Verknüpfung nur über `interview_event_id` im Bewerbungsdatensatz, keine zweite Kalender-/Recruiting-Verwaltung, keine neue Tabelle. `pulse_interviews.py`: Anlegen, Verschieben (neuer Eintrag zuerst, Bewerbung speichern, alter Eintrag danach – keine verwaisten oder doppelten Einträge, Rollback bei Speicherfehlern), Absagen (`POST /applications/interview-slot`, `/applications/interview-cancel`), Beginn, Dauer (15–240 Min.), verantwortliche Führungskraft, Teilnehmer abgeleitet aus Bewerber, zugewiesenen Prüfern (#96), Führungskraft und Terminverantwortlichem. Serverseitige Konfliktprüfung (gleicher Bewerber/Prüfer/Führungskraft, Sperre bei unlesbaren Terminen, Lock gegen konkurrierende Änderungen, Revisionsprüfung gegen veraltete Formulare). Europe/Berlin mit Sommer-/Winterzeit, Lücke und Doppelstunde der Zeitumstellung werden abgelehnt, Speicherung in UTC. Kalender: Interview-Kennzeichnung, Zeit, Dauer, Status, Teilnehmer und Link zur Bewerbung nur mit Recruiting-Recht; alle anderen sehen nur Zeit, Dauer, Status und Teilnehmerzahl (auch Altbestand mit Namen im Titel wird bereinigt, bei Lesefehlern fail-closed). Erinnerungen über die vorhandene Schleife: Bewerber-DM bei Termin/Verschiebung/Absage, Team-Hinweis 24 h und Erinnerung 1 h vorher, je einmal (vor dem Senden reserviert), Zustellergebnis gespeichert, kein Retry, Absage/Verschiebung setzt zurück, persönliche Benachrichtigungseinstellungen gelten. Audit-Einträge für Planen/Verschieben/Absagen/Konflikt. `tests/test_interview_calendar.py` (54 Tests), Browser-E2E `InterviewCalendar*E2ETests` in `tests/test_e2e_dashboard.py` (Desktop, Mobil, Rechte). Abgrenzung: vollständige Recruiting-Erinnerungen für alle Fälle bleiben #101. |
 | 100 | Bewerber-Kommunikationshistorie | **Teilweise** | Bewerbungsstatus, Interviewinformationen und Kommunikationsvorlagen sind vorhanden; ein vollständiges, revisionsfestes Kommunikationsjournal fehlt. |
 | 101 | Automatische Recruiting-Erinnerungen | **Teilweise** | `pulse_app_comms.due_reminders()` berechnet fällige Erinnerungen; die vollständige Zustellung/Fehlerabdeckung für alle Recruitingfälle ist nicht gesondert belegt. |
 | 102 | Recruiting-Statistik | **Teilweise** | Bewerbungsstufen und Analytics existieren; vollständige Conversion-, Wartezeit- und Prüferstatistik fehlt. |
@@ -298,7 +298,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 2. **Einige frühere Einschätzungen waren zu pessimistisch.** `pulse_ultimate.py` enthält echte Routen und Datenmodelle für Abteilungen, Fälle, Kalender, Umfragen, Feedback, Übergaben, Awards, Zertifikate und Automationen.
 3. **Einige dieser Ultimate-Bereiche haben wenig direkte Verhaltenstest-Abdeckung.** Sie werden deshalb in diesem Audit meist als **Teilweise** eingestuft, bis die kritischen Rechte-, Daten- und Fehlerpfade durch Tests abgesichert sind.
 4. **Die gemeinsamen Plattformfunktionen sind der größte Integrationsrückstand.** Korrelations-IDs, Inbox, Audit, Rechte und Events existieren jeweils in Teilen, sind aber noch nicht vollständig über alle Module vereinheitlicht.
-5. **Noch offen (1):** #10 Mehrsprachige Bot-Antworten. Die übrigen 103 teilweise bewerteten Punkte enthalten weiterhin wesentliche Funktionslücken oder fehlende Integrations-/Verhaltenstests.
+5. **Offene Punkte gibt es nicht mehr** (Zahlen: Gesamtübersicht). Die teilweise bewerteten Punkte enthalten weiterhin wesentliche Funktionslücken oder fehlende Integrations-/Verhaltenstests.
 6. **Das Audit ist kein Deployment.** Der VPS kann weiterhin einen älteren Commit ausführen, bis ein gesondert freigegebener Deployment-Schritt durchgeführt wird.
 
 ## Technische Hauptbelege
@@ -315,12 +315,9 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 ## Nächster sinnvoller Umsetzungsblock
 
-Die offenen Punkte sollten nicht in einem 177-Funktionen-Monolithen umgesetzt werden. Empfohlene Reihenfolge:
+Die teilweise bewerteten Punkte sollten nicht in einem 177-Funktionen-Monolithen umgesetzt werden. Ein Feature-Branch je Block, Reihenfolge nach Abhängigkeit:
 
-1. **Locale-System (#10):** Spracheinstellung und Übersetzungsinfrastruktur; anschließend Kernbefehle und weitere Bot-Antworten systematisch migrieren.
-2. **Moderation (#11–#25):** gemeinsame Fallakten, Einsprüche, Beweismittel, Ausnahmen, Raid-Stufen und Fehlalarm-Rückkanal.
-3. **Community und BOCHUM RP (#41–#55):** native Discord-Events, Meeting-Workflow, Regelwerkquellen und Spieler-Selbstservice.
-4. **TeamOS/Personal/Academy (#56–#115):** Live-Feed, Suche, 360°-Akte, Recruiting, Lernpfade und Wissensmanagement vervollständigen.
-5. **Integration/Intelligence/Operations (#116–#177):** gemeinsame Ereignis-/Auditverträge und die noch fehlenden Leitstellen-, Admin- und Datenschutzabläufe.
-
-Jede weitere Umsetzung sollte eine klar abgegrenzte PR mit eigenen Regressionstests, Berechtigungsprüfung und Daten-/Rollback-Betrachtung erhalten.
+1. **Recruiting (#100–#103):** Kommunikationsjournal, vollständige Recruiting-Erinnerungen (#101 baut auf den Interview-Erinnerungen aus #99 auf), Statistik, Vorlagenbibliothek.
+2. **Teamakte und Entwicklung (#71, #73–#76, #81, #87–#89, #92, #94).**
+3. **Academy, Integration und Intelligence (#106–#152):** Lernpfade, gemeinsame Ereignis-/Auditverträge, Prognosen.
+4. **Betrieb und Leitstelle (#153–#177):** Release-Übersicht, Restore-/Datenschutzabläufe, BOCHUM-RP-Leitstelle.

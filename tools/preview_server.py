@@ -96,6 +96,34 @@ def _seed_applications(ws) -> None:
     ws.save_json(ws.DATA_FILE, {"9005": {"probation": {"active": True, "started_at": ago(5)}}})
 
 
+def _seed_interviews(ws) -> None:
+    """Synthetic interview data (#99): applications in the interview phase, two of them already booked with a
+    calendar row, plus a plain team event. Fake names only; reviewer 3 (Lena Leitung) is shared on purpose."""
+    import pulse_db
+    import pulse_interviews as iv
+    tz = ws.now_de().tzinfo
+    midnight = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def person(user_id, name, reviewers):
+        return {"status": "interview", "user_id": user_id, "name": name, "career_label": "Support", "created_at": midnight.isoformat(),
+                "interview_invited_at": midnight.isoformat(), "reviews": {},
+                "assignments": [{"reviewer_id": r, "reviewer_name": n} for r, n in reviewers]}
+    lena, rita = [("3", "Lena Leitung")], [("4", "Rita Recruiting")]
+    apps = {"iv-anna": person("9101", "Anna Alpha", lena), "iv-bernd": person("9102", "Bernd Beta", lena),
+            "iv-cora": person("9103", "Cora Gamma", rita), "iv-fest": person("9104", "Fritz Fest", lena),
+            "iv-absage": person("9105", "Anja Absage", rita), "iv-mobil": person("9106", "Mona Mobil", []),
+            "iv-leer": {"status": "pending", "user_id": "9107", "name": "Pia Prüfung", "created_at": midnight.isoformat(), "reviews": {}}}
+
+    def book(app_id, days, hour, lead="3", lead_name="Lena Leitung"):
+        iv.schedule(apps, app_id, start=midnight + timedelta(days=days, hours=hour), minutes=30, lead_id=lead, lead_name=lead_name,
+                    actor_id="1", actor_name="Admin Anna", save=lambda data: ws.save_json(ws.APPS_FILE, data), db=pulse_db)
+    book("iv-fest", 5, 14)
+    book("iv-absage", 6, 16)
+    ws.save_json(ws.APPS_FILE, apps)
+    soon = (midnight + timedelta(days=5, hours=9)).astimezone(timezone.utc)
+    pulse_db.create_calendar_event("Teammeeting", soon.isoformat(timespec="seconds"), None, "meeting", "Discord", "Allgemein", "1", "Admin Anna")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8765)
@@ -104,6 +132,8 @@ def main() -> int:
                         help="Test-only routes under /__preview/ to provoke server-side failures (E2E tests)")
     parser.add_argument("--seed-applications", action="store_true",
                         help="Synthetic applications for the recruiting board (fake names, no real data)")
+    parser.add_argument("--seed-interviews", action="store_true",
+                        help="Synthetic interview appointments and calendar rows (#99; fake names, no real data)")
     args = parser.parse_args()
     for stream in (sys.stdout, sys.stderr):  # Windows pipes default to cp1252; the start messages use emoji
         try:
@@ -165,6 +195,8 @@ def main() -> int:
                                                   "102": {"can_view_dashboard": True, "can_manage_applications": True}}})
     if args.seed_applications:
         _seed_applications(ws)
+    if args.seed_interviews:
+        _seed_interviews(ws)
 
     user = {"admin": members[0], "recruiter": members[3]}.get(args.role, members[1])
 

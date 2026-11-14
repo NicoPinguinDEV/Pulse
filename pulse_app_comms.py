@@ -18,6 +18,8 @@ DEFAULTS = {
                   "Vor einer Einstellung muss verpflichtend ein Bewerbungsgespräch stattfinden. "
                   "Du bist damit noch nicht als Teammitglied eingestellt."),
     "scheduled": "🗓️ Dein Bewerbungsgespräch bei **{server}** ist am **{termin}** (deutsche Zeit). Bitte sei pünktlich im Warteraum.",
+    "rescheduled": "🔄 Dein Bewerbungsgespräch bei **{server}** wurde auf **{termin}** (deutsche Zeit) verschoben. Bitte sei pünktlich im Warteraum.",
+    "cancelled": "❌ Dein Bewerbungsgespräch bei **{server}** wurde abgesagt. Wir melden uns mit einem neuen Termin.",
     "reminder": "⏰ Erinnerung: Dein Bewerbungsgespräch bei **{server}** beginnt um **{termin}**.",
     "hired": ("🎉 Nach deinem Bewerbungsgespräch wurde deine Bewerbung bei **{server}** final angenommen. "
               "Du wurdest als **{rolle}** in das Team aufgenommen; die Bewerberolle wurde entfernt."),
@@ -25,6 +27,7 @@ DEFAULTS = {
     "rejected_after_interview": "Deine Bewerbung bei **{server}** wurde nach dem Bewerbungsgespräch leider abgelehnt.",
 }
 LABELS = {"received": "Eingang", "interview": "Freigabe zum Gespräch", "scheduled": "Gesprächstermin",
+          "rescheduled": "Gespräch verschoben", "cancelled": "Gespräch abgesagt",
           "reminder": "Erinnerung vor dem Gespräch", "hired": "Angenommen", "rejected": "Abgelehnt",
           "rejected_after_interview": "Abgelehnt nach Gespräch"}
 PLACEHOLDERS = "{server}, {id}, {rolle}, {termin}"
@@ -55,15 +58,27 @@ def render(key: str, **values) -> str:
     return _PLACEHOLDER.sub(lambda m: known.get(m.group(1), m.group(0)), load()[key])[:1900]
 
 
-def parse_slot(value: str, tz) -> datetime:
-    """'2026-10-24T18:30' from a datetime-local field in German time → aware datetime; must be in the future."""
+def parse_slot(value: str, tz, now: datetime | None = None) -> datetime:
+    """'2026-10-24T18:30' from a datetime-local field in German time → aware datetime; must be in the future.
+
+    DST (Europe/Berlin): a wall-clock time that does not exist (spring gap) or exists twice (autumn overlap)
+    is refused instead of being silently shifted by an hour."""
     try:
-        when = datetime.fromisoformat(str(value)).replace(tzinfo=tz)
+        naive = datetime.fromisoformat(str(value).strip())
     except (TypeError, ValueError):
         raise ValueError("Bitte Datum und Uhrzeit des Gesprächs angeben.") from None
-    if when <= datetime.now(timezone.utc):
+    if naive.tzinfo is not None:
+        raise ValueError("Bitte Datum und Uhrzeit ohne Zeitzone angeben (deutsche Zeit).")
+    naive = naive.replace(second=0, microsecond=0)
+    first = naive.replace(tzinfo=tz, fold=0)
+    second = naive.replace(tzinfo=tz, fold=1)
+    if first.astimezone(timezone.utc).astimezone(tz).replace(tzinfo=None) != naive:  # checked first: a gap also has two offsets
+        raise ValueError("Diese Uhrzeit gibt es wegen der Zeitumstellung nicht. Bitte eine andere Zeit wählen.")
+    if first.utcoffset() != second.utcoffset():
+        raise ValueError("Diese Uhrzeit gibt es wegen der Zeitumstellung zweimal. Bitte eine andere Zeit wählen.")
+    if first <= (now or datetime.now(timezone.utc)):
         raise ValueError("Der Gesprächstermin muss in der Zukunft liegen.")
-    return when
+    return first
 
 
 def due_reminders(apps: dict, now: datetime) -> list[str]:
