@@ -29,7 +29,6 @@ class CurrentTeamRoleTests(unittest.TestCase):
             "》BORP ✘ Rechte Hand": "Rechte Hand",
             "》BORP メ Co.Owner": "Co.Owner",
             "》BORP メ Stv.-Management": "Stv.Management",
-            "》BORP メ Stv.MA": "Stv.Management",
             "》BORP メ Stv.Teamleitung": "Stv.Teamleitung",
             "》BORP メ Sr.Moderator": "Sr.Moderator",
             "》BORP メ Test Supporter": "Test Supporter",
@@ -37,6 +36,13 @@ class CurrentTeamRoleTests(unittest.TestCase):
         for raw, expected in cases.items():
             with self.subTest(role=raw):
                 self.assertEqual(canonical_team_role_name(raw), expected)
+
+    def test_nickname_prefixes_are_not_role_aliases(self):
+        for prefix in ("MA", "PL", "Mod", "Sup", "Stv.MA", "T.Sup"):
+            with self.subTest(prefix=prefix):
+                self.assertIsNone(canonical_team_role_name(prefix))
+                self.assertIsNone(team_role_group(prefix))
+                self.assertIsNone(team_role_priority(prefix))
 
     def test_groups_and_rank_order_are_consistent(self):
         self.assertEqual(team_role_group("》BORP メ Projektleitung"), "fuehrungsebene")
