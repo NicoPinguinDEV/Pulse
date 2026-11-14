@@ -48,12 +48,12 @@ class ApplicantReminderTests(unittest.TestCase):
             get_guild=lambda guild_id: self.guild if guild_id == pulse_ids.GUILD_ID else None,
             fetch_channel=AsyncMock(return_value=self.channel),
         )
-        self.get_setting = patch.object(pulse_db, "get_setting", return_value=None)
-        self.set_setting = patch.object(pulse_db, "set_setting")
-        self.get_setting.start()
-        self.set_setting.start()
-        self.addCleanup(self.get_setting.stop)
-        self.addCleanup(self.set_setting.stop)
+        self.get_setting_patch = patch.object(pulse_db, "get_setting", return_value=None)
+        self.set_setting_patch = patch.object(pulse_db, "set_setting")
+        self.get_setting_mock = self.get_setting_patch.start()
+        self.set_setting_mock = self.set_setting_patch.start()
+        self.addCleanup(self.get_setting_patch.stop)
+        self.addCleanup(self.set_setting_patch.stop)
 
     def _message(self, *, author_id, content, message_id):
         return SimpleNamespace(
@@ -74,7 +74,7 @@ class ApplicantReminderTests(unittest.TestCase):
         self.assertIs(kwargs["allowed_mentions"].users, False)
         self.assertIs(kwargs["allowed_mentions"].everyone, False)
         self.bot.fetch_channel.assert_not_awaited()
-        self.set_setting.assert_called_once_with(
+        self.set_setting_mock.assert_called_once_with(
             REMINDER_MESSAGE_SETTING_KEY,
             self.sent_message.id,
         )
@@ -119,7 +119,7 @@ class ApplicantReminderTests(unittest.TestCase):
             content=f"{self.role.mention}\n{REMINDER_TEXT}",
             message_id=444,
         )
-        self.get_setting.return_value = previous.id
+        self.get_setting_mock.return_value = previous.id
         self.channel.fetch_message = AsyncMock(return_value=previous)
 
         asyncio.run(send_applicant_reminder(self.bot))
@@ -127,7 +127,7 @@ class ApplicantReminderTests(unittest.TestCase):
         self.channel.fetch_message.assert_awaited_once_with(previous.id)
         previous.delete.assert_awaited_once()
         self.assertEqual(self.history_calls, 0)
-        self.set_setting.assert_called_once_with(
+        self.set_setting_mock.assert_called_once_with(
             REMINDER_MESSAGE_SETTING_KEY,
             self.sent_message.id,
         )
