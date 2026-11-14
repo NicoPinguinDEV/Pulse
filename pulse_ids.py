@@ -13,6 +13,8 @@ APPLICATION_ALERT_CHANNEL_ID = 1558776676731719720
 APPLICATION_ALERT_ROLE_ID = 1531300183088824340
 # Bewerberrolle bis zum abgeschlossenen Gespräch
 APPLICATION_ROLE_ID = 1496070682126188604
+# Kanal für wiederkehrende Erinnerungen an offene Bewerbungsgespräche
+APPLICATION_REMINDER_CHANNEL_ID = 1559242374658662602
 # zentraler Team-Updates-Kanal
 TEAM_UPDATE_CHANNEL_ID = 1531132354272170115
 # Rollen, die nach einem Team-Kick bleiben
