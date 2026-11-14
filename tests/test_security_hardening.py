@@ -186,7 +186,7 @@ def member(uid, name, *roles):
     return m
 
 
-SUPPORT, MOD, LEAD = Role(10, "Support", 5), Role(11, "Moderator", 6, kick_members=True), Role(12, "Supervisor", 7)
+SUPPORT, MOD, LEAD = Role(10, "Supporter", 5), Role(11, "Moderator", 6, kick_members=True), Role(12, "Teamleitung", 7)
 ADMINROLE = Role(20, "Server-Admin", 4, admin=True)        # forgotten admin role BELOW the lead role
 HELPER_MOD = Role(21, "Extra-Mod", 3, ban_members=True)    # non-team role with server-wide rights
 COSMETIC = Role(22, "Event", 2)
@@ -472,7 +472,7 @@ class AiReviewRightsTests(unittest.TestCase):
         citizen = member(5, "Bürger", COSMETIC)
         with patch.object(ws, "compute_perms", lambda *a: (perms, interaction.user)):
             message = cog._action_problem(interaction, citizen, "team_warn")
-        self.assertIn("Supervisor", message)
+        self.assertIn("Teamleitung", message)
 
     def test_matching_rights_and_hierarchy_allow_the_sanction(self):
         cog, interaction, perms = self._cog_and_interaction({"can_moderate_bans": True}, {"ban_members": True})
