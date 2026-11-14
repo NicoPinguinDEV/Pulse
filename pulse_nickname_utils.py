@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import unicodedata
 import pulse_ids as _pulse_ids  # A-09: fixed Discord IDs live in one place
+from pulse_team_roles import LEGACY_ROLE_PREFIXES, TEAM_ROLE_ALIASES, TEAM_ROLE_ORDER, TEAM_ROLE_PREFIXES, canonical_team_role_name
 
 MAX_DISCORD_NICKNAME_LENGTH = 32
 MAX_ROLE_PREFIX_LENGTH = 24
@@ -60,109 +61,11 @@ def _role_label_key(value: object) -> str:
 # Compact, recognizable nicknames for Bochum RP's team hierarchy.
 # The Discord role names themselves are never renamed. Add aliases here when a
 # role is spelled slightly differently in the Discord server.
+# Non-team labels still used by the general nickname system. Current team ranks
+# are resolved exclusively through pulse_team_roles.py.
 _ROLE_PREFIX_ABBREVIATIONS = {
     _role_label_key(label): short
-    for label, short in (
-        ("Founder", "Founder"),
-        ("FND", "Founder"),
-        ("Inhaber", "Inhaber"),
-        ("Inh.", "Inhaber"),
-        ("Stv.Inhaber", "Stv.Inh"),
-        ("Stv.Inh.", "Stv.Inh"),
-        ("Stv.Inh", "Stv.Inh"),
-        ("Rechte Hand", "Rechte Hand"),
-        ("RH", "Rechte Hand"),
-        ("Owner", "Owner"),
-        ("Co.Owner", "Co.Owner"),
-        ("Champ", "Champ"),
-        ("DC Rechte", "DC"),
-        ("Dev-Leitung", "L.Dev"),
-        ("L.Dev", "L.Dev"),
-        ("DevL", "L.Dev"),
-        ("Developer", "Dev"),
-        ("Leitende Projektleitung", "L.PL"),
-        ("Projektleitung", "PL"),
-        ("Stv.Projektleitung", "Stv.PL"),
-        ("Leitende Projektkoordination", "L.PK"),
-        ("Projektkoordination", "PK"),
-        ("Stv.Projektkoordination", "Stv.PK"),
-        ("Leitender Direktor", "L.DK"),
-        ("L.DK", "L.DK"),
-        ("Direktor", "DK"),
-        ("DK", "DK"),
-        ("Stv.Direktor", "Stv.DK"),
-        ("Stv.DK", "Stv.DK"),
-        ("Leitende Serverleitung", "L.SL"),
-        ("Serverleitung", "SL"),
-        ("Stv.Serverleitung", "Stv.SL"),
-        ("Leitender Manager", "L.MA"),
-        ("L.MA", "L.MA"),
-        ("Management", "MA"),
-        ("MA", "MA"),
-        ("Stv.Management", "Stv.MA"),
-        ("Stv.MA", "Stv.MA"),
-        ("Leitende Teamleitung", "L.TL"),
-        ("Teamleitung", "TL"),
-        ("Stv.Teamleitung", "Stv.TL"),
-        ("Leitende Teamaufsicht", "L.TA"),
-        ("Teamaufsicht", "TA"),
-        ("Stv.Teamaufsicht", "Stv.TA"),
-        ("Stv Teamaufsicht", "Stv.TA"),
-        ("Leitender-Supervisor", "L.Supervisor"),
-        ("L.Supervisor", "L.Supervisor"),
-        ("Leitender Supervisor", "L.Supervisor"),
-        ("Supervisor", "Supervisor"),
-        ("Stv.Supervisor", "Stv.Supervisor"),
-        ("Stv Supervisor", "Stv.Supervisor"),
-        ("Ausbilder-Leitung", "L.AB"),
-        ("L.AB", "L.AB"),
-        ("AusbL", "L.AB"),
-        ("Ausbilder", "AB"),
-        ("AB", "AB"),
-        ("Ausb", "AB"),
-        ("Highteamanwärter", "HTA"),
-        ("Community-Management", "CM"),
-        ("Stv.Community-Management", "Stv.CM"),
-        ("Stv Community-Management", "Stv.CM"),
-        ("Fraktionsverwaltung", "FV"),
-        ("Stv.Fraktionsverwaltung", "Stv.FV"),
-        ("Stv Fraktionsverwaltung", "Stv.FV"),
-        ("Eventleitung", "EL"),
-        ("Admin-Leitung", "L.Admin"),
-        ("L.Admin", "L.Admin"),
-        ("AdminL", "L.Admin"),
-        ("Sr.Admin", "Sr.Admin"),
-        ("Admin", "Admin"),
-        ("Jr.Admin", "Jr.Admin"),
-        ("Mod-Leitung", "L.Mod"),
-        ("L.Mod", "L.Mod"),
-        ("ModL", "L.Mod"),
-        ("Sr.Moderator", "Sr.Mod"),
-        ("Moderator", "Mod"),
-        ("Jr.Moderator", "Jr.Mod"),
-        ("Sup-Leitung", "L.Sup"),
-        ("L.Sup", "L.Sup"),
-        ("SupL", "L.Sup"),
-        ("Sr.Supporter", "Sr.Sup"),
-        ("Supporter", "Sup"),
-        ("Test Supporter", "T.Sup"),
-        ("Aushilfe", "Aushilfe"),
-        ("Aush.", "Aushilfe"),
-        ("Bauteamler Leitung", "L.Bau"),
-        ("L.Bau", "L.Bau"),
-        ("BauL", "L.Bau"),
-        ("Stv Bauteamler Leitung", "Stv.L.Bau"),
-        ("Stv.L.Bau", "Stv.L.Bau"),
-        ("Stv.BauL", "Stv.L.Bau"),
-        ("Stv. Bauteamler Leitung", "Stv.L.Bau"),
-        ("Senior Bauteamler", "Sr.Bau"),
-        ("Sr. Bauteamler", "Sr.Bau"),
-        ("Bauteamler", "Bau"),
-        ("Test Bauteamler", "T.Bau"),
-        ("Teamler", "Team"),
-        ("VIP", "VIP"),
-        ("Bürger", "Bürger"),
-    )
+    for label, short in (("DC Rechte", "DC"), ("VIP", "VIP"), ("Bürger", "Bürger"))
 }
 
 
@@ -195,76 +98,33 @@ def _extract_role_label(role_name: object) -> str:
 # values continue to take precedence.
 _PREVIOUS_ROLE_PREFIX_LABELS = {
     _role_label_key(role): old
-    for role, old in (
-        ("Founder", "FND"),
-        ("Rechte Hand", "RH"),
-        ("Dev-Leitung", "DevL"),
-        ("Ausbilder-Leitung", "AusbL"),
-        ("Ausbilder", "Ausb"),
-        ("Admin-Leitung", "AdminL"),
-        ("Mod-Leitung", "ModL"),
-        ("Sup-Leitung", "SupL"),
-        ("Aushilfe", "Aush."),
-        ("Bauteamler Leitung", "BauL"),
-        ("Stv Bauteamler Leitung", "Stv.BauL"),
-        ("Inhaber", "Inh."),
-        ("Stv.Inhaber", "Stv.Inh."),
-        ("Leitender Direktor", "L.Dir"),
-        ("Direktor", "Dir"),
-        ("Stv.Direktor", "Stv.Dir"),
-        ("Leitender Manager", "L.Mgmt"),
-        ("Management", "Mgmt"),
-        ("Stv.Management", "Stv.Mgmt"),
-        ("Leitender-Supervisor", "L.Sup"),
-        ("Leitender Supervisor", "L.Sup"),
-        ("Supervisor", "Sup"),
-        ("Stv.Supervisor", "Stv.Sup"),
-        ("Stv Supervisor", "Stv.Sup"),
-    )
+    for role, old in (("Founder", "FND"), ("Rechte Hand", "RH"))
 }
 
 
 def automatic_role_prefix(role_name: object) -> str:
-    """Build a compact role prefix, cleaning the server's decorative role names."""
+    """Build the current BOCHUM rank prefix, cleaning Discord role decorations."""
     label = _extract_role_label(role_name)
     if not label:
         return "Bürger ✗"
-
-    short_label = _ROLE_PREFIX_ABBREVIATIONS.get(_role_label_key(label))
-    if short_label:
-        label = short_label
-    elif "bürger" in label.casefold():
-        label = "Bürger"
-    elif label.casefold() == "vip":
-        label = "VIP"
-
-    # Keep a little room for the member name within Discord's 32-character limit.
+    canonical = canonical_team_role_name(role_name)
+    if canonical:
+        label = TEAM_ROLE_PREFIXES[canonical]
+    else:
+        short_label = _ROLE_PREFIX_ABBREVIATIONS.get(_role_label_key(label))
+        if short_label:
+            label = short_label
+        elif "bürger" in label.casefold():
+            label = "Bürger"
+        elif label.casefold() == "vip":
+            label = "VIP"
     if len(label) > 22:
         label = label[:21].rstrip() + "…"
     return f"{label} ✗"
 
 
-# Explicit Pulse team hierarchy, highest to lowest. The values match the canonical
-# prefixes returned by automatic_role_prefix(); Discord role positions break ties
-# between alternate spellings of the same logical rank.
-_TEAM_ROLE_PREFIX_ORDER = (
-    "Founder", "Inhaber", "Stv.Inh", "Rechte Hand", "Owner", "Co.Owner",
-    "L.Dev", "Dev",
-    "L.PL", "PL", "Stv.PL",
-    "L.PK", "PK", "Stv.PK",
-    "L.DK", "DK", "Stv.DK",
-    "L.SL", "SL", "Stv.SL",
-    "L.MA", "MA", "Stv.MA",
-    "L.TL", "TL", "Stv.TL",
-    "L.TA", "TA", "Stv.TA",
-    "L.Supervisor", "Supervisor", "Stv.Supervisor",
-    "L.AB", "AB", "HTA",
-    "CM", "Stv.CM", "FV", "Stv.FV", "EL",
-    "L.Admin", "Sr.Admin", "Admin", "Jr.Admin",
-    "L.Mod", "Sr.Mod", "Mod", "Jr.Mod",
-    "L.Sup", "Sr.Sup", "Sup", "T.Sup", "Aushilfe",
-    "L.Bau", "Stv.L.Bau", "Sr.Bau", "Bau", "T.Bau",
-)
+# Explicit current BOCHUM role hierarchy, highest to lowest.
+_TEAM_ROLE_PREFIX_ORDER = tuple(TEAM_ROLE_PREFIXES[name] for name in TEAM_ROLE_ORDER)
 _TEAM_ROLE_PREFIX_PRIORITY = {
     _role_label_key(label): priority
     for priority, label in enumerate(_TEAM_ROLE_PREFIX_ORDER)
@@ -386,8 +246,10 @@ def strip_legacy_rank_prefix(name: object) -> str | None:
 
 
 _PULSE_PREFIX_LABELS = {
-    _role_label_key(label)
-    for label in (*_ROLE_PREFIX_ABBREVIATIONS.values(), *_TEAM_ROLE_PREFIX_ORDER, "Bürger", "VIP", "Team", "Unverifiziert")
+    *TEAM_ROLE_ALIASES.keys(),
+    *(_role_label_key(label) for label in TEAM_ROLE_PREFIXES.values()),
+    *(_role_label_key(label) for label in LEGACY_ROLE_PREFIXES),
+    *(_role_label_key(label) for label in ("Bürger", "VIP", "Team", "Unverifiziert", "DC")),
 }
 
 
