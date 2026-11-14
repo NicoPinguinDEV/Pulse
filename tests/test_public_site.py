@@ -51,6 +51,16 @@ class Base(unittest.TestCase):
 
 
 class Pages(Base):
+    def test_team_rank_levels_match_current_bochum_roles(self):
+        self.assertEqual(
+            [(number, label) for number, label, _ in site.TEAM_LEVELS],
+            [("01", "Führungsebene"), ("02", "HighTeam"), ("03", "LowTeam")],
+        )
+        self.assertEqual(site._team_level({"role_label": "》BORP メ Founder"}), ("01", "Führungsebene"))
+        self.assertEqual(site._team_level({"role_label": "》BORP メ Stv.-Management"}), ("02", "HighTeam"))
+        self.assertEqual(site._team_level({"role_label": "》BORP メ Test Supporter"}), ("03", "LowTeam"))
+        self.assertEqual(site._team_level({"role_label": "》BORP メ Inhaber"}), ("99", "Weitere Teamfunktionen"))
+
     def test_dashboard_head_never_uses_tailwind_play_cdn(self):
         self.assertNotIn("cdn.tailwindcss.com", ws.HEAD_SCRIPT)
         self.assertIn("/static/pulse.css", ws.HEAD_SCRIPT)
