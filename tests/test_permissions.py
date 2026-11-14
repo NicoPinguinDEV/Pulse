@@ -88,7 +88,7 @@ class PermissionModelTests(unittest.TestCase):
             with self.subTest(role_name=role_name):
                 self.assertFalse(pulse_pro.is_recommended_team_lead_role_name(role_name))
 
-    def test_team_warning_authority_is_derived_from_supervisor_role_and_higher(self):
+    def test_team_warning_authority_is_derived_from_teamleitung_role_and_higher(self):
         roles = {
             400: SimpleNamespace(id=400, name="》BORP メ Supporter", position=5),
             401: SimpleNamespace(id=401, name="》BORP メ Stv.Teamleitung", position=10),
