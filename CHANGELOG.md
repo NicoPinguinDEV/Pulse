@@ -4,6 +4,7 @@
 
 - **Bewerbungs-Board (#95):** `/applications/board` bearbeitet Bewerbungen direkt an der Karte: Entscheiden (Einladung, Ablehnen, Einstellen/Ablehnen nach Gespräch) und Prüfer zuweisen über dieselben geprüften Abläufe wie die Bewerbungsseite (Rollen, DM, Audit, Mindestbewertungs-Policy). Karten zeigen Status, Wartezeit/Frist, Prüfer und Bewertungsfortschritt; Suche und Filter (überfällig, mir zugewiesen, ohne Prüfer); Leer-/Fehlerzustände.
 - Sicherheit: Statuswerte unverändert, keine Spaltenänderung ohne Entscheidung; veraltete oder doppelte Übermittlungen werden abgewiesen („inzwischen bearbeitet“); Rücksprung nur zum Board; Datensätze fremder Guilds werden nicht angezeigt oder bearbeitet. Keine Datenmigration.
+- Browser-Tests (#95): 27 neue Playwright-Tests für das Bewerbungs-Board (Layout Desktop/Mobil, Suche/Filter, Formularaktionen, Rechte, Tastatur, Fehler-/Leerzustände, Datenschutz). Das Board hat jetzt eine Überschriftenstruktur (`h1`/`h2`) für Screenreader.
 
 ## Bewerbungen: Prüferzuweisung und unabhängige Bewertung (November 2026)
 

@@ -12,6 +12,7 @@ import argparse
 import os
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -34,17 +35,75 @@ def _register_e2e_hooks(app) -> None:
         (pulse_backup._MAINTENANCE.set if on else pulse_backup._MAINTENANCE.clear)()
         return JSONResponse({"ok": True, "maintenance": pulse_backup.maintenance_active()})
 
+    @app.post("/__preview/apps-unreadable")
+    async def preview_apps_unreadable(on: bool = Body(embed=True)):
+        """Application data cannot be read (real read error inside ws.load_json) - the board must show its error state."""
+        import webserver as ws
+        if on and not getattr(ws, "_e2e_real_load_json", None):
+            ws._e2e_real_load_json = ws.load_json
+
+            def broken(filepath, default):
+                if os.path.abspath(filepath) == os.path.abspath(ws.APPS_FILE):
+                    raise OSError("E2E: Bewerbungsdaten nicht lesbar")
+                return ws._e2e_real_load_json(filepath, default)
+            ws.load_json = broken
+        elif not on and getattr(ws, "_e2e_real_load_json", None):
+            ws.load_json = ws._e2e_real_load_json
+            ws._e2e_real_load_json = None
+        return JSONResponse({"ok": True, "unreadable": on})
+
+    @app.post("/__preview/flag")
+    async def preview_flag(key: str = Body(embed=True), on: bool = Body(embed=True)):
+        import pulse_flags
+        pulse_flags.set_enabled(key, on)
+        return JSONResponse({"ok": True, key: pulse_flags.enabled(key)})
+
     @app.get("/__preview/fail")
     async def preview_fail():
         raise RuntimeError("E2E: absichtlich ausgelöster Serverfehler")
 
 
+def _seed_applications(ws) -> None:
+    """Synthetic board data: every column filled, one overdue card, one card assigned to the admin, review/answer
+    texts of *other* reviewers that must never appear on the board (E2E checks that)."""
+    now = datetime.now(timezone.utc)
+
+    def ago(days):
+        return (now - timedelta(days=days)).isoformat()
+    secret = {"practical_answers": [{"title": "Praxisaufgabe 1", "prompt": "Synthetische Aufgabe", "answer": "GEHEIME-ANTWORT-4711", "review_guide": "-"}],
+              "reviews": {"3": {"reviewer_id": "3", "reviewer_name": "Lena Leitung", "ratings": {"fachwissen": 5, "auftreten": 2},
+                                "comment": "GEHEIME-BEWERTUNG-0815", "updated_at": ago(1)}}}
+    apps = {
+        "e2e-eingang": {"status": "pending", "user_id": "9001", "name": "Erika Eingang", "career_label": "Support",
+                        "created_at": ago(1), "reviews": {}},
+        "e2e-ueberfaellig": {"status": "pending", "user_id": "9002", "name": "Ulf Überfällig", "career_label": "Support",
+                             "created_at": ago(12), "reviews": {}},
+        "e2e-pruefung": {"status": "pending", "user_id": "9003", "name": "Paula Prüfung", "career_label": "Moderation",
+                         "created_at": ago(4), "assignments": [{"reviewer_id": "1", "reviewer_name": "Admin Anna"},
+                                                                {"reviewer_id": "3", "reviewer_name": "Lena Leitung"}], **secret},
+        "e2e-gespraech": {"status": "interview", "user_id": "9004", "name": "Gerd Gespräch", "career_label": "Support",
+                          "created_at": ago(9), "interview_invited_at": ago(2), "reviews": {}},
+        "e2e-probezeit": {"status": "hired", "user_id": "9005", "name": "Paul Probezeit", "career_label": "Support",
+                          "created_at": ago(20), "decided_at": ago(5), "decided_by": "Admin Anna"},
+        "e2e-team": {"status": "accepted", "user_id": "9006", "name": "Tina Team", "career_label": "Support",
+                     "created_at": ago(20), "decided_at": ago(3), "decided_by": "Admin Anna"},
+        "e2e-abgelehnt": {"status": "rejected", "user_id": "9007", "name": "Anton Abgelehnt", "career_label": "Support",
+                          "created_at": ago(15), "decided_at": ago(2), "decided_by": "Admin Anna", **secret},
+    }
+    ws.save_json(ws.APPS_FILE, apps)
+    import pulse_flags  # the board is a switchable function (default off, route answers 404): the preview switches it on
+    pulse_flags.set_enabled("application_board", True)
+    ws.save_json(ws.DATA_FILE, {"9005": {"probation": {"active": True, "started_at": ago(5)}}})
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--role", choices=("admin", "team"), default="admin")
+    parser.add_argument("--role", choices=("admin", "recruiter", "team"), default="admin")
     parser.add_argument("--e2e-hooks", action="store_true",
                         help="Test-only routes under /__preview/ to provoke server-side failures (E2E tests)")
+    parser.add_argument("--seed-applications", action="store_true",
+                        help="Synthetic applications for the recruiting board (fake names, no real data)")
     args = parser.parse_args()
     for stream in (sys.stdout, sys.stderr):  # Windows pipes default to cp1252; the start messages use emoji
         try:
@@ -75,13 +134,15 @@ def main() -> int:
 
     team = FakeRole(100, "Supporter", position=3)
     lead = FakeRole(101, "Leitung", position=5)
+    recruiting = FakeRole(102, "Recruiting", position=4)
     members = [FakeMember(1, "Admin Anna", roles=[lead], admin=True),
-               FakeMember(2, "Max Muster", roles=[team]), FakeMember(3, "Lena Leitung", roles=[lead])]
+               FakeMember(2, "Max Muster", roles=[team]), FakeMember(3, "Lena Leitung", roles=[lead]),
+               FakeMember(4, "Rita Recruiting", roles=[recruiting])]
     for m in members:
         m.status, m.activity, m.activities, m.nick, m.joined_at = "online", None, (), None, None
         m.top_role = m.roles[0] if m.roles else team
         m.color = SimpleNamespace(value=0x5B5CF0)
-    guild = FakeGuild(gid=ws.GUILD_ID, members=members, roles=[team, lead],
+    guild = FakeGuild(gid=ws.GUILD_ID, members=members, roles=[team, lead, recruiting],
                       channels=[FakeChannel(10, "allgemein"), FakeChannel(11, "team-logs")], owner_id=1)
     guild.categories = []
     for m in members:
@@ -98,10 +159,14 @@ def main() -> int:
                                        is_closed=lambda: False, latency=0.0, guilds=[guild], user=None,
                                        intents=discord.Intents.default())
     ws.init_runtime()
-    ws.save_json(ws.CONFIG_FILE, {"team_role_ids": [100, 101],
-                                  "permissions": {"101": {k: True for k in ws.PERM_KEYS}}})
+    ws.save_json(ws.CONFIG_FILE, {"team_role_ids": [100, 101, 102],
+                                  "permissions": {"101": {k: True for k in ws.PERM_KEYS},
+                                                  # recruiting staff: may decide applications, but is not leadership
+                                                  "102": {"can_view_dashboard": True, "can_manage_applications": True}}})
+    if args.seed_applications:
+        _seed_applications(ws)
 
-    user = members[0] if args.role == "admin" else members[1]
+    user = {"admin": members[0], "recruiter": members[3]}.get(args.role, members[1])
 
     def fake_auth(request, session, perm="can_view_dashboard", admin=False):
         from fastapi import HTTPException
