@@ -77,9 +77,10 @@ TEAM_ROLE_PREFIXES: dict[str, str] = {
 # Historical prefix labels are accepted only when cleaning old nicknames. They are
 # deliberately NOT aliases for active roles and cannot grant rank or permissions.
 LEGACY_ROLE_PREFIXES: tuple[str, ...] = (
-    "Inhaber", "Stv.Inh", "L.Dev", "Dev", "L.PL", "L.PK", "PK",
-    "L.DK", "DK", "Stv.DK", "L.TL", "L.TA", "TA", "L.Supervisor",
-    "Supervisor", "Stv.Supervisor", "L.AB", "HTA", "CM", "Stv.CM",
+    "FND", "Inhaber", "Inh.", "Stv.Inh", "RH", "Champ",
+    "L.Dev", "DevL", "Dev", "L.PL", "L.PK", "PK", "Stv.PK",
+    "L.DK", "DK", "Stv.DK", "L.SL", "L.TL", "L.MA", "L.TA", "TA", "Stv.TA",
+    "L.Supervisor", "Supervisor", "Stv.Supervisor", "L.AB", "HTA", "CM", "Stv.CM",
     "Stv.FV", "L.Admin", "L.Mod", "L.Sup", "Aushilfe", "L.Bau",
     "Stv.L.Bau", "Sr.Bau", "Bau", "T.Bau", "Team",
 )
