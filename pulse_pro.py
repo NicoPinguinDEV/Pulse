@@ -29,6 +29,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 import pulse_db as db
 from pulse_nickname_utils import normalize_role_prefix
+from pulse_team_roles import canonical_team_role_name, team_role_group
 from pulse_version import PULSE_VERSION
 from pulse_shift_utils import credited_shift_seconds, needs_duration_confirmation
 
@@ -64,14 +65,8 @@ EXTRA_PERMS = (
 
 
 def is_recommended_team_lead_role_name(role_name: object) -> bool:
-    """Recognise team-lead roles, including BOCHUM RP's Leitende Projektleitung (LPL/L.PL)."""
-    role_words = re.sub(r"[^a-z0-9äöüß]+", " ", str(role_name or "").casefold()).strip()
-    is_lpl = (
-        bool(re.search(r"(?<![a-z0-9])lpl(?![a-z0-9])", role_words))
-        or bool(re.search(r"(?<![a-z0-9])l\s*pl(?![a-z0-9])", role_words))
-        or "leitende projektleitung" in role_words
-    )
-    return is_lpl or any(word in role_words for word in ("teamleitung", "team leitung", "teamlead", "team lead"))
+    """Only the current Teamleitung ranks receive the team-lead permission profile."""
+    return canonical_team_role_name(role_name) in {"Teamleitung", "Stv.Teamleitung"}
 
 
 def recent_event_title(event_type: str | None) -> str:
@@ -1051,56 +1046,55 @@ def register(app):
         return profile
 
     def recommended_role_profile(role):
-        """PK outranks Teamleitung; Discord-server administrator access stays separate."""
+        """Suggest a least-surprise profile for the current BOCHUM role catalogue."""
         keys = tuple(dict.fromkeys((*ws.PERM_KEYS, *EXTRA_PERMS)))
         profile = {key: False for key in keys}
         profile["can_view_dashboard"] = True
-        name = str(getattr(role, "name", "") or "").casefold()
-        role_words = re.sub(r"[^a-z0-9äöüß]+", " ", name).strip()
-        pk_role = bool(re.search(r"(?<![a-z0-9])pk(?![a-z0-9])", name)) or any(
-            word in role_words for word in ("personalkommission", "personal kontrolle", "personalkontrolle")
-        )
-        team_lead_role = is_recommended_team_lead_role_name(name)
-        support_role = any(word in name for word in ("support", "supporter", "lowteam", "low team", "teamler", "ticket"))
-        leadership_role = any(word in name for word in (
-            "highteam", "high team", "führungsebene", "fuehrungsebene", "führung",
-            "fuehrung", "administrator", "admin", "owner", "inhaber", "management", "manager",
-            "serverleitung", "leitungsebene", "direktor", "director",
-        )) or ("leitung" in name and not support_role and not team_lead_role)
+        canonical = canonical_team_role_name(getattr(role, "name", ""))
+        group = team_role_group(canonical) if canonical else None
 
-        if pk_role:
-            for key in keys: profile[key] = True
-        elif team_lead_role:
-            # Teamleitung leads day-to-day operations; bans and BOLOs remain above this level.
-            for key in (
+        def allow(*permissions):
+            for key in permissions:
+                if key in profile:
+                    profile[key] = True
+
+        if group == "fuehrungsebene" or canonical in {"Management", "Stv.Management"}:
+            for key in keys:
+                profile[key] = True
+        elif canonical in {"Teamleitung", "Stv.Teamleitung"}:
+            # Teamleitung leads day-to-day operations; bans, BOLOs and server control
+            # remain with the top leadership group.
+            allow(
                 "can_warn", "can_moderate_kicks", "can_add_notes", "can_promote",
                 "can_manage_tickets", "can_manage_applications", "can_manage_tasks",
                 "can_manage_training", "can_manage_wiki", "can_manage_announcements",
                 "can_manage_handover", "can_manage_promotions", "can_view_team_status",
                 "can_manage_checkins",
-            ):
-                if key in profile: profile[key] = True
-        elif leadership_role:
-            for key in keys: profile[key] = True
-        elif any(word in name for word in ("moderator", "moderation")) or role_words in {"mod", "team mod"}:
-            for key in (
+            )
+        elif canonical in {
+            "Sr.Admin", "Admin", "Jr.Admin",
+            "Sr.Moderator", "Moderator", "Jr.Moderator",
+        }:
+            allow(
                 "can_manage_tickets", "can_manage_tasks", "can_manage_training",
-                "can_manage_wiki", "can_add_notes", "can_warn", "can_moderate_kicks",
-                "can_view_team_status",
-            ):
-                if key in profile: profile[key] = True
-        elif support_role:
-            for key in (
+                "can_manage_wiki", "can_add_notes", "can_warn",
+                "can_moderate_kicks", "can_view_team_status",
+            )
+        elif canonical in {"Sr.Supporter", "Supporter", "Test Supporter"}:
+            allow(
                 "can_manage_tickets", "can_manage_tasks", "can_manage_training",
                 "can_manage_wiki", "can_add_notes", "can_view_team_status",
-            ):
-                if key in profile: profile[key] = True
-        elif any(word in name for word in ("ausbildung", "probezeit", "bewerber", "trainee", "praktikant")):
-            for key in ("can_manage_tickets", "can_manage_training", "can_manage_wiki"):
-                if key in profile: profile[key] = True
+            )
+        elif canonical == "Ausbilder":
+            allow("can_manage_tasks", "can_manage_training", "can_manage_wiki",
+                  "can_add_notes", "can_view_team_status")
+        elif canonical == "Eventleitung":
+            allow("can_manage_tasks", "can_manage_announcements", "can_add_notes",
+                  "can_view_team_status")
         else:
-            for key in ("can_manage_tickets", "can_manage_tasks", "can_manage_training", "can_manage_wiki"):
-                if key in profile: profile[key] = True
+            # Fraktionsverwaltung has its own role-name based capability; it is
+            # deliberately not granted broad dashboard administration here.
+            allow("can_manage_tickets", "can_manage_tasks", "can_manage_training", "can_manage_wiki")
         return profile
 
     def apply_recommended_role_profiles(c):

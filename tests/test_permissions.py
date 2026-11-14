@@ -73,25 +73,28 @@ class PermissionModelTests(unittest.TestCase):
         self.assertEqual(tuple(ws.PERM_KEYS), perms.BASE_KEYS)
         self.assertEqual(tuple(pulse_pro.EXTRA_PERMS), perms.EXTRA_KEYS)
 
-    def test_lpl_is_recognised_as_a_team_lead_role_for_recommended_permissions(self):
+    def test_current_teamleitung_ranks_are_recognised_for_recommended_permissions(self):
         import pulse_pro
         for role_name in (
-            "LPL", "LPL · Leitung Personal", "Stellv. LPL",
-            "Leitende Projektleitung", "Leitende Projektleitung (L.PL)", "L.PL",
+            "Teamleitung", "Stv.Teamleitung", "》BORP メ Teamleitung",
+            "》BORP メ Stv.Teamleitung",
         ):
             with self.subTest(role_name=role_name):
                 self.assertTrue(pulse_pro.is_recommended_team_lead_role_name(role_name))
-        for role_name in ("LowTeam", "XLPL", "Projektleitung", "L.PK"):
+        for role_name in (
+            "LowTeam", "Projektleitung", "Management", "Founder",
+            "LPL", "Leitende Projektleitung", "Stv.Management",
+        ):
             with self.subTest(role_name=role_name):
                 self.assertFalse(pulse_pro.is_recommended_team_lead_role_name(role_name))
 
-    def test_team_warning_authority_is_derived_from_supervisor_role_and_higher(self):
+    def test_team_warning_authority_is_derived_from_teamleitung_role_and_higher(self):
         roles = {
-            400: SimpleNamespace(id=400, name="Team", position=5),
-            401: SimpleNamespace(id=401, name="Stv.Supervisor", position=10),
-            402: SimpleNamespace(id=402, name="》BORP メ Supervisor", position=15),
-            403: SimpleNamespace(id=403, name="L.Supervisor", position=20),
-            404: SimpleNamespace(id=404, name="Leitung", position=30),
+            400: SimpleNamespace(id=400, name="》BORP メ Supporter", position=5),
+            401: SimpleNamespace(id=401, name="》BORP メ Stv.Teamleitung", position=10),
+            402: SimpleNamespace(id=402, name="》BORP メ Teamleitung", position=15),
+            403: SimpleNamespace(id=403, name="》BORP メ Management", position=20),
+            404: SimpleNamespace(id=404, name="》𝐅𝐨𝐮𝐧𝐝𝐞𝐫", position=30),
         }
 
         def permission_for(role_id=None, admin=False):
@@ -108,7 +111,7 @@ class PermissionModelTests(unittest.TestCase):
             config = {"team_role_ids": list(roles)}
             return ws.compute_perms(guild, current.id, config)[0]["can_manage_team_warnings"]
 
-        self.assertFalse(permission_for(401))  # deputy Supervisor is below the minimum
+        self.assertFalse(permission_for(401))  # deputy Teamleitung is below the minimum
         self.assertTrue(permission_for(402))
         self.assertTrue(permission_for(403))
         self.assertTrue(permission_for(404))
@@ -118,7 +121,7 @@ class PermissionModelTests(unittest.TestCase):
         m = member(OTHER)
         computed = ws.compute_perms(guild_with(m), m.id, CONFIG)[0]
         self.assertEqual({key: computed[key] for key in self.compute(m)}, self.compute(m))
-        self.assertFalse(computed["can_manage_team_warnings"])  # no configured Supervisor role in this fixture
+        self.assertFalse(computed["can_manage_team_warnings"])  # no configured Teamleitung role in this fixture
         import pulse_pro
         self.assertNotIn("patched_compute", Path(pulse_pro.__file__).read_text(encoding="utf-8"))
 

@@ -13,6 +13,8 @@ Dashboard profiles never change Discord roles or `is_admin`.
 """
 from __future__ import annotations
 
+from pulse_team_roles import canonical_team_role_name
+
 BASE_KEYS = (
     "can_view_dashboard", "can_warn", "can_promote", "can_add_notes",
     "can_manage_tickets", "can_manage_applications", "can_manage_tasks",
@@ -99,11 +101,13 @@ def compute(guild, user_id, config: dict) -> tuple[dict, object]:
     info = permission_grants(guild, member, config)
     perms = {key: key in info["grants"] for key in ALL_KEYS}
     perms["is_admin"] = info["is_admin"]
-    # Fraktionsverwaltung: tied to one Discord role (or admin), not configurable – derived, not in ALL_KEYS.
-    # Only shows the menu entry; every /factions route checks pulse_factions.can_manage itself.
-    from pulse_ids import FACTION_MANAGER_ROLE_ID
+    # Fraktionsverwaltung is a dedicated current team role. Resolve by its decorated
+    # role name so replacing the Discord role ID does not break access.
+    # Every /factions route checks pulse_factions.can_manage again.
     perms["can_manage_factions"] = info["is_admin"] or any(
-        getattr(role, "id", None) == FACTION_MANAGER_ROLE_ID for role in getattr(member, "roles", None) or [])
+        canonical_team_role_name(getattr(role, "name", "")) == "Fraktionsverwaltung"
+        for role in getattr(member, "roles", None) or []
+    )
     return perms, member
 
 

@@ -32,85 +32,44 @@ class RoleNicknamePrefixTests(unittest.TestCase):
         self.assertEqual(automatic_role_prefix("》 𝐁𝐎 ║ 𝐁ü𝐫𝐠𝐞𝐫"), "Bürger ✗")
         self.assertEqual(automatic_role_prefix("》 VIP"), "VIP ✗")
 
-    def test_bochum_team_roles_use_compact_abbreviations(self):
+    def test_current_bochum_team_roles_use_compact_abbreviations(self):
         cases = [
             ("》𝐅𝐨𝐮𝐧𝐝𝐞𝐫", "Founder"),
-            ("》BORP メ Inhaber", "Inhaber"),
-            ("》BORP メ Stv.Inhaber", "Stv.Inh"),
             ("》BORP ✘ Rechte Hand", "Rechte Hand"),
             ("》BORP メ Owner", "Owner"),
             ("》BORP メ Co.Owner", "Co.Owner"),
-            ("〘⭐〙𝐃𝐂 𝐑𝐄𝐂𝐇𝐓𝐄", "DC"),
-            ("》BORP メ Dev-Leitung", "L.Dev"),
-            ("》BORP メ Developer", "Dev"),
-            ("》BORP メ Leitende Projektleitung", "L.PL"),
             ("》BORP メ Projektleitung", "PL"),
             ("》BORP メ Stv.Projektleitung", "Stv.PL"),
-            ("》BORP メ Leitende Projektkoordination", "L.PK"),
-            ("》BORP メ Projektkoordination", "PK"),
-            ("》BORP メ Stv.Projektkoordination", "Stv.PK"),
-            ("》BORP メ Leitender Direktor", "L.DK"),
-            ("》BORP メ Direktor", "DK"),
-            ("》BORP メ Stv.Direktor", "Stv.DK"),
-            ("》BORP メ Leitende Serverleitung", "L.SL"),
             ("》BORP メ Serverleitung", "SL"),
             ("》BORP メ Stv.Serverleitung", "Stv.SL"),
-            ("》BORP メ Leitender Manager", "L.MA"),
             ("》BORP メ Management", "MA"),
-            ("》BORP メ Stv.Management", "Stv.MA"),
-            ("》BORP メ Leitende Teamleitung", "L.TL"),
+            ("》BORP メ Stv.-Management", "Stv.MA"),
             ("》BORP メ Teamleitung", "TL"),
             ("》BORP メ Stv.Teamleitung", "Stv.TL"),
-            ("》BORP メ Leitende Teamaufsicht", "L.TA"),
-            ("》BORP メ Teamaufsicht", "TA"),
-            ("》BORP メ Stv Teamaufsicht", "Stv.TA"),
-            ("》BORP メ Leitender-Supervisor", "L.Supervisor"),
-            ("》BORP メ Supervisor", "Supervisor"),
-            ("》BORP メ Stv.Supervisor", "Stv.Supervisor"),
-            ("》BORP メ Ausbilder-Leitung", "L.AB"),
             ("》BORP メ Ausbilder", "AB"),
-            ("》BORP メ Highteamanwärter", "HTA"),
-            ("》BORP メ Community-Management", "CM"),
-            ("》BORP メ Stv.Community-Management", "Stv.CM"),
             ("》BORP メ Fraktionsverwaltung", "FV"),
-            ("》BORP メ Stv.Fraktionsverwaltung", "Stv.FV"),
             ("》BORP メ Eventleitung", "EL"),
-            ("》BORP メ Admin-Leitung", "L.Admin"),
             ("》BORP メ Sr.Admin", "Sr.Admin"),
             ("》BORP メ Admin", "Admin"),
             ("》BORP メ Jr.Admin", "Jr.Admin"),
-            ("》BORP メ Mod-Leitung", "L.Mod"),
             ("》BORP メ Sr.Moderator", "Sr.Mod"),
             ("》BORP メ Moderator", "Mod"),
             ("》BORP メ Jr.Moderator", "Jr.Mod"),
-            ("》BORP メ Sup-Leitung", "L.Sup"),
             ("》BORP メ Sr.Supporter", "Sr.Sup"),
             ("》BORP メ Supporter", "Sup"),
             ("》BORP メ Test Supporter", "T.Sup"),
-            ("》BORP メ Aushilfe", "Aushilfe"),
-            ("》𝐁𝐎𝐑𝐏 メ 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫 𝐋𝐞𝐢𝐭𝐮𝐧𝐠", "L.Bau"),
-            ("》𝐁𝐎𝐑𝐏 メ 𝐒𝐭𝐯 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫 𝐋𝐞𝐢𝐭𝐮𝐧𝐠", "Stv.L.Bau"),
-            ("》𝐁𝐎𝐑𝐏 メ 𝐒𝐞𝐧𝐢𝐨𝐫 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫", "Sr.Bau"),
-            ("》𝐁𝐎𝐑𝐏 メ 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫", "Bau"),
-            ("》𝐁𝐎𝐑𝐏 メ 𝐓𝐞𝐬𝐭 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫", "T.Bau"),
-            ("》𝐁𝐎 ║ 𝐓𝐞𝐚𝐦𝐥𝐞𝐫", "Team"),
+            ("〘⭐〙𝐃𝐂 𝐑𝐄𝐂𝐇𝐓𝐄", "DC"),
+            ("》 𝐁𝐎 ║ 𝐁ü𝐫𝐠𝐞𝐫", "Bürger"),
+            ("》 VIP", "VIP"),
         ]
         for role_name, expected_label in cases:
             with self.subTest(role=role_name):
                 self.assertEqual(automatic_role_prefix(role_name), f"{expected_label} ✗")
 
-    def test_old_prefix_settings_migrate_to_canonical_labels_but_custom_overrides_survive(self):
+    def test_old_prefix_settings_migrate_to_current_labels_but_custom_overrides_survive(self):
         cases = [
             ("》𝐅𝐨𝐮𝐧𝐝𝐞𝐫", "FND ✗", "Founder ✗"),
-            ("》BORP メ Dev-Leitung", "DevL ✗", "L.Dev ✗"),
-            ("》BORP メ Stv.Management", "Stv.Management ✗", "Stv.MA ✗"),
-            ("》BORP メ Leitender Direktor", "L.Dir ✗", "L.DK ✗"),
-            ("》BORP メ Leitender Manager", "L.Mgmt ✗", "L.MA ✗"),
-            ("》BORP メ Leitender-Supervisor", "L.Sup ✗", "L.Supervisor ✗"),
-            ("》BORP メ Inhaber", "Inh. ✗", "Inhaber ✗"),
-            ("》BORP メ Ausbilder", "Ausb ✗", "AB ✗"),
-            ("》BORP メ Sup-Leitung", "SupL ✗", "L.Sup ✗"),
-            ("》𝐁𝐎𝐑𝐏 メ 𝐒𝐭𝐯 𝐁𝐚𝐮𝐭𝐞𝐚𝐦𝐥𝐞𝐫 𝐋𝐞𝐢𝐭𝐮𝐧𝐠", "Stv.BauL ✗", "Stv.L.Bau ✗"),
+            ("》BORP ✘ Rechte Hand", "RH ✗", "Rechte Hand ✗"),
         ]
         for role_name, old_value, expected in cases:
             with self.subTest(role=role_name):
@@ -118,7 +77,6 @@ class RoleNicknamePrefixTests(unittest.TestCase):
                     select_highest_role_prefix([(101, 10, role_name, False)], {"101": old_value}),
                     (101, expected),
                 )
-
         self.assertEqual(
             select_highest_role_prefix([(102, 10, "》BORP メ Owner", False)], {"102": "Boss ✗"}),
             (102, "Boss ✗"),
@@ -167,8 +125,8 @@ class RoleNicknamePrefixTests(unittest.TestCase):
         # Projectleitung outranks Management in Pulse's ordered hierarchy,
         # even when Discord's raw role positions put the roles in the opposite order.
         roles = [
-            (201, 50, "》BORP メ Leitender Manager", False),
-            (202, 5, "》BORP メ Projektleitung", False),
+            (201, 5, "》BORP メ Management", False),
+            (202, 50, "》BORP メ Projektleitung", False),
         ]
         self.assertEqual(
             select_highest_role_prefix(roles, {}),
@@ -224,6 +182,9 @@ class RoleNicknamePrefixTests(unittest.TestCase):
         self.assertEqual(strip_pulse_prefixes("Eigen ✗ Tom", ["Eigen ✗"]), "Tom")
         # After verification the temporary prefix must not stack ('Bürger ✗ Unverifiziert ✗ Max').
         self.assertEqual(strip_pulse_prefixes("Unverifiziert ✗ Max"), "Max")
+        self.assertEqual(strip_pulse_prefixes("FND ✗ Nico"), "Nico")
+        self.assertEqual(strip_pulse_prefixes("RH ✗ Nico"), "Nico")
+        self.assertEqual(strip_pulse_prefixes("L.Supervisor ✗ Nico"), "Nico")
 
     def test_ordinary_names_with_cross_are_kept(self):
         self.assertEqual(strip_pulse_prefixes("Dawo"), "Dawo")

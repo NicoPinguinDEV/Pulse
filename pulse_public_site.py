@@ -29,6 +29,7 @@ import pulse_db
 import pulse_public_content as public_content
 import pulse_public_consent as public_team_consent
 import pulse_public_legal as legal
+from pulse_team_roles import TEAM_ROLE_GROUPS, team_role_group, team_role_priority
 
 ROOT = Path(__file__).resolve().parent
 STATIC_FILES = {"public.css": "text/css", "public.js": "text/javascript"}
@@ -493,54 +494,13 @@ def news_detail_html(item: dict) -> str:
 # Public profiles are grouped by the same recognizable rank families used by Pulse's
 # nickname hierarchy. Only profiles which have passed the existing person-consent and admin
 # publication checks are considered here; this never pulls names or IDs from the internal roster.
-TEAM_LEVELS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("01", "Inhaber- & Führungsebene", (
-        "founder", "fnd", "inhaber", "inh", "stvinhaber", "stvinh", "rechtehand", "rh", "owner", "coowner",
-    )),
-    ("02", "Entwicklungsebene", (
-        "devleitung", "devl", "ldev", "dev", "developer",
-    )),
-    ("03", "Projektleitungsebene", (
-        "leitendeprojektleitung", "lpl", "projektleitung", "pl", "stvprojektleitung", "stvpl",
-    )),
-    ("04", "Koordination, Direktion & Serverleitung", (
-        "leitendeprojektkoordination", "lpk", "projektkoordination", "pk", "stvprojektkoordination", "stvpk",
-        "leitenderdirektor", "ldk", "direktor", "dk", "stvdirektor", "stvdk",
-        "leitendeserverleitung", "lsl", "serverleitung", "sl", "stvserverleitung", "stvsl",
-    )),
-    ("05", "Management- & Teamleitungsebene", (
-        "leitendermanager", "lma", "management", "ma", "stvmanagement", "stvma",
-        "leitendeteamleitung", "ltl", "teamleitung", "tl", "stvteamleitung", "stvtl",
-    )),
-    ("06", "Teamaufsicht & Supervisoren", (
-        "leitendeteamaufsicht", "lta", "teamaufsicht", "ta", "stvteamaufsicht", "stvta",
-        "leitendersupervisor", "lsupervisor", "supervisor", "stvsupervisor",
-    )),
-    ("07", "Ausbildung & Fachbereiche", (
-        "ausbilderleitung", "ausbildl", "ausbl", "lab", "ausbilder", "ab", "highteamanwärter", "highteamanwaerter", "hta",
-        "communitymanagement", "cm", "stvcommunitymanagement", "stvm",
-        "fraktionsverwaltung", "fv", "stvfraktionsverwaltung", "stvfv", "stvf",
-        "eventleitung", "el",
-    )),
-    ("08", "Administrationsebene", (
-        "adminleitung", "adminl", "ladmin", "sradmin", "admin", "jradmin",
-    )),
-    ("09", "Moderationsebene", (
-        "modleitung", "modl", "lmod", "srmoderator", "srmod", "moderator", "mod", "jrmoderator", "jrmod",
-    )),
-    ("10", "Supportebene", (
-        "supleitung", "supl", "lsup", "srsupporter", "srsup", "supporter", "sup", "testsupporter", "tsup",
-        "aushilfe", "aush",
-    )),
-    ("11", "Bauteam-Ebene", (
-        "bauteamlerleitung", "baul", "lbau", "stvbauteamlerleitung", "stvbaul", "stvlbau", "seniorbauteamler", "srbau",
-        "bauteamler", "bau", "testbauteamler", "tbau",
-    )),
+TEAM_LEVELS: tuple[tuple[str, str, tuple[str, ...]], ...] = tuple(
+    (f"{index:02d}", label, role_names)
+    for index, (_group_key, label, role_names) in enumerate(TEAM_ROLE_GROUPS, start=1)
 )
-_TEAM_LEVEL_BY_RANK = {
-    rank: (number, label)
-    for number, label, ranks in TEAM_LEVELS
-    for rank in ranks
+_TEAM_LEVEL_BY_GROUP = {
+    group_key: (f"{index:02d}", label)
+    for index, (group_key, label, _role_names) in enumerate(TEAM_ROLE_GROUPS, start=1)
 }
 
 
@@ -556,24 +516,9 @@ def _public_rank_key(value: object) -> str:
 
 
 def _team_level(profile: dict) -> tuple[str, str]:
-    rank = _public_rank_key(profile.get("role_label", ""))
-    # Handle current long-form role labels as well as the canonical short labels.
-    level = _TEAM_LEVEL_BY_RANK.get(rank)
-    if level:
-        return level
-    aliases = {
-        "developmentleitung": "devleitung",
-        "devleitung": "devleitung",
-        "communitymanagementleitung": "communitymanagement",
-        "supportleitung": "supporter",
-        "adminleitung": "adminleitung",
-        "moderationsleitung": "modleitung",
-        "bauteamleitung": "bauteamlerleitung",
-        "leitenderdeveloper": "dev",
-        "testsupport": "testsupporter",
-    }
-    level = _TEAM_LEVEL_BY_RANK.get(aliases.get(rank, ""))
-    return level or ("99", "Weitere Teamfunktionen")
+    """Group a published profile using the current BOCHUM role catalogue only."""
+    group_key = team_role_group(profile.get("role_label", ""))
+    return _TEAM_LEVEL_BY_GROUP.get(group_key, ("99", "Weitere Teamfunktionen"))
 
 
 def _team_sections(profiles: list[dict]) -> str:
@@ -660,9 +605,15 @@ def _discord_team_roster(request: Request) -> tuple[list[str], int]:
                 normalized_ids.append(role_id)
         roles = [guild.get_role(role_id) for role_id in normalized_ids]
         roles = sorted(
-            (role for role in roles if role is not None),
-            key=lambda role: getattr(role, "position", 0),
-            reverse=True,
+            (
+                role for role in roles
+                if role is not None and team_role_group(getattr(role, "name", "")) == category_key
+            ),
+            key=lambda role: (
+                team_role_priority(getattr(role, "name", "")) is None,
+                team_role_priority(getattr(role, "name", "")) if team_role_priority(getattr(role, "name", "")) is not None else 10_000,
+                -getattr(role, "position", 0),
+            ),
         )
         configured_groups.append((category_key, category_label, roles))
         for role in roles:

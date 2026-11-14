@@ -51,6 +51,16 @@ class Base(unittest.TestCase):
 
 
 class Pages(Base):
+    def test_team_rank_levels_match_current_bochum_roles(self):
+        self.assertEqual(
+            [(number, label) for number, label, _ in site.TEAM_LEVELS],
+            [("01", "Führungsebene"), ("02", "HighTeam"), ("03", "LowTeam")],
+        )
+        self.assertEqual(site._team_level({"role_label": "》BORP メ Founder"}), ("01", "Führungsebene"))
+        self.assertEqual(site._team_level({"role_label": "》BORP メ Stv.-Management"}), ("02", "HighTeam"))
+        self.assertEqual(site._team_level({"role_label": "》BORP メ Test Supporter"}), ("03", "LowTeam"))
+        self.assertEqual(site._team_level({"role_label": "》BORP メ Inhaber"}), ("99", "Weitere Teamfunktionen"))
+
     def test_dashboard_head_never_uses_tailwind_play_cdn(self):
         self.assertNotIn("cdn.tailwindcss.com", ws.HEAD_SCRIPT)
         self.assertIn("/static/pulse.css", ws.HEAD_SCRIPT)
@@ -204,7 +214,7 @@ class Pages(Base):
             id=303, display_name="Testmitglied", status="offline",
             display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatars/303/test.png"),
         )
-        role = SimpleNamespace(id=3030, name="Support", position=10, members=[member])
+        role = SimpleNamespace(id=3030, name="Supporter", position=10, members=[member])
         guild = SimpleNamespace(get_role=lambda role_id: role if role_id == 3030 else None)
         ws.app.state.bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
         self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
@@ -217,7 +227,7 @@ class Pages(Base):
             visible = self.client.get("/team-vorstellung").text
             self.assertIn("Testmitglied", visible)
             self.assertEqual(self.client.get("/team-vorstellung").headers.get("cache-control"), "no-store")
-            self.assertIn("Support", visible)
+            self.assertIn("Supporter", visible)
             self.assertNotIn("offline", visible)
             self.assertTrue(public_team_consent.withdraw(303))
             withdrawn = self.client.get("/team-vorstellung").text
@@ -229,14 +239,14 @@ class Pages(Base):
             id=404, display_name="Scope-Test",
             display_avatar=SimpleNamespace(url=""),
         )
-        role_a = SimpleNamespace(id=4040, name="Support", position=10, members=[member])
-        role_b = SimpleNamespace(id=4041, name="Leitung", position=20, members=[member])
+        role_a = SimpleNamespace(id=4040, name="Supporter", position=10, members=[member])
+        role_b = SimpleNamespace(id=4041, name="Teamleitung", position=20, members=[member])
         guild = SimpleNamespace(get_role=lambda role_id: {4040: role_a, 4041: role_b}.get(role_id))
         ws.app.state.bot = SimpleNamespace(get_guild=lambda _guild_id: guild)
         self.addCleanup(lambda: setattr(ws.app.state, "bot", None))
         public_team_consent.grant(404, [4040])
         with patch.object(teamliste, "get_roles_by_category",
-                          side_effect=lambda category: [4040, 4041] if category == "fuehrungsebene" else []):
+                          side_effect=lambda category: [4041] if category == "highteam" else ([4040] if category == "lowteam" else [])):
             html = self.client.get("/team-vorstellung").text
         self.assertNotIn("Scope-Test", html)
 
