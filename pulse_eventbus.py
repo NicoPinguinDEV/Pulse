@@ -14,8 +14,8 @@ Security: events are filtered per viewer (:func:`visible_to`, fail-closed, built
 a minimal summary leaves the server (:func:`public_view`) – never the payload, which can contain reasons,
 errors or personal data. The cursor advances over events a viewer may not see, so nobody is stuck on them.
 
-Not wired into any route yet (a route needs ROUTEN.md/route-snapshot updates that belong to the integration
-step); everything here is testable without Discord or a browser.
+Routes: ``/api/events/poll`` and ``/api/events/stream`` in ``pulse_live``; everything here is testable without
+Discord or a browser.
 """
 from __future__ import annotations
 

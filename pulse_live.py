@@ -10,7 +10,7 @@ notes and recruiting actions are filtered per permission, exactly like the other
 from __future__ import annotations
 
 from fastapi import Cookie, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 POLL_SECONDS = 15
 FEED_LIMIT = 15
@@ -103,3 +103,32 @@ def register(app) -> None:
         after = str(request.query_params.get("after") or "")[:40]
         items = feed_items(entries if isinstance(entries, list) else [], ctx.perms, after)
         return JSONResponse({"items": items}, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/events/poll")
+    async def events_poll(request: Request, user_session: str = Cookie(None)):
+        """#117: guaranteed fallback transport of the event bus (cursor polling, filtered per viewer)."""
+        import pulse_eventbus
+        ctx = ws.auth(request, user_session)
+        cursor = request.query_params.get("cursor")
+        data = pulse_eventbus.poll(ctx.perms, cursor if cursor not in (None, "") else None)
+        return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/events/stream")
+    async def events_stream(request: Request, user_session: str = Cookie(None)):
+        """#117: Server-Sent Events on the same cursor; capped per user and globally (503 when full)."""
+        import pulse_eventbus
+        ctx = ws.auth(request, user_session)
+        uid = str(ctx.user.get("id"))
+        if not pulse_eventbus.acquire_slot(uid):
+            raise HTTPException(status_code=503, detail="Zu viele offene Live-Verbindungen.")
+        cursor = request.headers.get("last-event-id") or request.query_params.get("cursor")
+
+        async def body():
+            try:
+                async for frame in pulse_eventbus.stream(ctx.perms, cursor if cursor not in (None, "") else None, request.is_disconnected):
+                    yield frame
+            finally:
+                pulse_eventbus.release_slot(uid)
+
+        return StreamingResponse(body(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
