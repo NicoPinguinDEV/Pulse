@@ -83,6 +83,18 @@ class BuildCase(unittest.TestCase):
         self.assertEqual(deps["Support"]["hours_30d"], 6.0)
         self.assertEqual((deps["Moderation"]["members"], deps["Moderation"]["on_duty"]), (0, 0))
 
+    def test_departments_show_goals_and_training_status(self):  # #174
+        data = dict(DATA,
+                    dev_goals=[{"user_id": "1", "status": "open", "due": "2026-11-01"}, {"user_id": "3", "status": "open", "due": "2027-01-01"},
+                               {"user_id": "1", "status": "done", "due": ""}, {"user_id": "2", "status": "open", "due": "2026-01-01"}, "x", None],
+                    certificates=[{"user_id": "1", "valid_until": None}, {"user_id": "3", "valid_until": "2026-01-01T00:00:00+00:00"},
+                                  {"user_id": "2", "valid_until": None}, {"user_id": "1", "valid_until": ""}])
+        deps = {d["name"]: d for d in ls.build(data, NOW)["departments"]}
+        support = deps["Support"]                      # Mitglieder 1 und 3
+        self.assertEqual((support["goals_open"], support["goals_overdue"], support["goals_done"]), (2, 1, 1))
+        self.assertEqual(support["certified"], 1)      # 1 gültig; 3 ist abgelaufen; 2 gehört nicht zur Abteilung
+        self.assertEqual((deps["Moderation"]["goals_open"], deps["Moderation"]["certified"]), (0, 0))
+
     def test_empty_and_garbage_input_never_raise(self):
         for bad in (None, {}, {"tickets": [None, "x"], "cases": [None], "reports": ["x"], "events": [None, {}], "departments": [{}], "active_shifts": {"1": None}}):
             snap = ls.build(bad, NOW)

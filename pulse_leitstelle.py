@@ -60,7 +60,9 @@ def _support(tickets, now: datetime, voice_waiting: int) -> dict:
             "voice_waiting": int(voice_waiting or 0), "queue": queue}
 
 
-def _departments(departments, on_duty_ids: set, tasks, tickets, history, now: datetime) -> list[dict]:
+def _departments(departments, on_duty_ids: set, tasks, tickets, history, now: datetime, goals=(), certificates=()) -> list[dict]:
+    """``goals``: rows with ``user_id``/``status``/``due`` (Entwicklungsziele, #75); ``certificates``: rows with ``user_id`` and
+    ``valid_until`` of the *current* certificates (#109). Both are aggregated over the department's members (#174)."""
     since = now - timedelta(days=30)
     out = []
     for dep in departments or ():
@@ -70,7 +72,13 @@ def _departments(departments, on_duty_ids: set, tasks, tickets, history, now: da
                     "members": len(member_ids), "on_duty": len(member_ids & on_duty_ids),
                     "open_tasks": sum(1 for t in tasks if ta._uid(t.get("assignee_id")) in member_ids and str(t.get("status") or "open") not in ("done", "archived", "closed")),
                     "open_tickets": sum(1 for t in tickets if ta._uid(t.get("claimed_by_id")) in member_ids and str(t.get("status") or "open").lower() != "closed"),
-                    "hours_30d": round(seconds / 3600, 1)})
+                    "hours_30d": round(seconds / 3600, 1),
+                    "goals_open": sum(1 for g in goals if isinstance(g, dict) and ta._uid(g.get("user_id")) in member_ids and g.get("status") == "open"),
+                    "goals_overdue": sum(1 for g in goals if isinstance(g, dict) and ta._uid(g.get("user_id")) in member_ids and g.get("status") == "open"
+                                         and (d := ta._dt(g.get("due"))) and d < now),
+                    "goals_done": sum(1 for g in goals if isinstance(g, dict) and ta._uid(g.get("user_id")) in member_ids and g.get("status") == "done"),
+                    "certified": len({ta._uid(c.get("user_id")) for c in certificates if isinstance(c, dict) and ta._uid(c.get("user_id")) in member_ids
+                                      and not ((vu := ta._dt(c.get("valid_until"))) and vu < now)})})
     return sorted(out, key=lambda d: d["name"].casefold())
 
 
@@ -109,7 +117,8 @@ def build(data: dict, now: datetime | None = None, tz=None) -> dict:
                                                                       "priority": str(c.get("priority")), "id": str(c.get("id"))} for c in urgent_cases[:6]],
                             "stale_reports": len(stale_reports), "open_cases": len(cases)},
             "upcoming": upcoming[:8],
-            "departments": _departments(data.get("departments"), {d["id"] for d in duty}, tasks_open, tickets, history, now)}
+            "departments": _departments(data.get("departments"), {d["id"] for d in duty}, tasks_open, tickets, history, now,
+                                        data.get("dev_goals") or (), data.get("certificates") or ())}
 
 
 def collect(ws, ctx, now: datetime | None = None) -> dict:
@@ -125,7 +134,8 @@ def collect(ws, ctx, now: datetime | None = None) -> dict:
                         ("tasks", lambda: pulse_db.list_tasks(limit=1000, include_archived=True)),
                         ("events", lambda: pulse_db.list_calendar_events(now.isoformat(), (now + timedelta(days=7)).isoformat(), 100)),
                         ("apps", lambda: ws.load_json(ws.APPS_FILE, {})),
-                        ("cases", _cases), ("reports", lambda: _reports(guild_id)), ("departments", _departments_data)):
+                        ("cases", _cases), ("reports", lambda: _reports(guild_id)), ("departments", _departments_data),
+                        ("dev_goals", _dev_goals), ("certificates", _certificates)):
         try:
             data[key] = loader()
         except Exception:  # noqa: BLE001
@@ -149,6 +159,20 @@ def _cases() -> list[dict]:
 def _reports(guild_id) -> list[dict]:
     import pulse_player_reports
     return pulse_player_reports.list_reports(guild_id, limit=200)
+
+
+def _dev_goals() -> list[dict]:
+    import pulse_db
+    with pulse_db.connect() as db:
+        rows = db.execute("SELECT user_id,status,due FROM team_dev_goals WHERE status IN ('open','done') ORDER BY created_at DESC LIMIT 2000").fetchall()
+    return [dict(r) for r in rows]
+
+
+def _certificates() -> list[dict]:
+    import pulse_db
+    with pulse_db.connect() as db:
+        rows = db.execute("SELECT user_id,valid_until FROM training_certificates WHERE superseded_by IS NULL LIMIT 3000").fetchall()
+    return [dict(r) for r in rows]
 
 
 def _departments_data() -> list[dict]:
@@ -195,9 +219,9 @@ def render(snap: dict, esc) -> str:
                    for r in snap["workload"]) or empty("Niemand ist hoch ausgelastet.")
     events = "".join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{esc(e["title"])}</div><div class="pulse-row-meta">{esc(e["at"].replace("T", " "))} UTC</div></div></div>'
                      for e in snap["upcoming"]) or empty("Keine Termine in den nächsten 7 Tagen.")
-    deps = "".join(f'<tr><td>{esc(d["name"])}</td><td>{d["members"]}</td><td>{d["on_duty"]}</td><td>{d["open_tasks"]}</td><td>{d["open_tickets"]}</td><td>{d["hours_30d"]:g}</td></tr>'
+    deps = "".join(f'<tr><td>{esc(d["name"])}</td><td>{d["members"]}</td><td>{d["on_duty"]}</td><td>{d["open_tasks"]}</td><td>{d["open_tickets"]}</td><td>{d["hours_30d"]:g}</td><td>{d["goals_open"]} offen{f" · {d['goals_overdue']} überfällig" if d["goals_overdue"] else ""} · {d["goals_done"]} erreicht</td><td>{d["certified"]} von {d["members"]}</td></tr>'
                    for d in snap["departments"])
-    dep_html = (f'<div style="overflow-x:auto"><table class="pulse-table"><thead><tr><th>Abteilung</th><th>Mitglieder</th><th>Im Dienst</th><th>Offene Aufgaben</th><th>Offene Tickets</th><th>Stunden 30 Tage</th></tr></thead><tbody>{deps}</tbody></table></div>'
+    dep_html = (f'<div style="overflow-x:auto"><table class="pulse-table"><thead><tr><th>Abteilung</th><th>Mitglieder</th><th>Im Dienst</th><th>Offene Aufgaben</th><th>Offene Tickets</th><th>Stunden 30 Tage</th><th>Ziele</th><th>Zertifiziert</th></tr></thead><tbody>{deps}</tbody></table></div>'
                 if deps else empty("Noch keine Abteilungen angelegt."))
     script = ("<script>(function(){setInterval(function(){var a=document.activeElement;"
               "if(document.hidden||(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)))return;location.reload();},60000);})();</script>")

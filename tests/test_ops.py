@@ -162,7 +162,7 @@ class ActionsAndRetentionCase(TempDb):
     def test_retention_matrix_lists_every_store_with_counts_and_isolates_failures(self):
         ws.save_json(ws.APPS_FILE, {"a": {"created_at": "01.01.2026 10:00"}, "b": {"created_at": "05.02.2026 10:00"}})
         rows = {r["key"]: r for r in ops.retention_matrix(ws)}
-        self.assertEqual(set(rows), {"applications", "audit", "tickets", "notifications", "tasks", "mod_cases", "wiki_versions", "error_groups", "resources"})
+        self.assertEqual(set(rows), {"applications", "audit", "tickets", "notifications", "tasks", "mod_cases", "wiki_versions", "error_groups", "resources", "events", "shifts", "transcripts", "team_data"})
         self.assertEqual(rows["applications"]["count"], 2)
         self.assertEqual(rows["applications"]["oldest"], "01.01.2026"[:10])
         self.assertFalse(rows["applications"]["automatic"])  # retention mutations are locked in this release

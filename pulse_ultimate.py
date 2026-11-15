@@ -3366,6 +3366,9 @@ async def _automation_cycle(bot):
         import pulse_ops
         import webserver
         pulse_ops.sample_resources(webserver.DATA_DIR)
+        import pulse_server_control
+        import pulse_version
+        pulse_ops.record_release(pulse_version.PULSE_VERSION, (pulse_server_control.installed_commit(webserver.BASE_DIR) or {}).get("sha", ""))  # #169
     except Exception as exc:
         print(f"⚠️ Ressourcenverlauf konnte nicht gespeichert werden: {type(exc).__name__}")
     # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren

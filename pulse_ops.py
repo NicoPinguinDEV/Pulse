@@ -289,6 +289,18 @@ def retention_matrix(ws) -> list[dict]:
             return len(items), (min(stamps) if stamps else "")
         return run
 
+    def count_shift_history():
+        data = ws.load_json(ws.SHIFTS_FILE, {})
+        items = data.get("history", []) if isinstance(data, dict) else []
+        stamps = [str(i.get("started_at_iso") or "")[:10] for i in items if isinstance(i, dict) and i.get("started_at_iso")]
+        return len(items), (min(stamps) if stamps else "")
+
+    def count_transcripts():
+        folder = getattr(ws, "TRANSCRIPT_DIR", None) or os.path.join(os.path.dirname(os.path.abspath(ws.__file__)), "transcripts")
+        files = [f for f in os.scandir(folder) if f.is_file()] if os.path.isdir(folder) else []
+        oldest = min((f.stat().st_mtime for f in files), default=None)
+        return len(files), (datetime.fromtimestamp(oldest, _UTC).strftime("%Y-%m-%d") if oldest else "")
+
     spec = [
         ("applications", "Bewerbungen", "applications.json", f"Abgelehnte nach {settings['applications_days']} Tagen", not locked, count_json("APPS_FILE")),
         ("audit", "Dashboard-Audit", "audit_logs.json", f"{settings['audit_days']} Tage, höchstens 5000 Einträge", not locked, count_json("AUDIT_FILE", key="list", stamp="timestamp")),
@@ -299,6 +311,10 @@ def retention_matrix(ws) -> list[dict]:
         ("wiki_versions", "Wiki-Versionen", "pulse.db · wiki_page_versions", "unveränderliche Historie", False, count_table("wiki_page_versions")),
         ("error_groups", "Fehlergruppen", "pulse.db · ops_error_groups", f"höchstens {MAX_GROUPS} Gruppen, älteste fallen weg", True, count_table("ops_error_groups", "first_seen")),
         ("resources", "Ressourcenverlauf", "pulse.db · ops_resource_samples", f"{KEEP_DAYS} Tage", True, count_table("ops_resource_samples", "at")),
+        ("events", "Ereignisse (Audit-Vertrag)", "pulse.db · events", "keine automatische Löschung", False, count_table("events")),
+        ("shifts", "Schichthistorie", "shifts.json · history", "keine automatische Löschung", False, count_shift_history),
+        ("transcripts", "Ticket-Transkripte", "transcripts/ (Dateien)", "keine automatische Löschung", False, count_transcripts),
+        ("team_data", "Teamakten", "team_data.json", "keine automatische Löschung (Personalakte, Rechtsgrundlage klären)", False, count_json("DATA_FILE")),
     ]
     out = []
     for key, label, store, rule, auto, loader in spec:
@@ -309,6 +325,49 @@ def retention_matrix(ws) -> list[dict]:
             count, oldest, error = None, "", "nicht lesbar"
         out.append({"key": key, "label": label, "store": store, "rule": rule, "automatic": bool(auto), "count": count, "oldest": oldest, "error": error})
     return out
+
+
+def cockpit_extras(base_dir=".", db_path="pulse.db") -> dict:
+    """#153: background jobs and databases for the cockpit, from the existing scheduler/DB diagnostics (read-only).
+    Never raises; a missing source yields empty values."""
+    from pathlib import Path
+    jobs, dbs = [], []
+    try:
+        import pulse_health
+        import pulse_jobs
+        jobs = pulse_health.job_states(pulse_jobs.snapshot().get("jobs", []))
+        dbs = pulse_health.database_files([Path(base_dir), Path(os.path.abspath(db_path)).parent])
+    except Exception:  # noqa: BLE001
+        logging.getLogger("pulse.ops").debug("Cockpit-Zusatzdaten nicht verfügbar", exc_info=True)
+    counts = {s: sum(1 for j in jobs if j["state"] == s) for s in ("ok", "failing", "overdue", "paused", "waiting")}
+    return {"jobs": jobs, "job_counts": counts, "problem_jobs": [j for j in jobs if j["state"] in ("failing", "overdue")][:10],
+            "databases": dbs, "database_total_mb": round(sum(d["total_mb"] for d in dbs), 2)}
+
+
+RELEASE_KEY = "ops_release_history"
+RELEASE_KEEP = 20
+
+
+def record_release(version, sha, now: datetime | None = None) -> bool:
+    """#169: remember which version/commit ran, newest last (idempotent per version+commit). Returns True if a new
+    entry was added. The entry before the current one is the rollback reference shown in the release view."""
+    version, sha = str(version or "")[:40], str(sha or "")[:40]
+    if not version and not sha:
+        return False
+    history = pulse_db.get_setting(RELEASE_KEY, [])
+    history = history if isinstance(history, list) else []
+    if history and isinstance(history[-1], dict) and history[-1].get("version") == version and history[-1].get("sha") == sha:
+        return False
+    history.append({"version": version, "sha": sha, "first_seen": (now or _now()).isoformat(timespec="seconds")})
+    pulse_db.set_setting(RELEASE_KEY, history[-RELEASE_KEEP:])
+    return True
+
+
+def release_history() -> list[dict]:
+    """Newest first. ``history[0]`` is the running release, ``history[1]`` the one before (rollback reference)."""
+    history = pulse_db.get_setting(RELEASE_KEY, [])
+    items = [h for h in history if isinstance(h, dict)] if isinstance(history, list) else []
+    return list(reversed(items))
 
 
 def data_dir() -> str:

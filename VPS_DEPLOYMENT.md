@@ -439,6 +439,23 @@ systemctl enable --now pulse-crash-restart.timer
 - Pausieren (Wartung): `touch /var/lib/pulse-crash-restart/paused` · fortsetzen: `rm /var/lib/pulse-crash-restart/paused`
 - Nach Änderungen am Skript im Repository die `install`-Zeile erneut ausführen.
 
+### Ausfallalarm (optional, Audit #154)
+
+Der Alarm im Bot (`pulse_alerts`) kann nicht melden, dass der Bot selbst ausgefallen ist. Dafür prüft `tools/pulse_watchdog.py` von außerhalb des Containers `/healthz` jede Minute und schreibt bei 3 Fehlern in Folge **einmal** „nicht erreichbar“ in einen privaten Betriebskanal, bei Rückkehr einmal „wieder erreichbar“. Es startet oder ändert nichts.
+
+```bash
+install -m 755 tools/pulse_watchdog.py /usr/local/sbin/pulse_watchdog.py
+install -m 600 /dev/null /etc/pulse-watchdog.env
+echo 'PULSE_WATCHDOG_WEBHOOK=https://discord.com/api/webhooks/...' >> /etc/pulse-watchdog.env
+install -m 644 systemd/pulse-watchdog.service systemd/pulse-watchdog.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now pulse-watchdog.timer
+```
+
+- Der Webhook gehört nur in `/etc/pulse-watchdog.env` (nie ins Repository). Weitere Variablen: `PULSE_WATCHDOG_URL`, `PULSE_WATCHDOG_FAILURES` (siehe Kopf des Skripts).
+- Protokoll: `journalctl -u pulse-watchdog.service -n 20 --no-pager`
+
+
 ## 5. GitHub-Updates per Actions ausrollen (optional)
 
 Das Workflow-Template `.github/workflows/deploy-vps.yml` wird erst aktiv deployen, wenn diese GitHub-Repository-Secrets gesetzt sind:

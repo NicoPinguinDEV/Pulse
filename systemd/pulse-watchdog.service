@@ -1,0 +1,18 @@
+# Unabhängiger Down-Detector (Audit #154): prüft /healthz und meldet Ausfall/Rückkehr an einen Discord-Betriebskanal.
+# Läuft außerhalb des Pulse-Containers. Installation: VPS_DEPLOYMENT.md ("Ausfallalarm").
+#   install -m 755 tools/pulse_watchdog.py /usr/local/sbin/pulse_watchdog.py
+#   Webhook in /etc/pulse-watchdog.env:  PULSE_WATCHDOG_WEBHOOK=https://discord.com/api/webhooks/...   (chmod 600)
+[Unit]
+Description=Pulse TeamOS Ausfallalarm (Healthcheck)
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/pulse-watchdog.env
+ExecStart=/usr/bin/python3 /usr/local/sbin/pulse_watchdog.py
+StateDirectory=pulse-watchdog
+StateDirectoryMode=0700
+Environment=PULSE_WATCHDOG_STATE=/var/lib/pulse-watchdog/state.json
+TimeoutStartSec=60
+# Exit 1 = Pulse ungesund: das ist ein erwarteter Zustand, kein Fehler der Einheit.
+SuccessExitStatus=1

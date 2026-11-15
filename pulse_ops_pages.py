@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from fastapi import Cookie, Request
 from fastapi.responses import HTMLResponse
 
+import pulse_db
 import pulse_ops as ops
 import pulse_version
 
@@ -56,6 +57,7 @@ def register(app) -> None:
         except Exception:  # noqa: BLE001
             commit = {}
         sha = str(commit.get("sha") or commit.get("commit") or "")[:8] or "unbekannt"
+        extras = ops.cockpit_extras(ws.BASE_DIR, getattr(ws, "DB_PATH", None) or pulse_db.DB_PATH)
         tiles = "".join((
             tile("Discord-Bot", "online" if ready else "offline", f"Gateway-Latenz {latency_txt}"),
             tile("Arbeitsspeicher", "–" if not mem else f'{mem["last"]:g} MB', "" if not mem else f'24 h: {mem["min"]:g}–{mem["max"]:g} MB · {mem["trend"]}'),
@@ -63,11 +65,24 @@ def register(app) -> None:
             tile("Fehlergruppen", len(groups), f'{sum(1 for g in groups if g["recent"])} in der letzten Stunde'),
             tile("Langsamste Route", "–" if not slow else f'{slow[0]["p95"]:g} ms', "" if not slow else slow[0]["route"]),
             tile("Release", f"v{pulse_version.PULSE_VERSION}", f"Commit {sha}"),
+            tile("Hintergrundjobs", f'{extras["job_counts"]["ok"]} ok', f'{extras["job_counts"]["failing"]} fehlerhaft · {extras["job_counts"]["overdue"]} überfällig'),
+            tile("Datenbanken", f'{extras["database_total_mb"]:g} MB', f'{len(extras["databases"])} Dateien (inkl. WAL)'),
         ))
+        problems = "".join(f'<li>{e(str(j["name"]))} – {"fehlerhaft" if j["state"] == "failing" else "überfällig"}'
+                           f'{(": " + e(str(j["last_error"])[:100])) if j.get("last_error") else ""}</li>' for j in extras["problem_jobs"])
+        problems_html = f'<h2 class="text-sm font-bold mt-4 mb-1">Jobs mit Problemen</h2><ul class="text-xs space-y-1">{problems}</ul>' if problems else ""
         links = " · ".join(f'<a class="underline" href="{e(u)}">{e(t)}</a>' for u, t in (
             ("/admin/server", "Server Control Center"), ("/backups", "Backups"), ("/admin/features", "Funktionsschalter"),
             ("/admin/settings-history", "Einstellungs-Historie"), ("/admin/privacy", "Datenschutz")))
-        return (f'<div class="pulse-stat-grid">{tiles}</div><p class="text-xs text-slate-400 mt-3">Weitere Betriebswerkzeuge: {links}</p>'
+        try:  # #169: running and previous release (rollback reference), recorded by the resource job
+            ops.record_release(pulse_version.PULSE_VERSION, commit.get("sha") or commit.get("commit") or "")
+            hist = ops.release_history()
+        except Exception:  # noqa: BLE001
+            hist = []
+        releases = "".join(f'<li>v{e(h.get("version"))} · {e((h.get("sha") or "")[:8] or "unbekannt")} · seit {e(str(h.get("first_seen"))[:16])}'
+                           f'{" <b>(läuft)</b>" if i == 0 else (" (Rückfall-Stand)" if i == 1 else "")}</li>' for i, h in enumerate(hist[:6]))
+        release_html = f'<h2 class="text-sm font-bold mt-4 mb-1">Release-Verlauf</h2><ul class="text-xs space-y-1">{releases}</ul>' if releases else ""
+        return (f'<div class="pulse-stat-grid">{tiles}</div>{problems_html}{release_html}<p class="text-xs text-slate-400 mt-3">Weitere Betriebswerkzeuge: {links}</p>'
                 '<p class="text-[11px] text-slate-400 mt-1">Die Werte stammen aus Pulse selbst (Messpunkte alle fünf Minuten, Latenz seit dem letzten Start).</p>')
 
     def errors_view() -> str:
@@ -128,16 +143,51 @@ def register(app) -> None:
                 '<div style="overflow-x:auto"><table class="pulse-table"><thead><tr><th>Datenart</th><th>Speicher</th><th>Frist</th><th>Durchsetzung</th><th>Anzahl</th><th>Ältester Eintrag</th></tr></thead>'
                 f'<tbody>{body}</tbody></table></div>')
 
+    def person_rights_html(ctx) -> str:
+        """#160: Soll/Ist je Person und Recht gegen den gespeicherten Soll-Stand."""
+        import pulse_rights_diff
+        d = pulse_rights_diff.person_diff(ctx.guild, ctx.config)
+        save = ('<form method="post" action="/admin/betrieb/rechte-soll" class="mt-2"><button class="pulse-btn ghost">'
+                f'{"Soll-Stand neu festlegen" if d["has_target"] else "Aktuellen Stand als Soll festlegen"}</button></form>')
+        if not d["has_target"]:
+            return ('<h2 class="text-sm font-bold mt-4 mb-1">Rechte je Person</h2><p class="text-xs text-slate-400">Noch kein Soll-Stand festgelegt. '
+                    'Lege den aktuellen, geprüften Stand fest; spätere Änderungen pro Person und Recht erscheinen dann hier.</p>' + save)
+        rows = "".join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(c["name"])}</div>'
+                       f'<div class="pulse-row-meta">{"Fehlt: " + e(", ".join(c["missing"])) if c["missing"] else ""}'
+                       f'{" · " if c["missing"] and c["extra"] else ""}{"Zusätzlich: " + e(", ".join(c["extra"])) if c["extra"] else ""}</div></div>'
+                       f'<span class="pulse-pill {"bad" if c["extra"] else "warn"}">{len(c["missing"]) + len(c["extra"])}</span></div>' for c in d["changed"])
+        notes = ""
+        if d["left"]:
+            notes += f'<p class="text-xs mt-2">Im Soll, aber nicht mehr im Team: {e(", ".join(x["user_id"] for x in d["left"][:20]))}</p>'
+        if d["new"]:
+            notes += f'<p class="text-xs mt-2">Neu im Team (nicht im Soll): {e(", ".join(x["name"] for x in d["new"][:20]))}</p>'
+        body = rows or '<div class="pulse-empty">Alle Rechte entsprechen dem Soll-Stand.</div>'
+        return (f'<h2 class="text-sm font-bold mt-4 mb-1">Rechte je Person</h2><p class="text-[11px] text-slate-400 mb-2">Soll-Stand vom {e(d["saved_at"][:16])} (festgelegt von {e(d["by"] or "unbekannt")}).</p>'
+                + body + notes + save)
+
     def rights_view(ctx) -> str:
         import pulse_rights_diff
         findings = pulse_rights_diff.diff(ctx.guild, ctx.config)
+        try:
+            person_html = person_rights_html(ctx)
+        except Exception:  # noqa: BLE001 - the server-level diff must keep working
+            person_html = ""
         if not findings:
-            return '<div class="pulse-empty">Keine Abweichungen zwischen Discord-Server und Rechte-Konfiguration gefunden.</div>'
+            return '<div class="pulse-empty">Keine Abweichungen zwischen Discord-Server und Rechte-Konfiguration gefunden.</div>' + person_html
         pill = {"bad": "bad", "warn": "warn", "info": "good"}
         rows = "".join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(f["title"])}</div>'
                        f'<div class="pulse-row-meta">{e(", ".join(f["items"][:30]))}</div></div><span class="pulse-pill {pill[f["severity"]]}">{len(f["items"])}</span></div>' for f in findings)
         return ('<p class="text-xs text-slate-400 mb-2">Soll/Ist-Abgleich der Rechte-Konfiguration mit dem Discord-Server. Nur Anzeige – Pulse ändert hier keine Rolle und keine Einstellung. '
-                'Die Rechte je Person zeigt „Wer darf was?“.</p>' + rows)
+                'Die Rechte je Person zeigt „Wer darf was?“.</p>' + rows + person_html)
+
+    @app.post("/admin/betrieb/rechte-soll")
+    async def save_rights_target(request: Request, user_session: str = Cookie(None)):
+        import pulse_rights_diff
+        ctx = ws.auth(request, user_session, perm=None, admin=True)
+        actor = ctx.user.get("global_name") or "Admin"
+        count = pulse_rights_diff.save_target(ctx.guild, ctx.config, actor)
+        ws.log_audit(actor, ctx.user["id"], "Rechte-Soll festgelegt", f"{count} Personen")
+        return ws.back("/admin/betrieb?ansicht=rechte", f"Soll-Stand für {count} Personen gespeichert.")
 
     @app.get("/admin/betrieb", response_class=HTMLResponse)
     async def operations_console(request: Request, user_session: str = Cookie(None)):
