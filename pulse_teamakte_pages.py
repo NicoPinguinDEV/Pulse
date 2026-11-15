@@ -36,7 +36,7 @@ def _e(value) -> str:
     return ws.esc(value)
 
 
-def collect(ws, ctx, now: datetime | None = None) -> dict:
+def collect(ws, ctx, now: datetime | None = None, with_moderation: bool = False) -> dict:
     """Read-only snapshot of everything the analytics need (bounded queries, no writes)."""
     import pulse_access
     now = now or datetime.now(timezone.utc)
@@ -44,11 +44,12 @@ def collect(ws, ctx, now: datetime | None = None) -> dict:
     data = {"now": now, "members": members, "history": ws.load_shifts_raw().get("history", []),
             "tasks": pulse_db.list_tasks(limit=1000, include_archived=True), "tickets": pulse_db.list_tickets(limit=2000),
             "loas": ws.get_loas(), "apps": ws.load_json(ws.APPS_FILE, {})}
-    try:  # #129/#137: moderation and case sources for the hints (each source tolerates its own failure)
-        import pulse_intel
-        data.update(pulse_intel.moderation_sources(getattr(getattr(ctx, "guild", None), "id", None)))
-    except Exception:  # noqa: BLE001
-        pass
+    if with_moderation:  # #129/#137: only for the intelligence page (member pages and planning do not need them)
+        try:
+            import pulse_intel
+            data.update(pulse_intel.moderation_sources(getattr(getattr(ctx, "guild", None), "id", None)))
+        except Exception:  # noqa: BLE001 - each source tolerates its own failure; this is the last guard
+            pass
     return data
 
 
@@ -276,7 +277,7 @@ def register(app) -> None:
             view = "hinweise"
         tabs = " ".join(f'<a href="/team/intelligenz?ansicht={k}" class="pulse-btn {"primary" if k == view else "ghost"}">{label}</a>' for k, label in INTEL_VIEWS)
         body = (f'<div class="pulse-crumb"><a href="/team">Team</a> › Intelligenz</div><div class="flex flex-wrap gap-2 mb-3">{tabs}</div>'
-                f'<section class="pulse-card"><div class="pulse-card-b">{intel_html(view, collect(ws, ctx), request.query_params.get("q", "")[:200])}</div></section>')
+                f'<section class="pulse-card"><div class="pulse-card-b">{intel_html(view, collect(ws, ctx, with_moderation=True), request.query_params.get("q", "")[:200])}</div></section>')
         return HTMLResponse(render_pro_page(ws, "Pulse Intelligenz", ctx, "team", body))
 
     @app.get("/leitstelle", response_class=HTMLResponse)
