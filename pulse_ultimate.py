@@ -2851,9 +2851,9 @@ window.setInterval(loadPulseMonitor, 15000);
         audit(ctx, "API-Key erstellt", f"{name.strip()[:100]} · {','.join(scopes)} · " + (f"bis {expires[:10]}" if expires else "unbefristet"))
         # Token is returned exactly once.
         return HTMLResponse(
-            f"<html><body style='font-family:system-ui;padding:30px;background:#070b12;color:#fff'>"
+            f"<html><body style='font-family:system-ui;padding:30px;background:#070b12;color:#fff'>"  # design-lint: standalone (einmalige API-Key-Seite ohne Dashboard-Shell)
             f"<h2>API-Key erstellt</h2><p>Speichere diesen Schlüssel jetzt sicher:</p>"
-            f"<code style='display:block;padding:15px;background:#111b2a;border-radius:10px'>{esc(raw)}</code>"
+            f"<code style='display:block;padding:15px;background:#111b2a;border-radius:10px'>{esc(raw)}</code>"  # design-lint: standalone (einmalige API-Key-Seite ohne Dashboard-Shell)
             f"<p>Der Token wird danach nicht erneut angezeigt.</p><a href='/ultimate/system'>Zurück</a></body></html>"
         )
 

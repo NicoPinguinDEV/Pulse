@@ -5627,7 +5627,7 @@ async def pulse_tickets_dashboard(request: Request, user_session: str = Cookie(N
     ctx = auth(request, user_session, perm="can_manage_tickets")
     if request.url.path == "/tickets/panels" and not ctx.perms.get("is_admin"):
         return HTMLResponse(
-            content="<!doctype html><html lang='de'><meta charset='utf-8'><title>Keine Berechtigung</title><body style='font-family:system-ui;background:#0b1020;color:#e8eefb;padding:40px'><h1>Kein Zugriff auf den Panel-Builder</h1><p>Nur Dashboard-Administratoren dürfen Ticket-Panels und Kategorien verwalten.</p><p><a style='color:#b9c7ff' href='/tickets'>Zur Ticket-Zentrale</a></p></body></html>",
+            content="<!doctype html><html lang='de'><meta charset='utf-8'><title>Keine Berechtigung</title><body style='font-family:system-ui;background:#0b1020;color:#e8eefb;padding:40px'><h1>Kein Zugriff auf den Panel-Builder</h1><p>Nur Dashboard-Administratoren dürfen Ticket-Panels und Kategorien verwalten.</p><p><a style='color:#b9c7ff' href='/tickets'>Zur Ticket-Zentrale</a></p></body></html>",  # design-lint: standalone (eigenständige Fehlerseite ohne Dashboard-Shell)
             status_code=403,
             headers={"Cache-Control": "no-store"},
         )

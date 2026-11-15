@@ -19,21 +19,26 @@ ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / "docs" / "design_lint_baseline.json"
 EXCLUDED_DIRS = {"tests", "tools", "node_modules", ".git", "__pycache__", "static", ".claude", "docs", "deploy", "scripts"}
 DESIGN_FILES = {"pulse_design.py", "pulse_pro.py", "pulse_flags.py"}  # Quellen des Designsystems / globale Stile
+# Eigenständige Seiten außerhalb der Dashboard-Shell (eigene Stile bewusst): öffentliche Statusseite und die Discord-Vorschau des
+# Ticket-Builders (bildet Discord-Farben nach). Einzelne Zeilen anderer Dateien tragen den Marker ``design-lint: standalone``.
+STANDALONE_FILES = {"pulse_phase7.py", "pulse_ticket_builder.py"}
+MARKER = "design-lint: standalone"
 _STYLE = re.compile(r"""style\s*=\s*(?:\\?["'])[^"'>]*#[0-9a-fA-F]{3,8}""")
 
 
 def files():
     for path in sorted(ROOT.glob("*.py")) + sorted((ROOT / "cogs").glob("*.py")):
-        if path.name in DESIGN_FILES or any(part in EXCLUDED_DIRS for part in path.relative_to(ROOT).parts[:-1]):
+        if path.name in DESIGN_FILES or path.name in STANDALONE_FILES or any(part in EXCLUDED_DIRS for part in path.relative_to(ROOT).parts[:-1]):
             continue
         yield path
 
 
 def count(path: Path) -> int:
     try:
-        return len(_STYLE.findall(path.read_text(encoding="utf-8", errors="replace")))
+        text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return 0
+    return sum(len(_STYLE.findall(line)) for line in text.splitlines() if MARKER not in line)
 
 
 def measure() -> dict[str, int]:

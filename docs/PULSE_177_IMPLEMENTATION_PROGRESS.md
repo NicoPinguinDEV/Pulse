@@ -3,7 +3,11 @@
 Arbeitsstand der Mission „177 von 177“. Einzelstatus je Funktion: `docs/PULSE_FEATURE_AUDIT_177.md`.
 Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, Rechte-/Datenschutzprüfung, PR und CI. Keine Produktivdaten, Discord-Server oder VPS-Aktionen im Rahmen dieser Arbeit.
 
-## Block F – Zentrale Integration (lokal, nicht veröffentlicht)
+## Stand 2026-11-16: 177 von 177
+
+Alle 177 Funktionen sind laut Audit „Fertig“ (Zählung: `python tools/audit_counts.py`, geprüft von `tests/test_feature_audit_counts.py`). Umgesetzt in den PRs #254-#268 und dem Abschluss-PR; jeder Block mit Verhaltenstests, Routen-/Rechte-Snapshot und grüner CI. Bewusste Entscheidungen statt Lücken sind in den Einzelzeilen des Audits dokumentiert (z. B. typisierte Fallreferenzen statt eines einzelnen Nummernkreises, Empfehlungen als Vorschläge statt ausführbarer Aktionen, keine CI-Anbindung im Betrieb, Standalone-Seiten im Design-Wächter). Nicht Teil dieser Arbeit: Abnahme auf dem Live-Discord-Server und Einrichtung der optionalen VPS-Dienste (Watchdog).
+
+## Block F – Zentrale Integration (Verlauf, inzwischen gemergt)
 
 Alle Schritte bauen aufeinander auf (Branchkette ab `origin/main` @ `2c02788`); keine Zeile des Audits ist dadurch „Fertig“, die Zählung bleibt unverändert.
 
@@ -26,8 +30,8 @@ Bewertet ist der Code-Stand `main` @ `2c02788` (nach PR #248 und #249; #95 ist g
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 176 (176 mit #99-Branch) |
-| Teilweise | 1 (1 mit #99-Branch) |
+| Fertig | 177 (177 mit #99-Branch) |
+| Teilweise | 0 (0 mit #99-Branch) |
 | Offen | 0 |
 
 | Schritt | Fertig | Teilweise | Auditänderung | PR |
