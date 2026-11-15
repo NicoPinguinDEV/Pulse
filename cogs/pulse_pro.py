@@ -910,12 +910,13 @@ class PulsePro(commands.Cog):
         task=db.get_task(task_id.strip())
         if not task:
             await interaction.response.send_message("❌ Aufgabe nicht gefunden.", ephemeral=True); return
-        if str(task.get("assignee_id"))!=str(interaction.user.id) and not (perms.get("can_manage_tasks") or perms.get("is_admin")):
-            await interaction.response.send_message("❌ Du bist nicht für diese Aufgabe zuständig.", ephemeral=True); return
         if task.get("status") in ("done","archived"):
             await interaction.response.send_message("Die Aufgabe ist bereits erledigt.", ephemeral=True); return
-        db.update_task(task["id"],status="done",actor_id=interaction.user.id,actor_name=interaction.user.display_name,note="Per Discord erledigt")
-        db.record_event("task_completed","task",task["id"],interaction.user.id,interaction.user.display_name,{"title":task.get("title")})
+        import pulse_task_actions  # #124: dieselbe Regel, dasselbe Ereignis und dieselbe Benachrichtigung wie im Dashboard
+        res=pulse_task_actions.update(perms,interaction.user.id,interaction.user.display_name,task["id"],status="done",source="discord",note="Per Discord erledigt")
+        if not res["ok"]:
+            msg="❌ Du bist nicht für diese Aufgabe zuständig." if res["code"]=="forbidden" else f"❌ {res['message']}"
+            await interaction.response.send_message(msg, ephemeral=True); return
         await interaction.response.send_message(f"✅ `{task['title']}` als erledigt markiert.",ephemeral=True)
 
     @app_commands.command(name="pulse-sprache", description="Stellt deine persönliche Pulse-Anzeigesprache ein.")
