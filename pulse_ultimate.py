@@ -1976,6 +1976,28 @@ def register(app) -> None:
         import pulse_workflows
         return pulse_workflows
 
+    def dependency_check(dep_id: str, own_id: str, ctx) -> None:
+        """#151: the dependency must exist, may not be a security automation for non-admins and may not wait (directly or
+        through a chain of up to ten automations) for this automation again."""
+        seen, current = set(), dep_id
+        for _ in range(10):
+            if current == own_id and own_id:
+                raise ValueError("Zirkuläre Abhängigkeit: die gewählte Automation wartet selbst auf diese.")
+            if current in seen:
+                break
+            seen.add(current)
+            with cx() as c:
+                row = c.execute("SELECT * FROM ultimate_automations WHERE id=?", (current,)).fetchone()
+            if not row:
+                raise ValueError("Die gewählte Abhängigkeit existiert nicht.")
+            record = dict(row)
+            if current == dep_id and _rules().needs_admin(automation_view(record)) and not is_admin(ctx):
+                raise PermissionError("Sicherheits-Automationen sind nur für Administratoren.")
+            nxt = (automation_trigger_config(record).get("depends_on") or {}).get("automation_id")
+            if not nxt:
+                break
+            current = nxt
+
     def is_admin(ctx) -> bool:
         return bool(ctx.perms.get("is_admin"))
 
@@ -2034,7 +2056,7 @@ def register(app) -> None:
             body = step.get("body") or step.get("text") or step.get("description") or ""
             number = step.get("minutes") or step.get("days") or ""
             step_rows.append(
-                f"<div class='card' style='padding:10px;margin-top:8px'><b class='tiny'>Aktion {i}</b><div class='form' style='margin-top:6px'>"
+                f"<div class='card' data-step-row style='padding:10px;margin-top:8px'><b class='tiny'>Aktion {i}</b> {__import__('pulse_workflow_flow').move_buttons(i)}<div class='form' style='margin-top:6px'>"
                 f"<select class='select' name='step{i}_type' aria-label='Aktion {i}'>{types}</select>"
                 f"<input class='input' name='step{i}_title' maxlength='160' placeholder='Titel (Benachrichtigung, Aufgabe, Fall)' value='{esc(step.get('title', ''))}'>"
                 f"<input class='input span2' name='step{i}_body' maxlength='1000' placeholder='Text / Beschreibung – Platzhalter: {{actor_id}} {{rule_label}} {{events}} {{result}} {{name}}' value='{esc(body)}'>"
@@ -2044,7 +2066,19 @@ def register(app) -> None:
                 f"<label class='tiny'><input type='checkbox' name='step{i}_urgent' value='1'{' checked' if step.get('urgent') else ''}> dringend</label>"
                 "</div></div>")
         enabled = record is None or bool(record.get("enabled"))
+        import pulse_events
+        import pulse_workflow_flow as flow
+        domain_opts = "".join(f"<option value='{k}'{' selected' if cfg.get('domain') == k else ''}>{esc(v)}</option>"
+                              for k, v in pulse_events.DOMAINS.items() if (k, "*") not in rules.DOMAIN_EVENT_BLOCKED)
+        dep_cfg = cfg.get("depends_on") or {}
+        with cx() as _c:
+            others = [dict(r) for r in _c.execute("SELECT id,name,trigger_type,steps_json,action_type FROM ultimate_automations ORDER BY name LIMIT 200").fetchall()]
+        dep_opts = "<option value=''>— keine Abhängigkeit —</option>" + "".join(
+            f"<option value='{esc(o['id'])}'{' selected' if dep_cfg.get('automation_id') == o['id'] else ''}>{esc(o['name'])}</option>"
+            for o in others if (not record or o["id"] != record["id"]) and (admin or not rules.needs_admin(automation_view(o))))
+        flow_html = flow.render({**view, "steps": [s for s in view["steps"] if s.get("type")]}, esc) if record else ""
         return f"""<div class="card" id="editor"><h3>{'✏️ Automation bearbeiten' if record else '🤖 Neue Automation'}</h3>
+{flow_html}
 <form class="form" method="post" action="/ultimate/automations/save">
  <input type="hidden" name="automation_id" value="{esc(record['id'] if record else '')}">
  <input class="input span2" name="name" maxlength="160" required placeholder="Name, z. B. Anti-Nuke – Massenlöschung" value="{esc(record['name'] if record else '')}">
@@ -2059,6 +2093,13 @@ def register(app) -> None:
   <input class="input" style="max-width:90px;display:inline-block" type="number" name="window_seconds" min="3" max="3600" value="{esc(cfg.get("window_seconds", 10))}"> s,
   <select class="select" name="group" style="max-width:220px;display:inline-block"><option value="actor"{" selected" if cfg.get("group", "actor") == "actor" else ""}>gleiche verantwortliche Person</option><option value="all"{" selected" if cfg.get("group") == "all" else ""}>alle zusammen</option></select>
   · Cooldown <input class="input" style="max-width:100px;display:inline-block" type="number" name="cooldown_seconds" min="0" max="86400" value="{esc(cfg.get("cooldown_seconds", 60))}"> s</div>'''}
+ <div class="span2 tiny" style="padding:8px;border:1px dashed var(--border);border-radius:10px">
+  <b>Nur Pulse-Ereignis:</b> Bereich <select class="select" name="de_domain" style="max-width:220px;display:inline-block" aria-label="Ereignisbereich">{domain_opts}</select>
+  Aktion <input class="input" style="max-width:180px;display:inline-block" name="de_action" maxlength="64" placeholder="* = jede, z. B. completed" value="{esc(cfg.get('action', '*') if view['trigger_type'] == 'domain_event' else '*')}" aria-label="Ereignisaktion">
+  · Cooldown <input class="input" style="max-width:100px;display:inline-block" type="number" name="de_cooldown" min="0" max="86400" value="{esc(cfg.get('cooldown_seconds', 60) if view['trigger_type'] == 'domain_event' else 60)}"> s</div>
+ <div class="span2 tiny" style="padding:8px;border:1px dashed var(--border);border-radius:10px">
+  <b>Abhängigkeit (optional):</b> erst starten, wenn <select class="select" name="dep_id" style="max-width:260px;display:inline-block" aria-label="Abhängige Automation">{dep_opts}</select>
+  in den letzten <input class="input" style="max-width:100px;display:inline-block" type="number" name="dep_max_age" min="1" max="{rules.MAX_DEPENDENCY_AGE_MIN}" value="{esc(dep_cfg.get('max_age_minutes', rules.DEFAULT_DEPENDENCY_AGE_MIN))}"> Minuten erfolgreich lief</div>
  <label class="tiny span2"><b>UND</b> – Bedingung (Zeitplan)</label>
  <select class="select" name="condition_type" aria-label="Bedingung">{conditions}</select>
  <input class="input" type="number" name="condition_value" min="0" max="100000" value="{esc(cond.get('value', 0))}" aria-label="Bedingungswert">
@@ -2067,7 +2108,7 @@ def register(app) -> None:
  {_workflows().editor_fields(record)}
  <label class="tiny"><input type="checkbox" name="enabled" value="1"{" checked" if enabled else ""}> aktiv</label>
  <label class="tiny"><input type="checkbox" name="test_mode" value="1"{" checked" if view.get('test_mode') else ""}> Testmodus (nur protokollieren)</label>
- <button class="btn primary span2">💾 Automation speichern</button></form>
+ <button class="btn primary span2">💾 Automation speichern</button></form>{flow.MOVE_SCRIPT}
  <div class="tiny" style="margin-top:8px">Nur Auslöser und Aktionen aus dieser Liste sind möglich – kein freier Code. Sicherheits-Auslöser und -Aktionen sind Administratoren vorbehalten.</div></div>"""
 
     @app.get("/ultimate/automations", response_class=HTMLResponse)
@@ -2217,7 +2258,7 @@ def register(app) -> None:
         record = load_automation(edit_id, ctx) if edit_id else None
         import pulse_views
         saved_views = pulse_views.bar("/ultimate/automations", ctx.user["id"], q.multi_items(), style="ultimate")
-        body = f"""{editor(ctx, record)}
+        body = f"""<div style="margin-bottom:10px"><a class="btn" href="/ultimate/automations/vorlagen">📚 Vorlagen</a></div>{editor(ctx, record)}
           <div style="margin-top:13px">{saved_views}</div>
           <div class="card" style="margin-top:13px"><form class="form" method="get" action="/ultimate/automations">
            <select class="select" name="trigger" aria-label="Auslöser filtern">{trig_opts}</select>
@@ -2252,11 +2293,48 @@ def register(app) -> None:
             "trigger_config": {"rule_id": form.get("rule_id") or "", "include_dry_run": form.get("include_dry_run") == "1",
                                "events": form.getlist("events"), "min_count": form.get("min_count"),
                                "window_seconds": form.get("window_seconds"), "group": form.get("group") or "actor",
-                               "cooldown_seconds": form.get("cooldown_seconds")},
+                               "cooldown_seconds": form.get("de_cooldown") if trigger == "domain_event" else form.get("cooldown_seconds"),
+                               "domain": form.get("de_domain") or "", "action": form.get("de_action") or "*",
+                               "depends_on": {"automation_id": form.get("dep_id") or "", "max_age_minutes": form.get("dep_max_age")}},
             "condition": {"type": form.get("condition_type") or "always", "value": form.get("condition_value")},
             "steps": steps, "enabled": form.get("enabled") == "1", "test_mode": form.get("test_mode") == "1",
             **_workflows().editor_payload(form),
         }
+
+    @app.get("/ultimate/automations/vorlagen", response_class=HTMLResponse)
+    async def ultimate_automation_templates(request: Request, user_session: str = Cookie(None)):
+        """#152: versionierte Vorlagenbibliothek; Übernahme legt immer einen ausgeschalteten Testmodus-Entwurf an."""
+        import pulse_workflow_templates as library
+        ctx = ctx_auth(request, user_session, manager=True)
+        sections = []
+        for key, label in library.CATEGORIES.items():
+            cards = "".join(
+                f"<div class='card'><b>{esc(t['name'])}</b> <span class='pill'>Version {t['version']}</span>"
+                f"<div class='tiny' style='margin:6px 0'>{esc(t['summary'])}</div><div class='tiny'>{esc(t['description'])}</div>"
+                f"<form method='post' action='/ultimate/automations/vorlagen/{esc(t['id'])}' style='margin-top:8px'>"
+                f"<button class='btn'>Als Entwurf übernehmen</button></form></div>"
+                for t in library.catalog() if t["category"] == key)
+            sections.append(f"<h3 style='margin:14px 0 6px'>{esc(label)}</h3><div class='grid g2'>{cards}</div>")
+        body = ("<div class='tiny'>Vorlagen werden als <b>ausgeschalteter Entwurf im Testmodus</b> übernommen. Du prüfst sie im Editor und schaltest sie selbst scharf. "
+                "Vorlagen enthalten keine Discord-IDs und keine Sicherheitsaktionen.</div>" + "".join(sections)
+                + "<div style='margin-top:12px'><a class='btn' href='/ultimate/automations'>← Zu den Automationen</a></div>")
+        return page(ctx, "automations", "Automations-Vorlagen", "Versionierte Vorlagen für Recruiting, Dienst und Support.", body)
+
+    @app.post("/ultimate/automations/vorlagen/{template_id}")
+    async def ultimate_automation_template_use(request: Request, template_id: str, user_session: str = Cookie(None)):
+        import pulse_workflow_templates as library
+        import webserver
+        ctx = ctx_auth(request, user_session, manager=True)
+        template = library.get(template_id)
+        if template is None:
+            raise HTTPException(404, "Vorlage nicht gefunden.")
+        value = library.draft(template)
+        name = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
+        automation_id, version, _changed = save_automation_definition(value, existing=None, user_id=str(ctx.user["id"]), user_name=name,
+                                                                      note=library.note(template), force_disabled=True)
+        refresh_triggers()
+        audit(ctx, "Automation aus Vorlage erstellt", automation_id, value["name"], library.note(template))
+        return webserver.back(f"/ultimate/automations?edit={automation_id}#editor", f"Entwurf „{value['name']}“ angelegt (ausgeschaltet, Testmodus). Bitte prüfen und aktivieren.", True)
 
     @app.post("/ultimate/automations/save")
     async def ultimate_automation_save(request: Request, user_session: str = Cookie(None)):
@@ -2265,7 +2343,10 @@ def register(app) -> None:
         automation_id = str(form.get("automation_id") or "").strip()
         existing = load_automation(automation_id, ctx) if automation_id else None  # 403 for security automations
         try:
-            value = _rules().normalize_automation(editor_payload(form), is_admin=is_admin(ctx))
+            value = _rules().normalize_automation(editor_payload(form), is_admin=is_admin(ctx), own_id=automation_id)
+            dep_id = (value["trigger_config"].get("depends_on") or {}).get("automation_id")
+            if dep_id:
+                dependency_check(dep_id, automation_id, ctx)
         except PermissionError as exc:
             raise HTTPException(403, str(exc))
         except ValueError as exc:
@@ -3210,6 +3291,14 @@ async def execute_automation(bot, automation: dict, *, trigger_info: dict, conte
     context = context or {}
     started, t0 = iso(), time.monotonic()
     key = automation["id"]
+    depends = automation_trigger_config(automation).get("depends_on") or {}
+    if depends.get("automation_id") and not dry_run and trigger_info.get("trigger") not in ("manual", "manual_test", "retry"):
+        with cx() as c:  # newest real run of the other automation (tests and skips do not count)
+            latest = c.execute("SELECT status,started_at,finished_at FROM ultimate_automation_runs WHERE automation_id=? "
+                               "AND status IN ('success','error') ORDER BY started_at DESC LIMIT 1", (depends["automation_id"],)).fetchone()
+        met, reason = _rules().dependency_met(dict(latest) if latest else None, int(depends.get("max_age_minutes") or 1440), utcnow())
+        if not met:
+            return {"status": "skipped", "summary": reason, "steps": []}
     if key in _RUNNING:
         return {"status": "skipped", "summary": "läuft bereits – doppelte Ausführung verhindert", "steps": []}
     _RUNNING.add(key)
@@ -3319,7 +3408,7 @@ async def dispatch_event(bot, trigger: str, context: dict) -> int:
         _EVENT_COOLDOWNS[group] = now + int(cfg.get("cooldown_seconds", 60))
         while len(_EVENT_COOLDOWNS) > 2000:
             _EVENT_COOLDOWNS.popitem(last=False)
-        info = {"trigger": trigger, **{k: context.get(k) for k in ("rule_id", "rule_label", "events", "actor_id", "dry_run") if k in context}}
+        info = {"trigger": trigger, **{k: context.get(k) for k in ("rule_id", "rule_label", "events", "actor_id", "dry_run", "domain", "action") if k in context}}
         await execute_automation(bot, automation, trigger_info=info, context=context)
         ran += 1
     return ran
@@ -3386,7 +3475,7 @@ async def _automation_cycle(bot):
         # Event automations (Anti-Nuke) run through dispatch_event, never on the schedule.
         rows = [dict(r) for r in c.execute(
             "SELECT * FROM ultimate_automations WHERE enabled=1 AND next_run_at<=? "
-            "AND trigger_type NOT IN ('antinuke_rule','antinuke_event')",
+            "AND trigger_type NOT IN ('antinuke_rule','antinuke_event','domain_event')",
             (iso(now),),
         ).fetchall()]
     for automation in rows:
