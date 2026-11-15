@@ -855,7 +855,7 @@ def register(app) -> None:
      const r=await fetch('/admin/console/logs',{credentials:'same-origin',cache:'no-store'});
      const d=await r.json();
      if(!r.ok) throw new Error(d.detail||('HTTP '+r.status));
-     log.textContent=d.lines.length?d.lines.join('\n'):'Noch keine Prozessmeldungen gespeichert.';
+     log.textContent=d.lines.length?d.lines.join('\\n'):'Noch keine Prozessmeldungen gespeichert.';
      log.scrollTop=log.scrollHeight;
    } catch(e){log.textContent='Protokoll konnte nicht geladen werden: '+e.message;}
  }
@@ -868,7 +868,7 @@ def register(app) -> None:
    try{
      const r=await fetch('/admin/console/command',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:value})});
      const d=await r.json();
-     output.textContent=(d.output||d.detail||'Keine Ausgabe')+(d.ok?'':'\n[Fehler]');
+     output.textContent=(d.output||d.detail||'Keine Ausgabe')+(d.ok?'':'\\n[Fehler]');
      if(d.ok) command.value='';
      await refresh();
    }catch(e){output.textContent='Fehler: '+e.message;}

@@ -1222,3 +1222,56 @@ class ControlRoomAndAcademyE2ETests(_PreviewE2EBase):
                 page.goto(self._url(path))
                 self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth - window.innerWidth"), 1, f"Überlauf auf {path}")
         self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+
+class AccessibilityE2ETests(_PreviewE2EBase):
+    """Audit #64/#65/#66: keine JavaScript-Fehler, kein Seitenüberlauf auf Mobil und lesbarer Kontrast (WCAG AA) im hellen Modus."""
+
+    PAGES = ("/me", "/team", "/tickets", "/tasks", "/wiki", "/training", "/academy", "/leitstelle", "/admin", "/admin/console", "/admin/betrieb",
+             "/admin/security", "/admin/discord", "/applications", "/calendar", "/stats", "/warns", "/settings")
+    CONTRAST_JS = r"""() => {
+      const lum = c => { const m = c.match(/[\d.]+/g).map(Number); const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); };
+        return .2126 * f(m[0]) + .7152 * f(m[1]) + .0722 * f(m[2]); };
+      const bg = el => { while (el) { const s = getComputedStyle(el); if (s.backgroundImage !== 'none') return null; const m = s.backgroundColor.match(/[\d.]+/g);
+        if (m && (m.length === 3 || Number(m[3]) > .9)) return s.backgroundColor; el = el.parentElement; } return 'rgb(255,255,255)'; };
+      const bad = [];
+      for (const el of document.querySelectorAll('main .text-slate-400, main .pulse-crumb')) {
+        if (!el.textContent.trim() || el.getBoundingClientRect().width === 0 || el.closest('.pulse-hero')) continue;
+        const b = bg(el); if (!b) continue;
+        const a = lum(getComputedStyle(el).color), c = lum(b);
+        const ratio = (Math.max(a, c) + .05) / (Math.min(a, c) + .05);
+        if (ratio < 4.5) bad.push(el.textContent.trim().slice(0, 30) + ' ' + ratio.toFixed(2));
+      }
+      return bad.slice(0, 5);
+    }"""
+
+    def test_no_script_errors_in_both_themes(self):
+        for theme in ("dark", "light"):
+            with self.subTest(theme=theme):
+                context = self.browser.new_context()
+                self.addCleanup(context.close)
+                context.route("**/*", _block_external)
+                context.add_init_script(f"localStorage.theme='{theme}'")
+                page = context.new_page()
+                errors = []
+                page.on("pageerror", lambda exc: errors.append(str(exc)))
+                for path in self.PAGES:
+                    self.assertEqual(page.goto(self._url(path)).status, 200, path)
+                self.assertEqual(errors, [], f"JavaScript-Fehler ({theme}): {errors}")
+
+    def test_mobile_pages_do_not_overflow_horizontally(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        for path in self.PAGES:
+            page.goto(self._url(path))
+            self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth - window.innerWidth"), 1, f"Überlauf auf {path}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_secondary_text_has_aa_contrast_in_light_mode(self):
+        context = self.browser.new_context()
+        self.addCleanup(context.close)
+        context.route("**/*", _block_external)
+        context.add_init_script("localStorage.theme='light'")
+        page = context.new_page()
+        for path in self.PAGES:
+            page.goto(self._url(path))
+            self.assertEqual(page.evaluate(self.CONTRAST_JS), [], f"Kontrast zu niedrig auf {path}")

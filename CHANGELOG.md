@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Barrierefreiheit und Mobilgeräte (November 2026)
+
+- **Fehler behoben:** `/admin/console` hatte einen JavaScript-Syntaxfehler (zwei falsch maskierte Zeilenumbrüche in einem Python-String); Live-Protokoll und Befehlsausgabe konnten nie laden.
+- **Heller Modus (#66):** Sekundärtext, Breadcrumbs, Warnfarben und Status-Pills erreichen jetzt WCAG-AA-Kontrast; weißer Text auf weißen Pills im Hero ist behoben.
+- **Mobil (#64):** größere Touch-Ziele für Kartenlinks, Breadcrumbs, Auswahlfelder und Datei-Eingaben bei grobem Zeiger.
+- **Werkzeug und Tests:** `tools/ui_crawl.py` prüft alle parameterlosen Seiten (mobil/Desktop, dunkel/hell); `AccessibilityE2ETests` sichert 18 Hauptseiten gegen Skriptfehler, Seitenüberlauf und zu niedrigen Kontrast ab.
+
 ## Leitstelle, Academy und Wissen (November 2026)
 
 - **Leitstelle `/leitstelle` (#173, #174, #177, nur Führung, lesend):** im Dienst, Besetzung gegen das Übliche, Support-Warteschlange, Aufgaben, Eskalationen, Auslastung, Termine und Abteilungs-Kennzahlen auf einer Seite.

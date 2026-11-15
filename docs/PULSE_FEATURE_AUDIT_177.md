@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **131 fertig / 46 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **132 fertig / 45 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 131 |
-| Teilweise | 46 |
+| Fertig | 132 |
+| Teilweise | 45 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -32,7 +32,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord-Bot – Moderation und Sicherheit | 14 | 1 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 8 | 7 | 0 |
-| TeamOS-Dashboard – Startseite und Navigation | 8 | 7 | 0 |
+| TeamOS-Dashboard – Startseite und Navigation | 9 | 6 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 12 | 0 | 0 |
 | Dienstplanung und Aktivität | 11 | 1 | 0 |
 | Bewerbungen und Recruiting | 11 | 0 | 0 |
@@ -132,9 +132,9 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 61 | Gespeicherte Filter und Ansichten | **Fertig** | Persönliche Filter je Dashboard-Nutzer für Tickets, Bewerbungen, Teamakten, Bürger-Moderation und Automationen: speichern, anwenden, ersetzen, löschen (höchstens 12 je Seite). Teamakten haben dafür eine serverseitige Namens- und Statusfilterung erhalten. Tabelle `dashboard_saved_views` im JSON-Backup und im Personenexport. `pulse_views.py`, `pulse_db.py`, `pulse_ticket_center.py`, `pulse_ultimate.py`, `webserver.py`; `tests/test_saved_views.py`. PR: Ansichten-Block. Einschränkung: Ansichten sind persönlich, noch nicht rollenweit teilbar (siehe #69). |
 | 62 | Globale Suche | **Fertig** | Globale Suche (`search_all`) durchsucht jetzt zusätzlich die Wissensdatenbank (alle), frühere Artikelversionen und das alte Dashboard-Audit (nur Führung); Quellenfehler brechen die Suche nicht; `tests/test_dashboard_live.py`. |
 | 63 | Rollenabhängige Navigation | **Fertig** | Navigation wird nach Rechten gefiltert; `tests/test_dashboard_redesign.py` prüft Berechtigungsfilter und sensitive Menüpunkte. |
-| 64 | Mobile Dashboard-Version | **Teilweise** | Responsive Layouts und mobile E2E-Tests existieren; nicht alle Dashboard-Workflows sind vollständig auf Mobilgeräten geprüft. |
-| 65 | Einheitliches Designsystem | **Teilweise** | Gemeinsame Design-Tokens und Komponenten (`pulse_design.py`, `static/pulse.css`) sind vorhanden; ältere Seiten sind nicht vollständig vereinheitlicht. |
-| 66 | Dark-Mode-Feinschliff | **Teilweise** | Theme-aware Klassen und gemeinsame Farbpalette existieren; konsistente Darstellung jeder Legacy-Seite ist nicht vollständig belegt. |
+| 64 | Mobile Dashboard-Version | **Teilweise** | Alle 143 parameterlosen Seiten wurden bei 375 px geprüft (`tools/ui_crawl.py`): kein horizontaler Überlauf, vergrößerte Touch-Ziele bei grobem Zeiger; `AccessibilityE2ETests` sichert 18 Hauptseiten dauerhaft ab. Interaktive Abläufe (Formulare, Dialoge) sind nicht systematisch auf Mobilgeräten geprüft. |
+| 65 | Einheitliches Designsystem | **Teilweise** | Gemeinsame Tokens und Komponenten (`pulse_design.py`, `static/pulse.css`, `PRO_CSS`); neu: gemeinsame Kontrast- und Touch-Regeln in `PRO_CSS`. Ältere Seiten mit eigenen Inline-Stilen sind weiter nicht vollständig vereinheitlicht. |
+| 66 | Dark-Mode-Feinschliff | **Fertig** | Dunkler Modus: Durchlauf aller 143 Seiten ohne Kontrast unter 3:1; heller Modus: Sekundärtext, Breadcrumbs, Warnfarben und Status-Pills auf AA-Kontrast angehoben (`PRO_CSS`), per Browser-Test abgesichert; ein Skriptfehler auf `/admin/console` (falsch maskierter Zeilenumbruch) wurde dabei gefunden und behoben. |
 | 67 | Tastaturbedienung | **Teilweise** | Skip-Link, Befehlspalette (Strg+K), neu: Kürzel-Hilfe mit `?` und Navigation `g`+Buchstabe, Fokusführung im Dialog, Browser-Test; durchgängige Tastaturbedienung aller Arbeitsabläufe nicht belegt. |
 | 68 | Kontextbezogene Dashboard-Hilfen | **Teilweise** | Neu `pulse_help.tip()` (zugängliches `<details>`) an Widgets, Beförderungs-Kriterien, Mindestbesetzung und Schicht-Erinnerung; weitere komplexe Formulare noch ohne Hilfetext. |
 | 69 | Benutzerdefinierte Ansichten | **Fertig** | Bis zu acht persönliche „Mein Pulse“-Layouts speichern Widget-Sichtbarkeit, Reihenfolge und Spalten; Nutzergrenzen, Allowlist und Rückfall auf bestehende Widgets sind getestet (PR #206). |

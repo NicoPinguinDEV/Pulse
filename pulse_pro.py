@@ -289,6 +289,18 @@ body .shadow-indigo-600\/20,body .shadow-indigo-600\/30{--tw-shadow-color:rgba(2
 body .accent-indigo-600{accent-color:#B94732}
 @media (prefers-reduced-motion: reduce){#pulseSidebar nav a:hover,.pulse-stat:hover{transform:none}}
 @media (hover:none){.pulse-stat:hover,#pulseSidebar nav a:hover{transform:none}}
+/* Audit #64/#66: Kontrast im hellen Modus (WCAG AA >= 4.5:1) und Touch-Ziele auf Mobilgeräten */
+html:not(.dark) .text-slate-400:not(.pulse-hero *):not(.pulse-hero-box *){color:#5b6779}
+html:not(.dark) .text-amber-400:not(.pulse-hero *),html:not(.dark) .text-amber-500:not(.pulse-hero *),html:not(.dark) .text-amber-600:not(.pulse-hero *),html:not(.dark) .text-yellow-500:not(.pulse-hero *){color:#b45309}
+html:not(.dark) .pulse-hero .pulse-pill:not(.good):not(.warn):not(.bad){color:#fff;background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.32)}
+html:not(.dark) .an-warn{color:#b54708}
+html:not(.dark) .pulse-crumb,html:not(.dark) [style*="color:#94a3b8"]{color:#5b6779!important}
+html:not(.dark) .pill[style*="color:#eab308"],html:not(.dark) [style*="color:#eab308"]{color:#a16207!important}
+@media (pointer:coarse){
+  main .pulse-crumb a,main .pulse-card-h a,main a[class*="text-[11px]"],main a.underline{display:inline-block;padding:8px 4px;margin:-8px -4px}
+  .pulse-area-switch a{min-height:36px;display:inline-flex;align-items:center;justify-content:center}
+  main input[type=file],main select{min-height:36px}
+}
 </style>
 """
 
