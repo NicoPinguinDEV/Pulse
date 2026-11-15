@@ -8393,18 +8393,45 @@ async def verify_application_member(request: Request, applicant_id) -> tuple[boo
     return True, 200, eligible_role.name, ""
 
 
-async def dm_applicant(request: Request, user_id, template: str, **values) -> bool:
-    """BOT-10: DM to an applicant from a template; applicants may not be server members yet."""
+async def dm_applicant(request: Request, user_id, template: str, actor=None, **values) -> bool:
+    """BOT-10: DM to an applicant from a template; applicants may not be server members yet.
+
+    #100: every attempt - sent or failed - is written to the applicant communication journal
+    (``actor`` = (id, name) of the person who caused it, default: the system)."""
     import pulse_app_comms
+    import pulse_app_journal
     bot = getattr(request.app.state, "bot", None)
-    if bot is None or not str(user_id or "").isdigit():
-        return False
-    guild = bot.get_guild(GUILD_ID)
+    guild = bot.get_guild(GUILD_ID) if bot is not None else None
+    text = pulse_app_comms.render(template, server=getattr(guild, "name", "dem Server"), **values)
+    actor_id, actor_name = actor or ("0", "System")
+
+    def journal(ok: bool, reason: str = "") -> bool:
+        pulse_app_journal.record_safe(values.get("id"), template, "sent" if ok else "failed", text, detail="" if ok else reason,
+                                      actor_id=actor_id, actor_name=actor_name, template_ref=f"legacy:{template}")
+        return ok
+    if bot is None:
+        return journal(False, "bot_unavailable")
+    if not str(user_id or "").isdigit():
+        return journal(False, "no_discord_id")
     try:
         user = (guild.get_member(int(user_id)) if guild else None) or bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
     except (discord.NotFound, discord.HTTPException):
-        return False
-    return await send_dm_notification(user, pulse_app_comms.render(template, server=getattr(guild, "name", "dem Server"), **values))
+        return journal(False, "user_not_found")
+    return journal(bool(await send_dm_notification(user, text)), "dm_not_delivered")
+
+
+async def send_applicant_notice(user, text: str, *, app_id, kind: str, actor_id="0", actor_name="System") -> bool:
+    """#100: DM to an applicant that is already a Discord member object (or ``None``) - sent and journaled."""
+    import pulse_app_journal
+    ok, reason = False, "user_not_found" if user is None else "dm_not_delivered"
+    if user is not None:
+        try:
+            ok = bool(await send_dm_notification(user, text))
+        except Exception:  # noqa: BLE001 - recorded as failed, the decision flow continues as before
+            ok, reason = False, "error"
+    pulse_app_journal.record_safe(app_id, kind, "sent" if ok else "failed", text, detail="" if ok else reason,
+                                  actor_id=str(actor_id), actor_name=str(actor_name), template_ref=f"legacy:{kind}")
+    return ok
 
 
 async def notify_new_application(request: Request, application_id: str, application: dict) -> bool:
@@ -8921,6 +8948,8 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                 reviewer_candidates.append((str(member.id), str(getattr(member, "display_name", member.id))[:80]))
         reviewer_load = app_review.workload(apps, [rid for rid, _ in reviewer_candidates])
     review_policy = app_review.normalize_policy(get_setting_safe(app_review.POLICY_KEY))
+    interview_leads = (_interview_lead_candidates(ctx.guild)
+                       if can_decide and not show_history and any(v.get("status") == "interview" for _, v in items) else [])
     for app_id, item in items:
         duplicate_notice = (
             duplicate_detection.render_duplicate_notice(
@@ -9088,7 +9117,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
                     <button name="decision" value="hire_after_interview" class="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">✅ Gespräch geführt – einstellen</button>
                     <button name="decision" value="reject_after_interview" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs px-3.5 py-1.5 rounded-xl font-semibold transition">Nach Gespräch ablehnen</button>
                 </form>"""
-            footer = f'<div class="w-full space-y-3"><span class="inline-flex text-xs font-semibold border px-3 py-1 rounded-full border-amber-500/30 text-amber-600">🎙️ Bewerbungsgespräch erforderlich · noch keine Einstellung</span>{interview_slot_html(app_id, item) if can_decide else ""}{interview_form if can_decide else ""}</div>'
+            footer = f'<div class="w-full space-y-3"><span class="inline-flex text-xs font-semibold border px-3 py-1 rounded-full border-amber-500/30 text-amber-600">🎙️ Bewerbungsgespräch erforderlich · noch keine Einstellung</span>{interview_slot_html(app_id, item, interview_leads) if can_decide else ""}{interview_form if can_decide else ""}</div>'
         else:
             decide = f"""
                 <form action="/action" method="post" class="flex flex-wrap gap-2 items-center" onsubmit="return confirm('Bewerber zum verpflichtenden Bewerbungsgespräch einladen?');">
@@ -9132,7 +9161,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
 
     empty = "Noch keine entschiedenen Bewerbungen." if show_history else "Keine offenen Bewerbungen vorhanden."
     module_settings_link = (
-        '<a href="/applications/config" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white">⚙️ Module verwalten</a>'
+        '<a href="/applications/statistik" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700">📊 Statistik</a> <a href="/applications/config" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white">⚙️ Module verwalten</a>'
         if can_decide else ""
     )
     body = f"""
@@ -9150,24 +9179,66 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
 _UTC = __import__("datetime").timezone.utc
 
 
-def interview_slot_html(app_id: str, item: dict) -> str:
-    """BOT-10: set or change the interview date (DM to the applicant, calendar entry, reminder 1 h before)."""
-    current = str(item.get("interview_at") or "")
-    shown = ""
-    try:
-        shown = datetime.fromisoformat(current).astimezone(now_de().tzinfo).strftime("%d.%m.%Y %H:%M") if current else ""
-    except ValueError:
-        shown = ""
-    value = current[:16] if current else ""
-    try:
-        value = datetime.fromisoformat(current).astimezone(now_de().tzinfo).strftime("%Y-%m-%dT%H:%M") if current else ""
-    except ValueError:
-        value = ""
-    return (f'<form action="/applications/interview-slot" method="post" class="flex flex-wrap gap-2 items-center">'
-            f'<input type="hidden" name="app_id" value="{esc(app_id)}">'
+def interview_slot_html(app_id: str, item: dict, leads: list | None = None) -> str:
+    """BOT-10/#99: set, move or cancel the interview (start, duration, responsible leader, participants overview)."""
+    import pulse_interviews as interviews
+    tz = now_de().tzinfo
+    scheduled = interviews.is_scheduled(item)
+    span = interviews.window(item) if scheduled else None
+    shown = span[0].astimezone(tz).strftime("%d.%m.%Y %H:%M") if span else ""
+    value = span[0].astimezone(tz).strftime("%Y-%m-%dT%H:%M") if span else ""
+    minutes = int((span[1] - span[0]).total_seconds() // 60) if span else interviews.DEFAULT_MINUTES
+    options = sorted(set(interviews.DURATIONS) | {minutes})
+    duration_html = "".join(f'<option value="{m}"{" selected" if m == minutes else ""}>{m} Min.</option>' for m in options)
+    current_lead = str(item.get("interview_lead_id") or "")
+    lead_list = list(leads or [])
+    if current_lead and current_lead not in {rid for rid, _ in lead_list}:
+        lead_list.append((current_lead, str(item.get("interview_lead_name") or current_lead)))
+    lead_html = '<option value="">– keine –</option>' + "".join(
+        f'<option value="{esc(rid)}"{" selected" if rid == current_lead else ""}>{esc(name)}</option>' for rid, name in lead_list
+        if rid != str(item.get("user_id")))
+    revision = interviews.revision(item)
+    people = interviews.participants(item) if scheduled else []
+    roles = interviews.ROLE_LABELS
+    people_html = ""
+    if people:
+        people_html = ('<ul class="text-[11px] text-slate-500 flex flex-wrap gap-x-3 gap-y-1" aria-label="Gesprächsteilnehmer">'
+                       + "".join(f'<li>{esc(p["name"] or "Unbekannt")} <span class="text-slate-400">({esc(", ".join(roles[r] for r in p["roles"]))})</span></li>' for p in people)
+                       + "</ul>")
+    notes = ""
+    delivery = item.get("interview_delivery") if isinstance(item.get("interview_delivery"), dict) else {}
+    for key, label in (("applicant_notice", "Terminnachricht"), ("applicant_reminder", "Erinnerung")):
+        if isinstance(delivery.get(key), dict) and not delivery[key].get("ok"):
+            notes += f'<span class="text-[11px] text-amber-600" role="status">⚠️ {label} per DM nicht zustellbar</span> '
+    if item.get("interview_state") == "cancelled" and not scheduled:
+        notes += f'<span class="text-[11px] text-rose-600">Letztes Gespräch abgesagt{(": " + esc(item.get("interview_cancel_reason"))) if item.get("interview_cancel_reason") else ""}</span>'
+    cancel_html = ""
+    if scheduled:
+        cancel_html = (f'<form action="/applications/interview-cancel" method="post" class="flex flex-wrap gap-2 items-center" data-interview-cancel onsubmit="return confirm(\'Gesprächstermin wirklich absagen? Der Bewerber wird benachrichtigt.\');">'
+                       f'<input type="hidden" name="app_id" value="{esc(app_id)}"><input type="hidden" name="expected_revision" value="{revision}">'
+                       f'<input name="reason" maxlength="200" placeholder="Grund (optional)" aria-label="Grund der Absage" class="{INPUT} py-1.5 w-auto text-xs">'
+                       f'<button class="text-xs px-3.5 py-1.5 rounded-xl border border-rose-500/30 text-rose-600 font-semibold">Gespräch absagen</button></form>')
+    return (f'<div class="space-y-2" data-interview-box><form action="/applications/interview-slot" method="post" class="flex flex-wrap gap-2 items-end">'
+            f'<input type="hidden" name="app_id" value="{esc(app_id)}"><input type="hidden" name="expected_revision" value="{revision}">'
             f'<label class="text-[11px] font-semibold">🗓️ Gesprächstermin <input type="datetime-local" name="interview_at" value="{esc(value)}" required class="{INPUT} py-1.5 w-auto"></label>'
+            f'<label class="text-[11px] font-semibold">Dauer <select name="duration" class="{INPUT} py-1.5 w-auto">{duration_html}</select></label>'
+            f'<label class="text-[11px] font-semibold">Führungskraft <select name="lead_id" class="{INPUT} py-1.5 w-auto">{lead_html}</select></label>'
             f'<button class="text-xs px-3.5 py-1.5 rounded-xl border border-indigo-500/30 text-indigo-600 font-semibold">{"Termin ändern" if shown else "Termin festlegen"}</button>'
-            f'{f"<span class=\"text-[11px] text-slate-400\">aktuell: {esc(shown)}</span>" if shown else ""}</form>')
+            f'{f"<span class=\"text-[11px] text-slate-400\">aktuell: {esc(shown)} · {minutes} Min.</span>" if shown else ""}</form>'
+            f'{people_html}{cancel_html}{f"<div>{notes}</div>" if notes else ""}</div>')
+
+
+def _template_history_html(key: str) -> str:
+    """#103: earlier versions of one template with a restore button each (the section itself is admin-only)."""
+    import pulse_app_comms
+    rows = pulse_app_comms.history(key)[:5]
+    if not rows:
+        return ""
+    items = "".join(
+        f'<li class="flex flex-wrap items-center gap-2"><span>v{r["version"]} · {esc(r["at"][:16].replace("T", " "))} · {esc(r["actor"] or "–")}</span>'
+        f'<button formaction="/applications/templates/restore" formmethod="post" name="restore" value="{esc(key)}:{r["version"]}" '
+        f'class="underline text-indigo-500" formnovalidate>wiederherstellen</button></li>' for r in rows)
+    return f'<details class="text-[11px] text-slate-400"><summary>Frühere Versionen</summary><ul class="mt-1 space-y-1">{items}</ul></details>'
 
 
 def application_templates_section(ctx) -> str:
@@ -9179,6 +9250,7 @@ def application_templates_section(ctx) -> str:
     fields = "".join(
         f'<label class="grid gap-1 text-xs font-semibold">{esc(label)}'
         f'<textarea name="tpl_{key}" rows="2" class="{INPUT} text-xs">{esc(current[key])}</textarea></label>'
+        + _template_history_html(key)
         for key, label in pulse_app_comms.LABELS.items())
     return (f'<form method="post" action="/applications/templates" class="{CARD} p-5 mt-5 space-y-3">'
             f'<h2 class="text-sm font-bold">✉️ Nachrichten an Bewerber</h2>'
@@ -9186,37 +9258,143 @@ def application_templates_section(ctx) -> str:
             f'{fields}<button class="{BTN} px-4 py-2 text-xs">Vorlagen speichern</button></form>')
 
 
+def _interview_staff(ctx) -> bool:
+    return bool(ctx.perms.get("can_manage_applications") or ctx.perms.get("can_promote") or ctx.perms.get("is_admin"))
+
+
+def _interview_lead_candidates(guild) -> list[tuple[str, str]]:
+    """Members who may be the responsible leader of an interview: leadership (promote right) or admins."""
+    found = []
+    config = load_config()
+    for member in list(getattr(guild, "members", []) or [])[:500]:
+        if getattr(member, "bot", False):
+            continue
+        try:
+            member_perms, _ = compute_perms(guild, member.id, config)
+        except Exception:
+            continue
+        if member_perms.get("can_promote") or member_perms.get("is_admin"):
+            found.append((str(member.id), str(getattr(member, "display_name", member.id))[:80]))
+    return found
+
+
+def _interview_notify_team(app_id: str, ids, title: str, text: str, key: str, ttl: int = 86400) -> None:
+    """Dashboard notification (personal preferences apply inside pulse_db.notify); one try, no retry loop."""
+    for person_id in ids:
+        try:
+            pulse_db.notify(person_id, title, text, "info", "/calendar", f"interview:{app_id}:{key}:{person_id}", ttl)
+        except Exception as exc:
+            print(f"⚠️ Interview-Benachrichtigung fehlgeschlagen: {type(exc).__name__}")
+
+
+async def _interview_dm(request: Request, user_id, template: str, **values) -> bool:
+    """One DM attempt to the applicant. The appointment is already saved, so no failure here may turn into an error page."""
+    try:
+        return bool(await dm_applicant(request, user_id, template, **values))
+    except Exception as exc:
+        print(f"⚠️ Interview-DM fehlgeschlagen: {type(exc).__name__}")
+        return False
+
+
+def _interview_local(moment) -> str:
+    return moment.astimezone(now_de().tzinfo).strftime("%d.%m.%Y %H:%M")
+
+
+def _interview_record_delivery(app_id: str, revision: int, kind: str, ok: bool) -> None:
+    import pulse_interviews as interviews
+    fresh = load_json(APPS_FILE, {})  # no await between this load and the save
+    if isinstance(fresh.get(app_id), dict) and interviews.revision(fresh[app_id]) == revision:
+        interviews.record_delivery(fresh[app_id], kind, ok)
+        save_json(APPS_FILE, fresh)
+
+
 @app.post("/applications/interview-slot")
 async def application_interview_slot(request: Request, user_session: str = Cookie(None)):
+    """#99: create or change an interview (start, duration, responsible leader) with conflict check and calendar entry."""
     import pulse_app_comms
+    import pulse_interviews as interviews
     ctx = auth(request, user_session, perm=None)
-    if not (ctx.perms.get("can_manage_applications") or ctx.perms.get("can_promote") or ctx.perms.get("is_admin")):
+    if not _interview_staff(ctx):
         raise HTTPException(status_code=403, detail="Dir fehlt die Berechtigung für Bewerbungen.")
     form = await request.form()
     app_id = str(form.get("app_id") or "")
+    target = f"/applications#app-{app_id}"
     try:
         when = pulse_app_comms.parse_slot(str(form.get("interview_at") or ""), now_de().tzinfo)
     except ValueError as exc:
         return back("/applications", str(exc), False)
     apps = load_json(APPS_FILE, {})
     item = apps.get(app_id) if isinstance(apps, dict) else None
-    if not isinstance(item, dict) or item.get("status") != "interview":
-        return back("/applications", "Einen Termin gibt es nur für Bewerbungen in der Gesprächsphase.", False)
-    actor = ctx.user.get("global_name") or ctx.user.get("username") or "Team"
-    item["interview_at"] = when.isoformat(timespec="minutes")
-    item["interview_scheduled_by"] = actor
-    item["interview_scheduled_by_id"] = str(ctx.user["id"])
-    item["interview_reminded"] = False
-    if item.get("interview_event_id"):  # review fix: a changed date replaces the old calendar entry
-        pulse_db.delete_calendar_event(item["interview_event_id"])
-    termin = when.strftime("%d.%m.%Y %H:%M")
-    item["interview_event_id"] = pulse_db.create_calendar_event(f"Bewerbungsgespräch {item.get('name') or app_id}"[:120], when.astimezone(_UTC).isoformat(timespec="seconds"),
-                                   (when + timedelta(minutes=30)).astimezone(_UTC).isoformat(timespec="seconds"),
-                                   "event", "Discord", f"Bewerbung {app_id}", ctx.user["id"], actor)
-    save_json(APPS_FILE, apps)  # still no await between loading and saving
-    sent = await dm_applicant(request, item.get("user_id"), "scheduled", id=app_id, termin=termin)
-    log_audit(actor, ctx.user["id"], "Bewerbungsgespräch geplant", f"{app_id} · {termin}")
-    return back("/applications", f"Gesprächstermin {termin} gespeichert" + ("" if sent else " – DM an den Bewerber nicht zustellbar") + ".", sent)
+    if not isinstance(item, dict) or (item.get("guild_id") not in (None, "") and str(item.get("guild_id")) != str(ctx.guild.id)):
+        return back("/applications", "Bewerbung wurde nicht gefunden.", False)
+    current_window = interviews.window(item) if interviews.is_scheduled(item) else None
+    minutes = form.get("duration") or (int((current_window[1] - current_window[0]).total_seconds() // 60) if current_window else interviews.DEFAULT_MINUTES)
+    lead_id, lead_name = str(item.get("interview_lead_id") or ""), str(item.get("interview_lead_name") or "")
+    if "lead_id" in form:
+        lead_id, lead_name = str(form.get("lead_id") or "").strip(), ""
+        if lead_id:
+            member = ctx.guild.get_member(int(lead_id)) if lead_id.isdigit() else None
+            lead_perms = compute_perms(ctx.guild, member.id, load_config())[0] if member is not None and not getattr(member, "bot", False) else {}
+            if not (lead_perms.get("can_promote") or lead_perms.get("is_admin")):
+                return back(target, "Die gewählte Führungskraft ist nicht auf dem Server oder hat keine Leitungsrechte.", False)
+            lead_name = str(member.display_name)[:80]
+    actor = str(ctx.user.get("global_name") or ctx.user.get("username") or "Team")
+    try:
+        result = interviews.schedule(
+            apps, app_id, start=when, minutes=minutes, lead_id=lead_id, lead_name=lead_name, actor_id=str(ctx.user["id"]), actor_name=actor,
+            save=lambda data: save_json(APPS_FILE, data), db=pulse_db, expected_revision=form.get("expected_revision"),
+            load=lambda: load_json(APPS_FILE, {}))
+    except interviews.InterviewConflict as exc:
+        log_audit(actor, ctx.user["id"], "Bewerbungsgespräch: Terminkonflikt abgelehnt", f"{app_id} · {len(exc.conflicts)} Konflikt(e)")
+        return back(target, interviews.describe_conflicts(exc.conflicts, now_de().tzinfo), False)
+    except interviews.InterviewError as exc:
+        return back(target, str(exc), False)
+    termin = _interview_local(when)
+    if result["action"] == "unchanged":
+        return back(target, "Der Termin ist unverändert.", True)
+    moved = result["action"] == "moved"
+    item = result["item"]
+    revision = interviews.revision(item)
+    _interview_notify_team(app_id, result["notify"], "🎙️ Bewerbungsgespräch verschoben" if moved else "🎙️ Bewerbungsgespräch geplant",
+                           f"{item.get('name') or app_id} am {termin}", f"slot{revision}")
+    sent = await _interview_dm(request, item.get("user_id"), "rescheduled" if moved else "scheduled", id=app_id, termin=termin,
+                               actor=(str(ctx.user["id"]), actor))
+    _interview_record_delivery(app_id, revision, "applicant_notice", sent)
+    length = int((result["end"] - result["start"].astimezone(_UTC)).total_seconds() // 60)
+    log_audit(actor, ctx.user["id"], "Bewerbungsgespräch verschoben" if moved else "Bewerbungsgespräch geplant",
+              f"{app_id} · {termin} · {length} Min." + (f" · vorher {_interview_local(result['old_start'])}" if moved and result.get("old_start") else ""))
+    return back(target, f"Gesprächstermin {termin} gespeichert" + ("" if sent else " – DM an den Bewerber nicht zustellbar") + ".", sent)
+
+
+@app.post("/applications/interview-cancel")
+async def application_interview_cancel(request: Request, user_session: str = Cookie(None)):
+    """#99: cancel an interview – calendar entry removed, no further reminders, applicant informed once."""
+    import pulse_interviews as interviews
+    ctx = auth(request, user_session, perm=None)
+    if not _interview_staff(ctx):
+        raise HTTPException(status_code=403, detail="Dir fehlt die Berechtigung für Bewerbungen.")
+    form = await request.form()
+    app_id = str(form.get("app_id") or "")
+    target = f"/applications#app-{app_id}"
+    apps = load_json(APPS_FILE, {})
+    item = apps.get(app_id) if isinstance(apps, dict) else None
+    if not isinstance(item, dict) or (item.get("guild_id") not in (None, "") and str(item.get("guild_id")) != str(ctx.guild.id)):
+        return back("/applications", "Bewerbung wurde nicht gefunden.", False)
+    actor = str(ctx.user.get("global_name") or ctx.user.get("username") or "Team")
+    try:
+        result = interviews.cancel(apps, app_id, actor_id=str(ctx.user["id"]), actor_name=actor, save=lambda data: save_json(APPS_FILE, data),
+                                   db=pulse_db, reason=str(form.get("reason") or ""), expected_revision=form.get("expected_revision"),
+                                   load=lambda: load_json(APPS_FILE, {}))
+    except interviews.InterviewError as exc:
+        return back(target, str(exc), False)
+    termin = _interview_local(result["old_start"]) if result.get("old_start") else ""
+    item = result["item"]
+    revision = interviews.revision(item)
+    _interview_notify_team(app_id, result["notify"], "🎙️ Bewerbungsgespräch abgesagt", f"{item.get('name') or app_id} ({termin})", f"cancel{revision}")
+    sent = await _interview_dm(request, item.get("user_id"), "cancelled", id=app_id, actor=(str(ctx.user["id"]), actor))
+    _interview_record_delivery(app_id, revision, "applicant_notice", sent)
+    log_audit(actor, ctx.user["id"], "Bewerbungsgespräch abgesagt", f"{app_id} · {termin}")
+    return back(target, "Gesprächstermin abgesagt." + ("" if sent else " – DM an den Bewerber nicht zustellbar."), sent)
 
 
 @app.post("/applications/templates")
@@ -9224,33 +9402,88 @@ async def application_templates_save(request: Request, user_session: str = Cooki
     import pulse_app_comms
     ctx = auth(request, user_session, perm=None, admin=True)
     form = await request.form()
-    pulse_app_comms.save({key: form.get(f"tpl_{key}", "") for key in pulse_app_comms.DEFAULTS})
+    pulse_app_comms.save({key: form.get(f"tpl_{key}", "") for key in pulse_app_comms.DEFAULTS}, actor=str(ctx.user.get("global_name") or ""))
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Bewerber-Nachrichten geändert", "Vorlagen")
     return back("/applications/config", "Vorlagen gespeichert.")
 
 
-async def send_interview_reminders(bot) -> int:
-    """BOT-10: called by the existing automation loop – one reminder DM per interview, about an hour before."""
+@app.post("/applications/templates/restore")
+async def application_templates_restore(request: Request, user_session: str = Cookie(None)):
+    """#103: restore an earlier version of one applicant message (admins only)."""
     import pulse_app_comms
+    ctx = auth(request, user_session, perm=None, admin=True)
+    form = await request.form()
+    key, _, number = str(form.get("restore") or "").partition(":")
+    try:
+        pulse_app_comms.restore(key, int(number or 0), actor=str(ctx.user.get("global_name") or ""))
+    except (ValueError, TypeError):
+        return back("/applications/config", "Diese Vorlagenversion gibt es nicht.", False)
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Bewerber-Nachricht wiederhergestellt", f"{key} v{number}")
+    return back("/applications/config", "Vorlagenversion wiederhergestellt.")
+
+
+def send_stale_application_reminders() -> int:
+    """#101: dashboard reminder (once per day and person, via the notification dedupe) to the assigned reviewers
+    of applications that wait too long. Internal notifications only - no Discord message, no retry loop."""
+    import pulse_recruiting_stats as rs
+    apps = load_json(APPS_FILE, {})
+    sent = 0
+    for row in rs.stale_applications(apps if isinstance(apps, dict) else {}, now_de().replace(tzinfo=None)):
+        label = "wartet auf Prüfung" if row["status"] == "pending" else "wartet auf Entscheidung nach Gespräch"
+        for person in row["reviewers"]:
+            try:
+                pulse_db.notify(person, "📝 Bewerbung überfällig", f"{row['name']} {label} (seit {row['days']} Tagen).",
+                                "warning", "/applications", f"app-stale:{row['id']}:{person}", 86400)
+                sent += 1
+            except Exception as exc:  # noqa: BLE001
+                print(f"⚠️ Bewerbungs-Erinnerung fehlgeschlagen: {type(exc).__name__}")
+    return sent
+
+
+async def send_interview_reminders(bot) -> int:
+    """BOT-10/#99: called by the existing automation loop. Reminder ≤ 1 h before (applicant DM + team), team heads-up
+    ≤ 24 h before. Each is claimed in the record *before* sending, so a slow or failing DM is never repeated."""
+    import pulse_app_comms
+    import pulse_interviews as interviews
     guild = bot.get_guild(GUILD_ID) if bot else None
-    due = pulse_app_comms.due_reminders(load_json(APPS_FILE, {}), datetime.now(_UTC))
-    for app_id in due:
-        item = load_json(APPS_FILE, {}).get(app_id) or {}
-        termin = datetime.fromisoformat(item["interview_at"]).astimezone(now_de().tzinfo).strftime("%H:%M")
+    now_utc = datetime.now(_UTC)
+    try:  # appointments of applications decided in the meantime, calendar rows without an application
+        interviews.reconcile(load_json(APPS_FILE, {}), save=lambda data: save_json(APPS_FILE, data), db=pulse_db, now=now_utc)
+    except Exception as exc:
+        print(f"⚠️ Interview-Kalenderabgleich fehlgeschlagen: {type(exc).__name__}")
+    sent_reminders = 0
+    for app_id, kind in interviews.due_notices(load_json(APPS_FILE, {}), now_utc):
+        apps = load_json(APPS_FILE, {})
+        item = apps.get(app_id)
+        if not isinstance(item, dict) or (app_id, kind) not in interviews.due_notices({app_id: item}, now_utc):
+            continue
+        item["interview_heads_up"] = True
+        if kind == "reminder":
+            item["interview_reminded"] = True
+        save_json(APPS_FILE, apps)  # claim first: no double sending, no retry storm
+        span = interviews.window(item)
+        local = span[0].astimezone(now_de().tzinfo) if span else None
+        who = item.get("name") or app_id
+        revision = interviews.revision(item)
+        if kind == "heads_up":
+            _interview_notify_team(app_id, interviews.team_ids(item), "🎙️ Bewerbungsgespräch bevorstehend",
+                                   f"{who} am {local.strftime('%d.%m. %H:%M') if local else ''}", f"headsup{revision}")
+            continue
+        termin = local.strftime("%H:%M") if local else ""
+        import pulse_app_journal
+        ok, reason = False, "dm_not_delivered"
         text = pulse_app_comms.render("reminder", server=getattr(guild, "name", "dem Server"), id=app_id, termin=termin)
         try:
             user = (guild.get_member(int(item.get("user_id"))) if guild else None) or await bot.fetch_user(int(item.get("user_id")))
-            await send_dm_notification(user, text)
-        except (discord.HTTPException, TypeError, ValueError):
-            pass
-        if str(item.get("interview_scheduled_by_id") or "").isdigit():
-            pulse_db.notify(item["interview_scheduled_by_id"], "🎙️ Bewerbungsgespräch gleich", f"{item.get('name') or app_id} um {termin}",
-                            "info", "/applications", f"interview:{app_id}", 7200)
-        apps = load_json(APPS_FILE, {})  # fresh copy: no await between reading and writing
-        if isinstance(apps.get(app_id), dict):
-            apps[app_id]["interview_reminded"] = True
-            save_json(APPS_FILE, apps)
-    return len(due)
+            ok = bool(await send_dm_notification(user, text))
+        except (discord.HTTPException, TypeError, ValueError, AttributeError):
+            ok, reason = False, "user_not_found"  # recorded below; never retried
+        pulse_app_journal.record_safe(app_id, "reminder", "sent" if ok else "failed", text, detail="" if ok else reason,
+                                      actor_id="0", actor_name="System", template_ref="legacy:reminder")
+        _interview_notify_team(app_id, interviews.team_ids(item), "🎙️ Bewerbungsgespräch gleich", f"{who} um {termin}", f"remind{revision}", 7200)
+        _interview_record_delivery(app_id, revision, "applicant_reminder", ok)
+        sent_reminders += 1
+    return sent_reminders
 
 
 @app.post("/applications/review")
@@ -9376,6 +9609,76 @@ async def save_application_review_policy(request: Request, user_session: str = C
     pulse_db.set_setting(app_review.POLICY_KEY, {"min_reviews": minimum})
     log_audit(str(ctx.user.get("global_name") or ctx.user.get("username")), ctx.user["id"], "Bewerbungs-Prüfpolicy geändert", f"Mindestbewertungen: {minimum}")
     return back("/applications", "Policy gespeichert.")
+
+
+@app.get("/applications/statistik", response_class=HTMLResponse)
+async def application_stats_page(request: Request, user_session: str = Cookie(None)):
+    """#102: recruiting statistics (recruiting staff only); ``?days=30|90|365`` limits the period."""
+    ctx = auth(request, user_session, perm=None)
+    if not can_review_applications(ctx):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Bewerbungen.")
+    import pulse_recruiting_stats as rs
+    raw = str(request.query_params.get("days") or "")
+    days = int(raw) if raw in ("30", "90", "365") else None
+    apps = load_json(APPS_FILE, {})
+    data = rs.compute(apps if isinstance(apps, dict) else {}, now_de().replace(tzinfo=None), days)
+
+    def hours(block):
+        if not block["n"]:
+            return "–"
+        return (f'Ø {block["avg_h"]} h · Median {block["median_h"]} h · max. {block["max_h"]} h '
+                f'<span class="text-slate-400">(n={block["n"]})</span>')
+
+    def pct(value):
+        return "–" if value is None else f"{value} %"
+    d, c = data["durations"], data["conversion"]
+    tiles = "".join(
+        f'<div class="{CARD} p-4"><div class="text-[11px] text-slate-400">{esc(label)}</div><div class="text-xl font-bold">{esc(str(value))}</div></div>'
+        for label, value in (("Bewerbungen", data["total"]), ("Offen", data["status"]["pending"] + data["status"]["interview"]),
+                             ("Angenommen", data["status"]["hired"]), ("Abgelehnt", data["status"]["rejected"])))
+    rows = "".join(f'<tr><td class="py-1 pr-3">{esc(r["name"])}</td><td>{r["assigned"]}</td><td>{r["reviewed"]}</td><td>{pct(r["completion_pct"])}</td></tr>'
+                   for r in data["reviewers"]) or '<tr><td colspan="4" class="text-slate-400 py-2">Keine Zuweisungen im Zeitraum.</td></tr>'
+    nav = " · ".join(f'<a class="underline" href="/applications/statistik{q}">{label}</a>'
+                     for q, label in (("", "Gesamt"), ("?days=30", "30 Tage"), ("?days=90", "90 Tage"), ("?days=365", "1 Jahr")))
+    body = (f'<div class="max-w-3xl space-y-4"><div class="flex flex-wrap items-center justify-between gap-3"><h1 class="text-2xl font-bold">Recruiting-Statistik</h1>'
+            f'<a href="/applications" class="px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700">← Zur Bewerbungsübersicht</a></div>'
+            f'<p class="text-xs text-slate-400">Zeitraum: {nav}. Durchschnitte sind Richtwerte und nennen die Zahl der zugrunde liegenden Bewerbungen.</p>'
+            f'<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">{tiles}</div>'
+            f'<div class="{CARD} p-4 text-xs space-y-1"><div>Bis zum Gespräch gekommen: <b>{pct(c["interview_pct"])}</b> · '
+            f'Angenommen (von entschieden): <b>{pct(c["hired_of_decided_pct"])}</b> · Angenommen (von allen): <b>{pct(c["hired_of_total_pct"])}</b></div>'
+            f'<div>Wartezeit bis Einladung: {hours(d["to_invite"])}</div><div>Dauer bis Entscheidung: {hours(d["to_decision"])}</div>'
+            f'<div>Gespräch bis Entscheidung: {hours(d["interview_to_decision"])}</div><div>Alter offener Bewerbungen: {hours(d["open_age"])}</div></div>'
+            f'<div class="{CARD} p-4 overflow-x-auto"><h2 class="text-sm font-bold mb-2">Prüfer-Auslastung</h2><table class="text-xs w-full text-left">'
+            f'<thead><tr class="text-slate-400"><th>Prüfer</th><th>Zugewiesen</th><th>Bewertet</th><th>Quote</th></tr></thead><tbody>{rows}</tbody></table></div></div>')
+    return render_page("Recruiting-Statistik", ctx, "apps", body)
+
+
+@app.get("/applications/journal/{app_id}", response_class=HTMLResponse)
+async def application_comm_journal_page(app_id: str, request: Request, user_session: str = Cookie(None)):
+    """#100: read-only communication journal of one application (recruiting staff only)."""
+    ctx = auth(request, user_session, perm=None)
+    if not can_review_applications(ctx):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Bewerbungen.")
+    apps = load_json(APPS_FILE, {})
+    if not isinstance(apps, dict) or app_id not in apps:
+        raise HTTPException(status_code=404, detail="Bewerbung nicht gefunden.")
+    import pulse_app_journal
+    rows = pulse_app_journal.entries(app_id, limit=pulse_app_journal.MAX_LIST, newest_first=False)
+    check = pulse_app_journal.verify(app_id)
+    verdict = ('<span class="text-emerald-600 dark:text-emerald-400">Verkettung geprüft – unverändert</span>' if check["ok"] else
+               f'<span class="text-rose-600 dark:text-rose-400">Prüfung fehlgeschlagen ab Eintrag {check["broken_at"]}: {esc(check["reason"])}</span>')
+    cards = "".join(
+        f'<div class="{CARD} p-4 space-y-1"><div class="flex flex-wrap items-center justify-between gap-2 text-xs">'
+        f'<b>#{int(r["seq"])} · {esc(r["kind"])}</b><span class="{BADGE_OK if r["outcome"] == "sent" else BADGE_BAD} rounded-full border px-2 py-0.5">'
+        f'{"zugestellt" if r["outcome"] == "sent" else "fehlgeschlagen: " + esc(r["detail"])}</span></div>'
+        f'<div class="text-[11px] text-slate-500">{esc(r["at"])} · {esc(r["actor_name"] or "System")}</div>'
+        f'<div class="text-xs whitespace-pre-wrap text-slate-700 dark:text-slate-200">{esc(r["text"] or "")}</div></div>'
+        for r in rows) or '<p class="text-xs text-slate-500">Noch keine Nachrichten an diese Person protokolliert.</p>'
+    body = (f'<div class="max-w-3xl space-y-4"><div class="flex flex-wrap items-center justify-between gap-3">'
+            f'<h1 class="text-2xl font-bold">Kommunikationsjournal {esc(app_id)}</h1>'
+            f'<a href="/applications" class="px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700">← Zur Bewerbungsübersicht</a></div>'
+            f'<p class="text-xs">{verdict}</p>{cards}</div>')
+    return render_page("Kommunikationsjournal", ctx, "apps", body)
 
 
 @app.get("/applications/config", response_class=HTMLResponse)
@@ -12515,9 +12818,10 @@ async def handle_action(
                 item["interview_invitation_reason"] = action_reason
                 store_item()
                 import pulse_app_comms  # BOT-10: same text by default, editable template
-                await send_dm_notification(
+                await send_applicant_notice(
                     applicant,
                     pulse_app_comms.render("interview", server=guild.name, rolle=application_role.name, id=app_id),
+                    app_id=app_id, kind="interview", actor_id=actor_id, actor_name=actor,
                 )
                 await send_team_update_embed(
                     guild,
@@ -12630,9 +12934,10 @@ async def handle_action(
                 save_json(DATA_FILE, team_db)
                 store_item()
                 import pulse_app_comms  # BOT-10
-                await send_dm_notification(
+                await send_applicant_notice(
                     applicant,
                     pulse_app_comms.render("hired", server=guild.name, rolle=role.name, id=app_id),
+                    app_id=app_id, kind="hired", actor_id=actor_id, actor_name=actor,
                 )
                 await send_team_update_embed(
                     guild,
@@ -12669,11 +12974,11 @@ async def handle_action(
             item["decided_at"] = now_de().strftime("%d.%m.%Y %H:%M")
             item["decision_reason"] = action_reason
             store_item()
-            if applicant:
-                import pulse_app_comms  # BOT-10
-                notice = pulse_app_comms.render("rejected_after_interview" if decision == "reject_after_interview" else "rejected",
-                                                server=guild.name, id=app_id)
-                await send_dm_notification(applicant, notice)
+            import pulse_app_comms  # BOT-10
+            reject_kind = "rejected_after_interview" if decision == "reject_after_interview" else "rejected"
+            notice = pulse_app_comms.render(reject_kind, server=guild.name, id=app_id)
+            # #100: also journals the case that the applicant is no longer reachable (no DM is possible then)
+            await send_applicant_notice(applicant, notice, app_id=app_id, kind=reject_kind, actor_id=actor_id, actor_name=actor)
             await send_team_update_embed(
                 guild,
                 "📄 Team-Update: Bewerbung abgelehnt",

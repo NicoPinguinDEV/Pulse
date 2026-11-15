@@ -18,6 +18,8 @@ DEFAULTS = {
                   "Vor einer Einstellung muss verpflichtend ein Bewerbungsgespräch stattfinden. "
                   "Du bist damit noch nicht als Teammitglied eingestellt."),
     "scheduled": "🗓️ Dein Bewerbungsgespräch bei **{server}** ist am **{termin}** (deutsche Zeit). Bitte sei pünktlich im Warteraum.",
+    "rescheduled": "🔄 Dein Bewerbungsgespräch bei **{server}** wurde auf **{termin}** (deutsche Zeit) verschoben. Bitte sei pünktlich im Warteraum.",
+    "cancelled": "❌ Dein Bewerbungsgespräch bei **{server}** wurde abgesagt. Wir melden uns mit einem neuen Termin.",
     "reminder": "⏰ Erinnerung: Dein Bewerbungsgespräch bei **{server}** beginnt um **{termin}**.",
     "hired": ("🎉 Nach deinem Bewerbungsgespräch wurde deine Bewerbung bei **{server}** final angenommen. "
               "Du wurdest als **{rolle}** in das Team aufgenommen; die Bewerberolle wurde entfernt."),
@@ -25,6 +27,7 @@ DEFAULTS = {
     "rejected_after_interview": "Deine Bewerbung bei **{server}** wurde nach dem Bewerbungsgespräch leider abgelehnt.",
 }
 LABELS = {"received": "Eingang", "interview": "Freigabe zum Gespräch", "scheduled": "Gesprächstermin",
+          "rescheduled": "Gespräch verschoben", "cancelled": "Gespräch abgesagt",
           "reminder": "Erinnerung vor dem Gespräch", "hired": "Angenommen", "rejected": "Abgelehnt",
           "rejected_after_interview": "Abgelehnt nach Gespräch"}
 PLACEHOLDERS = "{server}, {id}, {rolle}, {termin}"
@@ -37,12 +40,54 @@ def load() -> dict:
             for k, v in DEFAULTS.items()}
 
 
-def save(values: dict) -> dict:
-    """Only changed texts are stored; an emptied field falls back to the built-in text."""
+def save(values: dict, actor: str = "") -> dict:
+    """Only changed texts are stored; an emptied field falls back to the built-in text.
+
+    #103: every effective change of a template is kept as a new version (who/when, max. ``MAX_VERSIONS`` per
+    template) so earlier wordings can be restored with :func:`restore`."""
     import pulse_db
+    before = load()
     data = {k: str(v).strip()[:1800] for k, v in values.items() if k in DEFAULTS and str(v or "").strip() and str(v).strip() != DEFAULTS[k]}
     pulse_db.set_setting(TEMPLATES_KEY, data)
-    return load()
+    after = load()
+    for key in DEFAULTS:
+        if after[key] != before[key]:
+            _add_version(key, after[key], actor)
+    return after
+
+
+MAX_VERSIONS = 20
+VERSIONS_KEY = "application_dm_template_versions"
+
+
+def _add_version(key: str, text: str, actor: str = "") -> None:
+    import pulse_db
+    all_versions = pulse_db.get_setting(VERSIONS_KEY, {}) or {}
+    rows = list(all_versions.get(key) or [])
+    number = (rows[-1]["version"] + 1) if rows else 1
+    rows.append({"version": number, "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                 "actor": str(actor or "")[:100], "text": text})
+    all_versions[key] = rows[-MAX_VERSIONS:]
+    pulse_db.set_setting(VERSIONS_KEY, all_versions)
+
+
+def history(key: str) -> list[dict]:
+    """Stored versions of one template, newest first (the built-in default is never listed as a version)."""
+    import pulse_db
+    if key not in DEFAULTS:
+        return []
+    rows = (pulse_db.get_setting(VERSIONS_KEY, {}) or {}).get(key) or []
+    return [dict(r) for r in reversed(rows)]
+
+
+def restore(key: str, version: int, actor: str = "") -> str:
+    """Make an earlier version the active text again (recorded as a new version). Raises ``ValueError``."""
+    row = next((r for r in history(key) if r["version"] == int(version)), None)
+    if row is None:
+        raise ValueError("Diese Vorlagenversion gibt es nicht.")
+    current = load()
+    current[key] = row["text"]
+    return save(current, actor)[key]
 
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
@@ -55,15 +100,27 @@ def render(key: str, **values) -> str:
     return _PLACEHOLDER.sub(lambda m: known.get(m.group(1), m.group(0)), load()[key])[:1900]
 
 
-def parse_slot(value: str, tz) -> datetime:
-    """'2026-10-24T18:30' from a datetime-local field in German time → aware datetime; must be in the future."""
+def parse_slot(value: str, tz, now: datetime | None = None) -> datetime:
+    """'2026-10-24T18:30' from a datetime-local field in German time → aware datetime; must be in the future.
+
+    DST (Europe/Berlin): a wall-clock time that does not exist (spring gap) or exists twice (autumn overlap)
+    is refused instead of being silently shifted by an hour."""
     try:
-        when = datetime.fromisoformat(str(value)).replace(tzinfo=tz)
+        naive = datetime.fromisoformat(str(value).strip())
     except (TypeError, ValueError):
         raise ValueError("Bitte Datum und Uhrzeit des Gesprächs angeben.") from None
-    if when <= datetime.now(timezone.utc):
+    if naive.tzinfo is not None:
+        raise ValueError("Bitte Datum und Uhrzeit ohne Zeitzone angeben (deutsche Zeit).")
+    naive = naive.replace(second=0, microsecond=0)
+    first = naive.replace(tzinfo=tz, fold=0)
+    second = naive.replace(tzinfo=tz, fold=1)
+    if first.astimezone(timezone.utc).astimezone(tz).replace(tzinfo=None) != naive:  # checked first: a gap also has two offsets
+        raise ValueError("Diese Uhrzeit gibt es wegen der Zeitumstellung nicht. Bitte eine andere Zeit wählen.")
+    if first.utcoffset() != second.utcoffset():
+        raise ValueError("Diese Uhrzeit gibt es wegen der Zeitumstellung zweimal. Bitte eine andere Zeit wählen.")
+    if first <= (now or datetime.now(timezone.utc)):
         raise ValueError("Der Gesprächstermin muss in der Zukunft liegen.")
-    return when
+    return first
 
 
 def due_reminders(apps: dict, now: datetime) -> list[str]:

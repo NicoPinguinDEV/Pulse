@@ -5,6 +5,23 @@
 - **Team-Kick / Verlust der letzten Teamrolle:** Nach einem tatsächlich erfolgreichen Team-Kick (Dashboard, Discord-Zweitfreigabe, automatischer Warn-Team-Kick) oder dem Verlust der letzten konfigurierten Teamrolle werden aktive und zukünftige Abmeldungen beendet: Eintrag gelöscht, Abmeldungsrolle entfernt, Nickname-Suffix mit der bestehenden Schutzlogik zurückgesetzt, Abmeldungs- und Teamliste aktualisiert. Ein fehlgeschlagener Team-Kick lässt die Abmeldung unverändert.
 - **Serveraustritt, Kick, Ban:** Die Abmeldung wird gelöscht und die Abmeldungsliste aktualisiert; es werden keine Rollen- oder Nickname-Änderungen am nicht mehr vorhandenen Mitglied versucht.
 - Zentral und idempotent in `AbmeldungCog.cleanup_member_absence`; nur Datensätze der betroffenen Guild (alte Einträge ohne Guild-ID nur, wenn das Mitglied in keiner anderen Pulse-Guild ist). Keine Schemaänderung, Abmeldungsgründe werden nicht protokolliert. Technische Beschreibung: `docs/ABMELDUNG_AUTO_BEREINIGUNG.md`.
+## Bewerbungen: Journal, Statistik, Vorlagen, Erinnerungen (November 2026)
+
+- **Kommunikationsjournal (#100):** Jede Nachricht an Bewerber (auch fehlgeschlagene) wird in einem verketteten Journal protokolliert (`pulse_app_journal.py`, Tabelle `application_comm_journal`, im Backup enthalten). Ansicht `/applications/journal/{id}` nur für Prüfer; Export und Retention-Bereinigung angebunden.
+- **Recruiting-Statistik (#102):** `/applications/statistik` mit Trichter, Conversion, Wartezeiten (mit Stichprobengröße) und Prüfer-Auslastung.
+- **Vorlagen (#103):** Bewerber-Nachrichten sind versioniert und wiederherstellbar (Admin).
+- **Erinnerungen (#101):** Tägliche Dashboard-Erinnerung an zugewiesene Prüfer bei überfälligen Bewerbungen (3 Tage ohne Prüfung, 7 Tage nach Gespräch ohne Entscheidung); keine Discord-Nachricht, kein Retry.
+- Tests: `tests/test_app_journal.py`, `tests/test_recruiting_stats.py`, `tests/test_app_comms_versions.py`.
+
+## Bewerbungen: Interview-Kalender (November 2026)
+
+- **Interview-Kalender (#99):** Gesprächstermine sind echte Einträge im Team-Kalender `/calendar` (Kategorie „Bewerbungsgespräch“, eigene Kennzeichnung, Zeit, Dauer, Status, Teilnehmer, Link zur Bewerbung für Recruiting-Berechtigte) und im Kalender als Monats-Agenda mit Leerzustand. Termine lassen sich mit Dauer und verantwortlicher Führungskraft anlegen, verschieben und absagen (`/applications`); der alte Kalendereintrag wird ersetzt, keine verwaisten oder doppelten Einträge.
+- Konflikte: serverseitige Prüfung auf gleichen Bewerber, Prüfer (#96) und Führungskraft; unlesbare Termine blockieren statt zu passieren; veraltete Formulare werden abgewiesen.
+- Zeit: Europe/Berlin mit Sommer-/Winterzeit; Zeiten in der Zeitumstellung (fehlende oder doppelte Stunde) werden abgelehnt; Speicherung in UTC.
+- Erinnerungen: Bewerber-DM bei Termin, Verschiebung und Absage (neue bearbeitbare Vorlagen), Team-Hinweis 24 h und Erinnerung 1 h vorher, je einmal, ohne Wiederholversuche; Zustellfehler sind sichtbar. Persönliche Benachrichtigungseinstellungen gelten.
+- Datenschutz: Normale Teammitglieder sehen im Kalender keine Bewerberdaten (auch alte Einträge mit Namen im Titel werden bereinigt). Alle Änderungen werden auditiert.
+- Daten: nur optionale Felder in `applications.json` (`interview_end`, `interview_lead_id`, `interview_state`, `interview_revision`, `interview_delivery` …); keine neue Tabelle, keine Migration.
+- Tests: `tests/test_interview_calendar.py` und Browser-Tests (Desktop/Mobil/Rechte) in `tests/test_e2e_dashboard.py`; `tools/audit_counts.py` zählt die Audit-Zeilen automatisch.
 
 ## Bewerbungen: Kanban-Pipeline (November 2026)
 

@@ -2489,20 +2489,37 @@ def register(app):
                 parsed = parsed.replace(tzinfo=local_tz)
             return parsed.astimezone(local_tz)
 
+        import pulse_interviews as interviews
+        # #99: interview rows are described by pulse_interviews – applicant identity, application number and the
+        # participant list only reach viewers with recruiting permission; everyone else gets generic facts.
+        privileged = bool(c.perms.get("can_manage_applications") or c.perms.get("can_promote") or c.perms.get("is_admin"))
+        try:
+            interview_index = interviews.link_index(ws.load_json(ws.APPS_FILE, {}))
+        except Exception:
+            interview_index = {}
         calendar_events = []
         for event in db.list_calendar_events(range_start, range_end, 2000):
             start_dt = parse_calendar_datetime(event.get("starts_at"))
             end_dt = parse_calendar_datetime(event.get("ends_at")) or start_dt
             if start_dt is None:
                 continue
+            interview = None
+            if interviews.looks_like_interview(event) or str(event.get("id")) in interview_index:
+                try:
+                    interview = interviews.describe(event, interview_index, privileged=privileged)
+                except Exception:  # fail closed: a broken record must never fall back to the stored (identifying) title
+                    interview = {"title": interviews.EVENT_TITLE, "description": "", "status": "scheduled",
+                                 "status_label": interviews.STATUS_LABELS["scheduled"], "minutes": interviews.DEFAULT_MINUTES,
+                                 "participants": [], "headcount": 0, "app_url": "", "linked": False}
             calendar_events.append({
-                "title": event.get("title") or "Event",
-                "category": event.get("category") or "event",
+                "title": interview["title"] if interview else (event.get("title") or "Event"),
+                "category": "interview" if interview else (event.get("category") or "event"),
                 "location": event.get("location") or "",
-                "description": event.get("description") or "",
+                "description": "" if interview else (event.get("description") or ""),
                 "start": start_dt,
                 "end": end_dt,
-                "source": "event",
+                "source": "interview" if interview else "event",
+                "interview": interview,
             })
 
         # Keep the currently configured meeting visible as a calendar item too.
@@ -2548,7 +2565,7 @@ def register(app):
         weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
         weekday_html = "".join(f'<div class="cal-weekday">{name}</div>' for name in weekdays)
         day_cells = []
-        event_icons = {"event": "📌", "meeting": "◫", "training": "🎓", "announcement": "📢", "leave": "☾"}
+        event_icons = {"event": "📌", "meeting": "◫", "training": "🎓", "announcement": "📢", "leave": "☾", "interview": "🎙️"}
         for offset in range(42):
             day = grid_start + timedelta(days=offset)
             day_key = day.isoformat()
@@ -2566,10 +2583,18 @@ def register(app):
                 else:
                     time_label = event["start"].strftime("%H:%M") if event["start"].date() == day else "Ganztägig"
                 location = f' · {e(event["location"])}' if event["location"] and day == event["start"].date() else ""
+                tag, attrs, close = "div", "", "</div>"
+                interview = event.get("interview")
+                if interview:
+                    time_label = f'{event["start"].strftime("%H:%M")}–{event["end"].strftime("%H:%M")}' if event["end"] != event["start"] else event["start"].strftime("%H:%M")
+                    title = f'{title} · {e(interview["status_label"])}'
+                    attrs = f' data-interview-status="{e(interview["status"])}"'
+                    if interview["app_url"]:
+                        tag, close, attrs = "a", "</a>", attrs + f' href="{e(interview["app_url"])}"'
                 chips.append(
-                    f'<div class="cal-event cal-{e(event["category"])}" title="{title}: {e(event["description"])}{location}">'
+                    f'<{tag} class="cal-event cal-{e(event["category"])}"{attrs} title="{title}: {e(event["description"])}{location}">'
                     f'<span>{icon}</span><span class="cal-event-text">{title}</span>'
-                    f'<span class="cal-event-time">{e(time_label)}</span></div>'
+                    f'<span class="cal-event-time">{e(time_label)}</span>{close}'
                 )
             more = f'<div class="cal-more">+{len(by_day[day_key]) - 3} weitere</div>' if len(by_day[day_key]) > 3 else ""
             today_label = '<span class="cal-today-label">Heute</span>' if day == today else ""
@@ -2577,6 +2602,29 @@ def register(app):
                 f'<div class="cal-day{today_class}{outside_class}"><div class="cal-day-top"><span class="cal-day-number">{day.day}</span>'
                 f'{today_label}</div>{"".join(chips)}{more}</div>'
             )
+
+        # #99: agenda of the interviews of the shown month (own event type, status, duration, participants, link)
+        month_interviews = sorted((ev for ev in calendar_events if ev.get("interview") and ev["start"].year == month_date.year
+                                   and ev["start"].month == month_date.month), key=lambda ev: ev["start"])
+        agenda_rows = []
+        for ev in month_interviews:
+            info = ev["interview"]
+            who = ""
+            if info["participants"]:
+                who = ", ".join(f'{e(p["name"])} ({e(", ".join(p["roles"]))})' for p in info["participants"])
+            elif info["headcount"]:
+                who = f'{info["headcount"]} Teilnehmer'
+            heading = f'<a href="{e(info["app_url"])}" class="font-semibold underline">{e(info["title"])}</a>' if info["app_url"] else f'<span class="font-semibold">{e(info["title"])}</span>'
+            agenda_rows.append(
+                f'<li class="pulse-row" data-interview-status="{e(info["status"])}"><div class="pulse-row-main">'
+                f'<div class="pulse-row-title">🎙️ {heading} {pill(info["status_label"])}</div>'
+                f'<div class="pulse-row-meta">{e(ev["start"].strftime("%d.%m.%Y %H:%M"))}–{e(ev["end"].strftime("%H:%M"))} · {info["minutes"]} Min.'
+                f'{(" · " + who) if who else ""}</div></div></li>')
+        interview_agenda = (
+            '<section class="pulse-card p-5 mt-4" aria-labelledby="cal-interviews"><div class="pulse-section-title mb-2" id="cal-interviews">🎙️ Bewerbungsgespräche in diesem Monat</div>'
+            + (f'<ul class="space-y-2">{"".join(agenda_rows)}</ul>' if agenda_rows else
+               '<div class="pulse-empty" data-empty="interviews">Für diesen Monat sind keine Bewerbungsgespräche geplant.</div>')
+            + '</section>')
 
         flash = str(request.query_params.get("msg") or "").strip()
         flash_html = f'<div class="pulse-alert mb-4">{e(flash)}</div>' if flash else ""
@@ -2600,7 +2648,7 @@ def register(app):
         .cal-today-label{font-size:8px;color:var(--p);font-weight:800}.cal-outside{opacity:.48;background:var(--surface2)}
         .cal-event{display:flex;align-items:center;gap:3px;margin:3px 0;padding:4px 5px;border-radius:5px;font-size:9px;background:rgba(255,118,92,.10);color:var(--text);min-width:0}
         .cal-event-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}.cal-event-time{font-size:8px;color:var(--muted)}
-        .cal-meeting{background:rgba(18,183,106,.13)}.cal-training{background:rgba(14,165,233,.13)}.cal-announcement{background:rgba(247,144,9,.14)}.cal-leave{background:rgba(148,163,184,.18)}
+        .cal-interview{background:rgba(124,92,255,.16);border-left:3px solid #7c5cff}a.cal-event{text-decoration:none}.cal-meeting{background:rgba(18,183,106,.13)}.cal-training{background:rgba(14,165,233,.13)}.cal-announcement{background:rgba(247,144,9,.14)}.cal-leave{background:rgba(148,163,184,.18)}
         .cal-more{font-size:8px;color:var(--muted);padding:2px 4px}.cal-nav{display:flex;align-items:center;gap:7px}.cal-nav a{border:1px solid var(--border);background:var(--surface2);border-radius:9px;padding:7px 10px;font-size:12px;font-weight:800}
         @media(max-width:1050px){.calendar-shell{grid-template-columns:1fr}.calendar-shell>*{min-width:0}.calendar-form{order:-1}}
         @media(max-width:720px){.calendar-scroll{overflow-x:auto;padding-bottom:8px}.calendar-scroll>.cal-weekdays,.calendar-scroll>.cal-grid{min-width:650px}.cal-day{min-height:94px;padding:5px}.cal-event{font-size:8px}}
@@ -2614,7 +2662,7 @@ def register(app):
               f'<a href="/calendar" title="Zum aktuellen Monat">Heute</a></div></div>'
             + '<div class="calendar-shell"><section class="calendar-main">'
             + '<div class="pulse-card p-3 calendar-scroll"><div class="cal-weekdays">' + weekday_html + '</div>'
-            + '<div class="cal-grid">' + "".join(day_cells) + '</div></div></section>'
+            + '<div class="cal-grid">' + "".join(day_cells) + '</div></div>' + interview_agenda + '</section>'
             + f'<aside class="pulse-card p-5 calendar-form"><div class="pulse-section-title mb-1">＋ Neues Event</div>'
               f'<div class="pulse-section-sub mb-4">Termine werden im Pulse-Datenbestand gespeichert.</div>{create_form}</aside></div>'
         )

@@ -3354,6 +3354,12 @@ async def _automation_cycle(bot):
             await webserver.send_interview_reminders(bot)
     except Exception as exc:
         print(f"⚠️ Gesprächserinnerungen konnten nicht gesendet werden: {type(exc).__name__}")
+    # #101: reviewers are reminded (dashboard notification, once a day) of applications that wait too long.
+    try:
+        import webserver
+        webserver.send_stale_application_reminders()
+    except Exception as exc:
+        print(f"⚠️ Bewerbungs-Erinnerungen konnten nicht gesendet werden: {type(exc).__name__}")
     # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren
     # auch nach einem Neustart zuverlässig automatisch enden.
     try:

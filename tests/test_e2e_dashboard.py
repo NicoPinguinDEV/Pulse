@@ -927,5 +927,182 @@ class RecruitingBoardForbiddenE2ETests(_BoardBase):
         self.assertEqual(page.locator('#pulseSidebar a[href="/applications/board"]').count(), 0)
 
 
+# --------------------------------------------------------------------------------------------- Audit #99
+SLOT_FORM = 'form[action="/applications/interview-slot"]'
+CANCEL_FORM = 'form[action="/applications/interview-cancel"]'
+INTERVIEW_NAMES = ("Anna Alpha", "Bernd Beta", "Cora Gamma", "Fritz Fest", "Anja Absage", "Mona Mobil")
+
+
+def _local(days: int, hour: int, minute: int = 0) -> str:
+    """datetime-local value `days` ahead (far away from the DST switches' 02:00–03:00 gap)."""
+    from datetime import datetime, timedelta
+    return (datetime.now() + timedelta(days=days)).replace(hour=hour, minute=minute, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
+
+
+class _InterviewBase(_PreviewE2EBase):
+    EXTRA_ARGS = ("--seed-interviews",)
+
+    def _applications(self) -> dict:
+        files = list(Path(self.tmp.name).glob("pulse-preview-*/applications.json"))
+        self.assertEqual(len(files), 1, files)
+        return json.loads(files[0].read_text(encoding="utf-8"))
+
+    def _overflow(self, page) -> int:
+        return page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
+
+    def _calendar(self, page, value: str):
+        response = page.goto(self._url(f"/calendar?month={value[:7]}"))
+        self.assertEqual(response.status, 200)
+        return response
+
+    def _slot(self, page, app_id: str, value: str, duration: str = "", lead: str = ""):
+        """Fills the interview form of one application card and submits it; returns the toast text."""
+        page.goto(self._url("/applications"))
+        form = page.locator(f"#app-{app_id} {SLOT_FORM}")
+        form.locator('input[name="interview_at"]').fill(value)
+        if duration:
+            form.locator('select[name="duration"]').select_option(duration)
+        if lead:
+            form.locator('select[name="lead_id"]').select_option(lead)
+        with page.expect_navigation():
+            form.locator("button").first.click()
+        return page.locator("#toast").inner_text()   # Vorschau-Bot hat keine DM-Zustellung: Erfolg mit Hinweis kommt als role=alert
+
+    def _agenda(self, page) -> str:
+        return page.locator('section[aria-labelledby="cal-interviews"]').inner_text()
+
+
+class InterviewCalendarAdminE2ETests(_InterviewBase):
+    """Audit #99 (Rolle admin): Termin anlegen, ändern, absagen, Konflikt, Teilnehmer, Navigation – Desktop und Mobil."""
+
+    def test_create_shows_calendar_object_participants_and_links_back(self):
+        page, errors = self._page(viewport={"width": 1366, "height": 900})
+        when = _local(7, 10)
+        self.assertIn("Gesprächstermin", self._slot(page, "iv-anna", when, duration="45", lead="3"))
+        record = self._applications()["iv-anna"]
+        self.assertEqual((record["interview_state"], record["interview_lead_id"], record["interview_at"][:16]), ("scheduled", "3", when))
+        self.assertTrue(record["interview_event_id"].startswith("cal_"))
+        self._calendar(page, when)
+        chip = page.locator('a.cal-interview[href="/applications#app-iv-anna"]')
+        self.assertEqual(chip.count(), 1)
+        self.assertIn("10:00–10:45", chip.inner_text())
+        agenda = self._agenda(page)
+        for expected in ("Anna Alpha", "45 Min.", "Geplant", "Lena Leitung", "Prüfer", "Führungskraft", "Terminverantwortlich", "Bewerber"):
+            self.assertIn(expected, agenda)
+        self.assertLessEqual(self._overflow(page), 1)
+        with page.expect_navigation():
+            page.locator('section[aria-labelledby="cal-interviews"] a[href="/applications#app-iv-anna"]').click()
+        self.assertTrue(page.url.endswith("/applications#app-iv-anna"), page.url)
+        self.assertEqual(page.locator("#app-iv-anna").count(), 1)
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_move_replaces_the_entry_and_cancel_removes_it(self):
+        page, errors = self._page(viewport={"width": 1366, "height": 900})
+        first, second = _local(8, 11), _local(8, 13)
+        self._slot(page, "iv-cora", first)
+        old_event = self._applications()["iv-cora"]["interview_event_id"]
+        self._slot(page, "iv-cora", second, duration="60")
+        record = self._applications()["iv-cora"]
+        self.assertNotEqual(record["interview_event_id"], old_event)
+        self.assertEqual((record["interview_at"][:16], record["interview_revision"]), (second, 2))
+        self._calendar(page, second)
+        chip = page.locator('a.cal-interview[href="/applications#app-iv-cora"]')
+        self.assertEqual(chip.count(), 1)                                                  # replaced, not duplicated
+        self.assertIn("13:00–14:00", chip.inner_text())
+        self.assertEqual(page.locator('section[aria-labelledby="cal-interviews"] li', has_text="Cora Gamma").count(), 1)
+        page.goto(self._url("/applications"))
+        card = page.locator("#app-iv-cora")
+        card.locator(CANCEL_FORM + ' input[name="reason"]').fill("Bewerber krank")
+        page.once("dialog", lambda dialog: dialog.accept())
+        with page.expect_navigation():
+            card.locator(CANCEL_FORM + " button").click()
+        self.assertIn("abgesagt", page.locator("#toast").inner_text())
+        record = self._applications()["iv-cora"]
+        self.assertEqual((record["interview_state"], record["interview_event_id"], record["interview_cancel_reason"]), ("cancelled", "", "Bewerber krank"))
+        self._calendar(page, second)
+        self.assertEqual(page.locator('a.cal-interview[href="/applications#app-iv-cora"]').count(), 0)
+        self.assertNotIn("Cora Gamma", self._agenda(page))
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_conflict_message_and_no_change(self):
+        page, _ = self._page(viewport={"width": 1366, "height": 900})
+        booked = self._applications()["iv-fest"]["interview_at"][:16]            # same reviewer (Lena Leitung)
+        message = self._slot(page, "iv-bernd", booked[:11] + "14:15")
+        self.assertIn("Terminkonflikt", message)
+        self.assertIn("Prüfer", message)
+        self.assertNotIn("interview_at", self._applications()["iv-bernd"])
+        self.assertIn("Gesprächstermin", self._slot(page, "iv-bernd", booked[:11] + "14:30"))   # adjacent slot is fine
+
+    def test_invalid_input_is_reported(self):
+        page, _ = self._page(viewport={"width": 1366, "height": 900})
+        page.goto(self._url("/applications"))
+        form = page.locator(f"#app-iv-mobil {SLOT_FORM}")
+        form.locator('input[name="interview_at"]').fill("2020-01-01T10:00")
+        with page.expect_navigation():
+            form.locator("button").first.click()
+        self.assertIn("Zukunft", page.locator("#toast").inner_text())
+        self.assertNotIn("interview_at", self._applications()["iv-mobil"])
+
+    def test_dst_gap_is_refused_in_the_browser(self):
+        page, _ = self._page()
+        self.assertIn("Zeitumstellung", self._slot(page, "iv-mobil", "2027-03-28T02:30"))
+        self.assertNotIn("interview_at", self._applications()["iv-mobil"])
+
+    def test_zz_mobile_create_and_calendar_without_overflow(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        when = _local(9, 10, 30)
+        self.assertIn("Gesprächstermin", self._slot(page, "iv-mobil", when))
+        self.assertLessEqual(self._overflow(page), 1, "Seitenüberlauf auf /applications (Mobil)")
+        self._calendar(page, when)
+        self.assertLessEqual(self._overflow(page), 1, "Seitenüberlauf auf /calendar (Mobil)")
+        self.assertIn("Mona Mobil", self._agenda(page))
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+
+class InterviewCalendarRecruiterE2ETests(_InterviewBase):
+    ROLE = "recruiter"
+
+    def test_recruiter_sees_applicant_and_opens_the_application(self):
+        page, _ = self._page(viewport={"width": 1366, "height": 900})
+        when = self._applications()["iv-fest"]["interview_at"][:16]
+        self._calendar(page, when)
+        self.assertIn("Fritz Fest", self._agenda(page))
+        with page.expect_navigation():
+            page.locator('section[aria-labelledby="cal-interviews"] a[href="/applications#app-iv-fest"]').click()
+        self.assertTrue(page.url.endswith("#app-iv-fest"), page.url)
+
+
+class InterviewCalendarTeamE2ETests(_InterviewBase):
+    ROLE = "team"
+
+    def test_team_member_sees_no_applicant_data(self):
+        page, errors = self._page(viewport={"width": 1366, "height": 900})
+        when = self._applications()["iv-fest"]["interview_at"][:16]
+        self._calendar(page, when)
+        html = page.content()
+        for leaked in (*INTERVIEW_NAMES, "iv-fest", "#app-", "9104", "Lena Leitung"):
+            self.assertNotIn(leaked, html)
+        agenda = self._agenda(page)
+        for expected in ("Bewerbungsgespräch", "Geplant", "Teilnehmer"):
+            self.assertIn(expected, agenda)
+        self.assertEqual(page.locator("a.cal-interview").count(), 0)          # no link without recruiting permission
+        self.assertGreaterEqual(page.locator(".cal-interview").count(), 1)
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_direct_posts_are_rejected_without_write(self):
+        page, _ = self._page()
+        page.goto(self._url("/me"))
+        before = self._applications()
+        for path, body in (("/applications/interview-slot", {"app_id": "iv-anna", "interview_at": _local(20, 10), "duration": "30"}),
+                           ("/applications/interview-slot", {"app_id": "iv-fest", "interview_at": _local(21, 10)}),
+                           ("/applications/interview-cancel", {"app_id": "iv-fest"}),
+                           ("/applications/interview-cancel", {"app_id": "iv-absage", "expected_revision": "1"})):
+            with self.subTest(path=path, body=body):
+                status = page.evaluate("([path, body]) => fetch(path, {method: 'POST', redirect: 'manual', body: new URLSearchParams(body)})"
+                                       ".then(r => r.status)", [path, body])
+                self.assertEqual(status, 403)
+        self.assertEqual(self._applications(), before)
+
+
 if __name__ == "__main__":
     unittest.main()
