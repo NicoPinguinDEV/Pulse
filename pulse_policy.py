@@ -26,6 +26,8 @@ ACTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "case.view.KI": ("KI-Moderationsfälle einsehen", ("can_moderate_kicks", "can_moderate_bans")),
     "case.view.TW": ("Teamwarnungen einsehen", ("can_warn",)),
     "case.view.TF": ("Team-/Spielerfälle einsehen", ("can_promote",)),
+    "case.view.TK": ("Tickets über ihre Referenz öffnen", ("can_manage_tickets",)),
+    "case.view.SM": ("Spielermeldungen über ihre Referenz öffnen", ("can_view_analytics",)),
     "moderation.review_automod": ("AutoMod-Treffer prüfen", ("can_moderate_kicks",)),
     "moderation.warn": ("Teamwarnung ausstellen", ("can_warn",)),
     "ticket.manage": ("Tickets verwalten", ("can_manage_tickets",)),
@@ -40,6 +42,7 @@ ACTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "admin.area": ("Administrationsbereich", ()),  # administrators only
 }
 CASE_KINDS = ("BM", "KI", "TW", "TF")
+REFERENCE_KINDS = ("TK", "SM")  # #116: only resolvable by reference, not part of a person's moderation history
 
 
 class PermissionDenied(PermissionError):
@@ -70,9 +73,10 @@ def allowed_actions(perms) -> list[str]:
     return [action for action in ACTIONS if can(perms, action)]
 
 
-def allowed_case_kinds(perms) -> set[str]:
+def allowed_case_kinds(perms, include_reference_only: bool = False) -> set[str]:
     """Case kinds the person may see – the policy form of ``pulse_case_registry.allowed_kinds``."""
-    return {kind for kind in CASE_KINDS if can(perms, f"case.view.{kind}")}
+    kinds = CASE_KINDS + REFERENCE_KINDS if include_reference_only else CASE_KINDS
+    return {kind for kind in kinds if can(perms, f"case.view.{kind}")}
 
 
 def explain(action) -> dict:

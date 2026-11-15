@@ -3,6 +3,7 @@ import unittest
 
 import pulse_db
 import pulse_events as events
+from tests.fakes import FakeMember
 from tests.test_teamakte_pages import LEAD, TEAM, Base
 
 
@@ -45,6 +46,25 @@ class TaskRouteWiringTests(Base):
             resp = self.client.post("/tasks/update", data={"task_id": tid, "status": "kaputt"}, follow_redirects=False)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(pulse_db.get_task(tid)["status"], "open")
+
+    def test_create_route_uses_the_shared_rule_event_and_notification(self):
+        with self.as_user(TEAM, "3"):
+            self.assertEqual(self.client.post("/tasks/create", data={"title": "X"}, follow_redirects=False).status_code, 403)
+        self.assertEqual(pulse_db.list_tasks(limit=20), [])
+        self.members.append(FakeMember(900000000000000002, "Dee", roles=self.members[0].roles))
+        with self.as_user(LEAD, "1"):
+            resp = self.client.post("/tasks/create", data={"title": "Neue Aufgabe", "assignee_id": "900000000000000002", "priority": "urgent"}, follow_redirects=False)
+        self.assertEqual(resp.status_code, 303)
+        task = pulse_db.list_tasks(limit=20)[0]
+        self.assertEqual((task["title"], task["priority"], str(task["assignee_id"])), ("Neue Aufgabe", "urgent", "900000000000000002"))
+        self.assertEqual(len(self._events(task["id"])), 1)
+        self.assertTrue(any("Neue Aufgabe" in n["title"] for n in pulse_db.notifications("900000000000000002")))
+
+    def test_create_rejects_an_empty_title(self):
+        with self.as_user(LEAD, "1"):
+            resp = self.client.post("/tasks/create", data={"title": "   "}, follow_redirects=False)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(pulse_db.list_tasks(limit=20), [])
 
 
 if __name__ == "__main__":

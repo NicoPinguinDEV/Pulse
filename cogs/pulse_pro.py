@@ -893,9 +893,12 @@ class PulsePro(commands.Cog):
             except ValueError:
                 await interaction.response.send_message("Ungültige Deadline. Nutze `YYYY-MM-DD HH:MM`.", ephemeral=True); return
         pr=(priority.value if priority else "normal")
-        tid=db.create_task(title.strip()[:160],description.strip()[:2500],member.id,member.display_name,interaction.user.id,interaction.user.display_name,pr,due_at)
-        db.record_event("task_created","task",tid,interaction.user.id,interaction.user.display_name,{"assignee_id":member.id,"title":title.strip()[:160],"priority":pr})
-        db.notify(member.id,"📋 Neue Aufgabe",f"{title.strip()[:160]} wurde dir von {interaction.user.display_name} zugewiesen.","warning" if pr=="urgent" else "info","/tasks",f"task:{tid}",86400)
+        import pulse_task_actions  # #124: dieselbe Regel, dasselbe Ereignis und dieselbe Benachrichtigung wie im Dashboard
+        res=pulse_task_actions.create(perms,interaction.user.id,interaction.user.display_name,title,description=description,assignee_id=member.id,
+            assignee_name=member.display_name,priority=pr,due_at=due_at,source="discord")
+        if not res["ok"]:
+            await interaction.response.send_message(f"❌ {res['message']}", ephemeral=True); return
+        tid=res["task"]["id"]
         await interaction.response.send_message(f"✅ Aufgabe `{tid}` wurde **{member.display_name}** zugewiesen.",ephemeral=True)
 
     @app_commands.command(name="taskdone", description="Markiert eine Pulse-Aufgabe als erledigt.")

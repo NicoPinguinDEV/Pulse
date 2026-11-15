@@ -29,8 +29,10 @@ KINDS = {
     "TF": "Team-/Spielerfall",
     "TW": "Teamwarnung",
     "KI": "KI-Moderation",
+    "TK": "Ticket",
+    "SM": "Spielermeldung",
 }
-KIND_ORDER = ("BM", "TF", "TW", "KI")
+KIND_ORDER = ("BM", "TF", "TW", "KI")  # the person history; TK/SM (#116) are only resolvable by their reference
 MAX_CASES_PER_SOURCE = 200
 MAX_EVENTS_PER_CASE = 50
 
@@ -38,6 +40,7 @@ _BARE_PATTERNS = (
     ("BM", re.compile(r"^MOD-[0-9A-F]{6}$", re.I)),
     ("TF", re.compile(r"^PX-\d{4}-\d{1,6}$", re.I)),
     ("TW", re.compile(r"^warn_[0-9a-f]{6,10}$", re.I)),
+    ("SM", re.compile(r"^RPT-[0-9A-F]{12}$", re.I)),
 )
 _NATIVE_ID = re.compile(r"^[A-Za-z0-9_\-]{1,40}$")
 
@@ -89,24 +92,24 @@ def parse_ref(text) -> tuple[str, str] | None:
         kind, native = kind.strip().upper(), native.strip()
         if kind not in KINDS or not _NATIVE_ID.match(native):
             return None
-        if kind in ("BM", "TF"):
+        if kind in ("BM", "TF", "SM"):
             native = native.upper()
         elif kind == "TW":
             native = native.lower()
         return kind, native
     for kind, pattern in _BARE_PATTERNS:
         if pattern.match(raw):
-            return kind, (raw.upper() if kind in ("BM", "TF") else raw.lower())
+            return kind, (raw.upper() if kind in ("BM", "TF", "SM") else raw.lower())
     return None
 
 
-def allowed_kinds(perms: dict | None) -> set[str]:
+def allowed_kinds(perms: dict | None, include_reference_only: bool = False) -> set[str]:
     """Same rights as the existing views of each case file; nothing is widened. Fail-closed.
 
     #120: the rule lives in ``pulse_policy`` (``case.view.<kind>``); parity is pinned by ``test_pulse_policy``.
     """
     import pulse_policy
-    return pulse_policy.allowed_case_kinds(perms)
+    return pulse_policy.allowed_case_kinds(perms, include_reference_only)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -417,6 +420,23 @@ def _resolve(kind: str, native: str, guild_id) -> dict | None:
         with pulse_ultimate.cx() as c:
             row = c.execute(f"SELECT {_TF_COLUMNS} FROM ultimate_cases WHERE case_no=?", (native,)).fetchone()
         return _tf_case(dict(row)) if row else None
+    if kind == "TK":
+        import pulse_db
+        row = pulse_db.get_ticket(ticket_id=native)
+        if not row or (guild_id is not None and str(row.get("guild_id")) != str(guild_id)):
+            return None
+        return _case("TK", row["id"], title=f"Ticket · {row.get('category') or 'Support'}", status=row.get("status"),
+                     detail=f"Priorität {row.get('priority') or 'normal'}", actor=row.get("claimed_by_name") or "",
+                     created_at=row.get("opened_at"), url=f"/tickets/transcript/{row['id']}/view", person_id=row.get("user_id"))
+    if kind == "SM":
+        import pulse_player_reports
+        row = pulse_player_reports.get_report(native)
+        if not row or (guild_id is not None and str(row.get("guild_id")) != str(guild_id)):
+            return None
+        # The reported person is only a name; the reporter is deliberately not linked as "the person" of the case.
+        return _case("SM", row["id"], title=f"Meldung · {row.get('category') or ''}", status=row.get("status"),
+                     detail=row.get("priority") or "", actor=row.get("assignee_name") or "", created_at=row.get("created_at"),
+                     url="/ultimate/reports")
     if kind == "TW":
         matches = [
             (member_id, warn) for member_id, entry in _team_data().items()
@@ -442,7 +462,7 @@ def resolve(ref, perms: dict | None, *, guild_id=None) -> dict | None:
     if not parsed:
         return None
     kind, native = parsed
-    if kind not in allowed_kinds(perms):
+    if kind not in allowed_kinds(perms, include_reference_only=True):
         return None
     try:
         return _resolve(kind, native, guild_id)
