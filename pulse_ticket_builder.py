@@ -468,7 +468,7 @@ def render_ticket_builder(request, ctx) -> HTMLResponse:
                 f'<div class="tb-img banner wide"><div class="thumb"{banner_style}>{"" if banner_src else "Panel-Banner wird verwendet"}</div><div class="grid gap-2">'
                 f'<b class="text-xs">🖼️ Banner dieser Kategorie (Begrüßung im Ticket)</b>'
                 f'<span class="text-[11px] text-slate-400">Großes Bild unten in der Begrüßung, z. B. „HIGHTEAM TICKET“. PNG, JPG, GIF oder WEBP bis 8 MB. Leer = Banner des Panels.</span>'
-                f'<input type="file" name="welcome_banner_upload" accept="image/png,image/jpeg,image/gif,image/webp">'
+                f'<input type="file" name="welcome_banner_upload" aria-label="Banner-Bild hochladen" accept="image/png,image/jpeg,image/gif,image/webp">'
                 f'<input name="welcome_banner_url" value="{e(meta.get("welcome_banner_url") or "")}" placeholder="oder Bild-URL (https://…)" maxlength="500">{banner_remove}</div></div>'
             )
             anchor = "new-category" if is_new else f"cat-{e(key)}"

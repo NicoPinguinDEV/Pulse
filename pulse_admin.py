@@ -317,7 +317,7 @@ def register(app) -> None:
    <label class="pulse-check"><input type="checkbox" name="{kind}_show_avatar" value="1"{" checked" if entry["show_avatar"] else ""}> Profilbild oben rechts anzeigen</label>
    <div class="grid gap-2 rounded-xl border border-slate-200 dark:border-slate-800 p-3">
     <div class="text-xs font-bold">Banner (großes Bild unten)</div>
-    <input type="file" name="{kind}_banner_upload" accept="image/png,image/jpeg,image/gif,image/webp" class="text-xs">
+    <input type="file" name="{kind}_banner_upload" aria-label="Banner-Bild hochladen ({kind})" accept="image/png,image/jpeg,image/gif,image/webp" class="text-xs">
     <input class="pulse-input" name="{kind}_banner_url" maxlength="1500" value="{e(entry["banner_url"])}" placeholder="…oder öffentliche Bild-URL (https://)">
     {current_banner}
     <div class="text-[11px] text-slate-400">PNG, JPG, GIF oder WEBP bis {MAX_BANNER_BYTES // (1024 * 1024)} MB. Ein hochgeladenes Bild hat Vorrang vor der URL und wird als Anhang mitgeschickt – es braucht keine öffentliche Adresse. Empfohlen: 1100 × 400 px.</div>

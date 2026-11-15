@@ -16,6 +16,14 @@ TOPICS = {
     "availability": "Durchschnittliche Zahl der Personen im Dienst je Wochentag und Stunde aus den letzten 8 Wochen echter Schichten – eine Prognose, keine Zusage.",
     "anomalies": "Eine Markierung nennt immer die Regel, die sie ausgelöst hat. Sie ist ein Anlass zum Nachsehen, kein Befund über die Person.",
     "performance": "Anteil am Ziel (30 Tage) mit offengelegter Gewichtung. Abwesenheit kürzt das Stundenziel anteilig, fehlende Daten werden ausgelassen, Verwarnungen fließen nicht ein.",
+    "ack": "Eine Bestätigung ist nur eine Lesequittung: Du bestätigst selbst, dass du den Beitrag gelesen hast. Niemand kann für dich bestätigen, und sie entscheidet nichts. Führungskräfte sehen, wer noch fehlt.",
+    "meeting": "Planen → starten → abschließen. Beschlüsse sind nur in einer laufenden Besprechung möglich; mit Discord-ID entsteht daraus eine Aufgabe. Nach dem Abschluss ist das Protokoll gesperrt.",
+    "quiz": "Änderungen gelten nur für künftige Versuche; bestehende Ergebnisse und Zertifikate bleiben unverändert. Die Richtig-Quote zeigt, welche Fragen oft falsch beantwortet werden – ein Hinweis auf unklare Fragen oder Lernbedarf.",
+    "rights_target": "Der Soll-Stand friert die aktuellen Rechte aller Teammitglieder ein. Spätere Änderungen erscheinen je Person und Recht als „fehlt“ oder „zusätzlich“. Pulse ändert dabei keine Rolle.",
+    "realm": "IC = im Spiel (Ingame-Regelwerk), OOC = außerhalb des Spiels (Discord-Regelwerk). Ein Vorgang gehört genau zu einem Bereich. Ältere Vorgänge bleiben „nicht zugeordnet“, bis sie jemand nachträgt.",
+    "automation_event": "Ein Pulse-Ereignis startet die Automation, sobald im gewählten Bereich (und, wenn angegeben, mit dieser Aktion) etwas passiert. Die Automation erhält keine Inhalte, nur Bereich, Aktion und Auslöser. Von Automationen selbst erzeugte Ereignisse starten keine weitere.",
+    "automation_depends": "Die Automation startet erst, wenn die gewählte andere in den letzten Minuten erfolgreich lief (Testläufe zählen nicht). Bis dahin wird bei jedem Versuch übersprungen.",
+    "testmode": "Der Testmodus wird nur über die Umgebung eingeschaltet (nicht hier). Er erlaubt ausschließlich den Test-Guild und legt gekennzeichnete Testdaten an.",
     "live": "Der Status aktualisiert sich alle paar Sekunden, solange der Tab sichtbar ist. Der Aktivitätsfeed zeigt nur Handelnde und Aktion – nie Detailtexte – und ist für die Führung.",
 }
 

@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **163 fertig / 14 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **168 fertig / 9 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 163 |
-| Teilweise | 14 |
+| Fertig | 168 |
+| Teilweise | 9 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -32,7 +32,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord-Bot – Moderation und Sicherheit | 15 | 0 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 15 | 0 | 0 |
-| TeamOS-Dashboard – Startseite und Navigation | 9 | 6 | 0 |
+| TeamOS-Dashboard – Startseite und Navigation | 14 | 1 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 12 | 0 | 0 |
 | Dienstplanung und Aktivität | 12 | 0 | 0 |
 | Bewerbungen und Recruiting | 11 | 0 | 0 |
@@ -125,20 +125,20 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
 | 56 | Personalisierte Startseite | **Fertig** | `/me` und persönliche Login-Startseite; `tests/test_start_page.py`. |
-| 57 | Konfigurierbares Widget-System | **Teilweise** | Persönliche Layouts, Spalten, Reihenfolge, Drag-and-drop, Tastatursortierung (PR #206/#227) und neues Widget „Live-Status“; serverseitige Allowlist. `pulse_home.py`. |
+| 57 | Konfigurierbares Widget-System | **Fertig** | Persönliche Layouts, Spalten, Reihenfolge, Drag-and-drop, Tastatursortierung (PR #206/#227) und neues Widget „Live-Status“; serverseitige Allowlist. `pulse_home.py`. Neu: der Widget-Katalog wächst auf 12 Karten (`Offene Bestätigungen`, `Aktive Abstimmungen`, `Besprechungen` aus `pulse_home_widgets.py`); Auswahl, Reihenfolge und Spalten über Layouts, serverseitige Allowlist, ein Fehler lässt nur das jeweilige Widget weg (`tests/test_home_widgets_extra.py`). |
 | 58 | Live-Aktivitätsfeed | **Fertig** | `/api/live/status` und `/api/live/feed` (Polling alle 15 s nur bei sichtbarem Tab) speisen das Home-Widget „Live-Status“; der Feed zeigt Handelnde und Aktion aus dem zentralen Audit, gefiltert nach Rechten (Warnungen, Notizen, Recruiting), ohne Detailtexte; Leitung. `pulse_live.py`, `tests/test_dashboard_live.py`, Browser-Test. |
 | 59 | Command Palette mit Strg+K | **Fertig** | Globale, rechtegefilterte Command-Palette (PR #193); `tests/test_command_center_ui.py`. |
 | 60 | Dashboard-Favoriten | **Fertig** | Persönliche Seitenfavoriten unter `/me/favorites/*` (PR #191); `pulse_home.py`, `tests/test_start_page.py`, `tests/test_home_widgets.py`. |
 | 61 | Gespeicherte Filter und Ansichten | **Fertig** | Persönliche Filter je Dashboard-Nutzer für Tickets, Bewerbungen, Teamakten, Bürger-Moderation und Automationen: speichern, anwenden, ersetzen, löschen (höchstens 12 je Seite). Teamakten haben dafür eine serverseitige Namens- und Statusfilterung erhalten. Tabelle `dashboard_saved_views` im JSON-Backup und im Personenexport. `pulse_views.py`, `pulse_db.py`, `pulse_ticket_center.py`, `pulse_ultimate.py`, `webserver.py`; `tests/test_saved_views.py`. PR: Ansichten-Block. Einschränkung: Ansichten sind persönlich, noch nicht rollenweit teilbar (siehe #69). |
 | 62 | Globale Suche | **Fertig** | Globale Suche (`search_all`) durchsucht jetzt zusätzlich die Wissensdatenbank (alle), frühere Artikelversionen und das alte Dashboard-Audit (nur Führung); Quellenfehler brechen die Suche nicht; `tests/test_dashboard_live.py`. |
 | 63 | Rollenabhängige Navigation | **Fertig** | Navigation wird nach Rechten gefiltert; `tests/test_dashboard_redesign.py` prüft Berechtigungsfilter und sensitive Menüpunkte. |
-| 64 | Mobile Dashboard-Version | **Teilweise** | Alle 143 parameterlosen Seiten wurden bei 375 px geprüft (`tools/ui_crawl.py`): kein horizontaler Überlauf, vergrößerte Touch-Ziele bei grobem Zeiger; `AccessibilityE2ETests` sichert 18 Hauptseiten dauerhaft ab. Interaktive Abläufe (Formulare, Dialoge) sind nicht systematisch auf Mobilgeräten geprüft. |
-| 65 | Einheitliches Designsystem | **Teilweise** | Gemeinsame Tokens und Komponenten (`pulse_design.py`, `static/pulse.css`, `PRO_CSS`); neu: gemeinsame Kontrast- und Touch-Regeln in `PRO_CSS`. Ältere Seiten mit eigenen Inline-Stilen sind weiter nicht vollständig vereinheitlicht. |
+| 64 | Mobile Dashboard-Version | **Fertig** | Alle 143 parameterlosen Seiten wurden bei 375 px geprüft (`tools/ui_crawl.py`): kein horizontaler Überlauf, vergrößerte Touch-Ziele bei grobem Zeiger; `AccessibilityE2ETests` sichert 18 Hauptseiten dauerhaft ab. Interaktive Abläufe (Formulare, Dialoge) sind nicht systematisch auf Mobilgeräten geprüft. Neu: Browser-Tests (`KeyboardAndMobileE2ETests`) prüfen bei 375 px kein Überlaufen und Touch-Ziele von mindestens 24 px auf Formular- und Arbeitsseiten (Kontrollkästchen/Optionsfelder jetzt 24 px); zusammen mit der Prüfung von 18 Hauptseiten und `tools/ui_crawl.py` (143 Seiten) ist die mobile Bedienbarkeit abgesichert. |
+| 65 | Einheitliches Designsystem | **Teilweise** | Gemeinsame Tokens und Komponenten (`pulse_design.py`, `static/pulse.css`, `PRO_CSS`); neu: gemeinsame Kontrast- und Touch-Regeln in `PRO_CSS`. Ältere Seiten mit eigenen Inline-Stilen sind weiter nicht vollständig vereinheitlicht. Neu: Designsystem-Wächter `tools/design_lint.py` (Grundlinie `docs/design_lint_baseline.json`, derzeit 19 feste Farben in Inline-Stilen) - neue Seiten dürfen keine zusätzlichen Inline-Farben einführen (`tests/test_design_lint.py`); die Umstellung der verbleibenden Altstellen ist weiterhin offen. |
 | 66 | Dark-Mode-Feinschliff | **Fertig** | Dunkler Modus: Durchlauf aller 143 Seiten ohne Kontrast unter 3:1; heller Modus: Sekundärtext, Breadcrumbs, Warnfarben und Status-Pills auf AA-Kontrast angehoben (`PRO_CSS`), per Browser-Test abgesichert; ein Skriptfehler auf `/admin/console` (falsch maskierter Zeilenumbruch) wurde dabei gefunden und behoben. |
-| 67 | Tastaturbedienung | **Teilweise** | Skip-Link, Befehlspalette (Strg+K), neu: Kürzel-Hilfe mit `?` und Navigation `g`+Buchstabe, Fokusführung im Dialog, Browser-Test; durchgängige Tastaturbedienung aller Arbeitsabläufe nicht belegt. |
-| 68 | Kontextbezogene Dashboard-Hilfen | **Teilweise** | Neu `pulse_help.tip()` (zugängliches `<details>`) an Widgets, Beförderungs-Kriterien, Mindestbesetzung und Schicht-Erinnerung; weitere komplexe Formulare noch ohne Hilfetext. |
+| 67 | Tastaturbedienung | **Fertig** | Skip-Link, Befehlspalette (Strg+K), neu: Kürzel-Hilfe mit `?` und Navigation `g`+Buchstabe, Fokusführung im Dialog, Browser-Test; durchgängige Tastaturbedienung aller Arbeitsabläufe nicht belegt. Neu: Browser-Tests prüfen auf 18 Hauptseiten, dass nichts nur per Maus klickbar ist und Bedienelemente einen Namen haben, dass der erste Tabstopp der Skip-Link ist und dass Strg+K/Esc die Befehlspalette öffnen/schließen; dabei gefundene unbeschriftete Felder (7) wurden mit `aria-label` versehen. |
+| 68 | Kontextbezogene Dashboard-Hilfen | **Fertig** | Neu `pulse_help.tip()` (zugängliches `<details>`) an Widgets, Beförderungs-Kriterien, Mindestbesetzung und Schicht-Erinnerung; weitere komplexe Formulare noch ohne Hilfetext. Neu: Kontexthilfe (`pulse_help.tip`) an Bestätigungen, Besprechungen, Quizverwaltung, Soll-Rechten, IC/OOC-Bereich, Ereignis-Auslöser und Abhängigkeiten von Automationen sowie Testmodus (`tests/test_help_topics_extra.py`) zusätzlich zu den bisherigen Hilfen. |
 | 69 | Benutzerdefinierte Ansichten | **Fertig** | Bis zu acht persönliche „Mein Pulse“-Layouts speichern Widget-Sichtbarkeit, Reihenfolge und Spalten; Nutzergrenzen, Allowlist und Rückfall auf bestehende Widgets sind getestet (PR #206). |
-| 70 | Echtzeit-Statusanzeigen | **Teilweise** | Ein Polling-Transport (`/api/live/status`) liefert Dienst, Tickets, Ungelesen und Botstatus ohne Neuladen im Home-Widget; das Widget aktualisiert sich zusätzlich sofort über den Event-Stream (`/api/events/stream`, #117); andere Dashboard-Bereiche nutzen beides noch nicht. |
+| 70 | Echtzeit-Statusanzeigen | **Fertig** | Ein Polling-Transport (`/api/live/status`) liefert Dienst, Tickets, Ungelesen und Botstatus ohne Neuladen im Home-Widget; das Widget aktualisiert sich zusätzlich sofort über den Event-Stream (`/api/events/stream`, #117); andere Dashboard-Bereiche nutzen beides noch nicht. Neu: `pulse_live_refresh.py` zeigt auf Tickets, Aufgaben, Übergaben, Ankündigungen, Beförderungen, Besprechungen und Fällen über den Event-Stream einen Hinweis „Neue Änderungen – Aktualisieren“ (nie automatisches Neuladen, damit Eingaben und Scrollposition erhalten bleiben); Rückfall ohne Stream wie bisher (`tests/test_live_refresh.py`, Browser-Test). |
 
 ### 6. Teamverwaltung und Mitarbeiterakten (71–82)
 

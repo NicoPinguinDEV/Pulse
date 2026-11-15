@@ -52,7 +52,7 @@ def status(env=os.environ) -> dict:
 def banner_html(esc, env=os.environ) -> str:
     if not active(env):
         return ""
-    return ('<div role="status" class="pulse-card" style="border-left:4px solid #8b5cf6;padding:12px 16px;margin-bottom:14px">'
+    return ('<style>.pulse-testbanner{border-left:4px solid #8b5cf6;padding:12px 16px;margin-bottom:14px}</style><div role="status" class="pulse-card pulse-testbanner">'
             f'<strong>🧪 Testmodus</strong> – getrennte Testdaten, nur der Test-Guild ist erlaubt. Hier entstehen keine echten Daten.</div>')
 
 
@@ -94,7 +94,8 @@ def register(app) -> None:
         else:
             action = ""
             head = '<p class="text-sm">Der Testmodus ist <b>aus</b>. Pulse arbeitet mit den echten Daten.</p>'
-        howto = ('<h2 class="text-sm font-bold mt-4 mb-1">So wird er eingerichtet</h2><ol class="text-xs list-decimal ml-5 space-y-1">'
+        import pulse_help
+        howto = ('<h2 class="text-sm font-bold mt-4 mb-1">So wird er eingerichtet' + pulse_help.tip("testmode") + '</h2><ol class="text-xs list-decimal ml-5 space-y-1">'
                  '<li>Zweite Pulse-Instanz mit eigenem Datenordner starten (<code>PULSE_DATA_DIR</code>, <code>PULSE_DB_PATH</code>).</li>'
                  '<li><code>PULSE_TEST_MODE=1</code> und <code>PULSE_TEST_GUILD_ID=&lt;Test-Guild&gt;</code> setzen; eigener Bot-Token und eigene OAuth-App.</li>'
                  '<li>Danach hier die Testdaten anlegen. Das Dashboard arbeitet im Testmodus nur mit dem Test-Guild.</li></ol>')
