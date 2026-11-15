@@ -80,9 +80,16 @@ def widget_html(esc, lead: bool) -> str:
               "if(q.ok){const j=await q.json();if(j.items.length){after=j.items[0].id;const li=j.items.map(x=>'<li><span class=\"text-slate-400\">'+h(x.at)+'</span> · <b>'+h(x.actor)+'</b> – '+h(x.action)+'</li>').join('');"
               "f.innerHTML=after&&f.dataset.init?li+f.innerHTML:li;f.dataset.init='1';while(f.children.length>15)f.removeChild(f.lastChild);}}}"
               "}catch(e){s.textContent='Live-Status gerade nicht erreichbar.';}}"
-              f"tick();timer=setInterval(tick,{POLL_SECONDS * 1000});document.addEventListener('visibilitychange',()=>{{if(!document.hidden)tick();}});}})();</script>")
+              # #117/#70: push via the event bus (SSE) as soon as something happens; the interval below stays as the fallback.
+              "let es=null,deb=null;function closeStream(){if(es){es.close();es=null;}}"
+              "function openStream(){if(es||document.hidden||!window.EventSource)return;try{es=new EventSource('/api/events/stream');"
+              "es.addEventListener('pulse',()=>{clearTimeout(deb);deb=setTimeout(tick,400);});"
+              "es.onerror=()=>{if(es&&es.readyState===2)es=null;};}catch(e){es=null;}}"
+              f"tick();openStream();timer=setInterval(()=>{{tick();openStream();}},{POLL_SECONDS * 1000});"
+              "document.addEventListener('visibilitychange',()=>{if(document.hidden){closeStream();}else{tick();openStream();}});"
+              "window.addEventListener('pagehide',closeStream);})();</script>")
     return ('<div id="liveStatus" class="text-xs" role="status">Lädt …</div>' + feed
-            + (f'<p class="text-[11px] text-slate-400 mt-2">Aktualisiert sich alle {POLL_SECONDS} Sekunden, solange dieser Tab sichtbar ist.</p>')
+            + (f'<p class="text-[11px] text-slate-400 mt-2">Aktualisiert sich sofort bei neuen Ereignissen und sonst alle {POLL_SECONDS} Sekunden, solange dieser Tab sichtbar ist.</p>')
             + script)
 
 

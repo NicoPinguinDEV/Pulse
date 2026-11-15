@@ -1119,6 +1119,16 @@ class LiveAndKeyboardE2ETests(_PreviewE2EBase):
         self.assertEqual(page.locator("#liveFeed").count(), 1)  # admin = leadership
         self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
 
+    def test_live_widget_opens_the_event_stream_and_keeps_polling_as_fallback(self):
+        page, errors = self._page()
+        streams = []
+        page.on("request", lambda request: streams.append(request.url) if "/api/events/stream" in request.url else None)
+        page.goto(self._url("/me"))
+        page.wait_for_function("document.getElementById('liveStatus') && document.getElementById('liveStatus').textContent.includes('Im Dienst')")
+        page.wait_for_timeout(1500)
+        self.assertTrue(streams, "Der Event-Stream wurde nicht geöffnet")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
     def test_keyboard_help_opens_closes_and_navigates(self):
         page, errors = self._page()
         page.goto(self._url("/me"))
