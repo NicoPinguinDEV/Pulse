@@ -41,6 +41,49 @@
 - **Kontexthilfe (#68):** `pulse_help.tip()` an Widget-Auswahl, Beförderungs-Kriterien, Mindestbesetzung und Schicht-Erinnerung.
 - **Globale Suche (#62):** zusätzlich Wissensdatenbank, frühere Artikelversionen und altes Audit (Versionen/Audit nur Führung).
 - Tests: `tests/test_dashboard_live.py` und `LiveAndKeyboardE2ETests` (Browser, Desktop und Mobil).
+## Zentrale Integration: Vorlagenbibliothek im Aufrufpfad (November 2026, Block F8)
+
+- **Ticket-Schnellantworten (#123):** `/antwort` und sein Autocomplete lesen aus der Vorlagenbibliothek (`pulse_ticket_replies.py`), mit dem alten Speicher als Übergangs-Fallback. Gleiche Rechte wie zuvor, je Server getrennt, archivierte Vorlagen werden weder angeboten noch aus dem alten Speicher wiederbelebt, eingesetzte Werte und Texte werden gegen Massen-Erwähnungen geschützt, die verwendete Version wird als Ereignis `ticket.quick_reply_sent` im Ticketverlauf festgehalten. Alte Antworten werden weiter wörtlich gesendet.
+- Keine zweite Verwaltung: Die Seite „Ticket-Werkzeuge“ bleibt die Oberfläche; jedes Speichern wird als neue Version in die Bibliothek gespiegelt (ein Bibliotheksfehler blockiert das Speichern nicht). Keine automatische Datenmigration.
+- Bewerber-Nachrichten, Ankündigungen, Moderationsgründe und Willkommenstexte sind nicht angebunden; Begründung und Vorgehen in `docs/PULSE_F8_PHASENBERICHT.md`. #123 bleibt „Teilweise“.
+
+## Zentrale Integration: Ticket-Ereignisse angebunden (November 2026, Block F7)
+
+- Alle zehn Ticket-Ereignisse von Bot (`cogs/tickets.py`: erstellt, geschlossen, eskaliert, Archiv-/Löschfehler) und Dashboard (`webserver.py`: übernommen, wieder geöffnet, Priorität, geschlossen, Archivfehler) tragen jetzt die Korrelations-ID `ticket:<id>`. Der Ereignistyp bleibt unverändert, damit die Startseite, Anti-Nuke- und Testabfragen weiter funktionieren.
+- `pulse_events.history(correlation_id="ticket:<id>")` zeigt den ganzen Ticketverlauf aus Bot und Dashboard zusammen und ist mit dem Ticket-Recht lesbar (nicht nur für Administratoren), begrenzt auf Ticket-Ereignisse; andere Rechte und andere Präfixe bleiben verweigert. Neuer Wächtertest stellt sicher, dass kein Ticket-Ereignis ohne diese ID geschrieben wird.
+
+## Zentrale Integration: Vorlagenbibliothek (November 2026, Block F6)
+
+- **`pulse_templates.py` (#123):** Eine verwaltete Bibliothek für Ticket-Schnellantworten, Bewerber-Nachrichten, Ankündigungen und Moderationsgründe. Versioniert (Bearbeiten legt eine neue Version an, alte bleiben lesbar, gleichzeitiges Bearbeiten wird erkannt), archivieren statt löschen, Titel je Art und Bereich eindeutig, Platzhalter je Art beim Speichern geprüft (`{name}`, klein geschrieben, kein Attributzugriff, keine Formatangaben), beim Rendern werden fehlende Werte zu „–“, `@everyone`/`@here`/Rollen-Pings neutralisiert und die Länge begrenzt. Rechte je Art über `pulse_policy` (fail-closed), jede Änderung ist ein Contract-Ereignis.
+- Neue Tabellen `message_templates` und `message_template_versions` (Teil des Backups, in der Datenlandkarte). `import_legacy()` kopiert bestehende Bewerber-Texte und Schnellantworten wiederholbar in die Bibliothek, ohne die alten Speicher zu ändern; die bisherigen Module nutzen weiter ihre eigenen Speicher, #123 bleibt „Teilweise“. Moderationsgründe behalten vorerst ihren eigenen versionierten Speicher.
+
+## Zentrale Integration: Aktionskarten und Aufgaben (November 2026, Block F5)
+
+- **`pulse_action_cards.py` (#121):** Eine Bestätigungskarte für sensible Discord-Aktionen statt dreier Varianten. Nur die startende Person kann bestätigen oder abbrechen (andere erhalten eine private Meldung, die Karte bleibt nutzbar), einmalig verwendbar (auch bei Doppelklick), läuft ab, **prüft das Recht beim Bestätigen erneut** (entzogene Rolle stoppt die Aktion), meldet Fehler nur mit Fehler-ID und schreibt jedes Ergebnis als Contract-Ereignis. Entscheidungslogik ohne Discord-Abhängigkeit (`ActionCard`), dünner Button-Adapter (`ActionCardView`).
+- **`pulse_task_actions.py` (#124):** Eine Regel für Aufgabenänderungen in Bot und Dashboard. Bisher: Dashboard erlaubte `can_promote`, `/taskdone` nicht; das Dashboard schrieb weder Ereignis noch Benachrichtigung. Jetzt gilt die Dashboard-Regel (Policy `task.manage` = `can_manage_tasks` oder `can_promote`), Zuständige dürfen nur den Status ändern, jede Änderung schreibt dasselbe Ereignis (Korrelation `task:<id>`, erscheint im Live-Strom) und benachrichtigt neue Zuständige bzw. die erstellende Person, nie den Handelnden.
+- Bestehende Bestätigungsansichten, die Route `/tasks/update` und `/taskdone` sind noch nicht umgestellt; #121/#124 bleiben „Teilweise“.
+
+## Zentrale Integration: Eventbus (November 2026, Block F4)
+
+- **`pulse_eventbus.py` (#117):** Echtzeit-Abgleich beider Oberflächen auf der dauerhaften `events`-Tabelle (SQLite-`rowid` als Cursor, nichts geht bei Neustart verloren). `poll()` ist der garantierte Fallback, `stream()` ein SSE-Generator, der nach `pulse_events.emit` in etwa 0,25 s weckt und sonst alle 3 s nachsieht, sodass auch die bisherigen `record_event`-Aufrufer ankommen. Reconnect über `Last-Event-ID`/Cursor ohne Doppel und Lücken; ein Cursor hinter dem Tabellenende wird als `reset` gemeldet.
+- Sicherheit: je Betrachter gefiltert und fail-closed (Domänenrecht aus `pulse_policy`, bei Fallbezug zusätzlich das Recht der Fallart, alles Unbekannte nur für Administratoren). Nach außen geht nur eine Kurzfassung (IDs, Zeit, Domäne, Link), nie Payload oder Akteurname. Verbindungen sind begrenzt (50 gesamt, 3 je Person, 5 Minuten je Stream).
+- Noch an keine Route und keinen Client angebunden (braucht ROUTEN.md-/Snapshot-Anpassung), #117 bleibt „Teilweise“.
+
+## Zentrale Integration: Rechte-Policy (November 2026, Block F3)
+
+- **`pulse_policy.py` (#120):** Benannte Aktionen (z. B. `case.view.BM`, `ticket.manage`) mit den Rechten, die sie freischalten. `can()`/`require()` sind fail-closed (unbekannte Aktion, ungültiges Rechte-Objekt oder ein Wert ungleich `True` verweigern), Administratoren dürfen alles, ihre Rechte werden weiterhin nur in `pulse_permissions` berechnet.
+- Parität belegt: für jede Kombination der betroffenen Rechte entscheidet die Policy gleich wie `pulse_case_registry.allowed_kinds` und die bisherigen Inline-Prüfungen (Moderationsfälle, AutoMod). Keine bestehende Prüfung wurde geändert oder erweitert; Routen und Bot-Befehle nutzen die Policy noch nicht, #120 bleibt „Teilweise“.
+
+## Zentrale Integration: Inbox-Contract und Direktlinks (November 2026, Block F2)
+
+- **`pulse_inbox_contract.py` (#118/#119):** `deliver()` sendet ein Ereignis (Domäne/Aktion aus `pulse_events`) an mehrere Personen: Kategorie je Domäne statt Stichwort-Raten, Link über `link_for()`, Dedupe je Fall und Aktion (derselbe Schritt benachrichtigt niemanden doppelt). Ein fehlerhafter Empfänger stoppt die übrigen nicht, ungültige Eingaben senden nichts.
+- `link_for()` liefert nur interne Pfade bestehender Seiten (Fallverlauf, Ticket-Transkript), `absolute_link()` baut daraus die Discord-URL und lehnt externe oder protokollrelative Ziele ab. Ein Link vergibt keine Rechte; die Zielseite prüft weiter.
+- `pulse_db.notify` und `pulse_notify_prefs.decide` haben ein optionales `category`; alle bisherigen Aufrufe verhalten sich unverändert. Bestehende `notify`-Aufrufer sind noch nicht migriert, #118/#119 bleiben „Teilweise“.
+
+## Zentrale Integration: Ereignisvertrag (November 2026, Block F1)
+
+- **`pulse_events.py` (#116/#122/#125, Fundament):** Einheitlicher Vertrag für Ereignisse auf der bestehenden `events`-Tabelle. `emit()` schreibt `<domain>.<aktion>` mit festem Payload (`schema`, `domain`, `action`, optional `case_ref`/`correlation_id`) und prüft die Eingabe; `describe()` liest neue und alte Zeilen einheitlich; `history()` liefert die Ereignisse eines Falls und prüft dieselben Rechte wie die jeweilige Fallart (fail-closed, Korrelations-ID ohne Fallreferenz nur für Administratoren).
+- Keine Schema-, Daten- oder Aufruferänderung: `pulse_db.record_event` und die 33 bestehenden Aufrufer bleiben unverändert, alte Zeilen werden nur beim Lesen klassifiziert. Die Aufrufer werden in späteren Schritten migriert; #116/#122/#125 bleiben bis dahin „Teilweise“.
 
 ## Bewerbungen: Kanban-Pipeline (November 2026)
 

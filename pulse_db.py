@@ -228,6 +228,34 @@ def init_db():
                 UNIQUE (app_id, seq)
             );
 
+            CREATE TABLE IF NOT EXISTS message_templates (
+                id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT '*',
+                current_version INTEGER NOT NULL,
+                created_by_id TEXT NOT NULL,
+                created_by_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                archived_at TEXT,
+                archived_by_id TEXT,
+                archived_by_name TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_message_templates_lookup
+                ON message_templates(guild_id, kind, scope, archived_at);
+
+            CREATE TABLE IF NOT EXISTS message_template_versions (
+                template_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                created_by_id TEXT NOT NULL,
+                created_by_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (template_id, version),
+                FOREIGN KEY (template_id) REFERENCES message_templates(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS mod_reason_template_versions (
                 template_id TEXT NOT NULL,
                 version INTEGER NOT NULL,
@@ -717,11 +745,11 @@ def make_id(prefix):
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
 
-def notify(user_id, title, body, kind="info", url="/pulse-inbox", dedupe_key=None, dedupe_window_seconds=21600):
+def notify(user_id, title, body, kind="info", url="/pulse-inbox", dedupe_key=None, dedupe_window_seconds=21600, category=None):
     # U-11: personal preferences – a muted category is stored as already read, DMs are optional.
     try:
         import pulse_notify_prefs
-        decision = pulse_notify_prefs.decide(user_id, url, title)
+        decision = pulse_notify_prefs.decide(user_id, url, title, category=category)
     except Exception:
         decision = {"unread": True, "dm": False}
     with connect() as db:
@@ -2461,6 +2489,7 @@ TABLES = [
     "mod_cases", "mod_case_appeals", "mod_reason_templates", "mod_reason_template_versions",
     "application_comm_journal",
     "team_dev_goals",
+    "message_templates", "message_template_versions",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
     "security_drills",

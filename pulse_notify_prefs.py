@@ -122,11 +122,12 @@ def dm_paused(user_id, now: datetime | None = None) -> bool:
     return in_quiet_hours(server_quiet(), now) or in_quiet_hours(load(user_id), now)
 
 
-def decide(user_id, url: str = "", title: str = "", prefs: dict | None = None, now: datetime | None = None) -> dict:
+def decide(user_id, url: str = "", title: str = "", prefs: dict | None = None, now: datetime | None = None,
+           category: str | None = None) -> dict:
     """What happens with a new notification: stored unread? also queued as DM? (Quiet hours no longer drop the
     DM – it waits in the queue and is sent bundled afterwards, BOT-12.)"""
     prefs = load(user_id) if prefs is None else prefs
-    category = category_for(url, title)
+    category = category if category in CATEGORIES or category == SYSTEM else category_for(url, title)  # explicit beats keyword guess
     muted = category in prefs.get("muted", []) and category != SYSTEM
     return {"category": category, "unread": not muted, "dm": bool(prefs.get("dm")) and not muted}
 

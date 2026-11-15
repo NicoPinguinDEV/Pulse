@@ -7112,6 +7112,9 @@ async def pulse_ticket_tools_replies(request: Request, user_session: str = Cooki
     except Exception:
         keys = ["*"]
     saved = tx.save_replies({key: form.get(f"replies_{key}", "") for key in keys})
+    import pulse_ticket_replies  # F8: every save also becomes a version in the template library (never blocks saving)
+    pulse_ticket_replies.sync_from_legacy(ctx.perms, ctx.guild.id, ctx.user["id"],
+                                          ctx.user.get("global_name") or ctx.user.get("username") or "Admin", saved)
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Ticket-Schnellantworten geändert",
               f"{sum(len(v) for v in saved.values())} Antworten")
     return back("/tickets/tools", "Schnellantworten gespeichert.")
@@ -7210,7 +7213,8 @@ async def pulse_tickets_dashboard_action(
             embed.add_field(name="Ersteller", value=str(updated.get("user_name") or "Unbekannt"), inline=True)
             embed.add_field(name="Status", value="🟢 Offen", inline=True)
             await send_styled(channel, embed=embed, view=TicketControlView(), allowed_mentions=discord.AllowedMentions.none())
-            pulse_db.record_event("ticket_reopened_dashboard", "ticket", ticket_id, actor_id, actor_name, {"channel_id": channel.id})
+            pulse_db.record_event("ticket_reopened_dashboard", "ticket", ticket_id, actor_id, actor_name, {"channel_id": channel.id},
+                              correlation_id=f"ticket:{ticket_id}")
             await _send_pulse_ticket_log(bot, ctx.guild, "reopened", updated, ctx.member)
             return back("/tickets?status=open", f"Ticket {ticket_id} wurde wieder geöffnet.")
         except (discord.Forbidden, discord.HTTPException, ImportError) as exc:
@@ -7226,7 +7230,8 @@ async def pulse_tickets_dashboard_action(
             who = latest.get("claimed_by_name") if latest else "jemand anderem"
             return back("/tickets?status=claimed", f"Ticket wurde bereits von {who} übernommen.", False)
         latest = pulse_db.get_ticket(ticket_id=ticket_id) or ticket
-        pulse_db.record_event("ticket_claimed_dashboard", "ticket", ticket_id, actor_id, actor_name, {"channel_id": channel_id})
+        pulse_db.record_event("ticket_claimed_dashboard", "ticket", ticket_id, actor_id, actor_name, {"channel_id": channel_id},
+                          correlation_id=f"ticket:{ticket_id}")
         try:
             from cogs.tickets import TicketControlView, refresh_ticket_embed
             await _refresh_pulse_ticket_discord_state(channel, latest)
@@ -7262,7 +7267,8 @@ async def pulse_tickets_dashboard_action(
             return back("/tickets", "Priorität konnte nicht geändert werden.", False)
         latest = pulse_db.get_ticket(ticket_id=ticket_id) or ticket
         await _refresh_pulse_ticket_discord_state(channel, latest)
-        pulse_db.record_event("ticket_priority_dashboard", "ticket", ticket_id, actor_id, actor_name, {"priority": priority})
+        pulse_db.record_event("ticket_priority_dashboard", "ticket", ticket_id, actor_id, actor_name, {"priority": priority},
+                          correlation_id=f"ticket:{ticket_id}")
         await _send_pulse_ticket_log(bot, ctx.guild, "priority", latest, ctx.member)
         return back(f"/tickets?status={('claimed' if latest.get('claimed_by_id') else 'open')}", f"Priorität für Ticket {ticket_id} geändert auf {PULSE_TICKET_PRIORITY_LABELS[priority]}.")
 
@@ -7280,13 +7286,15 @@ async def pulse_tickets_dashboard_action(
         try:
             transcript_name = await archive_transcript(channel, ticket["id"], log_channel=log_channel)
         except TranscriptError as exc:
-            pulse_db.record_event("ticket_archive_failed", "ticket", ticket_id, actor_id, actor_name, {"error": str(exc)})
+            pulse_db.record_event("ticket_archive_failed", "ticket", ticket_id, actor_id, actor_name, {"error": str(exc)},
+                              correlation_id=f"ticket:{ticket_id}")
             await keep_channel_after_failure(channel, ticket, str(exc))
             return back("/tickets", f"Ticket {ticket_id} nicht geschlossen: {exc}. Der Kanal bleibt erhalten.", False)
         if not pulse_db.close_ticket(ticket["id"], reason, transcript_name, actor_id, actor_name):
             return back("/tickets", "Ticket konnte nicht geschlossen werden.", False)
         closed = pulse_db.get_ticket(ticket_id=ticket_id) or ticket
-        pulse_db.record_event("ticket_closed_dashboard", "ticket", ticket_id, actor_id, actor_name, {"reason": reason})
+        pulse_db.record_event("ticket_closed_dashboard", "ticket", ticket_id, actor_id, actor_name, {"reason": reason},
+                          correlation_id=f"ticket:{ticket_id}")
         await _send_pulse_ticket_log(bot, ctx.guild, "closed", closed, ctx.member)
         try:
             owner = ctx.guild.get_member(int(ticket.get("user_id") or 0))

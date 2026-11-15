@@ -3,6 +3,23 @@
 Arbeitsstand der Mission „177 von 177“. Einzelstatus je Funktion: `docs/PULSE_FEATURE_AUDIT_177.md`.
 Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, Rechte-/Datenschutzprüfung, PR und CI. Keine Produktivdaten, Discord-Server oder VPS-Aktionen im Rahmen dieser Arbeit.
 
+## Block F – Zentrale Integration (lokal, nicht veröffentlicht)
+
+Alle Schritte bauen aufeinander auf (Branchkette ab `origin/main` @ `2c02788`); keine Zeile des Audits ist dadurch „Fertig“, die Zählung bleibt unverändert.
+
+| Schritt | Inhalt | Audit | Status |
+|---|---|---|---|
+| F1 | Ereignisvertrag `pulse_events` | #116, #122, #125 | Fundament, Teilweise |
+| F2 | Inbox-Contract und Direktlinks | #118, #119 | Fundament, Teilweise |
+| F3 | Rechte-Policy `pulse_policy` | #120 | Fundament, Teilweise |
+| F4 | Eventbus (Polling + SSE) | #117 | Fundament, nicht an Routen angebunden |
+| F5 | Aktionskarten, einheitliche Aufgabenregel | #121, #124 | Fundament, Aufrufer offen |
+| F6 | Vorlagenbibliothek | #123 | Fundament |
+| F7 | Ticket-Ereignisse mit Korrelations-ID (Bot + Dashboard) | #116, #122 | angebunden |
+| F8 | Ticket-Schnellantworten aus der Bibliothek (Analyse der übrigen Arten: `docs/PULSE_F8_PHASENBERICHT.md`) | #123 | 1 von 5 Arten angebunden |
+
+Offene Abhängigkeiten: Bewerber-Nachrichten nach Merge von #99; Ankündigungen und Willkommenstexte brauchen Entscheidungen; Moderationsgründe bleiben im eigenen Speicher.
+
 ## Stand auf main
 
 Bewertet ist der Code-Stand `main` @ `2c02788` (nach PR #248 und #249; #95 ist gemergt, vollständig fertig und mit 27 Browser-Tests abgesichert). Der Block #99 (`feature/recruiting-interview-calendar-99`) ist zusätzlich ausgewiesen. Einzelstatus und Belege je Funktion stehen in `docs/PULSE_FEATURE_AUDIT_177.md`; die Zählung dort liefert `python tools/audit_counts.py` aus den 177 Einzelzeilen; `tests/test_feature_audit_counts.py` prüft Kopfzeilen und diese Tabelle dagegen.
