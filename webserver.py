@@ -690,6 +690,17 @@ def team_safety_admin_exempt(guild, member) -> bool:
     )
 
 
+async def _cleanup_absence_after_team_exit(guild, member) -> None:
+    """After a successful team exit, end the member's absence (DB, role, nickname, lists). Never raises."""
+    try:
+        bot = getattr(app.state, "bot", None)
+        cog = bot.get_cog("AbmeldungCog") if bot is not None and hasattr(bot, "get_cog") else None
+        if cog is not None:
+            await cog.cleanup_member_absence(guild, member.id, member_present=True, source="Team-Kick")
+    except Exception as exc:
+        print(f"⚠️ Abmeldungs-Bereinigung nach Team-Kick übersprungen ({type(exc).__name__}).")
+
+
 async def apply_team_kick_role_reset(guild, member, config: dict | None = None, reason: str = "Team-Kick") -> dict:
     """Keep only the configured citizen/ex-team roles; never remove the member from Discord."""
     if not guild or not member:
@@ -740,6 +751,7 @@ async def apply_team_kick_role_reset(guild, member, config: dict | None = None, 
 
     current_role_ids = {role.id for role in member.roles if not role.is_default()}
     if current_role_ids == keep_role_ids:
+        await _cleanup_absence_after_team_exit(guild, member)
         return {
             "ok": True, "changed": False,
             "message": "Es sind bereits ausschließlich Bürgerrolle und Ex-Teamler-Rolle vorhanden.",
@@ -755,6 +767,7 @@ async def apply_team_kick_role_reset(guild, member, config: dict | None = None, 
     except Exception as exc:
         return {"ok": False, "changed": False, "message": f"Team-Kick fehlgeschlagen ({type(exc).__name__})."}
 
+    await _cleanup_absence_after_team_exit(guild, member)
     return {
         "ok": True, "changed": True,
         "message": "Alle Rollen außer Bürgerrolle und Ex-Teamler-Rolle wurden entfernt.",

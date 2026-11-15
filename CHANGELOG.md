@@ -1,5 +1,11 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Abmeldungen: automatische Bereinigung bei Offboarding und Serveraustritt (November 2026)
+
+- **Team-Kick / Verlust der letzten Teamrolle:** Nach einem tatsächlich erfolgreichen Team-Kick (Dashboard, Discord-Zweitfreigabe, automatischer Warn-Team-Kick) oder dem Verlust der letzten konfigurierten Teamrolle werden aktive und zukünftige Abmeldungen beendet: Eintrag gelöscht, Abmeldungsrolle entfernt, Nickname-Suffix mit der bestehenden Schutzlogik zurückgesetzt, Abmeldungs- und Teamliste aktualisiert. Ein fehlgeschlagener Team-Kick lässt die Abmeldung unverändert.
+- **Serveraustritt, Kick, Ban:** Die Abmeldung wird gelöscht und die Abmeldungsliste aktualisiert; es werden keine Rollen- oder Nickname-Änderungen am nicht mehr vorhandenen Mitglied versucht.
+- Zentral und idempotent in `AbmeldungCog.cleanup_member_absence`; nur Datensätze der betroffenen Guild (alte Einträge ohne Guild-ID nur, wenn das Mitglied in keiner anderen Pulse-Guild ist). Keine Schemaänderung, Abmeldungsgründe werden nicht protokolliert. Technische Beschreibung: `docs/ABMELDUNG_AUTO_BEREINIGUNG.md`.
+
 ## Bewerbungen: Kanban-Pipeline (November 2026)
 
 - **Bewerbungs-Board (#95):** `/applications/board` bearbeitet Bewerbungen direkt an der Karte: Entscheiden (Einladung, Ablehnen, Einstellen/Ablehnen nach Gespräch) und Prüfer zuweisen über dieselben geprüften Abläufe wie die Bewerbungsseite (Rollen, DM, Audit, Mindestbewertungs-Policy). Karten zeigen Status, Wartezeit/Frist, Prüfer und Bewertungsfortschritt; Suche und Filter (überfällig, mir zugewiesen, ohne Prüfer); Leer-/Fehlerzustände.

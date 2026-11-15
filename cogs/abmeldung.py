@@ -397,6 +397,90 @@ class AbmeldungCog(commands.Cog):
             except discord.HTTPException as exc:
                 print(f"⚠️ Namensänderung für {member} fehlgeschlagen: {exc}")
 
+    # ------------------------------------------------------------------
+    # Automatische Bereinigung bei Team-Offboarding / Serveraustritt
+    # ------------------------------------------------------------------
+    def _delete_member_absences(self, user_id: int, guild_id) -> Optional[list]:
+        """Löscht alle (aktiven und zukünftigen) Abmeldungen des Mitglieds auf genau diesem Server.
+
+        Gibt die gelöschten Zeilen ``(original_nick, guild_id)`` zurück, ``[]`` ohne Treffer oder bei
+        unbrauchbarer Guild-ID und ``None`` bei einem Datenbankfehler. Alte Datensätze ohne Guild-ID
+        werden nur entfernt, wenn das Mitglied in keiner anderen Pulse-Guild vorhanden ist.
+        """
+        if not isinstance(guild_id, int) or isinstance(guild_id, bool) or guild_id <= 0:
+            return []
+        legacy_allowed = not any(
+            guild.id != guild_id and guild.get_member(user_id) for guild in self.bot.guilds
+        )
+        where = "user_id = ? AND (guild_id = ?" + (" OR guild_id IS NULL OR guild_id = 0)" if legacy_allowed else ")")
+        try:
+            conn = sqlite3.connect(DB_NAME)
+            try:
+                cursor = conn.cursor()
+                rows = cursor.execute(
+                    f"SELECT original_nick, guild_id FROM abmeldungen WHERE {where}", (user_id, guild_id)
+                ).fetchall()
+                if rows:
+                    cursor.execute(f"DELETE FROM abmeldungen WHERE {where}", (user_id, guild_id))
+                    conn.commit()
+                return rows
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:
+            print(f"⚠️ Abmeldungs-Bereinigung: Datenbank nicht verfügbar ({type(exc).__name__}).")
+            return None
+
+    async def cleanup_member_absence(
+        self, guild: Optional[discord.Guild], user_id: int, *, member_present: bool, source: str
+    ) -> bool:
+        """Beendet die Abmeldung eines Mitglieds nach Team-Offboarding oder Serveraustritt.
+
+        Idempotent: ohne Eintrag passiert nichts. Die Datenbank wird zuerst bereinigt, Rollen-/Nickname-
+        Wiederherstellung (nur bei ``member_present``) und Listen-Updates sind danach best effort.
+        Abmeldungsgründe werden bewusst nicht protokolliert.
+        """
+        if guild is None:
+            return False
+        rows = self._delete_member_absences(int(user_id), getattr(guild, "id", None))
+        if not rows:
+            return False
+        if member_present:
+            for original_nick, _row_guild in rows:
+                try:
+                    await self.reset_user_status(int(user_id), original_nick, guild.id)
+                except Exception as exc:
+                    print(f"⚠️ Abmeldungs-Bereinigung: Status konnte nicht zurückgesetzt werden ({type(exc).__name__}).")
+        try:
+            await self.update_live_list()
+        except Exception as exc:
+            print(f"⚠️ Abmeldungs-Bereinigung: Abmeldungsliste nicht aktualisiert ({type(exc).__name__}).")
+        if member_present:
+            await self.trigger_teamlist_update(guild)
+        print(f"🧹 Abmeldung von {user_id} beendet ({source}).")
+        return True
+
+    @staticmethod
+    def _configured_team_role_ids() -> set:
+        try:
+            import webserver
+            return {int(x) for x in webserver.load_config().get("team_role_ids", []) if str(x).isdigit()}
+        except Exception:
+            return set()
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        """Austritt, Kick und Ban: Abmeldung löschen, keine Discord-Änderung am Mitglied."""
+        if getattr(member, "bot", False):
+            return
+        await self.cleanup_member_absence(member.guild, member.id, member_present=False, source="Serveraustritt")
+
+    @commands.Cog.listener()
+    async def on_member_ban(self, guild: discord.Guild, user):
+        # Folgt meist auf on_member_remove; die Bereinigung ist idempotent.
+        if getattr(user, "bot", False):
+            return
+        await self.cleanup_member_absence(guild, user.id, member_present=False, source="Ban")
+
     @commands.Cog.listener()
     async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
         """Retry previously denied nickname changes when role permissions/hierarchy change."""
@@ -411,6 +495,12 @@ class AbmeldungCog(commands.Cog):
         if bot_user and after.id == bot_user.id and before.roles != after.roles:
             self._nickname_forbidden = {key for key in self._nickname_forbidden if key[0] != after.guild.id}
             self._nickname_permission_warnings = {key for key in self._nickname_permission_warnings if key[0] != after.guild.id}
+        if before.roles == after.roles or getattr(after, "bot", False):
+            return
+        # Letzte konfigurierte Teamrolle verloren -> Abmeldung beenden (mehrere Rollen: erst bei der letzten).
+        team_ids = self._configured_team_role_ids()
+        if team_ids and any(r.id in team_ids for r in before.roles) and not any(r.id in team_ids for r in after.roles):
+            await self.cleanup_member_absence(after.guild, after.id, member_present=True, source="Team-Offboarding")
 
     async def sync_existing_abmeldungen(self):
         """Stellt nach einem Bot-Neustart die Abmeldungsrollen wieder her."""
