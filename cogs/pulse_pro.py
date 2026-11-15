@@ -919,6 +919,19 @@ class PulsePro(commands.Cog):
             await interaction.response.send_message(msg, ephemeral=True); return
         await interaction.response.send_message(f"✅ `{task['title']}` als erledigt markiert.",ephemeral=True)
 
+    @app_commands.command(name="regelwerk", description="Sucht Stellen im Regelwerk und nennt die Quelle.")
+    @app_commands.describe(suche="Stichwort oder Paragraph, z. B. Safezone oder 7.3", regelwerk="Optional nur ein Regelwerk durchsuchen")
+    @app_commands.choices(regelwerk=[app_commands.Choice(name="Ingame/RP", value="ingame"), app_commands.Choice(name="Discord", value="discord")])
+    async def regelwerk(self, interaction: discord.Interaction, suche: str, regelwerk: app_commands.Choice[str] | None = None):
+        import pulse_rules_lookup as rules
+        data = rules.search(suche, regelwerk.value if regelwerk else None, limit=4)
+        if not data["results"]:
+            await interaction.response.send_message("Dazu habe ich keine Stelle im Regelwerk gefunden. Frag im Zweifel das Serverteam.", ephemeral=True)
+            return
+        lines = [f"**{discord.utils.escape_markdown(r['cite'])}**\n{discord.utils.escape_markdown(r['text'][:350])}" for r in data["results"]]
+        text = "📖 **Regelwerk**\n" + "\n\n".join(lines) + "\n-# Wörtliche Stellen, keine Auslegung. Maßnahmen entscheidet das Serverteam."
+        await interaction.response.send_message(text[:1990], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
     @app_commands.command(name="pulse-sprache", description="Stellt deine persönliche Pulse-Anzeigesprache ein.")
     @app_commands.describe(sprache="Automatisch der Discord-Sprache folgen oder eine Sprache festlegen")
     @app_commands.choices(sprache=[
