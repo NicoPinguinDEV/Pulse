@@ -101,17 +101,12 @@ def parse_ref(text) -> tuple[str, str] | None:
 
 
 def allowed_kinds(perms: dict | None) -> set[str]:
-    """Same rights as the existing views of each case file; nothing is widened. Fail-closed."""
-    p = perms if isinstance(perms, dict) else {}
-    admin = p.get("is_admin") is True
-    kinds: set[str] = set()
-    if admin or p.get("can_moderate_kicks") is True or p.get("can_moderate_bans") is True:
-        kinds |= {"BM", "KI"}  # /mod-cases and the AI review need a moderation right
-    if admin or p.get("can_warn") is True:
-        kinds.add("TW")
-    if admin or p.get("can_promote") is True:
-        kinds.add("TF")  # /ultimate/cases is for leaders only
-    return kinds
+    """Same rights as the existing views of each case file; nothing is widened. Fail-closed.
+
+    #120: the rule lives in ``pulse_policy`` (``case.view.<kind>``); parity is pinned by ``test_pulse_policy``.
+    """
+    import pulse_policy
+    return pulse_policy.allowed_case_kinds(perms)
 
 
 # --------------------------------------------------------------------------- helpers

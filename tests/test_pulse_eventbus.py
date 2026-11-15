@@ -223,7 +223,7 @@ class WakeTests(BusTestCase):
     def test_emit_bumps_version_and_survives_bus_failure(self):
         before = bus._current_version()
         ev.emit("ticket", "closed")
-        self.assertEqual(bus._current_version(), before + 1)
+        self.assertGreater(bus._current_version(), before)  # #117: record_event weckt ebenfalls
         with patch.object(bus, "bump", side_effect=RuntimeError("x")):
             self.assertIsNotNone(ev.emit("ticket", "closed"))  # event is stored even if wake-up fails
 
