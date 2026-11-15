@@ -9147,7 +9147,7 @@ async def applications_page(request: Request, user_session: str = Cookie(None)):
 
     empty = "Noch keine entschiedenen Bewerbungen." if show_history else "Keine offenen Bewerbungen vorhanden."
     module_settings_link = (
-        '<a href="/applications/config" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white">⚙️ Module verwalten</a>'
+        '<a href="/applications/statistik" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700">📊 Statistik</a> <a href="/applications/config" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white">⚙️ Module verwalten</a>'
         if can_decide else ""
     )
     body = f"""
@@ -9214,6 +9214,19 @@ def interview_slot_html(app_id: str, item: dict, leads: list | None = None) -> s
             f'{people_html}{cancel_html}{f"<div>{notes}</div>" if notes else ""}</div>')
 
 
+def _template_history_html(key: str) -> str:
+    """#103: earlier versions of one template with a restore button each (the section itself is admin-only)."""
+    import pulse_app_comms
+    rows = pulse_app_comms.history(key)[:5]
+    if not rows:
+        return ""
+    items = "".join(
+        f'<li class="flex flex-wrap items-center gap-2"><span>v{r["version"]} · {esc(r["at"][:16].replace("T", " "))} · {esc(r["actor"] or "–")}</span>'
+        f'<button formaction="/applications/templates/restore" formmethod="post" name="restore" value="{esc(key)}:{r["version"]}" '
+        f'class="underline text-indigo-500" formnovalidate>wiederherstellen</button></li>' for r in rows)
+    return f'<details class="text-[11px] text-slate-400"><summary>Frühere Versionen</summary><ul class="mt-1 space-y-1">{items}</ul></details>'
+
+
 def application_templates_section(ctx) -> str:
     """BOT-10: edit the DM texts (admins); empty field = built-in text."""
     import pulse_app_comms
@@ -9223,6 +9236,7 @@ def application_templates_section(ctx) -> str:
     fields = "".join(
         f'<label class="grid gap-1 text-xs font-semibold">{esc(label)}'
         f'<textarea name="tpl_{key}" rows="2" class="{INPUT} text-xs">{esc(current[key])}</textarea></label>'
+        + _template_history_html(key)
         for key, label in pulse_app_comms.LABELS.items())
     return (f'<form method="post" action="/applications/templates" class="{CARD} p-5 mt-5 space-y-3">'
             f'<h2 class="text-sm font-bold">✉️ Nachrichten an Bewerber</h2>'
@@ -9374,9 +9388,42 @@ async def application_templates_save(request: Request, user_session: str = Cooki
     import pulse_app_comms
     ctx = auth(request, user_session, perm=None, admin=True)
     form = await request.form()
-    pulse_app_comms.save({key: form.get(f"tpl_{key}", "") for key in pulse_app_comms.DEFAULTS})
+    pulse_app_comms.save({key: form.get(f"tpl_{key}", "") for key in pulse_app_comms.DEFAULTS}, actor=str(ctx.user.get("global_name") or ""))
     log_audit(ctx.user.get("global_name"), ctx.user["id"], "Bewerber-Nachrichten geändert", "Vorlagen")
     return back("/applications/config", "Vorlagen gespeichert.")
+
+
+@app.post("/applications/templates/restore")
+async def application_templates_restore(request: Request, user_session: str = Cookie(None)):
+    """#103: restore an earlier version of one applicant message (admins only)."""
+    import pulse_app_comms
+    ctx = auth(request, user_session, perm=None, admin=True)
+    form = await request.form()
+    key, _, number = str(form.get("restore") or "").partition(":")
+    try:
+        pulse_app_comms.restore(key, int(number or 0), actor=str(ctx.user.get("global_name") or ""))
+    except (ValueError, TypeError):
+        return back("/applications/config", "Diese Vorlagenversion gibt es nicht.", False)
+    log_audit(ctx.user.get("global_name"), ctx.user["id"], "Bewerber-Nachricht wiederhergestellt", f"{key} v{number}")
+    return back("/applications/config", "Vorlagenversion wiederhergestellt.")
+
+
+def send_stale_application_reminders() -> int:
+    """#101: dashboard reminder (once per day and person, via the notification dedupe) to the assigned reviewers
+    of applications that wait too long. Internal notifications only - no Discord message, no retry loop."""
+    import pulse_recruiting_stats as rs
+    apps = load_json(APPS_FILE, {})
+    sent = 0
+    for row in rs.stale_applications(apps if isinstance(apps, dict) else {}, now_de().replace(tzinfo=None)):
+        label = "wartet auf Prüfung" if row["status"] == "pending" else "wartet auf Entscheidung nach Gespräch"
+        for person in row["reviewers"]:
+            try:
+                pulse_db.notify(person, "📝 Bewerbung überfällig", f"{row['name']} {label} (seit {row['days']} Tagen).",
+                                "warning", "/applications", f"app-stale:{row['id']}:{person}", 86400)
+                sent += 1
+            except Exception as exc:  # noqa: BLE001
+                print(f"⚠️ Bewerbungs-Erinnerung fehlgeschlagen: {type(exc).__name__}")
+    return sent
 
 
 async def send_interview_reminders(bot) -> int:
@@ -9548,6 +9595,48 @@ async def save_application_review_policy(request: Request, user_session: str = C
     pulse_db.set_setting(app_review.POLICY_KEY, {"min_reviews": minimum})
     log_audit(str(ctx.user.get("global_name") or ctx.user.get("username")), ctx.user["id"], "Bewerbungs-Prüfpolicy geändert", f"Mindestbewertungen: {minimum}")
     return back("/applications", "Policy gespeichert.")
+
+
+@app.get("/applications/statistik", response_class=HTMLResponse)
+async def application_stats_page(request: Request, user_session: str = Cookie(None)):
+    """#102: recruiting statistics (recruiting staff only); ``?days=30|90|365`` limits the period."""
+    ctx = auth(request, user_session, perm=None)
+    if not can_review_applications(ctx):
+        raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung für Bewerbungen.")
+    import pulse_recruiting_stats as rs
+    raw = str(request.query_params.get("days") or "")
+    days = int(raw) if raw in ("30", "90", "365") else None
+    apps = load_json(APPS_FILE, {})
+    data = rs.compute(apps if isinstance(apps, dict) else {}, now_de().replace(tzinfo=None), days)
+
+    def hours(block):
+        if not block["n"]:
+            return "–"
+        return (f'Ø {block["avg_h"]} h · Median {block["median_h"]} h · max. {block["max_h"]} h '
+                f'<span class="text-slate-400">(n={block["n"]})</span>')
+
+    def pct(value):
+        return "–" if value is None else f"{value} %"
+    d, c = data["durations"], data["conversion"]
+    tiles = "".join(
+        f'<div class="{CARD} p-4"><div class="text-[11px] text-slate-400">{esc(label)}</div><div class="text-xl font-bold">{esc(str(value))}</div></div>'
+        for label, value in (("Bewerbungen", data["total"]), ("Offen", data["status"]["pending"] + data["status"]["interview"]),
+                             ("Angenommen", data["status"]["hired"]), ("Abgelehnt", data["status"]["rejected"])))
+    rows = "".join(f'<tr><td class="py-1 pr-3">{esc(r["name"])}</td><td>{r["assigned"]}</td><td>{r["reviewed"]}</td><td>{pct(r["completion_pct"])}</td></tr>'
+                   for r in data["reviewers"]) or '<tr><td colspan="4" class="text-slate-400 py-2">Keine Zuweisungen im Zeitraum.</td></tr>'
+    nav = " · ".join(f'<a class="underline" href="/applications/statistik{q}">{label}</a>'
+                     for q, label in (("", "Gesamt"), ("?days=30", "30 Tage"), ("?days=90", "90 Tage"), ("?days=365", "1 Jahr")))
+    body = (f'<div class="max-w-3xl space-y-4"><div class="flex flex-wrap items-center justify-between gap-3"><h1 class="text-2xl font-bold">Recruiting-Statistik</h1>'
+            f'<a href="/applications" class="px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700">← Zur Bewerbungsübersicht</a></div>'
+            f'<p class="text-xs text-slate-400">Zeitraum: {nav}. Durchschnitte sind Richtwerte und nennen die Zahl der zugrunde liegenden Bewerbungen.</p>'
+            f'<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">{tiles}</div>'
+            f'<div class="{CARD} p-4 text-xs space-y-1"><div>Bis zum Gespräch gekommen: <b>{pct(c["interview_pct"])}</b> · '
+            f'Angenommen (von entschieden): <b>{pct(c["hired_of_decided_pct"])}</b> · Angenommen (von allen): <b>{pct(c["hired_of_total_pct"])}</b></div>'
+            f'<div>Wartezeit bis Einladung: {hours(d["to_invite"])}</div><div>Dauer bis Entscheidung: {hours(d["to_decision"])}</div>'
+            f'<div>Gespräch bis Entscheidung: {hours(d["interview_to_decision"])}</div><div>Alter offener Bewerbungen: {hours(d["open_age"])}</div></div>'
+            f'<div class="{CARD} p-4 overflow-x-auto"><h2 class="text-sm font-bold mb-2">Prüfer-Auslastung</h2><table class="text-xs w-full text-left">'
+            f'<thead><tr class="text-slate-400"><th>Prüfer</th><th>Zugewiesen</th><th>Bewertet</th><th>Quote</th></tr></thead><tbody>{rows}</tbody></table></div></div>')
+    return render_page("Recruiting-Statistik", ctx, "apps", body)
 
 
 @app.get("/applications/journal/{app_id}", response_class=HTMLResponse)

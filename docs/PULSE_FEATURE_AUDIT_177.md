@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 102 |
-| Teilweise | 75 |
+| Fertig | 106 |
+| Teilweise | 71 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -35,7 +35,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 6 | 6 | 0 |
 | Dienstplanung und Aktivität | 7 | 5 | 0 |
-| Bewerbungen und Recruiting | 7 | 4 | 0 |
+| Bewerbungen und Recruiting | 11 | 0 | 0 |
 | Academy und Wissensmanagement | 6 | 4 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
 | Pulse Intelligence | 7 | 8 | 0 |
@@ -183,10 +183,10 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 97 | Mehrere unabhängige Prüfer | **Fertig** | Unabhängige Bewertungen: Prüfer sehen Bewertungen anderer erst nach der eigenen (Leitung sieht alle), optionale Empfehlung je Prüfer (Einstellen/Ablehnen/Unsicher), Fortschritt und Empfehlungsverteilung für die Leitung, optionale Policy „Mindestzahl unabhängiger Bewertungen“ (Administratoren, `POST /applications/review-policy`) sperrt Entscheidungen serverseitig bis genug Bewertungen vorliegen. `tests/test_application_review.py`. |
 | 98 | Interview-Bewertungsbogen | **Fertig** | Interviewformular mit mehreren Kriterien, Noten und Notizen; `tests/test_application_eligibility.py` prüft den zweistufigen Interviewablauf. |
 | 99 | Interview-Kalender | **Fertig** | Interviews sind echte Kalenderobjekte im bestehenden Team-Kalender `/calendar` (`pulse_db.calendar_events`, Kategorie `interview`, neutraler Titel ohne Bewerberdaten); Verknüpfung nur über `interview_event_id` im Bewerbungsdatensatz, keine zweite Kalender-/Recruiting-Verwaltung, keine neue Tabelle. `pulse_interviews.py`: Anlegen, Verschieben (neuer Eintrag zuerst, Bewerbung speichern, alter Eintrag danach – keine verwaisten oder doppelten Einträge, Rollback bei Speicherfehlern), Absagen (`POST /applications/interview-slot`, `/applications/interview-cancel`), Beginn, Dauer (15–240 Min.), verantwortliche Führungskraft, Teilnehmer abgeleitet aus Bewerber, zugewiesenen Prüfern (#96), Führungskraft und Terminverantwortlichem. Serverseitige Konfliktprüfung (gleicher Bewerber/Prüfer/Führungskraft, Sperre bei unlesbaren Terminen, Lock gegen konkurrierende Änderungen, Revisionsprüfung gegen veraltete Formulare). Europe/Berlin mit Sommer-/Winterzeit, Lücke und Doppelstunde der Zeitumstellung werden abgelehnt, Speicherung in UTC. Kalender: Interview-Kennzeichnung, Zeit, Dauer, Status, Teilnehmer und Link zur Bewerbung nur mit Recruiting-Recht; alle anderen sehen nur Zeit, Dauer, Status und Teilnehmerzahl (auch Altbestand mit Namen im Titel wird bereinigt, bei Lesefehlern fail-closed). Erinnerungen über die vorhandene Schleife: Bewerber-DM bei Termin/Verschiebung/Absage, Team-Hinweis 24 h und Erinnerung 1 h vorher, je einmal (vor dem Senden reserviert), Zustellergebnis gespeichert, kein Retry, Absage/Verschiebung setzt zurück, persönliche Benachrichtigungseinstellungen gelten. Audit-Einträge für Planen/Verschieben/Absagen/Konflikt. `tests/test_interview_calendar.py` (54 Tests), Browser-E2E `InterviewCalendar*E2ETests` in `tests/test_e2e_dashboard.py` (Desktop, Mobil, Rechte). Abgrenzung: vollständige Recruiting-Erinnerungen für alle Fälle bleiben #101. |
-| 100 | Bewerber-Kommunikationshistorie | **Teilweise** | Bewerbungsstatus, Interviewinformationen und Kommunikationsvorlagen sind vorhanden; ein vollständiges, revisionsfestes Kommunikationsjournal fehlt. |
-| 101 | Automatische Recruiting-Erinnerungen | **Teilweise** | `pulse_app_comms.due_reminders()` berechnet fällige Erinnerungen; die vollständige Zustellung/Fehlerabdeckung für alle Recruitingfälle ist nicht gesondert belegt. |
-| 102 | Recruiting-Statistik | **Teilweise** | Bewerbungsstufen und Analytics existieren; vollständige Conversion-, Wartezeit- und Prüferstatistik fehlt. |
-| 103 | Zusage-/Absagevorlagen | **Teilweise** | `pulse_app_comms` enthält Vorlagen/Rendering; eine zentral verwaltete, versionierte Vorlagenbibliothek mit allen Entscheidungsschritten fehlt. |
+| 100 | Bewerber-Kommunikationshistorie | **Fertig** | Revisionsfestes, verkettetes Journal `pulse_app_journal.py` für jede Bewerber-Nachricht (auch fehlgeschlagene), Ansicht `/applications/journal/{id}` nur für Prüfer, Export und Retention-Anbindung; `tests/test_app_journal.py`. |
+| 101 | Automatische Recruiting-Erinnerungen | **Fertig** | Gesprächserinnerungen (#99, DM + Team) und tägliche Dashboard-Erinnerung an zugewiesene Prüfer bei überfälligen offenen Bewerbungen (`send_stale_application_reminders`, Schwellen 3/7 Tage); Zustellung wird im Journal (#100) protokolliert; `tests/test_recruiting_stats.py`. |
+| 102 | Recruiting-Statistik | **Fertig** | `pulse_recruiting_stats.py` und Seite `/applications/statistik` (nur Prüfer): Trichter, Conversion, Wartezeit/Dauer mit Stichprobengröße, Prüfer-Auslastung, Zeitraumfilter; `tests/test_recruiting_stats.py`. |
+| 103 | Zusage-/Absagevorlagen | **Fertig** | Vorlagen in `pulse_app_comms` sind versioniert (Autor/Zeit, max. 20 je Vorlage), Wiederherstellen per Admin-Route `/applications/templates/restore`; deckt alle Entscheidungsschritte ab; `tests/test_app_comms_versions.py`. |
 | 104 | Bewerbungs-Dublettenprüfung | **Fertig** | Sichere Dublettenhinweise mit prüfbaren Indizien, keine automatische Entscheidung (PR #200); `pulse_application_duplicates.py`, `tests/test_application_duplicate_detection.py`. |
 | 105 | Einstellungs-Checkliste | **Fertig** | Onboarding-Checkliste wird in den Join-/Hire-Pfaden erzeugt; `tests/test_checklists.py`. |
 

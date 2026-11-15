@@ -1,5 +1,13 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Bewerbungen: Journal, Statistik, Vorlagen, Erinnerungen (November 2026)
+
+- **Kommunikationsjournal (#100):** Jede Nachricht an Bewerber (auch fehlgeschlagene) wird in einem verketteten Journal protokolliert (`pulse_app_journal.py`, Tabelle `application_comm_journal`, im Backup enthalten). Ansicht `/applications/journal/{id}` nur für Prüfer; Export und Retention-Bereinigung angebunden.
+- **Recruiting-Statistik (#102):** `/applications/statistik` mit Trichter, Conversion, Wartezeiten (mit Stichprobengröße) und Prüfer-Auslastung.
+- **Vorlagen (#103):** Bewerber-Nachrichten sind versioniert und wiederherstellbar (Admin).
+- **Erinnerungen (#101):** Tägliche Dashboard-Erinnerung an zugewiesene Prüfer bei überfälligen Bewerbungen (3 Tage ohne Prüfung, 7 Tage nach Gespräch ohne Entscheidung); keine Discord-Nachricht, kein Retry.
+- Tests: `tests/test_app_journal.py`, `tests/test_recruiting_stats.py`, `tests/test_app_comms_versions.py`.
+
 ## Bewerbungen: Interview-Kalender (November 2026)
 
 - **Interview-Kalender (#99):** Gesprächstermine sind echte Einträge im Team-Kalender `/calendar` (Kategorie „Bewerbungsgespräch“, eigene Kennzeichnung, Zeit, Dauer, Status, Teilnehmer, Link zur Bewerbung für Recruiting-Berechtigte) und im Kalender als Monats-Agenda mit Leerzustand. Termine lassen sich mit Dauer und verantwortlicher Führungskraft anlegen, verschieben und absagen (`/applications`); der alte Kalendereintrag wird ersetzt, keine verwaisten oder doppelten Einträge.
