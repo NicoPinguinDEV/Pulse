@@ -2276,6 +2276,11 @@ def record_event(event_type, target_type="", target_id="", actor_id="", actor_na
         pulse_eventbus.bump()
     except Exception:
         pass
+    try:  # #125: every module's events can start "domain_event" automations (no-op without one)
+        import pulse_event_automation
+        pulse_event_automation.on_record(event_type, target_type, target_id, actor_id, actor_name, eid)
+    except Exception:
+        pass
     return eid
 
 

@@ -19,9 +19,13 @@ TRIGGERS = {
     "interval": "Zeitplan (alle X Minuten)",
     "antinuke_rule": "Anti-Nuke-Regel ausgelöst",
     "antinuke_event": "Sicherheitsereignis erkannt (Discord-Audit-Log)",
+    "domain_event": "Ereignis in Pulse (Aufgabe, Ticket, Bewerbung …)",
 }
-EVENT_TRIGGERS = frozenset({"antinuke_rule", "antinuke_event"})
-ADMIN_TRIGGERS = EVENT_TRIGGERS  # security triggers: administrators only
+EVENT_TRIGGERS = frozenset({"antinuke_rule", "antinuke_event", "domain_event"})
+ADMIN_TRIGGERS = frozenset({"antinuke_rule", "antinuke_event"})  # security triggers: administrators only (#125: domain events are for leadership)
+# #125: domain events that must never start an automation (they would loop on the automation's own audit trail).
+DOMAIN_EVENT_BLOCKED = frozenset({("automation", "*"), ("panel", "*")})
+MAX_DEPENDENCY_AGE_MIN, DEFAULT_DEPENDENCY_AGE_MIN = 7 * 24 * 60, 24 * 60
 CONDITIONS = {  # schedule conditions (evaluated by pulse_ultimate._run_automation)
     "always": "immer",
     "open_cases_gte": "offene Fälle ≥ Wert",
@@ -75,6 +79,7 @@ DEFINITION_LABELS = {"name": "Name", "trigger_type": "Auslöser", "interval_minu
 _PLACEHOLDER = re.compile(r"\{(" + "|".join(PLACEHOLDERS) + r")\}")
 _DISCORD_ID = re.compile(r"[0-9]{15,22}")
 _RULE_ID = re.compile(r"(?:global|[a-z0-9_-]{1,32})")
+_AUTOMATION_ID = re.compile(r"[A-Za-z0-9_\-]{1,64}")
 
 
 def _int(value, label: str, lo: int, hi: int, default: int | None = None) -> int:
@@ -146,8 +151,58 @@ def normalize_step(raw: dict) -> dict:
     return step
 
 
-def normalize_trigger_config(trigger: str, raw: dict) -> dict:
+def normalize_depends_on(raw, own_id: str = "") -> dict:
+    """#151: wait for another automation. ``{}`` = no dependency, else ``{"automation_id", "max_age_minutes"}``: the other
+    automation must have finished successfully (real run, not a test) within ``max_age_minutes`` before this one starts."""
+    if not isinstance(raw, dict) or not str(raw.get("automation_id") or "").strip():
+        return {}
+    dep = str(raw.get("automation_id")).strip()
+    if not _AUTOMATION_ID.fullmatch(dep):
+        raise ValueError("Ungültige Abhängigkeit.")
+    if own_id and dep == own_id:
+        raise ValueError("Eine Automation kann nicht auf sich selbst warten.")
+    return {"automation_id": dep, "max_age_minutes": _int(raw.get("max_age_minutes"), "Höchstalter der Abhängigkeit", 1, MAX_DEPENDENCY_AGE_MIN, DEFAULT_DEPENDENCY_AGE_MIN)}
+
+
+def dependency_met(latest_run: dict | None, max_age_minutes: int, now) -> tuple[bool, str]:
+    """``(ok, reason)`` for one dependency, from the newest *real* run of the other automation (``status``, ``finished_at``/``started_at``)."""
+    from datetime import datetime, timedelta, timezone
+    if not latest_run:
+        return False, "wartet: die Abhängigkeit ist noch nie erfolgreich gelaufen"
+    if latest_run.get("status") != "success":
+        return False, f"wartet: der letzte Lauf der Abhängigkeit war „{latest_run.get('status')}“"
+    stamp = latest_run.get("finished_at") or latest_run.get("started_at") or ""
+    try:
+        at = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return False, "wartet: Zeitpunkt der Abhängigkeit unbekannt"
+    at = at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+    if now - at > timedelta(minutes=int(max_age_minutes)):
+        return False, "wartet: der letzte erfolgreiche Lauf der Abhängigkeit ist zu alt"
+    return True, ""
+
+
+def normalize_trigger_config(trigger: str, raw: dict, own_id: str = "") -> dict:
+    cfg = _normalize_trigger_config(trigger, raw)
+    depends = normalize_depends_on((raw or {}).get("depends_on") if isinstance(raw, dict) else None, own_id)
+    if depends:
+        cfg["depends_on"] = depends
+    return cfg
+
+
+def _normalize_trigger_config(trigger: str, raw: dict) -> dict:
     raw = raw if isinstance(raw, dict) else {}
+    if trigger == "domain_event":
+        import pulse_events
+        domain = str(raw.get("domain") or "").strip()
+        action = str(raw.get("action") or "*").strip() or "*"
+        if domain not in pulse_events.DOMAINS:
+            raise ValueError("Bitte einen Ereignisbereich wählen.")
+        if action != "*" and not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", action):
+            raise ValueError("Ungültige Ereignisaktion.")
+        if (domain, "*") in DOMAIN_EVENT_BLOCKED or (domain, action) in DOMAIN_EVENT_BLOCKED:
+            raise ValueError("Dieser Ereignisbereich kann keine Automation starten.")
+        return {"domain": domain, "action": action, "cooldown_seconds": _int(raw.get("cooldown_seconds"), "Cooldown", 0, 86400, 60)}
     if trigger == "antinuke_rule":
         rule_id = str(raw.get("rule_id") or "").strip().lower()
         if rule_id and not _RULE_ID.fullmatch(rule_id):
@@ -263,7 +318,7 @@ def diff_definitions(before: dict, after: dict) -> list[dict]:
     return changes
 
 
-def normalize_automation(raw: dict, *, is_admin: bool) -> dict:
+def normalize_automation(raw: dict, *, is_admin: bool, own_id: str = "") -> dict:
     """Validated automation from the editor. Raises ValueError (refuses unknown or manipulated values)."""
     name = _text(raw.get("name"), "Name", MAX_NAME, required=True)
     trigger = str(raw.get("trigger_type") or "")
@@ -285,7 +340,7 @@ def normalize_automation(raw: dict, *, is_admin: bool) -> dict:
         "name": name,
         "trigger_type": trigger,
         "interval_minutes": _int(raw.get("interval_minutes"), "Intervall (Minuten)", 5, 10080, 1440) if trigger == "interval" else 1440,
-        "trigger_config": normalize_trigger_config(trigger, raw.get("trigger_config") or {}),
+        "trigger_config": normalize_trigger_config(trigger, raw.get("trigger_config") or {}, own_id),
         "condition": condition,
         "steps": steps,
         "enabled": bool(raw.get("enabled", True)),
@@ -312,6 +367,8 @@ def trigger_matches(trigger_type: str, config: dict, trigger: str, context: dict
         return bool(config.get("include_dry_run", True)) or not context.get("dry_run")
     if trigger == "antinuke_event":
         return bool(set(config.get("events") or []) & set(context.get("events") or []))
+    if trigger == "domain_event":
+        return config.get("domain") == context.get("domain") and config.get("action", "*") in ("*", context.get("action"))
     return False
 
 
@@ -356,8 +413,14 @@ def describe(automation: dict, rule_labels: dict | None = None) -> str:
         if count > 1:
             who = "von derselben Person" if cfg.get("group") == "actor" else "insgesamt"
             when = f"Wenn „{events}“ mindestens {count}× in {cfg.get('window_seconds', 10)} s {who} erkannt wird"
+    elif trigger == "domain_event":
+        action = cfg.get("action", "*")
+        when = f"Wenn im Bereich „{cfg.get('domain', '?')}“ " + ("ein Ereignis" if action == "*" else f"das Ereignis „{action}“") + " eintritt"
     else:
         when = f"Auslöser „{trigger}“"
+    depends = cfg.get("depends_on") or {}
+    if depends.get("automation_id"):
+        when += f", sobald die Automation {depends['automation_id']} in den letzten {int(depends.get('max_age_minutes', DEFAULT_DEPENDENCY_AGE_MIN))} Minuten erfolgreich lief"
     condition = automation.get("condition") or {"type": "always"}
     cond = "" if condition.get("type", "always") == "always" else f" und {CONDITIONS.get(condition['type'], condition['type']).replace('Wert', str(condition.get('value', 0)))}"
     steps = ", ".join(STEP_TYPES.get(s.get("type"), s.get("type", "?")) for s in automation.get("steps") or []) \

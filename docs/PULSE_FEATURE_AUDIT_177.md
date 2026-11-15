@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **146 fertig / 31 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **149 fertig / 28 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 146 |
-| Teilweise | 31 |
+| Fertig | 149 |
+| Teilweise | 28 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -37,9 +37,9 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Dienstplanung und Aktivität | 11 | 1 | 0 |
 | Bewerbungen und Recruiting | 11 | 0 | 0 |
 | Academy und Wissensmanagement | 9 | 1 | 0 |
-| Discord und Dashboard verbinden | 4 | 6 | 0 |
+| Discord und Dashboard verbinden | 5 | 5 | 0 |
 | Pulse Intelligence | 11 | 4 | 0 |
-| Automatisierungen und Workflow-System | 9 | 3 | 0 |
+| Automatisierungen und Workflow-System | 11 | 1 | 0 |
 | Admin Center, Sicherheit und Betrieb | 19 | 1 | 0 |
 | BOCHUM-RP-spezifische Funktionen | 5 | 0 | 0 |
 
@@ -218,7 +218,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 122 | Gemeinsame Audit-Historie | **Teilweise** | `pulse_db`-Events, Suite-Audit und Modul-Audits existieren; nicht jeder relevante Schreibvorgang folgt einem gemeinsamen Ereignisschema. Stand F1: Ereignisvertrag `pulse_events.py` (Schema, Validierung, einheitliche Leseansicht) vorhanden; Ticket- und Aufgabenereignisse der bestehenden `record_event`-Aufrufer erhalten jetzt automatisch die gemeinsame Korrelations-ID (`ticket:<id>`, `task:<id>`) und wecken den Live-Stream; die übrigen Schreiber behalten ihr Format. |
 | 123 | Zentrale Vorlagenbibliothek | **Teilweise** | Ticketantworten, Recruiting-Kommunikation, RP-Ankündigungen und KI-Vorlagen existieren separat; eine gemeinsame verwaltete Bibliothek fehlt. Stand F8: Ticket-Schnellantworten lesen aus der Bibliothek (Rechte, Server-Trennung, Archiv, Versionen, Mention-Schutz, Legacy-Fallback getestet); Bewerber-Nachrichten warten auf #99, Ankündigungen haben keinen Bestand, Moderationsgründe behalten den eigenen datenverknüpften Speicher, Willkommenstexte brauchen neue Arten (Analyse: `docs/PULSE_F8_PHASENBERICHT.md`). Stand F6: `pulse_templates.py` (versioniert, archivierbar, geprüfte Platzhalter, Rechte je Art, Backup) mit wiederholbarem Import; Moderationsgründe und Willkommenstexte nicht überführt. |
 | 124 | Gemeinsame Aufgaben in Bot und Dashboard | **Fertig** | Discord-Befehle und Dashboard lesen/schreiben Pulse-Aufgaben; vollständige Synchronisierung, gemeinsame Aktionsrechte und Übergaben sind noch nicht überall getestet. Stand F5: `pulse_task_actions.update()` vereinheitlicht Rechte, Ereignis und Benachrichtigung für Web und Bot (getestet); Route `/tasks/update` und Bot-Befehl `/taskdone` nutzen sie jetzt (Tests `test_task_route_wiring`, `test_taskdone_wiring`); Bot-Führungskräfte mit `can_promote` dürfen damit wie im Dashboard Aufgaben erledigen. Weitere Aufgaben-Schreibpfade (Anlegen, Archivieren) sind noch nicht umgestellt. Neu: auch das Anlegen läuft über `pulse_task_actions.create()` (Dashboard `/tasks/create` und Bot `/teamtask`): gleiche Regel, Ereignis `task.created` und Benachrichtigung der zuständigen Person; `tests/test_task_route_wiring.py`. |
-| 125 | Zentrale Ereignisverarbeitung | **Teilweise** | Automation-Engine verarbeitet ausgewählte Anti-Nuke-/Systemereignisse; ein Domain-Event-Vertrag für alle Pulse-Module fehlt. Stand F1: Domain-Event-Vertrag (`pulse_events`) vorhanden; Automation-Engine und Module sind noch nicht angebunden. |
+| 125 | Zentrale Ereignisverarbeitung | **Fertig** | Automation-Engine verarbeitet ausgewählte Anti-Nuke-/Systemereignisse; ein Domain-Event-Vertrag für alle Pulse-Module fehlt. Stand F1: Domain-Event-Vertrag (`pulse_events`) vorhanden; Automation-Engine und Module sind noch nicht angebunden. Neu: `pulse_db.record_event` meldet jedes Ereignis (alle Module) an `pulse_event_automation`; neuer Auslöser `domain_event` (Bereich + Aktion) startet Automationen ohne Nutzdaten, begrenzt, dedupliziert und ohne Rekursion; Editor-Felder, Tests inkl. Ende-zu-Ende (`tests/test_automation_events_deps_templates.py`). |
 
 ### 11. Pulse Intelligence (126–140)
 
@@ -244,7 +244,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 141 | Visueller Workflow-Editor | **Teilweise** | `/ultimate/automations` bietet einen Formular-/Schritt-Editor mit Triggern und Aktionen; kein grafischer Drag-and-drop-Node-Editor. |
+| 141 | Visueller Workflow-Editor | **Teilweise** | `/ultimate/automations` bietet einen Formular-/Schritt-Editor mit Triggern und Aktionen; kein grafischer Drag-and-drop-Node-Editor. Neu: Ablaufdiagramm (Auslöser → Abhängigkeit → Bedingung → Freigabe → Aktionen) im Editor und Pfeil-Schaltflächen zum Verschieben der Aktionen (`pulse_workflow_flow.py`). Ein frei bewegbarer Drag-and-drop-Canvas fehlt weiterhin. |
 | 142 | Zeitgesteuerte Workflows | **Fertig** | Intervalltrigger und Scheduler sind vorhanden; `tests/test_automation_center.py`. |
 | 143 | Ereignisbasierte Workflows | **Fertig** | Event-Trigger, Schwellenwerte, Deduplizierung und Anti-Nuke-Events; `tests/test_automation_center.py`. |
 | 144 | Genehmigungsschritte in Workflows | **Fertig** | Jede Automation kann Freigabestufen verlangen; der Lauf startet erst nach der Freigabe, Ablehnung beendet ihn. `pulse_workflows.py`, `pulse_automation_rules.py`, `pulse_ultimate.py`; `tests/test_workflow_engine.py` (ApprovalTests). PR: Workflow-Block. Einschränkung: Freigabe gilt für den ganzen Lauf, nicht für einzelne Schritte mitten in der Kette. |
@@ -254,8 +254,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 148 | Automatische Workflow-Wiederholungen | **Fertig** | Begrenzte Versuche (0–5), Exponential Backoff mit Obergrenze, nur fehlgeschlagene Schritte, ein Eintrag je Lauf, Fehlerprotokoll, Dead-Letter-Liste und manuelle Wiederaufnahme; unterbrochene Versuche werden nie automatisch wiederholt. `pulse_workflows.py`; `tests/test_workflow_engine.py` (RetryTests). PR: Workflow-Block. Einschränkung: Automationen im alten Legacy-JSON-Format werden nicht wiederholt. |
 | 149 | Workflow-Versionierung | **Fertig** | Unveränderliche Versionen (DB-Trigger), Verlauf, Feldvergleich, kontrolliertes Wiederherstellen (neue Version, Automation pausiert, heutige Rechteprüfung); Läufe nennen ihre Version. `pulse_workflows.py`, `pulse_ultimate.py`; `tests/test_workflow_engine.py` (VersioningTests). PR: Workflow-Block. |
 | 150 | Workflow-Ausführungsprotokoll | **Fertig** | Ausführungen und Schrittstatus werden in `ultimate_automation_runs` gespeichert; Tests prüfen begrenzte Historie. |
-| 151 | Abhängigkeiten zwischen Workflows | **Teilweise** | Schritte laufen sequenziell; Abhängigkeiten zwischen Workflows/Jobs mit Wait-/Join-Bedingungen fehlen. |
-| 152 | Workflow-Vorlagen | **Teilweise** | Standardaktionen, Trigger und bestehende Automationsregeln existieren; eine umfangreiche, versionierte Vorlagenbibliothek fehlt. |
+| 151 | Abhängigkeiten zwischen Workflows | **Fertig** | Schritte laufen sequenziell; Abhängigkeiten zwischen Workflows/Jobs mit Wait-/Join-Bedingungen fehlen. Neu: Automationen können auf eine andere warten (`trigger_config.depends_on`: Ziel + Höchstalter); automatische Starts werden übersprungen, bis der letzte echte Lauf der Abhängigkeit erfolgreich war (Testläufe zählen nicht); Zyklen, Selbstbezug und unbekannte Ziele werden beim Speichern abgelehnt. |
+| 152 | Workflow-Vorlagen | **Fertig** | Standardaktionen, Trigger und bestehende Automationsregeln existieren; eine umfangreiche, versionierte Vorlagenbibliothek fehlt. Neu: `pulse_workflow_templates.py` - 9 versionierte Vorlagen (Recruiting, Dienst, Support), alle durch den Editor-Validator geprüft, ohne Discord-IDs und Sicherheitsaktionen; `/ultimate/automations/vorlagen` übernimmt eine Vorlage nur als ausgeschalteten Testmodus-Entwurf, die Vorlagen-Version steht im Versionsverlauf. |
 
 ### 13. Admin Center, Sicherheit und Betrieb (153–172)
 
