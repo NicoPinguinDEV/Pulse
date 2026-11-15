@@ -2906,7 +2906,7 @@ def register(app):
             note_html=''
         warn_count=f'{len(active_warns)}/5' if can_see_warns else '—'
         revoked_count=str(len(revoked_warns)) if can_see_warns else '—'
-        body=f'''<div class="pulse-topbar"><div><a href="/team" class="pulse-btn ghost">← Team</a><a href="/warns" class="pulse-btn ghost ml-2">⚠ Warnzentrale</a></div><div class="flex items-center gap-2">{pill(status,status_kind)}</div></div>
+        body=f'''<div class="pulse-topbar"><div><a href="/team" class="pulse-btn ghost">← Team</a><a href="/warns" class="pulse-btn ghost ml-2">⚠ Warnzentrale</a>{'<a href="/team/planung" class="pulse-btn ghost ml-2">🗓 Teamplanung</a>' if (c.perms.get('is_admin') or c.perms.get('can_promote')) else ''}</div><div class="flex items-center gap-2">{pill(status,status_kind)}</div></div>
         <section class="pulse-hero"><div class="flex flex-col md:flex-row md:items-center gap-5"><img src="{avatar}" class="w-16 h-16 rounded-2xl border border-white/20" alt=""><div class="flex-1"><div class="pulse-kicker">Teamakte</div><div class="pulse-title">{e(target.display_name)}</div><div class="pulse-sub">{e(role)} · Discord ID {e(target.id)} · 🗓️ Team seit {e(ws.team_since_for(target, entry))}</div></div><div class="pulse-hero-box min-w-[220px]"><div class="label">WOCHENAKTIVITÄT</div><div class="value">{ws.fmt_duration(weekly)}</div><div class="pulse-progress mt-3" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.15)"><span style="width:{min(100,round(weekly/(max(0.5,float(c.config.get('weekly_goal_hours',3)))*3600)*100))}%;background:white"></span></div></div></div></section>
         <div class="pulse-stat-grid"><div class="pulse-stat"><div class="icon">⚠</div><div class="label">Aktive Warnungen</div><div class="value">{warn_count}</div></div><div class="pulse-stat"><div class="icon">↩</div><div class="label">Zurückgezogen</div><div class="value">{revoked_count}</div></div><div class="pulse-stat"><div class="icon">⏱</div><div class="label">Schichten</div><div class="value">{len(hist)}</div></div><div class="pulse-stat"><div class="icon">🎫</div><div class="label">Tickets</div><div class="value">{len(tickets)}</div></div></div>
         {actions_html}
@@ -2917,6 +2917,8 @@ def register(app):
         all_events=[x for x in db.events(limit=2000) if str(x.get('actor_id'))==str(target.id) or (x.get('target_type') in ('user','team_member','suite') and str(x.get('target_id'))==str(target.id))]
         timeline=pulse_timeline.build(warns=warns,shifts=hist,tickets=tickets,tasks=tasks,events=all_events,notes=entry.get('notes',[]),
                                       show_warns=can_see_warns,show_notes=can_see_notes,user_id=target.id)
+        import pulse_teamakte_pages  # Audit #71/#75/#76: 360° overview, goals, promotion package
+        body+=pulse_teamakte_pages.member_section(ws,c,target,entry,active_warns)
         body+=shift_note_section
         body+=shift_confirmation_html
         body+=f'<section class="pulse-card mt-4" id="zeitleiste"><div class="pulse-card-h"><div><div class="pulse-section-title">🕓 Zeitleiste</div><div class="pulse-section-sub">Warnungen, Schichten, Tickets, Aufgaben, Ereignisse und Notizen – neueste zuerst.</div></div></div><div class="pulse-card-b">{pulse_timeline.render(timeline,f"/member/{target.id}",request.query_params.get("tl",""),ws.time_tag)}</div></section>'

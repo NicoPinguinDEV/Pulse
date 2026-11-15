@@ -1,5 +1,12 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Teamakte und Teamplanung (November 2026)
+
+- **360°-Teamakte (#71, #73, #74):** Auf `/member/{id}` fasst ein neuer Block Dienst, Tickets, Bewertung, Schulungen, Auslastung, Warnungen (nur mit Recht), Dienstzeit-Hinweise und Abmeldung zusammen. Sichtbar für Führung und die Person selbst.
+- **Entwicklung und Beförderungspaket (#75, #76):** Entwicklungsziele je Person (Tabelle `team_dev_goals`, im Backup); Beförderungspaket mit Kriterien, Trend, Zielen und Datenlücken – nur Entscheidungsgrundlage, der Antrag bleibt im 4-Augen-Ablauf.
+- **Teamplanung `/team/planung` (nur Führung):** Auslastung (#81), Verfügbarkeitsmatrix (#92), Dienstzeit-Anomalien mit Regelbegründung (#89), Leistungsübersicht mit offengelegter Gewichtung (#94), Abwesenheitskalender (#87), Wochen-/Monatsbericht mit Kennzahl-Definitionen (#88, nur auf Abruf).
+- Tests: `tests/test_teamakte.py`, `tests/test_teamakte_pages.py`.
+
 ## Bewerbungen: Kanban-Pipeline (November 2026)
 
 - **Bewerbungs-Board (#95):** `/applications/board` bearbeitet Bewerbungen direkt an der Karte: Entscheiden (Einladung, Ablehnen, Einstellen/Ablehnen nach Gespräch) und Prüfer zuweisen über dieselben geprüften Abläufe wie die Bewerbungsseite (Rollen, DM, Audit, Mindestbewertungs-Policy). Karten zeigen Status, Wartezeit/Frist, Prüfer und Bewertungsfortschritt; Suche und Filter (überfällig, mir zugewiesen, ohne Prüfer); Leer-/Fehlerzustände.

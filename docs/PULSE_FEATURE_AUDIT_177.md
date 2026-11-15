@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 101 |
-| Teilweise | 76 |
+| Fertig | 111 |
+| Teilweise | 66 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -33,8 +33,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 8 | 7 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
-| Teamverwaltung und Mitarbeiterakten | 6 | 6 | 0 |
-| Dienstplanung und Aktivität | 7 | 5 | 0 |
+| Teamverwaltung und Mitarbeiterakten | 12 | 0 | 0 |
+| Dienstplanung und Aktivität | 11 | 1 | 0 |
 | Bewerbungen und Recruiting | 6 | 5 | 0 |
 | Academy und Wissensmanagement | 6 | 4 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
@@ -144,17 +144,17 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 71 | 360°-Teamakte | **Teilweise** | Teamprofile, Warnungen, Schichten, Aufgaben, Schulungen, Score und Timeline sind auf mehrere Module verteilt; keine vollständig konsolidierte 360°-Akte. |
+| 71 | 360°-Teamakte | **Fertig** | 360°-Block auf `/member/{id}` (`pulse_teamakte_pages.member_section`): Dienst, Tickets, Bewertung, Schulungen, Auslastung, Warnungen (nur mit Recht), Dienstzeit-Hinweise, Abmeldung, Entwicklungsziele; Führung und Person selbst, sonst nichts; `tests/test_teamakte_pages.py`. |
 | 72 | Chronologische Mitarbeiter-Timeline | **Fertig** | `pulse_timeline.py` baut eine chronologische, rechtegeprüfte Timeline; `tests/test_timeline.py`. |
-| 73 | Individuelle Teamprofile | **Teilweise** | Team-/Ultimate-Profilseiten mit Status und Kennzahlen existieren; sämtliche Teamdaten sind noch nicht in einer einheitlichen Profilansicht gebündelt. |
-| 74 | Kompetenzübersicht | **Teilweise** | Schulungszuweisungen und bestandene Trainings sind erfasst; eine rollen-/kompetenzbasierte Matrix fehlt. |
-| 75 | Mitarbeiterentwicklung | **Teilweise** | Beförderungen, Probezeiten, Warnungen und Schulungen bilden Teile der Entwicklung ab; individuelle Entwicklungspläne fehlen. |
-| 76 | Beförderungsvorbereitung | **Teilweise** | Rangfortschritt, Aktivität, Aufgaben und Team-Score können Führungskräften Hinweise geben; ein vollständiges, begründetes Entscheidungspaket fehlt. |
+| 73 | Individuelle Teamprofile | **Fertig** | Profilseite bündelt Rolle, Probezeit, Schichten, Zeitleiste, Aufgaben/Tickets und den neuen 360°-Block (#71); Sichtbarkeit nach Recht. |
+| 74 | Kompetenzübersicht | **Fertig** | Rollenbezogene Kompetenzmatrix `/training/matrix` (#80) plus Schulungs-/Zertifikatsanzahl im 360°-Block. |
+| 75 | Mitarbeiterentwicklung | **Fertig** | Entwicklungsziele je Person (`team_dev_goals`, Backup-Tabelle): Führung legt an/schließt (auditiert), Person sieht eigene Ziele; Tests in `tests/test_teamakte.py`. |
+| 76 | Beförderungsvorbereitung | **Fertig** | Beförderungspaket auf der Profilseite (nur Führung): erfüllte/offene Kriterien, Dienstzeit-Trend, offene Ziele, Abwesenheit, Datenlücken; ausdrücklich nur Entscheidungsgrundlage, Antrag bleibt im 4-Augen-Ablauf. |
 | 77 | Mehrstufige Beförderungsprüfung | **Fertig** | 4-Augen-Freigaben und getrennte Entscheidungsschritte für Beförderungen sind vorhanden; Rechte-/Warnregressionen sind durch Teamwarn-/Promotiontests abgedeckt. |
 | 78 | Team-Onboarding | **Fertig** | Onboarding-Checklisten werden beim Eintritt angelegt und können mit Mentor bearbeitet werden; `tests/test_checklists.py`. |
 | 79 | Team-Offboarding | **Fertig** | Offboarding-Checklisten mit automatisch abgehakten Pulse-Schritten und Rechteschutz; `tests/test_checklists.py`. |
 | 80 | Kompetenzmatrix | **Fertig** | Rollenbezogene Kompetenzmatrix unter `/training/matrix` mit Quiznachweisen, Punktzahl/Datum und Qualifikationsstufen; managergeschützt und rein lesend (PR #207). |
-| 81 | Team-Auslastung | **Teilweise** | Aufgaben, Tickets, Schichten und Team-Score liefern Belastungsindikatoren; eine einheitliche, aktuelle Arbeitslastansicht fehlt. |
+| 81 | Team-Auslastung | **Fertig** | `/team/planung?ansicht=auslastung`: gewichtete Aufgaben- und Ticketlast je Person mit Stufen ok/hoch/überlastet und offengelegten Schwellen. |
 | 82 | Automatische Arbeitslastverteilung | **Fertig** | Führungskräfte können unzugewiesene Aufgaben anhand prioritätsgewichteter Aufgaben- und Ticketlast verteilen; bestehende Zuweisungen bleiben unangetastet und der Vorgang wird protokolliert (PR #208). |
 
 ### 7. Dienstplanung und Aktivität (83–94)
@@ -165,14 +165,14 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 84 | Schichttausch | **Fertig** | Persönlicher Antrag, Zustimmung der Gegenseite und Leitungsfreigabe; atomare Konfliktprüfung und Datenschutzexport (PR #209). |
 | 85 | Dienstabdeckung | **Fertig** | Mindestbesetzungsregeln je Wochentag/Zeitfenster (`suite_schedule_minimums`, guild-isoliert, Audit); `/suite/schedule` zeigt Besetzungslücken der nächsten 7 Tage in 15-Minuten-Auflösung, Nachtdienste zählen über Mitternacht. Reiner Hinweis, keine automatische Zuweisung. `tests/test_schedule_rules.py`. |
 | 86 | Dienst-Erinnerungen | **Fertig** | `pulse_shift_reminders.py`: Die Suite-Automatik benachrichtigt eingeplante Personen einmal je Schicht und Startzeit (verschobene Schichten erneut) vor Schichtbeginn; Vorlaufzeit 5–720 Min. einstellbar (`/suite/schedule`, Standard 30), nur Schichten des eigenen Servers, begrenzte Abfrage (heute/Folgetage). `tests/test_shift_reminders.py`. |
-| 87 | Abwesenheitskalender | **Teilweise** | Abmeldungen und Team-Kalender existieren; eine vollständig zusammengeführte persönliche Abwesenheits-/Schichtansicht ist nicht nachgewiesen. |
-| 88 | Wochen- und Monatsberichte | **Teilweise** | Analytics, Wochen-/Monatskennzahlen und Exporte existieren; automatische, einheitliche Teamberichte mit nachvollziehbarer Definition aller KPIs fehlen. |
-| 89 | Dienstzeit-Anomalien | **Teilweise** | Lange Schichten und Datenintegritätsprobleme werden erkannt; statistische Anomalieerkennung mit erklärbaren Schwellen fehlt. |
+| 87 | Abwesenheitskalender | **Fertig** | `/team/planung?ansicht=abwesenheit`: 14-Tage-Kalender aus Abmeldungen, Schichten und Kalenderterminen; Abmeldung hat Vorrang. |
+| 88 | Wochen- und Monatsberichte | **Teilweise** | `ansicht=bericht`: Wochen-/Monatsbericht (letzter voller Zeitraum gegen den davor) mit Definition jeder Kennzahl; er wird nur auf Abruf erzeugt, nicht automatisch verschickt. |
+| 89 | Dienstzeit-Anomalien | **Fertig** | `ansicht=anomalien`: Regeln mit Begründung (Maximum, robuster Ausreißer je Person, unbestätigt, <5 Min, >3/Tag); keine Bewertung der Person. |
 | 90 | Schichtnotizen | **Fertig** | Schichtbezogene Notizen samt Widget auf „Mein Pulse“ (PR #198); `tests/test_shift_notes.py`. |
 | 91 | Übergabeprotokolle | **Fertig** | `/ultimate/handovers` unterstützt Titel, Inhalt, Priorität, Empfänger, Status, Benachrichtigung und Archivierung. |
-| 92 | Team-Verfügbarkeitsmatrix | **Teilweise** | Schichtplan, Dienststatus und Abmeldungen liefern Grunddaten; keine Matrix mit wiederkehrender Verfügbarkeit und Abdeckungsprognose. |
+| 92 | Team-Verfügbarkeitsmatrix | **Fertig** | `ansicht=verfuegbarkeit`: Wochentag×Stunde-Matrix aus 8 Wochen echter Schichten (Berlin-Zeit), je Person abrufbar in `availability_matrix`; Prognose, keine Zusage. |
 | 93 | Aktivitätsentwicklung | **Fertig** | Historische Schichtdaten, Wochenvergleiche und Trendfunktionen im Cockpit/Analytics; `tests/test_pulse_cockpit_utils.py`. |
-| 94 | Mehrdimensionale Leistungsübersicht | **Teilweise** | Team-Score und Leaderboards nutzen mehrere Signale; Gewichtung/Erklärung und faire Vergleichbarkeit sind noch begrenzt. |
+| 94 | Mehrdimensionale Leistungsübersicht | **Fertig** | `ansicht=leistung`: gewichtete Signale (30 Tage) mit offengelegter Gewichtung, Stundenziel bei Abwesenheit anteilig, fehlende Signale ausgelassen, Warnungen nicht in der Punktzahl. Schulungen fließen in der Teamansicht noch nicht ein. |
 
 ### 8. Bewerbungen und Recruiting (95–105)
 

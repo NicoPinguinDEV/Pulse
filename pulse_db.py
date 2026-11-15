@@ -353,6 +353,20 @@ def init_db():
             CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_saved_views_name
                 ON dashboard_saved_views(user_id, page, name COLLATE NOCASE);
 
+            CREATE TABLE IF NOT EXISTS team_dev_goals (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                due TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'open',
+                actor_id TEXT NOT NULL DEFAULT '',
+                actor_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_team_dev_goals_user ON team_dev_goals(user_id, status);
+
             CREATE TABLE IF NOT EXISTS privacy_requests (
                 id TEXT PRIMARY KEY,
                 guild_id TEXT NOT NULL,
@@ -2426,6 +2440,7 @@ TABLES = [
     "team_status", "handover_notes", "shift_notes", "announcements", "scheduled_announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_case_appeals", "mod_reason_templates", "mod_reason_template_versions",
+    "team_dev_goals",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
     "security_drills",
