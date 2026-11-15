@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import pulse_db
+import pulse_player_reports
 import pulse_teamakte as ta
 import pulse_teamakte_pages as pages
 import webserver as ws
@@ -47,7 +48,8 @@ class Base(unittest.TestCase):
         self.patches = [patch.object(pulse_db, "DB_PATH", str(root / "pulse.db")), patch.object(ws, "AUDIT_FILE", str(root / "audit.json")),
                         patch.object(ws, "DATA_FILE", str(root / "team.json")), patch.object(ws, "SHIFTS_FILE", str(root / "shifts.json")),
                         patch.object(ws, "CONFIG_FILE", str(root / "config.json")),
-                        patch.object(ws, "DB_ABMELDUNGEN", str(root / "none.db"))]
+                        patch.object(ws, "DB_ABMELDUNGEN", str(root / "none.db")),
+                        patch.object(pulse_player_reports, "DB_PATH", str(root / "pulse_suite.db"))]  # Moderationsquellen der Hinweise (#129)
         for p in self.patches:
             p.start()
         pulse_db._SCHEMA_READY.discard(str(root / "pulse.db"))

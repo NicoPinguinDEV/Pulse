@@ -44,10 +44,14 @@ def _opened(ticket):
 
 def ticket_spike(tickets, now: datetime) -> dict | None:
     """Today's new tickets against the same weekday of the last ``BASELINE_WEEKS`` weeks (mean + 3 sigma)."""
+    return _spike([_opened(t) for t in tickets or ()], now)
+
+
+def _spike(stamps, now: datetime) -> dict | None:
+    """Spike rule shared by tickets and moderation cases: ``stamps`` are the creation times (``None`` is ignored)."""
     today = now.date()
     counts: dict = {}
-    for t in tickets or ():
-        opened = _opened(t)
+    for opened in stamps:
         if opened:
             counts[opened.date()] = counts.get(opened.date(), 0) + 1
     base = [counts.get(today - timedelta(weeks=i), 0) for i in range(1, BASELINE_WEEKS + 1)]
@@ -105,7 +109,64 @@ def findings(data: dict, now: datetime | None = None) -> list[dict]:
         if stale:
             add("apps-stale", "info", "Bewerbungen", f"{len(stale)} Bewerbung(en) warten zu lange",
                 f"Ohne Prüfung seit über {recruiting.PENDING_DAYS} Tagen oder ohne Entscheidung {recruiting.INTERVIEW_DAYS} Tage nach dem Gespräch.", "Bewerbungen öffnen", "/applications")
+    out.extend(moderation_findings(data, now))
     return sorted(out, key=lambda f: (SEVERITY_ORDER[f["severity"]], f["id"]))
+
+
+REPORT_STALE_HOURS = 48
+APPEAL_STALE_DAYS = 3
+MOD_SPIKE_LABEL = "Moderation"
+
+
+def moderation_findings(data: dict, now: datetime) -> list[dict]:
+    """#129/#137: hints for moderation and cases. Optional ``data`` keys: ``mod_cases`` (created_at), ``reports``
+    (status, created_at), ``appeals`` (pending, created_at/submitted_at), ``cases`` (priority, status). Hints only - no decision."""
+    out = []
+
+    def add(fid, severity, title, why, label, url):
+        out.append({"id": fid, "severity": severity, "area": MOD_SPIKE_LABEL, "title": title, "why": why, "next": {"label": label, "url": url}})
+
+    mod_cases = [c for c in (data.get("mod_cases") or ()) if isinstance(c, dict)]
+    spike = _spike([ta._dt(c.get("created_at")) for c in mod_cases], now) if mod_cases else None
+    if spike:
+        add("mod-spike", "mittel", f"Ungewöhnlich viele Moderationsfälle heute ({spike['today']})",
+            f"Üblich für diesen Wochentag: Ø {spike['baseline']}, Schwelle {spike['limit']} (Ø + {SPIKE_SIGMA:g} Standardabweichungen, letzte {BASELINE_WEEKS} Wochen).",
+            "Moderationsfälle öffnen", "/mod-cases")
+    stale_reports = [r for r in (data.get("reports") or ()) if isinstance(r, dict) and str(r.get("status") or "open") not in ("closed", "resolved")
+                     and (d := ta._dt(r.get("created_at"))) and (now - d) >= timedelta(hours=REPORT_STALE_HOURS)]
+    if stale_reports:
+        add("reports-stale", "hoch" if len(stale_reports) >= 3 else "mittel", f"{len(stale_reports)} Spielermeldung(en) seit über {REPORT_STALE_HOURS} Std. offen",
+            "Meldung nicht abgeschlossen; die Frist ist ein Richtwert für die Bearbeitung.", "Meldungen öffnen", "/ultimate/reports")
+    stale_appeals = [a for a in (data.get("appeals") or ()) if isinstance(a, dict) and str(a.get("status") or "pending") == "pending"
+                     and (d := ta._dt(a.get("created_at") or a.get("submitted_at"))) and (now - d) >= timedelta(days=APPEAL_STALE_DAYS)]
+    if stale_appeals:
+        add("appeals-pending", "mittel", f"{len(stale_appeals)} Einspruch/Einsprüche warten seit über {APPEAL_STALE_DAYS} Tagen",
+            "Eingereicht, noch keine Entscheidung durch berechtigte Personen.", "Einsprüche öffnen", "/mod-cases")
+    urgent = [c for c in (data.get("cases") or ()) if isinstance(c, dict) and str(c.get("priority") or "normal") in ("urgent", "high")
+              and str(c.get("status") or "open") not in ("closed", "resolved")]
+    if urgent:
+        add("cases-urgent", "hoch" if any(str(c.get("priority")) == "urgent" for c in urgent) else "mittel", f"{len(urgent)} offene(r) Vorgang/Vorgänge mit hoher Priorität",
+            "Priorität „dringend“ oder „hoch“ und noch nicht abgeschlossen.", "Vorgänge öffnen", "/ultimate/cases")
+    return out
+
+
+def moderation_sources(guild_id) -> dict:
+    """Read-only loaders for :func:`moderation_findings`; a source that fails contributes nothing."""
+    out: dict = {}
+
+    def load(key, fn):
+        try:
+            out[key] = fn()
+        except Exception:  # noqa: BLE001 - a damaged source must not break the intelligence page
+            out[key] = []
+    import pulse_mod_cases
+    import pulse_player_reports
+    load("mod_cases", lambda: [c for c in pulse_mod_cases.list_cases(limit=2000) if guild_id is None or str(c.get("guild_id")) == str(guild_id)])
+    load("reports", lambda: pulse_player_reports.list_reports(guild_id, limit=200))
+    load("appeals", lambda: pulse_mod_cases.list_appeals(guild_id, "pending", 100) if guild_id is not None else [])
+    import pulse_leitstelle
+    load("cases", pulse_leitstelle._cases)
+    return out
 
 
 # ----------------------------------------------------------------------------------------- #130/#131 Berichtsentwürfe
