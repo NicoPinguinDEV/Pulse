@@ -663,8 +663,17 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
         webserver.log_audit(interaction.user.display_name, str(interaction.user.id), "Fall-Gesamtverlauf eingesehen",
                             f"Person {mitglied.id} (Discord)")
 
+    async def _ref_autocomplete(self, interaction: discord.Interaction, current: str):
+        """#4: Fallreferenzen, die diese Person öffnen darf (Rechte wie bei /mod fall)."""
+        if not interaction.guild:
+            return []
+        import pulse_case_registry as reg
+        perms = pulse_perms(interaction.guild, interaction.user.id)
+        return [app_commands.Choice(name=label[:100], value=ref) for ref, label in reg.recent_refs(perms, current, interaction.guild.id)]
+
     @app_commands.command(name="fall", description="Einen Fall über seine Referenz (z. B. BM:MOD-1A2B3C, PX-2026-0001) öffnen.")
     @app_commands.describe(referenz="Fallreferenz BM:…, TF:…, TW:… oder KI:…")
+    @app_commands.autocomplete(referenz=_ref_autocomplete)
     async def fall(self, interaction: discord.Interaction, referenz: str):
         import pulse_case_registry as reg
         perms = pulse_perms(interaction.guild, interaction.user.id) if interaction.guild else {}
@@ -714,6 +723,7 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
 
     @app_commands.command(name="beweise", description="Beweise zu einem Fall anzeigen (alle Fallarten).")
     @app_commands.describe(referenz="Fallreferenz BM:…, TF:…, TW:… oder KI:…")
+    @app_commands.autocomplete(referenz=_ref_autocomplete)
     async def beweise(self, interaction: discord.Interaction, referenz: str):
         import pulse_case_evidence as ev
         perms = pulse_perms(interaction.guild, interaction.user.id) if interaction.guild else {}
@@ -734,6 +744,7 @@ class ModCases(commands.GroupCog, group_name="mod", group_description="Bürger-M
     @app_commands.command(name="beweis-hinzufuegen", description="Einen Link oder eine Notiz als Beweis an einen Fall hängen.")
     @app_commands.describe(referenz="Fallreferenz", art="Link oder Notiz", inhalt="http(s)-Link oder kurze Notiz", anmerkung="Optional")
     @app_commands.choices(art=[app_commands.Choice(name="Link", value="link"), app_commands.Choice(name="Notiz", value="text")])
+    @app_commands.autocomplete(referenz=_ref_autocomplete)
     async def beweis_hinzufuegen(self, interaction: discord.Interaction, referenz: str, art: app_commands.Choice[str],
                                  inhalt: str, anmerkung: str = ""):
         import pulse_case_evidence as ev

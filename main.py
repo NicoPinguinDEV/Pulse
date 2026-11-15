@@ -58,6 +58,13 @@ def message_cache_size() -> int:
         return 250
 
 
+try:  # Audit #10: häufige Antworten für englische Nutzer übersetzen
+    import pulse_i18n
+    pulse_i18n.install_response_translation()
+except Exception as _i18n_error:
+    print(f"⚠️ Antwort-Übersetzung nicht aktiv: {_i18n_error}")
+
+
 class CustomBot(commands.Bot):
     # K-08: answers every failed slash command (discord.py routes them to CommandTree.on_error).
     TREE_CLASS = PulseCommandTree

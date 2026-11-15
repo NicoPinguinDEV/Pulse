@@ -995,8 +995,16 @@ class PulsePro(commands.Cog):
         tid=res["task"]["id"]
         await interaction.response.send_message(f"✅ Aufgabe `{tid}` wurde **{member.display_name}** zugewiesen.",ephemeral=True)
 
+    async def _task_autocomplete(self, interaction: discord.Interaction, current: str):
+        """#4: offene Aufgaben dieser Person (nur die eigenen; Führungskräfte tippen fremde IDs selbst)."""
+        needle = str(current or "").strip().casefold()
+        rows = db.list_tasks(assignee_id=interaction.user.id, limit=100)
+        return [app_commands.Choice(name=f"{r['title'][:70]} · {r['id']}"[:100], value=str(r["id"])) for r in rows
+                if r.get("status") not in ("done", "archived") and (not needle or needle in f"{r['title']} {r['id']}".casefold())][:25]
+
     @app_commands.command(name="taskdone", description="Markiert eine Pulse-Aufgabe als erledigt.")
     @app_commands.describe(task_id="Pulse Aufgaben-ID")
+    @app_commands.autocomplete(task_id=_task_autocomplete)
     async def taskdone(self, interaction: discord.Interaction, task_id: str):
         if not interaction.guild:
             await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True); return
@@ -1015,6 +1023,42 @@ class PulsePro(commands.Cog):
             msg="❌ Du bist nicht für diese Aufgabe zuständig." if res["code"]=="forbidden" else f"❌ {res['message']}"
             await interaction.response.send_message(msg, ephemeral=True); return
         await interaction.response.send_message(f"✅ `{task['title']}` als erledigt markiert.",ephemeral=True)
+
+    @app_commands.command(name="menue", description="Dein persönliches Pulse-Menü: häufige Aktionen aller Bereiche an einem Ort.")
+    async def menue(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True); return
+        import pulse_menu
+        import webserver
+        perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config())
+        if not member:
+            await interaction.response.send_message("❌ Kein Teamzugriff.", ephemeral=True); return
+        user_id = interaction.user.id
+
+        def render(key):
+            data = pulse_menu.section(key, user_id, perms, PUBLIC_BASE_URL)
+            embed = discord.Embed(title=data["title"], description="\n".join(data["lines"]), color=discord.Color.blurple())
+            embed.set_footer(text="Das Menü führt nichts aus – die Befehle prüfen deine Rechte selbst.")
+            return embed, data["links"]
+
+        def build_view(current):
+            view = discord.ui.View(timeout=300)
+            select = discord.ui.Select(placeholder="Bereich wählen", options=[
+                discord.SelectOption(label=pulse_menu.LABELS[k][2:].strip()[:100], value=k, default=(k == current))
+                for k in pulse_menu.available_sections(perms)])
+
+            async def choose(inter: discord.Interaction):
+                if inter.user.id != user_id:
+                    await inter.response.send_message("Dieses Menü gehört einer anderen Person.", ephemeral=True); return
+                embed, links = render(select.values[0])
+                await inter.response.edit_message(embed=embed, view=build_view(select.values[0]))
+            select.callback = choose
+            view.add_item(select)
+            for label, url in render(current)[1][:4]:
+                view.add_item(discord.ui.Button(label=label[:80], style=discord.ButtonStyle.link, url=url))
+            return view
+        embed, _links = render("aufgaben")
+        await interaction.response.send_message(embed=embed, view=build_view("aufgaben"), ephemeral=True)
 
     @app_commands.command(name="bestaetigungen", description="Zeigt deine offenen Lesebestätigungen und lässt dich sie bestätigen.")
     async def bestaetigungen(self, interaction: discord.Interaction):

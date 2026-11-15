@@ -44,6 +44,11 @@ def describe_error(error: Exception) -> tuple[str, str | None]:
 async def handle_app_command_error(interaction: discord.Interaction, error: Exception) -> str:
     """Answer the user (response or followup) and log unexpected errors. Never raises."""
     message, error_id = describe_error(error)
+    try:  # #10: Fehlertext in der Sprache der Person
+        import pulse_i18n
+        message = pulse_i18n.translate_common(pulse_i18n.get_locale(getattr(interaction.user, "id", None), getattr(interaction, "locale", None)), message)
+    except Exception:
+        pass
     command = getattr(getattr(interaction, "command", None), "qualified_name", "?")
     if error_id:
         cause = getattr(error, "original", error)
