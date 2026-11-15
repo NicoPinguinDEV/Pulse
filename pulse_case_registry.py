@@ -103,6 +103,50 @@ def parse_ref(text) -> tuple[str, str] | None:
     return None
 
 
+def recent_refs(perms: dict | None, query: str = "", guild_id=None, limit: int = 25) -> list[tuple[str, str]]:
+    """#4: recent case references the viewer may open, ``[(ref, label)]`` for autocomplete (newest first within each kind).
+    Only kinds the viewer's rights allow are read; a source that fails is skipped. Never returns anything for a viewer without rights."""
+    kinds = allowed_kinds(perms, include_reference_only=True)
+    needle = str(query or "").strip().casefold()[:60]
+    out: list[tuple[str, str]] = []
+
+    def add(kind, native_id, label):
+        ref = make_ref(kind, native_id)
+        if not needle or needle in ref.casefold() or needle in str(label).casefold():
+            out.append((ref, f"{ref} · {_text(label, 60)}"))
+    if "BM" in kinds:
+        try:
+            import pulse_mod_cases as mc
+            for row in mc.list_cases(limit=60):
+                if guild_id is None or str(row.get("guild_id")) == str(guild_id):
+                    add("BM", row.get("id"), f"{row.get('action') or 'Fall'} · {row.get('reason') or ''}")
+        except Exception:  # noqa: BLE001
+            pass
+    if "TF" in kinds:
+        try:
+            for row in __import__("pulse_ultimate").case_rows(60):
+                if row.get("case_no"):
+                    add("TF", row["case_no"], row.get("title"))
+        except Exception:  # noqa: BLE001
+            pass
+    if "TK" in kinds:
+        try:
+            import pulse_db
+            for row in pulse_db.list_tickets(limit=40):
+                if guild_id is None or str(row.get("guild_id")) == str(guild_id):
+                    add("TK", row["id"], f"{row.get('category') or 'Ticket'} · {row.get('user_name') or ''}")
+        except Exception:  # noqa: BLE001
+            pass
+    if "SM" in kinds and guild_id is not None:
+        try:
+            import pulse_player_reports
+            for row in pulse_player_reports.list_reports(guild_id, limit=40):
+                add("SM", row["id"], f"{row.get('category') or 'Meldung'} · {row.get('target_name') or ''}")
+        except Exception:  # noqa: BLE001
+            pass
+    return out[:max(1, min(int(limit), 25))]
+
+
 def allowed_kinds(perms: dict | None, include_reference_only: bool = False) -> set[str]:
     """Same rights as the existing views of each case file; nothing is widened. Fail-closed.
 

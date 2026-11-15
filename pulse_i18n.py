@@ -373,3 +373,104 @@ def translate(locale, key: str, **values) -> str:
 def translate_help_section(locale, title: str) -> str:
     key = _SECTION_KEYS.get(str(title or ""))
     return translate(locale, key) if key else str(title or "")
+
+
+# --------------------------------------------------------------------------- #10: häufige Bot-Antworten (zentral übersetzt)
+# Exakte deutsche Sätze, die viele Befehle gemeinsam verwenden, samt den Antworten der neueren Befehle. Unbekannte Texte bleiben
+# unverändert (deutsch). Übersetzt wird nur für Personen mit englischer Sprache; nichts davon ändert Rechte oder Inhalte.
+COMMON_EN = {
+    "Nur auf dem Server verfügbar.": "Only available on the server.",
+    "❌ Nur auf einem Server verfügbar.": "❌ Only available on a server.",
+    "❌ Nur auf dem Server.": "❌ Only available on the server.",
+    "❌ Nur auf einem Discord-Server verfügbar.": "❌ Only available on a Discord server.",
+    "Dieser Befehl ist nur auf einem Discord-Server verfügbar.": "This command is only available on a Discord server.",
+    "Dieser Befehl funktioniert nur auf dem Server.": "This command only works on the server.",
+    "❌ Kein Zugriff.": "❌ No access.",
+    "❌ Keine Berechtigung.": "❌ You do not have permission.",
+    "❌ Dafür fehlt dir die Berechtigung.": "❌ You do not have the permission for this.",
+    "❌ Dafür fehlt dir ein Moderationsrecht.": "❌ You need a moderation permission for this.",
+    "❌ Aktion nicht erlaubt.": "❌ Action not allowed.",
+    "❌ Nur Administratoren.": "❌ Administrators only.",
+    "❌ Kein Zugriff auf Fallakten.": "❌ No access to case files.",
+    "❌ Du hast keinen Zugriff auf Pulse.": "❌ You do not have access to Pulse.",
+    "❌ Kein Teamzugriff.": "❌ No team access.",
+    "Ticket nicht gefunden.": "Ticket not found.",
+    "Dieser Supportfall ist bereits geschlossen.": "This support case is already closed.",
+    "⏳ Wird bereits ausgeführt.": "⏳ Already in progress.",
+    "❌ Aufgabe nicht gefunden.": "❌ Task not found.",
+    "Die Aufgabe ist bereits erledigt.": "The task is already done.",
+    "❌ Du bist nicht für diese Aufgabe zuständig.": "❌ You are not responsible for this task.",
+    "❌ Bots können keine Team-Aufgaben erhalten.": "❌ Bots cannot receive team tasks.",
+    "Bots können keine Team-Aufgaben erhalten.": "Bots cannot receive team tasks.",
+    "Das ausgewählte Mitglied ist kein Teammitglied.": "The selected member is not a team member.",
+    "Titel und Nachricht dürfen nicht leer sein.": "Title and message must not be empty.",
+    "✅ Du hast nichts zu bestätigen.": "✅ You have nothing to confirm.",
+    "Dazu habe ich keine Stelle im Regelwerk gefunden. Frag im Zweifel das Serverteam.": "I found no passage in the rules for that. If in doubt, ask the server team.",
+    "❌ Diese Karte ist für das Team.": "❌ This card is for the team.",
+    "❌ Diese Umfrage ist für das Team.": "❌ This poll is for the team.",
+    "❌ Dieser Termin kann keine Zu-/Absagen sammeln.": "❌ This event cannot collect RSVPs.",
+    "Termin nicht gefunden.": "Event not found.",
+    "📅 Du hast aktuell keine kommenden Event- oder Meeting-Anmeldungen.": "📅 You have no upcoming event or meeting sign-ups.",
+    "🎫 Du hast auf diesem Server noch keine Tickets erstellt.": "🎫 You have not created any tickets on this server yet.",
+    "🔔 Erinnerung wurde gesendet.": "🔔 Reminder sent.",
+    "🔒 Ticket wird archiviert …": "🔒 Archiving ticket …",
+}
+
+_ERROR_PATTERNS_EN = (
+    (r"^❌ Dafür fehlen dir Discord-Rechte: (.+)\.$", "❌ You are missing Discord permissions: {0}."),
+    (r"^❌ Pulse fehlen auf diesem Server Rechte: (.+)\. Bitte ein Admin prüfen lassen\.$", "❌ Pulse is missing permissions on this server: {0}. Please ask an admin to check."),
+    (r"^❌ Dir fehlt die nötige Rolle für diesen Befehl\.$", "❌ You do not have the required role for this command."),
+    (r"^⏳ Bitte warte noch \*\*(\d+) s\*\*, bevor du den Befehl erneut nutzt\.$", "⏳ Please wait **{0} s** before using the command again."),
+    (r"^❌ Dieser Befehl funktioniert nur auf dem Server, nicht in Direktnachrichten\.$", "❌ This command only works on the server, not in direct messages."),
+    (r"^❌ Ungültige Eingabe: (.+) passt nicht zum erwarteten Wert\.$", "❌ Invalid input: {0} does not match the expected value."),
+    (r"^❌ Du darfst diesen Befehl hier nicht verwenden\.$", "❌ You may not use this command here."),
+    (r"^❌ Discord hat Pulse die Aktion verweigert \(Rechte/Rollenreihenfolge\)\. Fehler-ID (.+)\.$", "❌ Discord refused the action (permissions/role order). Error ID {0}."),
+    (r"^❌ Dabei ist ein unerwarteter Fehler aufgetreten\. Fehler-ID (.+) – das Team findet sie im Log\.$", "❌ An unexpected error occurred. Error ID {0} – the team can find it in the log."),
+)
+
+
+def translate_common(locale, message):
+    """English text for a known German sentence when ``locale`` is English; everything else is returned unchanged."""
+    if (_locale_language(locale) or DEFAULT_LOCALE) != "en" or not isinstance(message, str):
+        return message
+    if message in COMMON_EN:
+        return COMMON_EN[message]
+    import re
+    for pattern, template in _ERROR_PATTERNS_EN:
+        match = re.match(pattern, message)
+        if match:
+            return template.format(*match.groups())
+    return message
+
+
+_installed = False
+
+
+def install_response_translation() -> bool:
+    """Wrap ``discord.InteractionResponse.send_message`` once so known German sentences reach English users in English.
+    Idempotent; only exact known sentences are changed and a failing lookup always sends the original text."""
+    global _installed
+    if _installed:
+        return False
+    import discord
+    original = discord.InteractionResponse.send_message
+
+    async def send_message(self, content=None, *args, **kwargs):
+        try:
+            text = content if content is not None else kwargs.get("content")
+            if isinstance(text, str) and (text in COMMON_EN or text.startswith("❌")):
+                parent = getattr(self, "_parent", None)
+                locale = get_locale(getattr(getattr(parent, "user", None), "id", None), getattr(parent, "locale", None))
+                translated = translate_common(locale, text)
+                if translated != text:
+                    if content is not None:
+                        content = translated
+                    else:
+                        kwargs["content"] = translated
+        except Exception:  # noqa: BLE001 - translation must never block an answer
+            pass
+        return await original(self, content, *args, **kwargs)
+
+    discord.InteractionResponse.send_message = send_message
+    _installed = True
+    return True

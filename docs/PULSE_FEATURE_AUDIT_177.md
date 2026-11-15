@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **160 fertig / 17 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **163 fertig / 14 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 160 |
-| Teilweise | 17 |
+| Fertig | 163 |
+| Teilweise | 14 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -28,7 +28,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Bereich | Fertig | Teilweise | Offen |
 |---|---:|---:|---:|
-| Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 3 | 0 |
+| Discord-Bot – Bedienung und Benutzerfreundlichkeit | 10 | 0 | 0 |
 | Discord-Bot – Moderation und Sicherheit | 15 | 0 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 15 | 0 | 0 |
@@ -52,13 +52,13 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 1 | Interaktive, rechteabhängige Hilfe | **Fertig** | `/pulse-hilfe` wird aus dem Command-Tree erzeugt und nach Berechtigungen gefiltert; `tests/test_command_help.py`. |
 | 2 | Persönliches Pulse-Profil | **Fertig** | `/profil` zeigt eigene Rolle, Dienst, Wochenzeit, Aufgaben, Tickets und Schulungen privat; `tests/test_profile_command.py`. |
 | 3 | Persönliche Übersicht `/pulse` | **Fertig** | `/pulse` zeigt die vollständige persönliche Übersicht (PR #192); `tests/test_pulse_overview_command.py`. |
-| 4 | Intelligente Autovervollständigung | **Teilweise** | Zusätzliche Autocomplete-Flows für verknüpfte Ticketreferenzen (PR #216) sowie Kategorien/Prioritäten bei Spieler-Meldungen (PR #219) sind getestet. Noch nicht alle passenden Befehle und Team-/Fallreferenzen bieten durchgängige Vorschläge. |
+| 4 | Intelligente Autovervollständigung | **Fertig** | Zusätzliche Autocomplete-Flows für verknüpfte Ticketreferenzen (PR #216) sowie Kategorien/Prioritäten bei Spieler-Meldungen (PR #219) sind getestet. Noch nicht alle passenden Befehle und Team-/Fallreferenzen bieten durchgängige Vorschläge. Neu: Vorschläge für Fallreferenzen in `/mod fall`, `/mod beweise`, `/mod beweis-hinzufuegen` (`pulse_case_registry.recent_refs`: nur Arten, die die Rechte der Person erlauben, je Server, mit Suche) und für die eigenen offenen Aufgaben in `/taskdone`; Mitglieder wählt Discord nativ (`tests/test_bot_menu_autocomplete.py`). |
 | 5 | Kontextbezogene Fehler- und Rechtehilfe | **Fertig** | `pulse_command_errors.py` erklärt fehlende Rechte, Cooldowns, Transformer- und unerwartete Fehler; `tests/test_command_errors.py`. |
-| 6 | Interaktive Menüs für häufige Aktionen | **Teilweise** | Buttons, Selects und Modals sind in Ticket-, Moderations-, Dienst- und Voice-Flows vorhanden; es gibt aber kein einheitliches persönliches Aktionsmenü für alle Bereiche. |
+| 6 | Interaktive Menüs für häufige Aktionen | **Fertig** | Buttons, Selects und Modals sind in Ticket-, Moderations-, Dienst- und Voice-Flows vorhanden; es gibt aber kein einheitliches persönliches Aktionsmenü für alle Bereiche. Neu: `/menue` (`pulse_menu.py`) - persönliches Auswahlmenü für Dienst, Aufgaben/Bestätigungen, Tickets, Termine/Umfragen, Wissen/Regeln und Profil mit Zahlen, passenden Befehlen und Dashboard-Link-Buttons; nur für Teammitglieder, nur für die aufrufende Person bedienbar, führt selbst nichts aus. |
 | 7 | Persönliche Befehlsfavoriten | **Fertig** | Persistente Slash-Command-Favoriten je Nutzer (PR #194); `pulse_command_favorites.py`, `tests/test_pulse_command_favorites.py`. |
 | 8 | Persönliche Benachrichtigungseinstellungen | **Fertig** | Kategorien, Opt-in-DMs, Inbox-Gruppierung und Einstellungen sind in `pulse_notify_prefs.py`; `tests/test_notify_prefs.py`. |
 | 9 | Persönliche und serverweite Ruhezeiten | **Fertig** | Persönliche und globale Quiet Hours inklusive Mitternachtswechsel, Zurückhalten und Bündeln; `tests/test_notify_prefs.py`. |
-| 10 | Mehrsprachige Bot-Antworten | **Teilweise** | PR #214 ergänzt eine getestete, nutzerbezogene Locale-Präferenz (Deutsch/Englisch/Auto) und übersetzt bereits /profil und /pulse-hilfe; weitere Bot-Antworten, Modals/Buttons und Dashboard-Texte sind noch nicht durchgängig migriert. |
+| 10 | Mehrsprachige Bot-Antworten | **Fertig** | PR #214 ergänzt eine getestete, nutzerbezogene Locale-Präferenz (Deutsch/Englisch/Auto) und übersetzt bereits /profil und /pulse-hilfe; weitere Bot-Antworten, Modals/Buttons und Dashboard-Texte sind noch nicht durchgängig migriert. Neu: häufige Bot-Antworten und alle Fehlertexte der Befehle werden zentral für englische Nutzer übersetzt (`pulse_i18n.translate_common`, Wrapper um `InteractionResponse.send_message`, Fehlerbehandlung); Sprache je Person wählbar (`/pulse-sprache`) oder automatisch; unbekannte Texte bleiben Deutsch (sicherer Rückfall). Weitere Sprachen brauchen nur eine weitere Tabelle (`tests/test_i18n_common.py`). |
 
 ### 2. Discord-Bot – Moderation und Sicherheit (11–25)
 
