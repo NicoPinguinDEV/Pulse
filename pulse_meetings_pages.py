@@ -11,8 +11,8 @@ ATT_LABEL = {"invited": "eingeladen", "present": "anwesend", "absent": "abwesend
 
 
 def is_lead(perms: dict) -> bool:
-    perms = perms or {}
-    return bool(perms.get("can_promote") or perms.get("is_admin"))
+    import pulse_policy
+    return pulse_policy.can(perms, "meeting.lead")
 
 
 def register(app) -> None:

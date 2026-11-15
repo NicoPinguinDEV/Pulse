@@ -48,6 +48,8 @@ DOMAIN_CATEGORY = {
     "system": "system",
     "other": "system",
 }
+DOMAIN_PAGES = {"task": "/tasks", "recruiting": "/applications", "announcement": "/announcements", "handover": "/handover",
+                "promotion": "/promotions", "moderation": "/mod-cases"}
 _TARGET_ID = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 _RECIPIENT = re.compile(r"^\d{5,25}$")
 
@@ -74,6 +76,9 @@ def link_for(*, case_ref=None, domain=None, target_id=None) -> str:
     tid = str(target_id or "")
     if domain == "ticket" and _TARGET_ID.match(tid):
         return f"/tickets/transcript/{quote(tid, safe='')}/view"
+    # #119: one overview page per domain (the page checks the viewer's rights itself; a link never grants access)
+    if domain in DOMAIN_PAGES:
+        return DOMAIN_PAGES[domain]
     return INBOX_URL
 
 

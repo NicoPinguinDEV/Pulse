@@ -1355,3 +1355,31 @@ class KeyboardAndMobileE2ETests(_PreviewE2EBase):
             self.assertEqual(small, [], f"Zu kleine Touch-Ziele auf {path}: {small}")
         self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
 
+
+class AutomationEditorOrderE2ETests(_PreviewE2EBase):
+    """Audit #141: Aktionen im Automations-Editor lassen sich per Pfeil und per Ziehen umsortieren."""
+
+    def _filled_editor(self):
+        page, errors = self._page()
+        page.set_viewport_size({"width": 1280, "height": 2400})      # alle Aktionszeilen sichtbar: Ziehen braucht ein sichtbares Ziel
+        page.goto(self._url("/ultimate/automations"))
+        page.locator("input[name=step1_title]").fill("Erste")
+        page.locator("input[name=step2_title]").fill("Zweite")
+        page.locator("input[name=step3_title]").fill("Dritte")
+        return page, errors
+
+    def test_arrow_buttons_swap_neighbouring_actions(self):
+        page, errors = self._filled_editor()
+        page.locator("[data-step-row]").nth(0).locator("[data-step-move=down]").click()
+        self.assertEqual([page.locator(f"input[name=step{i}_title]").input_value() for i in (1, 2, 3)], ["Zweite", "Erste", "Dritte"])
+        page.locator("[data-step-row]").nth(1).locator("[data-step-move=up]").click()
+        self.assertEqual([page.locator(f"input[name=step{i}_title]").input_value() for i in (1, 2, 3)], ["Erste", "Zweite", "Dritte"])
+        page.locator("[data-step-row]").nth(0).locator("[data-step-move=up]").click()      # am Anfang: keine Änderung
+        self.assertEqual(page.locator("input[name=step1_title]").input_value(), "Erste")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_dragging_the_handle_moves_an_action_to_the_drop_position(self):
+        page, errors = self._filled_editor()
+        page.locator("[data-step-row]").nth(0).locator("[data-step-handle]").drag_to(page.locator("[data-step-row]").nth(2))
+        self.assertEqual([page.locator(f"input[name=step{i}_title]").input_value() for i in (1, 2, 3)], ["Zweite", "Dritte", "Erste"])
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")

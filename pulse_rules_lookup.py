@@ -106,6 +106,51 @@ def search(query: str, doc: str | None = None, limit: int = MAX_RESULTS) -> dict
     return {"results": results[:max(1, min(int(limit), 20))], "version": version, "query": q}
 
 
+_STOPWORDS = frozenset("""aber auch dass dazu dein deine denn dich dies diese dieser eine einen einer eines euch habe haben hatte kann kannst kein keine
+mich mein meine muss nicht noch oder sein sind uber ueber wann warum was welche wenn werden wie wird wollen wurde zum zur""".split())
+
+
+def best_sources(question: str, limit: int = 2, min_terms: int = 2) -> dict:
+    """#133: Regelwerkstellen, die zu einer Frage passen - zur Quellenangabe unter KI-Antworten.
+
+    Rein lexikalisch und nachvollziehbar (keine KI): Je Stelle zählen die verschiedenen Fragebegriffe (ab 4 Zeichen, ohne Füllwörter, mit
+    5-Zeichen-Wortstamm wegen deutscher Beugung), die in Paragraph, Titel oder Text vorkommen. Eine Stelle wird nur genannt, wenn mindestens
+    ``min_terms`` Begriffe passen. ``{sources: [{cite, ref, doc, stand, score}], version}``."""
+    items, version = _load()
+    words = [w for w in re.findall(r"[a-zäöüß]{4,}", str(question or "").casefold()[:600]) if w not in _STOPWORDS]
+    stems = list(dict.fromkeys(w[:5] for w in words))[:12]
+    scored = []
+    if len(stems) >= 1:
+        for item in items:
+            hay = f"{item['ref']} {item['section_title']} {item['text']}".casefold()
+            hits = sum(1 for stem in stems if stem in hay)
+            if hits >= min_terms:
+                scored.append((hits, item))
+    scored.sort(key=lambda pair: (-pair[0], pair[1]["doc"], pair[1]["ref"]))
+    seen, out = set(), []
+    for hits, item in scored:
+        key = (item["doc"], item["ref"].split(".")[0])      # eine Stelle je Paragraph, damit die Liste nicht nur einen Abschnitt nennt
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"cite": cite(item, ""), "ref": item["ref"], "doc": item["doc"], "stand": item["stand"], "score": hits})
+        if len(out) >= max(1, min(int(limit), 4)):
+            break
+    return {"sources": out, "version": version}
+
+
+def sources_line(question: str, limit: int = 2) -> str:
+    """One Discord line under an answer (``""`` when nothing fits): ``-# 📎 Passende Regelwerkstellen: … · Fassung abcd1234``."""
+    try:
+        data = best_sources(question, limit)
+    except Exception:  # noqa: BLE001 - a missing citation never blocks an answer
+        return ""
+    if not data["sources"]:
+        return ""
+    names = "; ".join(s["cite"] for s in data["sources"])
+    return f"-# 📎 Passende Regelwerkstellen (automatisch ermittelt, keine Auslegung): {names}" + (f" · Fassung {data['version']}" if data["version"] else "")
+
+
 def register(app) -> None:
     import webserver as ws
     e = ws.esc

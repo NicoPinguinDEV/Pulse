@@ -13236,6 +13236,12 @@ try:  # Audit #111/#113: Wiki-Suche und Pflichtlektüre
 except Exception as _wiki_error:
     print(f"❌ Wiki-Zusatz konnte nicht registriert werden: {_wiki_error}")
 
+try:  # Audit #123: zentrale Vorlagenbibliothek
+    from pulse_templates_pages import register as register_templates_pages
+    register_templates_pages(app)
+except Exception as _templates_error:
+    print(f"❌ Vorlagenbibliothek konnte nicht registriert werden: {_templates_error}")
+
 try:  # Audit #108: Quizverwaltung
     from pulse_quiz_admin import register as register_quiz_admin
     register_quiz_admin(app)

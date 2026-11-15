@@ -20,8 +20,8 @@ MAX_QUESTION, MAX_OPTION = 500, 200
 
 
 def can_manage(perms: dict) -> bool:
-    perms = perms or {}
-    return bool(perms.get("can_manage_training") or perms.get("can_promote") or perms.get("is_admin"))
+    import pulse_policy
+    return pulse_policy.can(perms, "quiz.manage")
 
 
 def clean_question(question, options, answer_index) -> tuple[str, list[str], int]:

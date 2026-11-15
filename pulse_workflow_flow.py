@@ -59,15 +59,23 @@ def render(automation: dict, esc) -> str:
     return f'{STYLE}<div class="wf-flow" role="img" aria-label="Ablauf der Automation">{"".join(parts)}</div>{note_html}'
 
 
-# Verschiebt die Felder zweier Aktionszeilen (stepN_*) - nur Komfort; gespeichert wird weiterhin das normale Formular.
+# Verschiebt die Felder der Aktionszeilen (stepN_*): per Pfeil-Schaltflächen (Tastatur) oder Ziehen am Griff. Nur Komfort - gespeichert wird
+# weiterhin das normale Formular; die Reihenfolge ergibt sich aus den Feldnummern.
 MOVE_SCRIPT = ("<script>(function(){function rows(){return Array.from(document.querySelectorAll('[data-step-row]'));}"
                "function swap(a,b){a.querySelectorAll('input,select').forEach(function(x){var n=x.name.replace(/^step\\d+_/,'');"
                "var y=b.querySelector('[name$=\"_'+n+'\"]');if(!y)return;if(x.type==='checkbox'){var t=x.checked;x.checked=y.checked;y.checked=t;}"
                "else{var v=x.value;x.value=y.value;y.value=v;}});}"
+               "function moveTo(i,j){var r=rows();if(i<0||j<0||i>=r.length||j>=r.length||i===j)return;var d=i<j?1:-1;for(var k=i;k!==j;k+=d){swap(r[k],r[k+d]);}}"
                "document.addEventListener('click',function(e){var b=e.target.closest('[data-step-move]');if(!b)return;e.preventDefault();"
-               "var r=rows(),i=r.indexOf(b.closest('[data-step-row]')),j=i+(b.dataset.stepMove==='up'?-1:1);if(j<0||j>=r.length)return;swap(r[i],r[j]);});})();</script>")
+               "var r=rows(),i=r.indexOf(b.closest('[data-step-row]'));moveTo(i,i+(b.dataset.stepMove==='up'?-1:1));});"
+               "var from=-1;document.addEventListener('dragstart',function(e){var h=e.target.closest&&e.target.closest('[data-step-handle]');if(!h){return;}"
+               "from=rows().indexOf(h.closest('[data-step-row]'));e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',String(from));}catch(x){}});"
+               "document.addEventListener('dragover',function(e){if(from>=0&&e.target.closest&&e.target.closest('[data-step-row]')){e.preventDefault();}});"
+               "document.addEventListener('drop',function(e){var row=e.target.closest&&e.target.closest('[data-step-row]');if(from<0||!row)return;e.preventDefault();"
+               "moveTo(from,rows().indexOf(row));from=-1;});document.addEventListener('dragend',function(){from=-1;});})();</script>")
 
 
 def move_buttons(index: int) -> str:
-    return (f'<span class="tiny"><button type="button" class="btn" data-step-move="up" aria-label="Aktion {index} nach oben">↑</button> '
+    return (f'<span class="tiny"><span data-step-handle draggable="true" title="Zum Sortieren ziehen" aria-hidden="true" style="cursor:grab">⠿</span> '
+            f'<button type="button" class="btn" data-step-move="up" aria-label="Aktion {index} nach oben">↑</button> '
             f'<button type="button" class="btn" data-step-move="down" aria-label="Aktion {index} nach unten">↓</button></span>')

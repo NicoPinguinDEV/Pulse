@@ -34,6 +34,12 @@ ACTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "application.manage": ("Bewerbungen verwalten", ("can_manage_applications",)),
     "task.manage": ("Aufgaben verwalten", ("can_manage_tasks", "can_promote")),  # web rule; /taskdone (bot) lacked can_promote
     "announcement.manage": ("Ankündigungen verwalten", ("can_manage_announcements",)),
+    "announcement.publish": ("Ankündigungen veröffentlichen", ("can_manage_announcements", "can_promote")),  # web/bot rule: leadership may publish too
+    "ack.manage": ("Lesebestätigungen und Dienstanweisungen verwalten", ("can_manage_announcements", "can_promote")),
+    "meeting.lead": ("Besprechungen leiten", ("can_promote",)),
+    "quiz.manage": ("Quizfragen verwalten", ("can_manage_training", "can_promote")),
+    "poll.create": ("Umfragen starten", ("can_promote",)),
+    "wiki.review": ("Wiki-Freigaben bearbeiten", ("can_manage_wiki", "can_promote")),
     "handover.manage": ("Übergaben verwalten", ("can_manage_handover",)),
     "promotion.manage": ("Beförderungen verwalten", ("can_manage_promotions",)),
     "training.manage": ("Schulungen verwalten", ("can_manage_training",)),

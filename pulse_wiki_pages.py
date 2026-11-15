@@ -12,8 +12,8 @@ import pulse_wiki_review as review
 
 
 def is_manager(perms: dict) -> bool:
-    perms = perms or {}
-    return bool(perms.get("can_manage_wiki") or perms.get("can_promote") or perms.get("is_admin"))
+    import pulse_policy
+    return pulse_policy.can(perms, "wiki.review")
 
 
 def detail_block(ws, ctx, page_id: str) -> str:
