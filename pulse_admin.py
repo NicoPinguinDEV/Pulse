@@ -839,11 +839,11 @@ def register(app) -> None:
 <div class="text-xs text-slate-400 mb-3">Befehle: help, status, health, version, logs, sync. Keine Shell-Befehle oder frei eingegebenen Systemkommandos.</div>
 <form id="console-form" class="flex gap-2"><input id="console-command" class="pulse-input" autocomplete="off" maxlength="40" placeholder="Befehl eingeben, z. B. health" required>
 <button class="pulse-btn primary" type="submit">Ausführen</button></form>
-<pre id="console-output" aria-live="polite" style="white-space:pre-wrap;overflow:auto;max-height:320px;background:#0b1020;color:#d1fae5;padding:14px;border-radius:10px;margin-top:12px;font:12px/1.5 ui-monospace,monospace">Bereit. Gib help ein, um die Befehle anzuzeigen.</pre>
+<pre id="console-output" aria-live="polite" class="pulse-term ok">Bereit. Gib help ein, um die Befehle anzuzeigen.</pre>
 </div></section>
 <section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">📡 Live-Protokoll</div><button id="console-refresh" type="button" class="pulse-btn ghost">Jetzt aktualisieren</button></div>
 <div class="pulse-card-b"><div class="text-xs text-slate-400 mb-2">Aktuelle Pulse-Prozessmeldungen. Die Ansicht aktualisiert sich automatisch alle 3 Sekunden.</div>
-<pre id="console-log" style="white-space:pre-wrap;overflow:auto;max-height:420px;background:#0b1020;color:#cbd5e1;padding:14px;border-radius:10px;font:11px/1.5 ui-monospace,monospace">Protokoll wird geladen …</pre></div></section>
+<pre id="console-log" class="pulse-term log">Protokoll wird geladen …</pre></div></section>
 </div>
 <script>
 (()=> {

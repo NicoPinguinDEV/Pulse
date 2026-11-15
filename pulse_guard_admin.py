@@ -522,7 +522,7 @@ def register(app) -> None:
                        f'Anti-Nuke: {"aktiv" if antinuke["enabled"] else "inaktiv"} · Überwacht: '
                        f'{e(", ".join(pm.ANTINUKE_EVENT_LABELS[x] for x in antinuke["events"]) or "keine")}')
         return f'''{GUARD_CSS}
-<div class="pulse-crumb" style="font-size:11px;color:#94a3b8;margin-bottom:8px"><a href="/admin" style="color:var(--p)">Verwaltung</a> › Sicherheit</div>
+<div class="pulse-crumb" style="font-size:11px;margin-bottom:8px"><a href="/admin" style="color:var(--p)">Verwaltung</a> › Sicherheit</div>
 <div class="pulse-hero"><div class="pulse-hero-grid"><div><div class="pulse-kicker">Verwaltung · Sicherheit</div>
 <div class="pulse-title">AutoMod &amp; Anti-Nuke</div>
 <div class="pulse-sub">Schutz vor Spam, Werbung, Massen-Pings und vor dem Zerstören des Servers durch übernommene oder böswillige Konten. Alles lokal, ohne KI-Kosten; jede Änderung steht im Audit-Log.</div></div>

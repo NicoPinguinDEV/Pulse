@@ -294,6 +294,12 @@ html:not(.dark) .text-slate-400:not(.pulse-hero *):not(.pulse-hero-box *){color:
 html:not(.dark) .text-amber-400:not(.pulse-hero *),html:not(.dark) .text-amber-500:not(.pulse-hero *),html:not(.dark) .text-amber-600:not(.pulse-hero *),html:not(.dark) .text-yellow-500:not(.pulse-hero *){color:#b45309}
 html:not(.dark) .pulse-hero .pulse-pill:not(.good):not(.warn):not(.bad){color:#fff;background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.32)}
 html:not(.dark) .an-warn{color:#b54708}
+.pulse-crumb{color:#94a3b8}
+.pulse-term{white-space:pre-wrap;overflow:auto;background:#0b1020;color:#cbd5e1;padding:14px;border-radius:10px;font:11px/1.5 ui-monospace,monospace}
+.pulse-term.ok{color:#d1fae5;font-size:12px;max-height:320px;margin-top:12px}
+.pulse-term.log{max-height:420px}
+.pulse-text-good{color:#12b76a}
+.pulse-text-bad{color:#f04438}
 html:not(.dark) .pulse-crumb,html:not(.dark) [style*="color:#94a3b8"]{color:#5b6779!important}
 html:not(.dark) .pill[style*="color:#eab308"],html:not(.dark) [style*="color:#eab308"]{color:#a16207!important}
 @media (pointer:coarse){

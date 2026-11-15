@@ -17,6 +17,16 @@ class DesignLintTests(unittest.TestCase):
     def test_no_regression_against_the_baseline(self):
         self.assertEqual(lint.main([]), 0, "Neue feste Farben in Inline-Stilen: Tokens/Klassen aus dem Designsystem verwenden (tools/design_lint.py)")
 
+    def test_all_dashboard_pages_are_free_of_inline_colors(self):
+        self.assertEqual(lint.measure(), {}, "Feste Farben gehören in Klassen/Tokens des Designsystems (pulse_pro.PRO_CSS, static/pulse.css)")
+        baseline = __import__("json").loads((ROOT / "docs" / "design_lint_baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(baseline["total"], 0)
+
+    def test_standalone_pages_are_the_only_exceptions(self):
+        self.assertEqual(sorted(lint.STANDALONE_FILES), ["pulse_phase7.py", "pulse_ticket_builder.py"])
+        marked = [name for name in ("pulse_ultimate.py", "webserver.py") if lint.MARKER in (ROOT / name).read_text(encoding="utf-8")]
+        self.assertEqual(marked, ["pulse_ultimate.py", "webserver.py"])
+
     def test_new_modules_use_no_inline_colors(self):
         for name in NEW_MODULES:
             self.assertEqual(lint.count(ROOT / name), 0, name)
