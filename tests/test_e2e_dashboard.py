@@ -1155,3 +1155,33 @@ class LiveAndKeyboardE2ETests(_PreviewE2EBase):
             page.goto(self._url(path))
             self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth - window.innerWidth"), 1, f"Überlauf auf {path}")
         self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+class OperationsConsoleE2ETests(_PreviewE2EBase):
+    """Audit #153-#172 im Browser: Betriebskonsole (Admin) auf Desktop und Mobil, alle Ansichten ohne JavaScript-Fehler."""
+
+    VIEWS = ("uebersicht", "fehler", "latenz", "ressourcen", "aktionen", "aufbewahrung", "rechte")
+
+    def test_all_views_render_without_errors(self):
+        page, errors = self._page()
+        for view in self.VIEWS:
+            with self.subTest(view=view):
+                self.assertEqual(page.goto(self._url(f"/admin/betrieb?ansicht={view}")).status, 200)
+                self.assertIn("Betriebskonsole", page.locator("main").inner_text())
+        page.goto(self._url("/admin/betrieb"))
+        self.assertIn("release", page.locator("main").inner_text().lower())
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_mobile_without_horizontal_page_overflow(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        for view in self.VIEWS:
+            with self.subTest(view=view):
+                page.goto(self._url(f"/admin/betrieb?ansicht={view}"))
+                self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth - window.innerWidth"), 1, f"Überlauf in {view}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+
+class OperationsConsoleMemberE2ETests(_PreviewE2EBase):
+    ROLE = "team"
+
+    def test_console_is_forbidden_for_normal_team_members(self):
+        page, _ = self._page()
+        self.assertEqual(page.goto(self._url("/admin/betrieb")).status, 403)

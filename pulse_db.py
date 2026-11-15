@@ -413,6 +413,24 @@ def init_db():
                 updated_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_team_dev_goals_user ON team_dev_goals(user_id, status);
+            CREATE TABLE IF NOT EXISTS ops_error_groups (
+                sig TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                sample TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE INDEX IF NOT EXISTS idx_ops_error_groups_last ON ops_error_groups(last_seen DESC);
+
+            CREATE TABLE IF NOT EXISTS ops_resource_samples (
+                at TEXT PRIMARY KEY,
+                container_mb REAL,
+                process_mb REAL,
+                cpu_pct REAL,
+                disk_free_mb REAL,
+                threads INTEGER
+            );
 
             CREATE TABLE IF NOT EXISTS privacy_requests (
                 id TEXT PRIMARY KEY,
@@ -2490,6 +2508,7 @@ TABLES = [
     "application_comm_journal",
     "team_dev_goals",
     "message_templates", "message_template_versions",
+    "ops_error_groups",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
     "security_drills",

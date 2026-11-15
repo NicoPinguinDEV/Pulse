@@ -3,6 +3,7 @@
  "GET /achievements -> pulse_pro.register.<locals>.achievements_v5",
  "GET /activity-check -> pulse_pro.register.<locals>.activity_check_page",
  "GET /admin -> pulse_admin.register.<locals>.admin_hub",
+ "GET /admin/betrieb -> pulse_ops_pages.register.<locals>.operations_console",
  "GET /admin/console -> pulse_admin.register.<locals>.admin_console",
  "GET /admin/console/logs -> pulse_admin.register.<locals>.admin_console_logs",
  "GET /admin/discord -> pulse_admin.register.<locals>.admin_discord",

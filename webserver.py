@@ -280,7 +280,15 @@ async def security_headers(request: Request, call_next):
     import pulse_security
     if not pulse_security.same_origin_ok(request.method, request.headers):
         return JSONResponse({"detail": "Ungültige Anfragequelle."}, status_code=403)
+    started = time.perf_counter()
     response = await call_next(request)
+    try:  # Audit #157: latency per route template (bounded in-memory, never affects the response)
+        if not request.url.path.startswith("/static"):
+            import pulse_ops
+            route = request.scope.get("route")
+            pulse_ops.LATENCY.record(f"{request.method} {getattr(route, 'path', '(unbekannt)')}", (time.perf_counter() - started) * 1000, response.status_code)
+    except Exception:  # noqa: BLE001
+        pass
     https = oauth_redirect_uri(request).startswith("https://") or oauth_redirect_uri(request, application=True).startswith("https://")
     pulse_security.apply_headers(request.url.path, request.method, response, https)
     return response
@@ -13183,6 +13191,11 @@ try:  # Audit #58/#70: Live-Status und Aktivitätsfeed (Polling)
     register_pulse_live(app)
 except Exception as _live_error:
     print(f"❌ Live-Modul konnte nicht registriert werden: {_live_error}")
+try:  # Audit #153-#172: Betriebskonsole (nur Administratoren, lesend)
+    from pulse_ops_pages import register as register_ops_pages
+    register_ops_pages(app)
+except Exception as _ops_error:
+    print(f"❌ Betriebskonsole konnte nicht registriert werden: {_ops_error}")
 
 
 try:

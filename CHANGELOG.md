@@ -84,6 +84,11 @@
 
 - **`pulse_events.py` (#116/#122/#125, Fundament):** Einheitlicher Vertrag für Ereignisse auf der bestehenden `events`-Tabelle. `emit()` schreibt `<domain>.<aktion>` mit festem Payload (`schema`, `domain`, `action`, optional `case_ref`/`correlation_id`) und prüft die Eingabe; `describe()` liest neue und alte Zeilen einheitlich; `history()` liefert die Ereignisse eines Falls und prüft dieselben Rechte wie die jeweilige Fallart (fail-closed, Korrelations-ID ohne Fallreferenz nur für Administratoren).
 - Keine Schema-, Daten- oder Aufruferänderung: `pulse_db.record_event` und die 33 bestehenden Aufrufer bleiben unverändert, alte Zeilen werden nur beim Lesen klassifiziert. Die Aufrufer werden in späteren Schritten migriert; #116/#122/#125 bleiben bis dahin „Teilweise“.
+## Betriebskonsole (November 2026)
+
+- **`/admin/betrieb` (nur Administratoren, lesend):** Übersicht (Bot, Speicher, Datenträger, Fehlergruppen, langsamste Route, Release), Fehlergruppen (#155), Latenz je Route (#157), Ressourcenverlauf über 14 Tage (#158), Admin-Aktionen aus Audit und Einstellungs-Historie (#165), Aufbewahrungsmatrix (#172) und Rechte-Abgleich Discord/Pulse (#160).
+- Neue Tabellen `ops_error_groups` (im Backup) und `ops_resource_samples`; die Latenzmessung läuft in der vorhandenen Middleware, die Ressourcenmessung im vorhandenen Automations-Loop (höchstens alle 5 Minuten).
+- Tests: `tests/test_ops.py`, Browser-Tests `OperationsConsole*E2ETests`.
 
 ## Bewerbungen: Kanban-Pipeline (November 2026)
 

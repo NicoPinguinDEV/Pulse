@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 122 |
-| Teilweise | 55 |
+| Fertig | 125 |
+| Teilweise | 52 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -40,7 +40,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
 | Pulse Intelligence | 11 | 4 | 0 |
 | Automatisierungen und Workflow-System | 9 | 3 | 0 |
-| Admin Center, Sicherheit und Betrieb | 10 | 10 | 0 |
+| Admin Center, Sicherheit und Betrieb | 13 | 7 | 0 |
 | BOCHUM-RP-spezifische Funktionen | 0 | 5 | 0 |
 
 ## Einzelbewertung
@@ -261,26 +261,26 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
-| 153 | Zentrales System-Cockpit | **Teilweise** | `/ultimate/system`, Health Center, Live Console und Cockpit zeigen Teilbereiche; eine einzelne vollständige Betriebskonsole für alle Komponenten fehlt. |
+| 153 | Zentrales System-Cockpit | **Teilweise** | `/admin/betrieb` (Admin): Übersicht mit Bot, Speicher, Datenträger, Fehlergruppen, langsamster Route, Release/Commit und Links zu Server Control Center und Backups; Jobs/Warteschlangen und Datenbanken bleiben im Server Control Center. |
 | 154 | Discord-Bot-Ausfallalarm | **Teilweise** | `pulse_alerts` kann Fehler/Alarme bündeln und an einen konfigurierten Kanal senden; ein unabhängiger externer Down-Detector für einen vollständig ausgefallenen Bot fehlt. |
-| 155 | Automatische Fehlerzusammenfassung | **Teilweise** | Logging-Ringpuffer und Alert-Cooldowns existieren; Fehler werden nicht vollständig nach Signatur gruppiert und mit Ursachenbericht zusammengefasst. |
+| 155 | Automatische Fehlerzusammenfassung | **Fertig** | `pulse_ops`: Fehler werden nach Signatur gruppiert (IDs, Zahlen, Pfade, Werte normalisiert), mit Zähler, erster/letzter Sichtung, „neu“/„aktuell“; höchstens 200 Gruppen, per Logging-Handler und im Backup; Ansicht `/admin/betrieb?ansicht=fehler`. Eine automatische Ursachenanalyse gibt es nicht. |
 | 156 | Queue-Monitoring | **Fertig** | Health-/Systemübersichten erfassen Jobs, Tasks, Voice-/AI-Warteschlangen; `tests/test_health.py` und Systemchecks. |
-| 157 | API-Latenzmonitoring | **Teilweise** | Gateway-Latenz und ausgewählte Service-/API-Statuswerte werden angezeigt; ein umfassendes Latenzmonitoring pro internem Endpunkt fehlt. |
-| 158 | Ressourcenverlauf | **Teilweise** | Pulse Ultimate speichert begrenzte RAM-Samples und erkennt Trends; vollständige CPU-/RAM-/Disk-/Containerhistorie fehlt. |
+| 157 | API-Latenzmonitoring | **Fertig** | Middleware misst jede Route (Vorlage statt Rohpfad): Anfragen, p50, p95, max, 5xx; höchstens 300 Routen und 200 Messwerte im Speicher; Ansicht „Latenz“. Gateway-Latenz des Bots in der Übersicht. |
+| 158 | Ressourcenverlauf | **Fertig** | Messpunkt alle 5 Minuten (Container-/Prozess-Speicher, CPU-Anteil, freier Datenträger, Threads) in `ops_resource_samples`, 14 Tage, mit Min/Ø/Max und Trend und Verlaufsgrafik; Ansicht „Ressourcen“. |
 | 159 | Konfigurationsprüfung | **Fertig** | `.env`-/Systemvalidierung und Eingabevalidierung existieren; `tests/test_env_validation.py`, `tests/test_system_checks.py`. |
-| 160 | Rechte-Differenzprüfung | **Teilweise** | Rollenhierarchie, fehlende Discord-Rechte und gefährliche Permissions werden geprüft; kein vollständiger Soll-/Ist-Vergleich aller fachlichen Pulse-Rechte. |
+| 160 | Rechte-Differenzprüfung | **Teilweise** | `pulse_rights_diff` / Tab „Rechte-Abgleich“: fehlende Rollen, wirkungslose Rechte-Einträge, Teamrollen ohne Eintrag, Nicht-Team-Rollen mit Administratorrecht; rein lesend. Ein Soll/Ist je einzelnem fachlichem Recht und Person fehlt. |
 | 161 | Backup-Übersicht | **Fertig** | Backup-Liste, Status, vollständige ZIP-Backups und Admin-Panel vorhanden; `tests/test_full_backup.py`. |
 | 162 | Restore-Vorschau | **Fertig** | `preview_restore()` prüft Manifest, Dateien und Tabellen vor Restore; `tests/test_full_backup.py`. |
 | 163 | Isolierte Restore-Übungen | **Fertig** | Isolierter Restore-Test und wöchentlicher Testlauf sind implementiert; `tests/test_full_backup.py`. |
 | 164 | Notfallhandbuch | **Fertig** | Durchgängiges Incident-Runbook mit Rollen, P1–P4-Eskalation, Erstreaktions- und Wiederanlauf-Checklisten, sicheren Diagnose-/Restore-/Rollback-Pfaden sowie Datenschutz-/Credential-Vorgehen; docs/PULSE_NOTFALLHANDBUCH.md, durch sieben Inhaltsregressionstests abgesichert in tests/test_incident_runbook.py. |
-| 165 | Admin-Aktionshistorie | **Teilweise** | Suite-Audit und Settings-History protokollieren viele Adminänderungen; vollständige Abdeckung sämtlicher Admin-Aktionen und ein einheitlicher Viewer fehlen. |
+| 165 | Admin-Aktionshistorie | **Teilweise** | Tab „Admin-Aktionen“ führt Dashboard-Audit und Einstellungs-Historie chronologisch mit Filter zusammen; nicht jede Admin-Aktion schreibt schon in eines der beiden. |
 | 166 | Sicherer Wartungsmodus | **Fertig** | Globaler Wartungsmodus und Schreibsperren sind vorhanden; E2E prüft abgelehnte Schreibaktionen während Maintenance. |
 | 167 | Feature-Schalter | **Fertig** | `pulse_flags`/Admin-Feature-Schalter mit persistenter Aktivierung; `tests/test_dashboard_redesign.py` und Admin-Tests. |
 | 168 | Testserver-/Testdatenmodus | **Teilweise** | CI-Fakes, Preview-Server und Workflow-Testmodus existieren; ein konfigurierbarer isolierter Test-Guild-Modus für Admins fehlt. |
-| 169 | Release-Übersicht | **Teilweise** | Version und Status werden angezeigt; laufender Commit, Deploymentvergleich, letzter Release und Rollback-Stand sind nicht vollständig zusammengeführt. |
+| 169 | Release-Übersicht | **Teilweise** | Übersicht zeigt Version und installierten Commit (Build-Info oder .git); Deployment-Vergleich und Rollback-Stand bleiben im Server Control Center. |
 | 170 | Datenintegritätsprüfung | **Fertig** | Read-only Konsistenzdiagnose, Bewerbungsdatenprüfung, Schichthistorie und SQLite-Quick-Check; `tests/test_consistency.py`, `tests/test_application_data_audit.py`, `tests/test_system_checks.py`. |
 | 171 | Datenschutz-Anfragen | **Fertig** | PR #233: `pulse_privacy_requests.py` + `/admin/privacy/requests` (nur Admins) mit Auskunft/Berichtigung/Löschung/Einschränkung/Widerspruch, Frist 1 Monat (einmal um ≤ 60 Tage verlängerbar), Status, Zuständigkeit, Notizen, revisionsfestem Verlauf, lesender Datenbestandsprüfung und JSON-Auskunft; Discord `/datenschutz-anfrage` und `/datenschutz-status` (privat, nur eigene Anfragen), Admin-Inbox bei Eingang und tägliche Überfälligkeitserinnerung. Tabellen im JSON-Backup und Personenexport. `tests/test_privacy_requests.py`. Pulse löscht nichts automatisch. |
-| 172 | Aufbewahrungsübersicht | **Teilweise** | `pulse_retention.py` und Phase-15.6-Retention-Dokumente enthalten Regeln/Pläne; eine vollständige UI-Matrix über jede Datenart und Frist fehlt. |
+| 172 | Aufbewahrungsübersicht | **Teilweise** | Tab „Aufbewahrung“: Matrix aus Datenart, Speicher, Frist, automatisch/manuell, Anzahl und ältestem Eintrag (9 Datenarten, Bewerbungs-/Audit-Bereinigung als gesperrt gekennzeichnet); weitere Datenarten (Melonly, Transkripte, Schichten) fehlen noch. |
 
 ### 14. BOCHUM-RP-spezifische Funktionen (173–177)
 
