@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import pulse_board
 import pulse_db
 import pulse_flags
+import pulse_help
 
 PAGE_KEYS = frozenset({"admin-features", "admin-rights", "admin-visibility", "admin-settings-history",
                        "team-capacity", "team-readiness", "applications-board"})
@@ -359,7 +360,7 @@ def register(app) -> None:
             f'<label class="text-xs">{_e(label)}<input class="pulse-input" name="{key}" value="{criteria_all["default"][key]:g}" inputmode="decimal"></label>'
             for key, (label, _) in pulse_insights.CRITERIA_FIELDS.items())
         role_opts = "".join(f'<option value="{rid}">{_e(getattr(ctx.guild.get_role(rid), "name", rid))}</option>' for rid in team_ids if ctx.guild.get_role(rid))
-        body = card("⬆ Beförderungs-Reife",
+        body = card("⬆ Beförderungs-Reife" + pulse_help.tip("readiness"),
                     "Nur ein Hinweis: entschieden wird immer von Menschen über den bestehenden Beförderungsablauf mit 4-Augen-Prinzip. "
                     "Pulse ändert hier keine Rollen und stellt keine Anträge." + ("" if see_warns else " Warnungen sind für dich nicht sichtbar und werden nicht berücksichtigt."),
                     '<div class="space-y-2">' + "".join(c[2] for c in cards) + "</div>" if cards else ws.empty_state("Keine Teammitglieder.", "⬆"))

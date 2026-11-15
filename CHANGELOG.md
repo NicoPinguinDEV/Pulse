@@ -34,6 +34,13 @@
 - **Entwicklung und Beförderungspaket (#75, #76):** Entwicklungsziele je Person (Tabelle `team_dev_goals`, im Backup); Beförderungspaket mit Kriterien, Trend, Zielen und Datenlücken – nur Entscheidungsgrundlage, der Antrag bleibt im 4-Augen-Ablauf.
 - **Teamplanung `/team/planung` (nur Führung):** Auslastung (#81), Verfügbarkeitsmatrix (#92), Dienstzeit-Anomalien mit Regelbegründung (#89), Leistungsübersicht mit offengelegter Gewichtung (#94), Abwesenheitskalender (#87), Wochen-/Monatsbericht mit Kennzahl-Definitionen (#88, nur auf Abruf).
 - Tests: `tests/test_teamakte.py`, `tests/test_teamakte_pages.py`.
+## Dashboard: Live-Status, Tastatur, Hilfe, Suche (November 2026)
+
+- **Live-Status und Aktivitätsfeed (#58, #70):** Neues Home-Widget „Live-Status“ (Polling alle 15 s, nur bei sichtbarem Tab). Der Feed für die Führung zeigt Handelnde und Aktion aus dem Audit, gefiltert nach Rechten, ohne Detailtexte.
+- **Tastaturbedienung (#67):** `?` öffnet die Kürzel-Hilfe, `g` + Buchstabe navigiert; Kürzel gelten nicht in Eingabefeldern.
+- **Kontexthilfe (#68):** `pulse_help.tip()` an Widget-Auswahl, Beförderungs-Kriterien, Mindestbesetzung und Schicht-Erinnerung.
+- **Globale Suche (#62):** zusätzlich Wissensdatenbank, frühere Artikelversionen und altes Audit (Versionen/Audit nur Führung).
+- Tests: `tests/test_dashboard_live.py` und `LiveAndKeyboardE2ETests` (Browser, Desktop und Mobil).
 
 ## Bewerbungen: Kanban-Pipeline (November 2026)
 

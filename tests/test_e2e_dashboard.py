@@ -1106,3 +1106,52 @@ class InterviewCalendarTeamE2ETests(_InterviewBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveAndKeyboardE2ETests(_PreviewE2EBase):
+    """Audit #58/#67/#68/#70 im echten Browser: Live-Status, Tastaturkürzel, Hilfe, Mobil ohne Überlauf."""
+
+    def test_live_status_updates_without_reload_and_feed_for_leadership(self):
+        page, errors = self._page()
+        page.goto(self._url("/me"))
+        page.wait_for_function("document.getElementById('liveStatus') && document.getElementById('liveStatus').textContent.includes('Im Dienst')")
+        self.assertIn("Offene Tickets", page.locator("#liveStatus").inner_text())
+        self.assertEqual(page.locator("#liveFeed").count(), 1)  # admin = leadership
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_keyboard_help_opens_closes_and_navigates(self):
+        page, errors = self._page()
+        page.goto(self._url("/me"))
+        dialog = page.locator("#pulseKeysDialog")
+        self.assertFalse(dialog.is_visible(), "Tastaturhilfe darf nicht ungefragt sichtbar sein")
+        page.keyboard.press("?")
+        self.assertTrue(dialog.is_visible())
+        self.assertIn("Befehlspalette", dialog.inner_text())
+        page.keyboard.press("Escape")
+        self.assertFalse(dialog.is_visible())
+        page.keyboard.press("g")
+        page.keyboard.press("t")
+        page.wait_for_url("**/team")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_shortcuts_are_ignored_while_typing(self):
+        page, _ = self._page()
+        page.goto(self._url("/team"))
+        field = page.locator("input[type=text], input:not([type]), input[type=search]").first
+        if field.count() == 0:
+            self.skipTest("Seite hat kein Textfeld")
+        field.focus()
+        page.keyboard.type("?g")
+        self.assertFalse(page.locator("#pulseKeysDialog").is_visible())
+
+    def test_help_tip_toggles_and_pages_fit_mobile(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        page.goto(self._url("/me"))
+        tip = page.locator("details.pulse-help").first
+        self.assertEqual(tip.count(), 1)
+        tip.locator("summary").click()
+        self.assertTrue(tip.locator("[role=note]").is_visible())
+        for path in ("/me", "/tasks"):
+            page.goto(self._url(path))
+            self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth - window.innerWidth"), 1, f"Überlauf auf {path}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")

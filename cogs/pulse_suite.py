@@ -770,7 +770,7 @@ def register_routes():
         rule_html="".join(f'<div class=row><span>{"täglich" if r["weekday"] is None else day_names[int(r["weekday"])]} · {esc(r["start_time"])}–{esc(r["end_time"])}</span><span>mind. {int(r["min_staff"])} <form method=post action="/suite/schedule/minimums/{esc(r["id"])}/delete" style="display:inline"><button class="btn danger" aria-label="Regel entfernen">✕</button></form></span></div>' for r in minimums)
         coverage_html=(
             '<div class=card style="margin-top:13px"><h3>🛡 Dienstabdeckung (7 Tage)</h3>'+gap_html+'</div>'
-            '<div class=card style="margin-top:13px"><h3>👥 Mindestbesetzung</h3>'+rule_html+
+            '<div class=card style="margin-top:13px"><h3>👥 Mindestbesetzung'+__import__('pulse_help').tip('schedule_minimums')+'</h3>'+rule_html+
             '<form class=form method=post action=/suite/schedule/minimums/add><div class=field><label>Wochentag</label><select class=select name=weekday><option value="">täglich</option>'
             +"".join(f'<option value="{i}">{n}</option>' for i,n in enumerate(day_names))+
             '</select></div><div class=field><label>Von</label><input class=input type=time name=start_time required></div><div class=field><label>Bis</label><input class=input type=time name=end_time required></div>'
@@ -778,7 +778,7 @@ def register_routes():
         )
         body=f'<div class="grid g2"><div class=card><h3>➕ Dienst planen</h3><form class=form method=post action=/suite/schedule/create><div class=field><label>Datum</label><input class=input type=date name=date required></div><div class=field><label>Dienst</label><input class=input name=shift_name required></div><div class=field><label>Start</label><input class=input type=time name=start_time required></div><div class=field><label>Ende</label><input class=input type=time name=end_time required></div><div class="field span2"><label>Teamler</label><select class=select name=assignee_id required>{opts}</select></div><div class=span2><button class="btn primary">Planen</button></div></form></div><div class=card><h3>⏰ Nächste Schichten</h3>{''.join(f'<div class=row><span>{esc(x["date"])} · {esc(x["shift_name"])}<div class=tiny>{esc(x["start_time"])}–{esc(x["end_time"])}</div></span><b>{esc(x["assignee_name"])}</b></div>' for x in rows[:15])}</div></div><div class=card style="margin-top:13px"><h3>✅ Schichttausch-Freigaben</h3>{swap_rows}</div><div class=card style="margin-top:13px"><h3>📅 Wochenplan</h3>{''.join(f'<div class=row>{esc(x["date"])} · {esc(x["shift_name"])} · {esc(x["assignee_name"])} <span>{esc(x["start_time"])}–{esc(x["end_time"])}</span> <form method=post action="/suite/schedule/{esc(x["id"])}/delete" style="display:inline"><button class="btn danger" aria-label="Dienst absagen">✕</button></form></div>' for x in rows)}</div>{coverage_html}'
         lead=shift_reminders_logic.normalize_lead(setting("shift_reminder_minutes",shift_reminders_logic.DEFAULT_LEAD_MINUTES))
-        body+=(f'<div class=card style="margin-top:13px"><h3>⏰ Schicht-Erinnerung</h3><div class=tiny>Alle Eingeplanten erhalten eine Benachrichtigung kurz vor Schichtbeginn.</div>'
+        body+=(f'<div class=card style="margin-top:13px"><h3>⏰ Schicht-Erinnerung{__import__('pulse_help').tip('shift_reminder')}</h3><div class=tiny>Alle Eingeplanten erhalten eine Benachrichtigung kurz vor Schichtbeginn.</div>'
                f'<form class=form method=post action=/suite/schedule/reminder-lead><div class=field><label>Vorlauf in Minuten</label><input class=input type=number name=minutes min={shift_reminders_logic.MIN_LEAD_MINUTES} max={shift_reminders_logic.MAX_LEAD_MINUTES} value={lead} required></div>'
                '<div class=span2><button class="btn primary">Speichern</button></div></form></div>')
         return page(ctx,"schedule","Dienstplan","Früh-, Spät- und Sonderdienste · Schichttausch mit Gegenseiten- und Leitungsfreigabe",body)
@@ -1451,6 +1451,21 @@ def search_all(q,ctx):
         for x in web.get_melonly_repository().search_payload(q):
             out.append({"type": "Roblox/MOD", "title": str(x.get("target_user", "Spieler")),
                         "meta": str(x.get("roblox_id", "N/A")), "url": "/melonly"})
+    # #62: Wissensdatenbank (wie /wiki für alle Dashboard-Nutzer lesbar) sowie – nur Führung – frühere Artikelversionen und das alte Audit.
+    try:
+        pages=db.wiki_pages()[:300]
+        for pg in pages:
+            if q in f"{pg.get('title','')} {pg.get('category','')} {pg.get('content','')}".lower():
+                out.append({"type":"Wiki","title":str(pg.get("title","")),"meta":str(pg.get("category","")),"url":f"/wiki/{pg.get('id')}"})
+        if ctx.perms.get("can_promote") or ctx.perms.get("is_admin"):
+            for pg in pages[:100]:
+                for ver in db.wiki_page_versions(pg.get("id"),10)[1:]:  # newest = current text, already searched above
+                    if q in f"{ver.get('title','')} {ver.get('content','')}".lower():
+                        out.append({"type":"Wiki-Version","title":str(ver.get("title","")),"meta":f"Version {ver.get('version_number')}","url":f"/wiki/{pg.get('id')}"})
+            for row in legacy_audit_rows(q)[:30]:
+                out.append({"type":"Audit (alt)","title":str(row.get("action","")),"meta":str(row.get("actor") or ""),"url":"/suite/audit"})
+    except Exception as exc:  # a search source must never break the whole search
+        print(f"⚠️ Suche: Wiki/Audit nicht durchsucht ({type(exc).__name__})")
     seen=set();res=[]
     for x in out:
         k=(x["type"],x["title"],x.get("meta"))

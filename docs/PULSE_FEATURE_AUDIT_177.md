@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 120 |
-| Teilweise | 57 |
+| Fertig | 122 |
+| Teilweise | 55 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -32,7 +32,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord-Bot – Moderation und Sicherheit | 14 | 1 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
 | Discord-Bot – Community und BOCHUM RP | 8 | 7 | 0 |
-| TeamOS-Dashboard – Startseite und Navigation | 6 | 9 | 0 |
+| TeamOS-Dashboard – Startseite und Navigation | 8 | 7 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 12 | 0 | 0 |
 | Dienstplanung und Aktivität | 11 | 1 | 0 |
 | Bewerbungen und Recruiting | 11 | 0 | 0 |
@@ -125,20 +125,20 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Nr. | Funktion | Status | Repository-Befund / Beleg |
 |---:|---|---|---|
 | 56 | Personalisierte Startseite | **Fertig** | `/me` und persönliche Login-Startseite; `tests/test_start_page.py`. |
-| 57 | Konfigurierbares Widget-System | **Teilweise** | Persönliche Layouts mit Widget-Auswahl, Spaltenwahl und Reihenfolge (PR #206) sowie Drag-and-drop und tastaturbedienbare Hoch/Runter-Sortierung (PR #227); serverseitige Widget-Allowlist. `pulse_home.py`; `tests/test_home_widgets.py`, `tests/test_home_layouts.py`. Es fehlen Widget-Größen und frei definierbare Widgets. |
-| 58 | Live-Aktivitätsfeed | **Teilweise** | Audit, Team-Timeline, Inbox und Aktivitätsdaten existieren; ein durchgehend live aktualisierter Feed über alle Ereignisse fehlt. |
+| 57 | Konfigurierbares Widget-System | **Teilweise** | Persönliche Layouts, Spalten, Reihenfolge, Drag-and-drop, Tastatursortierung (PR #206/#227) und neues Widget „Live-Status“; serverseitige Allowlist. `pulse_home.py`. |
+| 58 | Live-Aktivitätsfeed | **Fertig** | `/api/live/status` und `/api/live/feed` (Polling alle 15 s nur bei sichtbarem Tab) speisen das Home-Widget „Live-Status“; der Feed zeigt Handelnde und Aktion aus dem zentralen Audit, gefiltert nach Rechten (Warnungen, Notizen, Recruiting), ohne Detailtexte; Leitung. `pulse_live.py`, `tests/test_dashboard_live.py`, Browser-Test. |
 | 59 | Command Palette mit Strg+K | **Fertig** | Globale, rechtegefilterte Command-Palette (PR #193); `tests/test_command_center_ui.py`. |
 | 60 | Dashboard-Favoriten | **Fertig** | Persönliche Seitenfavoriten unter `/me/favorites/*` (PR #191); `pulse_home.py`, `tests/test_start_page.py`, `tests/test_home_widgets.py`. |
 | 61 | Gespeicherte Filter und Ansichten | **Fertig** | Persönliche Filter je Dashboard-Nutzer für Tickets, Bewerbungen, Teamakten, Bürger-Moderation und Automationen: speichern, anwenden, ersetzen, löschen (höchstens 12 je Seite). Teamakten haben dafür eine serverseitige Namens- und Statusfilterung erhalten. Tabelle `dashboard_saved_views` im JSON-Backup und im Personenexport. `pulse_views.py`, `pulse_db.py`, `pulse_ticket_center.py`, `pulse_ultimate.py`, `webserver.py`; `tests/test_saved_views.py`. PR: Ansichten-Block. Einschränkung: Ansichten sind persönlich, noch nicht rollenweit teilbar (siehe #69). |
-| 62 | Globale Suche | **Teilweise** | `pulse_suite` stellt eine globale Suche über mehrere TeamOS-Datenbereiche bereit; Vollständigkeit über alle Tickets, Wiki-Versionen, Bewerbungen und Auditdaten ist nicht belegt. |
+| 62 | Globale Suche | **Fertig** | Globale Suche (`search_all`) durchsucht jetzt zusätzlich die Wissensdatenbank (alle), frühere Artikelversionen und das alte Dashboard-Audit (nur Führung); Quellenfehler brechen die Suche nicht; `tests/test_dashboard_live.py`. |
 | 63 | Rollenabhängige Navigation | **Fertig** | Navigation wird nach Rechten gefiltert; `tests/test_dashboard_redesign.py` prüft Berechtigungsfilter und sensitive Menüpunkte. |
 | 64 | Mobile Dashboard-Version | **Teilweise** | Responsive Layouts und mobile E2E-Tests existieren; nicht alle Dashboard-Workflows sind vollständig auf Mobilgeräten geprüft. |
 | 65 | Einheitliches Designsystem | **Teilweise** | Gemeinsame Design-Tokens und Komponenten (`pulse_design.py`, `static/pulse.css`) sind vorhanden; ältere Seiten sind nicht vollständig vereinheitlicht. |
 | 66 | Dark-Mode-Feinschliff | **Teilweise** | Theme-aware Klassen und gemeinsame Farbpalette existieren; konsistente Darstellung jeder Legacy-Seite ist nicht vollständig belegt. |
-| 67 | Tastaturbedienung | **Teilweise** | Einzelne zugängliche Navigationselemente/Fokuszustände sind getestet; durchgängige Tastaturbedienung aller Arbeitsabläufe fehlt. |
-| 68 | Kontextbezogene Dashboard-Hilfen | **Teilweise** | Fehler- und Rechtehinweise sind vorhanden; eine vollständige kontextuelle Hilfe für komplexe Einstellungen/Formulare fehlt. |
+| 67 | Tastaturbedienung | **Teilweise** | Skip-Link, Befehlspalette (Strg+K), neu: Kürzel-Hilfe mit `?` und Navigation `g`+Buchstabe, Fokusführung im Dialog, Browser-Test; durchgängige Tastaturbedienung aller Arbeitsabläufe nicht belegt. |
+| 68 | Kontextbezogene Dashboard-Hilfen | **Teilweise** | Neu `pulse_help.tip()` (zugängliches `<details>`) an Widgets, Beförderungs-Kriterien, Mindestbesetzung und Schicht-Erinnerung; weitere komplexe Formulare noch ohne Hilfetext. |
 | 69 | Benutzerdefinierte Ansichten | **Fertig** | Bis zu acht persönliche „Mein Pulse“-Layouts speichern Widget-Sichtbarkeit, Reihenfolge und Spalten; Nutzergrenzen, Allowlist und Rückfall auf bestehende Widgets sind getestet (PR #206). |
-| 70 | Echtzeit-Statusanzeigen | **Teilweise** | Health-, Voice- und Live-Console-Status existieren; kein einheitlicher Echtzeit-Transport für alle Dashboardbereiche. |
+| 70 | Echtzeit-Statusanzeigen | **Teilweise** | Ein Polling-Transport (`/api/live/status`) liefert Dienst, Tickets, Ungelesen und Botstatus ohne Neuladen im Home-Widget; andere Dashboard-Bereiche nutzen ihn noch nicht. |
 
 ### 6. Teamverwaltung und Mitarbeiterakten (71–82)
 

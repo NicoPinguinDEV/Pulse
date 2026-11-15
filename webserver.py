@@ -13170,6 +13170,11 @@ try:  # Audit #71-#94: Teamplanung, 360°-Teamakte, Entwicklungsziele
     register_teamakte_pages(app)
 except Exception as _teamakte_error:
     print(f"❌ Teamakte-Module konnten nicht registriert werden: {_teamakte_error}")
+try:  # Audit #58/#70: Live-Status und Aktivitätsfeed (Polling)
+    from pulse_live import register as register_pulse_live
+    register_pulse_live(app)
+except Exception as _live_error:
+    print(f"❌ Live-Modul konnte nicht registriert werden: {_live_error}")
 
 
 try:
