@@ -1,0 +1,10 @@
+[Unit]
+Description=Pulse TeamOS Ausfallalarm jede Minute prüfen
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

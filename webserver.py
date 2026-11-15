@@ -4,6 +4,7 @@
 import asyncio
 import base64
 import contextlib
+import contextvars
 import copy
 import csv
 import hashlib
@@ -281,7 +282,17 @@ async def security_headers(request: Request, call_next):
     if not pulse_security.same_origin_ok(request.method, request.headers):
         return JSONResponse({"detail": "Ungültige Anfragequelle."}, status_code=403)
     started = time.perf_counter()
+    probe = None
+    if request.method == "POST" and request.url.path.startswith(AUDIT_PROBE_PREFIXES):
+        probe = {"n": 0, "user": None}
+        _AUDIT_PROBE.set(probe)
     response = await call_next(request)
+    if probe is not None:
+        try:  # Audit #165: never affects the response
+            route = getattr(request.scope.get("route"), "path", "")
+            audit_probe_finish(probe, request.method, request.url.path, route, response.status_code)
+        except Exception:  # noqa: BLE001
+            pass
     try:  # Audit #157: latency per route template (bounded in-memory, never affects the response)
         if not request.url.path.startswith("/static"):
             import pulse_ops
@@ -668,7 +679,27 @@ def shell_hook(slot: str):
     return _shell_hooks.get(slot)
 
 
+# Audit #165: a state-changing admin request always leaves a trace. The probe counts audit writes during one request;
+# if an admin POST succeeded without writing any, the middleware records a generic entry (who, which route).
+_AUDIT_PROBE: contextvars.ContextVar = contextvars.ContextVar("pulse_audit_probe", default=None)
+AUDIT_PROBE_PREFIXES = ("/admin/",)
+
+
+def audit_probe_finish(probe, method: str, path: str, route: str, status: int) -> bool:
+    """After a request: write the fallback entry if an admin POST succeeded, the actor is known and nothing was audited."""
+    if not isinstance(probe, dict) or method != "POST" or status >= 400 or probe.get("n") or not probe.get("user"):
+        return False
+    if not any(path.startswith(prefix) for prefix in AUDIT_PROBE_PREFIXES):
+        return False
+    user = probe["user"]
+    log_audit(user.get("global_name") or user.get("username") or "Admin", str(user.get("id")), "Admin-Aktion", f"POST {route or path}"[:200])
+    return True
+
+
 def log_audit(actor_name: str, actor_id: str, action: str, details: str) -> str:
+    probe = _AUDIT_PROBE.get()
+    if isinstance(probe, dict):
+        probe["n"] = probe.get("n", 0) + 1
     audit_id = f"audit_{uuid.uuid4().hex[:6]}"
     audit_data = load_json(AUDIT_FILE, [])
     audit_data.append({
@@ -1323,6 +1354,9 @@ def auth(request: Request, user_session, perm="can_view_dashboard", admin=False)
     guild = bot.get_guild(GUILD_ID) if bot else None
     if not guild:
         raise HTTPException(status_code=503, detail="Der Bot ist noch nicht bereit. Bitte in ein paar Sekunden neu laden.")
+    import pulse_testmode  # Audit #168: im Testmodus arbeitet das Dashboard nur mit dem Test-Guild
+    if not pulse_testmode.guild_allowed(guild.id):
+        raise HTTPException(status_code=503, detail="Testmodus: Dieser Server ist nicht der konfigurierte Test-Guild.")
     config = load_config()
     perms, member = compute_perms(guild, user["id"], config)
     if not (perms.get("can_view_dashboard") or perms.get("is_admin")):
@@ -1343,6 +1377,9 @@ def auth(request: Request, user_session, perm="can_view_dashboard", admin=False)
     if pulse_flags.blocks_write(request.method, request.url.path, perms.get("is_admin")):  # F-04
         raise HTTPException(status_code=503, detail="Wartungsmodus: Änderungen sind gerade gesperrt. Ansehen geht weiterhin.")
     _set_request_actor(user)  # F-03: who changes settings during this request
+    probe = _AUDIT_PROBE.get()
+    if isinstance(probe, dict) and perms.get("is_admin"):
+        probe["user"] = user  # #165
     return SimpleNamespace(
         user=user, guild=guild, guild_name=guild.name, perms=perms, config=config, member=member,
         msg=request.query_params.get("msg", ""), msg_ok=request.query_params.get("t", "ok") != "err",
@@ -13198,6 +13235,12 @@ try:  # Audit #111/#113: Wiki-Suche und Pflichtlektüre
     register_wiki_pages(app)
 except Exception as _wiki_error:
     print(f"❌ Wiki-Zusatz konnte nicht registriert werden: {_wiki_error}")
+
+try:  # Audit #168: Testserver-Modus
+    from pulse_testmode import register as register_testmode
+    register_testmode(app)
+except Exception as _testmode_error:
+    print(f"❌ Testmodus konnte nicht registriert werden: {_testmode_error}")
 
 try:  # Audit #47/#133: Regelwerk-Assistent mit Quellenangaben
     from pulse_rules_lookup import register as register_rules_lookup
