@@ -162,7 +162,7 @@ def register(app) -> None:
         if d["new"]:
             notes += f'<p class="text-xs mt-2">Neu im Team (nicht im Soll): {e(", ".join(x["name"] for x in d["new"][:20]))}</p>'
         body = rows or '<div class="pulse-empty">Alle Rechte entsprechen dem Soll-Stand.</div>'
-        return (f'<h2 class="text-sm font-bold mt-4 mb-1">Rechte je Person</h2><p class="text-[11px] text-slate-400 mb-2">Soll-Stand vom {e(d["saved_at"][:16])} (festgelegt von {e(d["by"] or "unbekannt")}).</p>'
+        return (f'<h2 class="text-sm font-bold mt-4 mb-1">Rechte je Person{__import__("pulse_help").tip("rights_target")}</h2><p class="text-[11px] text-slate-400 mb-2">Soll-Stand vom {e(d["saved_at"][:16])} (festgelegt von {e(d["by"] or "unbekannt")}).</p>'
                 + body + notes + save)
 
     def rights_view(ctx) -> str:

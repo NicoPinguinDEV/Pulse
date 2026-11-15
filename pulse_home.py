@@ -38,6 +38,9 @@ HOME_WIDGETS = (
     ("inbox", "Neu für mich"),
     ("shift_notes", "Schichtnotizen"),
     ("live", "Live-Status"),
+    ("ack", "Offene Bestätigungen"),
+    ("polls", "Aktive Abstimmungen"),
+    ("besprechungen", "Besprechungen"),
 )
 DEFAULT_HOME_WIDGETS = tuple(key for key, _label in HOME_WIDGETS)
 HOME_WIDGETS_KEY = "home_widgets"
@@ -364,6 +367,11 @@ def register(app) -> None:
         }
         if waiting_card:
             widget_cards["waiting"] = waiting_card
+        try:  # #57: weitere Widgets aus den neuen Modulen; ein Fehler lässt nur das jeweilige Widget weg
+            import pulse_home_widgets
+            widget_cards.update(pulse_home_widgets.cards(uid, card, e))
+        except Exception:  # noqa: BLE001
+            pass
         if "shift_notes" in selected_widgets and ctx.guild:
             recent_shift_notes = db.list_shift_notes(ctx.guild.id, uid, limit=8)
             shift_note_rows = "".join(
@@ -412,7 +420,7 @@ def register(app) -> None:
                 left_widgets.append(widget_cards["tasks"])
             if waiting_card and "waiting" in selected_widgets:
                 right_widgets.append(widget_cards["waiting"])
-            for key in ("status", "meeting", "inbox", "shift_notes", "live"):
+            for key in ("status", "meeting", "inbox", "shift_notes", "live", "ack", "polls", "besprechungen"):
                 if key in selected_widgets and key in widget_cards:
                     right_widgets.append(widget_cards[key])
 

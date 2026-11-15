@@ -289,8 +289,8 @@ def register(app):
                 f'<form action="/training/create" method="post" class="space-y-3 text-xs">'
                 f'<input name="title" required maxlength="120" placeholder="Titel…" class="{ws.INPUT}">'
                 f'<textarea name="description" maxlength="500" placeholder="Beschreibung…" class="{ws.INPUT} h-20"></textarea>'
-                f'<div class="grid grid-cols-2 gap-3"><input type="number" name="passing_score" min="1" max="100" value="80" class="{ws.INPUT}">'
-                f'<input type="number" name="time_limit" min="1" max="180" value="20" class="{ws.INPUT}"></div>'
+                f'<div class="grid grid-cols-2 gap-3"><input type="number" name="passing_score" min="1" max="100" value="80" aria-label="Bestehensgrenze in Prozent" class="{ws.INPUT}">'
+                f'<input type="number" name="time_limit" min="1" max="180" value="20" aria-label="Zeitlimit in Minuten" class="{ws.INPUT}"></div>'
                 f'<textarea name="questions_json" required placeholder="{esc(placeholder)}" class="{ws.INPUT} h-48 font-mono text-[10px]"></textarea>'
                 f'<button class="{ws.BTN} py-2.5 px-4">Schulung veröffentlichen</button></form>'
             )

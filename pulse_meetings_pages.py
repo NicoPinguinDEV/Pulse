@@ -33,7 +33,7 @@ def register(app) -> None:
             for m in meetings.list_meetings()) or '<div class="pulse-empty">Noch keine Besprechungen.</div>'
         form = ""
         if is_lead(ctx.perms):
-            form = (f'<h2 class="text-sm font-bold mt-4 mb-1">Neue Besprechung</h2><form method="post" action="/besprechungen/neu" class="space-y-2">'
+            form = (f'<h2 class="text-sm font-bold mt-4 mb-1">Neue Besprechung{__import__("pulse_help").tip("meeting")}</h2><form method="post" action="/besprechungen/neu" class="space-y-2">'
                     f'<input class="{ws.INPUT} w-full" name="title" required maxlength="160" placeholder="Titel">'
                     f'<input class="{ws.INPUT}" type="datetime-local" name="scheduled_at">'
                     f'<textarea class="{ws.INPUT} w-full" name="agenda" required rows="4" placeholder="Agenda, ein Punkt pro Zeile"></textarea>'

@@ -66,7 +66,7 @@ def register(app) -> None:
             manager_html = (f'<section class="pulse-card mt-4"><div class="pulse-card-b"><h2 class="text-sm font-bold mb-2">Abdeckung (Führung)</h2>{cov}'
                             f'<h2 class="text-sm font-bold mt-4">Neue Dienstanweisung mit Bestätigung</h2>{form}</div></section>')
         body = (f'<div class="pulse-crumb"><a href="/me">Mein Pulse</a> › Bestätigungen</div><section class="pulse-card"><div class="pulse-card-b">'
-                f'<h2 class="text-sm font-bold mb-2">Meine offenen Bestätigungen ({len(pending)})</h2>{rows}</div></section>{manager_html}')
+                f'<h2 class="text-sm font-bold mb-2">Meine offenen Bestätigungen ({len(pending)}){__import__("pulse_help").tip("ack")}</h2>{rows}</div></section>{manager_html}')
         return HTMLResponse(render_pro_page(ws, "Bestätigungen", ctx, "announcements", body))
 
     @app.post("/bestaetigungen/{kind}/{subject_id}/bestaetigen")

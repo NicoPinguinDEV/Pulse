@@ -7736,7 +7736,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                     <form action="/team/voice-support/audio" method="post" enctype="multipart/form-data" class="space-y-3">
                         <input type="hidden" name="audio_type" value="opening">
                         <input type="hidden" name="audio_action" value="upload">
-                        <input type="file" name="audio_file" accept=".mp3,.wav,.ogg,.flac,.m4a,audio/*" required class="block w-full text-xs text-slate-600 dark:text-slate-300">
+                        <input type="file" name="audio_file" aria-label="Audiodatei wählen" accept=".mp3,.wav,.ogg,.flac,.m4a,audio/*" required class="block w-full text-xs text-slate-600 dark:text-slate-300">
                         <button class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">Audio während Supportzeiten speichern</button>
                     </form>
                     {audio_remove_form("opening", "custom_opening_audio_path")}
@@ -7748,7 +7748,7 @@ async def team_list_page(request: Request, user_session: str = Cookie(None)):
                     <form action="/team/voice-support/audio" method="post" enctype="multipart/form-data" class="space-y-3">
                         <input type="hidden" name="audio_type" value="after_hours">
                         <input type="hidden" name="audio_action" value="upload">
-                        <input type="file" name="audio_file" accept=".mp3,.wav,.ogg,.flac,.m4a,audio/*" required class="block w-full text-xs text-slate-600 dark:text-slate-300">
+                        <input type="file" name="audio_file" aria-label="Audiodatei wählen" accept=".mp3,.wav,.ogg,.flac,.m4a,audio/*" required class="block w-full text-xs text-slate-600 dark:text-slate-300">
                         <button class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">Audio außerhalb Supportzeiten speichern</button>
                     </form>
                     {audio_remove_form("after_hours", "custom_after_hours_audio_path")}
@@ -11728,7 +11728,7 @@ async def settings_page(request: Request, user_session: str = Cookie(None)):
                 <h2 class="text-base font-bold text-slate-900 dark:text-white">🎯 Wochenziel</h2>
                 <form action="/action" method="post" class="flex gap-2 items-center text-xs">
                     <input type="hidden" name="action" value="set_weekly_goal">
-                    <input type="number" step="0.5" min="0.5" max="100" name="weekly_goal" value="{weekly_goal:g}" class="{INPUT} w-28"> <span>Stunden pro Woche</span>
+                    <input type="number" step="0.5" min="0.5" max="100" name="weekly_goal" aria-label="Wochenziel in Stunden" value="{weekly_goal:g}" class="{INPUT} w-28"> <span>Stunden pro Woche</span>
                     <button class="{BTN} px-4 py-3">Speichern</button>
                 </form>
             </div>

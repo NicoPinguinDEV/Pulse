@@ -199,7 +199,7 @@ def register(app) -> None:
                f'<label class="text-xs">Richtig ist Nr. <input class="{ws.INPUT}" type="number" name="answer_no" min="1" max="{MAX_OPTIONS}" value="1" style="width:5rem"></label> '
                f'<button class="{ws.BTN} py-1.5 px-3">Frage hinzufügen</button></form>')
         body = (f'<div class="pulse-crumb"><a href="/training">Schulungen</a> › <a href="/training/{e(training_id)}">{e(t["title"])}</a> › Quizverwaltung</div>'
-                f'<h1 class="text-lg font-bold mb-1">Quizverwaltung</h1><p class="text-xs text-slate-400 mb-3">{e(summary)}. Änderungen betreffen nur künftige Versuche.</p>{settings}{cards}{new}')
+                f'<h1 class="text-lg font-bold mb-1">Quizverwaltung{__import__("pulse_help").tip("quiz")}</h1><p class="text-xs text-slate-400 mb-3">{e(summary)}. Änderungen betreffen nur künftige Versuche.</p>{settings}{cards}{new}')
         return HTMLResponse(render_pro_page(ws, "Quizverwaltung", ctx, "training", body))
 
     @app.post("/training/{training_id}/verwaltung/einstellungen")

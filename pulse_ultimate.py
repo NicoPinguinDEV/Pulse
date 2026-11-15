@@ -1324,7 +1324,7 @@ def register(app) -> None:
         realm_bar = " · ".join(f"<a href='/ultimate/cases{'' if k == 'alle' else '?bereich=' + k}'>{esc(label)} ({n})</a>" for k, label, n in (
             ("alle", "Alle", sum(realm_counts.values())), ("ic", "IC", realm_counts["ic"]), ("ooc", "OOC", realm_counts["ooc"]), ("offen", "Nicht zugeordnet", realm_counts["offen"])))
         body = f"""<div class="tiny" style="margin-bottom:8px">Bereich: {realm_bar}</div><div class="card"><h3>🚨 Neuen Fall anlegen</h3><form class="form" method="post" action="/ultimate/cases/create">
-            <select class="select" name="realm" required aria-label="Bereich"><option value="">IC oder OOC wählen …</option><option value="ic">IC (im Spiel)</option><option value="ooc">OOC (Discord / außerhalb des Spiels)</option></select>
+            <span class="tiny">Bereich{__import__("pulse_help").tip("realm")}</span><select class="select" name="realm" required aria-label="Bereich"><option value="">IC oder OOC wählen …</option><option value="ic">IC (im Spiel)</option><option value="ooc">OOC (Discord / außerhalb des Spiels)</option></select>
             <input class="input" name="title" placeholder="Falltitel" maxlength="160" required>
             <select class="select" name="category"><option>general</option><option>moderation</option><option>team</option><option>support</option><option>recruiting</option><option>security</option><option>roblox</option></select>
             <select class="select" name="priority"><option>normal</option><option>low</option><option>high</option><option>urgent</option></select>
@@ -2143,11 +2143,11 @@ def register(app) -> None:
   <select class="select" name="group" style="max-width:220px;display:inline-block"><option value="actor"{" selected" if cfg.get("group", "actor") == "actor" else ""}>gleiche verantwortliche Person</option><option value="all"{" selected" if cfg.get("group") == "all" else ""}>alle zusammen</option></select>
   · Cooldown <input class="input" style="max-width:100px;display:inline-block" type="number" name="cooldown_seconds" min="0" max="86400" value="{esc(cfg.get("cooldown_seconds", 60))}"> s</div>'''}
  <div class="span2 tiny" style="padding:8px;border:1px dashed var(--border);border-radius:10px">
-  <b>Nur Pulse-Ereignis:</b> Bereich <select class="select" name="de_domain" style="max-width:220px;display:inline-block" aria-label="Ereignisbereich">{domain_opts}</select>
+  <b>Nur Pulse-Ereignis:</b>{__import__("pulse_help").tip("automation_event")} Bereich <select class="select" name="de_domain" style="max-width:220px;display:inline-block" aria-label="Ereignisbereich">{domain_opts}</select>
   Aktion <input class="input" style="max-width:180px;display:inline-block" name="de_action" maxlength="64" placeholder="* = jede, z. B. completed" value="{esc(cfg.get('action', '*') if view['trigger_type'] == 'domain_event' else '*')}" aria-label="Ereignisaktion">
   · Cooldown <input class="input" style="max-width:100px;display:inline-block" type="number" name="de_cooldown" min="0" max="86400" value="{esc(cfg.get('cooldown_seconds', 60) if view['trigger_type'] == 'domain_event' else 60)}"> s</div>
  <div class="span2 tiny" style="padding:8px;border:1px dashed var(--border);border-radius:10px">
-  <b>Abhängigkeit (optional):</b> erst starten, wenn <select class="select" name="dep_id" style="max-width:260px;display:inline-block" aria-label="Abhängige Automation">{dep_opts}</select>
+  <b>Abhängigkeit (optional):</b>{__import__("pulse_help").tip("automation_depends")} erst starten, wenn <select class="select" name="dep_id" style="max-width:260px;display:inline-block" aria-label="Abhängige Automation">{dep_opts}</select>
   in den letzten <input class="input" style="max-width:100px;display:inline-block" type="number" name="dep_max_age" min="1" max="{rules.MAX_DEPENDENCY_AGE_MIN}" value="{esc(dep_cfg.get('max_age_minutes', rules.DEFAULT_DEPENDENCY_AGE_MIN))}"> Minuten erfolgreich lief</div>
  <label class="tiny span2"><b>UND</b> – Bedingung (Zeitplan)</label>
  <select class="select" name="condition_type" aria-label="Bedingung">{conditions}</select>

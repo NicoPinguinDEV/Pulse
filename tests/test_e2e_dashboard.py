@@ -1129,6 +1129,16 @@ class LiveAndKeyboardE2ETests(_PreviewE2EBase):
         self.assertTrue(streams, "Der Event-Stream wurde nicht geöffnet")
         self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
 
+    def test_ticket_page_opens_the_event_stream_and_keeps_its_banner_hidden(self):  # #70
+        page, errors = self._page()
+        streams = []
+        page.on("request", lambda request: streams.append(request.url) if "/api/events/stream" in request.url else None)
+        page.goto(self._url("/tickets"))
+        page.wait_for_timeout(1500)
+        self.assertTrue(streams, "Der Event-Stream wurde auf der Ticket-Seite nicht geöffnet")
+        self.assertFalse(page.locator("#pulseLiveBanner").is_visible())
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
     def test_keyboard_help_opens_closes_and_navigates(self):
         page, errors = self._page()
         page.goto(self._url("/me"))
@@ -1285,3 +1295,63 @@ class AccessibilityE2ETests(_PreviewE2EBase):
         for path in self.PAGES:
             page.goto(self._url(path))
             self.assertEqual(page.evaluate(self.CONTRAST_JS), [], f"Kontrast zu niedrig auf {path}")
+
+
+class KeyboardAndMobileE2ETests(_PreviewE2EBase):
+    """Audit #64/#67: Tastaturbedienung (nichts nur per Maus klickbar, Bedienelemente haben Namen) und mobile Bedienbarkeit."""
+
+    PAGES = AccessibilityE2ETests.PAGES
+    KEYBOARD_JS = r"""() => {
+      const issues = [];
+      const native = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY', 'LABEL', 'OPTION']);
+      const visible = el => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+      const name = el => (el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || (el.labels && el.labels[0] && el.labels[0].textContent) || el.getAttribute('placeholder') || el.getAttribute('alt') || '').trim();
+      for (const el of document.querySelectorAll('[onclick]')) {
+        if (!native.has(el.tagName) && visible(el) && !el.hasAttribute('tabindex') && !['button', 'link', 'menuitem', 'tab'].includes(el.getAttribute('role') || ''))
+          issues.push('nur per Maus: ' + el.tagName + ' ' + (el.className || '').toString().slice(0, 30) + ' ' + name(el).slice(0, 20));
+      }
+      for (const el of document.querySelectorAll('button, a[href], [role=button]')) {
+        if (visible(el) && !name(el) && !el.querySelector('img[alt], svg title')) issues.push('ohne Namen: ' + el.tagName + ' ' + (el.className || '').toString().slice(0, 30));
+      }
+      for (const el of document.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]), select, textarea')) {
+        if (visible(el) && !name(el) && !el.closest('label')) issues.push('Feld ohne Beschriftung: ' + el.tagName + ' ' + (el.name || ''));
+      }
+      return issues.slice(0, 8);
+    }"""
+
+    def test_nothing_is_mouse_only_and_controls_have_names(self):
+        page, errors = self._page()
+        problems = {}
+        for path in self.PAGES:
+            page.goto(self._url(path))
+            found = page.evaluate(self.KEYBOARD_JS)
+            if found:
+                problems[path] = found
+        self.assertEqual(problems, {}, f"Tastaturbedienung: {problems}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_tab_order_reaches_the_main_content_and_escape_closes_the_palette(self):
+        page, errors = self._page()
+        for path in ("/me", "/tickets", "/tasks"):
+            page.goto(self._url(path))
+            page.keyboard.press("Tab")
+            first = page.evaluate("document.activeElement && (document.activeElement.className + ' ' + document.activeElement.textContent).toLowerCase()")
+            self.assertIn("inhalt", first, f"Der erste Tabstopp auf {path} ist nicht der Skip-Link: {first}")
+            page.keyboard.press("Enter")
+            self.assertTrue(page.evaluate("document.activeElement && document.activeElement.closest('main') !== null || location.hash.length > 1"), path)
+        page.keyboard.press("Control+k")
+        self.assertTrue(page.locator("[role=dialog]:visible").count() >= 1)
+        page.keyboard.press("Escape")
+        self.assertEqual(page.locator("[role=dialog]:visible").count(), 0)
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_mobile_forms_and_dialogs_fit_the_screen(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        for path in ("/me", "/tasks", "/tickets", "/besprechungen", "/bestaetigungen", "/regelwerk-suche"):
+            page.goto(self._url(path))
+            self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth - window.innerWidth"), 1, f"Überlauf auf {path}")
+            small = page.evaluate("""() => Array.from(document.querySelectorAll('main button, main a.pulse-btn, main input, main select')).filter(e => { const r = e.getBoundingClientRect();
+                return r.width > 0 && r.height > 0 && (r.height < 24 || r.width < 24); }).map(e => e.tagName + ' ' + (e.name || e.textContent || '').trim().slice(0, 20)).slice(0, 5)""")
+            self.assertEqual(small, [], f"Zu kleine Touch-Ziele auf {path}: {small}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
