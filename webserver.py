@@ -13199,6 +13199,12 @@ try:  # Audit #111/#113: Wiki-Suche und Pflichtlektüre
 except Exception as _wiki_error:
     print(f"❌ Wiki-Zusatz konnte nicht registriert werden: {_wiki_error}")
 
+try:  # Audit #47/#133: Regelwerk-Assistent mit Quellenangaben
+    from pulse_rules_lookup import register as register_rules_lookup
+    register_rules_lookup(app)
+except Exception as _rules_error:
+    print(f"❌ Regelwerk-Assistent konnte nicht registriert werden: {_rules_error}")
+
 try:  # Audit #71-#94: Teamplanung, 360°-Teamakte, Entwicklungsziele
     from pulse_teamakte_pages import register as register_teamakte_pages
     register_teamakte_pages(app)

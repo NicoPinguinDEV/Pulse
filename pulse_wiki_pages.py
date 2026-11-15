@@ -8,6 +8,7 @@ from fastapi import Cookie, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 import pulse_wiki_plus as plus
+import pulse_wiki_review as review
 
 
 def is_manager(perms: dict) -> bool:
@@ -40,10 +41,31 @@ def detail_block(ws, ctx, page_id: str) -> str:
                 cov = plus.coverage(page_id, team)
                 missing = ", ".join(n for _i, n in cov["missing"]) or "niemand"
                 parts.append(f'<p class="text-[11px] text-slate-400 mt-2">Version {cov["version"]}: {len(cov["confirmed"])} bestätigt · noch offen: {e(missing)}</p>')
+        parts.append(review_block(ws, ctx, page_id, manager))
+        parts = [p for p in parts if p]
         return f'<section class="{ws.CARD} p-4 mt-4">{"".join(parts)}</section>' if parts else ""
     except Exception as exc:  # noqa: BLE001 - the wiki page must keep working
         print(f"⚠️ Wiki-Zusatz nicht verfügbar: {type(exc).__name__}")
         return ""
+
+
+def review_block(ws, ctx, page_id: str, manager: bool) -> str:
+    """#111: Freigabestatus der aktuellen Version (für alle sichtbar), Aktionen nur für Wiki-Verwaltung."""
+    e = ws.esc
+    st = review.state(page_id)
+    icon = {"none": "⚪", "pending": "⏳", "approved": "✅", "rejected": "⛔"}[st["state"]]
+    detail = f' · {e(st["by"])}' if st["by"] else ""
+    note = f'<br><span class="text-slate-400">„{e(st["comment"])}“</span>' if st["comment"] else ""
+    html = f'<p class="text-xs mt-3">{icon} <b>Redaktionelle Freigabe</b> (Version {st["version"]}): {e(st["label"])}{detail}{note}</p>'
+    if manager and st["state"] in ("none", "rejected"):
+        html += (f'<form method="post" action="/wissen/{e(page_id)}/freigabe" class="mt-2"><input type="hidden" name="aktion" value="einreichen">'
+                 f'<button class="{ws.BTN} py-1.5 px-3 text-[11px]">Zur Freigabe einreichen</button></form>')
+    if manager and st["state"] == "pending":
+        html += (f'<form method="post" action="/wissen/{e(page_id)}/freigabe" class="mt-2 flex flex-wrap gap-2 items-center">'
+                 f'<input class="{ws.INPUT} flex-1" name="kommentar" maxlength="500" placeholder="Kommentar (bei Ablehnung Pflicht)">'
+                 f'<button name="aktion" value="freigeben" class="{ws.BTN} py-1.5 px-3 text-[11px]">Freigeben</button>'
+                 f'<button name="aktion" value="ablehnen" class="{ws.BTN} py-1.5 px-3 text-[11px]">Ablehnen</button></form>')
+    return html
 
 
 def list_block(ws, ctx) -> str:
@@ -96,6 +118,33 @@ def register(app) -> None:
             raise HTTPException(status_code=404, detail="Diese Seite ist keine Pflichtlektüre.")
         ws.log_audit(ctx.user.get("global_name"), ctx.user["id"], "Pflichtlektüre bestätigt", f"{page_id} · Version {version}")
         return ws.back(f"/wiki/{page_id}", f"Version {version} als gelesen bestätigt.")
+
+    @app.post("/wissen/{page_id}/freigabe")
+    async def wiki_review_action(request: Request, page_id: str, aktion: str = Form(...), kommentar: str = Form(""), user_session: str = Cookie(None)):
+        ctx = ws.auth(request, user_session, perm=None)
+        if not is_manager(ctx.perms):
+            raise HTTPException(status_code=403, detail="Dafür fehlt dir die Berechtigung.")
+        actor = ctx.user.get("global_name") or "Team"
+        uid = ctx.user["id"]
+        if aktion == "einreichen":
+            ok, code = review.request_review(page_id, uid, actor)
+            messages = {"ok": "Zur Freigabe eingereicht.", "not_found": "Wiki-Seite nicht gefunden.",
+                        "already_pending": "Die Freigabe ist bereits angefragt.", "already_approved": "Diese Version ist bereits freigegeben."}
+            if code == "not_found":
+                raise HTTPException(status_code=404, detail=messages[code])
+            if ok:
+                ws.log_audit(actor, uid, "Wiki-Freigabe angefragt", str(page_id))
+            return ws.back(f"/wiki/{page_id}", messages[code], ok)
+        if aktion in ("freigeben", "ablehnen"):
+            ok, code = review.decide(page_id, uid, actor, aktion == "freigeben", kommentar)
+            messages = {"ok": "Entscheidung gespeichert.", "not_pending": "Keine offene Freigabe für die aktuelle Version.",
+                        "own_request": "Eine eigene Anfrage kannst du nicht selbst entscheiden (Vier-Augen-Prinzip).",
+                        "own_version": "Die eigene Version kannst du nicht selbst freigeben (Vier-Augen-Prinzip).",
+                        "comment_required": "Bitte einen Kommentar für die Ablehnung angeben."}
+            if ok:
+                ws.log_audit(actor, uid, "Wiki-Freigabe entschieden", f"{page_id} · {aktion}")
+            return ws.back(f"/wiki/{page_id}", messages[code], ok)
+        raise HTTPException(status_code=400, detail="Unbekannte Aktion.")
 
     @app.post("/wissen/{page_id}/pflicht")
     async def wiki_set_required(request: Request, page_id: str, on: str = Form("1"), user_session: str = Cookie(None)):

@@ -100,6 +100,7 @@
  "GET /pulse-inbox -> pulse_pro.register.<locals>.inbox_v5",
  "GET /recovery/authorize -> pulse_admin.register.<locals>.recovery_authorize",
  "GET /regelwerk -> pulse_public_site.register.<locals>.add_page.<locals>.handler",
+ "GET /regelwerk-suche -> pulse_rules_lookup.register.<locals>.rules_page",
  "GET /robots.txt -> pulse_pro.register.<locals>.robots_txt",
  "GET /search -> pulse_pro.register.<locals>.search_v5",
  "GET /security -> webserver.security_page",
@@ -465,6 +466,7 @@
  "POST /voice-support/save -> pulse_pro.register.<locals>.voice_support_save",
  "POST /wiki/save -> pulse_features.register.<locals>.wiki_save",
  "POST /wiki/{page_id}/restore/{version_number} -> pulse_features.register.<locals>.wiki_restore_version",
+ "POST /wissen/{page_id}/freigabe -> pulse_wiki_pages.register.<locals>.wiki_review_action",
  "POST /wissen/{page_id}/gelesen -> pulse_wiki_pages.register.<locals>.wiki_acknowledge",
  "POST /wissen/{page_id}/pflicht -> pulse_wiki_pages.register.<locals>.wiki_set_required"
 ]

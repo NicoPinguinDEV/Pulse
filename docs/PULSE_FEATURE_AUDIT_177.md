@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **132 fertig / 45 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **134 fertig / 43 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 132 |
-| Teilweise | 45 |
+| Fertig | 134 |
+| Teilweise | 43 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -31,12 +31,12 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 3 | 0 |
 | Discord-Bot – Moderation und Sicherheit | 14 | 1 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
-| Discord-Bot – Community und BOCHUM RP | 8 | 7 | 0 |
+| Discord-Bot – Community und BOCHUM RP | 9 | 6 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 9 | 6 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 12 | 0 | 0 |
 | Dienstplanung und Aktivität | 11 | 1 | 0 |
 | Bewerbungen und Recruiting | 11 | 0 | 0 |
-| Academy und Wissensmanagement | 8 | 2 | 0 |
+| Academy und Wissensmanagement | 9 | 1 | 0 |
 | Discord und Dashboard verbinden | 0 | 10 | 0 |
 | Pulse Intelligence | 11 | 4 | 0 |
 | Automatisierungen und Workflow-System | 9 | 3 | 0 |
@@ -110,7 +110,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 44 | Umfragen | **Teilweise** | `/ultimate/polls` bietet Single-/Multiple-Choice-Abstimmungen im Dashboard; native Discord-Umfragen und Bot-Commands sind nicht vollständig integriert. |
 | 45 | Community-Vorschlagsbox | **Fertig** | PR #217 ergänzt Discord-Modal-Einreichung, servergebundene Speicherung, Dashboard-Prüfung/Freigabe und Community-Abstimmung mit Ein-Stimme-pro-Mitglied-Regel sowie Ergebnisübersicht. Verhaltenstests, Datenschutzexport und Pflicht-CI sind grün. |
 | 46 | Feedbacksystem | **Fertig** | PR #217 ergänzt /feedback für anonyme oder namentliche Einreichungen, trennt allgemeines Feedback sauber von abstimmbaren Vorschlägen und zeigt beide Typen im Dashboard. Verhaltenstests, Datenschutzexport und Pflicht-CI sind grün. |
-| 47 | Regelwerk-Assistent mit Quellen | **Teilweise** | Support Assistant und `support_knowledge.md` liefern Wissensantworten; zitierte, versionierte Regelwerkspassagen mit direkten Quellenlinks fehlen. |
+| 47 | Regelwerk-Assistent mit Quellen | **Fertig** | Support Assistant und `support_knowledge.md` liefern Wissensantworten; zitierte, versionierte Regelwerkspassagen mit direkten Quellenlinks fehlen. Neu: `pulse_rules_lookup.py` zerlegt die Wissensbasis in zitierbare Stellen (Regelwerk, §, Stand, Fassungs-Hash); Dashboard `/regelwerk-suche` und Bot-Befehl `/regelwerk` liefern wörtliche Stellen mit Quelle, ohne KI und ohne Auslegung (`tests/test_rules_lookup.py`). |
 | 48 | Freigegebene Fraktionsübersicht | **Fertig** | Fraktionsverwaltung mit offiziellen Fraktionen und öffentlicher, freigabegesteuerter Darstellung; `tests/test_factions.py`, `tests/test_public_site.py`. |
 | 49 | Spieler-Meldesystem | **Fertig** | PR #219 ergänzt /spieler-meldung und /meine-meldungen, strukturierte Kategorien/Prioritäten, optionale Belege, servergebundene Fall-IDs, Team-Benachrichtigungen, Dashboard-Bearbeitung und personenbezogenen Export für Melder, Bearbeiter und Prüfer. Regression, Datenschutztests und Pflicht-CI sind grün. |
 | 50 | Strikte IC-/OOC-Falltrennung | **Teilweise** | Fallkategorien und IC-/OOC-Angaben existieren in Bewerbungs-/Moderationsabläufen; ein einheitliches, validiertes IC-/OOC-Vorgangsmodell fehlt. |
@@ -199,7 +199,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 108 | Quizsystem | **Teilweise** | Trainingserstellung, Fragen, Zeitlimit und Bestehensgrenze existieren; vollständige Quizverwaltung und direkte End-to-End-Abdeckung sind begrenzt. |
 | 109 | Zertifikate | **Fertig** | Nach jedem bestandenen Test wird automatisch ein Zertifikat mit Prüfcode ausgestellt (`pulse_certificates.py`, aus dem gespeicherten Versuch, idempotent je Versuch); Anzeige unter `/training`, Prüfseite `/training/certificate/{code}` nur für Inhaber und Leitung. `tests/test_training_certificates.py`. |
 | 110 | Auffrischungsschulungen | **Fertig** | Je Schulung konfigurierbare Gültigkeit und Vorwarnzeit (`POST /training/{id}/refresher`, nur Schulungsverwaltung); Housekeeping benachrichtigt Inhaber genau einmal vor Ablauf und bei Ablauf, ein neues Zertifikat ersetzt das alte, Leitung sieht fällige Auffrischungen. `tests/test_training_certificates.py`. |
-| 111 | Wissensdatenbank/Wiki | **Teilweise** | Volltextsuche `/wissen` (alle Begriffe, Titel gewichtet, Ausschnitt) und Versionsverlauf mit Wiederherstellung; redaktionelle Freigaben fehlen. |
+| 111 | Wissensdatenbank/Wiki | **Fertig** | Volltextsuche `/wissen` (alle Begriffe, Titel gewichtet, Ausschnitt) und Versionsverlauf mit Wiederherstellung; redaktionelle Freigaben fehlen. Neu: redaktionelle Freigabe je Version mit Vier-Augen-Prinzip (`pulse_wiki_review.py`, `/wissen/{id}/freigabe`; Autor und Antragsteller dürfen nicht selbst freigeben, Ablehnung braucht Begründung, neue Version = neue Freigabe; `tests/test_wiki_review.py`). |
 | 112 | Artikel-Versionierung | **Fertig** | Unveränderliche Wiki-Versionen und Wiederherstellung (PR #196); `tests/test_wiki_versioning.py`. |
 | 113 | Lesebestätigung für Dienstanweisungen | **Fertig** | Pflichtlektüre je Wiki-Seite: Bestätigung gilt für die aktuelle Version, jede neue Version macht die Seite wieder offen; Meldung ans Team, Abdeckung (bestätigt/offen) für die Verwaltung (`pulse_wiki_plus.py`, `tests/test_wiki_plus.py`). |
 | 114 | Schulungsfortschritt | **Fertig** | Trainingsversuche und Zuweisungen werden gespeichert; bestandene Prüfungen setzen passende Zuweisungen auf `passed`; `tests/test_training_assignments.py`. |
@@ -231,7 +231,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 130 | Automatische Tagesberichte | **Fertig** | `/team/intelligenz?ansicht=tagesbericht`: Entwurf für den Vortag (Tickets, Dienst, Aufgaben, offene Last, Hinweise) mit Quellen; wird nur auf Abruf erzeugt und nie automatisch verschickt (`pulse_intel.daily_draft`). |
 | 131 | Automatische Wochenberichte | **Fertig** | `ansicht=wochenbericht`: letzte volle Woche gegen die Vorwoche mit Differenzen, Hinweisen, Kennzahl-Definitionen und Quellen (`pulse_intel.weekly_draft`). |
 | 132 | Führungskräfte-Assistent | **Fertig** | `ansicht=fragen`: lokale Fragen (überfällige Tickets, ohne Bearbeiter, überlastet, auffällige Schichten, Hinweise, wartende Bewerbungen, offene Tickets) mit Quellen und Links; unbekannte Fragen werden ehrlich abgelehnt. Begrenzter Fragenkatalog, keine freie Abfrage. |
-| 133 | Wissensassistent mit Quellenangaben | **Teilweise** | Support Assistant nutzt freigegebene Wissensdateien; Quellzitate/Versionen je Antwort fehlen. |
+| 133 | Wissensassistent mit Quellenangaben | **Teilweise** | Support Assistant nutzt freigegebene Wissensdateien; Quellzitate/Versionen je Antwort fehlen. Neu: Die Regelwerk-Suche (#47) liefert belegte Stellen mit Quelle und Fassung; der KI-Support-Assistent selbst zitiert pro Antwort weiterhin nicht. |
 | 134 | Ticket-Zusammenfassungen | **Fertig** | Eine gemeinsame lokale Funktion (`pulse_summaries.summarize_ticket`) für Discord und Dashboard (`GET /ticket/{id}/summary`, offene Tickets aus dem Kanal, geschlossene aus dem Transkript); rein extraktiv, jede Aussage mit Quelle. `pulse_summaries.py`, `pulse_pro.py`; `tests/test_summaries.py`. PR: Zusammenfassungs-Block. |
 | 135 | Bewerbungs-Zusammenfassungen | **Fertig** | Strukturierte Übersicht je Bewerbung nur für Recruiting-Berechtigte (Umfang, Kernsätze als Zitat, Praxisaufgaben, vorhandenes Testergebnis, Hinweise zur Vollständigkeit) – ohne Bewertung, Rangfolge oder Empfehlung. `pulse_summaries.py`, `webserver.py`; `tests/test_summaries.py`. PR: Zusammenfassungs-Block. Einschränkung: nur im Dashboard. |
 | 136 | Automatischer Schichtübergabe-Entwurf | **Fertig** | `ansicht=uebergabe`: Übergabe-Entwurf aus offenen Tickets (älteste zuerst), offenen Aufgaben nach Priorität und aktuellen Hinweisen; rein lesend (`pulse_intel.handover_draft`). |

@@ -3,7 +3,7 @@
 Automatisch erzeugt von `python tools/route_map.py` aus dem laufenden FastAPI-Objekt (nicht von Hand bearbeiten).
 Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, `admin_ctx`, `perm=`) – Hinweis, kein Beweis.
 
-- **Effektive Routen (Methode × Pfad):** 468
+- **Effektive Routen (Methode × Pfad):** 470
 - **Doppelt registriert:** 1 → `GET /ultimate`
 - **Im Quelltext registriert, zur Laufzeit verdrängt:** 5
 - **Ohne erkennbare Prüfung:** 56 (Login/OAuth/Health/Bewerbungsportal/öffentliche Seiten – einzeln prüfen)
@@ -153,10 +153,10 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/api/events/poll` | `pulse_live.register.<locals>.events_poll` | pulse_live.py:107 | can_view_dashboard |
-| GET | `/api/events/stream` | `pulse_live.register.<locals>.events_stream` | pulse_live.py:116 | can_view_dashboard |
-| GET | `/api/live/feed` | `pulse_live.register.<locals>.live_feed` | pulse_live.py:97 | angemeldet |
-| GET | `/api/live/status` | `pulse_live.register.<locals>.live_status` | pulse_live.py:92 | can_view_dashboard |
+| GET | `/api/events/poll` | `pulse_live.register.<locals>.events_poll` | pulse_live.py:114 | can_view_dashboard |
+| GET | `/api/events/stream` | `pulse_live.register.<locals>.events_stream` | pulse_live.py:123 | can_view_dashboard |
+| GET | `/api/live/feed` | `pulse_live.register.<locals>.live_feed` | pulse_live.py:104 | angemeldet |
+| GET | `/api/live/status` | `pulse_live.register.<locals>.live_status` | pulse_live.py:99 | can_view_dashboard |
 | GET | `/api/pulse/live` | `pulse_pro.register.<locals>.api_live` | pulse_pro.py:3722 | can_view_dashboard |
 | GET | `/api/roblox-search` | `webserver.roblox_search` | webserver.py:3512 | can_view_dashboard |
 | GET | `/api/roblox-user` | `webserver.roblox_user_lookup` | webserver.py:3448 | can_view_dashboard |
@@ -468,6 +468,12 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
 | GET | `/regelwerk` | `pulse_public_site.register.<locals>.add_page.<locals>.handler` | pulse_public_site.py:780 | — (öffentlich/keine erkennbare Prüfung) |
+
+### `/regelwerk-suche` (1)
+
+| Methode | Pfad | Handler | Ort | Prüfung |
+|---|---|---|---|---|
+| GET | `/regelwerk-suche` | `pulse_rules_lookup.register.<locals>.rules_page` | pulse_rules_lookup.py:113 | can_view_dashboard |
 
 ### `/robots.txt` (1)
 
@@ -873,11 +879,12 @@ Spalte *Prüfung* ist eine Quelltext-Heuristik (`auth(...)`, `cctx`, `ctx_for`, 
 | GET | `/wiki/{page_id}` | `pulse_features.register.<locals>.wiki_detail` | pulse_features.py:103 | ctx (+ can_manage_wiki, can_promote, is_admin) |
 | POST | `/wiki/{page_id}/restore/{version_number}` | `pulse_features.register.<locals>.wiki_restore_version` | pulse_features.py:175 | angemeldet (+ can_manage_wiki, can_promote, is_admin) |
 
-### `/wissen` (3)
+### `/wissen` (4)
 
 | Methode | Pfad | Handler | Ort | Prüfung |
 |---|---|---|---|---|
-| GET | `/wissen` | `pulse_wiki_pages.register.<locals>.wiki_search_page` | pulse_wiki_pages.py:70 | can_view_dashboard |
-| POST | `/wissen/{page_id}/gelesen` | `pulse_wiki_pages.register.<locals>.wiki_acknowledge` | pulse_wiki_pages.py:91 | can_view_dashboard |
-| POST | `/wissen/{page_id}/pflicht` | `pulse_wiki_pages.register.<locals>.wiki_set_required` | pulse_wiki_pages.py:100 | angemeldet |
+| GET | `/wissen` | `pulse_wiki_pages.register.<locals>.wiki_search_page` | pulse_wiki_pages.py:92 | can_view_dashboard |
+| POST | `/wissen/{page_id}/freigabe` | `pulse_wiki_pages.register.<locals>.wiki_review_action` | pulse_wiki_pages.py:122 | angemeldet |
+| POST | `/wissen/{page_id}/gelesen` | `pulse_wiki_pages.register.<locals>.wiki_acknowledge` | pulse_wiki_pages.py:113 | can_view_dashboard |
+| POST | `/wissen/{page_id}/pflicht` | `pulse_wiki_pages.register.<locals>.wiki_set_required` | pulse_wiki_pages.py:149 | angemeldet |
 

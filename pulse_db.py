@@ -438,6 +438,19 @@ def init_db():
                 set_by_name TEXT NOT NULL DEFAULT '',
                 set_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS wiki_version_reviews (
+                page_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                requester_id TEXT NOT NULL DEFAULT '',
+                requester_name TEXT NOT NULL DEFAULT '',
+                requested_at TEXT NOT NULL DEFAULT '',
+                reviewer_id TEXT NOT NULL DEFAULT '',
+                reviewer_name TEXT NOT NULL DEFAULT '',
+                comment TEXT NOT NULL DEFAULT '',
+                decided_at TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (page_id, version)
+            );
             CREATE TABLE IF NOT EXISTS wiki_read_acks (
                 page_id TEXT NOT NULL,
                 version INTEGER NOT NULL,
@@ -2556,7 +2569,7 @@ TABLES = [
     "team_dev_goals",
     "message_templates", "message_template_versions",
     "ops_error_groups",
-    "wiki_required_reads", "wiki_read_acks",
+    "wiki_required_reads", "wiki_read_acks", "wiki_version_reviews",
     "case_closing_reports",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
