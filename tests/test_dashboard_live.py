@@ -110,6 +110,9 @@ class LiveRouteCase(Base):
         self.assertIn('<ul id="liveFeed"', live.widget_html(ws.esc, True))
         self.assertNotIn('<ul id="liveFeed"', live.widget_html(ws.esc, False))
         self.assertIn("document.hidden", live.widget_html(ws.esc, False))
+        html = live.widget_html(ws.esc, False)  # #117/#70: Push per SSE, Polling bleibt Rückfall, Stream wird bei verstecktem Tab geschlossen
+        for needle in ("/api/events/stream", "window.EventSource", "setInterval", "closeStream"):
+            self.assertIn(needle, html)
 
 
 class KeysAndHelpCase(unittest.TestCase):
