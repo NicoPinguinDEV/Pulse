@@ -1,7 +1,7 @@
 # Pulse – Statusaudit der 177 Funktionsideen
 
 **Ursprünglicher Auditstand:** `main` bei `c564dc448e647b48a649659da8c2c8b0a834301d` (Kurz-SHA `c564dc4`)  
-**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **157 fertig / 20 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
+**Aktueller Abgleich (2026-11-14):** `main` @ `2c02788` (PR #248 und #249 gemergt: #95 ist auf `main` vollständig fertig und mit 27 Browser-Tests abgesichert) plus Feature-Branch `feature/recruiting-interview-calendar-99` (#99). Stand mit #99: **160 fertig / 17 teilweise / 0 offen** (Integrationsbranch `integration/all-blocks` mit allen Arbeitsblöcken: Recruiting, Teamakte, Intelligenz, Dashboard, Integration F1–F8, Betrieb, Leitstelle/Academy, Barrierefreiheit); auf `main` allein: 101 / 76 / 0. Die Zahlen werden mit `python tools/audit_counts.py` aus den 177 Einzelzeilen gezählt und von `tests/test_feature_audit_counts.py` geprüft – nicht von Hand. Frühere Korrekturen: #235 (PR #221–#228), #236 (#55) und #237 (#12) haben Zeilen angeglichen; die ältere Kopfzeile nannte fälschlich 78/99, die Übersicht 80/97. Fortschritt und Nachweise: `docs/PULSE_177_IMPLEMENTATION_PROGRESS.md`.  
 **Produktversion:** `pulse_version.py` / README führen Pulse 7.17.0  
 **Umfang:** Die 177 nummerierten Ideen aus der Gesprächsliste – Discord-Bot, Dashboard, gemeinsame Plattform, Intelligence, Workflows, Betrieb und BOCHUM-RP-Leitstelle.
 
@@ -19,8 +19,8 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 157 |
-| Teilweise | 20 |
+| Fertig | 160 |
+| Teilweise | 17 |
 | Offen | 0 |
 | **Gesamt** | **177** |
 
@@ -31,12 +31,12 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | Discord-Bot – Bedienung und Benutzerfreundlichkeit | 7 | 3 | 0 |
 | Discord-Bot – Moderation und Sicherheit | 15 | 0 | 0 |
 | Discord-Bot – Tickets und Support | 15 | 0 | 0 |
-| Discord-Bot – Community und BOCHUM RP | 13 | 2 | 0 |
+| Discord-Bot – Community und BOCHUM RP | 15 | 0 | 0 |
 | TeamOS-Dashboard – Startseite und Navigation | 9 | 6 | 0 |
 | Teamverwaltung und Mitarbeiterakten | 12 | 0 | 0 |
 | Dienstplanung und Aktivität | 12 | 0 | 0 |
 | Bewerbungen und Recruiting | 11 | 0 | 0 |
-| Academy und Wissensmanagement | 9 | 1 | 0 |
+| Academy und Wissensmanagement | 10 | 0 | 0 |
 | Discord und Dashboard verbinden | 5 | 5 | 0 |
 | Pulse Intelligence | 14 | 1 | 0 |
 | Automatisierungen und Workflow-System | 11 | 1 | 0 |
@@ -113,11 +113,11 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 | 47 | Regelwerk-Assistent mit Quellen | **Fertig** | Support Assistant und `support_knowledge.md` liefern Wissensantworten; zitierte, versionierte Regelwerkspassagen mit direkten Quellenlinks fehlen. Neu: `pulse_rules_lookup.py` zerlegt die Wissensbasis in zitierbare Stellen (Regelwerk, §, Stand, Fassungs-Hash); Dashboard `/regelwerk-suche` und Bot-Befehl `/regelwerk` liefern wörtliche Stellen mit Quelle, ohne KI und ohne Auslegung (`tests/test_rules_lookup.py`). |
 | 48 | Freigegebene Fraktionsübersicht | **Fertig** | Fraktionsverwaltung mit offiziellen Fraktionen und öffentlicher, freigabegesteuerter Darstellung; `tests/test_factions.py`, `tests/test_public_site.py`. |
 | 49 | Spieler-Meldesystem | **Fertig** | PR #219 ergänzt /spieler-meldung und /meine-meldungen, strukturierte Kategorien/Prioritäten, optionale Belege, servergebundene Fall-IDs, Team-Benachrichtigungen, Dashboard-Bearbeitung und personenbezogenen Export für Melder, Bearbeiter und Prüfer. Regression, Datenschutztests und Pflicht-CI sind grün. |
-| 50 | Strikte IC-/OOC-Falltrennung | **Teilweise** | Fallkategorien und IC-/OOC-Angaben existieren in Bewerbungs-/Moderationsabläufen; ein einheitliches, validiertes IC-/OOC-Vorgangsmodell fehlt. |
+| 50 | Strikte IC-/OOC-Falltrennung | **Fertig** | Fallkategorien und IC-/OOC-Angaben existieren in Bewerbungs-/Moderationsabläufen; ein einheitliches, validiertes IC-/OOC-Vorgangsmodell fehlt. Neu: einheitliches IC-/OOC-Modell (`pulse_realm.py`): Spalte `realm` für Team-/Spielerfälle und Spielermeldungen (additive Migration), Validierung beim Anlegen (Dashboard-Pflichtfeld, Discord-Option `bereich`), strikte Filter und Zählung je Bereich, Nachtragen für Altbestand durch Führung; nie geraten, Altfälle zeigen „nicht zugeordnet“ (`tests/test_realm.py`). |
 | 51 | Team-Besprechungsmodus | **Fertig** | Kalender und Besprechungseinträge existieren; Agenda, Teilnehmer, Beschlüsse und daraus erzeugte Aufgaben sind nicht als vollständiger Meeting-Workflow verbunden. Neu: Besprechungsmodus (`pulse_meetings.py`, `/besprechungen`): Agenda, Einladungen, Anwesenheit, Beschlüsse und daraus erzeugte Aufgaben über die gemeinsame Aufgabenregel; Abschluss sperrt das Protokoll und legt eine Kopie in `meetings_history` ab; Führung leitet, das Team liest (`tests/test_meetings.py`). |
 | 52 | Ankündigungsplaner | **Fertig** | PR #228: `/teamankuendigung planen|freigeben|liste|abbrechen` mit Entwurf, Vier-Augen-Freigabe (Ersteller darf nicht freigeben), Planung in Europe/Berlin (10 min–90 Tage, DST-Lücken abgelehnt), 30-s-Job, Veröffentlichung im Team-Updates-Kanal plus Inbox, `failed`-Status ohne Doppelversand. Tabelle `scheduled_announcements` im DB-Backup und Personenexport. `cogs/scheduled_announcements.py`; `tests/test_scheduled_announcements.py`. Planung nur über Discord, nicht im Dashboard. |
 | 53 | Lesebestätigungen für Ankündigungen | **Fertig** | Team-News besitzen Lesestatus/Bestätigungen; eine einheitliche Bestätigung für alle Arten von Dienstanweisungen und Discord-Ankündigungen ist nicht vorhanden. Neu: einheitliche Lesebestätigung (`pulse_ack.py`, `/bestaetigungen`, Discord `/bestaetigungen`): jede Discord-Ankündigung, Team-News und freie Dienstanweisung kann „Bestätigung erforderlich“ tragen (Checkbox, `/teamannounce bestaetigung`); jede Person bestätigt nur selbst, Führung sieht, wer fehlt, Frist und Erinnerung über die Inbox (`tests/test_ack.py`). |
-| 54 | Social-Media-Monitor | **Teilweise** | YouTube-/TikTok-Quellen, RSS-/Feedabruf, automatische Ankündigungen und SSRF-Schutz existieren; Filter- und Reportingumfang ist noch nicht vollständig. |
+| 54 | Social-Media-Monitor | **Fertig** | YouTube-/TikTok-Quellen, RSS-/Feedabruf, automatische Ankündigungen und SSRF-Schutz existieren; Filter- und Reportingumfang ist noch nicht vollständig. Neu: Filter (Plattform, Status, Suche) und Veröffentlichungsübersicht der letzten 30 Tage mit Zählung je Plattform und Quelle; jede gesendete Ankündigung wird in `social_publications` protokolliert (`pulse_social_log.py`, `tests/test_social_monitor.py`). |
 | 55 | Spieler-Selbstservice | **Fertig** | Private Discord-Ansichten `/meine-tickets`, `/meine-events`, `/meine-benachrichtigungen` (PR #222). Neu: gebündelte Übersicht `/selbstservice` und Selbstservice-Aktion `/event-rueckmeldung` (Zusage/Absage/Zurückziehen mit Autovervollständigung). Sie nutzt dieselbe Funktion `pulse_ultimate.set_calendar_rsvp` wie der Dashboard-Kalender, erfordert Dashboard-Zugang und gilt nur für kommende Termine; mit Audit-Eintrag. Ticket-Ersteller schließen ihr eigenes Ticket über den bestehenden Schließen-Button (Prüfung von `user_id`). `cogs/pulse_pro.py`, `pulse_ultimate.py`; `tests/test_player_self_service.py`, `tests/test_ultimate_event_rsvps.py`. |
 
 ### 5. TeamOS-Dashboard – Startseite und Navigation (56–70)
@@ -196,7 +196,7 @@ Ein ähnlicher Funktionsname reicht nicht für **Fertig**. Beispielsweise ist ei
 |---:|---|---|---|
 | 106 | Interne Lernplattform | **Fertig** | `/academy` bündelt Lernpfade, Quiz-Ergebnisse, Zertifikate, Auffrischung und Pflichtlektüre in einem Bereich für die Ausbildung. |
 | 107 | Lernpfade je Rolle | **Fertig** | Rollenbezogene Lernpfade mit Fortschritt (PR #201); `tests/test_training_learning_paths.py`. |
-| 108 | Quizsystem | **Teilweise** | Trainingserstellung, Fragen, Zeitlimit und Bestehensgrenze existieren; vollständige Quizverwaltung und direkte End-to-End-Abdeckung sind begrenzt. |
+| 108 | Quizsystem | **Fertig** | Trainingserstellung, Fragen, Zeitlimit und Bestehensgrenze existieren; vollständige Quizverwaltung und direkte End-to-End-Abdeckung sind begrenzt. Neu: Quizverwaltung `/training/{id}/verwaltung` (`pulse_quiz_admin.py`): Fragen bearbeiten, ergänzen, löschen (mindestens eine bleibt), ordnen, Einstellungen ändern; Antworten werden je Versuch gespeichert und ergeben die Richtig-Quote je Frage, Bestehensquote und Durchschnitt; Änderungen betreffen nur künftige Versuche (`tests/test_quiz_admin.py`, inkl. Abgabe-Route). |
 | 109 | Zertifikate | **Fertig** | Nach jedem bestandenen Test wird automatisch ein Zertifikat mit Prüfcode ausgestellt (`pulse_certificates.py`, aus dem gespeicherten Versuch, idempotent je Versuch); Anzeige unter `/training`, Prüfseite `/training/certificate/{code}` nur für Inhaber und Leitung. `tests/test_training_certificates.py`. |
 | 110 | Auffrischungsschulungen | **Fertig** | Je Schulung konfigurierbare Gültigkeit und Vorwarnzeit (`POST /training/{id}/refresher`, nur Schulungsverwaltung); Housekeeping benachrichtigt Inhaber genau einmal vor Ablauf und bei Ablauf, ein neues Zertifikat ersetzt das alte, Leitung sieht fällige Auffrischungen. `tests/test_training_certificates.py`. |
 | 111 | Wissensdatenbank/Wiki | **Fertig** | Volltextsuche `/wissen` (alle Begriffe, Titel gewichtet, Ausschnitt) und Versionsverlauf mit Wiederherstellung; redaktionelle Freigaben fehlen. Neu: redaktionelle Freigabe je Version mit Vier-Augen-Prinzip (`pulse_wiki_review.py`, `/wissen/{id}/freigabe`; Autor und Antragsteller dürfen nicht selbst freigeben, Ablehnung braucht Begründung, neue Version = neue Freigabe; `tests/test_wiki_review.py`). |

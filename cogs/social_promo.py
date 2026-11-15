@@ -1027,6 +1027,11 @@ class SocialPromo(commands.Cog):
                 source["seen_ids"] = ([item["id"]] + [x for x in source.get("seen_ids", []) if x != item["id"]])[:MAX_SEEN_IDS]
                 source["last_announced_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 source["announced_count"] = int(source.get("announced_count", 0) or 0) + 1
+                try:  # #54: publication overview
+                    import pulse_social_log
+                    pulse_social_log.record(source, item)
+                except Exception:
+                    pass
                 await asyncio.sleep(0.5)
 
         merged = current_ids + [x for x in source.get("seen_ids", []) if x not in current_ids]

@@ -68,6 +68,11 @@ def register(app) -> None:
         except ValueError:
             cog, sources, module_ok = None, [], False
         import cogs.social_promo as social
+        import pulse_social_log as slog
+        all_sources = list(sources)
+        q = request.query_params
+        flt_platform, flt_status, flt_q = str(q.get("platform", ""))[:20], str(q.get("status", ""))[:20], str(q.get("q", ""))[:slog.MAX_Q]
+        sources = slog.filter_sources(all_sources, flt_platform, flt_status, flt_q)
         channel = guild.get_channel(social.TARGET_CHANNEL_ID)
         role = guild.get_role(social.SOCIAL_PING_ROLE_ID)
 
@@ -108,7 +113,26 @@ def register(app) -> None:
   <form method="post" action="/social/remove" onsubmit="return confirm('Quelle wirklich entfernen?')"><input type="hidden" name="source_id" value="{sid}"><button class="pulse-btn bad" type="submit">🗑</button></form>
  </div>
 </div>''')
-        listing = "".join(rows) or '<div class="pulse-empty">Noch keine Creator verknüpft. Füge oben den ersten Kanal-Link ein.</div>'
+        listing = "".join(rows) or ('<div class="pulse-empty">Keine Quelle passt zu diesem Filter.</div>' if all_sources else
+                                    '<div class="pulse-empty">Noch keine Creator verknüpft. Füge oben den ersten Kanal-Link ein.</div>')
+        platforms = sorted({str(s.get("platform", "")) for s in all_sources if s.get("platform")})
+        filters = (f'<form method="get" action="/social" class="flex flex-wrap gap-2 mb-3"><input class="pulse-input" name="q" value="{e(flt_q)}" maxlength="{slog.MAX_Q}" placeholder="Suchen" style="max-width:200px">'
+                   f'<select class="pulse-input" name="platform" style="max-width:160px"><option value="">Alle Plattformen</option>'
+                   + "".join(f'<option value="{e(p)}"{" selected" if p == flt_platform else ""}>{e(platform_meta(p)[0])}</option>' for p in platforms)
+                   + '</select><select class="pulse-input" name="status" style="max-width:180px"><option value="">Alle Status</option>'
+                   + "".join(f'<option value="{k}"{" selected" if k == flt_status else ""}>{e(v)}</option>' for k, v in slog.STATUSES.items())
+                   + f'</select><button class="pulse-btn ghost" type="submit">Filtern</button>'
+                   + (f'<a class="pulse-btn ghost" href="/social">Zurücksetzen</a>' if (flt_platform or flt_status or flt_q) else "")
+                   + f'<span class="text-[11px] text-slate-400 self-center">{len(sources)} von {len(all_sources)} Quellen</span></form>')
+        summary = slog.summary(30)
+        pubs = "".join(f'<div class="pulse-row"><div class="pulse-row-main"><div class="pulse-row-title">{e(p["title"] or "(ohne Titel)")}</div>'
+                       f'<div class="pulse-row-meta">{e(p["source_name"])} · {e(platform_meta(p["platform"])[0])} · {e(ago(p["announced_at"]))}'
+                       + (f' · <a class="underline" href="{e(p["url"])}" rel="noopener noreferrer" target="_blank">Video</a>' if str(p["url"]).startswith(("https://", "http://")) else "")
+                       + '</div></div></div>' for p in slog.recent(30, flt_platform, limit=15)) or '<div class="pulse-empty">Noch keine Veröffentlichungen protokolliert.</div>'
+        per_platform = " · ".join(f"{e(platform_meta(k)[0])}: {v}" for k, v in sorted(summary["by_platform"].items())) or "–"
+        per_source = " · ".join(f"{e(n)}: {c}" for n, c in summary["by_source"][:5]) or "–"
+        pub_html = (f'<section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">📣 Veröffentlichungen (30 Tage)</div></div><div class="pulse-card-b">'
+                    f'<p class="text-[11px] text-slate-400 mb-2">{summary["total"]} Ankündigungen · {per_platform}<br>Aktivste Quellen: {per_source}</p>{pubs}</div></section>')
         active = sum(1 for s in sources if s.get("enabled", True) and s.get("feed_status") == "active")
         total_announced = sum(int(s.get("announced_count", 0) or 0) for s in sources)
         warning = "" if module_ok else '<div class="pulse-alert" style="border-color:rgba(240,68,56,.3)"><strong>⚠ Das Social-Modul ist im Bot nicht geladen.</strong> Bitte den Bot neu starten.</div>'
@@ -141,7 +165,8 @@ def register(app) -> None:
    </form></div></section>
   <section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">📡 Überwachte Kanäle</div>
    <form method="post" action="/social/test"><button class="pulse-btn ghost" type="submit">🧪 Testankündigung senden</button></form></div>
-   <div class="pulse-card-b"><div class="pulse-list">{listing}</div></div></section>
+   <div class="pulse-card-b">{filters}<div class="pulse-list">{listing}</div></div></section>
+  {pub_html}
  </div>
  <div class="space-y-5">
   <section class="pulse-card"><div class="pulse-card-h"><div class="pulse-section-title">ℹ️ Plattformen</div></div><div class="pulse-card-b text-xs space-y-2">
