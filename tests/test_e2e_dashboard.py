@@ -927,5 +927,351 @@ class RecruitingBoardForbiddenE2ETests(_BoardBase):
         self.assertEqual(page.locator('#pulseSidebar a[href="/applications/board"]').count(), 0)
 
 
+# --------------------------------------------------------------------------------------------- Audit #99
+SLOT_FORM = 'form[action="/applications/interview-slot"]'
+CANCEL_FORM = 'form[action="/applications/interview-cancel"]'
+INTERVIEW_NAMES = ("Anna Alpha", "Bernd Beta", "Cora Gamma", "Fritz Fest", "Anja Absage", "Mona Mobil")
+
+
+def _local(days: int, hour: int, minute: int = 0) -> str:
+    """datetime-local value `days` ahead (far away from the DST switches' 02:00–03:00 gap)."""
+    from datetime import datetime, timedelta
+    return (datetime.now() + timedelta(days=days)).replace(hour=hour, minute=minute, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
+
+
+class _InterviewBase(_PreviewE2EBase):
+    EXTRA_ARGS = ("--seed-interviews",)
+
+    def _applications(self) -> dict:
+        files = list(Path(self.tmp.name).glob("pulse-preview-*/applications.json"))
+        self.assertEqual(len(files), 1, files)
+        return json.loads(files[0].read_text(encoding="utf-8"))
+
+    def _overflow(self, page) -> int:
+        return page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
+
+    def _calendar(self, page, value: str):
+        response = page.goto(self._url(f"/calendar?month={value[:7]}"))
+        self.assertEqual(response.status, 200)
+        return response
+
+    def _slot(self, page, app_id: str, value: str, duration: str = "", lead: str = ""):
+        """Fills the interview form of one application card and submits it; returns the toast text."""
+        page.goto(self._url("/applications"))
+        form = page.locator(f"#app-{app_id} {SLOT_FORM}")
+        form.locator('input[name="interview_at"]').fill(value)
+        if duration:
+            form.locator('select[name="duration"]').select_option(duration)
+        if lead:
+            form.locator('select[name="lead_id"]').select_option(lead)
+        with page.expect_navigation():
+            form.locator("button").first.click()
+        return page.locator("#toast").inner_text()   # Vorschau-Bot hat keine DM-Zustellung: Erfolg mit Hinweis kommt als role=alert
+
+    def _agenda(self, page) -> str:
+        return page.locator('section[aria-labelledby="cal-interviews"]').inner_text()
+
+
+class InterviewCalendarAdminE2ETests(_InterviewBase):
+    """Audit #99 (Rolle admin): Termin anlegen, ändern, absagen, Konflikt, Teilnehmer, Navigation – Desktop und Mobil."""
+
+    def test_create_shows_calendar_object_participants_and_links_back(self):
+        page, errors = self._page(viewport={"width": 1366, "height": 900})
+        when = _local(7, 10)
+        self.assertIn("Gesprächstermin", self._slot(page, "iv-anna", when, duration="45", lead="3"))
+        record = self._applications()["iv-anna"]
+        self.assertEqual((record["interview_state"], record["interview_lead_id"], record["interview_at"][:16]), ("scheduled", "3", when))
+        self.assertTrue(record["interview_event_id"].startswith("cal_"))
+        self._calendar(page, when)
+        chip = page.locator('a.cal-interview[href="/applications#app-iv-anna"]')
+        self.assertEqual(chip.count(), 1)
+        self.assertIn("10:00–10:45", chip.inner_text())
+        agenda = self._agenda(page)
+        for expected in ("Anna Alpha", "45 Min.", "Geplant", "Lena Leitung", "Prüfer", "Führungskraft", "Terminverantwortlich", "Bewerber"):
+            self.assertIn(expected, agenda)
+        self.assertLessEqual(self._overflow(page), 1)
+        with page.expect_navigation():
+            page.locator('section[aria-labelledby="cal-interviews"] a[href="/applications#app-iv-anna"]').click()
+        self.assertTrue(page.url.endswith("/applications#app-iv-anna"), page.url)
+        self.assertEqual(page.locator("#app-iv-anna").count(), 1)
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_move_replaces_the_entry_and_cancel_removes_it(self):
+        page, errors = self._page(viewport={"width": 1366, "height": 900})
+        first, second = _local(8, 11), _local(8, 13)
+        self._slot(page, "iv-cora", first)
+        old_event = self._applications()["iv-cora"]["interview_event_id"]
+        self._slot(page, "iv-cora", second, duration="60")
+        record = self._applications()["iv-cora"]
+        self.assertNotEqual(record["interview_event_id"], old_event)
+        self.assertEqual((record["interview_at"][:16], record["interview_revision"]), (second, 2))
+        self._calendar(page, second)
+        chip = page.locator('a.cal-interview[href="/applications#app-iv-cora"]')
+        self.assertEqual(chip.count(), 1)                                                  # replaced, not duplicated
+        self.assertIn("13:00–14:00", chip.inner_text())
+        self.assertEqual(page.locator('section[aria-labelledby="cal-interviews"] li', has_text="Cora Gamma").count(), 1)
+        page.goto(self._url("/applications"))
+        card = page.locator("#app-iv-cora")
+        card.locator(CANCEL_FORM + ' input[name="reason"]').fill("Bewerber krank")
+        page.once("dialog", lambda dialog: dialog.accept())
+        with page.expect_navigation():
+            card.locator(CANCEL_FORM + " button").click()
+        self.assertIn("abgesagt", page.locator("#toast").inner_text())
+        record = self._applications()["iv-cora"]
+        self.assertEqual((record["interview_state"], record["interview_event_id"], record["interview_cancel_reason"]), ("cancelled", "", "Bewerber krank"))
+        self._calendar(page, second)
+        self.assertEqual(page.locator('a.cal-interview[href="/applications#app-iv-cora"]').count(), 0)
+        self.assertNotIn("Cora Gamma", self._agenda(page))
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_conflict_message_and_no_change(self):
+        page, _ = self._page(viewport={"width": 1366, "height": 900})
+        booked = self._applications()["iv-fest"]["interview_at"][:16]            # same reviewer (Lena Leitung)
+        message = self._slot(page, "iv-bernd", booked[:11] + "14:15")
+        self.assertIn("Terminkonflikt", message)
+        self.assertIn("Prüfer", message)
+        self.assertNotIn("interview_at", self._applications()["iv-bernd"])
+        self.assertIn("Gesprächstermin", self._slot(page, "iv-bernd", booked[:11] + "14:30"))   # adjacent slot is fine
+
+    def test_invalid_input_is_reported(self):
+        page, _ = self._page(viewport={"width": 1366, "height": 900})
+        page.goto(self._url("/applications"))
+        form = page.locator(f"#app-iv-mobil {SLOT_FORM}")
+        form.locator('input[name="interview_at"]').fill("2020-01-01T10:00")
+        with page.expect_navigation():
+            form.locator("button").first.click()
+        self.assertIn("Zukunft", page.locator("#toast").inner_text())
+        self.assertNotIn("interview_at", self._applications()["iv-mobil"])
+
+    def test_dst_gap_is_refused_in_the_browser(self):
+        page, _ = self._page()
+        self.assertIn("Zeitumstellung", self._slot(page, "iv-mobil", "2027-03-28T02:30"))
+        self.assertNotIn("interview_at", self._applications()["iv-mobil"])
+
+    def test_zz_mobile_create_and_calendar_without_overflow(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        when = _local(9, 10, 30)
+        self.assertIn("Gesprächstermin", self._slot(page, "iv-mobil", when))
+        self.assertLessEqual(self._overflow(page), 1, "Seitenüberlauf auf /applications (Mobil)")
+        self._calendar(page, when)
+        self.assertLessEqual(self._overflow(page), 1, "Seitenüberlauf auf /calendar (Mobil)")
+        self.assertIn("Mona Mobil", self._agenda(page))
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+
+class InterviewCalendarRecruiterE2ETests(_InterviewBase):
+    ROLE = "recruiter"
+
+    def test_recruiter_sees_applicant_and_opens_the_application(self):
+        page, _ = self._page(viewport={"width": 1366, "height": 900})
+        when = self._applications()["iv-fest"]["interview_at"][:16]
+        self._calendar(page, when)
+        self.assertIn("Fritz Fest", self._agenda(page))
+        with page.expect_navigation():
+            page.locator('section[aria-labelledby="cal-interviews"] a[href="/applications#app-iv-fest"]').click()
+        self.assertTrue(page.url.endswith("#app-iv-fest"), page.url)
+
+
+class InterviewCalendarTeamE2ETests(_InterviewBase):
+    ROLE = "team"
+
+    def test_team_member_sees_no_applicant_data(self):
+        page, errors = self._page(viewport={"width": 1366, "height": 900})
+        when = self._applications()["iv-fest"]["interview_at"][:16]
+        self._calendar(page, when)
+        html = page.content()
+        for leaked in (*INTERVIEW_NAMES, "iv-fest", "#app-", "9104", "Lena Leitung"):
+            self.assertNotIn(leaked, html)
+        agenda = self._agenda(page)
+        for expected in ("Bewerbungsgespräch", "Geplant", "Teilnehmer"):
+            self.assertIn(expected, agenda)
+        self.assertEqual(page.locator("a.cal-interview").count(), 0)          # no link without recruiting permission
+        self.assertGreaterEqual(page.locator(".cal-interview").count(), 1)
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_direct_posts_are_rejected_without_write(self):
+        page, _ = self._page()
+        page.goto(self._url("/me"))
+        before = self._applications()
+        for path, body in (("/applications/interview-slot", {"app_id": "iv-anna", "interview_at": _local(20, 10), "duration": "30"}),
+                           ("/applications/interview-slot", {"app_id": "iv-fest", "interview_at": _local(21, 10)}),
+                           ("/applications/interview-cancel", {"app_id": "iv-fest"}),
+                           ("/applications/interview-cancel", {"app_id": "iv-absage", "expected_revision": "1"})):
+            with self.subTest(path=path, body=body):
+                status = page.evaluate("([path, body]) => fetch(path, {method: 'POST', redirect: 'manual', body: new URLSearchParams(body)})"
+                                       ".then(r => r.status)", [path, body])
+                self.assertEqual(status, 403)
+        self.assertEqual(self._applications(), before)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveAndKeyboardE2ETests(_PreviewE2EBase):
+    """Audit #58/#67/#68/#70 im echten Browser: Live-Status, Tastaturkürzel, Hilfe, Mobil ohne Überlauf."""
+
+    def test_live_status_updates_without_reload_and_feed_for_leadership(self):
+        page, errors = self._page()
+        page.goto(self._url("/me"))
+        page.wait_for_function("document.getElementById('liveStatus') && document.getElementById('liveStatus').textContent.includes('Im Dienst')")
+        self.assertIn("Offene Tickets", page.locator("#liveStatus").inner_text())
+        self.assertEqual(page.locator("#liveFeed").count(), 1)  # admin = leadership
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_keyboard_help_opens_closes_and_navigates(self):
+        page, errors = self._page()
+        page.goto(self._url("/me"))
+        dialog = page.locator("#pulseKeysDialog")
+        self.assertFalse(dialog.is_visible(), "Tastaturhilfe darf nicht ungefragt sichtbar sein")
+        page.keyboard.press("?")
+        self.assertTrue(dialog.is_visible())
+        self.assertIn("Befehlspalette", dialog.inner_text())
+        page.keyboard.press("Escape")
+        self.assertFalse(dialog.is_visible())
+        page.keyboard.press("g")
+        page.keyboard.press("t")
+        page.wait_for_url("**/team")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_shortcuts_are_ignored_while_typing(self):
+        page, _ = self._page()
+        page.goto(self._url("/team"))
+        field = page.locator("input[type=text], input:not([type]), input[type=search]").first
+        if field.count() == 0:
+            self.skipTest("Seite hat kein Textfeld")
+        field.focus()
+        page.keyboard.type("?g")
+        self.assertFalse(page.locator("#pulseKeysDialog").is_visible())
+
+    def test_help_tip_toggles_and_pages_fit_mobile(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        page.goto(self._url("/me"))
+        tip = page.locator("details.pulse-help").first
+        self.assertEqual(tip.count(), 1)
+        tip.locator("summary").click()
+        self.assertTrue(tip.locator("[role=note]").is_visible())
+        for path in ("/me", "/tasks"):
+            page.goto(self._url(path))
+            self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth - window.innerWidth"), 1, f"Überlauf auf {path}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+class OperationsConsoleE2ETests(_PreviewE2EBase):
+    """Audit #153-#172 im Browser: Betriebskonsole (Admin) auf Desktop und Mobil, alle Ansichten ohne JavaScript-Fehler."""
+
+    VIEWS = ("uebersicht", "fehler", "latenz", "ressourcen", "aktionen", "aufbewahrung", "rechte")
+
+    def test_all_views_render_without_errors(self):
+        page, errors = self._page()
+        for view in self.VIEWS:
+            with self.subTest(view=view):
+                self.assertEqual(page.goto(self._url(f"/admin/betrieb?ansicht={view}")).status, 200)
+                self.assertIn("Betriebskonsole", page.locator("main").inner_text())
+        page.goto(self._url("/admin/betrieb"))
+        self.assertIn("release", page.locator("main").inner_text().lower())
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_mobile_without_horizontal_page_overflow(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        for view in self.VIEWS:
+            with self.subTest(view=view):
+                page.goto(self._url(f"/admin/betrieb?ansicht={view}"))
+                self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth - window.innerWidth"), 1, f"Überlauf in {view}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+
+class OperationsConsoleMemberE2ETests(_PreviewE2EBase):
+    ROLE = "team"
+
+    def test_console_is_forbidden_for_normal_team_members(self):
+        page, _ = self._page()
+        self.assertEqual(page.goto(self._url("/admin/betrieb")).status, 403)
+
+
+class ControlRoomAndAcademyE2ETests(_PreviewE2EBase):
+    """Audit #173/#175/#176/#111/#113 im Browser: Leitstelle, Academy, Wiki-Suche und Pflichtlektüre; Desktop und Mobil."""
+
+    def test_pages_render_without_javascript_errors(self):
+        page, errors = self._page()
+        for path, text in (("/leitstelle", "Leitstelle"), ("/academy", "Academy"), ("/wissen", "Wiki-Suche")):
+            with self.subTest(path=path):
+                self.assertEqual(page.goto(self._url(path)).status, 200)
+                self.assertIn(text, page.locator("main").inner_text())
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_must_read_flow_search_and_confirm(self):
+        page, errors = self._page()
+        origin = {"Origin": f"http://127.0.0.1:{self.port}"}
+        saved = page.request.post(self._url("/wiki/save"), form={"title": "Funkregeln E2E", "category": "Regeln", "content": "Nur kurze Meldungen mit Rufzeichen."},
+                                  headers=origin, max_redirects=0)
+        self.assertIn(saved.status, (200, 303), saved.status)
+        page.goto(self._url("/wissen?q=rufzeichen"))
+        self.assertIn("Funkregeln E2E", page.locator("main").inner_text())
+        page.locator("main a", has_text="Funkregeln E2E").first.click()
+        page.get_by_role("button", name="Als Pflichtlektüre festlegen").click()
+        self.assertIn("Pflichtlektüre aufheben", page.locator("main").inner_text())
+        page.get_by_role("button", name="Gelesen und verstanden").click()
+        self.assertIn("hast du bestätigt", page.locator("main").inner_text())
+        page.goto(self._url("/wiki"))
+        self.assertEqual(page.locator("form[action='/wissen']").count(), 1)
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_mobile_without_horizontal_overflow(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        for path in ("/leitstelle", "/academy", "/wissen?q=test", "/wiki"):
+            with self.subTest(path=path):
+                page.goto(self._url(path))
+                self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth - window.innerWidth"), 1, f"Überlauf auf {path}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+
+class AccessibilityE2ETests(_PreviewE2EBase):
+    """Audit #64/#65/#66: keine JavaScript-Fehler, kein Seitenüberlauf auf Mobil und lesbarer Kontrast (WCAG AA) im hellen Modus."""
+
+    PAGES = ("/me", "/team", "/tickets", "/tasks", "/wiki", "/training", "/academy", "/leitstelle", "/admin", "/admin/console", "/admin/betrieb",
+             "/admin/security", "/admin/discord", "/applications", "/calendar", "/stats", "/warns", "/settings")
+    CONTRAST_JS = r"""() => {
+      const lum = c => { const m = c.match(/[\d.]+/g).map(Number); const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); };
+        return .2126 * f(m[0]) + .7152 * f(m[1]) + .0722 * f(m[2]); };
+      const bg = el => { while (el) { const s = getComputedStyle(el); if (s.backgroundImage !== 'none') return null; const m = s.backgroundColor.match(/[\d.]+/g);
+        if (m && (m.length === 3 || Number(m[3]) > .9)) return s.backgroundColor; el = el.parentElement; } return 'rgb(255,255,255)'; };
+      const bad = [];
+      for (const el of document.querySelectorAll('main .text-slate-400, main .pulse-crumb')) {
+        if (!el.textContent.trim() || el.getBoundingClientRect().width === 0 || el.closest('.pulse-hero')) continue;
+        const b = bg(el); if (!b) continue;
+        const a = lum(getComputedStyle(el).color), c = lum(b);
+        const ratio = (Math.max(a, c) + .05) / (Math.min(a, c) + .05);
+        if (ratio < 4.5) bad.push(el.textContent.trim().slice(0, 30) + ' ' + ratio.toFixed(2));
+      }
+      return bad.slice(0, 5);
+    }"""
+
+    def test_no_script_errors_in_both_themes(self):
+        for theme in ("dark", "light"):
+            with self.subTest(theme=theme):
+                context = self.browser.new_context()
+                self.addCleanup(context.close)
+                context.route("**/*", _block_external)
+                context.add_init_script(f"localStorage.theme='{theme}'")
+                page = context.new_page()
+                errors = []
+                page.on("pageerror", lambda exc: errors.append(str(exc)))
+                for path in self.PAGES:
+                    self.assertEqual(page.goto(self._url(path)).status, 200, path)
+                self.assertEqual(errors, [], f"JavaScript-Fehler ({theme}): {errors}")
+
+    def test_mobile_pages_do_not_overflow_horizontally(self):
+        page, errors = self._page(viewport={"width": 375, "height": 812}, is_mobile=True, has_touch=True)
+        for path in self.PAGES:
+            page.goto(self._url(path))
+            self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth - window.innerWidth"), 1, f"Überlauf auf {path}")
+        self.assertEqual(errors, [], f"JavaScript-Fehler: {errors}")
+
+    def test_secondary_text_has_aa_contrast_in_light_mode(self):
+        context = self.browser.new_context()
+        self.addCleanup(context.close)
+        context.route("**/*", _block_external)
+        context.add_init_script("localStorage.theme='light'")
+        page = context.new_page()
+        for path in self.PAGES:
+            page.goto(self._url(path))
+            self.assertEqual(page.evaluate(self.CONTRAST_JS), [], f"Kontrast zu niedrig auf {path}")

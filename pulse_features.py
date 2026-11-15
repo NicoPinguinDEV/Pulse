@@ -97,7 +97,7 @@ def register(app):
         form=''
         if manager:
             form=card(f'''<h2 class="text-sm font-bold mb-3">➕ Wiki-Seite</h2><form action="/wiki/save" method="post" class="space-y-3 text-xs"><input name="title" required maxlength="120" placeholder="Titel…" class="{ws.INPUT}"><input name="category" required maxlength="60" placeholder="Kategorie…" class="{ws.INPUT}"><textarea name="content" required maxlength="10000" placeholder="Inhalt…" class="{ws.INPUT} h-44"></textarea><button class="{ws.BTN} py-2.5 px-4">Seite speichern</button></form>''')
-        body=f'<h1 class="text-2xl font-bold mb-2">📚 Team-Wiki</h1><p class="text-xs text-slate-500 mb-5">Zentrale Wissensdatenbank für Regeln, Abläufe und Schulungen.</p><div class="grid grid-cols-1 md:grid-cols-2 gap-4">{listing or card("<p class=\'text-xs text-slate-400\'>Noch keine Seiten angelegt.</p>")}</div>{f"<div class=\'mt-5\'>{form}</div>" if form else ""}'
+        body=f'<h1 class="text-2xl font-bold mb-2">📚 Team-Wiki</h1><p class="text-xs text-slate-500 mb-5">Zentrale Wissensdatenbank für Regeln, Abläufe und Schulungen.</p>{__import__("pulse_wiki_pages").list_block(ws,c)}<div class="grid grid-cols-1 md:grid-cols-2 gap-4">{listing or card("<p class=\'text-xs text-slate-400\'>Noch keine Seiten angelegt.</p>")}</div>{f"<div class=\'mt-5\'>{form}</div>" if form else ""}'
         return ws.render_page("Team-Wiki",c,"wiki",body)
 
     @app.get("/wiki/{page_id}", response_class=HTMLResponse)
@@ -146,7 +146,7 @@ def register(app):
             f'<h1 class="text-2xl font-bold">{esc(p["title"])}</h1></div>{edit}</div>'
             f'<div class="{ws.CARD} p-6 text-sm leading-7 whitespace-normal">{content}</div>'
             f'<p class="text-[10px] text-slate-400 mt-3">Zuletzt geändert: {esc(p["updated_at"][:16].replace("T"," "))} · {esc(p["author_name"])}</p>'
-            f'{edit_form}{history}</div>'
+            f'{__import__("pulse_wiki_pages").detail_block(ws,c,page_id)}{edit_form}{history}</div>'
         )
         return ws.render_page(p["title"],c,"wiki",body)
 

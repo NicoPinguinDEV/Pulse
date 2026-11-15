@@ -1354,6 +1354,7 @@ def register(app) -> None:
           {card(f"<h3>🕵 Timeline</h3>{ev or '<div class=tiny>Keine Ereignisse.</div>'}")}
           {card(f"<h3>📎 Beweise</h3>{att}<a class='btn primary' href='/ultimate/cases/{esc(case_id)}/upload'>Datei hinzufügen</a>")}
         </div>
+        {__import__("pulse_case_report").detail_card(case_id, case["status"], esc)}
         {card(f"""<form class="form" method="post" action="/ultimate/cases/{esc(case_id)}/update">
           <select class="select" name="status">{"".join(f"<option {'selected' if s==case['status'] else ''}>{s}</option>" for s in _CASE_STATUSES)}</select>
           <select class="select" name="priority">{"".join(f"<option {'selected' if p==case['priority'] else ''}>{p}</option>" for p in _PRIORITY)}</select>
@@ -3354,6 +3355,19 @@ async def _automation_cycle(bot):
             await webserver.send_interview_reminders(bot)
     except Exception as exc:
         print(f"⚠️ Gesprächserinnerungen konnten nicht gesendet werden: {type(exc).__name__}")
+    # #101: reviewers are reminded (dashboard notification, once a day) of applications that wait too long.
+    try:
+        import webserver
+        webserver.send_stale_application_reminders()
+    except Exception as exc:
+        print(f"⚠️ Bewerbungs-Erinnerungen konnten nicht gesendet werden: {type(exc).__name__}")
+    # Audit #158: resource history sample (at most every five minutes, bounded, same loop - no new worker).
+    try:
+        import pulse_ops
+        import webserver
+        pulse_ops.sample_resources(webserver.DATA_DIR)
+    except Exception as exc:
+        print(f"⚠️ Ressourcenverlauf konnte nicht gespeichert werden: {type(exc).__name__}")
     # Warn-Folgerollen regelmäßig prüfen, damit 7-Tage-Sperren
     # auch nach einem Neustart zuverlässig automatisch enden.
     try:

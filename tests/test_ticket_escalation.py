@@ -332,6 +332,9 @@ class EscalationExecutorTests(DatabaseTestCase):
             audit = db.execute("SELECT COUNT(*) FROM events WHERE event_type='ticket_escalated' AND target_id=?",
                                (self.ticket_id,)).fetchone()[0]
         self.assertEqual(audit, 1)
+        import pulse_events  # F7: the audit event is linked to the ticket for the shared history
+        linked = pulse_events.history(correlation_id=f"ticket:{self.ticket_id}", perms={"can_manage_tickets": True})
+        self.assertEqual([e["action"] for e in linked], ["ticket_escalated"])
 
     def test_missing_log_channel_still_reaches_the_inbox(self):
         self.guild.get_channel.side_effect = lambda _cid: None

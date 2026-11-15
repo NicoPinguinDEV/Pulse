@@ -3,14 +3,31 @@
 Arbeitsstand der Mission „177 von 177“. Einzelstatus je Funktion: `docs/PULSE_FEATURE_AUDIT_177.md`.
 Regeln: kleine Blöcke, je Block ein Feature-Branch ab `main`, Verhaltenstests, Rechte-/Datenschutzprüfung, PR und CI. Keine Produktivdaten, Discord-Server oder VPS-Aktionen im Rahmen dieser Arbeit.
 
+## Block F – Zentrale Integration (lokal, nicht veröffentlicht)
+
+Alle Schritte bauen aufeinander auf (Branchkette ab `origin/main` @ `2c02788`); keine Zeile des Audits ist dadurch „Fertig“, die Zählung bleibt unverändert.
+
+| Schritt | Inhalt | Audit | Status |
+|---|---|---|---|
+| F1 | Ereignisvertrag `pulse_events` | #116, #122, #125 | Fundament, Teilweise |
+| F2 | Inbox-Contract und Direktlinks | #118, #119 | Fundament, Teilweise |
+| F3 | Rechte-Policy `pulse_policy` | #120 | Fundament, Teilweise |
+| F4 | Eventbus (Polling + SSE) | #117 | Fundament, nicht an Routen angebunden |
+| F5 | Aktionskarten, einheitliche Aufgabenregel | #121, #124 | Fundament, Aufrufer offen |
+| F6 | Vorlagenbibliothek | #123 | Fundament |
+| F7 | Ticket-Ereignisse mit Korrelations-ID (Bot + Dashboard) | #116, #122 | angebunden |
+| F8 | Ticket-Schnellantworten aus der Bibliothek (Analyse der übrigen Arten: `docs/PULSE_F8_PHASENBERICHT.md`) | #123 | 1 von 5 Arten angebunden |
+
+Offene Abhängigkeiten: Bewerber-Nachrichten nach Merge von #99; Ankündigungen und Willkommenstexte brauchen Entscheidungen; Moderationsgründe bleiben im eigenen Speicher.
+
 ## Stand auf main
 
-Bewertet ist der Code-Stand `main` @ `f0243bc` (die Datei nannte zuvor fälschlich `d538f20` mit 98/79; #96/#97 aus PR #247 waren noch nicht nachgetragen). Der Block #95 (`feature/recruiting-kanban-95`) ist zusätzlich ausgewiesen und noch nicht gemergt. Einzelstatus und Belege je Funktion stehen in `docs/PULSE_FEATURE_AUDIT_177.md`; die Zählung dort wird nach jedem Merge mit dem Hilfsskript-Prinzip „Zeilen zählen“ (nicht von Hand) nachgeführt.
+Bewertet ist der Code-Stand `main` @ `2c02788` (nach PR #248 und #249; #95 ist gemergt, vollständig fertig und mit 27 Browser-Tests abgesichert). Der Block #99 (`feature/recruiting-interview-calendar-99`) ist zusätzlich ausgewiesen. Einzelstatus und Belege je Funktion stehen in `docs/PULSE_FEATURE_AUDIT_177.md`; die Zählung dort liefert `python tools/audit_counts.py` aus den 177 Einzelzeilen; `tests/test_feature_audit_counts.py` prüft Kopfzeilen und diese Tabelle dagegen.
 
 | Status | Anzahl |
 |---|---:|
-| Fertig | 100 (101 mit #95-PR) |
-| Teilweise | 77 (76 mit #95-PR) |
+| Fertig | 101 (132 mit #99-Branch) |
+| Teilweise | 76 (45 mit #99-Branch) |
 | Offen | 0 |
 
 | Schritt | Fertig | Teilweise | Auditänderung | PR |
@@ -23,16 +40,16 @@ Bewertet ist der Code-Stand `main` @ `f0243bc` (die Datei nannte zuvor fälschli
 | Zertifikate und Auffrischung | 97 | 80 | #109, #110 | #240 |
 | Ticketlast-Prognose | 98 | 79 | #127 | #241 |
 | Prüferzuweisung und unabhängige Bewertung | 100 | 77 | #96, #97 | #247 |
-| Kanban-Bewerbungspipeline (Branch `feature/recruiting-kanban-95`, offen) | 101 | 76 | #95 | PR offen |
-| Abschließende Browser-/Regressionsprüfung #95 (gleicher Branch, PR #248) | 101 | 76 | #95 bleibt Fertig | PR #248 offen |
+| Kanban-Bewerbungspipeline | 101 | 76 | #95 | #248, #249 (gemergt) |
+| Interview-Kalender (Branch `feature/recruiting-interview-calendar-99`) | 102 | 75 | #99 | PR offen |
 
 Gemergt am 13.11.2026 (Reihenfolge wie oben, jeweils auf aktuellen `main` gebracht, CI grün). Jeder Merge nach `main` startet den automatischen VPS-Deploy (`deploy-vps.yml`).
 
 ## Nächste Blöcke (Vorschlag, Abhängigkeiten beachten)
 
-Noch 77 teilweise Punkte auf `main` (76 nach Merge des #95-PR). Bereichsweise, jeweils ein Feature-Branch ab `main`:
+Noch 76 teilweise Punkte auf `main` (75 nach Merge des #99-PR). Bereichsweise, jeweils ein Feature-Branch ab `main`:
 
-1. **Recruiting (#99–#103):** Interview-Kalender (#99), Kommunikationsjournal (#100), Erinnerungen (#101), Statistik (#102), Vorlagenbibliothek (#103; teilt sich Bausteine mit #123).
+1. **Recruiting (#100–#103):** Kommunikationsjournal (#100), Erinnerungen (#101; baut auf den Interview-Erinnerungen aus #99 auf), Statistik (#102), Vorlagenbibliothek (#103; teilt sich Bausteine mit #123). #99 ist umgesetzt (siehe unten).
 2. **Teamakte und Entwicklung (#71, #73–#76, #81, #87–#89, #92, #94):** 360°-Akte konsolidieren, Kompetenzmatrix, Entwicklungspläne, Auslastungsansicht, Abwesenheitskalender, Anomalien mit erklärbaren Schwellen.
 3. **Integration (#116–#125):** zentrale Fallnummer/Direktlinks (#116, #119 bauen auf `pulse_case_registry` auf), Ereignisvertrag (#125), Aktionskarten (#121), zentrale Rechteprüfung (#120).
 4. **Intelligence (#129–#139):** Anomalien, Tages-/Wochenbericht (bauen auf `pulse_staffing_forecast.build_load_forecast` und `pulse_summaries` auf), Assistent mit Quellen (#132, #133, zusammen mit #47).
@@ -160,7 +177,7 @@ Alle sechs zuvor offenen Funktionen wurden in einzelnen Branches umgesetzt, mit 
 
 ## Block 12 – Fallreferenzen und Gesamtverlauf (#11, #12)
 
-- Branch `feature/unified-case-history-11-12`. Baut auf #236 → #235 auf, weil alle drei dieselben Zählerzeilen ändern. Die Zähler oben enthalten diese noch nicht gemergten PRs.
+- Branch `feature/unified-case-history-11-12`. Baut auf #236 → #235 auf, weil alle drei dieselben Zählerzeilen ändern. Alle drei PRs sind inzwischen gemergt; die Zähler oben werden aus den Audit-Zeilen neu gezählt.
 - Neu: `pulse_case_registry.py` (rein lesend), `GET /mod-cases/verlauf` (Dashboard, Link auf `/mod-cases`), `/mod verlauf` und `/mod fall` (Discord, privat). `/mod akte` bleibt unverändert und erhält nur einen Hinweis.
 - Quellen: `mod_cases` + `mod_case_appeals`, `ultimate_cases` + `ultimate_case_events`, `warns_list` in `team_data.json`, `ai_moderation_cases.json`. Keine neue Tabelle, keine Migration, keine zweite Datenhaltung, kein neuer Job, Backup unverändert.
 - Rechte wie die bestehenden Ansichten (fail-closed, nur echte Booleans):
@@ -240,3 +257,14 @@ Jedes Paket erhält eine eigene Feature-Branch/PR, gezielte Regressionstests, Re
 
 Neue Playwright-Browsertests für `/applications/board` in `tests/test_e2e_dashboard.py` (27 Tests, vier Klassen `RecruitingBoard*E2ETests`): Desktop/Tablet/Mobil ohne Seitenüberlauf und mit internem Scrollbereich, Suche und Filter, echte Formularaktionen mit Rückkehr zum Board, Rechte (Teammitglied und Recruiting-Rolle, direkte POSTs ohne Schreibzugriff), Tastaturbedienung, Leer-/Fehlerzustand, Datenschutz (keine Antworten/fremden Bewertungen). Datenbasis: `tools/preview_server.py --seed-applications` (synthetisch, Fake-Login, Rolle `recruiter` neu) plus `/__preview/`-Hooks nur mit `--e2e-hooks`.
 Gefunden und behoben: fehlende Überschriftenstruktur des Boards (`pulse_phase7.py`). Keine Änderung an den Entscheidungsabläufen. #95 bleibt **Fertig** (alle Kriterien bestanden).
+
+## Block #99 – Interview-Kalender (Branch `feature/recruiting-interview-calendar-99`)
+
+Interviews sind echte Objekte im bestehenden Team-Kalender `/calendar` (`pulse_db.calendar_events`, Kategorie `interview`). Es gibt keine zweite Kalender- oder Recruiting-Verwaltung und keine neue Tabelle; `/suite/calendar` und `/ultimate/calendar` (eigene Datenbestände) bleiben unberührt.
+
+- **Daten:** `applications.json` bekommt optionale Felder: `interview_end`, `interview_lead_id/_name`, `interview_state` (`scheduled`/`cancelled`), `interview_revision`, `interview_heads_up`, `interview_delivery` sowie bei Absage `interview_cancel*`. Alte Datensätze und Kalendereinträge funktionieren unverändert. Der Kalendereintrag trägt keinen Bewerbernamen und keine Bewerbungs-ID; die Rückverknüpfung ist `interview_event_id`. Teilnehmer werden abgeleitet (Bewerber, Prüfer aus `assignments`, Führungskraft, Terminverantwortlicher). Backup/Restore: beide Speicher waren bereits enthalten (`applications.json`, `calendar_events`); `tests/test_interview_calendar.py::BackupRestoreTests` prüft den Roundtrip (läuft nur unter Linux/CI, siehe Windows-Hinweis oben).
+- **Ablauf:** `pulse_interviews.schedule/cancel` unter einem Lock: neuer Kalendereintrag → Bewerbung speichern (bei Fehler Rollback und Löschen des neuen Eintrags) → alter Eintrag löschen. `reconcile()` (in `send_interview_reminders`) entfernt Einträge entschiedener Bewerbungen und verwaiste `interview`-Einträge.
+- **Rechte:** Termin planen/absagen nur mit `can_manage_applications`, `can_promote` oder Admin; Bewerbungsnummer/Name/Teilnehmerliste/Link im Kalender nur für dieselben Rechte, alle anderen sehen Zeit, Dauer, Status, Teilnehmerzahl (Altbestand mit Namen im Titel wird beim Rendern bereinigt). Fremde Guild und manipulierte IDs werden abgewiesen, Event-IDs kommen nie vom Client.
+- **Erinnerungen:** vorhandene Schleife (`send_interview_reminders`), je Termin einmal Team-Hinweis (24 h) und einmal Erinnerung (1 h); vor dem Senden reserviert, Zustellergebnis in `interview_delivery`, kein Retry. #101 bleibt ein eigener Block.
+- **Tests:** `tests/test_interview_calendar.py` (54 Tests: Zeit/DST, Teilnehmer, Konflikte inkl. Nebenläufigkeit, Verschieben/Absagen/Fehlerpfade, Erinnerungen, Kalenderprivatsphäre, Routen, Rechte), Browser-E2E `InterviewCalendarAdminE2ETests`, `…RecruiterE2ETests`, `…TeamE2ETests` (`tools/preview_server.py --seed-interviews`).
+- **Fortsetzung:** Erinnerungen für alle übrigen Recruitingfälle (#101), Kommunikationsjournal (#100) und Statistik (#102) bauen auf `interview_delivery`/`interview_state` auf.

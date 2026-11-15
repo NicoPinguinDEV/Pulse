@@ -13,6 +13,7 @@ from discord.ext import commands
 import pulse_db
 import pulse_summaries as ps
 import pulse_ticket_extras as tx
+import pulse_ticket_replies as replies
 
 
 def may_manage(interaction: discord.Interaction) -> bool:
@@ -21,6 +22,15 @@ def may_manage(interaction: discord.Interaction) -> bool:
         return False
     perms, _ = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config())
     return bool(perms.get("can_manage_tickets") or perms.get("is_admin"))
+
+
+def _perms(interaction: discord.Interaction) -> dict:
+    """Same computation as ``may_manage``; used to read quick replies from the template library."""
+    import webserver
+    if interaction.guild is None:
+        return {}
+    perms, _ = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config())
+    return perms
 
 
 def current_ticket(interaction: discord.Interaction):
@@ -447,12 +457,15 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
         ticket = await self._guard(interaction)
         if ticket is None:
             return
-        reply = next((r for r in tx.replies_for(ticket.get("category", "")) if r["title"] == vorlage), None)
+        values = {"user": ticket.get("user_name") or "", "ticket": ticket["id"], "category": ticket.get("category") or "",
+                  "staff": getattr(interaction.user, "display_name", "")}
+        reply = replies.resolve(_perms(interaction), interaction.guild.id, ticket.get("category", ""), vorlage, values)
         if reply is None:
             await deny(interaction, _t(interaction, "ticket_quick_reply_missing"))
             return
         await interaction.response.send_message(reply["text"], allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
         pulse_db.touch_ticket_activity(str(interaction.channel.id), "staff")
+        replies.record_use(ticket, interaction.user.id, getattr(interaction.user, "display_name", ""), reply)
 
     @antwort.autocomplete("vorlage")
     async def antwort_autocomplete(self, interaction: discord.Interaction, current: str):
@@ -461,7 +474,8 @@ class TicketTools(commands.GroupCog, group_name="ticket", group_description="Wer
             return []
         needle = (current or "").lower()
         return [app_commands.Choice(name=r["title"][:100], value=r["title"][:100])
-                for r in tx.replies_for(ticket.get("category", "")) if needle in r["title"].lower()][:25]
+                for r in replies.offers(_perms(interaction), interaction.guild.id, ticket.get("category", ""))
+                if needle in r["title"].lower()][:25]
 
     @app_commands.command(name="uebergeben", description="Ticket an ein anderes Teammitglied übergeben (Pflicht-Notiz).")
     @app_commands.describe(mitglied="Wer übernimmt", notiz="Was die Person wissen muss (Pflicht)")

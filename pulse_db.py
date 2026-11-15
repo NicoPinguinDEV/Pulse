@@ -209,6 +209,53 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_mod_reason_templates_guild_action
                 ON mod_reason_templates(guild_id, action, archived_at);
 
+            CREATE TABLE IF NOT EXISTS application_comm_journal (
+                id TEXT PRIMARY KEY,
+                app_id TEXT NOT NULL,
+                seq INTEGER NOT NULL,
+                at TEXT NOT NULL,
+                channel TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                actor_id TEXT NOT NULL DEFAULT '',
+                actor_name TEXT NOT NULL DEFAULT '',
+                template_ref TEXT NOT NULL DEFAULT '',
+                text TEXT,
+                text_sha256 TEXT NOT NULL,
+                prev_hash TEXT NOT NULL,
+                entry_hash TEXT NOT NULL,
+                UNIQUE (app_id, seq)
+            );
+
+            CREATE TABLE IF NOT EXISTS message_templates (
+                id TEXT PRIMARY KEY,
+                guild_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT '*',
+                current_version INTEGER NOT NULL,
+                created_by_id TEXT NOT NULL,
+                created_by_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                archived_at TEXT,
+                archived_by_id TEXT,
+                archived_by_name TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_message_templates_lookup
+                ON message_templates(guild_id, kind, scope, archived_at);
+
+            CREATE TABLE IF NOT EXISTS message_template_versions (
+                template_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                created_by_id TEXT NOT NULL,
+                created_by_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (template_id, version),
+                FOREIGN KEY (template_id) REFERENCES message_templates(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS mod_reason_template_versions (
                 template_id TEXT NOT NULL,
                 version INTEGER NOT NULL,
@@ -352,6 +399,65 @@ def init_db():
             );
             CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_saved_views_name
                 ON dashboard_saved_views(user_id, page, name COLLATE NOCASE);
+
+            CREATE TABLE IF NOT EXISTS team_dev_goals (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                due TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'open',
+                actor_id TEXT NOT NULL DEFAULT '',
+                actor_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_team_dev_goals_user ON team_dev_goals(user_id, status);
+            CREATE TABLE IF NOT EXISTS ops_error_groups (
+                sig TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                sample TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE INDEX IF NOT EXISTS idx_ops_error_groups_last ON ops_error_groups(last_seen DESC);
+
+            CREATE TABLE IF NOT EXISTS ops_resource_samples (
+                at TEXT PRIMARY KEY,
+                container_mb REAL,
+                process_mb REAL,
+                cpu_pct REAL,
+                disk_free_mb REAL,
+                threads INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS wiki_required_reads (
+                page_id TEXT PRIMARY KEY,
+                set_by_id TEXT NOT NULL DEFAULT '',
+                set_by_name TEXT NOT NULL DEFAULT '',
+                set_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS wiki_read_acks (
+                page_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                user_id TEXT NOT NULL,
+                user_name TEXT NOT NULL DEFAULT '',
+                at TEXT NOT NULL,
+                PRIMARY KEY (page_id, version, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS case_closing_reports (
+                case_id TEXT PRIMARY KEY,
+                outcome TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                measures TEXT NOT NULL DEFAULT '',
+                lessons TEXT NOT NULL DEFAULT '',
+                participants TEXT NOT NULL DEFAULT '',
+                author_id TEXT NOT NULL DEFAULT '',
+                author_name TEXT NOT NULL DEFAULT '',
+                at TEXT NOT NULL
+            );
 
             CREATE TABLE IF NOT EXISTS privacy_requests (
                 id TEXT PRIMARY KEY,
@@ -684,11 +790,11 @@ def make_id(prefix):
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
 
-def notify(user_id, title, body, kind="info", url="/pulse-inbox", dedupe_key=None, dedupe_window_seconds=21600):
+def notify(user_id, title, body, kind="info", url="/pulse-inbox", dedupe_key=None, dedupe_window_seconds=21600, category=None):
     # U-11: personal preferences – a muted category is stored as already read, DMs are optional.
     try:
         import pulse_notify_prefs
-        decision = pulse_notify_prefs.decide(user_id, url, title)
+        decision = pulse_notify_prefs.decide(user_id, url, title, category=category)
     except Exception:
         decision = {"unread": True, "dm": False}
     with connect() as db:
@@ -2426,6 +2532,12 @@ TABLES = [
     "team_status", "handover_notes", "shift_notes", "announcements", "scheduled_announcements", "promotion_requests", "checkins", "events", "settings",
     "team_safety_warn_events", "team_safety_actor_state",
     "mod_cases", "mod_case_appeals", "mod_reason_templates", "mod_reason_template_versions",
+    "application_comm_journal",
+    "team_dev_goals",
+    "message_templates", "message_template_versions",
+    "ops_error_groups",
+    "wiki_required_reads", "wiki_read_acks",
+    "case_closing_reports",
     "dashboard_saved_views",
     "privacy_requests", "privacy_request_events",
     "security_drills",

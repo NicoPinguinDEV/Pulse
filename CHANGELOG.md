@@ -1,10 +1,109 @@
 # Pulse TeamOS – Änderungsprotokoll
 
+## Barrierefreiheit und Mobilgeräte (November 2026)
+
+- **Fehler behoben:** `/admin/console` hatte einen JavaScript-Syntaxfehler (zwei falsch maskierte Zeilenumbrüche in einem Python-String); Live-Protokoll und Befehlsausgabe konnten nie laden.
+- **Heller Modus (#66):** Sekundärtext, Breadcrumbs, Warnfarben und Status-Pills erreichen jetzt WCAG-AA-Kontrast; weißer Text auf weißen Pills im Hero ist behoben.
+- **Mobil (#64):** größere Touch-Ziele für Kartenlinks, Breadcrumbs, Auswahlfelder und Datei-Eingaben bei grobem Zeiger.
+- **Werkzeug und Tests:** `tools/ui_crawl.py` prüft alle parameterlosen Seiten (mobil/Desktop, dunkel/hell); `AccessibilityE2ETests` sichert 18 Hauptseiten gegen Skriptfehler, Seitenüberlauf und zu niedrigen Kontrast ab.
+
+## Leitstelle, Academy und Wissen (November 2026)
+
+- **Leitstelle `/leitstelle` (#173, #174, #177, nur Führung, lesend):** im Dienst, Besetzung gegen das Übliche, Support-Warteschlange, Aufgaben, Eskalationen, Auslastung, Termine und Abteilungs-Kennzahlen auf einer Seite.
+- **Academy `/academy` (#106, #176):** Lernfortschritt je Lernpfad, Zertifikate mit Auffrischungsstatus, Pflichtlektüre; Führung sieht die Team-Tabelle.
+- **Wiki (#111, #113):** Volltextsuche `/wissen`; Pflichtlektüre mit Bestätigung je Version, Meldung ans Team und Abdeckungsansicht. Neue Tabellen `wiki_required_reads` und `wiki_read_acks` (im Backup).
+- **Vorgänge (#175):** Abschlussbericht schließt den Fall in einem Schritt; interne Notizen nur für die Leitung. Neue Tabelle `case_closing_reports` (im Backup).
+- Tests: `test_leitstelle`, `test_academy`, `test_wiki_plus`, `test_case_report` und Browser-Tests `ControlRoomAndAcademyE2ETests`.
+
 ## Abmeldungen: automatische Bereinigung bei Offboarding und Serveraustritt (November 2026)
 
 - **Team-Kick / Verlust der letzten Teamrolle:** Nach einem tatsächlich erfolgreichen Team-Kick (Dashboard, Discord-Zweitfreigabe, automatischer Warn-Team-Kick) oder dem Verlust der letzten konfigurierten Teamrolle werden aktive und zukünftige Abmeldungen beendet: Eintrag gelöscht, Abmeldungsrolle entfernt, Nickname-Suffix mit der bestehenden Schutzlogik zurückgesetzt, Abmeldungs- und Teamliste aktualisiert. Ein fehlgeschlagener Team-Kick lässt die Abmeldung unverändert.
 - **Serveraustritt, Kick, Ban:** Die Abmeldung wird gelöscht und die Abmeldungsliste aktualisiert; es werden keine Rollen- oder Nickname-Änderungen am nicht mehr vorhandenen Mitglied versucht.
 - Zentral und idempotent in `AbmeldungCog.cleanup_member_absence`; nur Datensätze der betroffenen Guild (alte Einträge ohne Guild-ID nur, wenn das Mitglied in keiner anderen Pulse-Guild ist). Keine Schemaänderung, Abmeldungsgründe werden nicht protokolliert. Technische Beschreibung: `docs/ABMELDUNG_AUTO_BEREINIGUNG.md`.
+## Bewerbungen: Journal, Statistik, Vorlagen, Erinnerungen (November 2026)
+
+- **Kommunikationsjournal (#100):** Jede Nachricht an Bewerber (auch fehlgeschlagene) wird in einem verketteten Journal protokolliert (`pulse_app_journal.py`, Tabelle `application_comm_journal`, im Backup enthalten). Ansicht `/applications/journal/{id}` nur für Prüfer; Export und Retention-Bereinigung angebunden.
+- **Recruiting-Statistik (#102):** `/applications/statistik` mit Trichter, Conversion, Wartezeiten (mit Stichprobengröße) und Prüfer-Auslastung.
+- **Vorlagen (#103):** Bewerber-Nachrichten sind versioniert und wiederherstellbar (Admin).
+- **Erinnerungen (#101):** Tägliche Dashboard-Erinnerung an zugewiesene Prüfer bei überfälligen Bewerbungen (3 Tage ohne Prüfung, 7 Tage nach Gespräch ohne Entscheidung); keine Discord-Nachricht, kein Retry.
+- Tests: `tests/test_app_journal.py`, `tests/test_recruiting_stats.py`, `tests/test_app_comms_versions.py`.
+
+## Bewerbungen: Interview-Kalender (November 2026)
+
+- **Interview-Kalender (#99):** Gesprächstermine sind echte Einträge im Team-Kalender `/calendar` (Kategorie „Bewerbungsgespräch“, eigene Kennzeichnung, Zeit, Dauer, Status, Teilnehmer, Link zur Bewerbung für Recruiting-Berechtigte) und im Kalender als Monats-Agenda mit Leerzustand. Termine lassen sich mit Dauer und verantwortlicher Führungskraft anlegen, verschieben und absagen (`/applications`); der alte Kalendereintrag wird ersetzt, keine verwaisten oder doppelten Einträge.
+- Konflikte: serverseitige Prüfung auf gleichen Bewerber, Prüfer (#96) und Führungskraft; unlesbare Termine blockieren statt zu passieren; veraltete Formulare werden abgewiesen.
+- Zeit: Europe/Berlin mit Sommer-/Winterzeit; Zeiten in der Zeitumstellung (fehlende oder doppelte Stunde) werden abgelehnt; Speicherung in UTC.
+- Erinnerungen: Bewerber-DM bei Termin, Verschiebung und Absage (neue bearbeitbare Vorlagen), Team-Hinweis 24 h und Erinnerung 1 h vorher, je einmal, ohne Wiederholversuche; Zustellfehler sind sichtbar. Persönliche Benachrichtigungseinstellungen gelten.
+- Datenschutz: Normale Teammitglieder sehen im Kalender keine Bewerberdaten (auch alte Einträge mit Namen im Titel werden bereinigt). Alle Änderungen werden auditiert.
+- Daten: nur optionale Felder in `applications.json` (`interview_end`, `interview_lead_id`, `interview_state`, `interview_revision`, `interview_delivery` …); keine neue Tabelle, keine Migration.
+- Tests: `tests/test_interview_calendar.py` und Browser-Tests (Desktop/Mobil/Rechte) in `tests/test_e2e_dashboard.py`; `tools/audit_counts.py` zählt die Audit-Zeilen automatisch.
+## Pulse Intelligenz – lokale Hinweise und Entwürfe (November 2026)
+
+- **`/team/intelligenz` (nur Führung):** regelbasierte Hinweise mit Begründung und Schwelle (#129, #137, #139), Tages- und Wochenberichts-Entwurf (#130, #131), Schichtübergabe-Entwurf (#136) und Führungs-Assistent für feste Fragen (#132).
+- Ohne externe KI, nur lesend: Entwürfe werden nicht verschickt, der nächste Schritt ist ein Link, es wird nichts ausgeführt.
+- Tests: `tests/test_intel.py`, `tests/test_teamakte_pages.py`.
+
+## Teamakte und Teamplanung (November 2026)
+
+- **360°-Teamakte (#71, #73, #74):** Auf `/member/{id}` fasst ein neuer Block Dienst, Tickets, Bewertung, Schulungen, Auslastung, Warnungen (nur mit Recht), Dienstzeit-Hinweise und Abmeldung zusammen. Sichtbar für Führung und die Person selbst.
+- **Entwicklung und Beförderungspaket (#75, #76):** Entwicklungsziele je Person (Tabelle `team_dev_goals`, im Backup); Beförderungspaket mit Kriterien, Trend, Zielen und Datenlücken – nur Entscheidungsgrundlage, der Antrag bleibt im 4-Augen-Ablauf.
+- **Teamplanung `/team/planung` (nur Führung):** Auslastung (#81), Verfügbarkeitsmatrix (#92), Dienstzeit-Anomalien mit Regelbegründung (#89), Leistungsübersicht mit offengelegter Gewichtung (#94), Abwesenheitskalender (#87), Wochen-/Monatsbericht mit Kennzahl-Definitionen (#88, nur auf Abruf).
+- Tests: `tests/test_teamakte.py`, `tests/test_teamakte_pages.py`.
+## Dashboard: Live-Status, Tastatur, Hilfe, Suche (November 2026)
+
+- **Live-Status und Aktivitätsfeed (#58, #70):** Neues Home-Widget „Live-Status“ (Polling alle 15 s, nur bei sichtbarem Tab). Der Feed für die Führung zeigt Handelnde und Aktion aus dem Audit, gefiltert nach Rechten, ohne Detailtexte.
+- **Tastaturbedienung (#67):** `?` öffnet die Kürzel-Hilfe, `g` + Buchstabe navigiert; Kürzel gelten nicht in Eingabefeldern.
+- **Kontexthilfe (#68):** `pulse_help.tip()` an Widget-Auswahl, Beförderungs-Kriterien, Mindestbesetzung und Schicht-Erinnerung.
+- **Globale Suche (#62):** zusätzlich Wissensdatenbank, frühere Artikelversionen und altes Audit (Versionen/Audit nur Führung).
+- Tests: `tests/test_dashboard_live.py` und `LiveAndKeyboardE2ETests` (Browser, Desktop und Mobil).
+## Zentrale Integration: Vorlagenbibliothek im Aufrufpfad (November 2026, Block F8)
+
+- **Ticket-Schnellantworten (#123):** `/antwort` und sein Autocomplete lesen aus der Vorlagenbibliothek (`pulse_ticket_replies.py`), mit dem alten Speicher als Übergangs-Fallback. Gleiche Rechte wie zuvor, je Server getrennt, archivierte Vorlagen werden weder angeboten noch aus dem alten Speicher wiederbelebt, eingesetzte Werte und Texte werden gegen Massen-Erwähnungen geschützt, die verwendete Version wird als Ereignis `ticket.quick_reply_sent` im Ticketverlauf festgehalten. Alte Antworten werden weiter wörtlich gesendet.
+- Keine zweite Verwaltung: Die Seite „Ticket-Werkzeuge“ bleibt die Oberfläche; jedes Speichern wird als neue Version in die Bibliothek gespiegelt (ein Bibliotheksfehler blockiert das Speichern nicht). Keine automatische Datenmigration.
+- Bewerber-Nachrichten, Ankündigungen, Moderationsgründe und Willkommenstexte sind nicht angebunden; Begründung und Vorgehen in `docs/PULSE_F8_PHASENBERICHT.md`. #123 bleibt „Teilweise“.
+
+## Zentrale Integration: Ticket-Ereignisse angebunden (November 2026, Block F7)
+
+- Alle zehn Ticket-Ereignisse von Bot (`cogs/tickets.py`: erstellt, geschlossen, eskaliert, Archiv-/Löschfehler) und Dashboard (`webserver.py`: übernommen, wieder geöffnet, Priorität, geschlossen, Archivfehler) tragen jetzt die Korrelations-ID `ticket:<id>`. Der Ereignistyp bleibt unverändert, damit die Startseite, Anti-Nuke- und Testabfragen weiter funktionieren.
+- `pulse_events.history(correlation_id="ticket:<id>")` zeigt den ganzen Ticketverlauf aus Bot und Dashboard zusammen und ist mit dem Ticket-Recht lesbar (nicht nur für Administratoren), begrenzt auf Ticket-Ereignisse; andere Rechte und andere Präfixe bleiben verweigert. Neuer Wächtertest stellt sicher, dass kein Ticket-Ereignis ohne diese ID geschrieben wird.
+
+## Zentrale Integration: Vorlagenbibliothek (November 2026, Block F6)
+
+- **`pulse_templates.py` (#123):** Eine verwaltete Bibliothek für Ticket-Schnellantworten, Bewerber-Nachrichten, Ankündigungen und Moderationsgründe. Versioniert (Bearbeiten legt eine neue Version an, alte bleiben lesbar, gleichzeitiges Bearbeiten wird erkannt), archivieren statt löschen, Titel je Art und Bereich eindeutig, Platzhalter je Art beim Speichern geprüft (`{name}`, klein geschrieben, kein Attributzugriff, keine Formatangaben), beim Rendern werden fehlende Werte zu „–“, `@everyone`/`@here`/Rollen-Pings neutralisiert und die Länge begrenzt. Rechte je Art über `pulse_policy` (fail-closed), jede Änderung ist ein Contract-Ereignis.
+- Neue Tabellen `message_templates` und `message_template_versions` (Teil des Backups, in der Datenlandkarte). `import_legacy()` kopiert bestehende Bewerber-Texte und Schnellantworten wiederholbar in die Bibliothek, ohne die alten Speicher zu ändern; die bisherigen Module nutzen weiter ihre eigenen Speicher, #123 bleibt „Teilweise“. Moderationsgründe behalten vorerst ihren eigenen versionierten Speicher.
+
+## Zentrale Integration: Aktionskarten und Aufgaben (November 2026, Block F5)
+
+- **`pulse_action_cards.py` (#121):** Eine Bestätigungskarte für sensible Discord-Aktionen statt dreier Varianten. Nur die startende Person kann bestätigen oder abbrechen (andere erhalten eine private Meldung, die Karte bleibt nutzbar), einmalig verwendbar (auch bei Doppelklick), läuft ab, **prüft das Recht beim Bestätigen erneut** (entzogene Rolle stoppt die Aktion), meldet Fehler nur mit Fehler-ID und schreibt jedes Ergebnis als Contract-Ereignis. Entscheidungslogik ohne Discord-Abhängigkeit (`ActionCard`), dünner Button-Adapter (`ActionCardView`).
+- **`pulse_task_actions.py` (#124):** Eine Regel für Aufgabenänderungen in Bot und Dashboard. Bisher: Dashboard erlaubte `can_promote`, `/taskdone` nicht; das Dashboard schrieb weder Ereignis noch Benachrichtigung. Jetzt gilt die Dashboard-Regel (Policy `task.manage` = `can_manage_tasks` oder `can_promote`), Zuständige dürfen nur den Status ändern, jede Änderung schreibt dasselbe Ereignis (Korrelation `task:<id>`, erscheint im Live-Strom) und benachrichtigt neue Zuständige bzw. die erstellende Person, nie den Handelnden.
+- Bestehende Bestätigungsansichten, die Route `/tasks/update` und `/taskdone` sind noch nicht umgestellt; #121/#124 bleiben „Teilweise“.
+
+## Zentrale Integration: Eventbus (November 2026, Block F4)
+
+- **`pulse_eventbus.py` (#117):** Echtzeit-Abgleich beider Oberflächen auf der dauerhaften `events`-Tabelle (SQLite-`rowid` als Cursor, nichts geht bei Neustart verloren). `poll()` ist der garantierte Fallback, `stream()` ein SSE-Generator, der nach `pulse_events.emit` in etwa 0,25 s weckt und sonst alle 3 s nachsieht, sodass auch die bisherigen `record_event`-Aufrufer ankommen. Reconnect über `Last-Event-ID`/Cursor ohne Doppel und Lücken; ein Cursor hinter dem Tabellenende wird als `reset` gemeldet.
+- Sicherheit: je Betrachter gefiltert und fail-closed (Domänenrecht aus `pulse_policy`, bei Fallbezug zusätzlich das Recht der Fallart, alles Unbekannte nur für Administratoren). Nach außen geht nur eine Kurzfassung (IDs, Zeit, Domäne, Link), nie Payload oder Akteurname. Verbindungen sind begrenzt (50 gesamt, 3 je Person, 5 Minuten je Stream).
+- Noch an keine Route und keinen Client angebunden (braucht ROUTEN.md-/Snapshot-Anpassung), #117 bleibt „Teilweise“.
+
+## Zentrale Integration: Rechte-Policy (November 2026, Block F3)
+
+- **`pulse_policy.py` (#120):** Benannte Aktionen (z. B. `case.view.BM`, `ticket.manage`) mit den Rechten, die sie freischalten. `can()`/`require()` sind fail-closed (unbekannte Aktion, ungültiges Rechte-Objekt oder ein Wert ungleich `True` verweigern), Administratoren dürfen alles, ihre Rechte werden weiterhin nur in `pulse_permissions` berechnet.
+- Parität belegt: für jede Kombination der betroffenen Rechte entscheidet die Policy gleich wie `pulse_case_registry.allowed_kinds` und die bisherigen Inline-Prüfungen (Moderationsfälle, AutoMod). Keine bestehende Prüfung wurde geändert oder erweitert; Routen und Bot-Befehle nutzen die Policy noch nicht, #120 bleibt „Teilweise“.
+
+## Zentrale Integration: Inbox-Contract und Direktlinks (November 2026, Block F2)
+
+- **`pulse_inbox_contract.py` (#118/#119):** `deliver()` sendet ein Ereignis (Domäne/Aktion aus `pulse_events`) an mehrere Personen: Kategorie je Domäne statt Stichwort-Raten, Link über `link_for()`, Dedupe je Fall und Aktion (derselbe Schritt benachrichtigt niemanden doppelt). Ein fehlerhafter Empfänger stoppt die übrigen nicht, ungültige Eingaben senden nichts.
+- `link_for()` liefert nur interne Pfade bestehender Seiten (Fallverlauf, Ticket-Transkript), `absolute_link()` baut daraus die Discord-URL und lehnt externe oder protokollrelative Ziele ab. Ein Link vergibt keine Rechte; die Zielseite prüft weiter.
+- `pulse_db.notify` und `pulse_notify_prefs.decide` haben ein optionales `category`; alle bisherigen Aufrufe verhalten sich unverändert. Bestehende `notify`-Aufrufer sind noch nicht migriert, #118/#119 bleiben „Teilweise“.
+
+## Zentrale Integration: Ereignisvertrag (November 2026, Block F1)
+
+- **`pulse_events.py` (#116/#122/#125, Fundament):** Einheitlicher Vertrag für Ereignisse auf der bestehenden `events`-Tabelle. `emit()` schreibt `<domain>.<aktion>` mit festem Payload (`schema`, `domain`, `action`, optional `case_ref`/`correlation_id`) und prüft die Eingabe; `describe()` liest neue und alte Zeilen einheitlich; `history()` liefert die Ereignisse eines Falls und prüft dieselben Rechte wie die jeweilige Fallart (fail-closed, Korrelations-ID ohne Fallreferenz nur für Administratoren).
+- Keine Schema-, Daten- oder Aufruferänderung: `pulse_db.record_event` und die 33 bestehenden Aufrufer bleiben unverändert, alte Zeilen werden nur beim Lesen klassifiziert. Die Aufrufer werden in späteren Schritten migriert; #116/#122/#125 bleiben bis dahin „Teilweise“.
+## Betriebskonsole (November 2026)
+
+- **`/admin/betrieb` (nur Administratoren, lesend):** Übersicht (Bot, Speicher, Datenträger, Fehlergruppen, langsamste Route, Release), Fehlergruppen (#155), Latenz je Route (#157), Ressourcenverlauf über 14 Tage (#158), Admin-Aktionen aus Audit und Einstellungs-Historie (#165), Aufbewahrungsmatrix (#172) und Rechte-Abgleich Discord/Pulse (#160).
+- Neue Tabellen `ops_error_groups` (im Backup) und `ops_resource_samples`; die Latenzmessung läuft in der vorhandenen Middleware, die Ressourcenmessung im vorhandenen Automations-Loop (höchstens alle 5 Minuten).
+- Tests: `tests/test_ops.py`, Browser-Tests `OperationsConsole*E2ETests`.
 
 ## Bewerbungen: Kanban-Pipeline (November 2026)
 

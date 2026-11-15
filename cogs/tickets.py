@@ -703,13 +703,15 @@ async def archive_ticket(channel, ticket: dict, actor_id, actor_name: str, reaso
         path = await archive_transcript(channel, ticket["id"], log_channel=log_channel)
     except TranscriptError as exc:
         print(f"⚠️ Pulse-Tickets: Ticket {ticket['id']} nicht archiviert – {exc}. Kanal bleibt erhalten.")
-        record_event("ticket_archive_failed", "ticket", ticket["id"], actor_id, actor_name, {"error": str(exc)})
+        record_event("ticket_archive_failed", "ticket", ticket["id"], actor_id, actor_name, {"error": str(exc)},
+                     correlation_id=f"ticket:{ticket['id']}")
         await keep_channel_after_failure(channel, ticket, str(exc))
         return False
     if not close_ticket(ticket["id"], reason, path, actor_id, actor_name):
         return False
     drop_ticket_card(ticket["id"])
-    record_event("ticket_closed", "ticket", ticket["id"], actor_id, actor_name, {"reason": reason})
+    record_event("ticket_closed", "ticket", ticket["id"], actor_id, actor_name, {"reason": reason},
+                 correlation_id=f"ticket:{ticket['id']}")
     try:
         member = channel.guild.get_member(int(ticket["user_id"]))
         if member:
@@ -727,7 +729,8 @@ async def archive_ticket(channel, ticket: dict, actor_id, actor_name: str, reaso
         # P-10: the ticket is closed and archived, but the channel stays – never silently.
         cause = type(exc).__name__
         print(f"⚠️ Pulse-Tickets: Ticket {ticket['id']} geschlossen, Kanal konnte nicht gelöscht werden ({cause}).")
-        record_event("ticket_channel_delete_failed", "ticket", ticket["id"], actor_id, actor_name, {"error": cause})
+        record_event("ticket_channel_delete_failed", "ticket", ticket["id"], actor_id, actor_name, {"error": cause},
+                     correlation_id=f"ticket:{ticket['id']}")
         try:
             await channel.send("🔒 Dieses Ticket ist geschlossen und archiviert, der Kanal konnte aber nicht gelöscht werden "
                                f"({cause}). Bitte manuell löschen – dem Bot fehlt evtl. „Kanäle verwalten“.",
@@ -877,7 +880,8 @@ async def escalate_overdue_ticket(bot, guild, ticket: dict, kind: str, minutes: 
     detail = f"{step} überfällig: {reason} ({minutes} Min. nach der Erinnerung)."
     _pulse_db.add_ticket_event(ticket_id, "escalated", detail, 0, "Pulse Automatik")
     record_event("ticket_escalated", "ticket", ticket_id, "0", "Pulse Automatik",
-                 {"kind": kind, "minutes": int(minutes), "guild_id": str(guild.id), "category": str(ticket.get("category") or "")})
+                 {"kind": kind, "minutes": int(minutes), "guild_id": str(guild.id), "category": str(ticket.get("category") or "")},
+                 correlation_id=f"ticket:{ticket_id}")
 
     roles = ticket_leadership_roles(guild)
     notified = 0
@@ -1167,6 +1171,7 @@ async def _create_ticket_channel(interaction: discord.Interaction, key: str, pan
         interaction.user.id,
         interaction.user.display_name,
         {"category": key, "channel_id": channel.id, "panel_channel_id": interaction.channel.id, "panel_id": panel_id or ""},
+        correlation_id=f"ticket:{tid}",
     )
     created_ticket = get_ticket(ticket_id=tid)
     if created_ticket:
