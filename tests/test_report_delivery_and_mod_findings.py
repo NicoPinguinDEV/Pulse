@@ -26,7 +26,7 @@ class DbBase(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         pulse_db._SCHEMA_READY.discard(path)
         pulse_db.init_db()
-        rs._last_check = 0.0
+        rs._last_check = None
 
 
 class DeliveryTests(DbBase):

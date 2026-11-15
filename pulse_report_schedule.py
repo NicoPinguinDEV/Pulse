@@ -21,7 +21,7 @@ STATE_KEY = "report_delivery_state"
 CHECK_EVERY_SECONDS = 300
 KINDS = (("week", "Wochenbericht"), ("month", "Monatsbericht"))
 URL = "/team/planung?ansicht=bericht"
-_last_check = 0.0
+_last_check: float | None = None
 
 
 def due_kinds(state: dict, reports: dict) -> list[str]:
@@ -54,7 +54,7 @@ def run(ws, guild, config, now: datetime | None = None, *, db=None, enabled=None
         if not enabled or guild is None:
             return []
         mono = time.monotonic()
-        if not force and mono - _last_check < CHECK_EVERY_SECONDS:
+        if not force and _last_check is not None and mono - _last_check < CHECK_EVERY_SECONDS:
             return []
         _last_check = mono
         now = now or datetime.now(timezone.utc)
