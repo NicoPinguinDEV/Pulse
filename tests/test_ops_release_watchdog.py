@@ -158,5 +158,35 @@ class CockpitExtrasTests(DbBase):
         self.assertEqual(len(extra["problem_jobs"]), 10)
 
 
+class ReleaseChecksTests(DbBase):
+    def checks(self, **kw):
+        base = dict(bot_ready=True, guild_ready=True, extras={"jobs": [{"name": "j"}], "job_counts": {"failing": 0, "overdue": 0}}, memory_mb=300.0, groups=[], sha="a" * 40)
+        base.update(kw)
+        return {c["name"]: c for c in ops.release_checks(**base)}
+
+    def test_all_good(self):
+        results = self.checks()
+        self.assertEqual({c["ok"] for c in results.values()}, {True})
+        self.assertEqual(len(results), 7)
+
+    def test_failures_and_unknowns_are_not_reported_as_passed(self):
+        results = self.checks(bot_ready=False, guild_ready=False, memory_mb=650.0, groups=[{"recent": True}, {"recent": False}], sha="",
+                              extras={"jobs": [{"name": "j"}], "job_counts": {"failing": 2, "overdue": 1}})
+        self.assertFalse(results["Discord-Bot verbunden"]["ok"])
+        self.assertFalse(results["Server (Guild) geladen"]["ok"])
+        self.assertFalse(results["Arbeitsspeicher unter der Warnschwelle"]["ok"])
+        self.assertFalse(results["Keine neuen Fehler in der letzten Stunde"]["ok"])
+        self.assertIn("2 fehlerhaft", results["Hintergrundjobs ohne Fehler"]["detail"])
+        self.assertIsNone(results["Commit bekannt"]["ok"])
+        unknown = self.checks(memory_mb=None, extras={"jobs": [], "job_counts": {"failing": 0, "overdue": 0}})
+        self.assertIsNone(unknown["Arbeitsspeicher unter der Warnschwelle"]["ok"])
+        self.assertIsNone(unknown["Hintergrundjobs ohne Fehler"]["ok"])
+
+    def test_database_failure_is_reported(self):
+        from unittest.mock import patch as _patch
+        with _patch.object(pulse_db, "connect", side_effect=RuntimeError("x")):
+            self.assertFalse(self.checks()["Datenbank antwortet"]["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()

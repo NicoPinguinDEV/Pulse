@@ -344,6 +344,32 @@ def cockpit_extras(base_dir=".", db_path="pulse.db") -> dict:
             "databases": dbs, "database_total_mb": round(sum(d["total_mb"] for d in dbs), 2)}
 
 
+def release_checks(*, bot_ready: bool, guild_ready: bool, extras: dict, memory_mb=None, groups=None, sha: str = "", memory_warn_mb: float = 500.0) -> list[dict]:
+    """#169: Prüfergebnisse des *laufenden* Releases (keine CI-Anbindung): ``[{name, ok, detail}]``. Reine Auswertung vorhandener Werte;
+    ein fehlender Wert gilt als „nicht prüfbar“ (``ok=None``), nie als bestanden."""
+    def check(name, ok, detail):
+        return {"name": name, "ok": ok, "detail": detail}
+    out = [check("Discord-Bot verbunden", bool(bot_ready), "bereit" if bot_ready else "noch nicht bereit"),
+           check("Server (Guild) geladen", bool(guild_ready), "ja" if guild_ready else "nicht im Cache")]
+    try:
+        with pulse_db.connect() as db:
+            db.execute("SELECT 1")
+        out.append(check("Datenbank antwortet", True, "pulse.db"))
+    except Exception:  # noqa: BLE001
+        out.append(check("Datenbank antwortet", False, "Abfrage fehlgeschlagen"))
+    failing = int((extras or {}).get("job_counts", {}).get("failing", 0))
+    overdue = int((extras or {}).get("job_counts", {}).get("overdue", 0))
+    jobs_known = bool((extras or {}).get("jobs"))
+    out.append(check("Hintergrundjobs ohne Fehler", (failing == 0 and overdue == 0) if jobs_known else None,
+                     f"{failing} fehlerhaft · {overdue} überfällig" if jobs_known else "noch keine Jobdaten"))
+    out.append(check("Arbeitsspeicher unter der Warnschwelle", None if not memory_mb else memory_mb < memory_warn_mb,
+                     "nicht messbar" if not memory_mb else f"{memory_mb:g} MB (Warnung ab {memory_warn_mb:g} MB)"))
+    recent = [g for g in (groups or []) if g.get("recent")]
+    out.append(check("Keine neuen Fehler in der letzten Stunde", not recent, f"{len(recent)} Fehlergruppe(n)" if recent else "keine"))
+    out.append(check("Commit bekannt", bool(sha) or None, sha[:8] if sha else "unbekannt"))
+    return out
+
+
 RELEASE_KEY = "ops_release_history"
 RELEASE_KEEP = 20
 

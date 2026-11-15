@@ -942,29 +942,50 @@ class PulsePro(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="teamannounce", description="Sendet eine Team-Ankündigung und speichert sie in Pulse.")
-    @app_commands.describe(title="Kurzer Titel", message="Inhalt der Ankündigung", importance="Priorität")
+    @app_commands.describe(title="Kurzer Titel", message="Inhalt der Ankündigung", importance="Priorität", bestaetigung="Lesebestätigung verlangen", vorschau="Erst eine Vorschau mit Bestätigung zeigen")
     @app_commands.choices(importance=[app_commands.Choice(name="Info", value="info"),app_commands.Choice(name="Wichtig", value="warning"),app_commands.Choice(name="Dringend", value="urgent")])
-    async def teamannounce(self, interaction: discord.Interaction, title: str, message: str, importance: app_commands.Choice[str] = None, bestaetigung: bool = False):
+    async def teamannounce(self, interaction: discord.Interaction, title: str, message: str, importance: app_commands.Choice[str] = None, bestaetigung: bool = False, vorschau: bool = False):
         if not interaction.guild:
             await interaction.response.send_message("Nur auf dem Server verfügbar.", ephemeral=True); return
         import webserver
         cfg=webserver.load_config(); perms, member=webserver.compute_perms(interaction.guild, interaction.user.id, cfg)
-        if not member or not (perms.get("can_manage_announcements") or perms.get("can_promote") or perms.get("is_admin")):
+        import pulse_policy
+        if not member or not pulse_policy.can(perms, "announcement.publish"):
             await interaction.response.send_message("❌ Dafür fehlt dir die Berechtigung.", ephemeral=True); return
         kind=(importance.value if importance else "info")
         title=title.strip()[:160]; message=message.strip()[:4000]
         if not title or not message:
             await interaction.response.send_message("Titel und Nachricht dürfen nicht leer sein.", ephemeral=True); return
-        aid=db.create_announcement(title,message,interaction.user.id,interaction.user.display_name,kind)
+        if vorschau:  # #121: Vorschau als Aktionskarte - nur die startende Person bestätigt, einmalig, mit erneuter Rechteprüfung
+            import pulse_action_cards as action_cards
+            guild_ref, user_ref = interaction.guild, interaction.user
+
+            async def run(confirm_interaction):
+                text = await self._publish_announcement(guild_ref, user_ref, title, message, kind, bestaetigung, webserver.load_config())
+                await confirm_interaction.followup.send(text, ephemeral=True)
+            card = action_cards.ActionCard(owner_id=user_ref.id, action="announcement.publish", title=f"Ankündigung: {title}", run=run,
+                                           perms_provider=lambda: webserver.compute_perms(guild_ref, user_ref.id, webserver.load_config())[0],
+                                           domain="announcement", action_name="publish", ttl=120)
+            preview = discord.Embed(title=f"Vorschau · {title}"[:250], description=message[:1500], color=discord.Color.blurple())
+            preview.set_footer(text="Mit „Bestätigen“ wird die Ankündigung an das Team gesendet und gespeichert.")
+            await interaction.response.send_message(embed=preview, view=action_cards.ActionCardView(card), ephemeral=True)
+            return
+        text = await self._publish_announcement(interaction.guild, interaction.user, title, message, kind, bestaetigung, cfg)
+        await interaction.response.send_message(text, ephemeral=True)
+
+    async def _publish_announcement(self, guild, user, title, message, kind, bestaetigung, cfg) -> str:
+        """Speichert die Ankündigung, sendet das Embed und benachrichtigt das Team; gibt den Antworttext zurück."""
+        import webserver
+        aid=db.create_announcement(title,message,user.id,user.display_name,kind)
         if bestaetigung:  # #53: Lesebestätigung, Bestätigen über /bestaetigungen oder das Dashboard
             import pulse_ack_pages
-            pulse_ack_pages.require_and_notify(interaction.guild,cfg,"announcement",aid,title,actor_id=interaction.user.id,actor_name=interaction.user.display_name)
+            pulse_ack_pages.require_and_notify(guild,cfg,"announcement",aid,title,actor_id=user.id,actor_name=user.display_name)
         color=_pulse_color("danger") if kind=="urgent" else _pulse_color("warning") if kind=="warning" else _pulse_color("info")
-        sent=await webserver.send_team_update_embed(interaction.guild,title,message,color)
-        for m in self.team_members(interaction.guild):
-            if m.id != interaction.user.id:
+        sent=await webserver.send_team_update_embed(guild,title,message,color)
+        for m in self.team_members(guild):
+            if m.id != user.id:
                 db.notify(m.id, f"📢 {title}", message, "warning" if kind in ("warning","urgent") else "info", "/announcements", f"announcement:{aid}", 86400)
-        await interaction.response.send_message(f"✅ Ankündigung veröffentlicht" + (f" · {sent.jump_url}" if sent else ""), ephemeral=True)
+        return "✅ Ankündigung veröffentlicht" + (f" · {sent.jump_url}" if sent else "")
 
     @app_commands.command(name="teamtask", description="Erstellt eine Pulse-Aufgabe für ein Teammitglied.")
     @app_commands.describe(member="Zuständiges Teammitglied", title="Aufgabentitel", description="Beschreibung", priority="Priorität", due="Deadline, optional: YYYY-MM-DD HH:MM")
@@ -993,7 +1014,9 @@ class PulsePro(commands.Cog):
         if not res["ok"]:
             await interaction.response.send_message(f"❌ {res['message']}", ephemeral=True); return
         tid=res["task"]["id"]
-        await interaction.response.send_message(f"✅ Aufgabe `{tid}` wurde **{member.display_name}** zugewiesen.",ephemeral=True)
+        import pulse_inbox_contract as contract  # #119: derselbe Ort im Dashboard (nur mit PUBLIC_BASE_URL)
+        link=contract.absolute_link(contract.link_for(domain="task",target_id=tid),PUBLIC_BASE_URL)
+        await interaction.response.send_message(f"✅ Aufgabe `{tid}` wurde **{member.display_name}** zugewiesen."+(f"\n🔗 {link}" if link else ""),ephemeral=True)
 
     async def _task_autocomplete(self, interaction: discord.Interaction, current: str):
         """#4: offene Aufgaben dieser Person (nur die eigenen; Führungskräfte tippen fremde IDs selbst)."""
@@ -1091,7 +1114,8 @@ class PulsePro(commands.Cog):
         import pulse_poll_cards as polls
         import webserver
         perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config())
-        if not member or not (perms.get("can_promote") or perms.get("is_admin")):
+        import pulse_policy
+        if not member or not pulse_policy.can(perms, "poll.create"):
             await interaction.response.send_message("❌ Dafür fehlt dir die Berechtigung.", ephemeral=True); return
         try:
             poll = polls.create(frage, optionen, dauer_stunden, interaction.user.id, interaction.user.display_name)
@@ -1117,7 +1141,8 @@ class PulsePro(commands.Cog):
         import pulse_event_cards as cards
         import webserver
         perms, member = webserver.compute_perms(interaction.guild, interaction.user.id, webserver.load_config())
-        if not member or not (perms.get("can_manage_announcements") or perms.get("can_promote") or perms.get("is_admin")):
+        import pulse_policy
+        if not member or not pulse_policy.can(perms, "announcement.publish"):
             await interaction.response.send_message("❌ Dafür fehlt dir die Berechtigung.", ephemeral=True); return
         event = cards.get_event(termin)
         if not event or str(event.get("kind") or "").casefold() not in __import__("pulse_ultimate").RSVP_EVENT_KINDS:

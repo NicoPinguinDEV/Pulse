@@ -16,6 +16,7 @@ TOPICS = {
     "availability": "Durchschnittliche Zahl der Personen im Dienst je Wochentag und Stunde aus den letzten 8 Wochen echter Schichten – eine Prognose, keine Zusage.",
     "anomalies": "Eine Markierung nennt immer die Regel, die sie ausgelöst hat. Sie ist ein Anlass zum Nachsehen, kein Befund über die Person.",
     "performance": "Anteil am Ziel (30 Tage) mit offengelegter Gewichtung. Abwesenheit kürzt das Stundenziel anteilig, fehlende Daten werden ausgelassen, Verwarnungen fließen nicht ein.",
+    "templates": "Eine Vorlage hat Versionen: Eine Änderung legt eine neue Version an, nichts wird überschrieben. Archivierte Vorlagen lassen sich wiederherstellen. Platzhalter wie {name} werden geprüft; @everyone und Rollen-Pings werden beim Verwenden entschärft.",
     "ack": "Eine Bestätigung ist nur eine Lesequittung: Du bestätigst selbst, dass du den Beitrag gelesen hast. Niemand kann für dich bestätigen, und sie entscheidet nichts. Führungskräfte sehen, wer noch fehlt.",
     "meeting": "Planen → starten → abschließen. Beschlüsse sind nur in einer laufenden Besprechung möglich; mit Discord-ID entsteht daraus eine Aufgabe. Nach dem Abschluss ist das Protokoll gesperrt.",
     "quiz": "Änderungen gelten nur für künftige Versuche; bestehende Ergebnisse und Zertifikate bleiben unverändert. Die Richtig-Quote zeigt, welche Fragen oft falsch beantwortet werden – ein Hinweis auf unklare Fragen oder Lernbedarf.",

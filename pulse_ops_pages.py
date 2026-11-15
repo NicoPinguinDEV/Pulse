@@ -82,6 +82,12 @@ def register(app) -> None:
         releases = "".join(f'<li>v{e(h.get("version"))} · {e((h.get("sha") or "")[:8] or "unbekannt")} · seit {e(str(h.get("first_seen"))[:16])}'
                            f'{" <b>(läuft)</b>" if i == 0 else (" (Rückfall-Stand)" if i == 1 else "")}</li>' for i, h in enumerate(hist[:6]))
         release_html = f'<h2 class="text-sm font-bold mt-4 mb-1">Release-Verlauf</h2><ul class="text-xs space-y-1">{releases}</ul>' if releases else ""
+        guild_ready = bool(bot is not None and ws.GUILD_ID and getattr(bot, "get_guild", lambda _g: None)(ws.GUILD_ID))
+        checks = ops.release_checks(bot_ready=ready, guild_ready=guild_ready, extras=extras, memory_mb=(mem or {}).get("last") if mem else None,
+                                    groups=groups, sha=str(commit.get("sha") or commit.get("commit") or ""))
+        mark = {True: "✅", False: "❌", None: "⚪"}
+        release_html += ('<h2 class="text-sm font-bold mt-4 mb-1">Prüfergebnisse des laufenden Releases</h2><ul class="text-xs space-y-1">'
+                         + "".join(f'<li>{mark[c["ok"]]} {e(c["name"])} – {e(c["detail"])}</li>' for c in checks) + "</ul>")
         return (f'<div class="pulse-stat-grid">{tiles}</div>{problems_html}{release_html}<p class="text-xs text-slate-400 mt-3">Weitere Betriebswerkzeuge: {links}</p>'
                 '<p class="text-[11px] text-slate-400 mt-1">Die Werte stammen aus Pulse selbst (Messpunkte alle fünf Minuten, Latenz seit dem letzten Start).</p>')
 

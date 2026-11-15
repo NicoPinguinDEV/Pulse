@@ -202,6 +202,9 @@ class ConsoleRouteCase(TempDb):
             self.assertIn("Fehler 5", client.get("/admin/betrieb?ansicht=fehler").text)
             self.assertIn("GET /x", client.get("/admin/betrieb?ansicht=latenz").text)
             self.assertEqual(client.get("/admin/betrieb?ansicht=ressourcen&h=abc").status_code, 200)
+            overview = client.get("/admin/betrieb?ansicht=uebersicht").text
+            for needle in ("Prüfergebnisse des laufenden Releases", "Release-Verlauf", "Hintergrundjobs"):  # #169, #153
+                self.assertIn(needle, overview)
             self.assertEqual(client.get("/admin/betrieb?ansicht=nope").status_code, 200)
             escaped = client.get("/admin/betrieb?ansicht=aktionen&q=<script>x</script>").text
             self.assertNotIn("<script>x</script>", escaped)

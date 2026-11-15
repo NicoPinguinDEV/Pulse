@@ -739,12 +739,22 @@ class SupportAssistant(commands.Cog):
             self._stats["ai_answers"] += 1
 
             safe_answer = discord.utils.escape_mentions(answer)
+            try:  # #133: Quellenangabe aus der freigegebenen Wissensbasis, unabhängig vom Modelltext
+                import pulse_rules_lookup
+                sources_text = pulse_rules_lookup.sources_line(question)
+            except Exception:
+                sources_text = ""
+
+            def sources_for(part_text):  # Discord erlaubt 2000 Zeichen: die Quellenzeile nur, wenn sie hineinpasst, und gekürzt
+                room = 1990 - len(part_text) - 95
+                return f"\n\n{sources_text[:room]}" if sources_text and room >= 80 else ""
+
             if team_support:
                 answer_parts = split_discord_messages(safe_answer, limit=1700)
                 if not answer_parts:
                     answer_parts = ["Ich konnte keine Antwort erzeugen."]
                 visible_answer = (
-                    f"{answer_parts[0]}\n\n-# 🤖 KI-Support von Pulse · "
+                    f"{answer_parts[0]}{sources_for(answer_parts[0])}\n\n-# 🤖 KI-Support von Pulse · "
                     "Verbindliche Entscheidungen trifft das Serverteam."
                 )
                 await message.reply(
@@ -768,7 +778,7 @@ class SupportAssistant(commands.Cog):
                 for index, part in enumerate(answer_parts):
                     is_last = index == len(answer_parts) - 1
                     visible_answer = (
-                        f"{part}\n\n-# 🤖 KI-Support von Pulse · "
+                        f"{part}{sources_for(part)}\n\n-# 🤖 KI-Support von Pulse · "
                         "Verbindliche Entscheidungen trifft das Serverteam."
                         if is_last else part
                     )

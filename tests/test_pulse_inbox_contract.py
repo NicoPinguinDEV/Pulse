@@ -18,9 +18,20 @@ class LinkTests(unittest.TestCase):
     def test_ticket_link_and_fallbacks(self):
         self.assertEqual(ic.link_for(domain="ticket", target_id="ticket_ab12"), "/tickets/transcript/ticket_ab12/view")
         self.assertEqual(ic.link_for(domain="ticket", target_id="../x"), "/pulse-inbox")
-        self.assertEqual(ic.link_for(domain="task", target_id="t1"), "/pulse-inbox")
+        self.assertEqual(ic.link_for(domain="task", target_id="t1"), "/tasks")                       # #119: Übersicht des Bereichs
+        self.assertEqual(ic.link_for(domain="system", target_id="x"), "/pulse-inbox")
         self.assertEqual(ic.link_for(case_ref="garbage"), "/pulse-inbox")
         self.assertEqual(ic.link_for(), "/pulse-inbox")
+
+    def test_every_domain_page_is_a_safe_internal_path_of_an_existing_route(self):
+        import re
+        from pathlib import Path
+        routes = Path(__file__).resolve().parents[1].joinpath("docs", "ROUTEN.md").read_text(encoding="utf-8")
+        for domain, path in ic.DOMAIN_PAGES.items():
+            self.assertTrue(ic.is_safe_path(path), domain)
+            self.assertTrue(re.search(r"\| `" + re.escape(path) + r"` \|", routes), f"{domain}: Route {path} fehlt in docs/ROUTEN.md")
+            self.assertEqual(ic.link_for(domain=domain, target_id="x1"), path)
+            self.assertIn(domain, __import__("pulse_events").DOMAINS)
 
     def test_safe_path_rejects_external_and_tricky_values(self):
         for bad in ("https://evil.example", "//evil.example", "javascript:alert(1)", "/a\\b", "/a\nb", "", None, "/" + "a" * 400):

@@ -101,3 +101,48 @@ class RouteAndCommandTests(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SourcesTests(SearchTests):
+    """#133: Quellenangabe unter KI-Antworten (lexikalisch, nachvollziehbar, begrenzt)."""
+
+    def test_best_sources_need_at_least_two_matching_terms_and_name_the_passage(self):
+        data = rules.best_sources("Darf ich in einer Safezone Waffen ziehen oder Straftaten begehen?")
+        refs = [s["ref"] for s in data["sources"]]
+        self.assertTrue(refs and refs[0].startswith("§12"))
+        self.assertIn("Stand Juli 2026", data["sources"][0]["cite"])
+        self.assertEqual(len(data["version"]), 8)
+        self.assertEqual(rules.best_sources("Wie wird das Wetter morgen in Berlin?")["sources"], [])
+        self.assertEqual(rules.best_sources("Safezone")["sources"], [])               # ein einzelner Begriff reicht nicht
+        self.assertEqual(rules.best_sources("")["sources"], [])
+        self.assertEqual(rules.best_sources(None)["sources"], [])
+
+    def test_one_source_per_paragraph_and_a_limit(self):
+        data = rules.best_sources("Safezone Waffen Straftaten Holster verboten", limit=4)
+        paragraphs = [s["ref"].split(".")[0] for s in data["sources"]]
+        self.assertEqual(len(paragraphs), len(set(paragraphs)))
+
+    def test_sources_line_format_and_failure_tolerance(self):
+        line = rules.sources_line("Darf ich in einer Safezone Waffen ziehen?")
+        self.assertTrue(line.startswith("-# 📎 Passende Regelwerkstellen"))
+        self.assertIn("keine Auslegung", line)
+        self.assertEqual(rules.sources_line("Völlig anderes Thema ohne Bezug"), "")
+        with patch.object(rules, "best_sources", side_effect=RuntimeError("x")):
+            self.assertEqual(rules.sources_line("Safezone Waffen"), "")
+
+    def test_assistant_answers_carry_the_source_line_within_the_discord_limit(self):
+        import asyncio
+        import os
+        from tests import test_support_assistant_cog as cog_tests
+        long_text = "\n".join(f"Schritt {i}: " + "x" * 80 for i in range(30))
+        cog = cog_tests.make_cog([cog_tests.ok("Kurz: In Safezones sind Straftaten verboten." ), cog_tests.ok(long_text)])
+        short = cog_tests.FakeMessage("Darf ich in einer Safezone Waffen ziehen oder Straftaten begehen?")
+        asyncio.run(cog.on_message(short))
+        self.assertIn("Passende Regelwerkstellen", short.replies[0])
+        self.assertIn("KI-Support von Pulse", short.replies[0])
+        cog._user_last_request.clear()
+        longer = cog_tests.FakeMessage("Darf ich in einer Safezone Waffen ziehen oder Straftaten begehen?")
+        asyncio.run(cog.on_message(longer))
+        for part in [longer.replies[0], *longer.channel.sent]:
+            self.assertLessEqual(len(part), 2000)
+        del os

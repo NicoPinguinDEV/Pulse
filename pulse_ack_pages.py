@@ -8,8 +8,8 @@ import pulse_ack as ack
 
 
 def is_manager(perms: dict) -> bool:
-    perms = perms or {}
-    return bool(perms.get("can_manage_announcements") or perms.get("can_promote") or perms.get("is_admin"))
+    import pulse_policy
+    return pulse_policy.can(perms, "ack.manage")
 
 
 def team_pairs(guild, config) -> list[tuple[str, str]]:
